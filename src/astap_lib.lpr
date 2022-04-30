@@ -6,10 +6,18 @@ uses
   Classes,
   { you can add units after this }
   analysis,
-  fits;
+  fits,
+  zwo;
 
 exports
-  analyse_fits;
+  { FITS }
+  analyse_fits,
+
+  { ZWO }
+  find_asi_camera_by_index,
+  connect_asi_camera,
+  disconnect_asi_camera,
+  analyse_asi_frame;
 
 begin
 end.

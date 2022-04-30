@@ -41,8 +41,8 @@ type
 implementation
 
 uses
-  Math;
-
+  Math,
+  Classes;
 
 function get_hist(colour:integer; img :image_array; const img_info: ImageInfo; out histogram_stats: HistogramStats) : histogram_array;
 var
@@ -463,7 +463,7 @@ var
   fitsX, fitsY, diam, m, n, xci, yci, sqr_diam        : integer;
   hfd1, star_fwhm, snr, flux, xc, yc, detection_level : double;
   hfd_list, fwhm_list                                 : array of double;
-  img_sa                                              : image_array;
+  img_sa                                              : array of ;
   noise_level                                         : colored_stat_array;
   star_level                                          : double;
 begin
