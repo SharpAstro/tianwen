@@ -23,6 +23,8 @@ else
 
 var folder = Path.Combine("C:", "Temp", "Astro", "SharpCap Captures", "Focusing", "ts2022-04-13T123214-fp17384");
 
+Console.ReadLine();
+
 foreach (var file in new DirectoryInfo(folder).GetFiles("*.fits"))
 {
     var sw = Stopwatch.StartNew();

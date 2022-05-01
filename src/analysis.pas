@@ -36,7 +36,7 @@ type
   function SMedian(list: array of double; leng: integer): double;
 
   { find background, number of stars, median HFD, returns star count }
-  function analyse_image(img: image_array; img_info: ImageInfo; snr_min: double; max_stars: integer; out hfd_median, fwhm_median, background : double): integer;
+  function analyse_image(const img: image_array; const img_info: ImageInfo; snr_min: double; max_stars: integer; out hfd_median, fwhm_median, background : double): integer;
 
 implementation
 
@@ -224,7 +224,7 @@ begin
 end;
 
 
-procedure HFD(img: image_array; const img_info: ImageInfo; x1,y1,rs {boxsize}: integer; out hfd1,star_fwhm,snr{peak/sigma noise}, flux,xc,yc:double);{calculate star HFD and FWHM, SNR, xc and yc are center of gravity. All x,y coordinates in array[0..] positions}
+procedure HFD(const img: image_array; const img_info: ImageInfo; x1,y1,rs {boxsize}: integer; out hfd1,star_fwhm,snr{peak/sigma noise}, flux,xc,yc:double);{calculate star HFD and FWHM, SNR, xc and yc are center of gravity. All x,y coordinates in array[0..] positions}
 const
   max_ri=74; //(50*sqrt(2)+1 assuming rs<=50. Should be larger or equal then sqrt(sqr(rs+rs)+sqr(rs+rs))+1+2;
 var
@@ -453,17 +453,20 @@ end;
 
 {* find background, number of stars, median HFD *}
 function analyse_image(
-  img: image_array;
-  img_info: ImageInfo;
+  const img: image_array;
+  const img_info: ImageInfo;
   snr_min: double;
   max_stars: integer;
   out hfd_median, fwhm_median, background : double): integer;
+const
+  MAX_RETRIES : integer = 2;
+  BOX_SIZE: integer = 14;
 var
   i, j, len, retries, star_counter                    : integer;
   fitsX, fitsY, diam, m, n, xci, yci, sqr_diam        : integer;
   hfd1, star_fwhm, snr, flux, xc, yc, detection_level : double;
   hfd_list, fwhm_list                                 : array of double;
-  img_sa                                              : array of ;
+  img_sa                                              : array of TBits;
   noise_level                                         : colored_stat_array;
   star_level                                          : double;
 begin
@@ -480,25 +483,28 @@ begin
   get_background(0, img, img_info, background, star_level, noise_level);
 
   detection_level:=max(3.5 * noise_level[0], star_level); {level above background. Start with a high value}
-  retries:=2; {try up to three times to get enough stars from the image}
+  retries := MAX_RETRIES; {try up to three times to get enough stars from the image}
 
   if ((background < 60000) and (background > 8)) then {not an abnormal file}
   begin
-    SetLength(img_sa, 1, img_info.img_width, img_info.img_height); {set length of image array}
+    SetLength(img_sa, img_info.img_height); {set length of array to image height}
+    for fitsY := 0 to img_info.img_height - 1 do
+      img_sa[fitsY] := TBits.Create(img_info.img_width);
+
     repeat {try three time to find enough stars}
       star_counter:=0;
 
-      for fitsY:=0 to img_info.img_height - 1 do
-        for fitsX:=0 to img_info.img_width - 1  do
-          img_sa[0, fitsX, fitsY] := 0; {mark as star free unsurveyed area}
+      if retries < MAX_RETRIES then
+        for fitsY:=0 to img_info.img_height - 1 do
+          img_sa[fitsY].Clearall; {mark row as star free unsurveyed area}
 
       for fitsY:=0 to img_info.img_height - 1 do
       begin
         for fitsX:=0 to img_info.img_width - 1  do
         begin
-          if ((img_sa[0, fitsX, fitsY] <= 0){star free area} and (img[0, fitsX, fitsY] - background > detection_level)) then {new star. For analyse used sigma is 5, so not too low.}
+          if (not (img_sa[fitsY][fitsX]){star free area} and (img[0, fitsX, fitsY] - background > detection_level)) then {new star. For analyse used sigma is 5, so not too low.}
           begin
-            HFD(img, img_info, fitsX, fitsY, 14{box size}, hfd1, star_fwhm, snr, flux, xc, yc);{star HFD and FWHM}
+            HFD(img, img_info, fitsX, fitsY, BOX_SIZE, hfd1, star_fwhm, snr, flux, xc, yc);{star HFD and FWHM}
             if ((hfd1<=30) and (snr>snr_min) and (hfd1>0.8) {two pixels minimum} ) then
             begin
               hfd_list[star_counter]  := hfd1;
@@ -522,7 +528,7 @@ begin
                   j:=n+yci;
                   i:=m+xci;
                   if ((j>=0) and (i>=0) and (j< img_info.img_height) and (i < img_info.img_width) and ( (sqr(m)+sqr(n)) <= sqr_diam)) then
-                    img_sa[0,i,j]:=1;
+                    img_sa[j][i] := true;
                 end;
             end;
           end;
@@ -559,7 +565,12 @@ begin
 
   hfd_list  := nil;
   fwhm_list := nil;
-  img_sa    := nil; {free mem}
+
+  {free mem of star area}
+  for fitsY := 0 to img_info.img_height - 1 do
+    img_sa[fitsY].Free;
+
+  img_sa := nil;
 end;
 
 end.
