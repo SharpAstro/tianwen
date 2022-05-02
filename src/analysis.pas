@@ -9,25 +9,25 @@ type
   histogram_array = array[0..2,0..65535] of integer;{red,green,blue,count}
   colored_stat_array = array[0..2] of double;
 
-  HistogramStats = packed record
+  THistogramStats = record
     red: integer;
     green: integer;
     blue: integer;
     mean : colored_stat_array;
   end;
 
-  ImageInfo = packed record
+  TImageInfo = record
     img_width: integer;
     img_height: integer;
     bit_depth: integer;
   end;
-
+  PImageInfo = ^TImageInfo;
 
   { get histogram of each colour, and their mean and total values }
-  function get_hist(colour:integer; img :image_array; const img_info: ImageInfo; out histogram_stats: HistogramStats) : histogram_array;
+  function get_hist(colour:integer; const img :image_array; const img_info: TImageInfo; out histogram_stats: THistogramStats) : histogram_array;
 
   { get background and star level from peek histogram }
-  procedure get_background(colour: integer; img :image_array; const img_info: ImageInfo; out background, starlevel: double; out noise_level: colored_stat_array);
+  procedure get_background(colour: integer; const img :image_array; const img_info: TImageInfo; out background, starlevel: double; out noise_level: colored_stat_array);
 
   { Fast quick sort. Sorts elements in the array list with indices between lo and hi }
   procedure QuickSort(var A: array of double; iLo, iHi: Integer);
@@ -35,8 +35,11 @@ type
   { get median of an array of double. Taken from CCDciel code but slightly modified }
   function SMedian(list: array of double; leng: integer): double;
 
+  { calculate star HFD and FWHM, SNR, xc and yc are center of gravity. All x,y coordinates in array[0..] positions }
+  procedure HFD(const img: image_array; const img_info: PImageInfo; x1,y1,rs {boxsize}: integer; out hfd1,star_fwhm,snr{peak/sigma noise}, flux,xc,yc:double);
+
   { find background, number of stars, median HFD, returns star count }
-  function analyse_image(const img: image_array; const img_info: ImageInfo; snr_min: double; max_stars: integer; out hfd_median, fwhm_median, background : double): integer;
+  function analyse_image(const img: image_array; const img_info: TImageInfo; snr_min: double; max_stars: integer; out hfd_median, fwhm_median, background : double): integer;
 
 implementation
 
@@ -44,56 +47,271 @@ uses
   Math,
   Classes;
 
-function get_hist(colour:integer; img :image_array; const img_info: ImageInfo; out histogram_stats: HistogramStats) : histogram_array;
-var
-     i,j,col,his_total,count,offsetW,offsetH : integer;
-     total_value                             : double;
+type
+  TBitMatrix = array of TBits;
+  double_array = array of double;
+
+  TImgAnalyseContext = record
+    box_size: integer;
+    max_stars: integer;
+    background: double;
+    thread_count: integer;
+    snr_min: double;
+  end;
+  PImgAnalyseContext = ^TImgAnalyseContext;
+
+  THistThread = class(TThread)
+  private
+    fImage: image_array;
+    fHistogramValues: histogram_array;
+    fColor: integer;
+    fWidthStart, fWidthEnd: integer;
+    fHeightStart, fHeightEnd: integer;
+    fHisTotal : integer;
+    fTotalValue: double;
+
+  protected
+    procedure Execute; override;
+
+  public
+    constructor Create(
+      const img: image_array;
+      const his_values: histogram_array;
+      const color: integer;
+      const w_start, w_end, h_start, h_end: integer);
+
+    property HisTotal: integer read FHisTotal;
+    property TotalValue: double read FTotalValue;
+
+  end;
+
+  TImgAnalyseThread = class(TThread)
+  private
+    fContext: PImgAnalyseContext;
+    fImage: image_array;
+    fImageSA: TBitMatrix;
+    fImageInfo: PImageInfo;
+    fHFD_list, fFWHM_list: array of double;
+    fStarCounter: integer;
+    fLength: integer;
+    fYStart, fYEnd: integer;
+    fDetectionLevel : double;
+
+  protected
+    procedure Execute; override;
+
+  public
+    constructor Create(
+      const img: image_array;
+      const img_sa: TBitMatrix;
+      const img_info: PImageInfo;
+      const context: PImgAnalyseContext;
+      const y_start, y_end: integer;
+      const detection_level: double;
+      const startSuspended: boolean);
+
+    destructor Destroy; override;
+
+    property StarCounter : integer read fStarCounter;
+    property HFDList : double_array read fHFD_list;
+    property FWHMList : double_array read fFWHM_list;
+  end;
+
+constructor THistThread.Create(
+  const img: image_array;
+  const his_values: histogram_array;
+  const color: integer;
+  const w_start, w_end, h_start, h_end: integer);
 begin
-  if colour+1>length(img) then {robust detection, case binning is applied and image is mono}
+  inherited Create(False);
+
+  fImage := img;
+  fHistogramValues := his_values;
+  fColor := color;
+  fWidthStart := w_start;
+  fWidthEnd := w_end;
+  fHeightStart := h_start;
+  fHeightEnd := h_end;
+  fHisTotal := 0;
+  fTotalValue := 0;
+end;
+
+procedure THistThread.Execute;
+var
+  h, w, col : integer;
+  p : Pointer;
+begin
+  For h := fHeightStart to fHeightEnd - 1 do
+  begin
+    for w := fWidthStart to fWidthEnd do
+    begin
+        col:=round(fImage[fColor, h, w]);{red}
+        if ((col>=1) and (col<65000)) then {ignore black overlap areas and bright stars}
+        begin
+          p := @fHistogramValues[fColor, col];
+          InterlockedIncrement(p); { calculate histogram }
+          Inc(fHisTotal);
+
+          fTotalValue := fTotalValue + col;
+        end;
+    end;{h}
+  end;{w}
+end;
+
+constructor TImgAnalyseThread.Create(
+  const img: image_array;
+  const img_sa: TBitMatrix;
+  const img_info: PImageInfo;
+  const context: PImgAnalyseContext;
+  const y_start, y_end: integer;
+  const detection_level: double;
+  const startSuspended: boolean);
+begin
+  inherited Create(startSuspended);
+
+  fImage := img;
+  fImageSA := img_sa;
+  fImageInfo := img_info;
+  fContext := context;
+  fDetectionLevel := detection_level;
+  fStarCounter := 0;
+  fYStart := y_start;
+  fYEnd := y_end;
+  fLength := Round(context^.max_stars / context^.thread_count); { start list length with star target }
+  SetLength(fHFD_list, fLength);
+  SetLength(fFWHM_list, fLength);
+
+  // WriteLn('initialise thread: ', startSuspended, ' y-start: ', fYStart, ' y-end: ', fYEnd);
+end;
+
+destructor TImgAnalyseThread.Destroy;
+begin
+  fHFD_list := nil;
+  fFWHM_list := nil;
+  inherited Destroy;
+end;
+
+procedure TImgAnalyseThread.Execute;
+var
+  { copies for efficency }
+  background, detection_level : double;
+  box_size                    : integer;
+  snr_min                     : double;
+  img_width, img_height       : integer;
+  { mutable vars }
+  fitsX, fitsY, diam, m, n, xci, yci, sqr_diam, i, j  : integer;
+  hfd1, star_fwhm, snr, flux, xc, yc                  : double;
+begin
+  background      := fContext^.background;
+  detection_level := fDetectionLevel;
+  box_size        := fContext^.box_size;
+  snr_min         := fContext^.snr_min;
+  img_width       := fImageInfo^.img_width;
+  img_height      := fImageInfo^.img_height;
+
+  // WriteLn('starting thread: y-start: ', fYStart, ' y-end: ', fYEnd);
+
+  for fitsY := fYStart to fYEnd - 1 do
+  begin
+    for fitsX := 0 to img_width - 1  do
+    begin
+      if (not (fImageSA[fitsY][fitsX]){star free area}
+        and (fImage[0, fitsX, fitsY] - background > detection_level))
+      then {new star. For analyse used sigma is 5, so not too low.}
+      begin
+        HFD(fImage, fImageInfo, fitsX, fitsY, box_size, hfd1, star_fwhm, snr, flux, xc, yc); { star HFD and FWHM }
+        if ((hfd1 <= 30) and (snr > snr_min) and (hfd1 > 0.8) { two pixels minimum } ) then
+        begin
+          fHFD_list[fStarCounter]  := hfd1;
+          fFWHM_list[fStarCounter] := star_fwhm;
+
+          inc(fStarCounter);
+          if fStarCounter >= fLength then
+          begin
+            fLength := fLength + round(fContext^.max_stars / fContext^.thread_count);
+            SetLength(fHFD_list, fLength);
+            SetLength(fFWHM_list, fLength)
+          end;
+
+          diam:=round(3.0 * hfd1);{for marking star area. Emperical a value between 2.5*hfd and 3.5*hfd gives same performance. Note in practise a star PSF has larger wings then predicted by a Gaussian function}
+          sqr_diam:=sqr(diam);
+          xci:=round(xc);{star center as integer}
+          yci:=round(yc);
+          for n:=-diam to +diam do {mark the whole circular star area width diameter "diam" as occupied to prevent double detections}
+            for m:=-diam to +diam do
+            begin
+              j:=n+yci;
+              i:=m+xci;
+              if ((j>=0) and (i>=0) and (j< img_height) and (i < img_width) and ( (sqr(m)+sqr(n)) <= sqr_diam)) then
+                fImageSA[j][i] := true;
+            end;
+        end;
+      end;
+    end;
+  end;
+
+end;
+
+function get_hist(colour:integer; const img :image_array; const img_info: TImageInfo; out histogram_stats: THistogramStats) : histogram_array;
+var
+  hist_threads : array[1..4] of THistThread;
+  his_total, offsetW, offsetH : integer;
+  i, startH, endH, stepSize : integer;
+  total_value: double;
+begin
+  if colour+1>length(img) then {robust detection, in case binning is applied and image is mono}
     colour:=0; {used red only}
 
   for i:=0 to 65535 do
-    Result[colour,i] := 0;{clear histogram of specified colour}
+    Result[colour, i] := 0;{clear histogram of specified colour}
 
   his_total:=0;
   total_value:=0;
-  count:=1;{prevent divide by zero}
 
   offsetW:=trunc(img_info.img_width * 0.042); {if Libraw is used, ignored unused sensor areas up to 4.2%}
   offsetH:=trunc(img_info.img_height * 0.015); {if Libraw is used, ignored unused sensor areas up to 1.5%}
 
-
-  For i:=0+offsetH to img_info.img_height - 1 - offsetH do
+  stepSize := trunc((img_info.img_height - (offsetH * 2)) / high(hist_threads));
+  startH := offsetH;
+  for I := low(hist_threads) to high(hist_threads) do
   begin
-    for j:=0+offsetW to img_info.img_width - 1 - offsetW do
-    begin
-      col:=round(img[colour,j,i]);{red}
-      if ((col>=1) and (col<65000)) then {ignore black overlap areas and bright stars}
-      begin
-        inc(Result[colour,col],1);{calculate histogram}
-        his_total:=his_total+1;
-        total_value:=total_value+col;
-        inc(count);
-      end;
-    end;{j}
-  end; {i}
+    if I = high(hist_threads) then
+      endH := img_info.img_height - offsetH
+    else
+      endH := startH + stepSize;
+    hist_threads[I] := THistThread.Create(img, Result, colour, offsetW, img_info.img_width - offsetW, startH, endH);
+    startH := endH;
+  end;
 
-  if colour=0 then histogram_stats.red := his_total
-  else
-  if colour=1 then histogram_stats.green := his_total
-  else
-  histogram_stats.blue := his_total;
+  for I := low(hist_threads) to high(hist_threads) do
+  begin
+    hist_threads[I].WaitFor;
 
-  histogram_stats.mean[colour] := total_value/count;
+    inc(his_total, hist_threads[I].HisTotal);
+    total_value := total_value + hist_threads[I].TotalValue;
+
+    hist_threads[I].Free;
+  end;
+
+  if colour=0 then
+    histogram_stats.red := his_total
+  else if colour=1 then
+    histogram_stats.green := his_total
+  else
+    histogram_stats.blue := his_total;
+
+  histogram_stats.mean[colour] := total_value / Max(his_total, 1);
+
+  // WriteLn('high(threads): ', high(hist_threads) , ' total value: ', total_value, ' his total: ', his_total, ' mean: ', histogram_stats.mean[colour]);
 
 end;
 
 
-procedure get_background(colour: integer; img :image_array; const img_info: ImageInfo; out background, starlevel: double; out noise_level: colored_stat_array); {get background and star level from peek histogram}
+procedure get_background(colour: integer; const img :image_array; const img_info: TImageInfo; out background, starlevel: double; out noise_level: colored_stat_array); {get background and star level from peek histogram}
 var
   i, pixels,max_range,above,his_total, fitsX, fitsY,counter,stepsize, iterations : integer;
   value,sd, sd_old : double;
-  histogram_stats : HistogramStats;
+  histogram_stats : THistogramStats;
   histogram : histogram_array;
 begin
   histogram := get_hist(colour, img, img_info, histogram_stats);{get histogram of img_loaded and his_total}
@@ -224,14 +442,14 @@ begin
 end;
 
 
-procedure HFD(const img: image_array; const img_info: ImageInfo; x1,y1,rs {boxsize}: integer; out hfd1,star_fwhm,snr{peak/sigma noise}, flux,xc,yc:double);{calculate star HFD and FWHM, SNR, xc and yc are center of gravity. All x,y coordinates in array[0..] positions}
+procedure HFD(const img: image_array; const img_info: PImageInfo; x1,y1,rs {boxsize}: integer; out hfd1,star_fwhm,snr{peak/sigma noise}, flux,xc,yc:double);
 const
   max_ri=74; //(50*sqrt(2)+1 assuming rs<=50. Should be larger or equal then sqrt(sqr(rs+rs)+sqr(rs+rs))+1+2;
 var
   i,j,r1_square,r2_square,r2, distance,distance_top_value,illuminated_pixels,signal_counter,counter :integer;
   SumVal, SumValX,SumValY,SumValR, Xg,Yg, r, val,bg,pixel_counter,valmax,mad_bg,sd_bg    : double;
   HistStart,boxed : boolean;
-  r_aperture: integer;
+  r_aperture, img_width, img_height: integer;
   distance_histogram : array [0..max_ri] of integer;
   background : array [0..1000] of double; {size =3*(2*PI()*(50+3)) assuming rs<=50}
 
@@ -242,7 +460,7 @@ var
     begin
       x_trunc:=trunc(x1);
       y_trunc:=trunc(y1);
-      if ((x_trunc<=0) or (x_trunc>=(img_info.img_width - 2)) or (y_trunc<=0) or (y_trunc>=(img_info.img_height - 2))) then begin result:=0; exit;end;
+      if ((x_trunc<=0) or (x_trunc>=(img_width - 2)) or (y_trunc<=0) or (y_trunc>=(img_height - 2))) then begin result:=0; exit;end;
       x_frac :=frac(x1);
       y_frac :=frac(y1);
       try
@@ -258,9 +476,11 @@ begin
   r1_square:=rs*rs;{square radius}
   r2:=rs+1;{annulus width us 1}
   r2_square:=r2*r2;
+  img_width := img_info^.img_width;
+  img_height := img_info^.img_height;
 
-  if ((x1-r2<=0) or (x1+r2>=img_info.img_width - 1) or
-      (y1-r2<=0) or (y1+r2>=img_info.img_height - 1) )
+  if ((x1-r2<=0) or (x1 + r2 >= img_width - 1) or
+      (y1-r2<=0) or (y1 + r2 >= img_height - 1) )
     then begin hfd1:=999; snr:=0; exit;end;
 
   valmax:=0;
@@ -316,7 +536,7 @@ begin
       yc:=(y1+Yg);
      {center of gravity found}
 
-      if ((xc-rs<0) or (xc+rs> img_info.img_width - 1) or (yc-rs<0) or (yc+rs> img_info.img_height - 1) ) then
+      if ((xc-rs<0) or (xc+rs> img_width - 1) or (yc-rs<0) or (yc+rs> img_height - 1) ) then
                                  exit;{prevent runtime errors near sides of images}
       boxed:=(signal_counter>=(2/9)*sqr(rs+rs+1));{are inside the box 2 of the 9 of the pixels illuminated? Works in general better for solving then ovality measurement as used in the past}
 
@@ -454,7 +674,7 @@ end;
 {* find background, number of stars, median HFD *}
 function analyse_image(
   const img: image_array;
-  const img_info: ImageInfo;
+  const img_info: TImageInfo;
   snr_min: double;
   max_stars: integer;
   out hfd_median, fwhm_median, background : double): integer;
@@ -462,13 +682,20 @@ const
   MAX_RETRIES : integer = 2;
   BOX_SIZE: integer = 14;
 var
-  i, j, len, retries, star_counter                    : integer;
-  fitsX, fitsY, diam, m, n, xci, yci, sqr_diam        : integer;
-  hfd1, star_fwhm, snr, flux, xc, yc, detection_level : double;
-  hfd_list, fwhm_list                                 : array of double;
-  img_sa                                              : array of TBits;
-  noise_level                                         : colored_stat_array;
-  star_level                                          : double;
+  img_sa                      : TBitMatrix;
+  noise_level                 : colored_stat_array;
+  star_level, detection_level : double;
+  worker_context              : TImgAnalyseContext;
+  worker_threads              : array[1..8] of TImgAnalyseThread;
+  hfd_list, fwhm_list         : array of double;
+
+  y_start, y_end, retries, star_counter, i, j      : integer;
+  worker_range, fitsY, len, new_star_counter, temp : integer;
+
+  function ShouldSuspend(aIdx: integer): Boolean;
+  begin
+    Result := ((aIdx - low(worker_threads)) mod 2) = 0;
+  end;
 begin
   if max_stars <= 0 then
     max_stars := 500;
@@ -476,68 +703,95 @@ begin
   if snr_min <= 0 then
     snr_min := 10;
 
-  len := max_stars; { start list length with star target }
-  SetLength(hfd_list, len);
-  SetLength(fwhm_list, len);
-
+  worker_range := round(img_info.img_height / high(worker_threads));
   get_background(0, img, img_info, background, star_level, noise_level);
+
+  worker_context.box_size     := BOX_SIZE;
+  worker_context.max_stars    := max_stars;
+  worker_context.snr_min      := snr_min;
+  worker_context.background   := background;
+  worker_context.thread_count := high(worker_threads);
+
+  WriteLn('bs: ', worker_context.box_size, ' max_stars: ', worker_context.max_stars, ' snr_min: ', trunc(snr_min), ' bkg: ', trunc(background));
 
   detection_level:=max(3.5 * noise_level[0], star_level); {level above background. Start with a high value}
   retries := MAX_RETRIES; {try up to three times to get enough stars from the image}
 
+  WriteLn('thread count: ', worker_context.thread_count, ' worker_range: ', worker_range, ' detection level: ', detection_level);
+
   if ((background < 60000) and (background > 8)) then {not an abnormal file}
   begin
     SetLength(img_sa, img_info.img_height); {set length of array to image height}
+    len := max_stars;
+    SetLength(hfd_list, len);
+    SetLength(fwhm_list, len);
+
     for fitsY := 0 to img_info.img_height - 1 do
       img_sa[fitsY] := TBits.Create(img_info.img_width);
 
     repeat {try three time to find enough stars}
-      star_counter:=0;
+      star_counter := 0;
 
       if retries < MAX_RETRIES then
-        for fitsY:=0 to img_info.img_height - 1 do
+        for fitsY := 0 to img_info.img_height - 1 do
           img_sa[fitsY].Clearall; {mark row as star free unsurveyed area}
 
-      for fitsY:=0 to img_info.img_height - 1 do
+      { init threads }
+      y_start := 0;
+      for I := low(worker_threads) to high(worker_threads) do
       begin
-        for fitsX:=0 to img_info.img_width - 1  do
-        begin
-          if (not (img_sa[fitsY][fitsX]){star free area} and (img[0, fitsX, fitsY] - background > detection_level)) then {new star. For analyse used sigma is 5, so not too low.}
-          begin
-            HFD(img, img_info, fitsX, fitsY, BOX_SIZE, hfd1, star_fwhm, snr, flux, xc, yc);{star HFD and FWHM}
-            if ((hfd1<=30) and (snr>snr_min) and (hfd1>0.8) {two pixels minimum} ) then
-            begin
-              hfd_list[star_counter]  := hfd1;
-              fwhm_list[star_counter] := star_fwhm;
+        if I = high(worker_threads) then
+          y_end := img_info.img_height
+        else
+          y_end := y_start + worker_range;
+        worker_threads[I] := TImgAnalyseThread.Create(img, img_sa, @img_info, @worker_context, y_start, y_end, detection_level, ShouldSuspend(I));
 
-              inc(star_counter);
-              if star_counter >= len then
-              begin
-                len := len + max_stars;
-                SetLength(hfd_list, len);
-                SetLength(fwhm_list, len)
-              end;
-
-              diam:=round(3.0 * hfd1);{for marking star area. Emperical a value between 2.5*hfd and 3.5*hfd gives same performance. Note in practise a star PSF has larger wings then predicted by a Gaussian function}
-              sqr_diam:=sqr(diam);
-              xci:=round(xc);{star center as integer}
-              yci:=round(yc);
-              for n:=-diam to +diam do {mark the whole circular star area width diameter "diam" as occupied to prevent double detections}
-                for m:=-diam to +diam do
-                begin
-                  j:=n+yci;
-                  i:=m+xci;
-                  if ((j>=0) and (i>=0) and (j< img_info.img_height) and (i < img_info.img_width) and ( (sqr(m)+sqr(n)) <= sqr_diam)) then
-                    img_sa[j][i] := true;
-                end;
-            end;
-          end;
-        end;
+        y_start := y_end;
       end;
 
-      dec(retries); {In principle not required. Try again with lower detection level}
+      { wait for all "odd" threads to finish and start the "even" threads }
+      for I := low(worker_threads) to high(worker_threads) do
+        if not ShouldSuspend(I) then
+        begin
+          worker_threads[I].WaitFor;
+          { start the thread before }
+          worker_threads[I - 1].Start
+        end;
+
+      { wait for the "even" threads to finish }
+      for I := low(worker_threads) to high(worker_threads) do
+      begin
+        if ShouldSuspend(I) then
+          worker_threads[I].WaitFor;
+
+        temp := worker_threads[I].StarCounter;
+        new_star_counter := star_counter + temp;
+
+        if new_star_counter >= len then
+        begin
+          len := Max(len + max_stars, new_star_counter);
+          SetLength(hfd_list, len);
+          SetLength(fwhm_list, len)
+        end;
+
+        // WriteLn('Copy ', worker_threads[I].StarCounter, ' to local lists #', star_counter, ' first star: hfd=', worker_threads[I].HFDList[0], ' fwhm=', worker_threads[I].FWHMList[0]);
+
+        for J := 0 to temp - 1 do
+        begin
+          hfd_list[star_counter + J] := worker_threads[I].HFDList[J];
+          fwhm_list[star_counter + J] := worker_threads[I].FWHMList[J];
+        end;
+
+        star_counter := new_star_counter;
+        worker_threads[I].Free;
+      end;
+
+      { after execution }
+      dec(retries);
+
+      { In principle not required. Try again with lower detection level }
       if detection_level <= 7 * noise_level[0] then
-        retries:= -1 {stop}
+        retries := -1 {stop}
       else
         detection_level:=max(6.999 * noise_level[0], min(30 * noise_level[0], detection_level * 6.999 / 30)); {very high -> 30 -> 7 -> stop.  Or  60 -> 14 -> 7.0. Or for very short exposures 3.5 -> stop}
 
@@ -555,6 +809,17 @@ begin
     end;
 
     Result := star_counter;
+
+    { free mem }
+    hfd_list  := nil;
+    fwhm_list := nil;
+
+    {free mem of star area}
+    for fitsY := 0 to img_info.img_height - 1 do
+      img_sa[fitsY].Free;
+
+    img_sa := nil;
+
   end {background is normal}
   else
   begin
@@ -562,15 +827,6 @@ begin
     fwhm_median := 99;
     Result      := -1;
   end;
-
-  hfd_list  := nil;
-  fwhm_list := nil;
-
-  {free mem of star area}
-  for fitsY := 0 to img_info.img_height - 1 do
-    img_sa[fitsY].Free;
-
-  img_sa := nil;
 end;
 
 end.

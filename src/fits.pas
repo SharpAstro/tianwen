@@ -13,7 +13,7 @@ uses
   procedure dec_text_to_radians(inp :string; out dec : double; out errorDEC :boolean); {convert dec in text to double in radians}
   Function LeadingZero(w : integer) : String;
 
-function load_fits(filen:string; out img_loaded2: image_array; out img_info: ImageInfo): boolean;{load fits file}
+function load_fits(filen:string; out img_loaded2: image_array; out img_info: TImageInfo): boolean;{load fits file}
 
 {* returns star count or error (negative) *}
 function analyse_fits(const fileName: PWideChar; snr_min: double; max_stars: integer; out medianHFD, medianFWHM, background: double): Integer; cdecl;
@@ -145,7 +145,7 @@ begin
   errorRA:=((error1<>0) or (error2>1) or (error3<>0) or (ra>2*pi));
 end;
 
-function load_fits(filen:string; out img_loaded2: image_array; out img_info: ImageInfo): boolean;{load fits file}
+function load_fits(filen:string; out img_loaded2: image_array; out img_info: TImageInfo): boolean;{load fits file}
 const
   bufwide=1024*120;{buffer size in bytes}
 var
@@ -619,7 +619,7 @@ function analyse_fits(
   out medianHFD, medianFWHM, background: double): Integer; cdecl;
 var
   img: image_array;
-  img_info: ImageInfo;
+  img_info: TImageInfo;
 begin
   if load_fits(fileName, img, img_info) then
   begin
