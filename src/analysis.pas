@@ -143,17 +143,17 @@ var
 begin
   For h := fHeightStart to fHeightEnd - 1 do
   begin
-    for w := fWidthStart to fWidthEnd do
+    for w := fWidthStart to fWidthEnd - 1 do
     begin
-        col:=round(fImage[fColor, h, w]);{red}
-        if ((col>=1) and (col<65000)) then {ignore black overlap areas and bright stars}
-        begin
-          p := @fHistogramValues[fColor, col];
-          InterlockedIncrement(p); { calculate histogram }
-          Inc(fHisTotal);
+      col:=round(fImage[fColor, w, h]);
+      if ((col>=1) and (col<65000)) then {ignore black overlap areas and bright stars}
+      begin
+        p := @fHistogramValues[fColor, col];
+        InterlockedIncrement(p); { calculate histogram }
+        Inc(fHisTotal);
 
-          fTotalValue := fTotalValue + col;
-        end;
+        fTotalValue := fTotalValue + col;
+      end;
     end;{h}
   end;{w}
 end;
@@ -209,7 +209,7 @@ begin
   img_width       := fImageInfo^.img_width;
   img_height      := fImageInfo^.img_height;
 
-  // WriteLn('starting thread: y-start: ', fYStart, ' y-end: ', fYEnd);
+  WriteLn('starting thread: y-start: ', fYStart, ' y-end: ', fYEnd);
 
   for fitsY := fYStart to fYEnd - 1 do
   begin
@@ -254,7 +254,7 @@ end;
 
 function get_hist(colour:integer; const img :image_array; const img_info: TImageInfo; out histogram_stats: THistogramStats) : histogram_array;
 var
-  hist_threads : array[1..4] of THistThread;
+  hist_threads : array[1..1] of THistThread;
   his_total, offsetW, offsetH : integer;
   i, startH, endH, stepSize : integer;
   total_value: double;
@@ -300,9 +300,9 @@ begin
   else
     histogram_stats.blue := his_total;
 
-  histogram_stats.mean[colour] := total_value / Max(his_total, 1);
+  histogram_stats.mean[colour] := total_value / (his_total + 1);
 
-  // WriteLn('high(threads): ', high(hist_threads) , ' total value: ', total_value, ' his total: ', his_total, ' mean: ', histogram_stats.mean[colour]);
+  WriteLn('high(threads): ', high(hist_threads) , ' total value: ', total_value, ' his total: ', his_total, ' mean: ', histogram_stats.mean[colour]);
 
 end;
 
@@ -717,8 +717,6 @@ begin
   detection_level:=max(3.5 * noise_level[0], star_level); {level above background. Start with a high value}
   retries := MAX_RETRIES; {try up to three times to get enough stars from the image}
 
-  WriteLn('thread count: ', worker_context.thread_count, ' worker_range: ', worker_range, ' detection level: ', detection_level);
-
   if ((background < 60000) and (background > 8)) then {not an abnormal file}
   begin
     SetLength(img_sa, img_info.img_height); {set length of array to image height}
@@ -731,6 +729,8 @@ begin
 
     repeat {try three time to find enough stars}
       star_counter := 0;
+
+      WriteLn('thread count: ', worker_context.thread_count, ' worker_range: ', worker_range, ' star level: ', star_level, ' noise level: ', 3.5 * noise_level[0], ' detection level: ', detection_level);
 
       if retries < MAX_RETRIES then
         for fitsY := 0 to img_info.img_height - 1 do
