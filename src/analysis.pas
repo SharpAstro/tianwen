@@ -5,16 +5,8 @@ unit analysis;
 interface
 
 type
-  image_array = array of array of array of double;
-  histogram_array = array[0..65535] of integer;{red,green,blue,count}
-  colored_stat_array = array[0..2] of double;
-
-  THistogramStats = record
-    red: integer;
-    green: integer;
-    blue: integer;
-    mean : colored_stat_array;
-  end;
+  TImageArray = array of array of array of double;
+  THistogramArray = array[0..65535] of integer;
 
   TImageInfo = record
     img_width: integer;
@@ -24,10 +16,10 @@ type
   PImageInfo = ^TImageInfo;
 
   { get histogram of each colour, and their mean and total values }
-  function get_hist(colour:integer; const img :image_array; const img_info: TImageInfo; out histogram_stats: THistogramStats) : histogram_array;
+  function get_hist(colour:integer; const img :TImageArray; const img_info: TImageInfo; out his_total: integer; out mean: double) : THistogramArray;
 
   { get background and star level from peek histogram }
-  procedure get_background(colour: integer; const img :image_array; const img_info: TImageInfo; out background, starlevel: double; out noise_level: colored_stat_array);
+  procedure get_background(colour: integer; const img :TImageArray; const img_info: TImageInfo; out background, starlevel, noise_level: double);
 
   { Fast quick sort. Sorts elements in the array list with indices between lo and hi }
   procedure QuickSort(var A: array of double; iLo, iHi: Integer);
@@ -36,10 +28,10 @@ type
   function SMedian(list: array of double; leng: integer): double;
 
   { calculate star HFD and FWHM, SNR, xc and yc are center of gravity. All x,y coordinates in array[0..] positions }
-  procedure HFD(const img: image_array; const img_info: PImageInfo; x1,y1,rs {boxsize}: integer; out hfd1,star_fwhm,snr{peak/sigma noise}, flux,xc,yc:double);
+  procedure HFD(const img: TImageArray; const img_info: PImageInfo; x1,y1,rs {boxsize}: integer; out hfd1,star_fwhm,snr{peak/sigma noise}, flux,xc,yc:double);
 
   { find background, number of stars, median HFD, returns star count }
-  function analyse_image(const img: image_array; const img_info: TImageInfo; snr_min: double; max_stars: integer; out hfd_median, fwhm_median, background : double): integer;
+  function analyse_image(const img: TImageArray; const img_info: TImageInfo; snr_min: double; max_stars: integer; out hfd_median, fwhm_median, background : double): integer;
 
 implementation
 
@@ -47,9 +39,12 @@ uses
   Math,
   Classes;
 
+const
+  MAX_THREADS = 8;
+
 type
   TBitMatrix = array of TBits;
-  double_array = array of double;
+  TDoubleArray = array of double;
 
   TImgAnalyseContext = record
     box_size: integer;
@@ -62,8 +57,8 @@ type
 
   THistThread = class(TThread)
   private
-    fImage: image_array;
-    fHistogramValues: histogram_array;
+    fImage: TImageArray;
+    fHistogramValues: THistogramArray;
     fColor: integer;
     fWidthStart, fWidthEnd: integer;
     fHeightStart, fHeightEnd: integer;
@@ -75,20 +70,20 @@ type
 
   public
     constructor Create(
-      const img: image_array;
+      const img: TImageArray;
       const color: integer;
       const w_start, w_end, h_start, h_end: integer);
 
     property HisTotal: integer read FHisTotal;
     property TotalValue: double read FTotalValue;
-    property HisValues: histogram_array read fHistogramValues;
+    property HisValues: THistogramArray read fHistogramValues;
 
   end;
 
   TImgAnalyseThread = class(TThread)
   private
     fContext: PImgAnalyseContext;
-    fImage: image_array;
+    fImage: TImageArray;
     fImageSA: TBitMatrix;
     fImageInfo: PImageInfo;
     fHFD_list, fFWHM_list: array of double;
@@ -102,7 +97,7 @@ type
 
   public
     constructor Create(
-      const img: image_array;
+      const img: TImageArray;
       const img_sa: TBitMatrix;
       const img_info: PImageInfo;
       const context: PImgAnalyseContext;
@@ -113,12 +108,12 @@ type
     destructor Destroy; override;
 
     property StarCounter : integer read fStarCounter;
-    property HFDList : double_array read fHFD_list;
-    property FWHMList : double_array read fFWHM_list;
+    property HFDList : TDoubleArray read fHFD_list;
+    property FWHMList : TDoubleArray read fFWHM_list;
   end;
 
 constructor THistThread.Create(
-  const img: image_array;
+  const img: TImageArray;
   const color: integer;
   const w_start, w_end, h_start, h_end: integer);
 var
@@ -160,7 +155,7 @@ begin
 end;
 
 constructor TImgAnalyseThread.Create(
-  const img: image_array;
+  const img: TImageArray;
   const img_sa: TBitMatrix;
   const img_info: PImageInfo;
   const context: PImgAnalyseContext;
@@ -210,7 +205,7 @@ begin
   img_width       := fImageInfo^.img_width;
   img_height      := fImageInfo^.img_height;
 
-  WriteLn('starting thread: y-start: ', fYStart, ' y-end: ', fYEnd);
+  // WriteLn('starting thread: y-start: ', fYStart, ' y-end: ', fYEnd);
 
   for fitsY := fYStart to fYEnd - 1 do
   begin
@@ -253,12 +248,11 @@ begin
 
 end;
 
-function get_hist(colour:integer; const img :image_array; const img_info: TImageInfo; out histogram_stats: THistogramStats) : histogram_array;
+function get_hist(colour:integer; const img: TImageArray; const img_info: TImageInfo; out his_total: integer; out mean: double) : THistogramArray;
 var
-  his_threads : array[1..1] of THistThread;
+  his_threads : array[1..MAX_THREADS] of THistThread;
   his_thread : THistThread;
-  his_total, offsetW, offsetH  : integer;
-  i, j, startH, endH, stepSize : integer;
+  i, j, temp, startH, endH, offsetW, offsetH, stepSize : integer;
   total_value: double;
 begin
   if colour+1>length(img) then {robust detection, in case binning is applied and image is mono}
@@ -282,7 +276,7 @@ begin
     else
       endH := startH + stepSize;
 
-    writeln(' his thread: ', I, ' w-s: ', offsetW, ' w-e: ', img_info.img_width - offsetW, ' h-s: ', startH, ' h-e: ', endH);
+    // writeln(' his thread: ', I, ' w-s: ', offsetW, ' w-e: ', img_info.img_width - offsetW, ' h-s: ', startH, ' h-e: ', endH);
 
     his_threads[I] := THistThread.Create(img, colour, offsetW, img_info.img_width - offsetW, startH, endH);
     startH := endH;
@@ -292,45 +286,41 @@ begin
   begin
     his_thread := his_threads[I];
     his_thread.WaitFor;
-    writeln(' his thread: ', I, ' finished: histotal: ', his_thread.HisTotal, ' total value: ', his_thread.TotalValue);
+    // writeln(' his thread: ', I, ' finished: histotal: ', his_thread.HisTotal, ' total value: ', his_thread.TotalValue);
 
     inc(his_total, his_thread.HisTotal);
     total_value := total_value + his_thread.TotalValue;
 
     for J := 0 to 65535 do
-      inc(Result[I], his_thread.HisValues[i]);
+    begin
+      temp := his_thread.HisValues[J];
+      if temp > 0 then
+        inc(Result[J], temp);
+    end;
 
     his_thread.Free;
   end;
 
-  if colour=0 then
-    histogram_stats.red := his_total
-  else if colour=1 then
-    histogram_stats.green := his_total
-  else
-    histogram_stats.blue := his_total;
+  mean := total_value / (his_total + 1);
 
-  histogram_stats.mean[colour] := total_value / (his_total + 1);
-
-  WriteLn('high(threads): ', high(his_threads) , ' total value: ', total_value, ' his total: ', his_total, ' mean: ', histogram_stats.mean[colour]);
+  // WriteLn('high(threads): ', high(his_threads) , ' total value: ', total_value, ' his total: ', his_total, ' mean: ', histogram_stats.mean[colour]);
 
 end;
 
 
-procedure get_background(colour: integer; const img :image_array; const img_info: TImageInfo; out background, starlevel: double; out noise_level: colored_stat_array); {get background and star level from peek histogram}
+procedure get_background(colour: integer; const img: TImageArray; const img_info: TImageInfo; out background, starlevel, noise_level: double); {get background and star level from peek histogram}
 var
   i, pixels,max_range,above,his_total, fitsX, fitsY,counter,stepsize, iterations : integer;
-  value,sd, sd_old : double;
-  histogram_stats : THistogramStats;
-  histogram : histogram_array;
+  value,sd, sd_old, his_mean : double;
+  histogram : THistogramArray;
 begin
-  histogram := get_hist(colour, img, img_info, histogram_stats);{get histogram of img_loaded and his_total}
+  histogram := get_hist(colour, img, img_info, his_total, his_mean);{get histogram of img_loaded and his_total}
 
   background:=img[0,0,0];{define something for images containing 0 or 65535 only}
 
   {find peak in histogram which should be the average background}
   pixels:=0;
-  max_range := round(histogram_stats.mean[colour]); {mean value from histogram}
+  max_range := round(his_mean); {mean value from histogram}
   for i := 1 to max_range do {find peak, ignore value 0 from oversize}
     if histogram[i] > pixels then {find colour peak}
     begin
@@ -339,9 +329,9 @@ begin
     end;
 
   {check alternative mean value}
-  if histogram_stats.mean[colour]>1.5*background {1.5* most common} then  {changed from 2 to 1.5 on 2021-5-29}
+  if his_mean > 1.5*background {1.5* most common} then  {changed from 2 to 1.5 on 2021-5-29}
   begin
-    background := histogram_stats.mean[colour];{strange peak at low value, ignore histogram and use mean}
+    background := his_mean;{strange peak at low value, ignore histogram and use mean}
   end;
 
   {calculate star level}
@@ -350,13 +340,7 @@ begin
   starlevel:=0;
   above:=0;
 
-  if colour=1 then
-    his_total := histogram_stats.green
-  else
-  if colour=2 then
-    his_total := histogram_stats.blue
-  else
-    his_total := histogram_stats.red;
+  // writeln(' get_bkg: max_range: ', max_range, ' his total: ', his_total, ' i: ', I);
 
   while ((starlevel=0) and (i>background+1)) do {find star level 0.003 of values}
   begin
@@ -364,6 +348,9 @@ begin
      above:=above+histogram[i];
      if above>0.001*his_total then starlevel:=i;
   end;
+
+  // writeln(' starlevel: ', starlevel, ' background: ', background);
+
   if starlevel <= background then
     starlevel := background+1 {no or very few stars}
   else
@@ -372,6 +359,8 @@ begin
   {calculate noise level}
   stepsize:=round(img_info.img_height/71);{get about 71x71=5000 samples. So use only a fraction of the pixels}
   if odd(stepsize)=false then stepsize:=stepsize+1;{prevent problems with even raw OSC images}
+
+  // writeln(' starlevel: ', starlevel, ' stepsize: ', stepsize);
 
   sd:=99999;
   iterations:=0;
@@ -400,7 +389,7 @@ begin
     sd:=sqrt(sd/counter); {standard deviation}
     inc(iterations);
   until (((sd_old-sd)<0.05*sd) or (iterations>=7));{repeat until sd is stable or 7 iterations}
-  noise_level[colour]:= round(sd);   {this noise level is too high for long exposures and if no flat is applied. So for images where center is brighter then the corners.}
+  noise_level := round(sd);   {this noise level is too high for long exposures and if no flat is applied. So for images where center is brighter then the corners.}
 end;
 
 procedure QuickSort(var A: array of double; iLo, iHi: Integer) ;{ Fast quick sort. Sorts elements in the array list with indices between lo and hi}
@@ -452,7 +441,7 @@ begin
 end;
 
 
-procedure HFD(const img: image_array; const img_info: PImageInfo; x1,y1,rs {boxsize}: integer; out hfd1,star_fwhm,snr{peak/sigma noise}, flux,xc,yc:double);
+procedure HFD(const img: TImageArray; const img_info: PImageInfo; x1,y1,rs {boxsize}: integer; out hfd1,star_fwhm,snr{peak/sigma noise}, flux,xc,yc:double);
 const
   max_ri=74; //(50*sqrt(2)+1 assuming rs<=50. Should be larger or equal then sqrt(sqr(rs+rs)+sqr(rs+rs))+1+2;
 var
@@ -683,7 +672,7 @@ end;
 
 {* find background, number of stars, median HFD *}
 function analyse_image(
-  const img: image_array;
+  const img: TImageArray;
   const img_info: TImageInfo;
   snr_min: double;
   max_stars: integer;
@@ -693,10 +682,10 @@ const
   BOX_SIZE: integer = 25;
 var
   img_sa                      : TBitMatrix;
-  noise_level                 : colored_stat_array;
+  noise_level                 : double;
   star_level, detection_level : double;
   worker_context              : TImgAnalyseContext;
-  worker_threads              : array[1..8] of TImgAnalyseThread;
+  worker_threads              : array[1..MAX_THREADS * 2] of TImgAnalyseThread;
   hfd_list, fwhm_list         : array of double;
 
   y_start, y_end, retries, star_counter, i, j      : integer;
@@ -722,9 +711,9 @@ begin
   worker_context.background   := background;
   worker_context.thread_count := high(worker_threads);
 
-  WriteLn('bs: ', worker_context.box_size, ' max_stars: ', worker_context.max_stars, ' snr_min: ', trunc(snr_min), ' bkg: ', trunc(background));
+  // WriteLn('bs: ', worker_context.box_size, ' max_stars: ', worker_context.max_stars, ' snr_min: ', trunc(snr_min), ' bkg: ', trunc(background));
 
-  detection_level:=max(3.5 * noise_level[0], star_level); {level above background. Start with a high value}
+  detection_level:=max(3.5 * noise_level, star_level); {level above background. Start with a high value}
   retries := MAX_RETRIES; {try up to three times to get enough stars from the image}
 
   if ((background < 60000) and (background > 8)) then {not an abnormal file}
@@ -740,7 +729,7 @@ begin
     repeat {try three time to find enough stars}
       star_counter := 0;
 
-      WriteLn('thread count: ', worker_context.thread_count, ' worker_range: ', worker_range, ' star level: ', star_level, ' noise level: ', 3.5 * noise_level[0], ' detection level: ', detection_level);
+      // WriteLn('thread count: ', worker_context.thread_count, ' worker_range: ', worker_range, ' star level: ', star_level, ' noise level: ', 3.5 * noise_level[0], ' detection level: ', detection_level);
 
       if retries < MAX_RETRIES then
         for fitsY := 0 to img_info.img_height - 1 do
@@ -800,10 +789,10 @@ begin
       dec(retries);
 
       { In principle not required. Try again with lower detection level }
-      if detection_level <= 7 * noise_level[0] then
+      if detection_level <= 7 * noise_level then
         retries := -1 {stop}
       else
-        detection_level:=max(6.999 * noise_level[0], min(30 * noise_level[0], detection_level * 6.999 / 30)); {very high -> 30 -> 7 -> stop.  Or  60 -> 14 -> 7.0. Or for very short exposures 3.5 -> stop}
+        detection_level:=max(6.999 * noise_level, min(30 * noise_level, detection_level * 6.999 / 30)); {very high -> 30 -> 7 -> stop.  Or  60 -> 14 -> 7.0. Or for very short exposures 3.5 -> stop}
 
     until ((star_counter >= max_stars) or (retries < 0)); {reduce detection level till enough stars are found. Note that faint stars have less positional accuracy}
 

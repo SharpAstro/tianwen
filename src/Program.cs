@@ -26,7 +26,7 @@ var folder = Path.Combine("C:", "Temp", "Astro", "SharpCap Captures", "Focusing"
 foreach (var file in new DirectoryInfo(folder).GetFiles("*.fits"))
 {
     var sw = Stopwatch.StartNew();
-    var stars = AstapLib.analyse_fits(Path.Combine(folder, file.FullName), 30, 500, out var medianHFD, out var medianFWHM, out var background);
+    var stars = AstapLib.analyse_fits(Path.Combine(folder, file.FullName), 10, 200, out var medianHFD, out var medianFWHM, out var background);
     sw.Stop();
 
     Console.WriteLine($"File {file} contains {stars} stars, median HFD is {medianHFD} median FWHM is {medianFWHM} background is {background}, total time: {sw.ElapsedMilliseconds}");
