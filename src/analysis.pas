@@ -6,7 +6,7 @@ interface
 
 type
   image_array = array of array of array of double;
-  histogram_array = array[0..2,0..65535] of integer;{red,green,blue,count}
+  histogram_array = array[0..65535] of integer;{red,green,blue,count}
   colored_stat_array = array[0..2] of double;
 
   THistogramStats = record
@@ -76,12 +76,12 @@ type
   public
     constructor Create(
       const img: image_array;
-      const his_values: histogram_array;
       const color: integer;
       const w_start, w_end, h_start, h_end: integer);
 
     property HisTotal: integer read FHisTotal;
     property TotalValue: double read FTotalValue;
+    property HisValues: histogram_array read fHistogramValues;
 
   end;
 
@@ -119,14 +119,14 @@ type
 
 constructor THistThread.Create(
   const img: image_array;
-  const his_values: histogram_array;
   const color: integer;
   const w_start, w_end, h_start, h_end: integer);
+var
+  i: integer;
 begin
   inherited Create(False);
 
   fImage := img;
-  fHistogramValues := his_values;
   fColor := color;
   fWidthStart := w_start;
   fWidthEnd := w_end;
@@ -134,12 +134,14 @@ begin
   fHeightEnd := h_end;
   fHisTotal := 0;
   fTotalValue := 0;
+
+  for i:=0 to 65535 do
+    fHistogramValues[i] := 0;{clear histogram}
 end;
 
 procedure THistThread.Execute;
 var
   h, w, col : integer;
-  p : Pointer;
 begin
   For h := fHeightStart to fHeightEnd - 1 do
   begin
@@ -148,11 +150,10 @@ begin
       col:=round(fImage[fColor, w, h]);
       if ((col>=1) and (col<65000)) then {ignore black overlap areas and bright stars}
       begin
-        p := @fHistogramValues[fColor, col];
-        InterlockedIncrement(p); { calculate histogram }
+        Inc(fHistogramValues[col]);
         Inc(fHisTotal);
 
-        fTotalValue := fTotalValue + col;
+        fTotalValue := fTotalValue + col
       end;
     end;{h}
   end;{w}
@@ -254,16 +255,17 @@ end;
 
 function get_hist(colour:integer; const img :image_array; const img_info: TImageInfo; out histogram_stats: THistogramStats) : histogram_array;
 var
-  hist_threads : array[1..1] of THistThread;
-  his_total, offsetW, offsetH : integer;
-  i, startH, endH, stepSize : integer;
+  his_threads : array[1..1] of THistThread;
+  his_thread : THistThread;
+  his_total, offsetW, offsetH  : integer;
+  i, j, startH, endH, stepSize : integer;
   total_value: double;
 begin
   if colour+1>length(img) then {robust detection, in case binning is applied and image is mono}
     colour:=0; {used red only}
 
   for i:=0 to 65535 do
-    Result[colour, i] := 0;{clear histogram of specified colour}
+    Result[i] := 0;{clear histogram of specified colour}
 
   his_total:=0;
   total_value:=0;
@@ -271,26 +273,34 @@ begin
   offsetW:=trunc(img_info.img_width * 0.042); {if Libraw is used, ignored unused sensor areas up to 4.2%}
   offsetH:=trunc(img_info.img_height * 0.015); {if Libraw is used, ignored unused sensor areas up to 1.5%}
 
-  stepSize := trunc((img_info.img_height - (offsetH * 2)) / high(hist_threads));
+  stepSize := trunc((img_info.img_height - (offsetH * 2)) / high(his_threads));
   startH := offsetH;
-  for I := low(hist_threads) to high(hist_threads) do
+  for I := low(his_threads) to high(his_threads) do
   begin
-    if I = high(hist_threads) then
+    if I = high(his_threads) then
       endH := img_info.img_height - offsetH
     else
       endH := startH + stepSize;
-    hist_threads[I] := THistThread.Create(img, Result, colour, offsetW, img_info.img_width - offsetW, startH, endH);
+
+    writeln(' his thread: ', I, ' w-s: ', offsetW, ' w-e: ', img_info.img_width - offsetW, ' h-s: ', startH, ' h-e: ', endH);
+
+    his_threads[I] := THistThread.Create(img, colour, offsetW, img_info.img_width - offsetW, startH, endH);
     startH := endH;
   end;
 
-  for I := low(hist_threads) to high(hist_threads) do
+  for I := low(his_threads) to high(his_threads) do
   begin
-    hist_threads[I].WaitFor;
+    his_thread := his_threads[I];
+    his_thread.WaitFor;
+    writeln(' his thread: ', I, ' finished: histotal: ', his_thread.HisTotal, ' total value: ', his_thread.TotalValue);
 
-    inc(his_total, hist_threads[I].HisTotal);
-    total_value := total_value + hist_threads[I].TotalValue;
+    inc(his_total, his_thread.HisTotal);
+    total_value := total_value + his_thread.TotalValue;
 
-    hist_threads[I].Free;
+    for J := 0 to 65535 do
+      inc(Result[I], his_thread.HisValues[i]);
+
+    his_thread.Free;
   end;
 
   if colour=0 then
@@ -302,7 +312,7 @@ begin
 
   histogram_stats.mean[colour] := total_value / (his_total + 1);
 
-  WriteLn('high(threads): ', high(hist_threads) , ' total value: ', total_value, ' his total: ', his_total, ' mean: ', histogram_stats.mean[colour]);
+  WriteLn('high(threads): ', high(his_threads) , ' total value: ', total_value, ' his total: ', his_total, ' mean: ', histogram_stats.mean[colour]);
 
 end;
 
@@ -322,9 +332,9 @@ begin
   pixels:=0;
   max_range := round(histogram_stats.mean[colour]); {mean value from histogram}
   for i := 1 to max_range do {find peak, ignore value 0 from oversize}
-    if histogram[colour,i]>pixels then {find colour peak}
+    if histogram[i] > pixels then {find colour peak}
     begin
-      pixels:= histogram[colour,i];
+      pixels:= histogram[i];
       background:=i;
     end;
 
@@ -351,7 +361,7 @@ begin
   while ((starlevel=0) and (i>background+1)) do {find star level 0.003 of values}
   begin
      dec(i);
-     above:=above+histogram[colour,i];
+     above:=above+histogram[i];
      if above>0.001*his_total then starlevel:=i;
   end;
   if starlevel <= background then
@@ -680,7 +690,7 @@ function analyse_image(
   out hfd_median, fwhm_median, background : double): integer;
 const
   MAX_RETRIES : integer = 2;
-  BOX_SIZE: integer = 14;
+  BOX_SIZE: integer = 25;
 var
   img_sa                      : TBitMatrix;
   noise_level                 : colored_stat_array;
