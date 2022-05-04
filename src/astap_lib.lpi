@@ -13,6 +13,9 @@
       <Title Value="astap_lib"/>
       <UseAppBundle Value="False"/>
       <ResourceType Value="res"/>
+      <XPManifest>
+        <AnsiUTF8 Value="True"/>
+      </XPManifest>
     </General>
     <BuildModes>
       <Item Name="Default" Default="True"/>
@@ -47,7 +50,7 @@
     <Version Value="11"/>
     <PathDelim Value="\"/>
     <Target>
-      <Filename Value="astap_lib"/>
+      <Filename Value="out\astap_lib-$(TargetCPU)-$(TargetOS)"/>
     </Target>
     <SearchPaths>
       <IncludeFiles Value="$(ProjOutDir)"/>
@@ -55,6 +58,9 @@
     </SearchPaths>
     <CodeGeneration>
       <RelocatableUnit Value="True"/>
+      <Optimizations>
+        <OptimizationLevel Value="2"/>
+      </Optimizations>
     </CodeGeneration>
     <Linking>
       <Options>

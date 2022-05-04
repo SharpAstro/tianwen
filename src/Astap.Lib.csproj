@@ -5,22 +5,29 @@
     <TargetFramework>netstandard2.0</TargetFramework>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <PackageID>Astap.Lib</PackageID>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
   </PropertyGroup>
 
   <PropertyGroup Condition=" '$(Version)' == '' ">
-    <VersionPrefix Condition=" '$(VersionPrefix)' == '' ">2.0.0</VersionPrefix>
+    <VersionPrefix Condition=" '$(VersionPrefix)' == '' ">1.0.0</VersionPrefix>
     <Version Condition=" '$(VersionSuffix)' != '' And $(VersionSuffix[0]) != '+'">$(VersionPrefix)-$(VersionSuffix)</Version>
     <Version Condition=" '$(VersionSuffix)' != '' And $(VersionSuffix[0]) == '+'">$(VersionPrefix)$(VersionSuffix)</Version>
     <Version Condition=" '$(Version)' == '' ">$(VersionPrefix)</Version>
   </PropertyGroup>
 
   <ItemGroup>
-    <None Update="ASICamera2_x64.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="astap_lib.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
+    <None Remove="lib/**" />
+    <None Remove="backup/**" />
+    <None Remove="*.a" />
+    <None Remove="*.o" />
+    <None Remove="*.ppu" />
+    <None Remove="*.lps" />
+    <None Remove="*.pas" />
+    <None Remove=".git*." />
+
+	<None Include="../LICENSE" PackagePath="" Pack="True" />
+	<None Include="out/astap_lib-x86_64-win64.dll" PackagePath="runtimes/win10-x64/native/astap_lib.dll" Pack="True" />
   </ItemGroup>
 
 </Project>
