@@ -686,7 +686,7 @@ var
   star_level, detection_level : double;
   worker_context              : TImgAnalyseContext;
   worker_threads              : array[1..MAX_THREADS * 2] of TImgAnalyseThread;
-  hfd_list, fwhm_list         : array of double;
+  hfd_list, fwhm_list         : TDoubleArray;
 
   y_start, y_end, retries, star_counter, i, j      : integer;
   worker_range, fitsY, len, new_star_counter, temp : integer;

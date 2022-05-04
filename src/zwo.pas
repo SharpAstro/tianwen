@@ -27,6 +27,8 @@ interface
 
   function find_asi_camera_by_index(const cameraIndex: ASI_INT; out cameraId: ASI_CAM_ID; out error: ASI_ERROR): Boolean; cdecl;
 
+  function find_asi_camera_by_name(const name: PWideChar; out cameraId: ASI_CAM_ID; out error: ASI_ERROR): Boolean; cdecl;
+
   function connect_asi_camera(const cameraId: ASI_CAM_ID; out error: ASI_ERROR): Boolean; cdecl;
 
   function disconnect_asi_camera(const cameraId: ASI_CAM_ID; out error: ASI_ERROR): Boolean; cdecl;
@@ -108,6 +110,55 @@ implementation
       else
         cameraId := -1;
     end;
+  end;
+
+  function find_asi_camera_by_name(const name: PWideChar; out cameraId: ASI_CAM_ID; out error: ASI_ERROR): Boolean; cdecl;
+  var
+    cameraInfo: ASI_CAMERA_INFO;
+    cameraCount: Integer;
+    cameraIndex: integer;
+    cameraNameLen, searchLen: integer;
+
+    function IsSame : Boolean;
+    var
+      I: integer;
+    begin
+      IsSame := false;
+      for I := 0 to searchLen - 1 do
+        if cameraInfo.Name[I] <> name[I] then
+          Exit;
+
+      IsSame := cameraInfo.Name[cameraNameLen] = char(0);
+    end;
+  begin
+    error := ASI_ERROR.general_error;
+    Result := false;
+    cameraId := -1;
+
+    cameraCount := ASIGetNumOfConnectedCameras;
+    cameraNameLen := length(ASI_CAMERA_INFO.Name);
+    searchLen := Length(name);
+
+    if searchLen >= cameraNameLen then
+      Exit;
+
+    for cameraIndex := 0 to cameraCount - 1 do
+    begin
+      error := ASIGetCameraProperty(@cameraInfo, cameraIndex);
+
+      if error = ASI_ERROR.success then
+      begin
+        Result := IsSame;
+        WriteLn('Cam Len: ', cameraNameLen, ' Search Len: ', searchLen, 'Cam: ', cameraInfo.Name, ' search: ', string(name), ' res: ', Result);
+        if Result then
+        begin
+          cameraId := cameraInfo.CameraID;
+          Exit
+        end
+        else
+          error := ASI_ERROR.invalid_id;
+      end
+    end
   end;
 
   function connect_asi_camera(const cameraId: ASI_CAM_ID; out error: ASI_ERROR): Boolean; cdecl;

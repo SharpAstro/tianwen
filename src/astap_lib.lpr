@@ -15,6 +15,7 @@ exports
 
   { ZWO }
   find_asi_camera_by_index,
+  find_asi_camera_by_name,
   connect_asi_camera,
   disconnect_asi_camera,
   analyse_asi_frame;
