@@ -24,10 +24,11 @@
     <None Remove="*.ppu" />
     <None Remove="*.lps" />
     <None Remove="*.pas" />
+    <None Remove="*.lpr" />
     <None Remove=".git*." />
 
 	<None Include="../LICENSE" PackagePath="" Pack="True" />
-	<None Include="out/astap_lib-x86_64-win64.dll" PackagePath="runtimes/win10-x64/native/astap_lib.dll" Pack="True" />
+	<None Include="out/x86_64-win64/astap_lib.dll" PackagePath="runtimes/win10-x64/native/" Pack="True" />
   </ItemGroup>
 
 </Project>
