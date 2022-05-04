@@ -2,9 +2,16 @@
 
   <PropertyGroup>
     <OutputType>Library</OutputType>
-    <TargetFramework>net6.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Version)' == '' ">
+    <VersionPrefix Condition=" '$(VersionPrefix)' == '' ">2.0.0</VersionPrefix>
+    <Version Condition=" '$(VersionSuffix)' != '' And $(VersionSuffix[0]) != '+'">$(VersionPrefix)-$(VersionSuffix)</Version>
+    <Version Condition=" '$(VersionSuffix)' != '' And $(VersionSuffix[0]) == '+'">$(VersionPrefix)$(VersionSuffix)</Version>
+    <Version Condition=" '$(Version)' == '' ">$(VersionPrefix)</Version>
   </PropertyGroup>
 
   <ItemGroup>
