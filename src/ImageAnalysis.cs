@@ -1,6 +1,6 @@
 ﻿namespace Astap.Lib
 {
-    public static class Analyse
+    public static class ImageAnalysis
     {
         public static (int stars, double medianHFD, double medianFWHM, double background) AnalyseFITS(string file, double snr = 10.0, int maxStars = 500)
         {
