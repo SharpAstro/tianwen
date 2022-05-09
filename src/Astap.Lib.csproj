@@ -19,9 +19,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="Astap.Lib.Tests\**" />
-    <EmbeddedResource Remove="Astap.Lib.Tests\**" />
-    <None Remove="Astap.Lib.Tests\**" />
+    <Compile Remove="Astap.Lib.Tests/**" />
+    <EmbeddedResource Remove="Astap.Lib.Tests/**" />
+    <None Remove="Astap.Lib.Tests/**" />
     <None Remove="lib/**" />
     <None Remove="backup/**" />
     <None Remove="*.a" />
