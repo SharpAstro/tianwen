@@ -17,4 +17,17 @@ public class AscomDeviceDriver : AscomBase
     public string DriverType => _device.DeviceType;
 
     public void SetupDialog() => _comObject?.SetupDialog();
+
+    public bool Connected
+    {
+        get => (_comObject?.Connected as bool?) ?? false;
+        set
+        {
+            var obj = _comObject;
+            if (obj is not null)
+            {
+                obj.Connected = value;
+            }
+        }
+    }
 }
