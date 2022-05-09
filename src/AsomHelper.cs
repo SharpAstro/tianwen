@@ -2,13 +2,16 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 
-namespace Astap.Lib
+namespace Astap.Lib;
+
+public static class AsomHelper
 {
-    public static class AsomHelper
-    {
-        public static dynamic NewComObject(string progId) => Type.GetTypeFromProgID(progId) is Type type ? Activator.CreateInstance(type) : null as dynamic;
+    public static dynamic NewComObject(string progId) =>
+        RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Type.GetTypeFromProgID(progId) is Type type
+            ? Activator.CreateInstance(type)
+            : null as dynamic;
 
-        public static IEnumerable<string> EnumerateArrayList(dynamic list) => list is ArrayList arrayList ? arrayList.Cast<string>() : Array.Empty<string>();
-    }
+    public static IEnumerable<string> EnumerateArrayList(dynamic list) => list is ArrayList arrayList ? arrayList.Cast<string>() : Array.Empty<string>();
 }
