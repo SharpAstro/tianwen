@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using static Astap.Lib.AsomHelper;
 
 namespace Astap.Lib;
@@ -11,9 +13,9 @@ public class AscomProfile : IDisposable
 
     public AscomProfile() => _profile = NewComObject("ASCOM.Utilities.Profile");
 
-    public IEnumerable<string> RegisteredDeviceTypes => EnumerateArrayList(_profile?.RegisteredDeviceTypes);
+    public IEnumerable<string> RegisteredDeviceTypes => EnumerateProperty<string>(_profile?.RegisteredDeviceTypes);
 
-    public IEnumerable<string> RegisteredDevices(string deviceType) => EnumerateArrayList(_profile?.RegisteredDevices(deviceType));
+    public IEnumerable<(string progId, string displayName)> RegisteredDevices(string deviceType) => EnumerateKeyValueProperty(_profile?.RegisteredDevices(deviceType));
 
     protected virtual void Dispose(bool disposing)
     {
