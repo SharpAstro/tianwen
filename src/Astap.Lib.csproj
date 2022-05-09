@@ -7,6 +7,8 @@
     <AssemblyVersion>1.0.0.0</AssemblyVersion>
     <PackageID>Astap.Lib</PackageID>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
+
+	<Nullable>enable</Nullable>
   </PropertyGroup>
 
   <PropertyGroup Condition=" '$(Version)' == '' ">
@@ -17,6 +19,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Astap.Lib.Tests\**" />
+    <EmbeddedResource Remove="Astap.Lib.Tests\**" />
+    <None Remove="Astap.Lib.Tests\**" />
     <None Remove="lib/**" />
     <None Remove="backup/**" />
     <None Remove="*.a" />
