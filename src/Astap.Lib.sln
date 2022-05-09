@@ -5,7 +5,7 @@ VisualStudioVersion = 17.1.32421.90
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Astap.Lib", "Astap.Lib.csproj", "{1C2936DE-3E78-485A-BEC1-23BB27D61326}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Astap.Lib.Tests", "..\Astap.Lib.Tests\Astap.Lib.Tests.csproj", "{BC5524F5-67B2-44D0-B3D6-36EBAC00F37A}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Astap.Lib.Tests", "Astap.Lib.Tests\Astap.Lib.Tests.csproj", "{BC5524F5-67B2-44D0-B3D6-36EBAC00F37A}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
