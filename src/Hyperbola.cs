@@ -2,27 +2,7 @@ using System;
 
 namespace Astap.Lib;
 
-public struct FocusSolution
-{
-    public FocusSolution(double p, double a, double b, double error, int iterations)
-    {
-        P = p;
-        A = a;
-        B = b;
-        Error = error;
-        Iterations = iterations;
-    }
-
-    public double P { get; }
-
-    public double A { get; }
-
-    public double B { get; }
-
-    public double Error { get; }
-
-    public int Iterations { get; }
-}
+public readonly record struct FocusSolution(double P, double A, double B, double Error, int Iterations);
 
 public static class Hyperbola
 {
