@@ -1,17 +1,22 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.InteropServices;
 
 namespace Astap.Lib;
 
-public static class AsomHelper
+public class AscomBase : IDisposable
 {
-    public static dynamic NewComObject(string progId) =>
+    public static dynamic? NewComObject(string progId) =>
         RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Type.GetTypeFromProgID(progId) is Type type
             ? Activator.CreateInstance(type)
             : null as dynamic;
+
+    protected readonly dynamic? _comObject;
+
+    private bool _disposedValue;
+
+
+    public AscomBase(string progId) => _comObject = NewComObject(progId);
 
     public static IEnumerable<T> EnumerateProperty<T>(dynamic property)
     {
@@ -40,5 +45,28 @@ public static class AsomHelper
                 yield return ((string)item.Key, (string)item.Value);
             }
         }
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!_disposedValue)
+        {
+            if (disposing)
+            {
+                if (_comObject is IDisposable disposable)
+                {
+                    disposable.Dispose();
+                }
+            }
+
+            _disposedValue = true;
+        }
+    }
+
+    public void Dispose()
+    {
+        // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
     }
 }
