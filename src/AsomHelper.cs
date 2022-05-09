@@ -13,5 +13,32 @@ public static class AsomHelper
             ? Activator.CreateInstance(type)
             : null as dynamic;
 
-    public static IEnumerable<string> EnumerateArrayList(dynamic list) => list is ArrayList arrayList ? arrayList.Cast<string>() : Array.Empty<string>();
+    public static IEnumerable<T> EnumerateProperty<T>(dynamic property)
+    {
+        if (property is null)
+        {
+            yield break;
+        }
+
+        foreach (T item in property)
+        {
+            yield return item;
+        }
+    }
+
+    public static IEnumerable<(string key, string value)> EnumerateKeyValueProperty(dynamic property)
+    {
+        if (property is null)
+        {
+            yield break;
+        }
+
+        foreach (dynamic item in property)
+        {
+            if (item is not null)
+            {
+                yield return ((string)item.Key, (string)item.Value);
+            }
+        }
+    }
 }
