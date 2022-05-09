@@ -98,15 +98,12 @@ public struct BitMatrix
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public int GetLength(int dim)
+    public int GetLength(int dim) => dim switch
     {
-        switch (dim)
-        {
-            case 0: return _vectors.GetLength(0);
-            case 1: return _d1;
-            default: throw new ArgumentOutOfRangeException(nameof(dim), dim, "Must be 0 or 1");
-        }
-    }
+        0 => _vectors.GetLength(0),
+        1 => _d1,
+        _ => throw new ArgumentOutOfRangeException(nameof(dim), dim, "Must be 0 or 1"),
+    };
 
     public void Clear()
     {

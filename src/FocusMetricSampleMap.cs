@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 
 namespace Astap.Lib;
@@ -20,7 +21,7 @@ public enum SampleKind
 
 public class FocusMetricSampleMap
 {
-    private readonly ConcurrentDictionary<int, ConcurrentBag<double>> _samples = new ConcurrentDictionary<int, ConcurrentBag<double>>();
+    private readonly ConcurrentDictionary<int, ConcurrentBag<double>> _samples = new();
 
     public FocusMetricSampleMap(SampleKind kind)
     {
@@ -56,7 +57,7 @@ public class FocusMetricSampleMap
             ? samples
             : _samples.GetOrAdd(focusPos, new ConcurrentBag<double>());
 
-    public bool TryGetBestFocusSolution(AggregationMethod method, out FocusSolution? solution, out int min, out int max)
+    public bool TryGetBestFocusSolution(AggregationMethod method, [NotNullWhen(true)] out FocusSolution? solution, out int min, out int max)
     {
         var keys = _samples.Keys.ToArray();
         Array.Sort(keys);
@@ -65,7 +66,7 @@ public class FocusMetricSampleMap
         if (keys.Length > 2)
         {
             min = keys[0];
-            max = keys[keys.Length - 1];
+            max = keys[^1];
         }
         else
         {
