@@ -1,10 +1,10 @@
-﻿namespace Astap.Lib;
+﻿namespace Astap.Lib.Devices.Ascom;
 
 public class AscomDeviceDriver : AscomBase
 {
     private readonly AscomDevice _device;
 
-    public AscomDeviceDriver(AscomDevice device) : base(device.ProgId) => _device = device;
+    public AscomDeviceDriver(AscomDevice device) : base(device.DeviceId) => _device = device;
 
     public string Name => _comObject?.Name ?? _device.DisplayName;
 
