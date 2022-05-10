@@ -1,3 +1,5 @@
+using Astap.Lib.Devices.Ascom;
+using Shouldly;
 using System.Linq;
 using System.Runtime.InteropServices;
 using Xunit;
@@ -14,11 +16,11 @@ public class AscomTests
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            Assert.NotEmpty(types);
+            types.ShouldNotBeEmpty();
         }
         else
         {
-            Assert.Empty(types);
+            types.ShouldBeEmpty();
         }
     }
 
@@ -30,11 +32,11 @@ public class AscomTests
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            Assert.NotEmpty(telescopes);
+            telescopes.ShouldNotBeEmpty();
         }
         else
         {
-            Assert.Empty(telescopes);
+            telescopes.ShouldBeEmpty();
         }
     }
 
@@ -45,22 +47,23 @@ public class AscomTests
     public void GivenSimulatorDeviceTypeVersionAndNameAreReturned(string type)
     {
         using var profile = new AscomProfile();
-        var (progId, displayName) = profile.RegisteredDevices(type).FirstOrDefault(e => e.progId == $"ASCOM.Simulator.{type}");
+        var device = profile.RegisteredDevices(type).FirstOrDefault(e => e.DeviceId == $"ASCOM.Simulator.{type}");
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            Assert.NotNull(progId);
-            Assert.NotNull(displayName);
+            device.ShouldNotBeNull();
+            device.DeviceId.ShouldNotBeNullOrEmpty();
+            device.DeviceType.ShouldNotBeNullOrEmpty();
+            device.DisplayName.ShouldNotBeNullOrEmpty();
 
-            using var driver = new AscomDeviceDriver(new AscomDevice(progId, type, displayName));
+            using var driver = new AscomDeviceDriver(device);
 
             Assert.Equal(type, driver.DriverType);
             Assert.False(driver.Connected);
         }
         else
         {
-            Assert.Null(progId);
-            Assert.Null(displayName);
+            Assert.Null(device);
         }
     }
 }

@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 
-namespace Astap.Lib;
+namespace Astap.Lib.Devices.Ascom;
 
 public class AscomBase : IDisposable
 {
@@ -38,7 +38,7 @@ public class AscomBase : IDisposable
             yield break;
         }
 
-        foreach (dynamic item in property)
+        foreach (var item in property)
         {
             if (item is not null)
             {
