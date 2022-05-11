@@ -1,6 +1,7 @@
 using Astap.Lib.Devices;
 using Astap.Lib.Devices.Ascom;
 using Shouldly;
+using System;
 using System.Linq;
 using System.Runtime.InteropServices;
 using Xunit;
@@ -68,6 +69,21 @@ public class AscomTests
         {
             Assert.Null(device);
         }
+    }
+
+    [Theory]
+    [InlineData(@"device://AscomDevice/EQMOD.Telescope?displayName=EQMOD ASCOM HEQ5/6#Telescope", "Telescope", "EQMOD.Telescope", "EQMOD ASCOM HEQ5/6")]
+    [InlineData(@"device://ascomdevice/ASCOM.EAF.Focuser?displayName=ZWO Focuser (1)#Focuser", "Focuser", "ASCOM.EAF.Focuser", "ZWO Focuser (1)")]
+    public void GivenAnUriDisplayNameDeviceTypeAndClassAreReturned(string uriString, string expectedType, string expectedId, string expectedDisplayName)
+    {
+        var uri = new Uri(uriString);
+        DeviceBase.TryFromUri(uri, out var device).ShouldBeTrue();
+
+        device.DeviceClass.ShouldBe(device.GetType().Name, StringCompareShould.IgnoreCase);
+
+        device.DeviceType.ShouldBe(expectedType);
+        device.DeviceId.ShouldBe(expectedId);
+        device.DisplayName.ShouldBe(expectedDisplayName);
     }
 
     [Fact]
