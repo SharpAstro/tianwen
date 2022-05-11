@@ -1,3 +1,4 @@
+using Astap.Lib.Devices;
 using Astap.Lib.Devices.Ascom;
 using Shouldly;
 using System.Linq;
@@ -47,11 +48,13 @@ public class AscomTests
     public void GivenSimulatorDeviceTypeVersionAndNameAreReturned(string type)
     {
         using var profile = new AscomProfile();
-        var device = profile.RegisteredDevices(type).FirstOrDefault(e => e.DeviceId == $"ASCOM.Simulator.{type}");
+        var devices = profile.RegisteredDevices(type);
+        var device = devices.FirstOrDefault(e => e.DeviceId == $"ASCOM.Simulator.{type}");
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
             device.ShouldNotBeNull();
+            device.DeviceClass.ShouldBe(nameof(AscomDevice), StringCompareShould.IgnoreCase);
             device.DeviceId.ShouldNotBeNullOrEmpty();
             device.DeviceType.ShouldNotBeNullOrEmpty();
             device.DisplayName.ShouldNotBeNullOrEmpty();
@@ -65,5 +68,16 @@ public class AscomTests
         {
             Assert.Null(device);
         }
+    }
+
+    [Fact]
+    public void GivenNoneDeviceItIsNoneClass()
+    {
+        var none = new NoneDevice();
+
+        none.DeviceClass.ShouldBe(nameof(NoneDevice), StringCompareShould.IgnoreCase);
+        none.DeviceId.ShouldBe("None");
+        none.DisplayName.ShouldBe("");
+        none.DeviceType.ShouldBe("None");
     }
 }

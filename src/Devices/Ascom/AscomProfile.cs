@@ -14,7 +14,7 @@ public class AscomProfile : AscomBase, IDeviceSource<AscomDevice>
         {
             foreach (var (deviceId, displayName) in devices)
             {
-                yield return new AscomDevice(deviceId, deviceType, displayName);
+                yield return new AscomDevice(AscomDevice.CreateUri(deviceType, deviceId, displayName));
             }
         }
     }

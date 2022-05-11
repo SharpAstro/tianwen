@@ -1,3 +1,9 @@
-﻿namespace Astap.Lib.Devices.Ascom;
+﻿using System;
 
-public record class AscomDevice(string DeviceId, string DeviceType, string DisplayName) : DeviceBase(DeviceId, DeviceType, DisplayName);
+namespace Astap.Lib.Devices.Ascom;
+
+public record class AscomDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
+{
+    public static Uri CreateUri(string deviceType, string deviceId, string displayName)
+        => new($"device://{typeof(AscomDevice).Name}/{deviceId}?displayName={displayName}#{deviceType}");
+}

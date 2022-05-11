@@ -1,8 +1,15 @@
 ﻿using System;
+using System.Web;
 
 namespace Astap.Lib.Devices;
 
-public abstract record class DeviceBase(string DeviceId, string DeviceType, string DisplayName)
+public abstract record class DeviceBase(Uri DeviceUri)
 {
-    public Uri DeviceUri => new($"{GetType().Name}:{DeviceType}/{DisplayName}");
+    public string DeviceType => HttpUtility.HtmlDecode(DeviceUri.Fragment.TrimStart('#'));
+
+    public string DeviceId => string.Join('/', DeviceUri.Segments[1..]);
+
+    public string DisplayName => HttpUtility.ParseQueryString(DeviceUri.Query)["displayName"] ?? "";
+
+    public string DeviceClass => DeviceUri.Host;
 }
