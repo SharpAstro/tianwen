@@ -1,3 +1,8 @@
-﻿namespace Astap.Lib.Devices;
+﻿using System;
 
-public abstract record class DeviceBase(string DeviceId, string DeviceType, string DisplayName);
+namespace Astap.Lib.Devices;
+
+public abstract record class DeviceBase(string DeviceId, string DeviceType, string DisplayName)
+{
+    public Uri DeviceUri => new($"{GetType().Name}:{DeviceType}/{DisplayName}");
+}
