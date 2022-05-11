@@ -1,3 +1,5 @@
-﻿namespace Astap.Lib.Devices;
+﻿using System;
 
-public record class NoneDevice() : DeviceBase("none", "none", "");
+namespace Astap.Lib.Devices;
+
+public record class NoneDevice() : DeviceBase(new Uri($"device://{typeof(NoneDevice).Name}/None#None"));
