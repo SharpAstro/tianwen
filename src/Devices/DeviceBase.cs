@@ -19,15 +19,18 @@ public abstract record class DeviceBase(Uri DeviceUri)
     {
         if (deviceUri.Scheme == "device")
         {
-            foreach (var exported in typeof(DeviceBase).Assembly.GetExportedTypes())
+            foreach (var assembly in new[] { typeof(DeviceBase).Assembly, Assembly.GetExecutingAssembly() })
             {
-                if (string.Equals(exported.Name, deviceUri.Host, StringComparison.OrdinalIgnoreCase)
-                    && exported.IsSubclassOf(typeof(DeviceBase))
-                    && exported.GetConstructor(new[] {typeof(Uri) }) is ConstructorInfo uriConstructor
-                    && uriConstructor.Invoke(new[] { deviceUri }) is DeviceBase newDevice)
+                foreach (var exported in assembly.GetExportedTypes())
                 {
-                    device = newDevice;
-                    return true;
+                    if (string.Equals(exported.Name, deviceUri.Host, StringComparison.OrdinalIgnoreCase)
+                        && exported.IsSubclassOf(typeof(DeviceBase))
+                        && exported.GetConstructor(new[] { typeof(Uri) }) is ConstructorInfo uriConstructor
+                        && uriConstructor.Invoke(new[] { deviceUri }) is DeviceBase newDevice)
+                    {
+                        device = newDevice;
+                        return true;
+                    }
                 }
             }
         }

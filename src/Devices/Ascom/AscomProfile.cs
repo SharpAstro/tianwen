@@ -12,5 +12,5 @@ public class AscomProfile : AscomBase, IDeviceSource<AscomDevice>
     IEnumerable<(string key, string value)> RegisteredDevicesKV(string deviceType) => EnumerateKeyValueProperty(_comObject?.RegisteredDevices(deviceType));
 
     public IEnumerable<AscomDevice> RegisteredDevices(string deviceType)
-        => RegisteredDevicesKV(deviceType).Select(p => new AscomDevice(AscomDevice.CreateUri(deviceType, p.key, p.value)));
+        => RegisteredDevicesKV(deviceType).Select(p => new AscomDevice(deviceType, p.key, p.value));
 }
