@@ -19,8 +19,12 @@ public abstract record class DeviceBase(Uri DeviceUri)
     {
         if (deviceUri.Scheme == "device")
         {
-            foreach (var assembly in new[] { typeof(DeviceBase).Assembly, Assembly.GetExecutingAssembly() })
+            foreach (var assembly in new[] { typeof(DeviceBase).Assembly, Assembly.GetCallingAssembly(), Assembly.GetEntryAssembly() })
             {
+                if (assembly is null)
+                {
+                    continue;
+                }
                 foreach (var exported in assembly.GetExportedTypes())
                 {
                     if (string.Equals(exported.Name, deviceUri.Host, StringComparison.OrdinalIgnoreCase)
