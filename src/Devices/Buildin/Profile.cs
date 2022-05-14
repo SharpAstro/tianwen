@@ -32,9 +32,9 @@ public record class Profile(Uri DeviceUri)
 
     public ValueDict? Values { get; init; }
 
-    public static IEnumerable<(Guid profileId, FileInfo file)> ListExistingProfiles()
+    public static IEnumerable<(Guid profileId, FileInfo file)> ListExistingProfiles(DirectoryInfo profileFolder)
     {
-        foreach (var file in ProfileFolder.EnumerateFiles("*" + ProfileExt))
+        foreach (var file in profileFolder.EnumerateFiles("*" + ProfileExt))
         {
             if (Guid.TryParse(Path.GetFileNameWithoutExtension(file.Name), out Guid profileId))
             {
@@ -43,10 +43,10 @@ public record class Profile(Uri DeviceUri)
         }
     }
 
-    public static async Task<IList<Profile>> LoadExistingProfilesAsync(string profileKey)
+    public static async Task<IList<Profile>> LoadExistingProfilesAsync(DirectoryInfo profileFolder, string profileKey)
     {
         var profiles = new List<Profile>();
-        foreach (var (_, file) in ListExistingProfiles())
+        foreach (var (_, file) in ListExistingProfiles(profileFolder))
         {
             using var stream = file.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
             try
@@ -73,9 +73,9 @@ public record class Profile(Uri DeviceUri)
 
     public Guid ProfileId => Guid.Parse(DeviceId);
 
-    public Task SaveAsync()
+    public Task SaveAsync(DirectoryInfo profileFolder)
     {
-        var (_, file) = ListExistingProfiles().FirstOrDefault(x => x.profileId == ProfileId);
+        var (_, file) = ListExistingProfiles(profileFolder).FirstOrDefault(x => x.profileId == ProfileId);
 
         FileMode mode;
         if (file is null)
