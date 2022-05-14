@@ -22,14 +22,6 @@ public record class Profile(Uri DeviceUri)
 
     const string ProfileExt = ".json";
 
-    static readonly string ProfileFolderName = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        (Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly()).GetName().Name ?? nameof(Profile),
-        nameof(Profile) + "s"
-    );
-
-    static DirectoryInfo ProfileFolder => Directory.CreateDirectory(ProfileFolderName);
-
     public ValueDict? Values { get; init; }
 
     public static IEnumerable<(Guid profileId, FileInfo file)> ListExistingProfiles(DirectoryInfo profileFolder)
@@ -80,7 +72,7 @@ public record class Profile(Uri DeviceUri)
         FileMode mode;
         if (file is null)
         {
-            file = new FileInfo(Path.Combine(ProfileFolderName, ProfileId.ToString("D") + ProfileExt));
+            file = new FileInfo(Path.Combine(profileFolder.FullName, ProfileId.ToString("D") + ProfileExt));
             mode = FileMode.CreateNew;
         }
         else
