@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Astap.Lib.Devices;
+namespace Astap.Lib.Devices.Buildin;
 
 public record class NoneDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 {
