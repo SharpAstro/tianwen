@@ -1,5 +1,6 @@
 using Astap.Lib.Devices;
 using Astap.Lib.Devices.Ascom;
+using Astap.Lib.Devices.Buildin;
 using Shouldly;
 using System;
 using System.Linq;
