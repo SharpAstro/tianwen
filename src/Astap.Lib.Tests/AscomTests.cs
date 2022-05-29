@@ -44,9 +44,11 @@ public class AscomTests
     }
 
     [Theory]
-    [InlineData("Focuser")]
+    [InlineData("Camera")]
     [InlineData("CoverCalibrator")]
+    [InlineData("Focuser")]
     [InlineData("Switch")]
+    [InlineData("Telescope")]
     public void GivenSimulatorDeviceTypeVersionAndNameAreReturned(string type)
     {
         using var profile = new AscomProfile();
@@ -61,14 +63,14 @@ public class AscomTests
             device.DeviceType.ShouldNotBeNullOrEmpty();
             device.DisplayName.ShouldNotBeNullOrEmpty();
 
-            using var driver = new AscomDeviceDriver(device);
+            AscomDeviceDriverFactory.TryInstatiateDriver(device, out var driver).ShouldBeTrue();
 
-            Assert.Equal(type, driver.DriverType);
-            Assert.False(driver.Connected);
+            driver.DriverType.ShouldBe(type);
+            driver.Connected.ShouldBeFalse();
         }
         else
         {
-            Assert.Null(device);
+            device.ShouldBeNull();
         }
     }
 
