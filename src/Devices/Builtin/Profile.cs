@@ -3,11 +3,10 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Text.Json;
 using System.Threading.Tasks;
 
-namespace Astap.Lib.Devices.Buildin;
+namespace Astap.Lib.Devices.Builtin;
 
 using ValueDict = Dictionary<string, Uri>;
 
