@@ -33,7 +33,7 @@ using System.Threading;
 
 namespace Astap.Lib.Devices.Guider;
 
-public class PHD2GuiderDriver : IGuider
+public class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 {
     Thread? m_worker;
     volatile bool m_terminate;
@@ -42,6 +42,7 @@ public class PHD2GuiderDriver : IGuider
 
     string Host { get; }
     uint Instance { get; }
+    string ProfileName { get; }
     GuiderConnection Connection { get; }
     Accum AccumRA { get; } = new Accum();
     Accum AccumDEC { get; } = new Accum();
@@ -70,6 +71,7 @@ public class PHD2GuiderDriver : IGuider
 
         Host = hostAndInstance[0];
         Instance = instanceId;
+        ProfileName = guiderDevice.DisplayName;
         Connection = new GuiderConnection();
     }
 
@@ -464,6 +466,8 @@ public class PHD2GuiderDriver : IGuider
 
     public bool IsConnected => !Connection.IsConnected;
 
+    public IEnumerable<string> RegisteredDeviceTypes => new[] { GuiderDevice.GuiderDeviceType };
+
     void EnsureConnected()
     {
         if (!IsConnected)
@@ -749,13 +753,13 @@ public class PHD2GuiderDriver : IGuider
 
     protected virtual void OnGuidingErrorEvent(GuidingErrorEventArgs eventArgs) => GuidingErrorEvent?.Invoke(this, eventArgs);
 
-    public void ConnectEquipment(string profileName)
+    public void ConnectEquipment()
     {
         using var profileResponse = Call("get_profile");
 
         var activeProfile = profileResponse.RootElement.GetProperty("result");
 
-        if (activeProfile.GetProperty("name").GetString() != profileName)
+        if (activeProfile.GetProperty("name").GetString() != ProfileName)
         {
             using var profilesResponse = Call("get_profiles");
             var profiles = profilesResponse.RootElement.GetProperty("result");
@@ -764,7 +768,7 @@ public class PHD2GuiderDriver : IGuider
             {
                 string? name = profile.GetProperty("name").GetString();
                 Debug.WriteLine(String.Format("found profile {0}", name));
-                if (name == profileName)
+                if (name == ProfileName)
                 {
                     profileId = profile.TryGetProperty("id", out var id) ? id.GetInt32() : -1;
                     Debug.WriteLine(String.Format("found profid {0}", profileId));
@@ -773,7 +777,7 @@ public class PHD2GuiderDriver : IGuider
             }
 
             if (profileId == -1)
-                throw new GuiderException("invalid phd2 profile name: " + profileName);
+                throw new GuiderException("invalid phd2 profile name: " + ProfileName);
 
             StopCapture(DEFAULT_STOPCAPTURE_TIMEOUT);
 
@@ -824,4 +828,17 @@ public class PHD2GuiderDriver : IGuider
     }
 
     public override string ToString() => $"PHD2 {Version} sub: {PHDSubvVersion}: Guiding? {IsConnected && IsGuiding()}, settling? {IsConnected && IsSettling()}";
+
+    public IEnumerable<GuiderDevice> RegisteredDevices(string deviceType)
+    {
+        if (deviceType != GuiderDevice.GuiderDeviceType)
+        {
+            yield break;
+        }
+
+        foreach (var profile in GetEquipmentProfiles())
+        {
+            yield return new GuiderDevice(deviceType, $"{Host}/{Instance}", profile);
+        }
+    }
 }

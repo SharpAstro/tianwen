@@ -170,10 +170,9 @@ public interface IGuider : IDisposable
     List<string> GetEquipmentProfiles();
 
     /// <summary>
-    /// connect the equipment in an equipment profile
+    /// connect the the specified profile as constructed.
     /// </summary>
-    /// <param name="profileName"></param>
-    void ConnectEquipment(string profileName);
+    void ConnectEquipment();
 
     /// <summary>
     /// disconnect equipment
