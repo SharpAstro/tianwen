@@ -685,12 +685,11 @@ public class PHD2GuiderDriver : IGuider
                 return;
         }
 
-        using var exposureResponse = Call("get_exposure");
-        int exposure = exposureResponse.RootElement.GetProperty("result").GetInt32();
+        var exposureTime = ExposureTime();
 
         using var loopingResponse = Call("loop");
 
-        Thread.Sleep(exposure);
+        Thread.Sleep(exposureTime);
 
         for (uint i = 0; i < timeoutSeconds; i++)
         {
@@ -709,8 +708,18 @@ public class PHD2GuiderDriver : IGuider
 
     public double PixelScale()
     {
+        EnsureConnected();
+
         using var response = Call("get_pixel_scale");
         return response.RootElement.GetProperty("result").GetDouble();
+    }
+
+    public TimeSpan ExposureTime()
+    {
+        EnsureConnected();
+
+        using var exposureResponse = Call("get_exposure");
+        return TimeSpan.FromMilliseconds(exposureResponse.RootElement.GetProperty("result").GetInt32());
     }
 
     public List<string> GetEquipmentProfiles()
