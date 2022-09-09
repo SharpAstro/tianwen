@@ -158,6 +158,12 @@ public interface IGuider : IDisposable
     double PixelScale();
 
     /// <summary>
+    /// get the exposure time of each looping exposure.
+    /// </summary>
+    /// <returns>exposure time</returns>
+    TimeSpan ExposureTime();
+
+    /// <summary>
     /// get a list of the Equipment Profile names
     /// </summary>
     /// <returns></returns>
