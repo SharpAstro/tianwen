@@ -115,7 +115,7 @@ public class PHD2GuiderDriver : IGuider
                     {
                         m_response?.Dispose();
                         m_response = j;
-                        System.Threading.Monitor.Pulse(m_sync);
+                        Monitor.Pulse(m_sync);
                     }
                 }
                 else
@@ -275,7 +275,7 @@ public class PHD2GuiderDriver : IGuider
         }
         else
         {
-            OnUnhandledEvent(new UnhandledEventArgs(eventName ?? "Unknown"));
+            OnUnhandledEvent(new UnhandledEventArgs(eventName ?? "Unknown", @event.RootElement.GetRawText()));
         }
     }
 
@@ -462,9 +462,11 @@ public class PHD2GuiderDriver : IGuider
         }
     }
 
+    public bool IsConnected => !Connection.IsConnected;
+
     void CheckConnected()
     {
-        if (!Connection.IsConnected)
+        if (!IsConnected)
             throw new GuiderException("PHD2 Server disconnected");
     }
 
@@ -580,8 +582,7 @@ public class PHD2GuiderDriver : IGuider
             };
             lock (m_sync)
             {
-                if (Settle == null)
-                    Settle = settleProgress;
+                Settle ??= settleProgress;
             }
         }
 
@@ -689,7 +690,7 @@ public class PHD2GuiderDriver : IGuider
 
         using var loopingResponse = Call("loop");
 
-        System.Threading.Thread.Sleep(exposure);
+        Thread.Sleep(exposure);
 
         for (uint i = 0; i < timeoutSeconds; i++)
         {
@@ -699,7 +700,7 @@ public class PHD2GuiderDriver : IGuider
                     return;
             }
 
-            System.Threading.Thread.Sleep(1000);
+            Thread.Sleep(1000);
             CheckConnected();
         }
 
@@ -748,7 +749,7 @@ public class PHD2GuiderDriver : IGuider
         if (activeProfile.GetProperty("name").GetString() != profileName)
         {
             using var profilesResponse = Call("get_profiles");
-            var profiles = profileResponse.RootElement.GetProperty("result");
+            var profiles = profilesResponse.RootElement.GetProperty("result");
             int profileId = -1;
             foreach (var profile in profiles.EnumerateArray())
             {
@@ -813,5 +814,5 @@ public class PHD2GuiderDriver : IGuider
         return response.RootElement.GetProperty("result").GetProperty("filename").GetString();
     }
 
-    public override string ToString() => $"PHD2 {Version} sub: {PHDSubvVersion}: Guiding? {IsGuiding}, settling? {IsSettling}";
+    public override string ToString() => $"PHD2 {Version} sub: {PHDSubvVersion}: Guiding? {IsConnected && IsGuiding()}, settling? {IsConnected && IsSettling()}";
 }

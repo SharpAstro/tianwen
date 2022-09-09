@@ -93,6 +93,11 @@ public interface IGuider : IDisposable
     void Close();
 
     /// <summary>
+    /// True if connected to event monitoring port of PHD2.
+    /// </summary>
+    bool IsConnected { get; }
+
+    /// <summary>
     /// support raw JSONRPC method invocation. Generally you won't need to
     /// use this function as it is much more convenient to use the higher-level methods below
     /// </summary>
@@ -213,12 +218,15 @@ public interface IGuider : IDisposable
 
 public class UnhandledEventArgs : EventArgs
 {
-    public UnhandledEventArgs(string @event)
+    public UnhandledEventArgs(string @event, string payload)
     {
         Event = @event;
+        Payload = payload;
     }
 
     public string Event { get; }
+
+    public string Payload { get; }
 }
 
 public class GuidingErrorEventArgs : EventArgs
