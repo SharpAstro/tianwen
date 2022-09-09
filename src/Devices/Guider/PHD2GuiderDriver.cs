@@ -134,7 +134,7 @@ public class PHD2GuiderDriver : IGuider
         }
     }
 
-    private static void Worker(Object? obj)
+    private static void Worker(object? obj)
     {
         if (obj is PHD2GuiderDriver phd2)
         {
@@ -464,7 +464,7 @@ public class PHD2GuiderDriver : IGuider
 
     public bool IsConnected => !Connection.IsConnected;
 
-    void CheckConnected()
+    void EnsureConnected()
     {
         if (!IsConnected)
             throw new GuiderException("PHD2 Server disconnected");
@@ -472,7 +472,7 @@ public class PHD2GuiderDriver : IGuider
 
     public void Guide(double settlePixels, double settleTime, double settleTimeout)
     {
-        CheckConnected();
+        EnsureConnected();
 
         var settleProgress = new SettleProgress
         {
@@ -511,7 +511,7 @@ public class PHD2GuiderDriver : IGuider
 
     public void Dither(double ditherPixels, double settlePixels, double settleTime, double settleTimeout, bool raOnly = false)
     {
-        CheckConnected();
+        EnsureConnected();
 
         var settleProgress = new SettleProgress()
         {
@@ -552,7 +552,7 @@ public class PHD2GuiderDriver : IGuider
 
     public bool IsSettling()
     {
-        CheckConnected();
+        EnsureConnected();
 
         lock (m_sync)
         {
@@ -591,7 +591,7 @@ public class PHD2GuiderDriver : IGuider
 
     public SettleProgress CheckSettling()
     {
-        CheckConnected();
+        EnsureConnected();
 
         var settleProgress = new SettleProgress();
 
@@ -624,7 +624,7 @@ public class PHD2GuiderDriver : IGuider
 
     public GuideStats? GetStats()
     {
-        CheckConnected();
+        EnsureConnected();
 
         GuideStats? stats;
         lock (m_sync)
@@ -654,7 +654,7 @@ public class PHD2GuiderDriver : IGuider
                 return;
 
             System.Threading.Thread.Sleep(1000);
-            CheckConnected();
+            EnsureConnected();
         }
         Debug.WriteLine("StopCapture: timed-out waiting for stopped");
 
@@ -676,7 +676,7 @@ public class PHD2GuiderDriver : IGuider
 
     public void Loop(uint timeoutSeconds)
     {
-        CheckConnected();
+        EnsureConnected();
 
         // already looping?
         lock (m_sync)
@@ -701,7 +701,7 @@ public class PHD2GuiderDriver : IGuider
             }
 
             Thread.Sleep(1000);
-            CheckConnected();
+            EnsureConnected();
         }
 
         throw new GuiderException("timed-out waiting for guiding to start looping");
@@ -783,7 +783,7 @@ public class PHD2GuiderDriver : IGuider
 
     public void GetStatus(out string? appState, out double avgDist)
     {
-        CheckConnected();
+        EnsureConnected();
 
         lock (m_sync)
         {
