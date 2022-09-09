@@ -33,8 +33,11 @@ using System.Threading;
 
 namespace Astap.Lib.Devices.Guider;
 
-public class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
+internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 {
+    internal const string PHD2 = "PHD2";
+    public static string DeviceType { get; } = PHD2;
+
     Thread? m_worker;
     volatile bool m_terminate;
     readonly object m_sync = new();
@@ -466,7 +469,7 @@ public class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
     public bool IsConnected => !Connection.IsConnected;
 
-    public IEnumerable<string> RegisteredDeviceTypes => new[] { GuiderDevice.GuiderDeviceType };
+    public IEnumerable<string> RegisteredDeviceTypes => new[] { DeviceType };
 
     void EnsureConnected()
     {
@@ -831,7 +834,7 @@ public class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
     public IEnumerable<GuiderDevice> RegisteredDevices(string deviceType)
     {
-        if (deviceType != GuiderDevice.GuiderDeviceType)
+        if (deviceType != DeviceType)
         {
             yield break;
         }

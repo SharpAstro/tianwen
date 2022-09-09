@@ -9,7 +9,7 @@ namespace Astap.Lib.Devices.Ascom
 {
     public static class AscomDeviceDriverFactory
     {
-        public static bool TryInstatiateDriver(AscomDevice device, [NotNullWhen(true)] out AscomDeviceDriverBase? driver)
+        public static bool TryInstantiateDriver(AscomDevice device, [NotNullWhen(true)] out AscomDeviceDriverBase? driver)
         {
             driver = device.DeviceType switch
             {
