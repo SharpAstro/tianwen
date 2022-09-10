@@ -13,7 +13,7 @@ public abstract record class DeviceBase(Uri DeviceUri)
 
     public string DeviceType => HttpUtility.HtmlDecode(DeviceUri.Fragment.TrimStart('#'));
 
-    public string DeviceId => string.Join('/', DeviceUri.Segments[1..]);
+    public string DeviceId => string.Concat(DeviceUri.Segments[1..]);
 
     private NameValueCollection? _query;
     protected NameValueCollection Query => _query ??= HttpUtility.ParseQueryString(DeviceUri.Query);
