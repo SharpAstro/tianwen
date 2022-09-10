@@ -66,15 +66,15 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
             throw new ArgumentException($"{guiderDevice} is not of type PHD2, but of type: {guiderDevice.DeviceType}", nameof(guiderDevice));
         }
 
-        var hostAndInstance = guiderDevice.DeviceId.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (hostAndInstance.Length != 2 || !IsValidHost(hostAndInstance[0]) || !uint.TryParse(hostAndInstance[1], out uint instanceId))
+        var deviceIdSplit = guiderDevice.DeviceId.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (deviceIdSplit.Length < 2 || !IsValidHost(deviceIdSplit[0]) || !uint.TryParse(deviceIdSplit[1], out uint instanceId))
         {
             throw new ArgumentException($"Could not parse {guiderDevice.DeviceId} in {guiderDevice}", nameof(guiderDevice));
         }
 
-        Host = hostAndInstance[0];
+        Host = deviceIdSplit[0];
         Instance = instanceId;
-        ProfileName = guiderDevice.DisplayName;
+        ProfileName = deviceIdSplit.Length > 2 ? deviceIdSplit[2] : guiderDevice.DisplayName;
         Connection = new GuiderConnection();
     }
 
@@ -841,7 +841,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
         foreach (var profile in GetEquipmentProfiles())
         {
-            yield return new GuiderDevice(deviceType, $"{Host}/{Instance}", profile);
+            yield return new GuiderDevice(deviceType, string.Join('/', Host, Instance, profile), profile);
         }
     }
 }
