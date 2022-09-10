@@ -12,16 +12,9 @@ namespace Astap.Lib.Tests
     public class GuiderDeviceTests
     {
         [Theory]
-        [InlineData("device://guiderdevice/localhost/1?displayName=NOTAREALPROFILE#PHD2")]
-        public void GivenAPHD2DeviceUriAGuiderDeviceIsInstantiated(string uriString)
-        {
-            var uri = new Uri(uriString);
 
-        }
-
-        [Theory]
-
-        [InlineData("device://guiderdevice/localhost/1?displayName=NOTAREALPROFILE#PHD2", "PHD2", "localhost/1", "NOTAREALPROFILE")]
+        [InlineData("device://guiderdevice/localhost/1?displayName=Profile#PHD2", "PHD2", "localhost/1", "Profile")]
+        [InlineData("device://guiderdevice/localhost/1/Profile?displayName=Display#PHD2", "PHD2", "localhost/1/Profile", "Display")]
         public void GivenAnUriDisplayNameDeviceTypeAndClassAreReturned(string uriString, string expectedType, string expectedId, string expectedDisplayName)
         {
             var uri = new Uri(uriString);
