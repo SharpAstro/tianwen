@@ -26,8 +26,6 @@ SOFTWARE.
 
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Net.Sockets;
 using System.Text.Json;
 
 namespace Astap.Lib.Devices.Guider;
@@ -80,23 +78,8 @@ public class GuiderException : Exception
     }
 }
 
-public interface IGuider : IDisposable
+public interface IGuider : IDeviceDriver
 {
-    /// <summary>
-    /// connect to PHD2 -- you'll need to call Connect before calling any of the server API methods below
-    /// </summary>
-    void Connect();
-
-    /// <summary>
-    /// disconnect from PHD2
-    /// </summary>
-    void Close();
-
-    /// <summary>
-    /// True if connected to event monitoring port of PHD2.
-    /// </summary>
-    bool IsConnected { get; }
-
     /// <summary>
     /// support raw JSONRPC method invocation. Generally you won't need to
     /// use this function as it is much more convenient to use the higher-level methods below
@@ -246,78 +229,6 @@ public class GuidingErrorEventArgs : EventArgs
 
     public Exception? Exception { get; }
 }
-
-class GuiderConnection : IDisposable
-{
-    static readonly byte[] CRLF = new byte[2] { (byte)'\r', (byte)'\n' };
-
-    private TcpClient? _tcpClient;
-    private StreamReader? _streamReader;
-
-    public GuiderConnection()
-    {
-        // empty
-    }
-
-    public void Connect(string hostname, ushort port)
-    {
-        try
-        {
-            _tcpClient = new TcpClient(hostname, port);
-            _streamReader = new StreamReader(_tcpClient.GetStream());
-        }
-        catch
-        {
-            Close();
-            throw;
-        }
-    }
-
-    public virtual void OnConnectionError(GuidingErrorEventArgs eventArgs)
-    {
-
-    }
-
-    public void Dispose()
-    {
-        GC.SuppressFinalize(this);
-
-        Dispose(true);
-    }
-
-    public void Close() => Dispose();
-
-    protected virtual void Dispose(bool disposing)
-    {
-        if (disposing)
-        {
-            _streamReader?.Close();
-            _streamReader?.Dispose();
-            _streamReader = null;
-
-            _tcpClient?.Close();
-            _tcpClient = null;
-        }
-    }
-
-    public bool IsConnected => _tcpClient != null && _tcpClient.Connected;
-
-    public string? ReadLine() => _streamReader?.ReadLine();
-
-    public void WriteLine(ReadOnlyMemory<byte> jsonlUtf8Bytes)
-    {
-        var stream = _tcpClient?.GetStream();
-        if (stream != null && stream.CanWrite)
-        {
-            stream.Write(jsonlUtf8Bytes.Span);
-            stream.Write(CRLF);
-            stream.Flush();
-        }
-    }
-
-    public void Terminate() => _tcpClient?.Close();
-}
-
 class Accum
 {
     uint n;
