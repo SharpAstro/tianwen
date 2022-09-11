@@ -46,19 +46,25 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     string Host { get; }
     uint Instance { get; }
     string ProfileName { get; }
-    GuiderConnection Connection { get; }
+    IGuiderConnection Connection { get; }
     Accum AccumRA { get; } = new Accum();
     Accum AccumDEC { get; } = new Accum();
     bool IsAccumActive { get; set; }
     double SettlePixels { get; set; }
     string? AppState { get; set; }
-    double AvgDist { get; set; }
+    double AverageDistance { get; set; }
     GuideStats? Stats { get; set; }
     string? Version { get; set; }
     string? PHDSubvVersion { get; set; }
     SettleProgress? Settle { get; set; }
 
     public PHD2GuiderDriver(GuiderDevice guiderDevice)
+        : this(guiderDevice, new GuiderConnection())
+    {
+        // calls below
+    }
+
+    public PHD2GuiderDriver(GuiderDevice guiderDevice, IGuiderConnection connection)
     {
 
         if (guiderDevice.DeviceType != "PHD2")
@@ -75,7 +81,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         Host = deviceIdSplit[0];
         Instance = instanceId;
         ProfileName = deviceIdSplit.Length > 2 ? deviceIdSplit[2] : guiderDevice.DisplayName;
-        Connection = new GuiderConnection();
+        Connection = connection;
     }
 
     private void Worker()
@@ -135,7 +141,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         }
         finally
         {
-            Connection.Terminate();
+            Connection.Dispose();
         }
     }
 
@@ -158,7 +164,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
                 AppState = @event.RootElement.GetProperty("State").GetString();
                 if (IsGuidingAppState(AppState))
                 {
-                    AvgDist = 0.0;   // until we get a GuideStep event
+                    AverageDistance = 0.0;   // until we get a GuideStep event
                 }
             }
         }
@@ -196,7 +202,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
             lock (m_sync)
             {
                 AppState = "Guiding";
-                AvgDist = @event.RootElement.GetProperty("AvgDist").GetDouble();
+                AverageDistance = @event.RootElement.GetProperty("AvgDist").GetDouble();
                 if (IsAccumActive)
                     Stats = stats;
             }
@@ -275,7 +281,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
             lock (m_sync)
             {
                 AppState = "LostLock";
-                AvgDist = @event.RootElement.GetProperty("AvgDist").GetDouble();
+                AverageDistance = @event.RootElement.GetProperty("AvgDist").GetDouble();
             }
         }
         else
@@ -379,8 +385,6 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
             _ => false
         };
 
-    public void Close() => Dispose();
-
     public void Dispose()
     {
         GC.SuppressFinalize(this);
@@ -394,18 +398,27 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
             if (m_worker is Thread prev)
             {
                 m_terminate = true;
-                Connection.Terminate();
+                Connection.Dispose();
                 prev.Join();
                 m_worker = null;
             }
 
-            Connection.Close();
+            Connection.Dispose();
         }
+    }
+
+    public bool Connected
+    {
+        get => Connection.IsConnected;
+        set => Connect();
     }
 
     public void Connect()
     {
-        Close();
+        if (Connected)
+        {
+            Dispose(true);
+        }
 
         ushort port = (ushort)(4400 + Instance - 1);
 
@@ -467,13 +480,21 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         }
     }
 
-    public bool IsConnected => !Connection.IsConnected;
-
     public IEnumerable<string> RegisteredDeviceTypes => new[] { DeviceType };
+
+    public string Name => "PHD2 Driver";
+
+    public string? Description => "PHD2 Driver uses JSON RPC event stream to drive an instance of PHD2";
+
+    public string? DriverInfo => $"PHD2 {Version} {PHDSubvVersion}";
+
+    public string? DriverVersion => Version;
+
+    public string DriverType => DeviceType;
 
     void EnsureConnected()
     {
-        if (!IsConnected)
+        if (!Connected)
             throw new GuiderException("PHD2 Server disconnected");
     }
 
@@ -804,7 +825,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         lock (m_sync)
         {
             appState = AppState;
-            avgDist = AvgDist;
+            avgDist = AverageDistance;
         }
     }
 
@@ -830,7 +851,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         return response.RootElement.GetProperty("result").GetProperty("filename").GetString();
     }
 
-    public override string ToString() => $"PHD2 {Version} sub: {PHDSubvVersion}: Guiding? {IsConnected && IsGuiding()}, settling? {IsConnected && IsSettling()}";
+    public override string ToString() => $"PHD2 {Version} sub: {PHDSubvVersion}: Guiding? {Connected && IsGuiding()}, settling? {Connected && IsSettling()}";
 
     public IEnumerable<GuiderDevice> RegisteredDevices(string deviceType)
     {

@@ -1,6 +1,6 @@
 ﻿namespace Astap.Lib.Devices.Ascom;
 
-public abstract class AscomDeviceDriverBase : AscomBase
+public abstract class AscomDeviceDriverBase : AscomBase, IDeviceDriver
 {
     private readonly AscomDevice _device;
 
