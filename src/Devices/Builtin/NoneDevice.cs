@@ -9,5 +9,5 @@ public record class NoneDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 
     }
 
-    protected override object? NewFromDevice() => null;
+    protected override object? NewImplementationFromDevice() => null;
 }

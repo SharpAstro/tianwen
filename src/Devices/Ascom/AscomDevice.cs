@@ -25,7 +25,7 @@ public record class AscomDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
     public static readonly string FocuserType = Focuser;
     public static readonly string SwitchType = Switch;
 
-    protected override object? NewFromDevice()
+    protected override object? NewImplementationFromDevice()
         => DeviceType switch
         {
             Profile => new AscomProfile(),
