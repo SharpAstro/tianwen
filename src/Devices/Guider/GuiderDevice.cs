@@ -11,8 +11,10 @@ namespace Astap.Lib.Devices.Guider
         }
 
         protected override object? NewFromDevice()
-        {
-            throw new NotImplementedException();
-        }
+            => DeviceType switch
+            {
+                PHD2GuiderDriver.PHD2 => new PHD2GuiderDriver(this),
+                _ => null
+            };
     }
 }
