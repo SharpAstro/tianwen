@@ -1,5 +1,4 @@
-﻿using Astap.Lib.Devices.Guider;
-using System;
+﻿using System;
 using System.Collections.Specialized;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
@@ -53,7 +52,7 @@ public abstract record class DeviceBase(Uri DeviceUri)
 
     public virtual bool TryInstantiate<T>([NotNullWhen(true)]  out T? driver)
     {
-        var obj = NewFromDevice();
+        var obj = NewImplementationFromDevice();
 
         if (obj is T asT)
         {
@@ -67,5 +66,5 @@ public abstract record class DeviceBase(Uri DeviceUri)
         }
     }
 
-    protected abstract object? NewFromDevice();
+    protected abstract object? NewImplementationFromDevice();
 }

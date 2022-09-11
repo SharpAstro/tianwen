@@ -83,5 +83,5 @@ public record class Profile(Uri DeviceUri)
         return JsonSerializer.SerializeAsync(stream, Values, new JsonSerializerOptions { WriteIndented = true });
     }
 
-    protected override object? NewFromDevice() => null;
+    protected override object? NewImplementationFromDevice() => null;
 }
