@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Astap.Lib.Devices.Guider;
+using System;
 using System.Collections.Specialized;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
@@ -44,4 +45,27 @@ public abstract record class DeviceBase(Uri DeviceUri)
         device = findDeviceInSubclass.FirstOrDefault();
         return device is not null;
     }
+
+    public virtual bool TryInstantiateDriver<T>([NotNullWhen(true)] out T? driver) where T : IDeviceDriver => TryInstantiate<T>(out driver);
+
+    public virtual bool TryInstantiateDeviceSource<TDevice>([NotNullWhen(true)] out IDeviceSource<TDevice>? deviceSource) where TDevice : DeviceBase
+        => TryInstantiate(out deviceSource);
+
+    public virtual bool TryInstantiate<T>([NotNullWhen(true)]  out T? driver)
+    {
+        var obj = NewFromDevice();
+
+        if (obj is T asT)
+        {
+            driver = asT;
+            return true;
+        }
+        else
+        {
+            driver = default;
+            return false;
+        }
+    }
+
+    protected abstract object? NewFromDevice();
 }

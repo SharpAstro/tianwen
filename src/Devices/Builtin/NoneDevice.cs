@@ -8,4 +8,6 @@ public record class NoneDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
     {
 
     }
+
+    protected override object? NewFromDevice() => null;
 }

@@ -9,5 +9,10 @@ namespace Astap.Lib.Devices.Guider
         {
 
         }
+
+        protected override object? NewFromDevice()
+        {
+            throw new NotImplementedException();
+        }
     }
 }

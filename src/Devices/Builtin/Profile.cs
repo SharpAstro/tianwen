@@ -82,4 +82,6 @@ public record class Profile(Uri DeviceUri)
         using var stream = file.Open(mode, FileAccess.Write, FileShare.None);
         return JsonSerializer.SerializeAsync(stream, Values, new JsonSerializerOptions { WriteIndented = true });
     }
+
+    protected override object? NewFromDevice() => null;
 }

@@ -63,7 +63,7 @@ public class AscomTests
             device.DeviceType.ShouldNotBeNullOrEmpty();
             device.DisplayName.ShouldNotBeNullOrEmpty();
 
-            AscomDeviceDriverFactory.TryInstantiateDriver(device, out var driver).ShouldBeTrue();
+            device.TryInstantiateDriver<IDeviceDriver>(out var driver).ShouldBeTrue();
 
             driver.DriverType.ShouldBe(type);
             driver.Connected.ShouldBeFalse();
