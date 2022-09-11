@@ -9,6 +9,20 @@ namespace Astap.Lib.Devices;
 
 public abstract record class DeviceBase(Uri DeviceUri)
 {
+    internal const string Camera = nameof(Camera);
+    internal const string CoverCalibrator = nameof(CoverCalibrator);
+    internal const string Telescope = nameof(Telescope);
+    internal const string Focuser = nameof(Focuser);
+    internal const string FilterWheel = nameof(FilterWheel);
+    internal const string Switch = nameof(Switch);
+
+    public static readonly string CameraType = Camera;
+    public static readonly string CoverCalibratorType = CoverCalibrator;
+    public static readonly string TelescopeType = Telescope;
+    public static readonly string FocuserType = Focuser;
+    public static readonly string FilterWheelType = nameof(FilterWheel);
+    public static readonly string SwitchType = Switch;
+
     protected const string UriScheme = "device";
 
     public string DeviceType => HttpUtility.HtmlDecode(DeviceUri.Fragment.TrimStart('#'));
