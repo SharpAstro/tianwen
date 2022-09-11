@@ -4,14 +4,13 @@ using System.Diagnostics.CodeAnalysis;
 
 namespace Astap.Lib.Devices;
 
-public class DeviceMap<TDevice, TSource>
+public class DeviceMap<TDevice>
     where TDevice : DeviceBase
-    where TSource : IDeviceSource<TDevice>
 {
     private readonly Dictionary<string, TDevice> _deviceIdToDevice = new();
     private readonly Dictionary<string, List<TDevice>> _devicesByType = new();
 
-    public DeviceMap(TSource source)
+    public DeviceMap(IDeviceSource<TDevice> source)
     {
         var types = source.RegisteredDeviceTypes;
 
