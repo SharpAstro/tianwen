@@ -1,7 +1,6 @@
 ﻿using Astap.Lib.Devices;
 using Astap.Lib.Devices.Ascom;
 using System;
-using static Astap.Lib.Devices.Ascom.AscomDeviceDriverFactory;
 
 namespace Astap.Lib.Plan
 {
@@ -19,7 +18,7 @@ namespace Astap.Lib.Plan
     public class AscomMount : MountBase<AscomDevice>
     {
         public AscomMount(AscomDevice telescopeDevice)
-            : base(telescopeDevice.DeviceType == TelescopeType ? telescopeDevice : throw new ArgumentException("Device is not an Ascom telescope", nameof(telescopeDevice)))
+            : base(telescopeDevice.DeviceType == AscomDevice.TelescopeType ? telescopeDevice : throw new ArgumentException("Device is not an Ascom telescope", nameof(telescopeDevice)))
         {
         }
     }
