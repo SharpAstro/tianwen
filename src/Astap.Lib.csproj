@@ -20,8 +20,15 @@
 
   <ItemGroup>
     <Compile Remove="Astap.Lib.Tests/**" />
-    <EmbeddedResource Remove="Astap.Lib.Tests/**" />
+    <Compile Remove="MAttiaverga.OpenNGC/**" />
+    <Compile Remove="OpenNGC/**" />
+	<EmbeddedResource Remove="Astap.Lib.Tests/**" />
+    <EmbeddedResource Remove="MAttiaverga.OpenNGC/**" />
+    <EmbeddedResource Remove="OpenNGC/**" />
+    <None Remove="OpenNGC/**" />
+	<EmbeddedResource Include="OpenNGC/NGC.csv" />
     <None Remove="Astap.Lib.Tests/**" />
+    <None Remove="MAttiaverga.OpenNGC/**" />
     <None Remove="lib/**" />
     <None Remove="backup/**" />
     <None Remove="*.a" />
@@ -38,6 +45,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="CsvHelper" Version="28.0.1" />
     <PackageReference Include="ZWOptical.ASISDK" Version="1.0.42" />
   </ItemGroup>
 
