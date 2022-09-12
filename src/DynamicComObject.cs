@@ -2,9 +2,9 @@
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 
-namespace Astap.Lib.Devices.Ascom;
+namespace Astap.Lib;
 
-public class AscomBase : IDisposable
+public class DynamicComObject : IDisposable
 {
     public static dynamic? NewComObject(string progId) =>
         RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Type.GetTypeFromProgID(progId) is Type type
@@ -16,7 +16,7 @@ public class AscomBase : IDisposable
     private bool _disposedValue;
 
 
-    public AscomBase(string progId) => _comObject = NewComObject(progId);
+    public DynamicComObject(string progId) => _comObject = NewComObject(progId);
 
     public static IEnumerable<T> EnumerateProperty<T>(dynamic property)
     {
