@@ -3,7 +3,7 @@ using System.Linq;
 
 namespace Astap.Lib.Devices.Ascom;
 
-public class AscomProfile : AscomBase, IDeviceSource<AscomDevice>
+public class AscomProfile : DynamicComObject, IDeviceSource<AscomDevice>
 {
     public AscomProfile() : base("ASCOM.Utilities.Profile") { }
 

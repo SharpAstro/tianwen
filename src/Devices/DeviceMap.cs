@@ -30,7 +30,7 @@ public class DeviceMap<TDevice>
         }
     }
 
-    public bool TryFindByProgId(string deviceId, [NotNullWhen(true)] out TDevice? device) => _deviceIdToDevice.TryGetValue(deviceId, out device);
+    public bool TryFindByDeviceId(string deviceId, [NotNullWhen(true)] out TDevice? device) => _deviceIdToDevice.TryGetValue(deviceId, out device);
 
     public IReadOnlyCollection<TDevice> FindAllByType(string type) => _devicesByType.TryGetValue(type, out var list) ? list : Array.Empty<TDevice>();
 }
