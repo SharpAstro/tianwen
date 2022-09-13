@@ -154,12 +154,12 @@ namespace Astap.Lib.Astrometry
             return @new;
         }
 
-        static readonly Regex ExtendedCatalogEntryPattern = new(@"^(N|I|NGC|IC) \s* ([0-9]{1,4}) \s* (?:(N(?:ED)? \s* ([0-9]{1,2})) | [_]?([A-Z]{1,2}))$",
+        static readonly Regex ExtendedCatalogEntryPattern = new(@"^(N|I|NGC|IC) ([0-9]{1,4}) (?:(N(?:ED)? ([0-9]{1,2})) | [_]?([A-Z]{1,2}))$",
             RegexOptions.Compiled | RegexOptions.IgnorePatternWhitespace);
 
         public static bool TryGetCleanedUpCatalogName(string? input, [NotNullWhen(true)] out string? cleanedUp)
         {
-            var trimmedInput = input?.Trim();
+            var trimmedInput = input?.Replace(" ", "");
             if (string.IsNullOrEmpty(trimmedInput) || trimmedInput.Length < 2)
             {
                 cleanedUp = default;
@@ -229,7 +229,7 @@ namespace Astap.Lib.Astrometry
                     {
                         break;
                     }
-                    if (trimmedInput[fromRight] is < '0' or > '9' and not '-')
+                    if (chars[chars.Length - 1 - i] != trimmedInput[fromRight] && trimmedInput[fromRight] is < '0' or > '9')
                     {
                         break;
                     }
