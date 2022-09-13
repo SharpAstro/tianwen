@@ -1,4 +1,8 @@
-﻿using static Astap.Lib.EnumHelper;
+﻿using System;
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
+using static Astap.Lib.EnumHelper;
 
 namespace Astap.Lib.Astrometry
 {
@@ -97,6 +101,117 @@ namespace Astap.Lib.Astrometry
 
     public static class ConstellationEx
     {
+        private static readonly Dictionary<Constellation, (string Genetitive, string BrightestStar)> _info = new()
+        {
+            [Constellation.Andromeda] = ("Andromedae", "Alpheratz"),
+            [Constellation.Antlia] = ("Antliae", "α Antliae"),
+            [Constellation.Apus] = ("Apodis", "α Apodis"),
+            [Constellation.Aquarius] = ("Aquarii", "Sadalsuud"),
+            [Constellation.Aquila] = ("Aquilae", "Altair"),
+            [Constellation.Ara] = ("Arae", "β Arae"),
+            [Constellation.Aries] = ("Arietis", "Hamal"),
+            [Constellation.Auriga] = ("Aurigae", "Capella"),
+            [Constellation.Bootes] = ("Bootis", "Arcturus"),
+            [Constellation.Caelum] = ("Caeli", "α Caeli"),
+            [Constellation.Camelopardalis] = ("Camelopardalis", "β Camelopardalis"),
+            [Constellation.Cancer] = ("Cancri", "Tarf"),
+            [Constellation.CanesVenatici] = ("Canum Venaticorum", "Cor Caroli"),
+            [Constellation.CanisMajor] = ("Canis Majoris", "Sirius"),
+            [Constellation.CanisMinor] = ("Canis Minoris", "Procyon"),
+            [Constellation.Capricornus] = ("Capricorni", "Deneb Algedi"),
+            [Constellation.Carina] = ("Carinae", "Canopus"),
+            [Constellation.Cassiopeia] = ("Cassiopeiae", "Schedar"),
+            [Constellation.Cepheus] = ("Centauri", "Rigil Kentaurus"),
+            [Constellation.Cetus] = ("Cephei", "Alderamin"),
+            [Constellation.Chamaeleon] = ("Ceti", "Diphda"),
+            [Constellation.Circinus] = ("Chamaeleontis", "α Chamaeleontis"),
+            [Constellation.Columba] = ("Circini", "α Circini"),
+            [Constellation.ComaBerenices] = ("Columbae", "Phact"),
+            [Constellation.CoronaAustralis] = ("Comae Berenices", "β Comae Berenices"),
+            [Constellation.CoronaBorealis] = ("Coronae Borealis", "Alphecca"),
+            [Constellation.Corvus] = ("Corvi", "Gienah"),
+            [Constellation.Crater] = ("Crateris", "δ Crateris"),
+            [Constellation.Crux] = ("Crucis", "Acrux"),
+            [Constellation.Cygnus] = ("Cygni", "Deneb"),
+            [Constellation.Delphinus] = ("Delphini", "Rotanev"),
+            [Constellation.Dorado] = ("Doradus", "α Doradus"),
+            [Constellation.Draco] = ("Draconis", "Eltanin"),
+            [Constellation.Equuleus] = ("Equulei", "Kitalpha"),
+            [Constellation.Eridanus] = ("Eridani", "Achernar"),
+            [Constellation.Fornax] = ("Fornacis", "Dalim"),
+            [Constellation.Gemini] = ("Geminorum", "Pollux"),
+            [Constellation.Grus] = ("Gruis", "Alnair"),
+            [Constellation.Hercules] = ("Herculis", "Kornephoros"),
+            [Constellation.Horologium] = ("Horologii", "α Horologii"),
+            [Constellation.Hydra] = ("Hydrae", "Alphard"),
+            [Constellation.Hydrus] = ("Hydri", "β Hydri"),
+            [Constellation.Indus] = ("Indi", "α Indi"),
+            [Constellation.Lacerta] = ("Lacertae", "α Lacertae"),
+            [Constellation.Leo] = ("Leonis", "Regulus"),
+            [Constellation.LeoMinor] = ("Leonis Minoris", "Praecipua"),
+            [Constellation.Lepus] = ("Leporis", "Arneb"),
+            [Constellation.Libra] = ("Librae", "Zubeneschamali"),
+            [Constellation.Lupus] = ("Lupi", "α Lupi"),
+            [Constellation.Lynx] = ("Lyncis", "α Lyncis"),
+            [Constellation.Lyra] = ("Lyrae", "Vega"),
+            [Constellation.Mensa] = ("Mensae", "α Mensae"),
+            [Constellation.Microscopium] = ("Microscopii", "γ Microscopii"),
+            [Constellation.Monoceros] = ("Monocerotis", "β Monocerotis"),
+            [Constellation.Musca] = ("Muscae", "α Muscae"),
+            [Constellation.Norma] = ("Normae", "γ2 Normae"),
+            [Constellation.Octans] = ("Octantis", "ν Octantis"),
+            [Constellation.Ophiuchus] = ("Ophiuchi", "Rasalhague"),
+            [Constellation.Orion] = ("Orionis", "Rigel"),
+            [Constellation.Pavo] = ("Pavonis", "Peacock"),
+            [Constellation.Pegasus] = ("Pegasi", "Enif"),
+            [Constellation.Perseus] = ("Persei", "Mirfak"),
+            [Constellation.Phoenix] = ("Phoenicis", "Ankaa"),
+            [Constellation.Pictor] = ("Pictoris", "α Pictoris"),
+            [Constellation.Pisces] = ("Piscium", "Alpherg"),
+            [Constellation.PiscisAustrinus] = ("Piscis Austrini", "Fomalhaut"),
+            [Constellation.Puppis] = ("Puppis", "Naos"),
+            [Constellation.Pyxis] = ("Pyxidis", "α Pyxidis"),
+            [Constellation.Reticulum] = ("Reticuli", "α Reticuli"),
+            [Constellation.Sagitta] = ("Sagittae", "γ Sagittae"),
+            [Constellation.Sagittarius] = ("Sagittarii", "Kaus Australis"),
+            [Constellation.Scorpius] = ("Scorpii", "Antares"),
+            [Constellation.Sculptor] = ("Sculptoris", "α Sculptoris"),
+            [Constellation.Scutum] = ("Scuti", "α Scuti"),
+            [Constellation.Serpens] = ("Serpentis", "Unukalhai"),
+            [Constellation.SerpensCaput] = ("Serpentis", "Unukalhai"),
+            [Constellation.SerpensCauda] = ("Serpentis", "η Serpentis"),
+            [Constellation.Sextans] = ("Sextantis", "α Sextantis"),
+            [Constellation.Taurus] = ("Tauri", "Aldebaran"),
+            [Constellation.Telescopium] = ("Telescopii", "α Telescopii"),
+            [Constellation.Triangulum] = ("Trianguli", "β Trianguli"),
+            [Constellation.TriangulumAustrale] = ("Trianguli Australis", "Atria"),
+            [Constellation.Tucana] = ("Tucanae", "α Tucanae"),
+            [Constellation.UrsaMajor] = ("Ursae Majoris", "Alioth"),
+            [Constellation.UrsaMinor] = ("Ursae Minoris", "Polaris"),
+            [Constellation.Vela] = ("Velorum", "γ2 Velorum"),
+            [Constellation.Virgo] = ("Virginis", "Spica"),
+            [Constellation.Volans] = ("Volantis", "β Volantis"),
+            [Constellation.Vulpecula] = ("Vulpeculae", "Anser")
+        };
+
+        public static string ToGenitive(this Constellation constellation)
+            => _info.TryGetValue(constellation, out var info)
+                ? info.Genetitive
+                : throw new ArgumentException($"Cannot find genitive for constellation {constellation}", nameof(constellation));
+
         public static string ToIAUAbbreviation(this Constellation constellation) => EnumValueToAbbreviation((ulong)constellation);
+
+        public static bool IsContainedWithin(this Constellation constellation, Constellation parent)
+        {
+            if (constellation == parent)
+            {
+                return true;
+            }
+            else if (parent == Constellation.Serpens)
+            {
+                return constellation is Constellation.SerpensCaput or Constellation.SerpensCauda;
+            }
+            return false;
+        }
     }
 }
