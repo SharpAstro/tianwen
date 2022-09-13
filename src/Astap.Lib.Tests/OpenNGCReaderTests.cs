@@ -38,7 +38,7 @@ namespace Astap.Lib.Tests
         {
             // given
             var reader = new OpenNGCReader();
-            var (actualRead, actualFailed) = await reader.ReadEmbeddedDataAsync();
+            var (actualRead, actualFailed) = await reader.ReadEmbeddedDataFilesAsync();
 
             // when
             var found = reader.TryLookupByIndex(indexEntry, out var deepSkyObject);
@@ -86,7 +86,6 @@ namespace Astap.Lib.Tests
         [InlineData(null)]
         [InlineData("I am not the index you are looking for")]
         [InlineData("Maybe not")]
-        [InlineData("U2")]
         [InlineData("4Sq")]
         [InlineData("N 0526__")]
         [InlineData("N 0526 ABC01")]
