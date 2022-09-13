@@ -1,5 +1,5 @@
 ﻿using System;
-using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Astap.Lib
 {
@@ -35,5 +35,10 @@ namespace Astap.Lib
 
             return new string(chars, len - i, i);
         }
+
+
+        static readonly Regex PascalSplitter = new("([A-Z])|([0-9]+)", RegexOptions.Compiled);
+
+        public static string ToName<T>(this T constellation) where T : Enum => PascalSplitter.Replace(constellation.ToString(), " $1$2").TrimStart();
     }
 }
