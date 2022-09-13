@@ -7,12 +7,27 @@ namespace Astap.Lib.Tests
 {
     public class OpenNGCReaderTests
     {
+        const CatalogIndex NGC7293 = (CatalogIndex)((ulong)'N' << 32 | '7' << 24 | '2' << 16 | '9' << 8 | '3');
+        const CatalogIndex NGC0056 = (CatalogIndex)((ulong)'N' << 32 | '0' << 24 | '0' << 16 | '5' << 8 | '6');
+        const CatalogIndex IC1000 = (CatalogIndex)((ulong)'I' << 32 | '1' << 24 | '0' << 16 | '0' << 8 | '0');
         const CatalogIndex IC0715NW = (CatalogIndex)((ulong)'I' << 56 | (ulong)'0' << 48 | (ulong)'7' << 40 | (ulong)'1' << 32 | '5' << 24 | '_' << 16 | 'N' << 8 | 'W');
+        const CatalogIndex IC0720_NED02 = (CatalogIndex)((ulong)'I' << 56 | (ulong)'0' << 48 | (ulong)'7' << 40 | (ulong)'2' << 32 | '0' << 24 | 'N' << 16 | '0' << 8 | '2');
 
         [Theory]
-        [InlineData("NGC7293", ObjectType.PlanetaryNebula, (CatalogIndex)((ulong)'N' << 32 | '7' << 24 | '2' << 16 | '9' << 8 | '3'), Constellation.Aquarius)]
-        [InlineData("NGC0056", ObjectType.Other, (CatalogIndex)((ulong)'N' << 32 | '0' << 24 | '0' << 16 | '5' << 8 | '6'), Constellation.Pisces)]
-        [InlineData("IC1000", ObjectType.Galaxy, (CatalogIndex)((ulong)'I' << 32 | '1' << 24 | '0' << 16 | '0' << 8 | '0'), Constellation.Bootes)]
+        [InlineData(NGC7293, "N7293")]
+        [InlineData(NGC0056, "N0056")]
+        [InlineData(IC1000, "I1000")]
+        [InlineData(IC0715NW, "I0715_NW")]
+        [InlineData(IC0720_NED02, "I0720N02")]
+        public void GivenACatalogIndexValueWhenGettingAbbreviationThenItIsReturned(CatalogIndex catalogIndex, string expectedAbbreviation)
+        {
+            catalogIndex.ToAbbreviation().ShouldBe(expectedAbbreviation);
+        }
+
+        [Theory]
+        [InlineData("NGC7293", ObjectType.PlanetaryNebula, NGC7293, Constellation.Aquarius)]
+        [InlineData("NGC0056", ObjectType.Other, NGC0056, Constellation.Pisces)]
+        [InlineData("IC1000", ObjectType.Galaxy, IC1000, Constellation.Bootes)]
         [InlineData("IC0715NW", ObjectType.Galaxy, IC0715NW, Constellation.Crater)]
         public async Task GivenObjectIdWhenLookingItUpThenAnEntryIsReturned(
             string indexEntry,

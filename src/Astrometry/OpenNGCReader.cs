@@ -9,48 +9,10 @@ using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using static Astap.Lib.EnumHelper;
 
 namespace Astap.Lib.Astrometry
 {
-    public enum ObjectType : ulong
-    {
-        Star = '*',
-        DoubleStar = '*' << 8 | '*',
-        AssociationOfStars = '*' << 24 | 'A' << 16 | 's' << 8 | 's',
-        OpenCluster = 'O' << 16 | 'C' << 8 | 'l',
-        GlobularCluster = 'G' << 16 | 'C' << 8 | 'l',
-        ClusterAndNebula = 'C' << 24 | 'l' << 16 | '+' << 8 | 'N',
-        Galaxy = 'G',
-        GalaxyPair = ((ulong)'G' << 32) | 'P' << 24 | 'a' << 16 | 'i' << 8 | 'r',
-        GalaxyTriplet = ((ulong)'G' << 32) | 'T' << 24 | 'r' << 16 | 'p' << 8 | 'l',
-        GroupOfGalaxies = ((ulong)'G' << 40) | ((ulong)'G' << 32) | 'r' << 24 | 'o' << 16 | 'u' << 8 | 'p',
-        PlanetaryNebula = 'P' << 8 | 'N',
-        HIIRegion = 'H' << 16 | 'I' << 8 | 'I',
-        DarkNebula = 'D' << 24 | 'r' << 16 | 'k' << 8 | 'N',
-        EmissionNebula = 'E' << 16 | 'm' << 8 | 'N',
-        Nebula = 'N' << 16 | 'e' << 8 | 'b',
-        ReflectionNebula = 'R' << 16 | 'f' << 8 | 'N',
-        SupernovaRemnant = 'S' << 16 | 'N'  << 8 | 'R',
-        NovaStar = 'N' << 24 | 'o' << 16 | 'v' << 8 | 'a',
-        NonExistent = ((ulong)'N' << 32) | 'o' << 24 | 'n' << 16 | 'v' << 8 | 'a',
-        Duplicate = 'D' << 16 | 'u' << 8 | 'p',
-        Other = ((ulong)'O' << 32) | 't' << 24 | 'h' << 16 | 'e' << 8 | 'r'
-    }
-
-    public enum Constellation : ulong
-    {
-        Aquarius = 'A' << 16 | 'q' << 8 | 'r',
-        Bootes = 'B' << 16 | 'o' << 8 | 'o',
-        Crater = 'C' << 16 | 'r' << 8 | 't',
-        Pisces = 'P' << 16 | 's' << 8 | 'c',
-        SerpensCaput = 'S' << 16 | 'e' << 8 | '1',
-        SerpensCaudi = 'S' << 16 | 'e' << 8 | '2',
-    }
-
-    /// <summary>
-    /// Represents a unique entry in a catalogue s.th. NGC0001, M13 or IC0001
-    /// </summary>
-    public enum CatalogIndex : ulong { }
 
     public record DeepSkyObject(CatalogIndex Index, ObjectType ObjType, string RA, string Dec, Constellation Constellation);
 
@@ -254,18 +216,6 @@ namespace Astap.Lib.Astrometry
                     return true;
                 }
             }
-        }
-
-        public static T AbbreviationToEnumMember<T>(string name)
-            where T : Enum
-        {
-            var len = name.Length;
-            ulong val = 0;
-            for (var i = 0; i < name.Length; i++)
-            {
-                val |= (ulong)(name[i] & 0xff) << ((len - i - 1) * 8);
-            }
-            return (T)Enum.ToObject(typeof(T), val);
         }
     }
 }
