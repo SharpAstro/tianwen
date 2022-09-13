@@ -26,7 +26,9 @@
     <EmbeddedResource Remove="MAttiaverga.OpenNGC/**" />
     <EmbeddedResource Remove="OpenNGC/**" />
     <None Remove="OpenNGC/**" />
-	<EmbeddedResource Include="OpenNGC/NGC.csv" />
+    <EmbeddedResource Include="Astrometry/iau-named-stars.json" />
+    <EmbeddedResource Include="OpenNGC/NGC.csv" />
+    <EmbeddedResource Include="OpenNGC/addendum/addendum.csv" />
     <None Remove="Astap.Lib.Tests/**" />
     <None Remove="MAttiaverga.OpenNGC/**" />
     <None Remove="lib/**" />
@@ -39,6 +41,7 @@
     <None Remove="*.lpr" />
     <None Remove="*.lpi" />
     <None Remove=".git*." />
+    <None Remove="Astrometry\iau-named-stars.json" />
 
 	<None Include="../LICENSE" PackagePath="" Pack="True" />
 	<None Include="out/x86_64-win64/astap_lib.dll" PackagePath="runtimes/win10-x64/native/" Pack="True" />

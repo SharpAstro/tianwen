@@ -6,6 +6,8 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -30,9 +32,9 @@ namespace Astap.Lib.Astrometry
 
         public bool TryLookupByIndex(string name, [NotNullWhen(true)] out DeepSkyObject? deepSkyObject)
         {
-            if (TryGetCleanedUpCatalogName(name, out var cleanedUp))
+            if (TryGetCleanedUpCatalogName(name, out var cleanedUp) && TryLookupByIndex(AbbreviationToEnumMember<CatalogIndex>(cleanedUp), out deepSkyObject))
             {
-                return TryLookupByIndex(AbbreviationToEnumMember<CatalogIndex>(cleanedUp), out deepSkyObject);
+                return true;
             }
             else
             {
@@ -41,35 +43,50 @@ namespace Astap.Lib.Astrometry
             }
         }
 
-        private bool TryLookupByIndex(CatalogIndex indexEntry, [NotNullWhen(true)] out DeepSkyObject? deepSkyObject)
+        public bool TryLookupByIndex(CatalogIndex indexEntry, [NotNullWhen(true)] out DeepSkyObject? deepSkyObject)
             => _objectsByIndex.TryGetValue(indexEntry, out deepSkyObject);
 
-        public async Task<(int processed, int failed)> ReadEmbeddedDataAsync()
+        public async Task<(int processed, int failed)> ReadEmbeddedDataFilesAsync()
+        {
+            var assy = typeof(OpenNGCReader).Assembly;
+            int totalProcessed = 0;
+            int totalFailed = 0;
+
+            foreach (var csvName in new[] { "NGC.csv", "addendum.csv" })
+            {
+                var (processed, failed) = await ReadEmbeddedDataFileAsync(assy, csvName);
+                totalProcessed += processed;
+                totalFailed += failed;
+            }
+
+            return (totalProcessed, totalFailed);
+        }
+
+        private async Task<(int processed, int failed)> ReadEmbeddedDataFileAsync(Assembly assembly, string csvName)
         {
             int processed = 0;
             int failed = 0;
-            var assy = typeof(OpenNGCReader).Assembly;
-            var ngcCSV = assy.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith("NGC.csv"));
-            if (ngcCSV is null || assy.GetManifestResourceStream(ngcCSV) is not Stream ngcCSVStream)
+            var manifestFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith(csvName));
+            if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
             {
                 return (processed, failed);
             }
 
-            using var ngcCSVTextReader = new StreamReader(ngcCSVStream, new UTF8Encoding(false));
-            using var ngcCSVReader = new CsvReader(ngcCSVTextReader, new CsvConfiguration(CultureInfo.InvariantCulture) { Delimiter = ";" });
+            using var streamReader = new StreamReader(stream, new UTF8Encoding(false));
+            using var csvReader = new CsvReader(streamReader, new CsvConfiguration(CultureInfo.InvariantCulture) { Delimiter = ";" });
 
-            if (!await ngcCSVReader.ReadAsync() || !ngcCSVReader.ReadHeader())
+            if (!await csvReader.ReadAsync() || !csvReader.ReadHeader())
             {
                 return (processed, failed);
             }
 
-            while (await ngcCSVReader.ReadAsync())
+            while (await csvReader.ReadAsync())
             {
-                if (ngcCSVReader.TryGetField<string>("Name", out var entryName)
-                    && ngcCSVReader.TryGetField<string>("Type", out var objectTypeAbbr)
-                    && ngcCSVReader.TryGetField<string>("RA", out var raHMS)
-                    && ngcCSVReader.TryGetField<string>("Dec", out var decDMS)
-                    && ngcCSVReader.TryGetField<string>("Const", out var constAbbr)
+                if (csvReader.TryGetField<string>("Name", out var entryName)
+                    && csvReader.TryGetField<string>("Type", out var objectTypeAbbr)
+                    && csvReader.TryGetField<string>("RA", out var raHMS)
+                    && csvReader.TryGetField<string>("Dec", out var decDMS)
+                    && csvReader.TryGetField<string>("Const", out var constAbbr)
                     && TryGetCleanedUpCatalogName(entryName, out var cleanedUpName)
                 )
                 {
@@ -80,22 +97,27 @@ namespace Astap.Lib.Astrometry
 
                     if (objectType == ObjectType.Duplicate)
                     {
-                        if (ngcCSVReader.TryGetField<string>(NGC, out var ngcDupSuffix) && TryGetCleanedUpCatalogName(NGC + ngcDupSuffix, out var ngcDup))
+                        // when the entry is a duplicate, use the cross lookup table to list the entries it duplicates
+                        if (csvReader.TryGetField<string>(NGC, out var ngcDupSuffix) && TryGetCleanedUpCatalogName(NGC + ngcDupSuffix, out var ngcDup))
                         {
                             AddLookupEntry(_crossLookupTable, indexEntry, AbbreviationToEnumMember<CatalogIndex>(ngcDup));
                         }
-                        if (ngcCSVReader.TryGetField<string>(IC, out var icDupSuffix) && TryGetCleanedUpCatalogName(IC + icDupSuffix, out var icDup))
+                        if (csvReader.TryGetField<string>(IC, out var icDupSuffix) && TryGetCleanedUpCatalogName(IC + icDupSuffix, out var icDup))
                         {
                             AddLookupEntry(_crossLookupTable, indexEntry, AbbreviationToEnumMember<CatalogIndex>(icDup));
                         }
+                        if (csvReader.TryGetField<string>(M, out var messierDupSuffix) && TryGetCleanedUpCatalogName(M + messierDupSuffix, out var mDup))
+                        {
+                            AddLookupEntry(_crossLookupTable, indexEntry, AbbreviationToEnumMember<CatalogIndex>(mDup));
+                        }
                     }
-
-                    if (ngcCSVReader.TryGetField<int>(M, out var messierEntry))
+                    else if (csvReader.TryGetField<string>(M, out var messierSuffix) && TryGetCleanedUpCatalogName(M + messierSuffix, out var messierEntry))
                     {
-                        AddLookupEntry(_crossLookupTable, AbbreviationToEnumMember<CatalogIndex>($"{M[0]}{messierEntry:000}"), indexEntry);
+                        // Adds Messier to NGC/IC entry lookup
+                        AddLookupEntry(_crossLookupTable, AbbreviationToEnumMember<CatalogIndex>(messierEntry), indexEntry);
                     }
 
-                    if (ngcCSVReader.TryGetField<string>("Common names", out var commonNamesEntry))
+                    if (csvReader.TryGetField<string>("Common names", out var commonNamesEntry))
                     {
                         var commonNames = commonNamesEntry.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                         foreach (var commonName in commonNames)
@@ -138,7 +160,7 @@ namespace Astap.Lib.Astrometry
         public static bool TryGetCleanedUpCatalogName(string? input, [NotNullWhen(true)] out string? cleanedUp)
         {
             var trimmedInput = input?.Trim();
-            if (string.IsNullOrEmpty(trimmedInput))
+            if (string.IsNullOrEmpty(trimmedInput) || trimmedInput.Length < 2)
             {
                 cleanedUp = default;
                 return false;
@@ -146,9 +168,20 @@ namespace Astap.Lib.Astrometry
 
             var (chars, digits) = trimmedInput[0] switch
             {
-                'N' => (new char[5] { 'N', '0', '0', '0', '0' }, 4),
-                'I' => (new char[5] { 'I', '0', '0', '0', '0' }, 4),
-                'M' => (new char[4] { 'M', '0', '0', '0' }, 3),
+                'H' => trimmedInput[1] == 'C'
+                    ? (new char[7] { 'H', 'C', 'G', '0', '0', '0', '0' }, 4) // HGC entry
+                    : (new char[3] { 'H', '0', '0' }, 2), // H entry
+                'N' => (new char[5] { 'N', '0', '0', '0', '0' }, 4), // Simple NGC entry
+                'I' => (new char[5] { 'I', '0', '0', '0', '0' }, 4), // Simple IC entry
+                'M' => trimmedInput[1] == 'e' && trimmedInput.Length > 2 && trimmedInput[2] == 'l'
+                    ? (new char[6] { 'M', 'e', 'l', '0', '0', '0' }, 3) // Mel entry
+                    : (new char[4] { 'M', '0', '0', '0' }, 3), // Messier entry
+                'B' => (new char[4] { 'B', '0', '0', '0' }, 3), // B entry
+                'C' => trimmedInput[1] == 'l'
+                    ? (new char[5] { 'C', 'l', '0', '0', '0' }, 3) // Cl entry
+                    : (new char[4] { 'C', '0', '0', '0' }, 3), // C entry
+                'U' => (new char[5] { 'U', '0', '0', '0', '0' }, 5), // UGC entry
+                'E' => (new char[8] { 'E', '0', '0', '0', '-', '0', '0', '0'}, 7), // ESO entry
                 _ => (Array.Empty<char>(), 0)
             };
 
@@ -196,7 +229,7 @@ namespace Astap.Lib.Astrometry
                     {
                         break;
                     }
-                    if (trimmedInput[fromRight] is < '0' or > '9')
+                    if (trimmedInput[fromRight] is < '0' or > '9' and not '-')
                     {
                         break;
                     }
