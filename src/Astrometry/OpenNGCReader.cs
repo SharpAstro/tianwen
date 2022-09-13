@@ -7,7 +7,6 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -16,14 +15,10 @@ using static Astap.Lib.EnumHelper;
 namespace Astap.Lib.Astrometry
 {
 
-    public record DeepSkyObject(CatalogIndex Index, ObjectType ObjType, string RA, string Dec, Constellation Constellation);
+    public record DeepSkyObject(CatalogIndex Index, ObjectType ObjType, double RA, double Dec, Constellation Constellation);
 
     public class OpenNGCReader
     {
-        const string NGC = nameof(NGC);
-        const string IC = nameof(IC);
-        const string M = nameof(M);
-
         private readonly Dictionary<CatalogIndex, DeepSkyObject> _objectsByIndex = new(14000);
         private readonly Dictionary<CatalogIndex, CatalogIndex[]> _crossLookupTable = new(900);
         private readonly Dictionary<string, CatalogIndex[]> _objectsByCommonName = new(200);
@@ -64,6 +59,10 @@ namespace Astap.Lib.Astrometry
 
         private async Task<(int processed, int failed)> ReadEmbeddedDataFileAsync(Assembly assembly, string csvName)
         {
+            const string NGC = nameof(NGC);
+            const string IC = nameof(IC);
+            const string M = nameof(M);
+
             int processed = 0;
             int failed = 0;
             var manifestFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith(csvName));
@@ -93,7 +92,7 @@ namespace Astap.Lib.Astrometry
                     var objectType = AbbreviationToEnumMember<ObjectType>(objectTypeAbbr);
                     var @const = AbbreviationToEnumMember<Constellation>(constAbbr);
                     var indexEntry = AbbreviationToEnumMember<CatalogIndex>(cleanedUpName);
-                    _objectsByIndex[indexEntry] = new DeepSkyObject(indexEntry, objectType, "", "", @const);
+                    _objectsByIndex[indexEntry] = new DeepSkyObject(indexEntry, objectType, Utils.HMSToDegree(raHMS), Utils.DMSToDegree(decDMS), @const);
 
                     if (objectType == ObjectType.Duplicate)
                     {
