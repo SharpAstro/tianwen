@@ -31,18 +31,20 @@ namespace Astap.Lib.Tests
         }
 
         [Theory]
-        [InlineData("NGC7293", ObjectType.PlanetaryNebula, NGC7293, Constellation.Aquarius)]
-        [InlineData("NGC0056", ObjectType.Other, NGC0056, Constellation.Pisces)]
-        [InlineData("IC1000", ObjectType.Galaxy, IC1000, Constellation.Bootes)]
-        [InlineData("IC0715NW", ObjectType.Galaxy, IC0715NW, Constellation.Crater)]
-        [InlineData("M40", ObjectType.DoubleStar, M040, Constellation.UrsaMajor)]
-        [InlineData("M102", ObjectType.Duplicate, M102, Constellation.UrsaMajor)]
-        [InlineData("ESO056-115", ObjectType.Galaxy, ESO056_115, Constellation.Dorado)]
+        [InlineData("ESO056-115", ObjectType.Galaxy, ESO056_115, Constellation.Dorado, 80.89375d, -57.65833333333333d)]
+        [InlineData("IC1000", ObjectType.Galaxy, IC1000, Constellation.Bootes, 214.91795833333333d, 29.820416666666667d)]
+        [InlineData("IC0715NW", ObjectType.Galaxy, IC0715NW, Constellation.Crater, 174.225875d, -2.3629166666666666d)]
+        [InlineData("M102", ObjectType.Duplicate, M102, Constellation.UrsaMajor, 210.80225d, 59.23416666666667d)]
+        [InlineData("M40", ObjectType.DoubleStar, M040, Constellation.UrsaMajor, 185.56708333333333d, 59.266666666666666d)]
+        [InlineData("NGC0056", ObjectType.Other, NGC0056, Constellation.Pisces, 3.8360833333333333d, 18.667916666666667d)]
+        [InlineData("NGC7293", ObjectType.PlanetaryNebula, NGC7293, Constellation.Aquarius, 337.41070833333333d, -7.44d)]
         public async Task GivenObjectIdWhenLookingItUpThenAnEntryIsReturned(
             string indexEntry,
             ObjectType expectedObjType,
             CatalogIndex expectedCatalogIindex,
-            Constellation expectedConstellation
+            Constellation expectedConstellation,
+            double expectedRaDeg,
+            double expectedDecDeg
         )
         {
             // given
@@ -60,6 +62,8 @@ namespace Astap.Lib.Tests
             deepSkyObject.Index.ShouldBe(expectedCatalogIindex);
             deepSkyObject.ObjType.ShouldBe(expectedObjType);
             deepSkyObject.Constellation.ShouldBe(expectedConstellation);
+            deepSkyObject.RA.ShouldBe(expectedRaDeg);
+            deepSkyObject.Dec.ShouldBe(expectedDecDeg);
         }
 
         [Theory]
