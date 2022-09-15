@@ -14,7 +14,7 @@ public static class EnumHelper
     {
         var len = Math.Min(MaxLenInASCII, name.Length);
         ulong val = 0;
-        for (var i = 0; i < name.Length; i++)
+        for (var i = 0; i < len; i++)
         {
             val |= (ulong)(name[i] & ASCIIMask) << (len - i - 1) * ASCIIBits;
         }

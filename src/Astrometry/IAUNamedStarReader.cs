@@ -25,6 +25,8 @@ namespace Astap.Lib.Astrometry
     {
         public async Task ReadEmbeddedDataFileAsync()
         {
+            var processed = 0;
+            var failed = 0;
             var assembly = typeof(IAUNamedStarReader).Assembly;
             var namedStarsJsonFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith("iau-named-stars.json"));
 
@@ -32,9 +34,13 @@ namespace Astap.Lib.Astrometry
             {
                 await foreach (var record in JsonSerializer.DeserializeAsyncEnumerable<IAUNamedStarDTO>(stream))
                 {
-                    if (record is not null)
+                    if (record is not null && Utils.TryGetCleanedUpCatalogName(record.Designation, out var catalogIndex))
                     {
-
+                        processed++;
+                    }
+                    else
+                    {
+                        failed++;
                     }
                 }
             }
