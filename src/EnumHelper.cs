@@ -5,38 +5,38 @@ namespace Astap.Lib;
 
 public static class EnumHelper
 {
-    const int Mask = 0x7f;
-    const int Bits = 7;
-    const int MaxLen = 64 / Bits;
+    const int ASCIIMask = 0x7f;
+    const int ASCIIBits = 7;
+    const int MaxLenInASCII = 64 / ASCIIBits;
 
     public static T AbbreviationToEnumMember<T>(string name)
         where T : Enum
     {
-        var len = Math.Min(MaxLen, name.Length);
+        var len = Math.Min(MaxLenInASCII, name.Length);
         ulong val = 0;
         for (var i = 0; i < name.Length; i++)
         {
-            val |= (ulong)(name[i] & Mask) << (len - i - 1) * Bits;
+            val |= (ulong)(name[i] & ASCIIMask) << (len - i - 1) * ASCIIBits;
         }
         return (T)Enum.ToObject(typeof(T), val);
     }
 
     public static string EnumValueToAbbreviation(ulong value)
     {
-        var chars = new char[MaxLen];
+        var chars = new char[MaxLenInASCII];
         int i;
-        for (i = 0; i < MaxLen; i++)
+        for (i = 0; i < MaxLenInASCII; i++)
         {
-            var current = (char)(value & Mask);
+            var current = (char)(value & ASCIIMask);
             if (current == 0)
             {
                 break;
             }
-            value >>= Bits;
-            chars[MaxLen - i - 1] = current;
+            value >>= ASCIIBits;
+            chars[MaxLenInASCII - i - 1] = current;
         }
 
-        return new string(chars, MaxLen - i, i);
+        return new string(chars, MaxLenInASCII - i, i);
     }
 
 

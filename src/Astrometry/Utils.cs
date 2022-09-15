@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text.RegularExpressions;
 
@@ -143,6 +142,7 @@ namespace Astap.Lib.Astrometry
                     'C' => (new char[7] { 'H', 'C', 'G', '0', '0', '0', '0' }, 4, Catalog.HCG),
                     'R' => (new char[6] { 'H', 'R', '0', '0', '0', '0'}, 4, Catalog.HR),
                     'D' => (new char[8] { 'H', 'D', '0', '0', '0', '0', '0', '0'}, 6, Catalog.HD),
+                    'I' => (new char[8] { 'H', 'I', '0', '0', '0', '0', '0', '0'}, 6, Catalog.HIP),
                     _ => (new char[3] { 'H', '0', '0' }, 2, Catalog.H)
                 },
                 'N' => (new char[5] { 'N', '0', '0', '0', '0' }, 4, Catalog.NGC),
