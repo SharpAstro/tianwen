@@ -2,21 +2,21 @@
 
 public enum Catalog : ulong
 {
-    Abell = 'A' << 16 | 'C' << 8 | 'O',
+    Abell = 'A' << 14 | 'C' << 7 | 'O',
     Barnard = 'B',
     Caldwell = 'C',
-    Collinder = 'C' << 8 | 'r',
+    Collinder = 'C' << 7 | 'r',
     ESO = 'E',
-    GJ = 'G' << 16 | 'J', // Gliese Jahreiß
-    GUM = 'G' << 16 | 'U' << 8 | 'M',
+    GJ = 'G' << 14 | 'J', // Gliese Jahreiß
+    GUM = 'G' << 14 | 'U' << 7 | 'M',
     H = 'H', // Harvard open cluster catalog
-    HD = 'H' << 8 | 'D', // Henry Draper
-    HR = 'H' << 8 | 'R', // Havard revised bright star catalog
-    HCG = 'H' << 16 | 'C' << 8 | 'G', // Hickson Compact Group
+    HD = 'H' << 7 | 'D', // Henry Draper
+    HR = 'H' << 7 | 'R', // Havard revised bright star catalog
+    HCG = 'H' << 14 | 'C' << 7 | 'G', // Hickson Compact Group
     IC = 'I',
-    Melotte = 'M' << 16 | 'e' << 8 | 'l',
+    Melotte = 'M' << 14 | 'e' << 7 | 'l',
     Messier = 'M',
     NGC = 'N',
-    Sharpless = 'S' << 24 | 'h' << 16 | '2' << 8 | '-',
+    Sharpless = 'S' << 21 | 'h' << 14 | '2' << 7 | '-',
     UGC = 'U' // Uppsala General Catalogue
 }
