@@ -30,30 +30,37 @@ namespace Astap.Lib.Tests
 
 
         [Theory]
-        [InlineData("N11", "N0011")]
-        [InlineData("NGC0011", "N0011")]
-        [InlineData("NC 120", "N0120")]
-        [InlineData("NCG00055", "N0055")]
-        [InlineData("NCGX999", "N0999")]
-        [InlineData("I 999", "I0999")]
-        [InlineData("M12", "M012")]
-        [InlineData(" M12", "M012")]
-        [InlineData("M00013", "M013")]
-        [InlineData("Messier 120", "M120")]
-        [InlineData("IC4473 NED01", "I4473N01")]
-        [InlineData("ESO 56-115", "E056-115")]
-        [InlineData("ESO351-030", "E351-030")]
-        [InlineData("ESO356 - 004", "E356-004")]
-        [InlineData("Cl 399", "Cr399")]
-        [InlineData("C041", "C041")]
-        [InlineData("C 40", "C040")]
-        [InlineData("NGC0526A", "N0526_A")]
-        [InlineData("NGC 0526 B", "N0526_B")]
-        [InlineData("N 0526_C", "N0526_C")]
-        [InlineData("IC0715NW", "I0715_NW")]
-        [InlineData("IC0133S", "I0133_S")]
-        [InlineData("HR 4730", "HR4730")]
-        public void GivenAUserInputWhenCleaningItUpThenACleanedupEntryIsReturned(string input, string expectedOutput)
+        [InlineData("N11", "N0011", Catalog.NGC)]
+        [InlineData("NGC0011", "N0011", Catalog.NGC)]
+        [InlineData("NC 120", "N0120", Catalog.NGC)]
+        [InlineData("NCG00055", "N0055", Catalog.NGC)]
+        [InlineData("NCGX999", "N0999", Catalog.NGC)]
+        [InlineData("I 999", "I0999", Catalog.IC)]
+        [InlineData("M12", "M012", Catalog.Messier)]
+        [InlineData(" M12", "M012", Catalog.Messier)]
+        [InlineData("M00013", "M013", Catalog.Messier)]
+        [InlineData("Messier 120", "M120", Catalog.Messier)]
+        [InlineData("IC4473 NED01", "I4473N01", Catalog.IC)]
+        [InlineData("ESO 56-115", "E056-115", Catalog.ESO)]
+        [InlineData("ESO351-030", "E351-030", Catalog.ESO)]
+        [InlineData("ESO356 - 004", "E356-004", Catalog.ESO)]
+        [InlineData("Cl 399", "Cr399", Catalog.Collinder)]
+        [InlineData("C041", "C041", Catalog.Caldwell)]
+        [InlineData("C 40", "C040", Catalog.Caldwell)]
+        [InlineData("NGC0526A", "N0526_A", Catalog.NGC)]
+        [InlineData("NGC 0526 B", "N0526_B", Catalog.NGC)]
+        [InlineData("N 0526_C", "N0526_C", Catalog.NGC)]
+        [InlineData("IC0715NW", "I0715_NW", Catalog.IC)]
+        [InlineData("IC0133S", "I0133_S", Catalog.IC)]
+        [InlineData("HR 4730", "HR4730", Catalog.HR)]
+        [InlineData("XO 1", "XO0001", Catalog.XO)]
+        [InlineData("XO-2S", "XO002S", Catalog.XO)]
+        [InlineData("XO - 2N", "XO002N", Catalog.XO)]
+        [InlineData("HAT-P-23", "HAT-P023", Catalog.HAT_P)]
+        [InlineData("HATS 23", "HATS023", Catalog.HATS)]
+        [InlineData("PSR B0633+17", "PSRB0633+17", Catalog.PSR)]
+        [InlineData("GJ 551", "GJ0551", Catalog.GJ)]
+        public void GivenAUserInputWhenCleaningItUpThenACleanedupEntryIsReturned(string input, string expectedOutput, Catalog expectedCatalog)
         {
             var success = Utils.TryGetCleanedUpCatalogName(input, out var actualCatalogIndex);
 
@@ -61,6 +68,7 @@ namespace Astap.Lib.Tests
             actualCatalogIndex.ShouldNotBe((CatalogIndex)0);
             var actualAbbreviation = EnumHelper.EnumValueToAbbreviation((ulong)actualCatalogIndex);
             actualAbbreviation.ShouldBe(expectedOutput);
+            actualCatalogIndex.ToCatalog().ShouldBe(expectedCatalog);
         }
 
         [Theory]
