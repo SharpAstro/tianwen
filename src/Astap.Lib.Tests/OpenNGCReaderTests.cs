@@ -17,17 +17,18 @@ namespace Astap.Lib.Tests
         const CatalogIndex ESO056_115 = (CatalogIndex)((ulong)'E' << 49 | (ulong)'0' << 42 | (ulong)'5' << 35 | (ulong)'6' << 28 | '-' << 21 | '1' << 14 | '1' << 7 | '5');
 
         [Theory]
-        [InlineData(NGC7293, "N7293")]
-        [InlineData(NGC0056, "N0056")]
-        [InlineData(IC1000, "I1000")]
-        [InlineData(IC0715NW, "I0715_NW")]
-        [InlineData(IC0720_NED02, "I0720N02")]
-        [InlineData(M040, "M040")]
-        [InlineData(M102, "M102")]
-        [InlineData(ESO056_115, "E056-115")]
-        public void GivenACatalogIndexValueWhenGettingAbbreviationThenItIsReturned(CatalogIndex catalogIndex, string expectedAbbreviation)
+        [InlineData(NGC7293, "N7293", Catalog.NGC)]
+        [InlineData(NGC0056, "N0056", Catalog.NGC)]
+        [InlineData(IC1000, "I1000", Catalog.IC)]
+        [InlineData(IC0715NW, "I0715_NW", Catalog.IC)]
+        [InlineData(IC0720_NED02, "I0720N02", Catalog.IC)]
+        [InlineData(M040, "M040", Catalog.Messier)]
+        [InlineData(M102, "M102", Catalog.Messier)]
+        [InlineData(ESO056_115, "E056-115", Catalog.ESO)]
+        public void GivenACatalogIndexValueWhenGettingAbbreviationThenItIsReturned(CatalogIndex catalogIndex, string expectedAbbreviation, Catalog expectedCatalog)
         {
             catalogIndex.ToAbbreviation().ShouldBe(expectedAbbreviation);
+            catalogIndex.ToCatalog().ShouldBe(expectedCatalog);
         }
 
         [Theory]
