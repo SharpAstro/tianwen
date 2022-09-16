@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -25,7 +26,8 @@ public record IAUNamedStar(string Name, double? Vmag, CatalogIndex Index, Object
 
 public class IAUNamedStarDB
 {
-    private readonly Dictionary<CatalogIndex, IAUNamedStar> _stellarObjects = new(460);
+    private readonly Dictionary<CatalogIndex, IAUNamedStar> _stellarObjectsByCatalogIndex = new(460);
+    private readonly Dictionary<string, CatalogIndex> _namesToCatalogIndex = new(460);
 
     public async Task<(int processed, int failed)> ReadEmbeddedDataFileAsync()
     {
@@ -42,7 +44,9 @@ public class IAUNamedStarDB
                 {
                     var objType = catalogIndex.ToCatalog() == Catalog.PSR ? ObjectType.Pulsar : ObjectType.Star;
                     var constellation = AbbreviationToEnumMember<Constellation>(record.Constellation);
-                    _stellarObjects[catalogIndex] = new(record.IAUName, record.Vmag, catalogIndex, objType, record.RA_J2000, record.Dec_J2000, constellation);
+                    var stellarObject = new IAUNamedStar(record.IAUName, record.Vmag, catalogIndex, objType, record.RA_J2000, record.Dec_J2000, constellation);
+                    _stellarObjectsByCatalogIndex[catalogIndex] = stellarObject;
+                    _namesToCatalogIndex[stellarObject.Name] = stellarObject.Index;
                     processed++;
                 }
                 else
@@ -53,5 +57,22 @@ public class IAUNamedStarDB
         }
 
         return (processed, failed);
+    }
+
+    public bool TryGetStellarObjectByCatalogIndex(CatalogIndex catalogIndex, [NotNullWhen(true)] out IAUNamedStar? namedStar)
+        => _stellarObjectsByCatalogIndex.TryGetValue(catalogIndex, out namedStar);
+
+    public bool TryGetStellarObjectByIAUName(string name, [NotNullWhen(true)] out IAUNamedStar? namedStar)
+    {
+        if (_namesToCatalogIndex.TryGetValue(name, out var idx))
+        {
+            namedStar = _stellarObjectsByCatalogIndex[idx];
+            return true;
+        }
+        else
+        {
+            namedStar = default;
+            return false;
+        }
     }
 }
