@@ -15,6 +15,7 @@ namespace Astap.Lib.Tests
         const CatalogIndex M040 = (CatalogIndex)('M' << 21 | '0' << 14 | '4' << 7 | '0');
         const CatalogIndex M102 = (CatalogIndex)('M' << 21 | '1' << 14 | '0' << 7 | '2');
         const CatalogIndex ESO056_115 = (CatalogIndex)((ulong)'E' << 49 | (ulong)'0' << 42 | (ulong)'5' << 35 | (ulong)'6' << 28 | '-' << 21 | '1' << 14 | '1' << 7 | '5');
+        const CatalogIndex PSR_J2144_3933s = (CatalogIndex)((ulong)'P' << 56 | (ulong)'r' << 49 | (ulong)'J' << 42 | (ulong)'A' << 35 | (ulong)'A' << 28 | 'I' << 21 | 'A' << 14 | 'B' << 7 | 'w');
 
         [Theory]
         [InlineData(NGC7293, "N7293", Catalog.NGC)]
@@ -25,6 +26,7 @@ namespace Astap.Lib.Tests
         [InlineData(M040, "M040", Catalog.Messier)]
         [InlineData(M102, "M102", Catalog.Messier)]
         [InlineData(ESO056_115, "E056-115", Catalog.ESO)]
+        [InlineData(PSR_J2144_3933s, "PrJAAIABw", Catalog.PSR)]
         public void GivenACatalogIndexValueWhenGettingAbbreviationThenItIsReturned(CatalogIndex catalogIndex, string expectedAbbreviation, Catalog expectedCatalog)
         {
             catalogIndex.ToAbbreviation().ShouldBe(expectedAbbreviation);

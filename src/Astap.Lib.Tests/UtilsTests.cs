@@ -58,7 +58,8 @@ namespace Astap.Lib.Tests
         [InlineData("XO - 2N", "XO002N", Catalog.XO)]
         [InlineData("HAT-P-23", "HAT-P023", Catalog.HAT_P)]
         [InlineData("HATS 23", "HATS023", Catalog.HATS)]
-        [InlineData("PSR B0633+17", "PSRB0633+17", Catalog.PSR)]
+        [InlineData("PSR J2144-3933", "PrJAAIABw", Catalog.PSR)]
+        [InlineData("PSR B0633+17", "PrBAAGADg", Catalog.PSR)]
         [InlineData("GJ 551", "GJ0551", Catalog.GJ)]
         public void GivenAUserInputWhenCleaningItUpThenACleanedupEntryIsReturned(string input, string expectedOutput, Catalog expectedCatalog)
         {
