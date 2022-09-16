@@ -1,5 +1,7 @@
 ﻿namespace Astap.Lib.Astrometry;
 
+using static Astap.Lib.EnumHelper;
+
 public enum Catalog : ulong
 {
     Abell = 'A' << 14 | 'C' << 7 | 'O',
@@ -48,4 +50,6 @@ public static class CatalogEx
             Catalog.Sharpless => "Sh2",
             _ => catalog.ToString()
         };
+
+    public static string ToAbbreviation(this Catalog catalog) => EnumValueToAbbreviation((ulong)catalog);
 }

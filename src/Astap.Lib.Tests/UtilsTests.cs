@@ -72,8 +72,7 @@ public class UtilsTests
 
         success.ShouldBeTrue();
         actualCatalogIndex.ShouldNotBe((CatalogIndex)0);
-        var actualAbbreviation = EnumHelper.EnumValueToAbbreviation((ulong)actualCatalogIndex);
-        actualAbbreviation.ShouldBe(expectedOutput);
+        actualCatalogIndex.ToAbbreviation().ShouldBe(expectedOutput);
         actualCatalogIndex.ToCatalog().ShouldBe(expectedCatalog);
     }
 

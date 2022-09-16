@@ -2,6 +2,7 @@
 using System.Globalization;
 using System.Net;
 using System.Text.RegularExpressions;
+using static Astap.Lib.EnumHelper;
 
 namespace Astap.Lib.Astrometry;
 
@@ -55,7 +56,7 @@ public static class Utils
 
     static readonly Regex PSRDesignationPattern = new(@"^(?:PSR) ([BJ]) ([0-9]{4}) ([-+]) ([0-9]{2,4})$", CommonOpts);
 
-    static readonly string PSRPrefix = EnumHelper.EnumValueToAbbreviation((ulong)Catalog.PSR);
+    static readonly string PSRPrefix = Catalog.PSR.ToAbbreviation();
 
     public static bool TryGetCleanedUpCatalogName(string? input, out CatalogIndex catalogIndex)
     {
@@ -120,7 +121,7 @@ public static class Utils
                 cleanedUp = null;
             }
         }
-        else if (chars.Length <= EnumHelper.MaxLenInASCII)
+        else if (chars.Length <= MaxLenInASCII)
         {
             int foundDigits = 0;
             for (var i = 0; i < digits; i++)
@@ -168,7 +169,7 @@ public static class Utils
 
         if (cleanedUp is not null)
         {
-            catalogIndex = EnumHelper.AbbreviationToEnumMember<CatalogIndex>(cleanedUp);
+            catalogIndex = AbbreviationToEnumMember<CatalogIndex>(cleanedUp);
             return true;
         }
         else
