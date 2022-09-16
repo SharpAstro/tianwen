@@ -1,5 +1,7 @@
 ﻿using System;
+using System.Globalization;
 using System.Linq;
+using System.Net;
 using System.Numerics;
 using static Astap.Lib.EnumHelper;
 
@@ -12,6 +14,64 @@ public enum CatalogIndex : ulong { }
 
 public static class CatalogIndexEx
 {
+    public static string ToCanonical(this CatalogIndex catalogIndex)
+    {
+        var catalog = catalogIndex.ToCatalog();
+        var catalogLZC = BitOperations.LeadingZeroCount((ulong)catalog);
+        var prefix = catalog.ToCanonical();
+        var catalogIndexUl = (ulong)catalogIndex;
+        var catalogIndexLZC = BitOperations.LeadingZeroCount(catalogIndexUl);
+
+        var withoutCatalogPrefixUl = catalogIndexUl &= ~(ulong.MaxValue << (-catalogIndexLZC + catalogLZC));
+        var withoutPrefixAsStr = EnumValueToAbbreviation(withoutCatalogPrefixUl).TrimStart('0');
+
+        if (withoutPrefixAsStr.Length is 0)
+        {
+            throw new ArgumentException($"Catalog index {catalogIndex} could not be parsed", nameof(catalogIndex));
+        }
+
+        int Nor_Idx;
+        if (catalog is Catalog.PSR)
+        {
+            return FormatPSR(prefix, withoutPrefixAsStr);
+        }
+        else if (catalog is Catalog.NGC or Catalog.IC && (Nor_Idx = withoutPrefixAsStr.IndexOfAny(new char[] { '_', 'N' })) > 0)
+        {
+            return string.Concat(prefix, " ", withoutPrefixAsStr[..Nor_Idx], withoutPrefixAsStr[Nor_Idx] == 'N' ? " NED" : "", withoutPrefixAsStr[(Nor_Idx + 1)..]);
+        }
+        else
+        {
+            var sep = catalog switch
+            {
+                Catalog.Sharpless or Catalog.TrES or Catalog.WASP or Catalog.XO => "-",
+                _ => " "
+            };
+
+            return string.Concat(prefix, sep, withoutPrefixAsStr);
+        }
+    }
+
+    private static string FormatPSR(string prefix, string withoutPrefixAsStr)
+    {
+        var epoch = withoutPrefixAsStr[0];
+        var base64Str = withoutPrefixAsStr[1..];
+        var padding = Math.DivRem(base64Str.Length, 3, out _);
+        var bytes = Convert.FromBase64String(string.Concat(base64Str, new('=', padding)));
+        var intN = BitConverter.ToInt32(bytes);
+        var intH = IPAddress.NetworkToHostOrder(intN);
+        var decIsNeg = (intH & 1) == 0b1;
+        intH >>= 1;
+        var dec = intH & Utils.PSRDecMask;
+        intH >>= Utils.PSRRaShift - 1;
+        var ra = intH & Utils.PSRRaMask;
+        return string.Concat(
+            prefix, " ", epoch,
+            ra.ToString("D4", CultureInfo.InvariantCulture),
+            decIsNeg ? '-' : '+',
+            dec.ToString("D" + (epoch == 'B' ? 2 : 4), CultureInfo.InvariantCulture)
+        );
+    }
+
     public static string ToAbbreviation(this CatalogIndex catalogIndex) => EnumValueToAbbreviation((ulong)catalogIndex);
 
     private static readonly Catalog[] CatalogEntriesBySizeDesc = Enum.GetValues<Catalog>().OrderByDescending(x => (ulong)x).ToArray();
