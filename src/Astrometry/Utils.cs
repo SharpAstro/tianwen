@@ -58,6 +58,10 @@ public static class Utils
 
     static readonly string PSRPrefix = Catalog.PSR.ToAbbreviation();
 
+    internal const int PSRRaMask = 0xfff;
+    internal const int PSRRaShift = 15;
+    internal const int PSRDecMask = 0x3fff;
+
     public static bool TryGetCleanedUpCatalogName(string? input, out CatalogIndex catalogIndex)
     {
         var (chars, digits, catalog) = GuessCatalogFormat(input, out var trimmedInput);
@@ -107,9 +111,9 @@ public static class Utils
                 if (short.TryParse(ra, NumberStyles.None, CultureInfo.InvariantCulture, out var raVal)
                     && short.TryParse(dec, NumberStyles.None, CultureInfo.InvariantCulture, out var decVal))
                 {
-                    var idAsInt = (raVal & 0xfff) << 15 | (decVal & 0x3fff) << 1 | (decIsNeg ? 1 : 0);
-                    var idAsIntH = IPAddress.HostToNetworkOrder(idAsInt);
-                    cleanedUp = string.Concat(PSRPrefix, BorJ, Convert.ToBase64String(BitConverter.GetBytes(idAsIntH), Base64FormattingOptions.None).TrimEnd('='));
+                    var idAsInt = (raVal & PSRRaMask) << PSRRaShift | (decVal & PSRDecMask) << 1 | (decIsNeg ? 1 : 0);
+                    var idAsIntN = IPAddress.HostToNetworkOrder(idAsInt);
+                    cleanedUp = string.Concat(PSRPrefix, BorJ, Convert.ToBase64String(BitConverter.GetBytes(idAsIntN), Base64FormattingOptions.None).TrimEnd('='));
                 }
                 else
                 {
