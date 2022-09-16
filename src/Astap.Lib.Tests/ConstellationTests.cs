@@ -10,6 +10,8 @@ namespace Astap.Lib.Tests
         [InlineData(Constellation.Andromeda, "And")]
         [InlineData(Constellation.Antlia, "Ant")]
         [InlineData(Constellation.Apus, "Aps")]
+        [InlineData(Constellation.Lyra, "Lyr")]
+        [InlineData(Constellation.Lynx, "Lyn")]
         [InlineData(Constellation.Serpens, "Ser")]
         [InlineData(Constellation.SerpensCaput, "Se1")]
         [InlineData(Constellation.SerpensCauda, "Se2")]

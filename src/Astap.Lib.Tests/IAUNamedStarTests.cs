@@ -1,4 +1,5 @@
 ﻿using Astap.Lib.Astrometry;
+using Shouldly;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -9,6 +10,9 @@ public class IAUNamedStarTests
     [Fact]
     public async Task ReadStarsTest()
     {
-        await new IAUNamedStarDB().ReadEmbeddedDataFileAsync();
+        var (processed, failed) = await new IAUNamedStarDB().ReadEmbeddedDataFileAsync();
+
+        processed.ShouldBe(451);
+        failed.ShouldBe(0);
     }
 }

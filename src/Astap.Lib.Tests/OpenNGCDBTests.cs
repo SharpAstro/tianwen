@@ -10,8 +10,9 @@ public class OpenNGCDBTests
 {
     [Theory]
     [InlineData("ESO056-115", ObjectType.Galaxy, ESO056_115, Constellation.Dorado, 80.89375d, -57.65833333333333d)]
-    [InlineData("IC1000", ObjectType.Galaxy, IC1000, Constellation.Bootes, 214.91795833333333d, 29.820416666666667d)]
+    [InlineData("IC0458", ObjectType.Galaxy, IC0458, Constellation.Lynx, 107.64229166666667d, 51.78375d)]
     [InlineData("IC0715NW", ObjectType.Galaxy, IC0715NW, Constellation.Crater, 174.225875d, -2.3629166666666666d)]
+    [InlineData("IC1000", ObjectType.Galaxy, IC1000, Constellation.Bootes, 214.91795833333333d, 29.820416666666667d)]
     [InlineData("M102", ObjectType.Duplicate, M102, Constellation.UrsaMajor, 210.80225d, 59.23416666666667d)]
     [InlineData("M40", ObjectType.DoubleStar, M040, Constellation.UrsaMajor, 185.56708333333333d, 59.266666666666666d)]
     [InlineData("NGC0056", ObjectType.Other, NGC0056, Constellation.Pisces, 3.8360833333333333d, 18.667916666666667d)]
