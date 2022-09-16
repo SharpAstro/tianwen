@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using static Astap.Lib.EnumHelper;
 
@@ -213,5 +212,9 @@ namespace Astap.Lib.Astrometry
             }
             return false;
         }
+
+        static readonly Regex PascalSplitter = new("([A-Z])|([0-9]+)", RegexOptions.Compiled);
+
+        public static string ToName(this Constellation constellation) => PascalSplitter.Replace(constellation.ToString(), " $1$2").TrimStart();
     }
 }

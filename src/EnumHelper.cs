@@ -38,9 +38,4 @@ public static class EnumHelper
 
         return new string(chars, MaxLenInASCII - i, i);
     }
-
-
-    static readonly Regex PascalSplitter = new("([A-Z])|([0-9]+)", RegexOptions.Compiled);
-
-    public static string ToName<T>(this T constellation) where T : Enum => PascalSplitter.Replace(constellation.ToString(), " $1$2").TrimStart();
 }
