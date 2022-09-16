@@ -9,6 +9,6 @@ public class IAUNamedStarTests
     [Fact]
     public async Task ReadStarsTest()
     {
-        await new IAUNamedStarReader().ReadEmbeddedDataFileAsync();
+        await new IAUNamedStarDB().ReadEmbeddedDataFileAsync();
     }
 }
