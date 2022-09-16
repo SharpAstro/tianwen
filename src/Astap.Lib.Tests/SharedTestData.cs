@@ -12,6 +12,8 @@ public static class SharedTestData
     internal const CatalogIndex M040 = (CatalogIndex)('M' << 21 | '0' << 14 | '4' << 7 | '0');
     internal const CatalogIndex M102 = (CatalogIndex)('M' << 21 | '1' << 14 | '0' << 7 | '2');
     internal const CatalogIndex ESO056_115 = (CatalogIndex)((ulong)'E' << 49 | (ulong)'0' << 42 | (ulong)'5' << 35 | (ulong)'6' << 28 | '-' << 21 | '1' << 14 | '1' << 7 | '5');
-    internal const CatalogIndex PSR_J2144_3933s = (CatalogIndex)((ulong)'P' << 56 | (ulong)'r' << 49 | (ulong)'J' << 42 | (ulong)'A' << 35 | (ulong)'A' << 28 | 'I' << 21 | 'A' << 14 | 'B' << 7 | 'w');
-
+    internal const CatalogIndex PSR_J2144_3933s = (CatalogIndex)((ulong)'P' << 56 | (ulong)'r' << 49 | (ulong)'J' << 42 | (ulong)'B' << 35 | (ulong)'D' << 28 | 'A' << 21 | 'e' << 14 | 'u' << 7 | 'w');
+    internal const CatalogIndex PSR_B0633_17n = (CatalogIndex)((ulong)'P' << 56 | (ulong)'r' << 49 | (ulong)'B' << 42 | (ulong)'A' << 35 | (ulong)'T' << 28 | 'y' << 21 | 'A' << 14 | 'I' << 7 | 'g');
+    internal const CatalogIndex SH2_6 = (CatalogIndex)((ulong)'S' << 28 | 'H' << 21 | '2' << 14 | '-' << 7 | '6');
+    internal const CatalogIndex TrES_3 = (CatalogIndex)((ulong)'T' << 35 | (ulong)'r' << 28 | 'E' << 21 | 'S' << 14 | '0' << 7 | '3');
 }

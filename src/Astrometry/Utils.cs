@@ -53,7 +53,7 @@ public static class Utils
 
     static readonly Regex ExtendedCatalogEntryPattern = new(@"^(N|I|NGC|IC) ([0-9]{1,4}) (?:(N(?:ED)? ([0-9]{1,2})) | [_]?([A-Z]{1,2}))$", CommonOpts);
 
-    static readonly Regex PSRDesignationPattern = new(@"^(?:PSR) ([BJ]) ([0-9]){4}([-+])([0-9]){2,4}$", CommonOpts);
+    static readonly Regex PSRDesignationPattern = new(@"^(?:PSR) ([BJ]) ([0-9]{4}) ([-+]) ([0-9]{2,4})$", CommonOpts);
 
     static readonly string PSRPrefix = EnumHelper.EnumValueToAbbreviation((ulong)Catalog.PSR);
 
@@ -222,6 +222,8 @@ public static class Utils
             'P' => trimmedInput[1] == 'S' && trimmedInput.Length > 2 && trimmedInput[2] == 'R'
                 ? (new char[12] { 'P', 'S', 'R', '$', '0', '0', '0', '#', '0', '0', '0', '0'}, 8, Catalog.PSR)
                 : (Array.Empty<char>(), 0, null),
+            'S' => (new char[7] { 'S', 'h', '2', '-', '0', '0', '0'}, 3, Catalog.Sharpless),
+            'T' => (new char[6] { 'T', 'r', 'E', 'S', '0', '0' }, 2, Catalog.TrES),
             'U' => (new char[5] { 'U', '0', '0', '0', '0' }, 5, Catalog.UGC),
             'W' => (new char[7] { 'W', 'A', 'S', 'P', '0', '0', '0'}, 4, Catalog.WASP),
             'X' => (new char[6] { 'X', 'O', '0', '0', '0', '*' }, 4, Catalog.XO),
