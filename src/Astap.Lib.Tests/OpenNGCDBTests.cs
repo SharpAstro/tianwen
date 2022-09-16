@@ -8,7 +8,6 @@ namespace Astap.Lib.Tests;
 
 public class OpenNGCDBTests
 {
-
     [Theory]
     [InlineData("ESO056-115", ObjectType.Galaxy, ESO056_115, Constellation.Dorado, 80.89375d, -57.65833333333333d)]
     [InlineData("IC1000", ObjectType.Galaxy, IC1000, Constellation.Bootes, 214.91795833333333d, 29.820416666666667d)]
@@ -27,11 +26,11 @@ public class OpenNGCDBTests
     )
     {
         // given
-        var reader = new OpenNGCDB();
-        var (actualRead, actualFailed) = await reader.ReadEmbeddedDataFilesAsync();
+        var db = new OpenNGCDB();
+        var (actualRead, actualFailed) = await db.ReadEmbeddedDataFilesAsync();
 
         // when
-        var found = reader.TryLookupByIndex(indexEntry, out var celestialObject);
+        var found = db.TryLookupByIndex(indexEntry, out var celestialObject);
 
         // then
         actualRead.ShouldBeGreaterThan(13000);

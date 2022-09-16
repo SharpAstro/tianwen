@@ -58,9 +58,14 @@ public class UtilsTests
     [InlineData("XO - 2N", "XO002N", Catalog.XO)]
     [InlineData("HAT-P-23", "HAT-P023", Catalog.HAT_P)]
     [InlineData("HATS 23", "HATS023", Catalog.HATS)]
-    [InlineData("PSR J2144-3933", "PrJAAIABw", Catalog.PSR)]
-    [InlineData("PSR B0633+17", "PrBAAGADg", Catalog.PSR)]
+    [InlineData("PSR J2144-3933", "PrJBDAeuw", Catalog.PSR)]
+    [InlineData("PSR B0633+17", "PrBATyAIg", Catalog.PSR)]
+    [InlineData("PSR J2400-9000", "PrJBLBGUQ", Catalog.PSR)]
+    [InlineData("PSR B2400-90", "PrBBLAAtQ", Catalog.PSR)]
     [InlineData("GJ 551", "GJ0551", Catalog.GJ)]
+    [InlineData("Sh 2 - 6", "Sh2-006", Catalog.Sharpless)]
+    [InlineData("Tres - 3", "TrES03", Catalog.TrES)]
+    [InlineData("WASP-11", "WASP011", Catalog.WASP)]
     public void GivenAUserInputWhenCleaningItUpThenACleanedupEntryIsReturned(string input, string expectedOutput, Catalog expectedCatalog)
     {
         var success = Utils.TryGetCleanedUpCatalogName(input, out var actualCatalogIndex);

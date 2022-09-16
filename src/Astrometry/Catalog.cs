@@ -22,6 +22,7 @@ public enum Catalog : ulong
     NGC = 'N',
     PSR = 'P' << 7 | 'r', // PSR
     Sharpless = 'S' << 21 | 'h' << 14 | '2' << 7 | '-', // Sharpless, including dash to distinguish 2 in the name from a number
+    TrES = 'T' << 21 | 'r' << 14 | 'E' << 7 | 'S',
     UGC = 'U', // Uppsala General Catalogue
     WASP = 'W' << 21 | 'A' << 14 | 'S' << 7 | 'P',
     XO = 'X' << 7 | 'O'
