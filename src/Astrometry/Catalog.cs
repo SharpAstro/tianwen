@@ -26,3 +26,25 @@ public enum Catalog : ulong
     WASP = 'W' << 21 | 'A' << 14 | 'S' << 7 | 'P',
     XO = 'X' << 7 | 'O'
 }
+
+public static class CatalogEx
+{
+    /// <summary>
+    /// Returns the canonical catalog name, i.e. NGC, M, Barnard, ACO, Sh-2.
+    /// Note that the enum values might be truncated so they should not be used for this, in general.
+    /// </summary>
+    /// <param name="catalog"></param>
+    /// <returns></returns>
+    public static string ToCanonical(this Catalog catalog)
+        => catalog switch
+        {
+            Catalog.Abell => "ACO",
+            Catalog.Caldwell => "C",
+            Catalog.Collinder => "Cr",
+            Catalog.Melotte => "Mel",
+            Catalog.Messier => "M",
+            Catalog.HAT_P => "HAT-P",
+            Catalog.Sharpless => "Sh2",
+            _ => catalog.ToString()
+        };
+}

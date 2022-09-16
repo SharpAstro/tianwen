@@ -2,36 +2,12 @@
 using Shouldly;
 using System.Threading.Tasks;
 using Xunit;
+using static Astap.Lib.Tests.SharedTestData;
 
 namespace Astap.Lib.Tests
 {
     public class OpenNGCReaderTests
     {
-        const CatalogIndex NGC7293 = (CatalogIndex)((ulong)'N' << 28 | '7' << 21 | '2' << 14 | '9' << 7 | '3');
-        const CatalogIndex NGC0056 = (CatalogIndex)((ulong)'N' << 28 | '0' << 21 | '0' << 14 | '5' << 7 | '6');
-        const CatalogIndex IC1000 = (CatalogIndex)((ulong)'I' << 28 | '1' << 21 | '0' << 14 | '0' << 7 | '0');
-        const CatalogIndex IC0715NW = (CatalogIndex)((ulong)'I' << 49 | (ulong)'0' << 42 | (ulong)'7' << 35 | (ulong)'1' << 28 | '5' << 21 | '_' << 14 | 'N' << 7 | 'W');
-        const CatalogIndex IC0720_NED02 = (CatalogIndex)((ulong)'I' << 49 | (ulong)'0' << 42 | (ulong)'7' << 35 | (ulong)'2' << 28 | '0' << 21 | 'N' << 14 | '0' << 7 | '2');
-        const CatalogIndex M040 = (CatalogIndex)('M' << 21 | '0' << 14 | '4' << 7 | '0');
-        const CatalogIndex M102 = (CatalogIndex)('M' << 21 | '1' << 14 | '0' << 7 | '2');
-        const CatalogIndex ESO056_115 = (CatalogIndex)((ulong)'E' << 49 | (ulong)'0' << 42 | (ulong)'5' << 35 | (ulong)'6' << 28 | '-' << 21 | '1' << 14 | '1' << 7 | '5');
-        const CatalogIndex PSR_J2144_3933s = (CatalogIndex)((ulong)'P' << 56 | (ulong)'r' << 49 | (ulong)'J' << 42 | (ulong)'A' << 35 | (ulong)'A' << 28 | 'I' << 21 | 'A' << 14 | 'B' << 7 | 'w');
-
-        [Theory]
-        [InlineData(NGC7293, "N7293", Catalog.NGC)]
-        [InlineData(NGC0056, "N0056", Catalog.NGC)]
-        [InlineData(IC1000, "I1000", Catalog.IC)]
-        [InlineData(IC0715NW, "I0715_NW", Catalog.IC)]
-        [InlineData(IC0720_NED02, "I0720N02", Catalog.IC)]
-        [InlineData(M040, "M040", Catalog.Messier)]
-        [InlineData(M102, "M102", Catalog.Messier)]
-        [InlineData(ESO056_115, "E056-115", Catalog.ESO)]
-        [InlineData(PSR_J2144_3933s, "PrJAAIABw", Catalog.PSR)]
-        public void GivenACatalogIndexValueWhenGettingAbbreviationThenItIsReturned(CatalogIndex catalogIndex, string expectedAbbreviation, Catalog expectedCatalog)
-        {
-            catalogIndex.ToAbbreviation().ShouldBe(expectedAbbreviation);
-            catalogIndex.ToCatalog().ShouldBe(expectedCatalog);
-        }
 
         [Theory]
         [InlineData("ESO056-115", ObjectType.Galaxy, ESO056_115, Constellation.Dorado, 80.89375d, -57.65833333333333d)]
