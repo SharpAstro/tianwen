@@ -1,8 +1,10 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using static Astap.Lib.EnumHelper;
 
 namespace Astap.Lib.Astrometry;
 
@@ -18,12 +20,14 @@ record IAUNamedStarDTO(
     DateTime ApprovalDate
 );
 
-public record IAUNamedStar(string Name, double? Vmag, CatalogIndex Designation, ObjectType ObjectType, double RA, double Dec, Constellation Constellation)
-    : CelestialObject(Designation, ObjectType, RA, Dec, Constellation);
+public record IAUNamedStar(string Name, double? Vmag, CatalogIndex Index, ObjectType ObjectType, double RA, double Dec, Constellation Constellation)
+    : CelestialObject(Index, ObjectType, RA, Dec, Constellation);
 
 public class IAUNamedStarDB
 {
-    public async Task ReadEmbeddedDataFileAsync()
+    private readonly Dictionary<CatalogIndex, IAUNamedStar> _stellarObjects = new(460);
+
+    public async Task<(int processed, int failed)> ReadEmbeddedDataFileAsync()
     {
         var processed = 0;
         var failed = 0;
@@ -36,6 +40,9 @@ public class IAUNamedStarDB
             {
                 if (record is not null && Utils.TryGetCleanedUpCatalogName(record.Designation, out var catalogIndex))
                 {
+                    var objType = catalogIndex.ToCatalog() == Catalog.PSR ? ObjectType.Pulsar : ObjectType.Star;
+                    var constellation = AbbreviationToEnumMember<Constellation>(record.Constellation);
+                    _stellarObjects[catalogIndex] = new(record.IAUName, record.Vmag, catalogIndex, objType, record.RA_J2000, record.Dec_J2000, constellation);
                     processed++;
                 }
                 else
@@ -44,5 +51,7 @@ public class IAUNamedStarDB
                 }
             }
         }
+
+        return (processed, failed);
     }
 }

@@ -56,7 +56,7 @@ namespace Astap.Lib.Astrometry
         Lepus = 'L' << 14 | 'e' << 7 | 'p',
         Libra = 'L' << 14 | 'i' << 7 | 'b',
         Lupus = 'L' << 14 | 'u' << 7 | 'p',
-        Lynx = 'L' << 14 | 'y' << 7 | 'x',
+        Lynx = 'L' << 14 | 'y' << 7 | 'n',
         Lyra = 'L' << 14 | 'y' << 7 | 'r',
         Mensa = 'M' << 14 | 'e' << 7 | 'n',
         Microscopium = 'M' << 14 | 'i' << 7 | 'c',

@@ -18,6 +18,8 @@ public class CatalogIndexTests
     [InlineData(ESO056_115, "E056-115")]
     [InlineData(PSR_J2144_3933s, "PrJBDAeuw")]
     [InlineData(PSR_B0633_17n, "PrBATyAIg")]
+    [InlineData(SH2_6, "Sh2-006")]
+    [InlineData(TrES_3, "TrES03")]
     public void GivenACatalogIndexValueWhenToAbbreviationThenItIsReturned(CatalogIndex catalogIndex, string expectedAbbreviation)
     {
         catalogIndex.ToAbbreviation().ShouldBe(expectedAbbreviation);
@@ -34,6 +36,8 @@ public class CatalogIndexTests
     [InlineData(ESO056_115, Catalog.ESO)]
     [InlineData(PSR_J2144_3933s, Catalog.PSR)]
     [InlineData(PSR_B0633_17n, Catalog.PSR)]
+    [InlineData(SH2_6, Catalog.Sharpless)]
+    [InlineData(TrES_3, Catalog.TrES)]
     public void GivenACatalogIndexValueWhenToCatalogThenItIsReturned(CatalogIndex catalogIndex, Catalog expectedCatalog)
     {
         catalogIndex.ToCatalog().ShouldBe(expectedCatalog);
