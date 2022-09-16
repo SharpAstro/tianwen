@@ -14,13 +14,13 @@ using static Astap.Lib.Astrometry.Utils;
 
 namespace Astap.Lib.Astrometry
 {
-    public class OpenNGCReader
+    public class OpenNGCDB
     {
         private readonly Dictionary<CatalogIndex, CelestialObject> _objectsByIndex = new(14000);
         private readonly Dictionary<CatalogIndex, CatalogIndex[]> _crossLookupTable = new(900);
         private readonly Dictionary<string, CatalogIndex[]> _objectsByCommonName = new(200);
 
-        public OpenNGCReader() { }
+        public OpenNGCDB() { }
 
         public bool TryLookupByIndex(string name, [NotNullWhen(true)] out CelestialObject? celestialObject)
         {
@@ -40,7 +40,7 @@ namespace Astap.Lib.Astrometry
 
         public async Task<(int processed, int failed)> ReadEmbeddedDataFilesAsync()
         {
-            var assembly = typeof(OpenNGCReader).Assembly;
+            var assembly = typeof(OpenNGCDB).Assembly;
             int totalProcessed = 0;
             int totalFailed = 0;
 
