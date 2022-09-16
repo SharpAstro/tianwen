@@ -18,16 +18,19 @@ public class IAUNamedStarTests
     }
 
     [Theory]
-    [InlineData("Achernar", "HR 472")]
-    public async Task GivenAnIAUStarNameWhenGettingNamedStarThenItIsFound(string iauName, string expectedCatIndex)
+    [InlineData("Achernar", ObjectType.Star, "HR 472")]
+    [InlineData("Geminga", ObjectType.Pulsar, "PSR B0633+17")]
+    public async Task GivenAnIAUStarNameWhenGettingNamedStarThenItIsFound(string iauName, ObjectType expectedObjectType, string expectedDesignation)
     {
         var db = new IAUNamedStarDB();
         _ = await db.ReadEmbeddedDataFileAsync();
+        Utils.TryGetCleanedUpCatalogName(expectedDesignation, out var designationCatIndex).ShouldBeTrue();
 
         var actualFound = db.TryGetStellarObjectByIAUName(iauName, out var namedStar);
 
         actualFound.ShouldBeTrue();
         namedStar.ShouldNotBeNull();
-        namedStar.Index.ShouldBe(AbbreviationToEnumMember<CatalogIndex>(expectedCatIndex));
+        namedStar.Index.ShouldBe(designationCatIndex);
+        namedStar.ObjectType.ShouldBe(expectedObjectType);
     }
 }
