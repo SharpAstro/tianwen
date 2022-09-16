@@ -7,7 +7,7 @@ public static class EnumHelper
 {
     const int ASCIIMask = 0x7f;
     const int ASCIIBits = 7;
-    const int MaxLenInASCII = 64 / ASCIIBits;
+    internal const int MaxLenInASCII = 64 / ASCIIBits;
 
     public static T AbbreviationToEnumMember<T>(string name)
         where T : Enum

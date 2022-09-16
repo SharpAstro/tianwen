@@ -20,7 +20,7 @@ public enum Catalog : ulong
     Melotte = 'M' << 14 | 'e' << 7 | 'l',
     Messier = 'M',
     NGC = 'N',
-    PSR = 'P' << 14 | 'S' << 7 | 'R', // PSR
+    PSR = 'P' << 7 | 'r', // PSR
     Sharpless = 'S' << 21 | 'h' << 14 | '2' << 7 | '-', // Sharpless, including dash to distinguish 2 in the name from a number
     UGC = 'U', // Uppsala General Catalogue
     WASP = 'W' << 21 | 'A' << 14 | 'S' << 7 | 'P',

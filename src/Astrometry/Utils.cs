@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Globalization;
+using System.Net;
 using System.Text.RegularExpressions;
 
 namespace Astap.Lib.Astrometry;
@@ -48,8 +49,13 @@ public static class Utils
         }
     }
 
-    static readonly Regex ExtendedCatalogEntryPattern = new(@"^(N|I|NGC|IC) ([0-9]{1,4}) (?:(N(?:ED)? ([0-9]{1,2})) | [_]?([A-Z]{1,2}))$",
-        RegexOptions.Compiled | RegexOptions.IgnorePatternWhitespace);
+    const RegexOptions CommonOpts = RegexOptions.CultureInvariant | RegexOptions.Compiled | RegexOptions.IgnorePatternWhitespace;
+
+    static readonly Regex ExtendedCatalogEntryPattern = new(@"^(N|I|NGC|IC) ([0-9]{1,4}) (?:(N(?:ED)? ([0-9]{1,2})) | [_]?([A-Z]{1,2}))$", CommonOpts);
+
+    static readonly Regex PSRDesignationPattern = new(@"^(?:PSR) ([BJ]) ([0-9]){4}([-+])([0-9]){2,4}$", CommonOpts);
+
+    static readonly string PSRPrefix = EnumHelper.EnumValueToAbbreviation((ulong)Catalog.PSR);
 
     public static bool TryGetCleanedUpCatalogName(string? input, out CatalogIndex catalogIndex)
     {
@@ -70,17 +76,17 @@ public static class Utils
             var match = ExtendedCatalogEntryPattern.Match(trimmedInput);
             if (match.Success && match.Groups.Count == 6)
             {
-                var NorI = match.Groups[1].ValueSpan[0..1].ToString();
-                var number = match.Groups[2].Value;
+                var NorI = match.Groups[1].ValueSpan[0..1];
+                var number = match.Groups[2].ValueSpan;
                 if (match.Groups[5].Length == 0)
                 {
-                    var nedGroupSuffix = match.Groups[4].Value;
-                    cleanedUp = string.Concat(NorI, number, 'N', nedGroupSuffix);
+                    var nedGroupSuffix = match.Groups[4].ValueSpan;
+                    cleanedUp = string.Concat(NorI, number, "N", nedGroupSuffix);
                 }
                 else
                 {
-                    var letterSuffix = match.Groups[5].Value;
-                    cleanedUp = string.Concat(NorI, number, '_', letterSuffix);
+                    var letterSuffix = match.Groups[5].ValueSpan;
+                    cleanedUp = string.Concat(NorI, number, "_", letterSuffix);
                 }
             }
             else
@@ -88,7 +94,33 @@ public static class Utils
                 cleanedUp = null;
             }
         }
-        else
+        else if (catalog == Catalog.PSR)
+        {
+            var match = PSRDesignationPattern.Match(trimmedInput);
+            if (match.Success && match.Groups.Count == 5)
+            {
+                var BorJ = match.Groups[1].ValueSpan;
+                var ra = match.Groups[2].ValueSpan;
+                var decIsNeg = match.Groups[3].ValueSpan[0] == '-';
+                var dec = match.Groups[4].ValueSpan;
+                if (short.TryParse(ra, NumberStyles.None, CultureInfo.InvariantCulture, out var raVal)
+                    && short.TryParse(dec, NumberStyles.None, CultureInfo.InvariantCulture, out var decVal))
+                {
+                    var idAsInt = (raVal & 0xfff) << 15 | (decVal & 0x3fff) << 1 | (decIsNeg ? 1 : 0);
+                    var idAsIntH = IPAddress.HostToNetworkOrder(idAsInt);
+                    cleanedUp = string.Concat(PSRPrefix, BorJ, Convert.ToBase64String(BitConverter.GetBytes(idAsIntH), Base64FormattingOptions.None).TrimEnd('='));
+                }
+                else
+                {
+                    cleanedUp = null;
+                }
+            }
+            else
+            {
+                cleanedUp = null;
+            }
+        }
+        else if (chars.Length <= EnumHelper.MaxLenInASCII)
         {
             int foundDigits = 0;
             for (var i = 0; i < digits; i++)
@@ -128,6 +160,10 @@ public static class Utils
             }
 
             cleanedUp = foundDigits > 0 ? new string(chars) : null;
+        }
+        else
+        {
+            cleanedUp = null;
         }
 
         if (cleanedUp is not null)
@@ -184,7 +220,7 @@ public static class Utils
                 : (new char[4] { 'M', '0', '0', '0' }, 3, Catalog.Messier),
             'N' => (new char[5] { 'N', '0', '0', '0', '0' }, 4, Catalog.NGC),
             'P' => trimmedInput[1] == 'S' && trimmedInput.Length > 2 && trimmedInput[2] == 'R'
-                ? (new char[8] { 'P', 'S', 'R', '*', '&', '&', '&', '&'}, 8, Catalog.PSR)
+                ? (new char[12] { 'P', 'S', 'R', '$', '0', '0', '0', '#', '0', '0', '0', '0'}, 8, Catalog.PSR)
                 : (Array.Empty<char>(), 0, null),
             'U' => (new char[5] { 'U', '0', '0', '0', '0' }, 5, Catalog.UGC),
             'W' => (new char[7] { 'W', 'A', 'S', 'P', '0', '0', '0'}, 4, Catalog.WASP),
