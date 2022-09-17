@@ -14,11 +14,20 @@ public class OpenNGCDBTests
     [InlineData("IC0715NW", ObjectType.Galaxy, IC0715NW, Constellation.Crater, 174.225875d, -8.375805555555557d)]
     [InlineData("IC1000", ObjectType.Galaxy, IC1000, Constellation.Bootes, 214.91795833333333d, 17.854694444444444d)]
     [InlineData("IC1577", ObjectType.Galaxy, IC0048, Constellation.Cetus, 10.893625d, -8.1865d)]
+    [InlineData("IC0381", ObjectType.Galaxy, NGC1530_A, Constellation.Camelopardalis, 71.11875d, 75.63975d)]
+    [InlineData("IC0048", ObjectType.Galaxy, IC0048, Constellation.Cetus, 10.893625d, -8.1865d)]
     [InlineData("M102", ObjectType.Galaxy, NGC5457, Constellation.UrsaMajor, 210.80225d, 54.34894444444445d)]
+    [InlineData("NGC5457", ObjectType.Galaxy, NGC5457, Constellation.UrsaMajor, 210.80225d, 54.34894444444445d)]
     [InlineData("M40", ObjectType.DoubleStar, M040, Constellation.UrsaMajor, 185.56708333333333d, 58.08444444444444d)]
+    [InlineData("M45", ObjectType.OpenCluster, Mel022, Constellation.Taurus, 56.869166666666665d, 24.10527777777778d)]
     [InlineData("NGC0056", ObjectType.Other, NGC0056, Constellation.Pisces, 3.8360833333333333d, 12.444527777777777d)]
     [InlineData("NGC7293", ObjectType.PlanetaryNebula, NGC7293, Constellation.Aquarius, 337.41070833333333d, -20.837333333333333d)]
-    public async Task GivenObjectIdWhenLookingItUpThenAnEntryIsReturned(
+    [InlineData("IC0843", ObjectType.Galaxy, NGC4913, Constellation.ComaBerenices, 195.43070833333334d, 29.044666666666668d)]
+    [InlineData("IC4088", ObjectType.Galaxy, NGC4913, Constellation.ComaBerenices, 195.43070833333334d, 29.044666666666668d)]
+    [InlineData("NGC4913", ObjectType.Galaxy, NGC4913, Constellation.ComaBerenices, 195.43070833333334d, 29.044666666666668d)]
+    [InlineData("M13", ObjectType.GlobularCluster, NGC6205, Constellation.Hercules, 250.42345833333334d, 36.46130555555556d)]
+    [InlineData("NGC6205", ObjectType.GlobularCluster, NGC6205, Constellation.Hercules, 250.42345833333334d, 36.46130555555556d)]
+    public async Task GivenObjectIdWhenLookingItUpThenAnObjIsReturned(
         string indexEntry,
         ObjectType expectedObjType,
         CatalogIndex expectedCatalogIindex,
@@ -44,5 +53,32 @@ public class OpenNGCDBTests
         celestialObject.Constellation.ShouldBe(expectedConstellation);
         celestialObject.RA.ShouldBe(expectedRaDeg);
         celestialObject.Dec.ShouldBe(expectedDecDeg);
+    }
+
+    [Theory]
+    [InlineData("Antennae Galaxies", NGC4038, NGC4039)]
+    [InlineData("Eagle Nebula", IC4703, NGC6611)]
+    [InlineData("Hercules Globular Cluster", NGC6205)]
+    [InlineData("Large Magellanic Cloud", ESO056_115)]
+    [InlineData("Tarantula Nebula", NGC2070)]
+    [InlineData("30 Dor Cluster", NGC2070)]
+    [InlineData("Orion Nebula", NGC1976)]
+    [InlineData("Great Orion Nebula", NGC1976)]
+    [InlineData("Pleiades", Mel022)]
+    public async Task GivenANameWhenLookingItUpThenAnObjIsReturned(string name, params CatalogIndex[] expectedMatches)
+    {
+        // given
+        var db = new OpenNGCDB();
+        var (actualRead, actualFailed) = await db.ReadEmbeddedDataFilesAsync();
+
+        // when
+        var found = db.TryResolveCommonName(name, out var matches);
+
+        // then
+        actualRead.ShouldBeGreaterThan(13000);
+        actualFailed.ShouldBe(0);
+        found.ShouldBeTrue();
+        matches.ShouldNotBeNull();
+        matches.ShouldBeEquivalentTo(expectedMatches);
     }
 }

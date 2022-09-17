@@ -9,8 +9,8 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
-using static Astap.Lib.EnumHelper;
 using static Astap.Lib.Astrometry.Utils;
+using static Astap.Lib.EnumHelper;
 
 namespace Astap.Lib.Astrometry
 {
@@ -21,6 +21,9 @@ namespace Astap.Lib.Astrometry
         private readonly Dictionary<string, CatalogIndex[]> _objectsByCommonName = new(200);
 
         public OpenNGCDB() { }
+
+        public bool TryResolveCommonName(string name, [NotNullWhen(true)] out CatalogIndex[]? matches)
+            => _objectsByCommonName.TryGetValue(name, out matches);
 
         public bool TryLookupByIndex(string name, [NotNullWhen(true)] out CelestialObject? celestialObject)
         {
@@ -75,28 +78,25 @@ namespace Astap.Lib.Astrometry
                 }
                 else if (followIndicies.Length > 1)
                 {
-                    var indexCat = index.ToCatalog();
-                    var canFollowIndices = new List<CatalogIndex>(2);
+                    var followedObjs = new List<CelestialObject>(2);
                     foreach (var followIndex in followIndicies)
                     {
-                        var followIndexCat = followIndex.ToCatalog();
-                        if (followIndexCat == indexCat && followIndex != index)
+                        if (followIndex != index
+                            && _objectsByIndex.TryGetValue(followIndex, out var followedObj)
+                            && followedObj.ObjectType != ObjectType.Duplicate)
                         {
-                            canFollowIndices.Add(followIndex);
+                            followedObjs.Add(followedObj);
                         }
                     }
 
-                    return canFollowIndices.Count == 1 && TryLookupByIndex(canFollowIndices[0], out celestialObject);
-                }
-                else
-                {
-                    return false;
+                    if (followedObjs.Count == 1)
+                    {
+                        celestialObject = followedObjs[0];
+                        return true;
+                    }
                 }
             }
-            else
-            {
-                return false;
-            }
+            return false;
         }
 
         public async Task<(int processed, int failed)> ReadEmbeddedDataFilesAsync()
