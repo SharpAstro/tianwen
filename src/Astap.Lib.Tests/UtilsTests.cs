@@ -11,6 +11,7 @@ public class UtilsTests
     [InlineData("05:23:34.5", 80.89375d)]
     [InlineData("23:54:13.2", 358.555d)]
     [InlineData("23:59:59.9", 359.9995833333333d)]
+    [InlineData("12:00:00", 180.0d)]
     [InlineData("0:0:0", 0d)]
     public void GivenHMSWHenConvertToDegreesItReturnsDegreesAsDouble(string hms, double expectedDegrees)
     {
@@ -18,11 +19,13 @@ public class UtilsTests
     }
 
     [Theory]
-    [InlineData("+61:44:24", 72.1d)]
-    [InlineData("-12:03:18", -11.175d)]
+    [InlineData("+61:44:24", 61.74d)]
+    [InlineData("-12:03:18", -12.055000000000001d)]
     [InlineData("+90:0:0", +90.0d)]
+    [InlineData("-89:30:0", -89.5d)]
     [InlineData("-90:0:0", -90.0d)]
     [InlineData("0:0:0", 0.0d)]
+    [InlineData("-08:11:11", -8.186388888888889d)]
     public void GivenDMSWHenConvertToDegreesItReturnsDegreesAsDouble(string dms, double expectedDegrees)
     {
         Utils.DMSToDegree(dms).ShouldBe(expectedDegrees);

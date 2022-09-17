@@ -17,14 +17,14 @@ namespace Astap.Lib.Astrometry
     public class OpenNGCDB
     {
         private readonly Dictionary<CatalogIndex, CelestialObject> _objectsByIndex = new(14000);
-        private readonly Dictionary<CatalogIndex, CatalogIndex[]> _crossLookupTable = new(900);
+        private readonly Dictionary<CatalogIndex, CatalogIndex[]> _crossLookupTable = new(800);
         private readonly Dictionary<string, CatalogIndex[]> _objectsByCommonName = new(200);
 
         public OpenNGCDB() { }
 
         public bool TryLookupByIndex(string name, [NotNullWhen(true)] out CelestialObject? celestialObject)
         {
-            if (TryGetCleanedUpCatalogName(name, out var maybeIndex) && maybeIndex is CatalogIndex index && TryLookupByIndex(index, out celestialObject))
+            if (TryGetCleanedUpCatalogName(name, out var index) && TryLookupByIndex(index, out celestialObject))
             {
                 return true;
             }
@@ -35,8 +35,69 @@ namespace Astap.Lib.Astrometry
             }
         }
 
-        public bool TryLookupByIndex(CatalogIndex indexEntry, [NotNullWhen(true)] out CelestialObject? celestialObject)
-            => _objectsByIndex.TryGetValue(indexEntry, out celestialObject);
+        public bool TryLookupByIndex(CatalogIndex index, [NotNullWhen(true)] out CelestialObject? celestialObject)
+        {
+            if (!_objectsByIndex.TryGetValue(index, out celestialObject))
+            {
+                var indexCat = index.ToCatalog();
+                if (indexCat == Catalog.Messier && _crossLookupTable.TryGetValue(index, out var crossIndices))
+                {
+                    foreach (var crossIndex in crossIndices)
+                    {
+                        var crossCat = crossIndex.ToCatalog();
+                        if (crossIndex != index && crossCat != Catalog.Messier && _objectsByIndex.TryGetValue(crossIndex, out celestialObject))
+                        {
+                            index = crossIndex;
+                            break;
+                        }
+                    }
+                    if (celestialObject is null)
+                    {
+                        return false;
+                    }
+                }
+                else
+                {
+                    return false;
+                }
+            }
+
+            if (celestialObject.ObjectType is not ObjectType.Duplicate)
+            {
+                return true;
+            }
+
+            if (_crossLookupTable.TryGetValue(index, out var followIndicies) && followIndicies.Length > 0)
+            {
+                if (followIndicies.Length == 1 && followIndicies[0] != index)
+                {
+                    return TryLookupByIndex(followIndicies[0], out celestialObject);
+                }
+                else if (followIndicies.Length > 1)
+                {
+                    var indexCat = index.ToCatalog();
+                    var canFollowIndices = new List<CatalogIndex>(2);
+                    foreach (var followIndex in followIndicies)
+                    {
+                        var followIndexCat = followIndex.ToCatalog();
+                        if (followIndexCat == indexCat && followIndex != index)
+                        {
+                            canFollowIndices.Add(followIndex);
+                        }
+                    }
+
+                    return canFollowIndices.Count == 1 && TryLookupByIndex(canFollowIndices[0], out celestialObject);
+                }
+                else
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                return false;
+            }
+        }
 
         public async Task<(int processed, int failed)> ReadEmbeddedDataFilesAsync()
         {
@@ -83,8 +144,7 @@ namespace Astap.Lib.Astrometry
                     && csvReader.TryGetField<string>("RA", out var raHMS)
                     && csvReader.TryGetField<string>("Dec", out var decDMS)
                     && csvReader.TryGetField<string>("Const", out var constAbbr)
-                    && TryGetCleanedUpCatalogName(entryName, out var maybeCatalogIndex)
-                    && maybeCatalogIndex is CatalogIndex indexEntry
+                    && TryGetCleanedUpCatalogName(entryName, out var indexEntry)
                 )
                 {
                     var objectType = AbbreviationToEnumMember<ObjectType>(objectTypeAbbr);
@@ -98,19 +158,26 @@ namespace Astap.Lib.Astrometry
                         {
                             AddLookupEntry(_crossLookupTable, indexEntry, ngcIndexEntry);
                         }
-                        if (TryGetCatalogField(IC, out var icIndexEntry))
-                        {
-                            AddLookupEntry(_crossLookupTable, indexEntry, icIndexEntry);
-                        }
                         if (TryGetCatalogField(M, out var messierIndexEntry))
                         {
                             AddLookupEntry(_crossLookupTable, indexEntry, messierIndexEntry);
                         }
+                        if (TryGetCatalogField(IC, out var icIndexEntry))
+                        {
+                            AddLookupEntry(_crossLookupTable, indexEntry, icIndexEntry);
+                        }
                     }
-                    else if (TryGetCatalogField(M, out var messierIndexEntry))
+                    else
                     {
-                        // Adds Messier to NGC/IC entry lookup
-                        AddLookupEntry(_crossLookupTable, messierIndexEntry, indexEntry);
+                        if (TryGetCatalogField(IC, out var icIndexEntry))
+                        {
+                            AddLookupEntry(_crossLookupTable, icIndexEntry, indexEntry);
+                        }
+                        if (TryGetCatalogField(M, out var messierIndexEntry))
+                        {
+                            // Adds Messier to NGC/IC entry lookup, but only if its not a duplicate
+                            AddLookupEntry(_crossLookupTable, messierIndexEntry, indexEntry);
+                        }
                     }
 
                     if (csvReader.TryGetField<string>("Common names", out var commonNamesEntry))
@@ -150,6 +217,10 @@ namespace Astap.Lib.Astrometry
 
         private static CatalogIndex[] ResizeAndAdd(CatalogIndex[] existing, CatalogIndex indexEntry)
         {
+            if (existing.Contains(indexEntry))
+            {
+                return existing;
+            }
             var @new = new CatalogIndex[existing.Length + 1];
             Array.Copy(existing, @new, existing.Length);
             @new[^1] = indexEntry;
