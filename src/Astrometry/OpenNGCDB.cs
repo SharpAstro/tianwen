@@ -20,7 +20,36 @@ public class OpenNGCDB
     private readonly Dictionary<CatalogIndex, CatalogIndex[]> _crossLookupTable = new(800);
     private readonly Dictionary<string, CatalogIndex[]> _objectsByCommonName = new(200);
 
+    private HashSet<CatalogIndex>? _catalogIndicesCache;
+
     public OpenNGCDB() { }
+
+    public ICollection<string> CommonNames => _objectsByCommonName.Keys;
+
+    public ISet<CatalogIndex> ObjectIndices
+    {
+        get
+        {
+            if (_catalogIndicesCache is var cache and not null)
+            {
+                return cache;
+            }
+
+            var cap = _objectsByIndex.Count + _crossLookupTable.Count;
+            if (cap > 0)
+            {
+                cache = new HashSet<CatalogIndex>(cap);
+                cache.UnionWith(_objectsByIndex.Keys);
+                cache.UnionWith(_crossLookupTable.Keys);
+
+                return _catalogIndicesCache ??= cache;
+            }
+            else
+            {
+                return new HashSet<CatalogIndex>(0);
+            }
+        }
+    }
 
     public bool TryResolveCommonName(string name, [NotNullWhen(true)] out CatalogIndex[]? matches)
         => _objectsByCommonName.TryGetValue(name, out matches);
