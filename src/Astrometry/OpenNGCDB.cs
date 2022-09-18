@@ -14,7 +14,7 @@ using static Astap.Lib.EnumHelper;
 
 namespace Astap.Lib.Astrometry;
 
-public class OpenNGCDB
+public class OpenNGCDB : ICelestialObjectDB<CelestialObject>
 {
     private readonly Dictionary<CatalogIndex, CelestialObject> _objectsByIndex = new(14000);
     private readonly Dictionary<CatalogIndex, CatalogIndex[]> _crossLookupTable = new(800);
@@ -24,9 +24,9 @@ public class OpenNGCDB
 
     public OpenNGCDB() { }
 
-    public ICollection<string> CommonNames => _objectsByCommonName.Keys;
+    public IReadOnlyCollection<string> CommonNames => _objectsByCommonName.Keys;
 
-    public ISet<CatalogIndex> ObjectIndices
+    public IReadOnlySet<CatalogIndex> ObjectIndices
     {
         get
         {
@@ -128,7 +128,7 @@ public class OpenNGCDB
         return false;
     }
 
-    public async Task<(int processed, int failed)> ReadEmbeddedDataFilesAsync()
+    public async Task<(int processed, int failed)> InitDBAsync()
     {
         var assembly = typeof(OpenNGCDB).Assembly;
         int totalProcessed = 0;

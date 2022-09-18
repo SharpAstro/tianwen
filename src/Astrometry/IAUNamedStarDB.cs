@@ -24,12 +24,16 @@ record IAUNamedStarDTO(
 public record IAUNamedStar(string Name, double? Vmag, CatalogIndex Index, ObjectType ObjectType, double RA, double Dec, Constellation Constellation)
     : CelestialObject(Index, ObjectType, RA, Dec, Constellation);
 
-public class IAUNamedStarDB
+public class IAUNamedStarDB : ICelestialObjectDB<IAUNamedStar>
 {
     private readonly Dictionary<CatalogIndex, IAUNamedStar> _stellarObjectsByCatalogIndex = new(460);
     private readonly Dictionary<string, CatalogIndex> _namesToCatalogIndex = new(460);
 
-    public async Task<(int processed, int failed)> ReadEmbeddedDataFileAsync()
+    private HashSet<CatalogIndex>? _catalogIndicesCache;
+
+    public IReadOnlyCollection<string> CommonNames => _namesToCatalogIndex.Keys;
+
+    public async Task<(int processed, int failed)> InitDBAsync()
     {
         var processed = 0;
         var failed = 0;
@@ -59,19 +63,43 @@ public class IAUNamedStarDB
         return (processed, failed);
     }
 
-    public bool TryGetStellarObjectByCatalogIndex(CatalogIndex catalogIndex, [NotNullWhen(true)] out IAUNamedStar? namedStar)
+    public IReadOnlySet<CatalogIndex> ObjectIndices
+    {
+        get
+        {
+            if (_catalogIndicesCache is var cache and not null)
+            {
+                return cache;
+            }
+
+            var cap = _stellarObjectsByCatalogIndex.Count;
+            if (cap > 0)
+            {
+                cache = new HashSet<CatalogIndex>(cap);
+                cache.UnionWith(_stellarObjectsByCatalogIndex.Keys);
+
+                return _catalogIndicesCache ??= cache;
+            }
+            else
+            {
+                return new HashSet<CatalogIndex>(0);
+            }
+        }
+    }
+
+    public bool TryLookupByIndex(CatalogIndex catalogIndex, [NotNullWhen(true)] out IAUNamedStar? namedStar)
         => _stellarObjectsByCatalogIndex.TryGetValue(catalogIndex, out namedStar);
 
-    public bool TryGetStellarObjectByIAUName(string name, [NotNullWhen(true)] out IAUNamedStar? namedStar)
+    public bool TryResolveCommonName(string name, [NotNullWhen(true)] out CatalogIndex[]? starIndices)
     {
         if (_namesToCatalogIndex.TryGetValue(name, out var idx))
         {
-            namedStar = _stellarObjectsByCatalogIndex[idx];
+            starIndices = new[] { idx };
             return true;
         }
         else
         {
-            namedStar = default;
+            starIndices = default;
             return false;
         }
     }
