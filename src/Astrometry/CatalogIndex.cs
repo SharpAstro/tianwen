@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Net;
@@ -74,10 +75,32 @@ public static class CatalogIndexEx
 
     public static string ToAbbreviation(this CatalogIndex catalogIndex) => EnumValueToAbbreviation((ulong)catalogIndex);
 
-    private static readonly Catalog[] CatalogEntriesBySizeDesc = Enum.GetValues<Catalog>().OrderByDescending(x => (ulong)x).ToArray();
+    private static readonly Dictionary<byte, Catalog[]> PartitionedCategories = Enum.GetValues<Catalog>().PartitionCatalogsByMSB(); //.OrderByDescending(x => (ulong)x).ToArray();
+
+    static Dictionary<byte, Catalog[]> PartitionCatalogsByMSB(this Catalog[] entries)
+    {
+        var dict = new Dictionary<byte, Catalog[]>(26);
+
+        foreach (var entry in entries.OrderByDescending(x => (ulong)x))
+        {
+            var catAsUlong = (ulong)entry;
+            var catLZC = BitOperations.LeadingZeroCount(catAsUlong);
+            var key = CatKey(catAsUlong, catLZC);
+            dict.AddLookupEntry(key, entry);
+        }
+
+        return dict;
+    }
+
+    private static byte CatKey(ulong catAsUlong, int lzc)
+    {
+        return (byte)((catAsUlong >> BitsInUlong - lzc - ASCIIBits) & ASCIIMask);
+    }
 
     public static Catalog ToCatalog(this CatalogIndex catalogIndex)
     {
+        PartitionCatalogsByMSB(new[] { Catalog.Caldwell, Catalog.HATS });
+
         if (catalogIndex == 0)
         {
             return 0;
@@ -86,9 +109,14 @@ public static class CatalogIndexEx
         var catIdxAsUlong = (ulong)catalogIndex;
         var catIndexLZC = BitOperations.LeadingZeroCount(catIdxAsUlong);
 
-        for (var i = 0; i < CatalogEntriesBySizeDesc.Length; i++)
+        if (!PartitionedCategories.TryGetValue(CatKey(catIdxAsUlong, catIndexLZC), out var categories))
         {
-            var entry = CatalogEntriesBySizeDesc[i];
+            return 0;
+        }
+
+        for (var i = 0; i < categories.Length; i++)
+        {
+            var entry = categories[i];
             var entryLZC = BitOperations.LeadingZeroCount((ulong)entry);
             var catalogIndexCat = (Catalog)(catIdxAsUlong >> (entryLZC - catIndexLZC));
             if (entry == catalogIndexCat)

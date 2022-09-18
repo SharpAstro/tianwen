@@ -72,7 +72,7 @@ public class OpenNGCDB : ICelestialObjectDB<CelestialObject>
         if (!_objectsByIndex.TryGetValue(index, out celestialObject))
         {
             var indexCat = index.ToCatalog();
-            if ((indexCat is Catalog.Messier or Catalog.IC) && _crossLookupTable.TryGetValue(index, out var crossIndices))
+            if ((indexCat is Catalog.Messier or Catalog.IC or Catalog.Caldwell) && _crossLookupTable.TryGetValue(index, out var crossIndices))
             {
                 foreach (var crossIndex in crossIndices)
                 {
@@ -185,27 +185,43 @@ public class OpenNGCDB : ICelestialObjectDB<CelestialObject>
                     // when the entry is a duplicate, use the cross lookup table to list the entries it duplicates
                     if (TryGetCatalogField(NGC, out var ngcIndexEntry))
                     {
-                        AddLookupEntry(_crossLookupTable, indexEntry, ngcIndexEntry);
+                        _crossLookupTable.AddLookupEntry(indexEntry, ngcIndexEntry);
                     }
                     if (TryGetCatalogField(M, out var messierIndexEntry))
                     {
-                        AddLookupEntry(_crossLookupTable, indexEntry, messierIndexEntry);
+                        _crossLookupTable.AddLookupEntry(indexEntry, messierIndexEntry);
                     }
                     if (TryGetCatalogField(IC, out var icIndexEntry))
                     {
-                        AddLookupEntry(_crossLookupTable, indexEntry, icIndexEntry);
+                        _crossLookupTable.AddLookupEntry(indexEntry, icIndexEntry);
                     }
                 }
                 else
                 {
                     if (TryGetCatalogField(IC, out var icIndexEntry))
                     {
-                        AddLookupEntry(_crossLookupTable, icIndexEntry, indexEntry);
+                        _crossLookupTable.AddLookupEntry(icIndexEntry, indexEntry);
                     }
                     if (TryGetCatalogField(M, out var messierIndexEntry))
                     {
                         // Adds Messier to NGC/IC entry lookup, but only if its not a duplicate
-                        AddLookupEntry(_crossLookupTable, messierIndexEntry, indexEntry);
+                        _crossLookupTable.AddLookupEntry(messierIndexEntry, indexEntry);
+                    }
+
+                    if (csvReader.TryGetField<string>("Identifiers", out var identifiersEntry))
+                    {
+                        var identifiers = identifiersEntry.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                        foreach (var identifier in identifiers)
+                        {
+                            // only process Caldwell
+                            if (identifier.Length >= 2 && identifier[0] is 'C' && identifier[1] is ' ' or '0'
+                                && TryGetCleanedUpCatalogName(identifier, out var crossCatIdx)
+                                && crossCatIdx.ToCatalog() == Catalog.Caldwell
+                            )
+                            {
+                                _crossLookupTable.AddLookupEntry(crossCatIdx, indexEntry);
+                            }
+                        }
                     }
                 }
 
@@ -214,7 +230,7 @@ public class OpenNGCDB : ICelestialObjectDB<CelestialObject>
                     var commonNames = commonNamesEntry.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                     foreach (var commonName in commonNames)
                     {
-                        AddLookupEntry(_objectsByCommonName, commonName, indexEntry);
+                        _objectsByCommonName.AddLookupEntry(commonName, indexEntry);
                     }
                 }
 
@@ -233,26 +249,5 @@ public class OpenNGCDB : ICelestialObjectDB<CelestialObject>
             entry = 0;
             return csvReader.TryGetField<string>(catPrefix, out var suffix) && TryGetCleanedUpCatalogName(catPrefix + suffix, out entry);
         }
-    }
-
-    private static void AddLookupEntry<T>(Dictionary<T, CatalogIndex[]> lookupTable, T master, CatalogIndex duplicate)
-        where T : notnull
-    {
-        if (!lookupTable.TryAdd(master, new[] { duplicate }))
-        {
-            lookupTable[master] = ResizeAndAdd(lookupTable[master], duplicate);
-        }
-    }
-
-    private static CatalogIndex[] ResizeAndAdd(CatalogIndex[] existing, CatalogIndex indexEntry)
-    {
-        if (existing.Contains(indexEntry))
-        {
-            return existing;
-        }
-        var @new = new CatalogIndex[existing.Length + 1];
-        Array.Copy(existing, @new, existing.Length);
-        @new[^1] = indexEntry;
-        return @new;
     }
 }
