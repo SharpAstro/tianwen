@@ -219,7 +219,9 @@ public static class Utils
                 'I' => (new char[8] { 'H', 'I', '0', '0', '0', '0', '0', '0'}, 6, Catalog.HIP),
                 _ => (new char[3] { 'H', '0', '0' }, 2, Catalog.H)
             },
-            'I' => (new char[5] { 'I', '0', '0', '0', '0' }, 4, Catalog.IC),
+            'I' => trimmedInput[1] is >= '0' and <= '9' || trimmedInput[1] is 'C' or 'c'
+                ? (new char[5] { 'I', '0', '0', '0', '0' }, 4, Catalog.IC)
+                : (Array.Empty<char>(), 0, null),
             'M' => trimmedInput[1] == 'e' && trimmedInput.Length > 2 && trimmedInput[2] == 'l'
                 ? (new char[6] { 'M', 'e', 'l', '0', '0', '0' }, 3, Catalog.Melotte)
                 : (new char[4] { 'M', '0', '0', '0' }, 3, Catalog.Messier),

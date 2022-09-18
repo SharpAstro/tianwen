@@ -1,13 +1,13 @@
 ﻿using System;
-using System.Text.RegularExpressions;
 
 namespace Astap.Lib;
 
 public static class EnumHelper
 {
-    const int ASCIIMask = 0x7f;
-    const int ASCIIBits = 7;
-    internal const int MaxLenInASCII = 64 / ASCIIBits;
+    internal const int ASCIIMask = 0x7f;
+    internal const int ASCIIBits = 7;
+    internal const int BitsInUlong = 64;
+    internal const int MaxLenInASCII = BitsInUlong / ASCIIBits;
 
     public static T AbbreviationToEnumMember<T>(string name)
         where T : Enum
