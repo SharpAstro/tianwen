@@ -11,16 +11,17 @@ public static class DictHelper
     {
         if (!lookupTable.TryAdd(master, new[] { toAdd }))
         {
-            lookupTable[master] = ResizeAndAdd(lookupTable[master], toAdd);
+            lookupTable[master] = AddElementIfNotExist(lookupTable[master], toAdd);
         }
     }
 
-    private static T[] ResizeAndAdd<T>(T[] existingArray, T toAdd)
+    private static T[] AddElementIfNotExist<T>(T[] existingArray, T toAdd)
     {
         if (existingArray.Contains(toAdd))
         {
             return existingArray;
         }
+
         var newArray = new T[existingArray.Length + 1];
         Array.Copy(existingArray, newArray, existingArray.Length);
         newArray[^1] = toAdd;
