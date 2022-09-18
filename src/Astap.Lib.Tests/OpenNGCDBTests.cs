@@ -38,7 +38,7 @@ public class OpenNGCDBTests
     {
         // given
         var db = new OpenNGCDB();
-        var (actualRead, actualFailed) = await db.ReadEmbeddedDataFilesAsync();
+        var (actualRead, actualFailed) = await db.InitDBAsync();
 
         // when
         var found = db.TryLookupByIndex(indexEntry, out var celestialObject);
@@ -69,7 +69,7 @@ public class OpenNGCDBTests
     {
         // given
         var db = new OpenNGCDB();
-        var (actualRead, actualFailed) = await db.ReadEmbeddedDataFilesAsync();
+        var (actualRead, actualFailed) = await db.InitDBAsync();
 
         // when
         var found = db.TryResolveCommonName(name, out var matches);
@@ -87,7 +87,7 @@ public class OpenNGCDBTests
     {
         // given
         var db = new OpenNGCDB();
-        var (processed, failed) = await db.ReadEmbeddedDataFilesAsync();
+        var (processed, failed) = await db.InitDBAsync();
         var idxs = db.ObjectIndices;
 
         // when
