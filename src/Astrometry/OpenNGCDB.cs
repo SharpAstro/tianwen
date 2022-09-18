@@ -72,7 +72,7 @@ public class OpenNGCDB
         if (!_objectsByIndex.TryGetValue(index, out celestialObject))
         {
             var indexCat = index.ToCatalog();
-            if (indexCat == Catalog.Messier && _crossLookupTable.TryGetValue(index, out var crossIndices))
+            if ((indexCat is Catalog.Messier or Catalog.IC) && _crossLookupTable.TryGetValue(index, out var crossIndices))
             {
                 foreach (var crossIndex in crossIndices)
                 {

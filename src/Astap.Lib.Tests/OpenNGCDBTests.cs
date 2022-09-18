@@ -81,4 +81,23 @@ public class OpenNGCDBTests
         matches.ShouldNotBeNull();
         matches.ShouldBeEquivalentTo(expectedMatches);
     }
+
+    [Fact]
+    public async Task GivenAllCatIdxWhenTryingToLookupThenItIsAlwaysFound()
+    {
+        // given
+        var db = new OpenNGCDB();
+        var (processed, failed) = await db.ReadEmbeddedDataFilesAsync();
+        var idxs = db.ObjectIndices;
+
+        // when
+        Parallel.ForEach(idxs, idx =>
+        {
+            db.TryLookupByIndex(idx, out _).ShouldBeTrue($"{idx.ToAbbreviation()} [{idx}] was not found!");
+        });
+
+        // then
+        processed.ShouldBeGreaterThanOrEqualTo(processed);
+        failed.ShouldBe(0);
+    }
 }
