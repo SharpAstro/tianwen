@@ -27,6 +27,8 @@ public class OpenNGCDBTests
     [InlineData("NGC4913", ObjectType.Galaxy, NGC4913, Constellation.ComaBerenices, 195.43070833333334d, 29.044666666666668d)]
     [InlineData("M13", ObjectType.GlobularCluster, NGC6205, Constellation.Hercules, 250.42345833333334d, 36.46130555555556d)]
     [InlineData("NGC6205", ObjectType.GlobularCluster, NGC6205, Constellation.Hercules, 250.42345833333334d, 36.46130555555556d)]
+    [InlineData("C041", ObjectType.OpenCluster, C041, Constellation.Taurus, 66.725d, 15.866666666666667d)]
+    [InlineData("Mel025", ObjectType.OpenCluster, C041, Constellation.Taurus, 66.725d, 15.866666666666667d)]
     public async Task GivenObjectIdWhenLookingItUpThenAnObjIsReturned(
         string indexEntry,
         ObjectType expectedObjType,

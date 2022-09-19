@@ -50,6 +50,7 @@ public class UtilsTests
     [InlineData("Cl 399", "Cr399", Catalog.Collinder)]
     [InlineData("C041", "C041", Catalog.Caldwell)]
     [InlineData("C 40", "C040", Catalog.Caldwell)]
+    [InlineData("Mel 025", "Mel025", Catalog.Melotte)]
     [InlineData("NGC0526A", "N0526_A", Catalog.NGC)]
     [InlineData("NGC 0526 B", "N0526_B", Catalog.NGC)]
     [InlineData("N 0526_C", "N0526_C", Catalog.NGC)]

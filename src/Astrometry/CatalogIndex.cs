@@ -75,7 +75,7 @@ public static class CatalogIndexEx
 
     public static string ToAbbreviation(this CatalogIndex catalogIndex) => EnumValueToAbbreviation((ulong)catalogIndex);
 
-    private static readonly Dictionary<byte, Catalog[]> PartitionedCategories = Enum.GetValues<Catalog>().PartitionCatalogsByMSB(); //.OrderByDescending(x => (ulong)x).ToArray();
+    private static readonly Dictionary<byte, Catalog[]> PartitionedCategories = Enum.GetValues<Catalog>().PartitionCatalogsByMSB();
 
     static Dictionary<byte, Catalog[]> PartitionCatalogsByMSB(this Catalog[] entries)
     {
@@ -92,15 +92,10 @@ public static class CatalogIndexEx
         return dict;
     }
 
-    private static byte CatKey(ulong catAsUlong, int lzc)
-    {
-        return (byte)((catAsUlong >> BitsInUlong - lzc - ASCIIBits) & ASCIIMask);
-    }
+    private static byte CatKey(ulong catAsUlong, int lzc) => (byte)((catAsUlong >> BitsInUlong - lzc - ASCIIBits) & ASCIIMask);
 
     public static Catalog ToCatalog(this CatalogIndex catalogIndex)
     {
-        PartitionCatalogsByMSB(new[] { Catalog.Caldwell, Catalog.HATS });
-
         if (catalogIndex == 0)
         {
             return 0;
