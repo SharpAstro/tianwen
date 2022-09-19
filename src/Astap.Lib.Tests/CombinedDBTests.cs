@@ -2,14 +2,16 @@
 using Shouldly;
 using System.Threading.Tasks;
 using Xunit;
+using static Astap.Lib.Tests.SharedTestData;
 
 namespace Astap.Lib.Tests;
 
 public class CombinedDBTests
 {
     [Theory]
-    [InlineData("Acamar")]
-    public async Task GivenANameWhenTryingToResolveItIsFound(string name)
+    [InlineData("Acamar", HR0897)]
+    [InlineData("Coalsack Nebula", C099)]
+    public async Task GivenANameWhenTryingToResolveItIsFound(string name, params CatalogIndex[] expectedIndices)
     {
         var db = new CombinedDB();
         _ = await db.InitDBAsync();
@@ -17,7 +19,8 @@ public class CombinedDBTests
         var found = db.TryResolveCommonName(name, out var matches);
 
         found.ShouldBeTrue();
-        matches.ShouldNotBeNull().Length.ShouldBeGreaterThan(0);
+        matches.ShouldNotBeNull().Length.ShouldBe(expectedIndices.Length);
+        matches.ShouldBeEquivalentTo(expectedIndices);
     }
 
     [Fact]

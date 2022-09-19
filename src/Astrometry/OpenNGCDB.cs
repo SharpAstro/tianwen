@@ -18,7 +18,7 @@ namespace Astap.Lib.Astrometry;
 public class OpenNGCDB : ICelestialObjectDB
 {
     private readonly Dictionary<CatalogIndex, CelestialObject> _objectsByIndex = new(14000);
-    private readonly Dictionary<CatalogIndex, (CatalogIndex i1, CatalogIndex i2)> _crossLookupTable = new(900);
+    private readonly Dictionary<CatalogIndex, (CatalogIndex i1, CatalogIndex[]? ext)> _crossLookupTable = new(900);
     private readonly Dictionary<string, CatalogIndex[]> _objectsByCommonName = new(200);
 
     private HashSet<CatalogIndex>? _catalogIndicesCache;
@@ -86,7 +86,14 @@ public class OpenNGCDB : ICelestialObjectDB
         }
     }
 
-    private static readonly Catalog[] CrossCats = new[] { Catalog.Messier, Catalog.IC, Catalog.Caldwell, Catalog.Collinder, Catalog.Melotte }.OrderBy(x => (ulong)x).ToArray();
+    private static readonly Catalog[] CrossCats = new[] {
+        Catalog.Messier,
+        Catalog.IC,
+        Catalog.Caldwell,
+        Catalog.Collinder,
+        Catalog.Melotte,
+        Catalog.UGC
+    }.OrderBy(x => (ulong)x).ToArray();
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool IsCrossCat(Catalog cat) => Array.BinarySearch(CrossCats, cat) >= 0;
@@ -98,13 +105,19 @@ public class OpenNGCDB : ICelestialObjectDB
             var indexCat = index.ToCatalog();
             if (IsCrossCat(indexCat) && _crossLookupTable.TryGetValue(index, out var crossIndices))
             {
-                foreach (var crossIndex in new[] { crossIndices.i1, crossIndices.i2 })
+                if (crossIndices.i1 > 0 && crossIndices.i1 != index && crossIndices.i1.ToCatalog() != Catalog.Messier && _objectsByIndex.TryGetValue(crossIndices.i1, out celestialObject))
                 {
-                    var crossCat = crossIndex.ToCatalog();
-                    if (crossIndex > 0 && crossIndex != index && crossCat != Catalog.Messier && _objectsByIndex.TryGetValue(crossIndex, out celestialObject))
+                    index = crossIndices.i1;
+                }
+                else if (crossIndices.ext is not null)
+                {
+                    foreach (var crossIndex in crossIndices.ext)
                     {
-                        index = crossIndex;
-                        break;
+                        if (crossIndex > 0 && crossIndex != index && crossIndex.ToCatalog() != Catalog.Messier && _objectsByIndex.TryGetValue(crossIndex, out celestialObject))
+                        {
+                            index = crossIndex;
+                            break;
+                        }
                     }
                 }
                 if (celestialObject.Index is 0)
@@ -125,17 +138,24 @@ public class OpenNGCDB : ICelestialObjectDB
 
         if (_crossLookupTable.TryGetValue(index, out var followIndicies) && followIndicies.i1 > 0)
         {
-            if (followIndicies.i2 == 0 && followIndicies.i1 != index)
+            if (followIndicies.ext == null && followIndicies.i1 != index)
             {
                 return TryLookupByIndex(followIndicies.i1, out celestialObject);
             }
-            else if (followIndicies.i2 != 0)
+            else if (followIndicies.ext is CatalogIndex[] { Length: > 0 } ext)
             {
-                var followedObjs = new List<CelestialObject>(2);
-                foreach (var followIndex in new[] { followIndicies.i1, followIndicies.i2 })
+                var followedObjs = new List<CelestialObject>(ext.Length + 1);
+                if (followIndicies.i1 != index
+                        && _objectsByIndex.TryGetValue(followIndicies.i1, out var followedObj)
+                        && followedObj.ObjectType != ObjectType.Duplicate)
+                {
+                    followedObjs.Add(followedObj);
+                }
+
+                foreach (var followIndex in followIndicies.ext)
                 {
                     if (followIndex != index
-                        && _objectsByIndex.TryGetValue(followIndex, out var followedObj)
+                        && _objectsByIndex.TryGetValue(followIndex, out followedObj)
                         && followedObj.ObjectType != ObjectType.Duplicate)
                     {
                         followedObjs.Add(followedObj);
@@ -204,13 +224,13 @@ public class OpenNGCDB : ICelestialObjectDB
                 var @const = AbbreviationToEnumMember<Constellation>(constAbbr);
 
                 var vmag = csvReader.TryGetField<string>("V-Mag", out var vmagStr)
-                    && double.TryParse(vmagStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var vm)
-                    ? vm
+                    && double.TryParse(vmagStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var vmagDbl)
+                    ? vmagDbl
                     : double.NaN;
 
                 var surfaceBrightness = csvReader.TryGetField<string>("SurfBr", out var surfaceBrightnessStr)
-                    && double.TryParse(surfaceBrightnessStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var sb)
-                    ? sb
+                    && double.TryParse(surfaceBrightnessStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var surfaceBrightnessDbl)
+                    ? surfaceBrightnessDbl
                     : double.NaN;
 
                 _objectsByIndex[indexEntry] = new CelestialObject(indexEntry, objectType, HMSToDegree(raHMS), DMSToDegree(decDMS), @const, vmag, surfaceBrightness);
@@ -248,9 +268,9 @@ public class OpenNGCDB : ICelestialObjectDB
                         var identifiers = identifiersEntry.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                         foreach (var identifier in identifiers)
                         {
-                            if (identifier[0] is 'C' or 'M'
+                            if (identifier[0] is 'C' or 'M' or 'U'
                                 && identifier.Length >= 2
-                                && identifier[1] is 'e' or 'l' or 'r' or ' ' or '0'
+                                && identifier[1] is 'G' or 'e' or 'l' or 'r' or ' ' or '0'
                                 && TryGetCleanedUpCatalogName(identifier, out var crossCatIdx)
                                 && IsCrossCat(crossCatIdx.ToCatalog())
                             )
