@@ -21,17 +21,53 @@ record IAUNamedStarDTO(
     DateTime ApprovalDate
 );
 
-public record IAUNamedStar(string Name, double? Vmag, CatalogIndex Index, ObjectType ObjectType, double RA, double Dec, Constellation Constellation)
-    : CelestialObject(Index, ObjectType, RA, Dec, Constellation);
-
-public class IAUNamedStarDB : ICelestialObjectDB<IAUNamedStar>
+public class IAUNamedStarDB : ICelestialObjectDB
 {
-    private readonly Dictionary<CatalogIndex, IAUNamedStar> _stellarObjectsByCatalogIndex = new(460);
+    private readonly Dictionary<CatalogIndex, CelestialObject> _stellarObjectsByCatalogIndex = new(460);
     private readonly Dictionary<string, CatalogIndex> _namesToCatalogIndex = new(460);
 
     private HashSet<CatalogIndex>? _catalogIndicesCache;
+    private HashSet<Catalog>? _catalogCache;
 
     public IReadOnlyCollection<string> CommonNames => _namesToCatalogIndex.Keys;
+
+    public IReadOnlySet<Catalog> Catalogs
+    {
+        get
+        {
+            if (_catalogCache is var cache and not null)
+            {
+                return cache;
+            }
+
+            if (_stellarObjectsByCatalogIndex.Count > 0)
+            {
+                return _catalogCache ??= this.IndicesToCatalogs<HashSet<Catalog>>();
+            }
+            return new HashSet<Catalog>(0);
+        }
+    }
+
+    public IReadOnlySet<CatalogIndex> ObjectIndices
+    {
+        get
+        {
+            if (_catalogIndicesCache is var cache and not null)
+            {
+                return cache;
+            }
+
+            var objs = _stellarObjectsByCatalogIndex.Count;
+            if (objs > 0)
+            {
+                cache = new HashSet<CatalogIndex>(objs);
+                cache.UnionWith(_stellarObjectsByCatalogIndex.Keys);
+
+                return _catalogIndicesCache ??= cache;
+            }
+            return new HashSet<CatalogIndex>(0);
+        }
+    }
 
     public async Task<(int processed, int failed)> InitDBAsync()
     {
@@ -48,9 +84,9 @@ public class IAUNamedStarDB : ICelestialObjectDB<IAUNamedStar>
                 {
                     var objType = catalogIndex.ToCatalog() == Catalog.PSR ? ObjectType.Pulsar : ObjectType.Star;
                     var constellation = AbbreviationToEnumMember<Constellation>(record.Constellation);
-                    var stellarObject = new IAUNamedStar(record.IAUName, record.Vmag, catalogIndex, objType, record.RA_J2000, record.Dec_J2000, constellation);
+                    var stellarObject = new CelestialObject(catalogIndex, objType, record.RA_J2000, record.Dec_J2000, constellation, record.Vmag ?? double.NaN);
                     _stellarObjectsByCatalogIndex[catalogIndex] = stellarObject;
-                    _namesToCatalogIndex[stellarObject.Name] = stellarObject.Index;
+                    _namesToCatalogIndex[record.IAUName] = stellarObject.Index;
                     processed++;
                 }
                 else
@@ -63,31 +99,7 @@ public class IAUNamedStarDB : ICelestialObjectDB<IAUNamedStar>
         return (processed, failed);
     }
 
-    public IReadOnlySet<CatalogIndex> ObjectIndices
-    {
-        get
-        {
-            if (_catalogIndicesCache is var cache and not null)
-            {
-                return cache;
-            }
-
-            var cap = _stellarObjectsByCatalogIndex.Count;
-            if (cap > 0)
-            {
-                cache = new HashSet<CatalogIndex>(cap);
-                cache.UnionWith(_stellarObjectsByCatalogIndex.Keys);
-
-                return _catalogIndicesCache ??= cache;
-            }
-            else
-            {
-                return new HashSet<CatalogIndex>(0);
-            }
-        }
-    }
-
-    public bool TryLookupByIndex(CatalogIndex catalogIndex, [NotNullWhen(true)] out IAUNamedStar? namedStar)
+    public bool TryLookupByIndex(CatalogIndex catalogIndex, out CelestialObject namedStar)
         => _stellarObjectsByCatalogIndex.TryGetValue(catalogIndex, out namedStar);
 
     public bool TryResolveCommonName(string name, [NotNullWhen(true)] out CatalogIndex[]? starIndices)

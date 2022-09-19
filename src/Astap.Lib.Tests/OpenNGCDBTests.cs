@@ -47,7 +47,6 @@ public class OpenNGCDBTests
         actualRead.ShouldBeGreaterThan(13000);
         actualFailed.ShouldBe(0);
         found.ShouldBeTrue();
-        celestialObject.ShouldNotBeNull();
         celestialObject.Index.ShouldBe(expectedCatalogIindex);
         celestialObject.ObjectType.ShouldBe(expectedObjType);
         celestialObject.Constellation.ShouldBe(expectedConstellation);
@@ -89,11 +88,13 @@ public class OpenNGCDBTests
         var db = new OpenNGCDB();
         var (processed, failed) = await db.InitDBAsync();
         var idxs = db.ObjectIndices;
+        var catalogs = db.Catalogs;
 
         // when
         Parallel.ForEach(idxs, idx =>
         {
             db.TryLookupByIndex(idx, out _).ShouldBeTrue($"{idx.ToAbbreviation()} [{idx}] was not found!");
+            catalogs.ShouldContain(idx.ToCatalog());
         });
 
         // then

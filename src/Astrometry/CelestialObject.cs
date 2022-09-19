@@ -1,3 +1,3 @@
 ﻿namespace Astap.Lib.Astrometry;
 
-public record CelestialObject(CatalogIndex Index, ObjectType ObjectType, double RA, double Dec, Constellation Constellation);
+public readonly record struct CelestialObject(CatalogIndex Index, ObjectType ObjectType, double RA, double Dec, Constellation Constellation, double V_Mag);
