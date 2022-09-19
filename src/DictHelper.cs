@@ -8,11 +8,11 @@ namespace Astap.Lib;
 public static class DictHelper
 {
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static void AddLookupEntry<TKey, TVal>(this Dictionary<TKey, (TVal v1, TVal v2)> lookupTable, TKey master, TVal toAdd)
+    public static void AddLookupEntry<TKey, TVal>(this Dictionary<TKey, (TVal v1, TVal[]? ext)> lookupTable, TKey master, TVal toAdd)
         where TKey : notnull
         where TVal : struct
     {
-        if (!lookupTable.TryAdd(master, (toAdd, default)))
+        if (!lookupTable.TryAdd(master, (toAdd, null)))
         {
             lookupTable[master] = AddElementIfNotExist(lookupTable[master], toAdd);
         }
@@ -28,15 +28,13 @@ public static class DictHelper
         }
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static (T v1, T v2) AddElementIfNotExist<T>(in (T v1, T v2) existingPair, T toAdd)
-        where T : struct => existingPair.v1.Equals(toAdd) || existingPair.v2.Equals(toAdd)
+    private static (T v1, T[]? ext) AddElementIfNotExist<T>(in (T v1, T[]? ext) existingPair, T toAdd)
+        where T : struct => existingPair.v1.Equals(toAdd) || existingPair.ext?.Contains(toAdd) == true
         ? existingPair
-        : existingPair.v2.Equals(default(T))
-            ? (existingPair.v1, toAdd)
-            : throw new ArgumentException($"Cannot add {toAdd} to pair {existingPair} as it contains already two elements", nameof(existingPair));
+        : existingPair.ext == null
+            ? (existingPair.v1, new[] { toAdd })
+            : (existingPair.v1, AddElementIfNotExist(existingPair.ext, toAdd));
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static T[] AddElementIfNotExist<T>(T[] existingArray, T toAdd)
     {
         if (existingArray.Contains(toAdd))

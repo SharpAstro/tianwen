@@ -9,6 +9,7 @@ namespace Astap.Lib.Tests;
 public class OpenNGCDBTests
 {
     [Theory]
+    [InlineData("C099", ObjectType.DarkNebula, C099, Constellation.Crux, 187.82916666666668d, -63.74333333333333d)]
     [InlineData("ESO056-115", ObjectType.Galaxy, ESO056_115, Constellation.Dorado, 80.89375d, -69.75611111111111d)]
     [InlineData("IC0458", ObjectType.Galaxy, IC0458, Constellation.Lynx, 107.64229166666667d, 50.118916666666664d)]
     [InlineData("IC0715NW", ObjectType.Galaxy, IC0715NW, Constellation.Crater, 174.225875d, -8.375805555555557d)]
@@ -29,6 +30,7 @@ public class OpenNGCDBTests
     [InlineData("NGC6205", ObjectType.GlobularCluster, NGC6205, Constellation.Hercules, 250.42345833333334d, 36.46130555555556d)]
     [InlineData("C041", ObjectType.OpenCluster, C041, Constellation.Taurus, 66.725d, 15.866666666666667d)]
     [InlineData("Mel025", ObjectType.OpenCluster, C041, Constellation.Taurus, 66.725d, 15.866666666666667d)]
+    [InlineData("UGC00468", ObjectType.Galaxy, IC0049, Constellation.Cetus, 10.983875d, 1.850277777777778d)]
     public async Task GivenObjectIdWhenLookingItUpThenAnObjIsReturned(
         string indexEntry,
         ObjectType expectedObjType,

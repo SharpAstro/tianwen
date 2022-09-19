@@ -231,8 +231,8 @@ public static class Utils
                 : (Array.Empty<char>(), 0, null),
             'S' => (new char[7] { 'S', 'h', '2', '-', '0', '0', '0'}, 3, Catalog.Sharpless),
             'T' => (new char[6] { 'T', 'r', 'E', 'S', '0', '0' }, 2, Catalog.TrES),
-            'U' => (new char[5] { 'U', '0', '0', '0', '0' }, 5, Catalog.UGC),
-            'W' => (new char[7] { 'W', 'A', 'S', 'P', '0', '0', '0'}, 4, Catalog.WASP),
+            'U' => (new char[6] { 'U', '0', '0', '0', '0', '0' }, 5, Catalog.UGC),
+            'W' => (new char[7] { 'W', 'A', 'S', 'P', '0', '0', '0'}, 3, Catalog.WASP),
             'X' => (new char[6] { 'X', 'O', '0', '0', '0', '*' }, 4, Catalog.XO),
             _ => (Array.Empty<char>(), 0, null)
         };
