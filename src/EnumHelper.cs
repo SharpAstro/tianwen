@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Runtime.CompilerServices;
 
 namespace Astap.Lib;
 
@@ -9,6 +10,7 @@ public static class EnumHelper
     internal const int BitsInUlong = 64;
     internal const int MaxLenInASCII = BitsInUlong / ASCIIBits;
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static T AbbreviationToEnumMember<T>(string name)
         where T : Enum
     {
@@ -21,6 +23,7 @@ public static class EnumHelper
         return (T)Enum.ToObject(typeof(T), val);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static string EnumValueToAbbreviation(ulong value)
     {
         var chars = new char[MaxLenInASCII];

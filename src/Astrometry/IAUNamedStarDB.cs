@@ -84,7 +84,7 @@ public class IAUNamedStarDB : ICelestialObjectDB
                 {
                     var objType = catalogIndex.ToCatalog() == Catalog.PSR ? ObjectType.Pulsar : ObjectType.Star;
                     var constellation = AbbreviationToEnumMember<Constellation>(record.Constellation);
-                    var stellarObject = new CelestialObject(catalogIndex, objType, record.RA_J2000, record.Dec_J2000, constellation, record.Vmag ?? double.NaN);
+                    var stellarObject = new CelestialObject(catalogIndex, objType, record.RA_J2000, record.Dec_J2000, constellation, record.Vmag ?? double.NaN, double.NaN);
                     _stellarObjectsByCatalogIndex[catalogIndex] = stellarObject;
                     _namesToCatalogIndex[record.IAUName] = stellarObject.Index;
                     processed++;

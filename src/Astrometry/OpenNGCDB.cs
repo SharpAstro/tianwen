@@ -7,6 +7,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
 using static Astap.Lib.Astrometry.Utils;
@@ -17,7 +18,7 @@ namespace Astap.Lib.Astrometry;
 public class OpenNGCDB : ICelestialObjectDB
 {
     private readonly Dictionary<CatalogIndex, CelestialObject> _objectsByIndex = new(14000);
-    private readonly Dictionary<CatalogIndex, CatalogIndex[]> _crossLookupTable = new(800);
+    private readonly Dictionary<CatalogIndex, CatalogIndex[]> _crossLookupTable = new(900);
     private readonly Dictionary<string, CatalogIndex[]> _objectsByCommonName = new(200);
 
     private HashSet<CatalogIndex>? _catalogIndicesCache;
@@ -85,12 +86,17 @@ public class OpenNGCDB : ICelestialObjectDB
         }
     }
 
+    private static readonly Catalog[] CrossCats = new[] { Catalog.Messier, Catalog.IC, Catalog.Caldwell, Catalog.Collinder, Catalog.Melotte }.OrderBy(x => (ulong)x).ToArray();
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool IsCrossCat(Catalog cat) => Array.BinarySearch(CrossCats, cat) >= 0;
+
     public bool TryLookupByIndex(CatalogIndex index, [NotNullWhen(true)] out CelestialObject celestialObject)
     {
         if (!_objectsByIndex.TryGetValue(index, out celestialObject))
         {
             var indexCat = index.ToCatalog();
-            if ((indexCat is Catalog.Messier or Catalog.IC or Catalog.Caldwell) && _crossLookupTable.TryGetValue(index, out var crossIndices))
+            if (IsCrossCat(indexCat) && _crossLookupTable.TryGetValue(index, out var crossIndices))
             {
                 foreach (var crossIndex in crossIndices)
                 {
@@ -197,12 +203,17 @@ public class OpenNGCDB : ICelestialObjectDB
                 var objectType = AbbreviationToEnumMember<ObjectType>(objectTypeAbbr);
                 var @const = AbbreviationToEnumMember<Constellation>(constAbbr);
 
-                if (!csvReader.TryGetField<double>("V-Mag", out var vmag))
-                {
-                    vmag = double.NaN;
-                }
+                var vmag = csvReader.TryGetField<string>("V-Mag", out var vmagStr)
+                    && double.TryParse(vmagStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var vm)
+                    ? vm
+                    : double.NaN;
 
-                _objectsByIndex[indexEntry] = new CelestialObject(indexEntry, objectType, HMSToDegree(raHMS), DMSToDegree(decDMS), @const, vmag);
+                var surfaceBrightness = csvReader.TryGetField<string>("SurfBr", out var surfaceBrightnessStr)
+                    && double.TryParse(surfaceBrightnessStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var sb)
+                    ? sb
+                    : double.NaN;
+
+                _objectsByIndex[indexEntry] = new CelestialObject(indexEntry, objectType, HMSToDegree(raHMS), DMSToDegree(decDMS), @const, vmag, surfaceBrightness);
 
                 if (objectType == ObjectType.Duplicate)
                 {
@@ -237,10 +248,11 @@ public class OpenNGCDB : ICelestialObjectDB
                         var identifiers = identifiersEntry.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                         foreach (var identifier in identifiers)
                         {
-                            // only process Caldwell
-                            if (identifier.Length >= 2 && identifier[0] is 'C' && identifier[1] is ' ' or '0'
+                            if (identifier[0] is 'C' or 'M'
+                                && identifier.Length >= 2
+                                && identifier[1] is 'e' or 'l' or 'r' or ' ' or '0'
                                 && TryGetCleanedUpCatalogName(identifier, out var crossCatIdx)
-                                && crossCatIdx.ToCatalog() == Catalog.Caldwell
+                                && IsCrossCat(crossCatIdx.ToCatalog())
                             )
                             {
                                 _crossLookupTable.AddLookupEntry(crossCatIdx, indexEntry);
@@ -268,6 +280,7 @@ public class OpenNGCDB : ICelestialObjectDB
 
         return (processed, failed);
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         bool TryGetCatalogField(string catPrefix, out CatalogIndex entry)
         {
             entry = 0;

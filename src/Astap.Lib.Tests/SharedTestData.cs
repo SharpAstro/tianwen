@@ -4,6 +4,7 @@ namespace Astap.Lib.Tests;
 
 public static class SharedTestData
 {
+    internal const CatalogIndex C041 = (CatalogIndex)((ulong)'C' << 21 | '0' << 14 | '4' << 7 | '1');
     internal const CatalogIndex IC0458 = (CatalogIndex)((ulong)'I' << 28 | '0' << 21 | (ulong)'4' << 14 | (ulong)'5' << 7 | '8');
     internal const CatalogIndex IC0715NW = (CatalogIndex)((ulong)'I' << 49 | (ulong)'0' << 42 | (ulong)'7' << 35 | (ulong)'1' << 28 | '5' << 21 | '_' << 14 | 'N' << 7 | 'W');
     internal const CatalogIndex IC0720_NED02 = (CatalogIndex)((ulong)'I' << 49 | (ulong)'0' << 42 | (ulong)'7' << 35 | (ulong)'2' << 28 | '0' << 21 | 'N' << 14 | '0' << 7 | '2');
