@@ -100,37 +100,32 @@ public class OpenNGCDB : ICelestialObjectDB
 
     public bool TryLookupByIndex(CatalogIndex index, [NotNullWhen(true)] out CelestialObject celestialObject)
     {
-        if (!_objectsByIndex.TryGetValue(index, out celestialObject))
+        if (!_objectsByIndex.TryGetValue(index, out celestialObject)
+            && IsCrossCat(index.ToCatalog())
+            && _crossLookupTable.TryGetValue(index, out var crossIndices)
+        )
         {
-            var indexCat = index.ToCatalog();
-            if (IsCrossCat(indexCat) && _crossLookupTable.TryGetValue(index, out var crossIndices))
+            if (crossIndices.i1 > 0 && crossIndices.i1 != index && _objectsByIndex.TryGetValue(crossIndices.i1, out celestialObject))
             {
-                if (crossIndices.i1 > 0 && crossIndices.i1 != index && crossIndices.i1.ToCatalog() != Catalog.Messier && _objectsByIndex.TryGetValue(crossIndices.i1, out celestialObject))
+                index = crossIndices.i1;
+            }
+            else if (crossIndices.ext is not null)
+            {
+                foreach (var crossIndex in crossIndices.ext)
                 {
-                    index = crossIndices.i1;
-                }
-                else if (crossIndices.ext is not null)
-                {
-                    foreach (var crossIndex in crossIndices.ext)
+                    if (crossIndex > 0 && crossIndex != index && _objectsByIndex.TryGetValue(crossIndex, out celestialObject))
                     {
-                        if (crossIndex > 0 && crossIndex != index && crossIndex.ToCatalog() != Catalog.Messier && _objectsByIndex.TryGetValue(crossIndex, out celestialObject))
-                        {
-                            index = crossIndex;
-                            break;
-                        }
+                        index = crossIndex;
+                        break;
                     }
                 }
-                if (celestialObject.Index is 0)
-                {
-                    return false;
-                }
-            }
-            else
-            {
-                return false;
             }
         }
 
+        if (celestialObject.Index is 0)
+        {
+            return false;
+        }
         if (celestialObject.ObjectType is not ObjectType.Duplicate)
         {
             return true;
@@ -145,21 +140,11 @@ public class OpenNGCDB : ICelestialObjectDB
             else if (followIndicies.ext is CatalogIndex[] { Length: > 0 } ext)
             {
                 var followedObjs = new List<CelestialObject>(ext.Length + 1);
-                if (followIndicies.i1 != index
-                        && _objectsByIndex.TryGetValue(followIndicies.i1, out var followedObj)
-                        && followedObj.ObjectType != ObjectType.Duplicate)
-                {
-                    followedObjs.Add(followedObj);
-                }
+                AddToFollowObjs(followedObjs, index, followIndicies.i1);
 
                 foreach (var followIndex in followIndicies.ext)
                 {
-                    if (followIndex != index
-                        && _objectsByIndex.TryGetValue(followIndex, out followedObj)
-                        && followedObj.ObjectType != ObjectType.Duplicate)
-                    {
-                        followedObjs.Add(followedObj);
-                    }
+                    AddToFollowObjs(followedObjs, index, followIndex);
                 }
 
                 if (followedObjs.Count == 1)
@@ -170,6 +155,14 @@ public class OpenNGCDB : ICelestialObjectDB
             }
         }
         return false;
+
+        void AddToFollowObjs(List<CelestialObject> followedObjs, CatalogIndex index, CatalogIndex followIndex)
+        {
+            if (followIndex != index && _objectsByIndex.TryGetValue(followIndex, out var followedObj) && followedObj.ObjectType != ObjectType.Duplicate)
+            {
+                followedObjs.Add(followedObj);
+            }
+        }
     }
 
     public async Task<(int processed, int failed)> InitDBAsync()
