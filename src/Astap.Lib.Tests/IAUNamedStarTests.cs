@@ -10,10 +10,13 @@ public class IAUNamedStarTests
     [Fact]
     public async Task ReadStarsTest()
     {
-        var (processed, failed) = await new IAUNamedStarDB().InitDBAsync();
+        var db = new IAUNamedStarDB();
+        var (processed, failed) = await db.InitDBAsync();
 
         processed.ShouldBe(451);
         failed.ShouldBe(0);
+
+        db.CommonNames.Count.ShouldBe(processed);
     }
 
     [Theory]
@@ -40,11 +43,13 @@ public class IAUNamedStarTests
         var db = new IAUNamedStarDB();
         var (processed, failed) = await db.InitDBAsync();
         var idxs = db.ObjectIndices;
+        var catalogs = db.Catalogs;
 
         // when
         Parallel.ForEach(idxs, idx =>
         {
             db.TryLookupByIndex(idx, out _).ShouldBeTrue($"{idx.ToAbbreviation()} [{idx}] was not found!");
+            catalogs.ShouldContain(idx.ToCatalog());
         });
 
         // then

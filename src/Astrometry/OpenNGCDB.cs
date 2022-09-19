@@ -14,17 +14,37 @@ using static Astap.Lib.EnumHelper;
 
 namespace Astap.Lib.Astrometry;
 
-public class OpenNGCDB : ICelestialObjectDB<CelestialObject>
+public class OpenNGCDB : ICelestialObjectDB
 {
     private readonly Dictionary<CatalogIndex, CelestialObject> _objectsByIndex = new(14000);
     private readonly Dictionary<CatalogIndex, CatalogIndex[]> _crossLookupTable = new(800);
     private readonly Dictionary<string, CatalogIndex[]> _objectsByCommonName = new(200);
 
     private HashSet<CatalogIndex>? _catalogIndicesCache;
+    private HashSet<Catalog>? _catalogCache;
 
     public OpenNGCDB() { }
 
     public IReadOnlyCollection<string> CommonNames => _objectsByCommonName.Keys;
+
+    public IReadOnlySet<Catalog> Catalogs
+    {
+        get
+        {
+            if (_catalogCache is var cache and not null)
+            {
+                return cache;
+            }
+
+            var objs = _objectsByIndex.Count + _crossLookupTable.Count;
+
+            if (objs > 0)
+            {
+                return _catalogCache ??= this.IndicesToCatalogs<HashSet<Catalog>>();
+            }
+            return new HashSet<Catalog>(0);
+        }
+    }
 
     public IReadOnlySet<CatalogIndex> ObjectIndices
     {
@@ -35,26 +55,24 @@ public class OpenNGCDB : ICelestialObjectDB<CelestialObject>
                 return cache;
             }
 
-            var cap = _objectsByIndex.Count + _crossLookupTable.Count;
-            if (cap > 0)
+            var objs = _objectsByIndex.Count + _crossLookupTable.Count;
+            if (objs > 0)
             {
-                cache = new HashSet<CatalogIndex>(cap);
+                cache = new HashSet<CatalogIndex>(objs);
                 cache.UnionWith(_objectsByIndex.Keys);
                 cache.UnionWith(_crossLookupTable.Keys);
 
                 return _catalogIndicesCache ??= cache;
             }
-            else
-            {
-                return new HashSet<CatalogIndex>(0);
-            }
+
+            return new HashSet<CatalogIndex>(0);
         }
     }
 
     public bool TryResolveCommonName(string name, [NotNullWhen(true)] out CatalogIndex[]? matches)
         => _objectsByCommonName.TryGetValue(name, out matches);
 
-    public bool TryLookupByIndex(string name, [NotNullWhen(true)] out CelestialObject? celestialObject)
+    public bool TryLookupByIndex(string name, out CelestialObject celestialObject)
     {
         if (TryGetCleanedUpCatalogName(name, out var index) && TryLookupByIndex(index, out celestialObject))
         {
@@ -67,7 +85,7 @@ public class OpenNGCDB : ICelestialObjectDB<CelestialObject>
         }
     }
 
-    public bool TryLookupByIndex(CatalogIndex index, [NotNullWhen(true)] out CelestialObject? celestialObject)
+    public bool TryLookupByIndex(CatalogIndex index, [NotNullWhen(true)] out CelestialObject celestialObject)
     {
         if (!_objectsByIndex.TryGetValue(index, out celestialObject))
         {
@@ -83,7 +101,7 @@ public class OpenNGCDB : ICelestialObjectDB<CelestialObject>
                         break;
                     }
                 }
-                if (celestialObject is null)
+                if (celestialObject.Index is 0)
                 {
                     return false;
                 }
@@ -178,7 +196,13 @@ public class OpenNGCDB : ICelestialObjectDB<CelestialObject>
             {
                 var objectType = AbbreviationToEnumMember<ObjectType>(objectTypeAbbr);
                 var @const = AbbreviationToEnumMember<Constellation>(constAbbr);
-                _objectsByIndex[indexEntry] = new CelestialObject(indexEntry, objectType, HMSToDegree(raHMS), DMSToDegree(decDMS), @const);
+
+                if (!csvReader.TryGetField<double>("V-Mag", out var vmag))
+                {
+                    vmag = double.NaN;
+                }
+
+                _objectsByIndex[indexEntry] = new CelestialObject(indexEntry, objectType, HMSToDegree(raHMS), DMSToDegree(decDMS), @const, vmag);
 
                 if (objectType == ObjectType.Duplicate)
                 {
