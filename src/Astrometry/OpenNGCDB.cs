@@ -18,7 +18,7 @@ namespace Astap.Lib.Astrometry;
 public class OpenNGCDB : ICelestialObjectDB
 {
     private readonly Dictionary<CatalogIndex, CelestialObject> _objectsByIndex = new(14000);
-    private readonly Dictionary<CatalogIndex, CatalogIndex[]> _crossLookupTable = new(900);
+    private readonly Dictionary<CatalogIndex, (CatalogIndex i1, CatalogIndex i2)> _crossLookupTable = new(900);
     private readonly Dictionary<string, CatalogIndex[]> _objectsByCommonName = new(200);
 
     private HashSet<CatalogIndex>? _catalogIndicesCache;
@@ -98,10 +98,10 @@ public class OpenNGCDB : ICelestialObjectDB
             var indexCat = index.ToCatalog();
             if (IsCrossCat(indexCat) && _crossLookupTable.TryGetValue(index, out var crossIndices))
             {
-                foreach (var crossIndex in crossIndices)
+                foreach (var crossIndex in new[] { crossIndices.i1, crossIndices.i2 })
                 {
                     var crossCat = crossIndex.ToCatalog();
-                    if (crossIndex != index && crossCat != Catalog.Messier && _objectsByIndex.TryGetValue(crossIndex, out celestialObject))
+                    if (crossIndex > 0 && crossIndex != index && crossCat != Catalog.Messier && _objectsByIndex.TryGetValue(crossIndex, out celestialObject))
                     {
                         index = crossIndex;
                         break;
@@ -123,16 +123,16 @@ public class OpenNGCDB : ICelestialObjectDB
             return true;
         }
 
-        if (_crossLookupTable.TryGetValue(index, out var followIndicies) && followIndicies.Length > 0)
+        if (_crossLookupTable.TryGetValue(index, out var followIndicies) && followIndicies.i1 > 0)
         {
-            if (followIndicies.Length == 1 && followIndicies[0] != index)
+            if (followIndicies.i2 == 0 && followIndicies.i1 != index)
             {
-                return TryLookupByIndex(followIndicies[0], out celestialObject);
+                return TryLookupByIndex(followIndicies.i1, out celestialObject);
             }
-            else if (followIndicies.Length > 1)
+            else if (followIndicies.i2 != 0)
             {
                 var followedObjs = new List<CelestialObject>(2);
-                foreach (var followIndex in followIndicies)
+                foreach (var followIndex in new[] { followIndicies.i1, followIndicies.i2 })
                 {
                     if (followIndex != index
                         && _objectsByIndex.TryGetValue(followIndex, out var followedObj)
