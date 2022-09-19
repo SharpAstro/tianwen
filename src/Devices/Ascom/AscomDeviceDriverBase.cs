@@ -1,4 +1,6 @@
-﻿namespace Astap.Lib.Devices.Ascom;
+﻿using System;
+
+namespace Astap.Lib.Devices.Ascom;
 
 public abstract class AscomDeviceDriverBase : DynamicComObject, IDeviceDriver
 {
@@ -6,7 +8,7 @@ public abstract class AscomDeviceDriverBase : DynamicComObject, IDeviceDriver
 
     public AscomDeviceDriverBase(AscomDevice device) : base(device.DeviceId) => _device = device;
 
-    public string Name => _comObject?.Name ?? _device.DisplayName;
+    public string Name => _comObject?.Name as string ?? _device.DisplayName;
 
     public string? Description => _comObject?.Description as string;
 
@@ -27,7 +29,11 @@ public abstract class AscomDeviceDriverBase : DynamicComObject, IDeviceDriver
             if (obj is not null)
             {
                 obj.Connected = value;
+
+                DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(value));
             }
         }
     }
+
+    public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
 }

@@ -410,14 +410,20 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     public bool Connected
     {
         get => Connection.IsConnected;
-        set => Connect();
+        set => Connect(value);
     }
 
-    public void Connect()
+    public void Connect(bool connect)
     {
         if (Connected)
         {
             Dispose(true);
+        }
+
+        if (!connect)
+        {
+            DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(connect));
+            return;
         }
 
         ushort port = (ushort)(4400 + Instance - 1);
@@ -438,6 +444,8 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         var thread = new Thread(new ParameterizedThreadStart(Worker));
         thread.Start(this);
         m_worker = thread;
+
+        DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(connect));
     }
 
     static GuideStats AccumulateGuidingStats(Accum ra, Accum dec) => new()
@@ -774,6 +782,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     protected virtual void OnUnhandledEvent(UnhandledEventArgs eventArgs) => UnhandledEvent?.Invoke(this, eventArgs);
 
     public event EventHandler<GuidingErrorEventArgs>? GuidingErrorEvent;
+    public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
 
     protected virtual void OnGuidingErrorEvent(GuidingErrorEventArgs eventArgs) => GuidingErrorEvent?.Invoke(this, eventArgs);
 

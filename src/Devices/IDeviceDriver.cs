@@ -15,4 +15,6 @@ public interface IDeviceDriver : IDisposable
     public string DriverType { get; }
 
     public bool Connected { get; set; }
+
+    event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
 }
