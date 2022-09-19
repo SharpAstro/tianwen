@@ -19,7 +19,7 @@ public abstract class ControllableDeviceBase<TDriver> : IDisposable
         }
         else
         {
-            throw new ArgumentException($"Could not instantiate driver {typeof(TDriver)} for device {device}", nameof(device));
+            throw new ArgumentException($"Could not instantiate driver {typeof(TDriver)} for device {device} which is a {device.DeviceType}", nameof(device));
         }
     }
 
