@@ -1,13 +1,10 @@
 ﻿using Astap.Lib.Devices;
-using Astap.Lib.Devices.Guider;
 
 namespace Astap.Lib.Plan;
 
-public class Guider : ControllableDeviceBase<IGuider>
+public class Mount : ControllableDeviceBase<IDeviceDriver>
 {
-    public Guider(GuiderDevice device) : base(device)
-    {
-    }
+    public Mount(DeviceBase device) : base(device) { }
 
     protected override void Driver_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
     {
