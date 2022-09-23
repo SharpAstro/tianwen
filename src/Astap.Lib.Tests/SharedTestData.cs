@@ -32,6 +32,7 @@ public static class SharedTestData
     internal const CatalogIndex NGC6205 = (CatalogIndex)((ulong)'N' << 28 | '6' << 21 | '2' << 14 | '0' << 7 | '5');
     internal const CatalogIndex NGC6611 = (CatalogIndex)((ulong)'N' << 28 | '6' << 21 | '6' << 14 | '1' << 7 | '1');
     internal const CatalogIndex NGC7293 = (CatalogIndex)((ulong)'N' << 28 | '7' << 21 | '2' << 14 | '9' << 7 | '3');
+    internal const CatalogIndex NGC7331 = (CatalogIndex)((ulong)'N' << 28 | '7' << 21 | '3' << 14 | '3' << 7 | '1');
     internal const CatalogIndex ESO056_115 = (CatalogIndex)((ulong)'E' << 49 | (ulong)'0' << 42 | (ulong)'5' << 35 | (ulong)'6' << 28 | '-' << 21 | '1' << 14 | '1' << 7 | '5');
     internal const CatalogIndex PSR_J2144_3933s = (CatalogIndex)((ulong)'P' << 56 | (ulong)'r' << 49 | (ulong)'J' << 42 | (ulong)'B' << 35 | (ulong)'D' << 28 | 'A' << 21 | 'e' << 14 | 'u' << 7 | 'w');
     internal const CatalogIndex PSR_B0633_17n = (CatalogIndex)((ulong)'P' << 56 | (ulong)'r' << 49 | (ulong)'B' << 42 | (ulong)'A' << 35 | (ulong)'T' << 28 | 'y' << 21 | 'A' << 14 | 'I' << 7 | 'g');
