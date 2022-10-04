@@ -1,5 +1,4 @@
-﻿using Astap.Lib.Devices;
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace Astap.Lib.Plan;

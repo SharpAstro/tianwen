@@ -1,8 +1,9 @@
 ﻿using Astap.Lib.Devices;
 
+
 namespace Astap.Lib.Plan;
 
-public abstract class Cover : ControllableDeviceBase<IDeviceDriver>
+public class Cover : ControllableDeviceBase<ICoverDriver>
 {
     public Cover(DeviceBase device)
         : base(device)
@@ -10,5 +11,22 @@ public abstract class Cover : ControllableDeviceBase<IDeviceDriver>
 
     }
 
-    public abstract bool? IsOpen { get; }
+    protected override void Driver_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
+    {
+        // empty
+    }
+
+    public void Open() => Driver.Open();
+
+    public void Close() => Driver.Close();
+
+    public bool IsCalibrationReady => Driver.IsCalibrationReady;
+
+    public bool IsMoving => Driver.IsMoving;
+
+    public int Brightness
+    {
+        get => Driver.Brightness;
+        set => Driver.Brightness = value;
+    }
 }
