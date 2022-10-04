@@ -1,5 +1,4 @@
-﻿using Astap.Lib.Devices;
-using System;
+﻿using System;
 
 namespace Astap.Lib.Plan;
 
@@ -13,7 +12,8 @@ public class Telescope : IDisposable
         Camera camera,
         Cover? cover,
         Focuser? focuser,
-        FilterWheel filterWheel
+        FilterWheel? filterWheel,
+        Switch? switches
     )
     {
         Name = name;
@@ -22,6 +22,7 @@ public class Telescope : IDisposable
         Cover = cover;
         Focuser = focuser;
         FilterWheel = filterWheel;
+        Switches = switches;
     }
 
     public string Name { get; }
@@ -35,6 +36,8 @@ public class Telescope : IDisposable
     public Focuser? Focuser { get; }
 
     public FilterWheel? FilterWheel { get; }
+
+    public Switch? Switches { get; }
 
     protected virtual void Dispose(bool disposing)
     {

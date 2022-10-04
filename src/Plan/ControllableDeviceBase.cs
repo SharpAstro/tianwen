@@ -6,7 +6,6 @@ namespace Astap.Lib.Plan;
 public abstract class ControllableDeviceBase<TDriver> : IDisposable
     where TDriver : IDeviceDriver
 {
-    private readonly TDriver _driver;
     private bool disposedValue;
 
     public ControllableDeviceBase(DeviceBase device)
@@ -14,8 +13,7 @@ public abstract class ControllableDeviceBase<TDriver> : IDisposable
         Device = device;
         if (device.TryInstantiateDriver<TDriver>(out var driver))
         {
-            _driver = driver;
-            driver.DeviceConnectedEvent += Driver_DeviceConnectedEvent;
+            (Driver = driver).DeviceConnectedEvent += Driver_DeviceConnectedEvent;
         }
         else
         {
@@ -27,18 +25,12 @@ public abstract class ControllableDeviceBase<TDriver> : IDisposable
 
     public DeviceBase Device { get; }
 
-    public TDriver Driver => _driver;
+    public TDriver Driver { get; }
 
     public bool Connected
     {
-        get => _driver?.Connected == true;
-        set
-        {
-            if (Driver is TDriver driver)
-            {
-                driver.Connected = value;
-            }
-        }
+        get => Driver.Connected;
+        set => Driver.Connected = value;
     }
 
     protected virtual void Dispose(bool disposing)
@@ -47,12 +39,9 @@ public abstract class ControllableDeviceBase<TDriver> : IDisposable
         {
             if (disposing)
             {
-                if (_driver is IDeviceDriver driver)
-                {
-                    driver.Connected = false;
-                    driver.DeviceConnectedEvent -= Driver_DeviceConnectedEvent;
-                    driver.Dispose();
-                }
+                Driver.Connected = false;
+                Driver.DeviceConnectedEvent -= Driver_DeviceConnectedEvent;
+                Driver.Dispose();
             }
 
             // TODO: free unmanaged resources (unmanaged objects) and override finalizer
