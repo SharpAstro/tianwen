@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Globalization;
 using System.Net;
+using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using static Astap.Lib.EnumHelper;
 
@@ -56,26 +57,33 @@ public static class Utils
 
     static readonly Regex PSRDesignationPattern = new(@"^(?:PSR) ([BJ]) ([0-9]{4}) ([-+]) ([0-9]{2,4})$", CommonOpts);
 
-    static readonly string PSRPrefix = Catalog.PSR.ToAbbreviation();
+    static readonly Regex TwoMassAnd2MassXPattern = new(@"^(?:2MAS[SX]) ([J]) ([0-9]{8}) ([-+]) ([0-9]{7})$", CommonOpts);
 
     internal const int PSRRaMask = 0xfff;
-    internal const int PSRRaShift = 15;
+    internal const int PSRRaShift = 14;
     internal const int PSRDecMask = 0x3fff;
+
+    internal const int TwoMassRaMask = 0x1_fff_fff;
+    internal const int TwoMassRaShift = 24;
+    internal const int TwoMassDecMask = 0xfff_fff;
 
     public static bool TryGetCleanedUpCatalogName(string? input, out CatalogIndex catalogIndex)
     {
-        var (chars, digits, catalog) = GuessCatalogFormat(input, out var trimmedInput);
+        var (chars, digits, maybeCatalog) = GuessCatalogFormat(input, out var trimmedInput);
 
-        if (digits <= 0 || catalog is null)
+        if (digits <= 0 || !maybeCatalog.HasValue)
         {
             catalogIndex = 0;
             return false;
         }
 
+        var catalog = maybeCatalog.Value;
+
         string? cleanedUp;
+        bool isBase91Encoded;
         // test for slow path
         var firstDigit = trimmedInput.IndexOfAny(new[] { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9' });
-        if ((catalog == Catalog.NGC || catalog == Catalog.IC)
+        if (catalog is Catalog.NGC or Catalog.IC
             && firstDigit > 0 && trimmedInput.IndexOfAny(new[] { 'A', 'B', 'C', 'D', 'E', 'F', 'S', 'W', 'N' }, firstDigit) > firstDigit)
         {
             var match = ExtendedCatalogEntryPattern.Match(trimmedInput);
@@ -98,32 +106,17 @@ public static class Utils
             {
                 cleanedUp = null;
             }
+            isBase91Encoded = false;
         }
-        else if (catalog == Catalog.PSR)
+        else if (catalog is Catalog.TwoMass or Catalog.TwoMassX)
         {
-            var match = PSRDesignationPattern.Match(trimmedInput);
-            if (match.Success && match.Groups.Count == 5)
-            {
-                var BorJ = match.Groups[1].ValueSpan;
-                var ra = match.Groups[2].ValueSpan;
-                var decIsNeg = match.Groups[3].ValueSpan[0] == '-';
-                var dec = match.Groups[4].ValueSpan;
-                if (short.TryParse(ra, NumberStyles.None, CultureInfo.InvariantCulture, out var raVal)
-                    && short.TryParse(dec, NumberStyles.None, CultureInfo.InvariantCulture, out var decVal))
-                {
-                    var idAsInt = (raVal & PSRRaMask) << PSRRaShift | (decVal & PSRDecMask) << 1 | (decIsNeg ? 1 : 0);
-                    var idAsIntN = IPAddress.HostToNetworkOrder(idAsInt);
-                    cleanedUp = string.Concat(PSRPrefix, BorJ, Convert.ToBase64String(BitConverter.GetBytes(idAsIntN), Base64FormattingOptions.None).TrimEnd('='));
-                }
-                else
-                {
-                    cleanedUp = null;
-                }
-            }
-            else
-            {
-                cleanedUp = null;
-            }
+            cleanedUp = CleanupRADecBasedCatalogIndex(TwoMassAnd2MassXPattern, trimmedInput, catalog, TwoMassRaMask, TwoMassRaShift, TwoMassDecMask, false);
+            isBase91Encoded = true;
+        }
+        else if (catalog is Catalog.PSR)
+        {
+            cleanedUp = CleanupRADecBasedCatalogIndex(PSRDesignationPattern, trimmedInput, catalog, PSRRaMask, PSRRaShift, PSRDecMask, true);
+            isBase91Encoded = true;
         }
         else if (chars.Length <= MaxLenInASCII)
         {
@@ -165,15 +158,17 @@ public static class Utils
             }
 
             cleanedUp = foundDigits > 0 ? new string(chars) : null;
+            isBase91Encoded = false;
         }
         else
         {
+            isBase91Encoded = false;
             cleanedUp = null;
         }
 
-        if (cleanedUp is not null)
+        if (cleanedUp is not null && cleanedUp.Length <= MaxLenInASCII)
         {
-            catalogIndex = AbbreviationToEnumMember<CatalogIndex>(cleanedUp);
+            catalogIndex = (CatalogIndex)(isBase91Encoded ? (1L << 63) : 0L) | AbbreviationToEnumMember<CatalogIndex>(cleanedUp);
             return true;
         }
         else
@@ -181,6 +176,41 @@ public static class Utils
             catalogIndex = 0;
             return false;
         }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    static string? CleanupRADecBasedCatalogIndex(Regex pattern, string trimmedInput, Catalog catalog, long raMask, int raShift, long decMask, bool supportEpoch)
+    {
+        var match = pattern.Match(trimmedInput);
+
+        if (!match.Success || match.Groups.Count != 5)
+        {
+            return null;
+        }
+
+        var isJ2000 = match.Groups[1].ValueSpan[0] == 'J';
+        var ra = match.Groups[2].ValueSpan;
+        var decIsNeg = match.Groups[3].ValueSpan[0] == '-';
+        var dec = match.Groups[4].ValueSpan;
+        if (long.TryParse(ra, NumberStyles.None, CultureInfo.InvariantCulture, out var raVal)
+            && long.TryParse(dec, NumberStyles.None, CultureInfo.InvariantCulture, out var decVal))
+        {
+            const int signShift = ASCIIBits;
+            var epochShift = signShift + (supportEpoch ? 1 : 0);
+            var decShift = epochShift + 1;
+            var idAsLongH =
+                  (raVal & raMask) << (raShift + decShift)
+                | (decVal & decMask) << decShift
+                | (isJ2000 && supportEpoch ? 1L : 0L) << epochShift
+                | (decIsNeg ? 1L : 0L) << signShift
+                | ((long)catalog & ASCIIMask);
+            var idAsLongN = IPAddress.HostToNetworkOrder(idAsLongH);
+            var bytesN = BitConverter.GetBytes(idAsLongN);
+            var asBase91N = Base91Encoder.EncodeBytes(bytesN[1..]);
+            return asBase91N;
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -199,6 +229,11 @@ public static class Utils
 
         return trimmedInput[0] switch
         {
+            '2' => trimmedInput.Length > 5 && trimmedInput[4] == 'S'
+                ? (Array.Empty<char>(), 15, Catalog.TwoMass)
+                : trimmedInput.Length > 5 && trimmedInput[4] == 'X'
+                    ? (Array.Empty<char>(), 15, Catalog.TwoMassX)
+                    : (Array.Empty<char>(), 0, null),
             'A' => (new char[7] { 'A', 'C', 'O', '0', '0', '0', '0' }, 4, Catalog.Abell),
             'B' => (new char[4] { 'B', '0', '0', '0' }, 3, Catalog.Barnard),
             'C' => trimmedInput[1] == 'l' || trimmedInput[1] == 'r'
@@ -227,7 +262,7 @@ public static class Utils
                 : (new char[4] { 'M', '0', '0', '0' }, 3, Catalog.Messier),
             'N' => (new char[5] { 'N', '0', '0', '0', '0' }, 4, Catalog.NGC),
             'P' => trimmedInput[1] == 'S' && trimmedInput.Length > 2 && trimmedInput[2] == 'R'
-                ? (new char[12] { 'P', 'S', 'R', '$', '0', '0', '0', '#', '0', '0', '0', '0'}, 8, Catalog.PSR)
+                ? (Array.Empty<char>(), 8, Catalog.PSR)
                 : (Array.Empty<char>(), 0, null),
             'S' => (new char[7] { 'S', 'h', '2', '-', '0', '0', '0'}, 3, Catalog.Sharpless),
             'T' => (new char[6] { 'T', 'r', 'E', 'S', '0', '0' }, 2, Catalog.TrES),

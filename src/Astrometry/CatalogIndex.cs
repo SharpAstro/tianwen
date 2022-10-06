@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 using static Astap.Lib.EnumHelper;
 
 namespace Astap.Lib.Astrometry;
@@ -17,59 +18,89 @@ public static class CatalogIndexEx
 {
     public static string ToCanonical(this CatalogIndex catalogIndex)
     {
-        var catalog = catalogIndex.ToCatalog();
-        var catalogLZC = BitOperations.LeadingZeroCount((ulong)catalog);
+        var (catalog, decoded, isMSBSet) = catalogIndex.ToCatalogAndDecoded();
+
         var prefix = catalog.ToCanonical();
-        var catalogIndexUl = (ulong)catalogIndex;
-        var catalogIndexLZC = BitOperations.LeadingZeroCount(catalogIndexUl);
-
-        var withoutCatalogPrefixUl = catalogIndexUl &= ~(ulong.MaxValue << (-catalogIndexLZC + catalogLZC));
-        var withoutPrefixAsStr = EnumValueToAbbreviation(withoutCatalogPrefixUl).TrimStart('0');
-
-        if (withoutPrefixAsStr.Length is 0)
+        if (isMSBSet)
         {
-            throw new ArgumentException($"Catalog index {catalogIndex} could not be parsed", nameof(catalogIndex));
-        }
-
-        int Nor_Idx;
-        if (catalog is Catalog.PSR)
-        {
-            return FormatPSR(prefix, withoutPrefixAsStr);
-        }
-        else if (catalog is Catalog.NGC or Catalog.IC && (Nor_Idx = withoutPrefixAsStr.IndexOfAny(new char[] { '_', 'N' })) > 0)
-        {
-            return string.Concat(prefix, " ", withoutPrefixAsStr[..Nor_Idx], withoutPrefixAsStr[Nor_Idx] == 'N' ? " NED" : "", withoutPrefixAsStr[(Nor_Idx + 1)..]);
+            if (catalog is Catalog.PSR)
+            {
+                return RADecEncodedIndexToCanonical(prefix, decoded, 4, 4, Utils.PSRRaMask, Utils.PSRRaShift, Utils.PSRDecMask, true);
+            }
+            if (catalog is Catalog.TwoMass or Catalog.TwoMassX)
+            {
+                return RADecEncodedIndexToCanonical(prefix, decoded, 8, 7, Utils.TwoMassRaMask, Utils.TwoMassRaShift, Utils.TwoMassDecMask, false);
+            }
+            else
+            {
+                throw new ArgumentException($"Catalog index {catalogIndex} with MSB = true could not be parsed", nameof(catalogIndex));
+            }
         }
         else
         {
-            var sep = catalog switch
-            {
-                Catalog.Sharpless or Catalog.TrES or Catalog.WASP or Catalog.XO => "-",
-                _ => " "
-            };
+            string withoutPrefixAsStr = EnumValueToAbbreviation(decoded).TrimStart('0');
 
-            return string.Concat(prefix, sep, withoutPrefixAsStr);
+            if (withoutPrefixAsStr.Length is 0)
+            {
+                throw new ArgumentException($"Catalog index {catalogIndex} could not be parsed", nameof(catalogIndex));
+            }
+
+            int Nor_Idx;
+            if (catalog is Catalog.NGC or Catalog.IC && (Nor_Idx = withoutPrefixAsStr.IndexOfAny(new char[] { '_', 'N' })) > 0)
+            {
+                return string.Concat(prefix, " ", withoutPrefixAsStr[..Nor_Idx], withoutPrefixAsStr[Nor_Idx] == 'N' ? " NED" : "", withoutPrefixAsStr[(Nor_Idx + 1)..]);
+            }
+            else
+            {
+                var sep = catalog switch
+                {
+                    Catalog.Sharpless or Catalog.TrES or Catalog.WASP or Catalog.XO => "-",
+                    _ => " "
+                };
+
+                return string.Concat(prefix, sep, withoutPrefixAsStr);
+            }
         }
     }
 
-    private static string FormatPSR(string prefix, string withoutPrefixAsStr)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static string RADecEncodedIndexToCanonical(string prefix, ulong decoded, int raDigits, int decDigits, int raMask, int raShift, int decMask, bool supportsEpoch)
     {
-        var epoch = withoutPrefixAsStr[0];
-        var base64Str = withoutPrefixAsStr[1..];
-        var padding = Math.DivRem(base64Str.Length, 3, out _);
-        var bytes = Convert.FromBase64String(string.Concat(base64Str, new('=', padding)));
-        var intN = BitConverter.ToInt32(bytes);
-        var intH = IPAddress.NetworkToHostOrder(intN);
-        var decIsNeg = (intH & 1) == 0b1;
-        intH >>= 1;
-        var dec = intH & Utils.PSRDecMask;
-        intH >>= Utils.PSRRaShift - 1;
-        var ra = intH & Utils.PSRRaMask;
+        var value = (long)decoded;
+
+        // sign
+        var decIsNeg = (decoded & 1) == 0b1;
+        value >>= 1;
+
+        // epoch
+        string epoch;
+        int actualDecDigits;
+        if (supportsEpoch)
+        {
+            var isJ = (decoded & 1) == 0b1;
+            epoch = isJ ? "J" : "B";
+            actualDecDigits = isJ ? decDigits : 2;
+            value >>= 1;
+        }
+        else
+        {
+            epoch = "J";
+            actualDecDigits = decDigits;
+        }
+
+        // dec
+        var dec = value & decMask;
+        value >>= raShift;
+
+        // ra
+        var ra = value & raMask;
+
+        // 2 digits for B is only valid for PSR
         return string.Concat(
             prefix, " ", epoch,
-            ra.ToString("D4", CultureInfo.InvariantCulture),
-            decIsNeg ? '-' : '+',
-            dec.ToString("D" + (epoch == 'B' ? 2 : 4), CultureInfo.InvariantCulture)
+            ra.ToString("D" + raDigits, CultureInfo.InvariantCulture),
+            decIsNeg ? "-" : "+",
+            dec.ToString("D" + actualDecDigits, CultureInfo.InvariantCulture)
         );
     }
 
@@ -94,29 +125,69 @@ public static class CatalogIndexEx
 
     private static byte CatKey(ulong catAsUlong, int lzc) => (byte)((catAsUlong >> BitsInUlong - lzc - ASCIIBits) & ASCIIMask);
 
+
     public static Catalog ToCatalog(this CatalogIndex catalogIndex)
+    {
+        var (catalog, _, _) = catalogIndex.ToCatalogAndDecoded();
+        return catalog;
+    }
+
+    /// <summary>
+    /// Identifies the <see cref="Catalog"/> of the given <see cref="CatalogIndex"/> <paramref name="catalogIndex"/>.
+    /// Will return 0 for Catalog if Catalog cannot be determined.
+    /// Additionally the decoded result together with the MSB is set information is returned so it can be used to extract
+    /// embedded information such as RA and DEC or catalog index number.
+    /// </summary>
+    /// <param name="catalogIndex"></param>
+    /// <returns>(catalog entry, decoded integral without catalog prefix/suffix, true if MSB is set)</returns>
+    /// <exception cref="ArgumentException">Will throw if catalog cannot be found in the known list of catalogs</exception>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static (Catalog catalog, ulong decoded, bool msbSet) ToCatalogAndDecoded(this CatalogIndex catalogIndex)
     {
         if (catalogIndex == 0)
         {
-            return 0;
+            return (0, 0UL, false);
         }
 
-        var catIdxAsUlong = (ulong)catalogIndex;
-        var catIndexLZC = BitOperations.LeadingZeroCount(catIdxAsUlong);
+        var catalogIndexUl = (ulong)catalogIndex;
+        var isMSBSet = (catalogIndexUl & MSBUlongMask) == MSBUlongMask;
+        catalogIndexUl ^= isMSBSet ? MSBUlongMask : 0ul;
 
-        if (!PartitionedCategories.TryGetValue(CatKey(catIdxAsUlong, catIndexLZC), out var categories))
+        if (isMSBSet)
         {
-            return 0;
+            var encoded = EnumValueToAbbreviation(catalogIndexUl);
+            if (Base91Encoder.DecodeBytes(encoded) is byte[] decoded && decoded.Length > 1)
+            {
+                const int max = BytesInUlong;
+                Span<byte> bytesUlN = stackalloc byte[max];
+                decoded.CopyTo(bytesUlN[(max - decoded.Length)..]);
+
+                var decodedULH = (ulong)IPAddress.NetworkToHostOrder(BitConverter.ToInt64(bytesUlN));
+
+                return ((Catalog)(decoded[^1] & ASCIIMask), decodedULH >> ASCIIBits, true);
+            }
+            else
+            {
+                return (0, 0UL, false);
+            }
+        }
+
+        var catalogIndexLZC = BitOperations.LeadingZeroCount(catalogIndexUl);
+
+        if (!PartitionedCategories.TryGetValue(CatKey(catalogIndexUl, catalogIndexLZC), out var categories))
+        {
+            return (0, 0UL, false);
         }
 
         for (var i = 0; i < categories.Length; i++)
         {
             var entry = categories[i];
             var entryLZC = BitOperations.LeadingZeroCount((ulong)entry);
-            var catalogIndexCat = (Catalog)(catIdxAsUlong >> (entryLZC - catIndexLZC));
+            var catalogIndexCat = (Catalog)(catalogIndexUl >> (entryLZC - catalogIndexLZC));
             if (entry == catalogIndexCat)
             {
-                return entry;
+                var decoded = catalogIndexUl & ~(ulong.MaxValue << (-catalogIndexLZC + entryLZC));
+                return (entry, decoded, false);
             }
         }
 
