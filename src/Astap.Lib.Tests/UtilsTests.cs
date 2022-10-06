@@ -98,9 +98,9 @@ public class UtilsTests
     [InlineData("N 0526 ABC01")]
     public void GivenAnInvalidInputWhenCleaningUpThenNothingIsReturned(string input)
     {
-        var success = Utils.TryGetCleanedUpCatalogName(input, out var actualCleanedUp);
+        var success = Utils.TryGetCleanedUpCatalogName(input, out var actualCatalogIndex);
 
         success.ShouldBeFalse();
-        actualCleanedUp.ShouldBe((CatalogIndex)0);
+        actualCatalogIndex.ShouldBe((CatalogIndex)0);
     }
 }
