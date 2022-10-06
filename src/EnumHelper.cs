@@ -42,7 +42,7 @@ public static class EnumHelper
     {
         var msb = (value & MSBUlongMask) == MSBUlongMask;
 
-        var chars = new char[MaxLenInASCII];
+        Span<char> chars = stackalloc char[MaxLenInASCII];
         int i;
         for (i = 0; i < MaxLenInASCII; i++)
         {
@@ -60,6 +60,6 @@ public static class EnumHelper
             chars[0] |= (char)(1 << ASCIIBits);
         }
 
-        return new string(chars, MaxLenInASCII - i, i);
+        return new string(chars.Slice(MaxLenInASCII - i, i));
     }
 }
