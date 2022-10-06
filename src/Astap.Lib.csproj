@@ -49,6 +49,7 @@
 
   <ItemGroup>
     <PackageReference Include="CsvHelper" Version="28.0.1" />
+    <PackageReference Include="Roydl.Text" Version="1.0.1" />
     <PackageReference Include="ZWOptical.ASISDK" Version="1.0.42" />
   </ItemGroup>
 

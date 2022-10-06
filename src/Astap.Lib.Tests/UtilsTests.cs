@@ -33,6 +33,10 @@ public class UtilsTests
 
 
     [Theory]
+    [InlineData("2MASS J11400198+3152397", "Ð63ATJ,yB", Catalog.TwoMass)]
+    [InlineData("2MASS J12015301-1852034", "Ý#fRtuKOL", Catalog.TwoMass)]
+    [InlineData("2MASX J00185316+1035410", "ò15|s1VwH", Catalog.TwoMassX)]
+    [InlineData("2MASX J11380904-0936257", "ìY<7izouP", Catalog.TwoMassX)]
     [InlineData("N11", "N0011", Catalog.NGC)]
     [InlineData("NGC0011", "N0011", Catalog.NGC)]
     [InlineData("NC 120", "N0120", Catalog.NGC)]
@@ -48,6 +52,7 @@ public class UtilsTests
     [InlineData("ESO351-030", "E351-030", Catalog.ESO)]
     [InlineData("ESO356 - 004", "E356-004", Catalog.ESO)]
     [InlineData("Cl 399", "Cr399", Catalog.Collinder)]
+    [InlineData("Cr 399", "Cr399", Catalog.Collinder)]
     [InlineData("C041", "C041", Catalog.Caldwell)]
     [InlineData("C 40", "C040", Catalog.Caldwell)]
     [InlineData("Mel 025", "Mel025", Catalog.Melotte)]
@@ -62,22 +67,23 @@ public class UtilsTests
     [InlineData("XO - 2N", "XO002N", Catalog.XO)]
     [InlineData("HAT-P-23", "HAT-P023", Catalog.HAT_P)]
     [InlineData("HATS 23", "HATS023", Catalog.HATS)]
-    [InlineData("PSR J2144-3933", "PrJBDAeuw", Catalog.PSR)]
-    [InlineData("PSR B0633+17", "PrBATyAIg", Catalog.PSR)]
-    [InlineData("PSR J2400-9000", "PrJBLBGUQ", Catalog.PSR)]
-    [InlineData("PSR B2400-90", "PrBBLAAtQ", Catalog.PSR)]
+    [InlineData("PSR J2144-3933", "ÁAQAdywXD", Catalog.PSR)]
+    [InlineData("PSR B0633+17", "ÁAFtItjtC", Catalog.PSR)]
+    [InlineData("PSR J2400-9000", "ÁAQAo5{WD", Catalog.PSR)]
+    [InlineData("PSR B2400-90", "ÁAQALA*4B", Catalog.PSR)]
     [InlineData("GJ 551", "GJ0551", Catalog.GJ)]
     [InlineData("Sh 2 - 6", "Sh2-006", Catalog.Sharpless)]
     [InlineData("Tres - 3", "TrES03", Catalog.TrES)]
     [InlineData("WASP-11", "WASP011", Catalog.WASP)]
-    public void GivenAUserInputWhenCleaningItUpThenACleanedupEntryIsReturned(string input, string expectedOutput, Catalog expectedCatalog)
+    public void GivenInputWhenCleaningItUpThenCatalogAndAbbreviationAreReturned(string input, string expectedAbbreviation, Catalog expectedCatalog)
     {
         var success = Utils.TryGetCleanedUpCatalogName(input, out var actualCatalogIndex);
 
         success.ShouldBeTrue();
         actualCatalogIndex.ShouldNotBe((CatalogIndex)0);
-        actualCatalogIndex.ToAbbreviation().ShouldBe(expectedOutput);
+        actualCatalogIndex.ToAbbreviation().ShouldBe(expectedAbbreviation);
         actualCatalogIndex.ToCatalog().ShouldBe(expectedCatalog);
+        actualCatalogIndex.ShouldBe(EnumHelper.AbbreviationToEnumMember<CatalogIndex>(expectedAbbreviation));
     }
 
     [Theory]
@@ -90,7 +96,7 @@ public class UtilsTests
     [InlineData("4Sq")]
     [InlineData("N 0526__")]
     [InlineData("N 0526 ABC01")]
-    public void GivenAnInvalidUserInputWhenCleaningUpThenNothingIsReturned(string input)
+    public void GivenAnInvalidInputWhenCleaningUpThenNothingIsReturned(string input)
     {
         var success = Utils.TryGetCleanedUpCatalogName(input, out var actualCleanedUp);
 

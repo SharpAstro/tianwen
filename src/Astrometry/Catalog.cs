@@ -22,9 +22,11 @@ public enum Catalog : ulong
     Melotte = 'M' << 14 | 'e' << 7 | 'l',
     Messier = 'M',
     NGC = 'N',
-    PSR = 'P' << 7 | 'r', // PSR
+    PSR = 'P',
     Sharpless = 'S' << 21 | 'h' << 14 | '2' << 7 | '-', // Sharpless, including dash to distinguish 2 in the name from a number
     TrES = 'T' << 21 | 'r' << 14 | 'E' << 7 | 'S',
+    TwoMass = '2',
+    TwoMassX = 'x',
     UGC = 'U', // Uppsala General Catalogue
     WASP = 'W' << 21 | 'A' << 14 | 'S' << 7 | 'P',
     XO = 'X' << 7 | 'O'
@@ -48,6 +50,8 @@ public static class CatalogEx
             Catalog.Messier => "M",
             Catalog.HAT_P => "HAT-P",
             Catalog.Sharpless => "Sh2",
+            Catalog.TwoMass => "2MASS",
+            Catalog.TwoMassX => "2MASX",
             _ => catalog.ToString()
         };
 
