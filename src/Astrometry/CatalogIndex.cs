@@ -141,7 +141,7 @@ public static class CatalogIndexEx
     /// <param name="catalogIndex"></param>
     /// <returns>(catalog entry, decoded integral without catalog prefix/suffix, true if MSB is set)</returns>
     /// <exception cref="ArgumentException">Will throw if catalog cannot be found in the known list of catalogs</exception>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     public static (Catalog catalog, ulong decoded, bool msbSet) ToCatalogAndDecoded(this CatalogIndex catalogIndex)
     {
         if (catalogIndex == 0)
