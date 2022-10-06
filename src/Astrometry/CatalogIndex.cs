@@ -183,10 +183,11 @@ public static class CatalogIndexEx
         {
             var entry = categories[i];
             var entryLZC = BitOperations.LeadingZeroCount((ulong)entry);
-            var catalogIndexCat = (Catalog)(catalogIndexUl >> (entryLZC - catalogIndexLZC));
+            var shift = entryLZC - catalogIndexLZC;
+            var catalogIndexCat = (Catalog)(catalogIndexUl >> shift);
             if (entry == catalogIndexCat)
             {
-                var decoded = catalogIndexUl & ~(ulong.MaxValue << (-catalogIndexLZC + entryLZC));
+                var decoded = catalogIndexUl & ~(ulong.MaxValue << shift);
                 return (entry, decoded, false);
             }
         }
