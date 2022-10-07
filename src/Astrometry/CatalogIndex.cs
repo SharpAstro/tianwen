@@ -71,13 +71,11 @@ public static class CatalogIndexEx
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    static string RADecEncodedIndexToCanonical(string prefix, ulong decoded, int raDigits, int decDigits, int raMask, int raShift, int decMask, bool supportsEpoch)
+    static string RADecEncodedIndexToCanonical(string prefix, ulong decoded, int raDigits, int decDigits, uint raMask, int raShift, uint decMask, bool supportsEpoch)
     {
-        var value = (long)decoded;
-
         // sign
         var decIsNeg = (decoded & 1) == 0b1;
-        value >>= 1;
+        decoded >>= 1;
 
         // epoch
         string epoch;
@@ -87,7 +85,7 @@ public static class CatalogIndexEx
             var isJ = (decoded & 1) == 0b1;
             epoch = isJ ? "J" : "B";
             actualDecDigits = isJ ? decDigits : 2;
-            value >>= 1;
+            decoded >>= 1;
         }
         else
         {
@@ -96,11 +94,11 @@ public static class CatalogIndexEx
         }
 
         // dec
-        var dec = value & decMask;
-        value >>= raShift;
+        var dec = decoded & decMask;
+        decoded >>= raShift;
 
         // ra
-        var ra = value & raMask;
+        var ra = decoded & raMask;
 
         // 2 digits for B is only valid for PSR
         return string.Concat(
