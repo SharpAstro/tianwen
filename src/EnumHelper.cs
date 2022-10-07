@@ -6,8 +6,8 @@ namespace Astap.Lib;
 
 public static class EnumHelper
 {
-    internal const int ASCIIMask = 0x7f;
-    internal const int ByteMask = 0xff;
+    internal const uint ASCIIMask = 0x7f;
+    internal const uint ByteMask = 0xff;
     internal const int ASCIIBits = 7;
     internal const int BitsInUlong = 64;
     internal const int BytesInUlong = BitsInUlong / 8;

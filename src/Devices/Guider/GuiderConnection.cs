@@ -32,8 +32,6 @@ namespace Astap.Lib.Devices.Guider;
 
 class GuiderConnection : IGuiderConnection
 {
-    static readonly byte[] CRLF = new byte[2] { (byte)'\r', (byte)'\n' };
-
     private TcpClient? _tcpClient;
     private StreamReader? _streamReader;
 
@@ -69,14 +67,15 @@ class GuiderConnection : IGuiderConnection
         }
     }
 
-    public bool IsConnected => _tcpClient != null && _tcpClient.Connected;
+    public bool IsConnected => _tcpClient?.Connected is true;
 
     public string? ReadLine() => _streamReader?.ReadLine();
 
     public void WriteLine(ReadOnlyMemory<byte> jsonlUtf8Bytes)
     {
-        var stream = _tcpClient?.GetStream();
-        if (stream != null && stream.CanWrite)
+        Span<byte> CRLF = stackalloc byte[2] { (byte)'\r', (byte)'\n' };
+
+        if (_tcpClient?.GetStream() is NetworkStream stream && stream.CanWrite)
         {
             stream.Write(jsonlUtf8Bytes.Span);
             stream.Write(CRLF);

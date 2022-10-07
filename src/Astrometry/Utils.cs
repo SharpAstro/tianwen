@@ -59,13 +59,13 @@ public static class Utils
 
     static readonly Regex TwoMassAnd2MassXPattern = new(@"^(?:2MAS[SX]) ([J]) ([0-9]{8}) ([-+]) ([0-9]{7})$", CommonOpts);
 
-    internal const int PSRRaMask = 0xfff;
+    internal const uint PSRRaMask = 0xfff;
     internal const int PSRRaShift = 14;
-    internal const int PSRDecMask = 0x3fff;
+    internal const uint PSRDecMask = 0x3fff;
 
-    internal const int TwoMassRaMask = 0x1_fff_fff;
+    internal const uint TwoMassRaMask = 0x1_fff_fff;
     internal const int TwoMassRaShift = 24;
-    internal const int TwoMassDecMask = 0xfff_fff;
+    internal const uint TwoMassDecMask = 0xfff_fff;
 
     public static bool TryGetCleanedUpCatalogName(string? input, out CatalogIndex catalogIndex)
     {
@@ -176,7 +176,7 @@ public static class Utils
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    static string? CleanupRADecBasedCatalogIndex(Regex pattern, string trimmedInput, Catalog catalog, long raMask, int raShift, long decMask, bool supportEpoch)
+    static string? CleanupRADecBasedCatalogIndex(Regex pattern, string trimmedInput, Catalog catalog, ulong raMask, int raShift, ulong decMask, bool supportEpoch)
     {
         var match = pattern.Match(trimmedInput);
 
@@ -189,8 +189,8 @@ public static class Utils
         var ra = match.Groups[2].ValueSpan;
         var decIsNeg = match.Groups[3].ValueSpan[0] == '-';
         var dec = match.Groups[4].ValueSpan;
-        if (long.TryParse(ra, NumberStyles.None, CultureInfo.InvariantCulture, out var raVal)
-            && long.TryParse(dec, NumberStyles.None, CultureInfo.InvariantCulture, out var decVal))
+        if (ulong.TryParse(ra, NumberStyles.None, CultureInfo.InvariantCulture, out var raVal)
+            && ulong.TryParse(dec, NumberStyles.None, CultureInfo.InvariantCulture, out var decVal))
         {
             const int signShift = ASCIIBits;
             var epochShift = signShift + (supportEpoch ? 1 : 0);
@@ -198,10 +198,10 @@ public static class Utils
             var idAsLongH =
                   (raVal & raMask) << (raShift + decShift)
                 | (decVal & decMask) << decShift
-                | (isJ2000 && supportEpoch ? 1L : 0L) << epochShift
-                | (decIsNeg ? 1L : 0L) << signShift
-                | ((long)catalog & ASCIIMask);
-            var idAsLongN = IPAddress.HostToNetworkOrder(idAsLongH);
+                | (isJ2000 && supportEpoch ? 1ul : 0ul) << epochShift
+                | (decIsNeg ? 1ul : 0ul) << signShift
+                | ((ulong)catalog & ASCIIMask);
+            var idAsLongN = IPAddress.HostToNetworkOrder((long)idAsLongH);
             var bytesN = BitConverter.GetBytes(idAsLongN);
 
             return Base91Encoder.EncodeBytes(bytesN[1..]);

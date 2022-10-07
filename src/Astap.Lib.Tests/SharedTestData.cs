@@ -5,7 +5,7 @@ namespace Astap.Lib.Tests;
 
 public static class SharedTestData
 {
-    internal const ulong Base91Enc = (1UL << 63);
+    internal const ulong Base91Enc = 1UL << 63;
 
     internal const CatalogIndex C041 = (CatalogIndex)((ulong)'C' << 21 | '0' << 14 | '4' << 7 | '1');
     internal const CatalogIndex C099 = (CatalogIndex)((ulong)'C' << 21 | '0' << 14 | '9' << 7 | '9');
@@ -38,6 +38,7 @@ public static class SharedTestData
     internal const CatalogIndex ESO056_115 = (CatalogIndex)((ulong)'E' << 49 | (ulong)'0' << 42 | (ulong)'5' << 35 | (ulong)'6' << 28 | '-' << 21 | '1' << 14 | '1' << 7 | '5');
     internal const CatalogIndex PSR_J2144_3933s = (CatalogIndex)(Base91Enc | (ulong)'F' << 42 | (ulong)'t' << 35 | (ulong)'P' << 28 | '+' << 21 | '+' << 14 | '4' << 7 | 'B');
     internal const CatalogIndex PSR_B0633_17n = (CatalogIndex)(Base91Enc | (ulong)',' << 42 | (ulong)'>' << 35 | (ulong)'Z' << 28 | '4' << 21 | 'g' << 14 | '4' << 7 | 'A');
+    internal const CatalogIndex PSR_J0002_6216n = (CatalogIndex)((ulong)'Á' << 56 | (ulong)'A' << 49 | (ulong)'X' << 42 | (ulong)'L' << 35 | (ulong)'@' << 28 | 'Q' << 21 | '3' << 14 | 'u' << 7 | 'C');
     internal const CatalogIndex Sh2_006 = (CatalogIndex)((ulong)'S' << 42 | (ulong)'h' << 35 | (ulong)'2' << 28 | '-' << 21 | '0' << 14 | '0' << 7 | '6');
     internal const CatalogIndex TrES03 = (CatalogIndex)((ulong)'T' << 35 | (ulong)'r' << 28 | 'E' << 21 | 'S' << 14 | '0' << 7 | '3');
     internal const CatalogIndex TwoM_J11400198_3152397n = (CatalogIndex)(Base91Enc | (ulong)'P' << 56 | (ulong)'6' << 49 | (ulong)'3' << 42 | (ulong)'A' << 35 | (ulong)'T' << 28 | 'J' << 21| ',' << 14 | 'y' << 7 | 'B');
