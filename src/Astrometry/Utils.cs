@@ -69,7 +69,7 @@ public static class Utils
 
     public static bool TryGetCleanedUpCatalogName(string? input, out CatalogIndex catalogIndex)
     {
-        var (chars, digits, maybeCatalog) = GuessCatalogFormat(input, out var trimmedInput);
+        var (template, digits, maybeCatalog) = GuessCatalogFormat(input, out var trimmedInput);
 
         if (digits <= 0 || !maybeCatalog.HasValue)
         {
@@ -118,8 +118,10 @@ public static class Utils
             cleanedUp = CleanupRADecBasedCatalogIndex(PSRDesignationPattern, trimmedInput, catalog, PSRRaMask, PSRRaShift, PSRDecMask, true);
             isBase91Encoded = true;
         }
-        else if (chars.Length <= MaxLenInASCII)
+        else
         {
+            Span<char> chars = stackalloc char[template.Length];
+            template.CopyTo(chars);
             int foundDigits = 0;
             for (var i = 0; i < digits; i++)
             {
@@ -159,11 +161,6 @@ public static class Utils
 
             cleanedUp = foundDigits > 0 ? new string(chars) : null;
             isBase91Encoded = false;
-        }
-        else
-        {
-            isBase91Encoded = false;
-            cleanedUp = null;
         }
 
         if (cleanedUp is not null && cleanedUp.Length <= MaxLenInASCII)
@@ -206,8 +203,8 @@ public static class Utils
                 | ((long)catalog & ASCIIMask);
             var idAsLongN = IPAddress.HostToNetworkOrder(idAsLongH);
             var bytesN = BitConverter.GetBytes(idAsLongN);
-            var asBase91N = Base91Encoder.EncodeBytes(bytesN[1..]);
-            return asBase91N;
+
+            return Base91Encoder.EncodeBytes(bytesN[1..]);
         }
 
         return null;
@@ -219,57 +216,58 @@ public static class Utils
     /// <param name="input">input to guess catalog format from</param>
     /// <param name="trimmedInput"></param>
     /// <returns>(catalog index template, number of free digits, guessed <see cref="Catalog"/>)</returns>
-    public static (char[] template, int digits, Catalog? catalog) GuessCatalogFormat(string? input, out string trimmedInput)
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public static (string template, int digits, Catalog? catalog) GuessCatalogFormat(string? input, out string trimmedInput)
     {
         trimmedInput = input?.Replace(" ", "") ?? "";
         if (string.IsNullOrEmpty(trimmedInput) || trimmedInput.Length < 2)
         {
-            return (Array.Empty<char>(), 0, null);
+            return ("", 0, null);
         }
 
         return trimmedInput[0] switch
         {
             '2' => trimmedInput.Length > 5 && trimmedInput[4] == 'S'
-                ? (Array.Empty<char>(), 15, Catalog.TwoMass)
+                ? ("", 15, Catalog.TwoMass)
                 : trimmedInput.Length > 5 && trimmedInput[4] == 'X'
-                    ? (Array.Empty<char>(), 15, Catalog.TwoMassX)
-                    : (Array.Empty<char>(), 0, null),
-            'A' => (new char[7] { 'A', 'C', 'O', '0', '0', '0', '0' }, 4, Catalog.Abell),
-            'B' => (new char[4] { 'B', '0', '0', '0' }, 3, Catalog.Barnard),
+                    ? ("", 15, Catalog.TwoMassX)
+                    : ("", 0, null),
+            'A' => ("ACO0000", 4, Catalog.Abell),
+            'B' => ("B000", 3, Catalog.Barnard),
             'C' => trimmedInput[1] == 'l' || trimmedInput[1] == 'r'
-                ? (new char[5] { 'C', 'r', '0', '0', '0' }, 3, Catalog.Collinder)
-                : (new char[4] { 'C', '0', '0', '0' }, 3, Catalog.Caldwell),
-            'E' => (new char[8] { 'E', '0', '0', '0', '-', '0', '0', '0' }, 7, Catalog.ESO),
+                ? ("Cr000", 3, Catalog.Collinder)
+                : ("C000", 3, Catalog.Caldwell),
+            'E' => ("E000-000", 7, Catalog.ESO),
             'G' => trimmedInput[1] == 'U'
-                ? (new char[6] { 'G', 'U', 'M', '0', '0', '0' }, 3, Catalog.GUM)
-                : (new char[6] { 'G', 'J', '0', '0', '0', '0' }, 4, Catalog.GJ),
+                ? ("GUM000", 3, Catalog.GUM)
+                : ("GJ0000", 4, Catalog.GJ),
             'H' => trimmedInput[1] switch
             {
                 'A' => trimmedInput.Length > 4 && trimmedInput[3] == 'S'
-                    ? (new char[7] { 'H', 'A', 'T', 'S', '0', '0', '0' }, 3, Catalog.HATS)
-                    : (new char[8] { 'H', 'A', 'T', '-', 'P', '0', '0', '0'}, 3, Catalog.HAT_P),
-                'C' => (new char[7] { 'H', 'C', 'G', '0', '0', '0', '0' }, 4, Catalog.HCG),
-                'R' => (new char[6] { 'H', 'R', '0', '0', '0', '0'}, 4, Catalog.HR),
-                'D' => (new char[8] { 'H', 'D', '0', '0', '0', '0', '0', '0'}, 6, Catalog.HD),
-                'I' => (new char[8] { 'H', 'I', '0', '0', '0', '0', '0', '0'}, 6, Catalog.HIP),
-                _ => (new char[3] { 'H', '0', '0' }, 2, Catalog.H)
+                    ? ("HATS000", 3, Catalog.HATS)
+                    : ("HAT-P000", 3, Catalog.HAT_P),
+                'C' => ("HCG0000", 4, Catalog.HCG),
+                'R' => ("HR0000", 4, Catalog.HR),
+                'D' => ("HD000000", 6, Catalog.HD),
+                'I' => ("HI000000", 6, Catalog.HIP),
+                _ => ("H00", 2, Catalog.H)
             },
             'I' => trimmedInput[1] is >= '0' and <= '9' || trimmedInput[1] is 'C' or 'c'
-                ? (new char[5] { 'I', '0', '0', '0', '0' }, 4, Catalog.IC)
-                : (Array.Empty<char>(), 0, null),
+                ? ("I0000", 4, Catalog.IC)
+                : ("", 0, null),
             'M' => trimmedInput[1] == 'e' && trimmedInput.Length > 2 && trimmedInput[2] == 'l'
-                ? (new char[6] { 'M', 'e', 'l', '0', '0', '0' }, 3, Catalog.Melotte)
-                : (new char[4] { 'M', '0', '0', '0' }, 3, Catalog.Messier),
-            'N' => (new char[5] { 'N', '0', '0', '0', '0' }, 4, Catalog.NGC),
+                ? ("Mel000", 3, Catalog.Melotte)
+                : ("M000", 3, Catalog.Messier),
+            'N' => ("N0000", 4, Catalog.NGC),
             'P' => trimmedInput[1] == 'S' && trimmedInput.Length > 2 && trimmedInput[2] == 'R'
-                ? (Array.Empty<char>(), 8, Catalog.PSR)
-                : (Array.Empty<char>(), 0, null),
-            'S' => (new char[7] { 'S', 'h', '2', '-', '0', '0', '0'}, 3, Catalog.Sharpless),
-            'T' => (new char[6] { 'T', 'r', 'E', 'S', '0', '0' }, 2, Catalog.TrES),
-            'U' => (new char[6] { 'U', '0', '0', '0', '0', '0' }, 5, Catalog.UGC),
-            'W' => (new char[7] { 'W', 'A', 'S', 'P', '0', '0', '0'}, 3, Catalog.WASP),
-            'X' => (new char[6] { 'X', 'O', '0', '0', '0', '*' }, 4, Catalog.XO),
-            _ => (Array.Empty<char>(), 0, null)
+                ? ("", 8, Catalog.PSR)
+                : ("", 0, null),
+            'S' => ("Sh2-000", 3, Catalog.Sharpless),
+            'T' => ("TrES00", 2, Catalog.TrES),
+            'U' => ("U00000", 5, Catalog.UGC),
+            'W' => ("WASP000", 3, Catalog.WASP),
+            'X' => ("XO000*", 4, Catalog.XO),
+            _ => ("", 0, null)
         };
     }
 }

@@ -5,6 +5,7 @@ using System.Linq;
 using System.Net;
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Text;
 using static Astap.Lib.EnumHelper;
 
 namespace Astap.Lib.Astrometry;
@@ -38,7 +39,7 @@ public static class CatalogIndexEx
         }
         else
         {
-            string withoutPrefixAsStr = EnumValueToAbbreviation(decoded).TrimStart('0');
+            var withoutPrefixAsStr = EnumValueToAbbreviation(decoded).AsSpan().TrimStart('0');
 
             if (withoutPrefixAsStr.Length is 0)
             {
@@ -46,9 +47,15 @@ public static class CatalogIndexEx
             }
 
             int Nor_Idx;
-            if (catalog is Catalog.NGC or Catalog.IC && (Nor_Idx = withoutPrefixAsStr.IndexOfAny(new char[] { '_', 'N' })) > 0)
+            if (catalog is Catalog.NGC or Catalog.IC && (Nor_Idx = withoutPrefixAsStr.IndexOfAny('_', 'N')) > 0)
             {
-                return string.Concat(prefix, " ", withoutPrefixAsStr[..Nor_Idx], withoutPrefixAsStr[Nor_Idx] == 'N' ? " NED" : "", withoutPrefixAsStr[(Nor_Idx + 1)..]);
+                var sb = new StringBuilder(MaxLenInASCII)
+                    .Append(prefix)
+                    .Append(' ')
+                    .Append(withoutPrefixAsStr[..Nor_Idx])
+                    .Append(withoutPrefixAsStr[Nor_Idx] == 'N' ? " NED" : "")
+                    .Append(withoutPrefixAsStr[(Nor_Idx + 1)..]);
+                return sb.ToString();
             }
             else
             {
