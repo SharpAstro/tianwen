@@ -97,12 +97,15 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
             using (wcs.Stream)
             {
                 var hdu = wcs.ReadHDU();
-                var ra = hdu.Header.GetDoubleValue("CRVAL1");
-                var dec = hdu.Header.GetDoubleValue("CRVAL2");
-
-                if (!double.IsNaN(ra) && !double.IsNaN(dec))
+                if (hdu?.Header is Header header)
                 {
-                    return (ra, dec);
+                    var ra = header.GetDoubleValue("CRVAL1");
+                    var dec = header.GetDoubleValue("CRVAL2");
+
+                    if (!double.IsNaN(ra) && !double.IsNaN(dec))
+                    {
+                        return (ra, dec);
+                    }
                 }
                 return default;
             }
