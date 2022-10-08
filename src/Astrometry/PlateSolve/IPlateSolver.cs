@@ -4,16 +4,16 @@ using System.Threading.Tasks;
 namespace Astap.Lib.Astrometry.PlateSolve;
 
 public record struct ImageDim(
-    float PixelScale, // arcsec per pixel
+    double PixelScale, // arcsec per pixel
     int Width, // pixel
     int Height /* pixel */)
 {
-    const float ArcSecToDeg = 1.0f / 60.0f * 1.0f / 60.0f;
+    const double ArcSecToDeg = 1.0 / 60.0 * 1.0 / 60.0;
 
     /// <summary>
     /// Returns field of view in degrees
     /// </summary>
-    public (float width, float height) FieldOfView => (ArcSecToDeg * PixelScale * Width, ArcSecToDeg * PixelScale * Height);
+    public (double width, double height) FieldOfView => (ArcSecToDeg * PixelScale * Width, ArcSecToDeg * PixelScale * Height);
 }
 
 public interface IPlateSolver
