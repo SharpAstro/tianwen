@@ -147,6 +147,12 @@ public interface IGuider : IDeviceDriver
     double PixelScale();
 
     /// <summary>
+    /// returns camera size in width, heiight (pixels)
+    /// </summary>
+    /// <returns>camera dimensions in pixel</returns>
+    public (int width, int height)? CameraFrameSize();
+
+    /// <summary>
     /// get the exposure time of each looping exposure.
     /// </summary>
     /// <returns>exposure time</returns>

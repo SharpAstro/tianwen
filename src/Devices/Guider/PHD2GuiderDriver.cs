@@ -762,6 +762,21 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         return response.RootElement.GetProperty("result").GetDouble();
     }
 
+    public (int width, int height)? CameraFrameSize()
+    {
+        EnsureConnected();
+
+        using var response = Call("get_camera_frame_size");
+
+        var result = response.RootElement.GetProperty("result");
+        if (result.ValueKind is JsonValueKind.Array && result.GetArrayLength() == 2)
+        {
+            return (result[0].GetInt32(), result[1].GetInt32());
+        }
+
+        return default;
+    }
+
     public TimeSpan ExposureTime()
     {
         EnsureConnected();
