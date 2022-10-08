@@ -1,5 +1,6 @@
 ﻿using nom.tam.fits;
 using System;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
@@ -7,7 +8,6 @@ using System.Threading;
 using System.Threading.Tasks;
 
 namespace Astap.Lib.Astrometry.PlateSolve;
-
 
 public abstract class ExternalProcessPlateSolverBase : IPlateSolver
 {
@@ -26,6 +26,7 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
             {
                 return false;
             }
+            proc.BeginOutputReadLine();
             await proc.WaitForExitAsync(cancellationToken);
 
             return proc.ExitCode == 0;
@@ -81,6 +82,7 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
         {
             return default;
         }
+        solveFieldProc.BeginOutputReadLine();
 
         await solveFieldProc.WaitForExitAsync(cancellationToken);
         var wcsFile = Path.ChangeExtension(fitsFile, ".wcs");
@@ -165,19 +167,12 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
             return default;
         }
 
-        var sb = new StringBuilder(40);
-        wslPathProc.OutputDataReceived += (sender, e) => { if (e.Data is string data) { sb.Append(data); } };
+        string? line = null;
+        wslPathProc.OutputDataReceived += (sender, e) => { if (e.Data is string data && !string.IsNullOrWhiteSpace(data)) { _ = Interlocked.CompareExchange(ref line, data, null); } };
         wslPathProc.BeginOutputReadLine();
 
         await wslPathProc.WaitForExitAsync(cancellationToken);
 
-        if (wslPathProc.ExitCode == 0 && sb.Length > 0)
-        {
-            return sb.ToString().Trim();
-        }
-        else
-        {
-            return default;
-        }
+        return wslPathProc.ExitCode == 0 ? line?.Trim() : default;
     }
 }
