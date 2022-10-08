@@ -189,7 +189,7 @@ public class OpenNGCDB : ICelestialObjectDB
 
         int processed = 0;
         int failed = 0;
-        var manifestFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith(csvName));
+        var manifestFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith("." + csvName));
         if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
         {
             return (processed, failed);
