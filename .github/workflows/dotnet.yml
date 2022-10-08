@@ -19,7 +19,7 @@ jobs:
 
     steps:
     - name: Install astrometry.net
-      run: sudo apt-get install astrometry.net astrometry-data-2mass
+      run: sudo apt-get install -y astrometry.net astrometry-data-2mass-08-19
     - uses: actions/checkout@v2
       with:
         submodules: recursive
