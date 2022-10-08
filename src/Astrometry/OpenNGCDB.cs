@@ -207,9 +207,13 @@ public class OpenNGCDB : ICelestialObjectDB
         {
             if (csvReader.TryGetField<string>("Name", out var entryName)
                 && csvReader.TryGetField<string>("Type", out var objectTypeAbbr)
+                && objectTypeAbbr is not null
                 && csvReader.TryGetField<string>("RA", out var raHMS)
+                && raHMS is not null
                 && csvReader.TryGetField<string>("Dec", out var decDMS)
+                && decDMS is not null
                 && csvReader.TryGetField<string>("Const", out var constAbbr)
+                && constAbbr is not null
                 && TryGetCleanedUpCatalogName(entryName, out var indexEntry)
             )
             {
@@ -256,7 +260,7 @@ public class OpenNGCDB : ICelestialObjectDB
                         _crossLookupTable.AddLookupEntry(messierIndexEntry, indexEntry);
                     }
 
-                    if (csvReader.TryGetField<string>("Identifiers", out var identifiersEntry))
+                    if (csvReader.TryGetField<string>("Identifiers", out var identifiersEntry) && identifiersEntry is not null)
                     {
                         var identifiers = identifiersEntry.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                         foreach (var identifier in identifiers)
@@ -274,7 +278,7 @@ public class OpenNGCDB : ICelestialObjectDB
                     }
                 }
 
-                if (csvReader.TryGetField<string>("Common names", out var commonNamesEntry))
+                if (csvReader.TryGetField<string>("Common names", out var commonNamesEntry) && commonNamesEntry is not null)
                 {
                     var commonNames = commonNamesEntry.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                     foreach (var commonName in commonNames)
