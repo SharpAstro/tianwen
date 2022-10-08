@@ -42,6 +42,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     volatile bool m_terminate;
     readonly object m_sync = new();
     JsonDocument? m_response;
+    readonly GuiderDevice _guiderDevice;
 
     string Host { get; }
     uint Instance { get; }
@@ -66,6 +67,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
     public PHD2GuiderDriver(GuiderDevice guiderDevice, IGuiderConnection connection)
     {
+        _guiderDevice = guiderDevice;
 
         if (guiderDevice.DeviceType != "PHD2")
         {
@@ -870,8 +872,16 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         return response.RootElement.GetProperty("result").GetProperty("filename").GetString();
     }
 
-    public override string ToString() => $"PHD2 {Version} sub: {PHDSubvVersion}: Guiding? {Connected && IsGuiding()}, settling? {Connected && IsSettling()}";
+    public override string ToString() =>
+        Connected
+            ? $"PHD2 {_guiderDevice} {Version}/{PHDSubvVersion}: Looping? {IsLooping()}, Guiding? {IsGuiding()}, settling? {IsSettling()}"
+            : $"PHD2 {_guiderDevice} not connected!";
 
+    /// <summary>
+    /// Caller should ensure that device is connected
+    /// </summary>
+    /// <param name="deviceType"></param>
+    /// <returns></returns>
     public IEnumerable<GuiderDevice> RegisteredDevices(string deviceType)
     {
         if (deviceType != DeviceType)
@@ -881,7 +891,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
         foreach (var profile in GetEquipmentProfiles())
         {
-            yield return new GuiderDevice(deviceType, string.Join('/', Host, Instance, profile), profile);
+            yield return new GuiderDevice(deviceType, _guiderDevice.DeviceId, profile);
         }
     }
 }
