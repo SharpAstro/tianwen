@@ -33,6 +33,9 @@ jobs:
     - name: Build
       run: dotnet build -c $BUILD_CONF --no-restore --version-suffix $VERSION_SUFFIX -p:VersionPrefix=${VERSION_PREFIX}${VERSION_REV} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV}
       working-directory: src
+    - name: Test
+      run: dotnet test -c $BUILD_CONF --no-build
+      working-directory: src
     - name: Upload Artifact
       uses: actions/upload-artifact@v3
       with:
