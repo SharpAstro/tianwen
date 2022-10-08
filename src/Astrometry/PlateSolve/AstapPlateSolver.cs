@@ -32,7 +32,7 @@ public class AstapPlateSolver : ExternalProcessPlateSolverBase
         }
         (var ra, var dec) = searchOrigin.Value;
 
-        var sb = new StringBuilder(40).AppendFormat(" -ra {0:0.0} -spd {1:0.0}", Math.Clamp(ra / 15.0, 0, 24), Math.Clamp(dec + 90.0, 0.0, 180.0));
+        var sb = new StringBuilder(40).AppendFormat(" -ra {0:0.0000} -spd {1:0.0000}", Math.Clamp(ra / 15.0, 0, 24), Math.Clamp(dec + 90.0, 0.0, 180.0));
 
         if (searchRadius is double radius)
         {
@@ -42,5 +42,5 @@ public class AstapPlateSolver : ExternalProcessPlateSolverBase
     }
 
     protected override string FormatSolveProcessArgs(string normalisedFilePath, string pixelScaleFmt, string searchPosFmt)
-        => $"-f \"{normalisedFilePath}\" {pixelScaleFmt} {searchPosFmt}";
+        => $"-f \"{normalisedFilePath}\" {pixelScaleFmt} {searchPosFmt} -wcs";
 }

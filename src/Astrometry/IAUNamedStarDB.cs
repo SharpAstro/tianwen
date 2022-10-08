@@ -74,7 +74,7 @@ public class IAUNamedStarDB : ICelestialObjectDB
         var processed = 0;
         var failed = 0;
         var assembly = typeof(IAUNamedStarDB).Assembly;
-        var namedStarsJsonFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith("iau-named-stars.json"));
+        var namedStarsJsonFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith(".iau-named-stars.json"));
 
         if (namedStarsJsonFileName is not null && assembly.GetManifestResourceStream(namedStarsJsonFileName) is Stream stream)
         {

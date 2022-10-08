@@ -1,5 +1,7 @@
-﻿using System;
+﻿using nom.tam.fits;
+using System;
 using System.Diagnostics;
+using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -81,8 +83,33 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
         }
 
         await solveFieldProc.WaitForExitAsync(cancellationToken);
+        var wcsFile = Path.ChangeExtension(fitsFile, ".wcs");
+        if (solveFieldProc.ExitCode != 0 || !File.Exists(wcsFile))
+        {
+            return default;
+        }
 
-        return default;
+        var wcs = new Fits(wcsFile, FileAccess.ReadWrite);
+        try
+        {
+            using (wcs.Stream)
+            {
+                var hdu = wcs.ReadHDU();
+                var ra = hdu.Header.GetDoubleValue("CRVAL1");
+                var dec = hdu.Header.GetDoubleValue("CRVAL2");
+
+                if (!double.IsNaN(ra) && !double.IsNaN(dec))
+                {
+                    return (ra, dec);
+                }
+                return default;
+            }
+        }
+        finally
+        {
+
+            File.Delete(wcsFile);
+        }
     }
 
     protected abstract string FormatImageDimenstions(ImageDim? imageDim, float range);
@@ -140,6 +167,7 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
 
         var sb = new StringBuilder(40);
         wslPathProc.OutputDataReceived += (sender, e) => { if (e.Data is string data) { sb.Append(data); } };
+        wslPathProc.BeginOutputReadLine();
 
         await wslPathProc.WaitForExitAsync(cancellationToken);
 

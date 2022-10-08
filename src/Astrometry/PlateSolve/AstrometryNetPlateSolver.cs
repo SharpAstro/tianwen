@@ -14,20 +14,9 @@ public class AstrometryNetPlateSolver : ExternalProcessPlateSolverBase
     protected override string CommandPath => "solve-field";
 
     protected override string FormatSearchPosition((double ra, double dec)? searchOrigin, double? searchRadius)
-    {
-        if (!searchOrigin.HasValue)
-        {
-            return "";
-        }
-
-        var sb = new StringBuilder(30);
-        sb.AppendFormat("--ra {0:0.#######} --dec \"{1:0.#######}\"", searchOrigin.Value.ra, searchOrigin.Value.dec);
-        if (searchRadius is double radius)
-        {
-            sb.AppendFormat(" --radius {0.##}", radius);
-        }
-        return sb.ToString();
-    }
+        => searchOrigin is (double ra, double dec) && searchRadius is double radius
+            ? $"--ra {ra:0.######} --dec \"{dec:0.######}\" --radius {radius:0.##}"
+            : "";
 
     protected override string FormatSolveProcessArgs(string normalisedFilePath, string pixelScaleFmt, string searchPosFmt)
         => $"\"{normalisedFilePath}\" --no-plots --overwrite {pixelScaleFmt} {searchPosFmt} -N none -U none -S none -B none -M none -R none --axy none --temp-axy";
