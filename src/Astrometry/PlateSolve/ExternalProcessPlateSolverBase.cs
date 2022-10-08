@@ -125,35 +125,37 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
 
     protected virtual Process? StartRedirectedProcess(string proc, string arguments)
     {
-        switch (Environment.OSVersion.Platform)
+        var startInfo = Environment.OSVersion.Platform switch
         {
-            case PlatformID.Win32NT:
-                var startInfo = CommandPlatform switch
+            PlatformID.Win32NT => CommandPlatform switch
+            {
+                PlatformID.Win32NT => new ProcessStartInfo(proc, arguments)
                 {
-                    PlatformID.Win32NT => new ProcessStartInfo(proc, arguments)
-                    {
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true
-                    },
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                },
 
-                    _ => new ProcessStartInfo("wsl", string.Concat(proc, " ", arguments))
-                    {
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true
-                    }
-                };
-                return Process.Start(startInfo);
+                _ => new ProcessStartInfo("wsl", string.Concat(proc, " ", arguments))
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                }
+            },
 
-            case PlatformID.Unix:
-                return Process.Start(proc, arguments);
+            _ => new ProcessStartInfo(proc, arguments)
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            }
+        };
 
-            default:
-                return null;
-        }
+        return Process.Start(startInfo);
     }
 
     protected virtual async Task<string?> NormaliseFilePathAsync(string fitsFile, CancellationToken cancellationToken = default)
