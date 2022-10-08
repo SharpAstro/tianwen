@@ -586,6 +586,16 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         }
     }
 
+    public bool IsLooping()
+    {
+        EnsureConnected();
+
+        lock (m_sync)
+        {
+            return AppState == "Looping";
+        }
+    }
+
     public bool IsSettling()
     {
         EnsureConnected();
