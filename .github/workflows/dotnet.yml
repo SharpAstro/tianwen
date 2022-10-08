@@ -18,6 +18,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: Install astrometry.net
+      run: sudo apt-get install astrometry.net astrometry-data-2mass
     - uses: actions/checkout@v2
       with:
         submodules: recursive
