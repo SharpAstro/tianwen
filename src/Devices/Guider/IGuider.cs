@@ -110,6 +110,12 @@ public interface IGuider : IDeviceDriver
     void Dither(double ditherPixels, double settlePixels, double settleTime, double settleTimeout, bool raOnly = false);
 
     /// <summary>
+    /// CHecks if phd2 is currently looping exposures
+    /// </summary>
+    /// <returns></returns>
+    bool IsLooping();
+
+    /// <summary>
     /// Check if phd2 is currently in the process of settling after a Guide or Dither
     /// </summary>
     /// <returns></returns>
