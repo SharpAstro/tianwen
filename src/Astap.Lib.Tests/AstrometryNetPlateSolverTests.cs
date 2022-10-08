@@ -37,6 +37,20 @@ public class AstrometryNetPlateSolverTests
     }
 
     [Fact]
+    public async Task GivenPlateSolverWhenCheckSupportThenItIsTrue()
+    {
+        // given
+        var solver = new AstrometryNetPlateSolver();
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+        // when
+        var actualSupported = await solver.CheckSupportAsync(cancellationToken: cts.Token);
+
+        // then
+        actualSupported.ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task GivenStarFieldTestFileWhenBlindPlateSolvingThenItIsSolved()
     {
         // given
@@ -46,6 +60,7 @@ public class AstrometryNetPlateSolverTests
             Assert.Fail("Could not extract test image data");
         }
         var (extractedFitsFile, imageDim, expectedRa, expectedDec) = fileAndDim.Value;
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 
         try
         {
@@ -53,7 +68,7 @@ public class AstrometryNetPlateSolverTests
             var solver = new AstrometryNetPlateSolver();
 
             // when
-            var solution = await solver.SolveFileAsync(extractedFitsFile, imageDim);
+            var solution = await solver.SolveFileAsync(extractedFitsFile, imageDim, cancellationToken: cts.Token);
 
             // then
             solution.HasValue.ShouldBe(true);
@@ -76,14 +91,15 @@ public class AstrometryNetPlateSolverTests
             Assert.Fail("Could not extract test image data");
         }
         var (extractedFitsFile, imageDim, expectedRa, expectedDec) = fileAndDim.Value;
+        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 
         try
         {
-            var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             var solver = new AstrometryNetPlateSolver();
 
             // when
             var solution = await solver.SolveFileAsync(extractedFitsFile, imageDim, searchOrigin: (expectedRa, expectedDec), searchRadius: 1d, cancellationToken: cts.Token);
+
             // then
             solution.HasValue.ShouldBe(true);
             solution.Value.ra.ShouldBeInRange(expectedRa - double.Epsilon, expectedRa + double.Epsilon);
