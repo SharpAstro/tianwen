@@ -2,13 +2,13 @@
 <CONFIG>
   <ProjectOptions>
     <Version Value="12"/>
-    <PathDelim Value="\"/>
     <General>
       <Flags>
         <MainUnitHasCreateFormStatements Value="False"/>
         <MainUnitHasTitleStatement Value="False"/>
         <MainUnitHasScaledStatement Value="False"/>
         <Runnable Value="False"/>
+        <CompatibilityMode Value="True"/>
       </Flags>
       <SessionStorage Value="None"/>
       <Title Value="astap_lib"/>
@@ -18,44 +18,17 @@
         <AnsiUTF8 Value="True"/>
       </XPManifest>
     </General>
-    <BuildModes>
-      <Item Name="Default" Default="True"/>
-      <Item Name="Win32">
+    <BuildModes Count="2">
+      <Item1 Name="Win32" Default="True"/>
+      <Item2 Name="Linux">
         <CompilerOptions>
           <Version Value="11"/>
-          <PathDelim Value="\"/>
           <Target>
             <Filename Value="out/$(TargetCPU)-$(TargetOS)/astap_lib"/>
           </Target>
           <SearchPaths>
             <IncludeFiles Value="$(ProjOutDir)"/>
-            <UnitOutputDirectory Value="lib\$(TargetCPU)-$(TargetOS)"/>
-          </SearchPaths>
-          <CodeGeneration>
-            <RelocatableUnit Value="True"/>
-            <TargetCPU Value="i386"/>
-            <TargetOS Value="win32"/>
-            <Optimizations>
-              <OptimizationLevel Value="2"/>
-            </Optimizations>
-          </CodeGeneration>
-          <Linking>
-            <Options>
-              <ExecutableType Value="Library"/>
-            </Options>
-          </Linking>
-        </CompilerOptions>
-      </Item>
-      <Item Name="Linux">
-        <CompilerOptions>
-          <Version Value="11"/>
-          <PathDelim Value="\"/>
-          <Target>
-            <Filename Value="out/$(TargetCPU)-$(TargetOS)/astap_lib"/>
-          </Target>
-          <SearchPaths>
-            <IncludeFiles Value="$(ProjOutDir)"/>
-            <UnitOutputDirectory Value="lib\$(TargetCPU)-$(TargetOS)"/>
+            <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
           </SearchPaths>
           <CodeGeneration>
             <RelocatableUnit Value="True"/>
@@ -75,44 +48,42 @@
 -vh"/>
           </Other>
         </CompilerOptions>
-      </Item>
+      </Item2>
     </BuildModes>
     <PublishOptions>
       <Version Value="2"/>
-      <DestinationDirectory Value="$(TestDir)\publishedproject\"/>
       <UseFileFilters Value="True"/>
     </PublishOptions>
     <RunParams>
       <FormatVersion Value="2"/>
     </RunParams>
-    <Units>
-      <Unit>
+    <Units Count="4">
+      <Unit0>
         <Filename Value="astap_lib.lpr"/>
         <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
+      </Unit0>
+      <Unit1>
         <Filename Value="analysis.pas"/>
         <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
+      </Unit1>
+      <Unit2>
         <Filename Value="fits.pas"/>
         <IsPartOfProject Value="True"/>
-      </Unit>
-      <Unit>
+      </Unit2>
+      <Unit3>
         <Filename Value="zwo.pas"/>
         <IsPartOfProject Value="True"/>
-      </Unit>
+      </Unit3>
     </Units>
   </ProjectOptions>
   <CompilerOptions>
     <Version Value="11"/>
-    <PathDelim Value="\"/>
     <Target>
       <Filename Value="out/$(TargetCPU)-$(TargetOS)/astap_lib"/>
     </Target>
     <SearchPaths>
       <IncludeFiles Value="$(ProjOutDir)"/>
-      <UnitOutputDirectory Value="lib\$(TargetCPU)-$(TargetOS)"/>
+      <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
     </SearchPaths>
     <CodeGeneration>
       <RelocatableUnit Value="True"/>
@@ -127,16 +98,16 @@
     </Linking>
   </CompilerOptions>
   <Debugging>
-    <Exceptions>
-      <Item>
+    <Exceptions Count="3">
+      <Item1>
         <Name Value="EAbort"/>
-      </Item>
-      <Item>
+      </Item1>
+      <Item2>
         <Name Value="ECodetoolError"/>
-      </Item>
-      <Item>
+      </Item2>
+      <Item3>
         <Name Value="EFOpenError"/>
-      </Item>
+      </Item3>
     </Exceptions>
   </Debugging>
 </CONFIG>
