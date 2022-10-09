@@ -47,6 +47,7 @@
 
 	<None Include="../LICENSE" PackagePath="" Pack="True" />
 	<None Include="out/x86_64-win64/astap_lib.dll" PackagePath="runtimes/win10-x64/native/" Pack="True" />
+    <None Include="out/x86_64-linux/libastap_lib.so" PackagePath="runtimes/linux-x64/native/" Pack="True" />
   </ItemGroup>
 
   <ItemGroup>
