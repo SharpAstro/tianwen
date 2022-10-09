@@ -1,3 +1,0 @@
-[submodule "src/Astap.Lib/OpenNGC"]
-	path = src/Astap.Lib/OpenNGC
-	url = https://github.com/mattiaverga/OpenNGC.git
