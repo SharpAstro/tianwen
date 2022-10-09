@@ -34,7 +34,7 @@
     <None Remove="Astrometry/iau-named-stars.json" />
     <None Remove="Astrometry/PlateSolve/PlateSolveTestFile.fits.gz" />
 
-    <None Include="LICENSE" PackagePath="" Pack="True" />
+    <None Include="../../LICENSE" PackagePath="" Pack="True" />
   </ItemGroup>
 
   <ItemGroup>
