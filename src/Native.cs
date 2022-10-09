@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using static ZWOptical.ASISDK.ASICameraDll2;
 
 namespace Astap.Lib;
 
