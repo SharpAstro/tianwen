@@ -19,7 +19,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="Astap.Lib.Tests/**" />
     <Compile Remove="MAttiaverga.OpenNGC/**" />
     <Compile Remove="OpenNGC/**" />
     <EmbeddedResource Remove="Astap.Lib.Tests/**" />
@@ -30,40 +29,14 @@
     <EmbeddedResource Include="Astrometry/PlateSolve/PlateSolveTestFile.fits.gz" />
     <EmbeddedResource Include="OpenNGC/NGC.csv" />
     <EmbeddedResource Include="OpenNGC/addendum/addendum.csv" />
-    <None Remove="Astap.Lib.Tests/**" />
     <None Remove="MAttiaverga.OpenNGC/**" />
-    <None Remove="lib/**" />
-    <None Remove="backup/**" />
-    <None Remove="*.a" />
-    <None Remove="*.o" />
-    <None Remove="*.ppu" />
-    <None Remove="*.lps" />
-    <None Remove="*.pas" />
-    <None Remove="*.lpr" />
-    <None Remove="*.lpi" />
     <None Remove=".git*." />
     <None Remove="Astrometry/iau-named-stars.json" />
     <None Remove="Astrometry/PlateSolve/PlateSolveTestFile.fits.gz" />
-    <None Remove="out/**" />
-    <Content Remove="out/**" />
-    <EmbeddedResource Remove="out/**" />
 
-    <None Include="../LICENSE" PackagePath="" Pack="True" />
+    <None Include="LICENSE" PackagePath="" Pack="True" />
   </ItemGroup>
 
-  <Target Name="CopyLibs" BeforeTargets="Build">
-     <Copy SourceFiles="out/x86_64-win64/astap_lib.dll" DestinationFolder="runtimes/win10-x64/native/" />
-     <Copy SourceFiles="out/x86_64-linux/libastap_lib.so" DestinationFolder="runtimes/linux-x64/native/" />
-  </Target>
-
-  <ItemGroup>
-     <None Include="runtimes/win10-x64/native/*.dll" PackagePath="runtimes/win10-x64/native/" Pack="True">
-       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-     </None>
-     <None Include="runtimes/linux-x64/native/*.so" PackagePath="runtimes/linux-x64/native/" Pack="True">
-        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-     </None>
-  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="CSharpFITS-rgw0" Version="1.1.3" />
     <PackageReference Include="CsvHelper" Version="29.0.0" />
