@@ -30,7 +30,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Astap.Lib.csproj" />
+    <ProjectReference Include="..\Astap.Lib\Astap.Lib.csproj" />
   </ItemGroup>
 
 </Project>
