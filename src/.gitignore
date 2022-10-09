@@ -6,5 +6,6 @@ backup/
 *.lps
 bin/
 obj/
+runtimes/
 !libastap_lib.so
 !astap_lib.dll

@@ -27,23 +27,18 @@ public class AscomTests
         }
     }
 
-    [Fact]
+    [SkippableFact]
     public void TestWhenPlatformIsWindowsThatTelescopesCanBeFound()
     {
+        Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows));
+
         using var profile = new AscomProfile();
         var telescopes = profile.RegisteredDevices("Telescope");
 
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            telescopes.ShouldNotBeEmpty();
-        }
-        else
-        {
-            telescopes.ShouldBeEmpty();
-        }
+        telescopes.ShouldNotBeEmpty();
     }
 
-    [Theory]
+    [SkippableTheory]
     [InlineData("Camera")]
     [InlineData("CoverCalibrator")]
     [InlineData("Focuser")]
@@ -51,27 +46,22 @@ public class AscomTests
     [InlineData("Telescope")]
     public void GivenSimulatorDeviceTypeVersionAndNameAreReturned(string type)
     {
+        Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows));
+
         using var profile = new AscomProfile();
         var devices = profile.RegisteredDevices(type);
         var device = devices.FirstOrDefault(e => e.DeviceId == $"ASCOM.Simulator.{type}");
 
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            device.ShouldNotBeNull();
-            device.DeviceClass.ShouldBe(nameof(AscomDevice), StringCompareShould.IgnoreCase);
-            device.DeviceId.ShouldNotBeNullOrEmpty();
-            device.DeviceType.ShouldNotBeNullOrEmpty();
-            device.DisplayName.ShouldNotBeNullOrEmpty();
+        device.ShouldNotBeNull();
+        device.DeviceClass.ShouldBe(nameof(AscomDevice), StringCompareShould.IgnoreCase);
+        device.DeviceId.ShouldNotBeNullOrEmpty();
+        device.DeviceType.ShouldNotBeNullOrEmpty();
+        device.DisplayName.ShouldNotBeNullOrEmpty();
 
-            device.TryInstantiateDriver<IDeviceDriver>(out var driver).ShouldBeTrue();
+        device.TryInstantiateDriver<IDeviceDriver>(out var driver).ShouldBeTrue();
 
-            driver.DriverType.ShouldBe(type);
-            driver.Connected.ShouldBeFalse();
-        }
-        else
-        {
-            device.ShouldBeNull();
-        }
+        driver.DriverType.ShouldBe(type);
+        driver.Connected.ShouldBeFalse();
     }
 
     [Theory]
