@@ -5,6 +5,7 @@ using System.Text;
 using System.IO;
 using System.Threading.Tasks;
 using Xunit;
+using Shouldly;
 
 namespace Astap.Lib.Tests;
 
@@ -24,9 +25,18 @@ public class ImageAnalysisTests
         try
         {
             // when
-            var result = ImageAnalysis.AnalyseFITS(extractedFitsFile, snr: 1);
+            if (ImageAnalysis.TryReadFitsFile(extractedFitsFile, out var image))
+            {
 
-            // then
+                var result = ImageAnalysis.FindStars(image, snr_min: 5, max_retries: 3);
+
+                // then
+                result.ShouldNotBeEmpty();
+            }
+            else
+            {
+                Assert.Fail("Could not read fits file");
+            }
         }
         finally
         {
