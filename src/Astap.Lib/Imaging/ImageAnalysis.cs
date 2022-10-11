@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 
-namespace Astap.Lib;
+namespace Astap.Lib.Imaging;
 
 public record class Image(double[,] Data, int BitDepth, int Width, int Height);
 
@@ -98,7 +98,7 @@ public static class ImageAnalysis
     /// <returns></returns>
     public static IReadOnlyList<Star> FindStars(this Image img, double snr_min = 30, int max_stars = 500, int max_retries = 2)
     {
-        var (background, star_level, noise_level) = Background(img);
+        var (background, star_level, noise_level) = img.Background();
 
         var detection_level = Math.Max(3.5 * noise_level, star_level); /* level above background. Start with a high value */
         var retries = max_retries;
@@ -124,10 +124,10 @@ public static class ImageAnalysis
             {
                 for (var fitsX = 0; fitsX < img.Width; fitsX++)
                 {
-                    if (!img_sa[fitsX, fitsY]/* star free area */ && (img.Data[fitsX, fitsY] - background > detection_level))  /* new star. For analyse used sigma is 5, so not too low. */
+                    if (!img_sa[fitsX, fitsY]/* star free area */ && img.Data[fitsX, fitsY] - background > detection_level)  /* new star. For analyse used sigma is 5, so not too low. */
                     {
                         img.AnalyseStar(fitsX, fitsY, 14/* box size */, out var star);
-                        if ((star.HFD <= 30) && (star.SNR > snr_min) && (star.HFD > 0.8) /* two pixels minimum */ )
+                        if (star.HFD <= 30 && star.SNR > snr_min && star.HFD > 0.8 /* two pixels minimum */ )
                         {
                             starList.Add(star);
 
@@ -142,7 +142,7 @@ public static class ImageAnalysis
                                 {
                                     var j = n + yci;
                                     var i = m + xci;
-                                    if ((j >= 0) && (i >= 0) && (j < img.Height) && (i < img.Width) && ((Math.Pow(m, 2) + Math.Pow(n, 2)) <= sqr_diam))
+                                    if (j >= 0 && i >= 0 && j < img.Height && i < img.Width && Math.Pow(m, 2) + Math.Pow(n, 2) <= sqr_diam)
                                     {
                                         img_sa[i, j] = true;
                                     }
@@ -163,7 +163,7 @@ public static class ImageAnalysis
                 retries--;
                 detection_level = Math.Max(6.999 * noise_level, Math.Min(30 * noise_level, detection_level * 6.999 / 30)); /* very high -> 30 -> 7 -> stop.  Or  60 -> 14 -> 7.0. Or for very short exposures 3.5 -> stop */
             }
-        } while ((starList.Count < max_stars) && (retries > 0));/* reduce detection level till enough stars are found. Note that faint stars have less positional accuracy */
+        } while (starList.Count < max_stars && retries > 0);/* reduce detection level till enough stars are found. Note that faint stars have less positional accuracy */
 
         return starList;
     }
@@ -188,7 +188,7 @@ public static class ImageAnalysis
         Array.Sort(values);
 
         int mid = values.Length / 2;
-        return (values.Length % 2 != 0) ? values[mid] : (values[mid] + values[mid - 1]) / 2;
+        return values.Length % 2 != 0 ? values[mid] : (values[mid] + values[mid - 1]) / 2;
     }
 
     public static double Median(List<double> values)
@@ -205,7 +205,7 @@ public static class ImageAnalysis
         values.Sort();
 
         int mid = values.Count / 2;
-        return (values.Count % 2 != 0) ? values[mid] : (values[mid] + values[mid - 1]) / 2;
+        return values.Count % 2 != 0 ? values[mid] : (values[mid] + values[mid - 1]) / 2;
     }
 
     const int MAX_COL = 65000;
@@ -228,7 +228,7 @@ public static class ImageAnalysis
                 var col = (int)Math.Round(img.Data[j, i]);
 
                 // ignore black overlap areas and bright stars
-                if ((col >= 1) && (col < MAX_COL))
+                if (col >= 1 && col < MAX_COL)
                 {
                     histogram[col]++; // calculate histogram
                     hist_total++;
@@ -252,7 +252,7 @@ public static class ImageAnalysis
     public static (double background, double starLevel, double noise_level) Background(this Image img)
     {
         // get histogram of img_loaded and his_total
-        var histogram = Histogram(img);
+        var histogram = img.Histogram();
         var background = img.Data[0, 0]; // define something for images containing 0 or 65535 only
 
         // find peak in histogram which should be the average background}=
@@ -291,7 +291,7 @@ public static class ImageAnalysis
         double starLevel = 0.0;
         int above = 0;
 
-        while ((starLevel == 0) && (i > background + 1))
+        while (starLevel == 0 && i > background + 1)
         {
             // find star level 0.003 of values
             i--;
@@ -342,7 +342,7 @@ public static class ImageAnalysis
                     if (value < background * 2 && value != 0)
                     {
                         // ignore outliers after first run
-                        if ((iterations == 0) || (Math.Abs(value - background) <= 3 * sd_old))
+                        if (iterations == 0 || Math.Abs(value - background) <= 3 * sd_old)
                         {
                             sd += Math.Pow(value - background, 2);
                             // keep record of number of pixels processed
@@ -355,7 +355,7 @@ public static class ImageAnalysis
             }
             sd = Math.Sqrt(sd / counter); // standard deviation
             iterations++;
-        } while (((sd_old - sd) >= 0.05 * sd) && (iterations < 7)); // repeat until sd is stable or 7 iterations
+        } while (sd_old - sd >= 0.05 * sd && iterations < 7); // repeat until sd is stable or 7 iterations
 
         return (background, starLevel, Math.Round(sd));
     }
@@ -388,7 +388,7 @@ public static class ImageAnalysis
         double xc = double.NaN, yc = double.NaN;
         int r_aperture = -1;
 
-        if ((x1 - r2 <= 0) || (x1 + r2 >= img.Width - 1) || (y1 - r2 <= 0) || (y1 + r2 >= img.Height - 1))
+        if (x1 - r2 <= 0 || x1 + r2 >= img.Width - 1 || y1 - r2 <= 0 || y1 + r2 >= img.Height - 1)
         {
             star = new(hfd, star_fwhm, snr, flux, xc, yc);
             return;
@@ -403,7 +403,7 @@ public static class ImageAnalysis
                 {
                     var distance = i * i + j * j; /*working with sqr(distance) is faster then applying sqrt*/
                     /*annulus, circular area outside rs, typical one pixel wide*/
-                    if ((distance > r1_square) && (distance <= r2_square))
+                    if (distance > r1_square && distance <= r2_square)
                     {
                         background.Add(img.Data[x1 + i, y1 + j]);
                     }
@@ -435,12 +435,12 @@ public static class ImageAnalysis
                 {
                     for (var j = -rs; j <= rs; j++)
                     {
-                        var val = (img.Data[x1 + i, y1 + j]) - bg;
+                        var val = img.Data[x1 + i, y1 + j] - bg;
                         if (val > 3.0 * sd_bg)
                         {
                             sumVal += val;
-                            sumValX += val * (i);
-                            sumValY += val * (j);
+                            sumValX += val * i;
+                            sumValY += val * j;
                             signal_counter++; /* how many pixels are illuminated */
                         }
                     }
@@ -459,13 +459,13 @@ public static class ImageAnalysis
                 yc = y1 + yg;
                 /* center of gravity found */
 
-                if ((xc - rs < 0) || (xc + rs > img.Width - 1) || (yc - rs < 0) || (yc + rs > img.Height - 1))
+                if (xc - rs < 0 || xc + rs > img.Width - 1 || yc - rs < 0 || yc + rs > img.Height - 1)
                 {
                     star = new(hfd, star_fwhm, snr, 0, xc, xc); /* prevent runtime errors near sides of images */
                     return;
                 }
 
-                boxed = signal_counter >= (2.0 / 9) * Math.Pow(rs + rs + 1, 2);/*are inside the box 2 of the 9 of the pixels illuminated? Works in general better for solving then ovality measurement as used in the past*/
+                boxed = signal_counter >= 2.0 / 9 * Math.Pow(rs + rs + 1, 2);/*are inside the box 2 of the 9 of the pixels illuminated? Works in general better for solving then ovality measurement as used in the past*/
 
                 if (!boxed)
                 {
@@ -485,7 +485,7 @@ public static class ImageAnalysis
                     star = new(hfd, star_fwhm, snr, flux, xc, xc); /*one hot pixel*/
                     return;
                 }
-            } while (!boxed && (rs > 1)); /*loop and reduce aperture radius until star is boxed*/
+            } while (!boxed && rs > 1); /*loop and reduce aperture radius until star is boxed*/
 
             rs += 2; /* add some space */
 
@@ -499,7 +499,7 @@ public static class ImageAnalysis
                     var distance = (int)Math.Round(Math.Sqrt(i * i + j * j)); /* distance from gravity center */
                     if (distance <= rs) /* build histogram for circel with radius rs */
                     {
-                        var val = SubpixelValue(img, xc + i, yc + j) - bg;
+                        var val = img.SubpixelValue(xc + i, yc + j) - bg;
                         if (val > 3.0 * sd_bg) /* 3 * sd should be signal */
                         {
                             distance_histogram[distance]++; /* build distance histogram up to circel with diameter rs */
@@ -530,7 +530,7 @@ public static class ImageAnalysis
                     distance_top_value = distance_histogram[r_aperture]; /* this should be 2*pi*r_aperture if it is nice defocused star disk */
                 }
                 /* find a distance where there is no pixel illuminated, so the border of the star image of interest */
-            } while ((r_aperture < rs) && (!histStart || (distance_histogram[r_aperture] > 0.1 * distance_top_value)));
+            } while (r_aperture < rs && (!histStart || distance_histogram[r_aperture] > 0.1 * distance_top_value));
 
             if (r_aperture >= rs)
             {
@@ -538,7 +538,7 @@ public static class ImageAnalysis
                 return;
             }
 
-            if ((r_aperture > 2) && (illuminated_pixels < 0.35 /*35% surface*/ * Math.Pow(r_aperture + r_aperture - 2, 2)))
+            if (r_aperture > 2 && illuminated_pixels < 0.35 /*35% surface*/ * Math.Pow(r_aperture + r_aperture - 2, 2))
             {
                 star = new(hfd, star_fwhm, snr, flux, xc, xc); /* not a star disk but stars, abort with hfd 999 */
                 return;
@@ -565,7 +565,7 @@ public static class ImageAnalysis
         {
             for (var j = -r_aperture; j <= r_aperture; j++)
             {
-                var val = SubpixelValue(img, xc + i, yc + j) - bg; /* the calculated center of gravity is a floating point position and can be anywhere, so calculate pixel values on sub-pixel level */
+                var val = img.SubpixelValue(xc + i, yc + j) - bg; /* the calculated center of gravity is a floating point position and can be anywhere, so calculate pixel values on sub-pixel level */
                 var r = Math.Sqrt(i * i + j * j); /* distance from star gravity center */
                 sumVal += val;/* sumVal will be star total star flux*/
                 sumValR += val * r; /* method Kazuhisa Miyashita, see notes of HFD calculation method, note calculate HFD over square area. Works more accurate then for round area */
@@ -660,7 +660,7 @@ public static class ImageAnalysis
         var x_trunc = (int)Math.Truncate(x1);
         var y_trunc = (int)Math.Truncate(y1);
 
-        if ((x_trunc <= 0) || (x_trunc >= (img.Width - 2)) || (y_trunc <= 0) || (y_trunc >= (img.Height - 2)))
+        if (x_trunc <= 0 || x_trunc >= img.Width - 2 || y_trunc <= 0 || y_trunc >= img.Height - 2)
         {
             return 0;
         }
@@ -670,9 +670,9 @@ public static class ImageAnalysis
         try
         {
             var result = img.Data[x_trunc, y_trunc] * (1 - x_frac) * (1 - y_frac); // pixel left top, 1
-            result += img.Data[x_trunc + 1, y_trunc] * (x_frac) * (1 - y_frac);    // pixel right top, 2
-            result += img.Data[x_trunc, y_trunc + 1] * (1 - x_frac) * (y_frac);    // pixel left bottom, 3
-            result += img.Data[x_trunc + 1, y_trunc + 1] * (x_frac) * (y_frac);    // pixel right bottom, 4
+            result += img.Data[x_trunc + 1, y_trunc] * x_frac * (1 - y_frac);    // pixel right top, 2
+            result += img.Data[x_trunc, y_trunc + 1] * (1 - x_frac) * y_frac;    // pixel left bottom, 3
+            result += img.Data[x_trunc + 1, y_trunc + 1] * x_frac * y_frac;    // pixel right bottom, 4
             return result;
         }
         catch (Exception ex) when (Environment.UserInteractive)

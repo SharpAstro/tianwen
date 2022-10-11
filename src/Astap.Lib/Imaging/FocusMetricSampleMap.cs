@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 
-namespace Astap.Lib;
+namespace Astap.Lib.Imaging;
 
 public enum AggregationMethod
 {
@@ -142,7 +142,7 @@ public class FocusMetricSampleMap
         Array.Sort(values);
 
         int mid = values.Length / 2;
-        return (values.Length % 2 != 0) ? values[mid] : (values[mid] + values[mid - 1]) / 2;
+        return values.Length % 2 != 0 ? values[mid] : (values[mid] + values[mid - 1]) / 2;
     }
 
     /// <summary>
@@ -165,6 +165,6 @@ public class FocusMetricSampleMap
         values.Sort();
 
         int mid = values.Count / 2;
-        return (values.Count % 2 != 0) ? values[mid] : (values[mid] + values[mid - 1]) / 2;
+        return values.Count % 2 != 0 ? values[mid] : (values[mid] + values[mid - 1]) / 2;
     }
 }

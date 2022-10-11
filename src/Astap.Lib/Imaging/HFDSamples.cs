@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 
-namespace Astap.Lib;
+namespace Astap.Lib.Imaging;
 
 public class HFDSamples
 {
