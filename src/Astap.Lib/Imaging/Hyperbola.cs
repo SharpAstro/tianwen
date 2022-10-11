@@ -1,6 +1,6 @@
 using System;
 
-namespace Astap.Lib;
+namespace Astap.Lib.Imaging;
 
 public readonly record struct FocusSolution(double P, double A, double B, double Error, int Iterations);
 
@@ -104,7 +104,7 @@ public static class Hyperbola
                 highest_value = data[i, 1];
                 highest_position = data[i, 0];
             }
-            if ((data[i, 1] < lowest_value) && (data[i, 1] > 0.1) /* avoid zero's */)
+            if (data[i, 1] < lowest_value && data[i, 1] > 0.1 /* avoid zero's */)
             {
                 lowest_value = data[i, 1];
                 lowest_position = data[i, 0];
@@ -113,7 +113,7 @@ public static class Hyperbola
 
         if (highest_position < lowest_position)
         {
-            highest_position = (lowest_position - highest_position) + lowest_position; // go up always
+            highest_position = lowest_position - highest_position + lowest_position; // go up always
         }
 
         // get good starting values for a, b and p
@@ -125,7 +125,7 @@ public static class Hyperbola
         // set starting test range
         var a_range = a;
         var b_range = b;
-        var p_range = (highest_position - lowest_position); // large steps since slope could contain some error
+        var p_range = highest_position - lowest_position; // large steps since slope could contain some error
         var iteration_cycles = 0;
 
         do
@@ -168,9 +168,9 @@ public static class Hyperbola
 
             iteration_cycles++;
         } while (
-            (old_error - lowest_error >= threshold)   // lowest error almost reached. Error is expressed in relative error per point
-            && (lowest_error > threshold)            // perfect result
-            && (iteration_cycles < max_iterations)   // most likely convergence problem
+            old_error - lowest_error >= threshold   // lowest error almost reached. Error is expressed in relative error per point
+            && lowest_error > threshold            // perfect result
+            && iteration_cycles < max_iterations   // most likely convergence problem
         );
         return new FocusSolution(p, a, b, lowest_error, iteration_cycles);
     }

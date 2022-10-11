@@ -6,6 +6,7 @@ using System.IO;
 using System.Threading.Tasks;
 using Xunit;
 using Shouldly;
+using Astap.Lib.Imaging;
 
 namespace Astap.Lib.Tests;
 
