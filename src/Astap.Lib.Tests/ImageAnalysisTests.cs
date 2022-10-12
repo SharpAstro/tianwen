@@ -1,4 +1,4 @@
-﻿using Astap.Lib.Astrometry;
+﻿using Astap.Lib.Astrometry.Focus;
 using Astap.Lib.Imaging;
 using Shouldly;
 using System.IO;
