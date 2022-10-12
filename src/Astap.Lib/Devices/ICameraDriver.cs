@@ -1,4 +1,6 @@
-﻿namespace Astap.Lib.Devices;
+﻿using System;
+
+namespace Astap.Lib.Devices;
 
 public interface ICameraDriver : IDeviceDriver
 {
@@ -11,4 +13,10 @@ public interface ICameraDriver : IDeviceDriver
     int? StartX { get; }
 
     int? StartY { get; }
+
+    int[,]? ImageData { get; }
+
+    bool? ImageReady { get; }
+
+    void StartExposure(TimeSpan duration, bool light);
 }

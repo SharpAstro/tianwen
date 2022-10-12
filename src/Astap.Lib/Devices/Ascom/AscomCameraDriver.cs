@@ -1,4 +1,7 @@
-﻿namespace Astap.Lib.Devices.Ascom;
+﻿using Astap.Lib.Imaging;
+using System;
+
+namespace Astap.Lib.Devices.Ascom;
 
 public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 {
@@ -16,4 +19,10 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
     public int? StartX => Connected && _comObject?.StartX is int startX ? startX : null;
 
     public int? StartY => Connected && _comObject?.StartY is int startY ? startY : null;
+
+    public int[,]? ImageData => _comObject?.ImageArray is int[,] intArray ? intArray : null;
+
+    public bool? ImageReady => _comObject?.ImageReady is bool imageReady ? imageReady : null;
+
+    public void StartExposure(TimeSpan duration, bool light) => _comObject?.StartExposure(duration.TotalSeconds, light);
 }

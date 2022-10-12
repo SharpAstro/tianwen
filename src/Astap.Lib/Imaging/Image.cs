@@ -33,12 +33,48 @@ public record class Image(double[,] Data, int BitDepth, int Width, int Height)
                 var imgArray = new double[width, height];
                 for (int h = 0; h < height; h++)
                 {
-                    if (heightArray[h] is short[] widthArray)
+                    var widthArray = heightArray[h];
+                    var elementType = Type.GetTypeCode(widthArray.GetType().GetElementType());
+                    switch (elementType)
                     {
-                        for (int w = 0; w < width; w++)
-                        {
-                            imgArray[w, h] = bscale * widthArray[w] + bzero;
-                        }
+                        case TypeCode.Byte:
+                            var byteWidthArray = (byte[])widthArray;
+                            for (int w = 0; w < width; w++)
+                            {
+                                imgArray[w, h] = bscale * byteWidthArray[w] + bzero;
+                            }
+                            break;
+                        case TypeCode.Int16:
+                            var shortWidthArray = (short[])widthArray;
+                            for (int w = 0; w < width; w++)
+                            {
+                                imgArray[w, h] = bscale * shortWidthArray[w] + bzero;
+                            }
+                            break;
+                        case TypeCode.Int32:
+                            var intWidthArray = (int[])widthArray;
+                            for (int w = 0; w < width; w++)
+                            {
+                                imgArray[w, h] = bscale * intWidthArray[w] + bzero;
+                            }
+                            break;
+
+                        case TypeCode.Single:
+                            var singleWidthArray = (float[])widthArray;
+                            for (int w = 0; w < width; w++)
+                            {
+                                imgArray[w, h] = bscale * singleWidthArray[w] + bzero;
+                            }
+                            break;
+                        case TypeCode.Double:
+                            var doubleWidthArray = (double[])widthArray;
+                            for (int w = 0; w < width; w++)
+                            {
+                                imgArray[w, h] = bscale * doubleWidthArray[w] + bzero;
+                            }
+                            break;
+                        default:
+                            throw new NotSupportedException($"Element type {elementType} is not supported!");
                     }
                 }
                 image = new Image(imgArray, bitDepth, width, height);
