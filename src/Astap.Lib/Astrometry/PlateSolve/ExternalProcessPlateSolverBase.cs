@@ -1,9 +1,8 @@
-﻿using nom.tam.fits;
+﻿using Astap.Lib.Imaging;
+using nom.tam.fits;
 using System;
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -91,7 +90,8 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
             return default;
         }
 
-        var wcs = new Fits(wcsFile, FileAccess.ReadWrite);
+        var wcsReader = new nom.tam.util.BufferedFile(wcsFile, FileAccess.ReadWrite, FileShare.Read, 1000 * 2088);
+        var wcs = new Fits(wcsReader);
         try
         {
             using (wcs.Stream)
@@ -107,12 +107,11 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
                         return (ra, dec);
                     }
                 }
-                return default;
             }
+            return default;
         }
         finally
         {
-
             File.Delete(wcsFile);
         }
     }

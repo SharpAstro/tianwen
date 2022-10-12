@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Astap.Lib.Imaging;
+using System;
 using System.Text;
 
 namespace Astap.Lib.Astrometry.PlateSolve;

@@ -1,18 +1,37 @@
 ﻿using nom.tam.fits;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Runtime.CompilerServices;
 using static Astap.Lib.StatisticsHelper;
 
 namespace Astap.Lib.Imaging;
 
+public record struct ImageDim(
+    double PixelScale, // arcsec per pixel
+    int Width, // pixel
+    int Height /* pixel */)
+{
+    const double ArcSecToDeg = 1.0 / 60.0 * 1.0 / 60.0;
+
+    /// <summary>
+    /// Returns field of view in degrees
+    /// </summary>
+    public (double width, double height) FieldOfView => (ArcSecToDeg * PixelScale * Width, ArcSecToDeg * PixelScale * Height);
+}
+
 public record class Image(double[,] Data, int BitDepth, int Width, int Height)
 {
-    public static bool TryReadFitsFile(string file, [NotNullWhen(true)] out Image? image)
+    public static bool TryReadFitsFile(string filePath, [NotNullWhen(true)] out Image? image)
     {
-        using var bufferedReader = new nom.tam.util.BufferedFile(file, FileAccess.ReadWrite, FileShare.Read, 1000 * 2088);
-        var fitsFile = new Fits(bufferedReader);
+        using var bufferedReader = new nom.tam.util.BufferedFile(filePath, FileAccess.ReadWrite, FileShare.Read, 1000 * 2088);
+        return TryReadFitsFile(new Fits(bufferedReader), out image);
+    }
+
+    public static bool TryReadFitsFile(Fits fitsFile, [NotNullWhen(true)] out Image? image)
+    {
         var hdu = fitsFile.ReadHDU();
         if (hdu?.Axes?.Length == 2 && hdu.Data is ImageData imageData)
         {
@@ -96,7 +115,7 @@ public record class Image(double[,] Data, int BitDepth, int Width, int Height)
                                 {
                                     var j = n + yci;
                                     var i = m + xci;
-                                    if (j >= 0 && i >= 0 && j < Height && i < Width && Math.Pow(m, 2) + Math.Pow(n, 2) <= sqr_diam)
+                                    if (j >= 0 && i >= 0 && j < Height && i < Width && m * m + n * n <= sqr_diam)
                                     {
                                         img_sa[i, j] = true;
                                     }
@@ -160,8 +179,6 @@ public record class Image(double[,] Data, int BitDepth, int Width, int Height)
     /// <summary>
     /// get background and star level from peek histogram
     /// </summary>
-    /// <param name="colour"></param>
-    /// <param name="img"></param>
     /// <returns>background and star level</returns>
     public (double background, double starLevel, double noise_level) Background()
     {
@@ -277,14 +294,15 @@ public record class Image(double[,] Data, int BitDepth, int Width, int Height)
     /// <summary>
     /// calculate star HFD and FWHM, SNR, xc and yc are center of gravity.All x, y coordinates in array[0..] positions
     /// </summary>
-    /// <param name="img">image</param>
     /// <param name="x1">x</param>
     /// <param name="y1">y</param>
     /// <param name="rs">box size</param>
     /// <returns>true if a star was detected</returns>
     public bool AnalyseStar(int x1, int y1, int rs, out ImagedStar star)
     {
-        // rs should be <=50 to prevent runtime errors
+        const int maxAnnulusBg = 328; // depends on rs <= 50
+        Debug.Assert(rs <= 50, "rs should be <= 50 to prevent runtime errors");
+
         var r1_square = rs * rs; /*square radius*/
         var r2 = rs + 1; /*annulus width us 1*/
         var r2_square = r2 * r2;
@@ -298,7 +316,6 @@ public record class Image(double[,] Data, int BitDepth, int Width, int Height)
         double bg;
         double sd_bg;
 
-        var background = new List<double>();
         double xc = double.NaN, yc = double.NaN;
         int r_aperture = -1;
 
@@ -307,6 +324,9 @@ public record class Image(double[,] Data, int BitDepth, int Width, int Height)
             star = new(hfd, star_fwhm, snr, flux, xc, yc);
             return false;
         }
+
+        Span<double> backgroundScratch = stackalloc double[maxAnnulusBg];
+        int backgroundIndex = 0;
 
         try
         {
@@ -319,15 +339,16 @@ public record class Image(double[,] Data, int BitDepth, int Width, int Height)
                     /*annulus, circular area outside rs, typical one pixel wide*/
                     if (distance > r1_square && distance <= r2_square)
                     {
-                        background.Add(Data[x1 + i, y1 + j]);
+                        backgroundScratch[backgroundIndex++] = Data[x1 + i, y1 + j];
                     }
                 }
             }
 
+            var background = backgroundScratch[..backgroundIndex];
             bg = Median(background);
 
             /* fill background with offsets */
-            for (var i = 0; i < background.Count; i++)
+            for (var i = 0; i < background.Length; i++)
             {
                 background[i] = Math.Abs(background[i] - bg);
             }
@@ -404,7 +425,7 @@ public record class Image(double[,] Data, int BitDepth, int Width, int Height)
             rs += 2; /* add some space */
 
             // Build signal histogram from center of gravity
-            var distance_histogram = new int[rs + 1];
+            Span<int> distance_histogram = stackalloc int[rs + 1]; // this has a fixed upper bound
 
             for (var i = -rs; i <= rs; i++)
             {
@@ -566,6 +587,7 @@ public record class Image(double[,] Data, int BitDepth, int Width, int Height)
     /// <param name="x1"></param>
     /// <param name="y1"></param>
     /// <returns></returns>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.AggressiveInlining)]
     public double SubpixelValue(double x1, double y1)
     {
         //  x_trunc, y_trunc: integer;
