@@ -17,16 +17,26 @@ public interface IImageAnalyser
     {
         var stars = FindStars(image, snr_min, max_stars, max_retries);
         var count = stars.Count;
-        Span<double> starSamples = count < 100 ? stackalloc double[count] : new double[count];
+        Span<double> starSamples = count < 200 ? stackalloc double[count] : new double[count];
 
-        for (var i = 0; i < count; i++)
+        switch (samples.Kind)
         {
-            starSamples[i] = samples.Kind switch
-            {
-                SampleKind.HFD => stars[i].HFD,
-                SampleKind.FWHM => stars[i].StarFWHM,
-                _ => throw new ArgumentException($"Cannot find sample value for {samples.Kind}", nameof(samples))
-            };
+            case SampleKind.HFD:
+                for (var i = 0; i < count; i++)
+                {
+                    starSamples[i] = stars[i].HFD;
+                }
+                break;
+
+            case SampleKind.FWHM:
+                for (var i = 0; i < count; i++)
+                {
+                    starSamples[i] = stars[i].StarFWHM;
+                }
+                break;
+
+            default:
+                throw new ArgumentException($"Cannot find sample value for {samples.Kind}", nameof(samples));
         }
 
         var median = Median(starSamples);
