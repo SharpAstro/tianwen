@@ -2,6 +2,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using static Astap.Lib.StatisticsHelper;
 
 namespace Astap.Lib.Imaging;
 
@@ -59,7 +60,7 @@ public class HFDSamples
             switch (method)
             {
                 case AggregationMethod.Median:
-                    var median = ImageAnalysis.Median(hfdValues.ToArray());
+                    var median = Median(hfdValues.ToArray());
                     return double.IsNaN(median) ? null : median;
 
                 case AggregationMethod.Best:

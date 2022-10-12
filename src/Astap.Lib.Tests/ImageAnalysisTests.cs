@@ -1,19 +1,20 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+﻿using Astap.Lib.Astrometry;
+using Astap.Lib.Imaging;
+using Shouldly;
 using System.IO;
 using System.Threading.Tasks;
 using Xunit;
-using Shouldly;
-using Astap.Lib.Imaging;
 
 namespace Astap.Lib.Tests;
 
 public class ImageAnalysisTests
 {
-    [Fact]
-    public async Task GivenFitsFileWhenAnalysingThenMedianHFDAndFWHMIsCalculated()
+    [Theory]
+    [InlineData(5, 3, 11)]
+    [InlineData(10, 3, 6)]
+    [InlineData(20, 3, 2)]
+    [InlineData(30, 3, 1)]
+    public async Task GivenFitsFileWhenAnalysingThenMedianHFDAndFWHMIsCalculated(double snr_min, int max_retries, int expected_stars)
     {
         // given
         var fileAndDim = await SharedTestData.ExtractTestFitsFileAsync("PlateSolveTestFile");
@@ -22,17 +23,20 @@ public class ImageAnalysisTests
             Assert.Fail("Could not extract test image data");
         }
         var (extractedFitsFile, imageDim, expectedRa, expectedDec) = fileAndDim.Value;
+        var analyser = new ImageAnalyser();
 
         try
         {
             // when
-            if (ImageAnalysis.TryReadFitsFile(extractedFitsFile, out var image))
+            if (Image.TryReadFitsFile(extractedFitsFile, out var image))
             {
 
-                var result = ImageAnalysis.FindStars(image, snr_min: 5, max_retries: 3);
-
+                var result = analyser.FindStars(image, snr_min: snr_min, max_retries: max_retries);
                 // then
                 result.ShouldNotBeEmpty();
+                result.Count.ShouldBe(expected_stars);
+                result.ShouldAllBe(p => p.SNR >= snr_min);
+                result.ShouldContain(p => p.XCentroid > 1241 && p.XCentroid < 1242 && p.YCentroid > 220 && p.YCentroid < 221 && p.SNR > 39);
             }
             else
             {
