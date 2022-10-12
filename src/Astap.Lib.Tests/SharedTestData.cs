@@ -1,6 +1,9 @@
 ﻿using Astap.Lib.Astrometry;
 using Astap.Lib.Astrometry.PlateSolve;
+using Astap.Lib.Imaging;
+using nom.tam.fits;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -53,12 +56,38 @@ public static class SharedTestData
     internal const CatalogIndex XO0003 = (CatalogIndex)((ulong)'X' << 35 | (ulong)'O' << 28 | '0' << 21 | '0' << 14 | '0' << 7 | '3');
     internal const CatalogIndex XO002N = (CatalogIndex)((ulong)'X' << 35 | (ulong)'O' << 28 | '0' << 21 | '0' << 14 | '2' << 7 | 'N');
 
-    internal static async Task<(string filePath, ImageDim imageDim, double ra, double dec)?> ExtractTestFitsFileAsync(string name)
+    internal static Image? ExtractTestFitsImage(string name)
     {
         var assembly = typeof(AstrometryNetPlateSolver).Assembly;
         var gzippedTestFile = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith($".{name}.fits.gz"));
 
         if (gzippedTestFile is not null && assembly.GetManifestResourceStream(gzippedTestFile) is Stream inStream)
+        {
+            using (inStream)
+            {
+                if (Image.TryReadFitsFile(new Fits(inStream, true), out var image))
+                {
+                    return image;
+                }
+            }
+        }
+
+        return default;
+    }
+
+    internal static readonly IReadOnlyDictionary<string, (ImageDim imageDim, double ra, double dec)> TestFileImageDimAndCoords =
+        new Dictionary<string, (ImageDim imageDim, double ra, double dec)>
+        {
+            ["PlateSolveTestFile"] = (new ImageDim(4.38934f, 1280, 960), 1.6955879753, -31.6142968611)
+        };
+
+    internal static async Task<string?> ExtractTestFitsFileAsync(string name)
+    {
+        var assembly = typeof(AstrometryNetPlateSolver).Assembly;
+        var gzippedTestFile = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith($".{name}.fits.gz"));
+
+        if (gzippedTestFile is not null
+            && assembly.GetManifestResourceStream(gzippedTestFile) is Stream inStream)
         {
             var fileName = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("D") + ".fits");
             using var outStream = new FileStream(fileName, new FileStreamOptions
@@ -71,7 +100,7 @@ public static class SharedTestData
             using var gzipStream = new GZipStream(inStream, CompressionMode.Decompress, false);
             await gzipStream.CopyToAsync(outStream, 1024 * 10);
 
-            return (fileName, new ImageDim(4.38934f, 1280, 960), 1.6955879753, -31.6142968611);
+            return fileName;
         }
 
         return default;

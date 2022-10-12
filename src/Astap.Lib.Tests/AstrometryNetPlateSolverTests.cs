@@ -24,16 +24,16 @@ public class AstrometryNetPlateSolverTests
         actualSupported.ShouldBeTrue();
     }
 
-    [Fact]
-    public async Task GivenStarFieldTestFileWhenBlindPlateSolvingThenItIsSolved()
+    [Theory]
+    [InlineData("PlateSolveTestFile")]
+    public async Task GivenStarFieldTestFileWhenBlindPlateSolvingThenItIsSolved(string name)
     {
         // given
-        var fileAndDim = await SharedTestData.ExtractTestFitsFileAsync("PlateSolveTestFile");
-        if (!fileAndDim.HasValue)
+        var extractedFitsFile = await SharedTestData.ExtractTestFitsFileAsync(name);
+        if (extractedFitsFile is null)
         {
-            Assert.Fail("Could not extract test image data");
+            Assert.Fail($"Could not extract test image data of {name}");
         }
-        var (extractedFitsFile, imageDim, expectedRa, expectedDec) = fileAndDim.Value;
         var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 
         try
@@ -41,13 +41,20 @@ public class AstrometryNetPlateSolverTests
 
             var solver = new AstrometryNetPlateSolver();
 
-            // when
-            var solution = await solver.SolveFileAsync(extractedFitsFile, imageDim, cancellationToken: cts.Token);
+            if (SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords))
+            {
+                // when
+                var solution = await solver.SolveFileAsync(extractedFitsFile, dimAndCoords.imageDim, cancellationToken: cts.Token);
 
-            // then
-            solution.HasValue.ShouldBe(true);
-            solution.Value.ra.ShouldBeInRange(expectedRa - double.Epsilon, expectedRa + double.Epsilon);
-            solution.Value.dec.ShouldBeInRange(expectedDec - double.Epsilon, expectedDec + double.Epsilon);
+                // then
+                solution.HasValue.ShouldBe(true);
+                solution.Value.ra.ShouldBeInRange(dimAndCoords.ra - double.Epsilon, dimAndCoords.ra + double.Epsilon);
+                solution.Value.dec.ShouldBeInRange(dimAndCoords.dec - double.Epsilon, dimAndCoords.dec + double.Epsilon);
+            }
+            else
+            {
+                Assert.Fail($"Could not extract test image dimensions for {name}");
+            }
         }
         finally
         {
@@ -55,29 +62,36 @@ public class AstrometryNetPlateSolverTests
         }
     }
 
-    [Fact]
-    public async Task GivenStarFieldTestFileAndSearchOriginWhenPlateSolvingThenItIsSolved()
+    [Theory]
+    [InlineData("PlateSolveTestFile")]
+    public async Task GivenStarFieldTestFileAndSearchOriginWhenPlateSolvingThenItIsSolved(string name)
     {
         // given
-        var fileAndDim = await SharedTestData.ExtractTestFitsFileAsync("PlateSolveTestFile");
-        if (!fileAndDim.HasValue)
+        var extractedFitsFile = await SharedTestData.ExtractTestFitsFileAsync(name);
+        if (extractedFitsFile is null)
         {
-            Assert.Fail("Could not extract test image data");
+            Assert.Fail($"Could not extract test image data of {name}");
         }
-        var (extractedFitsFile, imageDim, expectedRa, expectedDec) = fileAndDim.Value;
         var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 
         try
         {
             var solver = new AstrometryNetPlateSolver();
 
-            // when
-            var solution = await solver.SolveFileAsync(extractedFitsFile, imageDim, searchOrigin: (expectedRa, expectedDec), searchRadius: 1d, cancellationToken: cts.Token);
+            if (SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords))
+            {
+                // when
+                var solution = await solver.SolveFileAsync(extractedFitsFile, dimAndCoords.imageDim, searchOrigin: (dimAndCoords.ra, dimAndCoords.dec), searchRadius: 1d, cancellationToken: cts.Token);
 
-            // then
-            solution.HasValue.ShouldBe(true);
-            solution.Value.ra.ShouldBeInRange(expectedRa - double.Epsilon, expectedRa + double.Epsilon);
-            solution.Value.dec.ShouldBeInRange(expectedDec - double.Epsilon, expectedDec + double.Epsilon);
+                // then
+                solution.HasValue.ShouldBe(true);
+                solution.Value.ra.ShouldBeInRange(dimAndCoords.ra - double.Epsilon, dimAndCoords.ra + double.Epsilon);
+                solution.Value.dec.ShouldBeInRange(dimAndCoords.dec - double.Epsilon, dimAndCoords.dec + double.Epsilon);
+            }
+            else
+            {
+                Assert.Fail($"Could not extract test image dimensions for {name}");
+            }
         }
         finally
         {
