@@ -7,7 +7,8 @@ public readonly record struct FocusSolution(double P, double A, double B, double
 public static class Hyperbola
 {
     /// <summary>
-    /// calculate metric from position and perfectfocusposition using hyperbola parameters.
+    /// calculate metric from <paramref name="position"/> and <paramref name="perfectfocusposition"/>
+    /// using hyperbola parameters <paramref name="a"/> and  <paramref name="b"/>
     /// Example:
     /// The HFD (half flux diameter) of the imaged star disk as function of the focuser position can be described as hyperbola
     /// a,b are the hyperbola parameters, a is the lowest HFD value at focus position, the asymptote y:= +-x*a/b
@@ -16,6 +17,10 @@ public static class Hyperbola
     /// y=a*cosh(t)
     /// Using the arccosh and arsinh functions it is possible to inverse
     /// above calculations and convert x=>t and t->y or y->t and t->x
+    /// <param name="position">relative position on the hyperbola to the perfect position</param>
+    /// <param name="perfectfocusposition">position where best focus is assumed, focus point of hyperbola lies on this line</param>
+    /// <param name="a">a of hyperbola</param>
+    /// <param name="b">b of hyperbola</param>
     /// </summary>
     public static double CalculateValueAtPosition(double position, double perfectfocusposition, double a, double b)
     {
@@ -36,9 +41,9 @@ public static class Hyperbola
     ///
     /// Note using the HFD there are two solutions, either left or right side of the hyperbola
     /// </summary>
-    /// <param name="sample"></param>
-    /// <param name="a"></param>
-    /// <param name="b"></param>
+    /// <param name="sample">sample value (HFD or FWHM)</param>
+    /// <param name="a">a of hyperbola</param>
+    /// <param name="b">b of hyperbola</param>
     /// <returns></returns>
     public static double StepsToFocus(double sample, double a, double b)
     {
@@ -72,7 +77,7 @@ public static class Hyperbola
             }
             else
             {
-                total_error += error / simulation; // {if data[i,1] is large negative outlier then limit error to simulation/simulation=1 maximum}
+                total_error += error / simulation; // if data[i,1] is large negative outlier then limit error to simulation/simulation=1 maximum
             }
         }
 
