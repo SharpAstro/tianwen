@@ -3,28 +3,14 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
-using Astap.Lib.Astrometry.Focus;
 
-namespace Astap.Lib.Astrometry;
+namespace Astap.Lib.Astrometry.Focus;
 
-public enum AggregationMethod
-{
-    Median,
-    Best,
-    Average
-}
-
-public enum SampleKind
-{
-    HFD,
-    FWHM
-}
-
-public class FocusMetricSampleMap
+public class MetricSampleMap
 {
     private readonly ConcurrentDictionary<int, ConcurrentBag<double>> _samples = new();
 
-    public FocusMetricSampleMap(SampleKind kind)
+    public MetricSampleMap(SampleKind kind)
     {
         Kind = kind;
     }
@@ -53,10 +39,7 @@ public class FocusMetricSampleMap
 
     public SampleKind Kind { get; }
 
-    public ConcurrentBag<double> Samples(int focusPos) =>
-        _samples.TryGetValue(focusPos, out var samples)
-            ? samples
-            : _samples.GetOrAdd(focusPos, new ConcurrentBag<double>());
+    internal ConcurrentBag<double> Samples(int focusPos) => _samples.GetOrAdd(focusPos, pFocusPos => new ConcurrentBag<double>());
 
     public bool TryGetBestFocusSolution(AggregationMethod method, [NotNullWhen(true)] out FocusSolution? solution, out int min, out int max)
     {
