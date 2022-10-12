@@ -4,7 +4,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using static Astap.Lib.StatisticsHelper;
 
-namespace Astap.Lib.Imaging;
+namespace Astap.Lib.Astrometry.Focus;
 
 public class HFDSamples
 {

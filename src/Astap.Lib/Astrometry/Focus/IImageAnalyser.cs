@@ -2,7 +2,7 @@
 using Astap.Lib.Imaging;
 using static Astap.Lib.StatisticsHelper;
 
-namespace Astap.Lib.Astrometry;
+namespace Astap.Lib.Astrometry.Focus;
 
 public interface IImageAnalyser
 {

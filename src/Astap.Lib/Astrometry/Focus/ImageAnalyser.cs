@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
 using Astap.Lib.Imaging;
 
-namespace Astap.Lib.Astrometry;
+namespace Astap.Lib.Astrometry.Focus;
 
 public class ImageAnalyser : IImageAnalyser
 {
