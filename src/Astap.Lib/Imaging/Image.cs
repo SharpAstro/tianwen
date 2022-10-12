@@ -51,7 +51,7 @@ public record class Image(double[,] Data, int BitDepth, int Width, int Height)
     /// <param name="max_stars"></param>
     /// <param name="max_retries"></param>
     /// <returns></returns>
-    public IReadOnlyList<Star> FindStars(double snr_min = 20, int max_stars = 500, int max_retries = 2)
+    public IReadOnlyList<ImagedStar> FindStars(double snr_min = 20, int max_stars = 500, int max_retries = 2)
     {
         var (background, star_level, noise_level) = Background();
 
@@ -60,10 +60,10 @@ public record class Image(double[,] Data, int BitDepth, int Width, int Height)
 
         if (background is >= 60000 or <= 0)  /* abnormal file */
         {
-            return Array.Empty<Star>();
+            return Array.Empty<ImagedStar>();
         }
 
-        var starList = new List<Star>(max_stars / 2);
+        var starList = new List<ImagedStar>(max_stars / 2);
         var img_sa = new BitMatrix(Width, Height);
 
         do
@@ -81,8 +81,7 @@ public record class Image(double[,] Data, int BitDepth, int Width, int Height)
                 {
                     if (!img_sa[fitsX, fitsY]/* star free area */ && Data[fitsX, fitsY] - background > detection_level)  /* new star. For analyse used sigma is 5, so not too low. */
                     {
-                        AnalyseStar(fitsX, fitsY, 14/* box size */, out var star);
-                        if (star.HFD <= 30 && star.SNR > snr_min && star.HFD > 0.8 /* two pixels minimum */ )
+                        if (AnalyseStar(fitsX, fitsY, 14/* box size */, out var star) && star.HFD <= 30 && star.SNR > snr_min && star.HFD > 0.8 /* two pixels minimum */ )
                         {
                             starList.Add(star);
 
@@ -282,8 +281,8 @@ public record class Image(double[,] Data, int BitDepth, int Width, int Height)
     /// <param name="x1">x</param>
     /// <param name="y1">y</param>
     /// <param name="rs">box size</param>
-    /// <returns></returns>
-    public bool AnalyseStar(int x1, int y1, int rs, out Star star)
+    /// <returns>true if a star was detected</returns>
+    public bool AnalyseStar(int x1, int y1, int rs, out ImagedStar star)
     {
         // rs should be <=50 to prevent runtime errors
         var r1_square = rs * rs; /*square radius*/

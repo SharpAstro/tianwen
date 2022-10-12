@@ -38,11 +38,11 @@ public interface IImageAnalyser
         }
     }
 
-    IReadOnlyList<Star> FindStars(Image image, double snr_min = 20, int max_stars = 500, int max_retries = 2);
+    IReadOnlyList<ImagedStar> FindStars(Image image, double snr_min = 20, int max_stars = 500, int max_retries = 2);
 }
 
 public class ImageAnalyser : IImageAnalyser
 {
-    public IReadOnlyList<Star> FindStars(Image image, double snr_min = 20, int max_stars = 500, int max_retries = 2)
+    public IReadOnlyList<ImagedStar> FindStars(Image image, double snr_min = 20, int max_stars = 500, int max_retries = 2)
         => image.FindStars(snr_min, max_stars, max_retries);
 }
