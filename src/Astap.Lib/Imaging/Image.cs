@@ -294,17 +294,16 @@ public class Image
         var threshold = (uint)(maxPossibleValue * 0.95);
         var histogram = new List<uint>(1000);
 
-        var final_hist_total = 0u;
-        var final_count = 1; /* prevent divide by zero */
-        var final_total_value = 0f;
+        var hist_total = 0u;
+        var count = 1; /* prevent divide by zero */
+        var total_value = 0f;
 
-        for (var h = 0 + offsetH; h <= _height - 1 - offsetH; h++)
+        for(var h = offsetH; h <= _height - 1 - offsetH; h++)
         {
-            Parallel.For(offsetW, _width - 1 - offsetW, () => (0u, 0, 0f), (w, l, a) =>
+            for (var w = 0 + offsetW; w <= _width - 1 - offsetW; w++)
             {
                 var value = _data[h, w];
                 var valueAsInt = (int)MathF.Round(value);
-                var (hist_total, count, total_value) = a;
 
                 // ignore black overlap areas and bright stars
                 if (value >= 1 && value < threshold && valueAsInt < int.MaxValue)
@@ -320,20 +319,12 @@ public class Image
                     total_value += value;
                     count++;
                 }
-                return (hist_total, count, total_value);
-            },
-            f =>
-            {
-                var (hist_total, count, total_value) = f;
-                Interlocked.Add(ref final_hist_total, hist_total);
-                Interlocked.Add(ref final_count, count);
-                InterlockedEx.Add(ref final_total_value, total_value);
-            });
+            }
         }
 
-        var hist_mean = 1.0f / final_count * final_total_value;
+        var hist_mean = 1.0f / count * total_value;
 
-        return new ImageHistogram(histogram, hist_mean, final_hist_total, threshold);
+        return new ImageHistogram(histogram, hist_mean, hist_total, threshold);
     }
 
     /// <summary>
