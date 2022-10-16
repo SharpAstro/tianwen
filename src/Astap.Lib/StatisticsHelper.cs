@@ -11,9 +11,17 @@ public static class StatisticsHelper
     /// </summary>
     /// <param name="values">values</param>
     /// <returns>median value if any or NaN</returns>
-    public static double Median(double[] values)
+    public static double Median(double[] values) => Median(values.AsSpan());
+
+    /// <summary>
+    /// Sorts the array in place and returns the median value.
+    /// returns <see cref="double.NaN" /> if array is empty or null.
+    /// </summary>
+    /// <param name="values">values</param>
+    /// <returns>median value if any or NaN</returns>
+    public static double Median(in Span<double> values)
     {
-        if (values == null || values.Length == 0)
+        if (values.Length == 0)
         {
             return double.NaN;
         }
@@ -22,7 +30,7 @@ public static class StatisticsHelper
             return values[0];
         }
 
-        Array.Sort(values);
+        values.Sort();
 
         int mid = values.Length / 2;
         return values.Length % 2 != 0 ? values[mid] : (values[mid] + values[mid - 1]) / 2;
@@ -34,7 +42,7 @@ public static class StatisticsHelper
     /// </summary>
     /// <param name="values">values</param>
     /// <returns>median value if any or NaN</returns>
-    public static double Median(Span<double> values)
+    public static double Median(in Span<uint> values)
     {
         if (values.Length == 0)
         {
