@@ -17,7 +17,7 @@ public interface IImageAnalyser
     {
         var stars = FindStars(image, snr_min, max_stars, max_retries);
         var count = stars.Count;
-        Span<double> starSamples = count < 200 ? stackalloc double[count] : new double[count];
+        Span<float> starSamples = count < 200 ? stackalloc float[count] : new float[count];
 
         switch (samples.Kind)
         {
