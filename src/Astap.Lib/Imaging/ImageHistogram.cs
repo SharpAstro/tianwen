@@ -1,3 +1,5 @@
-﻿namespace Astap.Lib.Imaging;
+﻿using System.Collections.Generic;
 
-public record class ImageHistogram(int[] Histogram, int Mean, int Total);
+namespace Astap.Lib.Imaging;
+
+public record class ImageHistogram(IReadOnlyList<uint> Histogram, double Mean, ulong Total, uint Threshold);
