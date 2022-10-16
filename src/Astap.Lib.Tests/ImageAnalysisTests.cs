@@ -66,7 +66,7 @@ public class ImageAnalysisTests
 
     [Theory]
     [InlineData(5, 3, 11)]
-    [InlineData(10, 3, 6)]
+    [InlineData(9.5, 3, 6)]
     [InlineData(20, 3, 2)]
     [InlineData(30, 3, 1)]
     public void GivenFitsFileWhenAnalysingThenMedianHFDAndFWHMIsCalculated(double snr_min, int max_retries, int expected_stars)
@@ -80,6 +80,6 @@ public class ImageAnalysisTests
         result.ShouldNotBeEmpty();
         result.Count.ShouldBe(expected_stars);
         result.ShouldAllBe(p => p.SNR >= snr_min);
-        result.ShouldContain(p => p.XCentroid > 1241 && p.XCentroid < 1242 && p.YCentroid > 220 && p.YCentroid < 221 && p.SNR > 39);
+        result.ShouldContain(p => p.XCentroid > 1241 && p.XCentroid < 1243 && p.YCentroid > 219 && p.YCentroid < 221 && p.SNR > 38);
     }
 }

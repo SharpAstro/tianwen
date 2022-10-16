@@ -1,3 +1,3 @@
 ﻿namespace Astap.Lib.Imaging;
 
-public readonly record struct ImagedStar(double HFD, double StarFWHM, double SNR, double Flux, double XCentroid, double YCentroid);
+public readonly record struct ImagedStar(float HFD, float StarFWHM, float SNR, float Flux, float XCentroid, float YCentroid);
