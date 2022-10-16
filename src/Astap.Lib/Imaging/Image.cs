@@ -7,29 +7,32 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
 using static Astap.Lib.StatisticsHelper;
 
 namespace Astap.Lib.Imaging;
 
 public class Image
 {
-    protected readonly float[,] _data;
-    protected readonly int _width;
-    protected readonly int _height;
-    protected readonly TypeCode _dataType;
+    readonly float[,] _data;
+    readonly int _width;
+    readonly int _height;
+    readonly TypeCode _dataType;
+    readonly float _maxVal;
 
-    public Image(float[,] data, int width, int height, TypeCode dataType)
+    public Image(float[,] data, int width, int height, TypeCode dataType, float maxVal)
     {
         _data = data;
         _width = width;
         _height = height;
         _dataType = dataType;
+        _maxVal = maxVal;
     }
 
     public int Width => _width;
     public int Height => _height;
-
+    public TypeCode DataType => _dataType;
 
     public static bool TryReadFitsFile(string filePath, [NotNullWhen(true)] out Image? image)
     {
@@ -60,19 +63,74 @@ public class Image
 
         var imgArray = new float[height, width];
         Span2D<float> imgArray2d = imgArray.AsSpan2D();
-        Span<float> scratchRow = stackalloc float[width];
+        Span<float> scratchRow = stackalloc float[Math.Min(256, width)];
+
+        var quot = Math.DivRem(width, scratchRow.Length, out var rem);
+        var maxVal = 0f;
 
         switch (elementType)
         {
+            case TypeCode.Byte:
+                for (int h = 0; h < height; h++)
+                {
+                    var byteWidthArray = (byte[])heightArray[h];
+                    var row = imgArray2d.GetRowSpan(h);
+                    var sourceIndex = 0;
+                    for (int i = 0; i < quot; i++)
+                    {
+                        for (int w = 0; w < scratchRow.Length; w++)
+                        {
+                            var val = bscale * byteWidthArray[sourceIndex + w] + bzero;
+                            scratchRow[w] = val;
+                            maxVal = MathF.Max(maxVal, val);
+                        }
+                        sourceIndex += scratchRow.Length;
+                        scratchRow.CopyTo(row);
+                        row = row[scratchRow.Length..];
+                    }
+                    if (rem > 0)
+                    {
+                        // copy rest
+                        for (int w = 0; w < rem; w++)
+                        {
+                            var val = bscale * byteWidthArray[sourceIndex + w] + bzero;
+                            scratchRow[w] = val;
+                            maxVal = MathF.Max(maxVal, val);
+                        }
+                        scratchRow[..rem].CopyTo(row);
+                    }
+                }
+                break;
+
             case TypeCode.Int16:
                 for (int h = 0; h < height; h++)
                 {
                     var shortWidthArray = (short[])heightArray[h];
-                    for (int w = 0; w < width; w++)
+                    var row = imgArray2d.GetRowSpan(h);
+                    var sourceIndex = 0;
+                    for (int i = 0; i < quot; i++)
                     {
-                        scratchRow[w] = bscale * (shortWidthArray[w] + bzero);
+                        for (int w = 0; w < scratchRow.Length; w++)
+                        {
+                            var val = bscale * shortWidthArray[sourceIndex + w] + bzero;
+                            scratchRow[w] = val;
+                            maxVal = MathF.Max(maxVal, val);
+                        }
+                        sourceIndex += scratchRow.Length;
+                        scratchRow.CopyTo(row);
+                        row = row[scratchRow.Length..];
                     }
-                    scratchRow.CopyTo(imgArray2d.GetRowSpan(h));
+                    if (rem > 0)
+                    {
+                        // copy rest
+                        for (int w = 0; w < rem; w++)
+                        {
+                            var val = bscale * shortWidthArray[sourceIndex + w] + bzero;
+                            scratchRow[w] = val;
+                            maxVal = MathF.Max(maxVal, val);
+                        }
+                        scratchRow[..rem].CopyTo(row);
+                    }
                 }
                 break;
 
@@ -80,11 +138,63 @@ public class Image
                 for (int h = 0; h < height; h++)
                 {
                     var intWidthArray = (int[])heightArray[h];
-                    for (int w = 0; w < width; w++)
+                    var row = imgArray2d.GetRowSpan(h);
+                    var sourceIndex = 0;
+                    for (int i = 0; i < quot; i++)
                     {
-                        scratchRow[w] = bscale * (intWidthArray[w] + bzero);
+                        for (int w = 0; w < scratchRow.Length; w++)
+                        {
+                            var val = bscale * intWidthArray[sourceIndex + w] + bzero;
+                            scratchRow[w] = val;
+                            maxVal = MathF.Max(maxVal, val);
+                        }
+                        sourceIndex += scratchRow.Length;
+                        scratchRow.CopyTo(row);
+                        row = row[scratchRow.Length..];
                     }
-                    scratchRow.CopyTo(imgArray2d.GetRowSpan(h));
+                    if (rem > 0)
+                    {
+                        // copy rest
+                        for (int w = 0; w < rem; w++)
+                        {
+                            var val = bscale * intWidthArray[sourceIndex + w] + bzero;
+                            scratchRow[w] = val;
+                            maxVal = MathF.Max(maxVal, val);
+                        }
+                        scratchRow[..rem].CopyTo(row);
+                    }
+                }
+                break;
+
+            case TypeCode.Single:
+                for (int h = 0; h < height; h++)
+                {
+                    var floatWidthArray = (float[])heightArray[h];
+                    var row = imgArray2d.GetRowSpan(h);
+                    var sourceIndex = 0;
+                    for (int i = 0; i < quot; i++)
+                    {
+                        for (int w = 0; w < scratchRow.Length; w++)
+                        {
+                            var val = bscale * floatWidthArray[sourceIndex + w] + bzero;
+                            scratchRow[w] = val;
+                            maxVal = MathF.Max(maxVal, val);
+                        }
+                        sourceIndex += scratchRow.Length;
+                        scratchRow.CopyTo(row);
+                        row = row[scratchRow.Length..];
+                    }
+                    if (rem > 0)
+                    {
+                        // copy rest
+                        for (int w = 0; w < rem; w++)
+                        {
+                            var val = bscale * floatWidthArray[sourceIndex + w] + bzero;
+                            scratchRow[w] = val;
+                            maxVal = MathF.Max(maxVal, val);
+                        }
+                        scratchRow[..rem].CopyTo(row);
+                    }
                 }
                 break;
 
@@ -93,18 +203,9 @@ public class Image
                 return false;
         }
 
-        image = new Image(imgArray, width, height, elementType);
+        image = new Image(imgArray, width, height, elementType, maxVal);
         return true;
     }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    static uint MaxUnsignedValue(TypeCode elementType) => elementType switch
-    {
-        TypeCode.Byte => byte.MaxValue,
-        TypeCode.Int16 => ushort.MaxValue,
-        TypeCode.Int32 => uint.MaxValue,
-        _ => throw new ArgumentException($"Unsupported element type {elementType}", nameof(elementType))
-    };
 
     /// <summary>
     /// Find background, noise level, number of stars and their HFD, FWHM, SNR, flux and centroid.
@@ -117,7 +218,7 @@ public class Image
     {
         var (background, star_level, noise_level, hist_threshold) = Background();
 
-        var detection_level = Math.Max(3.5 * noise_level, star_level); /* level above background. Start with a high value */
+        var detection_level = MathF.Max(3.5f * noise_level, star_level); /* level above background. Start with a high value */
         var retries = max_retries;
 
         if (background >= hist_threshold || background <= 0)  /* abnormal file */
@@ -126,7 +227,7 @@ public class Image
         }
 
         var starList = new List<ImagedStar>(max_stars / 2);
-        var img_sa = new BitMatrix(Height, Width);
+        var img_sa = new BitMatrix(_height, _width);
 
         do
         {
@@ -137,28 +238,28 @@ public class Image
                 img_sa.Clear();
             }
 
-            for (var fitsY = 0; fitsY < Height; fitsY++)
+            for (var fitsY = 0; fitsY < _height; fitsY++)
             {
-                for (var fitsX = 0; fitsX < Width; fitsX++)
+                for (var fitsX = 0; fitsX < _width; fitsX++)
                 {
                     if (!img_sa[fitsY, fitsX]/* star free area */ && _data[fitsY, fitsX] - background > detection_level)  /* new star. For analyse used sigma is 5, so not too low. */
                     {
-                        if (AnalyseStar(fitsX, fitsY, 14/* box size */, out var star) && star.HFD <= 30 && star.SNR > snr_min && star.HFD > 0.8 /* two pixels minimum */ )
+                        if (AnalyseStar(fitsX, fitsY, 14/* box size */, out var star) && star.HFD <= 30 && star.SNR > snr_min && star.HFD > 0.8f /* two pixels minimum */ )
                         {
                             starList.Add(star);
 
-                            var diam = (int)Math.Round(3.0 * star.HFD); /* for marking star area. Emperical a value between 2.5*hfd and 3.5*hfd gives same performance. Note in practise a star PSF has larger wings  predicted by a Gaussian function */
-                            var sqr_diam = (int)Math.Pow(diam, 2);
-                            var xci = (int)Math.Round(star.XCentroid);/* star center as integer */
-                            var yci = (int)Math.Round(star.YCentroid);
+                            var diam = (int)MathF.Round(3.0f * star.HFD); /* for marking star area. Emperical a value between 2.5*hfd and 3.5*hfd gives same performance. Note in practise a star PSF has larger wings  predicted by a Gaussian function */
+                            var sqr_diam = diam * diam;
+                            var xci = (int)MathF.Round(star.XCentroid); /* star center as integer */
+                            var yci = (int)MathF.Round(star.YCentroid);
 
-                            for (var n = -diam; n <= +diam; n++)  /* mark the whole circular star area width diameter "diam" as occupied to prevent uble detections */
+                            for (var n = -diam; n <= +diam; n++)  /* mark the whole circular star area width diameter "diam" as occupied to prevent double detections */
                             {
                                 for (var m = -diam; m <= +diam; m++)
                                 {
                                     var j = n + yci;
                                     var i = m + xci;
-                                    if (j >= 0 && i >= 0 && j < Height && i < Width && m * m + n * n <= sqr_diam)
+                                    if (j >= 0 && i >= 0 && j < _height && i < _width && m * m + n * n <= sqr_diam)
                                     {
                                         img_sa[j, i] = true;
                                     }
@@ -177,7 +278,7 @@ public class Image
             else
             {
                 retries--;
-                detection_level = Math.Max(6.999 * noise_level, Math.Min(30 * noise_level, detection_level * 6.999 / 30)); /* very high -> 30 -> 7 -> stop.  Or  60 -> 14 -> 7.0. Or for very short exposures 3.5 -> stop */
+                detection_level = MathF.Max(6.999f * noise_level, MathF.Min(30 * noise_level, detection_level * 6.999f / 30)); /* very high -> 30 -> 7 -> stop.  Or  60 -> 14 -> 7.0. Or for very short exposures 3.5 -> stop */
             }
         } while (starList.Count < max_stars && retries > 0);/* reduce detection level till enough stars are found. Note that faint stars have less positional accuracy */
 
@@ -186,23 +287,24 @@ public class Image
 
     public ImageHistogram Histogram()
     {
-        var offsetH = (int)(Height * 0.015); // if Libraw is used, ignored unused sensor areas up to 1.5 %
+        var offsetH = (int)(_height * 0.015); // if Libraw is used, ignored unused sensor areas up to 1.5 %
+        var offsetW = (int)(_width * 0.042); // if Libraw is used, ignored unused sensor areas up to 4.2 %
 
-        var maxPossibleValue = MaxUnsignedValue(_dataType);
+        var maxPossibleValue = _maxVal;
         var threshold = (uint)(maxPossibleValue * 0.95);
         var histogram = new List<uint>(1000);
 
-        var hist_total = 0u;
-        var count = 1; /* prevent divide by zero */
-        var total_value = 0f;
-        var offsetW = (int)(Width * 0.042); // if Libraw is used, ignored unused sensor areas up to 4.2 %
+        var final_hist_total = 0u;
+        var final_count = 1; /* prevent divide by zero */
+        var final_total_value = 0f;
 
-        for (var h = 0 + offsetH; h <= Height - 1 - offsetH; h++)
+        for (var h = 0 + offsetH; h <= _height - 1 - offsetH; h++)
         {
-            for (var w = 0 + offsetW; w <= Width - 1 - offsetW; w++)
+            Parallel.For(offsetW, _width - 1 - offsetW, () => (0u, 0, 0f), (w, l, a) =>
             {
                 var value = _data[h, w];
-                var valueAsInt = (int)Math.Round(value);
+                var valueAsInt = (int)MathF.Round(value);
+                var (hist_total, count, total_value) = a;
 
                 // ignore black overlap areas and bright stars
                 if (value >= 1 && value < threshold && valueAsInt < int.MaxValue)
@@ -218,43 +320,20 @@ public class Image
                     total_value += value;
                     count++;
                 }
-            }
-        }
-
-        var hist_mean = 1.0f / count * total_value;
-
-        return new ImageHistogram(histogram, hist_mean, hist_total, threshold);
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    (uint hist_total, int count, double total_value) HistogramPerRow<T>(List<uint> histogram, uint threshold, int h, in (uint hist_total, int count, double total_value) acc)
-        where T : struct
-    {
-        var (hist_total, count, total_value) = acc;
-        var offsetW = (int)(Width * 0.042); // if Libraw is used, ignored unused sensor areas up to 4.2 %
-
-        for (var w = 0 + offsetW; w <= Width - 1 - offsetW; w++)
-        {
-            var value = _data[h, w];
-
-            // ignore black overlap areas and bright stars
-            if (value >= 1 && value < threshold && value < int.MaxValue)
+                return (hist_total, count, total_value);
+            },
+            f =>
             {
-                var intVal = (int)value;
-                if (intVal >= histogram.Count)
-                {
-                    var extend = (intVal - histogram.Count) * 2 + 1;
-                    histogram.EnsureCapacity(extend);
-                    histogram.AddRange(Enumerable.Repeat(0u, extend));
-                }
-                histogram[intVal]++; // calculate histogram
-                hist_total++;
-                total_value += value;
-                count++;
-            }
+                var (hist_total, count, total_value) = f;
+                Interlocked.Add(ref final_hist_total, hist_total);
+                Interlocked.Add(ref final_count, count);
+                InterlockedEx.Add(ref final_total_value, total_value);
+            });
         }
 
-        return (hist_total, count, total_value);
+        var hist_mean = 1.0f / final_count * final_total_value;
+
+        return new ImageHistogram(histogram, hist_mean, final_hist_total, threshold);
     }
 
     /// <summary>
@@ -289,7 +368,7 @@ public class Image
             background = histogram.Mean; // strange peak at low value, ignore histogram and use mean
         }
 
-        i = MaxUnsignedValue(_dataType);
+        i = (uint)MathF.Ceiling(_maxVal);
 
         var starLevel = 0.0f;
         var above = 0u;
@@ -318,7 +397,7 @@ public class Image
         }
 
         // calculate noise level
-        var stepSize = (int)Math.Round(Height / 71.0); // get about 71x71 = 5000 samples.So use only a fraction of the pixels
+        var stepSize = (int)MathF.Round(_height / 71.0f); // get about 71x71 = 5000 samples.So use only a fraction of the pixels
 
         // prevent problems with even raw OSC images
         if (stepSize % 2 == 0)
@@ -337,10 +416,10 @@ public class Image
 
             sd_old = sd;
             var fitsY = 15;
-            while (fitsY <= Height - 1 - 15)
+            while (fitsY <= _height - 1 - 15)
             {
                 var fitsX = 15;
-                while (fitsX <= Width - 1 - 15)
+                while (fitsX <= _width - 1 - 15)
                 {
                     var value = _data[fitsY, fitsX];
                     // not an outlier, noise should be symmetrical so should be less then twice background
@@ -383,10 +462,6 @@ public class Image
         var r2_square = r2 * r2;
 
         var valMax = 0.0f;
-        var hfd = 999.0f;
-        var star_fwhm = 999.0f;
-        var snr = 0.0f;
-        var flux = 0.0f;
         float sumVal;
         float bg;
         float sd_bg;
@@ -394,9 +469,9 @@ public class Image
         float xc = float.NaN, yc = float.NaN;
         int r_aperture = -1;
 
-        if (x1 - r2 <= 0 || x1 + r2 >= Width - 1 || y1 - r2 <= 0 || y1 + r2 >= Height - 1)
+        if (x1 - r2 <= 0 || x1 + r2 >= _width - 1 || y1 - r2 <= 0 || y1 + r2 >= _height - 1)
         {
-            star = new(hfd, star_fwhm, snr, flux, xc, yc);
+            star = default;
             return false;
         }
 
@@ -425,12 +500,12 @@ public class Image
             /* fill background with offsets */
             for (var i = 0; i < background.Length; i++)
             {
-                background[i] = (uint)Math.Max(0, background[i] - bg);
+                background[i] = MathF.Max(0, background[i] - bg);
             }
 
             var mad_bg = Median(background); //median absolute deviation (MAD)
             sd_bg = mad_bg * 1.4826f; /* Conversion from mad to sd for a normal distribution. See https://en.wikipedia.org/wiki/Median_absolute_deviation */
-            sd_bg = Math.Max(sd_bg, 1); /* add some value for images with zero noise background. This will prevent that background is seen as a star. E.g. some jpg processed by nova.astrometry.net*/
+            sd_bg = MathF.Max(sd_bg, 1); /* add some value for images with zero noise background. This will prevent that background is seen as a star. E.g. some jpg processed by nova.astrometry.net*/
 
             bool boxed;
             do /* reduce square annulus radius till symmetry to remove stars */
@@ -458,7 +533,7 @@ public class Image
 
                 if (sumVal <= 12 * sd_bg)
                 {
-                    star = new(hfd, star_fwhm, snr, flux, xc, yc); /*no star found, too noisy, return with hfd=999 */
+                    star = default; /*no star found, too noisy */
                     return false;
                 }
 
@@ -469,13 +544,14 @@ public class Image
                 yc = y1 + yg;
                 /* center of gravity found */
 
-                if (xc - rs < 0 || xc + rs > Width - 1 || yc - rs < 0 || yc + rs > Height - 1)
+                if (xc - rs < 0 || xc + rs > _width - 1 || yc - rs < 0 || yc + rs > _height - 1)
                 {
-                    star = new(hfd, star_fwhm, snr, 0, xc, xc); /* prevent runtime errors near sides of images */
+                    star = default; /* prevent runtime errors near sides of images */
                     return false;
                 }
 
-                boxed = signal_counter >= 2.0 / 9 * Math.Pow(rs + rs + 1, 2);/*are inside the box 2 of the 9 of the pixels illuminated? Works in general better for solving then ovality measurement as used in the past*/
+                var rs2_1 = rs + rs + 1;
+                boxed = signal_counter >= 2.0f / 9 * (rs2_1 * rs2_1);/*are inside the box 2 of the 9 of the pixels illuminated? Works in general better for solving then ovality measurement as used in the past*/
 
                 if (!boxed)
                 {
@@ -492,7 +568,7 @@ public class Image
                 /* check on hot pixels */
                 if (signal_counter <= 1)
                 {
-                    star = new(hfd, star_fwhm, snr, flux, xc, xc); /*one hot pixel*/
+                    star = default; /*one hot pixel*/
                     return false;
                 }
             } while (!boxed && rs > 1); /*loop and reduce aperture radius until star is boxed*/
@@ -544,14 +620,19 @@ public class Image
 
             if (r_aperture >= rs)
             {
-                star = new(hfd, star_fwhm, snr, flux, xc, xc); /* star is equal or larger then box, abort */
+                star = default; /* star is equal or larger then box, abort */
                 return false;
             }
 
-            if (r_aperture > 2 && illuminated_pixels < 0.35 /*35% surface*/ * Math.Pow(r_aperture + r_aperture - 2, 2))
+            if (r_aperture > 2)
             {
-                star = new(hfd, star_fwhm, snr, flux, xc, xc); /* not a star disk but stars, abort with hfd 999 */
-                return false;
+                /* if more than 35% surface is illuminated */
+                var r_aperture2_2 = 2 * r_aperture - 2;
+                if (illuminated_pixels < 0.35f * (r_aperture2_2 * r_aperture2_2))
+                {
+                    star = default; /* not a star disk but stars, abort */
+                    return false;
+                }
             }
         }
         catch (Exception ex) when (Environment.UserInteractive)
@@ -561,7 +642,7 @@ public class Image
         }
         catch
         {
-            star = new(hfd, star_fwhm, snr, flux, xc, xc);
+            star = default;
             return false;
         }
 
@@ -586,12 +667,10 @@ public class Image
             }
         }
 
-        flux = MathF.Max(sumVal, 0.00001f); /* prevent dividing by zero or negative values */
-        hfd = MathF.Max(0.7f, 2 * sumValR / flux);
-
-        star_fwhm = 2 * MathF.Sqrt(pixel_counter / MathF.PI);/*calculate from surface (by counting pixels above half max) the diameter equals FWHM */
-
-        snr = flux / MathF.Sqrt(flux + r_aperture * r_aperture * MathF.PI * sd_bg * sd_bg);
+        var flux = MathF.Max(sumVal, 0.00001f); /* prevent dividing by zero or negative values */
+        var hfd = MathF.Max(0.7f, 2 * sumValR / flux);
+        var star_fwhm = 2 * MathF.Sqrt(pixel_counter / MathF.PI);/*calculate from surface (by counting pixels above half max) the diameter equals FWHM */
+        var snr = flux / MathF.Sqrt(flux + r_aperture * r_aperture * MathF.PI * sd_bg * sd_bg);
 
         star = new(hfd, star_fwhm, snr, flux, xc, yc);
         return true;
@@ -665,8 +744,8 @@ public class Image
     [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.AggressiveInlining)]
     float SubpixelValue(float x1, float y1)
     {
-        var x_trunc = (int)Math.Truncate(x1);
-        var y_trunc = (int)Math.Truncate(y1);
+        var x_trunc = (int)MathF.Truncate(x1);
+        var y_trunc = (int)MathF.Truncate(y1);
 
         if (x_trunc <= 0 || x_trunc >= _width - 2 || y_trunc <= 0 || y_trunc >= _height - 2)
         {
