@@ -292,7 +292,7 @@ public class Image
 
         var maxPossibleValue = _maxVal;
         var threshold = (uint)(maxPossibleValue * 0.95);
-        var histogram = new List<uint>(1000);
+        var histogram = new uint[threshold];
 
         var hist_total = 0u;
         var count = 1; /* prevent divide by zero */
@@ -308,12 +308,6 @@ public class Image
                 // ignore black overlap areas and bright stars
                 if (value >= 1 && value < threshold && valueAsInt < int.MaxValue)
                 {
-                    if (valueAsInt >= histogram.Count)
-                    {
-                        var extend = (valueAsInt - histogram.Count) * 2 + 1;
-                        histogram.EnsureCapacity(extend);
-                        histogram.AddRange(Enumerable.Repeat(0u, extend));
-                    }
                     histogram[valueAsInt]++; // calculate histogram
                     hist_total++;
                     total_value += value;
@@ -367,7 +361,7 @@ public class Image
         while (starLevel == 0 && i > background + 1)
         {
             i--;
-            if (i < histogram.Histogram.Count)
+            if (i < histogram.Histogram.Length)
             {
                 above += histogram.Histogram[(int)i];
             }
@@ -515,8 +509,8 @@ public class Image
                         if (val > 3.0 * sd_bg)
                         {
                             sumVal += val;
-                            sumValX += val * i;
-                            sumValY += val * j;
+                            sumValX += val * j;
+                            sumValY += val * i;
                             signal_counter++; /* how many pixels are illuminated */
                         }
                     }

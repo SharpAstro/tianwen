@@ -2,4 +2,4 @@
 
 namespace Astap.Lib.Imaging;
 
-public record class ImageHistogram(IReadOnlyList<uint> Histogram, float Mean, float Total, float Threshold);
+public record class ImageHistogram(uint[] Histogram, float Mean, float Total, float Threshold);
