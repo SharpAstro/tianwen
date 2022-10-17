@@ -11,7 +11,7 @@ public interface IImageAnalyser
         Image image,
         int currentPos,
         MetricSampleMap samples,
-        double snr_min = 20,
+        float snr_min = 20f,
         int max_stars = 500,
         int max_retries = 2)
     {
@@ -61,5 +61,5 @@ public interface IImageAnalyser
         }
     }
 
-    IReadOnlyList<ImagedStar> FindStars(Image image, double snr_min = 20, int max_stars = 500, int max_retries = 2);
+    IReadOnlyList<ImagedStar> FindStars(Image image, float snr_min = 20f, int max_stars = 500, int max_retries = 2);
 }

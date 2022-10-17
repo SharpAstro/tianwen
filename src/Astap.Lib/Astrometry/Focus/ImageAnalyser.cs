@@ -5,6 +5,6 @@ namespace Astap.Lib.Astrometry.Focus;
 
 public class ImageAnalyser : IImageAnalyser
 {
-    public IReadOnlyList<ImagedStar> FindStars(Image image, double snr_min = 20, int max_stars = 500, int max_retries = 2)
+    public IReadOnlyList<ImagedStar> FindStars(Image image, float snr_min = 20f, int max_stars = 500, int max_retries = 2)
         => image.FindStars(snr_min, max_stars, max_retries);
 }

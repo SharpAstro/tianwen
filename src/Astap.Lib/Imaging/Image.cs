@@ -215,7 +215,7 @@ public class Image
     /// <param name="max_stars"></param>
     /// <param name="max_retries"></param>
     /// <returns></returns>
-    public IReadOnlyList<ImagedStar> FindStars(double snr_min = 20, int max_stars = 500, int max_retries = 2)
+    public IReadOnlyList<ImagedStar> FindStars(float snr_min = 20f, int max_stars = 500, int max_retries = 2)
     {
         var (background, star_level, noise_level, hist_threshold) = Background();
 
