@@ -18,21 +18,22 @@ public class Image
     readonly float[,] _data;
     readonly int _width;
     readonly int _height;
-    readonly TypeCode _dataType;
+    readonly int _bitsPerPixel;
     readonly float _maxVal;
 
-    public Image(float[,] data, int width, int height, TypeCode dataType, float maxVal)
+    public Image(float[,] data, int width, int height, int bitsPerPixel, float maxVal)
     {
         _data = data;
         _width = width;
         _height = height;
-        _dataType = dataType;
+        _bitsPerPixel = bitsPerPixel;
         _maxVal = maxVal;
     }
 
     public int Width => _width;
     public int Height => _height;
-    public TypeCode DataType => _dataType;
+    public int BitsPerPixel => _bitsPerPixel;
+    public float MaxValue => _maxVal;
 
     public static bool TryReadFitsFile(string filePath, [NotNullWhen(true)] out Image? image)
     {
@@ -54,7 +55,7 @@ public class Image
 
         var height = hdu.Axes[0];
         var width = hdu.Axes[1];
-        var bitDepth = hdu.BitPix;
+        var bitsPerPixel = hdu.BitPix;
 
         var bzero = (float)hdu.BZero;
         var bscale = (float)hdu.BScale;
@@ -203,7 +204,7 @@ public class Image
                 return false;
         }
 
-        image = new Image(imgArray, width, height, elementType, maxVal);
+        image = new Image(imgArray, width, height, bitsPerPixel, maxVal);
         return true;
     }
 
