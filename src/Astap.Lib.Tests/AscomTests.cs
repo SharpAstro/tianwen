@@ -69,7 +69,7 @@ public class AscomTests
         }
     }
 
-    [Fact]
+    [SkippableFact]
     public void GivenAConnectedAscomSimulatorCameraWhenImageReadyThenItCanBeDownloaded()
     {
         Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows));
