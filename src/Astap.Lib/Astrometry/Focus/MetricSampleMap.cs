@@ -1,21 +1,21 @@
 ﻿using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using static Astap.Lib.StatisticsHelper;
 
 namespace Astap.Lib.Astrometry.Focus;
 
 public class MetricSampleMap
 {
-    private readonly ConcurrentDictionary<int, ConcurrentBag<double>> _samples = new();
+    private readonly ConcurrentDictionary<int, ConcurrentBag<float>> _samples = new();
 
     public MetricSampleMap(SampleKind kind)
     {
         Kind = kind;
     }
 
-    public (FocusSolution? solution, int? minPos, int? maxPos) SampleStarsAtFocusPosition(double sample, int currentPos)
+    public (FocusSolution? solution, int? minPos, int? maxPos) SampleStarsAtFocusPosition(float sample, int currentPos)
     {
         if (!double.IsNaN(sample) && sample > 0.0)
         {
@@ -39,14 +39,14 @@ public class MetricSampleMap
 
     public SampleKind Kind { get; }
 
-    internal ConcurrentBag<double> Samples(int focusPos) => _samples.GetOrAdd(focusPos, pFocusPos => new ConcurrentBag<double>());
+    internal ConcurrentBag<float> Samples(int focusPos) => _samples.GetOrAdd(focusPos, pFocusPos => new ConcurrentBag<float>());
 
     public bool TryGetBestFocusSolution(AggregationMethod method, [NotNullWhen(true)] out FocusSolution? solution, out int min, out int max)
     {
         var keys = _samples.Keys.ToArray();
         Array.Sort(keys);
 
-        var data = new double[keys.Length, 2];
+        var data = new float[keys.Length, 2];
         if (keys.Length > 2)
         {
             min = keys[0];
@@ -80,7 +80,7 @@ public class MetricSampleMap
         return true;
     }
 
-    public double? Aggregate(int focusPos, AggregationMethod method)
+    public float? Aggregate(int focusPos, AggregationMethod method)
     {
         if (_samples.TryGetValue(focusPos, out var samples))
         {
@@ -88,67 +88,21 @@ public class MetricSampleMap
             {
                 case AggregationMethod.Median:
                     var median = Median(samples.ToArray());
-                    return double.IsNaN(median) ? null as double? : median;
+                    return float.IsNaN(median) ? null as float? : median;
 
                 case AggregationMethod.Best:
-                    return !samples.IsEmpty ? samples.Min() : null as double?;
+                    return !samples.IsEmpty ? samples.Min() : default;
 
                 case AggregationMethod.Average:
-                    return !samples.IsEmpty ? samples.Average() : null as double?;
+                    return !samples.IsEmpty ? samples.Average() : default;
 
                 default:
-                    return null;
+                    return default;
             }
         }
         else
         {
-            return null;
+            return default;
         }
-    }
-
-    /// <summary>
-    /// Sorts the array in place and returns the median value.
-    /// returns <see cref="double.NaN" /> if array is empty or null.
-    /// </summary>
-    /// <param name="values">values</param>
-    /// <returns>median value if any or NaN</returns>
-    public static double Median(double[] values)
-    {
-        if (values == null || values.Length == 0)
-        {
-            return double.NaN;
-        }
-        else if (values.Length == 1)
-        {
-            return values[0];
-        }
-
-        Array.Sort(values);
-
-        int mid = values.Length / 2;
-        return values.Length % 2 != 0 ? values[mid] : (values[mid] + values[mid - 1]) / 2;
-    }
-
-    /// <summary>
-    /// Sorts the array in place and returns the median value.
-    /// returns <see cref="double.NaN" /> if array is empty or null.
-    /// </summary>
-    /// <param name="values">values</param>
-    /// <returns>median value if any or NaN</returns>
-    public static double Median(List<double> values)
-    {
-        if (values == null || values.Count == 0)
-        {
-            return double.NaN;
-        }
-        else if (values.Count == 1)
-        {
-            return values[0];
-        }
-
-        values.Sort();
-
-        int mid = values.Count / 2;
-        return values.Count % 2 != 0 ? values[mid] : (values[mid] + values[mid - 1]) / 2;
     }
 }
