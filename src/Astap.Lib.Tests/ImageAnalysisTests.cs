@@ -1,5 +1,7 @@
 ﻿using Astap.Lib.Astrometry.Focus;
+using Astap.Lib.Devices;
 using Astap.Lib.Imaging;
+using Moq;
 using Shouldly;
 using System.IO;
 using System.Threading.Tasks;
@@ -63,13 +65,38 @@ public class ImageAnalysisTests
         }
     }
 
+    [Theory]
+    [InlineData(10, 22)]
+    [InlineData(15, 6)]
+    [InlineData(20, 3)]
+    public async Task GivenCameraImageDataWhenConvertingToImageThenStarsCanBeFound(int snr_min, int expectedStars)
+    {
+        // given
+        const int Width = 1280;
+        const int Height = 960;
+        const int BitDepth = 16;
+        var imageData = await SharedTestData.ExtractGZippedImage($"image_data_snr-{snr_min}_stars-{expectedStars}", Width, Height);
+        imageData.ShouldNotBeNull();
+
+        // when
+        var image = ICameraDriver.DataToImage(imageData, BitDepth);
+        var stars = image?.FindStars(snr_min: snr_min);
+
+        // then
+        image.ShouldNotBeNull();
+        image.Height.ShouldBe(Height);
+        image.Width.ShouldBe(Width);
+        image.BitsPerPixel.ShouldBe(BitDepth);
+        stars.ShouldNotBeNull().Count.ShouldBe(expectedStars);
+    }
+
 
     [Theory]
     [InlineData(5, 3, 11)]
     [InlineData(9.5, 3, 6)]
     [InlineData(20, 3, 2)]
     [InlineData(30, 3, 1)]
-    public void GivenFitsFileWhenAnalysingThenMedianHFDAndFWHMIsCalculated(double snr_min, int max_retries, int expected_stars)
+    public void GivenFitsFileWhenAnalysingThenMedianHFDAndFWHMIsCalculated(float snr_min, int max_retries, int expected_stars)
     {
         var analyser = new ImageAnalyser();
 

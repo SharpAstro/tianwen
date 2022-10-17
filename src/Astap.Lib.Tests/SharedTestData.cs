@@ -1,7 +1,8 @@
 ﻿using Astap.Lib.Astrometry;
-using Astap.Lib.Astrometry.PlateSolve;
 using Astap.Lib.Imaging;
+using CommunityToolkit.HighPerformance;
 using nom.tam.fits;
+using Roydl.Text.BinaryToText;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -58,7 +59,7 @@ public static class SharedTestData
 
     internal static Image? ExtractTestFitsImage(string name)
     {
-        var assembly = typeof(AstrometryNetPlateSolver).Assembly;
+        var assembly = typeof(SharedTestData).Assembly;
         var gzippedTestFile = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith($".{name}.fits.gz"));
 
         if (gzippedTestFile is not null && assembly.GetManifestResourceStream(gzippedTestFile) is Stream inStream)
@@ -83,7 +84,7 @@ public static class SharedTestData
 
     internal static async Task<string?> ExtractTestFitsFileAsync(string name)
     {
-        var assembly = typeof(AstrometryNetPlateSolver).Assembly;
+        var assembly = typeof(SharedTestData).Assembly;
         var gzippedTestFile = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith($".{name}.fits.gz"));
 
         if (gzippedTestFile is not null
@@ -101,6 +102,24 @@ public static class SharedTestData
             await gzipStream.CopyToAsync(outStream, 1024 * 10);
 
             return fileName;
+        }
+
+        return default;
+    }
+
+    internal static async Task<int[,]?> ExtractGZippedImage(string name, int width, int height)
+    {
+        var assembly = typeof(SharedTestData).Assembly;
+        var gzippedImageData = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith($".{name}_{width}x{height}.raw.gz"));
+
+        if (gzippedImageData is not null
+            && assembly.GetManifestResourceStream(gzippedImageData) is Stream inStream)
+        {
+            var output = new int[width, height];
+            using var gzipStream = new GZipStream(inStream, CompressionMode.Decompress, false);
+            await gzipStream.CopyToAsync(output.AsMemory().Cast<int, byte>().AsStream());
+
+            return output;
         }
 
         return default;
