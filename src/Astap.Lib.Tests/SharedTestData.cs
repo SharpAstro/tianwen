@@ -57,7 +57,7 @@ public static class SharedTestData
     internal const CatalogIndex XO0003 = (CatalogIndex)((ulong)'X' << 35 | (ulong)'O' << 28 | '0' << 21 | '0' << 14 | '0' << 7 | '3');
     internal const CatalogIndex XO002N = (CatalogIndex)((ulong)'X' << 35 | (ulong)'O' << 28 | '0' << 21 | '0' << 14 | '2' << 7 | 'N');
 
-    internal static Image? ExtractTestFitsImage(string name)
+    internal static Image ExtractGZippedFitsImage(string name)
     {
         var assembly = typeof(SharedTestData).Assembly;
         var gzippedTestFile = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith($".{name}.fits.gz"));
@@ -73,7 +73,7 @@ public static class SharedTestData
             }
         }
 
-        return default;
+        throw new ArgumentException($"Missing test data {name}", nameof(name));
     }
 
     internal static readonly IReadOnlyDictionary<string, (ImageDim imageDim, double ra, double dec)> TestFileImageDimAndCoords =
@@ -82,7 +82,7 @@ public static class SharedTestData
             ["PlateSolveTestFile"] = (new ImageDim(4.38934f, 1280, 960), 1.6955879753, -31.6142968611)
         };
 
-    internal static async Task<string?> ExtractTestFitsFileAsync(string name)
+    internal static async Task<string> ExtractGZippedFitsFileAsync(string name)
     {
         var assembly = typeof(SharedTestData).Assembly;
         var gzippedTestFile = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith($".{name}.fits.gz"));
@@ -104,10 +104,10 @@ public static class SharedTestData
             return fileName;
         }
 
-        return default;
+        throw new ArgumentException($"Missing test data {name}", nameof(name));
     }
 
-    internal static async Task<int[,]?> ExtractGZippedImage(string name, int width, int height)
+    internal static async Task<int[,]> ExtractGZippedImageData(string name, int width, int height)
     {
         var assembly = typeof(SharedTestData).Assembly;
         var gzippedImageData = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith($".{name}_{width}x{height}.raw.gz"));
@@ -122,6 +122,6 @@ public static class SharedTestData
             return output;
         }
 
-        return default;
+        throw new ArgumentException($"Missing test data {name}", nameof(name));
     }
 }

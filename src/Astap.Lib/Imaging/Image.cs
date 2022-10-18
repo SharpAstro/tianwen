@@ -292,7 +292,7 @@ public class Image
         var offsetW = (int)(_width * 0.042); // if Libraw is used, ignored unused sensor areas up to 4.2 %
 
         var maxPossibleValue = _maxVal;
-        var threshold = (uint)(maxPossibleValue * 0.95);
+        var threshold = (uint)(maxPossibleValue * 0.91);
         var histogram = new uint[threshold];
 
         var hist_total = 0u;
@@ -486,7 +486,7 @@ public class Image
             /* fill background with offsets */
             for (var i = 0; i < background.Length; i++)
             {
-                background[i] = MathF.Max(0, background[i] - bg);
+                background[i] = MathF.Abs(background[i] - bg);
             }
 
             var mad_bg = Median(background); //median absolute deviation (MAD)

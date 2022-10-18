@@ -7,15 +7,16 @@ namespace Astap.Lib.Astrometry.Focus;
 
 public interface IImageAnalyser
 {
-    (double? median, FocusSolution? solution, int? minPos, int? maxPos) SampleStarsAtFocusPosition(
+    public (float? median, FocusSolution? solution, int? minPos, int? maxPos) SampleStarsAtFocusPosition(
         Image image,
         int currentPos,
         MetricSampleMap samples,
-        float snr_min = 20f,
-        int max_stars = 500,
-        int max_retries = 2)
+        float snrMin = 20f,
+        int maxStars = 500,
+        int maxStarIterations = 2,
+        int maxFocusIterations = 20)
     {
-        var stars = FindStars(image, snr_min, max_stars, max_retries);
+        var stars = FindStars(image, snrMin, maxStars, maxStarIterations);
         var count = stars.Count;
         Span<float> starSamples = count < 200 ? stackalloc float[count] : new float[count];
 
@@ -41,12 +42,12 @@ public interface IImageAnalyser
 
         var median = Median(starSamples);
 
-        if (!double.IsNaN(median))
+        if (!float.IsNaN(median))
         {
             // add the sample
             samples.Samples(currentPos).Add(median);
 
-            if (samples.TryGetBestFocusSolution(AggregationMethod.Average, out var solution, out var minPos, out var maxPos))
+            if (samples.TryGetBestFocusSolution(AggregationMethod.Average, out var solution, out var minPos, out var maxPos, maxIterations: maxFocusIterations))
             {
                 return (median, solution.Value, minPos, maxPos);
             }
@@ -61,5 +62,5 @@ public interface IImageAnalyser
         }
     }
 
-    IReadOnlyList<ImagedStar> FindStars(Image image, float snr_min = 20f, int max_stars = 500, int max_retries = 2);
+    IReadOnlyList<ImagedStar> FindStars(Image image, float snrMin = 20f, int maxStars = 500, int maxIterations = 2);
 }

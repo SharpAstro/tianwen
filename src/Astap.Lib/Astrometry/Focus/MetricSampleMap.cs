@@ -2,6 +2,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using static Astap.Lib.StatisticsHelper;
 
 namespace Astap.Lib.Astrometry.Focus;
@@ -15,33 +16,12 @@ public class MetricSampleMap
         Kind = kind;
     }
 
-    public (FocusSolution? solution, int? minPos, int? maxPos) SampleStarsAtFocusPosition(float sample, int currentPos)
-    {
-        if (!double.IsNaN(sample) && sample > 0.0)
-        {
-            // add the sample
-            Samples(currentPos).Add(sample);
+    public SampleKind Kind { [MethodImpl(MethodImplOptions.AggressiveInlining)] get; }
 
-            if (TryGetBestFocusSolution(AggregationMethod.Average, out var solution, out var minPos, out var maxPos))
-            {
-                return (solution.Value, minPos, maxPos);
-            }
-            else
-            {
-                return default;
-            }
-        }
-        else
-        {
-            return default;
-        }
-    }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public ConcurrentBag<float> Samples(int focusPos) => _samples.GetOrAdd(focusPos, pFocusPos => new ConcurrentBag<float>());
 
-    public SampleKind Kind { get; }
-
-    internal ConcurrentBag<float> Samples(int focusPos) => _samples.GetOrAdd(focusPos, pFocusPos => new ConcurrentBag<float>());
-
-    public bool TryGetBestFocusSolution(AggregationMethod method, [NotNullWhen(true)] out FocusSolution? solution, out int min, out int max)
+    public bool TryGetBestFocusSolution(AggregationMethod method, [NotNullWhen(true)] out FocusSolution? solution, out int min, out int max, int maxIterations = 20)
     {
         var keys = _samples.Keys.ToArray();
         Array.Sort(keys);
@@ -76,7 +56,7 @@ public class MetricSampleMap
             data[i, 1] = aggregated.Value;
         }
 
-        solution = Hyperbola.FindBestHyperbolaFit(data);
+        solution = Hyperbola.FindBestHyperbolaFit(data, max_iterations: maxIterations);
         return true;
     }
 
@@ -88,7 +68,7 @@ public class MetricSampleMap
             {
                 case AggregationMethod.Median:
                     var median = Median(samples.ToArray());
-                    return float.IsNaN(median) ? null as float? : median;
+                    return !float.IsNaN(median) ? median : default;
 
                 case AggregationMethod.Best:
                     return !samples.IsEmpty ? samples.Min() : default;

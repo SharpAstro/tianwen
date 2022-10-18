@@ -29,16 +29,11 @@ public class AstrometryNetPlateSolverTests
     public async Task GivenStarFieldTestFileWhenBlindPlateSolvingThenItIsSolved(string name)
     {
         // given
-        var extractedFitsFile = await SharedTestData.ExtractTestFitsFileAsync(name);
-        if (extractedFitsFile is null)
-        {
-            Assert.Fail($"Could not extract test image data of {name}");
-        }
+        var extractedFitsFile = await SharedTestData.ExtractGZippedFitsFileAsync(name);
         var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 
         try
         {
-
             var solver = new AstrometryNetPlateSolver();
 
             if (SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords))
@@ -67,11 +62,7 @@ public class AstrometryNetPlateSolverTests
     public async Task GivenStarFieldTestFileAndSearchOriginWhenPlateSolvingThenItIsSolved(string name)
     {
         // given
-        var extractedFitsFile = await SharedTestData.ExtractTestFitsFileAsync(name);
-        if (extractedFitsFile is null)
-        {
-            Assert.Fail($"Could not extract test image data of {name}");
-        }
+        var extractedFitsFile = await SharedTestData.ExtractGZippedFitsFileAsync(name);
         var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
 
         try

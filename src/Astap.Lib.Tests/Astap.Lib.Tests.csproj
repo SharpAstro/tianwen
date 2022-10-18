@@ -16,10 +16,12 @@
 
   <ItemGroup>
     <None Remove="Data/*.gz" />
+    <None Remove="Data/Focus/*.gz" />
   </ItemGroup>
 
   <ItemGroup>
     <EmbeddedResource Include="Data/*.gz" />
+    <EmbeddedResource Include="Data/Focus/*.gz" />
   </ItemGroup>
 
   <ItemGroup>

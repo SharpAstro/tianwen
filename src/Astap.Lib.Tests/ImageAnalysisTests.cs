@@ -16,14 +16,7 @@ public class ImageAnalysisTests
 
     public ImageAnalysisTests()
     {
-        if (SharedTestData.ExtractTestFitsImage(PlateSolveTestFile) is Image image)
-        {
-            _plateSolveTestImage = image;
-        }
-        else
-        {
-            Assert.Fail("Could not load " + PlateSolveTestFile + " into memory");
-        }
+        _plateSolveTestImage = SharedTestData.ExtractGZippedFitsImage(PlateSolveTestFile);
     }
 
     [Theory]
@@ -31,12 +24,7 @@ public class ImageAnalysisTests
     public async Task GivenOnDiskFitsFileWithImageWhenTryingReadImageItSucceeds(string name)
     {
         // given
-        var extractedFitsFile = await SharedTestData.ExtractTestFitsFileAsync(name);
-        if (extractedFitsFile is null)
-        {
-            Assert.Fail($"Could not extract test image data of {name}");
-            return;
-        }
+        var extractedFitsFile = await SharedTestData.ExtractGZippedFitsFileAsync(name);
 
         try
         {
@@ -75,8 +63,7 @@ public class ImageAnalysisTests
         const int Width = 1280;
         const int Height = 960;
         const int BitDepth = 16;
-        var imageData = await SharedTestData.ExtractGZippedImage($"image_data_snr-{snr_min}_stars-{expectedStars}", Width, Height);
-        imageData.ShouldNotBeNull();
+        var imageData = await SharedTestData.ExtractGZippedImageData($"image_data_snr-{snr_min}_stars-{expectedStars}", Width, Height);
 
         // when
         var image = ICameraDriver.DataToImage(imageData, BitDepth);
@@ -101,12 +88,51 @@ public class ImageAnalysisTests
         var analyser = new ImageAnalyser();
 
         // when
-        var result = analyser.FindStars(_plateSolveTestImage, snr_min: snr_min, max_retries: max_retries);
+        var result = analyser.FindStars(_plateSolveTestImage, snrMin: snr_min, maxIterations: max_retries);
 
         // then
         result.ShouldNotBeEmpty();
         result.Count.ShouldBe(expected_stars);
         result.ShouldAllBe(p => p.SNR >= snr_min);
         result.ShouldContain(p => p.XCentroid > 1241 && p.XCentroid < 1243 && p.YCentroid > 219 && p.YCentroid < 221 && p.SNR > 38);
+    }
+
+    [Theory]
+    [InlineData(SampleKind.HFD, 28208, 28211, 1, 1, 10f, 20, 2)]
+    [InlineData(SampleKind.HFD, 28228, 28232, 1, 1, 10f, 20, 2)]
+    public void GivenFocusSamplesWhenSolvingAHyperboleIsFound(SampleKind kind, int focusStart, int focusEndIncl, int sampleCount, int filterNo, float snrMin, int maxIterations, int expectedSolutionAfterSteps)
+    {
+        // given
+        var sampleMap = new MetricSampleMap(kind);
+        IImageAnalyser imageAnalyser = new ImageAnalyser();
+
+        // when
+        for (int fp = focusStart; fp <= focusEndIncl; fp++)
+        {
+            for (int cs = 1; cs <= sampleCount; cs++)
+            {
+                var image = SharedTestData.ExtractGZippedFitsImage($"fp{fp}-cs{cs}-ms{sampleCount}-fw{filterNo}");
+
+                var (median, solution, minPos, maxPos) = imageAnalyser.SampleStarsAtFocusPosition(image, fp, sampleMap, snrMin: snrMin, maxFocusIterations: maxIterations);
+
+                median.ShouldNotBeNull().ShouldBeGreaterThan(1f);
+
+                if (fp - focusStart >= expectedSolutionAfterSteps)
+                {
+                    (double p, _, _, double error, int iterations) = solution.ShouldNotBeNull();
+                    var minPosD = (double)minPos.ShouldNotBeNull();
+                    var maxPosD = (double)maxPos.ShouldNotBeNull();
+
+                    maxPosD.ShouldBeGreaterThan(minPosD);
+                    minPosD.ShouldBe(focusStart);
+                    iterations.ShouldBeLessThanOrEqualTo(maxIterations);
+                    error.ShouldBeLessThan(1);
+                }
+                else
+                {
+                    solution.ShouldBeNull();
+                }
+            }
+        }
     }
 }
