@@ -2,7 +2,7 @@ using System;
 
 namespace Astap.Lib.Astrometry.Focus;
 
-public readonly record struct FocusSolution(float P, float A, float B, float Error, int Iterations);
+public readonly record struct FocusSolution(double P, double A, double B, double Error, int Iterations);
 
 public static class Hyperbola
 {
@@ -22,11 +22,11 @@ public static class Hyperbola
     /// <param name="a">a of hyperbola</param>
     /// <param name="b">b of hyperbola</param>
     /// </summary>
-    public static float CalculateValueAtPosition(float position, float perfectfocusposition, float a, float b)
+    public static double CalculateValueAtPosition(float position, double perfectfocusposition, double a, double b)
     {
         var x = perfectfocusposition - position;
-        var t = MathF.Asinh(x / b); // calculate t-position in hyperbola
-        return a * MathF.Cosh(t); // convert t-position to y/value
+        var t = Math.Asinh(x / b); // calculate t-position in hyperbola
+        return a * Math.Cosh(t); // convert t-position to y/value
     }
 
     /// <summary>
@@ -45,7 +45,7 @@ public static class Hyperbola
     /// <param name="a">a of hyperbola</param>
     /// <param name="b">b of hyperbola</param>
     /// <returns></returns>
-    public static float StepsToFocus(float sample, float a, float b)
+    public static double StepsToFocus(float sample, double a, double b)
     {
         var x = sample / a;
         if (x < 1)
@@ -53,16 +53,16 @@ public static class Hyperbola
             x = 1;/* prevent run time errors */
         }
 
-        var t = MathF.Acosh(x);   /* calculate t-position in hyperbola */
-        return b * MathF.Sinh(t); /* convert t-position to steps to focus */
+        var t = Math.Acosh(x);   /* calculate t-position in hyperbola */
+        return b * Math.Sinh(t); /* convert t-position to steps to focus */
     }
 
     /// <summary>
     /// calculates total averaged error between measured V-curve and hyperbola
     /// </summary>
-    public static float MeanErrorHyperbola(float[,] data, float perfectfocusposition, float a, float b)
+    public static double MeanErrorHyperbola(float[,] data, double perfectfocusposition, double a, double b)
     {
-        var total_error = 0.0f;
+        var total_error = 0.0;
         var n = data.GetLength(0);
 
         for (var i = 0; i < n; i++)
@@ -90,16 +90,16 @@ public static class Hyperbola
     /// </summary>
     public static FocusSolution FindBestHyperbolaFit(
         float[,] data,
-        float threshold = 1E-5f,
+        double threshold = 1E-5,
         int max_iterations = 30
     )
     {
-        var old_error = 0.0f;
-        var lowest_error = float.MaxValue;
+        var old_error = 0.0;
+        var lowest_error = 1e99;
         var highest_value = 0.0f;
-        var lowest_value = float.MaxValue;
-        var highest_position = float.NaN;
-        var lowest_position = float.NaN;
+        var lowest_value = 1e99;
+        var highest_position = double.NaN;
+        var lowest_position = double.NaN;
         var n = data.GetLength(0);
 
         for (var i = 0; i < n; i++)
@@ -124,7 +124,7 @@ public static class Hyperbola
         // get good starting values for a, b and p
         var a = lowest_value; // a is near the actual value
                               // Alternative hyperbola formula: sqr(y)/sqr(a)-sqr(x)/sqr(b)=1 ==>  sqr(b)=sqr(x)*sqr(a)/(sqr(y)-sqr(a)
-        var b = MathF.Sqrt(MathF.Pow(highest_position - lowest_position, 2) * MathF.Pow(a, 2) / (MathF.Pow(highest_value, 2) - MathF.Pow(a, 2)));
+        var b = Math.Sqrt(Math.Pow(highest_position - lowest_position, 2) * Math.Pow(a, 2) / (Math.Pow(highest_value, 2) - Math.Pow(a, 2)));
         var p = lowest_position;
 
         // set starting test range
@@ -139,9 +139,9 @@ public static class Hyperbola
             var b0 = b;
             var a0 = a;
 
-            a_range *= 0.5f; // reduce scan range by 50%
-            b_range *= 0.5f;
-            p_range *= 0.5f;
+            a_range *= 0.5; // reduce scan range by 50%
+            b_range *= 0.5;
+            p_range *= 0.5;
 
             var p1 = p0 - p_range; // start value
             while (p1 <= p0 + p_range)
@@ -162,13 +162,13 @@ public static class Hyperbola
                             p = p1;
                         }
 
-                        b1 += b_range * 0.1f; // do 20 steps within range, many steps guarantees convergence
+                        b1 = Math.FusedMultiplyAdd(b_range, 0.1f, b1); // do 20 steps within range, many steps guarantees convergence
                     }
 
-                    a1 += a_range * 0.1f; // do 20 steps within range
+                    a1 = Math.FusedMultiplyAdd(a_range, 0.1f, a1); // do 20 steps within range
                 }
 
-                p1 += p_range * 0.1f; // do 20 steps within range
+                p1 = Math.FusedMultiplyAdd(p_range, 0.1f, p1); // do 20 steps within range
             }
 
             iteration_cycles++;

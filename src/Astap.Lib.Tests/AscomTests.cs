@@ -73,7 +73,7 @@ public class AscomTests
     }
 
     [SkippableFact]
-    public async void GivenAConnectedAscomSimulatorCameraWhenImageReadyThenItCanBeDownloaded()
+    public void GivenAConnectedAscomSimulatorCameraWhenImageReadyThenItCanBeDownloaded()
     {
         Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows));
 
@@ -100,10 +100,10 @@ public class AscomTests
 
                 // then
                 var expectedMax = 0;
-                /* foreach (var item in imgData.AsMemory().Span.Enumerate())
+                foreach (var item in imgData.AsMemory().Span.Enumerate())
                 {
                     expectedMax = Math.Max(item.Value, expectedMax);
-                } */
+                }
 
                 driver.DriverType.ShouldBe(Camera);
                 imgData.ShouldNotBeNull();
@@ -112,7 +112,7 @@ public class AscomTests
                 image.Height.ShouldBe(imgData.GetLength(1));
                 image.BitsPerPixel.ShouldBe(driver.BitDepth.ShouldNotBeNull());
                 image.MaxValue.ShouldBeGreaterThan(0f);
-                // image.MaxValue.ShouldBe(expectedMax);
+                image.MaxValue.ShouldBe(expectedMax);
                 var stars = image.FindStars(snr_min: 10);
                 stars.ShouldNotBeEmpty();
             }
