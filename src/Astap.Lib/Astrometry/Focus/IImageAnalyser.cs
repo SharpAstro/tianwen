@@ -7,7 +7,7 @@ namespace Astap.Lib.Astrometry.Focus;
 
 public interface IImageAnalyser
 {
-    public (float? median, FocusSolution? solution, int? minPos, int? maxPos) SampleStarsAtFocusPosition(
+    public (float? median, FocusSolution? solution, int? minPos, int? maxPos, int starCount) SampleStarsAtFocusPosition(
         Image image,
         int currentPos,
         MetricSampleMap samples,
@@ -49,11 +49,11 @@ public interface IImageAnalyser
 
             if (samples.TryGetBestFocusSolution(AggregationMethod.Average, out var solution, out var minPos, out var maxPos, maxIterations: maxFocusIterations))
             {
-                return (median, solution.Value, minPos, maxPos);
+                return (median, solution.Value, minPos, maxPos, count);
             }
             else
             {
-                return (median, null, null, null);
+                return (median, null, null, null, count);
             }
         }
         else
