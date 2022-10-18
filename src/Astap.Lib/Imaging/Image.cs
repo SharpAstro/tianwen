@@ -349,7 +349,7 @@ public class Image
         }
 
         // check alternative mean value
-        if (histogram.Mean > 1.5 * background) // 1.5 * most common
+        if (histogram.Mean > 1.5f * background) // 1.5 * most common
         {
             background = histogram.Mean; // strange peak at low value, ignore histogram and use mean
         }
@@ -366,7 +366,7 @@ public class Image
             {
                 above += histogram.Histogram[(int)i];
             }
-            if (above > 0.001 * histogram.Total)
+            if (above > 0.001f * histogram.Total)
             {
                 starLevel = i;
             }
@@ -392,7 +392,7 @@ public class Image
         }
 
         var sd = 99999.0f;
-        double sd_old;
+        float sd_old;
         var iterations = 0;
 
         // repeat until sd is stable or 7 iterations
@@ -426,7 +426,7 @@ public class Image
             }
             sd = MathF.Sqrt(sd / counter); // standard deviation
             iterations++;
-        } while (sd_old - sd >= 0.05 * sd && iterations < 7); // repeat until sd is stable or 7 iterations
+        } while (sd_old - sd >= 0.05f * sd && iterations < 7); // repeat until sd is stable or 7 iterations
 
         return (background, starLevel, MathF.Round(sd), histogram.Threshold);
     }
@@ -507,7 +507,7 @@ public class Image
                     for (var j = -rs; j <= rs; j++)
                     {
                         var val = _data[y1 + i, x1 + j] - bg;
-                        if (val > 3.0 * sd_bg)
+                        if (val > 3.0f * sd_bg)
                         {
                             sumVal += val;
                             sumValX += val * j;
@@ -585,7 +585,7 @@ public class Image
                 }
             }
 
-            var distance_top_value = 0.0;
+            var distance_top_value = 0;
             var histStart = false;
             var illuminated_pixels = 0;
             do
@@ -602,7 +602,7 @@ public class Image
                     distance_top_value = distance_histogram[r_aperture]; /* this should be 2*pi*r_aperture if it is nice defocused star disk */
                 }
                 /* find a distance where there is no pixel illuminated, so the border of the star image of interest */
-            } while (r_aperture < rs && (!histStart || distance_histogram[r_aperture] > 0.1 * distance_top_value));
+            } while (r_aperture < rs && (!histStart || distance_histogram[r_aperture] > 0.1f * distance_top_value));
 
             if (r_aperture >= rs)
             {

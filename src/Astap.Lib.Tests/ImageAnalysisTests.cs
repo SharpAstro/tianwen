@@ -98,9 +98,9 @@ public class ImageAnalysisTests
     }
 
     [Theory]
-    [InlineData(SampleKind.HFD, 28208, 28211, 1, 1, 10f, 20, 2)]
-    [InlineData(SampleKind.HFD, 28228, 28232, 1, 1, 10f, 20, 2)]
-    public void GivenFocusSamplesWhenSolvingAHyperboleIsFound(SampleKind kind, int focusStart, int focusEndIncl, int sampleCount, int filterNo, float snrMin, int maxIterations, int expectedSolutionAfterSteps)
+    [InlineData(SampleKind.HFD, 28208, 28211, 1, 1, 10f, 20, 2, 130)]
+    [InlineData(SampleKind.HFD, 28228, 28232, 1, 1, 10f, 20, 2, 140)]
+    public void GivenFocusSamplesWhenSolvingAHyperboleIsFound(SampleKind kind, int focusStart, int focusEndIncl, int sampleCount, int filterNo, float snrMin, int maxIterations, int expectedSolutionAfterSteps, int expectedMinStarCount)
     {
         // given
         var sampleMap = new MetricSampleMap(kind);
@@ -113,9 +113,10 @@ public class ImageAnalysisTests
             {
                 var image = SharedTestData.ExtractGZippedFitsImage($"fp{fp}-cs{cs}-ms{sampleCount}-fw{filterNo}");
 
-                var (median, solution, minPos, maxPos) = imageAnalyser.SampleStarsAtFocusPosition(image, fp, sampleMap, snrMin: snrMin, maxFocusIterations: maxIterations);
+                var (median, solution, minPos, maxPos, count) = imageAnalyser.SampleStarsAtFocusPosition(image, fp, sampleMap, snrMin: snrMin, maxFocusIterations: maxIterations);
 
                 median.ShouldNotBeNull().ShouldBeGreaterThan(1f);
+                count.ShouldBeGreaterThan(expectedMinStarCount);
 
                 if (fp - focusStart >= expectedSolutionAfterSteps)
                 {
