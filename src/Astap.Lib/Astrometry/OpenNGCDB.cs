@@ -70,21 +70,9 @@ public class OpenNGCDB : ICelestialObjectDB
         }
     }
 
+    /// <inheritdoc/>
     public bool TryResolveCommonName(string name, [NotNullWhen(true)] out CatalogIndex[]? matches)
         => _objectsByCommonName.TryGetValue(name, out matches);
-
-    public bool TryLookupByIndex(string name, out CelestialObject celestialObject)
-    {
-        if (TryGetCleanedUpCatalogName(name, out var index) && TryLookupByIndex(index, out celestialObject))
-        {
-            return true;
-        }
-        else
-        {
-            celestialObject = default;
-            return false;
-        }
-    }
 
     private static readonly Catalog[] CrossCats = new[] {
         Catalog.Messier,
@@ -98,6 +86,7 @@ public class OpenNGCDB : ICelestialObjectDB
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool IsCrossCat(Catalog cat) => Array.BinarySearch(CrossCats, cat) >= 0;
 
+    /// <inheritdoc/>
     public bool TryLookupByIndex(CatalogIndex index, [NotNullWhen(true)] out CelestialObject celestialObject)
     {
         if (!_objectsByIndex.TryGetValue(index, out celestialObject)
@@ -165,6 +154,7 @@ public class OpenNGCDB : ICelestialObjectDB
         }
     }
 
+    /// <inheritdoc/>
     public async Task<(int processed, int failed)> InitDBAsync()
     {
         var assembly = typeof(OpenNGCDB).Assembly;
@@ -221,14 +211,14 @@ public class OpenNGCDB : ICelestialObjectDB
                 var @const = AbbreviationToEnumMember<Constellation>(constAbbr);
 
                 var vmag = csvReader.TryGetField<string>("V-Mag", out var vmagStr)
-                    && double.TryParse(vmagStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var vmagDbl)
-                    ? vmagDbl
-                    : double.NaN;
+                    && float.TryParse(vmagStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var vmagFloat)
+                    ? vmagFloat
+                    : float.NaN;
 
                 var surfaceBrightness = csvReader.TryGetField<string>("SurfBr", out var surfaceBrightnessStr)
-                    && double.TryParse(surfaceBrightnessStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var surfaceBrightnessDbl)
-                    ? surfaceBrightnessDbl
-                    : double.NaN;
+                    && float.TryParse(surfaceBrightnessStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var surfaceBrightnessFloat)
+                    ? surfaceBrightnessFloat
+                    : float.NaN;
 
                 _objectsByIndex[indexEntry] = new CelestialObject(indexEntry, objectType, HMSToDegree(raHMS), DMSToDegree(decDMS), @const, vmag, surfaceBrightness);
 

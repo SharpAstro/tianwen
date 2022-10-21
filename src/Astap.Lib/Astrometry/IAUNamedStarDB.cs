@@ -15,7 +15,7 @@ record IAUNamedStarDTO(
     string? ID,
     string Constellation,
     string? WDSComponentId,
-    double? Vmag,
+    float? Vmag,
     double RA_J2000,
     double Dec_J2000,
     DateTime ApprovalDate
@@ -48,6 +48,7 @@ public class IAUNamedStarDB : ICelestialObjectDB
         }
     }
 
+    /// <inheritdoc/>
     public IReadOnlySet<CatalogIndex> ObjectIndices
     {
         get
@@ -69,6 +70,7 @@ public class IAUNamedStarDB : ICelestialObjectDB
         }
     }
 
+    /// <inheritdoc/>
     public async Task<(int processed, int failed)> InitDBAsync()
     {
         var processed = 0;
@@ -84,7 +86,7 @@ public class IAUNamedStarDB : ICelestialObjectDB
                 {
                     var objType = catalogIndex.ToCatalog() == Catalog.PSR ? ObjectType.Pulsar : ObjectType.Star;
                     var constellation = AbbreviationToEnumMember<Constellation>(record.Constellation);
-                    var stellarObject = new CelestialObject(catalogIndex, objType, record.RA_J2000, record.Dec_J2000, constellation, record.Vmag ?? double.NaN, double.NaN);
+                    var stellarObject = new CelestialObject(catalogIndex, objType, record.RA_J2000, record.Dec_J2000, constellation, record.Vmag ?? float.NaN, float.NaN);
                     _stellarObjectsByCatalogIndex[catalogIndex] = stellarObject;
                     _namesToCatalogIndex[record.IAUName] = stellarObject.Index;
                     processed++;
@@ -99,9 +101,11 @@ public class IAUNamedStarDB : ICelestialObjectDB
         return (processed, failed);
     }
 
+    /// <inheritdoc/>
     public bool TryLookupByIndex(CatalogIndex catalogIndex, out CelestialObject namedStar)
         => _stellarObjectsByCatalogIndex.TryGetValue(catalogIndex, out namedStar);
 
+    /// <inheritdoc/>
     public bool TryResolveCommonName(string name, [NotNullWhen(true)] out CatalogIndex[]? starIndices)
     {
         if (_namesToCatalogIndex.TryGetValue(name, out var idx))

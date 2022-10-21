@@ -43,7 +43,7 @@ public class OpenNGCDBTests
     )
     {
         // given
-        var db = new OpenNGCDB();
+        ICelestialObjectDB db = new OpenNGCDB();
         var (actualRead, actualFailed) = await db.InitDBAsync();
 
         // when

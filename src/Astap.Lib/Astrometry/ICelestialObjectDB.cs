@@ -1,6 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading.Tasks;
+using static Astap.Lib.Astrometry.Utils;
 
 namespace Astap.Lib.Astrometry;
 
@@ -17,6 +18,19 @@ public interface ICelestialObjectDB
     IReadOnlyCollection<string> CommonNames { get; }
 
     bool TryLookupByIndex(CatalogIndex index, out CelestialObject celestialObject);
+
+    public bool TryLookupByIndex(string name, out CelestialObject celestialObject)
+    {
+        if (TryGetCleanedUpCatalogName(name, out var index) && TryLookupByIndex(index, out celestialObject))
+        {
+            return true;
+        }
+        else
+        {
+            celestialObject = default;
+            return false;
+        }
+    }
 }
 
 public static class ICelestialObjectDBEx
