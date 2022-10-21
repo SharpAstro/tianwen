@@ -1,7 +1,6 @@
 ﻿using Astap.Lib.Astrometry.Focus;
 using Astap.Lib.Devices;
 using Astap.Lib.Imaging;
-using Moq;
 using Shouldly;
 using System.IO;
 using System.Threading.Tasks;
@@ -29,23 +28,44 @@ public class ImageAnalysisTests
         try
         {
             ImageDim dim;
-            if (SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords))
-            {
-                (dim, _, _) = dimAndCoords;
+            SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords).ShouldBeTrue();
 
-                // when
-                var actualSuccess = Image.TryReadFitsFile(extractedFitsFile, out var image);
+            (dim, _, _) = dimAndCoords;
 
-                // then
-                image.ShouldNotBeNull();
-                image.Width.ShouldBe(dim.Width);
-                image.Height.ShouldBe(dim.Height);
-                actualSuccess.ShouldBeTrue();
-            }
-            else
-            {
-                Assert.Fail($"Could not extract test image dimensions for {name}");
-            }
+            // when
+            var actualSuccess = Image.TryReadFitsFile(extractedFitsFile, out var image);
+
+            // then
+            image.ShouldNotBeNull();
+            image.Width.ShouldBe(dim.Width);
+            image.Height.ShouldBe(dim.Height);
+            actualSuccess.ShouldBeTrue();
+        }
+        finally
+        {
+            File.Delete(extractedFitsFile);
+        }
+    }
+
+    [Theory]
+    [InlineData("image_file-snr-20_stars-28_1280x960x16", 10f, 89)]
+    [InlineData("image_file-snr-20_stars-28_1280x960x16", 20f, 28)]
+    [InlineData("image_file-snr-20_stars-28_1280x960x16", 30f, 13)]
+    public async Task GivenImageFileAndMinSNRWhenFindingStarsThenTheyAreFound(string name, float snrMin, int expectedStars)
+    {
+        // given
+        var extractedFitsFile = await SharedTestData.ExtractGZippedFitsFileAsync(name);
+        IImageAnalyser imageAnalyser = new ImageAnalyser();
+        try
+        {
+
+            // when
+            Image.TryReadFitsFile(extractedFitsFile, out var image).ShouldBeTrue();
+            var actualStars = imageAnalyser.FindStars(image, snrMin);
+
+            // then
+            actualStars.ShouldNotBeEmpty();
+            actualStars.Count.ShouldBe(expectedStars);
         }
         finally
         {
