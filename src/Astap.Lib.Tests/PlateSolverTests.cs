@@ -1,6 +1,7 @@
 ﻿using Astap.Lib.Astrometry.PlateSolve;
 using Shouldly;
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -8,33 +9,25 @@ using Xunit;
 
 namespace Astap.Lib.Tests;
 
-public class AstrometryNetPlateSolverTests
+public class PlateSolverTests
 {
-    [Fact]
-    public async Task GivenPlateSolverWhenCheckSupportThenItIsTrue()
-    {
-        // given
-        var solver = new AstrometryNetPlateSolver();
-        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+    const double Accuracy = 0.01;
 
-        // when
-        var actualSupported = await solver.CheckSupportAsync(cancellationToken: cts.Token);
-
-        // then
-        actualSupported.ShouldBeTrue();
-    }
-
-    [Theory]
-    [InlineData("PlateSolveTestFile")]
-    public async Task GivenStarFieldTestFileWhenBlindPlateSolvingThenItIsSolved(string name)
+    [SkippableTheory]
+    [InlineData("PlateSolveTestFile", typeof(AstrometryNetPlateSolverUnix))]
+    [InlineData("image_file-snr-20_stars-28_1280x960x16", typeof(AstrometryNetPlateSolverMultiPlatform))]
+    [InlineData("image_file-snr-20_stars-28_1280x960x16", typeof(AstapPlateSolver))]
+    public async Task GivenStarFieldTestFileWhenBlindPlateSolvingThenItIsSolved(string name, Type plateSolver)
     {
         // given
         var extractedFitsFile = await SharedTestData.ExtractGZippedFitsFileAsync(name);
-        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var cts = new CancellationTokenSource(Debugger.IsAttached ? TimeSpan.FromHours(10) : TimeSpan.FromSeconds(10));
 
         try
         {
-            var solver = new AstrometryNetPlateSolver();
+            var solver = (Activator.CreateInstance(plateSolver) as IPlateSolver).ShouldNotBeNull();
+
+            Skip.IfNot(await solver.CheckSupportAsync());
 
             if (SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords))
             {
@@ -43,8 +36,8 @@ public class AstrometryNetPlateSolverTests
 
                 // then
                 solution.HasValue.ShouldBe(true);
-                solution.Value.ra.ShouldBeInRange(dimAndCoords.ra - double.Epsilon, dimAndCoords.ra + double.Epsilon);
-                solution.Value.dec.ShouldBeInRange(dimAndCoords.dec - double.Epsilon, dimAndCoords.dec + double.Epsilon);
+                solution.Value.ra.ShouldBeInRange(dimAndCoords.ra - Accuracy, dimAndCoords.ra + Accuracy);
+                solution.Value.dec.ShouldBeInRange(dimAndCoords.dec - Accuracy, dimAndCoords.dec + Accuracy);
             }
             else
             {
@@ -58,16 +51,16 @@ public class AstrometryNetPlateSolverTests
     }
 
     [Theory]
-    [InlineData("PlateSolveTestFile")]
-    public async Task GivenStarFieldTestFileAndSearchOriginWhenPlateSolvingThenItIsSolved(string name)
+    [InlineData("PlateSolveTestFile", typeof(AstrometryNetPlateSolverMultiPlatform))]
+    public async Task GivenStarFieldTestFileAndSearchOriginWhenPlateSolvingThenItIsSolved(string name, Type plateSolver)
     {
         // given
         var extractedFitsFile = await SharedTestData.ExtractGZippedFitsFileAsync(name);
-        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var cts = new CancellationTokenSource(Debugger.IsAttached ? TimeSpan.FromHours(10) : TimeSpan.FromSeconds(10));
 
         try
         {
-            var solver = new AstrometryNetPlateSolver();
+            var solver = (Activator.CreateInstance(plateSolver) as IPlateSolver).ShouldNotBeNull();
 
             if (SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords))
             {
@@ -76,8 +69,8 @@ public class AstrometryNetPlateSolverTests
 
                 // then
                 solution.HasValue.ShouldBe(true);
-                solution.Value.ra.ShouldBeInRange(dimAndCoords.ra - double.Epsilon, dimAndCoords.ra + double.Epsilon);
-                solution.Value.dec.ShouldBeInRange(dimAndCoords.dec - double.Epsilon, dimAndCoords.dec + double.Epsilon);
+                solution.Value.ra.ShouldBeInRange(dimAndCoords.ra - Accuracy, dimAndCoords.ra + Accuracy);
+                solution.Value.dec.ShouldBeInRange(dimAndCoords.dec - Accuracy, dimAndCoords.dec + Accuracy);
             }
             else
             {
