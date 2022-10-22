@@ -17,6 +17,9 @@ public class AstapPlateSolver : ExternalProcessPlateSolverBase
 
     protected override string CommandFile => CommandPlatform == PlatformID.Win32NT ? "astap_cli.exe" : "astap";
 
+    /// <inheritdoc/>
+    public override float Priority => 0.95f;
+
     protected override string FormatImageDimenstions(ImageDim? imageDim, float range)
     {
         const float ScaleFactor = 0.007f / IPlateSolver.DefaultRange;
