@@ -41,7 +41,7 @@ public abstract class AstrometryNetPlateSolver : ExternalProcessPlateSolverBase
             : "";
 
     protected override string FormatSolveProcessArgs(string normalisedFilePath, string pixelScaleFmt, string searchPosFmt)
-        => $"'{normalisedFilePath}' --no-plots --overwrite {pixelScaleFmt} {searchPosFmt}" +
+        => $"\"{normalisedFilePath}\" --no-plots --overwrite {pixelScaleFmt} {searchPosFmt}" +
             " -N none -U none -S none -B none -M none -R none --crpix-center " +
             (CommandPlatform == PlatformID.Unix ? "--axy none --temp-axy" : "--no-fits2fits");
 
