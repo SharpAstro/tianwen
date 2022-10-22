@@ -1,5 +1,6 @@
 ﻿using Astap.Lib.Imaging;
 using System;
+using System.IO;
 using System.Text;
 
 namespace Astap.Lib.Astrometry.PlateSolve;
@@ -10,7 +11,11 @@ public class AstapPlateSolver : ExternalProcessPlateSolverBase
 
     protected override PlatformID CommandPlatform => Environment.OSVersion.Platform;
 
-    protected override string CommandPath => CommandPlatform == PlatformID.Win32NT ? "astap_cli.exe" : "astap";
+    protected override string? CommandFolder => CommandPlatform == PlatformID.Win32NT
+        ? Path.Combine(Environment.ExpandEnvironmentVariables("%ProgramW6432%"), "astap")
+        : null;
+
+    protected override string CommandFile => CommandPlatform == PlatformID.Win32NT ? "astap_cli.exe" : "astap";
 
     protected override string FormatImageDimenstions(ImageDim? imageDim, float range)
     {
@@ -19,9 +24,9 @@ public class AstapPlateSolver : ExternalProcessPlateSolverBase
         var sb = new StringBuilder(30);
         if (imageDim is ImageDim dim)
         {
-            sb.AppendFormat(" -fov {0.000}", dim.FieldOfView.height);
+            sb.AppendFormat(" -fov {0:0.000}", dim.FieldOfView.height);
         }
-        sb.AppendFormat(" -t {0.000}", range * ScaleFactor);
+        sb.AppendFormat(" -t {0:0.000}", range * ScaleFactor);
         return sb.ToString();
     }
 

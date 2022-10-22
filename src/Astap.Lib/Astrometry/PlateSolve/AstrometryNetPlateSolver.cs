@@ -1,17 +1,39 @@
 ﻿using Astap.Lib.Imaging;
 using System;
+using System.IO;
 
 namespace Astap.Lib.Astrometry.PlateSolve;
 
-public class AstrometryNetPlateSolver : ExternalProcessPlateSolverBase
+public abstract class AstrometryNetPlateSolver : ExternalProcessPlateSolverBase
 {
-    public AstrometryNetPlateSolver() { }
+    private readonly string? _commandFolder;
+    private readonly PlatformID _commandPlatform;
+
+    public AstrometryNetPlateSolver(bool supportCygwin)
+    {
+        var maybeLocalAstrometryInstall = supportCygwin && Environment.OSVersion.Platform == PlatformID.Win32NT
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Astrometry", "bin")
+            : null;
+        if (!string.IsNullOrEmpty(maybeLocalAstrometryInstall) && Directory.Exists(maybeLocalAstrometryInstall))
+        {
+            _commandFolder = maybeLocalAstrometryInstall;
+            _commandPlatform = CygwinPlatformId;
+        }
+        else
+        {
+            // try use WSL / Unix native version instead
+            _commandFolder = null;
+            _commandPlatform = PlatformID.Unix;
+        }
+    }
 
     public override string Name => "Astromentry.NET plate solver";
 
-    protected override PlatformID CommandPlatform => PlatformID.Unix;
+    protected override PlatformID CommandPlatform => _commandPlatform;
 
-    protected override string CommandPath => "solve-field";
+    protected override string? CommandFolder => _commandFolder;
+
+    protected override string CommandFile => "solve-field";
 
     protected override string FormatSearchPosition((double ra, double dec)? searchOrigin, double? searchRadius)
         => searchOrigin is (double ra, double dec) && searchRadius is double radius
@@ -19,7 +41,9 @@ public class AstrometryNetPlateSolver : ExternalProcessPlateSolverBase
             : "";
 
     protected override string FormatSolveProcessArgs(string normalisedFilePath, string pixelScaleFmt, string searchPosFmt)
-        => $"\"{normalisedFilePath}\" --no-plots --overwrite {pixelScaleFmt} {searchPosFmt} -N none -U none -S none -B none -M none -R none --axy none --temp-axy";
+        => $"'{normalisedFilePath}' --no-plots --overwrite {pixelScaleFmt} {searchPosFmt}" +
+            " -N none -U none -S none -B none -M none -R none --crpix-center " +
+            (CommandPlatform == PlatformID.Unix ? "--axy none --temp-axy" : "--no-fits2fits");
 
     protected override string FormatImageDimenstions(ImageDim? imageDim, float range)
     {

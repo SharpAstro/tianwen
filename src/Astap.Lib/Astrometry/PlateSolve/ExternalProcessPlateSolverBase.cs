@@ -1,6 +1,8 @@
 ﻿using Astap.Lib.Imaging;
 using nom.tam.fits;
+using nom.tam.util;
 using System;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
@@ -10,17 +12,20 @@ namespace Astap.Lib.Astrometry.PlateSolve;
 
 public abstract class ExternalProcessPlateSolverBase : IPlateSolver
 {
+    protected const PlatformID CygwinPlatformId = (PlatformID)('C' << 16 | 'y' << 8 | 'g');
+
     public abstract string Name { get; }
 
     protected abstract PlatformID CommandPlatform { get; }
 
-    protected abstract string CommandPath { get; }
+    protected abstract string? CommandFolder { get; }
+    protected abstract string CommandFile { get; }
 
     public virtual async Task<bool> CheckSupportAsync(CancellationToken cancellationToken = default)
     {
         try
         {
-            var proc = StartRedirectedProcess(CommandPath, "-h");
+            var proc = StartRedirectedProcess(CommandFile, "-h");
             if (proc is null)
             {
                 return false;
@@ -76,21 +81,35 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
         }
 
         var solveFieldArgs = FormatSolveProcessArgs(normalisedFilePath, FormatImageDimenstions(imageDim, range), FormatSearchPosition(searchOrigin, searchRadius));
-        var solveFieldProc = StartRedirectedProcess(CommandPath, solveFieldArgs);
+        var solveFieldProc = StartRedirectedProcess(CommandFile, solveFieldArgs);
         if (solveFieldProc is null)
         {
             return default;
         }
+
+#if DEBUG
+        var outputLines = new ConcurrentQueue<string>();
+        solveFieldProc.OutputDataReceived += (sender, e) => { if (e.Data is string data) { outputLines.Enqueue(data); } };
+        solveFieldProc.ErrorDataReceived += (sender, e) => { if (e.Data is string data) { outputLines.Enqueue(data); } };
+#endif
         solveFieldProc.BeginOutputReadLine();
+        solveFieldProc.BeginErrorReadLine();
 
         await solveFieldProc.WaitForExitAsync(cancellationToken);
+
+        var axyFile = Path.ChangeExtension(fitsFile, ".axy");
+        if (File.Exists(axyFile))
+        {
+            File.Delete(axyFile);
+        }
+
         var wcsFile = Path.ChangeExtension(fitsFile, ".wcs");
         if (solveFieldProc.ExitCode != 0 || !File.Exists(wcsFile))
         {
             return default;
         }
 
-        var wcsReader = new nom.tam.util.BufferedFile(wcsFile, FileAccess.ReadWrite, FileShare.Read, 1000 * 2088);
+        var wcsReader = new BufferedFile(wcsFile, FileAccess.ReadWrite, FileShare.Read, 1000 * 2088);
         var wcs = new Fits(wcsReader);
         try
         {
@@ -128,7 +147,15 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
         {
             PlatformID.Win32NT => CommandPlatform switch
             {
-                PlatformID.Win32NT => new ProcessStartInfo(proc, arguments)
+                PlatformID.Win32NT => new ProcessStartInfo(FullNativeCmdPath(proc), arguments)
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                },
+
+                CygwinPlatformId => new ProcessStartInfo(FullNativeCmdPath("bash"), string.Concat("-l -c \"", CommandFile, " ", arguments, "\""))
                 {
                     UseShellExecute = false,
                     CreateNoWindow = true,
@@ -155,17 +182,19 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
         };
 
         return Process.Start(startInfo);
+
+        string FullNativeCmdPath(string cmd) => CommandFolder is string folder ? Path.Combine(folder, cmd) : cmd;
     }
 
     protected virtual async Task<string?> NormaliseFilePathAsync(string fitsFile, CancellationToken cancellationToken = default)
     {
-        // if we are not on Windows or the command is a native windows command
-        if (Environment.OSVersion.Platform != PlatformID.Win32NT || CommandPlatform == PlatformID.Win32NT)
+        // if we are not on Windows or the command is a native windows command or cygwin
+        if (Environment.OSVersion.Platform != PlatformID.Win32NT || (CommandPlatform is PlatformID.Win32NT or CygwinPlatformId))
         {
             return fitsFile;
         }
 
-        var wslPathProc = StartRedirectedProcess("wslpath", $"\"{fitsFile}\"");
+        var wslPathProc =  StartRedirectedProcess("wslpath", $"\"{fitsFile}\"");
         if (wslPathProc is null)
         {
             return default;
