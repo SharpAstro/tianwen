@@ -10,6 +10,8 @@ public interface IPlateSolver
 
     string Name { get; }
 
+    float Priority { get; }
+
     Task<bool> CheckSupportAsync(CancellationToken cancellationToken = default);
 
     Task<(double ra, double dec)?> SolveFileAsync(

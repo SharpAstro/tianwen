@@ -6,4 +6,7 @@ public class AstrometryNetPlateSolverUnix : AstrometryNetPlateSolver
     {
         // calls base
     }
+
+    /// <inheritdoc/>
+    public override float Priority => 0.9f;
 }

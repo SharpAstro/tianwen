@@ -19,7 +19,10 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
     protected abstract PlatformID CommandPlatform { get; }
 
     protected abstract string? CommandFolder { get; }
+
     protected abstract string CommandFile { get; }
+
+    public abstract float Priority { get; }
 
     public virtual async Task<bool> CheckSupportAsync(CancellationToken cancellationToken = default)
     {
