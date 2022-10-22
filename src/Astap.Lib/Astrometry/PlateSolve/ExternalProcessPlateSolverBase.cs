@@ -44,6 +44,7 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
         }
     }
 
+    /// <inheritdoc/>
     public async Task<(double ra, double dec)?> SolveFileAsync(
         string fitsFile,
         ImageDim? imageDim = default,
@@ -78,10 +79,6 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
         }
 
         var normalisedFilePath = await NormaliseFilePathAsync(fitsFile, cancellationToken);
-        if (normalisedFilePath is null)
-        {
-            return default;
-        }
 
         var solveFieldArgs = FormatSolveProcessArgs(normalisedFilePath, FormatImageDimenstions(imageDim, range), FormatSearchPosition(searchOrigin, searchRadius));
         var solveFieldProc = StartRedirectedProcess(CommandFile, solveFieldArgs);
@@ -90,11 +87,10 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
             return default;
         }
 
-#if DEBUG
         var outputLines = new ConcurrentQueue<string>();
         solveFieldProc.OutputDataReceived += (sender, e) => { if (e.Data is string data) { outputLines.Enqueue(data); } };
         solveFieldProc.ErrorDataReceived += (sender, e) => { if (e.Data is string data) { outputLines.Enqueue(data); } };
-#endif
+
         solveFieldProc.BeginOutputReadLine();
         solveFieldProc.BeginErrorReadLine();
 
@@ -107,9 +103,10 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
         }
 
         var wcsFile = Path.ChangeExtension(fitsFile, ".wcs");
-        if (solveFieldProc.ExitCode != 0 || !File.Exists(wcsFile))
+        var hasWCSFile = File.Exists(wcsFile);
+        if (solveFieldProc.ExitCode != 0 || !hasWCSFile)
         {
-            return default;
+            throw new PlateSolverException($"Failed to solve {normalisedFilePath} file, exit code {solveFieldProc.ExitCode}, has WCS: {hasWCSFile}, log: {string.Join('\n', outputLines)}");
         }
 
         var wcsReader = new BufferedFile(wcsFile, FileAccess.ReadWrite, FileShare.Read, 1000 * 2088);
@@ -144,11 +141,11 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
 
     protected abstract string FormatSolveProcessArgs(string normalisedFilePath, string pixelScaleFmt, string searchPosFmt);
 
-    protected virtual Process? StartRedirectedProcess(string proc, string arguments)
+    protected virtual Process? StartRedirectedProcess(string proc, string arguments, PlatformID? executionPlatform = default)
     {
         var startInfo = Environment.OSVersion.Platform switch
         {
-            PlatformID.Win32NT => CommandPlatform switch
+            PlatformID.Win32NT => (executionPlatform ?? CommandPlatform) switch
             {
                 PlatformID.Win32NT => new ProcessStartInfo(FullNativeCmdPath(proc), arguments)
                 {
@@ -175,7 +172,7 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
                 }
             },
 
-            _ => new ProcessStartInfo(proc, arguments)
+            _ => new ProcessStartInfo(FullNativeCmdPath(proc), arguments)
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,
@@ -185,30 +182,52 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
         };
 
         return Process.Start(startInfo);
-
-        string FullNativeCmdPath(string cmd) => CommandFolder is string folder ? Path.Combine(folder, cmd) : cmd;
     }
 
-    protected virtual async Task<string?> NormaliseFilePathAsync(string fitsFile, CancellationToken cancellationToken = default)
+    protected virtual async Task<string> NormaliseFilePathAsync(string fitsFile, CancellationToken cancellationToken = default)
     {
         // if we are not on Windows or the command is a native windows command or cygwin
-        if (Environment.OSVersion.Platform != PlatformID.Win32NT || (CommandPlatform is PlatformID.Win32NT or CygwinPlatformId))
+        if (Environment.OSVersion.Platform != PlatformID.Win32NT || CommandPlatform == PlatformID.Win32NT)
         {
             return fitsFile;
         }
 
-        var wslPathProc =  StartRedirectedProcess("wslpath", $"\"{fitsFile}\"");
-        if (wslPathProc is null)
+        var pathTranslateProc = CommandPlatform == CygwinPlatformId
+            ? StartRedirectedProcess("cygpath", $"\"{fitsFile}\"", executionPlatform: PlatformID.Win32NT)
+            : StartRedirectedProcess("wslpath", $"\"{fitsFile}\"");
+        if (pathTranslateProc is null)
         {
             return default;
         }
 
         string? line = null;
-        wslPathProc.OutputDataReceived += (sender, e) => { if (e.Data is string data && !string.IsNullOrWhiteSpace(data)) { _ = Interlocked.CompareExchange(ref line, data, null); } };
-        wslPathProc.BeginOutputReadLine();
+        var errorLog = new ConcurrentQueue<string>();
+        pathTranslateProc.OutputDataReceived += (sender, e) => { if (e.Data is string data && !string.IsNullOrWhiteSpace(data)) { _ = Interlocked.CompareExchange(ref line, data, null); } };
+        pathTranslateProc.ErrorDataReceived += (sender, e) => { if (e.Data is string data && !string.IsNullOrWhiteSpace(data)) { errorLog.Enqueue(data); } };
+        pathTranslateProc.BeginOutputReadLine();
+        pathTranslateProc.BeginErrorReadLine();
 
-        await wslPathProc.WaitForExitAsync(cancellationToken);
+        await pathTranslateProc.WaitForExitAsync(cancellationToken);
 
-        return wslPathProc.ExitCode == 0 ? line?.Trim() : default;
+        if (pathTranslateProc.ExitCode == 0)
+        {
+            if (line?.Trim() is string trimmed)
+            {
+                return trimmed;
+            }
+            else
+            {
+                throw new PlateSolverException($"Translating {fitsFile} path failed as no output was received: {string.Join('\n', errorLog)}");
+            }
+        }
+        else
+        {
+            throw new PlateSolverException($"Translating {fitsFile} path failed with error {pathTranslateProc.ExitCode}, error log: {string.Join('\n', errorLog)}");
+        }
     }
+
+    string FullNativeCmdPath(string cmd) =>
+    CommandFolder is string folder && !string.IsNullOrEmpty(folder) && Directory.Exists(folder)
+        ? Path.Combine(folder, cmd)
+        : cmd;
 }
