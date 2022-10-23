@@ -2,11 +2,8 @@ using Astap.Lib.Devices;
 using Astap.Lib.Devices.Ascom;
 using Astap.Lib.Devices.Builtin;
 using CommunityToolkit.HighPerformance;
-using Roydl.Text.BinaryToText;
 using Shouldly;
 using System;
-using System.IO;
-using System.IO.Compression;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -14,7 +11,7 @@ using Xunit;
 
 namespace Astap.Lib.Tests;
 
-public class AscomTests
+public class AscomDeviceTests
 {
     [Fact]
     public void TestWhenPlatformIsWindowsThatDeviceTypesAreReturned()
