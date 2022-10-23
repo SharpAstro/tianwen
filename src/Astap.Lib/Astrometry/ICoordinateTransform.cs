@@ -109,8 +109,8 @@ public interface ICoordinateTransform : IDisposable
     /// <summary>
     /// Sets the known J2000 Right Ascension and Declination coordinates that are to be transformed
     /// </summary>
-    /// <param name="ra">RA in apparent co-ordinates (0.0 to 23.999 hours)</param>
-    /// <param name="dec">DEC in apparent co-ordinates (-90.0 to +90.0)</param>
+    /// <param name="ra">RA in J2000 co-ordinates (0.0 to 23.999 hours)</param>
+    /// <param name="dec">DEC in J2000 co-ordinates (-90.0 to +90.0)</param>
     void SetJ2000(double ra, double dec);
 
     /// <summary>

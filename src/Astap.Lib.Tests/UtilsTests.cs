@@ -6,6 +6,16 @@ namespace Astap.Lib.Tests;
 
 public class UtilsTests
 {
+    [Theory]
+    [InlineData("05:23:34.5", 5.392916666666667d)]
+    [InlineData("23:54:13.2", 23.903666666666666d)]
+    [InlineData("23:59:59.9", 23.999972222222222d)]
+    [InlineData("12:00:00", 12d)]
+    [InlineData("0:0:0", 0d)]
+    public void GivenHMSWHenConvertToDegreesItReturnsHoursAsDouble(string hms, double expectedDegrees)
+    {
+        Utils.HMSToHours(hms).ShouldBe(expectedDegrees);
+    }
 
     [Theory]
     [InlineData("05:23:34.5", 80.89375d)]

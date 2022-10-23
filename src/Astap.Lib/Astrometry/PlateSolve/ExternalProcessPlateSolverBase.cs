@@ -147,13 +147,7 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
         {
             PlatformID.Win32NT => (executionPlatform ?? CommandPlatform) switch
             {
-                PlatformID.Win32NT => new ProcessStartInfo(FullNativeCmdPath(proc), arguments)
-                {
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true
-                },
+                PlatformID.Win32NT => NativeRedirectedProcessStartInfo(proc, arguments),
 
                 CygwinPlatformId => new ProcessStartInfo(FullNativeCmdPath("bash"), string.Concat("-l -c \"", CommandFile, " ", arguments, "\""))
                 {
@@ -172,17 +166,19 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
                 }
             },
 
-            _ => new ProcessStartInfo(FullNativeCmdPath(proc), arguments)
-            {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true
-            }
+            _ => NativeRedirectedProcessStartInfo(proc, arguments)
         };
 
         return Process.Start(startInfo);
     }
+
+    ProcessStartInfo NativeRedirectedProcessStartInfo(string proc, string arguments) => new(FullNativeCmdPath(proc), arguments)
+    {
+        UseShellExecute = false,
+        CreateNoWindow = true,
+        RedirectStandardOutput = true,
+        RedirectStandardError = true
+    };
 
     protected virtual async Task<string> NormaliseFilePathAsync(string fitsFile, CancellationToken cancellationToken = default)
     {
@@ -197,7 +193,7 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
             : StartRedirectedProcess("wslpath", $"\"{fitsFile}\"");
         if (pathTranslateProc is null)
         {
-            return default;
+            throw new PlateSolverException($"Failed to start process for {fitsFile}");
         }
 
         string? line = null;
