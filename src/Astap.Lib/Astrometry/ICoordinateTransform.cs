@@ -48,12 +48,12 @@ public interface ICoordinateTransform : IDisposable
     double JulianDateUTC { get; set; }
 
     /// <summary>
-    /// Returns the Right Ascension in apparent co-ordinates (in hours).
+    /// Returns the Right Ascension in J2000 co-ordinates (in hours).
     /// </summary>
     double? RA2000 { get; }
 
     /// <summary>
-    /// Returns the Right Ascension in J2000 co-ordinates (in hours).
+    /// Returns the Right Ascension in apparent co-ordinates (in hours).
     /// </summary>
     double? RAApparent { get; }
 
