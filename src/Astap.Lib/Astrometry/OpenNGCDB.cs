@@ -220,7 +220,7 @@ public class OpenNGCDB : ICelestialObjectDB
                     ? surfaceBrightnessFloat
                     : float.NaN;
 
-                _objectsByIndex[indexEntry] = new CelestialObject(indexEntry, objectType, HMSToDegree(raHMS), DMSToDegree(decDMS), @const, vmag, surfaceBrightness);
+                _objectsByIndex[indexEntry] = new CelestialObject(indexEntry, objectType, HMSToHours(raHMS), DMSToDegree(decDMS), @const, vmag, surfaceBrightness);
 
                 if (objectType == ObjectType.Duplicate)
                 {
