@@ -16,7 +16,7 @@ record IAUNamedStarDTO(
     string Constellation,
     string? WDSComponentId,
     float? Vmag,
-    double RA_J2000,
+    double RA_J2000, // in degrees 0..360
     double Dec_J2000,
     DateTime ApprovalDate
 );
@@ -86,7 +86,7 @@ public class IAUNamedStarDB : ICelestialObjectDB
                 {
                     var objType = catalogIndex.ToCatalog() == Catalog.PSR ? ObjectType.Pulsar : ObjectType.Star;
                     var constellation = AbbreviationToEnumMember<Constellation>(record.Constellation);
-                    var stellarObject = new CelestialObject(catalogIndex, objType, record.RA_J2000, record.Dec_J2000, constellation, record.Vmag ?? float.NaN, float.NaN);
+                    var stellarObject = new CelestialObject(catalogIndex, objType, record.RA_J2000 / 15.0, record.Dec_J2000, constellation, record.Vmag ?? float.NaN, float.NaN);
                     _stellarObjectsByCatalogIndex[catalogIndex] = stellarObject;
                     _namesToCatalogIndex[record.IAUName] = stellarObject.Index;
                     processed++;

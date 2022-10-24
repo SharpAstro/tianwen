@@ -45,7 +45,6 @@ public class AscomDeviceTests
     [InlineData("CoverCalibrator")]
     [InlineData("Focuser")]
     [InlineData("Switch")]
-    [InlineData("Telescope")]
     public void GivenSimulatorDeviceTypeVersionAndNameAreReturned(string type)
     {
         Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows));
