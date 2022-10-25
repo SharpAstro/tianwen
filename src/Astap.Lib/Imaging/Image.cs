@@ -1,5 +1,6 @@
 ﻿using CommunityToolkit.HighPerformance;
 using nom.tam.fits;
+using nom.tam.util;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -35,9 +36,9 @@ public class Image
     public int BitsPerPixel => _bitsPerPixel;
     public float MaxValue => _maxVal;
 
-    public static bool TryReadFitsFile(string filePath, [NotNullWhen(true)] out Image? image)
+    public static bool TryReadFitsFile(string fileName, [NotNullWhen(true)] out Image? image)
     {
-        using var bufferedReader = new nom.tam.util.BufferedFile(filePath, FileAccess.ReadWrite, FileShare.Read, 1000 * 2088);
+        using var bufferedReader = new BufferedFile(fileName, FileAccess.ReadWrite, FileShare.Read, 1000 * 2088);
         return TryReadFitsFile(new Fits(bufferedReader), out image);
     }
 
@@ -206,6 +207,58 @@ public class Image
 
         image = new Image(imgArray, width, height, bitsPerPixel, maxVal);
         return true;
+    }
+
+    public void WriteToFitsFile(string fileName)
+    {
+        var fits = new Fits();
+        object[] jaggedArray;
+        int bzero;
+        switch (BitsPerPixel)
+        {
+            case 8:
+                var jaggedByteArray = new byte[_height][];
+                bzero = 0;
+                for (var h = 0; h < _height; h++)
+                {
+                    var row = new byte[_width];
+                    for (var w = 0; w < _width; w++)
+                    {
+                        row[w] = (byte)_data[h, w];
+                    }
+                    jaggedByteArray[h] = row;
+                }
+                jaggedArray = jaggedByteArray;
+                break;
+
+            case 16:
+                var jaggedShortArray = new short[_height][];
+                bzero = 32768;
+                for (var h = 0; h < _height; h++)
+                {
+                    var row = new short[_width];
+                    for (var w = 0; w < _width; w++)
+                    {
+                        row[w] = (short)(_data[h, w] - bzero);
+                    }
+                    jaggedShortArray[h] = row;
+                }
+                jaggedArray = jaggedShortArray;
+                break;
+
+            default:
+                throw new NotSupportedException($"Bits per pixel {BitsPerPixel} is not supported");
+        }
+        var basicHdu = FitsFactory.HDUFactory(jaggedArray);
+        basicHdu.Header.Bitpix = BitsPerPixel;
+        basicHdu.Header.AddCard(new HeaderCard("BZERO", bzero, "offset data range to that of unsigned short"));
+        basicHdu.Header.AddCard(new HeaderCard("BSCALE", 1, "default scaling factor"));
+        fits.AddHDU(basicHdu);
+
+        using var bufferedWriter = new BufferedFile(fileName, FileAccess.ReadWrite, FileShare.Read, 1000 * 2088);
+        fits.Write(bufferedWriter);
+        bufferedWriter.Flush();
+        bufferedWriter.Close();
     }
 
     /// <summary>

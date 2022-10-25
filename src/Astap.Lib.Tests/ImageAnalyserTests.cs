@@ -2,20 +2,55 @@
 using Astap.Lib.Devices;
 using Astap.Lib.Imaging;
 using Shouldly;
+using System;
 using System.IO;
 using System.Threading.Tasks;
 using Xunit;
 
 namespace Astap.Lib.Tests;
 
-public class ImageAnalysisTests
+public class ImageAnalyserTests
 {
     const string PlateSolveTestFile = nameof(PlateSolveTestFile);
     private readonly Image _plateSolveTestImage;
 
-    public ImageAnalysisTests()
+    public ImageAnalyserTests()
     {
         _plateSolveTestImage = SharedTestData.ExtractGZippedFitsImage(PlateSolveTestFile);
+    }
+
+    [Theory]
+    [InlineData(10f)]
+    [InlineData(15f)]
+    public void GivenFileNameWhenWritingImageAndReadingBackThenItIsIdentical(float snrMin)
+    {
+        // given
+        var fullPath = Path.Combine(Path.GetTempPath(), $"roundtrip_{Guid.NewGuid():D}.fits");
+        IImageAnalyser imageAnalyser = new ImageAnalyser();
+        var expectedStars = imageAnalyser.FindStars(_plateSolveTestImage, snrMin: snrMin);
+
+        try
+        {
+            // when
+            _plateSolveTestImage.WriteToFitsFile(fullPath);
+
+            // then
+            File.Exists(fullPath).ShouldBeTrue();
+            Image.TryReadFitsFile(fullPath, out var readoutImage).ShouldBeTrue();
+            readoutImage.Width.ShouldBe(_plateSolveTestImage.Width);
+            readoutImage.Height.ShouldBe(_plateSolveTestImage.Height);
+            readoutImage.BitsPerPixel.ShouldBe(_plateSolveTestImage.BitsPerPixel);
+            var starsFromImage = imageAnalyser.FindStars(_plateSolveTestImage, snrMin: snrMin);
+
+            starsFromImage.ShouldBeEquivalentTo(expectedStars);
+        }
+        finally
+        {
+            if (File.Exists(fullPath))
+            {
+                File.Delete(fullPath);
+            }
+        }
     }
 
     [Theory]
