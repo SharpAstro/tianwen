@@ -153,16 +153,16 @@ public class ImageAnalyserTests
     }
 
     [Theory]
-    [InlineData(SampleKind.HFD, 28208, 28211, 1, 1, 10f, 20, 2, 130)]
-    [InlineData(SampleKind.HFD, 28228, 28232, 1, 1, 10f, 20, 2, 140)]
-    public void GivenFocusSamplesWhenSolvingAHyperboleIsFound(SampleKind kind, int focusStart, int focusEndIncl, int sampleCount, int filterNo, float snrMin, int maxIterations, int expectedSolutionAfterSteps, int expectedMinStarCount)
+    [InlineData(SampleKind.HFD, 28208, 28211, 1, 1, 1, 10f, 20, 2, 130)]
+    [InlineData(SampleKind.HFD, 28228, 28232, 1, 1, 1, 10f, 20, 2, 140)]
+    public void GivenFocusSamplesWhenSolvingAHyperboleIsFound(SampleKind kind, int focusStart, int focusEndIncl, int focusStepSize, int sampleCount, int filterNo, float snrMin, int maxIterations, int expectedSolutionAfterSteps, int expectedMinStarCount)
     {
         // given
         var sampleMap = new MetricSampleMap(kind);
         IImageAnalyser imageAnalyser = new ImageAnalyser();
 
         // when
-        for (int fp = focusStart; fp <= focusEndIncl; fp++)
+        for (int fp = focusStart; fp <= focusEndIncl; fp += focusStepSize)
         {
             for (int cs = 1; cs <= sampleCount; cs++)
             {
@@ -175,7 +175,7 @@ public class ImageAnalyserTests
 
                 if (fp - focusStart >= expectedSolutionAfterSteps)
                 {
-                    (double p, _, _, double error, int iterations) = solution.ShouldNotBeNull();
+                    (_, _, _, double error, int iterations) = solution.ShouldNotBeNull();
                     var minPosD = (double)minPos.ShouldNotBeNull();
                     var maxPosD = (double)maxPos.ShouldNotBeNull();
 
