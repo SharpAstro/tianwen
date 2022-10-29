@@ -292,16 +292,18 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         }
     }
 
-    static (Utf8JsonWriter jsonWriter, ArrayBufferWriter<byte> buffer) StartJsonRPCCall(string method)
+    static int MessageId = 1;
+    static (Utf8JsonWriter jsonWriter, ArrayBufferWriter<byte> buffer, int id) StartJsonRPCCall(string method)
     {
         var buffer = new ArrayBufferWriter<byte>();
         var req = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = false });
+        var id = Interlocked.Increment(ref MessageId);
 
         req.WriteStartObject();
         req.WriteString("method", method);
-        req.WriteNumber("id", 1);
+        req.WriteNumber("id", id);
 
-        return (req, buffer);
+        return (req, buffer, id);
     }
 
     static ReadOnlyMemory<byte> EndJsonRPCCall(Utf8JsonWriter jsonWriter, ArrayBufferWriter<byte> buffer)
@@ -311,9 +313,9 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         return buffer.WrittenMemory;
     }
 
-    static ReadOnlyMemory<byte> MakeJsonRPCCall(string method, params object[] @params)
+    static (ReadOnlyMemory<byte> buffer, int id) MakeJsonRPCCall(string method, params object[] @params)
     {
-        var (req, buffer) = StartJsonRPCCall(method);
+        var (req, buffer, id) = StartJsonRPCCall(method);
 
         if (@params != null && @params.Length > 0) {
             req.WritePropertyName("params");
@@ -373,7 +375,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
             req.WriteEndArray();
         }
 
-        return EndJsonRPCCall(req, buffer);
+        return (EndJsonRPCCall(req, buffer), id);
     }
 
     static bool IsFailedResponse(JsonDocument response) => response.RootElement.TryGetProperty("error", out _);
@@ -462,7 +464,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
     public JsonDocument Call(string method, params object[] @params)
     {
-        var memory = MakeJsonRPCCall(method, @params);
+        var (memory, id) = MakeJsonRPCCall(method, @params);
 
         // send request
         Connection.WriteLine(memory);
@@ -484,6 +486,11 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
                 throw new GuiderException(
                     (response.RootElement.GetProperty("error").TryGetProperty("message", out var message) ? message.GetString() : null)
                         ?? "error response did not contain error message");
+            }
+
+            if (!response.RootElement.TryGetProperty("id", out var responseIdElement) || !responseIdElement.TryGetInt32(out int responseId) || responseId != id)
+            {
+                throw new GuiderException($"Response id was not {id}: {response.RootElement}");
             }
 
             return response;
