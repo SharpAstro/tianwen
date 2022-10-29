@@ -22,7 +22,7 @@ public static class Hyperbola
     /// <param name="a">a of hyperbola</param>
     /// <param name="b">b of hyperbola</param>
     /// </summary>
-    public static double CalculateValueAtPosition(float position, double perfectfocusposition, double a, double b)
+    public static double CalculateValueAtPosition(double position, double perfectfocusposition, double a, double b)
     {
         var x = perfectfocusposition - position;
         var t = Math.Asinh(x / b); // calculate t-position in hyperbola
