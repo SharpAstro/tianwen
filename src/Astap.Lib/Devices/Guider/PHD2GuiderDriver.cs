@@ -906,7 +906,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
         foreach (var profile in GetEquipmentProfiles())
         {
-            yield return new GuiderDevice(deviceType, _guiderDevice.DeviceId, profile);
+            yield return new GuiderDevice(deviceType, string.Join('/', _guiderDevice.DeviceId, profile), profile);
         }
     }
 }
