@@ -15,6 +15,7 @@ public class PlateSolverTests
 
     [SkippableTheory]
     [InlineData("PlateSolveTestFile", typeof(AstrometryNetPlateSolverUnix))]
+    [InlineData("PlateSolveTestFile", typeof(AstrometryNetPlateSolverMultiPlatform))]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", typeof(AstrometryNetPlateSolverMultiPlatform))]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", typeof(AstapPlateSolver))]
     public async Task GivenStarFieldTestFileWhenBlindPlateSolvingThenItIsSolved(string name, Type plateSolver)
@@ -50,8 +51,11 @@ public class PlateSolverTests
         }
     }
 
-    [Theory]
+    [SkippableTheory]
     [InlineData("PlateSolveTestFile", typeof(AstrometryNetPlateSolverMultiPlatform))]
+    [InlineData("PlateSolveTestFile", typeof(AstrometryNetPlateSolverUnix))]
+    [InlineData("image_file-snr-20_stars-28_1280x960x16", typeof(AstrometryNetPlateSolverMultiPlatform))]
+    [InlineData("image_file-snr-20_stars-28_1280x960x16", typeof(AstapPlateSolver))]
     public async Task GivenStarFieldTestFileAndSearchOriginWhenPlateSolvingThenItIsSolved(string name, Type plateSolver)
     {
         // given
@@ -61,6 +65,8 @@ public class PlateSolverTests
         try
         {
             var solver = (Activator.CreateInstance(plateSolver) as IPlateSolver).ShouldNotBeNull();
+
+            Skip.IfNot(await solver.CheckSupportAsync());
 
             if (SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords))
             {
