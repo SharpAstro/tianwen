@@ -41,7 +41,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     Thread? m_worker;
     volatile bool m_terminate;
     readonly object m_sync = new();
-    JsonDocument? m_response;
+    readonly Dictionary<int, JsonDocument> _responses = new();
     readonly GuiderDevice _guiderDevice;
 
     string Host { get; }
@@ -122,12 +122,16 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
                     continue;
                 }
 
-                if (j.RootElement.TryGetProperty("jsonrpc", out var _))
+                if (j.RootElement.TryGetProperty("jsonrpc", out var _) && j.RootElement.TryGetProperty("id", out var idProp) && idProp.TryGetInt32(out var id))
                 {
                     lock (m_sync)
                     {
-                        m_response?.Dispose();
-                        m_response = j;
+                        if (_responses.TryGetValue(id, out var old) && _responses.Remove(id))
+                        {
+                            old.Dispose();
+                        }
+
+                        _responses[id] = j;
                         Monitor.Pulse(m_sync);
                     }
                 }
@@ -473,13 +477,13 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
         lock (m_sync)
         {
-            while (m_response == null)
+            JsonDocument? response;
+            while ((response = _responses.TryGetValue(id, out var actualResponse) ? actualResponse : null) == null)
             {
                 Monitor.Wait(m_sync);
             }
 
-            JsonDocument response = m_response;
-            m_response = null;
+            _ = _responses.Remove(id);
 
             if (IsFailedResponse(response))
             {
