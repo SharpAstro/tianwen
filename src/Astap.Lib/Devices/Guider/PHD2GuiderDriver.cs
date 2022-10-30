@@ -454,10 +454,10 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
     static GuideStats AccumulateGuidingStats(Accum ra, Accum dec) => new()
     {
-        rms_ra = ra.Stdev(),
-        rms_dec = dec.Stdev(),
-        peak_ra = ra.Peak(),
-        peak_dec = dec.Peak()
+        RaRMS = ra.Stdev(),
+        DecRMS = dec.Stdev(),
+        PeakRa = ra.Peak(),
+        PeakDec = dec.Peak()
     };
 
     static bool IsGuidingAppState(string? appState) => appState == "Guiding" || appState == "LostLock";
@@ -688,7 +688,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         }
         if (stats is not null)
         {
-            stats.rms_tot = Math.Sqrt(stats.rms_ra * stats.rms_ra + stats.rms_dec * stats.rms_dec);
+            stats.TotalRMS = Math.Sqrt(stats.RaRMS * stats.RaRMS + stats.DecRMS * stats.DecRMS);
         }
         return stats;
     }
@@ -708,7 +708,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
             if (appstate == "Stopped")
                 return;
 
-            System.Threading.Thread.Sleep(1000);
+            Thread.Sleep(1000);
             EnsureConnected();
         }
         Debug.WriteLine("StopCapture: timed-out waiting for stopped");
@@ -792,7 +792,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         return TimeSpan.FromMilliseconds(exposureResponse.RootElement.GetProperty("result").GetInt32());
     }
 
-    public List<string> GetEquipmentProfiles()
+    public IReadOnlyList<string> GetEquipmentProfiles()
     {
         using var response = Call("get_profiles");
 

@@ -32,22 +32,22 @@ namespace Astap.Lib.Devices.Guider;
 
 public class SettleProgress
 {
-    public bool Done { get; set; }
-    public double Distance { get; set; }
-    public double SettlePx { get; set; }
-    public double Time { get; set; }
-    public double SettleTime { get; set; }
-    public int Status { get; set; }
-    public string? Error { get; set; }
+    public bool Done { get; internal set; }
+    public double Distance { get; internal set; }
+    public double SettlePx { get; internal set; }
+    public double Time { get; internal set; }
+    public double SettleTime { get; internal set; }
+    public int Status { get; internal set; }
+    public string? Error { get; internal set; }
 }
 
 public class GuideStats
 {
-    public double rms_tot { get; set; }
-    public double rms_ra { get; set; }
-    public double rms_dec { get; set; }
-    public double peak_ra { get; set; }
-    public double peak_dec { get; set; }
+    public double TotalRMS { get; internal set; }
+    public double RaRMS { get; internal set; }
+    public double DecRMS { get; internal set; }
+    public double PeakRa { get; internal set; }
+    public double PeakDec { get; internal set; }
 
     public GuideStats Clone() => (GuideStats)MemberwiseClone();
 }
@@ -162,7 +162,7 @@ public interface IGuider : IDeviceDriver
     /// get a list of the Equipment Profile names
     /// </summary>
     /// <returns></returns>
-    List<string> GetEquipmentProfiles();
+    IReadOnlyList<string> GetEquipmentProfiles();
 
     /// <summary>
     /// connect the the specified profile as constructed.
