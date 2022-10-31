@@ -213,8 +213,6 @@ namespace Astap.Lib.Astrometry
             return false;
         }
 
-        static readonly Regex PascalSplitter = new("([A-Z])|([0-9]+)", RegexOptions.Compiled);
-
-        public static string ToName(this Constellation constellation) => PascalSplitter.Replace(constellation.ToString(), " $1$2").TrimStart();
+        public static string ToName(this Constellation constellation) => constellation.PascalCaseStringToName();
     }
 }

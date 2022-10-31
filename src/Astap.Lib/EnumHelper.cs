@@ -1,6 +1,7 @@
 ﻿using Roydl.Text.BinaryToText;
 using System;
 using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 
 namespace Astap.Lib;
 
@@ -62,4 +63,9 @@ public static class EnumHelper
 
         return new string(chars.Slice(MaxLenInASCII - i, i));
     }
+
+    static readonly Regex PascalSplitter = new("([A-Z])|([0-9]+)", RegexOptions.Compiled);
+
+    public static string PascalCaseStringToName<T>(this T @enum) where T : struct, Enum
+        => PascalSplitter.Replace(@enum.ToString(), " $1$2").TrimStart();
 }

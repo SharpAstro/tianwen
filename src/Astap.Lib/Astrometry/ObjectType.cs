@@ -25,3 +25,8 @@ public enum ObjectType : ulong
     Duplicate = 'D' << 14 | 'u' << 7 | 'p',
     Other = ((ulong)'O' << 28) | 't' << 21 | 'h' << 14 | 'e' << 7 | 'r'
 }
+
+public static class ObjectTypeEx
+{
+    public static string ToName(this ObjectType objectType) => objectType.PascalCaseStringToName();
+}
