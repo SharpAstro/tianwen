@@ -10,7 +10,6 @@
     <RepositoryUrl>https://github.com/sebgod/astap-lib.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
-    <EnablePackageValidation>true</EnablePackageValidation>
     <DebugType>embedded</DebugType>
     <Nullable>enable</Nullable>
   </PropertyGroup>
