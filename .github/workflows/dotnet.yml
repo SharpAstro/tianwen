@@ -31,7 +31,7 @@ jobs:
       run: dotnet restore
       working-directory: src
     - name: Build
-      run: dotnet build -c $BUILD_CONF --no-restore --version-suffix $VERSION_SUFFIX -p:VersionPrefix=${VERSION_PREFIX}${VERSION_REV} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV}
+      run: dotnet build -c $BUILD_CONF --no-restore --version-suffix $VERSION_SUFFIX -p:VersionPrefix=${VERSION_PREFIX}${VERSION_REV} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true
       working-directory: src
     - name: Test
       run: dotnet test -c $BUILD_CONF --no-build
