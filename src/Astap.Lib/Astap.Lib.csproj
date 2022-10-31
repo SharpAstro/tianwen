@@ -9,7 +9,7 @@
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <RepositoryUrl>https://github.com/sebgod/astap-lib.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-
+    <DebugType>embedded</DebugType>
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
