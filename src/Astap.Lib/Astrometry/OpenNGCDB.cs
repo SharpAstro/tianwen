@@ -20,6 +20,7 @@ public class OpenNGCDB : ICelestialObjectDB
     private readonly Dictionary<CatalogIndex, CelestialObject> _objectsByIndex = new(14000);
     private readonly Dictionary<CatalogIndex, (CatalogIndex i1, CatalogIndex[]? ext)> _crossLookupTable = new(900);
     private readonly Dictionary<string, CatalogIndex[]> _objectsByCommonName = new(200);
+    private readonly Dictionary<CatalogIndex, string[]> _commonNamesOfObjects = new(200);
 
     private HashSet<CatalogIndex>? _catalogIndicesCache;
     private HashSet<Catalog>? _catalogCache;
@@ -71,8 +72,17 @@ public class OpenNGCDB : ICelestialObjectDB
     }
 
     /// <inheritdoc/>
-    public bool TryResolveCommonName(string name, [NotNullWhen(true)] out CatalogIndex[]? matches)
-        => _objectsByCommonName.TryGetValue(name, out matches);
+    public bool TryResolveCommonName(string name, out IReadOnlyList<CatalogIndex> matches)
+    {
+        if (_objectsByCommonName.TryGetValue(name, out var actualMatches))
+        {
+            matches = actualMatches;
+            return true;
+        }
+
+        matches = Array.Empty<CatalogIndex>();
+        return false;
+    }
 
     private static readonly Catalog[] CrossCats = new[] {
         Catalog.Messier,
@@ -152,6 +162,18 @@ public class OpenNGCDB : ICelestialObjectDB
                 followedObjs.Add(followedObj);
             }
         }
+    }
+
+    public bool TryGetCommonNames(CatalogIndex catalogIndex, out IReadOnlyList<string> commonNames)
+    {
+        if (_commonNamesOfObjects.TryGetValue(catalogIndex, out var actualCommonNames))
+        {
+            commonNames = actualCommonNames;
+            return true;
+        }
+
+        commonNames = Array.Empty<string>();
+        return false;
     }
 
     /// <inheritdoc/>
@@ -274,6 +296,7 @@ public class OpenNGCDB : ICelestialObjectDB
                     foreach (var commonName in commonNames)
                     {
                         _objectsByCommonName.AddLookupEntry(commonName, indexEntry);
+                        _commonNamesOfObjects.AddLookupEntry(indexEntry, commonName);
                     }
                 }
 

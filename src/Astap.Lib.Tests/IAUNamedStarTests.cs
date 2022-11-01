@@ -31,7 +31,7 @@ public class IAUNamedStarTests
         var actualFound = db.TryResolveCommonName(iauName, out var indices);
 
         actualFound.ShouldBeTrue();
-        indices.ShouldNotBeNull().Length.ShouldBe(1);
+        indices.ShouldNotBeNull().Count.ShouldBe(1);
 
         indices[0].ShouldBe(designationCatIndex);
     }

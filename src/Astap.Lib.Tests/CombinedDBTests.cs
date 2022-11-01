@@ -19,8 +19,8 @@ public class CombinedDBTests
         var found = db.TryResolveCommonName(name, out var matches);
 
         found.ShouldBeTrue();
-        matches.ShouldNotBeNull().Length.ShouldBe(expectedIndices.Length);
-        matches.ShouldBeEquivalentTo(expectedIndices);
+        matches.ShouldNotBeNull().Count.ShouldBe(expectedIndices.Length);
+        matches.ShouldBe(expectedIndices);
     }
 
     [Fact]

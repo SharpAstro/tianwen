@@ -1,10 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 using static Astap.Lib.EnumHelper;
 
 namespace Astap.Lib.Astrometry;
@@ -25,6 +25,7 @@ public class IAUNamedStarDB : ICelestialObjectDB
 {
     private readonly Dictionary<CatalogIndex, CelestialObject> _stellarObjectsByCatalogIndex = new(460);
     private readonly Dictionary<string, CatalogIndex> _namesToCatalogIndex = new(460);
+    private readonly Dictionary<CatalogIndex, string> _catalogIndexToName = new(460);
 
     private HashSet<CatalogIndex>? _catalogIndicesCache;
     private HashSet<Catalog>? _catalogCache;
@@ -106,17 +107,28 @@ public class IAUNamedStarDB : ICelestialObjectDB
         => _stellarObjectsByCatalogIndex.TryGetValue(catalogIndex, out namedStar);
 
     /// <inheritdoc/>
-    public bool TryResolveCommonName(string name, [NotNullWhen(true)] out CatalogIndex[]? starIndices)
+    public bool TryResolveCommonName(string name, out IReadOnlyList<CatalogIndex> starIndices)
     {
         if (_namesToCatalogIndex.TryGetValue(name, out var idx))
         {
             starIndices = new[] { idx };
             return true;
         }
-        else
+
+        starIndices = Array.Empty<CatalogIndex>();
+        return false;
+    }
+
+    /// <inheritdoc/>
+    public bool TryGetCommonNames(CatalogIndex catalogIndex, out IReadOnlyList<string> commonNames)
+    {
+        if (_catalogIndexToName.TryGetValue(catalogIndex, out var name))
         {
-            starIndices = default;
-            return false;
+            commonNames = new[] { name };
+            return true;
         }
+
+        commonNames = Array.Empty<string>();
+        return false;
     }
 }

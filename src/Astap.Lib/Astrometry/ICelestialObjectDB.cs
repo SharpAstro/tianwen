@@ -7,7 +7,9 @@ namespace Astap.Lib.Astrometry;
 
 public interface ICelestialObjectDB
 {
-    bool TryResolveCommonName(string name, [NotNullWhen(true)] out CatalogIndex[]? matches);
+    bool TryResolveCommonName(string name, out IReadOnlyList<CatalogIndex> matches);
+
+    bool TryGetCommonNames(CatalogIndex catalogIndex, out IReadOnlyList<string> commonNames);
 
     IReadOnlySet<CatalogIndex> ObjectIndices { get; }
 

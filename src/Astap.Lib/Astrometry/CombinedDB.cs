@@ -1,7 +1,10 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 
 namespace Astap.Lib.Astrometry;
 
@@ -58,7 +61,7 @@ public class CombinedDB : ICelestialObjectDB
         return false;
     }
 
-    public bool TryResolveCommonName(string name, [NotNullWhen(true)] out CatalogIndex[]? matches)
+    public bool TryResolveCommonName(string name, [NotNullWhen(true)] out IReadOnlyList<CatalogIndex> matches)
     {
         var allResults = new HashSet<CatalogIndex>();
         var hasMatch = false;
@@ -71,7 +74,24 @@ public class CombinedDB : ICelestialObjectDB
             }
         }
 
-        matches = allResults.ToArray();
+        matches = allResults.ToImmutableArray();
+        return hasMatch;
+    }
+
+    public bool TryGetCommonNames(CatalogIndex catalogIndex, out IReadOnlyList<string> commonNames)
+    {
+        var allResults = new HashSet<string>();
+        var hasMatch = false;
+        foreach (var db in _allDBs)
+        {
+            if (db.TryGetCommonNames(catalogIndex, out var dbMatches))
+            {
+                hasMatch = true;
+                allResults.UnionWith(dbMatches);
+            }
+        }
+
+        commonNames = allResults.ToImmutableArray();
         return hasMatch;
     }
 }
