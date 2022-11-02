@@ -18,7 +18,7 @@ namespace Astap.Lib.Astrometry;
 public class OpenNGCDB : ICelestialObjectDB
 {
     private readonly Dictionary<CatalogIndex, CelestialObject> _objectsByIndex = new(14000);
-    private readonly Dictionary<CatalogIndex, (CatalogIndex i1, CatalogIndex[]? ext)> _crossLookupTable = new(900);
+    private readonly Dictionary<CatalogIndex, (CatalogIndex i1, CatalogIndex[]? ext)> _crossLookupTable = new(5500);
     private readonly Dictionary<string, CatalogIndex[]> _objectsByCommonName = new(200);
 
     private HashSet<CatalogIndex>? _catalogIndicesCache;
@@ -284,14 +284,16 @@ public class OpenNGCDB : ICelestialObjectDB
                 }
                 else
                 {
-                    if (TryGetCatalogField(IC, out var icIndexEntry))
+                    if (TryGetCatalogField(IC, out var icIndexEntry) && indexEntry != icIndexEntry)
                     {
                         _crossLookupTable.AddLookupEntry(icIndexEntry, indexEntry);
+                        _crossLookupTable.AddLookupEntry(indexEntry, icIndexEntry);
                     }
-                    if (TryGetCatalogField(M, out var messierIndexEntry))
+                    if (TryGetCatalogField(M, out var messierIndexEntry) && indexEntry != messierIndexEntry)
                     {
                         // Adds Messier to NGC/IC entry lookup, but only if its not a duplicate
                         _crossLookupTable.AddLookupEntry(messierIndexEntry, indexEntry);
+                        _crossLookupTable.AddLookupEntry(indexEntry, messierIndexEntry);
                     }
 
                     if (csvReader.TryGetField<string>("Identifiers", out var identifiersEntry) && identifiersEntry is not null)
