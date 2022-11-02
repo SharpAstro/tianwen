@@ -9,7 +9,7 @@ public interface ICelestialObjectDB
 {
     bool TryResolveCommonName(string name, out IReadOnlyList<CatalogIndex> matches);
 
-    bool TryGetCommonNames(CatalogIndex catalogIndex, out IReadOnlyList<string> commonNames);
+    bool TryGetCrossIndices(CatalogIndex catalogIndex, out IReadOnlyList<CatalogIndex> crossIndices);
 
     IReadOnlySet<CatalogIndex> ObjectIndices { get; }
 

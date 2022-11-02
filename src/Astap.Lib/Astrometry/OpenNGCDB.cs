@@ -20,7 +20,6 @@ public class OpenNGCDB : ICelestialObjectDB
     private readonly Dictionary<CatalogIndex, CelestialObject> _objectsByIndex = new(14000);
     private readonly Dictionary<CatalogIndex, (CatalogIndex i1, CatalogIndex[]? ext)> _crossLookupTable = new(900);
     private readonly Dictionary<string, CatalogIndex[]> _objectsByCommonName = new(200);
-    private readonly Dictionary<CatalogIndex, string[]> _commonNamesOfObjects = new(200);
 
     private HashSet<CatalogIndex>? _catalogIndicesCache;
     private HashSet<Catalog>? _catalogCache;
@@ -164,15 +163,24 @@ public class OpenNGCDB : ICelestialObjectDB
         }
     }
 
-    public bool TryGetCommonNames(CatalogIndex catalogIndex, out IReadOnlyList<string> commonNames)
+    public bool TryGetCrossIndices(CatalogIndex catalogIndex, out IReadOnlyList<CatalogIndex> crossIndices)
     {
-        if (_commonNamesOfObjects.TryGetValue(catalogIndex, out var actualCommonNames))
+        if (_crossLookupTable.TryGetValue(catalogIndex, out var actualCrossIndices))
         {
-            commonNames = actualCommonNames;
+            var crossIndicesArray = new CatalogIndex[(actualCrossIndices.i1 != 0 ? 1 : 0) + (actualCrossIndices.ext?.Length ?? 0)];
+            if (crossIndicesArray.Length == 0)
+            {
+                crossIndices = crossIndicesArray;
+                return false;
+            }
+
+            crossIndicesArray[0] = actualCrossIndices.i1;
+            actualCrossIndices.ext?.CopyTo(crossIndicesArray, 1);
+            crossIndices = crossIndicesArray;
             return true;
         }
 
-        commonNames = Array.Empty<string>();
+        crossIndices = Array.Empty<CatalogIndex>();
         return false;
     }
 
@@ -242,7 +250,21 @@ public class OpenNGCDB : ICelestialObjectDB
                     ? surfaceBrightnessFloat
                     : float.NaN;
 
-                _objectsByIndex[indexEntry] = new CelestialObject(indexEntry, objectType, HMSToHours(raHMS), DMSToDegree(decDMS), @const, vmag, surfaceBrightness);
+                string[] commonNames;
+                if (csvReader.TryGetField<string>("Common names", out var commonNamesEntry) && commonNamesEntry is not null)
+                {
+                    commonNames = commonNamesEntry.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                    foreach (var commonName in commonNames)
+                    {
+                        _objectsByCommonName.AddLookupEntry(commonName, indexEntry);
+                    }
+                }
+                else
+                {
+                    commonNames = Array.Empty<string>();
+                }
+
+                _objectsByIndex[indexEntry] = new CelestialObject(indexEntry, objectType, HMSToHours(raHMS), DMSToDegree(decDMS), @const, vmag, surfaceBrightness, commonNames);
 
                 if (objectType == ObjectType.Duplicate)
                 {
@@ -287,16 +309,6 @@ public class OpenNGCDB : ICelestialObjectDB
                                 _crossLookupTable.AddLookupEntry(crossCatIdx, indexEntry);
                             }
                         }
-                    }
-                }
-
-                if (csvReader.TryGetField<string>("Common names", out var commonNamesEntry) && commonNamesEntry is not null)
-                {
-                    var commonNames = commonNamesEntry.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-                    foreach (var commonName in commonNames)
-                    {
-                        _objectsByCommonName.AddLookupEntry(commonName, indexEntry);
-                        _commonNamesOfObjects.AddLookupEntry(indexEntry, commonName);
                     }
                 }
 

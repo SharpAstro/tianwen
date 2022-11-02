@@ -23,6 +23,40 @@ public class CombinedDBTests
         matches.ShouldBe(expectedIndices);
     }
 
+    [Theory]
+    [InlineData(HR0897, "Acamar")]
+    [InlineData(C099, "Coalsack Nebula")]
+    [InlineData(M042, "Great Orion Nebula", "Orion Nebula")]
+    [InlineData(M051, "Whirlpool Galaxy")]
+    public async Task GivenACatalogIndexWhenTryingToGetCommonNamesThenTheyAreFound(CatalogIndex catalogIndex, params string[] expectedNames)
+    {
+        var db = new CombinedDB();
+        _ = await db.InitDBAsync();
+
+        var found = db.TryLookupByIndex(catalogIndex, out var match);
+
+        found.ShouldBeTrue();
+        match.CommonNames.Count.ShouldBe(expectedNames.Length);
+        match.CommonNames.ShouldBe(expectedNames);
+    }
+
+    [Theory]
+    [InlineData(HR0897)]
+    [InlineData(C099)]
+    [InlineData(M042, NGC1976)]
+    [InlineData(M051, NGC5194)]
+    public async Task GivenACatalogIndexWhenTryingToGetCrossIndicesThenTheyAreFound(CatalogIndex catalogIndex, params CatalogIndex[] expectedCrossIndices)
+    {
+        var db = new CombinedDB();
+        _ = await db.InitDBAsync();
+
+        var found = db.TryGetCrossIndices(catalogIndex, out var matches);
+
+        found.ShouldBe(expectedCrossIndices.Length > 0);
+        matches.Count.ShouldBe(expectedCrossIndices.Length);
+        matches.ShouldBe(expectedCrossIndices);
+    }
+
     [Fact]
     public async Task GivenAllCatIdxWhenTryingToLookupThenItIsAlwaysFound()
     {

@@ -27,7 +27,9 @@ public static class SharedTestData
     internal const CatalogIndex IC1577 = (CatalogIndex)((ulong)'I' << 28 | '1' << 21 | '5' << 14 | '7' << 7 | '7');
     internal const CatalogIndex IC4703 = (CatalogIndex)((ulong)'I' << 28 | '4' << 21 | '7' << 14 | '0' << 7 | '3');
     internal const CatalogIndex M040 = (CatalogIndex)('M' << 21 | '0' << 14 | '4' << 7 | '0');
+    internal const CatalogIndex M042 = (CatalogIndex)('M' << 21 | '0' << 14 | '4' << 7 | '2');
     internal const CatalogIndex M045 = (CatalogIndex)('M' << 21 | '0' << 14 | '4' << 7 | '5');
+    internal const CatalogIndex M051 = (CatalogIndex)('M' << 21 | '0' << 14 | '5' << 7 | '1');
     internal const CatalogIndex M102 = (CatalogIndex)('M' << 21 | '1' << 14 | '0' << 7 | '2');
     internal const CatalogIndex Mel022 = (CatalogIndex)((ulong)'M' << 35 | (ulong)'e' << 28 | 'l' << 21 | '0' << 14 | '2' << 7 | '2');
     internal const CatalogIndex NGC0056 = (CatalogIndex)((ulong)'N' << 28 | '0' << 21 | '0' << 14 | '5' << 7 | '6');
@@ -38,6 +40,7 @@ public static class SharedTestData
     internal const CatalogIndex NGC4038 = (CatalogIndex)((ulong)'N' << 28 | '4' << 21 | '0' << 14 | '3' << 7 | '8');
     internal const CatalogIndex NGC4039 = (CatalogIndex)((ulong)'N' << 28 | '4' << 21 | '0' << 14 | '3' << 7 | '9');
     internal const CatalogIndex NGC4913 = (CatalogIndex)((ulong)'N' << 28 | '4' << 21 | '9' << 14 | '1' << 7 | '3');
+    internal const CatalogIndex NGC5194 = (CatalogIndex)((ulong)'N' << 28 | '5' << 21 | '1' << 14 | '9' << 7 | '4');
     internal const CatalogIndex NGC5457 = (CatalogIndex)((ulong)'N' << 28 | '5' << 21 | '4' << 14 | '5' << 7 | '7');
     internal const CatalogIndex NGC6205 = (CatalogIndex)((ulong)'N' << 28 | '6' << 21 | '2' << 14 | '0' << 7 | '5');
     internal const CatalogIndex NGC6611 = (CatalogIndex)((ulong)'N' << 28 | '6' << 21 | '6' << 14 | '1' << 7 | '1');
