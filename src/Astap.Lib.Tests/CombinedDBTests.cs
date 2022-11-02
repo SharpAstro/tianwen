@@ -27,6 +27,7 @@ public class CombinedDBTests
     [InlineData(HR0897, "Acamar")]
     [InlineData(C099, "Coalsack Nebula")]
     [InlineData(M042, "Great Orion Nebula", "Orion Nebula")]
+    [InlineData(NGC1976, "Great Orion Nebula", "Orion Nebula")]
     [InlineData(M051, "Whirlpool Galaxy")]
     public async Task GivenACatalogIndexWhenTryingToGetCommonNamesThenTheyAreFound(CatalogIndex catalogIndex, params string[] expectedNames)
     {
@@ -44,6 +45,7 @@ public class CombinedDBTests
     [InlineData(HR0897)]
     [InlineData(C099)]
     [InlineData(M042, NGC1976)]
+    [InlineData(NGC1976, M042)]
     [InlineData(M051, NGC5194)]
     public async Task GivenACatalogIndexWhenTryingToGetCrossIndicesThenTheyAreFound(CatalogIndex catalogIndex, params CatalogIndex[] expectedCrossIndices)
     {
