@@ -25,7 +25,6 @@ public class IAUNamedStarDB : ICelestialObjectDB
 {
     private readonly Dictionary<CatalogIndex, CelestialObject> _stellarObjectsByCatalogIndex = new(460);
     private readonly Dictionary<string, CatalogIndex> _namesToCatalogIndex = new(460);
-    private readonly Dictionary<CatalogIndex, string> _catalogIndexToName = new(460);
 
     private HashSet<CatalogIndex>? _catalogIndicesCache;
     private HashSet<Catalog>? _catalogCache;
@@ -87,9 +86,14 @@ public class IAUNamedStarDB : ICelestialObjectDB
                 {
                     var objType = catalogIndex.ToCatalog() == Catalog.PSR ? ObjectType.Pulsar : ObjectType.Star;
                     var constellation = AbbreviationToEnumMember<Constellation>(record.Constellation);
-                    var stellarObject = new CelestialObject(catalogIndex, objType, record.RA_J2000 / 15.0, record.Dec_J2000, constellation, record.Vmag ?? float.NaN, float.NaN);
+                    var commonNames = new string[] { record.IAUName };
+                    var stellarObject = new CelestialObject(catalogIndex, objType, record.RA_J2000 / 15.0, record.Dec_J2000, constellation, record.Vmag ?? float.NaN, float.NaN, commonNames);
                     _stellarObjectsByCatalogIndex[catalogIndex] = stellarObject;
-                    _namesToCatalogIndex[record.IAUName] = stellarObject.Index;
+
+                    foreach (var commonName in commonNames)
+                    {
+                        _namesToCatalogIndex[commonName] = stellarObject.Index;
+                    }
                     processed++;
                 }
                 else
@@ -120,15 +124,9 @@ public class IAUNamedStarDB : ICelestialObjectDB
     }
 
     /// <inheritdoc/>
-    public bool TryGetCommonNames(CatalogIndex catalogIndex, out IReadOnlyList<string> commonNames)
+    public bool TryGetCrossIndices(CatalogIndex catalogIndex, out IReadOnlyList<CatalogIndex> crossIndices)
     {
-        if (_catalogIndexToName.TryGetValue(catalogIndex, out var name))
-        {
-            commonNames = new[] { name };
-            return true;
-        }
-
-        commonNames = Array.Empty<string>();
+        crossIndices = Array.Empty<CatalogIndex>();
         return false;
     }
 }

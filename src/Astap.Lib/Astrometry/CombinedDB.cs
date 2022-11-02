@@ -1,10 +1,8 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Threading.Tasks;
-using System.Xml.Linq;
 
 namespace Astap.Lib.Astrometry;
 
@@ -19,12 +17,16 @@ public class CombinedDB : ICelestialObjectDB
 
     public CombinedDB() => _allDBs = new ICelestialObjectDB[] { _namedStarDB, _openNGCDB };
 
+    /// <inheritdoc/>
     public IReadOnlySet<CatalogIndex> ObjectIndices => _objectIndices;
 
+    /// <inheritdoc/>
     public IReadOnlyCollection<string> CommonNames => _commonNames;
 
+    /// <inheritdoc/>
     public IReadOnlySet<Catalog> Catalogs => _catalogs;
 
+    /// <inheritdoc/>
     public async Task<(int processed, int failed)> InitDBAsync()
     {
         var initTasks = new Task<(int processed, int failed)>[_allDBs.Length];
@@ -46,6 +48,7 @@ public class CombinedDB : ICelestialObjectDB
         return results.Aggregate((processed: 0, failed: 0), (pPrev, pCurr) => (pPrev.processed + pCurr.processed, pPrev.failed + pCurr.failed));
     }
 
+    /// <inheritdoc/>
     public bool TryLookupByIndex(CatalogIndex index, out CelestialObject celestialObject)
     {
         var cat = index.ToCatalog();
@@ -61,6 +64,7 @@ public class CombinedDB : ICelestialObjectDB
         return false;
     }
 
+    /// <inheritdoc/>
     public bool TryResolveCommonName(string name, [NotNullWhen(true)] out IReadOnlyList<CatalogIndex> matches)
     {
         var allResults = new HashSet<CatalogIndex>();
@@ -78,20 +82,21 @@ public class CombinedDB : ICelestialObjectDB
         return hasMatch;
     }
 
-    public bool TryGetCommonNames(CatalogIndex catalogIndex, out IReadOnlyList<string> commonNames)
+    /// <inheritdoc/>
+    public bool TryGetCrossIndices(CatalogIndex catalogIndex, out IReadOnlyList<CatalogIndex> crossIndices)
     {
-        var allResults = new HashSet<string>();
+        var allResults = new HashSet<CatalogIndex>();
         var hasMatch = false;
         foreach (var db in _allDBs)
         {
-            if (db.TryGetCommonNames(catalogIndex, out var dbMatches))
+            if (db.TryGetCrossIndices(catalogIndex, out var dbMatches))
             {
                 hasMatch = true;
                 allResults.UnionWith(dbMatches);
             }
         }
 
-        commonNames = allResults.ToImmutableArray();
+        crossIndices = allResults.ToImmutableArray();
         return hasMatch;
     }
 }
