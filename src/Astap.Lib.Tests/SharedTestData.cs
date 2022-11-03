@@ -54,6 +54,7 @@ public static class SharedTestData
     internal const CatalogIndex PSR_B0633_17n = (CatalogIndex)(Base91Enc | (ulong)'A' << 56 | (ulong)'A' << 49 | (ulong)'F' << 42 | (ulong)'t' << 35 | (ulong)'I' << 28 | 't' << 21 | 'j' << 14 | 't' << 7 | 'C');
     internal const string PSR_B0633_17n_Enc = "ÁAFtItjtC";
     internal const CatalogIndex PSR_J0002_6216n = (CatalogIndex)(Base91Enc | (ulong)'A' << 56 | (ulong)'A' << 49 | (ulong)'X' << 42 | (ulong)'L' << 35 | (ulong)'@' << 28 | 'Q' << 21 | '3' << 14 | 'u' << 7 | 'C');
+    internal const string PSR_J0002_6216n_Enc = "ÁAXL@Q3uC";
     internal const CatalogIndex Sh2_006 = (CatalogIndex)((ulong)'S' << 42 | (ulong)'h' << 35 | (ulong)'2' << 28 | '-' << 21 | '0' << 14 | '0' << 7 | '6');
     internal const CatalogIndex TrES03 = (CatalogIndex)((ulong)'T' << 35 | (ulong)'r' << 28 | 'E' << 21 | 'S' << 14 | '0' << 7 | '3');
     internal const CatalogIndex TwoM_J11400198_3152397n = (CatalogIndex)(Base91Enc | (ulong)'P' << 56 | (ulong)'6' << 49 | (ulong)'3' << 42 | (ulong)'A' << 35 | (ulong)'T' << 28 | 'J' << 21| ',' << 14 | 'y' << 7 | 'B');

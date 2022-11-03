@@ -17,7 +17,7 @@ public class CatalogIndexTests
     [InlineData(M040, "M040")]
     [InlineData(M102, "M102")]
     [InlineData(ESO056_115, "E056-115")]
-    [InlineData(PSR_J0002_6216n, "ÁAXL@Q3uC")]
+    [InlineData(PSR_J0002_6216n, PSR_J0002_6216n_Enc)]
     [InlineData(PSR_J2144_3933s, PSR_J2144_3933s_Enc)]
     [InlineData(PSR_B0633_17n, PSR_B0633_17n_Enc)]
     [InlineData(Sh2_006, "Sh2-006")]
