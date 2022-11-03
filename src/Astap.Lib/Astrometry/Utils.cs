@@ -51,6 +51,19 @@ public static class Utils
         }
     }
 
+    public static string HoursToHMS(double hours)
+    {
+        var ts = TimeSpan.FromHours(hours);
+        return $"{ts.Hours:D2}:{ts.Minutes:D2}:{ts.Seconds:D2}.{ts.Milliseconds:D4}";
+    }
+
+    public static string DegreesToDMS(double degrees)
+    {
+        var sign = Math.Sign(degrees);
+        var ts = TimeSpan.FromHours(Math.Abs(degrees));
+        return $"{(sign >= 0 ? "+" : "-")}{ts.Hours:D2}:{ts.Minutes:D2}:{ts.Seconds:D2}.{ts.Milliseconds:D4}";
+    }
+
     public static double DMSToDegree(string dms)
     {
         const double minToDeg = 1.0 / 60.0;
