@@ -7,6 +7,7 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Text;
 using static Astap.Lib.EnumHelper;
+using static Astap.Lib.Astrometry.Utils;
 
 namespace Astap.Lib.Astrometry;
 
@@ -26,11 +27,15 @@ public static class CatalogIndexEx
         {
             if (catalog is Catalog.PSR)
             {
-                return RADecEncodedIndexToCanonical(prefix, decoded, 4, 4, Utils.PSRRaMask, Utils.PSRRaShift, Utils.PSRDecMask, true);
+                return RADecEncodedIndexToCanonical(prefix, decoded, 4, 4, PSRRaMask, PSRRaShift, PSRDecMask, PSREpochSupport);
             }
-            if (catalog is Catalog.TwoMass or Catalog.TwoMassX)
+            else if (catalog is Catalog.TwoMass or Catalog.TwoMassX)
             {
-                return RADecEncodedIndexToCanonical(prefix, decoded, 8, 7, Utils.TwoMassRaMask, Utils.TwoMassRaShift, Utils.TwoMassDecMask, false);
+                return RADecEncodedIndexToCanonical(prefix, decoded, 8, 7, TwoMassRaMask, TwoMassRaShift, TwoMassDecMask, TwoMassEncOptions);
+            }
+            else if (catalog is Catalog.WDS)
+            {
+                return RADecEncodedIndexToCanonical(prefix, decoded, 5, 4, WDSRaMask, WDSRaShift, WDSDecMask, WDSEncOptions);
             }
             else
             {
@@ -72,7 +77,7 @@ public static class CatalogIndexEx
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    static string RADecEncodedIndexToCanonical(string prefix, ulong decoded, int raDigits, int decDigits, uint raMask, int raShift, uint decMask, bool supportsEpoch)
+    static string RADecEncodedIndexToCanonical(string prefix, ulong decoded, int raDigits, int decDigits, uint raMask, int raShift, uint decMask, Base91EncRADecOptions encOptions)
     {
         // sign
         var decIsNeg = (decoded & 1) == 0b1;
@@ -81,17 +86,18 @@ public static class CatalogIndexEx
         // epoch
         string epoch;
         int actualDecDigits;
-        if (supportsEpoch)
+
+        if (encOptions.HasFlag(Base91EncRADecOptions.ImpliedJ2000))
+        {
+            epoch = "J";
+            actualDecDigits = decDigits;
+        }
+        else
         {
             var isJ = (decoded & 1) == 0b1;
             epoch = isJ ? "J" : "B";
             actualDecDigits = isJ ? decDigits : 2;
             decoded >>= 1;
-        }
-        else
-        {
-            epoch = "J";
-            actualDecDigits = decDigits;
         }
 
         // dec

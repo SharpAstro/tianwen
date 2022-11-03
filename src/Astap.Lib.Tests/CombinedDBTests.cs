@@ -42,11 +42,13 @@ public class CombinedDBTests
     }
 
     [Theory]
-    [InlineData(HR0897)]
+    [InlineData(HR0897, WDS_02583_4018s)]
     [InlineData(C099)]
     [InlineData(M042, NGC1976)]
     [InlineData(NGC1976, M042)]
     [InlineData(M051, NGC5194)]
+    [InlineData(M054, NGC6715)]
+    [InlineData(NGC6715, M054)]
     public async Task GivenACatalogIndexWhenTryingToGetCrossIndicesThenTheyAreFound(CatalogIndex catalogIndex, params CatalogIndex[] expectedCrossIndices)
     {
         var db = new CombinedDB();
