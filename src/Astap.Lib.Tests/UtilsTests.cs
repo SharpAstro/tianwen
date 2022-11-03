@@ -78,7 +78,7 @@ public class UtilsTests
     [InlineData("XO - 2N", "XO002N", Catalog.XO)]
     [InlineData("HAT-P-23", "HAT-P023", Catalog.HAT_P)]
     [InlineData("HATS 23", "HATS023", Catalog.HATS)]
-    [InlineData("PSR J0002+6216", "ÁAXL@Q3uC", Catalog.PSR)]
+    [InlineData("PSR J0002+6216", PSR_J0002_6216n_Enc, Catalog.PSR)]
     [InlineData("PSR J2144-3933", PSR_J2144_3933s_Enc, Catalog.PSR)]
     [InlineData("PSR B0633+17", PSR_B0633_17n_Enc, Catalog.PSR)]
     [InlineData("PSR J2400-9000", "ÁAQAo5{WD", Catalog.PSR)]
