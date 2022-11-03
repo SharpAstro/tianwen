@@ -59,9 +59,12 @@ public static class EnumHelper
         if (msb)
         {
             chars[0] |= (char)(1 << ASCIIBits);
+            return new string(chars);
         }
-
-        return new string(chars.Slice(MaxLenInASCII - i, i));
+        else
+        {
+            return new string(chars.Slice(MaxLenInASCII - i, i));
+        }
     }
 
     static readonly Regex PascalSplitter = new("([A-Z])|([0-9]+)", RegexOptions.Compiled);

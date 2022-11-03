@@ -80,13 +80,22 @@ public static class Utils
 
     static readonly Regex TwoMassAnd2MassXPattern = new(@"^(?:2MAS[SX]) ([J]) ([0-9]{8}) ([-+]) ([0-9]{7})$", CommonOpts);
 
+    static readonly Regex WDSPattern = new(@"^(?:WDS) ([J]) ([0-9]{5}) ([-+]) ([0-9]{4})$", CommonOpts);
+
     internal const uint PSRRaMask = 0xfff;
     internal const int PSRRaShift = 14;
     internal const uint PSRDecMask = 0x3fff;
+    internal const Base91EncRADecOptions PSREpochSupport = Base91EncRADecOptions.None;
 
     internal const uint TwoMassRaMask = 0x1_fff_fff;
     internal const int TwoMassRaShift = 24;
     internal const uint TwoMassDecMask = 0xfff_fff;
+    internal const Base91EncRADecOptions TwoMassEncOptions = Base91EncRADecOptions.ImpliedJ2000;
+
+    internal const uint WDSRaMask = 0x7fff;
+    internal const int WDSRaShift = 14;
+    internal const uint WDSDecMask = 0x3fff;
+    internal const Base91EncRADecOptions WDSEncOptions = Base91EncRADecOptions.ImpliedJ2000;
 
     public static bool TryGetCleanedUpCatalogName(string? input, out CatalogIndex catalogIndex)
     {
@@ -131,12 +140,17 @@ public static class Utils
         }
         else if (catalog is Catalog.TwoMass or Catalog.TwoMassX)
         {
-            cleanedUp = CleanupRADecBasedCatalogIndex(TwoMassAnd2MassXPattern, trimmedInput, catalog, TwoMassRaMask, TwoMassRaShift, TwoMassDecMask, false);
+            cleanedUp = CleanupRADecBasedCatalogIndex(TwoMassAnd2MassXPattern, trimmedInput, catalog, TwoMassRaMask, TwoMassRaShift, TwoMassDecMask, TwoMassEncOptions);
             isBase91Encoded = true;
         }
         else if (catalog is Catalog.PSR)
         {
-            cleanedUp = CleanupRADecBasedCatalogIndex(PSRDesignationPattern, trimmedInput, catalog, PSRRaMask, PSRRaShift, PSRDecMask, true);
+            cleanedUp = CleanupRADecBasedCatalogIndex(PSRDesignationPattern, trimmedInput, catalog, PSRRaMask, PSRRaShift, PSRDecMask, PSREpochSupport);
+            isBase91Encoded = true;
+        }
+        else if (catalog is Catalog.WDS)
+        {
+            cleanedUp = CleanupRADecBasedCatalogIndex(WDSPattern, trimmedInput, catalog, WDSRaMask, WDSRaShift, WDSDecMask, WDSEncOptions);
             isBase91Encoded = true;
         }
         else
@@ -197,11 +211,13 @@ public static class Utils
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    static string? CleanupRADecBasedCatalogIndex(Regex pattern, string trimmedInput, Catalog catalog, ulong raMask, int raShift, ulong decMask, bool supportEpoch)
+    static string? CleanupRADecBasedCatalogIndex(Regex pattern, string trimmedInput, Catalog catalog, ulong raMask, int raShift, ulong decMask, Base91EncRADecOptions epochSupport)
     {
         var match = pattern.Match(trimmedInput);
 
-        if (!match.Success || match.Groups.Count != 5)
+        var j2000implied = epochSupport.HasFlag(Base91EncRADecOptions.ImpliedJ2000);
+
+        if (!match.Success || match.Groups.Count < 5)
         {
             return null;
         }
@@ -214,12 +230,12 @@ public static class Utils
             && ulong.TryParse(dec, NumberStyles.None, CultureInfo.InvariantCulture, out var decVal))
         {
             const int signShift = ASCIIBits;
-            var epochShift = signShift + (supportEpoch ? 1 : 0);
+            var epochShift = signShift + (!j2000implied ? 1 : 0);
             var decShift = epochShift + 1;
             var idAsLongH =
                   (raVal & raMask) << (raShift + decShift)
                 | (decVal & decMask) << decShift
-                | (isJ2000 && supportEpoch ? 1ul : 0ul) << epochShift
+                | (isJ2000 && !j2000implied ? 1ul : 0ul) << epochShift
                 | (decIsNeg ? 1ul : 0ul) << signShift
                 | ((ulong)catalog & ASCIIMask);
             var idAsLongN = IPAddress.HostToNetworkOrder((long)idAsLongH);
@@ -286,7 +302,9 @@ public static class Utils
             'S' => ("Sh2-000", 3, Catalog.Sharpless),
             'T' => ("TrES00", 2, Catalog.TrES),
             'U' => ("U00000", 5, Catalog.UGC),
-            'W' => ("WASP000", 3, Catalog.WASP),
+            'W' => trimmedInput[1] == 'D' && trimmedInput.Length > 2 && trimmedInput[2] == 'S'
+                ? ("", 10, Catalog.WDS)
+                : ("WASP000", 3, Catalog.WASP),
             'X' => ("XO000*", 4, Catalog.XO),
             _ => ("", 0, null)
         };

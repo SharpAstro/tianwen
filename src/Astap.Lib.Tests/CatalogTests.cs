@@ -30,6 +30,7 @@ public class CatalogTests
     [InlineData(Catalog.TrES, "TrES")]
     [InlineData(Catalog.UGC, "UGC")]
     [InlineData(Catalog.WASP, "WASP")]
+    [InlineData(Catalog.WDS, "WDS")]
     [InlineData(Catalog.XO, "XO")]
     public void GivenCatalogWhenToCanonicalThenItIsReturned(Catalog catalog, string expectedCanon)
     {

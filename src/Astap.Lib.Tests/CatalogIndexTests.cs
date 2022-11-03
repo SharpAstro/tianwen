@@ -18,10 +18,12 @@ public class CatalogIndexTests
     [InlineData(M102, "M102")]
     [InlineData(ESO056_115, "E056-115")]
     [InlineData(PSR_J0002_6216n, "ÁAXL@Q3uC")]
-    [InlineData(PSR_J2144_3933s, "FtP++4B")]
-    [InlineData(PSR_B0633_17n, ",>Z4g4A")]
+    [InlineData(PSR_J2144_3933s, PSR_J2144_3933s_Enc)]
+    [InlineData(PSR_B0633_17n, PSR_B0633_17n_Enc)]
     [InlineData(Sh2_006, "Sh2-006")]
     [InlineData(TrES03, "TrES03")]
+    [InlineData(WDS_02583_4018s, "ÁAg4}-8&G")]
+    [InlineData(WDS_23599_3112s, "ÁA+i),N%G")]
     public void GivenACatalogIndexValueWhenToAbbreviationThenItIsReturned(CatalogIndex catalogIndex, string expectedAbbreviation)
     {
         catalogIndex.ToAbbreviation().ShouldBe(expectedAbbreviation);
@@ -41,6 +43,7 @@ public class CatalogIndexTests
     [InlineData(PSR_B0633_17n, Catalog.PSR)]
     [InlineData(Sh2_006, Catalog.Sharpless)]
     [InlineData(TrES03, Catalog.TrES)]
+    [InlineData(WDS_23599_3112s, Catalog.WDS)]
     public void GivenACatalogIndexValueWhenToCatalogThenItIsReturned(CatalogIndex catalogIndex, Catalog expectedCatalog)
     {
         catalogIndex.ToCatalog().ShouldBe(expectedCatalog);
@@ -65,6 +68,7 @@ public class CatalogIndexTests
     [InlineData(TwoMX_J11380904_0936257s, "2MASX J11380904-0936257")]
     [InlineData(Sh2_006, "Sh2-6")]
     [InlineData(TrES03, "TrES-3")]
+    [InlineData(WDS_23599_3112s, "WDS J23599-3112")]
     [InlineData(XO0003, "XO-3")]
     [InlineData(XO002N, "XO-2N")]
     public void GivenACatalogIndexValueWhenToCanonicalThenItIsReturned(CatalogIndex catalogIndex, string expectedCanon)

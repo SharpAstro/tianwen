@@ -1,10 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
-using System.Xml.Linq;
 using static Astap.Lib.EnumHelper;
 
 namespace Astap.Lib.Astrometry;
@@ -15,6 +15,7 @@ record IAUNamedStarDTO(
     string? ID,
     string Constellation,
     string? WDSComponentId,
+    string? WDS_J,
     float? Vmag,
     double RA_J2000, // in degrees 0..360
     double Dec_J2000,
@@ -25,6 +26,7 @@ public class IAUNamedStarDB : ICelestialObjectDB
 {
     private readonly Dictionary<CatalogIndex, CelestialObject> _stellarObjectsByCatalogIndex = new(460);
     private readonly Dictionary<string, CatalogIndex> _namesToCatalogIndex = new(460);
+    private readonly Dictionary<CatalogIndex, (CatalogIndex i1, CatalogIndex[]? ext)> _crossIndexLookuptable = new(460);
 
     private HashSet<CatalogIndex>? _catalogIndicesCache;
     private HashSet<Catalog>? _catalogCache;
@@ -87,8 +89,23 @@ public class IAUNamedStarDB : ICelestialObjectDB
                     var objType = catalogIndex.ToCatalog() == Catalog.PSR ? ObjectType.Pulsar : ObjectType.Star;
                     var constellation = AbbreviationToEnumMember<Constellation>(record.Constellation);
                     var commonNames = new string[] { record.IAUName };
-                    var stellarObject = new CelestialObject(catalogIndex, objType, record.RA_J2000 / 15.0, record.Dec_J2000, constellation, record.Vmag ?? float.NaN, float.NaN, commonNames);
-                    _stellarObjectsByCatalogIndex[catalogIndex] = stellarObject;
+                    var stellarObject = _stellarObjectsByCatalogIndex[catalogIndex] = new CelestialObject(
+                        catalogIndex,
+                        objType,
+                        record.RA_J2000 / 15.0,
+                        record.Dec_J2000,
+                        constellation,
+                        record.Vmag ?? float.NaN,
+                        float.NaN,
+                        commonNames,
+                        record.WDSComponentId
+                    );
+
+                    if (record.WDS_J is string wdsJ && Utils.TryGetCleanedUpCatalogName($"{Catalog.WDS.ToCanonical()}J{wdsJ}", out var wdsCatalogIndex))
+                    {
+                        _crossIndexLookuptable.AddLookupEntry(catalogIndex, wdsCatalogIndex);
+                        _crossIndexLookuptable.AddLookupEntry(wdsCatalogIndex, catalogIndex);
+                    }
 
                     foreach (var commonName in commonNames)
                     {
@@ -125,8 +142,5 @@ public class IAUNamedStarDB : ICelestialObjectDB
 
     /// <inheritdoc/>
     public bool TryGetCrossIndices(CatalogIndex catalogIndex, out IReadOnlyList<CatalogIndex> crossIndices)
-    {
-        crossIndices = Array.Empty<CatalogIndex>();
-        return false;
-    }
+        => _crossIndexLookuptable.TryGetLookupEntries(catalogIndex, out crossIndices);
 }

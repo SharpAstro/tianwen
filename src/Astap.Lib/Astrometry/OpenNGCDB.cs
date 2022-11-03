@@ -18,7 +18,7 @@ namespace Astap.Lib.Astrometry;
 public class OpenNGCDB : ICelestialObjectDB
 {
     private readonly Dictionary<CatalogIndex, CelestialObject> _objectsByIndex = new(14000);
-    private readonly Dictionary<CatalogIndex, (CatalogIndex i1, CatalogIndex[]? ext)> _crossLookupTable = new(5500);
+    private readonly Dictionary<CatalogIndex, (CatalogIndex i1, CatalogIndex[]? ext)> _crossIndexLookuptable = new(5500);
     private readonly Dictionary<string, CatalogIndex[]> _objectsByCommonName = new(200);
 
     private HashSet<CatalogIndex>? _catalogIndicesCache;
@@ -37,7 +37,7 @@ public class OpenNGCDB : ICelestialObjectDB
                 return cache;
             }
 
-            var objs = _objectsByIndex.Count + _crossLookupTable.Count;
+            var objs = _objectsByIndex.Count + _crossIndexLookuptable.Count;
 
             if (objs > 0)
             {
@@ -56,12 +56,12 @@ public class OpenNGCDB : ICelestialObjectDB
                 return cache;
             }
 
-            var objs = _objectsByIndex.Count + _crossLookupTable.Count;
+            var objs = _objectsByIndex.Count + _crossIndexLookuptable.Count;
             if (objs > 0)
             {
                 cache = new HashSet<CatalogIndex>(objs);
                 cache.UnionWith(_objectsByIndex.Keys);
-                cache.UnionWith(_crossLookupTable.Keys);
+                cache.UnionWith(_crossIndexLookuptable.Keys);
 
                 return _catalogIndicesCache ??= cache;
             }
@@ -100,7 +100,7 @@ public class OpenNGCDB : ICelestialObjectDB
     {
         if (!_objectsByIndex.TryGetValue(index, out celestialObject)
             && IsCrossCat(index.ToCatalog())
-            && _crossLookupTable.TryGetValue(index, out var crossIndices)
+            && _crossIndexLookuptable.TryGetValue(index, out var crossIndices)
         )
         {
             if (crossIndices.i1 > 0 && crossIndices.i1 != index && _objectsByIndex.TryGetValue(crossIndices.i1, out celestialObject))
@@ -129,7 +129,7 @@ public class OpenNGCDB : ICelestialObjectDB
             return true;
         }
 
-        if (_crossLookupTable.TryGetValue(index, out var followIndicies) && followIndicies.i1 > 0)
+        if (_crossIndexLookuptable.TryGetValue(index, out var followIndicies) && followIndicies.i1 > 0)
         {
             if (followIndicies.ext == null && followIndicies.i1 != index)
             {
@@ -164,25 +164,7 @@ public class OpenNGCDB : ICelestialObjectDB
     }
 
     public bool TryGetCrossIndices(CatalogIndex catalogIndex, out IReadOnlyList<CatalogIndex> crossIndices)
-    {
-        if (_crossLookupTable.TryGetValue(catalogIndex, out var actualCrossIndices))
-        {
-            var crossIndicesArray = new CatalogIndex[(actualCrossIndices.i1 != 0 ? 1 : 0) + (actualCrossIndices.ext?.Length ?? 0)];
-            if (crossIndicesArray.Length == 0)
-            {
-                crossIndices = crossIndicesArray;
-                return false;
-            }
-
-            crossIndicesArray[0] = actualCrossIndices.i1;
-            actualCrossIndices.ext?.CopyTo(crossIndicesArray, 1);
-            crossIndices = crossIndicesArray;
-            return true;
-        }
-
-        crossIndices = Array.Empty<CatalogIndex>();
-        return false;
-    }
+        => _crossIndexLookuptable.TryGetLookupEntries(catalogIndex, out crossIndices);
 
     /// <inheritdoc/>
     public async Task<(int processed, int failed)> InitDBAsync()
@@ -264,36 +246,46 @@ public class OpenNGCDB : ICelestialObjectDB
                     commonNames = Array.Empty<string>();
                 }
 
-                _objectsByIndex[indexEntry] = new CelestialObject(indexEntry, objectType, HMSToHours(raHMS), DMSToDegree(decDMS), @const, vmag, surfaceBrightness, commonNames);
+                _objectsByIndex[indexEntry] = new CelestialObject(
+                    indexEntry,
+                    objectType,
+                    HMSToHours(raHMS),
+                    DMSToDegree(decDMS),
+                    @const,
+                    vmag,
+                    surfaceBrightness,
+                    commonNames,
+                    null
+                );
 
                 if (objectType == ObjectType.Duplicate)
                 {
                     // when the entry is a duplicate, use the cross lookup table to list the entries it duplicates
                     if (TryGetCatalogField(NGC, out var ngcIndexEntry))
                     {
-                        _crossLookupTable.AddLookupEntry(indexEntry, ngcIndexEntry);
+                        _crossIndexLookuptable.AddLookupEntry(indexEntry, ngcIndexEntry);
                     }
                     if (TryGetCatalogField(M, out var messierIndexEntry))
                     {
-                        _crossLookupTable.AddLookupEntry(indexEntry, messierIndexEntry);
+                        _crossIndexLookuptable.AddLookupEntry(indexEntry, messierIndexEntry);
                     }
                     if (TryGetCatalogField(IC, out var icIndexEntry))
                     {
-                        _crossLookupTable.AddLookupEntry(indexEntry, icIndexEntry);
+                        _crossIndexLookuptable.AddLookupEntry(indexEntry, icIndexEntry);
                     }
                 }
                 else
                 {
                     if (TryGetCatalogField(IC, out var icIndexEntry) && indexEntry != icIndexEntry)
                     {
-                        _crossLookupTable.AddLookupEntry(icIndexEntry, indexEntry);
-                        _crossLookupTable.AddLookupEntry(indexEntry, icIndexEntry);
+                        _crossIndexLookuptable.AddLookupEntry(icIndexEntry, indexEntry);
+                        _crossIndexLookuptable.AddLookupEntry(indexEntry, icIndexEntry);
                     }
                     if (TryGetCatalogField(M, out var messierIndexEntry) && indexEntry != messierIndexEntry)
                     {
                         // Adds Messier to NGC/IC entry lookup, but only if its not a duplicate
-                        _crossLookupTable.AddLookupEntry(messierIndexEntry, indexEntry);
-                        _crossLookupTable.AddLookupEntry(indexEntry, messierIndexEntry);
+                        _crossIndexLookuptable.AddLookupEntry(messierIndexEntry, indexEntry);
+                        _crossIndexLookuptable.AddLookupEntry(indexEntry, messierIndexEntry);
                     }
 
                     if (csvReader.TryGetField<string>("Identifiers", out var identifiersEntry) && identifiersEntry is not null)
@@ -308,7 +300,7 @@ public class OpenNGCDB : ICelestialObjectDB
                                 && IsCrossCat(crossCatIdx.ToCatalog())
                             )
                             {
-                                _crossLookupTable.AddLookupEntry(crossCatIdx, indexEntry);
+                                _crossIndexLookuptable.AddLookupEntry(crossCatIdx, indexEntry);
                             }
                         }
                     }
