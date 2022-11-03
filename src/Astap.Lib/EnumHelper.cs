@@ -67,8 +67,8 @@ public static class EnumHelper
         }
     }
 
-    static readonly Regex PascalSplitter = new("([A-Z])|([0-9]+)", RegexOptions.Compiled);
+    const RegexOptions CommonOptions = RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnorePatternWhitespace;
+    static readonly Regex PascalSplitter = new(@"([A-Z][(?:)a-z])|([0-9]+)", CommonOptions);
 
-    public static string PascalCaseStringToName<T>(this T @enum) where T : struct, Enum
-        => PascalSplitter.Replace(@enum.ToString(), " $1$2").TrimStart();
+    public static string PascalCaseStringToName<T>(this T @enum) where T : struct, Enum => PascalSplitter.Replace(@enum.ToString(), " $1$2").TrimStart();
 }
