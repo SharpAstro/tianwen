@@ -254,8 +254,7 @@ public class OpenNGCDB : ICelestialObjectDB
                     @const,
                     vmag,
                     surfaceBrightness,
-                    commonNames,
-                    null
+                    commonNames
                 );
 
                 if (objectType == ObjectType.Duplicate)

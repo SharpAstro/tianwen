@@ -16,7 +16,7 @@ public class IAUNamedStarTests
         processed.ShouldBe(451);
         failed.ShouldBe(0);
 
-        db.CommonNames.Count.ShouldBe(processed);
+        db.CommonNames.Count.ShouldBeGreaterThanOrEqualTo(processed);
     }
 
     [Theory]

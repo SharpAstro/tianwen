@@ -24,7 +24,8 @@ public class CombinedDBTests
     }
 
     [Theory]
-    [InlineData(HR0897, "Acamar")]
+    [InlineData(HR0897, "Acamar", "θ1 Eri A")]
+    [InlineData(HR1084, "Ran", "ε Eri")]
     [InlineData(C099, "Coalsack Nebula")]
     [InlineData(M042, "Great Orion Nebula", "Orion Nebula")]
     [InlineData(NGC1976, "Great Orion Nebula", "Orion Nebula")]
