@@ -14,9 +14,14 @@ public static class Utils
         const double minToHours = 1.0 / 60.0;
         const double secToHours = 1.0 / 3600.0;
 
-        var split = hms?.Split(':', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        if (hms is null)
+        {
+            return double.NaN;
+        }
 
-        if (split?.Length == 3
+        var split = hms.Split(':', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+
+        if (split.Length == 3
             && double.TryParse(split[0], NumberStyles.None, CultureInfo.InvariantCulture, out var hours)
             && double.TryParse(split[1], NumberStyles.None, CultureInfo.InvariantCulture, out var min)
             && double.TryParse(split[2], NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var sec)
@@ -53,16 +58,32 @@ public static class Utils
 
     public static string HoursToHMS(double hours)
     {
-        var ts = TimeSpan.FromHours(hours);
-        return $"{ts.Hours:D2}:{ts.Minutes:D2}:{ts.Seconds:D2}.{ts.Milliseconds:D4}";
+        var hoursInt = (int)Math.Floor(hours);
+        var min = (hours - hoursInt) * 60d;
+        var minInt = (int)Math.Floor(min);
+        var sec = (min - minInt) * 60d;
+        var secInt = (int)Math.Floor(sec);
+        var secFrac = (int)Math.Round((sec - secInt) * 1000d);
+        if (secFrac >= 1000)
+        {
+            secFrac -= 1000;
+            secInt += 1;
+        }
+        if (secInt >= 60)
+        {
+            secInt -= 60;
+            minInt += 1;
+        }
+        if (minInt >= 60)
+        {
+            minInt -= 60;
+            hoursInt += 1;
+        }
+        var hasMS = secFrac > 0;
+        return $"{hoursInt:D2}:{minInt:D2}:{secInt:D2}{(hasMS ? $".{secFrac:D3}" : "")}";
     }
 
-    public static string DegreesToDMS(double degrees)
-    {
-        var sign = Math.Sign(degrees);
-        var ts = TimeSpan.FromHours(Math.Abs(degrees));
-        return $"{(sign >= 0 ? "+" : "-")}{ts.Hours:D2}:{ts.Minutes:D2}:{ts.Seconds:D2}.{ts.Milliseconds:D4}";
-    }
+    public static string DegreesToDMS(double degrees) => $"{(Math.Sign(degrees) >= 0 ? "+" : "-")}{HoursToHMS(Math.Abs(degrees))}";
 
     public static double DMSToDegree(string dms)
     {

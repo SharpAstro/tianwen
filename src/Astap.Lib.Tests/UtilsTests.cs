@@ -13,9 +13,20 @@ public class UtilsTests
     [InlineData("23:59:59.9", 23.999972222222222d)]
     [InlineData("12:00:00", 12d)]
     [InlineData("0:0:0", 0d)]
-    public void GivenHMSWHenConvertToDegreesItReturnsHoursAsDouble(string hms, double expectedDegrees)
+    public void GivenHMSWHenConvertToHoursItReturnsHoursAsDouble(string hms, double expectedDegrees)
     {
         Utils.HMSToHours(hms).ShouldBe(expectedDegrees);
+    }
+
+    [Theory]
+    [InlineData(5.392916666666667d, "05:23:34.500")]
+    [InlineData(23.903666666666666d, "23:54:13.200")]
+    [InlineData(23.999972222222222d, "23:59:59.900")]
+    [InlineData(12d, "12:00:00")]
+    [InlineData(0d, "00:00:00")]
+    public void GivenHoursHenConvertToHMSItReturnsHMSAsString(double hours, string expectedHMS)
+    {
+        Utils.HoursToHMS(hours).ShouldBe(expectedHMS);
     }
 
     [Theory]
@@ -40,6 +51,21 @@ public class UtilsTests
     public void GivenDMSWHenConvertToDegreesItReturnsDegreesAsDouble(string dms, double expectedDegrees)
     {
         Utils.DMSToDegree(dms).ShouldBe(expectedDegrees);
+    }
+
+    [Theory]
+    [InlineData(61.74d, "+61:44:24")]
+    [InlineData(-12.055000000000001d, "-12:03:18")]
+    [InlineData(+90.0d, "+90:00:00")]
+    [InlineData(-89.5d, "-89:30:00")]
+    [InlineData(-90.0d, "-90:00:00")]
+    [InlineData(0.0d, "+00:00:00")]
+    [InlineData(-8.186388888888889d, "-08:11:11")]
+    [InlineData(-31.314123299999999, "-31:18:50.844")]
+    [InlineData(+12.8d, "+12:48:00")]
+    public void GivenDegreesWhenConvertToDMSItReturnsDMSAsString(double degrees, string expectedDMS)
+    {
+        Utils.DegreesToDMS(degrees).ShouldBe(expectedDMS);
     }
 
 
