@@ -88,7 +88,15 @@ public class IAUNamedStarDB : ICelestialObjectDB
                 {
                     var objType = catalogIndex.ToCatalog() == Catalog.PSR ? ObjectType.Pulsar : ObjectType.Star;
                     var constellation = AbbreviationToEnumMember<Constellation>(record.Constellation);
-                    var commonNames = new string[] { record.IAUName };
+                    var commonNames = new string[record.ID is not null ? 2 : 1];
+                    commonNames[0] = record.IAUName;
+
+                    if (record.ID is not null)
+                    {
+                        var bayerName = string.Join(' ', record.ID, constellation.ToIAUAbbreviation(), record.WDSComponentId).TrimEnd();
+                        commonNames[1] = bayerName;
+                    }
+
                     var stellarObject = _stellarObjectsByCatalogIndex[catalogIndex] = new CelestialObject(
                         catalogIndex,
                         objType,
@@ -97,8 +105,7 @@ public class IAUNamedStarDB : ICelestialObjectDB
                         constellation,
                         record.Vmag ?? float.NaN,
                         float.NaN,
-                        commonNames,
-                        record.WDSComponentId
+                        commonNames
                     );
 
                     if (record.WDS_J is string wdsJ && Utils.TryGetCleanedUpCatalogName($"{Catalog.WDS.ToCanonical()}J{wdsJ}", out var wdsCatalogIndex))
