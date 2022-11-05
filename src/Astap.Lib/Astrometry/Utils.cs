@@ -83,6 +83,8 @@ public static class Utils
         return $"{hoursInt:D2}:{minInt:D2}:{secInt:D2}{(hasMS ? $".{secFrac:D3}" : "")}";
     }
 
+    public static double ToJulian(this DateTimeOffset dateTimeOffset) => dateTimeOffset.UtcDateTime.ToOADate() + 2415018.5;
+
     public static string DegreesToDMS(double degrees) => $"{(Math.Sign(degrees) >= 0 ? "+" : "-")}{HoursToHMS(Math.Abs(degrees))}";
 
     public static double DMSToDegree(string dms)

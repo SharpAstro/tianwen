@@ -1,5 +1,7 @@
 ﻿using Astap.Lib.Astrometry;
 using Shouldly;
+using System;
+using System.Globalization;
 using Xunit;
 using static Astap.Lib.Tests.SharedTestData;
 
@@ -7,6 +9,17 @@ namespace Astap.Lib.Tests;
 
 public class UtilsTests
 {
+    [Theory]
+    [InlineData("2022-11-05T22:03:25.5847372Z", 2459889.419046111d)]
+    [InlineData("2022-11-06T09:11:14.6430197+11:00", 2459889.4244750347d)]
+    [InlineData("2022-11-05T11:11:14.6430197-11:00", 2459889.4244750347d)]
+    public void GivenDTOWhenConvertToJulianThenItIsReturned(string dtoStr, double expectedJulian)
+    {
+        var dto = DateTimeOffset.Parse(dtoStr, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
+
+        Utils.ToJulian(dto).ShouldBe(expectedJulian);
+    }
+
     [Theory]
     [InlineData("05:23:34.5", 5.392916666666667d)]
     [InlineData("23:54:13.2", 23.903666666666666d)]
