@@ -1,6 +1,6 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
+using Astap.Lib.Astrometry.NOVA;
 
 namespace Astap.Lib.Astrometry.Ascom;
 
@@ -8,9 +8,10 @@ public class AstroUtils : DynamicComObject
 {
     public AstroUtils() : base("ASCOM.Astrometry.AstroUtils.AstroUtils") { }
 
-    public (bool aboveHorizon, IReadOnlyList<DateTimeOffset> riseEvents, IReadOnlyList<DateTimeOffset> setEvents)? EventTimes(EventType eventType, DateTimeOffset dto, double SiteLatitude, double SiteLongitude)
+    /// <inheritdoc/>
+    public (bool aboveHorizon, IReadOnlyList<DateTimeOffset> riseEvents, IReadOnlyList<DateTimeOffset> setEvents)? EventTimes(EventType eventType, DateTimeOffset dto, double siteLatitude, double siteLongitude)
     {
-        var result = _comObject?.EventTimes(eventType, dto.Day, dto.Month, dto.Year, SiteLatitude, SiteLongitude, dto.Offset.TotalHours);
+        var result = _comObject?.EventTimes(eventType, dto.Day, dto.Month, dto.Year, siteLatitude, siteLongitude, dto.Offset.TotalHours);
         if (result?.Count >= 2)
         {
             int resIdx = 0;
