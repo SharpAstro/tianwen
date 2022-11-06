@@ -15,7 +15,7 @@ public class AscomTransformTests
         Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows));
 
         // given
-        using ICoordinateTransform transform = new AscomTransform
+        using ICoordinateTransform transform = new CoordinateTransform
         {
             SiteLatitude = lat,
             SiteLongitude = @long,

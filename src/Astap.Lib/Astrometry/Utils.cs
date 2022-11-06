@@ -9,6 +9,113 @@ namespace Astap.Lib.Astrometry;
 
 public static class Utils
 {
+    /// <summary>
+    /// Flexible routine to range a number into a given range between a lower and an higher bound.
+    /// </summary>
+    /// <param name="value">Value to be ranged</param>
+    /// <param name="lowerBound">Lowest value of the range</param>
+    /// <param name="lowerEqual">Boolean flag indicating whether the ranged value can have the lower bound value</param>
+    /// <param name="upperBound">Highest value of the range</param>
+    /// <param name="upperEqual">Boolean flag indicating whether the ranged value can have the upper bound value</param>
+    /// <returns>The ranged nunmber as a double</returns>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown if the lower bound is greater than the upper bound.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown if LowerEqual and UpperEqual are both false and the ranged value equals
+    /// one of these values. This is impossible to handle as the algorithm will always violate one of the rules!</exception>
+    /// <remarks>
+    /// UpperEqual and LowerEqual switches control whether the ranged value can be equal to either the upper and lower bounds. So,
+    /// to range an hour angle into the range 0 to 23.999999.. hours, use this call:
+    /// <code>RangedValue = Range(InputValue, 0.0, true, 24.0, false)</code>
+    /// <para>The input value will be returned in the range where 0.0 is an allowable value and 24.0 is not i.e. in the range 0..23.999999..</para>
+    /// <para>It is not permissible for both LowerEqual and UpperEqual to be false because it will not be possible to return a value that is exactly equal
+    /// to either lower or upper bounds. An exception is thrown if this scenario is requested.</para>
+    /// </remarks>
+    public static double Range(double value, double lowerBound, bool lowerEqual, double upperBound, bool upperEqual)
+    {
+        double ModuloValue;
+        if (lowerBound >= upperBound)
+            throw new ArgumentOutOfRangeException(nameof(lowerBound), lowerBound, "LowerBound must be less than UpperBound");
+
+        ModuloValue = upperBound - lowerBound;
+
+        if (lowerEqual)
+        {
+            if (upperEqual)
+            {
+                do
+                {
+                    if (value < lowerBound)
+                    {
+                        value += ModuloValue;
+                    }
+                    if (value > upperBound)
+                    {
+                        value -= ModuloValue;
+                    }
+                }
+                while (!(value >= lowerBound) & (value <= upperBound));
+            }
+            else
+            {
+                do
+                {
+                    if (value < lowerBound)
+                    {
+                        value += ModuloValue;
+                    }
+                    if (value >= upperBound)
+                    {
+                        value -= ModuloValue;
+                    }
+                }
+                while (!(value >= lowerBound) & (value < upperBound));
+            }
+        }
+        else if (upperEqual)
+        {
+            do
+            {
+                if (value <= lowerBound)
+                {
+                    value += ModuloValue;
+                }
+                if (value > upperBound)
+                {
+                    value -= ModuloValue;
+                }
+            }
+            while (!(value > lowerBound) & (value <= upperBound));
+        }
+        else
+        {
+            if (value == lowerBound)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value), value, "The supplied value equals the LowerBound. This can not be ranged when LowerEqual and UpperEqual are both false ");
+            }
+            if (value == upperBound)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value), value, "The supplied value equals the UpperBound. This can not be ranged when LowerEqual and UpperEqual are both false ");
+            }
+
+            do
+            {
+                if (value <= lowerBound)
+                {
+                    value += ModuloValue;
+                }
+                if (value >= upperBound)
+                {
+                    value -= ModuloValue;
+                }
+            }
+            while (!(value > lowerBound) & (value < upperBound));
+        }
+        return value;
+    }
+
+    public static double ConditionHA(double ha) => Range(ha, -12, true, +12, true);
+
+    public static double ConditionRA(double ra) => Range(ra, 0, true, 24, false);
+
     public static double HMSToHours(string? hms)
     {
         const double minToHours = 1.0 / 60.0;

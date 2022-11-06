@@ -1,4 +1,4 @@
-﻿namespace Astap.Lib.Astrometry.Ascom;
+﻿namespace Astap.Lib.Astrometry.NOVA;
 
 public enum EventType
 {

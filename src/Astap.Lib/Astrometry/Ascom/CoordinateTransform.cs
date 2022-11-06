@@ -1,8 +1,8 @@
 ﻿namespace Astap.Lib.Astrometry.Ascom;
 
-public class AscomTransform : DynamicComObject, ICoordinateTransform
+public class CoordinateTransform : DynamicComObject, ICoordinateTransform
 {
-    public AscomTransform() : base("ASCOM.Astrometry.Transform.Transform") { }
+    public CoordinateTransform() : base("ASCOM.Astrometry.Transform.Transform") { }
 
     /// <inheritdoc/>
     public double? AzimuthTopocentric => _comObject?.AzimuthTopocentric is double value ? value : null;
