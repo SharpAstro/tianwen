@@ -3,6 +3,7 @@ using Astap.Lib.Astrometry.NOVA;
 using Shouldly;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -35,7 +36,7 @@ public class AscomAstroUtilsTests : IDisposable
     [InlineData("2022-11-06T00:00:00+11:00", EventType.AstronomicalTwilight, -37.8845, 145.1663, false, 1, 1, "2022-11-06T04:27:15+11:00", "2022-11-06T21:39:40+11:00")]
     public async Task GivenDateEventPositionAndOffsetWhenCalcRiseAndSetTimesTheyAreReturned(string dtoStr, EventType eventType, double lat, double @long, bool expAbove, int expRise, int expSet, params string[] dateTimeStrs)
     {
-        Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows));
+        Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached);
 
         var dto = DateTimeOffset.Parse(dtoStr, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
 
