@@ -4,6 +4,7 @@ using Astap.Lib.Devices.Builtin;
 using CommunityToolkit.HighPerformance;
 using Shouldly;
 using System;
+using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -29,17 +30,6 @@ public class AscomDeviceTests
         }
     }
 
-    [SkippableFact]
-    public void TestWhenPlatformIsWindowsThatTelescopesCanBeFound()
-    {
-        Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows));
-
-        using var profile = new AscomProfile();
-        var telescopes = profile.RegisteredDevices("Telescope");
-
-        telescopes.ShouldNotBeEmpty();
-    }
-
     [SkippableTheory]
     [InlineData("Camera")]
     [InlineData("CoverCalibrator")]
@@ -47,7 +37,7 @@ public class AscomDeviceTests
     [InlineData("Switch")]
     public void GivenSimulatorDeviceTypeVersionAndNameAreReturned(string type)
     {
-        Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows));
+        Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached);
 
         using var profile = new AscomProfile();
         var devices = profile.RegisteredDevices(type);
@@ -71,7 +61,7 @@ public class AscomDeviceTests
     [SkippableFact]
     public void GivenAConnectedAscomSimulatorCameraWhenImageReadyThenItCanBeDownloaded()
     {
-        Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows));
+        Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached);
 
         // given
         const string Camera = nameof(Camera);
