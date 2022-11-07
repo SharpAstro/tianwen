@@ -2,11 +2,11 @@
 
 namespace Astap.Lib.Astrometry.NOVA;
 
-public interface INOVAS31
+public interface INOVAS31 : IDisposable
 {
     double? DeltaT(double jd);
 
-    int? SiderealTime(double intPart, double fraction, double deltaT,
+    short SiderealTime(double intPart, double fraction, double deltaT,
         GstType gstType,
         Method method,
         Accuracy accuracy, ref double siderealTime);

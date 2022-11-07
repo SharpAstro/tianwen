@@ -2,7 +2,7 @@
 
 namespace Astap.Lib.Astrometry.Ascom;
 
-public class NOVAS31 : DynamicComObject
+public class NOVAS31 : DynamicComObject, INOVAS31
 {
     public NOVAS31() : base("ASCOM.Astrometry.NOVAS.NOVAS31") { }
 
