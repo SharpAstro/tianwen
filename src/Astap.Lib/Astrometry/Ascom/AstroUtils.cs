@@ -4,7 +4,7 @@ using Astap.Lib.Astrometry.NOVA;
 
 namespace Astap.Lib.Astrometry.Ascom;
 
-public class AstroUtils : DynamicComObject
+public class AstroUtils : DynamicComObject, IAstroUtils
 {
     public AstroUtils() : base("ASCOM.Astrometry.AstroUtils.AstroUtils") { }
 
