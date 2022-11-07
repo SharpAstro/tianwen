@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace Astap.Lib.Astrometry.NOVA;
 
-public interface IAstroUtils
+public interface IAstroUtils : IDisposable
 {
     /// <summary>
     ///
