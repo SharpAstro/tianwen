@@ -23,7 +23,7 @@ public interface INOVAS31 : IDisposable
             throw new InvalidOperationException($"NOVAS 3.1 SiderealTime could not get delta T of Julian date {jd}");
         }
         var siderealTimeResult = SiderealTime(intPart, fraction, deltaT,
-            GstType.GreenwichApparentSiderealTime,
+            GstType.GreenwichMeanSiderealTime,
             Method.EquinoxBased,
             Accuracy.Reduced, ref gst);
 
