@@ -1,6 +1,22 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Astap.Lib.Astrometry;
+
+public enum RaDecEventTime
+{
+    AstroDark = 0,
+    AstroTwilight = 1,
+    Meridian = 2,
+    MeridianL1 = 3,
+    MeridianL2 = 4,
+    MeridianR1 = 5,
+    MeridianR2 = 6,
+    Balance = 7,
+}
+
+public record RaDecEventInfo(DateTimeOffset Time, double Alt);
 
 public interface ICoordinateTransform : IDisposable
 {
@@ -119,4 +135,81 @@ public interface ICoordinateTransform : IDisposable
     /// <param name="ra">RA in apparent co-ordinates (0.0 to 23.999 hours)</param>
     /// <param name="dec">DEC in apparent co-ordinates (-90.0 to +90.0)</param>
     void SetTopocentric(double ra, double dec);
+
+    public IReadOnlyDictionary<RaDecEventTime, RaDecEventInfo> CalculateObjElevation(ICoordinateTransform coordinateTransform, CelestialObject obj, DateTimeOffset astroDark, DateTimeOffset astroTwilight, double siderealTimeAtAstroDark)
+    {
+        coordinateTransform.SetJ2000(obj.RA, obj.Dec);
+
+        var raDecEventTimes = new Dictionary<RaDecEventTime, RaDecEventInfo>(4);
+
+        var hourAngle = TimeSpan.FromHours(Utils.ConditionHA(siderealTimeAtAstroDark - obj.RA));
+        var crossMeridianTime = astroDark - hourAngle;
+
+        var darkEvent = raDecEventTimes[RaDecEventTime.AstroDark] = CalcRaDecEventInfo(astroDark);
+        var twilightEvent = raDecEventTimes[RaDecEventTime.AstroTwilight] = CalcRaDecEventInfo(astroTwilight);
+        var meridianEvent = raDecEventTimes[RaDecEventTime.Meridian] = CalcRaDecEventInfo(crossMeridianTime);
+
+        raDecEventTimes[RaDecEventTime.MeridianL1] = CalcRaDecEventInfo(crossMeridianTime - TimeSpan.FromHours(0.2));
+        raDecEventTimes[RaDecEventTime.MeridianL2] = CalcRaDecEventInfo(crossMeridianTime - TimeSpan.FromHours(12));
+        raDecEventTimes[RaDecEventTime.MeridianR1] = CalcRaDecEventInfo(crossMeridianTime + TimeSpan.FromHours(0.2));
+        raDecEventTimes[RaDecEventTime.MeridianR2] = CalcRaDecEventInfo(crossMeridianTime + TimeSpan.FromHours(12));
+
+        TimeSpan duration;
+        DateTimeOffset start;
+        if (TryBalanceTimeAroundMeridian(meridianEvent.Time, darkEvent.Time, twilightEvent.Time, out var maybeBalance) && maybeBalance is DateTimeOffset balance)
+        {
+            raDecEventTimes[RaDecEventTime.Balance] = CalcRaDecEventInfo(balance);
+            var absHours = Math.Abs((balance - meridianEvent.Time).TotalHours);
+            duration = TimeSpan.FromHours(absHours * 2);
+            start = meridianEvent.Time.AddHours(-absHours);
+        }
+        else
+        {
+            duration = astroTwilight - astroDark;
+            start = astroDark;
+        }
+
+        const int iterations = 10;
+        var step = duration / 10;
+        for (var it = 1; it < iterations; it++)
+        {
+            start += step;
+            raDecEventTimes[RaDecEventTime.Balance + it] = CalcRaDecEventInfo(start);
+        }
+
+        return raDecEventTimes;
+
+        RaDecEventInfo CalcRaDecEventInfo(in DateTimeOffset dt)
+        {
+            coordinateTransform.JulianDateUTC = dt.ToJulian();
+            if (coordinateTransform.ElevationTopocentric is double alt)
+            {
+                return new(dt, alt);
+            }
+            return new(dt, double.NaN);
+        }
+    }
+
+
+    internal static bool TryBalanceTimeAroundMeridian(in DateTimeOffset m, in DateTimeOffset d, in DateTimeOffset t, [NotNullWhen(true)] out DateTimeOffset? b)
+    {
+        var dm = Math.Abs((d - m).TotalHours);
+        var tm = Math.Abs((t - m).TotalHours);
+
+        if (dm > tm)
+        {
+            b = m.AddHours((m > d ? 1 : -1) * dm);
+            return true;
+        }
+        else if (dm == tm)
+        {
+            b = null;
+            return false;
+        }
+        else
+        {
+            b = m.AddHours((m > t ? 1 : -1) * tm);
+            return true;
+        }
+    }
 }
