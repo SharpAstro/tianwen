@@ -33,6 +33,25 @@ public interface ICelestialObjectDB
             return false;
         }
     }
+
+
+    public string[] InitAutoComplete()
+    {
+        var commonNames = CommonNames;
+        var objIndices = ObjectIndices;
+        var names = new string[objIndices.Count + commonNames.Count];
+        int i = 0;
+        foreach (var commonName in commonNames)
+        {
+            names[i++] = commonName;
+        }
+        foreach (var objIndex in objIndices)
+        {
+            names[i++] = objIndex.ToCanonical();
+        }
+
+        return names;
+    }
 }
 
 public static class ICelestialObjectDBEx
