@@ -136,9 +136,9 @@ public interface ICoordinateTransform : IDisposable
     /// <param name="dec">DEC in apparent co-ordinates (-90.0 to +90.0)</param>
     void SetTopocentric(double ra, double dec);
 
-    public IReadOnlyDictionary<RaDecEventTime, RaDecEventInfo> CalculateObjElevation(ICoordinateTransform coordinateTransform, CelestialObject obj, DateTimeOffset astroDark, DateTimeOffset astroTwilight, double siderealTimeAtAstroDark)
+    public IReadOnlyDictionary<RaDecEventTime, RaDecEventInfo> CalculateObjElevation(in CelestialObject obj, DateTimeOffset astroDark, DateTimeOffset astroTwilight, double siderealTimeAtAstroDark)
     {
-        coordinateTransform.SetJ2000(obj.RA, obj.Dec);
+        SetJ2000(obj.RA, obj.Dec);
 
         var raDecEventTimes = new Dictionary<RaDecEventTime, RaDecEventInfo>(4);
 
@@ -181,8 +181,8 @@ public interface ICoordinateTransform : IDisposable
 
         RaDecEventInfo CalcRaDecEventInfo(in DateTimeOffset dt)
         {
-            coordinateTransform.JulianDateUTC = dt.ToJulian();
-            if (coordinateTransform.ElevationTopocentric is double alt)
+            JulianDateUTC = dt.ToJulian();
+            if (ElevationTopocentric is double alt)
             {
                 return new(dt, alt);
             }
