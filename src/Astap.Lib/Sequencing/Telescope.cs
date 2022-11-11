@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Astap.Lib.Plan;
+namespace Astap.Lib.Sequencing;
 
 public class Telescope : IDisposable
 {

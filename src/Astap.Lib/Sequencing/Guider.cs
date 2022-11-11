@@ -1,7 +1,7 @@
 ﻿using Astap.Lib.Devices;
 using Astap.Lib.Devices.Guider;
 
-namespace Astap.Lib.Plan;
+namespace Astap.Lib.Sequencing;
 
 public class Guider : ControllableDeviceBase<IGuider>
 {

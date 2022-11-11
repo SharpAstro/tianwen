@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using Astap.Lib.Imaging;
-using static Astap.Lib.StatisticsHelper;
+using static Astap.Lib.Stat.StatisticsHelper;
 
 namespace Astap.Lib.Astrometry.Focus;
 

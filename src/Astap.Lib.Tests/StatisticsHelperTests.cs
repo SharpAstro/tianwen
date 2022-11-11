@@ -1,4 +1,5 @@
-﻿using Shouldly;
+﻿using Astap.Lib.Stat;
+using Shouldly;
 using Xunit;
 
 namespace Astap.Lib.Tests;

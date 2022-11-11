@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Runtime.CompilerServices;
 
-namespace Astap.Lib;
+namespace Astap.Lib.Stat;
 
 public static class StatisticsHelper
 {
