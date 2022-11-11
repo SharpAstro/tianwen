@@ -30,7 +30,7 @@ public abstract class AscomDeviceDriverBase : DynamicComObject, IDeviceDriver
             {
                 obj.Connected = value;
 
-                DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(value));
+                DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(Connected));
             }
         }
     }
