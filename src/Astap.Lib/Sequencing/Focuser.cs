@@ -1,6 +1,6 @@
 ﻿using Astap.Lib.Devices;
 
-namespace Astap.Lib.Plan;
+namespace Astap.Lib.Sequencing;
 
 public class Focuser : ControllableDeviceBase<IFocuserDriver>
 {

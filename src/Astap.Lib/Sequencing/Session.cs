@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 
-namespace Astap.Lib.Plan;
+namespace Astap.Lib.Sequencing;
 
 public class Session
 {

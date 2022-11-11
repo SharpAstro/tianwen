@@ -10,11 +10,11 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using static Astap.Lib.StatisticsHelper;
+using static Astap.Lib.Stat.StatisticsHelper;
 
 namespace Astap.Lib.Imaging;
 
-public class Image
+public sealed class Image
 {
     readonly float[,] _data;
     readonly int _width;

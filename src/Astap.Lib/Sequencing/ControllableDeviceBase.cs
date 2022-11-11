@@ -1,7 +1,7 @@
 ﻿using Astap.Lib.Devices;
 using System;
 
-namespace Astap.Lib.Plan;
+namespace Astap.Lib.Sequencing;
 
 public abstract class ControllableDeviceBase<TDriver> : IDisposable
     where TDriver : IDeviceDriver

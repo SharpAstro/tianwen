@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 
-namespace Astap.Lib.Plan;
+namespace Astap.Lib.Sequencing;
 
 public class Setup : IDisposable
 {
