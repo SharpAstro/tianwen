@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -173,9 +174,9 @@ public class OpenNGCDB : ICelestialObjectDB
         int totalProcessed = 0;
         int totalFailed = 0;
 
-        foreach (var csvName in new[] { "NGC.csv", "addendum.csv" })
+        foreach (var csvName in new[] { "NGC", "NGC.addendum" })
         {
-            var (processed, failed) = await ReadEmbeddedDataFileAsync(assembly, csvName);
+            var (processed, failed) = await ReadEmbeddedGzippedDataFileAsync(assembly, csvName);
             totalProcessed += processed;
             totalFailed += failed;
         }
@@ -183,7 +184,7 @@ public class OpenNGCDB : ICelestialObjectDB
         return (totalProcessed, totalFailed);
     }
 
-    private async Task<(int processed, int failed)> ReadEmbeddedDataFileAsync(Assembly assembly, string csvName)
+    private async Task<(int processed, int failed)> ReadEmbeddedGzippedDataFileAsync(Assembly assembly, string csvName)
     {
         const string NGC = nameof(NGC);
         const string IC = nameof(IC);
@@ -191,14 +192,15 @@ public class OpenNGCDB : ICelestialObjectDB
 
         int processed = 0;
         int failed = 0;
-        var manifestFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith("." + csvName));
+        var manifestFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith("." + csvName + ".csv.gz"));
         if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
         {
             return (processed, failed);
         }
 
-        using var streamReader = new StreamReader(stream, new UTF8Encoding(false));
-        using var csvReader = new CsvReader(streamReader, new CsvConfiguration(CultureInfo.InvariantCulture) { Delimiter = ";" });
+        using var gzipStream = new GZipStream(stream, CompressionMode.Decompress, false);
+        using var streamReader = new StreamReader(gzipStream, new UTF8Encoding(false), leaveOpen: true);
+        using var csvReader = new CsvReader(new CsvParser(streamReader, new CsvConfiguration(CultureInfo.InvariantCulture) { Delimiter = ";" }, leaveOpen: true));
 
         if (!await csvReader.ReadAsync() || !csvReader.ReadHeader())
         {

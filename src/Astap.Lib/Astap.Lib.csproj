@@ -28,13 +28,10 @@
     <EmbeddedResource Remove="MAttiaverga.OpenNGC/**" />
     <EmbeddedResource Remove="OpenNGC/**" />
     <None Remove="OpenNGC/**" />
-    <EmbeddedResource Include="Astrometry/iau-named-stars.json" />
-    <EmbeddedResource Include="OpenNGC/NGC.csv" />
-    <EmbeddedResource Include="OpenNGC/addendum/addendum.csv" />
+    <EmbeddedResource Include="Astrometry/*.gz" />
     <None Remove="MAttiaverga.OpenNGC/**" />
     <None Remove=".git*." />
-    <None Remove="Astrometry/iau-named-stars.json" />
-
+    <None Remove="Astrometry/*.json" />
     <None Include="../../LICENSE" PackagePath="" Pack="True" />
   </ItemGroup>
 

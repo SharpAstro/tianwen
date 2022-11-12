@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -78,11 +79,12 @@ public class IAUNamedStarDB : ICelestialObjectDB
         var processed = 0;
         var failed = 0;
         var assembly = typeof(IAUNamedStarDB).Assembly;
-        var namedStarsJsonFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith(".iau-named-stars.json"));
+        var namedStarsGzippedJsonFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith(".iau-named-stars.json.gz"));
 
-        if (namedStarsJsonFileName is not null && assembly.GetManifestResourceStream(namedStarsJsonFileName) is Stream stream)
+        if (namedStarsGzippedJsonFileName is not null && assembly.GetManifestResourceStream(namedStarsGzippedJsonFileName) is Stream stream)
         {
-            await foreach (var record in JsonSerializer.DeserializeAsyncEnumerable<IAUNamedStarDTO>(stream))
+            using var gzipStream = new GZipStream(stream, CompressionMode.Decompress);
+            await foreach (var record in JsonSerializer.DeserializeAsyncEnumerable<IAUNamedStarDTO>(gzipStream))
             {
                 if (record is not null && Utils.TryGetCleanedUpCatalogName(record.Designation, out var catalogIndex))
                 {
