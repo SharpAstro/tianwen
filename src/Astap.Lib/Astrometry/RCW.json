@@ -1,0 +1,2917 @@
+[
+  {
+    "MainId": "RCW   1",
+    "Ids": [
+      "RCW   1"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 106.0,
+    "Dec": -9.6
+  },
+  {
+    "MainId": "IC 2177",
+    "Ids": [
+      "IC 2177",
+      "GN 07.02.0",
+      "GRS G223.90 -01.90",
+      "GUM  1",
+      "LBN  1027",
+      "LBN 223.68-01.86",
+      "PKS 0702-10",
+      "PKS 0702-103",
+      "PKS J0704-1027",
+      "RCW   2",
+      "RRF 2486",
+      "SH  2-292",
+      "VDB  93"
+    ],
+    "ObjType": "RefNeb",
+    "Ra": 106.104,
+    "Dec": -10.455
+  },
+  {
+    "MainId": "LBN  1032",
+    "Ids": [
+      "LBN  1032",
+      "GRS G224.20 +01.20",
+      "LBN 224.24+01.18",
+      "RCW   3",
+      "SH  2-294"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 109.148,
+    "Dec": -9.428
+  },
+  {
+    "MainId": "RCW   4",
+    "Ids": [
+      "RCW   4"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 110.98,
+    "Dec": -8.6
+  },
+  {
+    "MainId": "NGC  2359",
+    "Ids": [
+      "NGC  2359",
+      "GRS G227.80 -00.20",
+      "GUM  4",
+      "LBN  1041",
+      "LBN 227.66-00.09",
+      "RCW   5",
+      "SH  2-298"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 109.625,
+    "Dec": -13.226667
+  },
+  {
+    "MainId": "SH  2-301",
+    "Ids": [
+      "SH  2-301",
+      "BRAN   7A",
+      "GAL 231.48-04.40",
+      "GRS G231.60 -04.30",
+      "RCW   6",
+      "[LPH96] 231.481-4.401"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 107.4763,
+    "Dec": -18.4981
+  },
+  {
+    "MainId": "RCW   7",
+    "Ids": [
+      "DG 121",
+      "GAL 232.62+01.00",
+      "RCW   7",
+      "[BNM96] 232.621+0.996",
+      "[WBH98] 07299-1651",
+      "[WHR97] 07299-1651"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 113.0413,
+    "Dec": -16.9706
+  },
+  {
+    "MainId": "SH  2-305",
+    "Ids": [
+      "LBN  1048",
+      "BRAN  32",
+      "GRS G233.90 -00.10",
+      "LBN 233.83-00.16",
+      "RCW   8",
+      "SH  2-305"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 112.5171,
+    "Dec": -18.5369
+  },
+  {
+    "MainId": "RCW   9",
+    "Ids": [
+      "RCW   9"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 101.3,
+    "Dec": -24.4
+  },
+  {
+    "MainId": "GRS G234.40 -00.20",
+    "Ids": [
+      "GRS G234.40 -00.20",
+      "RCW  10"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 112.8,
+    "Dec": -19.0
+  },
+  {
+    "MainId": "HD  50896",
+    "Ids": [
+      "HD  50896",
+      "ALS    98",
+      "BRAN   2",
+      "CD-23  4553",
+      "CEL   1426",
+      "Cl Collinder  121     4",
+      "CMC  203719",
+      "CMC  172546",
+      "CPD-23  1588",
+      "CSV   6527",
+      "2E  1743",
+      "2E 0652.1-2351",
+      "GC  9061",
+      "GCRV  4522",
+      "GEN# +5.11210004",
+      "GSC 06522-03270",
+      "Hen 3-20",
+      "HIC  33165",
+      "HIP  33165",
+      "HR  2583",
+      "IRAS 06521-2351",
+      "JP11  4532",
+      "LBN 234.57-10.00",
+      "LBN  1052",
+      "LMA IC 1613 10",
+      "LS   98",
+      "2MASS J06541303-2355422",
+      "MR   6",
+      "N30 1504",
+      "PPM 251223",
+      "RCW  11",
+      "1RXS J065413.8-235543",
+      "SAO 172546",
+      "SH  2-308",
+      "SKY# 12250",
+      "TD1  8528",
+      "TIC 78959225",
+      "TYC 6522-3270-1",
+      "UBV M  12581",
+      "UBV M  40625",
+      "UBV    6842",
+      "UCAC4 331-017802",
+      "uvby98 511210004",
+      "V* EZ CMa",
+      "WRAY 15-2",
+      "WR   6",
+      "2XMM J065413.0-235542",
+      "YZ 113  4156",
+      "[BNJ2003] XMM   1",
+      "[TSA98] J065412.01-235541.40",
+      "Gaia DR2 2922367976673391232",
+      "Gaia DR3 2922367976673391232",
+      "Gaia DR1 2922367972368451072"
+    ],
+    "ObjType": "WolfRayet*",
+    "Ra": 103.55434983683,
+    "Dec": -23.92833981107
+  },
+  {
+    "MainId": "GRS G234.70 +00.90",
+    "Ids": [
+      "GRS G234.70 +00.90",
+      "RCW  12"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 113.97,
+    "Dec": -18.82
+  },
+  {
+    "MainId": "LBN  1053",
+    "Ids": [
+      "LBN  1053",
+      "BRAN  42A",
+      "LBN 234.83-00.18",
+      "RCW  13",
+      "SH  2-309"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 112.95,
+    "Dec": -19.4347
+  },
+  {
+    "MainId": "BRAN  16",
+    "Ids": [
+      "BRAN  16",
+      "GRS G235.60 +04.10",
+      "RCW  14"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 109.7808,
+    "Dec": -21.9381
+  },
+  {
+    "MainId": "RCW  15",
+    "Ids": [
+      "RCW  15"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 107.5,
+    "Dec": -25.1
+  },
+  {
+    "MainId": "NGC  2467",
+    "Ids": [
+      "NGC  2467",
+      "BRAN  80A",
+      "C 0750-263",
+      "CTB 23",
+      "GRS G243.10 +00.40",
+      "GUM  9",
+      "LBN  1065",
+      "LBN 243.28+00.51",
+      "LBN  1067",
+      "Min 2-64",
+      "OCISM 128",
+      "OCl  668",
+      "OCl  668.0",
+      "RCW  16",
+      "SH  2-311",
+      "Villafranca O-012",
+      "[KPR2004b] 169",
+      "[KPS2012] MWSC 1367"
+    ],
+    "ObjType": "Cluster*",
+    "Ra": 118.077,
+    "Dec": -26.428
+  },
+  {
+    "MainId": "NGC  2452",
+    "Ids": [
+      "NGC  2452",
+      "ESO 493-11",
+      "GCRV  5190",
+      "GRS G243.50 -01.00",
+      "GSC2 S1322002590",
+      "Hen 2-4",
+      "IRAS 07453-2712",
+      "2MASS J07472626-2720066",
+      "MSX5C G243.3792-01.0384",
+      "PK 243-01  1",
+      "PN G243.3-01.0",
+      "PN ARO   93",
+      "PN Sa  2-16",
+      "PN VV'   72",
+      "PN VV   46",
+      "RCW  17",
+      "SCM  30",
+      "TIC 127253622",
+      "V* V354 Pup",
+      "WEB  7497",
+      "WRAY 15-85",
+      "[N75]  62",
+      "Gaia DR2 5601582285451511040",
+      "Gaia DR3 5601582285451511040"
+    ],
+    "ObjType": "PlanetaryNeb",
+    "Ra": 116.85943729381,
+    "Dec": -27.33522777283
+  },
+  {
+    "MainId": "RCW  18",
+    "Ids": [
+      "RCW  18"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 119.78,
+    "Dec": -33.83
+  },
+  {
+    "MainId": "GUM 10",
+    "Ids": [
+      "GUM 10",
+      "BRAN 127",
+      "GRS G253.80 -00.50",
+      "RCW  19",
+      "[C72] G253.6-0.2"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 124.07,
+    "Dec": -35.6328
+  },
+  {
+    "MainId": "BRAN 133",
+    "Ids": [
+      "BRAN 133",
+      "GRS G254.50 +00.00",
+      "RCW  20"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 124.7204,
+    "Dec": -36.2042
+  },
+  {
+    "MainId": "PN VBRC    1",
+    "Ids": [
+      "ESO 313-1",
+      "BRAN 156",
+      "IRAS 08290-3807",
+      "PK 257+00  1",
+      "PN G257.5+00.6",
+      "PN VBRC    1",
+      "RCW  21",
+      "WB89 1156"
+    ],
+    "ObjType": "PlanetaryNeb",
+    "Ra": 127.725821,
+    "Dec": -38.301939
+  },
+  {
+    "MainId": "RCW  22",
+    "Ids": [
+      "RCW  22"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 138.9,
+    "Dec": -31.38
+  },
+  {
+    "MainId": "RCW  23",
+    "Ids": [
+      "RCW  23"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 129.22,
+    "Dec": -38.53
+  },
+  {
+    "MainId": "RCW  24",
+    "Ids": [
+      "PN G258.5-01.3",
+      "GSC2 S133120379577",
+      "PHR J0825-4013",
+      "RCW  24",
+      "USNO-B1.0 0497-00136403"
+    ],
+    "ObjType": "PlanetaryNeb",
+    "Ra": 126.448,
+    "Dec": -40.219447
+  },
+  {
+    "MainId": "RCW  25",
+    "Ids": [
+      "RCW  25"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 129.7,
+    "Dec": -39.22
+  },
+  {
+    "MainId": "RCW  26",
+    "Ids": [
+      "RCW  26"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 131.62,
+    "Dec": -38.63
+  },
+  {
+    "MainId": "BRAN 166",
+    "Ids": [
+      "BRAN 166",
+      "RCW  27"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 129.5333,
+    "Dec": -40.2981
+  },
+  {
+    "MainId": "RCW  28",
+    "Ids": [
+      "RCW  28"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 125.32,
+    "Dec": -42.72
+  },
+  {
+    "MainId": "RCW  29",
+    "Ids": [
+      "RCW  29"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 125.43,
+    "Dec": -42.7
+  },
+  {
+    "MainId": "RCW  30",
+    "Ids": [
+      "RCW  30"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 125.7,
+    "Dec": -42.65
+  },
+  {
+    "MainId": "RCW  31",
+    "Ids": [
+      "RCW  31"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 126.0,
+    "Dec": -43.08
+  },
+  {
+    "MainId": "GUM 15",
+    "Ids": [
+      "GUM 15",
+      "BRAN 176",
+      "GRS G261.60 +00.90",
+      "RCW  32"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 130.9688,
+    "Dec": -41.2442
+  },
+  {
+    "MainId": "GRS G263.00 +01.40",
+    "Ids": [
+      "GRS G263.00 +01.40",
+      "RCW  33"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 132.83,
+    "Dec": -42.08
+  },
+  {
+    "MainId": "RCW  34",
+    "Ids": [
+      "GUM 19",
+      "GRS G264.29 +01.47",
+      "GRS G264.29 +01.48",
+      "GRS G264.40 +01.40",
+      "IRAS 08546-4254",
+      "RCW  34",
+      "VdBH 25",
+      "[BNM96] 264.292+1.471",
+      "[CAB2011] G264.31+1.47",
+      "[WBH98] 08546-4254",
+      "[WHR97] 08546-4254"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 134.1171,
+    "Dec": -43.0994
+  },
+  {
+    "MainId": "GRS G264.60 +00.10",
+    "Ids": [
+      "GRS G264.60 +00.10",
+      "RCW  35"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 132.87,
+    "Dec": -44.1
+  },
+  {
+    "MainId": "RCW  36",
+    "Ids": [
+      "GUM 20",
+      "BRAN 217",
+      "FMC 28",
+      "GAL 265.1+01.5",
+      "GAL 265.15+01.45",
+      "GRS G265.14 +01.45",
+      "GRS G265.15 +01.45",
+      "RCW  36",
+      "SNR G265.1+01.5",
+      "[CH87] 265.151+1.454"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 134.7537,
+    "Dec": -43.7361
+  },
+  {
+    "MainId": "NGC  2736",
+    "Ids": [
+      "NGC  2736",
+      "GRS G267.00 +00.10",
+      "NAME Pencil Nebula",
+      "RCW  37"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 135.05,
+    "Dec": -45.95
+  },
+  {
+    "MainId": "RCW  38",
+    "Ids": [
+      "GAL 268.0-01.1",
+      "GRS G267.94 -01.03",
+      "GRS G267.94 -01.06",
+      "GRS G268.00 -01.10",
+      "Kes  5",
+      "MHR  5",
+      "MSH 08-4-07",
+      "RCW  38",
+      "[GS70] 268.0-01.0",
+      "[HBB99] 268.034-0.984",
+      "[KC97c] G268.0-01.0",
+      "[SG70] 268.0-1.1",
+      "[WMG70] 268.0-01.1"
+    ],
+    "ObjType": "StarFormingReg",
+    "Ra": 134.77292,
+    "Dec": -47.51094
+  },
+  {
+    "MainId": "RCW  38E",
+    "Ids": [
+      "RCW  38E"
+    ],
+    "ObjType": "MolCld",
+    "Ra": 0.0,
+    "Dec": 0.0
+  },
+  {
+    "MainId": "RCW  38W",
+    "Ids": [
+      "RCW  38W"
+    ],
+    "ObjType": "MolCld",
+    "Ra": 0.0,
+    "Dec": 0.0
+  },
+  {
+    "MainId": "BRAN 226",
+    "Ids": [
+      "BRAN 226",
+      "GRS G269.16 -01.13",
+      "GRS G269.20 -01.10",
+      "Kes  7",
+      "RCW  39"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 135.8392,
+    "Dec": -48.43
+  },
+  {
+    "MainId": "GUM 25",
+    "Ids": [
+      "GUM 25",
+      "BRAN 224",
+      "GRS G269.30 -01.40",
+      "Kes  6",
+      "RCW  40"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 135.5887,
+    "Dec": -48.6986
+  },
+  {
+    "MainId": "TYC 8170-333-1",
+    "Ids": [
+      "BRAN 246",
+      "GAL 270.3+00.8",
+      "RCW  41",
+      "TYC 8170-333-1",
+      "Gaia DR2 5326418127522449280",
+      "Gaia DR3 5326418127522449280",
+      "Gaia DR1 5326418123224523776"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 139.242537194,
+    "Dec": -47.96316473213
+  },
+  {
+    "MainId": "GUM 26",
+    "Ids": [
+      "GUM 26",
+      "BRAN 263",
+      "GAL 274.0-01.1",
+      "GAL 274.01-01.14",
+      "RCW  42",
+      "[C72] G274.0-1.1",
+      "[CH87] 274.013-1.141"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 141.1254,
+    "Dec": -51.9853
+  },
+  {
+    "MainId": "NGC  2899",
+    "Ids": [
+      "NGC  2899",
+      "ESO 166-13",
+      "GSC2 S1111033685",
+      "GUM 27",
+      "Hen 2-30",
+      "IRAS 09255-5553",
+      "2MASS J09270302-5606211",
+      "PK 277-03  1",
+      "PN G277.1-03.8",
+      "PN My   48",
+      "PN Sa  2-45",
+      "RCW  43",
+      "TIC 437669132",
+      "WB89 1281",
+      "WRAY 16-47",
+      "[M51]  48"
+    ],
+    "ObjType": "PlanetaryNeb",
+    "Ra": 141.76258,
+    "Dec": -56.10586
+  },
+  {
+    "MainId": "WRAY 17-31",
+    "Ids": [
+      "ESO 166-21",
+      "BRAN 267",
+      "GSC2 S111103072559",
+      "PK 277-03  2",
+      "PN G277.7-03.5",
+      "PN Sa  3-10",
+      "PN VBRC    2",
+      "RCW  44",
+      "WRAY 17-31",
+      "Gaia DR2 5307054800062198400",
+      "Gaia DR3 5307054800062198400"
+    ],
+    "ObjType": "PlanetaryNeb",
+    "Ra": 142.83552056802,
+    "Dec": -56.29431773579
+  },
+  {
+    "MainId": "RCW  45",
+    "Ids": [
+      "RCW  45"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 152.95,
+    "Dec": -56.4
+  },
+  {
+    "MainId": "RCW  46",
+    "Ids": [
+      "MHR  9",
+      "MSH 10-5-01",
+      "RCW  46"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 151.662,
+    "Dec": -57.203
+  },
+  {
+    "MainId": "BRAN 285",
+    "Ids": [
+      "BRAN 285",
+      "GRS G283.00 -02.70",
+      "RCW  47"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 151.2621,
+    "Dec": -58.6561
+  },
+  {
+    "MainId": "NGC  3199",
+    "Ids": [
+      "NGC  3199",
+      "BRAN 300A",
+      "GRS G283.50 -01.00",
+      "GUM 28",
+      "RCW  48"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 154.1367,
+    "Dec": -57.9339
+  },
+  {
+    "MainId": "GUM 29",
+    "Ids": [
+      "GUM 29",
+      "GAL 284.31-00.33",
+      "GAL 284.3-00.3",
+      "Kes 10",
+      "MHR 10",
+      "MSH 10-5-04",
+      "RCW  49",
+      "[CH87] 284.308-0.334",
+      "[GS70] 284.3-00.3"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 156.0608,
+    "Dec": -57.7828
+  },
+  {
+    "MainId": "BRAN 300C",
+    "Ids": [
+      "BRAN 300C",
+      "GRS G284.30 +00.40",
+      "RCW  50"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 156.8883,
+    "Dec": -57.1908
+  },
+  {
+    "MainId": "NGC  3293",
+    "Ids": [
+      "NGC  3293",
+      "BRAN 316C",
+      "C 1033-579",
+      "Cl Collinder  224",
+      "Cl Melotte  100",
+      "Cl VDBH   98",
+      "GUM 30",
+      "OCl  816.0",
+      "Raab  85",
+      "RCW  51",
+      "[KPR2004b] 253",
+      "[KPS2012] MWSC 1826"
+    ],
+    "ObjType": "OpenCluster",
+    "Ra": 158.97,
+    "Dec": -58.231
+  },
+  {
+    "MainId": "GUM 32",
+    "Ids": [
+      "GUM 32",
+      "BRAN 316E",
+      "RCW  52"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 161.5479,
+    "Dec": -58.6533
+  },
+  {
+    "MainId": "NGC  3372",
+    "Ids": [
+      "NGC  3372",
+      "BRAN 316A",
+      "1E 1044.0-5940",
+      "GUM 33",
+      "MHR 11",
+      "MSH 10-5-07",
+      "NAME Keyhole",
+      "NAME Car Nebula",
+      "NAME Carina Nebula",
+      "NAME eta Car Nebula",
+      "NAME Keyhole Nebula",
+      "RCW  53"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 161.25929,
+    "Dec": -59.69994
+  },
+  {
+    "MainId": "BRAN 337",
+    "Ids": [
+      "BRAN 337",
+      "GAL 289.8-01.1",
+      "RCW  54"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 165.7338,
+    "Dec": -59.4878
+  },
+  {
+    "MainId": "RCW  54A",
+    "Ids": [
+      "RCW  54A"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 0.0,
+    "Dec": 0.0
+  },
+  {
+    "MainId": "RCW  54B",
+    "Ids": [
+      "RCW  54B"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 0.0,
+    "Dec": 0.0
+  },
+  {
+    "MainId": "BRAN 328A",
+    "Ids": [
+      "BRAN 328A",
+      "RCW  55",
+      "VdBH 45"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 164.1354,
+    "Dec": -63.0128
+  },
+  {
+    "MainId": "GAL 291.1-02.1",
+    "Ids": [
+      "GAL 291.1-02.1",
+      "GRS G291.10 -02.10",
+      "RCW  56"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 166.35,
+    "Dec": -62.47
+  },
+  {
+    "MainId": "RCW  57",
+    "Ids": [
+      "RCW  57"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 168.67,
+    "Dec": -61.2
+  },
+  {
+    "MainId": "NGC  3576",
+    "Ids": [
+      "NGC  3576",
+      "BRAN 348A",
+      "GAL 291.28-00.71",
+      "GAL 291.30-00.7",
+      "GAL 291.27-00.71",
+      "GUM 38a",
+      "RCW  57A",
+      "[GG70] 291.3-0.7",
+      "[GS70] 291.3-00.7"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 167.9575,
+    "Dec": -61.3039
+  },
+  {
+    "MainId": "NGC  3603",
+    "Ids": [
+      "NGC  3603",
+      "BRAN 348B",
+      "C 1112-609",
+      "Cl VDBH  115",
+      "GAL 291.63-00.54",
+      "GRS G291.60 -00.50",
+      "GUM 38b",
+      "MHR 14",
+      "RCW  57B",
+      "Villafranca O-001",
+      "[FSR2007] 1576",
+      "[GG70] 291.6-0.5",
+      "[GSL2002]  27",
+      "[KPS2012] MWSC 1926"
+    ],
+    "ObjType": "OpenCluster",
+    "Ra": 168.795,
+    "Dec": -61.259
+  },
+  {
+    "MainId": "HD  96548",
+    "Ids": [
+      "HD  96548",
+      "AGASC 1175203288",
+      "ALS  2154",
+      "BRAN 340",
+      "CD-64   520",
+      "CEL   3808",
+      "CPC 21  2312",
+      "CPD-64  1629",
+      "CSV 102659",
+      "GC 15280",
+      "GEN# +1.00096548",
+      "GSC 08966-01467",
+      "Hen 3-576",
+      "HIC  54283",
+      "HIP  54283",
+      "IRAS 11043-6514",
+      "LS 2154",
+      "2MASS J11061720-6530352",
+      "MR  34",
+      "NSV  5089",
+      "PPM 358479",
+      "RCW  58",
+      "SAO 251264",
+      "SKY# 21199",
+      "TD1 15389",
+      "TIC 466582212",
+      "TYC 8966-1467-1",
+      "UBV M  16796",
+      "UCAC4 123-041454",
+      "V* V385 Car",
+      "WRAY 15-733",
+      "WR  40",
+      "AAVSO 1102-64",
+      "Gaia DR3 5240040631514998272",
+      "Gaia DR1 5240040627190138752",
+      "Gaia DR2 5240040631514998272"
+    ],
+    "ObjType": "WolfRayet*",
+    "Ra": 166.57168014651,
+    "Dec": -65.50978921723
+  },
+  {
+    "MainId": "[SPF2008] G292.9+4.4",
+    "Ids": [
+      "RCW  59",
+      "[SPF2008] G292.9+4.4"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 175.425,
+    "Dec": -57.3333
+  },
+  {
+    "MainId": "BRAN 362C",
+    "Ids": [
+      "BRAN 362C",
+      "RCW  60"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 172.2204,
+    "Dec": -62.6258
+  },
+  {
+    "MainId": "GRS G293.60 -01.30",
+    "Ids": [
+      "GRS G293.60 -01.30",
+      "RCW  60A"
+    ],
+    "ObjType": "Radio",
+    "Ra": 172.2,
+    "Dec": -62.65
+  },
+  {
+    "MainId": "RCW  60B",
+    "Ids": [
+      "GRS G293.70 -01.60",
+      "RCW  60B"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 172.1,
+    "Dec": -62.97
+  },
+  {
+    "MainId": "BRAN 362F",
+    "Ids": [
+      "BRAN 362F",
+      "GRS G294.10 -02.30",
+      "RCW  61",
+      "VdBH 50"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 172.6008,
+    "Dec": -63.8172
+  },
+  {
+    "MainId": "IC 2944",
+    "Ids": [
+      "IC 2944",
+      "BRAN 362A",
+      "C 1134-627",
+      "GAL 295.1-01.6",
+      "GRS G295.00 -01.70",
+      "GUM 42",
+      "MHR 18",
+      "MSH 11-6-05",
+      "NAME lam Cen Nebula",
+      "OCl  862.0",
+      "RCW  62",
+      "[KPR2004b] 292"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 174.58333,
+    "Dec": -63.37278
+  },
+  {
+    "MainId": "GRS G294.80 -01.70",
+    "Ids": [
+      "GRS G294.80 -01.70",
+      "RCW  62A"
+    ],
+    "ObjType": "Radio",
+    "Ra": 174.53,
+    "Dec": -63.45
+  },
+  {
+    "MainId": "RCW  63",
+    "Ids": [
+      "RCW  63"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 182.0,
+    "Dec": -55.3
+  },
+  {
+    "MainId": "BRAN 386E",
+    "Ids": [
+      "BRAN 386E",
+      "IRAS 12171-6238",
+      "PK 299-00  2",
+      "PN ARO  524",
+      "RCW  64"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 184.9729,
+    "Dec": -62.9189
+  },
+  {
+    "MainId": "GUM 43",
+    "Ids": [
+      "GUM 43",
+      "BRAN 390A",
+      "GAL 300.96+01.16",
+      "GRS G301.00 +01.10",
+      "IRAS 12320-6122",
+      "PK 301+01  1",
+      "PMN J1234-6139",
+      "PN ARO  525",
+      "RCW  65",
+      "[BNM96] 300.969+1.152",
+      "[CH87] 300.956+1.161",
+      "[GGB2012] G300.9674+01.1499",
+      "[KC97c] G301.0+01.2",
+      "[WBH98] 12320-6122",
+      "[WHR97] 12320-6122",
+      "[WMG70] 301.0+01.2"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 188.7267,
+    "Dec": -61.6569
+  },
+  {
+    "MainId": "BRAN 391B",
+    "Ids": [
+      "BRAN 391B",
+      "GRS G301.10 +01.00",
+      "RCW  66"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 188.9867,
+    "Dec": -61.7478
+  },
+  {
+    "MainId": "RCW  67",
+    "Ids": [
+      "RCW  67"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 188.98,
+    "Dec": -62.03
+  },
+  {
+    "MainId": "GRS G301.90 +01.10",
+    "Ids": [
+      "GRS G301.90 +01.10",
+      "RCW  68"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 190.05,
+    "Dec": -61.87
+  },
+  {
+    "MainId": "RCW  69",
+    "Ids": [
+      "PN G302.1+00.3",
+      "BRAN 396",
+      "GUM 45",
+      "PHR J1244-6231",
+      "RCW  69",
+      "Gaia DR3 6055200341668022400",
+      "Gaia DR2 6055200341668022400"
+    ],
+    "ObjType": "PlanetaryNeb",
+    "Ra": 191.1143270102199,
+    "Dec": -62.52191115178
+  },
+  {
+    "MainId": "WRAY 16-121",
+    "Ids": [
+      "ESO  95-17",
+      "GRS G302.60 -01.00",
+      "PK 302-00  2",
+      "PN G302.6-00.9",
+      "PN VBRC    4",
+      "PN ARO  529",
+      "PN Lo    7",
+      "PN Sa  2-87",
+      "RCW  70",
+      "WRAY 16-121",
+      "[GM76] 194"
+    ],
+    "ObjType": "PlanetaryNeb",
+    "Ra": 192.12917,
+    "Dec": -63.83306
+  },
+  {
+    "MainId": "HD 311999",
+    "Ids": [
+      "HD 311999",
+      "ALS  2780",
+      "BRAN 397",
+      "CD-60  4384",
+      "CGO 336",
+      "CGO 337",
+      "CPD-60  4312",
+      "GAL 302.8+01.3",
+      "GCRV 20443",
+      "GEN# +1.00311999",
+      "GSC 08988-00717",
+      "GUM 46",
+      "LLNS  9189",
+      "LS 2780",
+      "2MASS J12502261-6135008",
+      "RCW  71",
+      "TIC 435210333",
+      "TYC 8988-717-1",
+      "UBV M   6903",
+      "UCAC4 143-116797",
+      "uvby98 100311999",
+      "WRAY 19-38",
+      "[L68] 166",
+      "Gaia DR2 6055524079131058176",
+      "Gaia DR3 6055524079131058176",
+      "Gaia DR1 6055524074814989312"
+    ],
+    "ObjType": "Star",
+    "Ra": 192.5942243399699,
+    "Dec": -61.58355411562
+  },
+  {
+    "MainId": "RCW  72",
+    "Ids": [
+      "RCW  72"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 193.33,
+    "Dec": -61.27
+  },
+  {
+    "MainId": "RCW  73",
+    "Ids": [
+      "RCW  73"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 193.75,
+    "Dec": -61.47
+  },
+  {
+    "MainId": "GRS G305.40 +00.20",
+    "Ids": [
+      "GRS G305.40 +00.20",
+      "Kes 18",
+      "MHR 25",
+      "RCW  74"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 197.579,
+    "Dec": -62.642
+  },
+  {
+    "MainId": "GRS G305.20 +00.00",
+    "Ids": [
+      "GRS G305.20 +00.00",
+      "RCW  74A"
+    ],
+    "ObjType": "Radio",
+    "Ra": 197.85,
+    "Dec": -62.75
+  },
+  {
+    "MainId": "GAL 305.20+00.2",
+    "Ids": [
+      "GAL 305.20+00.2",
+      "GAL 305.2+00.2",
+      "GAL 305.3+00.2",
+      "RCW  74B",
+      "[CPA2006] S156",
+      "[HBB99] 305.251+0.224",
+      "[JDP2019] MWP2G3052625+0021386",
+      "[KC97c] G305.3+00.2",
+      "[SPK2012] MWP1G305263+002133",
+      "[WMG70] 305.2+00.2"
+    ],
+    "ObjType": "Bubble",
+    "Ra": 197.8962,
+    "Dec": -62.5572
+  },
+  {
+    "MainId": "GUM 48a",
+    "Ids": [
+      "GUM 48a",
+      "GRS G306.30 +00.20",
+      "RCW  75"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 199.942,
+    "Dec": -62.512
+  },
+  {
+    "MainId": "NGC  5189",
+    "Ids": [
+      "NGC  5189",
+      "AM 1329-654",
+      "CSI-65-13298",
+      "EM* CDS  877",
+      "ESO  96-16",
+      "GCRV  8022",
+      "GSC2 S2131233378",
+      "GSC 09003-00669",
+      "GUM 47",
+      "HD 117622",
+      "Hen 2-94",
+      "IC 4274",
+      "IRAS 13300-6543",
+      "2MASS J13333286-6558271",
+      "MGPS J133331-655829",
+      "NSV  6296",
+      "PK 307-03  1",
+      "PKS J1333-6558",
+      "PKS 1330-657",
+      "PKS 1329-657",
+      "PMN J1333-6558",
+      "PN G307.2-03.4",
+      "PN Sa  2-95",
+      "PN ARO  515",
+      "PN VV   65",
+      "PN VV'  114",
+      "PN Th  2-C",
+      "RCW  76",
+      "TIC 341689253",
+      "V* KN Mus",
+      "WD 1330-657",
+      "WEB 11687",
+      "WRAY 16-131",
+      "[VDD70] Cen-Mus PN 4",
+      "Gaia DR2 5863702868275424384",
+      "Gaia DR3 5863702868275424384"
+    ],
+    "ObjType": "PlanetaryNeb",
+    "Ra": 203.38699183926,
+    "Dec": -65.97417817452
+  },
+  {
+    "MainId": "PN MyCn   18",
+    "Ids": [
+      "NAME Engraved Hourglass Nebula",
+      "AT20G J133934-672251",
+      "DENIS J133935.0-672251",
+      "ESO  97-1",
+      "GSC2 S213122280",
+      "GSC 09003-00289",
+      "Hen 2-95",
+      "IRAS 13359-6707",
+      "2MASS J13393507-6722518",
+      "NAME Etched Hourglass Nebula",
+      "PK 307-04  1",
+      "PN G307.5-04.9",
+      "PN ARO  530",
+      "PN VV   66",
+      "PN Sa  2-96",
+      "PN MyCn   18",
+      "PN VV'  115",
+      "RCW  77",
+      "SCM  72",
+      "TIC 342722798",
+      "UCAC2   2440090",
+      "UCAC3 46-174497",
+      "UCAC4 114-076202",
+      "WISEA J133935.08-672251.7",
+      "WISE J133935.08-672251.7",
+      "WRAY 16-132",
+      "[W74] 71",
+      "Gaia DR2 5851342841411810304",
+      "Gaia DR3 5851342841411810304"
+    ],
+    "ObjType": "PlanetaryNeb",
+    "Ra": 204.89608174104,
+    "Dec": -67.38104180476
+  },
+  {
+    "MainId": "RCW  78",
+    "Ids": [
+      "RCW  78"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 203.47,
+    "Dec": -62.25
+  },
+  {
+    "MainId": "GRS G308.60 +00.60",
+    "Ids": [
+      "GRS G308.60 +00.60",
+      "RCW  79"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 204.97,
+    "Dec": -61.75
+  },
+  {
+    "MainId": "RCW  79A",
+    "Ids": [
+      "RCW  79A"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 204.987,
+    "Dec": -61.713
+  },
+  {
+    "MainId": "RCW  79B",
+    "Ids": [
+      "RCW  79B"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 205.179,
+    "Dec": -61.737
+  },
+  {
+    "MainId": "SNR G309.2-00.6",
+    "Ids": [
+      "SNR G309.2-00.6",
+      "AJG  22",
+      "GRS G309.20 -00.60",
+      "MSC 309.2-0.6",
+      "RCW  80"
+    ],
+    "ObjType": "SNRemnant",
+    "Ra": 206.62,
+    "Dec": -62.9
+  },
+  {
+    "MainId": "RCW  81",
+    "Ids": [
+      "RCW  81"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 208.85,
+    "Dec": -61.35
+  },
+  {
+    "MainId": "RCW  82",
+    "Ids": [
+      "RCW  82"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 209.82,
+    "Dec": -61.45
+  },
+  {
+    "MainId": "RCW  83",
+    "Ids": [
+      "RCW  83"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 212.17,
+    "Dec": -62.07
+  },
+  {
+    "MainId": "RCW  84",
+    "Ids": [
+      "RCW  84"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 215.05,
+    "Dec": -63.9
+  },
+  {
+    "MainId": "RCW  85",
+    "Ids": [
+      "RCW  85"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 215.17,
+    "Dec": -61.4
+  },
+  {
+    "MainId": "ESO 134-11",
+    "Ids": [
+      "ESO 134-11",
+      "RCW  86",
+      "TeV J1442-624"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 220.121,
+    "Dec": -62.645
+  },
+  {
+    "MainId": "RCW  87",
+    "Ids": [
+      "GAL 320.15+00.78",
+      "GRS G320.15 +00.78",
+      "IRAS 15015-5720",
+      "Kes 22",
+      "PK 320+00  1",
+      "PMN J1505-5730",
+      "PN ARO  526",
+      "PN Sa  2-110",
+      "RCW  87",
+      "[BNM96] 320.156+0.794",
+      "[CAB2011] G320.17+0.78",
+      "[CH87] 320.153+0.780",
+      "[HLB98] SEST  78",
+      "[KC97c] G320.2+00.8",
+      "[WMG70] 320.2+00.8"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 226.33,
+    "Dec": -57.53
+  },
+  {
+    "MainId": "RCW  88",
+    "Ids": [
+      "PK 320+00  2",
+      "PN ARO  527",
+      "RCW  88",
+      "WRAY 16-166"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 226.78125,
+    "Dec": -57.80611
+  },
+  {
+    "MainId": "SNR G320.4-01.0",
+    "Ids": [
+      "SNR G320.4-01.0",
+      "AJG  29",
+      "2E  3388",
+      "2E 1509.7-5850",
+      "1ES 1509-58.8",
+      "GRS G320.40 -01.00",
+      "RCW  89",
+      "1RXS J151344.6-590112"
+    ],
+    "ObjType": "SNRemnant",
+    "Ra": 228.396,
+    "Dec": -59.003
+  },
+  {
+    "MainId": "RCW  90",
+    "Ids": [
+      "ESO 176-12",
+      "AT20G J150559-555916",
+      "GSC2 S213000359164",
+      "Hen 2-117",
+      "IRAS 15022-5547",
+      "2MASS J15055921-5559165",
+      "PK 321+02  2",
+      "PN G320.9+02.0",
+      "PN Sa  2-113",
+      "RCW  90",
+      "SCM  87",
+      "TIC 38427827",
+      "WRAY 16-164",
+      "Gaia DR2 5881321133302849920",
+      "Gaia DR3 5881321133340445696"
+    ],
+    "ObjType": "PlanetaryNeb",
+    "Ra": 226.49668954163,
+    "Dec": -55.98793925071
+  },
+  {
+    "MainId": "GRS G321.10 -00.50",
+    "Ids": [
+      "GRS G321.10 -00.50",
+      "RAFGL 4213",
+      "RCW  91"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 229.067,
+    "Dec": -58.215
+  },
+  {
+    "MainId": "RCW  91A",
+    "Ids": [
+      "RCW  91A"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 228.987,
+    "Dec": -58.185
+  },
+  {
+    "MainId": "RCW  91B",
+    "Ids": [
+      "RCW  91B"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 229.183,
+    "Dec": -58.167
+  },
+  {
+    "MainId": "GAL 322.16+00.62",
+    "Ids": [
+      "GAL 322.16+00.62",
+      "GAL 322.16+00.63",
+      "MHR 41",
+      "PMN J1518-5639",
+      "RCW  92",
+      "[HBB99] 322.164+0.625",
+      "[KC97c] G322.2+00.6",
+      "[WMG70] 322.2+00.6"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 229.6629,
+    "Dec": -56.6469
+  },
+  {
+    "MainId": "RCW  92A",
+    "Ids": [
+      "RCW  92A"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 229.746,
+    "Dec": -56.683
+  },
+  {
+    "MainId": "RCW  92B",
+    "Ids": [
+      "RCW  92B"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 229.646,
+    "Dec": -56.64
+  },
+  {
+    "MainId": "PN Mz    1",
+    "Ids": [
+      "ESO 135-11",
+      "Hen 2-130",
+      "IRAS 15302-5859",
+      "MSX5C G322.4909-02.6123",
+      "PK 322-02  1",
+      "PN G322.4-02.6",
+      "PN ARO  531",
+      "PN VV   73",
+      "PN Mz    1",
+      "PN Sa  2-123",
+      "PN VV'  125",
+      "RCW  93",
+      "SCM  96",
+      "WRAY 16-183",
+      "[M51]  89",
+      "Gaia DR3 5881838006914886784"
+    ],
+    "ObjType": "PlanetaryNeb",
+    "Ra": 233.56933790981,
+    "Dec": -59.15225150631
+  },
+  {
+    "MainId": "RCW  94",
+    "Ids": [
+      "BBW 29400a",
+      "RCW  94"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 235.2,
+    "Dec": -54.17
+  },
+  {
+    "MainId": "RCW  95",
+    "Ids": [
+      "BBW 29400c",
+      "RCW  95"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 235.87,
+    "Dec": -53.93
+  },
+  {
+    "MainId": "RCW  96",
+    "Ids": [
+      "RCW  96"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 238.2,
+    "Dec": -55.25
+  },
+  {
+    "MainId": "GAL 327.30-00.60",
+    "Ids": [
+      "GAL 327.30-00.60",
+      "GAL 327.3-00.6",
+      "GRS G327.30 -00.50",
+      "GRS G327.30 -00.60",
+      "IRAS 15492-5426",
+      "RCW  97",
+      "[ABB2014] WISE G327.300-00.548",
+      "[GS70] 327.3-00.5",
+      "[HBB99] 327.304-0.552",
+      "[KC97c] G327.3-00.6",
+      "[WMG70] 327.3-00.5"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 238.2708,
+    "Dec": -54.59
+  },
+  {
+    "MainId": "RCW  98",
+    "Ids": [
+      "RCW  98"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 238.85,
+    "Dec": -54.65
+  },
+  {
+    "MainId": "GRS G328.59 -00.52",
+    "Ids": [
+      "GRS G328.59 -00.52",
+      "GUM 50",
+      "PK 328-00  1",
+      "PN ARO  528",
+      "RCW  99",
+      "[ABB2014] WISE G328.572-00.527",
+      "[JDP2019] MWP2G3285712-0051854",
+      "[SPK2012] MWP1G328561-005077"
+    ],
+    "ObjType": "Bubble",
+    "Ra": 239.8683,
+    "Dec": -53.7492
+  },
+  {
+    "MainId": "PN Sp    1",
+    "Ids": [
+      "NAME Fine Ring Nebula",
+      "ESO 225-2",
+      "GSC2 S230232312032",
+      "Hen 2-137",
+      "IRAS 15479-5122",
+      "IRSV 1548-5120",
+      "2MASS J15514094-5131285",
+      "PK 329+02  1",
+      "PN G329.0+01.9",
+      "PN ARO  518",
+      "PN VV'  127",
+      "PN VV   75",
+      "PN Sp    1",
+      "PN Sa  2-127",
+      "RCW 100",
+      "TIC 280080580",
+      "UCAC2   9536571",
+      "UCAC3 77-261751",
+      "UCAC4 193-120336",
+      "Gaia DR2 5982072132545824128",
+      "Gaia DR3 5982072132545824128"
+    ],
+    "ObjType": "PlanetaryNeb",
+    "Ra": 237.92062929944,
+    "Dec": -51.52459606278
+  },
+  {
+    "MainId": "PN Mz    3",
+    "Ids": [
+      "NAME Ant Nebula",
+      "ESO 225-9",
+      "GSC2 S23021311129",
+      "Hen 2-154",
+      "IRAS 16133-5151",
+      "2MASS J16171340-5159106",
+      "MSX5C G331.7287-01.0105",
+      "PK 331-01  1",
+      "PN G331.7-01.0",
+      "PN VV   80",
+      "PN VV'  136",
+      "PN Mz    3",
+      "RCW 101",
+      "SCM 110",
+      "TIC 411282092",
+      "WRAY 16-213",
+      "[LFO93] 1613-51",
+      "Gaia DR2 5934701559547878144",
+      "Gaia DR3 5934701559547878144"
+    ],
+    "ObjType": "PlanetaryNeb",
+    "Ra": 244.30579807604,
+    "Dec": -51.9863088593
+  },
+  {
+    "MainId": "RCW 102",
+    "Ids": [
+      "RCW 102"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 244.45,
+    "Dec": -51.92
+  },
+  {
+    "MainId": "RCW 102A",
+    "Ids": [
+      "RCW 102A"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 244.87,
+    "Dec": -51.7
+  },
+  {
+    "MainId": "PMN J1618-5156",
+    "Ids": [
+      "PMN J1618-5156",
+      "RCW 102B"
+    ],
+    "ObjType": "Radio",
+    "Ra": 244.6283,
+    "Dec": -51.9417
+  },
+  {
+    "MainId": "AJG  44",
+    "Ids": [
+      "AJG  44",
+      "2E  3626",
+      "2E 1613.8-5057",
+      "1ES 1613-50.9",
+      "1FGL J1617.5-5105c",
+      "2FGL J1615.0-5051",
+      "3FGL J1616.2-5054e",
+      "4FGL J1616.2-5054e",
+      "1FHL J1616.2-5054",
+      "2FHL J1616.2-5054",
+      "2FHL J1616.2-5054e",
+      "3FHL J1616.2-5054e",
+      "GPS 1615-508",
+      "GRS G332.40 -00.40",
+      "HESS J1616-508",
+      "H 1615-51",
+      "Kes 33",
+      "MSC 332.4-0.4",
+      "PKS 1613-50",
+      "RCW 103",
+      "SNR G332.4-00.4",
+      "TeV J1616-508",
+      "[BM83] X1613-509",
+      "[NNM2015] 16"
+    ],
+    "ObjType": "Pulsar",
+    "Ra": 244.3875,
+    "Dec": -51.033333
+  },
+  {
+    "MainId": "[RAA2005] G332.783-1.445",
+    "Ids": [
+      "RCW 104",
+      "[RAA2005] G332.783-1.445"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 246.0,
+    "Dec": -51.52
+  },
+  {
+    "MainId": "RCW 104A",
+    "Ids": [
+      "RCW 104A"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 246.004,
+    "Dec": -51.553
+  },
+  {
+    "MainId": "RCW 104B",
+    "Ids": [
+      "RCW 104B"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 246.179,
+    "Dec": -51.41
+  },
+  {
+    "MainId": "RCW 104C",
+    "Ids": [
+      "RCW 104C"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 246.254,
+    "Dec": -51.407
+  },
+  {
+    "MainId": "RCW 104D",
+    "Ids": [
+      "RCW 104D"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 246.529,
+    "Dec": -51.495
+  },
+  {
+    "MainId": "GUM 51",
+    "Ids": [
+      "GUM 51",
+      "RCW 105",
+      "[RAA2005] G332.956+1.804"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 242.5,
+    "Dec": -49.13
+  },
+  {
+    "MainId": "GAL 332.80-00.60",
+    "Ids": [
+      "GAL 332.80-00.60",
+      "RCW 106",
+      "[RAA2005] G332.662-0.607"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 244.946,
+    "Dec": -51.068
+  },
+  {
+    "MainId": "PMN J1622-5051",
+    "Ids": [
+      "PMN J1622-5051",
+      "RCW 106A"
+    ],
+    "ObjType": "Radio",
+    "Ra": 245.5912,
+    "Dec": -50.8531
+  },
+  {
+    "MainId": "RCW 106B",
+    "Ids": [
+      "RCW 106B"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 245.0,
+    "Dec": -50.9
+  },
+  {
+    "MainId": "HD 148937",
+    "Ids": [
+      "HD 148937",
+      "** I 1588AB",
+      "ALS  3646",
+      "AX J1633.8-4807",
+      "CCDM J16339-4807AB",
+      "CD-47 10855",
+      "Ced 135a",
+      "Ced 135b",
+      "CGO 380",
+      "CPC  0 14912",
+      "CPD-47  7765",
+      "CSI-47 10855 21",
+      "CSV 102803",
+      "2E  3719",
+      "2E 1630.1-4800",
+      "ESO 226-13",
+      "GC 22246",
+      "GCRV 66302",
+      "GEN# +1.00148937",
+      "GOS G336.37-00.22 01",
+      "GSC 08329-03343",
+      "GUM 52",
+      "Hbg 1162",
+      "Hen 2-168",
+      "HIC  81100",
+      "HIP  81100",
+      "IDS 16265-4754 AB",
+      "LS 3646",
+      "2MASS J16335238-4806404",
+      "NGC  6164",
+      "NGC  6165",
+      "NSV  7808",
+      "PK 336-00  1",
+      "PN VV'  142",
+      "PN ARO  557",
+      "PPM 321879",
+      "RCW 107",
+      "1RXS J163352.2-480643",
+      "SAO 226891",
+      "SKY# 29849",
+      "SSTGLMC G336.3661-00.2180",
+      "SSTGLMC G336.3661-00.2181",
+      "TD1 19264",
+      "TIC 21931623",
+      "TYC 8329-3343-1",
+      "UBV   13972",
+      "UBV M  21498",
+      "UCAC4 210-125094",
+      "uvby98 100148937",
+      "WDS J16339-4807AB",
+      "WEB 13713",
+      "WRAY 19-46",
+      "1XMM J163352.3-480641",
+      "1XMM J163352.4-480640",
+      "[SC95] ZET  59",
+      "[SC96] Mis   59",
+      "[VDD70] Nor-Ara PN 1",
+      "[W63]  10",
+      "AAVSO 1626-47",
+      "Gaia DR3 5941151986262863104",
+      "Gaia DR1 5941151981940935680",
+      "Gaia DR2 5941151986262863104"
+    ],
+    "ObjType": "SB*",
+    "Ra": 248.4682788273,
+    "Dec": -48.11124344965
+  },
+  {
+    "MainId": "GUM 53",
+    "Ids": [
+      "GUM 53",
+      "GAL 336.5-01.5",
+      "GRS G336.50 -01.50",
+      "RCW 108",
+      "[GS70] 336.5-01.5"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 250.0004,
+    "Dec": -48.8625
+  },
+  {
+    "MainId": "GRS G339.60 -00.10",
+    "Ids": [
+      "GRS G339.60 -00.10",
+      "RCW 109"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 251.65,
+    "Dec": -45.73
+  },
+  {
+    "MainId": "GRS G340.80 -01.00",
+    "Ids": [
+      "GRS G340.80 -01.00",
+      "RCW 110"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 253.571,
+    "Dec": -45.283
+  },
+  {
+    "MainId": "RCW 110A",
+    "Ids": [
+      "RCW 110A",
+      "[ABB2014] WISE G340.862-00.870"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 253.467,
+    "Dec": -45.14
+  },
+  {
+    "MainId": "RCW 110B",
+    "Ids": [
+      "GAL 340.8-01.0",
+      "RCW 110B",
+      "[HBB99] 340.793-1.014",
+      "[KC97c] G340.8-01.0",
+      "[WMG70] 340.8-01.0"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 253.5717,
+    "Dec": -45.2842
+  },
+  {
+    "MainId": "RCW 111",
+    "Ids": [
+      "RCW 111"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 253.78,
+    "Dec": -45.08
+  },
+  {
+    "MainId": "NGC  6153",
+    "Ids": [
+      "NGC  6153",
+      "AM 1628-400",
+      "AT20G J163130-401513",
+      "ATPMN J163130.6-401513",
+      "CD-39 10464",
+      "ESO 331-6",
+      "GCRV  9495",
+      "GSC2 S2303312264",
+      "GSC 07858-00685",
+      "HD 148687",
+      "Hen 2-167",
+      "IRAS 16280-4008",
+      "2MASX J16313062-4015123",
+      "PK 341+05  1",
+      "PMN J1631-4015",
+      "PN G341.8+05.4",
+      "PN ARO  501",
+      "PN VV   81",
+      "PN VV'  141",
+      "PN Sa  2-148",
+      "RCW 112",
+      "WEB 13686",
+      "WRAY 16-225",
+      "[TRC2001] 3EG J1631-4033 S1",
+      "Gaia DR2 6017034570775817984",
+      "Gaia DR3 6017034570775817984"
+    ],
+    "ObjType": "PlanetaryNeb",
+    "Ra": 247.8773785185599,
+    "Dec": -40.25351283575
+  },
+  {
+    "MainId": "GUM 55",
+    "Ids": [
+      "GUM 55",
+      "RCW 113"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 253.3,
+    "Dec": -42.2
+  },
+  {
+    "MainId": "SNR G343.0-06.0",
+    "Ids": [
+      "SNR G343.0-06.0",
+      "GAL 343.0-06.0",
+      "GRS G343.00 -06.00",
+      "RCW 114"
+    ],
+    "ObjType": "SNRemnant",
+    "Ra": 261.25,
+    "Dec": -46.5
+  },
+  {
+    "MainId": "RCW 115",
+    "Ids": [
+      "RCW 115"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 248.22,
+    "Dec": -37.2
+  },
+  {
+    "MainId": "GAL 345.2+01.0",
+    "Ids": [
+      "GAL 345.2+01.0",
+      "RCW 116"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 254.917,
+    "Dec": -40.19
+  },
+  {
+    "MainId": "[DBS2003] 113",
+    "Ids": [
+      "IRAS 16571-4029",
+      "RCW 116B",
+      "[BNM96] 345.208+1.028",
+      "[CAB2011] G345.22+1.03",
+      "[DBS2003] 113",
+      "[KPS2012] MWSC 2510",
+      "[VGK2003] S1"
+    ],
+    "ObjType": "Cluster*",
+    "Ra": 255.1478,
+    "Dec": -40.5587
+  },
+  {
+    "MainId": "RCW 117",
+    "Ids": [
+      "ESO 332-23",
+      "Haro 3-3",
+      "PK 345-00  1",
+      "PN H  2-3",
+      "PN ARO  548",
+      "PN VV'  163",
+      "RCW 117",
+      "SNR G345.4-00.9",
+      "[GS70] 345.4-00.9"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 257.3917,
+    "Dec": -41.6033
+  },
+  {
+    "MainId": "RCW 118",
+    "Ids": [
+      "RCW 118"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 258.37,
+    "Dec": -39.85
+  },
+  {
+    "MainId": "RCW 119",
+    "Ids": [
+      "RCW 119"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 256.18,
+    "Dec": -38.07
+  },
+  {
+    "MainId": "SH  2-3",
+    "Ids": [
+      "SH  2-3",
+      "GRS G348.20 +00.40",
+      "GUM 58",
+      "RCW 120"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 258.1,
+    "Dec": -38.47
+  },
+  {
+    "MainId": "SH  2-4",
+    "Ids": [
+      "ESO 333-3",
+      "GAL 348.23-00.98",
+      "GAL 348.2-01.0",
+      "GAL 348.23-00.97",
+      "GRS G348.23 -00.98",
+      "Haro 3-6",
+      "IRAS 17149-3916",
+      "PK 348-00  1",
+      "PMN J1718-3918",
+      "PMN J1718-3916",
+      "PN VV'  173",
+      "PN ARO  550",
+      "PN H  2-6",
+      "RCW 121",
+      "SH  1-5",
+      "SH  2-4",
+      "SNR G348.2-01.0",
+      "[BNM96] 348.236-0.976",
+      "[CAB2011] G348.24-0.98",
+      "[CH87] 348.231-0.982",
+      "[KC97c] G348.2-01.0",
+      "[WHR97] 17149-3916"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 259.5996,
+    "Dec": -39.3194
+  },
+  {
+    "MainId": "BFS 65",
+    "Ids": [
+      "BFS 65",
+      "GAL 348.7-01.0",
+      "PMN J1720-3857",
+      "RCW 122",
+      "[ABB2014] WISE G348.710-01.044",
+      "[HBB99] 348.719-1.040",
+      "[KC97c] G348.7-01.0",
+      "[WMG70] 348.7-01.0"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 260.0242,
+    "Dec": -38.9603
+  },
+  {
+    "MainId": "RCW 122A",
+    "Ids": [
+      "RCW 122A",
+      "[MFL85] RCW 122 A"
+    ],
+    "ObjType": "Infrared",
+    "Ra": 260.021,
+    "Dec": -38.963
+  },
+  {
+    "MainId": "RCW 122B",
+    "Ids": [
+      "RCW 122B",
+      "[MFL85] RCW 122 B"
+    ],
+    "ObjType": "Infrared",
+    "Ra": 259.979,
+    "Dec": -38.978
+  },
+  {
+    "MainId": "RCW 122C",
+    "Ids": [
+      "RCW 122C",
+      "[MFL85] RCW 122 C"
+    ],
+    "ObjType": "Infrared",
+    "Ra": 259.833,
+    "Dec": -39.062
+  },
+  {
+    "MainId": "GRS G349.80 -00.50",
+    "Ids": [
+      "GRS G349.80 -00.50",
+      "RCW 123"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 260.3,
+    "Dec": -38.2
+  },
+  {
+    "MainId": "NGC  6302",
+    "Ids": [
+      "NGC  6302",
+      "AGAL G349.508+01.057",
+      "CD-36 11341",
+      "CPC 18  8579",
+      "ESO 392-5",
+      "GCRV  9926",
+      "GSC 07373-00818",
+      "GUM 60",
+      "HD 155520",
+      "Hen 2-204",
+      "IRAS 17103-3702",
+      "JCMTSF J171344.6-370608",
+      "MSX5C G349.5082+01.0551",
+      "NAME Bug Nebula",
+      "OH 349.509 +1.056",
+      "OHPN  1",
+      "PK 349+01  1",
+      "PN G349.5+01.0",
+      "PN Sa  2-180",
+      "PN ARO  502",
+      "PN VV'  168",
+      "PN VV   94",
+      "RCW 124",
+      "SCHD 190",
+      "SCM 136",
+      "SH  1-3",
+      "SH  2-6",
+      "WEB 14231",
+      "WRAY 16-259",
+      "[CAB2011] G349.50+1.05",
+      "[KC97c] G349.5+01.1",
+      "[LFO93] 1710-37"
+    ],
+    "ObjType": "PlanetaryNeb",
+    "Ra": 258.434746,
+    "Dec": -37.103042
+  },
+  {
+    "MainId": "GRS G350.10 +00.10",
+    "Ids": [
+      "GRS G350.10 +00.10",
+      "RCW 125"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 259.6,
+    "Dec": -37.2
+  },
+  {
+    "MainId": "GRS G350.60 +00.90",
+    "Ids": [
+      "GRS G350.60 +00.90",
+      "RCW 126"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 259.23,
+    "Dec": -36.35
+  },
+  {
+    "MainId": "NGC  6334",
+    "Ids": [
+      "NGC  6334",
+      "CTB 39",
+      "GRS G351.40 +00.70",
+      "GUM 62",
+      "Kes 49",
+      "LMH  1",
+      "MHR 64",
+      "Min 1-86",
+      "MM  1",
+      "MSH 17-3-04",
+      "NAME Cat's Paw Nebula",
+      "NRL 13",
+      "RCW 127",
+      "SNR G351.1+00.7",
+      "[ABB2014] WISE G351.130+00.449",
+      "[KPS2012] MWSC 2577"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 260.219,
+    "Dec": -36.131
+  },
+  {
+    "MainId": "RCW 128",
+    "Ids": [
+      "RCW 128"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 260.95,
+    "Dec": -36.3
+  },
+  {
+    "MainId": "RCW 129",
+    "Ids": [
+      "RCW 129",
+      "[CTR95] 13"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 249.27,
+    "Dec": -28.1
+  },
+  {
+    "MainId": "GRS G352.50 +02.10",
+    "Ids": [
+      "GRS G352.50 +02.10",
+      "RCW 130"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 259.37,
+    "Dec": -34.15
+  },
+  {
+    "MainId": "NGC  6357",
+    "Ids": [
+      "NGC  6357",
+      "CTB 40",
+      "GUM 66",
+      "Kes 53",
+      "LMH  2",
+      "MHR 65",
+      "MM  3",
+      "NAME the War and Peace Nebula",
+      "NRL 12",
+      "RCW 131",
+      "SH  2-11",
+      "W 22",
+      "[GS70] 353.2+00.9",
+      "[KPS2012] MWSC 2588",
+      "[PT56] 36"
+    ],
+    "ObjType": "OpenCluster",
+    "Ra": 261.185,
+    "Dec": -34.203
+  },
+  {
+    "MainId": "RCW 132",
+    "Ids": [
+      "RCW 132"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 263.3,
+    "Dec": -32.7
+  },
+  {
+    "MainId": "RCW 133",
+    "Ids": [
+      "RCW 133"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 262.3,
+    "Dec": -31.63
+  },
+  {
+    "MainId": "LMH  8",
+    "Ids": [
+      "LMH  8",
+      "RCW 134",
+      "W 25"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 267.32,
+    "Dec": -31.25
+  },
+  {
+    "MainId": "PN M  1-26",
+    "Ids": [
+      "ESO 455-33",
+      "CD-30 14673",
+      "EM* MWC  270",
+      "GPSR 358.961-0.721",
+      "GSC2 S222122163",
+      "GSC 07377-00367",
+      "HD 316248",
+      "Hen 2-277",
+      "IRAS 17427-3010",
+      "JP11  3804",
+      "2MASS J17455766-3012006",
+      "MSX5C G358.9597-00.7209",
+      "PK 358-00  2",
+      "PN G358.9-00.7",
+      "PN VV  112",
+      "PN VV'  242",
+      "PN M  1-26",
+      "PN SaSt  2-17",
+      "PN Bl C",
+      "PN Bl  1-C",
+      "RAFGL 5381",
+      "RCW 135",
+      "SCM 160",
+      "TIC 111139222",
+      "UCAC2  19225779",
+      "UCAC3 120-294601",
+      "UCAC4 299-130064",
+      "WISEA J174557.64-301200.7",
+      "WISE J174557.65-301200.4",
+      "WRAY 16-306",
+      "[RHI84] 10-551",
+      "Gaia DR2 4056786556011944064",
+      "Gaia DR3 4056786556015410816"
+    ],
+    "ObjType": "PlanetaryNeb",
+    "Ra": 266.49028050597,
+    "Dec": -30.2002128481
+  },
+  {
+    "MainId": "PN H  1-44",
+    "Ids": [
+      "OGLE BLG-ECL-217181",
+      "ESO 456-23",
+      "GSC2 S222120129614",
+      "Haro 2-44",
+      "Hen 2-314",
+      "IRAS 17549-3142",
+      "OGLE BLG507.11 110203",
+      "PK 358-03  1",
+      "PN Sa  3-101",
+      "PN VV'  299",
+      "PN H  1-44",
+      "PN G358.9-03.7",
+      "RCW 136",
+      "WRAY 16-336",
+      "Gaia DR3 4043963707852231808"
+    ],
+    "ObjType": "EclBin",
+    "Ra": 269.54435984744,
+    "Dec": -31.71555002392
+  },
+  {
+    "MainId": "RCW 137",
+    "Ids": [
+      "RCW 137",
+      "[LS95] 174231.0-292057",
+      "[OF84] 11"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 266.4262,
+    "Dec": -29.3683
+  },
+  {
+    "MainId": "RCW 138",
+    "Ids": [
+      "1E 1741.7-2850",
+      "RCW 138",
+      "[PT94]  4",
+      "[SBM2001]  42"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 266.2504,
+    "Dec": -28.8569
+  },
+  {
+    "MainId": "PN Bl  3-22",
+    "Ids": [
+      "UCAC2  19730155",
+      "DENIS J174657.4-290042",
+      "ESO 455-37",
+      "2MASS J17465744-2900419",
+      "PK 000-00  2",
+      "PN Bl  3-22",
+      "RCW 139",
+      "TIC 323664727",
+      "UCAC3 122-311124",
+      "UCAC4 305-142787",
+      "Gaia DR2 4057473093640116992",
+      "Gaia DR3 4057473097944289920"
+    ],
+    "ObjType": "EmLine*",
+    "Ra": 266.7394004583699,
+    "Dec": -29.01168102753
+  },
+  {
+    "MainId": "RCW 140",
+    "Ids": [
+      "RCW 140"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 266.85,
+    "Dec": -29.05
+  },
+  {
+    "MainId": "LBN     3",
+    "Ids": [
+      "LBN 000.33-00.20",
+      "ESO 455-39",
+      "LBN     3",
+      "Min 3-58",
+      "PK 000-00  1",
+      "PN Sa  3-74",
+      "PN Bl  3-4",
+      "RCW 141",
+      "SH  2-20",
+      "SH  1-15",
+      "WSTB 19W96",
+      "[WBH98] 17439-2845",
+      "[WHR97] 17439-2845"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 266.7833,
+    "Dec": -28.775
+  },
+  {
+    "MainId": "GAL 000.55-00.85",
+    "Ids": [
+      "GAL 000.55-00.85",
+      "IRAS 17470-2853",
+      "RCW 142",
+      "[CAB2011] G0.57-0.85",
+      "[WBH98] 17470-2853",
+      "[WHR97] 17470-2853"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 267.5637,
+    "Dec": -28.9008
+  },
+  {
+    "MainId": "RCW 143",
+    "Ids": [
+      "RCW 143"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 266.4,
+    "Dec": -24.92
+  },
+  {
+    "MainId": "RCW 144",
+    "Ids": [
+      "RCW 144"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 268.45,
+    "Dec": -25.02
+  },
+  {
+    "MainId": "RCW 145",
+    "Ids": [
+      "RCW 145"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 270.0,
+    "Dec": -23.3
+  },
+  {
+    "MainId": "RCW 146",
+    "Ids": [
+      "RCW 146"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 271.5,
+    "Dec": -24.0
+  },
+  {
+    "MainId": "RCW 147",
+    "Ids": [
+      "RCW 147"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 270.62,
+    "Dec": -22.9
+  },
+  {
+    "MainId": "RCW 148",
+    "Ids": [
+      "RCW 148"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 270.37,
+    "Dec": -21.58
+  },
+  {
+    "MainId": "RCW 149",
+    "Ids": [
+      "RCW 149"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 271.75,
+    "Dec": -21.75
+  },
+  {
+    "MainId": "RCW 150",
+    "Ids": [
+      "RCW 150"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 271.27,
+    "Dec": -20.8
+  },
+  {
+    "MainId": "GUM 77b",
+    "Ids": [
+      "GUM 77b",
+      "RCW 151"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 274.12,
+    "Dec": -20.4
+  },
+  {
+    "MainId": "RCW 152",
+    "Ids": [
+      "RCW 152"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 269.05,
+    "Dec": -16.32
+  },
+  {
+    "MainId": "RCW 153",
+    "Ids": [
+      "RCW 153"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 274.75,
+    "Dec": -19.32
+  },
+  {
+    "MainId": "RCW 154",
+    "Ids": [
+      "RCW 154"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 271.47,
+    "Dec": -17.0
+  },
+  {
+    "MainId": "RCW 155",
+    "Ids": [
+      "RCW 155"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 273.05,
+    "Dec": -17.67
+  },
+  {
+    "MainId": "RCW 156",
+    "Ids": [
+      "RCW 156"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 274.48,
+    "Dec": -17.48
+  },
+  {
+    "MainId": "RCW 157",
+    "Ids": [
+      "RCW 157"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 274.02,
+    "Dec": -16.58
+  },
+  {
+    "MainId": "RCW 158",
+    "Ids": [
+      "RCW 158"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 271.57,
+    "Dec": -14.2
+  },
+  {
+    "MainId": "RCW 159",
+    "Ids": [
+      "RCW 159"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 276.22,
+    "Dec": -16.57
+  },
+  {
+    "MainId": "RCW 160",
+    "Ids": [
+      "RCW 160"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 275.125,
+    "Dec": -16.187
+  },
+  {
+    "MainId": "RCW 161",
+    "Ids": [
+      "RCW 161"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 275.22,
+    "Dec": -15.13
+  },
+  {
+    "MainId": "RCW 162",
+    "Ids": [
+      "RCW 162"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 275.73,
+    "Dec": -14.63
+  },
+  {
+    "MainId": "RCW 163",
+    "Ids": [
+      "RCW 163"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 277.5,
+    "Dec": -15.37
+  },
+  {
+    "MainId": "RCW 164",
+    "Ids": [
+      "RCW 164"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 276.48,
+    "Dec": -14.82
+  },
+  {
+    "MainId": "RCW 165",
+    "Ids": [
+      "RCW 165"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 274.625,
+    "Dec": -13.708
+  },
+  {
+    "MainId": "RCW 166",
+    "Ids": [
+      "RCW 166"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 276.35,
+    "Dec": -13.12
+  },
+  {
+    "MainId": "RCW 167",
+    "Ids": [
+      "RCW 167"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 275.3,
+    "Dec": -11.9
+  },
+  {
+    "MainId": "RCW 168",
+    "Ids": [
+      "RCW 168",
+      "[ADD2012] HII  2"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 277.88,
+    "Dec": -9.99
+  },
+  {
+    "MainId": "GAL 021.88+00.02",
+    "Ids": [
+      "GAL 021.88+00.02",
+      "GRS G021.88 +00.02",
+      "RCW 169",
+      "[BE83] Maser 021.88+00.02",
+      "[PCC93] 273",
+      "[SHK2000] 18282-0951"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 277.7558,
+    "Dec": -9.8144
+  },
+  {
+    "MainId": "RCW 170",
+    "Ids": [
+      "RCW 170"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 277.8,
+    "Dec": -9.12
+  },
+  {
+    "MainId": "RCW 171",
+    "Ids": [
+      "RCW 171"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 277.82,
+    "Dec": -8.42
+  },
+  {
+    "MainId": "RCW 172",
+    "Ids": [
+      "RCW 172"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 279.12,
+    "Dec": -7.48
+  },
+  {
+    "MainId": "LBN 025.36+00.24",
+    "Ids": [
+      "LBN 025.36+00.24",
+      "BBW 35201",
+      "LBN    82",
+      "RCW 173",
+      "SH  2-60"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 279.1762,
+    "Dec": -6.6244
+  },
+  {
+    "MainId": "LBN 028.77+03.43",
+    "Ids": [
+      "LBN 028.77+03.43",
+      "BWE 1828-0206",
+      "F3R  990",
+      "GAL 028.8+03.5",
+      "GAL 028.9+03.5",
+      "GAL 028.790+03.48",
+      "GPA 028.79+3.50",
+      "Kes 74",
+      "LBN    90",
+      "Mol  60",
+      "PMN J1831-0205",
+      "RCW 174",
+      "SH  2-64",
+      "SNR G028.8+03.5",
+      "WB 1828-0206",
+      "W 40",
+      "[ADD2012] HII 18",
+      "[B77]  10",
+      "[KC97c] G028.8+03.5",
+      "[L89b]  28.790+03.486",
+      "[PBD2003] G028.8+03.5",
+      "[SG70] 028.8+3.5",
+      "[WWB83] G028.9+3.5"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 277.8604,
+    "Dec": -2.0728
+  },
+  {
+    "MainId": "RCW 175",
+    "Ids": [
+      "RCW 175"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 281.7,
+    "Dec": -3.75
+  },
+  {
+    "MainId": "RCW 176",
+    "Ids": [
+      "RCW 176"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 281.32,
+    "Dec": -2.02
+  },
+  {
+    "MainId": "RCW 177",
+    "Ids": [
+      "RCW 177"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 281.1,
+    "Dec": -0.35
+  },
+  {
+    "MainId": "RCW 178",
+    "Ids": [
+      "RCW 178"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 285.43,
+    "Dec": 2.38
+  },
+  {
+    "MainId": "RCW 179",
+    "Ids": [
+      "RCW 179",
+      "[ADD2012] HII 36"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 285.92,
+    "Dec": 2.22
+  },
+  {
+    "MainId": "RCW 180",
+    "Ids": [
+      "RCW 180"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 282.18,
+    "Dec": 6.37
+  },
+  {
+    "MainId": "PN YM   16",
+    "Ids": [
+      "PN G038.7+01.9",
+      "PK 038+02  1",
+      "PN ARO  141",
+      "PN YM   16",
+      "RCW 181"
+    ],
+    "ObjType": "PlanetaryNeb",
+    "Ra": 283.738767,
+    "Dec": 6.041961
+  },
+  {
+    "MainId": "LBN 039.95-01.44",
+    "Ids": [
+      "LBN 039.95-01.44",
+      "LBN   109",
+      "RCW 182",
+      "SH  2-74",
+      "[KC97c] G039.9-01.2",
+      "[TP72] 59"
+    ],
+    "ObjType": "HIIReg",
+    "Ra": 287.1292,
+    "Dec": 5.5972
+  }
+]

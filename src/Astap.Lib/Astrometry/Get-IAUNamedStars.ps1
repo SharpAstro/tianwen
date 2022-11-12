@@ -86,4 +86,6 @@ function Get-NamedStars
 
 $stars = Get-NamedStars | Sort-Object $S_IAUNameId
 
-$stars | ConvertTo-Json | Out-File -Encoding UTF8NoBOM "$PSScriptRoot/iau-named-stars.json"
+$outFile = "$PSScriptRoot/iau-named-stars.json"
+$stars | ConvertTo-Json | Out-File -Encoding UTF8NoBOM $outFile
+$null = 7z -mx9 -scsUTF-8 a "$($outFile).gz" $outFile
