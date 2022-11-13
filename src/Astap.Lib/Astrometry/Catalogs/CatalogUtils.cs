@@ -11,6 +11,8 @@ public static class CatalogUtils
 {
     const RegexOptions CommonOpts = RegexOptions.CultureInvariant | RegexOptions.Compiled | RegexOptions.IgnorePatternWhitespace;
 
+    static readonly Regex BDPattern = new(@"(?:BD) \s* ([-+]) ([0-9]{1,2}) (?:\s*|[-_]) ([0-9]{1,4})", CommonOpts);
+
     static readonly Regex ExtendedCatalogEntryPattern = new(@"^(N|I|NGC|IC) ([0-9]{1,4}) (?:(N(?:ED)? ([0-9]{1,2})) | [_]?([A-Z]{1,2}))$", CommonOpts);
 
     static readonly Regex PSRDesignationPattern = new(@"^(?:PSR) ([BJ]) ([0-9]{4}) ([-+]) ([0-9]{2,4})$", CommonOpts);
@@ -34,6 +36,9 @@ public static class CatalogUtils
     internal const uint WDSDecMask = 0x3fff;
     internal const Base91EncRADecOptions WDSEncOptions = Base91EncRADecOptions.ImpliedJ2000;
 
+    static readonly char[] Digit = new[] { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9' };
+    static readonly char[] NGCExt = new[] { 'A', 'B', 'C', 'D', 'E', 'F', 'S', 'W', 'N' };
+
     public static bool TryGetCleanedUpCatalogName(string? input, out CatalogIndex catalogIndex)
     {
         var (template, digits, maybeCatalog) = GuessCatalogFormat(input, out var trimmedInput);
@@ -49,90 +54,104 @@ public static class CatalogUtils
         string? cleanedUp;
         bool isBase91Encoded;
         // test for slow path
-        var firstDigit = trimmedInput.IndexOfAny(new[] { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9' });
-        if (catalog is Catalog.NGC or Catalog.IC
-            && firstDigit > 0 && trimmedInput.IndexOfAny(new[] { 'A', 'B', 'C', 'D', 'E', 'F', 'S', 'W', 'N' }, firstDigit) > firstDigit)
+        var firstDigit = trimmedInput.IndexOfAny(Digit);
+
+        switch (catalog)
         {
-            var match = ExtendedCatalogEntryPattern.Match(trimmedInput);
-            if (match.Success && match.Groups.Count == 6)
-            {
-                var NorI = match.Groups[1].ValueSpan[0..1];
-                var number = match.Groups[2].ValueSpan;
-                if (match.Groups[5].Length == 0)
+            case Catalog.NGC or Catalog.IC when firstDigit > 0 && trimmedInput.IndexOfAny(NGCExt, firstDigit) > firstDigit:
                 {
-                    var nedGroupSuffix = match.Groups[4].ValueSpan;
-                    cleanedUp = string.Concat(NorI, number, "N", nedGroupSuffix);
+                    var extendedNgcMatch = ExtendedCatalogEntryPattern.Match(trimmedInput);
+                    if (extendedNgcMatch.Success && extendedNgcMatch.Groups.Count == 6)
+                    {
+                        var NorI = extendedNgcMatch.Groups[1].ValueSpan[0..1];
+                        var number = extendedNgcMatch.Groups[2].ValueSpan;
+                        if (extendedNgcMatch.Groups[5].Length == 0)
+                        {
+                            var nedGroupSuffix = extendedNgcMatch.Groups[4].ValueSpan;
+                            cleanedUp = string.Concat(NorI, number, "N", nedGroupSuffix);
+                        }
+                        else
+                        {
+                            var letterSuffix = extendedNgcMatch.Groups[5].ValueSpan;
+                            cleanedUp = string.Concat(NorI, number, "_", letterSuffix);
+                        }
+                    }
+                    else
+                    {
+                        cleanedUp = null;
+                    }
+                    isBase91Encoded = false;
                 }
-                else
+                break;
+
+            case Catalog.TwoMass:
+            case Catalog.TwoMassX:
+                cleanedUp = CleanupRADecBasedCatalogIndex(TwoMassAnd2MassXPattern, trimmedInput, catalog, TwoMassRaMask, TwoMassRaShift, TwoMassDecMask, TwoMassEncOptions);
+                isBase91Encoded = true;
+                break;
+
+            case Catalog.PSR:
+                cleanedUp = CleanupRADecBasedCatalogIndex(PSRDesignationPattern, trimmedInput, catalog, PSRRaMask, PSRRaShift, PSRDecMask, PSREpochSupport);
+                isBase91Encoded = true;
+                break;
+
+            case Catalog.WDS:
+                cleanedUp = CleanupRADecBasedCatalogIndex(WDSPattern, trimmedInput, catalog, WDSRaMask, WDSRaShift, WDSDecMask, WDSEncOptions);
+                isBase91Encoded = true;
+                break;
+
+            case Catalog.BonnerDurchmusterung:
+                var bdMatch = BDPattern.Match(trimmedInput);
+                // TODO temporary, should use B91 encoding
+                cleanedUp = bdMatch.Success
+                    ? string.Concat(Catalog.BonnerDurchmusterung.ToAbbreviation(), bdMatch.Groups[3].Value, bdMatch.Groups[1].Value, bdMatch.Groups[2].Value)
+                    : null;
+                isBase91Encoded = false;
+                break;
+
+            default:
+                Span<char> chars = stackalloc char[template.Length];
+                template.CopyTo(chars);
+                int foundDigits = 0;
+                for (var i = 0; i < digits; i++)
                 {
-                    var letterSuffix = match.Groups[5].ValueSpan;
-                    cleanedUp = string.Concat(NorI, number, "_", letterSuffix);
-                }
-            }
-            else
-            {
-                cleanedUp = null;
-            }
-            isBase91Encoded = false;
-        }
-        else if (catalog is Catalog.TwoMass or Catalog.TwoMassX)
-        {
-            cleanedUp = CleanupRADecBasedCatalogIndex(TwoMassAnd2MassXPattern, trimmedInput, catalog, TwoMassRaMask, TwoMassRaShift, TwoMassDecMask, TwoMassEncOptions);
-            isBase91Encoded = true;
-        }
-        else if (catalog is Catalog.PSR)
-        {
-            cleanedUp = CleanupRADecBasedCatalogIndex(PSRDesignationPattern, trimmedInput, catalog, PSRRaMask, PSRRaShift, PSRDecMask, PSREpochSupport);
-            isBase91Encoded = true;
-        }
-        else if (catalog is Catalog.WDS)
-        {
-            cleanedUp = CleanupRADecBasedCatalogIndex(WDSPattern, trimmedInput, catalog, WDSRaMask, WDSRaShift, WDSDecMask, WDSEncOptions);
-            isBase91Encoded = true;
-        }
-        else
-        {
-            Span<char> chars = stackalloc char[template.Length];
-            template.CopyTo(chars);
-            int foundDigits = 0;
-            for (var i = 0; i < digits; i++)
-            {
-                var inputIndex = trimmedInput.Length - i - 1;
-                if (inputIndex <= 0)
-                {
-                    break;
-                }
-                var tmplIndex = chars.Length - 1 - i;
-                var tmplChar = chars[tmplIndex];
-                var inputChar = trimmedInput[inputIndex];
-                var isDigit = inputChar is >= '0' and <= '9';
-                var isABC = inputChar is >= 'A' and <= 'Z';
-                if (tmplChar == '*')
-                {
-                    // treat * as a wildcard either meaning 0-9 or A-Z
-                    if (!isDigit && !isABC)
+                    var inputIndex = trimmedInput.Length - i - 1;
+                    if (inputIndex <= 0)
                     {
                         break;
                     }
-                }
-                else if (tmplChar == '0')
-                {
-                    if (!isDigit)
+                    var tmplIndex = chars.Length - 1 - i;
+                    var tmplChar = chars[tmplIndex];
+                    var inputChar = trimmedInput[inputIndex];
+                    var isDigit = inputChar is >= '0' and <= '9';
+                    var isABC = inputChar is >= 'A' and <= 'Z';
+                    if (tmplChar == '*')
+                    {
+                        // treat * as a wildcard either meaning 0-9 or A-Z
+                        if (!isDigit && !isABC)
+                        {
+                            break;
+                        }
+                    }
+                    else if (tmplChar == '0')
+                    {
+                        if (!isDigit)
+                        {
+                            break;
+                        }
+                    }
+                    else if (tmplChar != inputChar)
                     {
                         break;
                     }
-                }
-                else if (tmplChar != inputChar)
-                {
-                    break;
+
+                    foundDigits++;
+                    chars[tmplIndex] = inputChar;
                 }
 
-                foundDigits++;
-                chars[tmplIndex] = inputChar;
-            }
-
-            cleanedUp = foundDigits > 0 ? new string(chars) : null;
-            isBase91Encoded = false;
+                cleanedUp = foundDigits > 0 ? new string(chars) : null;
+                isBase91Encoded = false;
+                break;
         }
 
         if (cleanedUp is not null && cleanedUp.Length <= MaxLenInASCII)
@@ -193,31 +212,35 @@ public static class CatalogUtils
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     public static (string template, int digits, Catalog? catalog) GuessCatalogFormat(string? input, out string trimmedInput)
     {
-        trimmedInput = input?.Replace(" ", "") ?? "";
+        trimmedInput = input?.Trim() ?? "";
         if (string.IsNullOrEmpty(trimmedInput) || trimmedInput.Length < 2)
         {
             return ("", 0, null);
         }
 
-        return trimmedInput[0] switch
+        var noSpaces = trimmedInput.Replace(" ", "");
+
+        (string template, int digits, Catalog? catalog) ret = noSpaces[0] switch
         {
-            '2' => trimmedInput.Length > 5 && trimmedInput[4] == 'S'
+            '2' => noSpaces.Length > 5 && noSpaces[4] == 'S'
                 ? ("", 15, Catalog.TwoMass)
-                : trimmedInput.Length > 5 && trimmedInput[4] == 'X'
+                : noSpaces.Length > 5 && noSpaces[4] == 'X'
                     ? ("", 15, Catalog.TwoMassX)
                     : ("", 0, null),
             'A' => ("ACO0000", 4, Catalog.Abell),
-            'B' => ("B000", 3, Catalog.Barnard),
-            'C' => trimmedInput[1] == 'l' || trimmedInput[1] == 'r'
+            'B' => noSpaces[1] == 'D'
+                ? ("BD+00 0000", 6, Catalog.BonnerDurchmusterung)
+                : ("B000", 3, Catalog.Barnard),
+            'C' => noSpaces[1] == 'l' || noSpaces[1] == 'r'
                 ? ("Cr000", 3, Catalog.Collinder)
                 : ("C000", 3, Catalog.Caldwell),
             'E' => ("E000-000", 7, Catalog.ESO),
-            'G' => trimmedInput[1] == 'U'
+            'G' => noSpaces[1] == 'U'
                 ? ("GUM000", 3, Catalog.GUM)
                 : ("GJ0000", 4, Catalog.GJ),
-            'H' => trimmedInput[1] switch
+            'H' => noSpaces[1] switch
             {
-                'A' => trimmedInput.Length > 4 && trimmedInput[3] == 'S'
+                'A' => noSpaces.Length > 4 && noSpaces[3] == 'S'
                     ? ("HATS000", 3, Catalog.HATS)
                     : ("HAT-P000", 3, Catalog.HAT_P),
                 'C' => ("HCG0000", 4, Catalog.HCG),
@@ -226,24 +249,31 @@ public static class CatalogUtils
                 'I' => ("HI000000", 6, Catalog.HIP),
                 _ => ("H00", 2, Catalog.H)
             },
-            'I' => trimmedInput[1] is >= '0' and <= '9' || trimmedInput[1] is 'C' or 'c'
+            'I' => noSpaces[1] is >= '0' and <= '9' || noSpaces[1] is 'C' or 'c'
                 ? ("I0000", 4, Catalog.IC)
                 : ("", 0, null),
-            'M' => trimmedInput[1] == 'e' && trimmedInput.Length > 2 && trimmedInput[2] == 'l'
+            'M' => noSpaces[1] == 'e' && noSpaces.Length > 2 && noSpaces[2] == 'l'
                 ? ("Mel000", 3, Catalog.Melotte)
                 : ("M000", 3, Catalog.Messier),
             'N' => ("N0000", 4, Catalog.NGC),
-            'P' => trimmedInput[1] == 'S' && trimmedInput.Length > 2 && trimmedInput[2] == 'R'
+            'P' => noSpaces[1] == 'S' && noSpaces.Length > 2 && noSpaces[2] == 'R'
                 ? ("", 8, Catalog.PSR)
                 : ("", 0, null),
             'S' => ("Sh2-000", 3, Catalog.Sharpless),
             'T' => ("TrES00", 2, Catalog.TrES),
             'U' => ("U00000", 5, Catalog.UGC),
-            'W' => trimmedInput[1] == 'D' && trimmedInput.Length > 2 && trimmedInput[2] == 'S'
+            'W' => noSpaces[1] == 'D' && noSpaces.Length > 2 && noSpaces[2] == 'S'
                 ? ("", 10, Catalog.WDS)
                 : ("WASP000", 3, Catalog.WASP),
             'X' => ("XO000*", 4, Catalog.XO),
             _ => ("", 0, null)
         };
+
+        if (ret.catalog != Catalog.BonnerDurchmusterung)
+        {
+            trimmedInput = noSpaces;
+        }
+
+        return ret;
     }
 }

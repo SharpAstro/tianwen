@@ -10,6 +10,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 using static Astap.Lib.Astrometry.Catalogs.CatalogUtils;
 using static Astap.Lib.Astrometry.NOVA.CoordinateUtils;
@@ -86,6 +87,9 @@ public class OpenNGCDB : ICelestialObjectDB
     }
 
     private static readonly Catalog[] CrossCats = new[] {
+        Catalog.Barnard,
+        Catalog.GUM,
+        // Catalog.RCW,
         Catalog.Messier,
         Catalog.IC,
         Catalog.Caldwell,
@@ -338,7 +342,55 @@ public class OpenNGCDB : ICelestialObjectDB
         var processed = 0;
         var failed = 0;
 
+        var manifestFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith("." + jsonName + ".json.gz"));
+        if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
+        {
+            return (processed, failed);
+        }
 
+        using var gzipStream = new GZipStream(stream, CompressionMode.Decompress, false);
+
+        var mainCatalogs = new HashSet<Catalog>();
+        foreach (var objIndex in new HashSet<CatalogIndex>(_objectsByIndex.Keys))
+        {
+            _ = mainCatalogs.Add(objIndex.ToCatalog());
+        }
+
+        Catalog catToAdd = AbbreviationToEnumMember<Catalog>(jsonName);
+        await foreach (var record in JsonSerializer.DeserializeAsyncEnumerable<SimbadCatalogDto>(gzipStream))
+        {
+            if (record is null)
+            {
+                continue;
+            }
+
+            CatalogIndex catToAddIdx = 0;
+            var relevantIds = new Dictionary<CatalogIndex, Catalog>();
+            foreach (var id in record.Ids)
+            {
+                if (TryGetCleanedUpCatalogName(id, out var catId))
+                {
+                    var cat = catId.ToCatalog();
+                    if (cat == catToAdd && catToAddIdx == 0)
+                    {
+                        catToAddIdx = catId;
+                    }
+                    else if (mainCatalogs.Contains(cat))
+                    {
+                        relevantIds.Add(catId, cat);
+                    }
+                }
+            }
+
+            foreach (var idAndCat in relevantIds)
+            {
+                if (_objectsByIndex.ContainsKey(idAndCat.Key) && catToAddIdx != 0)
+                {
+                    _crossIndexLookuptable.AddLookupEntry(idAndCat.Key, catToAddIdx);
+                    _crossIndexLookuptable.AddLookupEntry(catToAddIdx, idAndCat.Key);
+                }
+            }
+        }
 
         return (processed, failed);
     }

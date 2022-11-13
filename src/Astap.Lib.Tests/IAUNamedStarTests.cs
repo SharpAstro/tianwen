@@ -14,8 +14,8 @@ public class IAUNamedStarTests
         var db = new IAUNamedStarDB();
         var (processed, failed) = await db.InitDBAsync();
 
-        processed.ShouldBe(451);
         failed.ShouldBe(0);
+        processed.ShouldBe(451);
 
         db.CommonNames.Count.ShouldBeGreaterThanOrEqualTo(processed);
     }

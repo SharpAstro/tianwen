@@ -6,6 +6,7 @@ public enum Catalog : ulong
 {
     Abell = 'A' << 14 | 'C' << 7 | 'O',
     Barnard = 'B',
+    BonnerDurchmusterung = 'B' << 7 | 'D',
     Caldwell = 'C',
     Collinder = 'C' << 7 | 'r', // Cl is normalised to Cr
     ESO = 'E',
