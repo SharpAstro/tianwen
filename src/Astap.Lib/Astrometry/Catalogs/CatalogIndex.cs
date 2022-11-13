@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -174,7 +175,7 @@ public static class CatalogIndexEx
                 Span<byte> bytesUlN = stackalloc byte[max];
                 decoded.CopyTo(bytesUlN[(max - decoded.Length)..]);
 
-                var decodedULH = (ulong)IPAddress.NetworkToHostOrder(BitConverter.ToInt64(bytesUlN));
+                var decodedULH = BinaryPrimitives.ReadUInt64BigEndian(bytesUlN);
 
                 return ((Catalog)(decoded[^1] & ASCIIMask), decodedULH >> ASCIIBits, true);
             }
