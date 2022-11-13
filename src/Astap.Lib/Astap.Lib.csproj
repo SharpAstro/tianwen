@@ -31,7 +31,8 @@
     <EmbeddedResource Include="Astrometry/*.gz" />
     <None Remove="MAttiaverga.OpenNGC/**" />
     <None Remove=".git*." />
-    <None Remove="Astrometry/*.json" />
+    <Compile Remove="Astrometry/Catalogs/*.json" />
+    <EmbeddedResource Remove="Astrometry/Catalogs/*.json" />
     <EmbeddedResource Include="Astrometry/Catalogs/*.gz" />
     <None Include="../../LICENSE" PackagePath="" Pack="True" />
   </ItemGroup>
