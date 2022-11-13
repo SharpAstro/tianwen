@@ -130,9 +130,9 @@ public partial class DSP
             double[] rval = new double[points];
 
             // Make an n length noise vector
-            rval = Noise(points, amplitudeVrms);
+            rval = Noise(_randomFactory.Value, points, amplitudeVrms);
 
-            rval = DSP.Math.Add(rval, dcV);
+            rval = Math.Add(rval, dcV);
 
             return rval;
         }
@@ -140,9 +140,9 @@ public partial class DSP
 
         //=====[ Gaussian Noise ]=====
 
-        private static Random mRandom = new Random(); // Class level variable
+        private static readonly Lazy<Random> _randomFactory = new(() => new Random(), false); // Class level variable
 
-        private static double[] Noise(uint size, double scaling_vrms)
+        private static double[] Noise(Random random, uint size, double scaling_vrms)
         {
 
             // Based on - Polar method (Marsaglia 1962)
@@ -167,8 +167,8 @@ public partial class DSP
                 double v1;
                 do
                 {
-                    v1 = 2.0 * mRandom.NextDouble() - 1.0;
-                    double v2 = 2.0 * mRandom.NextDouble() - 1.0;
+                    v1 = 2.0 * random.NextDouble() - 1.0;
+                    double v2 = 2.0 * random.NextDouble() - 1.0;
 
                     s = v1 * v1 + v2 * v2;
                 } while (s >= 1.0);
