@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using static Astap.Lib.EnumHelper;
 
-namespace Astap.Lib.Astrometry
+namespace Astap.Lib.Astrometry.Catalogs
 {
     public enum Constellation : ulong
     {

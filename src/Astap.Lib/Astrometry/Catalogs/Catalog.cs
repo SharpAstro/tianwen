@@ -1,4 +1,4 @@
-﻿namespace Astap.Lib.Astrometry;
+﻿namespace Astap.Lib.Astrometry.Catalogs;
 
 using static Astap.Lib.EnumHelper;
 

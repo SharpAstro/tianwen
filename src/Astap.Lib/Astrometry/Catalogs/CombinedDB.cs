@@ -4,7 +4,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace Astap.Lib.Astrometry;
+namespace Astap.Lib.Astrometry.Catalogs;
 
 public class CombinedDB : ICelestialObjectDB
 {

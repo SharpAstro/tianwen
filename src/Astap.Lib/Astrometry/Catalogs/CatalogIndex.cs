@@ -6,10 +6,10 @@ using System.Net;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Text;
+using static Astap.Lib.Astrometry.Catalogs.CatalogUtils;
 using static Astap.Lib.EnumHelper;
-using static Astap.Lib.Astrometry.Utils;
 
-namespace Astap.Lib.Astrometry;
+namespace Astap.Lib.Astrometry.Catalogs;
 
 /// <summary>
 /// Represents a unique entry in a catalogue s.th. NGC0001, M13 or IC0001
@@ -135,7 +135,7 @@ public static class CatalogIndexEx
         return dict;
     }
 
-    private static byte CatKey(ulong catAsUlong, int lzc) => (byte)((catAsUlong >> BitsInUlong - lzc - ASCIIBits) & ASCIIMask);
+    private static byte CatKey(ulong catAsUlong, int lzc) => (byte)(catAsUlong >> BitsInUlong - lzc - ASCIIBits & ASCIIMask);
 
 
     public static Catalog ToCatalog(this CatalogIndex catalogIndex)

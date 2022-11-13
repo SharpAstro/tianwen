@@ -1,4 +1,6 @@
-﻿using Astap.Lib.Astrometry;
+﻿
+using Astap.Lib.Astrometry.Catalogs;
+using Astap.Lib.Astrometry.NOVA;
 using Shouldly;
 using System;
 using System.Globalization;
@@ -17,7 +19,7 @@ public class UtilsTests
     {
         var dto = DateTimeOffset.Parse(dtoStr, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
 
-        Utils.ToJulian(dto).ShouldBe(expectedJulian);
+        CoordinateUtils.ToJulian(dto).ShouldBe(expectedJulian);
     }
 
     [Theory]
@@ -28,7 +30,7 @@ public class UtilsTests
     [InlineData("0:0:0", 0d)]
     public void GivenHMSWHenConvertToHoursItReturnsHoursAsDouble(string hms, double expectedDegrees)
     {
-        Utils.HMSToHours(hms).ShouldBe(expectedDegrees);
+        CoordinateUtils.HMSToHours(hms).ShouldBe(expectedDegrees);
     }
 
     [Theory]
@@ -39,7 +41,7 @@ public class UtilsTests
     [InlineData(0d, "00:00:00")]
     public void GivenHoursHenConvertToHMSItReturnsHMSAsString(double hours, string expectedHMS)
     {
-        Utils.HoursToHMS(hours).ShouldBe(expectedHMS);
+        CoordinateUtils.HoursToHMS(hours).ShouldBe(expectedHMS);
     }
 
     [Theory]
@@ -50,7 +52,7 @@ public class UtilsTests
     [InlineData("0:0:0", 0d)]
     public void GivenHMSWHenConvertToDegreesItReturnsDegreesAsDouble(string hms, double expectedDegrees)
     {
-        Utils.HMSToDegree(hms).ShouldBe(expectedDegrees);
+        CoordinateUtils.HMSToDegree(hms).ShouldBe(expectedDegrees);
     }
 
     [Theory]
@@ -63,7 +65,7 @@ public class UtilsTests
     [InlineData("-08:11:11", -8.186388888888889d)]
     public void GivenDMSWHenConvertToDegreesItReturnsDegreesAsDouble(string dms, double expectedDegrees)
     {
-        Utils.DMSToDegree(dms).ShouldBe(expectedDegrees);
+        CoordinateUtils.DMSToDegree(dms).ShouldBe(expectedDegrees);
     }
 
     [Theory]
@@ -78,7 +80,7 @@ public class UtilsTests
     [InlineData(+12.8d, "+12:48:00")]
     public void GivenDegreesWhenConvertToDMSItReturnsDMSAsString(double degrees, string expectedDMS)
     {
-        Utils.DegreesToDMS(degrees).ShouldBe(expectedDMS);
+        CoordinateUtils.DegreesToDMS(degrees).ShouldBe(expectedDMS);
     }
 
 
@@ -130,7 +132,7 @@ public class UtilsTests
     [InlineData("WDS J23599-3112", "ÁA+i),N%G", Catalog.WDS)]
     public void GivenInputWhenCleaningItUpThenCatalogAndAbbreviationAreReturned(string input, string expectedAbbreviation, Catalog expectedCatalog)
     {
-        var success = Utils.TryGetCleanedUpCatalogName(input, out var actualCatalogIndex);
+        var success = CatalogUtils.TryGetCleanedUpCatalogName(input, out var actualCatalogIndex);
 
         success.ShouldBeTrue();
         actualCatalogIndex.ShouldNotBe((CatalogIndex)0);
@@ -151,7 +153,7 @@ public class UtilsTests
     [InlineData("N 0526 ABC01")]
     public void GivenAnInvalidInputWhenCleaningUpThenNothingIsReturned(string input)
     {
-        var success = Utils.TryGetCleanedUpCatalogName(input, out var actualCatalogIndex);
+        var success = CatalogUtils.TryGetCleanedUpCatalogName(input, out var actualCatalogIndex);
 
         success.ShouldBeFalse();
         actualCatalogIndex.ShouldBe((CatalogIndex)0);

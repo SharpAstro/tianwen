@@ -1,14 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using static Astap.Lib.Astrometry.Catalogs.CatalogUtils;
 using static Astap.Lib.EnumHelper;
 
-namespace Astap.Lib.Astrometry;
+namespace Astap.Lib.Astrometry.Catalogs;
 
 record IAUNamedStarDTO(
     string IAUName,
@@ -86,7 +86,7 @@ public class IAUNamedStarDB : ICelestialObjectDB
             using var gzipStream = new GZipStream(stream, CompressionMode.Decompress);
             await foreach (var record in JsonSerializer.DeserializeAsyncEnumerable<IAUNamedStarDTO>(gzipStream))
             {
-                if (record is not null && Utils.TryGetCleanedUpCatalogName(record.Designation, out var catalogIndex))
+                if (record is not null && TryGetCleanedUpCatalogName(record.Designation, out var catalogIndex))
                 {
                     var objType = catalogIndex.ToCatalog() == Catalog.PSR ? ObjectType.Pulsar : ObjectType.Star;
                     var constellation = AbbreviationToEnumMember<Constellation>(record.Constellation);
@@ -110,7 +110,7 @@ public class IAUNamedStarDB : ICelestialObjectDB
                         commonNames
                     );
 
-                    if (record.WDS_J is string wdsJ && Utils.TryGetCleanedUpCatalogName($"{Catalog.WDS.ToCanonical()}J{wdsJ}", out var wdsCatalogIndex))
+                    if (record.WDS_J is string wdsJ && TryGetCleanedUpCatalogName($"{Catalog.WDS.ToCanonical()}J{wdsJ}", out var wdsCatalogIndex))
                     {
                         _crossIndexLookuptable.AddLookupEntry(catalogIndex, wdsCatalogIndex);
                         _crossIndexLookuptable.AddLookupEntry(wdsCatalogIndex, catalogIndex);
