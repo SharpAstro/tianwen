@@ -10,6 +10,7 @@ public class CatalogTests
     [Theory]
     [InlineData(Catalog.Abell, "ACO")]
     [InlineData(Catalog.Barnard, "Barnard")]
+    [InlineData(Catalog.BonnerDurchmusterung, "BD")]
     [InlineData(Catalog.Caldwell, "C")]
     [InlineData(Catalog.Collinder, "Cr")]
     [InlineData(Catalog.ESO, "ESO")]

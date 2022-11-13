@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers.Binary;
 using System.Globalization;
 using System.Net;
 using System.Runtime.CompilerServices;
@@ -194,10 +195,12 @@ public static class CatalogUtils
                 | (isJ2000 && !j2000implied ? 1ul : 0ul) << epochShift
                 | (decIsNeg ? 1ul : 0ul) << signShift
                 | (ulong)catalog & ASCIIMask;
-            var idAsLongN = IPAddress.HostToNetworkOrder((long)idAsLongH);
-            var bytesN = BitConverter.GetBytes(idAsLongN);
 
-            return Base91Encoder.EncodeBytes(bytesN[1..]);
+            Span<byte> bytesN = stackalloc byte[8];
+            BinaryPrimitives.WriteUInt64BigEndian(bytesN, idAsLongH);
+
+            // TODO update lib to accept spans
+            return Base91Encoder.EncodeBytes(bytesN[1..].ToArray());
         }
 
         return null;
