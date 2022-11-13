@@ -1,4 +1,4 @@
-﻿namespace Astap.Lib.Astrometry;
+﻿namespace Astap.Lib.Stat;
 
 public enum AggregationMethod
 {

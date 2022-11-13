@@ -1,8 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using Astap.Lib.Astrometry.Catalogs;
 
-namespace Astap.Lib.Astrometry;
+namespace Astap.Lib.Astrometry.NOVA;
 
 public enum RaDecEventTime
 {
@@ -142,7 +143,7 @@ public interface ICoordinateTransform : IDisposable
 
         var raDecEventTimes = new Dictionary<RaDecEventTime, RaDecEventInfo>(4);
 
-        var hourAngle = TimeSpan.FromHours(Utils.ConditionHA(siderealTimeAtAstroDark - obj.RA));
+        var hourAngle = TimeSpan.FromHours(CoordinateUtils.ConditionHA(siderealTimeAtAstroDark - obj.RA));
         var crossMeridianTime = astroDark - hourAngle;
 
         var darkEvent = raDecEventTimes[RaDecEventTime.AstroDark] = CalcRaDecEventInfo(astroDark);

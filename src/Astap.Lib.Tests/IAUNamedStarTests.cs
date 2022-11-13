@@ -1,7 +1,8 @@
-﻿using Astap.Lib.Astrometry;
+﻿using Astap.Lib.Astrometry.Catalogs;
 using Shouldly;
 using System.Threading.Tasks;
 using Xunit;
+using static Astap.Lib.Astrometry.Catalogs.CatalogUtils;
 
 namespace Astap.Lib.Tests;
 
@@ -26,7 +27,7 @@ public class IAUNamedStarTests
     {
         var db = new IAUNamedStarDB();
         _ = await db.InitDBAsync();
-        Utils.TryGetCleanedUpCatalogName(expectedDesignation, out var designationCatIndex).ShouldBeTrue();
+        TryGetCleanedUpCatalogName(expectedDesignation, out var designationCatIndex).ShouldBeTrue();
 
         var actualFound = db.TryResolveCommonName(iauName, out var indices);
 

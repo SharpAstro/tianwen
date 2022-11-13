@@ -1,4 +1,5 @@
 ﻿using Astap.Lib.Astrometry;
+using Astap.Lib.Astrometry.Catalogs;
 using Shouldly;
 using System.Threading.Tasks;
 using Xunit;

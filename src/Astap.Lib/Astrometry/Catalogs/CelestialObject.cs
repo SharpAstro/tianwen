@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 
-namespace Astap.Lib.Astrometry;
+namespace Astap.Lib.Astrometry.Catalogs;
 
 public readonly record struct CelestialObject(
     CatalogIndex Index,

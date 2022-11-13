@@ -1,4 +1,6 @@
-﻿namespace Astap.Lib.Astrometry.Ascom;
+﻿using Astap.Lib.Astrometry.NOVA;
+
+namespace Astap.Lib.Astrometry.Ascom;
 
 public class CoordinateTransform : DynamicComObject, ICoordinateTransform
 {

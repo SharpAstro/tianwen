@@ -11,10 +11,11 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
-using static Astap.Lib.Astrometry.Utils;
+using static Astap.Lib.Astrometry.Catalogs.CatalogUtils;
+using static Astap.Lib.Astrometry.NOVA.CoordinateUtils;
 using static Astap.Lib.EnumHelper;
 
-namespace Astap.Lib.Astrometry;
+namespace Astap.Lib.Astrometry.Catalogs;
 
 public class OpenNGCDB : ICelestialObjectDB
 {
@@ -176,7 +177,14 @@ public class OpenNGCDB : ICelestialObjectDB
 
         foreach (var csvName in new[] { "NGC", "NGC.addendum" })
         {
-            var (processed, failed) = await ReadEmbeddedGzippedDataFileAsync(assembly, csvName);
+            var (processed, failed) = await ReadEmbeddedGzippedCsvDataFileAsync(assembly, csvName);
+            totalProcessed += processed;
+            totalFailed += failed;
+        }
+
+        foreach (var simbadCatName in new[] { "GUM", "RCW" })
+        {
+            var (processed, failed) = await ReadEmbeddedGzippedJsonDataFileAsync(assembly, simbadCatName);
             totalProcessed += processed;
             totalFailed += failed;
         }
@@ -184,7 +192,7 @@ public class OpenNGCDB : ICelestialObjectDB
         return (totalProcessed, totalFailed);
     }
 
-    private async Task<(int processed, int failed)> ReadEmbeddedGzippedDataFileAsync(Assembly assembly, string csvName)
+    private async Task<(int processed, int failed)> ReadEmbeddedGzippedCsvDataFileAsync(Assembly assembly, string csvName)
     {
         const string NGC = nameof(NGC);
         const string IC = nameof(IC);
@@ -323,5 +331,15 @@ public class OpenNGCDB : ICelestialObjectDB
             entry = 0;
             return csvReader.TryGetField<string>(catPrefix, out var suffix) && TryGetCleanedUpCatalogName(catPrefix + suffix, out entry);
         }
+    }
+
+    private async Task<(int processed, int failed)> ReadEmbeddedGzippedJsonDataFileAsync(Assembly assembly, string jsonName)
+    {
+        var processed = 0;
+        var failed = 0;
+
+
+
+        return (processed, failed);
     }
 }

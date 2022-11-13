@@ -1,4 +1,5 @@
 ﻿using System;
+using Astap.Lib.Astrometry.Catalogs;
 
 namespace Astap.Lib.Astrometry.NOVA;
 
@@ -36,6 +37,6 @@ public interface INOVAS31 : IDisposable
         gst += siteLongitude / 360.0 * 24.0;
 
         // Reduce to the range 0 to 24 hours
-        return Utils.ConditionRA(gst);
+        return CoordinateUtils.ConditionRA(gst);
     }
 }

@@ -1,9 +1,8 @@
 ﻿using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading.Tasks;
-using static Astap.Lib.Astrometry.Utils;
+using static Astap.Lib.Astrometry.Catalogs.CatalogUtils;
 
-namespace Astap.Lib.Astrometry;
+namespace Astap.Lib.Astrometry.Catalogs;
 
 public interface ICelestialObjectDB
 {

@@ -1,5 +1,5 @@
-﻿using Astap.Lib.Astrometry;
-using Astap.Lib.Astrometry.Ascom;
+﻿using Astap.Lib.Astrometry.Ascom;
+using Astap.Lib.Astrometry.NOVA;
 using Shouldly;
 using System;
 using System.Diagnostics;

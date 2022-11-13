@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using Astap.Lib.Stat;
 using static Astap.Lib.Stat.StatisticsHelper;
 
 namespace Astap.Lib.Astrometry.Focus;
