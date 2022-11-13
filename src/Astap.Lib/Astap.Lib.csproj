@@ -49,8 +49,4 @@
     <PackageReference Include="ZWOptical.ASISDK" Version="1.0.61" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Folder Include="Astrometry\Transform\" />
-  </ItemGroup>
-
 </Project>
