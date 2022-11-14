@@ -42,15 +42,11 @@ public static class CatalogUtils
 
     public static bool TryGetCleanedUpCatalogName(string? input, out CatalogIndex catalogIndex)
     {
-        var (template, digits, maybeCatalog) = GuessCatalogFormat(input, out var trimmedInput);
-
-        if (digits <= 0 || !maybeCatalog.HasValue)
+        if (!TryGuessCatalogFormat(input, out var trimmedInput, out var template, out var digits, out var catalog))
         {
             catalogIndex = 0;
             return false;
         }
-
-        var catalog = maybeCatalog.Value;
 
         string? cleanedUp;
         bool isBase91Encoded;
@@ -213,23 +209,26 @@ public static class CatalogUtils
     /// <param name="trimmedInput"></param>
     /// <returns>(catalog index template, number of free digits, guessed <see cref="Catalog"/>)</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    public static (string template, int digits, Catalog? catalog) GuessCatalogFormat(string? input, out string trimmedInput)
+    public static bool TryGuessCatalogFormat(string? input, out string trimmedInput, out string template, out int digits, out Catalog catalog)
     {
         trimmedInput = input?.Trim() ?? "";
         if (string.IsNullOrEmpty(trimmedInput) || trimmedInput.Length < 2)
         {
-            return ("", 0, null);
+            template = "";
+            digits = 0;
+            catalog = 0;
+            return false;
         }
 
         var noSpaces = trimmedInput.Replace(" ", "");
 
-        (string template, int digits, Catalog? catalog) ret = noSpaces[0] switch
+        (template, digits, catalog) = noSpaces[0] switch
         {
             '2' => noSpaces.Length > 5 && noSpaces[4] == 'S'
                 ? ("", 15, Catalog.TwoMass)
                 : noSpaces.Length > 5 && noSpaces[4] == 'X'
                     ? ("", 15, Catalog.TwoMassX)
-                    : ("", 0, null),
+                    : ("", 0, 0),
             'A' => ("ACO0000", 4, Catalog.Abell),
             'B' => noSpaces[1] == 'D'
                 ? ("BD+00 0000", 6, Catalog.BonnerDurchmusterung)
@@ -254,14 +253,14 @@ public static class CatalogUtils
             },
             'I' => noSpaces[1] is >= '0' and <= '9' || noSpaces[1] is 'C' or 'c'
                 ? ("I0000", 4, Catalog.IC)
-                : ("", 0, null),
+                : ("", 0, 0),
             'M' => noSpaces[1] == 'e' && noSpaces.Length > 2 && noSpaces[2] == 'l'
                 ? ("Mel000", 3, Catalog.Melotte)
                 : ("M000", 3, Catalog.Messier),
             'N' => ("N0000", 4, Catalog.NGC),
             'P' => noSpaces[1] == 'S' && noSpaces.Length > 2 && noSpaces[2] == 'R'
                 ? ("", 8, Catalog.PSR)
-                : ("", 0, null),
+                : ("", 0, 0),
             'S' => ("Sh2-000", 3, Catalog.Sharpless),
             'T' => ("TrES00", 2, Catalog.TrES),
             'U' => ("U00000", 5, Catalog.UGC),
@@ -269,14 +268,14 @@ public static class CatalogUtils
                 ? ("", 10, Catalog.WDS)
                 : ("WASP000", 3, Catalog.WASP),
             'X' => ("XO000*", 4, Catalog.XO),
-            _ => ("", 0, null)
+            _ => ("", 0, (Catalog)0)
         };
 
-        if (ret.catalog != Catalog.BonnerDurchmusterung)
+        if (catalog != Catalog.BonnerDurchmusterung)
         {
             trimmedInput = noSpaces;
         }
 
-        return ret;
+        return digits > 0 && catalog != 0;
     }
 }
