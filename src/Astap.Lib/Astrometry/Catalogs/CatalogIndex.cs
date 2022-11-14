@@ -26,22 +26,18 @@ public static class CatalogIndexEx
         var prefix = catalog.ToCanonical();
         if (isMSBSet)
         {
-            if (catalog is Catalog.PSR)
+            return catalog switch
             {
-                return RADecEncodedIndexToCanonical(prefix, decoded, 4, 4, PSRRaMask, PSRRaShift, PSRDecMask, PSREpochSupport);
-            }
-            else if (catalog is Catalog.TwoMass or Catalog.TwoMassX)
-            {
-                return RADecEncodedIndexToCanonical(prefix, decoded, 8, 7, TwoMassRaMask, TwoMassRaShift, TwoMassDecMask, TwoMassEncOptions);
-            }
-            else if (catalog is Catalog.WDS)
-            {
-                return RADecEncodedIndexToCanonical(prefix, decoded, 5, 4, WDSRaMask, WDSRaShift, WDSDecMask, WDSEncOptions);
-            }
-            else
-            {
-                throw new ArgumentException($"Catalog index {catalogIndex} with MSB = true could not be parsed", nameof(catalogIndex));
-            }
+                Catalog.PSR =>
+                    RADecEncodedIndexToCanonical(prefix, decoded, 4, 4, PSRRaMask, PSRRaShift, PSRDecMask, PSREpochSupport),
+                Catalog.TwoMass or Catalog.TwoMassX =>
+                    RADecEncodedIndexToCanonical(prefix, decoded, 8, 7, TwoMassRaMask, TwoMassRaShift, TwoMassDecMask, TwoMassEncOptions),
+                Catalog.WDS =>
+                    RADecEncodedIndexToCanonical(prefix, decoded, 5, 4, WDSRaMask, WDSRaShift, WDSDecMask, WDSEncOptions),
+                Catalog.BonnerDurchmusterung =>
+                    BDEncodedIndexToCanonical(prefix, decoded, 0, 2, BDRaMask, BDRaShift, BDDecMask, BDEncOptions),
+                _ => throw new ArgumentException($"Catalog index {catalogIndex} with MSB = true could not be parsed", nameof(catalogIndex))
+            };
         }
         else
         {
@@ -78,15 +74,40 @@ public static class CatalogIndexEx
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static string BDEncodedIndexToCanonical(string prefix, ulong decoded, int raDigits, int decDigits, uint raMask, int raShift, uint decMask, Base91EncRADecOptions encOptions)
+    {
+        DecodeBase91(decoded, decDigits, raMask, raShift, decMask, encOptions, out var decIsNeg, out _, out var actualDecDigits, out var dec, out var ra);
+
+        return string.Concat(
+            prefix,
+            decIsNeg ? "-" : "+",
+            dec.ToString("D" + actualDecDigits, CultureInfo.InvariantCulture),
+            " ",
+            ra.ToString("D" + raDigits, CultureInfo.InvariantCulture)
+        );
+    }
+
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     static string RADecEncodedIndexToCanonical(string prefix, ulong decoded, int raDigits, int decDigits, uint raMask, int raShift, uint decMask, Base91EncRADecOptions encOptions)
     {
-        // sign
-        var decIsNeg = (decoded & 1) == 0b1;
-        decoded >>= 1;
+        DecodeBase91(decoded, decDigits, raMask, raShift, decMask, encOptions, out var decIsNeg, out var epoch, out var actualDecDigits, out var dec, out var ra);
 
-        // epoch
-        string epoch;
-        int actualDecDigits;
+        // 2 digits for B is only valid for PSR
+        return string.Concat(
+            prefix, " ", epoch,
+            ra.ToString("D" + raDigits, CultureInfo.InvariantCulture),
+            decIsNeg ? "-" : "+",
+            dec.ToString("D" + actualDecDigits, CultureInfo.InvariantCulture)
+        );
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private static void DecodeBase91(ulong decoded, int decDigits, uint raMask, int raShift, uint decMask, Base91EncRADecOptions encOptions, out bool decIsNeg, out string epoch, out int actualDecDigits, out ulong dec, out ulong ra)
+    {
+        // sign
+        decIsNeg = (decoded & 1) == 0b1;
+        decoded >>= 1;
 
         if (encOptions.HasFlag(Base91EncRADecOptions.ImpliedJ2000))
         {
@@ -102,19 +123,11 @@ public static class CatalogIndexEx
         }
 
         // dec
-        var dec = decoded & decMask;
+        dec = decoded & decMask;
         decoded >>= raShift;
 
         // ra
-        var ra = decoded & raMask;
-
-        // 2 digits for B is only valid for PSR
-        return string.Concat(
-            prefix, " ", epoch,
-            ra.ToString("D" + raDigits, CultureInfo.InvariantCulture),
-            decIsNeg ? "-" : "+",
-            dec.ToString("D" + actualDecDigits, CultureInfo.InvariantCulture)
-        );
+        ra = decoded & raMask;
     }
 
     public static string ToAbbreviation(this CatalogIndex catalogIndex) => EnumValueToAbbreviation((ulong)catalogIndex);
