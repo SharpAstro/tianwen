@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Buffers.Binary;
 using System.Globalization;
-using System.Net;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using static Astap.Lib.EnumHelper;
@@ -12,7 +11,7 @@ public static class CatalogUtils
 {
     const RegexOptions CommonOpts = RegexOptions.CultureInvariant | RegexOptions.Compiled | RegexOptions.IgnorePatternWhitespace;
 
-    static readonly Regex BDPattern = new(@"(?:BD) \s* ([-+]) ([0-9]{1,2}) (?:\s*|[-_]) ([0-9]{1,4})", CommonOpts);
+    static readonly Regex BDPattern = new(@"(?:BD) \s* ([-+]) ([0-9]{1,2}) (?:\s+|[-_]) ([0-9]{1,5})", CommonOpts);
 
     static readonly Regex ExtendedCatalogEntryPattern = new(@"^(N|I|NGC|IC) ([0-9]{1,4}) (?:(N(?:ED)? ([0-9]{1,2})) | [_]?([A-Z]{1,2}))$", CommonOpts);
 
@@ -22,20 +21,25 @@ public static class CatalogUtils
 
     static readonly Regex WDSPattern = new(@"^(?:WDS) ([J]) ([0-9]{5}) ([-+]) ([0-9]{4})$", CommonOpts);
 
-    internal const uint PSRRaMask = 0xfff;
+    internal const uint PSRRaMask = 0xf_ff;
     internal const int PSRRaShift = 14;
-    internal const uint PSRDecMask = 0x3fff;
+    internal const uint PSRDecMask = 0x3f_ff;
     internal const Base91EncRADecOptions PSREpochSupport = Base91EncRADecOptions.None;
 
-    internal const uint TwoMassRaMask = 0x1_fff_fff;
+    internal const uint TwoMassRaMask = 0x1_ff_ff_ff;
     internal const int TwoMassRaShift = 24;
-    internal const uint TwoMassDecMask = 0xfff_fff;
+    internal const uint TwoMassDecMask = 0xff_ff_ff;
     internal const Base91EncRADecOptions TwoMassEncOptions = Base91EncRADecOptions.ImpliedJ2000;
 
-    internal const uint WDSRaMask = 0x7fff;
+    internal const uint WDSRaMask = 0x7f_ff;
     internal const int WDSRaShift = 14;
-    internal const uint WDSDecMask = 0x3fff;
+    internal const uint WDSDecMask = 0x3f_ff;
     internal const Base91EncRADecOptions WDSEncOptions = Base91EncRADecOptions.ImpliedJ2000;
+
+    internal const uint BDRaMask = 0x1_ff_ff;
+    internal const int BDRaShift = 8;
+    internal const uint BDDecMask = 0xff;
+    internal const Base91EncRADecOptions BDEncOptions = Base91EncRADecOptions.ImpliedJ2000;
 
     static readonly char[] Digit = new[] { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9' };
     static readonly char[] NGCExt = new[] { 'A', 'B', 'C', 'D', 'E', 'F', 'S', 'W', 'N' };
@@ -98,12 +102,8 @@ public static class CatalogUtils
                 break;
 
             case Catalog.BonnerDurchmusterung:
-                var bdMatch = BDPattern.Match(trimmedInput);
-                // TODO temporary, should use B91 encoding
-                cleanedUp = bdMatch.Success
-                    ? string.Concat(Catalog.BonnerDurchmusterung.ToAbbreviation(), bdMatch.Groups[3].Value, bdMatch.Groups[1].Value, bdMatch.Groups[2].Value)
-                    : null;
-                isBase91Encoded = false;
+                cleanedUp = CleanupBDCatalogIndex(BDPattern, trimmedInput, catalog, BDRaMask, BDRaShift, BDDecMask, BDEncOptions);
+                isBase91Encoded = true;
                 break;
 
             default:
@@ -163,12 +163,10 @@ public static class CatalogUtils
         }
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     static string? CleanupRADecBasedCatalogIndex(Regex pattern, string trimmedInput, Catalog catalog, ulong raMask, int raShift, ulong decMask, Base91EncRADecOptions epochSupport)
     {
         var match = pattern.Match(trimmedInput);
-
-        var j2000implied = epochSupport.HasFlag(Base91EncRADecOptions.ImpliedJ2000);
 
         if (!match.Success || match.Groups.Count < 5)
         {
@@ -179,9 +177,35 @@ public static class CatalogUtils
         var ra = match.Groups[2].ValueSpan;
         var decIsNeg = match.Groups[3].ValueSpan[0] == '-';
         var dec = match.Groups[4].ValueSpan;
+
+        return EncodeRADecBasedCatalogIndex(catalog, raMask, raShift, decMask, isJ2000, ra, decIsNeg, dec, epochSupport);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static string? CleanupBDCatalogIndex(Regex pattern, string trimmedInput, Catalog catalog, ulong raMask, int raShift, ulong decMask, Base91EncRADecOptions epochSupport)
+    {
+        var match = pattern.Match(trimmedInput);
+
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        var ra = match.Groups[3].ValueSpan;
+        var decIsNeg = match.Groups[1].Value[0] == '-';
+        var dec = match.Groups[2].ValueSpan;
+
+        return EncodeRADecBasedCatalogIndex(catalog, raMask, raShift, decMask, false, ra, decIsNeg, dec, epochSupport);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private static string? EncodeRADecBasedCatalogIndex(Catalog catalog, ulong raMask, int raShift, ulong decMask, bool isJ2000, in ReadOnlySpan<char> ra, bool decIsNeg, in ReadOnlySpan<char> dec, Base91EncRADecOptions epochSupport)
+    {
         if (ulong.TryParse(ra, NumberStyles.None, CultureInfo.InvariantCulture, out var raVal)
             && ulong.TryParse(dec, NumberStyles.None, CultureInfo.InvariantCulture, out var decVal))
         {
+            var j2000implied = epochSupport.HasFlag(Base91EncRADecOptions.ImpliedJ2000);
+
             const int signShift = ASCIIBits;
             var epochShift = signShift + (!j2000implied ? 1 : 0);
             var decShift = epochShift + 1;

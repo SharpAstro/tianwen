@@ -1,5 +1,4 @@
-﻿
-using Astap.Lib.Astrometry.Catalogs;
+﻿using Astap.Lib.Astrometry.Catalogs;
 using Shouldly;
 using Xunit;
 using static Astap.Lib.Tests.SharedTestData;
@@ -13,6 +12,7 @@ public class CatalogUtilTests
     [InlineData("2MASS J12015301-1852034", "Ý#fRtuKOL", Catalog.TwoMass)]
     [InlineData("2MASX J00185316+1035410", "ò15|s1VwH", Catalog.TwoMassX)]
     [InlineData("2MASX J11380904-0936257", "ìY<7izouP", Catalog.TwoMassX)]
+    [InlineData("BD-16 1591", BD_16_1591s_Enc, Catalog.BonnerDurchmusterung)]
     [InlineData("N11", "N0011", Catalog.NGC)]
     [InlineData("NGC0011", "N0011", Catalog.NGC)]
     [InlineData("NC 120", "N0120", Catalog.NGC)]
