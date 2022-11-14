@@ -46,6 +46,7 @@ public static class CatalogEx
         => catalog switch
         {
             Catalog.Abell => "ACO",
+            Catalog.BonnerDurchmusterung => "BD",
             Catalog.Caldwell => "C",
             Catalog.Collinder => "Cr",
             Catalog.Melotte => "Mel",
