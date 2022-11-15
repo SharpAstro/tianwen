@@ -286,7 +286,7 @@ public sealed class Image
             {
                 // clear from last iteration to avoid spurious data
                 starList.Clear();
-                img_sa.Clear();
+                img_sa.ClearAll();
             }
 
             for (var fitsY = 0; fitsY < _height; fitsY++)
@@ -306,14 +306,22 @@ public sealed class Image
 
                             for (var n = -diam; n <= +diam; n++)  /* mark the whole circular star area width diameter "diam" as occupied to prevent double detections */
                             {
+                                var j = n + yci;
+                                int? start = null;
+                                int? end = null;
                                 for (var m = -diam; m <= +diam; m++)
                                 {
-                                    var j = n + yci;
                                     var i = m + xci;
                                     if (j >= 0 && i >= 0 && j < _height && i < _width && m * m + n * n <= sqr_diam)
                                     {
-                                        img_sa[j, i] = true;
+                                        start ??= i;
+                                        end = i;
                                     }
+                                }
+
+                                if (start.HasValue && end.HasValue)
+                                {
+                                    img_sa[j, new Range(start.Value, end.Value)] = true;
                                 }
                             }
                         }
