@@ -83,10 +83,26 @@ namespace Astap.Lib.Tests
         }
 
         [Theory]
+        [InlineData(2, 1, "00000000 00000000 00000000 00000000", "01000000 00000000 00000000 00000000")]
+        [InlineData(32, 1, "00000000 00000000 00000000 00000000", "01111111 11111111 11111111 11111111")]
+        public void GivenRangeBothAreFromEndWhenUsingRangeIndexerThenBitsAreSet(int startFromEnd, int endFromEnd, params string[] expectedRows)
+        {
+            // given
+            var bm = new BitMatrix(2, 32);
+
+            // when
+            bm[1, ^startFromEnd..^endFromEnd] = true;
+
+            // then
+            var actualRows = BitMatrixOutputAsRows(bm.ToString());
+            actualRows.ShouldBe(expectedRows);
+        }
+
+        [Theory]
         [InlineData(1, 1, "00000000 00000000 00000000 00000000", "01111111 11111111 11111111 11111110")]
         [InlineData(1, 0, "00000000 00000000 00000000 00000000", "11111111 11111111 11111111 11111110")]
         [InlineData(0, 0, "00000000 00000000 00000000 00000000", "11111111 11111111 11111111 11111111")]
-        public void GivenRangeFromEndWhenUsingRangeIndexerThenBitsAreSet(int start, int fromEnd, params string[] expectedRows)
+        public void GivenRangeEndIsFromEndWhenUsingRangeIndexerThenBitsAreSet(int start, int fromEnd, params string[] expectedRows)
         {
             // given
             var bm = new BitMatrix(2, 32);
