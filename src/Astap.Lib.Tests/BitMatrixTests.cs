@@ -83,6 +83,58 @@ namespace Astap.Lib.Tests
         }
 
         [Theory]
+        [InlineData(1, 1, "00000000 00000000 00000000 00000000", "01111111 11111111 11111111 11111110")]
+        [InlineData(1, 0, "00000000 00000000 00000000 00000000", "11111111 11111111 11111111 11111110")]
+        [InlineData(0, 0, "00000000 00000000 00000000 00000000", "11111111 11111111 11111111 11111111")]
+        public void GivenRangeFromEndWhenUsingRangeIndexerThenBitsAreSet(int start, int fromEnd, params string[] expectedRows)
+        {
+            // given
+            var bm = new BitMatrix(2, 32);
+
+            // when
+            bm[1, start..^fromEnd] = true;
+
+            // then
+            var actualRows = BitMatrixOutputAsRows(bm.ToString());
+            actualRows.ShouldBe(expectedRows);
+        }
+
+        [Theory]
+        [InlineData(1, "00000000 00000000 00000000 00000000", "10000000 00000000 00000000 00000000")]
+        [InlineData(2, "00000000 00000000 00000000 00000000", "01000000 00000000 00000000 00000000")]
+        [InlineData(32, "00000000 00000000 00000000 00000000", "00000000 00000000 00000000 00000001")]
+        public void GivenIndexIsFromEndWhenUsingIndexIndexerThenBitsAreSet(int fromEnd, params string[] expectedRows)
+        {
+            // given
+            var bm = new BitMatrix(2, 32);
+
+            // when
+            bm[1, ^fromEnd] = true;
+
+            // then
+            var actualRows = BitMatrixOutputAsRows(bm.ToString());
+            actualRows.ShouldBe(expectedRows);
+        }
+
+        [Theory]
+        [InlineData(0, "00000000 00000000 00000000 00000000", "00000000 00000000 00000000 00000001")]
+        [InlineData(1, "00000000 00000000 00000000 00000000", "00000000 00000000 00000000 00000010")]
+        [InlineData(2, "00000000 00000000 00000000 00000000", "00000000 00000000 00000000 00000100")]
+        [InlineData(31, "00000000 00000000 00000000 00000000", "10000000 00000000 00000000 00000000")]
+        public void GivenIndexIsNotFromEndWhenUsingIndexIndexerThenBitsAreSet(int idx, params string[] expectedRows)
+        {
+            // given
+            var bm = new BitMatrix(2, 32);
+
+            // when
+            bm[1, new Index(idx)] = true;
+
+            // then
+            var actualRows = BitMatrixOutputAsRows(bm.ToString());
+            actualRows.ShouldBe(expectedRows);
+        }
+
+        [Theory]
         [InlineData(2, 32, 1, 1, 2,
             "00000000 00000000 00000000 00000000",
             "00000000 00000000 00000000 00000010"

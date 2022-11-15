@@ -56,12 +56,19 @@ public struct BitMatrix
         }
     }
 
+    public bool this[int d0, Index d1]
+    {
+        get => this[d0, d1.IsFromEnd ? _d1 - d1.Value : d1.Value];
+        set => this[d0, d1.IsFromEnd ? _d1 - d1.Value : d1.Value] = value;
+    }
+
     public bool this[int d0, Range d1]
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         set
         {
-            if (d1.Start.Value < 0 || d1.End.Value > _d1)
+            var end = (d1.End.IsFromEnd ? _d1 - d1.End.Value : d1.End.Value) - 1;
+            if (d1.Start.Value < 0 || end > _d1)
             {
                 throw new IndexOutOfRangeException();
             }
@@ -71,7 +78,7 @@ public struct BitMatrix
                 const uint setMask = (uint)-1;
 
                 var d1StartDiv = DivRem(d1.Start.Value, out var d1StartRem);
-                var d1EndDiv = DivRem(d1.End.Value - 1, out var d1EndRem);
+                var d1EndDiv = DivRem(end, out var d1EndRem);
                 var startData = _data[d0, d1StartDiv];
                 var shiftedStartMask = setMask << d1StartRem;
                 var shiftedEndMask = setMask >> (VECTOR_SIZE - d1EndRem - 1);
