@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Specialized;
 using System.Runtime.CompilerServices;
 using System.Text;
 
@@ -11,14 +10,14 @@ public struct BitMatrix
     const int VECTOR_SIZE_SHIFT = 5;
     const int VECTOR_SIZE_MASK = VECTOR_SIZE - 1;
 
-    private readonly BitVector32[,] _vectors;
+    private readonly uint[,] _data;
     private readonly int _d1;
 
     public BitMatrix(int d0, int d1)
     {
         var div = DivRem(_d1 = d1, out var rem);
 
-        _vectors = new BitVector32[d0, div + (rem > 0 ? 1 : 0)];
+        _data = new uint[d0, div + (rem > 0 ? 1 : 0)];
     }
 
     public bool this[int d0, int d1]
@@ -32,8 +31,8 @@ public struct BitMatrix
             }
 
             var d1div = DivRem(d1, out var rem);
-
-            return _vectors[d0, d1div][1 << rem];
+            var shift = 1u << rem;
+            return (_data[d0, d1div] & shift) == shift;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
@@ -45,8 +44,15 @@ public struct BitMatrix
             }
 
             var d1div = DivRem(d1, out var rem);
-
-            _vectors[d0, d1div][1 << rem] = value;
+            var shift = 1u << rem;
+            if (value)
+            {
+                _data[d0, d1div] |= shift;
+            }
+            else
+            {
+                _data[d0, d1div] &= ~shift;
+            }
         }
     }
 
@@ -60,36 +66,35 @@ public struct BitMatrix
                 throw new IndexOutOfRangeException();
             }
 
-            var d1StartDiv = DivRem(d1.Start.Value, out var d1StartRem);
-            var d1EndDiv = DivRem(d1.End.Value - 1, out var d1EndRem);
-
-            if (d1StartDiv == d1EndDiv)
+            unchecked
             {
-                for (var i = d1StartRem; i <= d1EndRem; i++)
+                const uint setMask = (uint)-1;
+
+                var d1StartDiv = DivRem(d1.Start.Value, out var d1StartRem);
+                var d1EndDiv = DivRem(d1.End.Value - 1, out var d1EndRem);
+                var startData = _data[d0, d1StartDiv];
+                var shiftedStartMask = setMask << d1StartRem;
+                var shiftedEndMask = setMask >> (VECTOR_SIZE - d1EndRem - 1);
+
+                if (d1StartDiv == d1EndDiv)
                 {
-                    _vectors[d0, d1StartDiv][1 << i] = value;
+                    var capMask = shiftedEndMask & shiftedStartMask;
+                    _data[d0, d1StartDiv] = value ? startData | capMask : startData & ~capMask;
                 }
-            }
-            else
-            {
-                unchecked {
-                    const int setMask = -1;
-                    var startData = _vectors[d0, d1StartDiv].Data;
-                    _vectors[d0, d1StartDiv] = new BitVector32(value
-                        ? startData | (setMask << d1StartRem)
-                        : startData & ~(setMask << d1StartRem)
-                    );
+                else
+                {
+                    var d1Div = d1StartDiv;
+                    _data[d0, d1Div++] = value ? startData | shiftedStartMask : startData & ~shiftedStartMask;
 
-                    var vectorVal = new BitVector32(value ? setMask : 0);
-                    for (var div = d1StartDiv + 1; div < d1EndDiv; div++)
+                    var midData = value ? setMask : 0u;
+                    for (; d1Div < d1EndDiv; d1Div++)
                     {
-                        _vectors[d0, div] = vectorVal;
+                        _data[d0, d1Div] = midData;
                     }
 
-                    for (var i = 0; i <= d1EndRem; i++)
-                    {
-                        _vectors[d0, d1EndDiv][1 << i] = value;
-                    }
+                    var endData = _data[d0, d1Div];
+
+                    _data[d0, d1Div] = value ? endData | shiftedEndMask : endData & ~shiftedEndMask;
                 }
             }
         }
@@ -105,18 +110,18 @@ public struct BitMatrix
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     public int GetLength(int dim) => dim switch
     {
-        0 => _vectors.GetLength(0),
+        0 => _data.GetLength(0),
         1 => _d1,
         _ => throw new ArgumentOutOfRangeException(nameof(dim), dim, "Must be 0 or 1"),
     };
 
     public void Clear()
     {
-        for (var i = 0; i < _vectors.GetLength(0); i++)
+        for (var i = 0; i < _data.GetLength(0); i++)
         {
-            for (var j = 0; j < _vectors.GetLength(1); j++)
+            for (var j = 0; j < _data.GetLength(1); j++)
             {
-                _vectors[i, j] = new BitVector32(0);
+                _data[i, j] = 0;
             }
         }
     }
@@ -124,16 +129,16 @@ public struct BitMatrix
     public override string ToString()
     {
         var sb = new StringBuilder();
-        for (var i = 0; i < _vectors.GetLength(0); i++)
+        for (var i = 0; i < _data.GetLength(0); i++)
         {
-            for (var j = 0; j < _vectors.GetLength(1); j++)
+            for (var j = 0; j < _data.GetLength(1); j++)
             {
                 if (j > 0)
                 {
                     sb.Append(", ");
                 }
 
-                var vectorBits = Convert.ToString(_vectors[i, j].Data, 2).PadLeft(VECTOR_SIZE, '0');
+                var vectorBits = Convert.ToString(_data[i, j], 2).PadLeft(VECTOR_SIZE, '0');
 
                 for (var k = 0; k < VECTOR_SIZE / 8; k++)
                 {
