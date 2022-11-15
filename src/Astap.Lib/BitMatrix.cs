@@ -1,7 +1,7 @@
 ﻿using System;
-using System.Text;
 using System.Collections.Specialized;
 using System.Runtime.CompilerServices;
+using System.Text;
 
 namespace Astap.Lib;
 
@@ -32,9 +32,8 @@ public struct BitMatrix
             }
 
             var d1div = DivRem(d1, out var rem);
-            var mask = 1 << rem;
 
-            return _vectors[d0, d1div][mask];
+            return _vectors[d0, d1div][1 << rem];
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
@@ -46,9 +45,53 @@ public struct BitMatrix
             }
 
             var d1div = DivRem(d1, out var rem);
-            var mask = 1 << rem;
 
-            _vectors[d0, d1div][mask] = value;
+            _vectors[d0, d1div][1 << rem] = value;
+        }
+    }
+
+    public bool this[int d0, Range d1]
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+        set
+        {
+            if (d1.Start.Value < 0 || d1.End.Value > _d1)
+            {
+                throw new IndexOutOfRangeException();
+            }
+
+            var d1StartDiv = DivRem(d1.Start.Value, out var d1StartRem);
+            var d1EndDiv = DivRem(d1.End.Value - 1, out var d1EndRem);
+
+            if (d1StartDiv == d1EndDiv)
+            {
+                for (var i = d1StartRem; i <= d1EndRem; i++)
+                {
+                    _vectors[d0, d1StartDiv][1 << i] = value;
+                }
+            }
+            else
+            {
+                unchecked {
+                    const int setMask = -1;
+                    var startData = _vectors[d0, d1StartDiv].Data;
+                    _vectors[d0, d1StartDiv] = new BitVector32(value
+                        ? startData | (setMask << d1StartRem)
+                        : startData & ~(setMask << d1StartRem)
+                    );
+
+                    var vectorVal = new BitVector32(value ? setMask : 0);
+                    for (var div = d1StartDiv + 1; div < d1EndDiv; div++)
+                    {
+                        _vectors[d0, div] = vectorVal;
+                    }
+
+                    for (var i = 0; i <= d1EndRem; i++)
+                    {
+                        _vectors[d0, d1EndDiv][1 << i] = value;
+                    }
+                }
+            }
         }
     }
 
@@ -73,7 +116,7 @@ public struct BitMatrix
         {
             for (var j = 0; j < _vectors.GetLength(1); j++)
             {
-                _vectors[i, j] = new BitVector32();
+                _vectors[i, j] = new BitVector32(0);
             }
         }
     }
