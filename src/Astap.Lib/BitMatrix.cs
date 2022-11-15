@@ -93,7 +93,6 @@ public struct BitMatrix
                     }
 
                     var endData = _data[d0, d1Div];
-
                     _data[d0, d1Div] = value ? endData | shiftedEndMask : endData & ~shiftedEndMask;
                 }
             }
@@ -115,13 +114,27 @@ public struct BitMatrix
         _ => throw new ArgumentOutOfRangeException(nameof(dim), dim, "Must be 0 or 1"),
     };
 
-    public void Clear()
+    public void ClearAll()
     {
         for (var i = 0; i < _data.GetLength(0); i++)
         {
             for (var j = 0; j < _data.GetLength(1); j++)
             {
                 _data[i, j] = 0;
+            }
+        }
+    }
+
+    public void SetAll()
+    {
+        unchecked
+        {
+            for (var i = 0; i < _data.GetLength(0); i++)
+            {
+                for (var j = 0; j < _data.GetLength(1); j++)
+                {
+                    _data[i, j] = (uint)-1;
+                }
             }
         }
     }
