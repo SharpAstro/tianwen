@@ -390,6 +390,8 @@ public class OpenNGCDB : ICelestialObjectDB
                     _crossIndexLookuptable.AddLookupEntry(catToAddIdx, idAndCat.Key);
                 }
             }
+
+            processed++;
         }
 
         return (processed, failed);
