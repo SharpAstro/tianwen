@@ -67,8 +67,9 @@ public struct BitMatrix
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         set
         {
+            var start = d1.Start.IsFromEnd ? _d1 - d1.Start.Value : d1.Start.Value;
             var end = (d1.End.IsFromEnd ? _d1 - d1.End.Value : d1.End.Value) - 1;
-            if (d1.Start.Value < 0 || end > _d1)
+            if (start < 0 || end > _d1)
             {
                 throw new IndexOutOfRangeException();
             }
@@ -77,7 +78,7 @@ public struct BitMatrix
             {
                 const uint setMask = (uint)-1;
 
-                var d1StartDiv = DivRem(d1.Start.Value, out var d1StartRem);
+                var d1StartDiv = DivRem(start, out var d1StartRem);
                 var d1EndDiv = DivRem(end, out var d1EndRem);
                 var startData = _data[d0, d1StartDiv];
                 var shiftedStartMask = setMask << d1StartRem;
