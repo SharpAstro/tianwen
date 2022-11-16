@@ -339,6 +339,8 @@ public class OpenNGCDB : ICelestialObjectDB
 
     private async Task<(int processed, int failed)> ReadEmbeddedGzippedJsonDataFileAsync(Assembly assembly, string jsonName)
     {
+        const string NAME_CAT_PREFIX = "NAME ";
+
         var processed = 0;
         var failed = 0;
 
@@ -366,9 +368,14 @@ public class OpenNGCDB : ICelestialObjectDB
 
             CatalogIndex catToAddIdx = 0;
             var relevantIds = new Dictionary<CatalogIndex, Catalog>();
+            var commonNames = new HashSet<string>();
             foreach (var id in record.Ids)
             {
-                if (TryGetCleanedUpCatalogName(id, out var catId))
+                if (id.StartsWith(NAME_CAT_PREFIX))
+                {
+                    commonNames.Add(id[NAME_CAT_PREFIX.Length..]);
+                }
+                else if (TryGetCleanedUpCatalogName(id, out var catId))
                 {
                     var cat = catId.ToCatalog();
                     if (cat == catToAdd && catToAddIdx == 0)
@@ -382,12 +389,29 @@ public class OpenNGCDB : ICelestialObjectDB
                 }
             }
 
-            foreach (var idAndCat in relevantIds)
+            var hasAnyCrossIndex = false;
+
+
+            if (catToAddIdx != 0)
             {
-                if (_objectsByIndex.ContainsKey(idAndCat.Key) && catToAddIdx != 0)
+                foreach (var commonName in commonNames)
                 {
-                    _crossIndexLookuptable.AddLookupEntry(idAndCat.Key, catToAddIdx);
-                    _crossIndexLookuptable.AddLookupEntry(catToAddIdx, idAndCat.Key);
+                    _objectsByCommonName.AddLookupEntry(commonName, catToAddIdx);
+                }
+
+                foreach (var idAndCat in relevantIds)
+                {
+                    if (_objectsByIndex.ContainsKey(idAndCat.Key))
+                    {
+                        hasAnyCrossIndex = true;
+                        _crossIndexLookuptable.AddLookupEntry(idAndCat.Key, catToAddIdx);
+                        _crossIndexLookuptable.AddLookupEntry(catToAddIdx, idAndCat.Key);
+
+                        foreach (var commonName in commonNames)
+                        {
+                            _objectsByCommonName.AddLookupEntry(commonName, idAndCat.Key);
+                        }
+                    }
                 }
             }
 
