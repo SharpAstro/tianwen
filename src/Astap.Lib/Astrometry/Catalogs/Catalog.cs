@@ -20,6 +20,7 @@ public enum Catalog : ulong
     HR = 'H' << 7 | 'R', // Havard revised bright star catalog
     HCG = 'H' << 14 | 'C' << 7 | 'G', // Hickson Compact Group
     IC = 'I',
+    LDN = 'L' << 14 | 'D' << 7 | 'N', // Lynds Catalog of Dark Nebulae
     Melotte = 'M' << 14 | 'e' << 7 | 'l',
     Messier = 'M',
     NGC = 'N',
