@@ -120,11 +120,11 @@ public static class CatalogUtils
                     var tmplIndex = chars.Length - 1 - i;
                     var tmplChar = chars[tmplIndex];
                     var inputChar = trimmedInput[inputIndex];
-                    var isDigit = inputChar is >= '0' and <= '9';
-                    var isABC = inputChar is >= 'A' and <= 'Z';
+                    var isDigit = char.IsDigit(inputChar);
                     if (tmplChar == '*')
                     {
-                        // treat * as a wildcard either meaning 0-9 or A-Z
+                        var isABC = char.IsLetter(inputChar);
+                        // treat * as a wildcard either meaning 0-9 or A-Z or a-z
                         if (!isDigit && !isABC)
                         {
                             break;
