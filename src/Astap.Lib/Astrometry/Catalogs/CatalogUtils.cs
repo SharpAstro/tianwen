@@ -123,9 +123,8 @@ public static class CatalogUtils
                     var isDigit = char.IsDigit(inputChar);
                     if (tmplChar == '*')
                     {
-                        var isABC = char.IsLetter(inputChar);
                         // treat * as a wildcard either meaning 0-9 or A-Z or a-z
-                        if (!isDigit && !isABC)
+                        if (!isDigit && !char.IsLetter(inputChar))
                         {
                             break;
                         }
