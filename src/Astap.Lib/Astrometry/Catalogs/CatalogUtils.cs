@@ -245,6 +245,7 @@ public static class CatalogUtils
         }
 
         var noSpaces = trimmedInput.Replace(" ", "");
+        var secondIsDigit = char.IsDigit(noSpaces[1]);
 
         (template, digits, catalog) = noSpaces[0] switch
         {
@@ -261,26 +262,33 @@ public static class CatalogUtils
                 ? ("Cr000", 3, Catalog.Collinder)
                 : ("C000", 3, Catalog.Caldwell),
             'E' => ("E000-000", 7, Catalog.ESO),
-            'G' => noSpaces[1] == 'U'
-                ? ("GUM000", 3, Catalog.GUM)
-                : ("GJ0000", 4, Catalog.GJ),
+            'G' => noSpaces[1] switch
+            {
+                'U' => ("GUM00*", 3, Catalog.GUM),
+                'J' => ("GJ0000", 4, Catalog.GJ),
+                _ => ("", 0, 0)
+            },
             'H' => noSpaces[1] switch
             {
-                'A' => noSpaces.Length > 4 && noSpaces[3] == 'S'
-                    ? ("HATS000", 3, Catalog.HATS)
-                    : ("HAT-P000", 3, Catalog.HAT_P),
+                'A' when noSpaces.Length > 4 && noSpaces[3] == 'S' => ("HATS000", 3, Catalog.HATS),
+                'A' when noSpaces.Length > 5 && noSpaces[4] == 'P' => ("HAT-P000", 3, Catalog.HAT_P),
                 'C' => ("HCG0000", 4, Catalog.HCG),
                 'R' => ("HR0000", 4, Catalog.HR),
                 'D' => ("HD000000", 6, Catalog.HD),
                 'I' => ("HI000000", 6, Catalog.HIP),
-                _ => ("H00", 2, Catalog.H)
+                _ when secondIsDigit => ("H00", 2, Catalog.H),
+                _ => ("", 0, 0)
             },
             'I' => noSpaces[1] is >= '0' and <= '9' || noSpaces[1] is 'C' or 'c'
                 ? ("I0000", 4, Catalog.IC)
                 : ("", 0, 0),
-            'M' => noSpaces[1] == 'e' && noSpaces.Length > 2 && noSpaces[2] == 'l'
-                ? ("Mel000", 3, Catalog.Melotte)
-                : ("M000", 3, Catalog.Messier),
+            'M' => noSpaces[1] switch
+            {
+                'e' when noSpaces.Length > 2 && noSpaces[2] == 'l' => ("Mel000", 3, Catalog.Melotte),
+                'e' when noSpaces.Length > 6 && noSpaces[0..7] == "Messier" => ("M00*", 3, Catalog.Messier),
+                _ when secondIsDigit => ("M00*", 3, Catalog.Messier),
+                _ => ("", 0, 0)
+            },
             'N' => ("N0000", 4, Catalog.NGC),
             'P' => noSpaces[1] == 'S' && noSpaces.Length > 2 && noSpaces[2] == 'R'
                 ? ("", 8, Catalog.PSR)
