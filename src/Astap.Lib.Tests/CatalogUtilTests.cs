@@ -75,6 +75,8 @@ public class CatalogUtilTests
     [InlineData("4Sq")]
     [InlineData("N 0526__")]
     [InlineData("N 0526 ABC01")]
+    [InlineData("MM  3")]
+    [InlineData("Gaia DR2 5975481144442221696")]
     public void GivenAnInvalidInputWhenCleaningUpThenNothingIsReturned(string input)
     {
         var success = CatalogUtils.TryGetCleanedUpCatalogName(input, out var actualCatalogIndex);
