@@ -23,6 +23,7 @@ public class CatalogTests
     [InlineData(Catalog.HR, "HR")]
     [InlineData(Catalog.HCG, "HCG")]
     [InlineData(Catalog.IC, "IC")]
+    [InlineData(Catalog.LDN, "LDN")]
     [InlineData(Catalog.Melotte, "Mel")]
     [InlineData(Catalog.Messier, "M")]
     [InlineData(Catalog.NGC, "NGC")]

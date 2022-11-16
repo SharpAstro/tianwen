@@ -279,9 +279,10 @@ public static class CatalogUtils
                 _ when secondIsDigit => ("H00", 2, Catalog.H),
                 _ => ("", 0, 0)
             },
-            'I' => noSpaces[1] is >= '0' and <= '9' || noSpaces[1] is 'C' or 'c'
+            'I' => secondIsDigit || noSpaces[1] is 'C' or 'c'
                 ? ("I0000", 4, Catalog.IC)
                 : ("", 0, 0),
+            'L' when noSpaces[1] == 'D' => ("LDN0000*", 5, Catalog.LDN),
             'M' => noSpaces[1] switch
             {
                 'e' when noSpaces.Length > 2 && noSpaces[2] == 'l' => ("Mel000", 3, Catalog.Melotte),
