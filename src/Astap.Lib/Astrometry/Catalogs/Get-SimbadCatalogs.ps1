@@ -1,6 +1,6 @@
 
 
-$catalogs = @('RCW', 'GUM', 'LDN', 'Ced', 'Barnard')
+$catalogs = @('Sh', 'RCW', 'GUM', 'LDN', 'Ced', 'Barnard')
 
 $catalogs | ForEach-Object {
     $cat = $_

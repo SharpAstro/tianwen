@@ -488,11 +488,12 @@
     "Ids": [
       "Barnard  35A",
       "JCMTSE J054429.8+090856",
-      "JCMTSF J054429.8+090856"
+      "JCMTSF J054429.8+090856",
+      "SCOPE G196.93-10.40"
     ],
     "ObjType": "DarkNeb",
-    "Ra": 86.1242,
-    "Dec": 9.1483
+    "Ra": 86.123,
+    "Dec": 9.147
   },
   {
     "MainId": "Barnard  35B",

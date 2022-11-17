@@ -30,7 +30,7 @@ public static class DictHelper
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     public static bool TryGetLookupEntries<TKey, TVal>(this Dictionary<TKey, (TVal v1, TVal[]? ext)> lookupTable, TKey key, out IReadOnlyList<TVal> crossIndices)
-        where TKey : struct, Enum
+        where TKey : notnull
         where TVal : struct, Enum
     {
         if (lookupTable.TryGetValue(key, out var lookedUpValues))

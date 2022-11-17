@@ -8257,7 +8257,8 @@
       "LDN  778",
       "JCMTSE J192632.2+235850",
       "JCMTSF J192632.2+235850",
-      "MLB 4-17"
+      "MLB 4-17",
+      "SCOPE G058.15+03.51"
     ],
     "ObjType": "DarkNeb",
     "Ra": 291.6354,
@@ -12950,14 +12951,15 @@
     "Dec": 63.6064
   },
   {
-    "MainId": "JCMTSE J222012.1+632641",
+    "MainId": "LDN 1204C",
     "Ids": [
-      "JCMTSE J222012.1+632641",
       "LDN 1204C",
+      "JCMTSE J222012.1+632641",
+      "SCOPE G106.96+05.37",
       "[MJR2015] 3799",
       "[TBM93] C"
     ],
-    "ObjType": "FarIR",
+    "ObjType": "smmRad",
     "Ra": 335.0508,
     "Dec": 63.4478
   },
@@ -17140,6 +17142,7 @@
       "LDN 1534B",
       "2MASX J04391389+2553206",
       "NAME Taurus Molecular Ring",
+      "SCOPE G173.85-13.74",
       "SSTtau 043913.8+255320",
       "TIC 150005875",
       "TMR 1",
@@ -17168,6 +17171,7 @@
       "LDN 1535",
       "NAME LDN 1535 IRS",
       "PSCz P04325+2402",
+      "SCOPE G174.70-15.50",
       "SSTtau 043535.3+240819",
       "TIC 268511186",
       "WDS J04356+2408Aa,Ab",
@@ -18437,6 +18441,7 @@
       "NAME HH 240-241",
       "NAME RNO 40 FIR",
       "RNO  40",
+      "SCOPE G207.60-23.03",
       "SFO 16",
       "[BEH2002] VLA 3",
       "[G82b] 13",

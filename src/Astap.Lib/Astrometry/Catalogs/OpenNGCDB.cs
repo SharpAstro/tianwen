@@ -22,7 +22,7 @@ public class OpenNGCDB : ICelestialObjectDB
 {
     private readonly Dictionary<CatalogIndex, CelestialObject> _objectsByIndex = new(14000);
     private readonly Dictionary<CatalogIndex, (CatalogIndex i1, CatalogIndex[]? ext)> _crossIndexLookuptable = new(5500);
-    private readonly Dictionary<string, CatalogIndex[]> _objectsByCommonName = new(200);
+    private readonly Dictionary<string, (CatalogIndex i1, CatalogIndex[]? ext)> _objectsByCommonName = new(200);
 
     private HashSet<CatalogIndex>? _catalogIndicesCache;
     private HashSet<Catalog>? _catalogCache;
@@ -74,17 +74,7 @@ public class OpenNGCDB : ICelestialObjectDB
     }
 
     /// <inheritdoc/>
-    public bool TryResolveCommonName(string name, out IReadOnlyList<CatalogIndex> matches)
-    {
-        if (_objectsByCommonName.TryGetValue(name, out var actualMatches))
-        {
-            matches = actualMatches;
-            return true;
-        }
-
-        matches = Array.Empty<CatalogIndex>();
-        return false;
-    }
+    public bool TryResolveCommonName(string name, out IReadOnlyList<CatalogIndex> matches) => _objectsByCommonName.TryGetLookupEntries(name, out matches);
 
     private static readonly Catalog[] CrossCats = new[] {
         Catalog.Barnard,
@@ -367,7 +357,7 @@ public class OpenNGCDB : ICelestialObjectDB
             }
 
             CatalogIndex catToAddIdx = 0;
-            var relevantIds = new Dictionary<CatalogIndex, Catalog>();
+            var relevantIds = new Dictionary<Catalog, CatalogIndex>();
             var commonNames = new HashSet<string>();
             foreach (var id in record.Ids)
             {
@@ -382,35 +372,33 @@ public class OpenNGCDB : ICelestialObjectDB
                     {
                         catToAddIdx = catId;
                     }
-                    else if (mainCatalogs.Contains(cat))
+                    else if (mainCatalogs.Contains(cat) && !relevantIds.ContainsKey(cat))
                     {
-                        relevantIds.Add(catId, cat);
+                        relevantIds.Add(cat, catId);
                     }
                 }
             }
 
-            var hasAnyCrossIndex = false;
-
-
             if (catToAddIdx != 0)
             {
-                foreach (var commonName in commonNames)
-                {
-                    _objectsByCommonName.AddLookupEntry(commonName, catToAddIdx);
-                }
-
-                foreach (var idAndCat in relevantIds)
-                {
-                    if (_objectsByIndex.ContainsKey(idAndCat.Key))
+                var bestMatch = relevantIds.OrderBy(
+                    p => p.Key switch
                     {
-                        hasAnyCrossIndex = true;
-                        _crossIndexLookuptable.AddLookupEntry(idAndCat.Key, catToAddIdx);
-                        _crossIndexLookuptable.AddLookupEntry(catToAddIdx, idAndCat.Key);
+                        Catalog.NGC => 1,
+                        Catalog.IC => 2,
+                        Catalog.Messier => 3,
+                        _ => 10
+                    })
+                    .FirstOrDefault(p => _objectsByIndex.ContainsKey(p.Value));
 
-                        foreach (var commonName in commonNames)
-                        {
-                            _objectsByCommonName.AddLookupEntry(commonName, idAndCat.Key);
-                        }
+                if (bestMatch.Value is CatalogIndex id and not 0)
+                {
+                    _crossIndexLookuptable.AddLookupEntry(id, catToAddIdx);
+                    _crossIndexLookuptable.AddLookupEntry(catToAddIdx, id);
+
+                    foreach (var commonName in commonNames)
+                    {
+                        _objectsByCommonName.AddLookupEntry(commonName, id);
                     }
                 }
             }

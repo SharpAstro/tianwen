@@ -244,26 +244,22 @@ public static class CatalogUtils
         }
 
         var noSpaces = trimmedInput.Replace(" ", "");
-        var secondIsDigit = char.IsDigit(noSpaces[1]);
+        var secondChar = noSpaces[1];
+        var secondIsDigit = char.IsDigit(secondChar);
 
         (template, digits, catalog) = noSpaces[0] switch
         {
             '2' when noSpaces.Length > 5 && noSpaces[4] == 'S' => ("", 15, Catalog.TwoMass),
             '2' when noSpaces.Length > 5 && noSpaces[4] == 'X' => ("", 15, Catalog.TwoMassX),
-            'A' when noSpaces[1] == 'C' => ("ACO0000", 4, Catalog.Abell),
-            'B' => noSpaces[1] == 'D'
-                ? ("BD+00 0000", 6, Catalog.BonnerDurchmusterung)
-                : ("B000", 3, Catalog.Barnard),
-            'C' when noSpaces[1] == 'l' || noSpaces[1] == 'r' => ("Cr000", 3, Catalog.Collinder),
+            'A' when secondChar == 'C' => ("ACO0000", 4, Catalog.Abell),
+            'B' when secondChar == 'D' => ("BD+00 0000", 6, Catalog.BonnerDurchmusterung),
+            'B' when secondIsDigit || secondChar is 'A' or 'a' => ("B000", 3, Catalog.Barnard),
+            'C' when secondChar == 'l' || secondChar == 'r' => ("Cr000", 3, Catalog.Collinder),
             'C' when secondIsDigit => ("C000", 3, Catalog.Caldwell),
             'E' => ("E000-000", 7, Catalog.ESO),
-            'G' => noSpaces[1] switch
-            {
-                'U' => ("GUM00*", 3, Catalog.GUM),
-                'J' => ("GJ0000", 4, Catalog.GJ),
-                _ => ("", 0, 0)
-            },
-            'H' => noSpaces[1] switch
+            'G' when secondChar == 'U' => ("GUM00*", 3, Catalog.GUM),
+            'G' when secondChar == 'J' => ("GJ0000", 4, Catalog.GJ),
+            'H' => secondChar switch
             {
                 'A' when noSpaces.Length > 4 && noSpaces[3] == 'S' => ("HATS000", 3, Catalog.HATS),
                 'A' when noSpaces.Length > 5 && noSpaces[4] == 'P' => ("HAT-P000", 3, Catalog.HAT_P),
@@ -274,9 +270,9 @@ public static class CatalogUtils
                 _ when secondIsDigit => ("H00", 2, Catalog.H),
                 _ => ("", 0, 0)
             },
-            'I' when secondIsDigit || noSpaces[1] is 'C' or 'c' => ("I0000", 4, Catalog.IC),
-            'L' when noSpaces[1] == 'D' => ("LDN0000*", 5, Catalog.LDN),
-            'M' => noSpaces[1] switch
+            'I' when secondIsDigit || secondChar is 'C' or 'c' => ("I0000", 4, Catalog.IC),
+            'L' when secondChar == 'D' => ("LDN0000*", 5, Catalog.LDN),
+            'M' => secondChar switch
             {
                 'e' when noSpaces.Length > 2 && noSpaces[2] == 'l' => ("Mel000", 3, Catalog.Melotte),
                 'e' when noSpaces.Length > 6 && noSpaces[0..7] == "Messier" => ("M00*", 3, Catalog.Messier),
@@ -284,14 +280,14 @@ public static class CatalogUtils
                 _ => ("", 0, 0)
             },
             // be more lenient with NGC as its typed a lot
-            'N' when secondIsDigit || noSpaces[1] is 'G' or 'g' or 'C' or 'c' => ("N0000", 4, Catalog.NGC),
-            'P' when noSpaces[1] == 'S' && noSpaces.Length > 2 && noSpaces[2] == 'R' => ("", 8, Catalog.PSR),
-            'S' when secondIsDigit || noSpaces[1] == 'h' => ("Sh2-000", 3, Catalog.Sharpless),
-            'T' when secondIsDigit || noSpaces[1] == 'r' => ("TrES00", 2, Catalog.TrES),
-            'U' when secondIsDigit || noSpaces[1] == 'G' => ("U00000", 5, Catalog.UGC),
-            'W' when noSpaces[1] == 'D' && noSpaces.Length > 2 && noSpaces[2] == 'S' => ("", 10, Catalog.WDS),
-            'W' when secondIsDigit || noSpaces[1] == 'A' => ("WASP000", 3, Catalog.WASP),
-            'X' when secondIsDigit || noSpaces[1] == 'O' => ("XO000*", 4, Catalog.XO),
+            'N' when secondIsDigit || secondChar is 'G' or 'g' or 'C' or 'c' => ("N0000", 4, Catalog.NGC),
+            'P' when secondChar == 'S' && noSpaces.Length > 2 && noSpaces[2] == 'R' => ("", 8, Catalog.PSR),
+            'S' when secondIsDigit || secondChar == 'h' => ("Sh2-000", 3, Catalog.Sharpless),
+            'T' when secondIsDigit || secondChar == 'r' => ("TrES00", 2, Catalog.TrES),
+            'U' when secondIsDigit || secondChar == 'G' => ("U00000", 5, Catalog.UGC),
+            'W' when secondChar == 'D' && noSpaces.Length > 2 && noSpaces[2] == 'S' => ("", 10, Catalog.WDS),
+            'W' when secondIsDigit || secondChar == 'A' => ("WASP000", 3, Catalog.WASP),
+            'X' when secondIsDigit || secondChar == 'O' => ("XO000*", 4, Catalog.XO),
             _ => ("", 0, (Catalog)0)
         };
 
