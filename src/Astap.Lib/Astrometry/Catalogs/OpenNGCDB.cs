@@ -396,9 +396,29 @@ public class OpenNGCDB : ICelestialObjectDB
                     _crossIndexLookuptable.AddLookupEntry(id, catToAddIdx);
                     _crossIndexLookuptable.AddLookupEntry(catToAddIdx, id);
 
-                    foreach (var commonName in commonNames)
+                    if (commonNames.Count > 0 && _objectsByIndex.TryGetValue(id, out var obj))
                     {
-                        _objectsByCommonName.AddLookupEntry(commonName, id);
+                        var existingCommonNames = new SortedSet<string>(obj.CommonNames);
+                        if (!existingCommonNames.SetEquals(commonNames))
+                        {
+                            var modObj = new CelestialObject(
+                                obj.Index,
+                                obj.ObjectType,
+                                obj.RA,
+                                obj.Dec,
+                                obj.Constellation,
+                                obj.V_Mag,
+                                obj.SurfaceBrightness,
+                                existingCommonNames.Union(commonNames).ToArray()
+                            );
+
+                            _objectsByIndex[id] = modObj;
+
+                            foreach (var commonName in commonNames)
+                            {
+                                _objectsByCommonName.AddLookupEntry(commonName, id);
+                            }
+                        }
                     }
                 }
             }
