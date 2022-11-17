@@ -31,7 +31,7 @@ public class CombinedDBTests
     [InlineData(M042, "Great Orion Nebula", "Orion Nebula")]
     [InlineData(NGC1976, "Great Orion Nebula", "Orion Nebula")]
     [InlineData(M051, "Whirlpool Galaxy")]
-    [InlineData(NGC3372, "Carina Nebula", "eta Car Nebula", "Keyhole", "Car Nebula", "Keyhole Nebula")]
+    [InlineData(NGC3372, "Car Nebula", "Carina Nebula", "eta Car Nebula", "Keyhole", "Keyhole Nebula")]
     public async Task GivenACatalogIndexWhenTryingToGetCommonNamesThenTheyAreFound(CatalogIndex catalogIndex, params string[] expectedNames)
     {
         var db = new CombinedDB();

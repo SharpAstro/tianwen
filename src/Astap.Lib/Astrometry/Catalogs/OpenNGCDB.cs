@@ -399,8 +399,11 @@ public class OpenNGCDB : ICelestialObjectDB
                     if (commonNames.Count > 0 && _objectsByIndex.TryGetValue(id, out var obj))
                     {
                         var existingCommonNames = new SortedSet<string>(obj.CommonNames);
+
                         if (!existingCommonNames.SetEquals(commonNames))
                         {
+                            existingCommonNames.UnionWith(commonNames);
+
                             var modObj = new CelestialObject(
                                 obj.Index,
                                 obj.ObjectType,
@@ -409,12 +412,13 @@ public class OpenNGCDB : ICelestialObjectDB
                                 obj.Constellation,
                                 obj.V_Mag,
                                 obj.SurfaceBrightness,
-                                existingCommonNames.Union(commonNames).ToArray()
+                                existingCommonNames.ToArray()
                             );
 
                             _objectsByIndex[id] = modObj;
 
-                            foreach (var commonName in commonNames)
+                            existingCommonNames.ExceptWith(obj.CommonNames);
+                            foreach (var commonName in existingCommonNames)
                             {
                                 _objectsByCommonName.AddLookupEntry(commonName, id);
                             }
