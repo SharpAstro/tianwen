@@ -34,6 +34,8 @@ public class OpenNGCDBTests
     [InlineData("NGC7293", ObjectType.PlanetaryNebula, NGC7293, Constellation.Aquarius, 22.494047222222225d, -20.837333333333333d)]
     [InlineData("NGC7331", ObjectType.Galaxy, NGC7331, Constellation.Pegasus, 22.617780555555555d, 34.415527777777775d)]
     [InlineData("UGC00468", ObjectType.Galaxy, IC0049, Constellation.Cetus, 0.7322583333333333d, 1.850277777777778d)]
+    [InlineData("NGC3372", ObjectType.HIIRegion, NGC3372, Constellation.Carina, 10.752369444444444d, -59.86669444444445d)]
+    [InlineData("GUM033", ObjectType.HIIRegion, NGC3372, Constellation.Carina, 10.752369444444444d, -59.86669444444445d)]
     public async Task GivenObjectIdWhenLookingItUpThenAnObjIsReturned(
         string indexEntry,
         ObjectType expectedObjType,
@@ -71,6 +73,11 @@ public class OpenNGCDBTests
     [InlineData("Orion Nebula", NGC1976)]
     [InlineData("Great Orion Nebula", NGC1976)]
     [InlineData("Pleiades", Mel022)]
+    [InlineData("Keyhole", NGC3372)]
+    [InlineData("Car Nebula", NGC3372)]
+    [InlineData("Carina Nebula", NGC3372)]
+    [InlineData("eta Car Nebula", NGC3372)]
+    [InlineData("Keyhole Nebula", NGC3372)]
     public async Task GivenANameWhenLookingItUpThenAnObjIsReturned(string name, params CatalogIndex[] expectedMatches)
     {
         // given
