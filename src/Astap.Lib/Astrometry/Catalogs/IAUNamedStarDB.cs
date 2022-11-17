@@ -77,13 +77,15 @@ public class IAUNamedStarDB : ICelestialObjectDB
                 {
                     var objType = catalogIndex.ToCatalog() == Catalog.PSR ? ObjectType.Pulsar : ObjectType.Star;
                     var constellation = AbbreviationToEnumMember<Constellation>(record.Constellation);
-                    var commonNames = new string[record.ID is not null ? 2 : 1];
-                    commonNames[0] = record.IAUName;
+                    var commonNames = new HashSet<string>(record.ID is not null ? 2 : 1)
+                    {
+                        record.IAUName
+                    };
 
                     if (record.ID is not null)
                     {
                         var bayerName = string.Join(' ', record.ID, constellation.ToIAUAbbreviation(), record.WDSComponentId).TrimEnd();
-                        commonNames[1] = bayerName;
+                        commonNames.Add(bayerName);
                     }
 
                     var stellarObject = _stellarObjectsByCatalogIndex[catalogIndex] = new CelestialObject(

@@ -2,6 +2,7 @@
 using CsvHelper.Configuration;
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
@@ -20,6 +21,8 @@ namespace Astap.Lib.Astrometry.Catalogs;
 
 public class OpenNGCDB : ICelestialObjectDB
 {
+    private static readonly IReadOnlySet<string> EmptySet = ImmutableHashSet.Create<string>();
+
     private readonly Dictionary<CatalogIndex, CelestialObject> _objectsByIndex = new(14000);
     private readonly Dictionary<CatalogIndex, (CatalogIndex i1, CatalogIndex[]? ext)> _crossIndexLookuptable = new(5500);
     private readonly Dictionary<string, (CatalogIndex i1, CatalogIndex[]? ext)> _objectsByCommonName = new(200);
@@ -236,10 +239,10 @@ public class OpenNGCDB : ICelestialObjectDB
                     ? surfaceBrightnessFloat
                     : float.NaN;
 
-                string[] commonNames;
+                IReadOnlySet<string> commonNames;
                 if (csvReader.TryGetField<string>("Common names", out var commonNamesEntry) && commonNamesEntry is not null)
                 {
-                    commonNames = commonNamesEntry.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                    commonNames = new HashSet<string>(commonNamesEntry.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
                     foreach (var commonName in commonNames)
                     {
                         _objectsByCommonName.AddLookupEntry(commonName, indexEntry);
@@ -247,7 +250,7 @@ public class OpenNGCDB : ICelestialObjectDB
                 }
                 else
                 {
-                    commonNames = Array.Empty<string>();
+                    commonNames = EmptySet;
                 }
 
                 _objectsByIndex[indexEntry] = new CelestialObject(
@@ -384,10 +387,10 @@ public class OpenNGCDB : ICelestialObjectDB
                 var bestMatch = relevantIds.OrderBy(
                     p => p.Key switch
                     {
-                        Catalog.NGC => 1,
-                        Catalog.IC => 2,
-                        Catalog.Messier => 3,
-                        _ => 10
+                        Catalog.NGC => 1u,
+                        Catalog.IC => 2u,
+                        Catalog.Messier => 3u,
+                        _ => (ulong)p.Key
                     })
                     .FirstOrDefault(p => _objectsByIndex.ContainsKey(p.Value));
 
@@ -398,12 +401,8 @@ public class OpenNGCDB : ICelestialObjectDB
 
                     if (commonNames.Count > 0 && _objectsByIndex.TryGetValue(id, out var obj))
                     {
-                        var existingCommonNames = new SortedSet<string>(obj.CommonNames);
-
-                        if (!existingCommonNames.SetEquals(commonNames))
+                        if (!obj.CommonNames.SetEquals(commonNames))
                         {
-                            existingCommonNames.UnionWith(commonNames);
-
                             var modObj = new CelestialObject(
                                 obj.Index,
                                 obj.ObjectType,
@@ -412,13 +411,13 @@ public class OpenNGCDB : ICelestialObjectDB
                                 obj.Constellation,
                                 obj.V_Mag,
                                 obj.SurfaceBrightness,
-                                existingCommonNames.ToArray()
+                                commonNames.UnionWithAsReadOnlyCopy(obj.CommonNames)
                             );
 
                             _objectsByIndex[id] = modObj;
 
-                            existingCommonNames.ExceptWith(obj.CommonNames);
-                            foreach (var commonName in existingCommonNames)
+                            commonNames.ExceptWith(obj.CommonNames);
+                            foreach (var commonName in commonNames)
                             {
                                 _objectsByCommonName.AddLookupEntry(commonName, id);
                             }

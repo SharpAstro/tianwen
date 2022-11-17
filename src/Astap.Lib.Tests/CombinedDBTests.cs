@@ -41,7 +41,7 @@ public class CombinedDBTests
 
         found.ShouldBeTrue();
         match.CommonNames.Count.ShouldBe(expectedNames.Length);
-        match.CommonNames.ShouldBe(expectedNames);
+        match.CommonNames.ShouldBe(expectedNames, ignoreOrder: true);
     }
 
     [Theory]
