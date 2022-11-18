@@ -253,11 +253,13 @@ public class OpenNGCDB : ICelestialObjectDB
                     commonNames = EmptySet;
                 }
 
+                var ra = HMSToHours(raHMS);
+                var dec = DMSToDegree(decDMS);
                 _objectsByIndex[indexEntry] = new CelestialObject(
                     indexEntry,
                     objectType,
-                    HMSToHours(raHMS),
-                    DMSToDegree(decDMS),
+                    ra,
+                    dec,
                     @const,
                     vmag,
                     surfaceBrightness,

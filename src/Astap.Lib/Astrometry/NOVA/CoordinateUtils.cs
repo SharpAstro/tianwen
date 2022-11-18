@@ -195,7 +195,19 @@ public static class CoordinateUtils
         const double minToDeg = 1.0 / 60.0;
         const double secToDeg = 1.0 / 3600.0;
 
-        var split = dms?.Split(':', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        var span = dms.AsSpan().Trim();
+        int sign;
+        if (span.Length > 0 && span[0] == '-')
+        {
+            sign = -1;
+            span = span[1..];
+        }
+        else
+        {
+            sign = 1;
+        }
+
+        var split = new string(span).Split(':', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
 
         if (split?.Length == 3
             && double.TryParse(split[0], NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var deg)
@@ -203,7 +215,7 @@ public static class CoordinateUtils
             && double.TryParse(split[2], NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var sec)
         )
         {
-            return Math.Sign(deg) * (Math.Abs(deg) + min * minToDeg + sec * secToDeg);
+            return sign * (Math.Abs(deg) + (min * minToDeg) + (sec * secToDeg));
         }
         else
         {

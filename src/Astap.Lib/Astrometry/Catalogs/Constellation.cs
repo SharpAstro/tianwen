@@ -25,7 +25,7 @@ namespace Astap.Lib.Astrometry.Catalogs
         Capricornus = 'C' << 14 | 'a' << 7 | 'p',
         Carina = 'C' << 14 | 'a' << 7 | 'r',
         Cassiopeia = 'C' << 14 | 'a' << 7 | 's',
-        Centaurus = 'C' << 14 | 'n' << 7 | 'n',
+        Centaurus = 'C' << 14 | 'e' << 7 | 'n',
         Cepheus = 'C' << 14 | 'e' << 7 | 'p',
         Cetus = 'C' << 14 | 'e' << 7 | 't',
         Chamaeleon = 'C' << 14 | 'h' << 7 | 'a',

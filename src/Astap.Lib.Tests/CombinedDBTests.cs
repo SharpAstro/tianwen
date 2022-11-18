@@ -76,8 +76,19 @@ public class CombinedDBTests
         // when
         Parallel.ForEach(idxs, idx =>
         {
-            db.TryLookupByIndex(idx, out _).ShouldBeTrue($"{idx.ToAbbreviation()} [{idx}] was not found!");
+            db.TryLookupByIndex(idx, out var obj).ShouldBeTrue($"{idx.ToAbbreviation()} [{idx}] was not found!");
             catalogs.ShouldContain(idx.ToCatalog());
+            var couldCalculate = ConstellationBoundary.TryFindConstellation(obj.RA, obj.Dec, out var calculatedConstellation);
+
+            if (obj.ObjectType != ObjectType.NonExistent || obj.Constellation != 0)
+            {
+                couldCalculate.ShouldBeTrue();
+                obj.Constellation.ShouldNotBe((Constellation)0);
+                calculatedConstellation.ShouldNotBe((Constellation)0);
+                obj.Constellation
+                    .IsContainedWithin(calculatedConstellation)
+                    .ShouldBeTrue($"{idx.ToAbbreviation()} [{idx}]: {obj.Constellation} is not contained within {calculatedConstellation}");
+            }
         });
 
         // then
