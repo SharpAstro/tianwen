@@ -12,7 +12,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 3.346,
-    "Dec": 65.613
+    "Dec": 65.613,
+    "VMag": null
   },
   {
     "MainId": "IC   11",
@@ -22,7 +23,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 5.0,
-    "Dec": 56.6
+    "Dec": 56.6,
+    "VMag": null
   },
   {
     "MainId": "NGC   281",
@@ -47,7 +49,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 13.1046,
-    "Dec": 56.565
+    "Dec": 56.565,
+    "VMag": null
   },
   {
     "MainId": "Ced   4a",
@@ -61,7 +64,8 @@
     ],
     "ObjType": "GalNeb",
     "Ra": 14.67,
-    "Dec": 61.077847
+    "Dec": 61.077847,
+    "VMag": null
   },
   {
     "MainId": "IC   63",
@@ -75,7 +79,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 14.75571,
-    "Dec": 60.88828
+    "Dec": 60.88828,
+    "VMag": null
   },
   {
     "MainId": "Ced   5",
@@ -84,7 +89,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 26.87,
-    "Dec": 59.78
+    "Dec": 59.78,
+    "VMag": null
   },
   {
     "MainId": "Ced   6a",
@@ -93,7 +99,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 36.73,
-    "Dec": 62.07
+    "Dec": 62.07,
+    "VMag": null
   },
   {
     "MainId": "Ced   6b",
@@ -102,7 +109,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 36.73,
-    "Dec": 62.07
+    "Dec": 62.07,
+    "VMag": null
   },
   {
     "MainId": "Ced   6c",
@@ -111,7 +119,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 36.73,
-    "Dec": 62.07
+    "Dec": 62.07,
+    "VMag": null
   },
   {
     "MainId": "Ced   7",
@@ -120,7 +129,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 38.03,
-    "Dec": 61.48
+    "Dec": 61.48,
+    "VMag": null
   },
   {
     "MainId": "Ced   8",
@@ -129,7 +139,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 41.0,
-    "Dec": 63.0
+    "Dec": 63.0,
+    "VMag": null
   },
   {
     "MainId": "Ced   9a",
@@ -138,7 +149,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 42.83,
-    "Dec": 60.43
+    "Dec": 60.43,
+    "VMag": null
   },
   {
     "MainId": "Ced   9b",
@@ -147,7 +159,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 43.23,
-    "Dec": 60.47
+    "Dec": 60.47,
+    "VMag": null
   },
   {
     "MainId": "Ced   9c",
@@ -156,7 +169,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 43.4,
-    "Dec": 60.48
+    "Dec": 60.48,
+    "VMag": null
   },
   {
     "MainId": "Ced   9d",
@@ -165,7 +179,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 43.4,
-    "Dec": 60.57
+    "Dec": 60.57,
+    "VMag": null
   },
   {
     "MainId": "Ced  10",
@@ -174,7 +189,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 42.93,
-    "Dec": 58.32
+    "Dec": 58.32,
+    "VMag": null
   },
   {
     "MainId": "Ced  11",
@@ -183,7 +199,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 44.05,
-    "Dec": 60.68
+    "Dec": 60.68,
+    "VMag": null
   },
   {
     "MainId": "LBN 157.58-20.59",
@@ -197,7 +214,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 51.5,
-    "Dec": 31.7
+    "Dec": 31.7,
+    "VMag": null
   },
   {
     "MainId": "Ced  13",
@@ -208,7 +226,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 51.48,
-    "Dec": 30.93
+    "Dec": 30.93,
+    "VMag": null
   },
   {
     "MainId": "LBN 142.14+01.97",
@@ -220,7 +239,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 52.2,
-    "Dec": 58.9
+    "Dec": 58.9,
+    "VMag": null
   },
   {
     "MainId": "LBN 159.31-21.67",
@@ -234,7 +254,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 52.2,
-    "Dec": 29.9
+    "Dec": 29.9,
+    "VMag": null
   },
   {
     "MainId": "NGC  1333",
@@ -255,7 +276,8 @@
     ],
     "ObjType": "OpenCluster",
     "Ra": 52.297,
-    "Dec": 31.31
+    "Dec": 31.31,
+    "VMag": null
   },
   {
     "MainId": "Ced  17",
@@ -264,7 +286,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 52.85,
-    "Dec": 43.92
+    "Dec": 43.92,
+    "VMag": null
   },
   {
     "MainId": "Ced  18a",
@@ -274,7 +297,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 54.75,
-    "Dec": 32.25
+    "Dec": 32.25,
+    "VMag": null
   },
   {
     "MainId": "Ced  18b",
@@ -284,7 +308,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 56.05,
-    "Dec": 32.28
+    "Dec": 32.28,
+    "VMag": null
   },
   {
     "MainId": "IC  336",
@@ -297,7 +322,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 54.25,
-    "Dec": 23.4
+    "Dec": 23.4,
+    "VMag": null
   },
   {
     "MainId": "Ced  19a",
@@ -306,7 +332,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 54.7,
-    "Dec": 22.0
+    "Dec": 22.0,
+    "VMag": null
   },
   {
     "MainId": "Ced  19b",
@@ -315,7 +342,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 55.5,
-    "Dec": 21.8
+    "Dec": 21.8,
+    "VMag": null
   },
   {
     "MainId": "Ced  19c",
@@ -324,7 +352,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 56.2,
-    "Dec": 24.3
+    "Dec": 24.3,
+    "VMag": null
   },
   {
     "MainId": "Ced  19d",
@@ -333,7 +362,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 56.23,
-    "Dec": 24.12
+    "Dec": 24.12,
+    "VMag": null
   },
   {
     "MainId": "Ced  19e",
@@ -342,7 +372,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 56.32,
-    "Dec": 24.48
+    "Dec": 24.48,
+    "VMag": null
   },
   {
     "MainId": "Ced  19f",
@@ -351,7 +382,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 56.48,
-    "Dec": 24.38
+    "Dec": 24.38,
+    "VMag": null
   },
   {
     "MainId": "Ced  19g",
@@ -360,7 +392,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 56.5,
-    "Dec": 24.1
+    "Dec": 24.1,
+    "VMag": null
   },
   {
     "MainId": "Ced  19h",
@@ -369,7 +402,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 56.5,
-    "Dec": 24.57
+    "Dec": 24.57,
+    "VMag": null
   },
   {
     "MainId": "IC  349",
@@ -380,7 +414,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 56.5888,
-    "Dec": 23.9411
+    "Dec": 23.9411,
+    "VMag": null
   },
   {
     "MainId": "Ced  19j",
@@ -389,7 +424,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 56.57,
-    "Dec": 23.78
+    "Dec": 23.78,
+    "VMag": null
   },
   {
     "MainId": "Ced  19k",
@@ -398,7 +434,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 56.65,
-    "Dec": 23.63
+    "Dec": 23.63,
+    "VMag": null
   },
   {
     "MainId": "Ced  19l",
@@ -407,7 +444,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 56.85,
-    "Dec": 24.12
+    "Dec": 24.12,
+    "VMag": null
   },
   {
     "MainId": "IC 1990",
@@ -417,7 +455,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 56.9,
-    "Dec": 24.63
+    "Dec": 24.63,
+    "VMag": null
   },
   {
     "MainId": "NGC  1456",
@@ -427,7 +466,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 57.02,
-    "Dec": 22.57
+    "Dec": 22.57,
+    "VMag": null
   },
   {
     "MainId": "Ced  19o",
@@ -436,7 +476,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 57.27,
-    "Dec": 24.05
+    "Dec": 24.05,
+    "VMag": null
   },
   {
     "MainId": "Ced  19p",
@@ -445,7 +486,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 57.32,
-    "Dec": 24.15
+    "Dec": 24.15,
+    "VMag": null
   },
   {
     "MainId": "IC  354",
@@ -455,7 +497,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 58.2,
-    "Dec": 23.0
+    "Dec": 23.0,
+    "VMag": null
   },
   {
     "MainId": "IC  348",
@@ -484,7 +527,8 @@
     ],
     "ObjType": "OpenCluster",
     "Ra": 56.132,
-    "Dec": 32.159
+    "Dec": 32.159,
+    "VMag": null
   },
   {
     "MainId": "Ced  21",
@@ -495,7 +539,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 56.15,
-    "Dec": 32.33
+    "Dec": 32.33,
+    "VMag": null
   },
   {
     "MainId": "IC 1995",
@@ -505,7 +550,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 57.58,
-    "Dec": 25.58
+    "Dec": 25.58,
+    "VMag": null
   },
   {
     "MainId": "Ced  23",
@@ -514,7 +560,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 58.42,
-    "Dec": 32.5
+    "Dec": 32.5,
+    "VMag": null
   },
   {
     "MainId": "IC  353",
@@ -524,7 +571,8 @@
     ],
     "ObjType": "GalNeb",
     "Ra": 57.63,
-    "Dec": 25.53
+    "Dec": 25.53,
+    "VMag": null
   },
   {
     "MainId": "NGC  1491",
@@ -559,7 +607,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 60.8163,
-    "Dec": 51.315
+    "Dec": 51.315,
+    "VMag": null
   },
   {
     "MainId": "Ced  26",
@@ -568,7 +617,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 60.85,
-    "Dec": 36.42
+    "Dec": 36.42,
+    "VMag": null
   },
   {
     "MainId": "Ced  27",
@@ -577,7 +627,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 61.65,
-    "Dec": 27.62
+    "Dec": 27.62,
+    "VMag": null
   },
   {
     "MainId": "Ced  28",
@@ -586,7 +637,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 62.33,
-    "Dec": 30.65
+    "Dec": 30.65,
+    "VMag": null
   },
   {
     "MainId": "IC  360",
@@ -598,7 +650,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 63.2,
-    "Dec": 25.6
+    "Dec": 25.6,
+    "VMag": null
   },
   {
     "MainId": "Ced  30",
@@ -616,7 +669,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 64.671,
-    "Dec": 28.29
+    "Dec": 28.29,
+    "VMag": null
   },
   {
     "MainId": "LBN 169.30-14.89",
@@ -632,7 +686,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 65.5021,
-    "Dec": 28.4172
+    "Dec": 28.4172,
+    "VMag": null
   },
   {
     "MainId": "NGC  1554",
@@ -648,7 +703,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 65.5,
-    "Dec": 19.6
+    "Dec": 19.6,
+    "VMag": null
   },
   {
     "MainId": "Ced  32a",
@@ -657,7 +713,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 65.42,
-    "Dec": 19.52
+    "Dec": 19.52,
+    "VMag": null
   },
   {
     "MainId": "NGC  1555",
@@ -674,7 +731,8 @@
     ],
     "ObjType": "HerbigHaroObj",
     "Ra": 65.4879,
-    "Dec": 19.5353
+    "Dec": 19.5353,
+    "VMag": null
   },
   {
     "MainId": "NAME Burnham's Nebula",
@@ -687,7 +745,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 65.4975,
-    "Dec": 19.535
+    "Dec": 19.535,
+    "VMag": null
   },
   {
     "MainId": "V* DG Tau",
@@ -732,7 +791,8 @@
     ],
     "ObjType": "OrionV*",
     "Ra": 66.76955053162,
-    "Dec": 26.10446115813
+    "Dec": 26.10446115813,
+    "VMag": 10.5
   },
   {
     "MainId": "LBN 174.34-17.75",
@@ -744,7 +804,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 66.7,
-    "Dec": 22.9
+    "Dec": 22.9,
+    "VMag": null
   },
   {
     "MainId": "NGC  1579",
@@ -762,7 +823,8 @@
     ],
     "ObjType": "OpenCluster",
     "Ra": 67.514,
-    "Dec": 35.325
+    "Dec": 35.325,
+    "VMag": null
   },
   {
     "MainId": "Ced  36",
@@ -774,7 +836,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 67.57,
-    "Dec": 35.48
+    "Dec": 35.48,
+    "VMag": null
   },
   {
     "MainId": "IRAS 04366+5022",
@@ -794,7 +857,8 @@
     ],
     "ObjType": "YSO",
     "Ra": 70.11350377978,
-    "Dec": 50.47480950457
+    "Dec": 50.47480950457,
+    "VMag": null
   },
   {
     "MainId": "IRAS 0437+257P08",
@@ -836,7 +900,8 @@
     ],
     "ObjType": "YSO",
     "Ra": 69.98227394926,
-    "Dec": 25.75053919583
+    "Dec": 25.75053919583,
+    "VMag": null
   },
   {
     "MainId": "Ced  39",
@@ -845,7 +910,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 70.7,
-    "Dec": 27.0
+    "Dec": 27.0,
+    "VMag": null
   },
   {
     "MainId": "NGC  1788",
@@ -862,7 +928,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 76.725,
-    "Dec": -3.342
+    "Dec": -3.342,
+    "VMag": null
   },
   {
     "MainId": "NGC  1909",
@@ -879,7 +946,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 75.5,
-    "Dec": -7.9
+    "Dec": -7.9,
+    "VMag": null
   },
   {
     "MainId": "Ced  41a",
@@ -889,7 +957,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 76.7,
-    "Dec": -7.2
+    "Dec": -7.2,
+    "VMag": null
   },
   {
     "MainId": "Ced  41b",
@@ -899,7 +968,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 76.7,
-    "Dec": -7.2
+    "Dec": -7.2,
+    "VMag": null
   },
   {
     "MainId": "Ced  42",
@@ -910,7 +980,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 79.0871,
-    "Dec": 34.3864
+    "Dec": 34.3864,
+    "VMag": null
   },
   {
     "MainId": "Ced  43",
@@ -921,7 +992,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 80.5674,
-    "Dec": 33.5059
+    "Dec": 33.5059,
+    "VMag": null
   },
   {
     "MainId": "LBN 194.69-15.60",
@@ -933,7 +1005,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 80.5,
-    "Dec": 8.3
+    "Dec": 8.3,
+    "VMag": null
   },
   {
     "MainId": "Ced  45",
@@ -942,7 +1015,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 81.3,
-    "Dec": 6.35
+    "Dec": 6.35,
+    "VMag": null
   },
   {
     "MainId": "Ced  46",
@@ -952,7 +1026,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 82.03,
-    "Dec": 34.45
+    "Dec": 34.45,
+    "VMag": null
   },
   {
     "MainId": "Ced  47",
@@ -961,7 +1036,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 82.2,
-    "Dec": 12.57
+    "Dec": 12.57,
+    "VMag": null
   },
   {
     "MainId": "IC  419",
@@ -971,7 +1047,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 82.75,
-    "Dec": 30.15
+    "Dec": 30.15,
+    "VMag": null
   },
   {
     "MainId": "NGC  1931",
@@ -995,7 +1072,8 @@
     ],
     "ObjType": "OpenCluster",
     "Ra": 82.845,
-    "Dec": 34.233
+    "Dec": 34.233,
+    "VMag": 10.1
   },
   {
     "MainId": "Ced  50",
@@ -1004,7 +1082,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 81.4,
-    "Dec": 30.37
+    "Dec": 30.37,
+    "VMag": null
   },
   {
     "MainId": "Ced  51",
@@ -1015,7 +1094,8 @@
     ],
     "ObjType": "GalNeb",
     "Ra": 83.0,
-    "Dec": 12.4
+    "Dec": 12.4,
+    "VMag": null
   },
   {
     "MainId": "IC  423",
@@ -1033,7 +1113,8 @@
     ],
     "ObjType": "MolCld",
     "Ra": 83.337,
-    "Dec": -0.633
+    "Dec": -0.633,
+    "VMag": null
   },
   {
     "MainId": "RX J0534.4+2200",
@@ -1047,7 +1128,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 83.6356,
-    "Dec": 22.011
+    "Dec": 22.011,
+    "VMag": null
   },
   {
     "MainId": "LBN 194.68-12.42",
@@ -1061,7 +1143,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 83.7847,
-    "Dec": 9.9246
+    "Dec": 9.9246,
+    "VMag": null
   },
   {
     "MainId": "Ced  55a",
@@ -1070,7 +1153,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 83.7,
-    "Dec": -5.57
+    "Dec": -5.57,
+    "VMag": null
   },
   {
     "MainId": "NGC  1973",
@@ -1080,7 +1164,8 @@
     ],
     "ObjType": "GalNeb",
     "Ra": 83.77,
-    "Dec": -4.73186
+    "Dec": -4.73186,
+    "VMag": null
   },
   {
     "MainId": "Ced  55c",
@@ -1089,7 +1174,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 83.8,
-    "Dec": -4.68
+    "Dec": -4.68,
+    "VMag": null
   },
   {
     "MainId": "Ced  55d",
@@ -1098,7 +1184,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 83.82,
-    "Dec": -5.38
+    "Dec": -5.38,
+    "VMag": null
   },
   {
     "MainId": "[MGR2000a] IRAS 00494+5617 P1",
@@ -1110,7 +1197,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 83.81,
-    "Dec": -4.929
+    "Dec": -4.929,
+    "VMag": null
   },
   {
     "MainId": "Ced  55f",
@@ -1119,7 +1207,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 83.85,
-    "Dec": -5.9
+    "Dec": -5.9,
+    "VMag": null
   },
   {
     "MainId": "Ced  55g",
@@ -1128,7 +1217,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 83.87,
-    "Dec": -5.27
+    "Dec": -5.27,
+    "VMag": null
   },
   {
     "MainId": "* eps Ori",
@@ -1190,7 +1280,8 @@
     ],
     "ObjType": "BlueSG",
     "Ra": 84.05338894,
-    "Dec": -1.20191914
+    "Dec": -1.20191914,
+    "VMag": 1.69
   },
   {
     "MainId": "NGC  1999",
@@ -1205,7 +1296,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 84.104,
-    "Dec": -6.712
+    "Dec": -6.712,
+    "VMag": null
   },
   {
     "MainId": "IC  426",
@@ -1221,7 +1313,8 @@
     ],
     "ObjType": "MolCld",
     "Ra": 84.117,
-    "Dec": -0.277
+    "Dec": -0.277,
+    "VMag": null
   },
   {
     "MainId": "IC  430",
@@ -1241,7 +1334,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 84.576,
-    "Dec": -7.04061
+    "Dec": -7.04061,
+    "VMag": 14.4
   },
   {
     "MainId": "IC  431",
@@ -1255,7 +1349,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 85.2,
-    "Dec": -1.6
+    "Dec": -1.6,
+    "VMag": null
   },
   {
     "MainId": "IC  432",
@@ -1269,7 +1364,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 85.5,
-    "Dec": -1.6
+    "Dec": -1.6,
+    "VMag": null
   },
   {
     "MainId": "Ced  55n",
@@ -1278,7 +1374,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 85.25,
-    "Dec": -2.42
+    "Dec": -2.42,
+    "VMag": null
   },
   {
     "MainId": "[KSP2003] J054139.80-021345.9",
@@ -1288,7 +1385,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 85.41583,
-    "Dec": -2.22942
+    "Dec": -2.22942,
+    "VMag": null
   },
   {
     "MainId": "Ced  55p",
@@ -1298,7 +1396,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 85.07,
-    "Dec": -1.75
+    "Dec": -1.75,
+    "VMag": null
   },
   {
     "MainId": "IC  435",
@@ -1312,7 +1411,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 85.7521,
-    "Dec": -2.3125
+    "Dec": -2.3125,
+    "VMag": null
   },
   {
     "MainId": "NAME Orion Loop",
@@ -1323,7 +1423,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 86.2,
-    "Dec": 2.0
+    "Dec": 2.0,
+    "VMag": null
   },
   {
     "MainId": "NGC  2064",
@@ -1337,7 +1438,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 86.65,
-    "Dec": 0.057
+    "Dec": 0.057,
+    "VMag": null
   },
   {
     "MainId": "NGC  2067",
@@ -1348,7 +1450,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 86.65,
-    "Dec": 0.12
+    "Dec": 0.12,
+    "VMag": null
   },
   {
     "MainId": "M  78",
@@ -1361,7 +1464,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 86.6908,
-    "Dec": 0.0792
+    "Dec": 0.0792,
+    "VMag": null
   },
   {
     "MainId": "NGC  2071",
@@ -1379,7 +1483,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 86.791,
-    "Dec": 0.3
+    "Dec": 0.3,
+    "VMag": null
   },
   {
     "MainId": "IC  425",
@@ -1389,7 +1494,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 84.5,
-    "Dec": 32.4
+    "Dec": 32.4,
+    "VMag": null
   },
   {
     "MainId": "NGC  1985",
@@ -1410,7 +1516,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 84.4493,
-    "Dec": 31.99
+    "Dec": 31.99,
+    "VMag": null
   },
   {
     "MainId": "IC 2159",
@@ -1420,7 +1527,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 92.47,
-    "Dec": 20.42
+    "Dec": 20.42,
+    "VMag": null
   },
   {
     "MainId": "NGC  2045",
@@ -1430,7 +1538,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 86.25,
-    "Dec": 12.9
+    "Dec": 12.9,
+    "VMag": null
   },
   {
     "MainId": "LBN 197.19-10.15",
@@ -1444,7 +1553,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 86.5,
-    "Dec": 9.0
+    "Dec": 9.0,
+    "VMag": null
   },
   {
     "MainId": "IC  439",
@@ -1454,7 +1564,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 89.15,
-    "Dec": 32.03
+    "Dec": 32.03,
+    "VMag": null
   },
   {
     "MainId": "LBN 180.71+04.30",
@@ -1471,7 +1582,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 91.143,
-    "Dec": 30.5111
+    "Dec": 30.5111,
+    "VMag": null
   },
   {
     "MainId": "NGC  2163",
@@ -1487,7 +1599,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 91.9562,
-    "Dec": 18.6575
+    "Dec": 18.6575,
+    "VMag": null
   },
   {
     "MainId": "NGC  2170",
@@ -1502,7 +1615,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 91.95,
-    "Dec": -6.385
+    "Dec": -6.385,
+    "VMag": null
   },
   {
     "MainId": "Ced  64",
@@ -1512,7 +1626,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 92.25,
-    "Dec": 15.7
+    "Dec": 15.7,
+    "VMag": null
   },
   {
     "MainId": "LBN 213.63-12.34",
@@ -1524,7 +1639,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 92.0,
-    "Dec": -6.2
+    "Dec": -6.2,
+    "VMag": null
   },
   {
     "MainId": "LBN 213.76-12.40",
@@ -1536,7 +1652,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 92.0,
-    "Dec": -6.3
+    "Dec": -6.3,
+    "VMag": null
   },
   {
     "MainId": "Ced  67",
@@ -1546,7 +1663,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 92.43,
-    "Dec": 20.47
+    "Dec": 20.47,
+    "VMag": null
   },
   {
     "MainId": "Ced  67a",
@@ -1555,7 +1673,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 92.43,
-    "Dec": 20.48
+    "Dec": 20.48,
+    "VMag": null
   },
   {
     "MainId": "Ced  67c",
@@ -1564,7 +1683,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 92.72,
-    "Dec": 20.62
+    "Dec": 20.62,
+    "VMag": null
   },
   {
     "MainId": "NGC  2182",
@@ -1581,7 +1701,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 92.3752,
-    "Dec": -6.3278
+    "Dec": -6.3278,
+    "VMag": null
   },
   {
     "MainId": "NGC  2183",
@@ -1598,7 +1719,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 92.69479,
-    "Dec": -6.21247
+    "Dec": -6.21247,
+    "VMag": null
   },
   {
     "MainId": "NGC  2185",
@@ -1611,7 +1733,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 92.5,
-    "Dec": -6.2
+    "Dec": -6.2,
+    "VMag": null
   },
   {
     "MainId": "LBN  1000",
@@ -1623,7 +1746,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 92.7,
-    "Dec": -6.1
+    "Dec": -6.1,
+    "VMag": null
   },
   {
     "MainId": "Ced  73",
@@ -1634,7 +1758,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 94.5404,
-    "Dec": 22.7523
+    "Dec": 22.7523,
+    "VMag": null
   },
   {
     "MainId": "IC  444",
@@ -1648,7 +1773,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 94.642,
-    "Dec": 23.313
+    "Dec": 23.313,
+    "VMag": null
   },
   {
     "MainId": "IC  446",
@@ -1670,7 +1796,8 @@
     ],
     "ObjType": "Cluster*",
     "Ra": 97.7596,
-    "Dec": 10.435
+    "Dec": 10.435,
+    "VMag": null
   },
   {
     "MainId": "IC 2169",
@@ -1686,7 +1813,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 97.8,
-    "Dec": 10.1
+    "Dec": 10.1,
+    "VMag": null
   },
   {
     "MainId": "IC  448",
@@ -1699,7 +1827,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 98.5,
-    "Dec": 7.3
+    "Dec": 7.3,
+    "VMag": null
   },
   {
     "MainId": "NGC  2245",
@@ -1722,7 +1851,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 98.1722,
-    "Dec": 10.1593
+    "Dec": 10.1593,
+    "VMag": null
   },
   {
     "MainId": "NGC  2247",
@@ -1744,7 +1874,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 98.2684,
-    "Dec": 10.3225
+    "Dec": 10.3225,
+    "VMag": null
   },
   {
     "MainId": "Ced  82",
@@ -1754,7 +1885,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 99.33,
-    "Dec": 5.92
+    "Dec": 5.92,
+    "VMag": null
   },
   {
     "MainId": "V* R Mon",
@@ -1798,7 +1930,8 @@
     ],
     "ObjType": "Ae*",
     "Ra": 99.79147583352,
-    "Dec": 8.73598318962
+    "Dec": 8.73598318962,
+    "VMag": 11.85
   },
   {
     "MainId": "Ced  84a",
@@ -1808,7 +1941,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 99.98,
-    "Dec": 8.2
+    "Dec": 8.2,
+    "VMag": null
   },
   {
     "MainId": "Ced  84b",
@@ -1818,7 +1952,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 100.25,
-    "Dec": 9.7
+    "Dec": 9.7,
+    "VMag": null
   },
   {
     "MainId": "Ced  84c",
@@ -1828,7 +1963,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 101.1,
-    "Dec": 9.2
+    "Dec": 9.2,
+    "VMag": null
   },
   {
     "MainId": "Ced  85",
@@ -1838,7 +1974,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 100.45,
-    "Dec": 6.03
+    "Dec": 6.03,
+    "VMag": null
   },
   {
     "MainId": "NGC  2283",
@@ -1863,7 +2000,8 @@
     ],
     "ObjType": "Galaxy",
     "Ra": 101.46995878074,
-    "Dec": -18.21043063538
+    "Dec": -18.21043063538,
+    "VMag": null
   },
   {
     "MainId": "NGC  2282",
@@ -1879,7 +2017,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 101.713,
-    "Dec": 1.315
+    "Dec": 1.315,
+    "VMag": null
   },
   {
     "MainId": "Ced  89a",
@@ -1889,7 +2028,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 105.82,
-    "Dec": -11.5
+    "Dec": -11.5,
+    "VMag": null
   },
   {
     "MainId": "Ced  89b",
@@ -1900,7 +2040,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 106.03,
-    "Dec": -11.18
+    "Dec": -11.18,
+    "VMag": null
   },
   {
     "MainId": "Ced  89c",
@@ -1910,7 +2051,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 106.17,
-    "Dec": -10.87
+    "Dec": -10.87,
+    "VMag": null
   },
   {
     "MainId": "Ced  89d",
@@ -1920,7 +2062,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 106.43,
-    "Dec": -10.62
+    "Dec": -10.62,
+    "VMag": null
   },
   {
     "MainId": "Ced  89e",
@@ -1930,7 +2073,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 107.13,
-    "Dec": -10.12
+    "Dec": -10.12,
+    "VMag": null
   },
   {
     "MainId": "LBN  1039",
@@ -1943,7 +2087,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 106.304,
-    "Dec": -12.317
+    "Dec": -12.317,
+    "VMag": null
   },
   {
     "MainId": "RAFGL 5223",
@@ -1964,7 +2109,8 @@
     ],
     "ObjType": "Ae*_Candidate",
     "Ra": 107.16162783734,
-    "Dec": -4.31801323226
+    "Dec": -4.31801323226,
+    "VMag": 12.06
   },
   {
     "MainId": "Ced  93",
@@ -1974,7 +2120,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 107.3,
-    "Dec": -18.45
+    "Dec": -18.45,
+    "VMag": null
   },
   {
     "MainId": "Ced  96",
@@ -1987,7 +2134,8 @@
     ],
     "ObjType": "YSO",
     "Ra": 110.0429,
-    "Dec": -24.04
+    "Dec": -24.04,
+    "VMag": null
   },
   {
     "MainId": "DG 118",
@@ -2000,7 +2148,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 109.904,
-    "Dec": -24.023
+    "Dec": -24.023,
+    "VMag": null
   },
   {
     "MainId": "Ced  96b",
@@ -2010,7 +2159,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 109.95,
-    "Dec": -24.07
+    "Dec": -24.07,
+    "VMag": null
   },
   {
     "MainId": "Ced  96c",
@@ -2020,7 +2170,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 110.03,
-    "Dec": -24.1
+    "Dec": -24.1,
+    "VMag": null
   },
   {
     "MainId": "Ced  99",
@@ -2029,7 +2180,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 111.1846,
-    "Dec": -16.4747
+    "Dec": -16.4747,
+    "VMag": null
   },
   {
     "MainId": "LBN  1062",
@@ -2041,7 +2193,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 114.0,
-    "Dec": -25.3
+    "Dec": -25.3,
+    "VMag": null
   },
   {
     "MainId": "NGC  2626",
@@ -2053,7 +2206,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 128.883,
-    "Dec": -40.672
+    "Dec": -40.672,
+    "VMag": null
   },
   {
     "MainId": "IC 2599",
@@ -2064,7 +2218,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 159.43,
-    "Dec": -58.65
+    "Dec": -58.65,
+    "VMag": null
   },
   {
     "MainId": "BRAN 334B",
@@ -2075,7 +2230,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 165.2804,
-    "Dec": -60.7939
+    "Dec": -60.7939,
+    "VMag": null
   },
   {
     "MainId": "Ass Cha T 2-21",
@@ -2118,7 +2274,8 @@
     ],
     "ObjType": "TTauri*",
     "Ra": 166.5639463591,
-    "Dec": -77.36575565628
+    "Dec": -77.36575565628,
+    "VMag": 11.01
   },
   {
     "MainId": "BRAN 341B",
@@ -2130,7 +2287,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 167.0142,
-    "Dec": -77.6553
+    "Dec": -77.6553,
+    "VMag": null
   },
   {
     "MainId": "Ced 111a",
@@ -2139,7 +2297,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 0.0,
-    "Dec": 0.0
+    "Dec": 0.0,
+    "VMag": null
   },
   {
     "MainId": "Ced 111b",
@@ -2148,7 +2307,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 0.0,
-    "Dec": 0.0
+    "Dec": 0.0,
+    "VMag": null
   },
   {
     "MainId": "Ced 112",
@@ -2161,7 +2321,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 167.4683,
-    "Dec": -76.6158
+    "Dec": -76.6158,
+    "VMag": null
   },
   {
     "MainId": "NGC  3699",
@@ -2183,7 +2344,8 @@
     ],
     "ObjType": "PlanetaryNeb",
     "Ra": 171.99042,
-    "Dec": -59.95778
+    "Dec": -59.95778,
+    "VMag": 13.0
   },
   {
     "MainId": "IC 2966",
@@ -2196,7 +2358,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 177.5525,
-    "Dec": -64.8719
+    "Dec": -64.8719,
+    "VMag": null
   },
   {
     "MainId": "Ced 122",
@@ -2205,7 +2368,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 201.17,
-    "Dec": -64.02
+    "Dec": -64.02,
+    "VMag": null
   },
   {
     "MainId": "GN 15.50.6",
@@ -2216,7 +2380,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 237.746,
-    "Dec": -25.752
+    "Dec": -25.752,
+    "VMag": null
   },
   {
     "MainId": "Ced 125b",
@@ -2226,7 +2391,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 238.4,
-    "Dec": -25.33
+    "Dec": -25.33,
+    "VMag": null
   },
   {
     "MainId": "Ced 125c",
@@ -2236,7 +2402,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 238.48,
-    "Dec": -24.55
+    "Dec": -24.55,
+    "VMag": null
   },
   {
     "MainId": "LBN  1094",
@@ -2248,7 +2415,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 240.0,
-    "Dec": -26.4
+    "Dec": -26.4,
+    "VMag": null
   },
   {
     "MainId": "IC 4591",
@@ -2261,7 +2429,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 243.0,
-    "Dec": -27.9
+    "Dec": -27.9,
+    "VMag": null
   },
   {
     "MainId": "IC 4592",
@@ -2274,7 +2443,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 243.3,
-    "Dec": -19.3
+    "Dec": -19.3,
+    "VMag": null
   },
   {
     "MainId": "LBN  1115",
@@ -2285,7 +2455,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 245.3,
-    "Dec": -20.1
+    "Dec": -20.1,
+    "VMag": null
   },
   {
     "MainId": "Ced 129a",
@@ -2295,7 +2466,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 244.77,
-    "Dec": -20.23
+    "Dec": -20.23,
+    "VMag": null
   },
   {
     "MainId": "GN 16.17.2",
@@ -2308,7 +2480,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 245.025,
-    "Dec": -20.055
+    "Dec": -20.055,
+    "VMag": null
   },
   {
     "MainId": "Ced 129c",
@@ -2319,7 +2492,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 245.15,
-    "Dec": -20.13
+    "Dec": -20.13,
+    "VMag": null
   },
   {
     "MainId": "LBN  1104",
@@ -2331,7 +2505,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 245.3,
-    "Dec": -25.6
+    "Dec": -25.6,
+    "VMag": null
   },
   {
     "MainId": "IC 4603",
@@ -2345,7 +2520,8 @@
     ],
     "ObjType": "GalNeb",
     "Ra": 246.5,
-    "Dec": -24.4
+    "Dec": -24.4,
+    "VMag": null
   },
   {
     "MainId": "IC 4604",
@@ -2359,7 +2535,8 @@
     ],
     "ObjType": "GalNeb",
     "Ra": 246.5,
-    "Dec": -23.4
+    "Dec": -23.4,
+    "VMag": null
   },
   {
     "MainId": "* alf Sco",
@@ -2419,7 +2596,8 @@
     ],
     "ObjType": "RedSG",
     "Ra": 247.35191542,
-    "Dec": -26.43200261
+    "Dec": -26.43200261,
+    "VMag": 0.91
   },
   {
     "MainId": "IC 4605",
@@ -2432,7 +2610,8 @@
     ],
     "ObjType": "GalNeb",
     "Ra": 247.8,
-    "Dec": -25.1
+    "Dec": -25.1,
+    "VMag": null
   },
   {
     "MainId": "HD 148937",
@@ -2502,7 +2681,8 @@
     ],
     "ObjType": "SB*",
     "Ra": 248.4682788273,
-    "Dec": -48.11124344965
+    "Dec": -48.11124344965,
+    "VMag": 6.71
   },
   {
     "MainId": "HD 148937",
@@ -2572,7 +2752,8 @@
     ],
     "ObjType": "SB*",
     "Ra": 248.4682788273,
-    "Dec": -48.11124344965
+    "Dec": -48.11124344965,
+    "VMag": 6.71
   },
   {
     "MainId": "Ced 151",
@@ -2582,7 +2763,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 270.797,
-    "Dec": -23.0285
+    "Dec": -23.0285,
+    "VMag": null
   },
   {
     "MainId": "Ced 152a",
@@ -2592,7 +2774,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 271.0124,
-    "Dec": -24.4547
+    "Dec": -24.4547,
+    "VMag": null
   },
   {
     "MainId": "IC 4678",
@@ -2602,7 +2785,8 @@
     ],
     "ObjType": "GalNeb",
     "Ra": 272.0,
-    "Dec": -23.87
+    "Dec": -23.87,
+    "VMag": null
   },
   {
     "MainId": "IC 4681",
@@ -2615,7 +2799,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 272.0,
-    "Dec": -23.5
+    "Dec": -23.5,
+    "VMag": null
   },
   {
     "MainId": "IC 4684",
@@ -2629,7 +2814,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 272.3,
-    "Dec": -23.5
+    "Dec": -23.5,
+    "VMag": null
   },
   {
     "MainId": "Ced 154e",
@@ -2639,7 +2825,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 272.4043,
-    "Dec": -23.7943
+    "Dec": -23.7943,
+    "VMag": null
   },
   {
     "MainId": "Ced 155",
@@ -2648,7 +2835,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 271.83,
-    "Dec": 45.85
+    "Dec": 45.85,
+    "VMag": null
   },
   {
     "MainId": "IRAS 18138-1954",
@@ -2662,7 +2850,8 @@
     ],
     "ObjType": "Infrared",
     "Ra": 274.2101,
-    "Dec": -19.89
+    "Dec": -19.89,
+    "VMag": null
   },
   {
     "MainId": "NGC  6590",
@@ -2680,7 +2869,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 274.275,
-    "Dec": -19.865
+    "Dec": -19.865,
+    "VMag": null
   },
   {
     "MainId": "IC 1283",
@@ -2693,7 +2883,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 274.3,
-    "Dec": -19.5
+    "Dec": -19.5,
+    "VMag": null
   },
   {
     "MainId": "IC 1284",
@@ -2703,7 +2894,8 @@
     ],
     "ObjType": "GalNeb",
     "Ra": 274.43,
-    "Dec": -19.67
+    "Dec": -19.67,
+    "VMag": null
   },
   {
     "MainId": "IC 1287",
@@ -2715,7 +2907,8 @@
     ],
     "ObjType": "GalNeb",
     "Ra": 278.0,
-    "Dec": -10.8
+    "Dec": -10.8,
+    "VMag": null
   },
   {
     "MainId": "Ced 165b",
@@ -2725,7 +2918,8 @@
     ],
     "ObjType": "GalNeb",
     "Ra": 285.4,
-    "Dec": -36.9
+    "Dec": -36.9,
+    "VMag": null
   },
   {
     "MainId": "Ced 165c",
@@ -2735,7 +2929,8 @@
     ],
     "ObjType": "GalNeb",
     "Ra": 285.48,
-    "Dec": -36.97
+    "Dec": -36.97,
+    "VMag": null
   },
   {
     "MainId": "LBN 057.03+03.02",
@@ -2750,7 +2945,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 291.52,
-    "Dec": 22.75
+    "Dec": 22.75,
+    "VMag": null
   },
   {
     "MainId": "LBN 053.52+00.03",
@@ -2762,7 +2958,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 292.5,
-    "Dec": 18.2
+    "Dec": 18.2,
+    "VMag": null
   },
   {
     "MainId": "LBN 071.58+02.86",
@@ -2776,7 +2973,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 299.979,
-    "Dec": 35.277
+    "Dec": 35.277,
+    "VMag": null
   },
   {
     "MainId": "IC 4954",
@@ -2791,7 +2989,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 301.2,
-    "Dec": 29.25
+    "Dec": 29.25,
+    "VMag": null
   },
   {
     "MainId": "Ced 175a",
@@ -2800,7 +2999,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 301.2,
-    "Dec": 29.25
+    "Dec": 29.25,
+    "VMag": null
   },
   {
     "MainId": "Ced 175b",
@@ -2809,7 +3009,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 301.2,
-    "Dec": 29.25
+    "Dec": 29.25,
+    "VMag": null
   },
   {
     "MainId": "Ced 175c",
@@ -2818,7 +3019,8 @@
     ],
     "ObjType": "ISM",
     "Ra": 301.2,
-    "Dec": 29.25
+    "Dec": 29.25,
+    "VMag": null
   },
   {
     "MainId": "Ced 176d",
@@ -2830,7 +3032,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 306.02,
-    "Dec": 42.28
+    "Dec": 42.28,
+    "VMag": null
   },
   {
     "MainId": "Ced 176e",
@@ -2842,7 +3045,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 306.15,
-    "Dec": 42.37
+    "Dec": 42.37,
+    "VMag": null
   },
   {
     "MainId": "LBN 083.77+03.32",
@@ -2853,7 +3057,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 308.5,
-    "Dec": 45.7
+    "Dec": 45.7,
+    "VMag": null
   },
   {
     "MainId": "LBN 094.20+08.02",
@@ -2865,7 +3070,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 312.5,
-    "Dec": 56.8
+    "Dec": 56.8,
+    "VMag": null
   },
   {
     "MainId": "IC 5076",
@@ -2878,7 +3084,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 314.0,
-    "Dec": 47.4
+    "Dec": 47.4,
+    "VMag": null
   },
   {
     "MainId": "Ced 187",
@@ -2889,7 +3096,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 315.48,
-    "Dec": 68.17
+    "Dec": 68.17,
+    "VMag": null
   },
   {
     "MainId": "LBN 098.26+07.84",
@@ -2901,7 +3109,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 317.7,
-    "Dec": 59.7
+    "Dec": 59.7,
+    "VMag": null
   },
   {
     "MainId": "LBN 097.99+06.51",
@@ -2913,7 +3122,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 319.3,
-    "Dec": 58.6
+    "Dec": 58.6,
+    "VMag": null
   },
   {
     "MainId": "Ced 194",
@@ -2923,7 +3133,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 325.3,
-    "Dec": 68.5
+    "Dec": 68.5,
+    "VMag": null
   },
   {
     "MainId": "EM* LkHA  234",
@@ -2957,7 +3168,8 @@
     ],
     "ObjType": "Ae*",
     "Ra": 325.77842421395,
-    "Dec": 66.11505618689
+    "Dec": 66.11505618689,
+    "VMag": 12.73
   },
   {
     "MainId": "NAME Cave Nebula",
@@ -2972,7 +3184,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 333.362,
-    "Dec": 70.255
+    "Dec": 70.255,
+    "VMag": null
   },
   {
     "MainId": "NGC  7538",
@@ -2996,7 +3209,8 @@
     ],
     "ObjType": "OpenCluster",
     "Ra": 348.405,
-    "Dec": 61.5
+    "Dec": 61.5,
+    "VMag": null
   },
   {
     "MainId": "LBN 118.11+04.78",
@@ -3008,6 +3222,7 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 0.5,
-    "Dec": 67.2
+    "Dec": 67.2,
+    "VMag": null
   }
 ]

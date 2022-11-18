@@ -5,5 +5,6 @@ internal record SimbadCatalogDto(
     string[] Ids,
     string ObjType,
     double Ra,
-    double Dec
+    double Dec,
+    double? VMag
 );
