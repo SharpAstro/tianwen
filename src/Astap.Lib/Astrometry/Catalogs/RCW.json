@@ -6,7 +6,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 106.0,
-    "Dec": -9.6
+    "Dec": -9.6,
+    "VMag": null
   },
   {
     "MainId": "IC 2177",
@@ -27,7 +28,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 106.104,
-    "Dec": -10.455
+    "Dec": -10.455,
+    "VMag": null
   },
   {
     "MainId": "LBN  1032",
@@ -40,7 +42,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 109.148,
-    "Dec": -9.428
+    "Dec": -9.428,
+    "VMag": null
   },
   {
     "MainId": "RCW   4",
@@ -49,7 +52,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 110.98,
-    "Dec": -8.6
+    "Dec": -8.6,
+    "VMag": null
   },
   {
     "MainId": "NGC  2359",
@@ -64,7 +68,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 109.625,
-    "Dec": -13.226667
+    "Dec": -13.226667,
+    "VMag": null
   },
   {
     "MainId": "SH  2-301",
@@ -78,7 +83,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 107.4763,
-    "Dec": -18.4981
+    "Dec": -18.4981,
+    "VMag": null
   },
   {
     "MainId": "RCW   7",
@@ -92,7 +98,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 113.0413,
-    "Dec": -16.9706
+    "Dec": -16.9706,
+    "VMag": null
   },
   {
     "MainId": "SH  2-305",
@@ -106,7 +113,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 112.5171,
-    "Dec": -18.5369
+    "Dec": -18.5369,
+    "VMag": null
   },
   {
     "MainId": "RCW   9",
@@ -115,7 +123,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 101.3,
-    "Dec": -24.4
+    "Dec": -24.4,
+    "VMag": null
   },
   {
     "MainId": "GRS G234.40 -00.20",
@@ -125,7 +134,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 112.8,
-    "Dec": -19.0
+    "Dec": -19.0,
+    "VMag": null
   },
   {
     "MainId": "HD  50896",
@@ -186,7 +196,8 @@
     ],
     "ObjType": "WolfRayet*",
     "Ra": 103.55434983683,
-    "Dec": -23.92833981107
+    "Dec": -23.92833981107,
+    "VMag": 6.91
   },
   {
     "MainId": "GRS G234.70 +00.90",
@@ -196,7 +207,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 113.97,
-    "Dec": -18.82
+    "Dec": -18.82,
+    "VMag": null
   },
   {
     "MainId": "LBN  1053",
@@ -209,7 +221,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 112.95,
-    "Dec": -19.4347
+    "Dec": -19.4347,
+    "VMag": null
   },
   {
     "MainId": "BRAN  16",
@@ -220,7 +233,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 109.7808,
-    "Dec": -21.9381
+    "Dec": -21.9381,
+    "VMag": null
   },
   {
     "MainId": "RCW  15",
@@ -229,7 +243,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 107.5,
-    "Dec": -25.1
+    "Dec": -25.1,
+    "VMag": null
   },
   {
     "MainId": "NGC  2467",
@@ -255,7 +270,8 @@
     ],
     "ObjType": "Cluster*",
     "Ra": 118.077,
-    "Dec": -26.428
+    "Dec": -26.428,
+    "VMag": null
   },
   {
     "MainId": "NGC  2452",
@@ -287,7 +303,8 @@
     ],
     "ObjType": "PlanetaryNeb",
     "Ra": 116.85943729381,
-    "Dec": -27.33522777283
+    "Dec": -27.33522777283,
+    "VMag": 12.2
   },
   {
     "MainId": "RCW  18",
@@ -296,7 +313,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 119.78,
-    "Dec": -33.83
+    "Dec": -33.83,
+    "VMag": null
   },
   {
     "MainId": "GUM 10",
@@ -309,7 +327,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 124.07,
-    "Dec": -35.6328
+    "Dec": -35.6328,
+    "VMag": null
   },
   {
     "MainId": "BRAN 133",
@@ -320,7 +339,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 124.7204,
-    "Dec": -36.2042
+    "Dec": -36.2042,
+    "VMag": null
   },
   {
     "MainId": "PN VBRC    1",
@@ -336,7 +356,8 @@
     ],
     "ObjType": "PlanetaryNeb",
     "Ra": 127.725821,
-    "Dec": -38.301939
+    "Dec": -38.301939,
+    "VMag": null
   },
   {
     "MainId": "RCW  22",
@@ -345,7 +366,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 138.9,
-    "Dec": -31.38
+    "Dec": -31.38,
+    "VMag": null
   },
   {
     "MainId": "RCW  23",
@@ -354,7 +376,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 129.22,
-    "Dec": -38.53
+    "Dec": -38.53,
+    "VMag": null
   },
   {
     "MainId": "RCW  24",
@@ -367,7 +390,8 @@
     ],
     "ObjType": "PlanetaryNeb",
     "Ra": 126.448,
-    "Dec": -40.219447
+    "Dec": -40.219447,
+    "VMag": 18.21
   },
   {
     "MainId": "RCW  25",
@@ -376,7 +400,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 129.7,
-    "Dec": -39.22
+    "Dec": -39.22,
+    "VMag": null
   },
   {
     "MainId": "RCW  26",
@@ -385,7 +410,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 131.62,
-    "Dec": -38.63
+    "Dec": -38.63,
+    "VMag": null
   },
   {
     "MainId": "BRAN 166",
@@ -395,7 +421,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 129.5333,
-    "Dec": -40.2981
+    "Dec": -40.2981,
+    "VMag": null
   },
   {
     "MainId": "RCW  28",
@@ -404,7 +431,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 125.32,
-    "Dec": -42.72
+    "Dec": -42.72,
+    "VMag": null
   },
   {
     "MainId": "RCW  29",
@@ -413,7 +441,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 125.43,
-    "Dec": -42.7
+    "Dec": -42.7,
+    "VMag": null
   },
   {
     "MainId": "RCW  30",
@@ -422,7 +451,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 125.7,
-    "Dec": -42.65
+    "Dec": -42.65,
+    "VMag": null
   },
   {
     "MainId": "RCW  31",
@@ -431,7 +461,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 126.0,
-    "Dec": -43.08
+    "Dec": -43.08,
+    "VMag": null
   },
   {
     "MainId": "GUM 15",
@@ -443,7 +474,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 130.9688,
-    "Dec": -41.2442
+    "Dec": -41.2442,
+    "VMag": null
   },
   {
     "MainId": "GRS G263.00 +01.40",
@@ -453,7 +485,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 132.83,
-    "Dec": -42.08
+    "Dec": -42.08,
+    "VMag": null
   },
   {
     "MainId": "RCW  34",
@@ -472,7 +505,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 134.1171,
-    "Dec": -43.0994
+    "Dec": -43.0994,
+    "VMag": 11.21
   },
   {
     "MainId": "GRS G264.60 +00.10",
@@ -482,7 +516,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 132.87,
-    "Dec": -44.1
+    "Dec": -44.1,
+    "VMag": null
   },
   {
     "MainId": "RCW  36",
@@ -500,7 +535,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 134.7537,
-    "Dec": -43.7361
+    "Dec": -43.7361,
+    "VMag": 15.2
   },
   {
     "MainId": "NGC  2736",
@@ -512,7 +548,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 135.05,
-    "Dec": -45.95
+    "Dec": -45.95,
+    "VMag": null
   },
   {
     "MainId": "RCW  38",
@@ -533,7 +570,8 @@
     ],
     "ObjType": "StarFormingReg",
     "Ra": 134.77292,
-    "Dec": -47.51094
+    "Dec": -47.51094,
+    "VMag": null
   },
   {
     "MainId": "RCW  38E",
@@ -542,7 +580,8 @@
     ],
     "ObjType": "MolCld",
     "Ra": 0.0,
-    "Dec": 0.0
+    "Dec": 0.0,
+    "VMag": null
   },
   {
     "MainId": "RCW  38W",
@@ -551,7 +590,8 @@
     ],
     "ObjType": "MolCld",
     "Ra": 0.0,
-    "Dec": 0.0
+    "Dec": 0.0,
+    "VMag": null
   },
   {
     "MainId": "BRAN 226",
@@ -564,7 +604,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 135.8392,
-    "Dec": -48.43
+    "Dec": -48.43,
+    "VMag": null
   },
   {
     "MainId": "GUM 25",
@@ -577,7 +618,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 135.5887,
-    "Dec": -48.6986
+    "Dec": -48.6986,
+    "VMag": null
   },
   {
     "MainId": "TYC 8170-333-1",
@@ -592,7 +634,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 139.242537194,
-    "Dec": -47.96316473213
+    "Dec": -47.96316473213,
+    "VMag": 12.96
   },
   {
     "MainId": "GUM 26",
@@ -607,7 +650,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 141.1254,
-    "Dec": -51.9853
+    "Dec": -51.9853,
+    "VMag": null
   },
   {
     "MainId": "NGC  2899",
@@ -631,7 +675,8 @@
     ],
     "ObjType": "PlanetaryNeb",
     "Ra": 141.76258,
-    "Dec": -56.10586
+    "Dec": -56.10586,
+    "VMag": 12.4
   },
   {
     "MainId": "WRAY 17-31",
@@ -650,7 +695,8 @@
     ],
     "ObjType": "PlanetaryNeb",
     "Ra": 142.83552056802,
-    "Dec": -56.29431773579
+    "Dec": -56.29431773579,
+    "VMag": 17.94
   },
   {
     "MainId": "RCW  45",
@@ -659,7 +705,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 152.95,
-    "Dec": -56.4
+    "Dec": -56.4,
+    "VMag": null
   },
   {
     "MainId": "RCW  46",
@@ -670,7 +717,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 151.662,
-    "Dec": -57.203
+    "Dec": -57.203,
+    "VMag": null
   },
   {
     "MainId": "BRAN 285",
@@ -681,7 +729,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 151.2621,
-    "Dec": -58.6561
+    "Dec": -58.6561,
+    "VMag": null
   },
   {
     "MainId": "NGC  3199",
@@ -694,7 +743,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 154.1367,
-    "Dec": -57.9339
+    "Dec": -57.9339,
+    "VMag": null
   },
   {
     "MainId": "GUM 29",
@@ -711,7 +761,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 156.0608,
-    "Dec": -57.7828
+    "Dec": -57.7828,
+    "VMag": null
   },
   {
     "MainId": "BRAN 300C",
@@ -722,7 +773,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 156.8883,
-    "Dec": -57.1908
+    "Dec": -57.1908,
+    "VMag": null
   },
   {
     "MainId": "NGC  3293",
@@ -742,7 +794,8 @@
     ],
     "ObjType": "OpenCluster",
     "Ra": 158.97,
-    "Dec": -58.231
+    "Dec": -58.231,
+    "VMag": null
   },
   {
     "MainId": "GUM 32",
@@ -753,7 +806,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 161.5479,
-    "Dec": -58.6533
+    "Dec": -58.6533,
+    "VMag": null
   },
   {
     "MainId": "NGC  3372",
@@ -773,7 +827,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 161.25929,
-    "Dec": -59.69994
+    "Dec": -59.69994,
+    "VMag": null
   },
   {
     "MainId": "BRAN 337",
@@ -784,7 +839,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 165.7338,
-    "Dec": -59.4878
+    "Dec": -59.4878,
+    "VMag": null
   },
   {
     "MainId": "RCW  54A",
@@ -793,7 +849,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 0.0,
-    "Dec": 0.0
+    "Dec": 0.0,
+    "VMag": null
   },
   {
     "MainId": "RCW  54B",
@@ -802,7 +859,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 0.0,
-    "Dec": 0.0
+    "Dec": 0.0,
+    "VMag": null
   },
   {
     "MainId": "BRAN 328A",
@@ -813,7 +871,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 164.1354,
-    "Dec": -63.0128
+    "Dec": -63.0128,
+    "VMag": null
   },
   {
     "MainId": "GAL 291.1-02.1",
@@ -824,7 +883,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 166.35,
-    "Dec": -62.47
+    "Dec": -62.47,
+    "VMag": null
   },
   {
     "MainId": "RCW  57",
@@ -833,7 +893,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 168.67,
-    "Dec": -61.2
+    "Dec": -61.2,
+    "VMag": null
   },
   {
     "MainId": "NGC  3576",
@@ -850,7 +911,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 167.9575,
-    "Dec": -61.3039
+    "Dec": -61.3039,
+    "VMag": null
   },
   {
     "MainId": "NGC  3603",
@@ -872,7 +934,8 @@
     ],
     "ObjType": "OpenCluster",
     "Ra": 168.795,
-    "Dec": -61.259
+    "Dec": -61.259,
+    "VMag": null
   },
   {
     "MainId": "HD  96548",
@@ -916,7 +979,8 @@
     ],
     "ObjType": "WolfRayet*",
     "Ra": 166.57168014651,
-    "Dec": -65.50978921723
+    "Dec": -65.50978921723,
+    "VMag": 7.7
   },
   {
     "MainId": "[SPF2008] G292.9+4.4",
@@ -926,7 +990,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 175.425,
-    "Dec": -57.3333
+    "Dec": -57.3333,
+    "VMag": null
   },
   {
     "MainId": "BRAN 362C",
@@ -936,7 +1001,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 172.2204,
-    "Dec": -62.6258
+    "Dec": -62.6258,
+    "VMag": null
   },
   {
     "MainId": "GRS G293.60 -01.30",
@@ -946,7 +1012,8 @@
     ],
     "ObjType": "Radio",
     "Ra": 172.2,
-    "Dec": -62.65
+    "Dec": -62.65,
+    "VMag": null
   },
   {
     "MainId": "RCW  60B",
@@ -956,7 +1023,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 172.1,
-    "Dec": -62.97
+    "Dec": -62.97,
+    "VMag": null
   },
   {
     "MainId": "BRAN 362F",
@@ -968,7 +1036,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 172.6008,
-    "Dec": -63.8172
+    "Dec": -63.8172,
+    "VMag": null
   },
   {
     "MainId": "IC 2944",
@@ -988,7 +1057,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 174.58333,
-    "Dec": -63.37278
+    "Dec": -63.37278,
+    "VMag": null
   },
   {
     "MainId": "GRS G294.80 -01.70",
@@ -998,7 +1068,8 @@
     ],
     "ObjType": "Radio",
     "Ra": 174.53,
-    "Dec": -63.45
+    "Dec": -63.45,
+    "VMag": null
   },
   {
     "MainId": "RCW  63",
@@ -1007,7 +1078,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 182.0,
-    "Dec": -55.3
+    "Dec": -55.3,
+    "VMag": null
   },
   {
     "MainId": "BRAN 386E",
@@ -1020,7 +1092,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 184.9729,
-    "Dec": -62.9189
+    "Dec": -62.9189,
+    "VMag": null
   },
   {
     "MainId": "GUM 43",
@@ -1044,7 +1117,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 188.7267,
-    "Dec": -61.6569
+    "Dec": -61.6569,
+    "VMag": null
   },
   {
     "MainId": "BRAN 391B",
@@ -1055,7 +1129,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 188.9867,
-    "Dec": -61.7478
+    "Dec": -61.7478,
+    "VMag": null
   },
   {
     "MainId": "RCW  67",
@@ -1064,7 +1139,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 188.98,
-    "Dec": -62.03
+    "Dec": -62.03,
+    "VMag": null
   },
   {
     "MainId": "GRS G301.90 +01.10",
@@ -1074,7 +1150,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 190.05,
-    "Dec": -61.87
+    "Dec": -61.87,
+    "VMag": null
   },
   {
     "MainId": "RCW  69",
@@ -1089,7 +1166,8 @@
     ],
     "ObjType": "PlanetaryNeb",
     "Ra": 191.1143270102199,
-    "Dec": -62.52191115178
+    "Dec": -62.52191115178,
+    "VMag": null
   },
   {
     "MainId": "WRAY 16-121",
@@ -1108,7 +1186,8 @@
     ],
     "ObjType": "PlanetaryNeb",
     "Ra": 192.12917,
-    "Dec": -63.83306
+    "Dec": -63.83306,
+    "VMag": 15.0
   },
   {
     "MainId": "HD 311999",
@@ -1142,7 +1221,8 @@
     ],
     "ObjType": "Star",
     "Ra": 192.5942243399699,
-    "Dec": -61.58355411562
+    "Dec": -61.58355411562,
+    "VMag": 10.77
   },
   {
     "MainId": "RCW  72",
@@ -1151,7 +1231,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 193.33,
-    "Dec": -61.27
+    "Dec": -61.27,
+    "VMag": null
   },
   {
     "MainId": "RCW  73",
@@ -1160,7 +1241,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 193.75,
-    "Dec": -61.47
+    "Dec": -61.47,
+    "VMag": null
   },
   {
     "MainId": "GRS G305.40 +00.20",
@@ -1172,7 +1254,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 197.579,
-    "Dec": -62.642
+    "Dec": -62.642,
+    "VMag": null
   },
   {
     "MainId": "GRS G305.20 +00.00",
@@ -1182,7 +1265,8 @@
     ],
     "ObjType": "Radio",
     "Ra": 197.85,
-    "Dec": -62.75
+    "Dec": -62.75,
+    "VMag": null
   },
   {
     "MainId": "GAL 305.20+00.2",
@@ -1200,7 +1284,8 @@
     ],
     "ObjType": "Bubble",
     "Ra": 197.8962,
-    "Dec": -62.5572
+    "Dec": -62.5572,
+    "VMag": null
   },
   {
     "MainId": "GUM 48a",
@@ -1211,7 +1296,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 199.942,
-    "Dec": -62.512
+    "Dec": -62.512,
+    "VMag": null
   },
   {
     "MainId": "NGC  5189",
@@ -1255,7 +1341,8 @@
     ],
     "ObjType": "PlanetaryNeb",
     "Ra": 203.38699183926,
-    "Dec": -65.97417817452
+    "Dec": -65.97417817452,
+    "VMag": 14.5
   },
   {
     "MainId": "PN MyCn   18",
@@ -1292,7 +1379,8 @@
     ],
     "ObjType": "PlanetaryNeb",
     "Ra": 204.89608174104,
-    "Dec": -67.38104180476
+    "Dec": -67.38104180476,
+    "VMag": 12.54
   },
   {
     "MainId": "RCW  78",
@@ -1301,7 +1389,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 203.47,
-    "Dec": -62.25
+    "Dec": -62.25,
+    "VMag": null
   },
   {
     "MainId": "GRS G308.60 +00.60",
@@ -1311,7 +1400,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 204.97,
-    "Dec": -61.75
+    "Dec": -61.75,
+    "VMag": null
   },
   {
     "MainId": "RCW  79A",
@@ -1320,7 +1410,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 204.987,
-    "Dec": -61.713
+    "Dec": -61.713,
+    "VMag": null
   },
   {
     "MainId": "RCW  79B",
@@ -1329,7 +1420,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 205.179,
-    "Dec": -61.737
+    "Dec": -61.737,
+    "VMag": null
   },
   {
     "MainId": "SNR G309.2-00.6",
@@ -1342,7 +1434,8 @@
     ],
     "ObjType": "SNRemnant",
     "Ra": 206.62,
-    "Dec": -62.9
+    "Dec": -62.9,
+    "VMag": null
   },
   {
     "MainId": "RCW  81",
@@ -1351,7 +1444,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 208.85,
-    "Dec": -61.35
+    "Dec": -61.35,
+    "VMag": null
   },
   {
     "MainId": "RCW  82",
@@ -1360,7 +1454,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 209.82,
-    "Dec": -61.45
+    "Dec": -61.45,
+    "VMag": null
   },
   {
     "MainId": "RCW  83",
@@ -1369,7 +1464,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 212.17,
-    "Dec": -62.07
+    "Dec": -62.07,
+    "VMag": null
   },
   {
     "MainId": "RCW  84",
@@ -1378,7 +1474,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 215.05,
-    "Dec": -63.9
+    "Dec": -63.9,
+    "VMag": null
   },
   {
     "MainId": "RCW  85",
@@ -1387,7 +1484,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 215.17,
-    "Dec": -61.4
+    "Dec": -61.4,
+    "VMag": null
   },
   {
     "MainId": "ESO 134-11",
@@ -1398,7 +1496,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 220.121,
-    "Dec": -62.645
+    "Dec": -62.645,
+    "VMag": null
   },
   {
     "MainId": "RCW  87",
@@ -1421,7 +1520,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 226.33,
-    "Dec": -57.53
+    "Dec": -57.53,
+    "VMag": null
   },
   {
     "MainId": "RCW  88",
@@ -1433,7 +1533,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 226.78125,
-    "Dec": -57.80611
+    "Dec": -57.80611,
+    "VMag": 12.0
   },
   {
     "MainId": "SNR G320.4-01.0",
@@ -1449,7 +1550,8 @@
     ],
     "ObjType": "SNRemnant",
     "Ra": 228.396,
-    "Dec": -59.003
+    "Dec": -59.003,
+    "VMag": null
   },
   {
     "MainId": "RCW  90",
@@ -1472,7 +1574,8 @@
     ],
     "ObjType": "PlanetaryNeb",
     "Ra": 226.49668954163,
-    "Dec": -55.98793925071
+    "Dec": -55.98793925071,
+    "VMag": 13.5
   },
   {
     "MainId": "GRS G321.10 -00.50",
@@ -1483,7 +1586,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 229.067,
-    "Dec": -58.215
+    "Dec": -58.215,
+    "VMag": null
   },
   {
     "MainId": "RCW  91A",
@@ -1492,7 +1596,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 228.987,
-    "Dec": -58.185
+    "Dec": -58.185,
+    "VMag": null
   },
   {
     "MainId": "RCW  91B",
@@ -1501,7 +1606,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 229.183,
-    "Dec": -58.167
+    "Dec": -58.167,
+    "VMag": null
   },
   {
     "MainId": "GAL 322.16+00.62",
@@ -1517,7 +1623,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 229.6629,
-    "Dec": -56.6469
+    "Dec": -56.6469,
+    "VMag": null
   },
   {
     "MainId": "RCW  92A",
@@ -1526,7 +1633,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 229.746,
-    "Dec": -56.683
+    "Dec": -56.683,
+    "VMag": null
   },
   {
     "MainId": "RCW  92B",
@@ -1535,7 +1643,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 229.646,
-    "Dec": -56.64
+    "Dec": -56.64,
+    "VMag": null
   },
   {
     "MainId": "PN Mz    1",
@@ -1559,7 +1668,8 @@
     ],
     "ObjType": "PlanetaryNeb",
     "Ra": 233.56933790981,
-    "Dec": -59.15225150631
+    "Dec": -59.15225150631,
+    "VMag": 13.1
   },
   {
     "MainId": "RCW  94",
@@ -1569,7 +1679,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 235.2,
-    "Dec": -54.17
+    "Dec": -54.17,
+    "VMag": null
   },
   {
     "MainId": "RCW  95",
@@ -1579,7 +1690,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 235.87,
-    "Dec": -53.93
+    "Dec": -53.93,
+    "VMag": null
   },
   {
     "MainId": "RCW  96",
@@ -1588,7 +1700,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 238.2,
-    "Dec": -55.25
+    "Dec": -55.25,
+    "VMag": null
   },
   {
     "MainId": "GAL 327.30-00.60",
@@ -1607,7 +1720,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 238.2708,
-    "Dec": -54.59
+    "Dec": -54.59,
+    "VMag": null
   },
   {
     "MainId": "RCW  98",
@@ -1616,7 +1730,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 238.85,
-    "Dec": -54.65
+    "Dec": -54.65,
+    "VMag": null
   },
   {
     "MainId": "GRS G328.59 -00.52",
@@ -1632,7 +1747,8 @@
     ],
     "ObjType": "Bubble",
     "Ra": 239.8683,
-    "Dec": -53.7492
+    "Dec": -53.7492,
+    "VMag": null
   },
   {
     "MainId": "PN Sp    1",
@@ -1661,7 +1777,8 @@
     ],
     "ObjType": "PlanetaryNeb",
     "Ra": 237.92062929944,
-    "Dec": -51.52459606278
+    "Dec": -51.52459606278,
+    "VMag": 13.98
   },
   {
     "MainId": "PN Mz    3",
@@ -1688,7 +1805,8 @@
     ],
     "ObjType": "PlanetaryNeb",
     "Ra": 244.30579807604,
-    "Dec": -51.9863088593
+    "Dec": -51.9863088593,
+    "VMag": 14.0
   },
   {
     "MainId": "RCW 102",
@@ -1697,7 +1815,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 244.45,
-    "Dec": -51.92
+    "Dec": -51.92,
+    "VMag": null
   },
   {
     "MainId": "RCW 102A",
@@ -1706,7 +1825,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 244.87,
-    "Dec": -51.7
+    "Dec": -51.7,
+    "VMag": null
   },
   {
     "MainId": "PMN J1618-5156",
@@ -1716,7 +1836,8 @@
     ],
     "ObjType": "Radio",
     "Ra": 244.6283,
-    "Dec": -51.9417
+    "Dec": -51.9417,
+    "VMag": null
   },
   {
     "MainId": "AJG  44",
@@ -1748,7 +1869,8 @@
     ],
     "ObjType": "Pulsar",
     "Ra": 244.3875,
-    "Dec": -51.033333
+    "Dec": -51.033333,
+    "VMag": null
   },
   {
     "MainId": "[RAA2005] G332.783-1.445",
@@ -1758,7 +1880,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 246.0,
-    "Dec": -51.52
+    "Dec": -51.52,
+    "VMag": null
   },
   {
     "MainId": "RCW 104A",
@@ -1767,7 +1890,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 246.004,
-    "Dec": -51.553
+    "Dec": -51.553,
+    "VMag": null
   },
   {
     "MainId": "RCW 104B",
@@ -1776,7 +1900,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 246.179,
-    "Dec": -51.41
+    "Dec": -51.41,
+    "VMag": null
   },
   {
     "MainId": "RCW 104C",
@@ -1785,7 +1910,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 246.254,
-    "Dec": -51.407
+    "Dec": -51.407,
+    "VMag": null
   },
   {
     "MainId": "RCW 104D",
@@ -1794,7 +1920,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 246.529,
-    "Dec": -51.495
+    "Dec": -51.495,
+    "VMag": null
   },
   {
     "MainId": "GUM 51",
@@ -1805,7 +1932,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 242.5,
-    "Dec": -49.13
+    "Dec": -49.13,
+    "VMag": null
   },
   {
     "MainId": "GAL 332.80-00.60",
@@ -1816,7 +1944,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 244.946,
-    "Dec": -51.068
+    "Dec": -51.068,
+    "VMag": null
   },
   {
     "MainId": "PMN J1622-5051",
@@ -1826,7 +1955,8 @@
     ],
     "ObjType": "Radio",
     "Ra": 245.5912,
-    "Dec": -50.8531
+    "Dec": -50.8531,
+    "VMag": null
   },
   {
     "MainId": "RCW 106B",
@@ -1835,7 +1965,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 245.0,
-    "Dec": -50.9
+    "Dec": -50.9,
+    "VMag": null
   },
   {
     "MainId": "HD 148937",
@@ -1905,7 +2036,8 @@
     ],
     "ObjType": "SB*",
     "Ra": 248.4682788273,
-    "Dec": -48.11124344965
+    "Dec": -48.11124344965,
+    "VMag": 6.71
   },
   {
     "MainId": "GUM 53",
@@ -1918,7 +2050,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 250.0004,
-    "Dec": -48.8625
+    "Dec": -48.8625,
+    "VMag": null
   },
   {
     "MainId": "GRS G339.60 -00.10",
@@ -1928,7 +2061,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 251.65,
-    "Dec": -45.73
+    "Dec": -45.73,
+    "VMag": null
   },
   {
     "MainId": "GRS G340.80 -01.00",
@@ -1938,7 +2072,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 253.571,
-    "Dec": -45.283
+    "Dec": -45.283,
+    "VMag": null
   },
   {
     "MainId": "RCW 110A",
@@ -1948,7 +2083,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 253.467,
-    "Dec": -45.14
+    "Dec": -45.14,
+    "VMag": null
   },
   {
     "MainId": "RCW 110B",
@@ -1961,7 +2097,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 253.5717,
-    "Dec": -45.2842
+    "Dec": -45.2842,
+    "VMag": null
   },
   {
     "MainId": "RCW 111",
@@ -1970,7 +2107,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 253.78,
-    "Dec": -45.08
+    "Dec": -45.08,
+    "VMag": null
   },
   {
     "MainId": "NGC  6153",
@@ -2004,7 +2142,8 @@
     ],
     "ObjType": "PlanetaryNeb",
     "Ra": 247.8773785185599,
-    "Dec": -40.25351283575
+    "Dec": -40.25351283575,
+    "VMag": 15.55
   },
   {
     "MainId": "GUM 55",
@@ -2014,7 +2153,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 253.3,
-    "Dec": -42.2
+    "Dec": -42.2,
+    "VMag": null
   },
   {
     "MainId": "SNR G343.0-06.0",
@@ -2026,7 +2166,8 @@
     ],
     "ObjType": "SNRemnant",
     "Ra": 261.25,
-    "Dec": -46.5
+    "Dec": -46.5,
+    "VMag": null
   },
   {
     "MainId": "RCW 115",
@@ -2035,7 +2176,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 248.22,
-    "Dec": -37.2
+    "Dec": -37.2,
+    "VMag": null
   },
   {
     "MainId": "GAL 345.2+01.0",
@@ -2045,7 +2187,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 254.917,
-    "Dec": -40.19
+    "Dec": -40.19,
+    "VMag": null
   },
   {
     "MainId": "[DBS2003] 113",
@@ -2060,7 +2203,8 @@
     ],
     "ObjType": "Cluster*",
     "Ra": 255.1478,
-    "Dec": -40.5587
+    "Dec": -40.5587,
+    "VMag": null
   },
   {
     "MainId": "RCW 117",
@@ -2077,7 +2221,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 257.3917,
-    "Dec": -41.6033
+    "Dec": -41.6033,
+    "VMag": null
   },
   {
     "MainId": "RCW 118",
@@ -2086,7 +2231,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 258.37,
-    "Dec": -39.85
+    "Dec": -39.85,
+    "VMag": null
   },
   {
     "MainId": "RCW 119",
@@ -2095,7 +2241,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 256.18,
-    "Dec": -38.07
+    "Dec": -38.07,
+    "VMag": null
   },
   {
     "MainId": "SH  2-3",
@@ -2107,7 +2254,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 258.1,
-    "Dec": -38.47
+    "Dec": -38.47,
+    "VMag": null
   },
   {
     "MainId": "SH  2-4",
@@ -2137,7 +2285,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 259.5996,
-    "Dec": -39.3194
+    "Dec": -39.3194,
+    "VMag": null
   },
   {
     "MainId": "BFS 65",
@@ -2153,7 +2302,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 260.0242,
-    "Dec": -38.9603
+    "Dec": -38.9603,
+    "VMag": null
   },
   {
     "MainId": "RCW 122A",
@@ -2163,7 +2313,8 @@
     ],
     "ObjType": "Infrared",
     "Ra": 260.021,
-    "Dec": -38.963
+    "Dec": -38.963,
+    "VMag": null
   },
   {
     "MainId": "RCW 122B",
@@ -2173,7 +2324,8 @@
     ],
     "ObjType": "Infrared",
     "Ra": 259.979,
-    "Dec": -38.978
+    "Dec": -38.978,
+    "VMag": null
   },
   {
     "MainId": "RCW 122C",
@@ -2183,7 +2335,8 @@
     ],
     "ObjType": "Infrared",
     "Ra": 259.833,
-    "Dec": -39.062
+    "Dec": -39.062,
+    "VMag": null
   },
   {
     "MainId": "GRS G349.80 -00.50",
@@ -2193,7 +2346,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 260.3,
-    "Dec": -38.2
+    "Dec": -38.2,
+    "VMag": null
   },
   {
     "MainId": "NGC  6302",
@@ -2233,7 +2387,8 @@
     ],
     "ObjType": "PlanetaryNeb",
     "Ra": 258.434746,
-    "Dec": -37.103042
+    "Dec": -37.103042,
+    "VMag": 10.1
   },
   {
     "MainId": "GRS G350.10 +00.10",
@@ -2243,7 +2398,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 259.6,
-    "Dec": -37.2
+    "Dec": -37.2,
+    "VMag": null
   },
   {
     "MainId": "GRS G350.60 +00.90",
@@ -2253,7 +2409,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 259.23,
-    "Dec": -36.35
+    "Dec": -36.35,
+    "VMag": null
   },
   {
     "MainId": "NGC  6334",
@@ -2277,7 +2434,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 260.219,
-    "Dec": -36.131
+    "Dec": -36.131,
+    "VMag": null
   },
   {
     "MainId": "RCW 128",
@@ -2286,7 +2444,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 260.95,
-    "Dec": -36.3
+    "Dec": -36.3,
+    "VMag": null
   },
   {
     "MainId": "RCW 129",
@@ -2296,7 +2455,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 249.27,
-    "Dec": -28.1
+    "Dec": -28.1,
+    "VMag": null
   },
   {
     "MainId": "GRS G352.50 +02.10",
@@ -2306,7 +2466,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 259.37,
-    "Dec": -34.15
+    "Dec": -34.15,
+    "VMag": null
   },
   {
     "MainId": "NGC  6357",
@@ -2329,7 +2490,8 @@
     ],
     "ObjType": "OpenCluster",
     "Ra": 261.185,
-    "Dec": -34.203
+    "Dec": -34.203,
+    "VMag": null
   },
   {
     "MainId": "RCW 132",
@@ -2338,7 +2500,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 263.3,
-    "Dec": -32.7
+    "Dec": -32.7,
+    "VMag": null
   },
   {
     "MainId": "RCW 133",
@@ -2347,7 +2510,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 262.3,
-    "Dec": -31.63
+    "Dec": -31.63,
+    "VMag": null
   },
   {
     "MainId": "LMH  8",
@@ -2358,7 +2522,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 267.32,
-    "Dec": -31.25
+    "Dec": -31.25,
+    "VMag": null
   },
   {
     "MainId": "PN M  1-26",
@@ -2399,7 +2564,8 @@
     ],
     "ObjType": "PlanetaryNeb",
     "Ra": 266.49028050597,
-    "Dec": -30.2002128481
+    "Dec": -30.2002128481,
+    "VMag": 12.08
   },
   {
     "MainId": "PN H  1-44",
@@ -2422,7 +2588,8 @@
     ],
     "ObjType": "EclBin",
     "Ra": 269.54435984744,
-    "Dec": -31.71555002392
+    "Dec": -31.71555002392,
+    "VMag": 17.0
   },
   {
     "MainId": "RCW 137",
@@ -2433,7 +2600,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 266.4262,
-    "Dec": -29.3683
+    "Dec": -29.3683,
+    "VMag": null
   },
   {
     "MainId": "RCW 138",
@@ -2445,7 +2613,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 266.2504,
-    "Dec": -28.8569
+    "Dec": -28.8569,
+    "VMag": null
   },
   {
     "MainId": "PN Bl  3-22",
@@ -2465,7 +2634,8 @@
     ],
     "ObjType": "EmLine*",
     "Ra": 266.7394004583699,
-    "Dec": -29.01168102753
+    "Dec": -29.01168102753,
+    "VMag": null
   },
   {
     "MainId": "RCW 140",
@@ -2474,7 +2644,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 266.85,
-    "Dec": -29.05
+    "Dec": -29.05,
+    "VMag": null
   },
   {
     "MainId": "LBN     3",
@@ -2495,7 +2666,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 266.7833,
-    "Dec": -28.775
+    "Dec": -28.775,
+    "VMag": null
   },
   {
     "MainId": "GAL 000.55-00.85",
@@ -2509,7 +2681,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 267.5637,
-    "Dec": -28.9008
+    "Dec": -28.9008,
+    "VMag": null
   },
   {
     "MainId": "RCW 143",
@@ -2518,7 +2691,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 266.4,
-    "Dec": -24.92
+    "Dec": -24.92,
+    "VMag": null
   },
   {
     "MainId": "RCW 144",
@@ -2527,7 +2701,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 268.45,
-    "Dec": -25.02
+    "Dec": -25.02,
+    "VMag": null
   },
   {
     "MainId": "RCW 145",
@@ -2536,7 +2711,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 270.0,
-    "Dec": -23.3
+    "Dec": -23.3,
+    "VMag": null
   },
   {
     "MainId": "RCW 146",
@@ -2545,7 +2721,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 271.5,
-    "Dec": -24.0
+    "Dec": -24.0,
+    "VMag": null
   },
   {
     "MainId": "RCW 147",
@@ -2554,7 +2731,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 270.62,
-    "Dec": -22.9
+    "Dec": -22.9,
+    "VMag": null
   },
   {
     "MainId": "RCW 148",
@@ -2563,7 +2741,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 270.37,
-    "Dec": -21.58
+    "Dec": -21.58,
+    "VMag": null
   },
   {
     "MainId": "RCW 149",
@@ -2572,7 +2751,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 271.75,
-    "Dec": -21.75
+    "Dec": -21.75,
+    "VMag": null
   },
   {
     "MainId": "RCW 150",
@@ -2581,7 +2761,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 271.27,
-    "Dec": -20.8
+    "Dec": -20.8,
+    "VMag": null
   },
   {
     "MainId": "GUM 77b",
@@ -2591,7 +2772,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 274.12,
-    "Dec": -20.4
+    "Dec": -20.4,
+    "VMag": null
   },
   {
     "MainId": "RCW 152",
@@ -2600,7 +2782,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 269.05,
-    "Dec": -16.32
+    "Dec": -16.32,
+    "VMag": null
   },
   {
     "MainId": "RCW 153",
@@ -2609,7 +2792,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 274.75,
-    "Dec": -19.32
+    "Dec": -19.32,
+    "VMag": null
   },
   {
     "MainId": "RCW 154",
@@ -2618,7 +2802,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 271.47,
-    "Dec": -17.0
+    "Dec": -17.0,
+    "VMag": null
   },
   {
     "MainId": "RCW 155",
@@ -2627,7 +2812,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 273.05,
-    "Dec": -17.67
+    "Dec": -17.67,
+    "VMag": null
   },
   {
     "MainId": "RCW 156",
@@ -2636,7 +2822,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 274.48,
-    "Dec": -17.48
+    "Dec": -17.48,
+    "VMag": null
   },
   {
     "MainId": "RCW 157",
@@ -2645,7 +2832,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 274.02,
-    "Dec": -16.58
+    "Dec": -16.58,
+    "VMag": null
   },
   {
     "MainId": "RCW 158",
@@ -2654,7 +2842,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 271.57,
-    "Dec": -14.2
+    "Dec": -14.2,
+    "VMag": null
   },
   {
     "MainId": "RCW 159",
@@ -2663,7 +2852,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 276.22,
-    "Dec": -16.57
+    "Dec": -16.57,
+    "VMag": null
   },
   {
     "MainId": "RCW 160",
@@ -2672,7 +2862,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 275.125,
-    "Dec": -16.187
+    "Dec": -16.187,
+    "VMag": null
   },
   {
     "MainId": "RCW 161",
@@ -2681,7 +2872,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 275.22,
-    "Dec": -15.13
+    "Dec": -15.13,
+    "VMag": null
   },
   {
     "MainId": "RCW 162",
@@ -2690,7 +2882,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 275.73,
-    "Dec": -14.63
+    "Dec": -14.63,
+    "VMag": null
   },
   {
     "MainId": "RCW 163",
@@ -2699,7 +2892,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 277.5,
-    "Dec": -15.37
+    "Dec": -15.37,
+    "VMag": null
   },
   {
     "MainId": "RCW 164",
@@ -2708,7 +2902,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 276.48,
-    "Dec": -14.82
+    "Dec": -14.82,
+    "VMag": null
   },
   {
     "MainId": "RCW 165",
@@ -2717,7 +2912,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 274.625,
-    "Dec": -13.708
+    "Dec": -13.708,
+    "VMag": null
   },
   {
     "MainId": "RCW 166",
@@ -2726,7 +2922,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 276.35,
-    "Dec": -13.12
+    "Dec": -13.12,
+    "VMag": null
   },
   {
     "MainId": "RCW 167",
@@ -2735,7 +2932,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 275.3,
-    "Dec": -11.9
+    "Dec": -11.9,
+    "VMag": null
   },
   {
     "MainId": "RCW 168",
@@ -2745,7 +2943,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 277.88,
-    "Dec": -9.99
+    "Dec": -9.99,
+    "VMag": null
   },
   {
     "MainId": "GAL 021.88+00.02",
@@ -2759,7 +2958,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 277.7558,
-    "Dec": -9.8144
+    "Dec": -9.8144,
+    "VMag": null
   },
   {
     "MainId": "RCW 170",
@@ -2768,7 +2968,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 277.8,
-    "Dec": -9.12
+    "Dec": -9.12,
+    "VMag": null
   },
   {
     "MainId": "RCW 171",
@@ -2777,7 +2978,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 277.82,
-    "Dec": -8.42
+    "Dec": -8.42,
+    "VMag": null
   },
   {
     "MainId": "RCW 172",
@@ -2786,7 +2988,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 279.12,
-    "Dec": -7.48
+    "Dec": -7.48,
+    "VMag": null
   },
   {
     "MainId": "LBN 025.36+00.24",
@@ -2799,7 +3002,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 279.1762,
-    "Dec": -6.6244
+    "Dec": -6.6244,
+    "VMag": null
   },
   {
     "MainId": "LBN 028.77+03.43",
@@ -2830,7 +3034,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 277.8604,
-    "Dec": -2.0728
+    "Dec": -2.0728,
+    "VMag": null
   },
   {
     "MainId": "RCW 175",
@@ -2839,7 +3044,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 281.7,
-    "Dec": -3.75
+    "Dec": -3.75,
+    "VMag": null
   },
   {
     "MainId": "RCW 176",
@@ -2848,7 +3054,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 281.32,
-    "Dec": -2.02
+    "Dec": -2.02,
+    "VMag": null
   },
   {
     "MainId": "RCW 177",
@@ -2857,7 +3064,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 281.1,
-    "Dec": -0.35
+    "Dec": -0.35,
+    "VMag": null
   },
   {
     "MainId": "RCW 178",
@@ -2866,7 +3074,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 285.43,
-    "Dec": 2.38
+    "Dec": 2.38,
+    "VMag": null
   },
   {
     "MainId": "RCW 179",
@@ -2876,7 +3085,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 285.92,
-    "Dec": 2.22
+    "Dec": 2.22,
+    "VMag": null
   },
   {
     "MainId": "RCW 180",
@@ -2885,7 +3095,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 282.18,
-    "Dec": 6.37
+    "Dec": 6.37,
+    "VMag": null
   },
   {
     "MainId": "PN YM   16",
@@ -2898,7 +3109,8 @@
     ],
     "ObjType": "PlanetaryNeb",
     "Ra": 283.738767,
-    "Dec": 6.041961
+    "Dec": 6.041961,
+    "VMag": null
   },
   {
     "MainId": "LBN 039.95-01.44",
@@ -2912,6 +3124,7 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 287.1292,
-    "Dec": 5.5972
+    "Dec": 5.5972,
+    "VMag": 12.39
   }
 ]

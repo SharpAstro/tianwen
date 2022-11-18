@@ -240,7 +240,7 @@ public class OpenNGCDB : ICelestialObjectDB
                     : float.NaN;
 
                 IReadOnlySet<string> commonNames;
-                if (csvReader.TryGetField<string>("Common names", out var commonNamesEntry) && commonNamesEntry is not null)
+                if (csvReader.TryGetField<string>("Common names", out var commonNamesEntry) && !string.IsNullOrWhiteSpace(commonNamesEntry))
                 {
                     commonNames = new HashSet<string>(commonNamesEntry.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
                     foreach (var commonName in commonNames)
@@ -423,6 +423,10 @@ public class OpenNGCDB : ICelestialObjectDB
                             }
                         }
                     }
+                }
+                else
+                {
+                    _objectsByIndex[catToAddIdx] = new CelestialObject(catToAddIdx, 0, record.Ra, record.Dec, 0, float.NaN, float.NaN, commonNames);
                 }
             }
 

@@ -6,7 +6,8 @@
     ],
     "ObjType": "MolCld",
     "Ra": 53.3179,
-    "Dec": 31.1308
+    "Dec": 31.1308,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G158.46-19.14",
@@ -16,7 +17,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 53.37,
-    "Dec": 32.32
+    "Dec": 32.32,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G159.83-18.56",
@@ -26,7 +28,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 55.0,
-    "Dec": 31.97
+    "Dec": 31.97,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G160.65-18.15",
@@ -36,7 +39,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 56.0,
-    "Dec": 31.78
+    "Dec": 31.78,
+    "VMag": null
   },
   {
     "MainId": "LDN 1471",
@@ -46,7 +50,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 57.0,
-    "Dec": 32.9
+    "Dec": 32.9,
+    "VMag": null
   },
   {
     "MainId": "LDN 1387",
@@ -59,7 +64,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 59.0331,
-    "Dec": 56.075
+    "Dec": 56.075,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G168.46-15.58",
@@ -69,7 +75,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 64.35,
-    "Dec": 28.55
+    "Dec": 28.55,
+    "VMag": null
   },
   {
     "MainId": "Barnard   8",
@@ -78,7 +85,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 64.45,
-    "Dec": 55.23
+    "Dec": 55.23,
+    "VMag": null
   },
   {
     "MainId": "Barnard   9",
@@ -87,7 +95,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 64.5,
-    "Dec": 55.0
+    "Dec": 55.0,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G168.87-15.58",
@@ -97,7 +106,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 64.67,
-    "Dec": 28.27
+    "Dec": 28.27,
+    "VMag": null
   },
   {
     "MainId": "Barnard  11",
@@ -106,7 +116,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 66.65,
-    "Dec": 55.03
+    "Dec": 55.03,
+    "VMag": null
   },
   {
     "MainId": "LDN 1407",
@@ -116,7 +127,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 67.496,
-    "Dec": 54.275
+    "Dec": 54.275,
+    "VMag": null
   },
   {
     "MainId": "MLB 3-78",
@@ -127,7 +139,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 67.82,
-    "Dec": 54.88
+    "Dec": 54.88,
+    "VMag": null
   },
   {
     "MainId": "HD   4732",
@@ -165,7 +178,8 @@
     ],
     "ObjType": "HighPM*",
     "Ra": 12.30812591117,
-    "Dec": -24.13666407026
+    "Dec": -24.13666407026,
+    "VMag": 5.9
   },
   {
     "MainId": "Barnard  14",
@@ -174,7 +188,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 70.0,
-    "Dec": 25.73
+    "Dec": 25.73,
+    "VMag": null
   },
   {
     "MainId": "LDN 1445",
@@ -185,7 +200,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 68.03,
-    "Dec": 46.6
+    "Dec": 46.6,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G157.31-0.99",
@@ -195,7 +211,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 68.1,
-    "Dec": 46.6
+    "Dec": 46.6,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G157.38-1.04",
@@ -205,7 +222,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 68.12,
-    "Dec": 46.52
+    "Dec": 46.52,
+    "VMag": null
   },
   {
     "MainId": "Barnard  18",
@@ -216,7 +234,8 @@
     ],
     "ObjType": "Cloud",
     "Ra": 67.8,
-    "Dec": 24.35
+    "Dec": 24.35,
+    "VMag": null
   },
   {
     "MainId": "Barnard  18A",
@@ -225,7 +244,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 66.654,
-    "Dec": 24.615
+    "Dec": 24.615,
+    "VMag": null
   },
   {
     "MainId": "Barnard  18B",
@@ -234,7 +254,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 67.296,
-    "Dec": 24.59
+    "Dec": 24.59,
+    "VMag": null
   },
   {
     "MainId": "NAME B18-C",
@@ -245,7 +266,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 68.067,
-    "Dec": 24.767
+    "Dec": 24.767,
+    "VMag": null
   },
   {
     "MainId": "Barnard  18D",
@@ -254,7 +276,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 67.008,
-    "Dec": 24.705
+    "Dec": 24.705,
+    "VMag": null
   },
   {
     "MainId": "Barnard  18E",
@@ -263,7 +286,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 68.108,
-    "Dec": 24.368
+    "Dec": 24.368,
+    "VMag": null
   },
   {
     "MainId": "NAME B18-F",
@@ -274,7 +298,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 67.871,
-    "Dec": 24.18
+    "Dec": 24.18,
+    "VMag": null
   },
   {
     "MainId": "Barnard  18G",
@@ -283,7 +308,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 67.721,
-    "Dec": 24.192
+    "Dec": 24.192,
+    "VMag": null
   },
   {
     "MainId": "Barnard  18H",
@@ -292,7 +318,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 68.492,
-    "Dec": 24.165
+    "Dec": 24.165,
+    "VMag": null
   },
   {
     "MainId": "NAME B18-I",
@@ -303,7 +330,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 68.912,
-    "Dec": 24.152
+    "Dec": 24.152,
+    "VMag": null
   },
   {
     "MainId": "Barnard  19",
@@ -312,7 +340,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 68.2,
-    "Dec": 26.3
+    "Dec": 26.3,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G154.61+2.53",
@@ -323,7 +352,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 69.28,
-    "Dec": 50.97
+    "Dec": 50.97,
+    "VMag": null
   },
   {
     "MainId": "Barnard  21",
@@ -332,7 +362,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 69.48,
-    "Dec": 55.35
+    "Dec": 55.35,
+    "VMag": null
   },
   {
     "MainId": "Barnard  22",
@@ -341,7 +372,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 69.5,
-    "Dec": 26.1
+    "Dec": 26.1,
+    "VMag": null
   },
   {
     "MainId": "LDN 1503",
@@ -352,7 +384,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 70.1,
-    "Dec": 29.93
+    "Dec": 29.93,
+    "VMag": null
   },
   {
     "MainId": "LDN 1507",
@@ -363,7 +396,8 @@
     ],
     "ObjType": "MolCld",
     "Ra": 70.883,
-    "Dec": 29.667
+    "Dec": 29.667,
+    "VMag": null
   },
   {
     "MainId": "LDN 1465",
@@ -374,7 +408,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 73.18,
-    "Dec": 46.0
+    "Dec": 46.0,
+    "VMag": null
   },
   {
     "MainId": "Barnard  26",
@@ -383,7 +418,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 73.65,
-    "Dec": 30.62
+    "Dec": 30.62,
+    "VMag": null
   },
   {
     "MainId": "Barnard  27",
@@ -392,7 +428,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 73.78,
-    "Dec": 30.55
+    "Dec": 30.55,
+    "VMag": null
   },
   {
     "MainId": "Barnard  28",
@@ -401,7 +438,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 73.97,
-    "Dec": 30.63
+    "Dec": 30.63,
+    "VMag": null
   },
   {
     "MainId": "LDN 1523",
@@ -411,7 +449,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 76.5575,
-    "Dec": 31.7056
+    "Dec": 31.7056,
+    "VMag": null
   },
   {
     "MainId": "Barnard  30",
@@ -420,7 +459,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 82.57,
-    "Dec": 12.77
+    "Dec": 12.77,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G192.19-11.20",
@@ -430,7 +470,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 83.0,
-    "Dec": 12.75
+    "Dec": 12.75,
+    "VMag": null
   },
   {
     "MainId": "LDN 1582",
@@ -440,7 +481,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 83.0013,
-    "Dec": 12.5078
+    "Dec": 12.5078,
+    "VMag": null
   },
   {
     "MainId": "NAME Horsehead Nebula",
@@ -453,7 +495,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 85.2458,
-    "Dec": -2.4583
+    "Dec": -2.4583,
+    "VMag": null
   },
   {
     "MainId": "TGU H1235 P2",
@@ -463,7 +506,8 @@
     ],
     "ObjType": "Cloud",
     "Ra": 85.8238,
-    "Dec": 32.6183
+    "Dec": 32.6183,
+    "VMag": null
   },
   {
     "MainId": "Barnard  34N",
@@ -472,7 +516,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 85.854,
-    "Dec": 32.66
+    "Dec": 32.66,
+    "VMag": null
   },
   {
     "MainId": "Barnard  35",
@@ -481,7 +526,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 86.37,
-    "Dec": 9.05
+    "Dec": 9.05,
+    "VMag": null
   },
   {
     "MainId": "JCMTSF J054429.8+090856",
@@ -493,7 +539,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 86.123,
-    "Dec": 9.147
+    "Dec": 9.147,
+    "VMag": null
   },
   {
     "MainId": "Barnard  35B",
@@ -502,7 +549,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 86.1846,
-    "Dec": 9.0203
+    "Dec": 9.0203,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G199.11-10.12",
@@ -512,7 +560,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 87.2,
-    "Dec": 7.4
+    "Dec": 7.4,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G201.23+0.75",
@@ -522,7 +571,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 98.0,
-    "Dec": 10.5
+    "Dec": 10.5,
+    "VMag": null
   },
   {
     "MainId": "Barnard  38",
@@ -531,7 +581,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 98.42,
-    "Dec": 11.07
+    "Dec": 11.07,
+    "VMag": null
   },
   {
     "MainId": "LDN 1610",
@@ -542,7 +593,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 99.4861,
-    "Dec": 10.4874
+    "Dec": 10.4874,
+    "VMag": null
   },
   {
     "MainId": "LDN 1721",
@@ -557,7 +609,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 243.6171,
-    "Dec": -18.9122
+    "Dec": -18.9122,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G356.21+20.78",
@@ -567,7 +620,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 245.57,
-    "Dec": -19.62
+    "Dec": -19.62,
+    "VMag": null
   },
   {
     "MainId": "Barnard  42",
@@ -576,7 +630,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 246.3,
-    "Dec": -23.4
+    "Dec": -23.4,
+    "VMag": null
   },
   {
     "MainId": "LDN 1752",
@@ -587,7 +642,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 247.47,
-    "Dec": -19.6
+    "Dec": -19.6,
+    "VMag": null
   },
   {
     "MainId": "LDN 1712",
@@ -597,7 +653,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 249.5,
-    "Dec": -24.43
+    "Dec": -24.43,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G343.44+3.45",
@@ -611,7 +668,8 @@
     ],
     "ObjType": "MolCld",
     "Ra": 251.208,
-    "Dec": -40.385
+    "Dec": -40.385,
+    "VMag": null
   },
   {
     "MainId": "LDN 1744",
@@ -621,7 +679,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 250.0,
-    "Dec": -22.27
+    "Dec": -22.27,
+    "VMag": null
   },
   {
     "MainId": "LDN 1775",
@@ -633,7 +692,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 254.262,
-    "Dec": -22.865
+    "Dec": -22.865,
+    "VMag": null
   },
   {
     "MainId": "LDN 1792",
@@ -643,7 +703,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 254.9,
-    "Dec": -22.58
+    "Dec": -22.58,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G345.14+0.86",
@@ -655,7 +716,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 255.27,
-    "Dec": -40.72
+    "Dec": -40.72,
+    "VMag": null
   },
   {
     "MainId": "LDN 1679",
@@ -668,7 +730,8 @@
     ],
     "ObjType": "MolCld",
     "Ra": 255.683,
-    "Dec": -33.273
+    "Dec": -33.273,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G350.03+5.78",
@@ -679,7 +742,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 254.2,
-    "Dec": -33.85
+    "Dec": -33.85,
+    "VMag": null
   },
   {
     "MainId": "LDN   15",
@@ -691,7 +755,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 256.18,
-    "Dec": -22.2
+    "Dec": -22.2,
+    "VMag": null
   },
   {
     "MainId": "Barnard  53",
@@ -700,7 +765,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 256.5,
-    "Dec": -33.6
+    "Dec": -33.6,
+    "VMag": null
   },
   {
     "MainId": "Barnard  54",
@@ -709,7 +775,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 256.65,
-    "Dec": -34.25
+    "Dec": -34.25,
+    "VMag": null
   },
   {
     "MainId": "LDN 1682",
@@ -719,7 +786,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 257.05,
-    "Dec": -32.1
+    "Dec": -32.1,
+    "VMag": null
   },
   {
     "MainId": "LDN 1685",
@@ -732,7 +800,8 @@
     ],
     "ObjType": "MolCld",
     "Ra": 257.192,
-    "Dec": -32.113
+    "Dec": -32.113,
+    "VMag": null
   },
   {
     "MainId": "LDN   11",
@@ -744,7 +813,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 257.129,
-    "Dec": -22.897
+    "Dec": -22.897,
+    "VMag": null
   },
   {
     "MainId": "Barnard  58",
@@ -755,7 +825,8 @@
     ],
     "ObjType": "Cloud",
     "Ra": 257.8442,
-    "Dec": -40.5844
+    "Dec": -40.5844,
+    "VMag": null
   },
   {
     "MainId": "LDN 1746",
@@ -767,7 +838,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 257.82,
-    "Dec": -27.37
+    "Dec": -27.37,
+    "VMag": null
   },
   {
     "MainId": "Barnard  60",
@@ -776,7 +848,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 257.95,
-    "Dec": -22.43
+    "Dec": -22.43,
+    "VMag": null
   },
   {
     "MainId": "LDN  111",
@@ -787,7 +860,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 258.8,
-    "Dec": -20.35
+    "Dec": -20.35,
+    "VMag": null
   },
   {
     "MainId": "LDN  100",
@@ -800,7 +874,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 258.981958,
-    "Dec": -20.934147
+    "Dec": -20.934147,
+    "VMag": null
   },
   {
     "MainId": "Barnard  63",
@@ -809,7 +884,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 258.475,
-    "Dec": -21.915
+    "Dec": -21.915,
+    "VMag": null
   },
   {
     "MainId": "LDN  173",
@@ -821,7 +897,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 259.35,
-    "Dec": -18.52
+    "Dec": -18.52,
+    "VMag": null
   },
   {
     "MainId": "LDN 1772",
@@ -832,7 +909,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 259.95,
-    "Dec": -26.63
+    "Dec": -26.63,
+    "VMag": null
   },
   {
     "MainId": "LDN 1768",
@@ -842,7 +920,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 260.02,
-    "Dec": -26.87
+    "Dec": -26.87,
+    "VMag": null
   },
   {
     "MainId": "Barnard  67",
@@ -851,7 +930,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 260.25,
-    "Dec": -26.85
+    "Dec": -26.85,
+    "VMag": null
   },
   {
     "MainId": "Barnard  67A",
@@ -860,7 +940,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 260.62,
-    "Dec": -21.88
+    "Dec": -21.88,
+    "VMag": null
   },
   {
     "MainId": "LDN   57",
@@ -871,7 +952,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 260.6592,
-    "Dec": -23.8261
+    "Dec": -23.8261,
+    "VMag": null
   },
   {
     "MainId": "LDN   55",
@@ -882,7 +964,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 260.75,
-    "Dec": -23.88
+    "Dec": -23.88,
+    "VMag": null
   },
   {
     "MainId": "LDN   54",
@@ -893,7 +976,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 260.9,
-    "Dec": -23.97
+    "Dec": -23.97,
+    "VMag": null
   },
   {
     "MainId": "LDN   53",
@@ -903,7 +987,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 260.871,
-    "Dec": -24.042
+    "Dec": -24.042,
+    "VMag": null
   },
   {
     "MainId": "NAME Snake DCld",
@@ -914,7 +999,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 260.913,
-    "Dec": -23.695
+    "Dec": -23.695,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G1.33+6.53",
@@ -924,7 +1010,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 261.02,
-    "Dec": -24.28
+    "Dec": -24.28,
+    "VMag": null
   },
   {
     "MainId": "Barnard  74",
@@ -933,7 +1020,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 261.27,
-    "Dec": -24.2
+    "Dec": -24.2,
+    "VMag": null
   },
   {
     "MainId": "LDN  112",
@@ -944,7 +1032,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 261.25,
-    "Dec": -21.88
+    "Dec": -21.88,
+    "VMag": null
   },
   {
     "MainId": "Barnard  76",
@@ -953,7 +1042,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 261.3,
-    "Dec": -24.4
+    "Dec": -24.4,
+    "VMag": null
   },
   {
     "MainId": "LDN   69",
@@ -965,7 +1055,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 261.9929,
-    "Dec": -23.9995
+    "Dec": -23.9995,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G1.31+4.20",
@@ -975,7 +1066,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 263.0,
-    "Dec": -25.6
+    "Dec": -25.6,
+    "VMag": null
   },
   {
     "MainId": "LDN  216",
@@ -986,7 +1078,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 264.4246,
-    "Dec": -19.6624
+    "Dec": -19.6624,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G5.57+5.55",
@@ -996,7 +1089,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 264.43,
-    "Dec": -21.27
+    "Dec": -21.27,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G3.43+3.98",
@@ -1006,7 +1100,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 264.62,
-    "Dec": -23.92
+    "Dec": -23.92,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G3.55+4.03",
@@ -1016,7 +1111,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 264.65,
-    "Dec": -23.77
+    "Dec": -23.77,
+    "VMag": null
   },
   {
     "MainId": "LDN  109",
@@ -1028,7 +1124,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 264.77,
-    "Dec": -24.12
+    "Dec": -24.12,
+    "VMag": null
   },
   {
     "MainId": "LDN  233",
@@ -1038,7 +1135,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 266.27,
-    "Dec": -20.02
+    "Dec": -20.02,
+    "VMag": null
   },
   {
     "MainId": "LDN  235",
@@ -1050,7 +1148,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 266.62,
-    "Dec": -20.18
+    "Dec": -20.18,
+    "VMag": null
   },
   {
     "MainId": "LDN  302",
@@ -1062,7 +1161,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 269.4,
-    "Dec": -17.63
+    "Dec": -17.63,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G6.99-0.24",
@@ -1072,7 +1172,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 270.6,
-    "Dec": -23.02
+    "Dec": -23.02,
+    "VMag": null
   },
   {
     "MainId": "LDN   93",
@@ -1084,7 +1185,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 270.742,
-    "Dec": -27.868
+    "Dec": -27.868,
+    "VMag": null
   },
   {
     "MainId": "NAME Parrot's Head",
@@ -1095,7 +1197,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 271.07,
-    "Dec": -32.67
+    "Dec": -32.67,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G6.30-1.23",
@@ -1106,7 +1209,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 271.15,
-    "Dec": -24.1
+    "Dec": -24.1,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G6.12-1.43",
@@ -1116,7 +1220,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 271.25,
-    "Dec": -24.35
+    "Dec": -24.35,
+    "VMag": null
   },
   {
     "MainId": "LDN  108",
@@ -1127,7 +1232,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 272.562,
-    "Dec": -28.302
+    "Dec": -28.302,
+    "VMag": null
   },
   {
     "MainId": "LDN  227",
@@ -1138,7 +1244,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 272.52,
-    "Dec": -23.65
+    "Dec": -23.65,
+    "VMag": null
   },
   {
     "MainId": "LDN  323",
@@ -1150,7 +1257,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 273.87,
-    "Dec": -18.22
+    "Dec": -18.22,
+    "VMag": null
   },
   {
     "MainId": "LDN  327",
@@ -1162,7 +1270,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 274.23,
-    "Dec": -18.07
+    "Dec": -18.07,
+    "VMag": null
   },
   {
     "MainId": "Barnard  94",
@@ -1171,7 +1280,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 276.48,
-    "Dec": -10.65
+    "Dec": -10.65,
+    "VMag": null
   },
   {
     "MainId": "LDN  406",
@@ -1183,7 +1293,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 276.37,
-    "Dec": -11.78
+    "Dec": -11.78,
+    "VMag": null
   },
   {
     "MainId": "Barnard  96",
@@ -1193,7 +1304,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 276.562,
-    "Dec": -10.303
+    "Dec": -10.303,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G21.57+0.39",
@@ -1204,7 +1316,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 277.27,
-    "Dec": -9.92
+    "Dec": -9.92,
+    "VMag": null
   },
   {
     "MainId": "LDN  239",
@@ -1217,7 +1330,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 278.3447,
-    "Dec": -26.0223
+    "Dec": -26.0223,
+    "VMag": null
   },
   {
     "MainId": "LDN  313",
@@ -1228,7 +1342,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 278.37,
-    "Dec": -21.55
+    "Dec": -21.55,
+    "VMag": null
   },
   {
     "MainId": "LDN  443",
@@ -1240,7 +1355,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 278.1774,
-    "Dec": -9.0787
+    "Dec": -9.0787,
+    "VMag": null
   },
   {
     "MainId": "Barnard 101",
@@ -1250,7 +1366,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 278.133,
-    "Dec": -8.962
+    "Dec": -8.962,
+    "VMag": null
   },
   {
     "MainId": "LDN  401",
@@ -1263,7 +1380,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 279.4878,
-    "Dec": -13.7625
+    "Dec": -13.7625,
+    "VMag": null
   },
   {
     "MainId": "LDN  497",
@@ -1274,7 +1392,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 279.7979,
-    "Dec": -6.6208
+    "Dec": -6.6208,
+    "VMag": null
   },
   {
     "MainId": "LDN  532",
@@ -1286,7 +1405,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 281.77,
-    "Dec": -4.37
+    "Dec": -4.37,
+    "VMag": null
   },
   {
     "MainId": "LDN  506",
@@ -1297,7 +1417,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 281.92,
-    "Dec": -6.87
+    "Dec": -6.87,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G28.12-1.76",
@@ -1308,7 +1429,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 282.2,
-    "Dec": -5.07
+    "Dec": -5.07,
+    "VMag": null
   },
   {
     "MainId": "Barnard 107",
@@ -1317,7 +1439,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 282.37,
-    "Dec": -5.0
+    "Dec": -5.0,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G27.11-2.45",
@@ -1327,7 +1450,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 282.4,
-    "Dec": -6.3
+    "Dec": -6.3,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G26.03-3.10",
@@ -1337,7 +1461,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 282.4,
-    "Dec": -7.55
+    "Dec": -7.55,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G28.48-1.78",
@@ -1349,7 +1474,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 282.52,
-    "Dec": -4.77
+    "Dec": -4.77,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G28.36-1.94",
@@ -1359,7 +1485,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 282.5,
-    "Dec": -5.0
+    "Dec": -5.0,
+    "VMag": null
   },
   {
     "MainId": "Barnard 112",
@@ -1368,7 +1495,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 282.77,
-    "Dec": -6.67
+    "Dec": -6.67,
+    "VMag": null
   },
   {
     "MainId": "LDN  548",
@@ -1379,7 +1507,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 282.4573,
-    "Dec": -3.7009
+    "Dec": -3.7009,
+    "VMag": null
   },
   {
     "MainId": "LDN  514",
@@ -1391,7 +1520,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 283.2143,
-    "Dec": -6.9271
+    "Dec": -6.9271,
+    "VMag": null
   },
   {
     "MainId": "LDN  518",
@@ -1403,7 +1533,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 283.3,
-    "Dec": -6.6
+    "Dec": -6.6,
+    "VMag": null
   },
   {
     "MainId": "LDN  512",
@@ -1414,7 +1545,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 283.3,
-    "Dec": -7.1
+    "Dec": -7.1,
+    "VMag": null
   },
   {
     "MainId": "LDN  509",
@@ -1426,7 +1558,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 283.43,
-    "Dec": -7.3
+    "Dec": -7.3,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G28.88-2.70",
@@ -1436,7 +1569,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 283.43,
-    "Dec": -4.83
+    "Dec": -4.83,
+    "VMag": null
   },
   {
     "MainId": "Barnard 118",
@@ -1446,7 +1580,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 283.483,
-    "Dec": -7.442
+    "Dec": -7.442,
+    "VMag": null
   },
   {
     "MainId": "Barnard 119",
@@ -1455,7 +1590,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 283.65,
-    "Dec": -4.53
+    "Dec": -4.53,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G28.69-3.07",
@@ -1466,7 +1602,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 283.67,
-    "Dec": -5.17
+    "Dec": -5.17,
+    "VMag": null
   },
   {
     "MainId": "Barnard 120",
@@ -1476,7 +1613,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 284.4,
-    "Dec": -3.93
+    "Dec": -3.93,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G29.24-2.92",
@@ -1486,7 +1624,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 283.85,
-    "Dec": -4.6
+    "Dec": -4.6,
+    "VMag": null
   },
   {
     "MainId": "LDN  545",
@@ -1498,7 +1637,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 284.2,
-    "Dec": -4.77
+    "Dec": -4.77,
+    "VMag": null
   },
   {
     "MainId": "Barnard 123",
@@ -1507,7 +1647,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 284.4,
-    "Dec": -4.72
+    "Dec": -4.72,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G29.77-3.37",
@@ -1517,7 +1658,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 284.42,
-    "Dec": -4.35
+    "Dec": -4.35,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G29.81-3.53",
@@ -1527,7 +1669,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 284.57,
-    "Dec": -4.38
+    "Dec": -4.38,
+    "VMag": null
   },
   {
     "MainId": "LDN  556",
@@ -1539,7 +1682,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 284.77,
-    "Dec": -4.52
+    "Dec": -4.52,
+    "VMag": null
   },
   {
     "MainId": "LDN  544",
@@ -1551,7 +1695,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 285.4,
-    "Dec": -5.43
+    "Dec": -5.43,
+    "VMag": null
   },
   {
     "MainId": "Barnard 128",
@@ -1560,7 +1705,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 285.43,
-    "Dec": -4.57
+    "Dec": -4.57,
+    "VMag": null
   },
   {
     "MainId": "LDN  549",
@@ -1573,7 +1719,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 285.5283,
-    "Dec": -5.3158
+    "Dec": -5.3158,
+    "VMag": null
   },
   {
     "MainId": "LDN  542",
@@ -1586,7 +1733,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 285.4177,
-    "Dec": -5.5914
+    "Dec": -5.5914,
+    "VMag": null
   },
   {
     "MainId": "LDN  562",
@@ -1596,7 +1744,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 285.65,
-    "Dec": -4.52
+    "Dec": -4.52,
+    "VMag": null
   },
   {
     "MainId": "Barnard 132",
@@ -1605,7 +1754,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 286.1,
-    "Dec": -4.42
+    "Dec": -4.42,
+    "VMag": null
   },
   {
     "MainId": "LDN  531",
@@ -1618,7 +1768,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 286.5416,
-    "Dec": -6.8959
+    "Dec": -6.8959,
+    "VMag": null
   },
   {
     "MainId": "LDN  543",
@@ -1630,7 +1781,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 286.68,
-    "Dec": -6.17
+    "Dec": -6.17,
+    "VMag": null
   },
   {
     "MainId": "Barnard 135",
@@ -1639,7 +1791,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 286.87,
-    "Dec": -3.92
+    "Dec": -3.92,
+    "VMag": null
   },
   {
     "MainId": "Barnard 136",
@@ -1648,7 +1801,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 287.2,
-    "Dec": -4.0
+    "Dec": -4.0,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G34.55-6.05",
@@ -1659,7 +1813,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 288.983,
-    "Dec": -1.32
+    "Dec": -1.32,
+    "VMag": null
   },
   {
     "MainId": "LDN  627",
@@ -1670,7 +1825,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 288.5,
-    "Dec": 0.83
+    "Dec": 0.83,
+    "VMag": null
   },
   {
     "MainId": "LDN  619",
@@ -1682,7 +1838,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 289.512,
-    "Dec": -1.463
+    "Dec": -1.463,
+    "VMag": null
   },
   {
     "MainId": "Barnard 140",
@@ -1691,7 +1848,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 289.95,
-    "Dec": 5.22
+    "Dec": 5.22,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G37.90-5.53",
@@ -1702,7 +1860,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 290.05,
-    "Dec": 1.88
+    "Dec": 1.88,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G47.85-5.72",
@@ -1713,7 +1872,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 294.92,
-    "Dec": 10.52
+    "Dec": 10.52,
+    "VMag": null
   },
   {
     "MainId": "LDN  694",
@@ -1726,7 +1886,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 295.18,
-    "Dec": 10.95
+    "Dec": 10.95,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G71.41+3.20",
@@ -1736,7 +1897,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 299.5,
-    "Dec": 35.3
+    "Dec": 35.3,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G73.91+3.60",
@@ -1747,7 +1909,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 300.7,
-    "Dec": 37.67
+    "Dec": 37.67,
+    "VMag": null
   },
   {
     "MainId": "Barnard 146",
@@ -1756,7 +1919,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 300.87,
-    "Dec": 36.02
+    "Dec": 36.02,
+    "VMag": null
   },
   {
     "MainId": "LDN  853",
@@ -1767,7 +1931,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 301.7462,
-    "Dec": 35.2094
+    "Dec": 35.2094,
+    "VMag": null
   },
   {
     "MainId": "Barnard 148",
@@ -1777,7 +1942,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 312.075,
-    "Dec": 59.64
+    "Dec": 59.64,
+    "VMag": null
   },
   {
     "MainId": "Barnard 149",
@@ -1786,7 +1952,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 312.25,
-    "Dec": 59.52
+    "Dec": 59.52,
+    "VMag": null
   },
   {
     "MainId": "LDN 1082",
@@ -1798,7 +1965,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 312.77,
-    "Dec": 60.18
+    "Dec": 60.18,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G95.48+5.86",
@@ -1809,7 +1977,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 317.05,
-    "Dec": 56.32
+    "Dec": 56.32,
+    "VMag": null
   },
   {
     "MainId": "LDN 1125",
@@ -1820,7 +1989,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 318.62,
-    "Dec": 61.73
+    "Dec": 61.73,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G96.80+4.66",
@@ -1830,7 +2000,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 320.25,
-    "Dec": 56.43
+    "Dec": 56.43,
+    "VMag": null
   },
   {
     "MainId": "LDN 1080",
@@ -1841,7 +2012,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 320.37,
-    "Dec": 56.42
+    "Dec": 56.42,
+    "VMag": null
   },
   {
     "MainId": "LDN  983",
@@ -1852,7 +2024,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 323.1,
-    "Dec": 45.05
+    "Dec": 45.05,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G90.74-4.59",
@@ -1862,7 +2035,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 323.5,
-    "Dec": 45.58
+    "Dec": 45.58,
+    "VMag": null
   },
   {
     "MainId": "LDN 1075",
@@ -1875,7 +2049,8 @@
     ],
     "ObjType": "MolCld",
     "Ra": 323.483,
-    "Dec": 54.692
+    "Dec": 54.692,
+    "VMag": null
   },
   {
     "MainId": "TGU H534 P2",
@@ -1886,7 +2061,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 324.297125,
-    "Dec": 43.3434056
+    "Dec": 43.3434056,
+    "VMag": null
   },
   {
     "MainId": "LDN  973",
@@ -1897,7 +2073,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 324.37,
-    "Dec": 43.23
+    "Dec": 43.23,
+    "VMag": null
   },
   {
     "MainId": "LDN 1088",
@@ -1910,7 +2087,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 324.55,
-    "Dec": 56.23
+    "Dec": 56.23,
+    "VMag": null
   },
   {
     "MainId": "Barnard 161",
@@ -1919,7 +2097,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 325.1,
-    "Dec": 57.82
+    "Dec": 57.82,
+    "VMag": null
   },
   {
     "MainId": "Barnard 162",
@@ -1928,7 +2107,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 325.3,
-    "Dec": 56.32
+    "Dec": 56.32,
+    "VMag": null
   },
   {
     "MainId": "LDN 1106",
@@ -1938,7 +2118,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 325.5642,
-    "Dec": 56.7289
+    "Dec": 56.7289,
+    "VMag": null
   },
   {
     "MainId": "LDN 1070",
@@ -1950,7 +2131,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 326.77,
-    "Dec": 51.07
+    "Dec": 51.07,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G102.04+4.95",
@@ -1960,7 +2142,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 327.23,
-    "Dec": 60.2
+    "Dec": 60.2,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G102.18+4.69",
@@ -1970,7 +2153,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 327.77,
-    "Dec": 60.08
+    "Dec": 60.08,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G102.25+4.61",
@@ -1980,7 +2164,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 328.0,
-    "Dec": 60.07
+    "Dec": 60.07,
+    "VMag": null
   },
   {
     "MainId": "Barnard 168",
@@ -1989,7 +2174,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 328.32,
-    "Dec": 47.27
+    "Dec": 47.27,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G102.12+3.03",
@@ -1999,7 +2185,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 329.72,
-    "Dec": 58.75
+    "Dec": 58.75,
+    "VMag": null
   },
   {
     "MainId": "LDN 1149",
@@ -2010,7 +2197,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 329.4,
-    "Dec": 59.12
+    "Dec": 59.12,
+    "VMag": null
   },
   {
     "MainId": "LDN 1153",
@@ -2021,7 +2209,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 330.15,
-    "Dec": 58.98
+    "Dec": 58.98,
+    "VMag": null
   },
   {
     "MainId": "LDN 1164",
@@ -2033,7 +2222,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 331.68,
-    "Dec": 59.17
+    "Dec": 59.17,
+    "VMag": null
   },
   {
     "MainId": "Barnard 173",
@@ -2042,7 +2232,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 331.87,
-    "Dec": 59.67
+    "Dec": 59.67,
+    "VMag": null
   },
   {
     "MainId": "LDN 1164",
@@ -2054,7 +2245,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 331.68,
-    "Dec": 59.17
+    "Dec": 59.17,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G110.12+11.08",
@@ -2064,7 +2256,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 333.5,
-    "Dec": 69.9
+    "Dec": 69.9,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G133.87-4.05",
@@ -2074,7 +2267,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 33.25,
-    "Dec": 57.08
+    "Dec": 57.08,
+    "VMag": null
   },
   {
     "MainId": "LDN 1451",
@@ -2085,7 +2279,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 51.53,
-    "Dec": 30.17
+    "Dec": 30.17,
+    "VMag": null
   },
   {
     "MainId": "LDN 1448",
@@ -2095,7 +2290,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 50.63,
-    "Dec": 30.58
+    "Dec": 30.58,
+    "VMag": null
   },
   {
     "MainId": "LDN 1455",
@@ -2107,7 +2303,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 52.0027,
-    "Dec": 30.133
+    "Dec": 30.133,
+    "VMag": null
   },
   {
     "MainId": "LDN 1450",
@@ -2117,7 +2314,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 52.4,
-    "Dec": 31.33
+    "Dec": 31.33,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G159.07-21.41",
@@ -2127,7 +2325,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 52.3,
-    "Dec": 30.18
+    "Dec": 30.18,
+    "VMag": null
   },
   {
     "MainId": "Barnard 207",
@@ -2136,7 +2335,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 61.15,
-    "Dec": 26.33
+    "Dec": 26.33,
+    "VMag": null
   },
   {
     "MainId": "Barnard 208",
@@ -2145,7 +2345,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 62.88,
-    "Dec": 25.15
+    "Dec": 25.15,
+    "VMag": null
   },
   {
     "MainId": "Barnard 209",
@@ -2154,7 +2355,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 63.1,
-    "Dec": 28.32
+    "Dec": 28.32,
+    "VMag": null
   },
   {
     "MainId": "Barnard 210",
@@ -2163,7 +2365,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 63.9,
-    "Dec": 25.05
+    "Dec": 25.05,
+    "VMag": null
   },
   {
     "MainId": "Barnard 211",
@@ -2172,7 +2375,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 64.396,
-    "Dec": 27.718
+    "Dec": 27.718,
+    "VMag": null
   },
   {
     "MainId": "Barnard 212",
@@ -2181,7 +2385,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 64.8,
-    "Dec": 25.3
+    "Dec": 25.3,
+    "VMag": null
   },
   {
     "MainId": "Barnard 213",
@@ -2191,7 +2396,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 65.213,
-    "Dec": 27.272
+    "Dec": 27.272,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G169.18-14.88",
@@ -2202,7 +2408,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 65.47,
-    "Dec": 28.53
+    "Dec": 28.53,
+    "VMag": null
   },
   {
     "MainId": "Barnard 215",
@@ -2211,7 +2418,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 65.9,
-    "Dec": 25.03
+    "Dec": 25.03,
+    "VMag": null
   },
   {
     "MainId": "Barnard 216",
@@ -2220,7 +2428,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 66.0,
-    "Dec": 26.62
+    "Dec": 26.62,
+    "VMag": null
   },
   {
     "MainId": "Barnard 217",
@@ -2229,7 +2438,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 66.9437,
-    "Dec": 26.2978
+    "Dec": 26.2978,
+    "VMag": null
   },
   {
     "MainId": "Barnard 217A",
@@ -2238,7 +2448,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 65.525,
-    "Dec": 26.887
+    "Dec": 26.887,
+    "VMag": null
   },
   {
     "MainId": "Barnard 217B",
@@ -2247,7 +2458,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 65.912,
-    "Dec": 26.603
+    "Dec": 26.603,
+    "VMag": null
   },
   {
     "MainId": "Barnard 217C",
@@ -2256,7 +2468,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 66.333,
-    "Dec": 26.487
+    "Dec": 26.487,
+    "VMag": null
   },
   {
     "MainId": "Barnard 217D",
@@ -2265,7 +2478,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 66.921,
-    "Dec": 26.335
+    "Dec": 26.335,
+    "VMag": null
   },
   {
     "MainId": "Barnard 217E",
@@ -2274,7 +2488,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 66.737,
-    "Dec": 26.145
+    "Dec": 26.145,
+    "VMag": null
   },
   {
     "MainId": "Barnard 217F",
@@ -2283,7 +2498,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 66.517,
-    "Dec": 26.378
+    "Dec": 26.378,
+    "VMag": null
   },
   {
     "MainId": "Barnard 217G",
@@ -2292,7 +2508,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 67.342,
-    "Dec": 26.242
+    "Dec": 26.242,
+    "VMag": null
   },
   {
     "MainId": "Barnard 218",
@@ -2303,7 +2520,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 67.03,
-    "Dec": 26.27
+    "Dec": 26.27,
+    "VMag": null
   },
   {
     "MainId": "Barnard 219",
@@ -2312,7 +2530,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 68.5,
-    "Dec": 29.6
+    "Dec": 29.6,
+    "VMag": null
   },
   {
     "MainId": "Barnard 220",
@@ -2325,7 +2544,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 70.4117,
-    "Dec": 26.0117
+    "Dec": 26.0117,
+    "VMag": null
   },
   {
     "MainId": "Barnard 221",
@@ -2334,7 +2554,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 71.0,
-    "Dec": 31.7
+    "Dec": 31.7,
+    "VMag": null
   },
   {
     "MainId": "Barnard 222",
@@ -2343,7 +2564,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 77.1,
-    "Dec": 32.17
+    "Dec": 32.17,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G194.68-15.72",
@@ -2353,7 +2575,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 80.37,
-    "Dec": 8.32
+    "Dec": 8.32,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G192.98-14.01",
@@ -2364,7 +2587,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 80.97,
-    "Dec": 10.62
+    "Dec": 10.62,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G192.66-12.64",
@@ -2374,7 +2598,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 82.0,
-    "Dec": 11.6
+    "Dec": 11.6,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G174.94+0.88",
@@ -2384,7 +2609,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 84.15,
-    "Dec": 33.7
+    "Dec": 33.7,
+    "VMag": null
   },
   {
     "MainId": "LDN 1570",
@@ -2397,7 +2623,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 91.8683,
-    "Dec": 19.4678
+    "Dec": 19.4678,
+    "VMag": null
   },
   {
     "MainId": "Barnard 228",
@@ -2408,7 +2635,8 @@
     ],
     "ObjType": "denseCore",
     "Ra": 235.7536,
-    "Dec": -34.1466
+    "Dec": -34.1466,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G349.34+16.52",
@@ -2418,7 +2646,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 244.3,
-    "Dec": -27.3
+    "Dec": -27.3,
+    "VMag": null
   },
   {
     "MainId": "Barnard 230",
@@ -2427,7 +2656,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 246.8,
-    "Dec": -16.8
+    "Dec": -16.8,
+    "VMag": null
   },
   {
     "MainId": "Sandqvist  21",
@@ -2438,7 +2668,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 249.208,
-    "Dec": -35.618
+    "Dec": -35.618,
+    "VMag": null
   },
   {
     "MainId": "Barnard 232",
@@ -2447,7 +2678,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 250.92,
-    "Dec": -39.82
+    "Dec": -39.82,
+    "VMag": null
   },
   {
     "MainId": "Barnard 233",
@@ -2458,7 +2690,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 251.07,
-    "Dec": -35.37
+    "Dec": -35.37,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G351.29+9.60",
@@ -2468,7 +2701,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 251.6,
-    "Dec": -30.47
+    "Dec": -30.47,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G340.53+0.50",
@@ -2482,7 +2716,8 @@
     ],
     "ObjType": "MolCld",
     "Ra": 251.687,
-    "Dec": -44.513
+    "Dec": -44.513,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G352.03+9.76",
@@ -2492,7 +2727,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 252.0,
-    "Dec": -29.8
+    "Dec": -29.8,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G352.03+9.50",
@@ -2502,7 +2738,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 252.22,
-    "Dec": -29.97
+    "Dec": -29.97,
+    "VMag": null
   },
   {
     "MainId": "LDN 1759",
@@ -2512,7 +2749,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 253.02,
-    "Dec": -23.08
+    "Dec": -23.08,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G351.95+7.76",
@@ -2522,7 +2760,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 253.8,
-    "Dec": -31.1
+    "Dec": -31.1,
+    "VMag": null
   },
   {
     "MainId": "Barnard 240",
@@ -2531,7 +2770,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 254.82,
-    "Dec": -35.35
+    "Dec": -35.35,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G353.28+7.58",
@@ -2541,7 +2781,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 254.87,
-    "Dec": -30.18
+    "Dec": -30.18,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G352.23+5.27",
@@ -2551,7 +2792,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 256.27,
-    "Dec": -32.42
+    "Dec": -32.42,
+    "VMag": null
   },
   {
     "MainId": "Barnard 243",
@@ -2560,7 +2802,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 257.45,
-    "Dec": -29.57
+    "Dec": -29.57,
+    "VMag": null
   },
   {
     "MainId": "LDN 1736",
@@ -2571,7 +2814,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 257.52,
-    "Dec": -28.4
+    "Dec": -28.4,
+    "VMag": null
   },
   {
     "MainId": "LDN 1726",
@@ -2582,7 +2826,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 258.05,
-    "Dec": -29.23
+    "Dec": -29.23,
+    "VMag": null
   },
   {
     "MainId": "Barnard 246",
@@ -2591,7 +2836,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 258.0,
-    "Dec": -22.65
+    "Dec": -22.65,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G354.99+5.17",
@@ -2603,7 +2849,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 258.284,
-    "Dec": -30.2646
+    "Dec": -30.2646,
+    "VMag": null
   },
   {
     "MainId": "LDN 1733",
@@ -2614,7 +2861,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 258.12,
-    "Dec": -29.02
+    "Dec": -29.02,
+    "VMag": null
   },
   {
     "MainId": "LDN 1727",
@@ -2624,7 +2872,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 258.12,
-    "Dec": -29.23
+    "Dec": -29.23,
+    "VMag": null
   },
   {
     "MainId": "LDN 1742",
@@ -2635,7 +2884,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 258.05,
-    "Dec": -28.4
+    "Dec": -28.4,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G3.44+10.85",
@@ -2645,7 +2895,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 258.45,
-    "Dec": -20.15
+    "Dec": -20.15,
+    "VMag": null
   },
   {
     "MainId": "LDN 1698",
@@ -2655,7 +2906,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 258.8,
-    "Dec": -32.18
+    "Dec": -32.18,
+    "VMag": null
   },
   {
     "MainId": "Barnard 253",
@@ -2664,7 +2916,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 258.8,
-    "Dec": -22.6
+    "Dec": -22.6,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G356.03+3.94",
@@ -2674,7 +2927,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 260.12,
-    "Dec": -30.12
+    "Dec": -30.12,
+    "VMag": null
   },
   {
     "MainId": "LDN   59",
@@ -2685,7 +2939,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 260.15,
-    "Dec": -23.38
+    "Dec": -23.38,
+    "VMag": null
   },
   {
     "MainId": "Barnard 256",
@@ -2694,7 +2949,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 260.55,
-    "Dec": -28.82
+    "Dec": -28.82,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G351.71+0.56",
@@ -2709,7 +2965,8 @@
     ],
     "ObjType": "MolCld",
     "Ra": 260.521,
-    "Dec": -35.608
+    "Dec": -35.608,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G352.53+0.90",
@@ -2719,7 +2976,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 260.73,
-    "Dec": -34.72
+    "Dec": -34.72,
+    "VMag": null
   },
   {
     "MainId": "Barnard 259",
@@ -2728,7 +2986,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 260.5,
-    "Dec": -19.28
+    "Dec": -19.28,
+    "VMag": null
   },
   {
     "MainId": "LDN   14",
@@ -2739,7 +2998,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 261.27,
-    "Dec": -25.55
+    "Dec": -25.55,
+    "VMag": null
   },
   {
     "MainId": "LDN   85",
@@ -2750,7 +3010,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 261.4608,
-    "Dec": -23.0157
+    "Dec": -23.0157,
+    "VMag": null
   },
   {
     "MainId": "TGU H25 P21",
@@ -2760,7 +3021,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 261.42,
-    "Dec": -22.38
+    "Dec": -22.38,
+    "VMag": null
   },
   {
     "MainId": "Barnard 263",
@@ -2771,7 +3033,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 261.73,
-    "Dec": -42.63
+    "Dec": -42.63,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G0.68+5.22",
@@ -2781,7 +3044,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 261.8,
-    "Dec": -25.52
+    "Dec": -25.52,
+    "VMag": null
   },
   {
     "MainId": "Barnard 265",
@@ -2790,7 +3054,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 261.9,
-    "Dec": -25.18
+    "Dec": -25.18,
+    "VMag": null
   },
   {
     "MainId": "Barnard 266",
@@ -2799,7 +3064,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 262.02,
-    "Dec": -20.93
+    "Dec": -20.93,
+    "VMag": null
   },
   {
     "MainId": "LDN   36",
@@ -2811,7 +3077,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 262.2279,
-    "Dec": -25.2156
+    "Dec": -25.2156,
+    "VMag": null
   },
   {
     "MainId": "Barnard 268",
@@ -2820,7 +3087,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 262.8,
-    "Dec": -20.5
+    "Dec": -20.5,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G3.64+5.84",
@@ -2830,7 +3098,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 263.05,
-    "Dec": -22.75
+    "Dec": -22.75,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G6.31+7.46",
@@ -2841,7 +3110,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 263.17,
-    "Dec": -19.58
+    "Dec": -19.58,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G354.18-0.73",
@@ -2851,7 +3121,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 263.5,
-    "Dec": -34.2
+    "Dec": -34.2,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G3.75+4.44",
@@ -2861,7 +3132,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 264.3,
-    "Dec": -23.4
+    "Dec": -23.4,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G355.46-1.02",
@@ -2871,7 +3143,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 264.62,
-    "Dec": -33.33
+    "Dec": -33.33,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G4.39+4.71",
@@ -2881,7 +3154,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 264.5,
-    "Dec": -22.72
+    "Dec": -22.72,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G356.37-0.57",
@@ -2892,7 +3166,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 264.75,
-    "Dec": -32.32
+    "Dec": -32.32,
+    "VMag": null
   },
   {
     "MainId": "LDN  219",
@@ -2904,7 +3179,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 264.87,
-    "Dec": -19.78
+    "Dec": -19.78,
+    "VMag": null
   },
   {
     "MainId": "LDN  144",
@@ -2917,7 +3193,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 265.0676,
-    "Dec": -23.0205
+    "Dec": -23.0205,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G356.80-1.22",
@@ -2927,7 +3204,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 265.65,
-    "Dec": -32.3
+    "Dec": -32.3,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G5.32+3.53",
@@ -2938,7 +3216,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 266.15,
-    "Dec": -22.47
+    "Dec": -22.47,
+    "VMag": null
   },
   {
     "MainId": "Barnard 280",
@@ -2947,7 +3226,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 266.25,
-    "Dec": -20.72
+    "Dec": -20.72,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G4.60+2.49",
@@ -2957,7 +3237,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 266.7,
-    "Dec": -23.72
+    "Dec": -23.72,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G5.04+2.27",
@@ -2967,7 +3248,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 267.15,
-    "Dec": -23.45
+    "Dec": -23.45,
+    "VMag": null
   },
   {
     "MainId": "Barnard 283",
@@ -2976,7 +3258,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 267.7,
-    "Dec": -33.9
+    "Dec": -33.9,
+    "VMag": null
   },
   {
     "MainId": "LDN  330",
@@ -2987,7 +3270,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 267.6,
-    "Dec": -14.28
+    "Dec": -14.28,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G14.54+7.05",
@@ -2997,7 +3281,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 267.87,
-    "Dec": -12.87
+    "Dec": -12.87,
+    "VMag": null
   },
   {
     "MainId": "Barnard 286",
@@ -3006,7 +3291,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 268.25,
-    "Dec": -35.62
+    "Dec": -35.62,
+    "VMag": null
   },
   {
     "MainId": "Barnard 287",
@@ -3015,7 +3301,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 268.6,
-    "Dec": -35.18
+    "Dec": -35.18,
+    "VMag": null
   },
   {
     "MainId": "Barnard 288",
@@ -3024,7 +3311,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 269.27,
-    "Dec": -37.08
+    "Dec": -37.08,
+    "VMag": null
   },
   {
     "MainId": "LDN   35",
@@ -3036,7 +3324,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 269.12,
-    "Dec": -29.03
+    "Dec": -29.03,
+    "VMag": null
   },
   {
     "MainId": "Barnard 290",
@@ -3045,7 +3334,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 269.82,
-    "Dec": -37.13
+    "Dec": -37.13,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G357.26-5.10",
@@ -3055,7 +3345,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 269.93,
-    "Dec": -33.88
+    "Dec": -33.88,
+    "VMag": null
   },
   {
     "MainId": "Barnard 292",
@@ -3064,7 +3355,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 270.15,
-    "Dec": -33.33
+    "Dec": -33.33,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G356.14-6.08",
@@ -3074,7 +3366,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 270.3,
-    "Dec": -35.33
+    "Dec": -35.33,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G2.04-2.82",
@@ -3084,7 +3377,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 270.37,
-    "Dec": -28.6
+    "Dec": -28.6,
+    "VMag": null
   },
   {
     "MainId": "Barnard 295",
@@ -3093,7 +3387,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 271.02,
-    "Dec": -31.15
+    "Dec": -31.15,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G5.88-1.33",
@@ -3103,7 +3398,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 271.02,
-    "Dec": -24.52
+    "Dec": -24.52,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G10.93+1.53",
@@ -3113,7 +3409,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 271.0,
-    "Dec": -18.7
+    "Dec": -18.7,
+    "VMag": null
   },
   {
     "MainId": "Barnard 298",
@@ -3122,7 +3419,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 271.3,
-    "Dec": -30.08
+    "Dec": -30.08,
+    "VMag": null
   },
   {
     "MainId": "LDN  120",
@@ -3133,7 +3431,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 271.6,
-    "Dec": -27.42
+    "Dec": -27.42,
+    "VMag": null
   },
   {
     "MainId": "Barnard 300",
@@ -3142,7 +3441,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 271.75,
-    "Dec": -32.65
+    "Dec": -32.65,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G11.51+0.55",
@@ -3152,7 +3452,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 272.2,
-    "Dec": -18.7
+    "Dec": -18.7,
+    "VMag": null
   },
   {
     "MainId": "LDN  213",
@@ -3163,7 +3464,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 272.27,
-    "Dec": -24.0
+    "Dec": -24.0,
+    "VMag": null
   },
   {
     "MainId": "LDN  210",
@@ -3174,7 +3476,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 272.2805,
-    "Dec": -24.1363
+    "Dec": -24.1363,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G11.97-0.32",
@@ -3184,7 +3487,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 273.3,
-    "Dec": -18.7
+    "Dec": -18.7,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G0.60-6.85",
@@ -3195,7 +3499,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 273.65,
-    "Dec": -31.8
+    "Dec": -31.8,
+    "VMag": null
   },
   {
     "MainId": "LDN  195",
@@ -3206,7 +3511,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 273.98,
-    "Dec": -25.73
+    "Dec": -25.73,
+    "VMag": null
   },
   {
     "MainId": "LDN  335",
@@ -3217,7 +3523,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 274.77,
-    "Dec": -17.82
+    "Dec": -17.82,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G9.56-3.26",
@@ -3227,7 +3534,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 274.77,
-    "Dec": -22.23
+    "Dec": -22.23,
+    "VMag": null
   },
   {
     "MainId": "Barnard 309",
@@ -3236,7 +3544,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 275.77,
-    "Dec": -24.02
+    "Dec": -24.02,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G14.01-3.86",
@@ -3246,7 +3555,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 277.55,
-    "Dec": -18.58
+    "Dec": -18.58,
+    "VMag": null
   },
   {
     "MainId": "LDN  356",
@@ -3259,7 +3569,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 277.5977,
-    "Dec": -17.6861
+    "Dec": -17.6861,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G16.89-2.89",
@@ -3269,7 +3580,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 278.0,
-    "Dec": -15.6
+    "Dec": -15.6,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G17.22-3.75",
@@ -3279,7 +3591,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 278.97,
-    "Dec": -15.68
+    "Dec": -15.68,
+    "VMag": null
   },
   {
     "MainId": "LDN  445",
@@ -3291,7 +3604,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 279.5,
-    "Dec": -9.67
+    "Dec": -9.67,
+    "VMag": null
   },
   {
     "MainId": "LDN  344",
@@ -3303,7 +3617,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 280.5,
-    "Dec": -19.95
+    "Dec": -19.95,
+    "VMag": null
   },
   {
     "MainId": "Barnard 316",
@@ -3312,7 +3627,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 280.45,
-    "Dec": -2.13
+    "Dec": -2.13,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G19.62-5.19",
@@ -3322,7 +3638,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 281.45,
-    "Dec": -14.2
+    "Dec": -14.2,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G27.04-2.53",
@@ -3332,7 +3649,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 282.43,
-    "Dec": -6.38
+    "Dec": -6.38,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G31.86-0.70",
@@ -3342,7 +3660,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 283.0,
-    "Dec": -1.27
+    "Dec": -1.27,
+    "VMag": null
   },
   {
     "MainId": "Barnard 320",
@@ -3351,7 +3670,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 283.2,
-    "Dec": -5.85
+    "Dec": -5.85,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G23.12-5.70",
@@ -3361,7 +3681,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 283.5,
-    "Dec": -11.28
+    "Dec": -11.28,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G29.47-2.98",
@@ -3372,7 +3693,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 283.937,
-    "Dec": -4.442
+    "Dec": -4.442,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G30.59-2.92",
@@ -3383,7 +3705,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 284.4,
-    "Dec": -3.42
+    "Dec": -3.42,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G31.18-3.12",
@@ -3393,7 +3716,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 284.85,
-    "Dec": -2.98
+    "Dec": -2.98,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G30.28-3.72",
@@ -3403,7 +3727,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 284.98,
-    "Dec": -4.05
+    "Dec": -4.05,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G33.91-2.75",
@@ -3413,7 +3738,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 285.8,
-    "Dec": -0.4
+    "Dec": -0.4,
+    "VMag": null
   },
   {
     "MainId": "LDN  552",
@@ -3424,7 +3750,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 286.1,
-    "Dec": -5.25
+    "Dec": -5.25,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G30.68-4.90",
@@ -3434,7 +3761,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 286.2,
-    "Dec": -4.23
+    "Dec": -4.23,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G37.54-2.00",
@@ -3444,7 +3772,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 286.75,
-    "Dec": 3.18
+    "Dec": 3.18,
+    "VMag": null
   },
   {
     "MainId": "LDN  647",
@@ -3456,7 +3785,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 289.9,
-    "Dec": 7.47
+    "Dec": 7.47,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G43.63-4.16",
@@ -3466,7 +3796,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 291.5,
-    "Dec": 7.6
+    "Dec": 7.6,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G44.91-4.04",
@@ -3476,7 +3807,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 292.0,
-    "Dec": 8.8
+    "Dec": 8.8,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G46.60-3.13",
@@ -3486,7 +3818,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 292.0,
-    "Dec": 10.7
+    "Dec": 10.7,
+    "VMag": null
   },
   {
     "MainId": "LDN  701",
@@ -3498,7 +3831,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 293.73,
-    "Dec": 12.28
+    "Dec": 12.28,
+    "VMag": null
   },
   {
     "MainId": "LDN  663",
@@ -3509,7 +3843,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 294.229,
-    "Dec": 7.573
+    "Dec": 7.573,
+    "VMag": null
   },
   {
     "MainId": "Barnard 335S",
@@ -3518,7 +3853,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 0.0,
-    "Dec": 0.0
+    "Dec": 0.0,
+    "VMag": null
   },
   {
     "MainId": "LDN  702",
@@ -3530,7 +3866,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 294.1,
-    "Dec": 12.28
+    "Dec": 12.28,
+    "VMag": null
   },
   {
     "MainId": "LDN  705",
@@ -3541,7 +3878,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 294.2,
-    "Dec": 12.45
+    "Dec": 12.45,
+    "VMag": null
   },
   {
     "MainId": "LDN  668",
@@ -3552,7 +3890,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 295.85,
-    "Dec": 7.37
+    "Dec": 7.37,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G46.40-7.73",
@@ -3562,7 +3901,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 296.0,
-    "Dec": 8.3
+    "Dec": 8.3,
+    "VMag": null
   },
   {
     "MainId": "Barnard 340",
@@ -3571,7 +3911,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 297.18,
-    "Dec": 11.4
+    "Dec": 11.4,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G69.65+4.06",
@@ -3581,7 +3922,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 297.5,
-    "Dec": 34.27
+    "Dec": 34.27,
+    "VMag": null
   },
   {
     "MainId": "LDN  885",
@@ -3592,7 +3934,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 302.3,
-    "Dec": 41.15
+    "Dec": 41.15,
+    "VMag": null
   },
   {
     "MainId": "LDN  880",
@@ -3602,7 +3945,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 303.45,
-    "Dec": 40.32
+    "Dec": 40.32,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G77.47+2.79",
@@ -3612,7 +3956,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 304.05,
-    "Dec": 40.22
+    "Dec": 40.22,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G83.22+5.62",
@@ -3622,7 +3967,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 305.25,
-    "Dec": 46.55
+    "Dec": 46.55,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G81.49+3.18",
@@ -3632,7 +3978,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 306.7,
-    "Dec": 43.73
+    "Dec": 43.73,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G78.56+0.70",
@@ -3642,7 +3989,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 307.12,
-    "Dec": 39.9
+    "Dec": 39.9,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G80.93+1.13",
@@ -3652,7 +4000,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 308.5,
-    "Dec": 42.1
+    "Dec": 42.1,
+    "VMag": null
   },
   {
     "MainId": "Barnard 349",
@@ -3661,7 +4010,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 311.85,
-    "Dec": 43.95
+    "Dec": 43.95,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G85.58+1.31",
@@ -3671,7 +4021,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 312.27,
-    "Dec": 45.87
+    "Dec": 45.87,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G87.13+1.84",
@@ -3681,7 +4032,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 313.12,
-    "Dec": 47.4
+    "Dec": 47.4,
+    "VMag": null
   },
   {
     "MainId": "Barnard 352",
@@ -3690,7 +4042,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 314.3,
-    "Dec": 45.88
+    "Dec": 45.88,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G86.20+0.00",
@@ -3700,7 +4053,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 314.35,
-    "Dec": 45.47
+    "Dec": 45.47,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G95.96+8.08",
@@ -3710,7 +4064,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 314.5,
-    "Dec": 58.1
+    "Dec": 58.1,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G84.75-1.83",
@@ -3720,7 +4075,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 314.9,
-    "Dec": 43.18
+    "Dec": 43.18,
+    "VMag": null
   },
   {
     "MainId": "LDN  950",
@@ -3731,7 +4087,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 315.12,
-    "Dec": 46.62
+    "Dec": 46.62,
+    "VMag": null
   },
   {
     "MainId": "LDN 1053",
@@ -3743,7 +4100,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 314.8421,
-    "Dec": 55.6297
+    "Dec": 55.6297,
+    "VMag": 13.75
   },
   {
     "MainId": "[DB2002b] G85.53-2.62",
@@ -3753,7 +4111,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 316.42,
-    "Dec": 43.27
+    "Dec": 43.27,
+    "VMag": null
   },
   {
     "MainId": "LDN 1068",
@@ -3765,7 +4124,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 316.7,
-    "Dec": 57.17
+    "Dec": 57.17,
+    "VMag": null
   },
   {
     "MainId": "LDN 1063",
@@ -3776,7 +4136,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 316.98,
-    "Dec": 56.3
+    "Dec": 56.3,
+    "VMag": null
   },
   {
     "MainId": "LDN  970",
@@ -3788,7 +4149,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 318.0546,
-    "Dec": 47.3897
+    "Dec": 47.3897,
+    "VMag": null
   },
   {
     "MainId": "Barnard 362",
@@ -3799,7 +4161,8 @@
     ],
     "ObjType": "denseCore",
     "Ra": 321.0165,
-    "Dec": 50.1635
+    "Dec": 50.1635,
+    "VMag": null
   },
   {
     "MainId": "LDN 1007",
@@ -3810,7 +4173,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 321.32,
-    "Dec": 48.88
+    "Dec": 48.88,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G96.80+2.02",
@@ -3820,7 +4184,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 323.5,
-    "Dec": 54.5
+    "Dec": 54.5,
+    "VMag": null
   },
   {
     "MainId": "Barnard 365",
@@ -3829,7 +4194,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 323.73,
-    "Dec": 56.72
+    "Dec": 56.72,
+    "VMag": null
   },
   {
     "MainId": "LDN 1131",
@@ -3841,7 +4207,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 325.05,
-    "Dec": 59.58
+    "Dec": 59.58,
+    "VMag": null
   },
   {
     "MainId": "LDN 1113",
@@ -3852,7 +4219,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 326.15,
-    "Dec": 57.2
+    "Dec": 57.2,
+    "VMag": null
   },
   {
     "MainId": "LDN 1137",
@@ -3863,7 +4231,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 327.9,
-    "Dec": 59.07
+    "Dec": 59.07,
+    "VMag": null
   },
   {
     "MainId": "LDN 1150",
@@ -3874,7 +4243,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 333.95,
-    "Dec": 56.0
+    "Dec": 56.0,
+    "VMag": null
   },
   {
     "MainId": "[DB2002b] G104.84-1.33",
@@ -3884,7 +4254,8 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 338.5,
-    "Dec": 56.6
+    "Dec": 56.6,
+    "VMag": null
   },
   {
     "MainId": "NAME B18-J",
@@ -3894,6 +4265,7 @@
     ],
     "ObjType": "DarkNeb",
     "Ra": 69.25,
-    "Dec": 24.25
+    "Dec": 24.25,
+    "VMag": null
   }
 ]

@@ -4,7 +4,7 @@ $catalogs = @('Sh', 'RCW', 'GUM', 'LDN', 'Ced', 'Barnard')
 
 $catalogs | ForEach-Object {
     $cat = $_
-    [xml]$table = Invoke-RestMethod "http://simbad.u-strasbg.fr/simbad/sim-id?output.format=votable&Ident=$($cat)&NbIdent=cat&output.params=main_id,ids,otype,ra(d;ICRS),dec(d,ICRS)"
+    [xml]$table = Invoke-RestMethod "http://simbad.u-strasbg.fr/simbad/sim-id?output.format=votable&Ident=$($cat)&NbIdent=cat&output.params=main_id,ids,otype,ra(d;ICRS),dec(d,ICRS),fluxdata(V)"
 
     $entries = $table.VOTABLE.RESOURCE.TABLE.DATA.TABLEDATA.TR | ForEach-Object {
         [PSCustomObject]@{
@@ -13,6 +13,7 @@ $catalogs | ForEach-Object {
             ObjType = $_.TD[2]
             Ra = [double]$_.TD[3]
             Dec = [double]$_.TD[4]
+            VMag = if ([string]::IsNullOrWhiteSpace($_.TD[6])) { $null } else { [double]$_.TD[6] }
         }
     }
 

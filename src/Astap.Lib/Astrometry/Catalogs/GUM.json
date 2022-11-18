@@ -18,7 +18,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 106.104,
-    "Dec": -10.455
+    "Dec": -10.455,
+    "VMag": null
   },
   {
     "MainId": "HD  54662",
@@ -64,7 +65,8 @@
     ],
     "ObjType": "SB*",
     "Ra": 107.33437214637,
-    "Dec": -10.34656530249
+    "Dec": -10.34656530249,
+    "VMag": 6.21
   },
   {
     "MainId": "HD  53623",
@@ -103,7 +105,8 @@
     ],
     "ObjType": "Star",
     "Ra": 106.31978283919,
-    "Dec": -12.32624863059
+    "Dec": -12.32624863059,
+    "VMag": 8.87
   },
   {
     "MainId": "NGC  2359",
@@ -118,7 +121,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 109.625,
-    "Dec": -13.226667
+    "Dec": -13.226667,
+    "VMag": null
   },
   {
     "MainId": "GUM  5",
@@ -127,7 +131,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 107.43,
-    "Dec": -18.43
+    "Dec": -18.43,
+    "VMag": null
   },
   {
     "MainId": "GUM  6",
@@ -136,7 +141,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 112.82,
-    "Dec": -16.97
+    "Dec": -16.97,
+    "VMag": null
   },
   {
     "MainId": "SH  2-307",
@@ -154,7 +160,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 113.887,
-    "Dec": -18.759
+    "Dec": -18.759,
+    "VMag": null
   },
   {
     "MainId": "GUM  8",
@@ -163,7 +170,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 110.2,
-    "Dec": -25.2
+    "Dec": -25.2,
+    "VMag": null
   },
   {
     "MainId": "NGC  2467",
@@ -189,7 +197,8 @@
     ],
     "ObjType": "Cluster*",
     "Ra": 118.077,
-    "Dec": -26.428
+    "Dec": -26.428,
+    "VMag": null
   },
   {
     "MainId": "GUM 10",
@@ -202,7 +211,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 124.07,
-    "Dec": -35.6328
+    "Dec": -35.6328,
+    "VMag": null
   },
   {
     "MainId": "NGC  2579",
@@ -235,7 +245,8 @@
     ],
     "ObjType": "OpenCluster",
     "Ra": 125.2304,
-    "Dec": -36.2231
+    "Dec": -36.2231,
+    "VMag": null
   },
   {
     "MainId": "* gam02 Vel",
@@ -301,7 +312,8 @@
     ],
     "ObjType": "WolfRayet*",
     "Ra": 122.38312556,
-    "Dec": -47.33658633
+    "Dec": -47.33658633,
+    "VMag": 1.83
   },
   {
     "MainId": "GUM 12b",
@@ -310,7 +322,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 147.3,
-    "Dec": -38.4
+    "Dec": -38.4,
+    "VMag": null
   },
   {
     "MainId": "GUM 13",
@@ -319,7 +332,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 125.48,
-    "Dec": -42.65
+    "Dec": -42.65,
+    "VMag": null
   },
   {
     "MainId": "HD  73882",
@@ -362,7 +376,8 @@
     ],
     "ObjType": "EclBin",
     "Ra": 129.78972551,
-    "Dec": -40.4192391
+    "Dec": -40.4192391,
+    "VMag": 7.19
   },
   {
     "MainId": "GUM 15",
@@ -374,7 +389,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 130.9688,
-    "Dec": -41.2442
+    "Dec": -41.2442,
+    "VMag": null
   },
   {
     "MainId": "GUM 16",
@@ -383,7 +399,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 128.3,
-    "Dec": -44.1
+    "Dec": -44.1,
+    "VMag": null
   },
   {
     "MainId": "HD  75759",
@@ -426,7 +443,8 @@
     ],
     "ObjType": "SB*",
     "Ra": 132.58756984871,
-    "Dec": -42.08979084283
+    "Dec": -42.08979084283,
+    "VMag": 6.0
   },
   {
     "MainId": "GUM 18",
@@ -435,7 +453,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 132.95,
-    "Dec": -43.85
+    "Dec": -43.85,
+    "VMag": null
   },
   {
     "MainId": "RCW  34",
@@ -454,7 +473,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 134.1171,
-    "Dec": -43.0994
+    "Dec": -43.0994,
+    "VMag": 11.21
   },
   {
     "MainId": "RCW  36",
@@ -472,7 +492,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 134.7537,
-    "Dec": -43.7361
+    "Dec": -43.7361,
+    "VMag": 15.2
   },
   {
     "MainId": "HD  76536",
@@ -511,7 +532,8 @@
     ],
     "ObjType": "WolfRayet*",
     "Ra": 133.74652954956,
-    "Dec": -47.59240615772
+    "Dec": -47.59240615772,
+    "VMag": 8.8
   },
   {
     "MainId": "GUM 22",
@@ -520,7 +542,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 134.77,
-    "Dec": -47.5
+    "Dec": -47.5,
+    "VMag": null
   },
   {
     "MainId": "GUM 23",
@@ -529,7 +552,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 134.92,
-    "Dec": -47.45
+    "Dec": -47.45,
+    "VMag": null
   },
   {
     "MainId": "GUM 24",
@@ -538,7 +562,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 135.68,
-    "Dec": -48.33
+    "Dec": -48.33,
+    "VMag": null
   },
   {
     "MainId": "GUM 25",
@@ -551,7 +576,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 135.5887,
-    "Dec": -48.6986
+    "Dec": -48.6986,
+    "VMag": null
   },
   {
     "MainId": "GUM 26",
@@ -566,7 +592,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 141.1254,
-    "Dec": -51.9853
+    "Dec": -51.9853,
+    "VMag": null
   },
   {
     "MainId": "NGC  2899",
@@ -590,7 +617,8 @@
     ],
     "ObjType": "PlanetaryNeb",
     "Ra": 141.76258,
-    "Dec": -56.10586
+    "Dec": -56.10586,
+    "VMag": 12.4
   },
   {
     "MainId": "NGC  3199",
@@ -603,7 +631,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 154.1367,
-    "Dec": -57.9339
+    "Dec": -57.9339,
+    "VMag": null
   },
   {
     "MainId": "GUM 29",
@@ -620,7 +649,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 156.0608,
-    "Dec": -57.7828
+    "Dec": -57.7828,
+    "VMag": null
   },
   {
     "MainId": "NGC  3293",
@@ -640,7 +670,8 @@
     ],
     "ObjType": "OpenCluster",
     "Ra": 158.97,
-    "Dec": -58.231
+    "Dec": -58.231,
+    "VMag": null
   },
   {
     "MainId": "IC 2599",
@@ -651,7 +682,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 159.43,
-    "Dec": -58.65
+    "Dec": -58.65,
+    "VMag": null
   },
   {
     "MainId": "GUM 32",
@@ -662,7 +694,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 161.5479,
-    "Dec": -58.6533
+    "Dec": -58.6533,
+    "VMag": null
   },
   {
     "MainId": "NGC  3372",
@@ -682,7 +715,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 161.25929,
-    "Dec": -59.69994
+    "Dec": -59.69994,
+    "VMag": null
   },
   {
     "MainId": "GUM 34",
@@ -692,7 +726,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 0.0,
-    "Dec": 0.0
+    "Dec": 0.0,
+    "VMag": null
   },
   {
     "MainId": "GUM 34a",
@@ -702,7 +737,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 164.5,
-    "Dec": -59.7
+    "Dec": -59.7,
+    "VMag": null
   },
   {
     "MainId": "GUM 34b",
@@ -711,7 +747,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 165.8,
-    "Dec": -59.53
+    "Dec": -59.53,
+    "VMag": null
   },
   {
     "MainId": "GUM 35",
@@ -724,7 +761,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 164.7121,
-    "Dec": -61.1106
+    "Dec": -61.1106,
+    "VMag": null
   },
   {
     "MainId": "HD  97471",
@@ -761,7 +799,8 @@
     ],
     "ObjType": "Star",
     "Ra": 168.0291995765,
-    "Dec": -58.80401985041
+    "Dec": -58.80401985041,
+    "VMag": 9.3
   },
   {
     "MainId": "HD  97151",
@@ -801,7 +840,8 @@
     ],
     "ObjType": "Be*",
     "Ra": 167.50973257831,
-    "Dec": -60.09513621598
+    "Dec": -60.09513621598,
+    "VMag": 7.72
   },
   {
     "MainId": "NGC  3576",
@@ -818,7 +858,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 167.9575,
-    "Dec": -61.3039
+    "Dec": -61.3039,
+    "VMag": null
   },
   {
     "MainId": "NGC  3603",
@@ -840,7 +881,8 @@
     ],
     "ObjType": "OpenCluster",
     "Ra": 168.795,
-    "Dec": -61.259
+    "Dec": -61.259,
+    "VMag": null
   },
   {
     "MainId": "HD  99897",
@@ -880,7 +922,8 @@
     ],
     "ObjType": "Star",
     "Ra": 172.22575858848,
-    "Dec": -62.65273252683
+    "Dec": -62.65273252683,
+    "VMag": 9.18
   },
   {
     "MainId": "HD  99898",
@@ -924,7 +967,8 @@
     ],
     "ObjType": "EclBin",
     "Ra": 172.2164606364,
-    "Dec": -62.93103859514
+    "Dec": -62.93103859514,
+    "VMag": 9.62
   },
   {
     "MainId": "HD 100099",
@@ -968,7 +1012,8 @@
     ],
     "ObjType": "Star",
     "Ra": 172.6012805066,
-    "Dec": -63.8172280775
+    "Dec": -63.8172280775,
+    "VMag": 8.08
   },
   {
     "MainId": "IC 2944",
@@ -988,7 +1033,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 174.58333,
-    "Dec": -63.37278
+    "Dec": -63.37278,
+    "VMag": null
   },
   {
     "MainId": "GUM 43",
@@ -1012,7 +1058,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 188.7267,
-    "Dec": -61.6569
+    "Dec": -61.6569,
+    "VMag": null
   },
   {
     "MainId": "GUM 44",
@@ -1021,7 +1068,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 188.92,
-    "Dec": -61.87
+    "Dec": -61.87,
+    "VMag": null
   },
   {
     "MainId": "RCW  69",
@@ -1036,7 +1084,8 @@
     ],
     "ObjType": "PlanetaryNeb",
     "Ra": 191.1143270102199,
-    "Dec": -62.52191115178
+    "Dec": -62.52191115178,
+    "VMag": null
   },
   {
     "MainId": "HD 311999",
@@ -1070,7 +1119,8 @@
     ],
     "ObjType": "Star",
     "Ra": 192.5942243399699,
-    "Dec": -61.58355411562
+    "Dec": -61.58355411562,
+    "VMag": 10.77
   },
   {
     "MainId": "NGC  5189",
@@ -1114,7 +1164,8 @@
     ],
     "ObjType": "PlanetaryNeb",
     "Ra": 203.38699183926,
-    "Dec": -65.97417817452
+    "Dec": -65.97417817452,
+    "VMag": 14.5
   },
   {
     "MainId": "GUM 48a",
@@ -1125,7 +1176,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 199.942,
-    "Dec": -62.512
+    "Dec": -62.512,
+    "VMag": null
   },
   {
     "MainId": "GUM 48b",
@@ -1134,7 +1186,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 203.32,
-    "Dec": -62.3
+    "Dec": -62.3,
+    "VMag": null
   },
   {
     "MainId": "GUM 48d",
@@ -1143,7 +1196,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 206.75,
-    "Dec": -62.58
+    "Dec": -62.58,
+    "VMag": null
   },
   {
     "MainId": "CPD-54  6791",
@@ -1173,7 +1227,8 @@
     ],
     "ObjType": "**",
     "Ra": 238.91500617,
-    "Dec": -54.64351008
+    "Dec": -54.64351008,
+    "VMag": 10.41
   },
   {
     "MainId": "GRS G328.59 -00.52",
@@ -1189,7 +1244,8 @@
     ],
     "ObjType": "Bubble",
     "Ra": 239.8683,
-    "Dec": -53.7492
+    "Dec": -53.7492,
+    "VMag": null
   },
   {
     "MainId": "GUM 51",
@@ -1200,7 +1256,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 242.5,
-    "Dec": -49.13
+    "Dec": -49.13,
+    "VMag": null
   },
   {
     "MainId": "HD 148937",
@@ -1270,7 +1327,8 @@
     ],
     "ObjType": "SB*",
     "Ra": 248.4682788273,
-    "Dec": -48.11124344965
+    "Dec": -48.11124344965,
+    "VMag": 6.71
   },
   {
     "MainId": "GUM 53",
@@ -1283,7 +1341,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 250.0004,
-    "Dec": -48.8625
+    "Dec": -48.8625,
+    "VMag": null
   },
   {
     "MainId": "GUM 54",
@@ -1292,7 +1351,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 253.55,
-    "Dec": -45.2
+    "Dec": -45.2,
+    "VMag": null
   },
   {
     "MainId": "GUM 55",
@@ -1302,7 +1362,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 253.3,
-    "Dec": -42.2
+    "Dec": -42.2,
+    "VMag": null
   },
   {
     "MainId": "HD 152723",
@@ -1355,7 +1416,8 @@
     ],
     "ObjType": "Star",
     "Ra": 254.22778923822,
-    "Dec": -40.51234519401
+    "Dec": -40.51234519401,
+    "VMag": 7.1
   },
   {
     "MainId": "HD 153426",
@@ -1394,7 +1456,8 @@
     ],
     "ObjType": "Star",
     "Ra": 255.30419916734,
-    "Dec": -38.20330175126
+    "Dec": -38.20330175126,
+    "VMag": 7.47
   },
   {
     "MainId": "HD 153919",
@@ -1459,7 +1522,8 @@
     ],
     "ObjType": "HighMassXBin",
     "Ra": 255.98655234551,
-    "Dec": -37.84414259207
+    "Dec": -37.84414259207,
+    "VMag": 6.51
   },
   {
     "MainId": "SH  2-3",
@@ -1471,7 +1535,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 258.1,
-    "Dec": -38.47
+    "Dec": -38.47,
+    "VMag": null
   },
   {
     "MainId": "GUM 59",
@@ -1480,7 +1545,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 259.95,
-    "Dec": -38.27
+    "Dec": -38.27,
+    "VMag": null
   },
   {
     "MainId": "NGC  6302",
@@ -1520,7 +1586,8 @@
     ],
     "ObjType": "PlanetaryNeb",
     "Ra": 258.434746,
-    "Dec": -37.103042
+    "Dec": -37.103042,
+    "VMag": 10.1
   },
   {
     "MainId": "VdBH 86",
@@ -1538,7 +1605,8 @@
     ],
     "ObjType": "RefNeb",
     "Ra": 259.942,
-    "Dec": -36.097
+    "Dec": -36.097,
+    "VMag": null
   },
   {
     "MainId": "NGC  6334",
@@ -1562,7 +1630,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 260.219,
-    "Dec": -36.131
+    "Dec": -36.131,
+    "VMag": null
   },
   {
     "MainId": "HD 319699",
@@ -1597,7 +1666,8 @@
     ],
     "ObjType": "Star",
     "Ra": 259.87674090844,
-    "Dec": -35.71003391785
+    "Dec": -35.71003391785,
+    "VMag": 9.63
   },
   {
     "MainId": "GUM 64a",
@@ -1606,7 +1676,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 260.02,
-    "Dec": -35.97
+    "Dec": -35.97,
+    "VMag": null
   },
   {
     "MainId": "GUM 64b",
@@ -1615,7 +1686,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 260.22,
-    "Dec": -35.88
+    "Dec": -35.88,
+    "VMag": null
   },
   {
     "MainId": "GUM 64c",
@@ -1624,7 +1696,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 260.05,
-    "Dec": -35.75
+    "Dec": -35.75,
+    "VMag": null
   },
   {
     "MainId": "* sig Sco",
@@ -1697,7 +1770,8 @@
     ],
     "ObjType": "bCepV*",
     "Ra": 245.2971488058,
-    "Dec": -25.5927920767
+    "Dec": -25.5927920767,
+    "VMag": 2.89
   },
   {
     "MainId": "NGC  6357",
@@ -1720,7 +1794,8 @@
     ],
     "ObjType": "OpenCluster",
     "Ra": 261.185,
-    "Dec": -34.203
+    "Dec": -34.203,
+    "VMag": null
   },
   {
     "MainId": "HD 159176",
@@ -1781,7 +1856,8 @@
     ],
     "ObjType": "SB*",
     "Ra": 263.67705055724,
-    "Dec": -32.58166540311
+    "Dec": -32.58166540311,
+    "VMag": 5.7
   },
   {
     "MainId": "V* V1081 Sco",
@@ -1824,7 +1900,8 @@
     ],
     "ObjType": "EclBin",
     "Ra": 262.30385521878,
-    "Dec": -31.53428538115
+    "Dec": -31.53428538115,
+    "VMag": 7.04
   },
   {
     "MainId": "HD 161853",
@@ -1865,7 +1942,8 @@
     ],
     "ObjType": "**",
     "Ra": 267.31899250758,
-    "Dec": -31.25501909839
+    "Dec": -31.25501909839,
+    "VMag": 7.97
   },
   {
     "MainId": "GUM 70",
@@ -1874,7 +1952,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 266.68,
-    "Dec": -29.3
+    "Dec": -29.3,
+    "VMag": null
   },
   {
     "MainId": "*  63 Oph",
@@ -1920,7 +1999,8 @@
     ],
     "ObjType": "Star",
     "Ra": 268.7251800049599,
-    "Dec": -24.88709559456
+    "Dec": -24.88709559456,
+    "VMag": 6.2
   },
   {
     "MainId": "GUM 72",
@@ -1929,7 +2009,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 270.9,
-    "Dec": -24.33
+    "Dec": -24.33,
+    "VMag": null
   },
   {
     "MainId": "* zet Oph",
@@ -1990,7 +2071,8 @@
     ],
     "ObjType": "Be*",
     "Ra": 249.2897460604,
-    "Dec": -10.5670915197
+    "Dec": -10.5670915197,
+    "VMag": 2.56
   },
   {
     "MainId": "GUM 74a",
@@ -1999,7 +2081,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 270.25,
-    "Dec": -23.33
+    "Dec": -23.33,
+    "VMag": null
   },
   {
     "MainId": "HD 164971",
@@ -2031,7 +2114,8 @@
     ],
     "ObjType": "BlueSG",
     "Ra": 271.1755132460299,
-    "Dec": -23.45996837034
+    "Dec": -23.45996837034,
+    "VMag": 9.66
   },
   {
     "MainId": "*  11 Sgr",
@@ -2076,7 +2160,8 @@
     ],
     "ObjType": "OrionV*",
     "Ra": 272.32374962508,
-    "Dec": -23.98839755446
+    "Dec": -23.98839755446,
+    "VMag": 7.31
   },
   {
     "MainId": "HD 164492",
@@ -2138,7 +2223,8 @@
     ],
     "ObjType": "YSO",
     "Ra": 270.59813646708,
-    "Dec": -23.03083321005
+    "Dec": -23.03083321005,
+    "VMag": 6.8
   },
   {
     "MainId": "GUM 77a",
@@ -2147,7 +2233,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 273.87,
-    "Dec": -21.63
+    "Dec": -21.63,
+    "VMag": null
   },
   {
     "MainId": "GUM 77b",
@@ -2157,7 +2244,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 274.12,
-    "Dec": -20.4
+    "Dec": -20.4,
+    "VMag": null
   },
   {
     "MainId": "HD 167815",
@@ -2195,7 +2283,8 @@
     ],
     "ObjType": "**",
     "Ra": 274.41657837,
-    "Dec": -19.67217722
+    "Dec": -19.67217722,
+    "VMag": null
   },
   {
     "MainId": "HD 167633",
@@ -2232,7 +2321,8 @@
     ],
     "ObjType": "Star",
     "Ra": 274.2068931663899,
-    "Dec": -16.51786337933
+    "Dec": -16.51786337933,
+    "VMag": 9.07
   },
   {
     "MainId": "HD 165319",
@@ -2275,7 +2365,8 @@
     ],
     "ObjType": "Star",
     "Ra": 271.49514979801,
-    "Dec": -14.19805506188
+    "Dec": -14.19805506188,
+    "VMag": 8.04
   },
   {
     "MainId": "GUM 81a",
@@ -2284,7 +2375,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 275.32,
-    "Dec": -16.22
+    "Dec": -16.22,
+    "VMag": null
   },
   {
     "MainId": "GUM 81b",
@@ -2293,7 +2385,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 274.98,
-    "Dec": -15.95
+    "Dec": -15.95,
+    "VMag": null
   },
   {
     "MainId": "GUM 82",
@@ -2302,7 +2395,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 275.6,
-    "Dec": -14.57
+    "Dec": -14.57,
+    "VMag": null
   },
   {
     "MainId": "SH  2-49",
@@ -2313,7 +2407,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 274.75,
-    "Dec": -13.87
+    "Dec": -13.87,
+    "VMag": null
   },
   {
     "MainId": "GUM 84",
@@ -2322,7 +2417,8 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 274.5,
-    "Dec": -11.95
+    "Dec": -11.95,
+    "VMag": null
   },
   {
     "MainId": "GUM 85",
@@ -2331,6 +2427,7 @@
     ],
     "ObjType": "HIIReg",
     "Ra": 274.48,
-    "Dec": -11.73
+    "Dec": -11.73,
+    "VMag": null
   }
 ]
