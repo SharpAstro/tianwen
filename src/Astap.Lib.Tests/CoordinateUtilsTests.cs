@@ -60,6 +60,7 @@ public class CoordinateUtilsTests
     [InlineData("-90:0:0", -90.0d)]
     [InlineData("0:0:0", 0.0d)]
     [InlineData("-08:11:11", -8.186388888888889d)]
+    [InlineData("-00:38:16.5", -0.6379166666666667d)]
     public void GivenDMSWHenConvertToDegreesItReturnsDegreesAsDouble(string dms, double expectedDegrees)
     {
         CoordinateUtils.DMSToDegree(dms).ShouldBe(expectedDegrees);

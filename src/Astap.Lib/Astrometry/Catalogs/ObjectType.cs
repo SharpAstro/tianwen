@@ -21,7 +21,7 @@ public enum ObjectType : ulong
     ReflectionNebula = 'R' << 14 | 'f' << 7 | 'N',
     SupernovaRemnant = 'S' << 14 | 'N' << 7 | 'R',
     NovaStar = 'N' << 21 | 'o' << 14 | 'v' << 7 | 'a',
-    NonExistent = (ulong)'N' << 28 | 'o' << 21 | 'n' << 14 | 'v' << 7 | 'a',
+    NonExistent = (ulong)'N' << 28 | 'o' << 21 | 'n' << 14 | 'E' << 7 | 'x',
     Duplicate = 'D' << 14 | 'u' << 7 | 'p',
     Other = (ulong)'O' << 28 | 't' << 21 | 'h' << 14 | 'e' << 7 | 'r'
 }
