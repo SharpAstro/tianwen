@@ -426,7 +426,14 @@ public class OpenNGCDB : ICelestialObjectDB
                 }
                 else
                 {
-                    _objectsByIndex[catToAddIdx] = new CelestialObject(catToAddIdx, 0, record.Ra, record.Dec, 0, float.NaN, float.NaN, commonNames);
+                    if (ConstellationBoundary.TryFindConstellation(record.Ra, record.Dec, out var constellation))
+                    {
+                        _objectsByIndex[catToAddIdx] = new CelestialObject(catToAddIdx, 0, record.Ra, record.Dec, constellation, float.NaN, float.NaN, commonNames);
+                    }
+                    else
+                    {
+                        failed++;
+                    }
                 }
             }
 
