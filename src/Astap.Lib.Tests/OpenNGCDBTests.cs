@@ -35,6 +35,7 @@ public class OpenNGCDBTests
     [InlineData("UGC00468", ObjectType.Galaxy, IC0049, Constellation.Cetus, 0.7322583333333333d, 1.850277777777778d)]
     [InlineData("NGC3372", ObjectType.HIIRegion, NGC3372, Constellation.Carina, 10.752369444444444d, -59.86669444444445d)]
     [InlineData("GUM033", ObjectType.HIIRegion, NGC3372, Constellation.Carina, 10.752369444444444d, -59.86669444444445d)]
+    [InlineData("GUM016", ObjectType.HIIRegion, GUM016, Constellation.Vela, 8.553333333333335d, -44.1d)]
     public async Task GivenObjectIdWhenLookingItUpThenAnObjIsReturned(
         string indexEntry,
         ObjectType expectedObjType,
