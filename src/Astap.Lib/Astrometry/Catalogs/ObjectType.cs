@@ -209,6 +209,8 @@ public enum ObjectType : ulong
 
 public static class ObjectTypeEx
 {
+    public static string ToAbbreviation(this object objectType) => EnumHelper.EnumValueToAbbreviation((ulong)objectType);
+
     public static string ToName(this ObjectType objectType) => objectType switch
     {
         ObjectType.GroupG => "Group of Galaxies",
