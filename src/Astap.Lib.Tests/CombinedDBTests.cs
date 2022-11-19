@@ -83,8 +83,8 @@ public class CombinedDBTests
             if (obj.ObjectType != ObjectType.NonExistent || obj.Constellation != 0)
             {
                 couldCalculate.ShouldBeTrue();
-                obj.Constellation.ShouldNotBe((Constellation)0);
-                calculatedConstellation.ShouldNotBe((Constellation)0);
+                obj.Constellation.ShouldNotBe((Constellation)0, $"{idx.ToAbbreviation()} [{idx}]: Constellation should not be 0");
+                calculatedConstellation.ShouldNotBe((Constellation)0, $"{idx.ToAbbreviation()} [{idx}]: Calculated constellation should not be 0");
 
                 if (!obj.Constellation.IsContainedWithin(calculatedConstellation))
                 {
