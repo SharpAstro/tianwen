@@ -408,7 +408,7 @@ public class OpenNGCDB : ICelestialObjectDB
                             var modObj = new CelestialObject(
                                 obj.Index,
                                 obj.ObjectType,
-                                obj.RA / 15.0,
+                                obj.RA,
                                 obj.Dec,
                                 obj.Constellation,
                                 obj.V_Mag,
@@ -430,7 +430,17 @@ public class OpenNGCDB : ICelestialObjectDB
                 {
                     if (ConstellationBoundary.TryFindConstellation(record.Ra, record.Dec, out var constellation))
                     {
-                        _objectsByIndex[catToAddIdx] = new CelestialObject(catToAddIdx, 0, record.Ra, record.Dec, constellation, float.NaN, float.NaN, commonNames);
+                        var objType = record.ObjType switch
+                        {
+                            // TODO map these
+                            "Star" or "EclBin" => ObjectType.Star,
+                            "HIIReg" => ObjectType.HIIRegion,
+                            "RefNeb" => ObjectType.ReflectionNebula,
+                            "PlanetaryNeb" or "Bubble" => ObjectType.PlanetaryNebula,
+                            _ when record.ObjType.Contains('*') => ObjectType.Star,
+                            _ => AbbreviationToEnumMember<ObjectType>(record.ObjType)
+                        };
+                        _objectsByIndex[catToAddIdx] = new CelestialObject(catToAddIdx, objType, record.Ra / 15, record.Dec, constellation, float.NaN, float.NaN, commonNames);
                     }
                     else
                     {

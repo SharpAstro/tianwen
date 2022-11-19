@@ -19,6 +19,7 @@ public static class SharedTestData
     internal const CatalogIndex BD_16_1591s = (CatalogIndex)(Base91Enc | (ulong)'A' << 56 | (ulong)'A' << 49 | (ulong)'v' << 42 | (ulong)'(' << 35 | (ulong)'f' << 28 | 'T' << 21 | 'n' << 14 | 'L' << 7 | 'H');
     internal const CatalogIndex C041 = (CatalogIndex)((ulong)'C' << 21 | '0' << 14 | '4' << 7 | '1');
     internal const CatalogIndex C099 = (CatalogIndex)((ulong)'C' << 21 | '0' << 14 | '9' << 7 | '9');
+    internal const CatalogIndex GUM016 = (CatalogIndex)((ulong)'G' << 35 | (ulong)'U' << 28 | 'M' << 21 | '0' << 14 | '1' << 7 | '6');
     internal const CatalogIndex HR0897 = (CatalogIndex)((ulong)'H' << 35 | (ulong)'R' << 28 | '0' << 21 | '8' << 14 | '9' << 7 | '7');
     internal const CatalogIndex HR1084 = (CatalogIndex)((ulong)'H' << 35 | (ulong)'R' << 28 | '1' << 21 | '0' << 14 | '8' << 7 | '4');
     internal const CatalogIndex IC0458 = (CatalogIndex)((ulong)'I' << 28 | '0' << 21 | (ulong)'4' << 14 | (ulong)'5' << 7 | '8');
