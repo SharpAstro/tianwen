@@ -4,7 +4,7 @@
     "Ids": [
       "Barnard   1"
     ],
-    "ObjType": "MolCld",
+    "ObjType": "MoC",
     "Ra": 53.3179,
     "Dec": 31.1308,
     "VMag": null
@@ -15,7 +15,7 @@
       "Barnard   2",
       "[DB2002b] G158.46-19.14"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 53.37,
     "Dec": 32.32,
     "VMag": null
@@ -26,7 +26,7 @@
       "Barnard   3",
       "[DB2002b] G159.83-18.56"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 55.0,
     "Dec": 31.97,
     "VMag": null
@@ -37,7 +37,7 @@
       "Barnard   4",
       "[DB2002b] G160.65-18.15"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 56.0,
     "Dec": 31.78,
     "VMag": null
@@ -48,7 +48,7 @@
       "LDN 1471",
       "Barnard   5"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 57.0,
     "Dec": 32.9,
     "VMag": null
@@ -62,7 +62,7 @@
       "TGU H974 P1",
       "[CB88]  15"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 59.0331,
     "Dec": 56.075,
     "VMag": null
@@ -73,7 +73,7 @@
       "Barnard   7",
       "[DB2002b] G168.46-15.58"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 64.35,
     "Dec": 28.55,
     "VMag": null
@@ -83,7 +83,7 @@
     "Ids": [
       "Barnard   8"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 64.45,
     "Dec": 55.23,
     "VMag": null
@@ -93,7 +93,7 @@
     "Ids": [
       "Barnard   9"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 64.5,
     "Dec": 55.0,
     "VMag": null
@@ -104,7 +104,7 @@
       "Barnard  10",
       "[DB2002b] G168.87-15.58"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 64.67,
     "Dec": 28.27,
     "VMag": null
@@ -114,7 +114,7 @@
     "Ids": [
       "Barnard  11"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 66.65,
     "Dec": 55.03,
     "VMag": null
@@ -125,7 +125,7 @@
       "LDN 1407",
       "Barnard  12"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 67.496,
     "Dec": 54.275,
     "VMag": null
@@ -137,7 +137,7 @@
       "MLB 3-78",
       "TGU H994 P4"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 67.82,
     "Dec": 54.88,
     "VMag": null
@@ -176,7 +176,7 @@
       "Gaia DR3 2345744256120965504",
       "Gaia DR2 2345744256120965504"
     ],
-    "ObjType": "HighPM*",
+    "ObjType": "PM*",
     "Ra": 12.30812591117,
     "Dec": -24.13666407026,
     "VMag": 5.9
@@ -186,7 +186,7 @@
     "Ids": [
       "Barnard  14"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 70.0,
     "Dec": 25.73,
     "VMag": null
@@ -198,7 +198,7 @@
       "Barnard  15",
       "[DB2002b] G157.27-1.02"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 68.03,
     "Dec": 46.6,
     "VMag": null
@@ -209,7 +209,7 @@
       "Barnard  16",
       "[DB2002b] G157.31-0.99"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 68.1,
     "Dec": 46.6,
     "VMag": null
@@ -220,7 +220,7 @@
       "Barnard  17",
       "[DB2002b] G157.38-1.04"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 68.12,
     "Dec": 46.52,
     "VMag": null
@@ -232,7 +232,7 @@
       "GF 16",
       "[K60] 279"
     ],
-    "ObjType": "Cloud",
+    "ObjType": "Cld",
     "Ra": 67.8,
     "Dec": 24.35,
     "VMag": null
@@ -242,7 +242,7 @@
     "Ids": [
       "Barnard  18A"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 66.654,
     "Dec": 24.615,
     "VMag": null
@@ -252,7 +252,7 @@
     "Ids": [
       "Barnard  18B"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 67.296,
     "Dec": 24.59,
     "VMag": null
@@ -264,7 +264,7 @@
       "Barnard  18C",
       "NAME Barn 18C"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 68.067,
     "Dec": 24.767,
     "VMag": null
@@ -274,7 +274,7 @@
     "Ids": [
       "Barnard  18D"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 67.008,
     "Dec": 24.705,
     "VMag": null
@@ -284,7 +284,7 @@
     "Ids": [
       "Barnard  18E"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 68.108,
     "Dec": 24.368,
     "VMag": null
@@ -296,7 +296,7 @@
       "Barnard  18F",
       "NAME Barn 18F"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 67.871,
     "Dec": 24.18,
     "VMag": null
@@ -306,7 +306,7 @@
     "Ids": [
       "Barnard  18G"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 67.721,
     "Dec": 24.192,
     "VMag": null
@@ -316,7 +316,7 @@
     "Ids": [
       "Barnard  18H"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 68.492,
     "Dec": 24.165,
     "VMag": null
@@ -328,7 +328,7 @@
       "Barnard  18I",
       "NAME Barn 18I"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 68.912,
     "Dec": 24.152,
     "VMag": null
@@ -338,7 +338,7 @@
     "Ids": [
       "Barnard  19"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 68.2,
     "Dec": 26.3,
     "VMag": null
@@ -350,7 +350,7 @@
       "TGU H1036",
       "[DB2002b] G154.61+2.53"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 69.28,
     "Dec": 50.97,
     "VMag": null
@@ -360,7 +360,7 @@
     "Ids": [
       "Barnard  21"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 69.48,
     "Dec": 55.35,
     "VMag": null
@@ -370,7 +370,7 @@
     "Ids": [
       "Barnard  22"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 69.5,
     "Dec": 26.1,
     "VMag": null
@@ -382,7 +382,7 @@
       "Barnard  23",
       "[CB88]  22"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 70.1,
     "Dec": 29.93,
     "VMag": null
@@ -394,7 +394,7 @@
       "Barnard  24",
       "[CB88]  23"
     ],
-    "ObjType": "MolCld",
+    "ObjType": "MoC",
     "Ra": 70.883,
     "Dec": 29.667,
     "VMag": null
@@ -406,7 +406,7 @@
       "Barnard  25",
       "[DB2002b] G160.06+1.25"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 73.18,
     "Dec": 46.0,
     "VMag": null
@@ -416,7 +416,7 @@
     "Ids": [
       "Barnard  26"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 73.65,
     "Dec": 30.62,
     "VMag": null
@@ -426,7 +426,7 @@
     "Ids": [
       "Barnard  27"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 73.78,
     "Dec": 30.55,
     "VMag": null
@@ -436,7 +436,7 @@
     "Ids": [
       "Barnard  28"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 73.97,
     "Dec": 30.63,
     "VMag": null
@@ -447,7 +447,7 @@
       "LDN 1523",
       "Barnard  29"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 76.5575,
     "Dec": 31.7056,
     "VMag": null
@@ -457,7 +457,7 @@
     "Ids": [
       "Barnard  30"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 82.57,
     "Dec": 12.77,
     "VMag": null
@@ -468,7 +468,7 @@
       "Barnard  31",
       "[DB2002b] G192.19-11.20"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 83.0,
     "Dec": 12.75,
     "VMag": null
@@ -479,7 +479,7 @@
       "LDN 1582",
       "Barnard  32"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 83.0013,
     "Dec": 12.5078,
     "VMag": null
@@ -493,7 +493,7 @@
       "[DB2002b] G206.95-16.80",
       "[OS98] 52"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 85.2458,
     "Dec": -2.4583,
     "VMag": null
@@ -504,7 +504,7 @@
       "Barnard  34",
       "TGU H1235 P2"
     ],
-    "ObjType": "Cloud",
+    "ObjType": "Cld",
     "Ra": 85.8238,
     "Dec": 32.6183,
     "VMag": null
@@ -514,7 +514,7 @@
     "Ids": [
       "Barnard  34N"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 85.854,
     "Dec": 32.66,
     "VMag": null
@@ -524,7 +524,7 @@
     "Ids": [
       "Barnard  35"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 86.37,
     "Dec": 9.05,
     "VMag": null
@@ -537,7 +537,7 @@
       "JCMTSF J054429.8+090856",
       "SCOPE G196.93-10.40"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 86.123,
     "Dec": 9.147,
     "VMag": null
@@ -547,7 +547,7 @@
     "Ids": [
       "Barnard  35B"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 86.1846,
     "Dec": 9.0203,
     "VMag": null
@@ -558,7 +558,7 @@
       "Barnard  36",
       "[DB2002b] G199.11-10.12"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 87.2,
     "Dec": 7.4,
     "VMag": null
@@ -569,7 +569,7 @@
       "Barnard  37",
       "[DB2002b] G201.23+0.75"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 98.0,
     "Dec": 10.5,
     "VMag": null
@@ -579,7 +579,7 @@
     "Ids": [
       "Barnard  38"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 98.42,
     "Dec": 11.07,
     "VMag": null
@@ -591,7 +591,7 @@
       "Barnard  39",
       "IRAS 06351+1031"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 99.4861,
     "Dec": 10.4874,
     "VMag": null
@@ -607,7 +607,7 @@
       "[BM89] 1-63",
       "[DB2002b] G355.47+22.63"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 243.6171,
     "Dec": -18.9122,
     "VMag": null
@@ -618,7 +618,7 @@
       "Barnard  41",
       "[DB2002b] G356.21+20.78"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 245.57,
     "Dec": -19.62,
     "VMag": null
@@ -628,7 +628,7 @@
     "Ids": [
       "Barnard  42"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 246.3,
     "Dec": -23.4,
     "VMag": null
@@ -640,7 +640,7 @@
       "Barnard  43",
       "[DB2002b] G357.46+19.41"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 247.47,
     "Dec": -19.6,
     "VMag": null
@@ -651,7 +651,7 @@
       "LDN 1712",
       "Barnard  44"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 249.5,
     "Dec": -24.43,
     "VMag": null
@@ -666,7 +666,7 @@
       "Sandqvist  18",
       "[DB2002b] G343.44+3.45"
     ],
-    "ObjType": "MolCld",
+    "ObjType": "MoC",
     "Ra": 251.208,
     "Dec": -40.385,
     "VMag": null
@@ -677,7 +677,7 @@
       "LDN 1744",
       "Barnard  45"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 250.0,
     "Dec": -22.27,
     "VMag": null
@@ -690,7 +690,7 @@
       "IRAS 16540-2247",
       "TGU H2200 P1"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 254.262,
     "Dec": -22.865,
     "VMag": null
@@ -701,7 +701,7 @@
       "LDN 1792",
       "Barnard  47"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 254.9,
     "Dec": -22.58,
     "VMag": null
@@ -714,7 +714,7 @@
       "Sandqvist  20",
       "[DB2002b] G345.14+0.86"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 255.27,
     "Dec": -40.72,
     "VMag": null
@@ -728,7 +728,7 @@
       "DCld 351.2+05.1",
       "Sandqvist  31"
     ],
-    "ObjType": "MolCld",
+    "ObjType": "MoC",
     "Ra": 255.683,
     "Dec": -33.273,
     "VMag": null
@@ -740,7 +740,7 @@
       "FEST 2-275",
       "[DB2002b] G350.03+5.78"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 254.2,
     "Dec": -33.85,
     "VMag": null
@@ -753,7 +753,7 @@
       "TGU H2171 P15",
       "[DB2002b] G0.43+11.37"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 256.18,
     "Dec": -22.2,
     "VMag": null
@@ -763,7 +763,7 @@
     "Ids": [
       "Barnard  53"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 256.5,
     "Dec": -33.6,
     "VMag": null
@@ -773,7 +773,7 @@
     "Ids": [
       "Barnard  54"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 256.65,
     "Dec": -34.25,
     "VMag": null
@@ -784,7 +784,7 @@
       "LDN 1682",
       "Barnard  55"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 257.05,
     "Dec": -32.1,
     "VMag": null
@@ -798,7 +798,7 @@
       "DCld 352.9+04.8",
       "[CB88]  73"
     ],
-    "ObjType": "MolCld",
+    "ObjType": "MoC",
     "Ra": 257.192,
     "Dec": -32.113,
     "VMag": null
@@ -811,7 +811,7 @@
       "[CB88]  72",
       "[DB2002b] G0.43+10.28"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 257.129,
     "Dec": -22.897,
     "VMag": null
@@ -823,7 +823,7 @@
       "Sandqvist  23",
       "[VMF2000] Sc 12"
     ],
-    "ObjType": "Cloud",
+    "ObjType": "Cld",
     "Ra": 257.8442,
     "Dec": -40.5844,
     "VMag": null
@@ -836,7 +836,7 @@
       "TGU H25 P5",
       "[DB2002b] G357.08+7.19"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 257.82,
     "Dec": -27.37,
     "VMag": null
@@ -846,7 +846,7 @@
     "Ids": [
       "Barnard  60"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 257.95,
     "Dec": -22.43,
     "VMag": null
@@ -858,7 +858,7 @@
       "Barnard  61",
       "[CB88]  76"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 258.8,
     "Dec": -20.35,
     "VMag": null
@@ -872,7 +872,7 @@
       "RNO  92",
       "[RG86] B62-HA1"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 258.981958,
     "Dec": -20.934147,
     "VMag": null
@@ -882,7 +882,7 @@
     "Ids": [
       "Barnard  63"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 258.475,
     "Dec": -21.915,
     "VMag": null
@@ -895,7 +895,7 @@
       "TGU H63 P2",
       "[CB88]  78"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 259.35,
     "Dec": -18.52,
     "VMag": null
@@ -907,7 +907,7 @@
       "Barnard  65",
       "[CB88]  79"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 259.95,
     "Dec": -26.63,
     "VMag": null
@@ -918,7 +918,7 @@
       "LDN 1768",
       "Barnard  66"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 260.02,
     "Dec": -26.87,
     "VMag": null
@@ -928,7 +928,7 @@
     "Ids": [
       "Barnard  67"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 260.25,
     "Dec": -26.85,
     "VMag": null
@@ -938,7 +938,7 @@
     "Ids": [
       "Barnard  67A"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 260.62,
     "Dec": -21.88,
     "VMag": null
@@ -950,7 +950,7 @@
       "Barnard  68",
       "[CB88]  82"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 260.6592,
     "Dec": -23.8261,
     "VMag": null
@@ -962,7 +962,7 @@
       "Barnard  69",
       "[DB2002b] G1.46+6.96"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 260.75,
     "Dec": -23.88,
     "VMag": null
@@ -974,7 +974,7 @@
       "Barnard  70",
       "[DB2002b] G1.45+6.81"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 260.9,
     "Dec": -23.97,
     "VMag": null
@@ -985,7 +985,7 @@
       "LDN   53",
       "Barnard  71"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 260.871,
     "Dec": -24.042,
     "VMag": null
@@ -997,7 +997,7 @@
       "Barnard  72",
       "LDN   66"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 260.913,
     "Dec": -23.695,
     "VMag": null
@@ -1008,7 +1008,7 @@
       "Barnard  73",
       "[DB2002b] G1.33+6.53"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 261.02,
     "Dec": -24.28,
     "VMag": null
@@ -1018,7 +1018,7 @@
     "Ids": [
       "Barnard  74"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 261.27,
     "Dec": -24.2,
     "VMag": null
@@ -1030,7 +1030,7 @@
       "Barnard  75",
       "[DB2002b] G3.43+7.64"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 261.25,
     "Dec": -21.88,
     "VMag": null
@@ -1040,7 +1040,7 @@
     "Ids": [
       "Barnard  76"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 261.3,
     "Dec": -24.4,
     "VMag": null
@@ -1053,7 +1053,7 @@
       "IRAS 17249-2401",
       "IRAS 17249-2357"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 261.9929,
     "Dec": -23.9995,
     "VMag": null
@@ -1064,7 +1064,7 @@
       "Barnard  78",
       "[DB2002b] G1.31+4.20"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 263.0,
     "Dec": -25.6,
     "VMag": null
@@ -1076,7 +1076,7 @@
       "Barnard  79",
       "IRAS 17347-1938"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 264.4246,
     "Dec": -19.6624,
     "VMag": null
@@ -1087,7 +1087,7 @@
       "Barnard  80",
       "[DB2002b] G5.57+5.55"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 264.43,
     "Dec": -21.27,
     "VMag": null
@@ -1098,7 +1098,7 @@
       "Barnard  81",
       "[DB2002b] G3.43+3.98"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 264.62,
     "Dec": -23.92,
     "VMag": null
@@ -1109,7 +1109,7 @@
       "Barnard  82",
       "[DB2002b] G3.55+4.03"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 264.65,
     "Dec": -23.77,
     "VMag": null
@@ -1122,7 +1122,7 @@
       "[CB88]  95",
       "[DB2002b] G3.33+3.79"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 264.77,
     "Dec": -24.12,
     "VMag": null
@@ -1133,7 +1133,7 @@
       "LDN  233",
       "Barnard  83A"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 266.27,
     "Dec": -20.02,
     "VMag": null
@@ -1146,7 +1146,7 @@
       "[CB88]  96",
       "[DB2002b] G7.53+4.35"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 266.62,
     "Dec": -20.18,
     "VMag": null
@@ -1159,7 +1159,7 @@
       "TGU H120 P1",
       "[DB2002b] G11.09+3.40"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 269.4,
     "Dec": -17.63,
     "VMag": null
@@ -1170,7 +1170,7 @@
       "Barnard  85",
       "[DB2002b] G6.99-0.24"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 270.6,
     "Dec": -23.02,
     "VMag": null
@@ -1183,7 +1183,7 @@
       "[CB88] 107",
       "[DB2002b] G2.85-2.75"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 270.742,
     "Dec": -27.868,
     "VMag": null
@@ -1195,7 +1195,7 @@
       "Barnard  87",
       "LDN 1771"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 271.07,
     "Dec": -32.67,
     "VMag": null
@@ -1207,7 +1207,7 @@
       "TGU H77 P6",
       "[DB2002b] G6.30-1.23"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 271.15,
     "Dec": -24.1,
     "VMag": null
@@ -1218,7 +1218,7 @@
       "Barnard  89",
       "[DB2002b] G6.12-1.43"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 271.25,
     "Dec": -24.35,
     "VMag": null
@@ -1230,7 +1230,7 @@
       "Barnard  90",
       "TGU H44 P1"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 272.562,
     "Dec": -28.302,
     "VMag": null
@@ -1242,7 +1242,7 @@
       "Barnard  91",
       "[DB2002b] G7.29-2.12"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 272.52,
     "Dec": -23.65,
     "VMag": null
@@ -1255,7 +1255,7 @@
       "TGU H135",
       "[CB88] 125"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 273.87,
     "Dec": -18.22,
     "VMag": null
@@ -1268,7 +1268,7 @@
       "[CB88] 131",
       "[DB2002b] G12.99-0.83"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 274.23,
     "Dec": -18.07,
     "VMag": null
@@ -1278,7 +1278,7 @@
     "Ids": [
       "Barnard  94"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 276.48,
     "Dec": -10.65,
     "VMag": null
@@ -1291,7 +1291,7 @@
       "TGU H207",
       "[DB2002b] G19.52+0.23"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 276.37,
     "Dec": -11.78,
     "VMag": null
@@ -1302,7 +1302,7 @@
       "Barnard  96",
       "[CB88] 140"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 276.562,
     "Dec": -10.303,
     "VMag": null
@@ -1314,7 +1314,7 @@
       "TGU H227",
       "[DB2002b] G21.57+0.39"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 277.27,
     "Dec": -9.92,
     "VMag": null
@@ -1328,7 +1328,7 @@
       "IRAS 18302-2603",
       "[CB88] 148"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 278.3447,
     "Dec": -26.0223,
     "VMag": null
@@ -1340,7 +1340,7 @@
       "Barnard  99",
       "[DB2002b] G11.71-5.90"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 278.37,
     "Dec": -21.55,
     "VMag": null
@@ -1353,7 +1353,7 @@
       "IRAS 18299-0907",
       "[CB88] 145"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 278.1774,
     "Dec": -9.0787,
     "VMag": null
@@ -1364,7 +1364,7 @@
       "Barnard 101",
       "[CB88] 146"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 278.133,
     "Dec": -8.962,
     "VMag": null
@@ -1378,7 +1378,7 @@
       "IRAS 18351-1348",
       "[CB88] 149"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 279.4878,
     "Dec": -13.7625,
     "VMag": null
@@ -1390,7 +1390,7 @@
       "Barnard 103",
       "TGU H231 P4"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 279.7979,
     "Dec": -6.6208,
     "VMag": null
@@ -1403,7 +1403,7 @@
       "[CB88] 155",
       "[DB2002b] G28.41-1.16"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 281.77,
     "Dec": -4.37,
     "VMag": null
@@ -1415,7 +1415,7 @@
       "Barnard 105",
       "[DB2002b] G26.40-2.29"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 281.92,
     "Dec": -6.87,
     "VMag": null
@@ -1427,7 +1427,7 @@
       "[CB88] 156",
       "[DB2002b] G28.12-1.76"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 282.2,
     "Dec": -5.07,
     "VMag": null
@@ -1437,7 +1437,7 @@
     "Ids": [
       "Barnard 107"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 282.37,
     "Dec": -5.0,
     "VMag": null
@@ -1448,7 +1448,7 @@
       "Barnard 108",
       "[DB2002b] G27.11-2.45"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 282.4,
     "Dec": -6.3,
     "VMag": null
@@ -1459,7 +1459,7 @@
       "Barnard 109",
       "[DB2002b] G26.03-3.10"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 282.4,
     "Dec": -7.55,
     "VMag": null
@@ -1472,7 +1472,7 @@
       "TGU H296 P2",
       "[DB2002b] G28.48-1.78"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 282.52,
     "Dec": -4.77,
     "VMag": null
@@ -1483,7 +1483,7 @@
       "Barnard 111",
       "[DB2002b] G28.36-1.94"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 282.5,
     "Dec": -5.0,
     "VMag": null
@@ -1493,7 +1493,7 @@
     "Ids": [
       "Barnard 112"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 282.77,
     "Dec": -6.67,
     "VMag": null
@@ -1505,7 +1505,7 @@
       "Barnard 113",
       "IRAS 18471-0345"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 282.4573,
     "Dec": -3.7009,
     "VMag": null
@@ -1518,7 +1518,7 @@
       "IRAS 18501-0659",
       "[CB88] 157"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 283.2143,
     "Dec": -6.9271,
     "VMag": null
@@ -1531,7 +1531,7 @@
       "[CB88] 158",
       "[DB2002b] G27.21-3.45"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 283.3,
     "Dec": -6.6,
     "VMag": null
@@ -1543,7 +1543,7 @@
       "Barnard 116",
       "[DB2002b] G26.80-3.62"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 283.3,
     "Dec": -7.1,
     "VMag": null
@@ -1556,7 +1556,7 @@
       "[CB88] 160",
       "[DB2002b] G26.57-3.87"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 283.43,
     "Dec": -7.3,
     "VMag": null
@@ -1567,7 +1567,7 @@
       "Barnard 117A",
       "[DB2002b] G28.88-2.70"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 283.43,
     "Dec": -4.83,
     "VMag": null
@@ -1578,7 +1578,7 @@
       "Barnard 118",
       "[CB88] 161"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 283.483,
     "Dec": -7.442,
     "VMag": null
@@ -1588,7 +1588,7 @@
     "Ids": [
       "Barnard 119"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 283.65,
     "Dec": -4.53,
     "VMag": null
@@ -1600,7 +1600,7 @@
       "TGU H286",
       "[DB2002b] G28.69-3.07"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 283.67,
     "Dec": -5.17,
     "VMag": null
@@ -1611,7 +1611,7 @@
       "Barnard 120",
       "[CB88] 164"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 284.4,
     "Dec": -3.93,
     "VMag": null
@@ -1622,7 +1622,7 @@
       "Barnard 121",
       "[DB2002b] G29.24-2.92"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 283.85,
     "Dec": -4.6,
     "VMag": null
@@ -1635,7 +1635,7 @@
       "[CB88] 166",
       "[DB2002b] G29.30-3.35"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 284.2,
     "Dec": -4.77,
     "VMag": null
@@ -1645,7 +1645,7 @@
     "Ids": [
       "Barnard 123"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 284.4,
     "Dec": -4.72,
     "VMag": null
@@ -1656,7 +1656,7 @@
       "Barnard 124",
       "[DB2002b] G29.77-3.37"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 284.42,
     "Dec": -4.35,
     "VMag": null
@@ -1667,7 +1667,7 @@
       "Barnard 125",
       "[DB2002b] G29.81-3.53"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 284.57,
     "Dec": -4.38,
     "VMag": null
@@ -1680,7 +1680,7 @@
       "[CB88] 168",
       "[DB2002b] G29.74-3.75"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 284.77,
     "Dec": -4.52,
     "VMag": null
@@ -1693,7 +1693,7 @@
       "[CB88] 170",
       "[DB2002b] G29.21-4.72"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 285.4,
     "Dec": -5.43,
     "VMag": null
@@ -1703,7 +1703,7 @@
     "Ids": [
       "Barnard 128"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 285.43,
     "Dec": -4.57,
     "VMag": null
@@ -1717,7 +1717,7 @@
       "[BM89] 1-94",
       "[CB88] 175"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 285.5283,
     "Dec": -5.3158,
     "VMag": null
@@ -1731,7 +1731,7 @@
       "[CB88] 173",
       "[DB2002b] G29.11-4.82"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 285.4177,
     "Dec": -5.5914,
     "VMag": null
@@ -1742,7 +1742,7 @@
       "LDN  562",
       "Barnard 131"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 285.65,
     "Dec": -4.52,
     "VMag": null
@@ -1752,7 +1752,7 @@
     "Ids": [
       "Barnard 132"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 286.1,
     "Dec": -4.42,
     "VMag": null
@@ -1766,7 +1766,7 @@
       "TGU H282 P1",
       "[CB88] 180"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 286.5416,
     "Dec": -6.8959,
     "VMag": null
@@ -1779,7 +1779,7 @@
       "[CB88] 181",
       "[DB2002b] G29.12-6.25"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 286.68,
     "Dec": -6.17,
     "VMag": null
@@ -1789,7 +1789,7 @@
     "Ids": [
       "Barnard 135"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 286.87,
     "Dec": -3.92,
     "VMag": null
@@ -1799,7 +1799,7 @@
     "Ids": [
       "Barnard 136"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 287.2,
     "Dec": -4.0,
     "VMag": null
@@ -1811,7 +1811,7 @@
       "[CB88] 185",
       "[DB2002b] G34.55-6.05"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 288.983,
     "Dec": -1.32,
     "VMag": null
@@ -1823,7 +1823,7 @@
       "Barnard 138",
       "[DB2002b] G36.26-4.65"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 288.5,
     "Dec": 0.83,
     "VMag": null
@@ -1836,7 +1836,7 @@
       "[CB88] 187",
       "[DB2002b] G34.67-6.59"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 289.512,
     "Dec": -1.463,
     "VMag": null
@@ -1846,7 +1846,7 @@
     "Ids": [
       "Barnard 140"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 289.95,
     "Dec": 5.22,
     "VMag": null
@@ -1858,7 +1858,7 @@
       "TGU H327",
       "[DB2002b] G37.90-5.53"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 290.05,
     "Dec": 1.88,
     "VMag": null
@@ -1870,7 +1870,7 @@
       "TGU H367",
       "[DB2002b] G47.85-5.72"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 294.92,
     "Dec": 10.52,
     "VMag": null
@@ -1884,7 +1884,7 @@
       "[CB88] 200",
       "[DB2002b] G48.37-5.83"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 295.18,
     "Dec": 10.95,
     "VMag": null
@@ -1895,7 +1895,7 @@
       "Barnard 144",
       "[DB2002b] G71.41+3.20"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 299.5,
     "Dec": 35.3,
     "VMag": null
@@ -1907,7 +1907,7 @@
       "TGU H454",
       "[DB2002b] G73.91+3.60"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 300.7,
     "Dec": 37.67,
     "VMag": null
@@ -1917,7 +1917,7 @@
     "Ids": [
       "Barnard 146"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 300.87,
     "Dec": 36.02,
     "VMag": null
@@ -1929,7 +1929,7 @@
       "Barnard 147",
       "IRAS 20050+3503"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 301.7462,
     "Dec": 35.2094,
     "VMag": null
@@ -1940,7 +1940,7 @@
       "Barnard 148",
       "[CB88] 226"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 312.075,
     "Dec": 59.64,
     "VMag": null
@@ -1950,7 +1950,7 @@
     "Ids": [
       "Barnard 149"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 312.25,
     "Dec": 59.52,
     "VMag": null
@@ -1963,7 +1963,7 @@
       "GF  9",
       "[DB2002b] G96.98+10.07"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 312.77,
     "Dec": 60.18,
     "VMag": null
@@ -1975,7 +1975,7 @@
       "TGU H561 P1",
       "[DB2002b] G95.48+5.86"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 317.05,
     "Dec": 56.32,
     "VMag": null
@@ -1987,7 +1987,7 @@
       "Barnard 152",
       "TGU H598 P1"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 318.62,
     "Dec": 61.73,
     "VMag": null
@@ -1998,7 +1998,7 @@
       "Barnard 153",
       "[DB2002b] G96.80+4.66"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 320.25,
     "Dec": 56.43,
     "VMag": null
@@ -2010,7 +2010,7 @@
       "Barnard 154",
       "[DB2002b] G96.93+4.72"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 320.37,
     "Dec": 56.42,
     "VMag": null
@@ -2022,7 +2022,7 @@
       "Barnard 155",
       "[DB2002b] G90.17-4.78"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 323.1,
     "Dec": 45.05,
     "VMag": null
@@ -2033,7 +2033,7 @@
       "Barnard 156",
       "[DB2002b] G90.74-4.59"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 323.5,
     "Dec": 45.58,
     "VMag": null
@@ -2047,7 +2047,7 @@
       "[CB88] 231",
       "[DB2002b] G96.89+2.13"
     ],
-    "ObjType": "MolCld",
+    "ObjType": "MoC",
     "Ra": 323.483,
     "Dec": 54.692,
     "VMag": null
@@ -2059,7 +2059,7 @@
       "TGU H534 P2",
       "[CB88] 232"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 324.297125,
     "Dec": 43.3434056,
     "VMag": null
@@ -2071,7 +2071,7 @@
       "Barnard 159",
       "[DB2002b] G89.60-6.74"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 324.37,
     "Dec": 43.23,
     "VMag": null
@@ -2085,7 +2085,7 @@
       "TGU H585 P1",
       "[DB2002b] G98.34+2.88"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 324.55,
     "Dec": 56.23,
     "VMag": null
@@ -2095,7 +2095,7 @@
     "Ids": [
       "Barnard 161"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 325.1,
     "Dec": 57.82,
     "VMag": null
@@ -2105,7 +2105,7 @@
     "Ids": [
       "Barnard 162"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 325.3,
     "Dec": 56.32,
     "VMag": null
@@ -2116,7 +2116,7 @@
       "LDN 1106",
       "Barnard 163"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 325.5642,
     "Dec": 56.7289,
     "VMag": null
@@ -2129,7 +2129,7 @@
       "TGU H571 P1",
       "[DB2002b] G95.96-1.87"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 326.77,
     "Dec": 51.07,
     "VMag": null
@@ -2140,7 +2140,7 @@
       "Barnard 165",
       "[DB2002b] G102.04+4.95"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 327.23,
     "Dec": 60.2,
     "VMag": null
@@ -2151,7 +2151,7 @@
       "Barnard 166",
       "[DB2002b] G102.18+4.69"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 327.77,
     "Dec": 60.08,
     "VMag": null
@@ -2162,7 +2162,7 @@
       "Barnard 167",
       "[DB2002b] G102.25+4.61"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 328.0,
     "Dec": 60.07,
     "VMag": null
@@ -2172,7 +2172,7 @@
     "Ids": [
       "Barnard 168"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 328.32,
     "Dec": 47.27,
     "VMag": null
@@ -2183,7 +2183,7 @@
       "Barnard 169",
       "[DB2002b] G102.12+3.03"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 329.72,
     "Dec": 58.75,
     "VMag": null
@@ -2195,7 +2195,7 @@
       "Barnard 170",
       "[DB2002b] G102.22+3.43"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 329.4,
     "Dec": 59.12,
     "VMag": null
@@ -2207,7 +2207,7 @@
       "Barnard 171",
       "[DB2002b] G102.45+3.09"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 330.15,
     "Dec": 58.98,
     "VMag": null
@@ -2220,7 +2220,7 @@
       "Barnard 172",
       "[DB2002b] G103.23+2.73"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 331.68,
     "Dec": 59.17,
     "VMag": null
@@ -2230,7 +2230,7 @@
     "Ids": [
       "Barnard 173"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 331.87,
     "Dec": 59.67,
     "VMag": null
@@ -2243,7 +2243,7 @@
       "Barnard 172",
       "[DB2002b] G103.23+2.73"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 331.68,
     "Dec": 59.17,
     "VMag": null
@@ -2254,7 +2254,7 @@
       "Barnard 175",
       "[DB2002b] G110.12+11.08"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 333.5,
     "Dec": 69.9,
     "VMag": null
@@ -2265,7 +2265,7 @@
       "Barnard 201",
       "[DB2002b] G133.87-4.05"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 33.25,
     "Dec": 57.08,
     "VMag": null
@@ -2277,7 +2277,7 @@
       "Barnard 202",
       "[DB2002b] G158.50-21.82"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 51.53,
     "Dec": 30.17,
     "VMag": null
@@ -2288,7 +2288,7 @@
       "LDN 1448",
       "Barnard 203"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 50.63,
     "Dec": 30.58,
     "VMag": null
@@ -2301,7 +2301,7 @@
       "TGU H1085 P7",
       "[DB2002b] G158.87-21.56"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 52.0027,
     "Dec": 30.133,
     "VMag": null
@@ -2312,7 +2312,7 @@
       "LDN 1450",
       "Barnard 205"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 52.4,
     "Dec": 31.33,
     "VMag": null
@@ -2323,7 +2323,7 @@
       "Barnard 206",
       "[DB2002b] G159.07-21.41"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 52.3,
     "Dec": 30.18,
     "VMag": null
@@ -2333,7 +2333,7 @@
     "Ids": [
       "Barnard 207"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 61.15,
     "Dec": 26.33,
     "VMag": null
@@ -2343,7 +2343,7 @@
     "Ids": [
       "Barnard 208"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 62.88,
     "Dec": 25.15,
     "VMag": null
@@ -2353,7 +2353,7 @@
     "Ids": [
       "Barnard 209"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 63.1,
     "Dec": 28.32,
     "VMag": null
@@ -2363,7 +2363,7 @@
     "Ids": [
       "Barnard 210"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 63.9,
     "Dec": 25.05,
     "VMag": null
@@ -2373,7 +2373,7 @@
     "Ids": [
       "Barnard 211"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 64.396,
     "Dec": 27.718,
     "VMag": null
@@ -2383,7 +2383,7 @@
     "Ids": [
       "Barnard 212"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 64.8,
     "Dec": 25.3,
     "VMag": null
@@ -2394,7 +2394,7 @@
       "Barnard 213",
       "TGU H1211 P12"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 65.213,
     "Dec": 27.272,
     "VMag": null
@@ -2406,7 +2406,7 @@
       "TGU H1150 P1",
       "[DB2002b] G169.18-14.88"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 65.47,
     "Dec": 28.53,
     "VMag": null
@@ -2416,7 +2416,7 @@
     "Ids": [
       "Barnard 215"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 65.9,
     "Dec": 25.03,
     "VMag": null
@@ -2426,7 +2426,7 @@
     "Ids": [
       "Barnard 216"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 66.0,
     "Dec": 26.62,
     "VMag": null
@@ -2436,7 +2436,7 @@
     "Ids": [
       "Barnard 217"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 66.9437,
     "Dec": 26.2978,
     "VMag": null
@@ -2446,7 +2446,7 @@
     "Ids": [
       "Barnard 217A"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 65.525,
     "Dec": 26.887,
     "VMag": null
@@ -2456,7 +2456,7 @@
     "Ids": [
       "Barnard 217B"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 65.912,
     "Dec": 26.603,
     "VMag": null
@@ -2466,7 +2466,7 @@
     "Ids": [
       "Barnard 217C"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 66.333,
     "Dec": 26.487,
     "VMag": null
@@ -2476,7 +2476,7 @@
     "Ids": [
       "Barnard 217D"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 66.921,
     "Dec": 26.335,
     "VMag": null
@@ -2486,7 +2486,7 @@
     "Ids": [
       "Barnard 217E"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 66.737,
     "Dec": 26.145,
     "VMag": null
@@ -2496,7 +2496,7 @@
     "Ids": [
       "Barnard 217F"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 66.517,
     "Dec": 26.378,
     "VMag": null
@@ -2506,7 +2506,7 @@
     "Ids": [
       "Barnard 217G"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 67.342,
     "Dec": 26.242,
     "VMag": null
@@ -2518,7 +2518,7 @@
       "Barnard 218",
       "[DB2002b] G171.85-15.38"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 67.03,
     "Dec": 26.27,
     "VMag": null
@@ -2528,7 +2528,7 @@
     "Ids": [
       "Barnard 219"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 68.5,
     "Dec": 29.6,
     "VMag": null
@@ -2542,7 +2542,7 @@
       "[BM89] 1-47",
       "[THL2004] TMC-1 CPa"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 70.4117,
     "Dec": 26.0117,
     "VMag": null
@@ -2552,7 +2552,7 @@
     "Ids": [
       "Barnard 221"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 71.0,
     "Dec": 31.7,
     "VMag": null
@@ -2562,7 +2562,7 @@
     "Ids": [
       "Barnard 222"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 77.1,
     "Dec": 32.17,
     "VMag": null
@@ -2573,7 +2573,7 @@
       "Barnard 223",
       "[DB2002b] G194.68-15.72"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 80.37,
     "Dec": 8.32,
     "VMag": null
@@ -2585,7 +2585,7 @@
       "TGU H1370",
       "[DB2002b] G192.98-14.01"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 80.97,
     "Dec": 10.62,
     "VMag": null
@@ -2596,7 +2596,7 @@
       "Barnard 225",
       "[DB2002b] G192.66-12.64"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 82.0,
     "Dec": 11.6,
     "VMag": null
@@ -2607,7 +2607,7 @@
       "Barnard 226",
       "[DB2002b] G174.94+0.88"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 84.15,
     "Dec": 33.7,
     "VMag": null
@@ -2621,7 +2621,7 @@
       "[CB88]  44",
       "[DB2002b] G190.69-0.45"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 91.8683,
     "Dec": 19.4678,
     "VMag": null
@@ -2633,7 +2633,7 @@
       "[LM99] 139",
       "[LM99] DC 3388+165-5"
     ],
-    "ObjType": "denseCore",
+    "ObjType": "cor",
     "Ra": 235.7536,
     "Dec": -34.1466,
     "VMag": null
@@ -2644,7 +2644,7 @@
       "Barnard 229",
       "[DB2002b] G349.34+16.52"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 244.3,
     "Dec": -27.3,
     "VMag": null
@@ -2654,7 +2654,7 @@
     "Ids": [
       "Barnard 230"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 246.8,
     "Dec": -16.8,
     "VMag": null
@@ -2666,7 +2666,7 @@
       "DCld 346.0+07.8",
       "Sandqvist  21"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 249.208,
     "Dec": -35.618,
     "VMag": null
@@ -2676,7 +2676,7 @@
     "Ids": [
       "Barnard 232"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 250.92,
     "Dec": -39.82,
     "VMag": null
@@ -2688,7 +2688,7 @@
       "FEST 2-267",
       "Sandqvist  25"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 251.07,
     "Dec": -35.37,
     "VMag": null
@@ -2699,7 +2699,7 @@
       "Barnard 234",
       "[DB2002b] G351.29+9.60"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 251.6,
     "Dec": -30.47,
     "VMag": null
@@ -2714,7 +2714,7 @@
       "Sandqvist  15",
       "[DB2002b] G340.53+0.50"
     ],
-    "ObjType": "MolCld",
+    "ObjType": "MoC",
     "Ra": 251.687,
     "Dec": -44.513,
     "VMag": null
@@ -2725,7 +2725,7 @@
       "Barnard 236",
       "[DB2002b] G352.03+9.76"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 252.0,
     "Dec": -29.8,
     "VMag": null
@@ -2736,7 +2736,7 @@
       "Barnard 237",
       "[DB2002b] G352.03+9.50"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 252.22,
     "Dec": -29.97,
     "VMag": null
@@ -2747,7 +2747,7 @@
       "LDN 1759",
       "Barnard 238"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 253.02,
     "Dec": -23.08,
     "VMag": null
@@ -2758,7 +2758,7 @@
       "Barnard 239",
       "[DB2002b] G351.95+7.76"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 253.8,
     "Dec": -31.1,
     "VMag": null
@@ -2768,7 +2768,7 @@
     "Ids": [
       "Barnard 240"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 254.82,
     "Dec": -35.35,
     "VMag": null
@@ -2779,7 +2779,7 @@
       "Barnard 241",
       "[DB2002b] G353.28+7.58"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 254.87,
     "Dec": -30.18,
     "VMag": null
@@ -2790,7 +2790,7 @@
       "Barnard 242",
       "[DB2002b] G352.23+5.27"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 256.27,
     "Dec": -32.42,
     "VMag": null
@@ -2800,7 +2800,7 @@
     "Ids": [
       "Barnard 243"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 257.45,
     "Dec": -29.57,
     "VMag": null
@@ -2812,7 +2812,7 @@
       "Barnard 244",
       "[DB2002b] G356.13+6.78"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 257.52,
     "Dec": -28.4,
     "VMag": null
@@ -2824,7 +2824,7 @@
       "Barnard 245",
       "[DB2002b] G355.72+5.93"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 258.05,
     "Dec": -29.23,
     "VMag": null
@@ -2834,7 +2834,7 @@
     "Ids": [
       "Barnard 246"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 258.0,
     "Dec": -22.65,
     "VMag": null
@@ -2847,7 +2847,7 @@
       "[CB88]  75",
       "[DB2002b] G354.99+5.17"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 258.284,
     "Dec": -30.2646,
     "VMag": null
@@ -2859,7 +2859,7 @@
       "Barnard 248",
       "[DB2002b] G355.93+6.01"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 258.12,
     "Dec": -29.02,
     "VMag": null
@@ -2870,7 +2870,7 @@
       "LDN 1727",
       "Barnard 249"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 258.12,
     "Dec": -29.23,
     "VMag": null
@@ -2882,7 +2882,7 @@
       "Barnard 250",
       "[DB2002b] G356.40+6.42"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 258.05,
     "Dec": -28.4,
     "VMag": null
@@ -2893,7 +2893,7 @@
       "Barnard 251",
       "[DB2002b] G3.44+10.85"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 258.45,
     "Dec": -20.15,
     "VMag": null
@@ -2904,7 +2904,7 @@
       "LDN 1698",
       "Barnard 252"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 258.8,
     "Dec": -32.18,
     "VMag": null
@@ -2914,7 +2914,7 @@
     "Ids": [
       "Barnard 253"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 258.8,
     "Dec": -22.6,
     "VMag": null
@@ -2925,7 +2925,7 @@
       "Barnard 254",
       "[DB2002b] G356.03+3.94"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 260.12,
     "Dec": -30.12,
     "VMag": null
@@ -2937,7 +2937,7 @@
       "Barnard 255",
       "[DB2002b] G1.57+7.69"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 260.15,
     "Dec": -23.38,
     "VMag": null
@@ -2947,7 +2947,7 @@
     "Ids": [
       "Barnard 256"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 260.55,
     "Dec": -28.82,
     "VMag": null
@@ -2963,7 +2963,7 @@
       "TGU H2164 P9",
       "[DB2002b] G351.71+0.56"
     ],
-    "ObjType": "MolCld",
+    "ObjType": "MoC",
     "Ra": 260.521,
     "Dec": -35.608,
     "VMag": null
@@ -2974,7 +2974,7 @@
       "Barnard 258",
       "[DB2002b] G352.53+0.90"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 260.73,
     "Dec": -34.72,
     "VMag": null
@@ -2984,7 +2984,7 @@
     "Ids": [
       "Barnard 259"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 260.5,
     "Dec": -19.28,
     "VMag": null
@@ -2996,7 +2996,7 @@
       "Barnard 260",
       "[DB2002b] G0.30+5.68"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 261.27,
     "Dec": -25.55,
     "VMag": null
@@ -3008,7 +3008,7 @@
       "Barnard 261",
       "IRAS 17228-2258"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 261.4608,
     "Dec": -23.0157,
     "VMag": null
@@ -3019,7 +3019,7 @@
       "Barnard 262",
       "TGU H25 P21"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 261.42,
     "Dec": -22.38,
     "VMag": null
@@ -3031,7 +3031,7 @@
       "FEST 2-264",
       "Sandqvist  22"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 261.73,
     "Dec": -42.63,
     "VMag": null
@@ -3042,7 +3042,7 @@
       "Barnard 264",
       "[DB2002b] G0.68+5.22"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 261.8,
     "Dec": -25.52,
     "VMag": null
@@ -3052,7 +3052,7 @@
     "Ids": [
       "Barnard 265"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 261.9,
     "Dec": -25.18,
     "VMag": null
@@ -3062,7 +3062,7 @@
     "Ids": [
       "Barnard 266"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 262.02,
     "Dec": -20.93,
     "VMag": null
@@ -3075,7 +3075,7 @@
       "IRAS 17258-2510",
       "[CB88]  88"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 262.2279,
     "Dec": -25.2156,
     "VMag": null
@@ -3085,7 +3085,7 @@
     "Ids": [
       "Barnard 268"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 262.8,
     "Dec": -20.5,
     "VMag": null
@@ -3096,7 +3096,7 @@
       "Barnard 269",
       "[DB2002b] G3.64+5.84"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 263.05,
     "Dec": -22.75,
     "VMag": null
@@ -3108,7 +3108,7 @@
       "TGU H25 P16",
       "[DB2002b] G6.31+7.46"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 263.17,
     "Dec": -19.58,
     "VMag": null
@@ -3119,7 +3119,7 @@
       "Barnard 271",
       "[DB2002b] G354.18-0.73"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 263.5,
     "Dec": -34.2,
     "VMag": null
@@ -3130,7 +3130,7 @@
       "Barnard 272",
       "[DB2002b] G3.75+4.44"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 264.3,
     "Dec": -23.4,
     "VMag": null
@@ -3141,7 +3141,7 @@
       "Barnard 273",
       "[DB2002b] G355.46-1.02"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 264.62,
     "Dec": -33.33,
     "VMag": null
@@ -3152,7 +3152,7 @@
       "Barnard 274",
       "[DB2002b] G4.39+4.71"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 264.5,
     "Dec": -22.72,
     "VMag": null
@@ -3164,7 +3164,7 @@
       "TGU H2190 P8",
       "[DB2002b] G356.37-0.57"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 264.75,
     "Dec": -32.32,
     "VMag": null
@@ -3177,7 +3177,7 @@
       "[CB88]  91",
       "[DB2002b] G7.02+5.99"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 264.87,
     "Dec": -19.78,
     "VMag": null
@@ -3191,7 +3191,7 @@
       "IRAS 17372-2259",
       "TGU H58 P1"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 265.0676,
     "Dec": -23.0205,
     "VMag": null
@@ -3202,7 +3202,7 @@
       "Barnard 278",
       "[DB2002b] G356.80-1.22"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 265.65,
     "Dec": -32.3,
     "VMag": null
@@ -3214,7 +3214,7 @@
       "TGU H64",
       "[DB2002b] G5.32+3.53"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 266.15,
     "Dec": -22.47,
     "VMag": null
@@ -3224,7 +3224,7 @@
     "Ids": [
       "Barnard 280"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 266.25,
     "Dec": -20.72,
     "VMag": null
@@ -3235,7 +3235,7 @@
       "Barnard 281",
       "[DB2002b] G4.60+2.49"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 266.7,
     "Dec": -23.72,
     "VMag": null
@@ -3246,7 +3246,7 @@
       "Barnard 282",
       "[DB2002b] G5.04+2.27"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 267.15,
     "Dec": -23.45,
     "VMag": null
@@ -3256,7 +3256,7 @@
     "Ids": [
       "Barnard 283"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 267.7,
     "Dec": -33.9,
     "VMag": null
@@ -3268,7 +3268,7 @@
       "Barnard 284",
       "[DB2002b] G13.06+6.59"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 267.6,
     "Dec": -14.28,
     "VMag": null
@@ -3279,7 +3279,7 @@
       "Barnard 285",
       "[DB2002b] G14.54+7.05"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 267.87,
     "Dec": -12.87,
     "VMag": null
@@ -3289,7 +3289,7 @@
     "Ids": [
       "Barnard 286"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 268.25,
     "Dec": -35.62,
     "VMag": null
@@ -3299,7 +3299,7 @@
     "Ids": [
       "Barnard 287"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 268.6,
     "Dec": -35.18,
     "VMag": null
@@ -3309,7 +3309,7 @@
     "Ids": [
       "Barnard 288"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 269.27,
     "Dec": -37.08,
     "VMag": null
@@ -3322,7 +3322,7 @@
       "TGU H15 P1",
       "[DB2002b] G1.10-2.11"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 269.12,
     "Dec": -29.03,
     "VMag": null
@@ -3332,7 +3332,7 @@
     "Ids": [
       "Barnard 290"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 269.82,
     "Dec": -37.13,
     "VMag": null
@@ -3343,7 +3343,7 @@
       "Barnard 291",
       "[DB2002b] G357.26-5.10"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 269.93,
     "Dec": -33.88,
     "VMag": null
@@ -3353,7 +3353,7 @@
     "Ids": [
       "Barnard 292"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 270.15,
     "Dec": -33.33,
     "VMag": null
@@ -3364,7 +3364,7 @@
       "Barnard 293",
       "[DB2002b] G356.14-6.08"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 270.3,
     "Dec": -35.33,
     "VMag": null
@@ -3375,7 +3375,7 @@
       "Barnard 294",
       "[DB2002b] G2.04-2.82"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 270.37,
     "Dec": -28.6,
     "VMag": null
@@ -3385,7 +3385,7 @@
     "Ids": [
       "Barnard 295"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 271.02,
     "Dec": -31.15,
     "VMag": null
@@ -3396,7 +3396,7 @@
       "Barnard 296",
       "[DB2002b] G5.88-1.33"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 271.02,
     "Dec": -24.52,
     "VMag": null
@@ -3407,7 +3407,7 @@
       "Barnard 297",
       "[DB2002b] G10.93+1.53"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 271.0,
     "Dec": -18.7,
     "VMag": null
@@ -3417,7 +3417,7 @@
     "Ids": [
       "Barnard 298"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 271.3,
     "Dec": -30.08,
     "VMag": null
@@ -3429,7 +3429,7 @@
       "Barnard 299",
       "[DB2002b] G3.75-3.10"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 271.6,
     "Dec": -27.42,
     "VMag": null
@@ -3439,7 +3439,7 @@
     "Ids": [
       "Barnard 300"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 271.75,
     "Dec": -32.65,
     "VMag": null
@@ -3450,7 +3450,7 @@
       "Barnard 301",
       "[DB2002b] G11.51+0.55"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 272.2,
     "Dec": -18.7,
     "VMag": null
@@ -3462,7 +3462,7 @@
       "Barnard 302",
       "[DB2002b] G6.95-2.07"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 272.27,
     "Dec": -24.0,
     "VMag": null
@@ -3474,7 +3474,7 @@
       "Barnard 303",
       "IRAS 18060-2408"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 272.2805,
     "Dec": -24.1363,
     "VMag": null
@@ -3485,7 +3485,7 @@
       "Barnard 304",
       "[DB2002b] G11.97-0.32"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 273.3,
     "Dec": -18.7,
     "VMag": null
@@ -3497,7 +3497,7 @@
       "TGU H9 P1",
       "[DB2002b] G0.60-6.85"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 273.65,
     "Dec": -31.8,
     "VMag": null
@@ -3509,7 +3509,7 @@
       "Barnard 306",
       "[DB2002b] G6.12-4.25"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 273.98,
     "Dec": -25.73,
     "VMag": null
@@ -3521,7 +3521,7 @@
       "Barnard 307",
       "[DB2002b] G13.46-1.17"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 274.77,
     "Dec": -17.82,
     "VMag": null
@@ -3532,7 +3532,7 @@
       "Barnard 308",
       "[DB2002b] G9.56-3.26"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 274.77,
     "Dec": -22.23,
     "VMag": null
@@ -3542,7 +3542,7 @@
     "Ids": [
       "Barnard 309"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 275.77,
     "Dec": -24.02,
     "VMag": null
@@ -3553,7 +3553,7 @@
       "Barnard 310",
       "[DB2002b] G14.01-3.86"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 277.55,
     "Dec": -18.58,
     "VMag": null
@@ -3567,7 +3567,7 @@
       "TGU H158 P1",
       "[CB88] 143"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 277.5977,
     "Dec": -17.6861,
     "VMag": null
@@ -3578,7 +3578,7 @@
       "Barnard 312",
       "[DB2002b] G16.89-2.89"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 278.0,
     "Dec": -15.6,
     "VMag": null
@@ -3589,7 +3589,7 @@
       "Barnard 313",
       "[DB2002b] G17.22-3.75"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 278.97,
     "Dec": -15.68,
     "VMag": null
@@ -3602,7 +3602,7 @@
       "TGU H231 P12",
       "[DB2002b] G22.82-1.37"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 279.5,
     "Dec": -9.67,
     "VMag": null
@@ -3615,7 +3615,7 @@
       "[CB88] 153",
       "[DB2002b] G13.95-6.86"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 280.5,
     "Dec": -19.95,
     "VMag": null
@@ -3625,7 +3625,7 @@
     "Ids": [
       "Barnard 316"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 280.45,
     "Dec": -2.13,
     "VMag": null
@@ -3636,7 +3636,7 @@
       "Barnard 317",
       "[DB2002b] G19.62-5.19"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 281.45,
     "Dec": -14.2,
     "VMag": null
@@ -3647,7 +3647,7 @@
       "Barnard 318",
       "[DB2002b] G27.04-2.53"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 282.43,
     "Dec": -6.38,
     "VMag": null
@@ -3658,7 +3658,7 @@
       "Barnard 319",
       "[DB2002b] G31.86-0.70"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 283.0,
     "Dec": -1.27,
     "VMag": null
@@ -3668,7 +3668,7 @@
     "Ids": [
       "Barnard 320"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 283.2,
     "Dec": -5.85,
     "VMag": null
@@ -3679,7 +3679,7 @@
       "Barnard 321",
       "[DB2002b] G23.12-5.70"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 283.5,
     "Dec": -11.28,
     "VMag": null
@@ -3691,7 +3691,7 @@
       "[CB88] 165",
       "[DB2002b] G29.47-2.98"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 283.937,
     "Dec": -4.442,
     "VMag": null
@@ -3703,7 +3703,7 @@
       "TGU H299 P6",
       "[DB2002b] G30.59-2.92"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 284.4,
     "Dec": -3.42,
     "VMag": null
@@ -3714,7 +3714,7 @@
       "Barnard 324",
       "[DB2002b] G31.18-3.12"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 284.85,
     "Dec": -2.98,
     "VMag": null
@@ -3725,7 +3725,7 @@
       "Barnard 325",
       "[DB2002b] G30.28-3.72"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 284.98,
     "Dec": -4.05,
     "VMag": null
@@ -3736,7 +3736,7 @@
       "Barnard 326",
       "[DB2002b] G33.91-2.75"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 285.8,
     "Dec": -0.4,
     "VMag": null
@@ -3748,7 +3748,7 @@
       "Barnard 327",
       "[DB2002b] G29.71-5.26"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 286.1,
     "Dec": -5.25,
     "VMag": null
@@ -3759,7 +3759,7 @@
       "Barnard 328",
       "[DB2002b] G30.68-4.90"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 286.2,
     "Dec": -4.23,
     "VMag": null
@@ -3770,7 +3770,7 @@
       "Barnard 329",
       "[DB2002b] G37.54-2.00"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 286.75,
     "Dec": 3.18,
     "VMag": null
@@ -3783,7 +3783,7 @@
       "TGU H342 P1",
       "[DB2002b] G42.87-2.85"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 289.9,
     "Dec": 7.47,
     "VMag": null
@@ -3794,7 +3794,7 @@
       "Barnard 331",
       "[DB2002b] G43.63-4.16"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 291.5,
     "Dec": 7.6,
     "VMag": null
@@ -3805,7 +3805,7 @@
       "Barnard 332",
       "[DB2002b] G44.91-4.04"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 292.0,
     "Dec": 8.8,
     "VMag": null
@@ -3816,7 +3816,7 @@
       "Barnard 333",
       "[DB2002b] G46.60-3.13"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 292.0,
     "Dec": 10.7,
     "VMag": null
@@ -3829,7 +3829,7 @@
       "[CB88] 195",
       "[DB2002b] G48.78-3.83"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 293.73,
     "Dec": 12.28,
     "VMag": null
@@ -3841,7 +3841,7 @@
       "Barnard 335",
       "[CB88] 199"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 294.229,
     "Dec": 7.573,
     "VMag": null
@@ -3851,7 +3851,7 @@
     "Ids": [
       "Barnard 335S"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 0.0,
     "Dec": 0.0,
     "VMag": null
@@ -3864,7 +3864,7 @@
       "[CB88] 198",
       "[DB2002b] G49.07-4.18"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 294.1,
     "Dec": 12.28,
     "VMag": null
@@ -3876,7 +3876,7 @@
       "Barnard 337",
       "[DB2002b] G49.18-4.24"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 294.2,
     "Dec": 12.45,
     "VMag": null
@@ -3888,7 +3888,7 @@
       "Barnard 338",
       "[DB2002b] G45.53-8.05"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 295.85,
     "Dec": 7.37,
     "VMag": null
@@ -3899,7 +3899,7 @@
       "Barnard 339",
       "[DB2002b] G46.40-7.73"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 296.0,
     "Dec": 8.3,
     "VMag": null
@@ -3909,7 +3909,7 @@
     "Ids": [
       "Barnard 340"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 297.18,
     "Dec": 11.4,
     "VMag": null
@@ -3920,7 +3920,7 @@
       "Barnard 341",
       "[DB2002b] G69.65+4.06"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 297.5,
     "Dec": 34.27,
     "VMag": null
@@ -3932,7 +3932,7 @@
       "Barnard 342",
       "[DB2002b] G77.52+4.41"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 302.3,
     "Dec": 41.15,
     "VMag": null
@@ -3943,7 +3943,7 @@
       "LDN  880",
       "Barnard 343"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 303.45,
     "Dec": 40.32,
     "VMag": null
@@ -3954,7 +3954,7 @@
       "Barnard 344",
       "[DB2002b] G77.47+2.79"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 304.05,
     "Dec": 40.22,
     "VMag": null
@@ -3965,7 +3965,7 @@
       "Barnard 345",
       "[DB2002b] G83.22+5.62"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 305.25,
     "Dec": 46.55,
     "VMag": null
@@ -3976,7 +3976,7 @@
       "Barnard 346",
       "[DB2002b] G81.49+3.18"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 306.7,
     "Dec": 43.73,
     "VMag": null
@@ -3987,7 +3987,7 @@
       "Barnard 347",
       "[DB2002b] G78.56+0.70"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 307.12,
     "Dec": 39.9,
     "VMag": null
@@ -3998,7 +3998,7 @@
       "Barnard 348",
       "[DB2002b] G80.93+1.13"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 308.5,
     "Dec": 42.1,
     "VMag": null
@@ -4008,7 +4008,7 @@
     "Ids": [
       "Barnard 349"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 311.85,
     "Dec": 43.95,
     "VMag": null
@@ -4019,7 +4019,7 @@
       "Barnard 350",
       "[DB2002b] G85.58+1.31"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 312.27,
     "Dec": 45.87,
     "VMag": null
@@ -4030,7 +4030,7 @@
       "Barnard 351",
       "[DB2002b] G87.13+1.84"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 313.12,
     "Dec": 47.4,
     "VMag": null
@@ -4040,7 +4040,7 @@
     "Ids": [
       "Barnard 352"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 314.3,
     "Dec": 45.88,
     "VMag": null
@@ -4051,7 +4051,7 @@
       "Barnard 353",
       "[DB2002b] G86.20+0.00"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 314.35,
     "Dec": 45.47,
     "VMag": null
@@ -4062,7 +4062,7 @@
       "Barnard 354",
       "[DB2002b] G95.96+8.08"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 314.5,
     "Dec": 58.1,
     "VMag": null
@@ -4073,7 +4073,7 @@
       "Barnard 355",
       "[DB2002b] G84.75-1.83"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 314.9,
     "Dec": 43.18,
     "VMag": null
@@ -4085,7 +4085,7 @@
       "Barnard 356",
       "[DB2002b] G87.42+0.28"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 315.12,
     "Dec": 46.62,
     "VMag": null
@@ -4098,7 +4098,7 @@
       "TGU H553",
       "TGU H553 P1"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 314.8421,
     "Dec": 55.6297,
     "VMag": 13.75
@@ -4109,7 +4109,7 @@
       "Barnard 358",
       "[DB2002b] G85.53-2.62"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 316.42,
     "Dec": 43.27,
     "VMag": null
@@ -4122,7 +4122,7 @@
       "TGU H570",
       "[DB2002b] G95.89+6.59"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 316.7,
     "Dec": 57.17,
     "VMag": null
@@ -4134,7 +4134,7 @@
       "Barnard 360",
       "TGU H561"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 316.98,
     "Dec": 56.3,
     "VMag": null
@@ -4147,7 +4147,7 @@
       "MLB 4-18",
       "[DB2002b] G89.34-0.67"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 318.0546,
     "Dec": 47.3897,
     "VMag": null
@@ -4159,7 +4159,7 @@
       "[LM99] 374",
       "[LM99] L1014-1"
     ],
-    "ObjType": "denseCore",
+    "ObjType": "cor",
     "Ra": 321.0165,
     "Dec": 50.1635,
     "VMag": null
@@ -4171,7 +4171,7 @@
       "Barnard 363",
       "[DB2002b] G91.93-1.17"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 321.32,
     "Dec": 48.88,
     "VMag": null
@@ -4182,7 +4182,7 @@
       "Barnard 364",
       "[DB2002b] G96.80+2.02"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 323.5,
     "Dec": 54.5,
     "VMag": null
@@ -4192,7 +4192,7 @@
     "Ids": [
       "Barnard 365"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 323.73,
     "Dec": 56.72,
     "VMag": null
@@ -4205,7 +4205,7 @@
       "TGU H609 P1",
       "[DB2002b] G100.77+5.20"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 325.05,
     "Dec": 59.58,
     "VMag": null
@@ -4217,7 +4217,7 @@
       "Barnard 367",
       "[DB2002b] G99.65+3.02"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 326.15,
     "Dec": 57.2,
     "VMag": null
@@ -4229,7 +4229,7 @@
       "Barnard 368",
       "[DB2002b] G101.58+3.87"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 327.9,
     "Dec": 59.07,
     "VMag": null
@@ -4241,7 +4241,7 @@
       "Barnard 369",
       "[DB2002b] G102.37-0.53"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 333.95,
     "Dec": 56.0,
     "VMag": null
@@ -4252,7 +4252,7 @@
       "Barnard 370",
       "[DB2002b] G104.84-1.33"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 338.5,
     "Dec": 56.6,
     "VMag": null
@@ -4263,7 +4263,7 @@
       "NAME B18-J",
       "Barnard  18J"
     ],
-    "ObjType": "DarkNeb",
+    "ObjType": "DNe",
     "Ra": 69.25,
     "Dec": 24.25,
     "VMag": null

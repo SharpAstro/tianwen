@@ -1,10 +1,10 @@
 
 
 $catalogs = @('Sh', 'RCW', 'GUM', 'LDN', 'Ced', 'Barnard')
-
+$outParams = "main_id,ids,otype(3),ra(d;ICRS),dec(d,ICRS),fluxdata(V)"
 $catalogs | ForEach-Object {
     $cat = $_
-    [xml]$table = Invoke-RestMethod "http://simbad.u-strasbg.fr/simbad/sim-id?output.format=votable&Ident=$($cat)&NbIdent=cat&output.params=main_id,ids,otype,ra(d;ICRS),dec(d,ICRS),fluxdata(V)"
+    [xml]$table = Invoke-RestMethod "http://simbad.u-strasbg.fr/simbad/sim-id?output.format=votable&Ident=$($cat)&NbIdent=cat&output.params=$($outParams)"
 
     $entries = $table.VOTABLE.RESOURCE.TABLE.DATA.TABLEDATA.TR | ForEach-Object {
         [PSCustomObject]@{
