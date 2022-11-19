@@ -4,7 +4,7 @@
     "Ids": [
       "RCW   1"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 106.0,
     "Dec": -9.6,
     "VMag": null
@@ -26,7 +26,7 @@
       "SH  2-292",
       "VDB  93"
     ],
-    "ObjType": "RefNeb",
+    "ObjType": "RNe",
     "Ra": 106.104,
     "Dec": -10.455,
     "VMag": null
@@ -40,7 +40,7 @@
       "RCW   3",
       "SH  2-294"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 109.148,
     "Dec": -9.428,
     "VMag": null
@@ -50,7 +50,7 @@
     "Ids": [
       "RCW   4"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 110.98,
     "Dec": -8.6,
     "VMag": null
@@ -66,7 +66,7 @@
       "RCW   5",
       "SH  2-298"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 109.625,
     "Dec": -13.226667,
     "VMag": null
@@ -81,7 +81,7 @@
       "RCW   6",
       "[LPH96] 231.481-4.401"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 107.4763,
     "Dec": -18.4981,
     "VMag": null
@@ -96,7 +96,7 @@
       "[WBH98] 07299-1651",
       "[WHR97] 07299-1651"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 113.0413,
     "Dec": -16.9706,
     "VMag": null
@@ -111,7 +111,7 @@
       "RCW   8",
       "SH  2-305"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 112.5171,
     "Dec": -18.5369,
     "VMag": null
@@ -121,7 +121,7 @@
     "Ids": [
       "RCW   9"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 101.3,
     "Dec": -24.4,
     "VMag": null
@@ -132,7 +132,7 @@
       "GRS G234.40 -00.20",
       "RCW  10"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 112.8,
     "Dec": -19.0,
     "VMag": null
@@ -194,7 +194,7 @@
       "Gaia DR3 2922367976673391232",
       "Gaia DR1 2922367972368451072"
     ],
-    "ObjType": "WolfRayet*",
+    "ObjType": "WR*",
     "Ra": 103.55434983683,
     "Dec": -23.92833981107,
     "VMag": 6.91
@@ -205,7 +205,7 @@
       "GRS G234.70 +00.90",
       "RCW  12"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 113.97,
     "Dec": -18.82,
     "VMag": null
@@ -219,7 +219,7 @@
       "RCW  13",
       "SH  2-309"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 112.95,
     "Dec": -19.4347,
     "VMag": null
@@ -231,7 +231,7 @@
       "GRS G235.60 +04.10",
       "RCW  14"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 109.7808,
     "Dec": -21.9381,
     "VMag": null
@@ -241,7 +241,7 @@
     "Ids": [
       "RCW  15"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 107.5,
     "Dec": -25.1,
     "VMag": null
@@ -268,7 +268,7 @@
       "[KPR2004b] 169",
       "[KPS2012] MWSC 1367"
     ],
-    "ObjType": "Cluster*",
+    "ObjType": "Cl*",
     "Ra": 118.077,
     "Dec": -26.428,
     "VMag": null
@@ -301,7 +301,7 @@
       "Gaia DR2 5601582285451511040",
       "Gaia DR3 5601582285451511040"
     ],
-    "ObjType": "PlanetaryNeb",
+    "ObjType": "PN",
     "Ra": 116.85943729381,
     "Dec": -27.33522777283,
     "VMag": 12.2
@@ -311,7 +311,7 @@
     "Ids": [
       "RCW  18"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 119.78,
     "Dec": -33.83,
     "VMag": null
@@ -325,7 +325,7 @@
       "RCW  19",
       "[C72] G253.6-0.2"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 124.07,
     "Dec": -35.6328,
     "VMag": null
@@ -337,7 +337,7 @@
       "GRS G254.50 +00.00",
       "RCW  20"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 124.7204,
     "Dec": -36.2042,
     "VMag": null
@@ -354,7 +354,7 @@
       "RCW  21",
       "WB89 1156"
     ],
-    "ObjType": "PlanetaryNeb",
+    "ObjType": "PN",
     "Ra": 127.725821,
     "Dec": -38.301939,
     "VMag": null
@@ -364,7 +364,7 @@
     "Ids": [
       "RCW  22"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 138.9,
     "Dec": -31.38,
     "VMag": null
@@ -374,7 +374,7 @@
     "Ids": [
       "RCW  23"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 129.22,
     "Dec": -38.53,
     "VMag": null
@@ -388,7 +388,7 @@
       "RCW  24",
       "USNO-B1.0 0497-00136403"
     ],
-    "ObjType": "PlanetaryNeb",
+    "ObjType": "PN",
     "Ra": 126.448,
     "Dec": -40.219447,
     "VMag": 18.21
@@ -398,7 +398,7 @@
     "Ids": [
       "RCW  25"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 129.7,
     "Dec": -39.22,
     "VMag": null
@@ -408,7 +408,7 @@
     "Ids": [
       "RCW  26"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 131.62,
     "Dec": -38.63,
     "VMag": null
@@ -419,7 +419,7 @@
       "BRAN 166",
       "RCW  27"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 129.5333,
     "Dec": -40.2981,
     "VMag": null
@@ -429,7 +429,7 @@
     "Ids": [
       "RCW  28"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 125.32,
     "Dec": -42.72,
     "VMag": null
@@ -439,7 +439,7 @@
     "Ids": [
       "RCW  29"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 125.43,
     "Dec": -42.7,
     "VMag": null
@@ -449,7 +449,7 @@
     "Ids": [
       "RCW  30"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 125.7,
     "Dec": -42.65,
     "VMag": null
@@ -459,7 +459,7 @@
     "Ids": [
       "RCW  31"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 126.0,
     "Dec": -43.08,
     "VMag": null
@@ -472,7 +472,7 @@
       "GRS G261.60 +00.90",
       "RCW  32"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 130.9688,
     "Dec": -41.2442,
     "VMag": null
@@ -483,7 +483,7 @@
       "GRS G263.00 +01.40",
       "RCW  33"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 132.83,
     "Dec": -42.08,
     "VMag": null
@@ -503,7 +503,7 @@
       "[WBH98] 08546-4254",
       "[WHR97] 08546-4254"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 134.1171,
     "Dec": -43.0994,
     "VMag": 11.21
@@ -514,7 +514,7 @@
       "GRS G264.60 +00.10",
       "RCW  35"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 132.87,
     "Dec": -44.1,
     "VMag": null
@@ -533,7 +533,7 @@
       "SNR G265.1+01.5",
       "[CH87] 265.151+1.454"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 134.7537,
     "Dec": -43.7361,
     "VMag": 15.2
@@ -546,7 +546,7 @@
       "NAME Pencil Nebula",
       "RCW  37"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 135.05,
     "Dec": -45.95,
     "VMag": null
@@ -568,7 +568,7 @@
       "[SG70] 268.0-1.1",
       "[WMG70] 268.0-01.1"
     ],
-    "ObjType": "StarFormingReg",
+    "ObjType": "SFR",
     "Ra": 134.77292,
     "Dec": -47.51094,
     "VMag": null
@@ -578,7 +578,7 @@
     "Ids": [
       "RCW  38E"
     ],
-    "ObjType": "MolCld",
+    "ObjType": "MoC",
     "Ra": 0.0,
     "Dec": 0.0,
     "VMag": null
@@ -588,7 +588,7 @@
     "Ids": [
       "RCW  38W"
     ],
-    "ObjType": "MolCld",
+    "ObjType": "MoC",
     "Ra": 0.0,
     "Dec": 0.0,
     "VMag": null
@@ -602,7 +602,7 @@
       "Kes  7",
       "RCW  39"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 135.8392,
     "Dec": -48.43,
     "VMag": null
@@ -616,7 +616,7 @@
       "Kes  6",
       "RCW  40"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 135.5887,
     "Dec": -48.6986,
     "VMag": null
@@ -632,7 +632,7 @@
       "Gaia DR3 5326418127522449280",
       "Gaia DR1 5326418123224523776"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 139.242537194,
     "Dec": -47.96316473213,
     "VMag": 12.96
@@ -648,7 +648,7 @@
       "[C72] G274.0-1.1",
       "[CH87] 274.013-1.141"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 141.1254,
     "Dec": -51.9853,
     "VMag": null
@@ -673,7 +673,7 @@
       "WRAY 16-47",
       "[M51]  48"
     ],
-    "ObjType": "PlanetaryNeb",
+    "ObjType": "PN",
     "Ra": 141.76258,
     "Dec": -56.10586,
     "VMag": 12.4
@@ -693,7 +693,7 @@
       "Gaia DR2 5307054800062198400",
       "Gaia DR3 5307054800062198400"
     ],
-    "ObjType": "PlanetaryNeb",
+    "ObjType": "PN",
     "Ra": 142.83552056802,
     "Dec": -56.29431773579,
     "VMag": 17.94
@@ -703,7 +703,7 @@
     "Ids": [
       "RCW  45"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 152.95,
     "Dec": -56.4,
     "VMag": null
@@ -715,7 +715,7 @@
       "MSH 10-5-01",
       "RCW  46"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 151.662,
     "Dec": -57.203,
     "VMag": null
@@ -727,7 +727,7 @@
       "GRS G283.00 -02.70",
       "RCW  47"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 151.2621,
     "Dec": -58.6561,
     "VMag": null
@@ -741,7 +741,7 @@
       "GUM 28",
       "RCW  48"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 154.1367,
     "Dec": -57.9339,
     "VMag": null
@@ -759,7 +759,7 @@
       "[CH87] 284.308-0.334",
       "[GS70] 284.3-00.3"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 156.0608,
     "Dec": -57.7828,
     "VMag": null
@@ -771,7 +771,7 @@
       "GRS G284.30 +00.40",
       "RCW  50"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 156.8883,
     "Dec": -57.1908,
     "VMag": null
@@ -792,7 +792,7 @@
       "[KPR2004b] 253",
       "[KPS2012] MWSC 1826"
     ],
-    "ObjType": "OpenCluster",
+    "ObjType": "OpC",
     "Ra": 158.97,
     "Dec": -58.231,
     "VMag": null
@@ -804,7 +804,7 @@
       "BRAN 316E",
       "RCW  52"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 161.5479,
     "Dec": -58.6533,
     "VMag": null
@@ -825,7 +825,7 @@
       "NAME Keyhole Nebula",
       "RCW  53"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 161.25929,
     "Dec": -59.69994,
     "VMag": null
@@ -837,7 +837,7 @@
       "GAL 289.8-01.1",
       "RCW  54"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 165.7338,
     "Dec": -59.4878,
     "VMag": null
@@ -847,7 +847,7 @@
     "Ids": [
       "RCW  54A"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 0.0,
     "Dec": 0.0,
     "VMag": null
@@ -857,7 +857,7 @@
     "Ids": [
       "RCW  54B"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 0.0,
     "Dec": 0.0,
     "VMag": null
@@ -869,7 +869,7 @@
       "RCW  55",
       "VdBH 45"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 164.1354,
     "Dec": -63.0128,
     "VMag": null
@@ -881,7 +881,7 @@
       "GRS G291.10 -02.10",
       "RCW  56"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 166.35,
     "Dec": -62.47,
     "VMag": null
@@ -891,7 +891,7 @@
     "Ids": [
       "RCW  57"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 168.67,
     "Dec": -61.2,
     "VMag": null
@@ -909,7 +909,7 @@
       "[GG70] 291.3-0.7",
       "[GS70] 291.3-00.7"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 167.9575,
     "Dec": -61.3039,
     "VMag": null
@@ -932,7 +932,7 @@
       "[GSL2002]  27",
       "[KPS2012] MWSC 1926"
     ],
-    "ObjType": "OpenCluster",
+    "ObjType": "OpC",
     "Ra": 168.795,
     "Dec": -61.259,
     "VMag": null
@@ -977,7 +977,7 @@
       "Gaia DR1 5240040627190138752",
       "Gaia DR2 5240040631514998272"
     ],
-    "ObjType": "WolfRayet*",
+    "ObjType": "WR*",
     "Ra": 166.57168014651,
     "Dec": -65.50978921723,
     "VMag": 7.7
@@ -988,7 +988,7 @@
       "RCW  59",
       "[SPF2008] G292.9+4.4"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 175.425,
     "Dec": -57.3333,
     "VMag": null
@@ -999,7 +999,7 @@
       "BRAN 362C",
       "RCW  60"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 172.2204,
     "Dec": -62.6258,
     "VMag": null
@@ -1010,7 +1010,7 @@
       "GRS G293.60 -01.30",
       "RCW  60A"
     ],
-    "ObjType": "Radio",
+    "ObjType": "Rad",
     "Ra": 172.2,
     "Dec": -62.65,
     "VMag": null
@@ -1021,7 +1021,7 @@
       "GRS G293.70 -01.60",
       "RCW  60B"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 172.1,
     "Dec": -62.97,
     "VMag": null
@@ -1034,7 +1034,7 @@
       "RCW  61",
       "VdBH 50"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 172.6008,
     "Dec": -63.8172,
     "VMag": null
@@ -1055,7 +1055,7 @@
       "RCW  62",
       "[KPR2004b] 292"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 174.58333,
     "Dec": -63.37278,
     "VMag": null
@@ -1066,7 +1066,7 @@
       "GRS G294.80 -01.70",
       "RCW  62A"
     ],
-    "ObjType": "Radio",
+    "ObjType": "Rad",
     "Ra": 174.53,
     "Dec": -63.45,
     "VMag": null
@@ -1076,7 +1076,7 @@
     "Ids": [
       "RCW  63"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 182.0,
     "Dec": -55.3,
     "VMag": null
@@ -1090,7 +1090,7 @@
       "PN ARO  524",
       "RCW  64"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 184.9729,
     "Dec": -62.9189,
     "VMag": null
@@ -1115,7 +1115,7 @@
       "[WHR97] 12320-6122",
       "[WMG70] 301.0+01.2"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 188.7267,
     "Dec": -61.6569,
     "VMag": null
@@ -1127,7 +1127,7 @@
       "GRS G301.10 +01.00",
       "RCW  66"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 188.9867,
     "Dec": -61.7478,
     "VMag": null
@@ -1137,7 +1137,7 @@
     "Ids": [
       "RCW  67"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 188.98,
     "Dec": -62.03,
     "VMag": null
@@ -1148,7 +1148,7 @@
       "GRS G301.90 +01.10",
       "RCW  68"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 190.05,
     "Dec": -61.87,
     "VMag": null
@@ -1164,7 +1164,7 @@
       "Gaia DR3 6055200341668022400",
       "Gaia DR2 6055200341668022400"
     ],
-    "ObjType": "PlanetaryNeb",
+    "ObjType": "PN",
     "Ra": 191.1143270102199,
     "Dec": -62.52191115178,
     "VMag": null
@@ -1184,7 +1184,7 @@
       "WRAY 16-121",
       "[GM76] 194"
     ],
-    "ObjType": "PlanetaryNeb",
+    "ObjType": "PN",
     "Ra": 192.12917,
     "Dec": -63.83306,
     "VMag": 15.0
@@ -1219,7 +1219,7 @@
       "Gaia DR3 6055524079131058176",
       "Gaia DR1 6055524074814989312"
     ],
-    "ObjType": "Star",
+    "ObjType": "*",
     "Ra": 192.5942243399699,
     "Dec": -61.58355411562,
     "VMag": 10.77
@@ -1229,7 +1229,7 @@
     "Ids": [
       "RCW  72"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 193.33,
     "Dec": -61.27,
     "VMag": null
@@ -1239,7 +1239,7 @@
     "Ids": [
       "RCW  73"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 193.75,
     "Dec": -61.47,
     "VMag": null
@@ -1252,7 +1252,7 @@
       "MHR 25",
       "RCW  74"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 197.579,
     "Dec": -62.642,
     "VMag": null
@@ -1263,7 +1263,7 @@
       "GRS G305.20 +00.00",
       "RCW  74A"
     ],
-    "ObjType": "Radio",
+    "ObjType": "Rad",
     "Ra": 197.85,
     "Dec": -62.75,
     "VMag": null
@@ -1282,7 +1282,7 @@
       "[SPK2012] MWP1G305263+002133",
       "[WMG70] 305.2+00.2"
     ],
-    "ObjType": "Bubble",
+    "ObjType": "bub",
     "Ra": 197.8962,
     "Dec": -62.5572,
     "VMag": null
@@ -1294,7 +1294,7 @@
       "GRS G306.30 +00.20",
       "RCW  75"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 199.942,
     "Dec": -62.512,
     "VMag": null
@@ -1339,7 +1339,7 @@
       "Gaia DR2 5863702868275424384",
       "Gaia DR3 5863702868275424384"
     ],
-    "ObjType": "PlanetaryNeb",
+    "ObjType": "PN",
     "Ra": 203.38699183926,
     "Dec": -65.97417817452,
     "VMag": 14.5
@@ -1377,7 +1377,7 @@
       "Gaia DR2 5851342841411810304",
       "Gaia DR3 5851342841411810304"
     ],
-    "ObjType": "PlanetaryNeb",
+    "ObjType": "PN",
     "Ra": 204.89608174104,
     "Dec": -67.38104180476,
     "VMag": 12.54
@@ -1387,7 +1387,7 @@
     "Ids": [
       "RCW  78"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 203.47,
     "Dec": -62.25,
     "VMag": null
@@ -1398,7 +1398,7 @@
       "GRS G308.60 +00.60",
       "RCW  79"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 204.97,
     "Dec": -61.75,
     "VMag": null
@@ -1408,7 +1408,7 @@
     "Ids": [
       "RCW  79A"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 204.987,
     "Dec": -61.713,
     "VMag": null
@@ -1418,7 +1418,7 @@
     "Ids": [
       "RCW  79B"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 205.179,
     "Dec": -61.737,
     "VMag": null
@@ -1432,7 +1432,7 @@
       "MSC 309.2-0.6",
       "RCW  80"
     ],
-    "ObjType": "SNRemnant",
+    "ObjType": "SNR",
     "Ra": 206.62,
     "Dec": -62.9,
     "VMag": null
@@ -1442,7 +1442,7 @@
     "Ids": [
       "RCW  81"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 208.85,
     "Dec": -61.35,
     "VMag": null
@@ -1452,7 +1452,7 @@
     "Ids": [
       "RCW  82"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 209.82,
     "Dec": -61.45,
     "VMag": null
@@ -1462,7 +1462,7 @@
     "Ids": [
       "RCW  83"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 212.17,
     "Dec": -62.07,
     "VMag": null
@@ -1472,7 +1472,7 @@
     "Ids": [
       "RCW  84"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 215.05,
     "Dec": -63.9,
     "VMag": null
@@ -1482,7 +1482,7 @@
     "Ids": [
       "RCW  85"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 215.17,
     "Dec": -61.4,
     "VMag": null
@@ -1494,7 +1494,7 @@
       "RCW  86",
       "TeV J1442-624"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 220.121,
     "Dec": -62.645,
     "VMag": null
@@ -1518,7 +1518,7 @@
       "[KC97c] G320.2+00.8",
       "[WMG70] 320.2+00.8"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 226.33,
     "Dec": -57.53,
     "VMag": null
@@ -1531,7 +1531,7 @@
       "RCW  88",
       "WRAY 16-166"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 226.78125,
     "Dec": -57.80611,
     "VMag": 12.0
@@ -1548,7 +1548,7 @@
       "RCW  89",
       "1RXS J151344.6-590112"
     ],
-    "ObjType": "SNRemnant",
+    "ObjType": "SNR",
     "Ra": 228.396,
     "Dec": -59.003,
     "VMag": null
@@ -1572,7 +1572,7 @@
       "Gaia DR2 5881321133302849920",
       "Gaia DR3 5881321133340445696"
     ],
-    "ObjType": "PlanetaryNeb",
+    "ObjType": "PN",
     "Ra": 226.49668954163,
     "Dec": -55.98793925071,
     "VMag": 13.5
@@ -1584,7 +1584,7 @@
       "RAFGL 4213",
       "RCW  91"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 229.067,
     "Dec": -58.215,
     "VMag": null
@@ -1594,7 +1594,7 @@
     "Ids": [
       "RCW  91A"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 228.987,
     "Dec": -58.185,
     "VMag": null
@@ -1604,7 +1604,7 @@
     "Ids": [
       "RCW  91B"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 229.183,
     "Dec": -58.167,
     "VMag": null
@@ -1621,7 +1621,7 @@
       "[KC97c] G322.2+00.6",
       "[WMG70] 322.2+00.6"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 229.6629,
     "Dec": -56.6469,
     "VMag": null
@@ -1631,7 +1631,7 @@
     "Ids": [
       "RCW  92A"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 229.746,
     "Dec": -56.683,
     "VMag": null
@@ -1641,7 +1641,7 @@
     "Ids": [
       "RCW  92B"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 229.646,
     "Dec": -56.64,
     "VMag": null
@@ -1666,7 +1666,7 @@
       "[M51]  89",
       "Gaia DR3 5881838006914886784"
     ],
-    "ObjType": "PlanetaryNeb",
+    "ObjType": "PN",
     "Ra": 233.56933790981,
     "Dec": -59.15225150631,
     "VMag": 13.1
@@ -1677,7 +1677,7 @@
       "BBW 29400a",
       "RCW  94"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 235.2,
     "Dec": -54.17,
     "VMag": null
@@ -1688,7 +1688,7 @@
       "BBW 29400c",
       "RCW  95"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 235.87,
     "Dec": -53.93,
     "VMag": null
@@ -1698,7 +1698,7 @@
     "Ids": [
       "RCW  96"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 238.2,
     "Dec": -55.25,
     "VMag": null
@@ -1718,7 +1718,7 @@
       "[KC97c] G327.3-00.6",
       "[WMG70] 327.3-00.5"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 238.2708,
     "Dec": -54.59,
     "VMag": null
@@ -1728,7 +1728,7 @@
     "Ids": [
       "RCW  98"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 238.85,
     "Dec": -54.65,
     "VMag": null
@@ -1745,7 +1745,7 @@
       "[JDP2019] MWP2G3285712-0051854",
       "[SPK2012] MWP1G328561-005077"
     ],
-    "ObjType": "Bubble",
+    "ObjType": "bub",
     "Ra": 239.8683,
     "Dec": -53.7492,
     "VMag": null
@@ -1775,7 +1775,7 @@
       "Gaia DR2 5982072132545824128",
       "Gaia DR3 5982072132545824128"
     ],
-    "ObjType": "PlanetaryNeb",
+    "ObjType": "PN",
     "Ra": 237.92062929944,
     "Dec": -51.52459606278,
     "VMag": 13.98
@@ -1803,7 +1803,7 @@
       "Gaia DR2 5934701559547878144",
       "Gaia DR3 5934701559547878144"
     ],
-    "ObjType": "PlanetaryNeb",
+    "ObjType": "PN",
     "Ra": 244.30579807604,
     "Dec": -51.9863088593,
     "VMag": 14.0
@@ -1813,7 +1813,7 @@
     "Ids": [
       "RCW 102"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 244.45,
     "Dec": -51.92,
     "VMag": null
@@ -1823,7 +1823,7 @@
     "Ids": [
       "RCW 102A"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 244.87,
     "Dec": -51.7,
     "VMag": null
@@ -1834,7 +1834,7 @@
       "PMN J1618-5156",
       "RCW 102B"
     ],
-    "ObjType": "Radio",
+    "ObjType": "Rad",
     "Ra": 244.6283,
     "Dec": -51.9417,
     "VMag": null
@@ -1867,7 +1867,7 @@
       "[BM83] X1613-509",
       "[NNM2015] 16"
     ],
-    "ObjType": "Pulsar",
+    "ObjType": "Psr",
     "Ra": 244.3875,
     "Dec": -51.033333,
     "VMag": null
@@ -1878,7 +1878,7 @@
       "RCW 104",
       "[RAA2005] G332.783-1.445"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 246.0,
     "Dec": -51.52,
     "VMag": null
@@ -1888,7 +1888,7 @@
     "Ids": [
       "RCW 104A"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 246.004,
     "Dec": -51.553,
     "VMag": null
@@ -1898,7 +1898,7 @@
     "Ids": [
       "RCW 104B"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 246.179,
     "Dec": -51.41,
     "VMag": null
@@ -1908,7 +1908,7 @@
     "Ids": [
       "RCW 104C"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 246.254,
     "Dec": -51.407,
     "VMag": null
@@ -1918,7 +1918,7 @@
     "Ids": [
       "RCW 104D"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 246.529,
     "Dec": -51.495,
     "VMag": null
@@ -1930,7 +1930,7 @@
       "RCW 105",
       "[RAA2005] G332.956+1.804"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 242.5,
     "Dec": -49.13,
     "VMag": null
@@ -1942,7 +1942,7 @@
       "RCW 106",
       "[RAA2005] G332.662-0.607"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 244.946,
     "Dec": -51.068,
     "VMag": null
@@ -1953,7 +1953,7 @@
       "PMN J1622-5051",
       "RCW 106A"
     ],
-    "ObjType": "Radio",
+    "ObjType": "Rad",
     "Ra": 245.5912,
     "Dec": -50.8531,
     "VMag": null
@@ -1963,7 +1963,7 @@
     "Ids": [
       "RCW 106B"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 245.0,
     "Dec": -50.9,
     "VMag": null
@@ -2048,7 +2048,7 @@
       "RCW 108",
       "[GS70] 336.5-01.5"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 250.0004,
     "Dec": -48.8625,
     "VMag": null
@@ -2059,7 +2059,7 @@
       "GRS G339.60 -00.10",
       "RCW 109"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 251.65,
     "Dec": -45.73,
     "VMag": null
@@ -2070,7 +2070,7 @@
       "GRS G340.80 -01.00",
       "RCW 110"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 253.571,
     "Dec": -45.283,
     "VMag": null
@@ -2081,7 +2081,7 @@
       "RCW 110A",
       "[ABB2014] WISE G340.862-00.870"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 253.467,
     "Dec": -45.14,
     "VMag": null
@@ -2095,7 +2095,7 @@
       "[KC97c] G340.8-01.0",
       "[WMG70] 340.8-01.0"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 253.5717,
     "Dec": -45.2842,
     "VMag": null
@@ -2105,7 +2105,7 @@
     "Ids": [
       "RCW 111"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 253.78,
     "Dec": -45.08,
     "VMag": null
@@ -2140,7 +2140,7 @@
       "Gaia DR2 6017034570775817984",
       "Gaia DR3 6017034570775817984"
     ],
-    "ObjType": "PlanetaryNeb",
+    "ObjType": "PN",
     "Ra": 247.8773785185599,
     "Dec": -40.25351283575,
     "VMag": 15.55
@@ -2151,7 +2151,7 @@
       "GUM 55",
       "RCW 113"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 253.3,
     "Dec": -42.2,
     "VMag": null
@@ -2164,7 +2164,7 @@
       "GRS G343.00 -06.00",
       "RCW 114"
     ],
-    "ObjType": "SNRemnant",
+    "ObjType": "SNR",
     "Ra": 261.25,
     "Dec": -46.5,
     "VMag": null
@@ -2174,7 +2174,7 @@
     "Ids": [
       "RCW 115"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 248.22,
     "Dec": -37.2,
     "VMag": null
@@ -2185,7 +2185,7 @@
       "GAL 345.2+01.0",
       "RCW 116"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 254.917,
     "Dec": -40.19,
     "VMag": null
@@ -2201,7 +2201,7 @@
       "[KPS2012] MWSC 2510",
       "[VGK2003] S1"
     ],
-    "ObjType": "Cluster*",
+    "ObjType": "Cl*",
     "Ra": 255.1478,
     "Dec": -40.5587,
     "VMag": null
@@ -2219,7 +2219,7 @@
       "SNR G345.4-00.9",
       "[GS70] 345.4-00.9"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 257.3917,
     "Dec": -41.6033,
     "VMag": null
@@ -2229,7 +2229,7 @@
     "Ids": [
       "RCW 118"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 258.37,
     "Dec": -39.85,
     "VMag": null
@@ -2239,7 +2239,7 @@
     "Ids": [
       "RCW 119"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 256.18,
     "Dec": -38.07,
     "VMag": null
@@ -2252,7 +2252,7 @@
       "GUM 58",
       "RCW 120"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 258.1,
     "Dec": -38.47,
     "VMag": null
@@ -2283,7 +2283,7 @@
       "[KC97c] G348.2-01.0",
       "[WHR97] 17149-3916"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 259.5996,
     "Dec": -39.3194,
     "VMag": null
@@ -2300,7 +2300,7 @@
       "[KC97c] G348.7-01.0",
       "[WMG70] 348.7-01.0"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 260.0242,
     "Dec": -38.9603,
     "VMag": null
@@ -2311,7 +2311,7 @@
       "RCW 122A",
       "[MFL85] RCW 122 A"
     ],
-    "ObjType": "Infrared",
+    "ObjType": "IR",
     "Ra": 260.021,
     "Dec": -38.963,
     "VMag": null
@@ -2322,7 +2322,7 @@
       "RCW 122B",
       "[MFL85] RCW 122 B"
     ],
-    "ObjType": "Infrared",
+    "ObjType": "IR",
     "Ra": 259.979,
     "Dec": -38.978,
     "VMag": null
@@ -2333,7 +2333,7 @@
       "RCW 122C",
       "[MFL85] RCW 122 C"
     ],
-    "ObjType": "Infrared",
+    "ObjType": "IR",
     "Ra": 259.833,
     "Dec": -39.062,
     "VMag": null
@@ -2344,7 +2344,7 @@
       "GRS G349.80 -00.50",
       "RCW 123"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 260.3,
     "Dec": -38.2,
     "VMag": null
@@ -2385,7 +2385,7 @@
       "[KC97c] G349.5+01.1",
       "[LFO93] 1710-37"
     ],
-    "ObjType": "PlanetaryNeb",
+    "ObjType": "PN",
     "Ra": 258.434746,
     "Dec": -37.103042,
     "VMag": 10.1
@@ -2396,7 +2396,7 @@
       "GRS G350.10 +00.10",
       "RCW 125"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 259.6,
     "Dec": -37.2,
     "VMag": null
@@ -2407,7 +2407,7 @@
       "GRS G350.60 +00.90",
       "RCW 126"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 259.23,
     "Dec": -36.35,
     "VMag": null
@@ -2432,7 +2432,7 @@
       "[ABB2014] WISE G351.130+00.449",
       "[KPS2012] MWSC 2577"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 260.219,
     "Dec": -36.131,
     "VMag": null
@@ -2442,7 +2442,7 @@
     "Ids": [
       "RCW 128"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 260.95,
     "Dec": -36.3,
     "VMag": null
@@ -2453,7 +2453,7 @@
       "RCW 129",
       "[CTR95] 13"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 249.27,
     "Dec": -28.1,
     "VMag": null
@@ -2464,7 +2464,7 @@
       "GRS G352.50 +02.10",
       "RCW 130"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 259.37,
     "Dec": -34.15,
     "VMag": null
@@ -2488,7 +2488,7 @@
       "[KPS2012] MWSC 2588",
       "[PT56] 36"
     ],
-    "ObjType": "OpenCluster",
+    "ObjType": "OpC",
     "Ra": 261.185,
     "Dec": -34.203,
     "VMag": null
@@ -2498,7 +2498,7 @@
     "Ids": [
       "RCW 132"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 263.3,
     "Dec": -32.7,
     "VMag": null
@@ -2508,7 +2508,7 @@
     "Ids": [
       "RCW 133"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 262.3,
     "Dec": -31.63,
     "VMag": null
@@ -2520,7 +2520,7 @@
       "RCW 134",
       "W 25"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 267.32,
     "Dec": -31.25,
     "VMag": null
@@ -2562,7 +2562,7 @@
       "Gaia DR2 4056786556011944064",
       "Gaia DR3 4056786556015410816"
     ],
-    "ObjType": "PlanetaryNeb",
+    "ObjType": "PN",
     "Ra": 266.49028050597,
     "Dec": -30.2002128481,
     "VMag": 12.08
@@ -2586,7 +2586,7 @@
       "WRAY 16-336",
       "Gaia DR3 4043963707852231808"
     ],
-    "ObjType": "EclBin",
+    "ObjType": "EB*",
     "Ra": 269.54435984744,
     "Dec": -31.71555002392,
     "VMag": 17.0
@@ -2598,7 +2598,7 @@
       "[LS95] 174231.0-292057",
       "[OF84] 11"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 266.4262,
     "Dec": -29.3683,
     "VMag": null
@@ -2611,7 +2611,7 @@
       "[PT94]  4",
       "[SBM2001]  42"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 266.2504,
     "Dec": -28.8569,
     "VMag": null
@@ -2632,7 +2632,7 @@
       "Gaia DR2 4057473093640116992",
       "Gaia DR3 4057473097944289920"
     ],
-    "ObjType": "EmLine*",
+    "ObjType": "Em*",
     "Ra": 266.7394004583699,
     "Dec": -29.01168102753,
     "VMag": null
@@ -2642,7 +2642,7 @@
     "Ids": [
       "RCW 140"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 266.85,
     "Dec": -29.05,
     "VMag": null
@@ -2664,7 +2664,7 @@
       "[WBH98] 17439-2845",
       "[WHR97] 17439-2845"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 266.7833,
     "Dec": -28.775,
     "VMag": null
@@ -2679,7 +2679,7 @@
       "[WBH98] 17470-2853",
       "[WHR97] 17470-2853"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 267.5637,
     "Dec": -28.9008,
     "VMag": null
@@ -2689,7 +2689,7 @@
     "Ids": [
       "RCW 143"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 266.4,
     "Dec": -24.92,
     "VMag": null
@@ -2699,7 +2699,7 @@
     "Ids": [
       "RCW 144"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 268.45,
     "Dec": -25.02,
     "VMag": null
@@ -2709,7 +2709,7 @@
     "Ids": [
       "RCW 145"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 270.0,
     "Dec": -23.3,
     "VMag": null
@@ -2719,7 +2719,7 @@
     "Ids": [
       "RCW 146"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 271.5,
     "Dec": -24.0,
     "VMag": null
@@ -2729,7 +2729,7 @@
     "Ids": [
       "RCW 147"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 270.62,
     "Dec": -22.9,
     "VMag": null
@@ -2739,7 +2739,7 @@
     "Ids": [
       "RCW 148"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 270.37,
     "Dec": -21.58,
     "VMag": null
@@ -2749,7 +2749,7 @@
     "Ids": [
       "RCW 149"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 271.75,
     "Dec": -21.75,
     "VMag": null
@@ -2759,7 +2759,7 @@
     "Ids": [
       "RCW 150"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 271.27,
     "Dec": -20.8,
     "VMag": null
@@ -2770,7 +2770,7 @@
       "GUM 77b",
       "RCW 151"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 274.12,
     "Dec": -20.4,
     "VMag": null
@@ -2780,7 +2780,7 @@
     "Ids": [
       "RCW 152"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 269.05,
     "Dec": -16.32,
     "VMag": null
@@ -2790,7 +2790,7 @@
     "Ids": [
       "RCW 153"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 274.75,
     "Dec": -19.32,
     "VMag": null
@@ -2800,7 +2800,7 @@
     "Ids": [
       "RCW 154"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 271.47,
     "Dec": -17.0,
     "VMag": null
@@ -2810,7 +2810,7 @@
     "Ids": [
       "RCW 155"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 273.05,
     "Dec": -17.67,
     "VMag": null
@@ -2820,7 +2820,7 @@
     "Ids": [
       "RCW 156"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 274.48,
     "Dec": -17.48,
     "VMag": null
@@ -2830,7 +2830,7 @@
     "Ids": [
       "RCW 157"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 274.02,
     "Dec": -16.58,
     "VMag": null
@@ -2840,7 +2840,7 @@
     "Ids": [
       "RCW 158"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 271.57,
     "Dec": -14.2,
     "VMag": null
@@ -2850,7 +2850,7 @@
     "Ids": [
       "RCW 159"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 276.22,
     "Dec": -16.57,
     "VMag": null
@@ -2860,7 +2860,7 @@
     "Ids": [
       "RCW 160"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 275.125,
     "Dec": -16.187,
     "VMag": null
@@ -2870,7 +2870,7 @@
     "Ids": [
       "RCW 161"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 275.22,
     "Dec": -15.13,
     "VMag": null
@@ -2880,7 +2880,7 @@
     "Ids": [
       "RCW 162"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 275.73,
     "Dec": -14.63,
     "VMag": null
@@ -2890,7 +2890,7 @@
     "Ids": [
       "RCW 163"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 277.5,
     "Dec": -15.37,
     "VMag": null
@@ -2900,7 +2900,7 @@
     "Ids": [
       "RCW 164"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 276.48,
     "Dec": -14.82,
     "VMag": null
@@ -2910,7 +2910,7 @@
     "Ids": [
       "RCW 165"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 274.625,
     "Dec": -13.708,
     "VMag": null
@@ -2920,7 +2920,7 @@
     "Ids": [
       "RCW 166"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 276.35,
     "Dec": -13.12,
     "VMag": null
@@ -2930,7 +2930,7 @@
     "Ids": [
       "RCW 167"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 275.3,
     "Dec": -11.9,
     "VMag": null
@@ -2941,7 +2941,7 @@
       "RCW 168",
       "[ADD2012] HII  2"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 277.88,
     "Dec": -9.99,
     "VMag": null
@@ -2956,7 +2956,7 @@
       "[PCC93] 273",
       "[SHK2000] 18282-0951"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 277.7558,
     "Dec": -9.8144,
     "VMag": null
@@ -2966,7 +2966,7 @@
     "Ids": [
       "RCW 170"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 277.8,
     "Dec": -9.12,
     "VMag": null
@@ -2976,7 +2976,7 @@
     "Ids": [
       "RCW 171"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 277.82,
     "Dec": -8.42,
     "VMag": null
@@ -2986,7 +2986,7 @@
     "Ids": [
       "RCW 172"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 279.12,
     "Dec": -7.48,
     "VMag": null
@@ -3000,7 +3000,7 @@
       "RCW 173",
       "SH  2-60"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 279.1762,
     "Dec": -6.6244,
     "VMag": null
@@ -3032,7 +3032,7 @@
       "[SG70] 028.8+3.5",
       "[WWB83] G028.9+3.5"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 277.8604,
     "Dec": -2.0728,
     "VMag": null
@@ -3042,7 +3042,7 @@
     "Ids": [
       "RCW 175"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 281.7,
     "Dec": -3.75,
     "VMag": null
@@ -3052,7 +3052,7 @@
     "Ids": [
       "RCW 176"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 281.32,
     "Dec": -2.02,
     "VMag": null
@@ -3062,7 +3062,7 @@
     "Ids": [
       "RCW 177"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 281.1,
     "Dec": -0.35,
     "VMag": null
@@ -3072,7 +3072,7 @@
     "Ids": [
       "RCW 178"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 285.43,
     "Dec": 2.38,
     "VMag": null
@@ -3083,7 +3083,7 @@
       "RCW 179",
       "[ADD2012] HII 36"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 285.92,
     "Dec": 2.22,
     "VMag": null
@@ -3093,7 +3093,7 @@
     "Ids": [
       "RCW 180"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 282.18,
     "Dec": 6.37,
     "VMag": null
@@ -3107,7 +3107,7 @@
       "PN YM   16",
       "RCW 181"
     ],
-    "ObjType": "PlanetaryNeb",
+    "ObjType": "PN",
     "Ra": 283.738767,
     "Dec": 6.041961,
     "VMag": null
@@ -3122,7 +3122,7 @@
       "[KC97c] G039.9-01.2",
       "[TP72] 59"
     ],
-    "ObjType": "HIIReg",
+    "ObjType": "HII",
     "Ra": 287.1292,
     "Dec": 5.5972,
     "VMag": 12.39
