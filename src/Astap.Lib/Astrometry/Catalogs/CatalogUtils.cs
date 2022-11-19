@@ -257,7 +257,7 @@ public static class CatalogUtils
             'C' when secondChar == 'l' || secondChar == 'r' => ("Cr000", 3, Catalog.Collinder),
             'C' when secondIsDigit => ("C000", 3, Catalog.Caldwell),
             'E' => ("E000-000", 7, Catalog.ESO),
-            'G' when secondChar == 'U' => ("GUM00*", 3, Catalog.GUM),
+            'G' when secondChar is 'U' or 'u' => ("GUM00*", 3, Catalog.GUM),
             'G' when secondChar == 'J' => ("GJ0000", 4, Catalog.GJ),
             'H' => secondChar switch
             {
