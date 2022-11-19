@@ -408,7 +408,7 @@ public class OpenNGCDB : ICelestialObjectDB
                             var modObj = new CelestialObject(
                                 obj.Index,
                                 obj.ObjectType,
-                                obj.RA,
+                                obj.RA / 15.0,
                                 obj.Dec,
                                 obj.Constellation,
                                 obj.V_Mag,
