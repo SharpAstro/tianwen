@@ -209,11 +209,15 @@ public enum ObjectType : ulong
 
 public static class ObjectTypeEx
 {
-    public static string ToAbbreviation(this object objectType) => EnumHelper.EnumValueToAbbreviation((ulong)objectType);
+    public static string ToAbbreviation(this ObjectType objectType) => EnumHelper.EnumValueToAbbreviation((ulong)objectType);
 
     public static string ToName(this ObjectType objectType) => objectType switch
     {
         ObjectType.GroupG => "Group of Galaxies",
         _ => objectType.PascalCaseStringToName()
     };
+
+    public static bool IsCandidate(this ObjectType objectType) => EnumHelper.FindCharInValue((ulong)objectType, '?');
+
+    public static bool IsStar(this ObjectType objectType) => EnumHelper.FindCharInValue((ulong)objectType, '*');
 }
