@@ -3,7 +3,6 @@
 public enum ObjectType : ulong
 {
     // meta types
-    NonExistent = (ulong)'N' << 28 | 'o' << 21 | 'n' << 14 | 'E' << 7 | 'x',
     Duplicate = 'D' << 14 | 'u' << 7 | 'p',
     // imported from Simbad
     DoubleStar = '*' << 7 | '*',
@@ -90,7 +89,7 @@ public enum ObjectType : ulong
     SNRemnant = 'S' << 14 | 'N' << 7 | 'R',
     HVCld = 'H' << 14 | 'V' << 7 | 'C',
     ISM = 'I' << 14 | 'S' << 7 | 'M',
-    HIshell = 's' << 7 | 'h',
+    HIShell = 's' << 7 | 'h',
     Seyfert1 = 'S' << 14 | 'y' << 7 | '1',
     BLLac = 'B' << 14 | 'L' << 7 | 'L',
     LowSurfBrghtG = 'L' << 14 | 'S' << 7 | 'B',
@@ -214,6 +213,17 @@ public static class ObjectTypeEx
     public static string ToName(this ObjectType objectType) => objectType switch
     {
         ObjectType.GroupG => "Group of Galaxies",
+        ObjectType.GrGCandidate => "Group of Galaxies Candidate",
+        ObjectType.GlobCluster => "Globular Cluster",
+        ObjectType.EmObj => "Emmission Object",
+        ObjectType.EmLineStar => "Emission Line Star",
+        ObjectType.RefNeb => "Reflection Nebula",
+        ObjectType.DarkNeb => "Dark Nebula",
+        ObjectType.GalNeb => "Galactic Nebula",
+        ObjectType.PairG => "Galaxy Pair",
+        ObjectType.StarburstG => "Starburst Galaxy",
+        ObjectType.HIIG => "HII Galaxy",
+        ObjectType.HIIReg => "HII Region",
         _ => objectType.PascalCaseStringToName()
     };
 
