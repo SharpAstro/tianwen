@@ -67,6 +67,31 @@ public static class EnumHelper
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public static bool FindCharInValue(ulong value, char @char)
+    {
+        if ((value & MSBUlongMask) == MSBUlongMask)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < MaxLenInASCII; i++)
+        {
+            var masked = (value & ASCIIMask);
+            if (masked == @char)
+            {
+                return true;
+            }
+            else if (masked == 0)
+            {
+                return false;
+            }
+            value >>= ASCIIBits;
+        }
+
+        return false;
+    }
+
     const RegexOptions CommonOptions = RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnorePatternWhitespace;
     static readonly Regex PascalSplitter = new(@"([A-Z][(?:)a-z])|([0-9]+)", CommonOptions);
 
