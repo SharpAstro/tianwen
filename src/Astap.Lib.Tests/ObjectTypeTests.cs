@@ -7,12 +7,12 @@ namespace Astap.Lib.Tests;
 public class ObjectTypeTests
 {
     [Theory]
-    [InlineData(ObjectType.RefNeb, "Ref Neb")]
-    [InlineData(ObjectType.GalNeb, "Gal Neb")]
-    [InlineData(ObjectType.GlobCluster, "Glob Cluster")]
-    [InlineData(ObjectType.EmObj, "Em Obj")]
+    [InlineData(ObjectType.RefNeb, "Reflection Nebula")]
+    [InlineData(ObjectType.GalNeb, "Galactic Nebula")]
+    [InlineData(ObjectType.GlobCluster, "Globular Cluster")]
+    [InlineData(ObjectType.EmObj, "Emmission Object")]
     [InlineData(ObjectType.GroupG, "Group of Galaxies")]
-    [InlineData(ObjectType.HIIReg, "HII Reg")]
+    [InlineData(ObjectType.HIIReg, "HII Region")]
     [InlineData(ObjectType.Association, "Association")]
     public void GivenObjectTypeWhenToNameThenPascalCaseNameIsSplitNaturally(ObjectType objectType, string expectedToName)
     {

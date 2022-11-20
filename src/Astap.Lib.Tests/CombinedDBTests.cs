@@ -80,7 +80,7 @@ public class CombinedDBTests
             catalogs.ShouldContain(idx.ToCatalog());
             var couldCalculate = ConstellationBoundary.TryFindConstellation(obj.RA, obj.Dec, out var calculatedConstellation);
 
-            if (obj.ObjectType != ObjectType.NonExistent || obj.Constellation != 0)
+            if (obj.ObjectType != ObjectType.Inexistent || obj.Constellation != 0)
             {
                 couldCalculate.ShouldBeTrue();
                 obj.Constellation.ShouldNotBe((Constellation)0, $"{idx.ToAbbreviation()} [{idx}]: Constellation should not be 0");
