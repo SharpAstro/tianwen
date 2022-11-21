@@ -33,6 +33,7 @@ public class CatalogUtilTests
     [InlineData("Ced 176e", "Ced176e", Catalog.Ced)]
     [InlineData("C041", "C041", Catalog.Caldwell)]
     [InlineData("C 40", "C040", Catalog.Caldwell)]
+    [InlineData("C 069", "C069", Catalog.Caldwell)]
     [InlineData("LDN 1002A", "LDN1002A", Catalog.LDN)]
     [InlineData("Mel 025", "Mel025", Catalog.Melotte)]
     [InlineData("NGC0526A", "N0526_A", Catalog.NGC)]
