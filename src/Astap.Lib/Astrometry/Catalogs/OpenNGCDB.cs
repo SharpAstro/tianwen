@@ -79,23 +79,23 @@ public class OpenNGCDB : ICelestialObjectDB
     /// <inheritdoc/>
     public bool TryResolveCommonName(string name, out IReadOnlyList<CatalogIndex> matches) => _objectsByCommonName.TryGetLookupEntries(name, out matches);
 
-    private static readonly Catalog[] CrossCats = new[] {
+    private static readonly ulong[] CrossCats = new[] {
         Catalog.Barnard,
+        Catalog.Caldwell,
         Catalog.Ced,
+        Catalog.Collinder,
         Catalog.GUM,
-        Catalog.RCW,
+        Catalog.IC,
         Catalog.LDN,
         Catalog.Messier,
-        Catalog.IC,
-        Catalog.Caldwell,
-        Catalog.Collinder,
         Catalog.Melotte,
         Catalog.Sharpless2,
+        Catalog.RCW,
         Catalog.UGC
-    }.OrderBy(x => (ulong)x).ToArray();
+    }.Select(c => (ulong)c).OrderBy(x => x).ToArray();
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool IsCrossCat(Catalog cat) => Array.BinarySearch(CrossCats, cat) >= 0;
+    private static bool IsCrossCat(Catalog cat) => Array.BinarySearch(CrossCats, (ulong)cat) >= 0;
 
     /// <inheritdoc/>
     public bool TryLookupByIndex(CatalogIndex index, [NotNullWhen(true)] out CelestialObject celestialObject)
@@ -314,12 +314,13 @@ public class OpenNGCDB : ICelestialObjectDB
                         {
                             if (identifier[0] is 'C' or 'M' or 'U'
                                 && identifier.Length >= 2
-                                && identifier[1] is 'G' or 'e' or 'l' or 'r' or ' ' or '0'
+                                && (identifier[1] is 'G' or 'e' or 'l' or 'r' or ' ' || char.IsDigit(identifier[1]))
                                 && TryGetCleanedUpCatalogName(identifier, out var crossCatIdx)
                                 && IsCrossCat(crossCatIdx.ToCatalog())
                             )
                             {
                                 _crossIndexLookuptable.AddLookupEntry(crossCatIdx, indexEntry);
+                                _crossIndexLookuptable.AddLookupEntry(indexEntry, crossCatIdx);
                             }
                         }
                     }
