@@ -32,6 +32,7 @@ public class CombinedDBTests
     [InlineData(NGC1976, "Great Orion Nebula", "Orion Nebula")]
     [InlineData(M051, "Whirlpool Galaxy")]
     [InlineData(NGC3372, "Car Nebula", "Carina Nebula", "eta Car Nebula", "Keyhole", "Keyhole Nebula")]
+    [InlineData(GUM033, "Car Nebula", "Carina Nebula", "eta Car Nebula", "Keyhole", "Keyhole Nebula")]
     public async Task GivenACatalogIndexWhenTryingToGetCommonNamesThenTheyAreFound(CatalogIndex catalogIndex, params string[] expectedNames)
     {
         var db = new CombinedDB();
@@ -52,6 +53,10 @@ public class CombinedDBTests
     [InlineData(M051, NGC5194)]
     [InlineData(M054, NGC6715)]
     [InlineData(NGC6715, M054)]
+    [InlineData(GUM020, RCW_0036)]
+    [InlineData(NGC3372, GUM033, RCW_0053)]
+    [InlineData(GUM033, NGC3372)]
+    [InlineData(RCW_0053, NGC3372)]
     public async Task GivenACatalogIndexWhenTryingToGetCrossIndicesThenTheyAreFound(CatalogIndex catalogIndex, params CatalogIndex[] expectedCrossIndices)
     {
         var db = new CombinedDB();

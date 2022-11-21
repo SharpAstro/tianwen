@@ -82,7 +82,8 @@ public class OpenNGCDB : ICelestialObjectDB
     private static readonly Catalog[] CrossCats = new[] {
         Catalog.Barnard,
         Catalog.GUM,
-        // Catalog.RCW,
+        Catalog.RCW,
+        Catalog.LDN,
         Catalog.Messier,
         Catalog.IC,
         Catalog.Caldwell,
@@ -179,7 +180,7 @@ public class OpenNGCDB : ICelestialObjectDB
             totalFailed += failed;
         }
 
-        foreach (var simbadCatName in new[] { "GUM", "RCW" })
+        foreach (var simbadCatName in new[] { "GUM", "RCW", "LDN" })
         {
             var (processed, failed) = await ReadEmbeddedGzippedJsonDataFileAsync(assembly, simbadCatName);
             totalProcessed += processed;
