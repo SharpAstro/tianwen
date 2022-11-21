@@ -220,6 +220,7 @@ public static class ObjectTypeEx
         ObjectType.RefNeb => "Reflection Nebula",
         ObjectType.DarkNeb => "Dark Nebula",
         ObjectType.GalNeb => "Galactic Nebula",
+        ObjectType.PlanetaryNeb => "Planetary Nebula",
         ObjectType.PairG => "Galaxy Pair",
         ObjectType.StarburstG => "Starburst Galaxy",
         ObjectType.HIIG => "HII Galaxy",
