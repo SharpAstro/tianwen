@@ -25,6 +25,7 @@ public enum Catalog : ulong
     Messier = 'M',
     NGC = 'N',
     PSR = 'P', // uses MSB = 1
+    RCW = 'R' << 14| 'C' << 7 | 'W', //  Rodgers, Campbell & Whiteoak
     Sharpless = 'S' << 21 | 'h' << 14 | '2' << 7 | '-', // Sharpless, including dash to distinguish 2 in the name from a number
     TrES = 'T' << 21 | 'r' << 14 | 'E' << 7 | 'S',
     TwoMass = '2', // uses MSB = 1

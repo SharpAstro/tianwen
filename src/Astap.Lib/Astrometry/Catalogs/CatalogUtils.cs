@@ -282,6 +282,7 @@ public static class CatalogUtils
             // be more lenient with NGC as its typed a lot
             'N' when secondIsDigit || secondChar is 'G' or 'g' or 'C' or 'c' => ("N0000", 4, Catalog.NGC),
             'P' when secondChar == 'S' && noSpaces.Length > 2 && noSpaces[2] == 'R' => ("", 8, Catalog.PSR),
+            'R' when secondChar == 'C' => ("RCW000*", 4, Catalog.RCW),
             'S' when secondIsDigit || secondChar == 'h' => ("Sh2-000", 3, Catalog.Sharpless),
             'T' when secondIsDigit || secondChar == 'r' => ("TrES00", 2, Catalog.TrES),
             'U' when secondIsDigit || secondChar == 'G' => ("U00000", 5, Catalog.UGC),
