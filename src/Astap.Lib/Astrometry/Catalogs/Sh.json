@@ -982,16 +982,6 @@
     "VMag": 15.77
   },
   {
-    "MainId": "SH  2-52 A",
-    "Ids": [
-      "SH  2-52 A"
-    ],
-    "ObjType": "HII",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
     "MainId": "SH  2-53",
     "Ids": [
       "SH  2-53"
@@ -1024,16 +1014,6 @@
     "ObjType": "HII",
     "Ra": 278.05,
     "Dec": -11.77,
-    "VMag": null
-  },
-  {
-    "MainId": "SH  2-55 B",
-    "Ids": [
-      "SH  2-55 B"
-    ],
-    "ObjType": "HII",
-    "Ra": 0.0,
-    "Dec": 0.0,
     "VMag": null
   },
   {
@@ -1299,16 +1279,6 @@
     "Ra": 281.0575,
     "Dec": -0.3147,
     "VMag": 14.05
-  },
-  {
-    "MainId": "SH  2-69 B",
-    "Ids": [
-      "SH  2-69 B"
-    ],
-    "ObjType": "HII",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
   },
   {
     "MainId": "LBN 035.08+11.42",
@@ -2046,36 +2016,6 @@
     "ObjType": "HII",
     "Ra": 306.8618,
     "Dec": 37.3802,
-    "VMag": null
-  },
-  {
-    "MainId": "SH  2-106 A",
-    "Ids": [
-      "SH  2-106 A"
-    ],
-    "ObjType": "HII",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
-    "MainId": "SH  2-106 B",
-    "Ids": [
-      "SH  2-106 B"
-    ],
-    "ObjType": "HII",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
-    "MainId": "SH  2-106 C",
-    "Ids": [
-      "SH  2-106 C"
-    ],
-    "ObjType": "HII",
-    "Ra": 0.0,
-    "Dec": 0.0,
     "VMag": null
   },
   {
@@ -2879,16 +2819,6 @@
     "VMag": null
   },
   {
-    "MainId": "SH  2-155 A",
-    "Ids": [
-      "SH  2-155 A"
-    ],
-    "ObjType": "Rad",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
     "MainId": "IC 1470",
     "Ids": [
       "IC 1470",
@@ -3479,16 +3409,6 @@
     "ObjType": "HII",
     "Ra": 20.74167,
     "Dec": 61.80444,
-    "VMag": null
-  },
-  {
-    "MainId": "NAME Sh 2-187 A",
-    "Ids": [
-      "NAME Sh 2-187 A"
-    ],
-    "ObjType": "HII",
-    "Ra": 0.0,
-    "Dec": 0.0,
     "VMag": null
   },
   {
@@ -4307,16 +4227,6 @@
     "VMag": null
   },
   {
-    "MainId": "SH  2-233 A",
-    "Ids": [
-      "SH  2-233 A"
-    ],
-    "ObjType": "HII",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
     "MainId": "SH  2-233 B",
     "Ids": [
       "SH  2-233 B"
@@ -4472,16 +4382,6 @@
     "ObjType": "HII",
     "Ra": 85.28,
     "Dec": 28.08,
-    "VMag": null
-  },
-  {
-    "MainId": "SH  2-240 N",
-    "Ids": [
-      "SH  2-240 N"
-    ],
-    "ObjType": "HII",
-    "Ra": 0.0,
-    "Dec": 0.0,
     "VMag": null
   },
   {
@@ -4712,26 +4612,6 @@
     "ObjType": "HII",
     "Ra": 95.633,
     "Dec": 22.975,
-    "VMag": null
-  },
-  {
-    "MainId": "SH  2-249 N",
-    "Ids": [
-      "SH  2-249 N"
-    ],
-    "ObjType": "HII",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
-    "MainId": "SH  2-249 S",
-    "Ids": [
-      "SH  2-249 S"
-    ],
-    "ObjType": "HII",
-    "Ra": 0.0,
-    "Dec": 0.0,
     "VMag": null
   },
   {

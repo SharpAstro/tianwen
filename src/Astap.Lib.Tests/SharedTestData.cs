@@ -22,6 +22,7 @@ public static class SharedTestData
     internal const CatalogIndex GUM016 = (CatalogIndex)((ulong)'G' << 35 | (ulong)'U' << 28 | 'M' << 21 | '0' << 14 | '1' << 7 | '6');
     internal const CatalogIndex GUM020 = (CatalogIndex)((ulong)'G' << 35 | (ulong)'U' << 28 | 'M' << 21 | '0' << 14 | '2' << 7 | '0');
     internal const CatalogIndex GUM033 = (CatalogIndex)((ulong)'G' << 35 | (ulong)'U' << 28 | 'M' << 21 | '0' << 14 | '3' << 7 | '3');
+    internal const CatalogIndex GUM060 = (CatalogIndex)((ulong)'G' << 35 | (ulong)'U' << 28 | 'M' << 21 | '0' << 14 | '6' << 7 | '0');
     internal const CatalogIndex HR0897 = (CatalogIndex)((ulong)'H' << 35 | (ulong)'R' << 28 | '0' << 21 | '8' << 14 | '9' << 7 | '7');
     internal const CatalogIndex HR1084 = (CatalogIndex)((ulong)'H' << 35 | (ulong)'R' << 28 | '1' << 21 | '0' << 14 | '8' << 7 | '4');
     internal const CatalogIndex IC0458 = (CatalogIndex)((ulong)'I' << 28 | '0' << 21 | (ulong)'4' << 14 | (ulong)'5' << 7 | '8');
@@ -51,6 +52,7 @@ public static class SharedTestData
     internal const CatalogIndex NGC5194 = (CatalogIndex)((ulong)'N' << 28 | '5' << 21 | '1' << 14 | '9' << 7 | '4');
     internal const CatalogIndex NGC5457 = (CatalogIndex)((ulong)'N' << 28 | '5' << 21 | '4' << 14 | '5' << 7 | '7');
     internal const CatalogIndex NGC6205 = (CatalogIndex)((ulong)'N' << 28 | '6' << 21 | '2' << 14 | '0' << 7 | '5');
+    internal const CatalogIndex NGC6302 = (CatalogIndex)((ulong)'N' << 28 | '6' << 21 | '3' << 14 | '0' << 7 | '2');
     internal const CatalogIndex NGC6611 = (CatalogIndex)((ulong)'N' << 28 | '6' << 21 | '6' << 14 | '1' << 7 | '1');
     internal const CatalogIndex NGC6715 = (CatalogIndex)((ulong)'N' << 28 | '6' << 21 | '7' << 14 | '1' << 7 | '5');
     internal const CatalogIndex NGC7293 = (CatalogIndex)((ulong)'N' << 28 | '7' << 21 | '2' << 14 | '9' << 7 | '3');
@@ -64,6 +66,7 @@ public static class SharedTestData
     internal const string PSR_J0002_6216n_Enc = "ÁAXL@Q3uC";
     internal const CatalogIndex RCW_0036 = (CatalogIndex)((ulong)'R' << 42 | (ulong)'C' << 35 | (ulong)'W' << 28 | '0' << 21 | '0' << 14 | '3' << 7 | '6');
     internal const CatalogIndex RCW_0053 = (CatalogIndex)((ulong)'R' << 42 | (ulong)'C' << 35 | (ulong)'W' << 28 | '0' << 21 | '0' << 14 | '5' << 7 | '3');
+    internal const CatalogIndex RCW_0124 = (CatalogIndex)((ulong)'R' << 42 | (ulong)'C' << 35 | (ulong)'W' << 28 | '0' << 21 | '1' << 14 | '2' << 7 | '4');
     internal const CatalogIndex Sh2_006 = (CatalogIndex)((ulong)'S' << 42 | (ulong)'h' << 35 | (ulong)'2' << 28 | '-' << 21 | '0' << 14 | '0' << 7 | '6');
     internal const CatalogIndex TrES03 = (CatalogIndex)((ulong)'T' << 35 | (ulong)'r' << 28 | 'E' << 21 | 'S' << 14 | '0' << 7 | '3');
     internal const CatalogIndex TwoM_J11400198_3152397n = (CatalogIndex)(Base91Enc | (ulong)'P' << 56 | (ulong)'6' << 49 | (ulong)'3' << 42 | (ulong)'A' << 35 | (ulong)'T' << 28 | 'J' << 21| ',' << 14 | 'y' << 7 | 'B');

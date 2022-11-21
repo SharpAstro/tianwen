@@ -23,8 +23,8 @@ public class OpenNGCDB : ICelestialObjectDB
 {
     private static readonly IReadOnlySet<string> EmptySet = ImmutableHashSet.Create<string>();
 
-    private readonly Dictionary<CatalogIndex, CelestialObject> _objectsByIndex = new(14000);
-    private readonly Dictionary<CatalogIndex, (CatalogIndex i1, CatalogIndex[]? ext)> _crossIndexLookuptable = new(5500);
+    private readonly Dictionary<CatalogIndex, CelestialObject> _objectsByIndex = new(17000);
+    private readonly Dictionary<CatalogIndex, (CatalogIndex i1, CatalogIndex[]? ext)> _crossIndexLookuptable = new(6100);
     private readonly Dictionary<string, (CatalogIndex i1, CatalogIndex[]? ext)> _objectsByCommonName = new(200);
 
     private HashSet<CatalogIndex>? _catalogIndicesCache;
@@ -81,6 +81,7 @@ public class OpenNGCDB : ICelestialObjectDB
 
     private static readonly Catalog[] CrossCats = new[] {
         Catalog.Barnard,
+        Catalog.Ced,
         Catalog.GUM,
         Catalog.RCW,
         Catalog.LDN,
@@ -89,6 +90,7 @@ public class OpenNGCDB : ICelestialObjectDB
         Catalog.Caldwell,
         Catalog.Collinder,
         Catalog.Melotte,
+        Catalog.Sharpless2,
         Catalog.UGC
     }.OrderBy(x => (ulong)x).ToArray();
 
@@ -180,9 +182,17 @@ public class OpenNGCDB : ICelestialObjectDB
             totalFailed += failed;
         }
 
-        foreach (var simbadCatName in new[] { "GUM", "RCW", "LDN" })
+        var simbadCatalogs = new[] {
+            ("GUM", Catalog.GUM),
+            ("RCW" , Catalog.RCW),
+            ("LDN" , Catalog.LDN),
+            ("Sh" , Catalog.Sharpless2),
+            ("Barnard", Catalog.Barnard),
+            ("Ced", Catalog.Ced)
+        };
+        foreach (var (fileName, catToAdd) in simbadCatalogs)
         {
-            var (processed, failed) = await ReadEmbeddedGzippedJsonDataFileAsync(assembly, simbadCatName);
+            var (processed, failed) = await ReadEmbeddedGzippedJsonDataFileAsync(assembly, fileName, catToAdd);
             totalProcessed += processed;
             totalFailed += failed;
         }
@@ -333,7 +343,7 @@ public class OpenNGCDB : ICelestialObjectDB
         }
     }
 
-    private async Task<(int processed, int failed)> ReadEmbeddedGzippedJsonDataFileAsync(Assembly assembly, string jsonName)
+    private async Task<(int processed, int failed)> ReadEmbeddedGzippedJsonDataFileAsync(Assembly assembly, string jsonName, Catalog catToAdd)
     {
         const string NAME_CAT_PREFIX = "NAME ";
 
@@ -354,7 +364,6 @@ public class OpenNGCDB : ICelestialObjectDB
             _ = mainCatalogs.Add(objIndex.ToCatalog());
         }
 
-        Catalog catToAdd = AbbreviationToEnumMember<Catalog>(jsonName);
         await foreach (var record in JsonSerializer.DeserializeAsyncEnumerable<SimbadCatalogDto>(gzipStream))
         {
             if (record is null)

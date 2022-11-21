@@ -1,6 +1,7 @@
 ﻿using Astap.Lib.Astrometry.Catalogs;
 using Astap.Lib.Astrometry.NOVA;
 using Shouldly;
+using System;
 using System.Threading.Tasks;
 using Xunit;
 using static Astap.Lib.Tests.SharedTestData;
@@ -33,6 +34,7 @@ public class CombinedDBTests
     [InlineData(M051, "Whirlpool Galaxy")]
     [InlineData(NGC3372, "Car Nebula", "Carina Nebula", "eta Car Nebula", "Keyhole", "Keyhole Nebula")]
     [InlineData(GUM033, "Car Nebula", "Carina Nebula", "eta Car Nebula", "Keyhole", "Keyhole Nebula")]
+    [InlineData(NGC6302, "Bug Nebula")]
     public async Task GivenACatalogIndexWhenTryingToGetCommonNamesThenTheyAreFound(CatalogIndex catalogIndex, params string[] expectedNames)
     {
         var db = new CombinedDB();
@@ -57,6 +59,7 @@ public class CombinedDBTests
     [InlineData(NGC3372, GUM033, RCW_0053)]
     [InlineData(GUM033, NGC3372)]
     [InlineData(RCW_0053, NGC3372)]
+    [InlineData(NGC6302, GUM060, RCW_0124, Sh2_006)]
     public async Task GivenACatalogIndexWhenTryingToGetCrossIndicesThenTheyAreFound(CatalogIndex catalogIndex, params CatalogIndex[] expectedCrossIndices)
     {
         var db = new CombinedDB();

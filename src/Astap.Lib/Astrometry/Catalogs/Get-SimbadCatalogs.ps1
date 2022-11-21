@@ -7,13 +7,15 @@ $catalogs | ForEach-Object {
     [xml]$table = Invoke-RestMethod "http://simbad.u-strasbg.fr/simbad/sim-id?output.format=votable&Ident=$($cat)&NbIdent=cat&output.params=$($outParams)"
 
     $entries = $table.VOTABLE.RESOURCE.TABLE.DATA.TABLEDATA.TR | ForEach-Object {
-        [PSCustomObject]@{
-            MainId = $_.TD[0]
-            Ids = $_.TD[1].Split('|')
-            ObjType = $_.TD[2]
-            Ra = [double]$_.TD[3]
-            Dec = [double]$_.TD[4]
-            VMag = if ([string]::IsNullOrWhiteSpace($_.TD[6])) { $null } else { [double]$_.TD[6] }
+        if (-not [string]::IsNullOrWhiteSpace($_.TD[3]) -and -not [string]::IsNullOrWhiteSpace($_.TD[4])) {
+            [PSCustomObject]@{
+                MainId = $_.TD[0]
+                Ids = $_.TD[1].Split('|')
+                ObjType = $_.TD[2]
+                Ra = [double]$_.TD[3]
+                Dec = [double]$_.TD[4]
+                VMag = if ([string]::IsNullOrWhiteSpace($_.TD[6])) { $null } else { [double]$_.TD[6] }
+            }
         }
     }
 
