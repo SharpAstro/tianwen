@@ -574,26 +574,6 @@
     "VMag": null
   },
   {
-    "MainId": "RCW  38E",
-    "Ids": [
-      "RCW  38E"
-    ],
-    "ObjType": "MoC",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
-    "MainId": "RCW  38W",
-    "Ids": [
-      "RCW  38W"
-    ],
-    "ObjType": "MoC",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
     "MainId": "BRAN 226",
     "Ids": [
       "BRAN 226",
@@ -840,26 +820,6 @@
     "ObjType": "HII",
     "Ra": 165.7338,
     "Dec": -59.4878,
-    "VMag": null
-  },
-  {
-    "MainId": "RCW  54A",
-    "Ids": [
-      "RCW  54A"
-    ],
-    "ObjType": "HII",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
-    "MainId": "RCW  54B",
-    "Ids": [
-      "RCW  54B"
-    ],
-    "ObjType": "HII",
-    "Ra": 0.0,
-    "Dec": 0.0,
     "VMag": null
   },
   {

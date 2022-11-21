@@ -9,6 +9,7 @@ public enum Catalog : ulong
     BonnerDurchmusterung = 'd', // uses MSB = 1
     Caldwell = 'C',
     Collinder = 'C' << 7 | 'r', // Cl is normalised to Cr
+    Ced = 'C' << 14 | 'e' << 7 | 'd', // Cederblad
     ESO = 'E',
     GJ = 'G' << 7 | 'J', // Gliese Jahreiß
     GUM = 'G' << 14 | 'U' << 7 | 'M',
@@ -26,7 +27,7 @@ public enum Catalog : ulong
     NGC = 'N',
     PSR = 'P', // uses MSB = 1
     RCW = 'R' << 14| 'C' << 7 | 'W', //  Rodgers, Campbell & Whiteoak
-    Sharpless = 'S' << 21 | 'h' << 14 | '2' << 7 | '-', // Sharpless, including dash to distinguish 2 in the name from a number
+    Sharpless2 = 'S' << 21 | 'h' << 14 | '2' << 7 | '-', // Sharpless 2, including dash to distinguish 2 in the name from a number
     TrES = 'T' << 21 | 'r' << 14 | 'E' << 7 | 'S',
     TwoMass = '2', // uses MSB = 1
     TwoMassX = 'x', // uses MSB = 1
@@ -54,7 +55,7 @@ public static class CatalogEx
             Catalog.Melotte => "Mel",
             Catalog.Messier => "M",
             Catalog.HAT_P => "HAT-P",
-            Catalog.Sharpless => "Sh2",
+            Catalog.Sharpless2 => "Sh2",
             Catalog.TwoMass => "2MASS",
             Catalog.TwoMassX => "2MASX",
             Catalog.WDS => "WDS",

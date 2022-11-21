@@ -209,7 +209,7 @@ $enumVals | ForEach-Object {
     $count = $abbrevChars.Count
     for ($i = 0; $i -lt $count; $i++) {
         $null = $abbrev.Append("'").Append($abbrevChars[$i]).Append("'");
-        
+
         if ($i -eq ($count - 1)) {
             $null = $abbrev.Append(',')
         } else {

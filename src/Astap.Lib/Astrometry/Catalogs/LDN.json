@@ -104,46 +104,6 @@
     "VMag": null
   },
   {
-    "MainId": "LDN    7E",
-    "Ids": [
-      "LDN    7E"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
-    "MainId": "LDN    7N",
-    "Ids": [
-      "LDN    7N"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
-    "MainId": "LDN    7S",
-    "Ids": [
-      "LDN    7S"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
-    "MainId": "LDN    7W",
-    "Ids": [
-      "LDN    7W"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
     "MainId": "LDN    8",
     "Ids": [
       "LDN    8",
@@ -278,16 +238,6 @@
     "ObjType": "DNe",
     "Ra": 262.27,
     "Dec": -25.53,
-    "VMag": null
-  },
-  {
-    "MainId": "LDN   19W",
-    "Ids": [
-      "LDN   19W"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
     "VMag": null
   },
   {
@@ -606,36 +556,6 @@
     "ObjType": "cor",
     "Ra": 248.4802,
     "Dec": -15.8624,
-    "VMag": null
-  },
-  {
-    "MainId": "LDN   43N",
-    "Ids": [
-      "LDN   43N"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
-    "MainId": "LDN   43S",
-    "Ids": [
-      "LDN   43S"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
-    "MainId": "LDN   43W",
-    "Ids": [
-      "LDN   43W"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
     "VMag": null
   },
   {
@@ -7229,46 +7149,6 @@
     "VMag": null
   },
   {
-    "MainId": "LDN  617E",
-    "Ids": [
-      "LDN  617E"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
-    "MainId": "LDN  617N",
-    "Ids": [
-      "LDN  617N"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
-    "MainId": "LDN  617S",
-    "Ids": [
-      "LDN  617S"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
-    "MainId": "LDN  617W",
-    "Ids": [
-      "LDN  617W"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
     "MainId": "LDN  618",
     "Ids": [
       "LDN  618"
@@ -10399,46 +10279,6 @@
     "VMag": null
   },
   {
-    "MainId": "LDN  896E",
-    "Ids": [
-      "LDN  896E"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
-    "MainId": "LDN  896N",
-    "Ids": [
-      "LDN  896N"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
-    "MainId": "LDN  896S",
-    "Ids": [
-      "LDN  896S"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
-    "MainId": "LDN  896W",
-    "Ids": [
-      "LDN  896W"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
     "MainId": "LDN  897",
     "Ids": [
       "LDN  897",
@@ -11570,16 +11410,6 @@
     "ObjType": "DNe",
     "Ra": 316.02,
     "Dec": 51.2,
-    "VMag": null
-  },
-  {
-    "MainId": "LDN  998A",
-    "Ids": [
-      "LDN  998A"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
     "VMag": null
   },
   {
@@ -15186,16 +15016,6 @@
     "VMag": null
   },
   {
-    "MainId": "LDN 1274N",
-    "Ids": [
-      "LDN 1274N"
-    ],
-    "ObjType": "Cld",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
     "MainId": "LDN 1275",
     "Ids": [
       "LDN 1275",
@@ -15842,26 +15662,6 @@
     "ObjType": "DNe",
     "Ra": 36.517,
     "Dec": 75.475,
-    "VMag": null
-  },
-  {
-    "MainId": "LDN 1333E",
-    "Ids": [
-      "LDN 1333E"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
-    "MainId": "LDN 1333W",
-    "Ids": [
-      "LDN 1333W"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
     "VMag": null
   },
   {
@@ -16845,26 +16645,6 @@
     "ObjType": "DNe",
     "Ra": 67.496,
     "Dec": 54.275,
-    "VMag": null
-  },
-  {
-    "MainId": "LDN 1407E",
-    "Ids": [
-      "LDN 1407E"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
-    "MainId": "LDN 1407W",
-    "Ids": [
-      "LDN 1407W"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
     "VMag": null
   },
   {
@@ -18146,26 +17926,6 @@
     "VMag": null
   },
   {
-    "MainId": "LDN 1495S",
-    "Ids": [
-      "LDN 1495S"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
-    "MainId": "LDN 1495SE",
-    "Ids": [
-      "LDN 1495SE"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
     "MainId": "LDN 1495W",
     "Ids": [
       "LDN 1495W",
@@ -18334,46 +18094,6 @@
     "ObjType": "DNe",
     "Ra": 64.7083,
     "Dec": 25.3208,
-    "VMag": null
-  },
-  {
-    "MainId": "LDN 1506E",
-    "Ids": [
-      "LDN 1506E"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
-    "MainId": "LDN 1506N",
-    "Ids": [
-      "LDN 1506N"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
-    "MainId": "LDN 1506S",
-    "Ids": [
-      "LDN 1506S"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
-    "MainId": "LDN 1506W",
-    "Ids": [
-      "LDN 1506W"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
     "VMag": null
   },
   {
@@ -18723,16 +18443,6 @@
     "VMag": null
   },
   {
-    "MainId": "LDN 1527A",
-    "Ids": [
-      "LDN 1527A"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
     "MainId": "LDN 1528",
     "Ids": [
       "LDN 1528"
@@ -19037,26 +18747,6 @@
     "VMag": null
   },
   {
-    "MainId": "LDN 1544E",
-    "Ids": [
-      "LDN 1544E"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
-    "MainId": "LDN 1544W",
-    "Ids": [
-      "LDN 1544W"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
     "MainId": "LDN 1545",
     "Ids": [
       "LDN 1545",
@@ -19224,16 +18914,6 @@
     "ObjType": "DNe",
     "Ra": 67.8913,
     "Dec": 18.1375,
-    "VMag": null
-  },
-  {
-    "MainId": "LDN 1551W",
-    "Ids": [
-      "LDN 1551W"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
     "VMag": null
   },
   {
@@ -20093,16 +19773,6 @@
     "VMag": null
   },
   {
-    "MainId": "LDN 1622A",
-    "Ids": [
-      "LDN 1622A"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
     "MainId": "LDN 1622B",
     "Ids": [
       "LDN 1622B"
@@ -20393,36 +20063,6 @@
     "ObjType": "MoC",
     "Ra": 68.825,
     "Dec": -14.231,
-    "VMag": null
-  },
-  {
-    "MainId": "LDN 1642E",
-    "Ids": [
-      "LDN 1642E"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
-    "MainId": "LDN 1642S",
-    "Ids": [
-      "LDN 1642S"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
-    "MainId": "LDN 1642W",
-    "Ids": [
-      "LDN 1642W"
-    ],
-    "ObjType": "DNe",
-    "Ra": 0.0,
-    "Dec": 0.0,
     "VMag": null
   },
   {

@@ -2291,26 +2291,6 @@
     "VMag": null
   },
   {
-    "MainId": "Ced 111a",
-    "Ids": [
-      "Ced 111a"
-    ],
-    "ObjType": "ISM",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
-    "MainId": "Ced 111b",
-    "Ids": [
-      "Ced 111b"
-    ],
-    "ObjType": "ISM",
-    "Ra": 0.0,
-    "Dec": 0.0,
-    "VMag": null
-  },
-  {
     "MainId": "Ced 112",
     "Ids": [
       "IC 2631",
