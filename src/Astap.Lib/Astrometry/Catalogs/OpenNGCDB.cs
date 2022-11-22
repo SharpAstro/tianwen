@@ -85,6 +85,8 @@ public class OpenNGCDB : ICelestialObjectDB
         Catalog.Ced,
         Catalog.Collinder,
         Catalog.GUM,
+        Catalog.HD,
+        Catalog.HR,
         Catalog.IC,
         Catalog.LDN,
         Catalog.Messier,
@@ -183,10 +185,11 @@ public class OpenNGCDB : ICelestialObjectDB
         }
 
         var simbadCatalogs = new[] {
+            ("HR", Catalog.HR),
             ("GUM", Catalog.GUM),
-            ("RCW" , Catalog.RCW),
-            ("LDN" , Catalog.LDN),
-            ("Sh" , Catalog.Sharpless2),
+            ("RCW", Catalog.RCW),
+            ("LDN", Catalog.LDN),
+            ("Sh", Catalog.Sharpless2),
             ("Barnard", Catalog.Barnard),
             ("Ced", Catalog.Ced)
         };
@@ -347,6 +350,7 @@ public class OpenNGCDB : ICelestialObjectDB
     private async Task<(int processed, int failed)> ReadEmbeddedGzippedJsonDataFileAsync(Assembly assembly, string jsonName, Catalog catToAdd)
     {
         const string NAME_CAT_PREFIX = "NAME ";
+        const string STAR_CAT_PREFIX = "* ";
 
         var processed = 0;
         var failed = 0;
@@ -379,7 +383,11 @@ public class OpenNGCDB : ICelestialObjectDB
             {
                 if (id.StartsWith(NAME_CAT_PREFIX))
                 {
-                    commonNames.Add(id[NAME_CAT_PREFIX.Length..]);
+                    commonNames.Add(id[NAME_CAT_PREFIX.Length..].TrimStart());
+                }
+                else if (id.StartsWith(STAR_CAT_PREFIX))
+                {
+                    commonNames.Add(id[STAR_CAT_PREFIX.Length..].TrimStart());
                 }
                 else if (TryGetCleanedUpCatalogName(id, out var catId))
                 {
@@ -439,10 +447,16 @@ public class OpenNGCDB : ICelestialObjectDB
                 }
                 else
                 {
-                    if (ConstellationBoundary.TryFindConstellation(record.Ra, record.Dec, out var constellation))
+                    var raInH = record.Ra / 15;
+                    if (ConstellationBoundary.TryFindConstellation(raInH, record.Dec, out var constellation))
                     {
                         var objType = AbbreviationToEnumMember<ObjectType>(record.ObjType);
-                        _objectsByIndex[catToAddIdx] = new CelestialObject(catToAddIdx, objType, record.Ra / 15, record.Dec, constellation, float.NaN, float.NaN, commonNames);
+                        _objectsByIndex[catToAddIdx] = new CelestialObject(catToAddIdx, objType, raInH, record.Dec, constellation, float.NaN, float.NaN, commonNames);
+
+                        foreach (var commonName in commonNames)
+                        {
+                            _objectsByCommonName.AddLookupEntry(commonName, catToAddIdx);
+                        }
                     }
                     else
                     {
