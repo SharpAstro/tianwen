@@ -11,8 +11,18 @@ namespace Astap.Lib.Tests;
 public class CombinedDBTests
 {
     [Theory]
-    [InlineData("Acamar", HR0897)]
     [InlineData("Coalsack Nebula", C099)]
+    [InlineData("Acamar", HR0897)]
+    [InlineData("θ1 Eri A", HR0897)]
+    [InlineData("Theta1 Eri A", HR0897)]
+    [InlineData("Ran", HR1084)]
+    [InlineData("ε Eri", HR1084)]
+    [InlineData("Epsilon Eri", HR1084)]
+    [InlineData("Car Nebula", NGC3372)]
+    [InlineData("Carina Nebula", NGC3372)]
+    [InlineData("eta Car Nebula", NGC3372)]
+    [InlineData("Keyhole", NGC3372)]
+    [InlineData("Keyhole Nebula", NGC3372)]
     public async Task GivenANameWhenTryingToResolveItIsFound(string name, params CatalogIndex[] expectedIndices)
     {
         var db = new CombinedDB();
