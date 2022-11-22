@@ -12,8 +12,7 @@
   {
     "MainId": "[DB2002b] G158.46-19.14",
     "Ids": [
-      "Barnard   2",
-      "[DB2002b] G158.46-19.14"
+      "Barnard   2"
     ],
     "ObjType": "DNe",
     "Ra": 53.37,
@@ -23,8 +22,7 @@
   {
     "MainId": "[DB2002b] G159.83-18.56",
     "Ids": [
-      "Barnard   3",
-      "[DB2002b] G159.83-18.56"
+      "Barnard   3"
     ],
     "ObjType": "DNe",
     "Ra": 55.0,
@@ -34,8 +32,7 @@
   {
     "MainId": "[DB2002b] G160.65-18.15",
     "Ids": [
-      "Barnard   4",
-      "[DB2002b] G160.65-18.15"
+      "Barnard   4"
     ],
     "ObjType": "DNe",
     "Ra": 56.0,
@@ -57,10 +54,7 @@
     "MainId": "LDN 1387",
     "Ids": [
       "LDN 1387",
-      "Barnard   6",
-      "IRAS 03521+5555",
-      "TGU H974 P1",
-      "[CB88]  15"
+      "Barnard   6"
     ],
     "ObjType": "DNe",
     "Ra": 59.0331,
@@ -70,8 +64,7 @@
   {
     "MainId": "[DB2002b] G168.46-15.58",
     "Ids": [
-      "Barnard   7",
-      "[DB2002b] G168.46-15.58"
+      "Barnard   7"
     ],
     "ObjType": "DNe",
     "Ra": 64.35,
@@ -101,8 +94,7 @@
   {
     "MainId": "[DB2002b] G168.87-15.58",
     "Ids": [
-      "Barnard  10",
-      "[DB2002b] G168.87-15.58"
+      "Barnard  10"
     ],
     "ObjType": "DNe",
     "Ra": 64.67,
@@ -133,9 +125,7 @@
   {
     "MainId": "MLB 3-78",
     "Ids": [
-      "Barnard  13",
-      "MLB 3-78",
-      "TGU H994 P4"
+      "Barnard  13"
     ],
     "ObjType": "DNe",
     "Ra": 67.82,
@@ -146,35 +136,8 @@
     "MainId": "HD   4732",
     "Ids": [
       "HD   4732",
-      "ADS   679 A",
       "Barnard  13A",
-      "CCDM J00492-2408A",
-      "CD-24   345",
-      "CPD-24    78",
-      "CSI-24   345 21",
-      "GC   980",
-      "GCRV   455",
-      "GEN# +1.00004732",
-      "GSC 06421-01078",
-      "HIC   3834",
-      "HIP   3834",
-      "HR   228",
-      "IDS 00443-2441 A",
-      "IRAS 00467-2424",
-      "2MASS J00491393-2408119",
-      "PPM 243277",
-      "SAO 166602",
-      "SKY#  1271",
-      "TIC 63905972",
-      "TYC 6421-1078-1",
-      "UBV M   7681",
-      "UCAC4 330-000916",
-      "uvby98 100004732",
-      "WDS J00492-2408A",
-      "WEB   684",
-      "YZ 114   386",
-      "Gaia DR3 2345744256120965504",
-      "Gaia DR2 2345744256120965504"
+      "HR   228"
     ],
     "ObjType": "PM*",
     "Ra": 12.30812591117,
@@ -195,8 +158,7 @@
     "MainId": "LDN 1445",
     "Ids": [
       "LDN 1445",
-      "Barnard  15",
-      "[DB2002b] G157.27-1.02"
+      "Barnard  15"
     ],
     "ObjType": "DNe",
     "Ra": 68.03,
@@ -206,8 +168,7 @@
   {
     "MainId": "[DB2002b] G157.31-0.99",
     "Ids": [
-      "Barnard  16",
-      "[DB2002b] G157.31-0.99"
+      "Barnard  16"
     ],
     "ObjType": "DNe",
     "Ra": 68.1,
@@ -217,8 +178,7 @@
   {
     "MainId": "[DB2002b] G157.38-1.04",
     "Ids": [
-      "Barnard  17",
-      "[DB2002b] G157.38-1.04"
+      "Barnard  17"
     ],
     "ObjType": "DNe",
     "Ra": 68.12,
@@ -228,9 +188,7 @@
   {
     "MainId": "Barnard  18",
     "Ids": [
-      "Barnard  18",
-      "GF 16",
-      "[K60] 279"
+      "Barnard  18"
     ],
     "ObjType": "Cld",
     "Ra": 67.8,
@@ -346,9 +304,7 @@
   {
     "MainId": "[DB2002b] G154.61+2.53",
     "Ids": [
-      "Barnard  20",
-      "TGU H1036",
-      "[DB2002b] G154.61+2.53"
+      "Barnard  20"
     ],
     "ObjType": "DNe",
     "Ra": 69.28,
@@ -379,8 +335,7 @@
     "MainId": "LDN 1503",
     "Ids": [
       "LDN 1503",
-      "Barnard  23",
-      "[CB88]  22"
+      "Barnard  23"
     ],
     "ObjType": "DNe",
     "Ra": 70.1,
@@ -391,8 +346,7 @@
     "MainId": "LDN 1507",
     "Ids": [
       "LDN 1507",
-      "Barnard  24",
-      "[CB88]  23"
+      "Barnard  24"
     ],
     "ObjType": "MoC",
     "Ra": 70.883,
@@ -403,8 +357,7 @@
     "MainId": "LDN 1465",
     "Ids": [
       "LDN 1465",
-      "Barnard  25",
-      "[DB2002b] G160.06+1.25"
+      "Barnard  25"
     ],
     "ObjType": "DNe",
     "Ra": 73.18,
@@ -465,8 +418,7 @@
   {
     "MainId": "[DB2002b] G192.19-11.20",
     "Ids": [
-      "Barnard  31",
-      "[DB2002b] G192.19-11.20"
+      "Barnard  31"
     ],
     "ObjType": "DNe",
     "Ra": 83.0,
@@ -488,10 +440,7 @@
     "MainId": "NAME Horsehead Nebula",
     "Ids": [
       "NAME Horsehead Nebula",
-      "Barnard  33",
-      "M3T 31",
-      "[DB2002b] G206.95-16.80",
-      "[OS98] 52"
+      "Barnard  33"
     ],
     "ObjType": "DNe",
     "Ra": 85.2458,
@@ -501,8 +450,7 @@
   {
     "MainId": "TGU H1235 P2",
     "Ids": [
-      "Barnard  34",
-      "TGU H1235 P2"
+      "Barnard  34"
     ],
     "ObjType": "Cld",
     "Ra": 85.8238,
@@ -532,10 +480,7 @@
   {
     "MainId": "JCMTSF J054429.8+090856",
     "Ids": [
-      "Barnard  35A",
-      "JCMTSE J054429.8+090856",
-      "JCMTSF J054429.8+090856",
-      "SCOPE G196.93-10.40"
+      "Barnard  35A"
     ],
     "ObjType": "DNe",
     "Ra": 86.123,
@@ -555,8 +500,7 @@
   {
     "MainId": "[DB2002b] G199.11-10.12",
     "Ids": [
-      "Barnard  36",
-      "[DB2002b] G199.11-10.12"
+      "Barnard  36"
     ],
     "ObjType": "DNe",
     "Ra": 87.2,
@@ -566,8 +510,7 @@
   {
     "MainId": "[DB2002b] G201.23+0.75",
     "Ids": [
-      "Barnard  37",
-      "[DB2002b] G201.23+0.75"
+      "Barnard  37"
     ],
     "ObjType": "DNe",
     "Ra": 98.0,
@@ -588,8 +531,7 @@
     "MainId": "LDN 1610",
     "Ids": [
       "LDN 1610",
-      "Barnard  39",
-      "IRAS 06351+1031"
+      "Barnard  39"
     ],
     "ObjType": "DNe",
     "Ra": 99.4861,
@@ -600,12 +542,7 @@
     "MainId": "LDN 1721",
     "Ids": [
       "LDN 1721",
-      "Barnard  40",
-      "MLB 3-42",
-      "TGU H2178",
-      "TGU H2178 P1",
-      "[BM89] 1-63",
-      "[DB2002b] G355.47+22.63"
+      "Barnard  40"
     ],
     "ObjType": "DNe",
     "Ra": 243.6171,
@@ -615,8 +552,7 @@
   {
     "MainId": "[DB2002b] G356.21+20.78",
     "Ids": [
-      "Barnard  41",
-      "[DB2002b] G356.21+20.78"
+      "Barnard  41"
     ],
     "ObjType": "DNe",
     "Ra": 245.57,
@@ -637,8 +573,7 @@
     "MainId": "LDN 1752",
     "Ids": [
       "LDN 1752",
-      "Barnard  43",
-      "[DB2002b] G357.46+19.41"
+      "Barnard  43"
     ],
     "ObjType": "DNe",
     "Ra": 247.47,
@@ -659,12 +594,7 @@
   {
     "MainId": "[DB2002b] G343.44+3.45",
     "Ids": [
-      "Barnard  44A",
-      "BHR 135",
-      "DCld 343.4+03.5",
-      "FEST 2-249",
-      "Sandqvist  18",
-      "[DB2002b] G343.44+3.45"
+      "Barnard  44A"
     ],
     "ObjType": "MoC",
     "Ra": 251.208,
@@ -686,9 +616,7 @@
     "MainId": "LDN 1775",
     "Ids": [
       "LDN 1775",
-      "Barnard  46",
-      "IRAS 16540-2247",
-      "TGU H2200 P1"
+      "Barnard  46"
     ],
     "ObjType": "DNe",
     "Ra": 254.262,
@@ -709,10 +637,7 @@
   {
     "MainId": "[DB2002b] G345.14+0.86",
     "Ids": [
-      "Barnard  48",
-      "FEST 2-258",
-      "Sandqvist  20",
-      "[DB2002b] G345.14+0.86"
+      "Barnard  48"
     ],
     "ObjType": "DNe",
     "Ra": 255.27,
@@ -723,10 +648,7 @@
     "MainId": "LDN 1679",
     "Ids": [
       "LDN 1679",
-      "Barnard  49",
-      "BHR 153",
-      "DCld 351.2+05.1",
-      "Sandqvist  31"
+      "Barnard  49"
     ],
     "ObjType": "MoC",
     "Ra": 255.683,
@@ -736,9 +658,7 @@
   {
     "MainId": "[DB2002b] G350.03+5.78",
     "Ids": [
-      "Barnard  50",
-      "FEST 2-275",
-      "[DB2002b] G350.03+5.78"
+      "Barnard  50"
     ],
     "ObjType": "DNe",
     "Ra": 254.2,
@@ -749,9 +669,7 @@
     "MainId": "LDN   15",
     "Ids": [
       "LDN   15",
-      "Barnard  51",
-      "TGU H2171 P15",
-      "[DB2002b] G0.43+11.37"
+      "Barnard  51"
     ],
     "ObjType": "DNe",
     "Ra": 256.18,
@@ -793,10 +711,7 @@
     "MainId": "LDN 1685",
     "Ids": [
       "LDN 1685",
-      "Barnard  56",
-      "BHR 157",
-      "DCld 352.9+04.8",
-      "[CB88]  73"
+      "Barnard  56"
     ],
     "ObjType": "MoC",
     "Ra": 257.192,
@@ -807,9 +722,7 @@
     "MainId": "LDN   11",
     "Ids": [
       "LDN   11",
-      "Barnard  57",
-      "[CB88]  72",
-      "[DB2002b] G0.43+10.28"
+      "Barnard  57"
     ],
     "ObjType": "DNe",
     "Ra": 257.129,
@@ -819,9 +732,7 @@
   {
     "MainId": "Barnard  58",
     "Ids": [
-      "Barnard  58",
-      "Sandqvist  23",
-      "[VMF2000] Sc 12"
+      "Barnard  58"
     ],
     "ObjType": "Cld",
     "Ra": 257.8442,
@@ -832,9 +743,7 @@
     "MainId": "LDN 1746",
     "Ids": [
       "LDN 1746",
-      "Barnard  59",
-      "TGU H25 P5",
-      "[DB2002b] G357.08+7.19"
+      "Barnard  59"
     ],
     "ObjType": "DNe",
     "Ra": 257.82,
@@ -855,8 +764,7 @@
     "MainId": "LDN  111",
     "Ids": [
       "LDN  111",
-      "Barnard  61",
-      "[CB88]  76"
+      "Barnard  61"
     ],
     "ObjType": "DNe",
     "Ra": 258.8,
@@ -867,10 +775,7 @@
     "MainId": "LDN  100",
     "Ids": [
       "LDN  100",
-      "Barnard  62",
-      "HBC 658",
-      "RNO  92",
-      "[RG86] B62-HA1"
+      "Barnard  62"
     ],
     "ObjType": "DNe",
     "Ra": 258.981958,
@@ -891,9 +796,7 @@
     "MainId": "LDN  173",
     "Ids": [
       "LDN  173",
-      "Barnard  64",
-      "TGU H63 P2",
-      "[CB88]  78"
+      "Barnard  64"
     ],
     "ObjType": "DNe",
     "Ra": 259.35,
@@ -904,8 +807,7 @@
     "MainId": "LDN 1772",
     "Ids": [
       "LDN 1772",
-      "Barnard  65",
-      "[CB88]  79"
+      "Barnard  65"
     ],
     "ObjType": "DNe",
     "Ra": 259.95,
@@ -947,8 +849,7 @@
     "MainId": "LDN   57",
     "Ids": [
       "LDN   57",
-      "Barnard  68",
-      "[CB88]  82"
+      "Barnard  68"
     ],
     "ObjType": "DNe",
     "Ra": 260.6592,
@@ -959,8 +860,7 @@
     "MainId": "LDN   55",
     "Ids": [
       "LDN   55",
-      "Barnard  69",
-      "[DB2002b] G1.46+6.96"
+      "Barnard  69"
     ],
     "ObjType": "DNe",
     "Ra": 260.75,
@@ -971,8 +871,7 @@
     "MainId": "LDN   54",
     "Ids": [
       "LDN   54",
-      "Barnard  70",
-      "[DB2002b] G1.45+6.81"
+      "Barnard  70"
     ],
     "ObjType": "DNe",
     "Ra": 260.9,
@@ -1005,8 +904,7 @@
   {
     "MainId": "[DB2002b] G1.33+6.53",
     "Ids": [
-      "Barnard  73",
-      "[DB2002b] G1.33+6.53"
+      "Barnard  73"
     ],
     "ObjType": "DNe",
     "Ra": 261.02,
@@ -1027,8 +925,7 @@
     "MainId": "LDN  112",
     "Ids": [
       "LDN  112",
-      "Barnard  75",
-      "[DB2002b] G3.43+7.64"
+      "Barnard  75"
     ],
     "ObjType": "DNe",
     "Ra": 261.25,
@@ -1049,9 +946,7 @@
     "MainId": "LDN   69",
     "Ids": [
       "LDN   69",
-      "Barnard  77",
-      "IRAS 17249-2401",
-      "IRAS 17249-2357"
+      "Barnard  77"
     ],
     "ObjType": "DNe",
     "Ra": 261.9929,
@@ -1061,8 +956,7 @@
   {
     "MainId": "[DB2002b] G1.31+4.20",
     "Ids": [
-      "Barnard  78",
-      "[DB2002b] G1.31+4.20"
+      "Barnard  78"
     ],
     "ObjType": "DNe",
     "Ra": 263.0,
@@ -1073,8 +967,7 @@
     "MainId": "LDN  216",
     "Ids": [
       "LDN  216",
-      "Barnard  79",
-      "IRAS 17347-1938"
+      "Barnard  79"
     ],
     "ObjType": "DNe",
     "Ra": 264.4246,
@@ -1084,8 +977,7 @@
   {
     "MainId": "[DB2002b] G5.57+5.55",
     "Ids": [
-      "Barnard  80",
-      "[DB2002b] G5.57+5.55"
+      "Barnard  80"
     ],
     "ObjType": "DNe",
     "Ra": 264.43,
@@ -1095,8 +987,7 @@
   {
     "MainId": "[DB2002b] G3.43+3.98",
     "Ids": [
-      "Barnard  81",
-      "[DB2002b] G3.43+3.98"
+      "Barnard  81"
     ],
     "ObjType": "DNe",
     "Ra": 264.62,
@@ -1106,8 +997,7 @@
   {
     "MainId": "[DB2002b] G3.55+4.03",
     "Ids": [
-      "Barnard  82",
-      "[DB2002b] G3.55+4.03"
+      "Barnard  82"
     ],
     "ObjType": "DNe",
     "Ra": 264.65,
@@ -1118,9 +1008,7 @@
     "MainId": "LDN  109",
     "Ids": [
       "LDN  109",
-      "Barnard  83",
-      "[CB88]  95",
-      "[DB2002b] G3.33+3.79"
+      "Barnard  83"
     ],
     "ObjType": "DNe",
     "Ra": 264.77,
@@ -1142,9 +1030,7 @@
     "MainId": "LDN  235",
     "Ids": [
       "LDN  235",
-      "Barnard  84",
-      "[CB88]  96",
-      "[DB2002b] G7.53+4.35"
+      "Barnard  84"
     ],
     "ObjType": "DNe",
     "Ra": 266.62,
@@ -1155,9 +1041,7 @@
     "MainId": "LDN  302",
     "Ids": [
       "LDN  302",
-      "Barnard  84A",
-      "TGU H120 P1",
-      "[DB2002b] G11.09+3.40"
+      "Barnard  84A"
     ],
     "ObjType": "DNe",
     "Ra": 269.4,
@@ -1167,8 +1051,7 @@
   {
     "MainId": "[DB2002b] G6.99-0.24",
     "Ids": [
-      "Barnard  85",
-      "[DB2002b] G6.99-0.24"
+      "Barnard  85"
     ],
     "ObjType": "DNe",
     "Ra": 270.6,
@@ -1179,9 +1062,7 @@
     "MainId": "LDN   93",
     "Ids": [
       "LDN   93",
-      "Barnard  86",
-      "[CB88] 107",
-      "[DB2002b] G2.85-2.75"
+      "Barnard  86"
     ],
     "ObjType": "DNe",
     "Ra": 270.742,
@@ -1203,9 +1084,7 @@
   {
     "MainId": "[DB2002b] G6.30-1.23",
     "Ids": [
-      "Barnard  88",
-      "TGU H77 P6",
-      "[DB2002b] G6.30-1.23"
+      "Barnard  88"
     ],
     "ObjType": "DNe",
     "Ra": 271.15,
@@ -1215,8 +1094,7 @@
   {
     "MainId": "[DB2002b] G6.12-1.43",
     "Ids": [
-      "Barnard  89",
-      "[DB2002b] G6.12-1.43"
+      "Barnard  89"
     ],
     "ObjType": "DNe",
     "Ra": 271.25,
@@ -1227,8 +1105,7 @@
     "MainId": "LDN  108",
     "Ids": [
       "LDN  108",
-      "Barnard  90",
-      "TGU H44 P1"
+      "Barnard  90"
     ],
     "ObjType": "DNe",
     "Ra": 272.562,
@@ -1239,8 +1116,7 @@
     "MainId": "LDN  227",
     "Ids": [
       "LDN  227",
-      "Barnard  91",
-      "[DB2002b] G7.29-2.12"
+      "Barnard  91"
     ],
     "ObjType": "DNe",
     "Ra": 272.52,
@@ -1251,9 +1127,7 @@
     "MainId": "LDN  323",
     "Ids": [
       "LDN  323",
-      "Barnard  92",
-      "TGU H135",
-      "[CB88] 125"
+      "Barnard  92"
     ],
     "ObjType": "DNe",
     "Ra": 273.87,
@@ -1264,9 +1138,7 @@
     "MainId": "LDN  327",
     "Ids": [
       "LDN  327",
-      "Barnard  93",
-      "[CB88] 131",
-      "[DB2002b] G12.99-0.83"
+      "Barnard  93"
     ],
     "ObjType": "DNe",
     "Ra": 274.23,
@@ -1287,9 +1159,7 @@
     "MainId": "LDN  406",
     "Ids": [
       "LDN  406",
-      "Barnard  95",
-      "TGU H207",
-      "[DB2002b] G19.52+0.23"
+      "Barnard  95"
     ],
     "ObjType": "DNe",
     "Ra": 276.37,
@@ -1299,8 +1169,7 @@
   {
     "MainId": "Barnard  96",
     "Ids": [
-      "Barnard  96",
-      "[CB88] 140"
+      "Barnard  96"
     ],
     "ObjType": "DNe",
     "Ra": 276.562,
@@ -1310,9 +1179,7 @@
   {
     "MainId": "[DB2002b] G21.57+0.39",
     "Ids": [
-      "Barnard  97",
-      "TGU H227",
-      "[DB2002b] G21.57+0.39"
+      "Barnard  97"
     ],
     "ObjType": "DNe",
     "Ra": 277.27,
@@ -1323,10 +1190,7 @@
     "MainId": "LDN  239",
     "Ids": [
       "LDN  239",
-      "Barnard  98",
-      "FEST 2-328",
-      "IRAS 18302-2603",
-      "[CB88] 148"
+      "Barnard  98"
     ],
     "ObjType": "DNe",
     "Ra": 278.3447,
@@ -1337,8 +1201,7 @@
     "MainId": "LDN  313",
     "Ids": [
       "LDN  313",
-      "Barnard  99",
-      "[DB2002b] G11.71-5.90"
+      "Barnard  99"
     ],
     "ObjType": "DNe",
     "Ra": 278.37,
@@ -1349,9 +1212,7 @@
     "MainId": "LDN  443",
     "Ids": [
       "LDN  443",
-      "Barnard 100",
-      "IRAS 18299-0907",
-      "[CB88] 145"
+      "Barnard 100"
     ],
     "ObjType": "DNe",
     "Ra": 278.1774,
@@ -1361,8 +1222,7 @@
   {
     "MainId": "Barnard 101",
     "Ids": [
-      "Barnard 101",
-      "[CB88] 146"
+      "Barnard 101"
     ],
     "ObjType": "DNe",
     "Ra": 278.133,
@@ -1373,10 +1233,7 @@
     "MainId": "LDN  401",
     "Ids": [
       "LDN  401",
-      "Barnard 102",
-      "IRAS 18354-1350",
-      "IRAS 18351-1348",
-      "[CB88] 149"
+      "Barnard 102"
     ],
     "ObjType": "DNe",
     "Ra": 279.4878,
@@ -1387,8 +1244,7 @@
     "MainId": "LDN  497",
     "Ids": [
       "LDN  497",
-      "Barnard 103",
-      "TGU H231 P4"
+      "Barnard 103"
     ],
     "ObjType": "DNe",
     "Ra": 279.7979,
@@ -1399,9 +1255,7 @@
     "MainId": "LDN  532",
     "Ids": [
       "LDN  532",
-      "Barnard 104",
-      "[CB88] 155",
-      "[DB2002b] G28.41-1.16"
+      "Barnard 104"
     ],
     "ObjType": "DNe",
     "Ra": 281.77,
@@ -1412,8 +1266,7 @@
     "MainId": "LDN  506",
     "Ids": [
       "LDN  506",
-      "Barnard 105",
-      "[DB2002b] G26.40-2.29"
+      "Barnard 105"
     ],
     "ObjType": "DNe",
     "Ra": 281.92,
@@ -1423,9 +1276,7 @@
   {
     "MainId": "[DB2002b] G28.12-1.76",
     "Ids": [
-      "Barnard 106",
-      "[CB88] 156",
-      "[DB2002b] G28.12-1.76"
+      "Barnard 106"
     ],
     "ObjType": "DNe",
     "Ra": 282.2,
@@ -1445,8 +1296,7 @@
   {
     "MainId": "[DB2002b] G27.11-2.45",
     "Ids": [
-      "Barnard 108",
-      "[DB2002b] G27.11-2.45"
+      "Barnard 108"
     ],
     "ObjType": "DNe",
     "Ra": 282.4,
@@ -1456,8 +1306,7 @@
   {
     "MainId": "[DB2002b] G26.03-3.10",
     "Ids": [
-      "Barnard 109",
-      "[DB2002b] G26.03-3.10"
+      "Barnard 109"
     ],
     "ObjType": "DNe",
     "Ra": 282.4,
@@ -1467,10 +1316,7 @@
   {
     "MainId": "[DB2002b] G28.48-1.78",
     "Ids": [
-      "Barnard 110",
-      "MLB 3-83",
-      "TGU H296 P2",
-      "[DB2002b] G28.48-1.78"
+      "Barnard 110"
     ],
     "ObjType": "DNe",
     "Ra": 282.52,
@@ -1480,8 +1326,7 @@
   {
     "MainId": "[DB2002b] G28.36-1.94",
     "Ids": [
-      "Barnard 111",
-      "[DB2002b] G28.36-1.94"
+      "Barnard 111"
     ],
     "ObjType": "DNe",
     "Ra": 282.5,
@@ -1502,8 +1347,7 @@
     "MainId": "LDN  548",
     "Ids": [
       "LDN  548",
-      "Barnard 113",
-      "IRAS 18471-0345"
+      "Barnard 113"
     ],
     "ObjType": "DNe",
     "Ra": 282.4573,
@@ -1514,9 +1358,7 @@
     "MainId": "LDN  514",
     "Ids": [
       "LDN  514",
-      "Barnard 114",
-      "IRAS 18501-0659",
-      "[CB88] 157"
+      "Barnard 114"
     ],
     "ObjType": "DNe",
     "Ra": 283.2143,
@@ -1527,9 +1369,7 @@
     "MainId": "LDN  518",
     "Ids": [
       "LDN  518",
-      "Barnard 115",
-      "[CB88] 158",
-      "[DB2002b] G27.21-3.45"
+      "Barnard 115"
     ],
     "ObjType": "DNe",
     "Ra": 283.3,
@@ -1540,8 +1380,7 @@
     "MainId": "LDN  512",
     "Ids": [
       "LDN  512",
-      "Barnard 116",
-      "[DB2002b] G26.80-3.62"
+      "Barnard 116"
     ],
     "ObjType": "DNe",
     "Ra": 283.3,
@@ -1552,9 +1391,7 @@
     "MainId": "LDN  509",
     "Ids": [
       "LDN  509",
-      "Barnard 117",
-      "[CB88] 160",
-      "[DB2002b] G26.57-3.87"
+      "Barnard 117"
     ],
     "ObjType": "DNe",
     "Ra": 283.43,
@@ -1564,8 +1401,7 @@
   {
     "MainId": "[DB2002b] G28.88-2.70",
     "Ids": [
-      "Barnard 117A",
-      "[DB2002b] G28.88-2.70"
+      "Barnard 117A"
     ],
     "ObjType": "DNe",
     "Ra": 283.43,
@@ -1575,8 +1411,7 @@
   {
     "MainId": "Barnard 118",
     "Ids": [
-      "Barnard 118",
-      "[CB88] 161"
+      "Barnard 118"
     ],
     "ObjType": "DNe",
     "Ra": 283.483,
@@ -1596,9 +1431,7 @@
   {
     "MainId": "[DB2002b] G28.69-3.07",
     "Ids": [
-      "Barnard 119A",
-      "TGU H286",
-      "[DB2002b] G28.69-3.07"
+      "Barnard 119A"
     ],
     "ObjType": "DNe",
     "Ra": 283.67,
@@ -1608,8 +1441,7 @@
   {
     "MainId": "Barnard 120",
     "Ids": [
-      "Barnard 120",
-      "[CB88] 164"
+      "Barnard 120"
     ],
     "ObjType": "DNe",
     "Ra": 284.4,
@@ -1619,8 +1451,7 @@
   {
     "MainId": "[DB2002b] G29.24-2.92",
     "Ids": [
-      "Barnard 121",
-      "[DB2002b] G29.24-2.92"
+      "Barnard 121"
     ],
     "ObjType": "DNe",
     "Ra": 283.85,
@@ -1631,9 +1462,7 @@
     "MainId": "LDN  545",
     "Ids": [
       "LDN  545",
-      "Barnard 122",
-      "[CB88] 166",
-      "[DB2002b] G29.30-3.35"
+      "Barnard 122"
     ],
     "ObjType": "DNe",
     "Ra": 284.2,
@@ -1653,8 +1482,7 @@
   {
     "MainId": "[DB2002b] G29.77-3.37",
     "Ids": [
-      "Barnard 124",
-      "[DB2002b] G29.77-3.37"
+      "Barnard 124"
     ],
     "ObjType": "DNe",
     "Ra": 284.42,
@@ -1664,8 +1492,7 @@
   {
     "MainId": "[DB2002b] G29.81-3.53",
     "Ids": [
-      "Barnard 125",
-      "[DB2002b] G29.81-3.53"
+      "Barnard 125"
     ],
     "ObjType": "DNe",
     "Ra": 284.57,
@@ -1676,9 +1503,7 @@
     "MainId": "LDN  556",
     "Ids": [
       "LDN  556",
-      "Barnard 126",
-      "[CB88] 168",
-      "[DB2002b] G29.74-3.75"
+      "Barnard 126"
     ],
     "ObjType": "DNe",
     "Ra": 284.77,
@@ -1689,9 +1514,7 @@
     "MainId": "LDN  544",
     "Ids": [
       "LDN  544",
-      "Barnard 127",
-      "[CB88] 170",
-      "[DB2002b] G29.21-4.72"
+      "Barnard 127"
     ],
     "ObjType": "DNe",
     "Ra": 285.4,
@@ -1712,10 +1535,7 @@
     "MainId": "LDN  549",
     "Ids": [
       "LDN  549",
-      "Barnard 129",
-      "MLB 4-15",
-      "[BM89] 1-94",
-      "[CB88] 175"
+      "Barnard 129"
     ],
     "ObjType": "DNe",
     "Ra": 285.5283,
@@ -1726,10 +1546,7 @@
     "MainId": "LDN  542",
     "Ids": [
       "LDN  542",
-      "Barnard 130",
-      "IRAS 18590-0539",
-      "[CB88] 173",
-      "[DB2002b] G29.11-4.82"
+      "Barnard 130"
     ],
     "ObjType": "DNe",
     "Ra": 285.4177,
@@ -1761,10 +1578,7 @@
     "MainId": "LDN  531",
     "Ids": [
       "LDN  531",
-      "Barnard 133",
-      "IRAS 19034-0658",
-      "TGU H282 P1",
-      "[CB88] 180"
+      "Barnard 133"
     ],
     "ObjType": "DNe",
     "Ra": 286.5416,
@@ -1775,9 +1589,7 @@
     "MainId": "LDN  543",
     "Ids": [
       "LDN  543",
-      "Barnard 134",
-      "[CB88] 181",
-      "[DB2002b] G29.12-6.25"
+      "Barnard 134"
     ],
     "ObjType": "DNe",
     "Ra": 286.68,
@@ -1807,9 +1619,7 @@
   {
     "MainId": "[DB2002b] G34.55-6.05",
     "Ids": [
-      "Barnard 137",
-      "[CB88] 185",
-      "[DB2002b] G34.55-6.05"
+      "Barnard 137"
     ],
     "ObjType": "DNe",
     "Ra": 288.983,
@@ -1820,8 +1630,7 @@
     "MainId": "LDN  627",
     "Ids": [
       "LDN  627",
-      "Barnard 138",
-      "[DB2002b] G36.26-4.65"
+      "Barnard 138"
     ],
     "ObjType": "DNe",
     "Ra": 288.5,
@@ -1832,9 +1641,7 @@
     "MainId": "LDN  619",
     "Ids": [
       "LDN  619",
-      "Barnard 139",
-      "[CB88] 187",
-      "[DB2002b] G34.67-6.59"
+      "Barnard 139"
     ],
     "ObjType": "DNe",
     "Ra": 289.512,
@@ -1854,9 +1661,7 @@
   {
     "MainId": "[DB2002b] G37.90-5.53",
     "Ids": [
-      "Barnard 141",
-      "TGU H327",
-      "[DB2002b] G37.90-5.53"
+      "Barnard 141"
     ],
     "ObjType": "DNe",
     "Ra": 290.05,
@@ -1866,9 +1671,7 @@
   {
     "MainId": "[DB2002b] G47.85-5.72",
     "Ids": [
-      "Barnard 142",
-      "TGU H367",
-      "[DB2002b] G47.85-5.72"
+      "Barnard 142"
     ],
     "ObjType": "DNe",
     "Ra": 294.92,
@@ -1879,10 +1682,7 @@
     "MainId": "LDN  694",
     "Ids": [
       "LDN  694",
-      "Barnard 143",
-      "TDS 202",
-      "[CB88] 200",
-      "[DB2002b] G48.37-5.83"
+      "Barnard 143"
     ],
     "ObjType": "DNe",
     "Ra": 295.18,
@@ -1892,8 +1692,7 @@
   {
     "MainId": "[DB2002b] G71.41+3.20",
     "Ids": [
-      "Barnard 144",
-      "[DB2002b] G71.41+3.20"
+      "Barnard 144"
     ],
     "ObjType": "DNe",
     "Ra": 299.5,
@@ -1903,9 +1702,7 @@
   {
     "MainId": "[DB2002b] G73.91+3.60",
     "Ids": [
-      "Barnard 145",
-      "TGU H454",
-      "[DB2002b] G73.91+3.60"
+      "Barnard 145"
     ],
     "ObjType": "DNe",
     "Ra": 300.7,
@@ -1926,8 +1723,7 @@
     "MainId": "LDN  853",
     "Ids": [
       "LDN  853",
-      "Barnard 147",
-      "IRAS 20050+3503"
+      "Barnard 147"
     ],
     "ObjType": "DNe",
     "Ra": 301.7462,
@@ -1937,8 +1733,7 @@
   {
     "MainId": "Barnard 148",
     "Ids": [
-      "Barnard 148",
-      "[CB88] 226"
+      "Barnard 148"
     ],
     "ObjType": "DNe",
     "Ra": 312.075,
@@ -1959,9 +1754,7 @@
     "MainId": "LDN 1082",
     "Ids": [
       "LDN 1082",
-      "Barnard 150",
-      "GF  9",
-      "[DB2002b] G96.98+10.07"
+      "Barnard 150"
     ],
     "ObjType": "DNe",
     "Ra": 312.77,
@@ -1971,9 +1764,7 @@
   {
     "MainId": "[DB2002b] G95.48+5.86",
     "Ids": [
-      "Barnard 151",
-      "TGU H561 P1",
-      "[DB2002b] G95.48+5.86"
+      "Barnard 151"
     ],
     "ObjType": "DNe",
     "Ra": 317.05,
@@ -1984,8 +1775,7 @@
     "MainId": "LDN 1125",
     "Ids": [
       "LDN 1125",
-      "Barnard 152",
-      "TGU H598 P1"
+      "Barnard 152"
     ],
     "ObjType": "DNe",
     "Ra": 318.62,
@@ -1995,8 +1785,7 @@
   {
     "MainId": "[DB2002b] G96.80+4.66",
     "Ids": [
-      "Barnard 153",
-      "[DB2002b] G96.80+4.66"
+      "Barnard 153"
     ],
     "ObjType": "DNe",
     "Ra": 320.25,
@@ -2007,8 +1796,7 @@
     "MainId": "LDN 1080",
     "Ids": [
       "LDN 1080",
-      "Barnard 154",
-      "[DB2002b] G96.93+4.72"
+      "Barnard 154"
     ],
     "ObjType": "DNe",
     "Ra": 320.37,
@@ -2019,8 +1807,7 @@
     "MainId": "LDN  983",
     "Ids": [
       "LDN  983",
-      "Barnard 155",
-      "[DB2002b] G90.17-4.78"
+      "Barnard 155"
     ],
     "ObjType": "DNe",
     "Ra": 323.1,
@@ -2030,8 +1817,7 @@
   {
     "MainId": "[DB2002b] G90.74-4.59",
     "Ids": [
-      "Barnard 156",
-      "[DB2002b] G90.74-4.59"
+      "Barnard 156"
     ],
     "ObjType": "DNe",
     "Ra": 323.5,
@@ -2042,10 +1828,7 @@
     "MainId": "LDN 1075",
     "Ids": [
       "LDN 1075",
-      "Barnard 157",
-      "TGU H575",
-      "[CB88] 231",
-      "[DB2002b] G96.89+2.13"
+      "Barnard 157"
     ],
     "ObjType": "MoC",
     "Ra": 323.483,
@@ -2055,9 +1838,7 @@
   {
     "MainId": "TGU H534 P2",
     "Ids": [
-      "Barnard 158",
-      "TGU H534 P2",
-      "[CB88] 232"
+      "Barnard 158"
     ],
     "ObjType": "DNe",
     "Ra": 324.297125,
@@ -2068,8 +1849,7 @@
     "MainId": "LDN  973",
     "Ids": [
       "LDN  973",
-      "Barnard 159",
-      "[DB2002b] G89.60-6.74"
+      "Barnard 159"
     ],
     "ObjType": "DNe",
     "Ra": 324.37,
@@ -2080,10 +1860,7 @@
     "MainId": "LDN 1088",
     "Ids": [
       "LDN 1088",
-      "Barnard 160",
-      "TGU H585",
-      "TGU H585 P1",
-      "[DB2002b] G98.34+2.88"
+      "Barnard 160"
     ],
     "ObjType": "DNe",
     "Ra": 324.55,
@@ -2125,9 +1902,7 @@
     "MainId": "LDN 1070",
     "Ids": [
       "LDN 1070",
-      "Barnard 164",
-      "TGU H571 P1",
-      "[DB2002b] G95.96-1.87"
+      "Barnard 164"
     ],
     "ObjType": "DNe",
     "Ra": 326.77,
@@ -2137,8 +1912,7 @@
   {
     "MainId": "[DB2002b] G102.04+4.95",
     "Ids": [
-      "Barnard 165",
-      "[DB2002b] G102.04+4.95"
+      "Barnard 165"
     ],
     "ObjType": "DNe",
     "Ra": 327.23,
@@ -2148,8 +1922,7 @@
   {
     "MainId": "[DB2002b] G102.18+4.69",
     "Ids": [
-      "Barnard 166",
-      "[DB2002b] G102.18+4.69"
+      "Barnard 166"
     ],
     "ObjType": "DNe",
     "Ra": 327.77,
@@ -2159,8 +1932,7 @@
   {
     "MainId": "[DB2002b] G102.25+4.61",
     "Ids": [
-      "Barnard 167",
-      "[DB2002b] G102.25+4.61"
+      "Barnard 167"
     ],
     "ObjType": "DNe",
     "Ra": 328.0,
@@ -2180,8 +1952,7 @@
   {
     "MainId": "[DB2002b] G102.12+3.03",
     "Ids": [
-      "Barnard 169",
-      "[DB2002b] G102.12+3.03"
+      "Barnard 169"
     ],
     "ObjType": "DNe",
     "Ra": 329.72,
@@ -2192,8 +1963,7 @@
     "MainId": "LDN 1149",
     "Ids": [
       "LDN 1149",
-      "Barnard 170",
-      "[DB2002b] G102.22+3.43"
+      "Barnard 170"
     ],
     "ObjType": "DNe",
     "Ra": 329.4,
@@ -2204,8 +1974,7 @@
     "MainId": "LDN 1153",
     "Ids": [
       "LDN 1153",
-      "Barnard 171",
-      "[DB2002b] G102.45+3.09"
+      "Barnard 171"
     ],
     "ObjType": "DNe",
     "Ra": 330.15,
@@ -2217,8 +1986,7 @@
     "Ids": [
       "LDN 1164",
       "Barnard 174",
-      "Barnard 172",
-      "[DB2002b] G103.23+2.73"
+      "Barnard 172"
     ],
     "ObjType": "DNe",
     "Ra": 331.68,
@@ -2240,8 +2008,7 @@
     "Ids": [
       "LDN 1164",
       "Barnard 174",
-      "Barnard 172",
-      "[DB2002b] G103.23+2.73"
+      "Barnard 172"
     ],
     "ObjType": "DNe",
     "Ra": 331.68,
@@ -2251,8 +2018,7 @@
   {
     "MainId": "[DB2002b] G110.12+11.08",
     "Ids": [
-      "Barnard 175",
-      "[DB2002b] G110.12+11.08"
+      "Barnard 175"
     ],
     "ObjType": "DNe",
     "Ra": 333.5,
@@ -2262,8 +2028,7 @@
   {
     "MainId": "[DB2002b] G133.87-4.05",
     "Ids": [
-      "Barnard 201",
-      "[DB2002b] G133.87-4.05"
+      "Barnard 201"
     ],
     "ObjType": "DNe",
     "Ra": 33.25,
@@ -2274,8 +2039,7 @@
     "MainId": "LDN 1451",
     "Ids": [
       "LDN 1451",
-      "Barnard 202",
-      "[DB2002b] G158.50-21.82"
+      "Barnard 202"
     ],
     "ObjType": "DNe",
     "Ra": 51.53,
@@ -2297,9 +2061,7 @@
     "MainId": "LDN 1455",
     "Ids": [
       "LDN 1455",
-      "Barnard 204",
-      "TGU H1085 P7",
-      "[DB2002b] G158.87-21.56"
+      "Barnard 204"
     ],
     "ObjType": "DNe",
     "Ra": 52.0027,
@@ -2320,8 +2082,7 @@
   {
     "MainId": "[DB2002b] G159.07-21.41",
     "Ids": [
-      "Barnard 206",
-      "[DB2002b] G159.07-21.41"
+      "Barnard 206"
     ],
     "ObjType": "DNe",
     "Ra": 52.3,
@@ -2391,8 +2152,7 @@
   {
     "MainId": "Barnard 213",
     "Ids": [
-      "Barnard 213",
-      "TGU H1211 P12"
+      "Barnard 213"
     ],
     "ObjType": "DNe",
     "Ra": 65.213,
@@ -2402,9 +2162,7 @@
   {
     "MainId": "[DB2002b] G169.18-14.88",
     "Ids": [
-      "Barnard 214",
-      "TGU H1150 P1",
-      "[DB2002b] G169.18-14.88"
+      "Barnard 214"
     ],
     "ObjType": "DNe",
     "Ra": 65.47,
@@ -2515,8 +2273,7 @@
     "MainId": "Barnard 218",
     "Ids": [
       "NAME Northern Streamer",
-      "Barnard 218",
-      "[DB2002b] G171.85-15.38"
+      "Barnard 218"
     ],
     "ObjType": "DNe",
     "Ra": 67.03,
@@ -2536,11 +2293,7 @@
   {
     "MainId": "Barnard 220",
     "Ids": [
-      "Barnard 220",
-      "MLB 3-27",
-      "TMC-1C",
-      "[BM89] 1-47",
-      "[THL2004] TMC-1 CPa"
+      "Barnard 220"
     ],
     "ObjType": "DNe",
     "Ra": 70.4117,
@@ -2570,8 +2323,7 @@
   {
     "MainId": "[DB2002b] G194.68-15.72",
     "Ids": [
-      "Barnard 223",
-      "[DB2002b] G194.68-15.72"
+      "Barnard 223"
     ],
     "ObjType": "DNe",
     "Ra": 80.37,
@@ -2581,9 +2333,7 @@
   {
     "MainId": "[DB2002b] G192.98-14.01",
     "Ids": [
-      "Barnard 224",
-      "TGU H1370",
-      "[DB2002b] G192.98-14.01"
+      "Barnard 224"
     ],
     "ObjType": "DNe",
     "Ra": 80.97,
@@ -2593,8 +2343,7 @@
   {
     "MainId": "[DB2002b] G192.66-12.64",
     "Ids": [
-      "Barnard 225",
-      "[DB2002b] G192.66-12.64"
+      "Barnard 225"
     ],
     "ObjType": "DNe",
     "Ra": 82.0,
@@ -2604,8 +2353,7 @@
   {
     "MainId": "[DB2002b] G174.94+0.88",
     "Ids": [
-      "Barnard 226",
-      "[DB2002b] G174.94+0.88"
+      "Barnard 226"
     ],
     "ObjType": "DNe",
     "Ra": 84.15,
@@ -2616,10 +2364,7 @@
     "MainId": "LDN 1570",
     "Ids": [
       "LDN 1570",
-      "Barnard 227",
-      "TGU H1347 P2",
-      "[CB88]  44",
-      "[DB2002b] G190.69-0.45"
+      "Barnard 227"
     ],
     "ObjType": "DNe",
     "Ra": 91.8683,
@@ -2629,9 +2374,7 @@
   {
     "MainId": "Barnard 228",
     "Ids": [
-      "Barnard 228",
-      "[LM99] 139",
-      "[LM99] DC 3388+165-5"
+      "Barnard 228"
     ],
     "ObjType": "cor",
     "Ra": 235.7536,
@@ -2641,8 +2384,7 @@
   {
     "MainId": "[DB2002b] G349.34+16.52",
     "Ids": [
-      "Barnard 229",
-      "[DB2002b] G349.34+16.52"
+      "Barnard 229"
     ],
     "ObjType": "DNe",
     "Ra": 244.3,
@@ -2662,9 +2404,7 @@
   {
     "MainId": "Sandqvist  21",
     "Ids": [
-      "Barnard 231",
-      "DCld 346.0+07.8",
-      "Sandqvist  21"
+      "Barnard 231"
     ],
     "ObjType": "DNe",
     "Ra": 249.208,
@@ -2684,9 +2424,7 @@
   {
     "MainId": "Barnard 233",
     "Ids": [
-      "Barnard 233",
-      "FEST 2-267",
-      "Sandqvist  25"
+      "Barnard 233"
     ],
     "ObjType": "DNe",
     "Ra": 251.07,
@@ -2696,8 +2434,7 @@
   {
     "MainId": "[DB2002b] G351.29+9.60",
     "Ids": [
-      "Barnard 234",
-      "[DB2002b] G351.29+9.60"
+      "Barnard 234"
     ],
     "ObjType": "DNe",
     "Ra": 251.6,
@@ -2707,12 +2444,7 @@
   {
     "MainId": "[DB2002b] G340.53+0.50",
     "Ids": [
-      "Barnard 235",
-      "BHR 133",
-      "DCld 340.5+00.5",
-      "FEST 2-234",
-      "Sandqvist  15",
-      "[DB2002b] G340.53+0.50"
+      "Barnard 235"
     ],
     "ObjType": "MoC",
     "Ra": 251.687,
@@ -2722,8 +2454,7 @@
   {
     "MainId": "[DB2002b] G352.03+9.76",
     "Ids": [
-      "Barnard 236",
-      "[DB2002b] G352.03+9.76"
+      "Barnard 236"
     ],
     "ObjType": "DNe",
     "Ra": 252.0,
@@ -2733,8 +2464,7 @@
   {
     "MainId": "[DB2002b] G352.03+9.50",
     "Ids": [
-      "Barnard 237",
-      "[DB2002b] G352.03+9.50"
+      "Barnard 237"
     ],
     "ObjType": "DNe",
     "Ra": 252.22,
@@ -2755,8 +2485,7 @@
   {
     "MainId": "[DB2002b] G351.95+7.76",
     "Ids": [
-      "Barnard 239",
-      "[DB2002b] G351.95+7.76"
+      "Barnard 239"
     ],
     "ObjType": "DNe",
     "Ra": 253.8,
@@ -2776,8 +2505,7 @@
   {
     "MainId": "[DB2002b] G353.28+7.58",
     "Ids": [
-      "Barnard 241",
-      "[DB2002b] G353.28+7.58"
+      "Barnard 241"
     ],
     "ObjType": "DNe",
     "Ra": 254.87,
@@ -2787,8 +2515,7 @@
   {
     "MainId": "[DB2002b] G352.23+5.27",
     "Ids": [
-      "Barnard 242",
-      "[DB2002b] G352.23+5.27"
+      "Barnard 242"
     ],
     "ObjType": "DNe",
     "Ra": 256.27,
@@ -2809,8 +2536,7 @@
     "MainId": "LDN 1736",
     "Ids": [
       "LDN 1736",
-      "Barnard 244",
-      "[DB2002b] G356.13+6.78"
+      "Barnard 244"
     ],
     "ObjType": "DNe",
     "Ra": 257.52,
@@ -2821,8 +2547,7 @@
     "MainId": "LDN 1726",
     "Ids": [
       "LDN 1726",
-      "Barnard 245",
-      "[DB2002b] G355.72+5.93"
+      "Barnard 245"
     ],
     "ObjType": "DNe",
     "Ra": 258.05,
@@ -2842,10 +2567,7 @@
   {
     "MainId": "[DB2002b] G354.99+5.17",
     "Ids": [
-      "Barnard 247",
-      "IRAS 17099-3012",
-      "[CB88]  75",
-      "[DB2002b] G354.99+5.17"
+      "Barnard 247"
     ],
     "ObjType": "DNe",
     "Ra": 258.284,
@@ -2856,8 +2578,7 @@
     "MainId": "LDN 1733",
     "Ids": [
       "LDN 1733",
-      "Barnard 248",
-      "[DB2002b] G355.93+6.01"
+      "Barnard 248"
     ],
     "ObjType": "DNe",
     "Ra": 258.12,
@@ -2879,8 +2600,7 @@
     "MainId": "LDN 1742",
     "Ids": [
       "LDN 1742",
-      "Barnard 250",
-      "[DB2002b] G356.40+6.42"
+      "Barnard 250"
     ],
     "ObjType": "DNe",
     "Ra": 258.05,
@@ -2890,8 +2610,7 @@
   {
     "MainId": "[DB2002b] G3.44+10.85",
     "Ids": [
-      "Barnard 251",
-      "[DB2002b] G3.44+10.85"
+      "Barnard 251"
     ],
     "ObjType": "DNe",
     "Ra": 258.45,
@@ -2922,8 +2641,7 @@
   {
     "MainId": "[DB2002b] G356.03+3.94",
     "Ids": [
-      "Barnard 254",
-      "[DB2002b] G356.03+3.94"
+      "Barnard 254"
     ],
     "ObjType": "DNe",
     "Ra": 260.12,
@@ -2934,8 +2652,7 @@
     "MainId": "LDN   59",
     "Ids": [
       "LDN   59",
-      "Barnard 255",
-      "[DB2002b] G1.57+7.69"
+      "Barnard 255"
     ],
     "ObjType": "DNe",
     "Ra": 260.15,
@@ -2955,13 +2672,7 @@
   {
     "MainId": "[DB2002b] G351.71+0.56",
     "Ids": [
-      "Barnard 257",
-      "BHR 155",
-      "DCld 351.7+00.5",
-      "FEST 2-280",
-      "Sandqvist  33",
-      "TGU H2164 P9",
-      "[DB2002b] G351.71+0.56"
+      "Barnard 257"
     ],
     "ObjType": "MoC",
     "Ra": 260.521,
@@ -2971,8 +2682,7 @@
   {
     "MainId": "[DB2002b] G352.53+0.90",
     "Ids": [
-      "Barnard 258",
-      "[DB2002b] G352.53+0.90"
+      "Barnard 258"
     ],
     "ObjType": "DNe",
     "Ra": 260.73,
@@ -2993,8 +2703,7 @@
     "MainId": "LDN   14",
     "Ids": [
       "LDN   14",
-      "Barnard 260",
-      "[DB2002b] G0.30+5.68"
+      "Barnard 260"
     ],
     "ObjType": "DNe",
     "Ra": 261.27,
@@ -3005,8 +2714,7 @@
     "MainId": "LDN   85",
     "Ids": [
       "LDN   85",
-      "Barnard 261",
-      "IRAS 17228-2258"
+      "Barnard 261"
     ],
     "ObjType": "DNe",
     "Ra": 261.4608,
@@ -3016,8 +2724,7 @@
   {
     "MainId": "TGU H25 P21",
     "Ids": [
-      "Barnard 262",
-      "TGU H25 P21"
+      "Barnard 262"
     ],
     "ObjType": "DNe",
     "Ra": 261.42,
@@ -3027,9 +2734,7 @@
   {
     "MainId": "Barnard 263",
     "Ids": [
-      "Barnard 263",
-      "FEST 2-264",
-      "Sandqvist  22"
+      "Barnard 263"
     ],
     "ObjType": "DNe",
     "Ra": 261.73,
@@ -3039,8 +2744,7 @@
   {
     "MainId": "[DB2002b] G0.68+5.22",
     "Ids": [
-      "Barnard 264",
-      "[DB2002b] G0.68+5.22"
+      "Barnard 264"
     ],
     "ObjType": "DNe",
     "Ra": 261.8,
@@ -3071,9 +2775,7 @@
     "MainId": "LDN   36",
     "Ids": [
       "LDN   36",
-      "Barnard 267",
-      "IRAS 17258-2510",
-      "[CB88]  88"
+      "Barnard 267"
     ],
     "ObjType": "DNe",
     "Ra": 262.2279,
@@ -3093,8 +2795,7 @@
   {
     "MainId": "[DB2002b] G3.64+5.84",
     "Ids": [
-      "Barnard 269",
-      "[DB2002b] G3.64+5.84"
+      "Barnard 269"
     ],
     "ObjType": "DNe",
     "Ra": 263.05,
@@ -3104,9 +2805,7 @@
   {
     "MainId": "[DB2002b] G6.31+7.46",
     "Ids": [
-      "Barnard 270",
-      "TGU H25 P16",
-      "[DB2002b] G6.31+7.46"
+      "Barnard 270"
     ],
     "ObjType": "DNe",
     "Ra": 263.17,
@@ -3116,8 +2815,7 @@
   {
     "MainId": "[DB2002b] G354.18-0.73",
     "Ids": [
-      "Barnard 271",
-      "[DB2002b] G354.18-0.73"
+      "Barnard 271"
     ],
     "ObjType": "DNe",
     "Ra": 263.5,
@@ -3127,8 +2825,7 @@
   {
     "MainId": "[DB2002b] G3.75+4.44",
     "Ids": [
-      "Barnard 272",
-      "[DB2002b] G3.75+4.44"
+      "Barnard 272"
     ],
     "ObjType": "DNe",
     "Ra": 264.3,
@@ -3138,8 +2835,7 @@
   {
     "MainId": "[DB2002b] G355.46-1.02",
     "Ids": [
-      "Barnard 273",
-      "[DB2002b] G355.46-1.02"
+      "Barnard 273"
     ],
     "ObjType": "DNe",
     "Ra": 264.62,
@@ -3149,8 +2845,7 @@
   {
     "MainId": "[DB2002b] G4.39+4.71",
     "Ids": [
-      "Barnard 274",
-      "[DB2002b] G4.39+4.71"
+      "Barnard 274"
     ],
     "ObjType": "DNe",
     "Ra": 264.5,
@@ -3160,9 +2855,7 @@
   {
     "MainId": "[DB2002b] G356.37-0.57",
     "Ids": [
-      "Barnard 275",
-      "TGU H2190 P8",
-      "[DB2002b] G356.37-0.57"
+      "Barnard 275"
     ],
     "ObjType": "DNe",
     "Ra": 264.75,
@@ -3173,9 +2866,7 @@
     "MainId": "LDN  219",
     "Ids": [
       "LDN  219",
-      "Barnard 276",
-      "[CB88]  91",
-      "[DB2002b] G7.02+5.99"
+      "Barnard 276"
     ],
     "ObjType": "DNe",
     "Ra": 264.87,
@@ -3186,10 +2877,7 @@
     "MainId": "LDN  144",
     "Ids": [
       "LDN  144",
-      "Barnard 277",
-      "IRAS 17376-2257",
-      "IRAS 17372-2259",
-      "TGU H58 P1"
+      "Barnard 277"
     ],
     "ObjType": "DNe",
     "Ra": 265.0676,
@@ -3199,8 +2887,7 @@
   {
     "MainId": "[DB2002b] G356.80-1.22",
     "Ids": [
-      "Barnard 278",
-      "[DB2002b] G356.80-1.22"
+      "Barnard 278"
     ],
     "ObjType": "DNe",
     "Ra": 265.65,
@@ -3210,9 +2897,7 @@
   {
     "MainId": "[DB2002b] G5.32+3.53",
     "Ids": [
-      "Barnard 279",
-      "TGU H64",
-      "[DB2002b] G5.32+3.53"
+      "Barnard 279"
     ],
     "ObjType": "DNe",
     "Ra": 266.15,
@@ -3232,8 +2917,7 @@
   {
     "MainId": "[DB2002b] G4.60+2.49",
     "Ids": [
-      "Barnard 281",
-      "[DB2002b] G4.60+2.49"
+      "Barnard 281"
     ],
     "ObjType": "DNe",
     "Ra": 266.7,
@@ -3243,8 +2927,7 @@
   {
     "MainId": "[DB2002b] G5.04+2.27",
     "Ids": [
-      "Barnard 282",
-      "[DB2002b] G5.04+2.27"
+      "Barnard 282"
     ],
     "ObjType": "DNe",
     "Ra": 267.15,
@@ -3265,8 +2948,7 @@
     "MainId": "LDN  330",
     "Ids": [
       "LDN  330",
-      "Barnard 284",
-      "[DB2002b] G13.06+6.59"
+      "Barnard 284"
     ],
     "ObjType": "DNe",
     "Ra": 267.6,
@@ -3276,8 +2958,7 @@
   {
     "MainId": "[DB2002b] G14.54+7.05",
     "Ids": [
-      "Barnard 285",
-      "[DB2002b] G14.54+7.05"
+      "Barnard 285"
     ],
     "ObjType": "DNe",
     "Ra": 267.87,
@@ -3318,9 +2999,7 @@
     "MainId": "LDN   35",
     "Ids": [
       "LDN   35",
-      "Barnard 289",
-      "TGU H15 P1",
-      "[DB2002b] G1.10-2.11"
+      "Barnard 289"
     ],
     "ObjType": "DNe",
     "Ra": 269.12,
@@ -3340,8 +3019,7 @@
   {
     "MainId": "[DB2002b] G357.26-5.10",
     "Ids": [
-      "Barnard 291",
-      "[DB2002b] G357.26-5.10"
+      "Barnard 291"
     ],
     "ObjType": "DNe",
     "Ra": 269.93,
@@ -3361,8 +3039,7 @@
   {
     "MainId": "[DB2002b] G356.14-6.08",
     "Ids": [
-      "Barnard 293",
-      "[DB2002b] G356.14-6.08"
+      "Barnard 293"
     ],
     "ObjType": "DNe",
     "Ra": 270.3,
@@ -3372,8 +3049,7 @@
   {
     "MainId": "[DB2002b] G2.04-2.82",
     "Ids": [
-      "Barnard 294",
-      "[DB2002b] G2.04-2.82"
+      "Barnard 294"
     ],
     "ObjType": "DNe",
     "Ra": 270.37,
@@ -3393,8 +3069,7 @@
   {
     "MainId": "[DB2002b] G5.88-1.33",
     "Ids": [
-      "Barnard 296",
-      "[DB2002b] G5.88-1.33"
+      "Barnard 296"
     ],
     "ObjType": "DNe",
     "Ra": 271.02,
@@ -3404,8 +3079,7 @@
   {
     "MainId": "[DB2002b] G10.93+1.53",
     "Ids": [
-      "Barnard 297",
-      "[DB2002b] G10.93+1.53"
+      "Barnard 297"
     ],
     "ObjType": "DNe",
     "Ra": 271.0,
@@ -3426,8 +3100,7 @@
     "MainId": "LDN  120",
     "Ids": [
       "LDN  120",
-      "Barnard 299",
-      "[DB2002b] G3.75-3.10"
+      "Barnard 299"
     ],
     "ObjType": "DNe",
     "Ra": 271.6,
@@ -3447,8 +3120,7 @@
   {
     "MainId": "[DB2002b] G11.51+0.55",
     "Ids": [
-      "Barnard 301",
-      "[DB2002b] G11.51+0.55"
+      "Barnard 301"
     ],
     "ObjType": "DNe",
     "Ra": 272.2,
@@ -3459,8 +3131,7 @@
     "MainId": "LDN  213",
     "Ids": [
       "LDN  213",
-      "Barnard 302",
-      "[DB2002b] G6.95-2.07"
+      "Barnard 302"
     ],
     "ObjType": "DNe",
     "Ra": 272.27,
@@ -3471,8 +3142,7 @@
     "MainId": "LDN  210",
     "Ids": [
       "LDN  210",
-      "Barnard 303",
-      "IRAS 18060-2408"
+      "Barnard 303"
     ],
     "ObjType": "DNe",
     "Ra": 272.2805,
@@ -3482,8 +3152,7 @@
   {
     "MainId": "[DB2002b] G11.97-0.32",
     "Ids": [
-      "Barnard 304",
-      "[DB2002b] G11.97-0.32"
+      "Barnard 304"
     ],
     "ObjType": "DNe",
     "Ra": 273.3,
@@ -3493,9 +3162,7 @@
   {
     "MainId": "[DB2002b] G0.60-6.85",
     "Ids": [
-      "Barnard 305",
-      "TGU H9 P1",
-      "[DB2002b] G0.60-6.85"
+      "Barnard 305"
     ],
     "ObjType": "DNe",
     "Ra": 273.65,
@@ -3506,8 +3173,7 @@
     "MainId": "LDN  195",
     "Ids": [
       "LDN  195",
-      "Barnard 306",
-      "[DB2002b] G6.12-4.25"
+      "Barnard 306"
     ],
     "ObjType": "DNe",
     "Ra": 273.98,
@@ -3518,8 +3184,7 @@
     "MainId": "LDN  335",
     "Ids": [
       "LDN  335",
-      "Barnard 307",
-      "[DB2002b] G13.46-1.17"
+      "Barnard 307"
     ],
     "ObjType": "DNe",
     "Ra": 274.77,
@@ -3529,8 +3194,7 @@
   {
     "MainId": "[DB2002b] G9.56-3.26",
     "Ids": [
-      "Barnard 308",
-      "[DB2002b] G9.56-3.26"
+      "Barnard 308"
     ],
     "ObjType": "DNe",
     "Ra": 274.77,
@@ -3550,8 +3214,7 @@
   {
     "MainId": "[DB2002b] G14.01-3.86",
     "Ids": [
-      "Barnard 310",
-      "[DB2002b] G14.01-3.86"
+      "Barnard 310"
     ],
     "ObjType": "DNe",
     "Ra": 277.55,
@@ -3562,10 +3225,7 @@
     "MainId": "LDN  356",
     "Ids": [
       "LDN  356",
-      "Barnard 311",
-      "IRAS 18274-1743",
-      "TGU H158 P1",
-      "[CB88] 143"
+      "Barnard 311"
     ],
     "ObjType": "DNe",
     "Ra": 277.5977,
@@ -3575,8 +3235,7 @@
   {
     "MainId": "[DB2002b] G16.89-2.89",
     "Ids": [
-      "Barnard 312",
-      "[DB2002b] G16.89-2.89"
+      "Barnard 312"
     ],
     "ObjType": "DNe",
     "Ra": 278.0,
@@ -3586,8 +3245,7 @@
   {
     "MainId": "[DB2002b] G17.22-3.75",
     "Ids": [
-      "Barnard 313",
-      "[DB2002b] G17.22-3.75"
+      "Barnard 313"
     ],
     "ObjType": "DNe",
     "Ra": 278.97,
@@ -3598,9 +3256,7 @@
     "MainId": "LDN  445",
     "Ids": [
       "LDN  445",
-      "Barnard 314",
-      "TGU H231 P12",
-      "[DB2002b] G22.82-1.37"
+      "Barnard 314"
     ],
     "ObjType": "DNe",
     "Ra": 279.5,
@@ -3611,9 +3267,7 @@
     "MainId": "LDN  344",
     "Ids": [
       "LDN  344",
-      "Barnard 315",
-      "[CB88] 153",
-      "[DB2002b] G13.95-6.86"
+      "Barnard 315"
     ],
     "ObjType": "DNe",
     "Ra": 280.5,
@@ -3633,8 +3287,7 @@
   {
     "MainId": "[DB2002b] G19.62-5.19",
     "Ids": [
-      "Barnard 317",
-      "[DB2002b] G19.62-5.19"
+      "Barnard 317"
     ],
     "ObjType": "DNe",
     "Ra": 281.45,
@@ -3644,8 +3297,7 @@
   {
     "MainId": "[DB2002b] G27.04-2.53",
     "Ids": [
-      "Barnard 318",
-      "[DB2002b] G27.04-2.53"
+      "Barnard 318"
     ],
     "ObjType": "DNe",
     "Ra": 282.43,
@@ -3655,8 +3307,7 @@
   {
     "MainId": "[DB2002b] G31.86-0.70",
     "Ids": [
-      "Barnard 319",
-      "[DB2002b] G31.86-0.70"
+      "Barnard 319"
     ],
     "ObjType": "DNe",
     "Ra": 283.0,
@@ -3676,8 +3327,7 @@
   {
     "MainId": "[DB2002b] G23.12-5.70",
     "Ids": [
-      "Barnard 321",
-      "[DB2002b] G23.12-5.70"
+      "Barnard 321"
     ],
     "ObjType": "DNe",
     "Ra": 283.5,
@@ -3687,9 +3337,7 @@
   {
     "MainId": "[DB2002b] G29.47-2.98",
     "Ids": [
-      "Barnard 322",
-      "[CB88] 165",
-      "[DB2002b] G29.47-2.98"
+      "Barnard 322"
     ],
     "ObjType": "DNe",
     "Ra": 283.937,
@@ -3699,9 +3347,7 @@
   {
     "MainId": "[DB2002b] G30.59-2.92",
     "Ids": [
-      "Barnard 323",
-      "TGU H299 P6",
-      "[DB2002b] G30.59-2.92"
+      "Barnard 323"
     ],
     "ObjType": "DNe",
     "Ra": 284.4,
@@ -3711,8 +3357,7 @@
   {
     "MainId": "[DB2002b] G31.18-3.12",
     "Ids": [
-      "Barnard 324",
-      "[DB2002b] G31.18-3.12"
+      "Barnard 324"
     ],
     "ObjType": "DNe",
     "Ra": 284.85,
@@ -3722,8 +3367,7 @@
   {
     "MainId": "[DB2002b] G30.28-3.72",
     "Ids": [
-      "Barnard 325",
-      "[DB2002b] G30.28-3.72"
+      "Barnard 325"
     ],
     "ObjType": "DNe",
     "Ra": 284.98,
@@ -3733,8 +3377,7 @@
   {
     "MainId": "[DB2002b] G33.91-2.75",
     "Ids": [
-      "Barnard 326",
-      "[DB2002b] G33.91-2.75"
+      "Barnard 326"
     ],
     "ObjType": "DNe",
     "Ra": 285.8,
@@ -3745,8 +3388,7 @@
     "MainId": "LDN  552",
     "Ids": [
       "LDN  552",
-      "Barnard 327",
-      "[DB2002b] G29.71-5.26"
+      "Barnard 327"
     ],
     "ObjType": "DNe",
     "Ra": 286.1,
@@ -3756,8 +3398,7 @@
   {
     "MainId": "[DB2002b] G30.68-4.90",
     "Ids": [
-      "Barnard 328",
-      "[DB2002b] G30.68-4.90"
+      "Barnard 328"
     ],
     "ObjType": "DNe",
     "Ra": 286.2,
@@ -3767,8 +3408,7 @@
   {
     "MainId": "[DB2002b] G37.54-2.00",
     "Ids": [
-      "Barnard 329",
-      "[DB2002b] G37.54-2.00"
+      "Barnard 329"
     ],
     "ObjType": "DNe",
     "Ra": 286.75,
@@ -3779,9 +3419,7 @@
     "MainId": "LDN  647",
     "Ids": [
       "LDN  647",
-      "Barnard 330",
-      "TGU H342 P1",
-      "[DB2002b] G42.87-2.85"
+      "Barnard 330"
     ],
     "ObjType": "DNe",
     "Ra": 289.9,
@@ -3791,8 +3429,7 @@
   {
     "MainId": "[DB2002b] G43.63-4.16",
     "Ids": [
-      "Barnard 331",
-      "[DB2002b] G43.63-4.16"
+      "Barnard 331"
     ],
     "ObjType": "DNe",
     "Ra": 291.5,
@@ -3802,8 +3439,7 @@
   {
     "MainId": "[DB2002b] G44.91-4.04",
     "Ids": [
-      "Barnard 332",
-      "[DB2002b] G44.91-4.04"
+      "Barnard 332"
     ],
     "ObjType": "DNe",
     "Ra": 292.0,
@@ -3813,8 +3449,7 @@
   {
     "MainId": "[DB2002b] G46.60-3.13",
     "Ids": [
-      "Barnard 333",
-      "[DB2002b] G46.60-3.13"
+      "Barnard 333"
     ],
     "ObjType": "DNe",
     "Ra": 292.0,
@@ -3825,9 +3460,7 @@
     "MainId": "LDN  701",
     "Ids": [
       "LDN  701",
-      "Barnard 334",
-      "[CB88] 195",
-      "[DB2002b] G48.78-3.83"
+      "Barnard 334"
     ],
     "ObjType": "DNe",
     "Ra": 293.73,
@@ -3838,8 +3471,7 @@
     "MainId": "LDN  663",
     "Ids": [
       "LDN  663",
-      "Barnard 335",
-      "[CB88] 199"
+      "Barnard 335"
     ],
     "ObjType": "DNe",
     "Ra": 294.229,
@@ -3850,9 +3482,7 @@
     "MainId": "LDN  702",
     "Ids": [
       "LDN  702",
-      "Barnard 336",
-      "[CB88] 198",
-      "[DB2002b] G49.07-4.18"
+      "Barnard 336"
     ],
     "ObjType": "DNe",
     "Ra": 294.1,
@@ -3863,8 +3493,7 @@
     "MainId": "LDN  705",
     "Ids": [
       "LDN  705",
-      "Barnard 337",
-      "[DB2002b] G49.18-4.24"
+      "Barnard 337"
     ],
     "ObjType": "DNe",
     "Ra": 294.2,
@@ -3875,8 +3504,7 @@
     "MainId": "LDN  668",
     "Ids": [
       "LDN  668",
-      "Barnard 338",
-      "[DB2002b] G45.53-8.05"
+      "Barnard 338"
     ],
     "ObjType": "DNe",
     "Ra": 295.85,
@@ -3886,8 +3514,7 @@
   {
     "MainId": "[DB2002b] G46.40-7.73",
     "Ids": [
-      "Barnard 339",
-      "[DB2002b] G46.40-7.73"
+      "Barnard 339"
     ],
     "ObjType": "DNe",
     "Ra": 296.0,
@@ -3907,8 +3534,7 @@
   {
     "MainId": "[DB2002b] G69.65+4.06",
     "Ids": [
-      "Barnard 341",
-      "[DB2002b] G69.65+4.06"
+      "Barnard 341"
     ],
     "ObjType": "DNe",
     "Ra": 297.5,
@@ -3919,8 +3545,7 @@
     "MainId": "LDN  885",
     "Ids": [
       "LDN  885",
-      "Barnard 342",
-      "[DB2002b] G77.52+4.41"
+      "Barnard 342"
     ],
     "ObjType": "DNe",
     "Ra": 302.3,
@@ -3941,8 +3566,7 @@
   {
     "MainId": "[DB2002b] G77.47+2.79",
     "Ids": [
-      "Barnard 344",
-      "[DB2002b] G77.47+2.79"
+      "Barnard 344"
     ],
     "ObjType": "DNe",
     "Ra": 304.05,
@@ -3952,8 +3576,7 @@
   {
     "MainId": "[DB2002b] G83.22+5.62",
     "Ids": [
-      "Barnard 345",
-      "[DB2002b] G83.22+5.62"
+      "Barnard 345"
     ],
     "ObjType": "DNe",
     "Ra": 305.25,
@@ -3963,8 +3586,7 @@
   {
     "MainId": "[DB2002b] G81.49+3.18",
     "Ids": [
-      "Barnard 346",
-      "[DB2002b] G81.49+3.18"
+      "Barnard 346"
     ],
     "ObjType": "DNe",
     "Ra": 306.7,
@@ -3974,8 +3596,7 @@
   {
     "MainId": "[DB2002b] G78.56+0.70",
     "Ids": [
-      "Barnard 347",
-      "[DB2002b] G78.56+0.70"
+      "Barnard 347"
     ],
     "ObjType": "DNe",
     "Ra": 307.12,
@@ -3985,8 +3606,7 @@
   {
     "MainId": "[DB2002b] G80.93+1.13",
     "Ids": [
-      "Barnard 348",
-      "[DB2002b] G80.93+1.13"
+      "Barnard 348"
     ],
     "ObjType": "DNe",
     "Ra": 308.5,
@@ -4006,8 +3626,7 @@
   {
     "MainId": "[DB2002b] G85.58+1.31",
     "Ids": [
-      "Barnard 350",
-      "[DB2002b] G85.58+1.31"
+      "Barnard 350"
     ],
     "ObjType": "DNe",
     "Ra": 312.27,
@@ -4017,8 +3636,7 @@
   {
     "MainId": "[DB2002b] G87.13+1.84",
     "Ids": [
-      "Barnard 351",
-      "[DB2002b] G87.13+1.84"
+      "Barnard 351"
     ],
     "ObjType": "DNe",
     "Ra": 313.12,
@@ -4038,8 +3656,7 @@
   {
     "MainId": "[DB2002b] G86.20+0.00",
     "Ids": [
-      "Barnard 353",
-      "[DB2002b] G86.20+0.00"
+      "Barnard 353"
     ],
     "ObjType": "DNe",
     "Ra": 314.35,
@@ -4049,8 +3666,7 @@
   {
     "MainId": "[DB2002b] G95.96+8.08",
     "Ids": [
-      "Barnard 354",
-      "[DB2002b] G95.96+8.08"
+      "Barnard 354"
     ],
     "ObjType": "DNe",
     "Ra": 314.5,
@@ -4060,8 +3676,7 @@
   {
     "MainId": "[DB2002b] G84.75-1.83",
     "Ids": [
-      "Barnard 355",
-      "[DB2002b] G84.75-1.83"
+      "Barnard 355"
     ],
     "ObjType": "DNe",
     "Ra": 314.9,
@@ -4072,8 +3687,7 @@
     "MainId": "LDN  950",
     "Ids": [
       "LDN  950",
-      "Barnard 356",
-      "[DB2002b] G87.42+0.28"
+      "Barnard 356"
     ],
     "ObjType": "DNe",
     "Ra": 315.12,
@@ -4084,9 +3698,7 @@
     "MainId": "LDN 1053",
     "Ids": [
       "LDN 1053",
-      "Barnard 357",
-      "TGU H553",
-      "TGU H553 P1"
+      "Barnard 357"
     ],
     "ObjType": "DNe",
     "Ra": 314.8421,
@@ -4096,8 +3708,7 @@
   {
     "MainId": "[DB2002b] G85.53-2.62",
     "Ids": [
-      "Barnard 358",
-      "[DB2002b] G85.53-2.62"
+      "Barnard 358"
     ],
     "ObjType": "DNe",
     "Ra": 316.42,
@@ -4108,9 +3719,7 @@
     "MainId": "LDN 1068",
     "Ids": [
       "LDN 1068",
-      "Barnard 359",
-      "TGU H570",
-      "[DB2002b] G95.89+6.59"
+      "Barnard 359"
     ],
     "ObjType": "DNe",
     "Ra": 316.7,
@@ -4121,8 +3730,7 @@
     "MainId": "LDN 1063",
     "Ids": [
       "LDN 1063",
-      "Barnard 360",
-      "TGU H561"
+      "Barnard 360"
     ],
     "ObjType": "DNe",
     "Ra": 316.98,
@@ -4133,9 +3741,7 @@
     "MainId": "LDN  970",
     "Ids": [
       "LDN  970",
-      "Barnard 361",
-      "MLB 4-18",
-      "[DB2002b] G89.34-0.67"
+      "Barnard 361"
     ],
     "ObjType": "DNe",
     "Ra": 318.0546,
@@ -4145,9 +3751,7 @@
   {
     "MainId": "Barnard 362",
     "Ids": [
-      "Barnard 362",
-      "[LM99] 374",
-      "[LM99] L1014-1"
+      "Barnard 362"
     ],
     "ObjType": "cor",
     "Ra": 321.0165,
@@ -4158,8 +3762,7 @@
     "MainId": "LDN 1007",
     "Ids": [
       "LDN 1007",
-      "Barnard 363",
-      "[DB2002b] G91.93-1.17"
+      "Barnard 363"
     ],
     "ObjType": "DNe",
     "Ra": 321.32,
@@ -4169,8 +3772,7 @@
   {
     "MainId": "[DB2002b] G96.80+2.02",
     "Ids": [
-      "Barnard 364",
-      "[DB2002b] G96.80+2.02"
+      "Barnard 364"
     ],
     "ObjType": "DNe",
     "Ra": 323.5,
@@ -4191,9 +3793,7 @@
     "MainId": "LDN 1131",
     "Ids": [
       "LDN 1131",
-      "Barnard 366",
-      "TGU H609 P1",
-      "[DB2002b] G100.77+5.20"
+      "Barnard 366"
     ],
     "ObjType": "DNe",
     "Ra": 325.05,
@@ -4204,8 +3804,7 @@
     "MainId": "LDN 1113",
     "Ids": [
       "LDN 1113",
-      "Barnard 367",
-      "[DB2002b] G99.65+3.02"
+      "Barnard 367"
     ],
     "ObjType": "DNe",
     "Ra": 326.15,
@@ -4216,8 +3815,7 @@
     "MainId": "LDN 1137",
     "Ids": [
       "LDN 1137",
-      "Barnard 368",
-      "[DB2002b] G101.58+3.87"
+      "Barnard 368"
     ],
     "ObjType": "DNe",
     "Ra": 327.9,
@@ -4228,8 +3826,7 @@
     "MainId": "LDN 1150",
     "Ids": [
       "LDN 1150",
-      "Barnard 369",
-      "[DB2002b] G102.37-0.53"
+      "Barnard 369"
     ],
     "ObjType": "DNe",
     "Ra": 333.95,
@@ -4239,8 +3836,7 @@
   {
     "MainId": "[DB2002b] G104.84-1.33",
     "Ids": [
-      "Barnard 370",
-      "[DB2002b] G104.84-1.33"
+      "Barnard 370"
     ],
     "ObjType": "DNe",
     "Ra": 338.5,
