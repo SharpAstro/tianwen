@@ -1,5 +1,7 @@
 ﻿using Astap.Lib.Astrometry.Catalogs;
 using Shouldly;
+using System;
+using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
 using static Astap.Lib.Astrometry.Catalogs.CatalogUtils;
@@ -38,7 +40,7 @@ public class IAUNamedStarTests
     }
 
     [Fact]
-    public async Task GivenAllCatIdxWhenTryingToLookupThenItIsAlwaysFound()
+    public async Task GivenAllCatIdxWhenTryingToLookupThenTheyAreAllFound()
     {
         // given
         var db = new IAUNamedStarDB();
@@ -54,7 +56,40 @@ public class IAUNamedStarTests
         });
 
         // then
-        processed.ShouldBeGreaterThanOrEqualTo(processed);
+        processed.ShouldBeGreaterThan(0);
+        failed.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task GivenAllIAUNamedBrightestStarsPerConstellationWhenTryingToLookupByNameThenTheyAreAllFound()
+    {
+        // given
+        var db = new IAUNamedStarDB();
+        var (processed, failed) = await db.InitDBAsync();
+        var constellations = Enum.GetValues<Constellation>();
+        var foundStars = 0;
+
+        // when
+        Parallel.ForEach(constellations, constellation =>
+        {
+            var name = constellation.ToBrighestStarName();
+            // a proper given name would not start with a greek letter
+            if (char.IsAscii(name[0]))
+            {
+                db.TryResolveCommonName(name, out _).ShouldBeTrue($"Star {name} in {constellation} was not found!");
+
+                Interlocked.Increment(ref foundStars);
+            }
+            else
+            {
+                var genitive = constellation.ToGenitive();
+                name.Contains(genitive).ShouldBeTrue($"Star {name} with Bayer designation in {constellation} should use genetive form {genitive}!");
+            }
+        });
+
+        // then
+        foundStars.ShouldBeGreaterThan(0);
+        processed.ShouldBeGreaterThan(0);
         failed.ShouldBe(0);
     }
 }
