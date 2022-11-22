@@ -2,13 +2,13 @@
 $commonFilter = "^(Barnard|RCW|LDN|GUM|SH|NAME|NGC|IC|Ced|M |HD|HR)"
 
 $catalogs = [ordered]@{
-    Bayer = "^(HD|HR|NAME|2MASS|[*])"
-    Barnard = $commonFilter
-    RCW = $commonFilter
-    GUM = $commonFilter
-    LDN = $commonFilter
-    Ced = $commonFilter
-    Sh = $commonFilter
+   HR = '^(HD|HR|NAME|2MASS|[*]|M |(NGC|IC)\s+\d+[A-Za-z]?$)'
+   Barnard = $commonFilter
+   RCW = $commonFilter
+   GUM = $commonFilter
+   LDN = $commonFilter
+   Ced = $commonFilter
+   Sh = $commonFilter
 }
 $outParams = "main_id,ids,otype(3),ra(d;ICRS),dec(d,ICRS),fluxdata(V)"
 $catalogs.GetEnumerator() | ForEach-Object {
