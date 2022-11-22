@@ -55,9 +55,26 @@ namespace Astap.Lib.Tests
         [InlineData(Constellation.SerpensCauda, "Serpentis")]
         [InlineData(Constellation.Telescopium, "Telescopii")]
         [InlineData(Constellation.Vela, "Velorum")]
-        public void GivenAConstellationWhenGettingTheGenitiveThenItIsReturned(Constellation constellation, string expectedGenitive)
+        public void GivenAConstellationWhenToGenitiveThenItIsReturned(Constellation constellation, string expectedGenitive)
         {
             constellation.ToGenitive().ShouldBe(expectedGenitive);
+        }
+
+        [Theory]
+        [InlineData(Constellation.Andromeda, "Alpheratz")]
+        [InlineData(Constellation.Antlia, "α Antliae")]
+        [InlineData(Constellation.Apus, "α Apodis")]
+        [InlineData(Constellation.CanesVenatici, "Cor Caroli")]
+        [InlineData(Constellation.CanisMajor, "Sirius")]
+        [InlineData(Constellation.Centaurus, "Rigil Kentaurus")]
+        [InlineData(Constellation.Serpens, "Unukalhai")]
+        [InlineData(Constellation.SerpensCaput, "Unukalhai")]
+        [InlineData(Constellation.SerpensCauda, "η Serpentis")]
+        [InlineData(Constellation.Telescopium, "α Telescopii")]
+        [InlineData(Constellation.Vela, "γ2 Velorum")]
+        public void GivenAConstellationWhenToBrightestStarThenItIsReturned(Constellation constellation, string expectedGenitive)
+        {
+            constellation.ToBrighestStarName().ShouldBe(expectedGenitive);
         }
 
         [Theory]

@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Text.RegularExpressions;
 using static Astap.Lib.EnumHelper;
 
 namespace Astap.Lib.Astrometry.Catalogs
@@ -199,6 +198,11 @@ namespace Astap.Lib.Astrometry.Catalogs
             => _info.TryGetValue(constellation, out var info)
                 ? info.Genetitive
                 : throw new ArgumentException($"Cannot find genitive for constellation {constellation}", nameof(constellation));
+
+        public static string ToBrighestStarName(this Constellation constellation)
+            => _info.TryGetValue(constellation, out var info)
+                ? info.BrightestStar
+                : throw new ArgumentException($"Cannot find brightest star for constellation {constellation}", nameof(constellation));
 
         public static string ToIAUAbbreviation(this Constellation constellation) => EnumValueToAbbreviation((ulong)constellation);
 
