@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using static Astap.Lib.Astrometry.Catalogs.CatalogUtils;
@@ -82,10 +83,18 @@ public class IAUNamedStarDB : ICelestialObjectDB
                         record.IAUName
                     };
 
+                    string? latinisedBayerName;
                     if (record.ID is not null)
                     {
-                        var bayerName = string.Join(' ', record.ID, constellation.ToIAUAbbreviation(), record.WDSComponentId).TrimEnd();
+                        var commonPart = string.Join(' ', constellation.ToIAUAbbreviation(), record.WDSComponentId).TrimEnd();
+                        var bayerName = string.Join(' ', record.ID, commonPart).TrimStart();
+                        latinisedBayerName = string.Join(' ', LatiniseBayerID(record.ID), commonPart).TrimStart();
+
                         commonNames.Add(bayerName);
+                    }
+                    else
+                    {
+                        latinisedBayerName = null;
                     }
 
                     var stellarObject = _stellarObjectsByCatalogIndex[catalogIndex] = new CelestialObject(
@@ -108,6 +117,10 @@ public class IAUNamedStarDB : ICelestialObjectDB
                     foreach (var commonName in commonNames)
                     {
                         _namesToCatalogIndex[commonName] = stellarObject.Index;
+                    }
+                    if (latinisedBayerName is not null)
+                    {
+                        _namesToCatalogIndex[latinisedBayerName] = stellarObject.Index;
                     }
                     processed++;
                 }
@@ -141,4 +154,51 @@ public class IAUNamedStarDB : ICelestialObjectDB
     /// <inheritdoc/>
     public bool TryGetCrossIndices(CatalogIndex catalogIndex, out IReadOnlyList<CatalogIndex> crossIndices)
         => _crossIndexLookuptable.TryGetLookupEntries(catalogIndex, out crossIndices);
+
+    static string LatiniseBayerID(in ReadOnlySpan<char> text)
+    {
+        var sb = new StringBuilder(text.Length + 8);
+
+        for (var i = 0; i < text.Length; i++)
+        {
+            var c = text[i];
+            if (char.IsAscii(c))
+            {
+                sb.Append(c);
+            }
+            else
+            {
+                sb.Append(c switch
+                {
+                    'α' => "Alpha",   //  1
+                    'β' => "Beta",    //  2
+                    'γ' => "Gamma",   //  3
+                    'δ' => "Delta",   //  4
+                    'ε' => "Epsilon", //  5
+                    'ζ' => "Zeta",    //  6
+                    'η' => "Eta",     //  7
+                    'θ' => "Theta",   //  8
+                    'ι' => "Iota",    //  9
+                    'κ' => "Kappa",   // 10
+                    'λ' => "Lambda",  // 11
+                    'μ' => "Mu",      // 12
+                    'ν' => "Nu",      // 13
+                    'ξ' => "Xi",      // 14
+                    'ο' => "Omicron", // 15
+                    'π' => "Pi",      // 16
+                    'ρ' => "Rho",     // 17
+                    'σ' => "Sigma",   // 18
+                    'τ' => "Tau",     // 19
+                    'υ' => "Upsilon", // 20
+                    'φ' or 'ϕ' => "Phi",     // 21
+                    'χ' => "Chi",     // 22
+                    'ψ' => "Psi",     // 23
+                    'ω' => "Omega",   // 24
+                    _ => throw new ArgumentException($"Unhandled char '{c}' in {text}", nameof(text))
+                });
+            }
+        }
+
+        return sb.ToString();
+    }
 }
