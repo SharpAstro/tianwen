@@ -1,15 +1,13 @@
 ﻿using Astap.Lib.Astrometry.Catalogs;
 using Astap.Lib.Astrometry.NOVA;
 using Shouldly;
-using System.Threading;
-using System;
 using System.Threading.Tasks;
 using Xunit;
 using static Astap.Lib.Tests.SharedTestData;
 
 namespace Astap.Lib.Tests;
 
-public class OpenNGCDBTests
+public class CelestialObjectDBTests
 {
     [Theory]
     [InlineData("C041", ObjectType.OpenCluster, C041, Constellation.Taurus, 4.448333333333333d, 15.866666666666667d)]
@@ -49,7 +47,7 @@ public class OpenNGCDBTests
     )
     {
         // given
-        ICelestialObjectDB db = new OpenNGCDB();
+        ICelestialObjectDB db = new CelestialObjectDB();
         var (actualRead, actualFailed) = await db.InitDBAsync();
 
         // when
@@ -84,7 +82,7 @@ public class OpenNGCDBTests
     public async Task GivenANameWhenLookingItUpThenAnObjIsReturned(string name, params CatalogIndex[] expectedMatches)
     {
         // given
-        var db = new OpenNGCDB();
+        var db = new CelestialObjectDB();
         var (actualRead, actualFailed) = await db.InitDBAsync();
 
         // when
@@ -111,7 +109,7 @@ public class OpenNGCDBTests
     [InlineData("Keyhole Nebula", NGC3372)]
     public async Task GivenANameWhenTryingToResolveItIsFound(string name, params CatalogIndex[] expectedIndices)
     {
-        var db = new OpenNGCDB();
+        var db = new CelestialObjectDB();
         _ = await db.InitDBAsync();
 
         var found = db.TryResolveCommonName(name, out var matches);
@@ -133,7 +131,7 @@ public class OpenNGCDBTests
     [InlineData(NGC6302, "Bug Nebula", "Butterfly Nebula")]
     public async Task GivenACatalogIndexWhenTryingToGetCommonNamesThenTheyAreFound(CatalogIndex catalogIndex, params string[] expectedNames)
     {
-        var db = new OpenNGCDB();
+        var db = new CelestialObjectDB();
         _ = await db.InitDBAsync();
 
         var found = db.TryLookupByIndex(catalogIndex, out var match);
@@ -162,7 +160,7 @@ public class OpenNGCDBTests
     [InlineData(Sh2_006, NGC6302)]
     public async Task GivenACatalogIndexWhenTryingToGetCrossIndicesThenTheyAreFound(CatalogIndex catalogIndex, params CatalogIndex[] expectedCrossIndices)
     {
-        var db = new OpenNGCDB();
+        var db = new CelestialObjectDB();
         _ = await db.InitDBAsync();
 
         var found = db.TryGetCrossIndices(catalogIndex, out var matches);
@@ -265,7 +263,7 @@ public class OpenNGCDBTests
     public async Task GivenAConstellationWhenToBrightestStarThenItIsReturned(Constellation constellation, string expectedName)
     {
         // given
-        var db = new OpenNGCDB();
+        var db = new CelestialObjectDB();
         var (processed, failed) = await db.InitDBAsync();
 
         // when
@@ -284,7 +282,7 @@ public class OpenNGCDBTests
     public async Task GivenAllCatIdxWhenTryingToLookupThenItIsAlwaysFound()
     {
         // given
-        var db = new OpenNGCDB();
+        var db = new CelestialObjectDB();
         var (processed, failed) = await db.InitDBAsync();
         var idxs = db.ObjectIndices;
         var catalogs = db.Catalogs;

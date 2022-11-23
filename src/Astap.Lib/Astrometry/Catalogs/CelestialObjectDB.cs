@@ -19,18 +19,20 @@ using static Astap.Lib.EnumHelper;
 
 namespace Astap.Lib.Astrometry.Catalogs;
 
-public class OpenNGCDB : ICelestialObjectDB
+public sealed class CelestialObjectDB : ICelestialObjectDB
 {
+
     private static readonly IReadOnlySet<string> EmptySet = ImmutableHashSet.Create<string>();
 
     private readonly Dictionary<CatalogIndex, CelestialObject> _objectsByIndex = new(17000);
-    private readonly Dictionary<CatalogIndex, (CatalogIndex i1, CatalogIndex[]? ext)> _crossIndexLookuptable = new(6100);
-    private readonly Dictionary<string, (CatalogIndex i1, CatalogIndex[]? ext)> _objectsByCommonName = new(200);
+    private readonly Dictionary<CatalogIndex, (CatalogIndex i1, CatalogIndex[]? ext)> _crossIndexLookuptable = new(11000);
+    private readonly Dictionary<string, (CatalogIndex i1, CatalogIndex[]? ext)> _objectsByCommonName = new(5600);
+    private readonly RaDecIndex _raDecIndex = new();
 
     private HashSet<CatalogIndex>? _catalogIndicesCache;
     private HashSet<Catalog>? _catalogCache;
 
-    public OpenNGCDB() { }
+    public CelestialObjectDB() { }
 
     public IReadOnlyCollection<string> CommonNames => _objectsByCommonName.Keys;
 
@@ -76,6 +78,8 @@ public class OpenNGCDB : ICelestialObjectDB
         }
     }
 
+    public IRaDecIndex CoordinateGrid => _raDecIndex;
+
     /// <inheritdoc/>
     public bool TryResolveCommonName(string name, out IReadOnlyList<CatalogIndex> matches) => _objectsByCommonName.TryGetLookupEntries(name, out matches);
 
@@ -107,7 +111,7 @@ public class OpenNGCDB : ICelestialObjectDB
             && _crossIndexLookuptable.TryGetValue(index, out var crossIndices)
         )
         {
-            if (crossIndices.i1 > 0 && crossIndices.i1 != index && _objectsByIndex.TryGetValue(crossIndices.i1, out celestialObject))
+            if (crossIndices.i1 != 0 && crossIndices.i1 != index && _objectsByIndex.TryGetValue(crossIndices.i1, out celestialObject))
             {
                 index = crossIndices.i1;
             }
@@ -115,7 +119,7 @@ public class OpenNGCDB : ICelestialObjectDB
             {
                 foreach (var crossIndex in crossIndices.ext)
                 {
-                    if (crossIndex > 0 && crossIndex != index && _objectsByIndex.TryGetValue(crossIndex, out celestialObject))
+                    if (crossIndex != 0 && crossIndex != index && _objectsByIndex.TryGetValue(crossIndex, out celestialObject))
                     {
                         index = crossIndex;
                         break;
@@ -173,7 +177,7 @@ public class OpenNGCDB : ICelestialObjectDB
     /// <inheritdoc/>
     public async Task<(int processed, int failed)> InitDBAsync()
     {
-        var assembly = typeof(OpenNGCDB).Assembly;
+        var assembly = typeof(CelestialObjectDB).Assembly;
         int totalProcessed = 0;
         int totalFailed = 0;
 
@@ -257,10 +261,6 @@ public class OpenNGCDB : ICelestialObjectDB
                 if (csvReader.TryGetField<string>("Common names", out var commonNamesEntry) && !string.IsNullOrWhiteSpace(commonNamesEntry))
                 {
                     commonNames = new HashSet<string>(commonNamesEntry.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-                    foreach (var commonName in commonNames)
-                    {
-                        _objectsByCommonName.AddLookupEntry(commonName, indexEntry);
-                    }
                 }
                 else
                 {
@@ -269,7 +269,7 @@ public class OpenNGCDB : ICelestialObjectDB
 
                 var ra = HMSToHours(raHMS);
                 var dec = DMSToDegree(decDMS);
-                _objectsByIndex[indexEntry] = new CelestialObject(
+                var obj = _objectsByIndex[indexEntry] = new CelestialObject(
                     indexEntry,
                     objectType,
                     ra,
@@ -279,6 +279,8 @@ public class OpenNGCDB : ICelestialObjectDB
                     surfaceBrightness,
                     commonNames
                 );
+
+                AddCommonNameAndPosIndices(obj);
 
                 if (objectType == ObjectType.Duplicate)
                 {
@@ -378,7 +380,7 @@ public class OpenNGCDB : ICelestialObjectDB
 
             CatalogIndex catToAddIdx = 0;
             var relevantIds = new Dictionary<Catalog, CatalogIndex>();
-            var commonNames = new HashSet<string>();
+            var commonNames = new HashSet<string>(8);
             foreach (var id in record.Ids)
             {
                 if (id.StartsWith(NAME_CAT_PREFIX))
@@ -425,7 +427,7 @@ public class OpenNGCDB : ICelestialObjectDB
                         if (!obj.CommonNames.SetEquals(commonNames))
                         {
                             var modObj = new CelestialObject(
-                                obj.Index,
+                                id,
                                 obj.ObjectType,
                                 obj.RA,
                                 obj.Dec,
@@ -438,10 +440,7 @@ public class OpenNGCDB : ICelestialObjectDB
                             _objectsByIndex[id] = modObj;
 
                             commonNames.ExceptWith(obj.CommonNames);
-                            foreach (var commonName in commonNames)
-                            {
-                                _objectsByCommonName.AddLookupEntry(commonName, id);
-                            }
+                            AddCommonNameIndex(id, commonNames);
                         }
                     }
                 }
@@ -451,12 +450,21 @@ public class OpenNGCDB : ICelestialObjectDB
                     if (ConstellationBoundary.TryFindConstellation(raInH, record.Dec, out var constellation))
                     {
                         var objType = AbbreviationToEnumMember<ObjectType>(record.ObjType);
-                        _objectsByIndex[catToAddIdx] = new CelestialObject(catToAddIdx, objType, raInH, record.Dec, constellation, float.NaN, float.NaN, commonNames);
-
-                        foreach (var commonName in commonNames)
+                        IReadOnlySet<string> trimmedSetOrEmpty;
+                        if (commonNames.Count > 0)
                         {
-                            _objectsByCommonName.AddLookupEntry(commonName, catToAddIdx);
+                            commonNames.TrimExcess();
+                            trimmedSetOrEmpty = commonNames;
+                            commonNames = null; // make sure nobody modifies it after this point;
                         }
+                        else
+                        {
+                            trimmedSetOrEmpty = EmptySet;
+                        }
+
+                        var obj = _objectsByIndex[catToAddIdx] = new CelestialObject(catToAddIdx, objType, raInH, record.Dec, constellation, float.NaN, float.NaN, trimmedSetOrEmpty);
+
+                        AddCommonNameAndPosIndices(obj);
                     }
                     else
                     {
@@ -469,5 +477,27 @@ public class OpenNGCDB : ICelestialObjectDB
         }
 
         return (processed, failed);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    void AddCommonNameAndPosIndices(in CelestialObject obj)
+    {
+        _raDecIndex.Add(obj);
+
+        AddCommonNameIndex(obj.Index, obj.CommonNames);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    void AddCommonNameIndex(CatalogIndex catIdx, IReadOnlySet<string> commonNames)
+    {
+        if (ReferenceEquals(commonNames, EmptySet))
+        {
+            return;
+        }
+
+        foreach (var commonName in commonNames)
+        {
+            _objectsByCommonName.AddLookupEntry(commonName, catIdx);
+        }
     }
 }
