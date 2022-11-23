@@ -1,6 +1,8 @@
 ﻿using Astap.Lib.Astrometry.Catalogs;
 using Astap.Lib.Astrometry.NOVA;
+using CommunityToolkit.HighPerformance;
 using Shouldly;
+using System.Linq;
 using System.Threading.Tasks;
 using Xunit;
 using static Astap.Lib.Tests.SharedTestData;
@@ -181,6 +183,7 @@ public class CelestialObjectDBTests
     [InlineData(Constellation.Auriga, "Capella")]
     [InlineData(Constellation.Bootes, "Arcturus")]
     [InlineData(Constellation.Caelum, "alf Cae")]
+    [InlineData(Constellation.Camelopardalis, "bet Cam")]
     [InlineData(Constellation.Cancer, "Tarf")]
     [InlineData(Constellation.CanesVenatici, "Cor Caroli")]
     [InlineData(Constellation.CanisMajor, "Sirius")]
@@ -256,10 +259,10 @@ public class CelestialObjectDBTests
     [InlineData(Constellation.Tucana, "alf Tuc")]
     [InlineData(Constellation.UrsaMajor, "Alioth")]
     [InlineData(Constellation.UrsaMinor, "Polaris")]
+    [InlineData(Constellation.Vela, "gam02 Vel")]
     [InlineData(Constellation.Virgo, "Spica")]
     [InlineData(Constellation.Volans, "bet Vol")]
     [InlineData(Constellation.Vulpecula, "Anser")]
-    [InlineData(Constellation.Vela, "gam02 Vel")]
     public async Task GivenAConstellationWhenToBrightestStarThenItIsReturned(Constellation constellation, string expectedName)
     {
         // given
@@ -318,5 +321,22 @@ public class CelestialObjectDBTests
         // then
         processed.ShouldBeGreaterThanOrEqualTo(processed);
         failed.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task GivenDBWhenCreateAutoCompleteListThenItContainsAllCommonNamesAndDesignations()
+    {
+        // given
+        var db = new CelestialObjectDB();
+        await db.InitDBAsync();
+
+        // when
+        var list = db.CreateAutoCompleteList();
+
+        // then
+        list.Length.ShouldBe(db.CommonNames.Count + db.ObjectIndices.Count);
+
+        db.CommonNames.ShouldBeSubsetOf(list);
+        db.ObjectIndices.Select(p => p.ToCanonical()).ShouldBeSubsetOf(list);
     }
 }
