@@ -18,6 +18,8 @@ public interface ICelestialObjectDB
 
     IReadOnlyCollection<string> CommonNames { get; }
 
+    IRaDecIndex CoordinateGrid { get; }
+
     bool TryLookupByIndex(CatalogIndex index, out CelestialObject celestialObject);
 
     public bool TryLookupByIndex(string name, out CelestialObject celestialObject)
