@@ -81,6 +81,13 @@ public static class LeapSecondsTable
     }
 
     /// <summary>
+    /// Return the specified Julian day's DeltaUT1 value
+    /// </summary>
+    /// <param name="jdUTC"></param>
+    /// <returns>DeltaUT1 value as a double</returns>
+    public static double DeltaUT1(double jdUTC) => LeapSecondsTaiUtc(jdUTC) + TT_TAI_OFFSET - DeltaTCalc(jdUTC);
+
+    /// <summary>
     /// Calculates the value of DeltaT over a wide range of historic and future Julian dates
     /// </summary>
     /// <param name="jdUTC">Julian Date of interest</param>
@@ -99,7 +106,6 @@ public static class LeapSecondsTable
         const double TABSTART1620 = 1620.0d;
         const int TABSIZ = 392;
 
-        var UTCDate = DateTime.FromOADate(jdUTC - OLE_AUTOMATION_JULIAN_DATE_OFFSET); // Convert the Julian day into a DateTime
         var YearFraction = 2000.0d + (jdUTC - J2000BASE) / TROPICAL_YEAR_IN_DAYS; // This calculation is accurate enough for our purposes here (T0 = 2451545.0 is TDB Julian date of epoch J2000.0)
         var ModifiedJulianDay = jdUTC - MODIFIED_JULIAN_DAY_OFFSET;
 
