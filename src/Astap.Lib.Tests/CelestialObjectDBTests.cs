@@ -293,15 +293,16 @@ public class CelestialObjectDBTests
         // when
         Parallel.ForEach(idxs, idx =>
         {
-            db.TryLookupByIndex(idx, out var obj).ShouldBeTrue($"{idx.ToAbbreviation()} [{idx}] was not found!");
+            var desc = $"{idx.ToAbbreviation()} [{idx}]";
+            db.TryLookupByIndex(idx, out var obj).ShouldBeTrue($"{desc} was not found!");
             catalogs.ShouldContain(idx.ToCatalog());
             var couldCalculate = ConstellationBoundary.TryFindConstellation(obj.RA, obj.Dec, out var calculatedConstellation);
 
             if (obj.ObjectType != ObjectType.Inexistent || obj.Constellation != 0)
             {
                 couldCalculate.ShouldBeTrue();
-                obj.Constellation.ShouldNotBe((Constellation)0, $"{idx.ToAbbreviation()} [{idx}]: Constellation should not be 0");
-                calculatedConstellation.ShouldNotBe((Constellation)0, $"{idx.ToAbbreviation()} [{idx}]: Calculated constellation should not be 0");
+                obj.Constellation.ShouldNotBe((Constellation)0, $"{desc}: Constellation should not be 0");
+                calculatedConstellation.ShouldNotBe((Constellation)0, $"{desc}: Calculated constellation should not be 0");
 
                 if (!obj.Constellation.IsContainedWithin(calculatedConstellation))
                 {
@@ -313,7 +314,7 @@ public class CelestialObjectDBTests
                         && ConstellationBoundary.TryFindConstellation(ra_l, obj.Dec, out var const_l)
                         && (obj.Constellation.IsContainedWithin(const_s) || const_l.IsContainedWithin(const_l));
 
-                    isBordering.ShouldBeTrue($"{idx.ToAbbreviation()} [{idx}]: {obj.Constellation} is not contained within {calculatedConstellation} or any bordering");
+                    isBordering.ShouldBeTrue($"{desc}: {obj.Constellation} is not contained within {calculatedConstellation} or any bordering");
                 }
             }
         });

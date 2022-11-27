@@ -46,6 +46,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="Roydl.Text" Version="1.0.2" />
+    <PackageReference Include="WWA.Core" Version="1.2.0" />
     <PackageReference Include="ZWOptical.ASISDK" Version="1.0.61" />
   </ItemGroup>
 
