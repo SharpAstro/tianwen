@@ -1,7 +1,9 @@
 ﻿using Astap.Lib.Astrometry.Catalogs;
 using Astap.Lib.Astrometry.NOVA;
+using nom.tam.fits;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using static Astap.Lib.Astrometry.SOFA.Constants;
 using static WorldWideAstronomy.WWA;
@@ -865,55 +867,49 @@ namespace Astap.Lib.Astrometry.SOFA
 
         private double GetJDUTCSofa()
         {
-            double Retval, utc1 = default, utc2 = default;
-            DateTime Now;
-
             if (JulianDateUTCValue == 0.0d) // No specific UTC date / time has been set so use the current date / time
             {
-                Now = DateTime.UtcNow;
-                if (wwaDtf2d("UTC", Now.Year, Now.Month, Now.Day, Now.Hour, Now.Minute, Now.Second + Now.Millisecond / 1000.0d, ref utc1, ref utc2) != 0)
-                {
-                    throw new InvalidOperationException("Bad return code of Dtf2d");
-                }
-                Retval = utc1 + utc2;
+                var (utc1, utc2, _, _) = GetJDUtcTTSofa(DateTime.UtcNow);
+                return utc1 + utc2;
             }
             else // A specific UTC date / time has been set so use it
             {
-                Retval = JulianDateUTCValue;
+                return JulianDateUTCValue;
             }
-            return Retval;
         }
 
         private double GetJDTTSofa()
         {
-            double Retval, utc1 = default, utc2 = default, tai1 = default, tai2 = default, tt1 = default, tt2 = default;
-            DateTime Now;
-
             if (JulianDateTTValue == 0.0d) // No specific TT date / time has been set so use the current date / time
             {
-                Now = DateTime.UtcNow;
-
-                // First calculate the UTC Julian date, then convert this to the equivalent TAI Julian date then convert this to the equivalent TT Julian date
-                if (wwaDtf2d("UTC", Now.Year, Now.Month, Now.Day, Now.Hour, Now.Minute, Now.Second + Now.Millisecond / 1000.0d, ref utc1, ref utc2) != 0)
-                {
-                    throw new InvalidOperationException("Dtf2d: Bad return code");
-                }
-                if (wwaUtctai(utc1, utc2, ref tai1, ref tai2) != 0)
-                {
-                    throw new InvalidOperationException("UtcTai: Bad return code");
-                }
-                if (wwaTaitt(tai1, tai2, ref tt1, ref tt2) != 0)
-                {
-                    throw new InvalidOperationException("TaiTt: Bad return code");
-                }
-
-                Retval = tt1 + tt2;
+                var (_, _, tt1, tt2) = GetJDUtcTTSofa(DateTime.UtcNow);
+                return tt1 + tt2;
             }
             else // A specific TT date / time has been set so use it
             {
-                Retval = JulianDateTTValue;
+                return JulianDateTTValue;
             }
-            return Retval;
+        }
+
+        private static (double utc1, double utc2, double tt1, double tt2) GetJDUtcTTSofa(DateTime Now)
+        {
+            double utc1 = default, utc2 = default, tai1 = default, tai2 = default, tt1 = default, tt2 = default;
+
+            // First calculate the UTC Julian date, then convert this to the equivalent TAI Julian date then convert this to the equivalent TT Julian date
+            if (wwaDtf2d("UTC", Now.Year, Now.Month, Now.Day, Now.Hour, Now.Minute, Now.Second + Now.Millisecond / 1000.0d, ref utc1, ref utc2) != 0)
+            {
+                throw new InvalidOperationException("Dtf2d: Bad return code");
+            }
+            if (wwaUtctai(utc1, utc2, ref tai1, ref tai2) != 0)
+            {
+                throw new InvalidOperationException("UtcTai: Bad return code");
+            }
+            if (wwaTaitt(tai1, tai2, ref tt1, ref tt2) != 0)
+            {
+                throw new InvalidOperationException("TaiTt: Bad return code");
+            }
+
+            return (utc1, utc2, tt1, tt2);
         }
 
         private static double ValidateRA(double RA)
@@ -948,6 +944,26 @@ namespace Astap.Lib.Astrometry.SOFA
         #endregion
 
         #region Additional functionality
+        public static double LocalSiderealTime(DateTimeOffset dateTimeOffset, double siteLongitude)
+        {
+            var (utc1, utc2, tt1, tt2) = GetJDUtcTTSofa(dateTimeOffset.UtcDateTime);
+
+            double ut11 = default, ut12 = default;
+            var dut1 = LeapSecondsTable.DeltaUT1(utc1 + utc2);
+            if (wwaUtcut1(utc1, utc2, dut1, ref ut11, ref ut12) != 0)
+            {
+                throw new InvalidOperationException($"Cannot convert {dateTimeOffset} to UT1");
+            }
+
+            var gmst = wwaGmst00(ut11, ut12, tt1, tt2) * RADIANS2DEGREES;
+
+            // Allow for the longitude
+            gmst += siteLongitude / 360.0 * 24.0;
+
+            // Reduce to the range 0 to 24 hours
+            return CoordinateUtils.ConditionRA(gmst);
+        }
+
         public IReadOnlyDictionary<RaDecEventTime, RaDecEventInfo> CalculateObjElevation(in CelestialObject obj, DateTimeOffset astroDark, DateTimeOffset astroTwilight, double siderealTimeAtAstroDark)
         {
             SetJ2000(obj.RA, obj.Dec);
