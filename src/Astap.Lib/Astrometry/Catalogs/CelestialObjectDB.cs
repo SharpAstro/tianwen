@@ -14,7 +14,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using static Astap.Lib.Astrometry.Catalogs.CatalogUtils;
-using static Astap.Lib.Astrometry.NOVA.CoordinateUtils;
+using static Astap.Lib.Astrometry.CoordinateUtils;
 using static Astap.Lib.EnumHelper;
 
 namespace Astap.Lib.Astrometry.Catalogs;

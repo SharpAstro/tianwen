@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Globalization;
 
-namespace Astap.Lib.Astrometry.NOVA;
+namespace Astap.Lib.Astrometry;
 
 public static class CoordinateUtils
 {

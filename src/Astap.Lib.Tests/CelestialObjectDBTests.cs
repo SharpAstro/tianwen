@@ -1,6 +1,5 @@
 ﻿using Astap.Lib.Astrometry.Catalogs;
-using Astap.Lib.Astrometry.NOVA;
-using CommunityToolkit.HighPerformance;
+using Astap.Lib.Astrometry;
 using Shouldly;
 using System.Linq;
 using System.Threading.Tasks;
