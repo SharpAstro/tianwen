@@ -955,7 +955,7 @@ namespace Astap.Lib.Astrometry.SOFA
                 throw new InvalidOperationException($"Cannot convert {dateTimeOffset} to UT1");
             }
 
-            var gmst = wwaGmst00(ut11, ut12, tt1, tt2) * RADIANS2DEGREES;
+            var gmst = wwaGmst00(ut11, ut12, tt1, tt2) * RADIANS2HOURS;
 
             // Allow for the longitude
             gmst += siteLongitude / 360.0 * 24.0;

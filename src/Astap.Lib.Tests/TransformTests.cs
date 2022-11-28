@@ -1,15 +1,14 @@
-﻿using Astap.Lib.Astrometry.SOFA;
+﻿using Astap.Lib.Astrometry.Ascom;
+using Astap.Lib.Astrometry.NOVA;
+using Astap.Lib.Astrometry.SOFA;
 using Shouldly;
 using System;
-using System.Diagnostics;
-using System.Runtime.InteropServices;
-using System.Threading;
-using System.Threading.Tasks;
+using System.Globalization;
 using Xunit;
 
 namespace Astap.Lib.Tests;
 
-public class AscomTransformTests
+public class TransformTests
 {
     [Theory]
     [InlineData(10.7382722222222, -59.8841527777778, 2459885.98737d, -37.884546970458274d, 145.1663117892053d, 120, 9.41563888888889d, 169.50725d, 10.752333552022904d, -59.99747614464261d)]
@@ -30,5 +29,16 @@ public class AscomTransformTests
         transform.AzimuthTopocentric.ShouldBeInRange(expAz - 0.2, expAz + 0.2);
         transform.RATopocentric.ShouldBeInRange(expRaTopo - 0.2, expRaTopo + 0.2);
         transform.DECTopocentric.ShouldBeInRange(expDecTopo - 0.2, expDecTopo + 0.2);
+    }
+
+    [Theory]
+    [InlineData("2022-11-28T12:37:30.8322741+11:00", 145.1663117892053d, 15.76)]
+    public void GivenLocalDateTimeAndSiteLongitudeWhenSiderealTimeThenItIsReturnedFrom0To24h(string utc, double @long, double expected)
+    {
+        // given
+        var dto = DateTimeOffset.ParseExact(utc, "o", CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+
+        // when / then
+        Transform.LocalSiderealTime(dto, @long).ShouldBeInRange(expected - 0.01, expected + 0.01);
     }
 }
