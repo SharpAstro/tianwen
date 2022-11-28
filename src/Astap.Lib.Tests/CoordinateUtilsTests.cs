@@ -1,4 +1,4 @@
-﻿using Astap.Lib.Astrometry.NOVA;
+﻿using Astap.Lib.Astrometry;
 using Shouldly;
 using System;
 using System.Globalization;
