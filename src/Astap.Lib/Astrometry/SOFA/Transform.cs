@@ -869,7 +869,7 @@ namespace Astap.Lib.Astrometry.SOFA
         {
             if (JulianDateUTCValue == 0.0d) // No specific UTC date / time has been set so use the current date / time
             {
-                var (utc1, utc2, _, _) = GetJDUtcTTSofa(DateTime.UtcNow);
+                DateTime.UtcNow.ToSOFAUtcJdTT(out var utc1, out var utc2, out _, out _);
                 return utc1 + utc2;
             }
             else // A specific UTC date / time has been set so use it
@@ -882,34 +882,13 @@ namespace Astap.Lib.Astrometry.SOFA
         {
             if (JulianDateTTValue == 0.0d) // No specific TT date / time has been set so use the current date / time
             {
-                var (_, _, tt1, tt2) = GetJDUtcTTSofa(DateTime.UtcNow);
+                DateTime.UtcNow.ToSOFAUtcJdTT(out _, out _, out var tt1, out var tt2);
                 return tt1 + tt2;
             }
             else // A specific TT date / time has been set so use it
             {
                 return JulianDateTTValue;
             }
-        }
-
-        private static (double utc1, double utc2, double tt1, double tt2) GetJDUtcTTSofa(DateTime Now)
-        {
-            double utc1 = default, utc2 = default, tai1 = default, tai2 = default, tt1 = default, tt2 = default;
-
-            // First calculate the UTC Julian date, then convert this to the equivalent TAI Julian date then convert this to the equivalent TT Julian date
-            if (wwaDtf2d("UTC", Now.Year, Now.Month, Now.Day, Now.Hour, Now.Minute, Now.Second + Now.Millisecond / 1000.0d, ref utc1, ref utc2) != 0)
-            {
-                throw new InvalidOperationException("Dtf2d: Bad return code");
-            }
-            if (wwaUtctai(utc1, utc2, ref tai1, ref tai2) != 0)
-            {
-                throw new InvalidOperationException("UtcTai: Bad return code");
-            }
-            if (wwaTaitt(tai1, tai2, ref tt1, ref tt2) != 0)
-            {
-                throw new InvalidOperationException("TaiTt: Bad return code");
-            }
-
-            return (utc1, utc2, tt1, tt2);
         }
 
         private static double ValidateRA(double RA)
@@ -946,7 +925,7 @@ namespace Astap.Lib.Astrometry.SOFA
         #region Additional functionality
         public static double LocalSiderealTime(DateTimeOffset dateTimeOffset, double siteLongitude)
         {
-            var (utc1, utc2, tt1, tt2) = GetJDUtcTTSofa(dateTimeOffset.UtcDateTime);
+            dateTimeOffset.ToSOFAUtcJdTT(out var utc1, out var utc2, out var tt1, out var tt2);
 
             double ut11 = default, ut12 = default;
             var dut1 = LeapSecondsTable.DeltaUT1(utc1 + utc2);
