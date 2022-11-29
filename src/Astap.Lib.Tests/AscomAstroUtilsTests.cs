@@ -38,7 +38,7 @@ public class AscomAstroUtilsTests : IDisposable
     {
         Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached);
 
-        var dto = DateTimeOffset.Parse(dtoStr, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+        var dto = DateTimeOffset.Parse(dtoStr, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
 
         bool actualAboveHorizon;
         IReadOnlyList<DateTimeOffset> actualRiseEvents;
@@ -61,14 +61,14 @@ public class AscomAstroUtilsTests : IDisposable
 
         for (var i = 0; i < expRise; i++)
         {
-            var expDto = DateTimeOffset.Parse(dateTimeStrs[idx++], CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+            var expDto = DateTimeOffset.Parse(dateTimeStrs[idx++], CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
 
             actualRiseEvents[i].ShouldBeInRange(expDto - TimeSpan.FromMinutes(1), expDto + TimeSpan.FromMinutes(1));
         }
 
         for (var i = 0; i < expSet; i++)
         {
-            var expDto = DateTimeOffset.Parse(dateTimeStrs[idx++], CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+            var expDto = DateTimeOffset.Parse(dateTimeStrs[idx++], CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
 
             actualSetEvents[i].ShouldBeInRange(expDto - TimeSpan.FromMinutes(1), expDto + TimeSpan.FromMinutes(1));
         }

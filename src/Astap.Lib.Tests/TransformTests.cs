@@ -36,7 +36,7 @@ public class TransformTests
     public void GivenLocalDateTimeAndSiteLongitudeWhenSiderealTimeThenItIsReturnedFrom0To24h(string utc, double @long, double expected)
     {
         // given
-        var dto = DateTimeOffset.ParseExact(utc, "o", CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+        var dto = DateTimeOffset.ParseExact(utc, "o", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
 
         // when / then
         Transform.LocalSiderealTime(dto, @long).ShouldBeInRange(expected - 0.01, expected + 0.01);

@@ -14,7 +14,7 @@ public class CoordinateUtilsTests
     [InlineData("2022-11-05T11:11:14.6430197-11:00", 2459889.4244750347d)]
     public void GivenDTOWhenConvertToJulianThenItIsReturned(string dtoStr, double expectedJulian)
     {
-        var dto = DateTimeOffset.Parse(dtoStr, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
+        var dto = DateTimeOffset.Parse(dtoStr, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
 
         CoordinateUtils.ToJulian(dto).ShouldBe(expectedJulian);
     }
