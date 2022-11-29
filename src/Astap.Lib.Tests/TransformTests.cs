@@ -11,8 +11,8 @@ namespace Astap.Lib.Tests;
 public class TransformTests
 {
     [Theory]
-    [InlineData(10.7382722222222, -59.8841527777778, 2459885.98737d, -37.884546970458274d, 145.1663117892053d, 120, 9.41563888888889d, 169.50725d, 10.752333552022904d, -59.99747614464261d)]
-    public void GivenJ2000CoordsAndLocationWhenTransformingThenAltAzAndTopocentricIsReturned(double ra2000, double dec2000, double julianUTC, double lat, double @long, double elevation, double expAlt, double expAz, double expRaTopo, double expDecTopo)
+    [InlineData(10.7382722222222, -59.8841527777778, 2459885.98737d, 145.1663117892053d, -37.884546970458274d, 120, 9.41563888888889d, 169.50725d, 10.752333552022904d, -59.99747614464261d)]
+    public void GivenJ2000CoordsAndLocationWhenTransformingThenAltAzAndTopocentricIsReturned(double ra2000, double dec2000, double julianUTC, double @long, double lat, double elevation, double expAlt, double expAz, double expRaTopo, double expDecTopo)
     {
         // given
         var transform = new Transform
