@@ -208,7 +208,7 @@ public class CelestialObjectDBTests
     [InlineData(Constellation.Draco, "Eltanin")]
     [InlineData(Constellation.Equuleus, "Kitalpha")]
     [InlineData(Constellation.Eridanus, "Achernar")]
-    [InlineData(Constellation.Fornax, "alf For")]
+    [InlineData(Constellation.Fornax, "Dalim")]
     [InlineData(Constellation.Gemini, "Pollux")]
     [InlineData(Constellation.Grus, "Alnair")]
     [InlineData(Constellation.Hercules, "Kornephoros")]
