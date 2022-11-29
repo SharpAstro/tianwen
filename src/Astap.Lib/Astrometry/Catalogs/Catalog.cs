@@ -28,7 +28,7 @@ public enum Catalog : ulong
     Pl = 'P' << 7 | 'l', // Major planets, their moons and Sol
     PSR = 'P', // uses MSB = 1
     RCW = 'R' << 14| 'C' << 7 | 'W', //  Rodgers, Campbell & Whiteoak
-    Sharpless2 = 'S' << 21 | 'h' << 14 | '2' << 7 | '-', // Sharpless 2, including dash to distinguish 2 in the name from a number
+    Sharpless2 = 'S' << 14 | 'h' << 7 | '2', // Sharpless 2
     TrES = 'T' << 21 | 'r' << 14 | 'E' << 7 | 'S',
     TwoMass = '2', // uses MSB = 1
     TwoMassX = 'x', // uses MSB = 1

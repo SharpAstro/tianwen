@@ -18,9 +18,10 @@ public class VSOP87aTests
         var dto = DateTimeOffset.Parse(dateStr, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
 
         // when
-        VSOP87a.Reduce(catIdx, dto, lat, @long, out var actualRa, out var actualDec, out var actualAz, out var actualAlt);
+        var reduced = VSOP87a.Reduce(catIdx, dto, lat, @long, out var actualRa, out var actualDec, out var actualAz, out var actualAlt);
 
         // then
+        reduced.ShouldBeTrue();
         actualRa.ShouldBeInRange(expRa - 0.1, expRa + 0.1);
         actualDec.ShouldBeInRange(expDec - 0.1, expDec + 0.1);
         actualAz.ShouldBeInRange(expAz - 0.1, expAz + 0.1);

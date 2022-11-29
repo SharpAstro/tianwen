@@ -53,7 +53,7 @@ public static class CatalogIndexEx
         }
         else
         {
-            var withoutPrefixAsStr = EnumValueToAbbreviation(decoded).AsSpan().TrimStart('0');
+            var withoutPrefixAsStr = EnumValueToAbbreviation(decoded).AsSpan().TrimStart('-').TrimStart('0');
 
             if (withoutPrefixAsStr.Length is 0)
             {
