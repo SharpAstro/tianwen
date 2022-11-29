@@ -25,6 +25,7 @@ public enum Catalog : ulong
     Melotte = 'M' << 14 | 'e' << 7 | 'l',
     Messier = 'M',
     NGC = 'N',
+    Pl = 'P' << 7 | 'l', // Major planets, their moons and Sol
     PSR = 'P', // uses MSB = 1
     RCW = 'R' << 14| 'C' << 7 | 'W', //  Rodgers, Campbell & Whiteoak
     Sharpless2 = 'S' << 21 | 'h' << 14 | '2' << 7 | '-', // Sharpless 2, including dash to distinguish 2 in the name from a number

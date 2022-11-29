@@ -110,6 +110,7 @@ public static class CatalogUtils
                 Span<char> chars = stackalloc char[template.Length];
                 template.CopyTo(chars);
                 int foundDigits = 0;
+                var maybeWildcardsLeft = false;
                 for (var i = 0; i < digits; i++)
                 {
                     var inputIndex = trimmedInput.Length - i - 1;
@@ -126,6 +127,7 @@ public static class CatalogUtils
                         // treat * as a wildcard either meaning 0-9 or A-Z or a-z
                         if (!isDigit && !char.IsLetter(inputChar))
                         {
+                            maybeWildcardsLeft = true;
                             break;
                         }
                     }
@@ -145,7 +147,18 @@ public static class CatalogUtils
                     chars[tmplIndex] = inputChar;
                 }
 
-                cleanedUp = foundDigits > 0 ? new string(chars) : null;
+                if (foundDigits > 0)
+                {
+                    cleanedUp = new string(chars);
+                    if (maybeWildcardsLeft)
+                    {
+                        cleanedUp = cleanedUp.Replace("*", "");
+                    }
+                }
+                else
+                {
+                    cleanedUp = null;
+                }
                 isBase91Encoded = false;
                 break;
         }
@@ -282,6 +295,8 @@ public static class CatalogUtils
             },
             // be more lenient with NGC as its typed a lot
             'N' when secondIsDigit || secondChar is 'G' or 'g' or 'C' or 'c' => ("N0000", 4, Catalog.NGC),
+            // make - required as to due to large count of wildcards
+            'P' when secondChar == 'l' && noSpaces.Length > 2 && noSpaces[2] == '-' => ("Pl-*****", 5, Catalog.Pl),
             'P' when secondChar == 'S' && noSpaces.Length > 2 && noSpaces[2] == 'R' => ("", 8, Catalog.PSR),
             'R' when secondChar == 'C' => ("RCW000*", 4, Catalog.RCW),
             'S' when secondChar is 'H' or 'h' && noSpaces.Length > 2 && noSpaces[2] == '2' => ("Sh2-000", 3, Catalog.Sharpless2),
