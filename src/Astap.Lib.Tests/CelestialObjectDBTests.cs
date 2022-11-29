@@ -294,10 +294,11 @@ public class CelestialObjectDBTests
         {
             var desc = $"{idx.ToAbbreviation()} [{idx}]";
             db.TryLookupByIndex(idx, out var obj).ShouldBeTrue($"{desc} was not found!");
-            catalogs.ShouldContain(idx.ToCatalog());
+            var cat = idx.ToCatalog();
+            catalogs.ShouldContain(cat);
             var couldCalculate = ConstellationBoundary.TryFindConstellation(obj.RA, obj.Dec, out var calculatedConstellation);
 
-            if (obj.ObjectType != ObjectType.Inexistent || obj.Constellation != 0)
+            if ((cat != Catalog.Pl) && (obj.ObjectType != ObjectType.Inexistent || obj.Constellation != 0))
             {
                 couldCalculate.ShouldBeTrue();
                 obj.Constellation.ShouldNotBe((Constellation)0, $"{desc}: Constellation should not be 0");
