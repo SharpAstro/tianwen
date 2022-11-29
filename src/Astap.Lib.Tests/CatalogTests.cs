@@ -28,6 +28,7 @@ public class CatalogTests
     [InlineData(Catalog.Melotte, "Mel")]
     [InlineData(Catalog.Messier, "M")]
     [InlineData(Catalog.NGC, "NGC")]
+    [InlineData(Catalog.Pl, "Pl")]
     [InlineData(Catalog.PSR, "PSR")]
     [InlineData(Catalog.RCW, "RCW")]
     [InlineData(Catalog.Sharpless2, "Sh2")]

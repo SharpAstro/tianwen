@@ -3,7 +3,6 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
-using System.Net;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -15,7 +14,20 @@ namespace Astap.Lib.Astrometry.Catalogs;
 /// <summary>
 /// Represents a unique entry in a catalogue s.th. NGC0001, M13 or IC0001
 /// </summary>
-public enum CatalogIndex : ulong { }
+public enum CatalogIndex : ulong
+{
+    Sol = (ulong)'P' << 28 | 'l' << 21 | 'S' << 14 | 'o' << 7 | 'l',
+    Mercury = 'P' << 21 | 'l' << 14 | 'M' << 7 | 'e',
+    Venus = (ulong)'P' << 14 | 'l' << 7 | 'V',
+    Earth = (ulong)'P' << 14 | 'l' << 7 | 'E',
+    Moon = (ulong)'P' << 28 | 'l' << 21 | 'E' << 7 | 'I',
+    EarthMoonBarycenter = (ulong)'P' << 28 | 'l' << 21 | 'E' << 14 | 'I' << 7 | 'B',
+    Mars = 'P' << 21 | 'l' << 14 | 'M' << 7 | 'a',
+    Jupiter = 'P' << 14 | 'l' << 7 | 'J',
+    Saturn = 'P' << 14 | 'l' << 7 | 'S',
+    Uranus = 'P' << 14 | 'l' << 7 | 'U',
+    Neptune = 'P' << 14 | 'l' << 7 | 'N',
+}
 
 public static class CatalogIndexEx
 {
