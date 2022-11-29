@@ -21,6 +21,19 @@ namespace Astap.Lib.Astrometry.Catalogs;
 
 public sealed class CelestialObjectDB : ICelestialObjectDB
 {
+    private static readonly Dictionary<CatalogIndex, (ObjectType objType, string[] commonNames)> _predefinedObjects = new()
+    {
+        [CatalogIndex.Sol] = (ObjectType.Star, new []{ "Sun", "Sol" }),
+        [CatalogIndex.Mercury] = (ObjectType.Planet, new[] { "Mercury" }),
+        [CatalogIndex.Venus] = (ObjectType.Planet, new[] { "Venus" }),
+        [CatalogIndex.Earth] = (ObjectType.Planet, new[] { "Earth" }),
+        [CatalogIndex.Moon] = (ObjectType.Planet, new[] { "Moon", "Luna" }),
+        [CatalogIndex.Mars] = (ObjectType.Planet, new[] { "Mars" }),
+        [CatalogIndex.Jupiter] = (ObjectType.Planet, new[] { "Jupiter" }),
+        [CatalogIndex.Saturn] = (ObjectType.Planet, new[] { "Saturn" }),
+        [CatalogIndex.Uranus] = (ObjectType.Planet, new[] { "Uranus" }),
+        [CatalogIndex.Neptune] = (ObjectType.Planet, new[] { "Neptune" })
+    };
 
     private static readonly IReadOnlySet<string> EmptySet = ImmutableHashSet.Create<string>();
 
@@ -180,6 +193,16 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
         var assembly = typeof(CelestialObjectDB).Assembly;
         int totalProcessed = 0;
         int totalFailed = 0;
+
+        foreach (var predefined in _predefinedObjects)
+        {
+            var cat = predefined.Key.ToCatalog();
+            var commonNames = new HashSet<string>(predefined.Value.commonNames);
+            commonNames.TrimExcess();
+            _objectsByIndex[predefined.Key] = new CelestialObject(predefined.Key, predefined.Value.objType, double.NaN, double.NaN, 0, float.NaN, float.NaN, commonNames);
+            AddCommonNameIndex(predefined.Key, commonNames);
+            totalProcessed++;
+        }
 
         foreach (var csvName in new[] { "NGC", "NGC.addendum" })
         {
