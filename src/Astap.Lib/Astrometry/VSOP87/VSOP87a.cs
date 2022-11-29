@@ -1,13 +1,14 @@
 ﻿using Astap.Lib.Astrometry.Catalogs;
 using Astap.Lib.Astrometry.SOFA;
 using System;
+using System.Diagnostics;
 using static WorldWideAstronomy.WWA;
 
 namespace Astap.Lib.Astrometry.VSOP87;
 
 public static class VSOP87a
 {
-    public static void Reduce(CatalogIndex catIndex, DateTimeOffset time, double latitude, double longitude, out double ra, out double dec, out double az, out double alt)
+    public static bool Reduce(CatalogIndex catIndex, DateTimeOffset time, double latitude, double longitude, out double ra, out double dec, out double az, out double alt)
     {
         time.ToSOFAUtcJdTT(out var utc1, out var utc2, out var tt1, out var tt2);
 
@@ -17,10 +18,17 @@ public static class VSOP87a
         Span<double> earth = stackalloc double[3];
         var body = new double[3]; // not stack allocated due to wwaRxp expecting double[]
 
-        GetBody(CatalogIndex.Earth, et, earth);
-        //vsop87a_full_getEarth(et,earth);
+        Debug.Assert(GetBody(CatalogIndex.Earth, et, earth));
 
-        GetBody(catIndex, et, body);
+        if (!GetBody(catIndex, et, body))
+        {
+            ra = double.NaN;
+            dec = double.NaN;
+            az = double.NaN;
+            alt = double.NaN;
+            return false;
+        }
+
         body[0] -= earth[0];
         body[1] -= earth[1];
         body[2] -= earth[2];
@@ -107,9 +115,11 @@ public static class VSOP87a
         dec *= Constants.RADIANS2DEGREES;
         az *= Constants.RADIANS2DEGREES;
         alt *= Constants.RADIANS2DEGREES;
+
+        return true;
     }
 
-    public static void GetBody(CatalogIndex catIndex, double et, Span<double> body)
+    public static bool GetBody(CatalogIndex catIndex, double et, Span<double> body)
     {
         Span<double> earth = stackalloc double[3];
         Span<double> emb = stackalloc double[3];
@@ -120,42 +130,45 @@ public static class VSOP87a
                 body[0] = 0;
                 body[1] = 0;
                 body[2] = 0;
-                return; //Sun is at the center for vsop87a
+                return true; //Sun is at the center for vsop87a
                         //return vsop87e_full.getSun(et);  // "E" is the only version the Sun is not always at [0,0,0]
             case CatalogIndex.Mercury:
                 Mercury.GetBody3d(et, body);
-                return;
+                return true;
             case CatalogIndex.Venus:
                 Venus.GetBody3d(et, body);
-                return;
+                return true;
             case CatalogIndex.Earth:
                 Earth.GetBody3d(et, body);
-                return;
+                return true;
             case CatalogIndex.Mars:
                 Mars.GetBody3d(et, body);
-                return;
+                return true;
             case CatalogIndex.Jupiter:
                 Jupiter.GetBody3d(et, body);
-                return;
+                return true;
             case CatalogIndex.Saturn:
                 Saturn.GetBody3d(et, body);
-                return;
+                return true;
             case CatalogIndex.Uranus:
                 Uranus.GetBody3d(et, body);
-                return;
+                return true;
             case CatalogIndex.Neptune:
                 Neptune.GetBody3d(et, body);
-                return;
+                return true;
             case CatalogIndex.EarthMoonBarycenter:
                 //return [0,0,0]; //Vsop87a is the only version which can compute the moon
                 Emb.GetBody3d(et, body);
-                return;
+                return true;
             case CatalogIndex.Moon:
                 //return [0,0,0]; //Vsop87a is the only version which can compute the moon
                 Emb.GetBody3d(et, emb);
                 Earth.GetBody3d(et, earth);
                 GetMoon(earth, emb, body);
-                return;
+                return true;
+
+            default:
+                return false;
         }
     }
 
