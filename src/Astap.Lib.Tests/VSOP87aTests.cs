@@ -15,7 +15,7 @@ public class VSOP87aTests
     public void GivenPlanetAndPositionWhenReducingOrbitThenRaDecAzAltIsReturned(CatalogIndex catIdx, string dateStr, double @long, double lat, double expRa, double expDec, double expAz, double expAlt)
     {
         // given
-        var dto = DateTimeOffset.Parse(dateStr, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
+        var dto = DateTimeOffset.Parse(dateStr, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
 
         // when
         var reduced = VSOP87a.Reduce(catIdx, dto, lat, @long, out var actualRa, out var actualDec, out var actualAz, out var actualAlt);
