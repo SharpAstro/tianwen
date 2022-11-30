@@ -14,15 +14,10 @@ namespace Astap.Lib.Astrometry.SOFA
     /// </summary>
     /// <remarks>Use this component to transform between J2000, apparent and topocentric (JNow) coordinates or
     /// vice versa. To use the component, instantiate it, then use one of SetJ2000 or SetJNow or SetApparent to
-    /// initialise with known values. Now use the RAJ2000, DECJ200, RAJNow, DECJNow, RAApparent and DECApparent etc.
+    /// initialise with known values. Now use the <see cref="RAJ2000"/>, <see cref="DecJ2000"/>, <see cref="RAApparent"/>, <see cref="DECApparent"/>, etc.
     /// properties to read off the required transformed values.
     /// <para>The component can be reused simply by setting new co-ordinates with a Set command, there
     /// is no need to create a new component each time a transform is required.</para>
-    /// <para>Transforms are effected through the ASCOM NOVAS.Net engine that encapsulates the USNO NOVAS 3.1 library.
-    /// The USNO NOVAS reference web page is:
-    /// <href>http://www.usno.navy.mil/USNO/astronomical-applications/software-products/novas</href>
-    /// and the NOVAS 3.1 user guide is included in the ASCOM Developer Components install.
-    /// </para>
     /// </remarks>
     public sealed class Transform
     {
