@@ -11,7 +11,11 @@ public static class VSOP87a
     public static bool Reduce(CatalogIndex catIndex, DateTimeOffset time, double latitude, double longitude, out double ra, out double dec, out double az, out double alt)
     {
         time.ToSOFAUtcJdTT(out var utc1, out var utc2, out var tt1, out var tt2);
+        return Reduce(catIndex, utc1, utc2, tt1, tt2, latitude, longitude, out ra, out dec, out az, out alt);
+    }
 
+    public static bool Reduce(CatalogIndex catIndex, double utc1, double utc2, double tt1, double tt2, double latitude, double longitude, out double ra, out double dec, out double az, out double alt)
+    {
         double et = (tt1 - 2451545.0 + tt2) / 365250.0;
 
         //Compute initial position

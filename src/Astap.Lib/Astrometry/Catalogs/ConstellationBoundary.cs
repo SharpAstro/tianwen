@@ -1,5 +1,4 @@
-﻿using Astap.Lib.Astrometry.NOVA;
-using System;
+﻿using System;
 
 namespace Astap.Lib.Astrometry.Catalogs;
 

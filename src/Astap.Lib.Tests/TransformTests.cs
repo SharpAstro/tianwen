@@ -1,6 +1,4 @@
-﻿using Astap.Lib.Astrometry.Ascom;
-using Astap.Lib.Astrometry.NOVA;
-using Astap.Lib.Astrometry.SOFA;
+﻿using Astap.Lib.Astrometry.SOFA;
 using Shouldly;
 using System;
 using System.Globalization;
