@@ -536,14 +536,8 @@ namespace Astap.Lib.Astrometry.SOFA
                 if (JulianDateTTValue != 0.0d)
                 {
                     // Calculate UTC
-                    if (wwaTttai(JulianDateTTValue, 0.0d, ref tai1, ref tai2) != 0)
-                    {
-                        throw new InvalidOperationException("TtTai - Bad return code");
-                    }
-                    if (wwaTaiutc(tai1, tai2, ref utc1, ref utc2) != 0)
-                    {
-                        throw new InvalidOperationException("TaiUtc - Bad return code");
-                    }
+                    _ = wwaTttai(JulianDateTTValue, 0.0d, ref tai1, ref tai2);
+                    _ = wwaTaiutc(tai1, tai2, ref utc1, ref utc2);
                     JulianDateUTCValue = utc1 + utc2;
                 }
                 else // Handle special case of 0.0
@@ -582,14 +576,8 @@ namespace Astap.Lib.Astrometry.SOFA
                 if (JulianDateUTCValue != 0.0d)
                 {
                     // Calculate Terrestrial Time equivalent
-                    if (wwaUtctai(JulianDateUTCValue, 0.0d, ref tai1, ref tai2) != 0)
-                    {
-                        throw new InvalidOperationException("UtcTai - Bad return code");
-                    }
-                    if (wwaTaitt(tai1, tai2, ref tt1, ref tt2) != 0)
-                    {
-                        throw new InvalidOperationException("TaiTt - Bad return code");
-                    }
+                    _ = wwaUtctai(JulianDateUTCValue, 0.0d, ref tai1, ref tai2);
+                    _ = wwaTaitt(tai1, tai2, ref tt1, ref tt2);
                     JulianDateTTValue = tt1 + tt2;
                 }
                 else // Handle special case of 0.0
@@ -628,11 +616,11 @@ namespace Astap.Lib.Astrometry.SOFA
 
             if (RefracValue) // Include refraction
             {
-                wwaAtco13(RAJ2000Value * HOURS2RADIANS, DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, JDUTCSofa, 0.0d, DUT1, SiteLongValue * DEGREES2RADIANS, SiteLatValue * DEGREES2RADIANS, SiteElevValue, 0.0d, 0.0d, SitePressureValue, SiteTempValue, 0.8d, 0.57d, ref aob, ref zob, ref hob, ref dob, ref rob, ref eo);
+                _ = wwaAtco13(RAJ2000Value * HOURS2RADIANS, DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, JDUTCSofa, 0.0d, DUT1, SiteLongValue * DEGREES2RADIANS, SiteLatValue * DEGREES2RADIANS, SiteElevValue, 0.0d, 0.0d, SitePressureValue, SiteTempValue, 0.8d, 0.57d, ref aob, ref zob, ref hob, ref dob, ref rob, ref eo);
             }
             else // No refraction
             {
-                wwaAtco13(RAJ2000Value * HOURS2RADIANS, DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, JDUTCSofa, 0.0d, DUT1, SiteLongValue * DEGREES2RADIANS, SiteLatValue * DEGREES2RADIANS, SiteElevValue, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, ref aob, ref zob, ref hob, ref dob, ref rob, ref eo);
+                _ = wwaAtco13(RAJ2000Value * HOURS2RADIANS, DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, JDUTCSofa, 0.0d, DUT1, SiteLongValue * DEGREES2RADIANS, SiteLatValue * DEGREES2RADIANS, SiteElevValue, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, ref aob, ref zob, ref hob, ref dob, ref rob, ref eo);
             }
 
             RATopoValue = wwaAnp(rob - eo) * RADIANS2HOURS; // // Convert CIO RA to equinox of date RA by subtracting the equation of the origins and convert from radians to hours
@@ -681,19 +669,13 @@ namespace Astap.Lib.Astrometry.SOFA
             DUT1 = LeapSecondsTable.DeltaTCalc(JDUTCSofa);
 
             var type = 'R';
-            int RetCode;
             if (RefracValue) // Refraction is required
             {
-                RetCode = wwaAtoc13(ref type, wwaAnp(RATopoValue * HOURS2RADIANS + wwaEo06a(JDTTSofa, 0.0d)), DECTopoValue * DEGREES2RADIANS, JDUTCSofa, 0.0d, DUT1, SiteLongValue * DEGREES2RADIANS, SiteLatValue * DEGREES2RADIANS, SiteElevValue, 0.0d, 0.0d, SitePressureValue, SiteTempValue, 0.85d, 0.57d, ref RACelestrial, ref DecCelestial);
+                _ = wwaAtoc13(ref type, wwaAnp(RATopoValue * HOURS2RADIANS + wwaEo06a(JDTTSofa, 0.0d)), DECTopoValue * DEGREES2RADIANS, JDUTCSofa, 0.0d, DUT1, SiteLongValue * DEGREES2RADIANS, SiteLatValue * DEGREES2RADIANS, SiteElevValue, 0.0d, 0.0d, SitePressureValue, SiteTempValue, 0.85d, 0.57d, ref RACelestrial, ref DecCelestial);
             }
             else
             {
-                RetCode = wwaAtoc13(ref type, wwaAnp(RATopoValue * HOURS2RADIANS + wwaEo06a(JDTTSofa, 0.0d)), DECTopoValue * DEGREES2RADIANS, JDUTCSofa, 0.0d, DUT1, SiteLongValue * DEGREES2RADIANS, SiteLatValue * DEGREES2RADIANS, SiteElevValue, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, ref RACelestrial, ref DecCelestial);
-            }
-
-            if (RetCode != 0)
-            {
-                throw new InvalidOperationException($"Atoc13: Invalid return code: {RetCode}");
+                _ = wwaAtoc13(ref type, wwaAnp(RATopoValue * HOURS2RADIANS + wwaEo06a(JDTTSofa, 0.0d)), DECTopoValue * DEGREES2RADIANS, JDUTCSofa, 0.0d, DUT1, SiteLongValue * DEGREES2RADIANS, SiteLatValue * DEGREES2RADIANS, SiteElevValue, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, ref RACelestrial, ref DecCelestial);
             }
 
             RAJ2000Value = RACelestrial * RADIANS2HOURS;
@@ -702,11 +684,11 @@ namespace Astap.Lib.Astrometry.SOFA
             // Now calculate the corresponding AzEl values from the J2000 values
             if (RefracValue) // Include refraction
             {
-                wwaAtco13(RAJ2000Value * HOURS2RADIANS, DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, JDUTCSofa, 0.0d, DUT1, SiteLongValue * DEGREES2RADIANS, SiteLatValue * DEGREES2RADIANS, SiteElevValue, 0.0d, 0.0d, SitePressureValue, SiteTempValue, 0.8d, 0.57d, ref aob, ref zob, ref hob, ref dob, ref rob, ref eo);
+                _ = wwaAtco13(RAJ2000Value * HOURS2RADIANS, DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, JDUTCSofa, 0.0d, DUT1, SiteLongValue * DEGREES2RADIANS, SiteLatValue * DEGREES2RADIANS, SiteElevValue, 0.0d, 0.0d, SitePressureValue, SiteTempValue, 0.8d, 0.57d, ref aob, ref zob, ref hob, ref dob, ref rob, ref eo);
             }
             else // No refraction
             {
-                wwaAtco13(RAJ2000Value * HOURS2RADIANS, DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, JDUTCSofa, 0.0d, DUT1, SiteLongValue * DEGREES2RADIANS, SiteLatValue * DEGREES2RADIANS, SiteElevValue, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, ref aob, ref zob, ref hob, ref dob, ref rob, ref eo);
+                _ = wwaAtco13(RAJ2000Value * HOURS2RADIANS, DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, JDUTCSofa, 0.0d, DUT1, SiteLongValue * DEGREES2RADIANS, SiteLatValue * DEGREES2RADIANS, SiteElevValue, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, ref aob, ref zob, ref hob, ref dob, ref rob, ref eo);
             }
 
             AzimuthTopoValue = aob * RADIANS2DEGREES;
