@@ -33,6 +33,8 @@ public class TransformTests
 
     [Theory]
     [InlineData("2022-11-28T12:37:30.8322741+11:00", 145.1663117892053d, 15.76)]
+    [InlineData("2023-11-28T12:37:30.8322741+11:00", 145.1663117892053d, 15.76)]
+    [InlineData("2021-11-28T11:37:30.8322741+10:00", 145.1663117892053d, 15.781)]
     public void GivenLocalDateTimeAndSiteLongitudeWhenSiderealTimeThenItIsReturnedFrom0To24h(string utc, double @long, double expected)
     {
         // given
