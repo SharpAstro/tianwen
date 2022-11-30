@@ -18,7 +18,14 @@ public static class VSOP87a
         Span<double> earth = stackalloc double[3];
         var body = new double[3]; // not stack allocated due to wwaRxp expecting double[]
 
-        Debug.Assert(GetBody(CatalogIndex.Earth, et, earth));
+        if (!GetBody(CatalogIndex.Earth, et, earth))
+        {
+            ra = double.NaN;
+            dec = double.NaN;
+            az = double.NaN;
+            alt = double.NaN;
+            return false;
+        }
 
         if (!GetBody(catIndex, et, body))
         {

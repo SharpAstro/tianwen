@@ -12,7 +12,7 @@ public class VSOP87aTests
     [Theory]
     [InlineData(CatalogIndex.Moon, "2020-04-11T16:00:00.0000000Z", 274.236400, 38.2464000, 16.61305867, -20.90403, 261.7692, -24.3259)]
     [InlineData(CatalogIndex.Sol, "2022-11-29T10:40:00.0000000+11:00", 145.1663118d, -37.884547d, 16.3253006d, -21.43031427d, 73.1644087d, 54.3085913d)]
-    public void GivenPlanetAndPositionWhenReducingOrbitThenRaDecAzAltIsReturned(CatalogIndex catIdx, string dateStr, double @long, double lat, double expRa, double expDec, double expAz, double expAlt)
+    public void GivenDatetimePlanetAndPositionWhenReducingOrbitThenRaDecAzAltIsReturned(CatalogIndex catIdx, string dateStr, double @long, double lat, double expRa, double expDec, double expAz, double expAlt)
     {
         // given
         var dto = DateTimeOffset.ParseExact(dateStr, "o", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
