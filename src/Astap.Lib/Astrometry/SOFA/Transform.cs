@@ -1,10 +1,9 @@
 ﻿using Astap.Lib.Astrometry.Catalogs;
-using Astap.Lib.Astrometry.NOVA;
-using nom.tam.fits;
+using Astap.Lib.Astrometry.VSOP87;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using static Astap.Lib.Astrometry.SOFA.Constants;
 using static WorldWideAstronomy.WWA;
 
@@ -25,7 +24,7 @@ namespace Astap.Lib.Astrometry.SOFA
     /// and the NOVAS 3.1 user guide is included in the ASCOM Developer Components install.
     /// </para>
     /// </remarks>
-    public class Transform
+    public sealed class Transform
     {
         private double RAJ2000Value, RATopoValue, DECJ2000Value, DECTopoValue, SiteElevValue, SiteLatValue, SiteLongValue, SiteTempValue, SitePressureValue;
         private double RAApparentValue, DECApparentValue, AzimuthTopoValue, ElevationTopoValue, JulianDateTTValue, JulianDateUTCValue;
@@ -943,13 +942,29 @@ namespace Astap.Lib.Astrometry.SOFA
             return CoordinateUtils.ConditionRA(gmst);
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public IReadOnlyDictionary<RaDecEventTime, RaDecEventInfo> CalculateObjElevation(in CelestialObject obj, DateTimeOffset astroDark, DateTimeOffset astroTwilight, double siderealTimeAtAstroDark)
+            => CalculateObjElevation(obj.Index, obj.ObjectType, obj.RA, obj.Dec, astroDark, astroTwilight, siderealTimeAtAstroDark);
+
+        public IReadOnlyDictionary<RaDecEventTime, RaDecEventInfo> CalculateObjElevation(CatalogIndex idx, ObjectType objectType, double ra, double dec, DateTimeOffset astroDark, DateTimeOffset astroTwilight, double siderealTimeAtAstroDark)
         {
-            SetJ2000(obj.RA, obj.Dec);
+            if (double.IsNaN(ra))
+            {
+                throw new ArgumentException("Ra should not be NaN", nameof(ra));
+            }
+
+            if (double.IsNaN(dec))
+            {
+                throw new ArgumentException("Dec should not be NaN", nameof(dec));
+            }
+
+            SetJ2000(ra, dec);
+
+            var isFixed = idx != CatalogIndex.Sol && objectType != ObjectType.Planet;
 
             var raDecEventTimes = new Dictionary<RaDecEventTime, RaDecEventInfo>(4);
 
-            var hourAngle = TimeSpan.FromHours(CoordinateUtils.ConditionHA(siderealTimeAtAstroDark - obj.RA));
+            var hourAngle = TimeSpan.FromHours(CoordinateUtils.ConditionHA(siderealTimeAtAstroDark - ra));
             var crossMeridianTime = astroDark - hourAngle;
 
             var darkEvent = raDecEventTimes[RaDecEventTime.AstroDark] = CalcRaDecEventInfo(astroDark);
@@ -988,11 +1003,19 @@ namespace Astap.Lib.Astrometry.SOFA
 
             RaDecEventInfo CalcRaDecEventInfo(in DateTimeOffset dt)
             {
-                JulianDateUTC = dt.ToJulian();
-                if (ElevationTopocentric is double alt)
+                if (isFixed)
+                {
+                    JulianDateUTC = dt.ToJulian();
+                    if (ElevationTopocentric is double alt)
+                    {
+                        return new(dt, alt);
+                    }
+                }
+                else if (VSOP87a.Reduce(idx, dt, SiteLatitude, SiteLongitude, out _, out _, out _, out var alt))
                 {
                     return new(dt, alt);
                 }
+
                 return new(dt, double.NaN);
             }
         }
