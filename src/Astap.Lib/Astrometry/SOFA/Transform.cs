@@ -928,10 +928,7 @@ namespace Astap.Lib.Astrometry.SOFA
 
             double ut11 = default, ut12 = default;
             var dut1 = LeapSecondsTable.DeltaUT1(utc1 + utc2);
-            if (wwaUtcut1(utc1, utc2, dut1, ref ut11, ref ut12) != 0)
-            {
-                throw new InvalidOperationException($"Cannot convert {dateTimeOffset} to UT1");
-            }
+            _ = wwaUtcut1(utc1, utc2, dut1, ref ut11, ref ut12);
 
             var gmst = wwaGmst00(ut11, ut12, tt1, tt2) * RADIANS2HOURS;
 
