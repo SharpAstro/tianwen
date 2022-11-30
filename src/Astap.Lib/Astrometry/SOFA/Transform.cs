@@ -26,8 +26,12 @@ namespace Astap.Lib.Astrometry.SOFA
     /// </remarks>
     public sealed class Transform
     {
-        private double _RAJ2000Value, _RATopoValue, _DECJ2000Value, DECTopoValue, _SiteElevValue, _SiteLatValue, _SiteLongValue, _SiteTempValue, _SitePressureValue;
-        private double _RAApparentValue, _DECApparentValue, _AzimuthTopoValue, _ElevationTopoValue, _JulianDateTTValue, _JulianDateUTCValue;
+        private double _RAJ2000Value, _RATopoValue, _DECJ2000Value, _DECTopoValue;
+        private double _SiteElevValue, _SiteLatValue, _SiteLongValue;
+        private TimeSpan _SiteTimeZoneValue;
+        private double _SiteTempValue, _SitePressureValue;
+        private double _RAApparentValue, _DECApparentValue, _AzimuthTopoValue, _ElevationTopoValue;
+        private double _jdTTValue1, _jdTTValue2, _jdUTCValue1, _jdUTCValue2;
         private bool _RefracValue, _RequiresRecalculate;
         private SetBy LastSetBy { get; set; }
 
@@ -47,17 +51,196 @@ namespace Astap.Lib.Astrometry.SOFA
             _RAJ2000Value = double.NaN;
             _DECJ2000Value = double.NaN;
             _RATopoValue = double.NaN;
-            DECTopoValue = double.NaN;
+            _DECTopoValue = double.NaN;
             _SiteElevValue = double.NaN;
             _SiteLatValue = double.NaN;
             _SiteLongValue = double.NaN;
+            _SiteTimeZoneValue = TimeSpan.MinValue;
             _SitePressureValue = double.NaN;
 
             _RefracValue = false;
-            LastSetBy = SetBy.Never;
             _RequiresRecalculate = true;
-            _JulianDateTTValue = 0d; // Initialise to a value that forces the current PC date time to be used in determining the TT Julian date of interest
+            // Initialise to a value that forces the current PC date time to be used in determining the TT Julian date of interest
+            _jdUTCValue1 = 0d;
+            _jdUTCValue2 = 0d;
+            LastSetBy = SetBy.Never;
         }
+
+        #region EventTimes Astroutils implemtation
+        /// <summary>
+        ///
+        /// </summary>
+        /// <param name="eventType"></param>
+        /// <param name="dto"></param>
+        /// <param name="siteLatitude"></param>
+        /// <param name="siteLongitude"></param>
+        /// <returns></returns>
+        public (bool aboveHorizon, IReadOnlyList<TimeSpan> riseEvents, IReadOnlyList<TimeSpan> setEvents) EventTimes(EventType eventType)
+        {
+            var celestialBody = eventType.CelestialBody();
+
+            bool doesRise, doesSet, aboveHorizon = default;
+            double centreTime, altitiudeMinus1, altitiude0, altitiudePlus1, a, b, c, xSymmetry, yExtreme, discriminant;
+            double deltaX, zero1, zero2;
+            int nZeros;
+            List<TimeSpan> bodyRises = new(2), bodySets = new(2);
+
+            doesRise = false;
+            doesSet = false;
+
+            InitFromUtcNowIfRequired();
+
+            // Iterate over the day in two hour periods
+
+            // Start at 01:00 as the centre time i.e. then time range will be 00:00 to 02:00
+            centreTime = 1.0d;
+
+            do
+            {
+                // Calculate body positional information
+                altitiudeMinus1 = BodyAltitude(centreTime - 1d);
+                altitiude0 = BodyAltitude(centreTime);
+                altitiudePlus1 = BodyAltitude(centreTime + 1d);
+
+                // Correct alititude for body's apparent size, parallax, required distance below horizon and refraction
+                switch (eventType)
+                {
+                    case EventType.SunRiseSunset:
+                        {
+                            altitiudeMinus1 -= - SUN_RISE;
+                            altitiude0 -= SUN_RISE;
+                            altitiudePlus1 -= SUN_RISE;
+                            break;
+                        }
+                    case EventType.CivilTwilight:
+                        {
+                            altitiudeMinus1 -= CIVIL_TWILIGHT;
+                            altitiude0 -= CIVIL_TWILIGHT;
+                            altitiudePlus1 -= CIVIL_TWILIGHT;
+                            break;
+                        }
+                    case EventType.NauticalTwilight:
+                        {
+                            altitiudeMinus1 -= NAUTICAL_TWILIGHT;
+                            altitiude0 -= NAUTICAL_TWILIGHT;
+                            altitiudePlus1 -= NAUTICAL_TWILIGHT;
+                            break;
+                        }
+                    case EventType.AmateurAstronomicalTwilight:
+                        {
+                            altitiudeMinus1 -= AMATEUR_ASRONOMICAL_TWILIGHT;
+                            altitiude0 = AMATEUR_ASRONOMICAL_TWILIGHT;
+                            altitiudePlus1 -= AMATEUR_ASRONOMICAL_TWILIGHT;
+                            break;
+                        }
+                    case EventType.AstronomicalTwilight:
+                        {
+                            altitiudeMinus1 -= ASTRONOMICAL_TWILIGHT;
+                            altitiude0 -= ASTRONOMICAL_TWILIGHT;
+                            altitiudePlus1 -= ASTRONOMICAL_TWILIGHT; // Planets so correct for radius of plant and refraction
+                            break;
+                        }
+                }
+
+                if (centreTime == 1.0d)
+                {
+                    if (altitiudeMinus1 < 0d)
+                    {
+                        aboveHorizon = false;
+                    }
+                    else
+                    {
+                        aboveHorizon = true;
+                    }
+                }
+
+                // Assess quadratic equation
+                c = altitiude0;
+                b = 0.5d * (altitiudePlus1 - altitiudeMinus1);
+                a = 0.5d * (altitiudePlus1 + altitiudeMinus1) - altitiude0;
+
+                xSymmetry = -b / (2.0d * a);
+                yExtreme = (a * xSymmetry + b) * xSymmetry + c;
+                discriminant = b * b - 4.0d * a * c;
+
+                deltaX = double.NaN;
+                zero1 = double.NaN;
+                zero2 = double.NaN;
+                nZeros = 0;
+
+                if (discriminant > 0.0d)                 // there are zeros
+                {
+                    deltaX = 0.5d * Math.Sqrt(discriminant) / Math.Abs(a);
+                    zero1 = xSymmetry - deltaX;
+                    zero2 = xSymmetry + deltaX;
+                    if (Math.Abs(zero1) <= 1.0d)
+                    {
+                        nZeros++; // This zero is in interval
+                    }
+                    if (Math.Abs(zero2) <= 1.0d)
+                    {
+                        nZeros++; // This zero is in interval
+                    }
+
+                    if (zero1 < -1.0d)
+                    {
+                        zero1 = zero2;
+                    }
+                }
+
+                switch (nZeros)
+                {
+                    // cases depend on values of discriminant - inner part of STEP 4
+                    case 0: // nothing  - go to next time slot
+                        {
+                            break;
+                        }
+                    case 1:                      // simple rise / set event
+                        {
+                            if (altitiudeMinus1 < 0.0d)       // The body is set at start of event so this must be a rising event
+                            {
+                                doesRise = true;
+                                bodyRises.Add(TimeSpan.FromHours(centreTime + zero1));
+                            }
+                            else                    // must be setting
+                            {
+                                doesSet = true;
+                                bodySets.Add(TimeSpan.FromHours(centreTime + zero1));
+                            }
+
+                            break;
+                        }
+                    case 2:                      // rises and sets within interval
+                        {
+                            if (altitiudeMinus1 < 0.0d) // The body is set at start of event so it must rise first then set
+                            {
+                                bodyRises.Add(TimeSpan.FromHours(centreTime + zero1));
+                                bodySets.Add(TimeSpan.FromHours(centreTime + zero2));
+                            }
+                            else                    // The body is risen at the start of the event so it must set first then rise
+                            {
+                                bodyRises.Add(TimeSpan.FromHours(centreTime + zero2));
+                                bodySets.Add(TimeSpan.FromHours(centreTime + zero1));
+                            }
+                            doesRise = true;
+                            doesSet = true;
+                            break;
+                        }
+                        // Zero2 = 1
+                }
+                centreTime += 2.0d; // Increment by 2 hours to get the next 2 hour slot in the day
+            }
+            while (!(doesRise && doesSet && Math.Abs(SiteLatitude) < 60.0d || centreTime == 25.0d));
+
+            return (aboveHorizon, bodyRises, bodySets);
+
+            double BodyAltitude(double hour)
+            {
+                VSOP87a.Reduce(celestialBody, _jdUTCValue1, _jdUTCValue2 + (hour / 24.0), _jdTTValue1, _jdTTValue2 + (hour / 24.0), SiteLatitude, SiteLongitude, out _, out _, out _, out var alt);
+                return alt;
+            }
+        }
+        #endregion
 
         #region ITransform Implementation
         /// <summary>
@@ -275,10 +458,10 @@ namespace Astap.Lib.Astrometry.SOFA
         public void SetTopocentric(double RA, double DEC)
         {
 
-            if (RA != _RATopoValue | DEC != DECTopoValue)
+            if (RA != _RATopoValue | DEC != _DECTopoValue)
             {
                 _RATopoValue = ValidateRA(RA);
-                DECTopoValue = ValidateDec(DEC);
+                _DECTopoValue = ValidateDec(DEC);
                 _RequiresRecalculate = true;
             }
 
@@ -401,8 +584,8 @@ namespace Astap.Lib.Astrometry.SOFA
                     throw new InvalidOperationException("Attempt to read DECTopocentric before a SetXX method has been called");
                 }
                 Recalculate();
-                CheckSet(DECTopoValue, "DEC topocentric can not be derived from the information provided. Are site parameters set?");
-                return DECTopoValue;
+                CheckSet(_DECTopoValue, "DEC topocentric can not be derived from the information provided. Are site parameters set?");
+                return _DECTopoValue;
             }
         }
 
@@ -518,11 +701,11 @@ namespace Astap.Lib.Astrometry.SOFA
         {
             get
             {
-                return _JulianDateTTValue;
+                return _jdTTValue1 + _jdTTValue2;
             }
             set
             {
-                double tai1 = default, tai2 = default, utc1 = default, utc2 = default;
+                double tai1 = default, tai2 = default;
 
                 // Validate the supplied value, it must be 0.0 or within the permitted range
                 if (value != 0.0d & (value < JULIAN_DATE_MINIMUM_VALUE | value > JULIAN_DATE_MAXIMUM_VALUE))
@@ -530,19 +713,20 @@ namespace Astap.Lib.Astrometry.SOFA
                     throw new ArgumentOutOfRangeException(nameof(value), value, $"Range from {JULIAN_DATE_MINIMUM_VALUE} to {JULIAN_DATE_MAXIMUM_VALUE}");
                 }
 
-                _JulianDateTTValue = value;
+                _jdTTValue1 = value;
+                _jdTTValue2 = 0.0d;
                 _RequiresRecalculate = true; // Force a recalculation because the Julian date has changed
 
-                if (_JulianDateTTValue != 0.0d)
+                if (_jdTTValue1 != 0.0d)
                 {
                     // Calculate UTC
-                    _ = wwaTttai(_JulianDateTTValue, 0.0d, ref tai1, ref tai2);
-                    _ = wwaTaiutc(tai1, tai2, ref utc1, ref utc2);
-                    _JulianDateUTCValue = utc1 + utc2;
+                    _ = wwaTttai(_jdTTValue1, _jdTTValue2, ref tai1, ref tai2);
+                    _ = wwaTaiutc(tai1, tai2, ref _jdUTCValue1, ref _jdUTCValue2);
                 }
                 else // Handle special case of 0.0
                 {
-                    _JulianDateUTCValue = 0.0d;
+                    _jdUTCValue1 = 0.0d;
+                    _jdUTCValue2 = 0.0d;
                 }
             }
         }
@@ -558,11 +742,11 @@ namespace Astap.Lib.Astrometry.SOFA
         {
             get
             {
-                return _JulianDateUTCValue;
+                return _jdUTCValue1 + _jdUTCValue2;
             }
             set
             {
-                double tai1 = default, tai2 = default, tt1 = default, tt2 = default;
+                double tai1 = default, tai2 = default;
 
                 // Validate the supplied value, it must be 0.0 or within the permitted range
                 if (value != 0.0d & (value < JULIAN_DATE_MINIMUM_VALUE | value > JULIAN_DATE_MAXIMUM_VALUE))
@@ -570,22 +754,46 @@ namespace Astap.Lib.Astrometry.SOFA
                     throw new ArgumentOutOfRangeException(nameof(value), value, $"Range from {JULIAN_DATE_MINIMUM_VALUE} to {JULIAN_DATE_MAXIMUM_VALUE}");
                 }
 
-                _JulianDateUTCValue = value;
+                _jdUTCValue1 = value;
+                _jdUTCValue2 = 0.0;
                 _RequiresRecalculate = true; // Force a recalculation because the Julian date has changed
 
-                if (_JulianDateUTCValue != 0.0d)
+                if (_jdUTCValue1 != 0.0d)
                 {
                     // Calculate Terrestrial Time equivalent
-                    _ = wwaUtctai(_JulianDateUTCValue, 0.0d, ref tai1, ref tai2);
-                    _ = wwaTaitt(tai1, tai2, ref tt1, ref tt2);
-                    _JulianDateTTValue = tt1 + tt2;
+                    _ = wwaUtctai(_jdUTCValue1, _jdUTCValue2, ref tai1, ref tai2);
+                    _ = wwaTaitt(tai1, tai2, ref _jdTTValue1, ref _jdTTValue2);
                 }
                 else // Handle special case of 0.0
                 {
-                    _JulianDateTTValue = 0.0d;
+                    _jdTTValue1 = 0.0d;
+                    _jdTTValue2 = 0.0d;
                 }
             }
         }
+
+        /// <summary>
+        /// Initialises time via <see cref="TimeUtils.ToSOFAUtcJdTT(DateTimeOffset, out double, out double, out double, out double)"/>.
+        /// </summary>
+        public DateTimeOffset DateTimeOffset
+        {
+            set
+            {
+                value.ToSOFAUtcJdTT(out _jdUTCValue1, out _jdUTCValue2, out _jdTTValue1, out _jdTTValue2);
+                _SiteTimeZoneValue = value.Offset;
+            }
+        }
+
+        /// <summary>
+        /// Timezone offset, will <see cref="TimeSpan.MinValue"/> if not provided via <see cref="DateTimeOffset"/>.
+        /// Is used to calculate <see cref="EventTimes(EventType)"/>.
+        /// </summary>
+        public TimeSpan SiteTimeZone
+        {
+            get => _SiteTimeZoneValue;
+            set => _SiteTimeZoneValue = value;
+        }
+
         #endregion
 
         #region Support Code
@@ -600,7 +808,7 @@ namespace Astap.Lib.Astrometry.SOFA
 
         private void J2000ToTopo()
         {
-            double DUT1, JDUTCSofa;
+            double dut1;
             double aob = default, zob = default, hob = default, dob = default, rob = default, eo = default;
 
             CheckSet(_SiteElevValue, "Site elevation has not been set");
@@ -610,21 +818,21 @@ namespace Astap.Lib.Astrometry.SOFA
 
             // Calculate site pressure at site elevation if this has not been provided
             CalculateSitePressureIfRequired();
+            InitFromUtcNowIfRequired();
 
-            JDUTCSofa = GetJDUTCSofa();
-            DUT1 = LeapSecondsTable.DeltaTCalc(JDUTCSofa);
+            dut1 = LeapSecondsTable.DeltaTCalc(_jdUTCValue1 + _jdUTCValue2);
 
             if (_RefracValue) // Include refraction
             {
-                _ = wwaAtco13(_RAJ2000Value * HOURS2RADIANS, _DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, JDUTCSofa, 0.0d, DUT1, _SiteLongValue * DEGREES2RADIANS, _SiteLatValue * DEGREES2RADIANS, _SiteElevValue, 0.0d, 0.0d, _SitePressureValue, _SiteTempValue, 0.8d, 0.57d, ref aob, ref zob, ref hob, ref dob, ref rob, ref eo);
+                _ = wwaAtco13(_RAJ2000Value * HOURS2RADIANS, _DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, _jdUTCValue1, _jdUTCValue2, dut1, _SiteLongValue * DEGREES2RADIANS, _SiteLatValue * DEGREES2RADIANS, _SiteElevValue, 0.0d, 0.0d, _SitePressureValue, _SiteTempValue, 0.8d, 0.57d, ref aob, ref zob, ref hob, ref dob, ref rob, ref eo);
             }
             else // No refraction
             {
-                _ = wwaAtco13(_RAJ2000Value * HOURS2RADIANS, _DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, JDUTCSofa, 0.0d, DUT1, _SiteLongValue * DEGREES2RADIANS, _SiteLatValue * DEGREES2RADIANS, _SiteElevValue, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, ref aob, ref zob, ref hob, ref dob, ref rob, ref eo);
+                _ = wwaAtco13(_RAJ2000Value * HOURS2RADIANS, _DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, _jdUTCValue1, _jdUTCValue2, dut1, _SiteLongValue * DEGREES2RADIANS, _SiteLatValue * DEGREES2RADIANS, _SiteElevValue, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, ref aob, ref zob, ref hob, ref dob, ref rob, ref eo);
             }
 
             _RATopoValue = wwaAnp(rob - eo) * RADIANS2HOURS; // // Convert CIO RA to equinox of date RA by subtracting the equation of the origins and convert from radians to hours
-            DECTopoValue = dob * RADIANS2DEGREES; // Convert Dec from radians to degrees
+            _DECTopoValue = dob * RADIANS2DEGREES; // Convert Dec from radians to degrees
             _AzimuthTopoValue = aob * RADIANS2DEGREES;
             _ElevationTopoValue = 90.0d - zob * RADIANS2DEGREES;
         }
@@ -632,16 +840,16 @@ namespace Astap.Lib.Astrometry.SOFA
         private void J2000ToApparent()
         {
             double ri = default, di = default, eo = default;
-            double JDTTSofa = GetJDTTSofa();
+            InitFromUtcNowIfRequired();
 
-            wwaAtci13(_RAJ2000Value * HOURS2RADIANS, _DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, JDTTSofa, 0.0d, ref ri, ref di, ref eo);
+            wwaAtci13(_RAJ2000Value * HOURS2RADIANS, _DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, _jdTTValue1, _jdTTValue2, ref ri, ref di, ref eo);
             _RAApparentValue = wwaAnp(ri - eo) * RADIANS2HOURS; // // Convert CIO RA to equinox of date RA by subtracting the equation of the origins and convert from radians to hours
             _DECApparentValue = di * RADIANS2DEGREES; // Convert Dec from radians to degrees
         }
 
         private void TopoToJ2000()
         {
-            double raCelestrial = default, decCelestial = default, jdTTSofa, jdUTCSofa, dut1;
+            double raCelestrial = default, decCelestial = default, dut1;
             double aob = default, zob = default, hob = default, dob = default, rob = default, eo = default;
 
             if (double.IsNaN(_SiteElevValue))
@@ -663,20 +871,19 @@ namespace Astap.Lib.Astrometry.SOFA
 
             // Calculate site pressure at site elevation if this has not been provided
             CalculateSitePressureIfRequired();
+            InitFromUtcNowIfRequired();
 
-            jdUTCSofa = GetJDUTCSofa();
-            jdTTSofa = GetJDTTSofa();
-            dut1 = LeapSecondsTable.DeltaTCalc(jdUTCSofa);
+            dut1 = LeapSecondsTable.DeltaTCalc(_jdUTCValue1 + _jdUTCValue2);
 
             var type = 'R';
-            var ob1 = wwaAnp(Math.FusedMultiplyAdd(_RATopoValue, HOURS2RADIANS, wwaEo06a(jdTTSofa, 0.0d)));
+            var ob1 = wwaAnp(Math.FusedMultiplyAdd(_RATopoValue, HOURS2RADIANS, wwaEo06a(_jdTTValue1, _jdTTValue2)));
             if (_RefracValue) // Refraction is required
             {
-                _ = wwaAtoc13(ref type, ob1, DECTopoValue * DEGREES2RADIANS, jdUTCSofa, 0.0d, dut1, _SiteLongValue * DEGREES2RADIANS, _SiteLatValue * DEGREES2RADIANS, _SiteElevValue, 0.0d, 0.0d, _SitePressureValue, _SiteTempValue, 0.85d, 0.57d, ref raCelestrial, ref decCelestial);
+                _ = wwaAtoc13(ref type, ob1, _DECTopoValue * DEGREES2RADIANS, _jdUTCValue1, _jdUTCValue2, dut1, _SiteLongValue * DEGREES2RADIANS, _SiteLatValue * DEGREES2RADIANS, _SiteElevValue, 0.0d, 0.0d, _SitePressureValue, _SiteTempValue, 0.85d, 0.57d, ref raCelestrial, ref decCelestial);
             }
             else
             {
-                _ = wwaAtoc13(ref type, ob1, DECTopoValue * DEGREES2RADIANS, jdUTCSofa, 0.0d, dut1, _SiteLongValue * DEGREES2RADIANS, _SiteLatValue * DEGREES2RADIANS, _SiteElevValue, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, ref raCelestrial, ref decCelestial);
+                _ = wwaAtoc13(ref type, ob1, _DECTopoValue * DEGREES2RADIANS, _jdUTCValue1, _jdUTCValue2, dut1, _SiteLongValue * DEGREES2RADIANS, _SiteLatValue * DEGREES2RADIANS, _SiteElevValue, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, ref raCelestrial, ref decCelestial);
             }
 
             _RAJ2000Value = raCelestrial * RADIANS2HOURS;
@@ -685,11 +892,11 @@ namespace Astap.Lib.Astrometry.SOFA
             // Now calculate the corresponding AzEl values from the J2000 values
             if (_RefracValue) // Include refraction
             {
-                _ = wwaAtco13(_RAJ2000Value * HOURS2RADIANS, _DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, jdUTCSofa, 0.0d, dut1, _SiteLongValue * DEGREES2RADIANS, _SiteLatValue * DEGREES2RADIANS, _SiteElevValue, 0.0d, 0.0d, _SitePressureValue, _SiteTempValue, 0.8d, 0.57d, ref aob, ref zob, ref hob, ref dob, ref rob, ref eo);
+                _ = wwaAtco13(_RAJ2000Value * HOURS2RADIANS, _DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, _jdUTCValue1, _jdUTCValue2, dut1, _SiteLongValue * DEGREES2RADIANS, _SiteLatValue * DEGREES2RADIANS, _SiteElevValue, 0.0d, 0.0d, _SitePressureValue, _SiteTempValue, 0.8d, 0.57d, ref aob, ref zob, ref hob, ref dob, ref rob, ref eo);
             }
             else // No refraction
             {
-                _ = wwaAtco13(_RAJ2000Value * HOURS2RADIANS, _DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, jdUTCSofa, 0.0d, dut1, _SiteLongValue * DEGREES2RADIANS, _SiteLatValue * DEGREES2RADIANS, _SiteElevValue, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, ref aob, ref zob, ref hob, ref dob, ref rob, ref eo);
+                _ = wwaAtco13(_RAJ2000Value * HOURS2RADIANS, _DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, _jdUTCValue1, _jdUTCValue2, dut1, _SiteLongValue * DEGREES2RADIANS, _SiteLatValue * DEGREES2RADIANS, _SiteElevValue, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, ref aob, ref zob, ref hob, ref dob, ref rob, ref eo);
             }
 
             _AzimuthTopoValue = aob * RADIANS2DEGREES;
@@ -698,13 +905,11 @@ namespace Astap.Lib.Astrometry.SOFA
 
         private void ApparentToJ2000()
         {
-            double jdTTSofa, raCelestial = default, decCelestial = default, jdUTCSofa, eo = default;
+            double raCelestial = default, decCelestial = default, eo = default;
+            InitFromUtcNowIfRequired();
 
-            jdTTSofa = GetJDTTSofa();
-            jdUTCSofa = GetJDUTCSofa();
-
-            var ri = wwaAnp(Math.FusedMultiplyAdd(_RAApparentValue, HOURS2RADIANS, wwaEo06a(jdUTCSofa, 0.0d)));
-            wwaAtic13(ri, _DECApparentValue * DEGREES2RADIANS, jdTTSofa, 0.0d, ref raCelestial, ref decCelestial, ref eo);
+            var ri = wwaAnp(Math.FusedMultiplyAdd(_RAApparentValue, HOURS2RADIANS, wwaEo06a(_jdUTCValue1, _jdUTCValue1)));
+            wwaAtic13(ri, _DECApparentValue * DEGREES2RADIANS, _jdTTValue1, _jdTTValue2, ref raCelestial, ref decCelestial, ref eo);
             _RAJ2000Value = raCelestial * RADIANS2HOURS;
             _DECJ2000Value = decCelestial * RADIANS2DEGREES;
         }
@@ -725,7 +930,7 @@ namespace Astap.Lib.Astrometry.SOFA
                             else // Set to NaN
                             {
                                 _RATopoValue = double.NaN;
-                                DECTopoValue = double.NaN;
+                                _DECTopoValue = double.NaN;
                                 _AzimuthTopoValue = double.NaN;
                                 _ElevationTopoValue = double.NaN;
                             }
@@ -763,7 +968,7 @@ namespace Astap.Lib.Astrometry.SOFA
                             else
                             {
                                 _RATopoValue = double.NaN;
-                                DECTopoValue = double.NaN;
+                                _DECTopoValue = double.NaN;
                                 _AzimuthTopoValue = double.NaN;
                                 _ElevationTopoValue = double.NaN;
                             }
@@ -785,7 +990,7 @@ namespace Astap.Lib.Astrometry.SOFA
                                 _RAApparentValue = double.NaN;
                                 _DECApparentValue = double.NaN;
                                 _RATopoValue = double.NaN;
-                                DECTopoValue = double.NaN;
+                                _DECTopoValue = double.NaN;
                             } // Neither SetJ2000 nor SetTopocentric nor SetApparent have been called, so throw an exception
 
                             break;
@@ -802,7 +1007,7 @@ namespace Astap.Lib.Astrometry.SOFA
 
         private void AzElToJ2000()
         {
-            double JulianDateUTCSofa, RACelestial = default, DecCelestial = default, DUT1;
+            double raCelestial = default, decCelestial = default, dut1;
 
             if (double.IsNaN(_SiteElevValue))
             {
@@ -824,53 +1029,29 @@ namespace Astap.Lib.Astrometry.SOFA
             // Calculate site pressure at site elevation if this has not been provided
             CalculateSitePressureIfRequired();
 
-            JulianDateUTCSofa = GetJDUTCSofa();
-            DUT1 = LeapSecondsTable.DeltaTCalc(JulianDateUTCSofa);
+            InitFromUtcNowIfRequired();
+            dut1 = LeapSecondsTable.DeltaTCalc(_jdUTCValue1 + _jdUTCValue2);
 
 
-            int RetCode;
             var type = 'A';
             if (_RefracValue) // Refraction is required
             {
-                RetCode = wwaAtoc13(ref type, _AzimuthTopoValue * DEGREES2RADIANS, (90.0d - _ElevationTopoValue) * DEGREES2RADIANS, JulianDateUTCSofa, 0.0d, DUT1, _SiteLongValue * DEGREES2RADIANS, _SiteLatValue * DEGREES2RADIANS, _SiteElevValue, 0.0d, 0.0d, _SitePressureValue, _SiteTempValue, 0.85d, 0.57d, ref RACelestial, ref DecCelestial);
+                _ = wwaAtoc13(ref type, _AzimuthTopoValue * DEGREES2RADIANS, (90.0d - _ElevationTopoValue) * DEGREES2RADIANS, _jdUTCValue1, _jdUTCValue2, dut1, _SiteLongValue * DEGREES2RADIANS, _SiteLatValue * DEGREES2RADIANS, _SiteElevValue, 0.0d, 0.0d, _SitePressureValue, _SiteTempValue, 0.85d, 0.57d, ref raCelestial, ref decCelestial);
             }
             else
             {
-                RetCode = wwaAtoc13(ref type, _AzimuthTopoValue * DEGREES2RADIANS, (90.0d - _ElevationTopoValue) * DEGREES2RADIANS, JulianDateUTCSofa, 0.0d, DUT1, _SiteLongValue * DEGREES2RADIANS, _SiteLatValue * DEGREES2RADIANS, _SiteElevValue, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, ref RACelestial, ref DecCelestial);
+                _ = wwaAtoc13(ref type, _AzimuthTopoValue * DEGREES2RADIANS, (90.0d - _ElevationTopoValue) * DEGREES2RADIANS, _jdUTCValue1, _jdUTCValue2, dut1, _SiteLongValue * DEGREES2RADIANS, _SiteLatValue * DEGREES2RADIANS, _SiteElevValue, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, ref raCelestial, ref decCelestial);
             }
 
-            if (RetCode != 0)
-            {
-                throw new InvalidOperationException($"Atoc13: Return code is {RetCode}");
-            }
-
-            _RAJ2000Value = RACelestial * RADIANS2HOURS;
-            _DECJ2000Value = DecCelestial * RADIANS2DEGREES;
+            _RAJ2000Value = raCelestial * RADIANS2HOURS;
+            _DECJ2000Value = decCelestial * RADIANS2DEGREES;
         }
 
-        private double GetJDUTCSofa()
+        private void InitFromUtcNowIfRequired()
         {
-            if (_JulianDateUTCValue == 0.0d) // No specific UTC date / time has been set so use the current date / time
+            if (_jdUTCValue1 == 0.0d && _jdTTValue1 == 0.0d) // No specific TT date / time has been set so use the current date / time
             {
-                DateTime.UtcNow.ToSOFAUtcJdTT(out var utc1, out var utc2, out _, out _);
-                return utc1 + utc2;
-            }
-            else // A specific UTC date / time has been set so use it
-            {
-                return _JulianDateUTCValue;
-            }
-        }
-
-        private double GetJDTTSofa()
-        {
-            if (_JulianDateTTValue == 0.0d) // No specific TT date / time has been set so use the current date / time
-            {
-                DateTime.UtcNow.ToSOFAUtcJdTT(out _, out _, out var tt1, out var tt2);
-                return tt1 + tt2;
-            }
-            else // A specific TT date / time has been set so use it
-            {
-                return _JulianDateTTValue;
+                DateTimeOffset = DateTimeOffset.Now;
             }
         }
 
@@ -906,10 +1087,23 @@ namespace Astap.Lib.Astrometry.SOFA
         #endregion
 
         #region Additional functionality
+        public double LocalSiderealTime()
+        {
+            InitFromUtcNowIfRequired();
+            return LocalSiderealTime(_jdUTCValue1, _jdUTCValue2, _jdTTValue1, _jdTTValue1, SiteLongitude);
+        }
+
+        public double LocalSiderealTime(DateTimeOffset dateTimeOffset) => LocalSiderealTime(dateTimeOffset, SiteLongitude);
+
         public static double LocalSiderealTime(DateTimeOffset dateTimeOffset, double siteLongitude)
         {
             dateTimeOffset.ToSOFAUtcJdTT(out var utc1, out var utc2, out var tt1, out var tt2);
 
+            return LocalSiderealTime(utc1, utc2, tt1, tt2, siteLongitude);
+        }
+
+        public static double LocalSiderealTime(double utc1, double utc2, double tt1, double tt2, double siteLongitude)
+        {
             double ut11 = default, ut12 = default;
             var dut1 = LeapSecondsTable.DeltaUT1(utc1 + utc2);
             _ = wwaUtcut1(utc1, utc2, dut1, ref ut11, ref ut12);
