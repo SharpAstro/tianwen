@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Globalization;
-using WorldWideAstronomy;
 
 namespace Astap.Lib.Astrometry;
 
@@ -185,45 +184,6 @@ public static class CoordinateUtils
         }
         var hasMS = secFrac > 0;
         return $"{hoursInt:D2}:{minInt:D2}:{secInt:D2}{(hasMS ? $".{secFrac:D3}" : "")}";
-    }
-
-    public static double ToJulian(this DateTimeOffset dateTimeOffset) => dateTimeOffset.UtcDateTime.ToOADate() + 2415018.5;
-
-    public static void ToSOFAUtcJd(this DateTimeOffset dateTimeOffset, out double utc1, out double utc2)
-        => dateTimeOffset.UtcDateTime.ToSOFAUtcJd(out utc1, out utc2);
-
-    public static void ToSOFAUtcJd(this DateTime dt, out double utc1, out double utc2)
-    {
-        utc1 = default;
-        utc2 = default;
-        // First calculate the UTC Julian date, then convert this to the equivalent TAI Julian date then convert this to the equivalent TT Julian date
-        var status = WWA.wwaDtf2d("UTC", dt.Year, dt.Month, dt.Day, dt.Hour, dt.Minute, dt.Second + dt.Millisecond / 1000.0d, ref utc1, ref utc2);
-        if (status != 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(dt), $"Failed to convert {dt} to SOFA Julian date with status code Dtf2d: {status}");
-        }
-    }
-
-    public static void ToSOFAUtcJdTT(this DateTimeOffset dto, out double utc1, out double utc2, out double tt1, out double tt2)
-        => dto.UtcDateTime.ToSOFAUtcJdTT(out utc1, out utc2, out tt1, out tt2);
-
-    public static void ToSOFAUtcJdTT(this DateTime dt, out double utc1, out double utc2, out double tt1, out double tt2)
-    {
-        double tai1 = default, tai2 = default;
-
-        dt.ToSOFAUtcJd(out utc1, out utc2);
-        int status = WWA.wwaUtctai(utc1, utc2, ref tai1, ref tai2);
-        if (status != 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(dt), $"Failed to convert {dt} to TAI with status code Utctai: {status}");
-        }
-        tt1 = default;
-        tt2 = default;
-        status = WWA.wwaTaitt(tai1, tai2, ref tt1, ref tt2);
-        if (status != 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(dt), $"Failed to convert {dt} to TT with status code Taitt: {status}");
-        }
     }
 
     public static string DegreesToDMS(double degrees) => $"{(Math.Sign(degrees) >= 0 ? "+" : "-")}{HoursToHMS(Math.Abs(degrees))}";

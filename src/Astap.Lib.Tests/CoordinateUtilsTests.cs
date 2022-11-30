@@ -1,23 +1,11 @@
 ﻿using Astap.Lib.Astrometry;
 using Shouldly;
-using System;
-using System.Globalization;
 using Xunit;
 
 namespace Astap.Lib.Tests;
 
 public class CoordinateUtilsTests
 {
-    [Theory]
-    [InlineData("2022-11-05T22:03:25.5847372Z", 2459889.419046111d)]
-    [InlineData("2022-11-06T09:11:14.6430197+11:00", 2459889.4244750347d)]
-    [InlineData("2022-11-05T11:11:14.6430197-11:00", 2459889.4244750347d)]
-    public void GivenDTOWhenConvertToJulianThenItIsReturned(string dtoStr, double expectedJulian)
-    {
-        var dto = DateTimeOffset.ParseExact(dtoStr, "o", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
-
-        CoordinateUtils.ToJulian(dto).ShouldBe(expectedJulian);
-    }
 
     [Theory]
     [InlineData("05:23:34.5", 5.392916666666667d)]
