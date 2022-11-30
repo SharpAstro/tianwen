@@ -26,10 +26,10 @@ namespace Astap.Lib.Astrometry.SOFA
     /// </remarks>
     public sealed class Transform
     {
-        private double RAJ2000Value, RATopoValue, DECJ2000Value, DECTopoValue, SiteElevValue, SiteLatValue, SiteLongValue, SiteTempValue, SitePressureValue;
-        private double RAApparentValue, DECApparentValue, AzimuthTopoValue, ElevationTopoValue, JulianDateTTValue, JulianDateUTCValue;
-        private bool RefracValue, RequiresRecalculate;
-        private SetBy LastSetBy;
+        private double _RAJ2000Value, _RATopoValue, _DECJ2000Value, DECTopoValue, _SiteElevValue, _SiteLatValue, _SiteLongValue, _SiteTempValue, _SitePressureValue;
+        private double _RAApparentValue, _DECApparentValue, _AzimuthTopoValue, _ElevationTopoValue, _JulianDateTTValue, _JulianDateUTCValue;
+        private bool _RefracValue, _RequiresRecalculate;
+        private SetBy LastSetBy { get; set; }
 
         private enum SetBy
         {
@@ -44,19 +44,19 @@ namespace Astap.Lib.Astrometry.SOFA
         public Transform()
         {
             // Initialise to invalid values in case these are read before they are set
-            RAJ2000Value = double.NaN;
-            DECJ2000Value = double.NaN;
-            RATopoValue = double.NaN;
+            _RAJ2000Value = double.NaN;
+            _DECJ2000Value = double.NaN;
+            _RATopoValue = double.NaN;
             DECTopoValue = double.NaN;
-            SiteElevValue = double.NaN;
-            SiteLatValue = double.NaN;
-            SiteLongValue = double.NaN;
-            SitePressureValue = double.NaN;
+            _SiteElevValue = double.NaN;
+            _SiteLatValue = double.NaN;
+            _SiteLongValue = double.NaN;
+            _SitePressureValue = double.NaN;
 
-            RefracValue = false;
+            _RefracValue = false;
             LastSetBy = SetBy.Never;
-            RequiresRecalculate = true;
-            JulianDateTTValue = 0d; // Initialise to a value that forces the current PC date time to be used in determining the TT Julian date of interest
+            _RequiresRecalculate = true;
+            _JulianDateTTValue = 0d; // Initialise to a value that forces the current PC date time to be used in determining the TT Julian date of interest
         }
 
         #region ITransform Implementation
@@ -70,8 +70,8 @@ namespace Astap.Lib.Astrometry.SOFA
         {
             get
             {
-                CheckSet(SiteLatValue, "Site latitude has not been set");
-                return SiteLatValue;
+                CheckSet(_SiteLatValue, "Site latitude has not been set");
+                return _SiteLatValue;
             }
             set
             {
@@ -79,11 +79,11 @@ namespace Astap.Lib.Astrometry.SOFA
                 {
                     throw new ArgumentOutOfRangeException(nameof(value), value, $"{value} should be within -90.0 degrees and +90.0 degrees");
                 }
-                if (SiteLatValue != value)
+                if (_SiteLatValue != value)
                 {
-                    RequiresRecalculate = true;
+                    _RequiresRecalculate = true;
                 }
-                SiteLatValue = value;
+                _SiteLatValue = value;
             }
         }
 
@@ -97,8 +97,8 @@ namespace Astap.Lib.Astrometry.SOFA
         {
             get
             {
-                CheckSet(SiteLongValue, "Site longitude has not been set");
-                return SiteLongValue;
+                CheckSet(_SiteLongValue, "Site longitude has not been set");
+                return _SiteLongValue;
             }
             set
             {
@@ -106,11 +106,11 @@ namespace Astap.Lib.Astrometry.SOFA
                 {
                     throw new ArgumentOutOfRangeException(nameof(value), value, "Range from -180.0 degrees to +180.0 degrees");
                 }
-                if (SiteLongValue != value)
+                if (_SiteLongValue != value)
                 {
-                    RequiresRecalculate = true;
+                    _RequiresRecalculate = true;
                 }
-                SiteLongValue = value;
+                _SiteLongValue = value;
             }
         }
 
@@ -124,8 +124,8 @@ namespace Astap.Lib.Astrometry.SOFA
         {
             get
             {
-                CheckSet(SiteElevValue, "Site elevation has not been set");
-                return SiteElevValue;
+                CheckSet(_SiteElevValue, "Site elevation has not been set");
+                return _SiteElevValue;
             }
             set
             {
@@ -133,11 +133,11 @@ namespace Astap.Lib.Astrometry.SOFA
                 {
                     throw new ArgumentOutOfRangeException(nameof(value), value, "Range from -300.0 metres to +10000.0 metres");
                 }
-                if (SiteElevValue != value)
+                if (_SiteElevValue != value)
                 {
-                    RequiresRecalculate = true;
+                    _RequiresRecalculate = true;
                 }
-                SiteElevValue = value;
+                _SiteElevValue = value;
             }
         }
 
@@ -151,8 +151,8 @@ namespace Astap.Lib.Astrometry.SOFA
         {
             get
             {
-                CheckSet(SiteTempValue, "Site temperature has not been set");
-                return SiteTempValue;
+                CheckSet(_SiteTempValue, "Site temperature has not been set");
+                return _SiteTempValue;
             }
             set
             {
@@ -160,11 +160,11 @@ namespace Astap.Lib.Astrometry.SOFA
                 {
                     throw new ArgumentOutOfRangeException(nameof(value), value, "Range from -273.15 Celsius to +100.0 Celsius");
                 }
-                if (SiteTempValue != value)
+                if (_SiteTempValue != value)
                 {
-                    RequiresRecalculate = true;
+                    _RequiresRecalculate = true;
                 }
-                SiteTempValue = value;
+                _SiteTempValue = value;
             }
         }
 
@@ -178,8 +178,8 @@ namespace Astap.Lib.Astrometry.SOFA
         {
             get
             {
-                CheckSet(SitePressureValue, "Site atmospheric pressure has not been set");
-                return SitePressureValue;
+                CheckSet(_SitePressureValue, "Site atmospheric pressure has not been set");
+                return _SitePressureValue;
             }
             set
             {
@@ -187,11 +187,11 @@ namespace Astap.Lib.Astrometry.SOFA
                 {
                     throw new ArgumentOutOfRangeException(nameof(value), value, "Range from 0.0hPa (mbar) to +1200.0hPa (mbar)");
                 }
-                if (SitePressureValue != value)
+                if (_SitePressureValue != value)
                 {
-                    RequiresRecalculate = true;
+                    _RequiresRecalculate = true;
                 }
-                SitePressureValue = value;
+                _SitePressureValue = value;
             }
         }
 
@@ -205,15 +205,15 @@ namespace Astap.Lib.Astrometry.SOFA
         {
             get
             {
-                return RefracValue;
+                return _RefracValue;
             }
             set
             {
-                if (RefracValue != value)
+                if (_RefracValue != value)
                 {
-                    RequiresRecalculate = true;
+                    _RequiresRecalculate = true;
                 }
-                RefracValue = value;
+                _RefracValue = value;
             }
         }
 
@@ -231,17 +231,17 @@ namespace Astap.Lib.Astrometry.SOFA
         /// <summary>
         /// Sets the known J2000 Right Ascension and Declination coordinates that are to be transformed
         /// </summary>
-        /// <param name="RA">RA in J2000 co-ordinates (0.0 to 23.999 hours)</param>
-        /// <param name="DEC">DEC in J2000 co-ordinates (-90.0 to +90.0)</param>
+        /// <param name="ra">RA in J2000 co-ordinates (0.0 to 23.999 hours)</param>
+        /// <param name="dec">DEC in J2000 co-ordinates (-90.0 to +90.0)</param>
         /// <remarks></remarks>
-        public void SetJ2000(double RA, double DEC)
+        public void SetJ2000(double ra, double dec)
         {
 
-            if (RA != RAJ2000Value | DEC != DECJ2000Value)
+            if (ra != _RAJ2000Value | dec != _DECJ2000Value)
             {
-                RAJ2000Value = ValidateRA(RA);
-                DECJ2000Value = ValidateDec(DEC);
-                RequiresRecalculate = true;
+                _RAJ2000Value = ValidateRA(ra);
+                _DECJ2000Value = ValidateDec(dec);
+                _RequiresRecalculate = true;
             }
 
             LastSetBy = SetBy.J2000;
@@ -256,11 +256,11 @@ namespace Astap.Lib.Astrometry.SOFA
         public void SetApparent(double RA, double DEC)
         {
 
-            if (RA != RAApparentValue | DEC != DECApparentValue)
+            if (RA != _RAApparentValue | DEC != _DECApparentValue)
             {
-                RAApparentValue = ValidateRA(RA);
-                DECApparentValue = ValidateDec(DEC);
-                RequiresRecalculate = true;
+                _RAApparentValue = ValidateRA(RA);
+                _DECApparentValue = ValidateDec(DEC);
+                _RequiresRecalculate = true;
             }
 
             LastSetBy = SetBy.Apparent;
@@ -275,11 +275,11 @@ namespace Astap.Lib.Astrometry.SOFA
         public void SetTopocentric(double RA, double DEC)
         {
 
-            if (RA != RATopoValue | DEC != DECTopoValue)
+            if (RA != _RATopoValue | DEC != DECTopoValue)
             {
-                RATopoValue = ValidateRA(RA);
+                _RATopoValue = ValidateRA(RA);
                 DECTopoValue = ValidateDec(DEC);
-                RequiresRecalculate = true;
+                _RequiresRecalculate = true;
             }
 
             LastSetBy = SetBy.Topocentric;
@@ -303,9 +303,9 @@ namespace Astap.Lib.Astrometry.SOFA
                 throw new ArgumentOutOfRangeException(nameof(Elevation), Elevation, "Valid range from -90.0 degrees to +90.0 degrees");
             }
 
-            AzimuthTopoValue = Azimuth;
-            ElevationTopoValue = Elevation;
-            RequiresRecalculate = true;
+            _AzimuthTopoValue = Azimuth;
+            _ElevationTopoValue = Elevation;
+            _RequiresRecalculate = true;
 
             LastSetBy = SetBy.AzimuthElevation;
         }
@@ -329,8 +329,8 @@ namespace Astap.Lib.Astrometry.SOFA
                     throw new InvalidOperationException("Attempt to read RAJ2000 before a SetXX method has been called");
                 }
                 Recalculate();
-                CheckSet(RAJ2000Value, "RA J2000 can not be derived from the information provided. Are site parameters set?");
-                return RAJ2000Value;
+                CheckSet(_RAJ2000Value, "RA J2000 can not be derived from the information provided. Are site parameters set?");
+                return _RAJ2000Value;
             }
         }
 
@@ -353,8 +353,8 @@ namespace Astap.Lib.Astrometry.SOFA
                     throw new InvalidOperationException("Attempt to read DECJ2000 before a SetXX method has been called");
                 }
                 Recalculate();
-                CheckSet(DECJ2000Value, "DEC J2000 can not be derived from the information provided. Are site parameters set?");
-                return DECJ2000Value;
+                CheckSet(_DECJ2000Value, "DEC J2000 can not be derived from the information provided. Are site parameters set?");
+                return _DECJ2000Value;
             }
         }
 
@@ -377,8 +377,8 @@ namespace Astap.Lib.Astrometry.SOFA
                     throw new InvalidOperationException("Attempt to read RATopocentric before a SetXX method  has been called");
                 }
                 Recalculate();
-                CheckSet(RATopoValue, "RA topocentric can not be derived from the information provided. Are site parameters set?");
-                return RATopoValue;
+                CheckSet(_RATopoValue, "RA topocentric can not be derived from the information provided. Are site parameters set?");
+                return _RATopoValue;
             }
         }
 
@@ -425,7 +425,7 @@ namespace Astap.Lib.Astrometry.SOFA
                     throw new InvalidOperationException("Attempt to read DECApparent before a SetXX method has been called");
                 }
                 Recalculate();
-                return RAApparentValue;
+                return _RAApparentValue;
             }
         }
 
@@ -448,7 +448,7 @@ namespace Astap.Lib.Astrometry.SOFA
                     throw new InvalidOperationException("Attempt to read DECApparent before a SetXX method has been called");
                 }
                 Recalculate();
-                return DECApparentValue;
+                return _DECApparentValue;
             }
         }
 
@@ -470,10 +470,10 @@ namespace Astap.Lib.Astrometry.SOFA
                 {
                     throw new InvalidOperationException("Attempt to read AzimuthTopocentric before a SetXX method has been called");
                 }
-                RequiresRecalculate = true; // Force a recalculation of Azimuth
+                _RequiresRecalculate = true; // Force a recalculation of Azimuth
                 Recalculate();
-                CheckSet(AzimuthTopoValue, "Azimuth topocentric can not be derived from the information provided. Are site parameters set?");
-                return AzimuthTopoValue;
+                CheckSet(_AzimuthTopoValue, "Azimuth topocentric can not be derived from the information provided. Are site parameters set?");
+                return _AzimuthTopoValue;
             }
         }
 
@@ -495,10 +495,10 @@ namespace Astap.Lib.Astrometry.SOFA
                 {
                     throw new InvalidOperationException("Attempt to read ElevationTopocentric before a SetXX method has been called");
                 }
-                RequiresRecalculate = true; // Force a recalculation of Elevation
+                _RequiresRecalculate = true; // Force a recalculation of Elevation
                 Recalculate();
-                CheckSet(ElevationTopoValue, "Elevation topocentric can not be derived from the information provided. Are site parameters set?");
-                return ElevationTopoValue;
+                CheckSet(_ElevationTopoValue, "Elevation topocentric can not be derived from the information provided. Are site parameters set?");
+                return _ElevationTopoValue;
             }
         }
 
@@ -518,7 +518,7 @@ namespace Astap.Lib.Astrometry.SOFA
         {
             get
             {
-                return JulianDateTTValue;
+                return _JulianDateTTValue;
             }
             set
             {
@@ -530,19 +530,19 @@ namespace Astap.Lib.Astrometry.SOFA
                     throw new ArgumentOutOfRangeException(nameof(value), value, $"Range from {JULIAN_DATE_MINIMUM_VALUE} to {JULIAN_DATE_MAXIMUM_VALUE}");
                 }
 
-                JulianDateTTValue = value;
-                RequiresRecalculate = true; // Force a recalculation because the Julian date has changed
+                _JulianDateTTValue = value;
+                _RequiresRecalculate = true; // Force a recalculation because the Julian date has changed
 
-                if (JulianDateTTValue != 0.0d)
+                if (_JulianDateTTValue != 0.0d)
                 {
                     // Calculate UTC
-                    _ = wwaTttai(JulianDateTTValue, 0.0d, ref tai1, ref tai2);
+                    _ = wwaTttai(_JulianDateTTValue, 0.0d, ref tai1, ref tai2);
                     _ = wwaTaiutc(tai1, tai2, ref utc1, ref utc2);
-                    JulianDateUTCValue = utc1 + utc2;
+                    _JulianDateUTCValue = utc1 + utc2;
                 }
                 else // Handle special case of 0.0
                 {
-                    JulianDateUTCValue = 0.0d;
+                    _JulianDateUTCValue = 0.0d;
                 }
             }
         }
@@ -558,7 +558,7 @@ namespace Astap.Lib.Astrometry.SOFA
         {
             get
             {
-                return JulianDateUTCValue;
+                return _JulianDateUTCValue;
             }
             set
             {
@@ -570,19 +570,19 @@ namespace Astap.Lib.Astrometry.SOFA
                     throw new ArgumentOutOfRangeException(nameof(value), value, $"Range from {JULIAN_DATE_MINIMUM_VALUE} to {JULIAN_DATE_MAXIMUM_VALUE}");
                 }
 
-                JulianDateUTCValue = value;
-                RequiresRecalculate = true; // Force a recalculation because the Julian date has changed
+                _JulianDateUTCValue = value;
+                _RequiresRecalculate = true; // Force a recalculation because the Julian date has changed
 
-                if (JulianDateUTCValue != 0.0d)
+                if (_JulianDateUTCValue != 0.0d)
                 {
                     // Calculate Terrestrial Time equivalent
-                    _ = wwaUtctai(JulianDateUTCValue, 0.0d, ref tai1, ref tai2);
+                    _ = wwaUtctai(_JulianDateUTCValue, 0.0d, ref tai1, ref tai2);
                     _ = wwaTaitt(tai1, tai2, ref tt1, ref tt2);
-                    JulianDateTTValue = tt1 + tt2;
+                    _JulianDateTTValue = tt1 + tt2;
                 }
                 else // Handle special case of 0.0
                 {
-                    JulianDateTTValue = 0.0d;
+                    _JulianDateTTValue = 0.0d;
                 }
             }
         }
@@ -603,10 +603,10 @@ namespace Astap.Lib.Astrometry.SOFA
             double DUT1, JDUTCSofa;
             double aob = default, zob = default, hob = default, dob = default, rob = default, eo = default;
 
-            CheckSet(SiteElevValue, "Site elevation has not been set");
-            CheckSet(SiteLatValue, "Site latitude has not been set");
-            CheckSet(SiteLongValue, "Site longitude has not been set");
-            CheckSet(SiteTempValue, "Site temperature has not been set");
+            CheckSet(_SiteElevValue, "Site elevation has not been set");
+            CheckSet(_SiteLatValue, "Site latitude has not been set");
+            CheckSet(_SiteLongValue, "Site longitude has not been set");
+            CheckSet(_SiteTempValue, "Site temperature has not been set");
 
             // Calculate site pressure at site elevation if this has not been provided
             CalculateSitePressureIfRequired();
@@ -614,19 +614,19 @@ namespace Astap.Lib.Astrometry.SOFA
             JDUTCSofa = GetJDUTCSofa();
             DUT1 = LeapSecondsTable.DeltaTCalc(JDUTCSofa);
 
-            if (RefracValue) // Include refraction
+            if (_RefracValue) // Include refraction
             {
-                _ = wwaAtco13(RAJ2000Value * HOURS2RADIANS, DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, JDUTCSofa, 0.0d, DUT1, SiteLongValue * DEGREES2RADIANS, SiteLatValue * DEGREES2RADIANS, SiteElevValue, 0.0d, 0.0d, SitePressureValue, SiteTempValue, 0.8d, 0.57d, ref aob, ref zob, ref hob, ref dob, ref rob, ref eo);
+                _ = wwaAtco13(_RAJ2000Value * HOURS2RADIANS, _DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, JDUTCSofa, 0.0d, DUT1, _SiteLongValue * DEGREES2RADIANS, _SiteLatValue * DEGREES2RADIANS, _SiteElevValue, 0.0d, 0.0d, _SitePressureValue, _SiteTempValue, 0.8d, 0.57d, ref aob, ref zob, ref hob, ref dob, ref rob, ref eo);
             }
             else // No refraction
             {
-                _ = wwaAtco13(RAJ2000Value * HOURS2RADIANS, DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, JDUTCSofa, 0.0d, DUT1, SiteLongValue * DEGREES2RADIANS, SiteLatValue * DEGREES2RADIANS, SiteElevValue, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, ref aob, ref zob, ref hob, ref dob, ref rob, ref eo);
+                _ = wwaAtco13(_RAJ2000Value * HOURS2RADIANS, _DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, JDUTCSofa, 0.0d, DUT1, _SiteLongValue * DEGREES2RADIANS, _SiteLatValue * DEGREES2RADIANS, _SiteElevValue, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, ref aob, ref zob, ref hob, ref dob, ref rob, ref eo);
             }
 
-            RATopoValue = wwaAnp(rob - eo) * RADIANS2HOURS; // // Convert CIO RA to equinox of date RA by subtracting the equation of the origins and convert from radians to hours
+            _RATopoValue = wwaAnp(rob - eo) * RADIANS2HOURS; // // Convert CIO RA to equinox of date RA by subtracting the equation of the origins and convert from radians to hours
             DECTopoValue = dob * RADIANS2DEGREES; // Convert Dec from radians to degrees
-            AzimuthTopoValue = aob * RADIANS2DEGREES;
-            ElevationTopoValue = 90.0d - zob * RADIANS2DEGREES;
+            _AzimuthTopoValue = aob * RADIANS2DEGREES;
+            _ElevationTopoValue = 90.0d - zob * RADIANS2DEGREES;
         }
 
         private void J2000ToApparent()
@@ -634,29 +634,29 @@ namespace Astap.Lib.Astrometry.SOFA
             double ri = default, di = default, eo = default;
             double JDTTSofa = GetJDTTSofa();
 
-            wwaAtci13(RAJ2000Value * HOURS2RADIANS, DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, JDTTSofa, 0.0d, ref ri, ref di, ref eo);
-            RAApparentValue = wwaAnp(ri - eo) * RADIANS2HOURS; // // Convert CIO RA to equinox of date RA by subtracting the equation of the origins and convert from radians to hours
-            DECApparentValue = di * RADIANS2DEGREES; // Convert Dec from radians to degrees
+            wwaAtci13(_RAJ2000Value * HOURS2RADIANS, _DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, JDTTSofa, 0.0d, ref ri, ref di, ref eo);
+            _RAApparentValue = wwaAnp(ri - eo) * RADIANS2HOURS; // // Convert CIO RA to equinox of date RA by subtracting the equation of the origins and convert from radians to hours
+            _DECApparentValue = di * RADIANS2DEGREES; // Convert Dec from radians to degrees
         }
 
         private void TopoToJ2000()
         {
-            double RACelestrial = default, DecCelestial = default, JDTTSofa, JDUTCSofa, DUT1;
+            double raCelestrial = default, decCelestial = default, jdTTSofa, jdUTCSofa, dut1;
             double aob = default, zob = default, hob = default, dob = default, rob = default, eo = default;
 
-            if (double.IsNaN(SiteElevValue))
+            if (double.IsNaN(_SiteElevValue))
             {
                 throw new InvalidOperationException("Site elevation has not been set");
             }
-            if (double.IsNaN(SiteLatValue))
+            if (double.IsNaN(_SiteLatValue))
             {
                 throw new InvalidOperationException("Site latitude has not been set");
             }
-            if (double.IsNaN(SiteLongValue))
+            if (double.IsNaN(_SiteLongValue))
             {
                 throw new InvalidOperationException("Site longitude has not been set");
             }
-            if (double.IsNaN(SiteTempValue))
+            if (double.IsNaN(_SiteTempValue))
             {
                 throw new InvalidOperationException("Site temperature has not been set");
             }
@@ -664,68 +664,70 @@ namespace Astap.Lib.Astrometry.SOFA
             // Calculate site pressure at site elevation if this has not been provided
             CalculateSitePressureIfRequired();
 
-            JDUTCSofa = GetJDUTCSofa();
-            JDTTSofa = GetJDTTSofa();
-            DUT1 = LeapSecondsTable.DeltaTCalc(JDUTCSofa);
+            jdUTCSofa = GetJDUTCSofa();
+            jdTTSofa = GetJDTTSofa();
+            dut1 = LeapSecondsTable.DeltaTCalc(jdUTCSofa);
 
             var type = 'R';
-            if (RefracValue) // Refraction is required
+            var ob1 = wwaAnp(Math.FusedMultiplyAdd(_RATopoValue, HOURS2RADIANS, wwaEo06a(jdTTSofa, 0.0d)));
+            if (_RefracValue) // Refraction is required
             {
-                _ = wwaAtoc13(ref type, wwaAnp(RATopoValue * HOURS2RADIANS + wwaEo06a(JDTTSofa, 0.0d)), DECTopoValue * DEGREES2RADIANS, JDUTCSofa, 0.0d, DUT1, SiteLongValue * DEGREES2RADIANS, SiteLatValue * DEGREES2RADIANS, SiteElevValue, 0.0d, 0.0d, SitePressureValue, SiteTempValue, 0.85d, 0.57d, ref RACelestrial, ref DecCelestial);
+                _ = wwaAtoc13(ref type, ob1, DECTopoValue * DEGREES2RADIANS, jdUTCSofa, 0.0d, dut1, _SiteLongValue * DEGREES2RADIANS, _SiteLatValue * DEGREES2RADIANS, _SiteElevValue, 0.0d, 0.0d, _SitePressureValue, _SiteTempValue, 0.85d, 0.57d, ref raCelestrial, ref decCelestial);
             }
             else
             {
-                _ = wwaAtoc13(ref type, wwaAnp(RATopoValue * HOURS2RADIANS + wwaEo06a(JDTTSofa, 0.0d)), DECTopoValue * DEGREES2RADIANS, JDUTCSofa, 0.0d, DUT1, SiteLongValue * DEGREES2RADIANS, SiteLatValue * DEGREES2RADIANS, SiteElevValue, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, ref RACelestrial, ref DecCelestial);
+                _ = wwaAtoc13(ref type, ob1, DECTopoValue * DEGREES2RADIANS, jdUTCSofa, 0.0d, dut1, _SiteLongValue * DEGREES2RADIANS, _SiteLatValue * DEGREES2RADIANS, _SiteElevValue, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, ref raCelestrial, ref decCelestial);
             }
 
-            RAJ2000Value = RACelestrial * RADIANS2HOURS;
-            DECJ2000Value = DecCelestial * RADIANS2DEGREES;
+            _RAJ2000Value = raCelestrial * RADIANS2HOURS;
+            _DECJ2000Value = decCelestial * RADIANS2DEGREES;
 
             // Now calculate the corresponding AzEl values from the J2000 values
-            if (RefracValue) // Include refraction
+            if (_RefracValue) // Include refraction
             {
-                _ = wwaAtco13(RAJ2000Value * HOURS2RADIANS, DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, JDUTCSofa, 0.0d, DUT1, SiteLongValue * DEGREES2RADIANS, SiteLatValue * DEGREES2RADIANS, SiteElevValue, 0.0d, 0.0d, SitePressureValue, SiteTempValue, 0.8d, 0.57d, ref aob, ref zob, ref hob, ref dob, ref rob, ref eo);
+                _ = wwaAtco13(_RAJ2000Value * HOURS2RADIANS, _DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, jdUTCSofa, 0.0d, dut1, _SiteLongValue * DEGREES2RADIANS, _SiteLatValue * DEGREES2RADIANS, _SiteElevValue, 0.0d, 0.0d, _SitePressureValue, _SiteTempValue, 0.8d, 0.57d, ref aob, ref zob, ref hob, ref dob, ref rob, ref eo);
             }
             else // No refraction
             {
-                _ = wwaAtco13(RAJ2000Value * HOURS2RADIANS, DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, JDUTCSofa, 0.0d, DUT1, SiteLongValue * DEGREES2RADIANS, SiteLatValue * DEGREES2RADIANS, SiteElevValue, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, ref aob, ref zob, ref hob, ref dob, ref rob, ref eo);
+                _ = wwaAtco13(_RAJ2000Value * HOURS2RADIANS, _DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, jdUTCSofa, 0.0d, dut1, _SiteLongValue * DEGREES2RADIANS, _SiteLatValue * DEGREES2RADIANS, _SiteElevValue, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, ref aob, ref zob, ref hob, ref dob, ref rob, ref eo);
             }
 
-            AzimuthTopoValue = aob * RADIANS2DEGREES;
-            ElevationTopoValue = 90.0d - zob * RADIANS2DEGREES;
+            _AzimuthTopoValue = aob * RADIANS2DEGREES;
+            _ElevationTopoValue = 90.0d - zob * RADIANS2DEGREES;
         }
 
         private void ApparentToJ2000()
         {
-            double JulianDateTTSofa, RACelestial = default, DecCelestial = default, JulianDateUTCSofa, eo = default;
+            double jdTTSofa, raCelestial = default, decCelestial = default, jdUTCSofa, eo = default;
 
-            JulianDateTTSofa = GetJDTTSofa();
-            JulianDateUTCSofa = GetJDUTCSofa();
+            jdTTSofa = GetJDTTSofa();
+            jdUTCSofa = GetJDUTCSofa();
 
-            wwaAtic13(wwaAnp(RAApparentValue * HOURS2RADIANS + wwaEo06a(JulianDateUTCSofa, 0.0d)), DECApparentValue * DEGREES2RADIANS, JulianDateTTSofa, 0.0d, ref RACelestial, ref DecCelestial, ref eo);
-            RAJ2000Value = RACelestial * RADIANS2HOURS;
-            DECJ2000Value = DecCelestial * RADIANS2DEGREES;
+            var ri = wwaAnp(Math.FusedMultiplyAdd(_RAApparentValue, HOURS2RADIANS, wwaEo06a(jdUTCSofa, 0.0d)));
+            wwaAtic13(ri, _DECApparentValue * DEGREES2RADIANS, jdTTSofa, 0.0d, ref raCelestial, ref decCelestial, ref eo);
+            _RAJ2000Value = raCelestial * RADIANS2HOURS;
+            _DECJ2000Value = decCelestial * RADIANS2DEGREES;
         }
 
         private void Recalculate() // Calculate values for derived co-ordinates
         {
-            if (RequiresRecalculate | RefracValue == true)
+            if (_RequiresRecalculate | _RefracValue == true)
             {
                 switch (LastSetBy)
                 {
                     case SetBy.J2000: // J2000 coordinates have bee set so calculate apparent and topocentric coordinates
                         {
                             // Check whether required topo values have been set
-                            if (!double.IsNaN(SiteLatValue) & !double.IsNaN(SiteLongValue) & !double.IsNaN(SiteElevValue) & !double.IsNaN(SiteTempValue))
+                            if (!double.IsNaN(_SiteLatValue) & !double.IsNaN(_SiteLongValue) & !double.IsNaN(_SiteElevValue) & !double.IsNaN(_SiteTempValue))
                             {
                                 J2000ToTopo(); // All required site values present so calculate Topo values
                             }
                             else // Set to NaN
                             {
-                                RATopoValue = double.NaN;
+                                _RATopoValue = double.NaN;
                                 DECTopoValue = double.NaN;
-                                AzimuthTopoValue = double.NaN;
-                                ElevationTopoValue = double.NaN;
+                                _AzimuthTopoValue = double.NaN;
+                                _ElevationTopoValue = double.NaN;
                             }
                             J2000ToApparent();
                             break;
@@ -733,19 +735,19 @@ namespace Astap.Lib.Astrometry.SOFA
                     case SetBy.Topocentric: // Topocentric co-ordinates have been set so calculate J2000 and apparent coordinates
                         {
                             // Check whether required topo values have been set
-                            if (!double.IsNaN(SiteLatValue) & !double.IsNaN(SiteLongValue) & !double.IsNaN(SiteElevValue) & !double.IsNaN(SiteTempValue)) // They have so calculate remaining values
+                            if (!double.IsNaN(_SiteLatValue) & !double.IsNaN(_SiteLongValue) & !double.IsNaN(_SiteElevValue) & !double.IsNaN(_SiteTempValue)) // They have so calculate remaining values
                             {
                                 TopoToJ2000();
                                 J2000ToApparent();
                             }
                             else // Set the topo and apparent values to NaN
                             {
-                                RAJ2000Value = double.NaN;
-                                DECJ2000Value = double.NaN;
-                                RAApparentValue = double.NaN;
-                                DECApparentValue = double.NaN;
-                                AzimuthTopoValue = double.NaN;
-                                ElevationTopoValue = double.NaN;
+                                _RAJ2000Value = double.NaN;
+                                _DECJ2000Value = double.NaN;
+                                _RAApparentValue = double.NaN;
+                                _DECApparentValue = double.NaN;
+                                _AzimuthTopoValue = double.NaN;
+                                _ElevationTopoValue = double.NaN;
                             }
 
                             break;
@@ -754,23 +756,23 @@ namespace Astap.Lib.Astrometry.SOFA
                         {
                             ApparentToJ2000(); // Calculate J2000 value
                                                // Check whether required topo values have been set
-                            if (!double.IsNaN(SiteLatValue) & !double.IsNaN(SiteLongValue) & !double.IsNaN(SiteElevValue) & !double.IsNaN(SiteTempValue))
+                            if (!double.IsNaN(_SiteLatValue) & !double.IsNaN(_SiteLongValue) & !double.IsNaN(_SiteElevValue) & !double.IsNaN(_SiteTempValue))
                             {
                                 J2000ToTopo(); // All required site values present so calculate Topo values
                             }
                             else
                             {
-                                RATopoValue = double.NaN;
+                                _RATopoValue = double.NaN;
                                 DECTopoValue = double.NaN;
-                                AzimuthTopoValue = double.NaN;
-                                ElevationTopoValue = double.NaN;
+                                _AzimuthTopoValue = double.NaN;
+                                _ElevationTopoValue = double.NaN;
                             }
 
                             break;
                         }
                     case SetBy.AzimuthElevation:
                         {
-                            if (!double.IsNaN(SiteLatValue) & !double.IsNaN(SiteLongValue) & !double.IsNaN(SiteElevValue) & !double.IsNaN(SiteTempValue))
+                            if (!double.IsNaN(_SiteLatValue) & !double.IsNaN(_SiteLongValue) & !double.IsNaN(_SiteElevValue) & !double.IsNaN(_SiteTempValue))
                             {
                                 AzElToJ2000();
                                 J2000ToTopo();
@@ -778,11 +780,11 @@ namespace Astap.Lib.Astrometry.SOFA
                             }
                             else
                             {
-                                RAJ2000Value = double.NaN;
-                                DECJ2000Value = double.NaN;
-                                RAApparentValue = double.NaN;
-                                DECApparentValue = double.NaN;
-                                RATopoValue = double.NaN;
+                                _RAJ2000Value = double.NaN;
+                                _DECJ2000Value = double.NaN;
+                                _RAApparentValue = double.NaN;
+                                _DECApparentValue = double.NaN;
+                                _RATopoValue = double.NaN;
                                 DECTopoValue = double.NaN;
                             } // Neither SetJ2000 nor SetTopocentric nor SetApparent have been called, so throw an exception
 
@@ -794,7 +796,7 @@ namespace Astap.Lib.Astrometry.SOFA
                             throw new InvalidOperationException("Can not recalculate Transform object values because neither SetJ2000 nor SetTopocentric nor SetApparent have been called");
                         }
                 }
-                RequiresRecalculate = false; // Reset the recalculate flag
+                _RequiresRecalculate = false; // Reset the recalculate flag
             }
         }
 
@@ -802,19 +804,19 @@ namespace Astap.Lib.Astrometry.SOFA
         {
             double JulianDateUTCSofa, RACelestial = default, DecCelestial = default, DUT1;
 
-            if (double.IsNaN(SiteElevValue))
+            if (double.IsNaN(_SiteElevValue))
             {
                 throw new InvalidOperationException("Site elevation has not been set");
             }
-            if (double.IsNaN(SiteLatValue))
+            if (double.IsNaN(_SiteLatValue))
             {
                 throw new InvalidOperationException("Site latitude has not been set");
             }
-            if (double.IsNaN(SiteLongValue))
+            if (double.IsNaN(_SiteLongValue))
             {
                 throw new InvalidOperationException("Site longitude has not been set");
             }
-            if (double.IsNaN(SiteTempValue))
+            if (double.IsNaN(_SiteTempValue))
             {
                 throw new InvalidOperationException("Site temperature has not been set");
             }
@@ -828,13 +830,13 @@ namespace Astap.Lib.Astrometry.SOFA
 
             int RetCode;
             var type = 'A';
-            if (RefracValue) // Refraction is required
+            if (_RefracValue) // Refraction is required
             {
-                RetCode = wwaAtoc13(ref type, AzimuthTopoValue * DEGREES2RADIANS, (90.0d - ElevationTopoValue) * DEGREES2RADIANS, JulianDateUTCSofa, 0.0d, DUT1, SiteLongValue * DEGREES2RADIANS, SiteLatValue * DEGREES2RADIANS, SiteElevValue, 0.0d, 0.0d, SitePressureValue, SiteTempValue, 0.85d, 0.57d, ref RACelestial, ref DecCelestial);
+                RetCode = wwaAtoc13(ref type, _AzimuthTopoValue * DEGREES2RADIANS, (90.0d - _ElevationTopoValue) * DEGREES2RADIANS, JulianDateUTCSofa, 0.0d, DUT1, _SiteLongValue * DEGREES2RADIANS, _SiteLatValue * DEGREES2RADIANS, _SiteElevValue, 0.0d, 0.0d, _SitePressureValue, _SiteTempValue, 0.85d, 0.57d, ref RACelestial, ref DecCelestial);
             }
             else
             {
-                RetCode = wwaAtoc13(ref type, AzimuthTopoValue * DEGREES2RADIANS, (90.0d - ElevationTopoValue) * DEGREES2RADIANS, JulianDateUTCSofa, 0.0d, DUT1, SiteLongValue * DEGREES2RADIANS, SiteLatValue * DEGREES2RADIANS, SiteElevValue, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, ref RACelestial, ref DecCelestial);
+                RetCode = wwaAtoc13(ref type, _AzimuthTopoValue * DEGREES2RADIANS, (90.0d - _ElevationTopoValue) * DEGREES2RADIANS, JulianDateUTCSofa, 0.0d, DUT1, _SiteLongValue * DEGREES2RADIANS, _SiteLatValue * DEGREES2RADIANS, _SiteElevValue, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, ref RACelestial, ref DecCelestial);
             }
 
             if (RetCode != 0)
@@ -842,33 +844,33 @@ namespace Astap.Lib.Astrometry.SOFA
                 throw new InvalidOperationException($"Atoc13: Return code is {RetCode}");
             }
 
-            RAJ2000Value = RACelestial * RADIANS2HOURS;
-            DECJ2000Value = DecCelestial * RADIANS2DEGREES;
+            _RAJ2000Value = RACelestial * RADIANS2HOURS;
+            _DECJ2000Value = DecCelestial * RADIANS2DEGREES;
         }
 
         private double GetJDUTCSofa()
         {
-            if (JulianDateUTCValue == 0.0d) // No specific UTC date / time has been set so use the current date / time
+            if (_JulianDateUTCValue == 0.0d) // No specific UTC date / time has been set so use the current date / time
             {
                 DateTime.UtcNow.ToSOFAUtcJdTT(out var utc1, out var utc2, out _, out _);
                 return utc1 + utc2;
             }
             else // A specific UTC date / time has been set so use it
             {
-                return JulianDateUTCValue;
+                return _JulianDateUTCValue;
             }
         }
 
         private double GetJDTTSofa()
         {
-            if (JulianDateTTValue == 0.0d) // No specific TT date / time has been set so use the current date / time
+            if (_JulianDateTTValue == 0.0d) // No specific TT date / time has been set so use the current date / time
             {
                 DateTime.UtcNow.ToSOFAUtcJdTT(out _, out _, out var tt1, out var tt2);
                 return tt1 + tt2;
             }
             else // A specific TT date / time has been set so use it
             {
-                return JulianDateTTValue;
+                return _JulianDateTTValue;
             }
         }
 
@@ -893,11 +895,11 @@ namespace Astap.Lib.Astrometry.SOFA
         private void CalculateSitePressureIfRequired()
         {
             // Derive the site pressure from the site elevation if the pressure has not been set explicitly
-            if (double.IsNaN(SitePressureValue)) // Site pressure has not been set so derive a value based on the supplied observatory height and temperature
+            if (double.IsNaN(_SitePressureValue)) // Site pressure has not been set so derive a value based on the supplied observatory height and temperature
             {
                 // phpa = 1013.25 * exp ( −hm / ( 29.3 * tsl ) ); NOTE this equation calculates the site pressure and uses the site temperature REDUCED TO SEA LEVEL MESURED IN DEGREES KELVIN
                 // tsl = tSite − 0.0065(0 − hsite);  NOTE this equation reduces the site temperature to sea level
-                SitePressureValue = STANDARD_PRESSURE * Math.Exp(-SiteElevValue / (29.3d * (SiteTempValue + 0.0065d * SiteElevValue - ABSOLUTE_ZERO_CELSIUS)));
+                _SitePressureValue = STANDARD_PRESSURE * Math.Exp(-_SiteElevValue / (29.3d * (_SiteTempValue + 0.0065d * _SiteElevValue - ABSOLUTE_ZERO_CELSIUS)));
             }
         }
 
