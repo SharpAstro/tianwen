@@ -340,9 +340,9 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
                         var identifiers = identifiersEntry.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                         foreach (var identifier in identifiers)
                         {
-                            if (identifier[0] is 'C' or 'M' or 'U'
+                            if (identifier[0] is 'C' or 'M' or 'U' or 'S'
                                 && identifier.Length >= 2
-                                && (identifier[1] is 'G' or 'e' or 'l' or 'r' or ' ' || char.IsDigit(identifier[1]))
+                                && (identifier[1] is 'G' or 'H' or 'e' or 'l' or 'r' or ' ' || char.IsDigit(identifier[1]))
                                 && TryGetCleanedUpCatalogName(identifier, out var crossCatIdx)
                                 && IsCrossCat(crossCatIdx.ToCatalog())
                             )

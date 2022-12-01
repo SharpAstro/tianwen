@@ -38,6 +38,7 @@ public class CelestialObjectDBTests
     [InlineData("NGC3372", ObjectType.HIIReg, NGC3372, Constellation.Carina, 10.752369444444444d, -59.86669444444445d)]
     [InlineData("GUM033", ObjectType.HIIReg, NGC3372, Constellation.Carina, 10.752369444444444d, -59.86669444444445d)]
     [InlineData("GUM016", ObjectType.HIIReg, GUM016, Constellation.Vela, 8.553333333333335d, -44.1d)]
+    [InlineData("C009", ObjectType.HIIReg, C009, Constellation.Cepheus, 22.965d, 62.51833333333333d)]
     public async Task GivenObjectIdWhenLookingItUpThenAnObjIsReturned(
         string indexEntry,
         ObjectType expectedObjType,
@@ -80,6 +81,7 @@ public class CelestialObjectDBTests
     [InlineData("Carina Nebula", NGC3372)]
     [InlineData("eta Car Nebula", NGC3372)]
     [InlineData("Keyhole Nebula", NGC3372)]
+    [InlineData("Cave Nebula", C009, Ced0201)]
     public async Task GivenANameWhenLookingItUpThenAnObjIsReturned(string name, params CatalogIndex[] expectedMatches)
     {
         // given
@@ -159,6 +161,7 @@ public class CelestialObjectDBTests
     [InlineData(GUM060, NGC6302)]
     [InlineData(RCW_0124, NGC6302)]
     [InlineData(Sh2_006, NGC6302)]
+    [InlineData(Sh2_155, C009)]
     public async Task GivenACatalogIndexWhenTryingToGetCrossIndicesThenTheyAreFound(CatalogIndex catalogIndex, params CatalogIndex[] expectedCrossIndices)
     {
         var db = new CelestialObjectDB();
