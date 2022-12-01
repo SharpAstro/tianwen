@@ -445,25 +445,18 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
                     _crossIndexLookuptable.AddLookupEntry(id, catToAddIdx);
                     _crossIndexLookuptable.AddLookupEntry(catToAddIdx, id);
 
-                    if (commonNames.Count > 0 && _objectsByIndex.TryGetValue(id, out var obj))
+                    if (commonNames.Count > 0)
                     {
-                        if (!obj.CommonNames.SetEquals(commonNames))
+                        UpdateObjectCommonNames(id, commonNames);
+                    }
+                }
+                else if (TryGetCrossIndices(catToAddIdx, out var crossIndices))
+                {
+                    if (commonNames.Count > 0)
+                    {
+                        foreach (var crossIndex in crossIndices)
                         {
-                            var modObj = new CelestialObject(
-                                id,
-                                obj.ObjectType,
-                                obj.RA,
-                                obj.Dec,
-                                obj.Constellation,
-                                obj.V_Mag,
-                                obj.SurfaceBrightness,
-                                commonNames.UnionWithAsReadOnlyCopy(obj.CommonNames)
-                            );
-
-                            _objectsByIndex[id] = modObj;
-
-                            commonNames.ExceptWith(obj.CommonNames);
-                            AddCommonNameIndex(id, commonNames);
+                            UpdateObjectCommonNames(crossIndex, commonNames);
                         }
                     }
                 }
@@ -500,6 +493,28 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
         }
 
         return (processed, failed);
+    }
+
+    void UpdateObjectCommonNames(CatalogIndex id, HashSet<string> commonNames)
+    {
+        if (_objectsByIndex.TryGetValue(id, out var obj) && !obj.CommonNames.SetEquals(commonNames))
+        {
+            var modObj = new CelestialObject(
+                id,
+                obj.ObjectType,
+                obj.RA,
+                obj.Dec,
+                obj.Constellation,
+                obj.V_Mag,
+                obj.SurfaceBrightness,
+                commonNames.UnionWithAsReadOnlyCopy(obj.CommonNames)
+            );
+
+            _objectsByIndex[id] = modObj;
+
+            commonNames.ExceptWith(obj.CommonNames);
+            AddCommonNameIndex(id, commonNames);
+        }
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]

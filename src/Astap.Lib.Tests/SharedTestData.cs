@@ -71,8 +71,8 @@ public static class SharedTestData
     internal const CatalogIndex RCW_0036 = (CatalogIndex)((ulong)'R' << 42 | (ulong)'C' << 35 | (ulong)'W' << 28 | '0' << 21 | '0' << 14 | '3' << 7 | '6');
     internal const CatalogIndex RCW_0053 = (CatalogIndex)((ulong)'R' << 42 | (ulong)'C' << 35 | (ulong)'W' << 28 | '0' << 21 | '0' << 14 | '5' << 7 | '3');
     internal const CatalogIndex RCW_0124 = (CatalogIndex)((ulong)'R' << 42 | (ulong)'C' << 35 | (ulong)'W' << 28 | '0' << 21 | '1' << 14 | '2' << 7 | '4');
-    internal const CatalogIndex Sh2_006 = (CatalogIndex)((ulong)'S' << 42 | (ulong)'h' << 35 | (ulong)'2' << 28 | '-' << 21 | '0' << 14 | '0' << 7 | '6');
-    internal const CatalogIndex Sh2_155 = (CatalogIndex)((ulong)'S' << 42 | (ulong)'h' << 35 | (ulong)'2' << 28 | '-' << 21 | '1' << 14 | '5' << 7 | '5');
+    internal const CatalogIndex Sh2_0006 = (CatalogIndex)((ulong)'S' << 49 | (ulong)'h' << 42 | (ulong)'2' << 35 | (ulong)'-' << 28 | '0' << 21 | '0' << 14 | '0' << 7 | '6');
+    internal const CatalogIndex Sh2_0155 = (CatalogIndex)((ulong)'S' << 49 | (ulong)'h' << 42 | (ulong)'2' << 35 | (ulong)'-' << 28 | '0' << 21 | '1' << 14 | '5' << 7 | '5');
     internal const CatalogIndex TrES03 = (CatalogIndex)((ulong)'T' << 35 | (ulong)'r' << 28 | 'E' << 21 | 'S' << 14 | '0' << 7 | '3');
     internal const CatalogIndex TwoM_J11400198_3152397n = (CatalogIndex)(Base91Enc | (ulong)'P' << 56 | (ulong)'6' << 49 | (ulong)'3' << 42 | (ulong)'A' << 35 | (ulong)'T' << 28 | 'J' << 21| ',' << 14 | 'y' << 7 | 'B');
     internal const CatalogIndex TwoM_J12015301_1852034s = (CatalogIndex)(Base91Enc | (ulong)']' << 56 | (ulong)'#' << 49 | (ulong)'f' << 42 | (ulong)'R' << 35 | (ulong)'t' << 28 | 'u' << 21 | 'K' << 14 | 'O' << 7 | 'L');

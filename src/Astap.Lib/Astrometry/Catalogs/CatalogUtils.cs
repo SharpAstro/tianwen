@@ -299,7 +299,7 @@ public static class CatalogUtils
             'P' when secondChar == 'l' && noSpaces.Length > 2 && noSpaces[2] == '-' => ("Pl-*****", 5, Catalog.Pl),
             'P' when secondChar == 'S' && noSpaces.Length > 2 && noSpaces[2] == 'R' => ("", 8, Catalog.PSR),
             'R' when secondChar == 'C' => ("RCW000*", 4, Catalog.RCW),
-            'S' when secondChar is 'H' or 'h' && noSpaces.Length > 2 && noSpaces[2] == '2' => ("Sh2-000", 3, Catalog.Sharpless2),
+            'S' when secondChar is 'H' or 'h' && noSpaces.Length > 2 && noSpaces[2] == '2' => ("Sh2-000*", 4, Catalog.Sharpless2),
             'T' when secondIsDigit || secondChar == 'r' => ("TrES00", 2, Catalog.TrES),
             'U' when secondIsDigit || secondChar == 'G' => ("U00000", 5, Catalog.UGC),
             'W' when secondChar == 'D' && noSpaces.Length > 2 && noSpaces[2] == 'S' => ("", 10, Catalog.WDS),
