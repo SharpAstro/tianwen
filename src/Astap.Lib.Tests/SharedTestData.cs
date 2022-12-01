@@ -17,10 +17,12 @@ public static class SharedTestData
 
     internal const string BD_16_1591s_Enc = "ÁAv(fTnLH";
     internal const CatalogIndex BD_16_1591s = (CatalogIndex)(Base91Enc | (ulong)'A' << 56 | (ulong)'A' << 49 | (ulong)'v' << 42 | (ulong)'(' << 35 | (ulong)'f' << 28 | 'T' << 21 | 'n' << 14 | 'L' << 7 | 'H');
+    internal const CatalogIndex C009 = (CatalogIndex)((ulong)'C' << 21 | '0' << 14 | '0' << 7 | '9');
     internal const CatalogIndex C041 = (CatalogIndex)((ulong)'C' << 21 | '0' << 14 | '4' << 7 | '1');
     internal const CatalogIndex C069 = (CatalogIndex)((ulong)'C' << 21 | '0' << 14 | '6' << 7 | '9');
     internal const CatalogIndex C092 = (CatalogIndex)((ulong)'C' << 21 | '0' << 14 | '9' << 7 | '2');
     internal const CatalogIndex C099 = (CatalogIndex)((ulong)'C' << 21 | '0' << 14 | '9' << 7 | '9');
+    internal const CatalogIndex Ced0201 = (CatalogIndex)((ulong)'C' << 42 | (ulong)'e' << 35 | (ulong)'d' << 28 | '0' << 21 | '2' << 14 | '0' << 7 | '1');
     internal const CatalogIndex GUM016 = (CatalogIndex)((ulong)'G' << 35 | (ulong)'U' << 28 | 'M' << 21 | '0' << 14 | '1' << 7 | '6');
     internal const CatalogIndex GUM020 = (CatalogIndex)((ulong)'G' << 35 | (ulong)'U' << 28 | 'M' << 21 | '0' << 14 | '2' << 7 | '0');
     internal const CatalogIndex GUM033 = (CatalogIndex)((ulong)'G' << 35 | (ulong)'U' << 28 | 'M' << 21 | '0' << 14 | '3' << 7 | '3');
@@ -70,6 +72,7 @@ public static class SharedTestData
     internal const CatalogIndex RCW_0053 = (CatalogIndex)((ulong)'R' << 42 | (ulong)'C' << 35 | (ulong)'W' << 28 | '0' << 21 | '0' << 14 | '5' << 7 | '3');
     internal const CatalogIndex RCW_0124 = (CatalogIndex)((ulong)'R' << 42 | (ulong)'C' << 35 | (ulong)'W' << 28 | '0' << 21 | '1' << 14 | '2' << 7 | '4');
     internal const CatalogIndex Sh2_006 = (CatalogIndex)((ulong)'S' << 42 | (ulong)'h' << 35 | (ulong)'2' << 28 | '-' << 21 | '0' << 14 | '0' << 7 | '6');
+    internal const CatalogIndex Sh2_155 = (CatalogIndex)((ulong)'S' << 42 | (ulong)'h' << 35 | (ulong)'2' << 28 | '-' << 21 | '1' << 14 | '5' << 7 | '5');
     internal const CatalogIndex TrES03 = (CatalogIndex)((ulong)'T' << 35 | (ulong)'r' << 28 | 'E' << 21 | 'S' << 14 | '0' << 7 | '3');
     internal const CatalogIndex TwoM_J11400198_3152397n = (CatalogIndex)(Base91Enc | (ulong)'P' << 56 | (ulong)'6' << 49 | (ulong)'3' << 42 | (ulong)'A' << 35 | (ulong)'T' << 28 | 'J' << 21| ',' << 14 | 'y' << 7 | 'B');
     internal const CatalogIndex TwoM_J12015301_1852034s = (CatalogIndex)(Base91Enc | (ulong)']' << 56 | (ulong)'#' << 49 | (ulong)'f' << 42 | (ulong)'R' << 35 | (ulong)'t' << 28 | 'u' << 21 | 'K' << 14 | 'O' << 7 | 'L');
