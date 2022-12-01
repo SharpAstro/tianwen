@@ -76,7 +76,7 @@ namespace Astap.Lib.Astrometry.SOFA
 
             bool doesRise, doesSet, aboveHorizon = default;
             double centreTime, altitiudeMinus1, altitiude0, altitiudePlus1, a, b, c, xSymmetry, yExtreme, discriminant;
-            double deltaX, zero1, zero2;
+            double zero1, zero2;
             int nZeros;
             List<TimeSpan> bodyRises = new(2), bodySets = new(2);
 
@@ -139,14 +139,7 @@ namespace Astap.Lib.Astrometry.SOFA
 
                 if (centreTime == 1.0d)
                 {
-                    if (altitiudeMinus1 < 0d)
-                    {
-                        aboveHorizon = false;
-                    }
-                    else
-                    {
-                        aboveHorizon = true;
-                    }
+                    aboveHorizon = altitiudeMinus1 >= 0d;
                 }
 
                 // Assess quadratic equation
@@ -155,17 +148,16 @@ namespace Astap.Lib.Astrometry.SOFA
                 a = 0.5d * (altitiudePlus1 + altitiudeMinus1) - altitiude0;
 
                 xSymmetry = -b / (2.0d * a);
-                yExtreme = (a * xSymmetry + b) * xSymmetry + c;
+                // yExtreme = (a * xSymmetry + b) * xSymmetry + c;
                 discriminant = b * b - 4.0d * a * c;
 
-                deltaX = double.NaN;
                 zero1 = double.NaN;
                 zero2 = double.NaN;
                 nZeros = 0;
 
                 if (discriminant > 0.0d)                 // there are zeros
                 {
-                    deltaX = 0.5d * Math.Sqrt(discriminant) / Math.Abs(a);
+                    var deltaX = 0.5d * Math.Sqrt(discriminant) / Math.Abs(a);
                     zero1 = xSymmetry - deltaX;
                     zero2 = xSymmetry + deltaX;
                     if (Math.Abs(zero1) <= 1.0d)
@@ -225,7 +217,7 @@ namespace Astap.Lib.Astrometry.SOFA
                 }
                 centreTime += 2.0d; // Increment by 2 hours to get the next 2 hour slot in the day
             }
-            while (!(doesRise && doesSet && Math.Abs(SiteLatitude) < 60.0d || centreTime == 25.0d));
+            while (!((doesRise && doesSet && Math.Abs(SiteLatitude) < 60.0d) || centreTime == 25.0d));
 
             return (aboveHorizon, bodyRises, bodySets);
 
