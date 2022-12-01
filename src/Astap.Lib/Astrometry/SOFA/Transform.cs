@@ -75,7 +75,7 @@ namespace Astap.Lib.Astrometry.SOFA
             var celestialBody = eventType.CelestialBody();
 
             bool doesRise, doesSet, aboveHorizon = default;
-            double centreTime, altitiudeMinus1, altitiude0, altitiudePlus1, a, b, c, xSymmetry, yExtreme, discriminant;
+            double centreTime, altitiudeMinus1, altitiude0, altitiudePlus1, a, b, c, xSymmetry, discriminant;
             double zero1, zero2;
             int nZeros;
             List<TimeSpan> bodyRises = new(2), bodySets = new(2);

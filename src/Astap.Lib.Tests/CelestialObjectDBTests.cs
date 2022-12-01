@@ -5,11 +5,41 @@ using System.Linq;
 using System.Threading.Tasks;
 using Xunit;
 using static Astap.Lib.Tests.SharedTestData;
+using System.Threading;
 
 namespace Astap.Lib.Tests;
 
 public class CelestialObjectDBTests
 {
+    private static ICelestialObjectDB? _cachedDB;
+    private static readonly SemaphoreSlim _sem = new(1, 1);
+    private static int _processed = 0;
+    private static int _failed = 0;
+
+    private static async Task<ICelestialObjectDB> InitDB()
+    {
+        _failed.ShouldBe(0);
+
+        if (_cachedDB is ICelestialObjectDB db && _processed > 0)
+        {
+            return db;
+        }
+        await _sem.WaitAsync();
+        try
+        {
+            (_processed, _failed) = await (_cachedDB = new CelestialObjectDB()).InitDBAsync();
+
+            _processed.ShouldBeGreaterThan(13000);
+            _failed.ShouldBe(0);
+
+            return _cachedDB;
+        }
+        finally
+        {
+            _sem.Release();
+        }
+    }
+
     [Theory]
     [InlineData("C041", ObjectType.OpenCluster, C041, Constellation.Taurus, 4.448333333333333d, 15.866666666666667d)]
     [InlineData("C099", ObjectType.DarkNeb, C099, Constellation.Crux, 12.521944444444445d, -63.74333333333333d)]
@@ -49,15 +79,12 @@ public class CelestialObjectDBTests
     )
     {
         // given
-        ICelestialObjectDB db = new CelestialObjectDB();
-        var (actualRead, actualFailed) = await db.InitDBAsync();
+        var db = await InitDB();
 
         // when
         var found = db.TryLookupByIndex(indexEntry, out var celestialObject);
 
         // then
-        actualRead.ShouldBeGreaterThan(13000);
-        actualFailed.ShouldBe(0);
         found.ShouldBeTrue();
         celestialObject.Index.ShouldBe(expectedCatalogIindex);
         celestialObject.ObjectType.ShouldBe(expectedObjType);
@@ -82,44 +109,23 @@ public class CelestialObjectDBTests
     [InlineData("eta Car Nebula", NGC3372)]
     [InlineData("Keyhole Nebula", NGC3372)]
     [InlineData("Cave Nebula", C009, Ced0201)]
-    public async Task GivenANameWhenLookingItUpThenAnObjIsReturned(string name, params CatalogIndex[] expectedMatches)
-    {
-        // given
-        var db = new CelestialObjectDB();
-        var (actualRead, actualFailed) = await db.InitDBAsync();
-
-        // when
-        var found = db.TryResolveCommonName(name, out var matches);
-
-        // then
-        actualRead.ShouldBeGreaterThan(13000);
-        actualFailed.ShouldBe(0);
-        found.ShouldBeTrue();
-        matches.ShouldNotBeNull();
-        matches.ShouldBeEquivalentTo(expectedMatches);
-    }
-
-    [Theory]
     [InlineData("Coalsack Nebula", C099)]
     [InlineData("tet01 Eri", HR0897)]
     [InlineData("Ran", HR1084)]
     [InlineData("18 Eri", HR1084)]
     [InlineData("eps Eri", HR1084)]
-    [InlineData("Car Nebula", NGC3372)]
-    [InlineData("Carina Nebula", NGC3372)]
-    [InlineData("eta Car Nebula", NGC3372)]
-    [InlineData("Keyhole", NGC3372)]
-    [InlineData("Keyhole Nebula", NGC3372)]
-    public async Task GivenANameWhenTryingToResolveItIsFound(string name, params CatalogIndex[] expectedIndices)
+    public async Task GivenANameWhenLookingItUpThenAnObjIsReturned(string name, params CatalogIndex[] expectedMatches)
     {
-        var db = new CelestialObjectDB();
-        _ = await db.InitDBAsync();
+        // given
+        var db = await InitDB();
 
+        // when
         var found = db.TryResolveCommonName(name, out var matches);
 
+        // then
         found.ShouldBeTrue();
-        matches.ShouldNotBeNull().Count.ShouldBe(expectedIndices.Length);
-        matches.ShouldBe(expectedIndices);
+        matches.ShouldNotBeNull();
+        matches.ShouldBeEquivalentTo(expectedMatches);
     }
 
     [Theory]
@@ -132,10 +138,13 @@ public class CelestialObjectDBTests
     [InlineData(NGC3372, "Car Nebula", "Carina Nebula", "eta Car Nebula", "Keyhole", "Keyhole Nebula")]
     [InlineData(GUM033, "Car Nebula", "Carina Nebula", "eta Car Nebula", "Keyhole", "Keyhole Nebula")]
     [InlineData(NGC6302, "Bug Nebula", "Butterfly Nebula")]
+    [InlineData(C009, "Cave Nebula")]
+    [InlineData(Sh2_0155, "Cave Nebula")]
+    [InlineData(Ced0201, "Cave Nebula")]
     public async Task GivenACatalogIndexWhenTryingToGetCommonNamesThenTheyAreFound(CatalogIndex catalogIndex, params string[] expectedNames)
     {
-        var db = new CelestialObjectDB();
-        _ = await db.InitDBAsync();
+        // given
+        var db = await InitDB();
 
         var found = db.TryLookupByIndex(catalogIndex, out var match);
 
@@ -156,16 +165,17 @@ public class CelestialObjectDBTests
     [InlineData(C092, NGC3372)]
     [InlineData(GUM033, NGC3372)]
     [InlineData(RCW_0053, NGC3372)]
-    [InlineData(NGC6302, C069, GUM060, RCW_0124, Sh2_006)]
+    [InlineData(NGC6302, C069, GUM060, RCW_0124, Sh2_0006)]
     [InlineData(C069, NGC6302)]
     [InlineData(GUM060, NGC6302)]
     [InlineData(RCW_0124, NGC6302)]
-    [InlineData(Sh2_006, NGC6302)]
-    [InlineData(Sh2_155, C009)]
+    [InlineData(Sh2_0006, NGC6302)]
+    [InlineData(Sh2_0155, C009)]
+    [InlineData(C009, Sh2_0155)]
     public async Task GivenACatalogIndexWhenTryingToGetCrossIndicesThenTheyAreFound(CatalogIndex catalogIndex, params CatalogIndex[] expectedCrossIndices)
     {
-        var db = new CelestialObjectDB();
-        _ = await db.InitDBAsync();
+        // given
+        var db = await InitDB();
 
         var found = db.TryGetCrossIndices(catalogIndex, out var matches);
 
@@ -268,8 +278,7 @@ public class CelestialObjectDBTests
     public async Task GivenAConstellationWhenToBrightestStarThenItIsReturned(Constellation constellation, string expectedName)
     {
         // given
-        var db = new CelestialObjectDB();
-        var (processed, failed) = await db.InitDBAsync();
+        var db = await InitDB();
 
         // when
         var star = constellation.ToBrighestStar();
@@ -278,17 +287,13 @@ public class CelestialObjectDBTests
         db.TryLookupByIndex(star, out var starObj).ShouldBeTrue();
         constellation.IsContainedWithin(starObj.Constellation).ShouldBeTrue();
         starObj.CommonNames.Contains(expectedName).ShouldBeTrue();
-
-        processed.ShouldBeGreaterThanOrEqualTo(processed);
-        failed.ShouldBe(0);
     }
 
     [Fact]
     public async Task GivenAllCatIdxWhenTryingToLookupThenItIsAlwaysFound()
     {
         // given
-        var db = new CelestialObjectDB();
-        var (processed, failed) = await db.InitDBAsync();
+        var db = await InitDB();
         var idxs = db.ObjectIndices;
         var catalogs = db.Catalogs;
 
@@ -321,18 +326,13 @@ public class CelestialObjectDBTests
                 }
             }
         });
-
-        // then
-        processed.ShouldBeGreaterThanOrEqualTo(processed);
-        failed.ShouldBe(0);
     }
 
     [Fact]
     public async Task GivenDBWhenCreateAutoCompleteListThenItContainsAllCommonNamesAndDesignations()
     {
         // given
-        var db = new CelestialObjectDB();
-        await db.InitDBAsync();
+        var db = await InitDB();
 
         // when
         var list = db.CreateAutoCompleteList();

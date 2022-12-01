@@ -14,9 +14,11 @@ public class ImageAnalyserTests
     const string PlateSolveTestFile = nameof(PlateSolveTestFile);
     private readonly Image _plateSolveTestImage;
 
+    private static Image? _plateSolveTestImageCache;
+
     public ImageAnalyserTests()
     {
-        _plateSolveTestImage = SharedTestData.ExtractGZippedFitsImage(PlateSolveTestFile);
+        _plateSolveTestImage = (_plateSolveTestImageCache ??= SharedTestData.ExtractGZippedFitsImage(PlateSolveTestFile));
     }
 
     [Theory]

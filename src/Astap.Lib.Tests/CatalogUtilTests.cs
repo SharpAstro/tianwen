@@ -59,7 +59,7 @@ public class CatalogUtilTests
     [InlineData("PSR J2400-9000", "ÁAQAo5{WD", Catalog.PSR)]
     [InlineData("PSR B2400-90", "ÁAQALA*4B", Catalog.PSR)]
     [InlineData("GJ 551", "GJ0551", Catalog.GJ)]
-    [InlineData("Sh 2 - 6", "Sh2-006", Catalog.Sharpless2)]
+    [InlineData("Sh 2 - 6", "Sh2-0006", Catalog.Sharpless2)]
     [InlineData("Tres - 3", "TrES03", Catalog.TrES)]
     [InlineData("WASP-11", "WASP011", Catalog.WASP)]
     [InlineData("WDS J02583-4018", "ÁAg4}-8&G", Catalog.WDS)]
