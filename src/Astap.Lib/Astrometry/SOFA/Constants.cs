@@ -20,6 +20,17 @@ internal static class Constants
 
     internal const double STANDARD_PRESSURE = 1013.25d; // Standard atmospheric pressure (hPa)
     internal const double ABSOLUTE_ZERO_CELSIUS = -273.15d; // Absolute zero expressed in Celsius
+    internal const double KMAU = 149597870.0; //Astronomical Unit in kilometres.
+    internal const double MAU = 149597870000.0; //Astronomical Unit in meters.
+    internal const double C = 173.14463348; // Speed of light in AU/Day.
+    internal const double GS = 1.32712438E+20; // Heliocentric gravitational constant.
+    internal const double EARTHRAD = 6378.14; //Radius of Earth in kilometres.
+    internal const double F = 0.00335281; //Earth ellipsoid flattening.
+    internal const double OMEGA = 0.00007292115; //Rotational angular velocity of Earth in radians/sec.
+    internal const double TWOPI = 6.2831853071795862; //Value of pi in radians.
+    internal const double RAD2SEC = 206264.80624709636; //Angle conversion constants.
+    internal const double DEG2RAD = 0.017453292519943295;
+    internal const double RAD2DEG = 57.295779513082323;
 
     // Physical constants
     internal const double MOON_RADIUS = 1737.0; // km

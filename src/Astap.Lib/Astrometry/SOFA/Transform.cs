@@ -72,160 +72,22 @@ namespace Astap.Lib.Astrometry.SOFA
         /// <returns></returns>
         public (bool aboveHorizon, IReadOnlyList<TimeSpan> riseEvents, IReadOnlyList<TimeSpan> setEvents) EventTimes(EventType eventType)
         {
-            var celestialBody = eventType.CelestialBody();
-
-            bool doesRise, doesSet, aboveHorizon = default;
-            double centreTime, altitiudeMinus1, altitiude0, altitiudePlus1, a, b, c, xSymmetry, discriminant;
-            double zero1, zero2;
-            int nZeros;
-            List<TimeSpan> bodyRises = new(2), bodySets = new(2);
-
-            doesRise = false;
-            doesSet = false;
-
+            CalculateSitePressureIfRequired();
             InitFromUtcNowIfRequired();
 
-            // Iterate over the day in two hour periods
-
-            // Start at 01:00 as the centre time i.e. then time range will be 00:00 to 02:00
-            centreTime = 1.0d;
-
-            do
+            double pressure, temp;
+            if (_RefracValue)
             {
-                // Calculate body positional information
-                altitiudeMinus1 = BodyAltitude(centreTime - 1d);
-                altitiude0 = BodyAltitude(centreTime);
-                altitiudePlus1 = BodyAltitude(centreTime + 1d);
-
-                // Correct alititude for body's apparent size, parallax, required distance below horizon and refraction
-                switch (eventType)
-                {
-                    case EventType.SunRiseSunset:
-                        {
-                            altitiudeMinus1 -= - SUN_RISE;
-                            altitiude0 -= SUN_RISE;
-                            altitiudePlus1 -= SUN_RISE;
-                            break;
-                        }
-                    case EventType.CivilTwilight:
-                        {
-                            altitiudeMinus1 -= CIVIL_TWILIGHT;
-                            altitiude0 -= CIVIL_TWILIGHT;
-                            altitiudePlus1 -= CIVIL_TWILIGHT;
-                            break;
-                        }
-                    case EventType.NauticalTwilight:
-                        {
-                            altitiudeMinus1 -= NAUTICAL_TWILIGHT;
-                            altitiude0 -= NAUTICAL_TWILIGHT;
-                            altitiudePlus1 -= NAUTICAL_TWILIGHT;
-                            break;
-                        }
-                    case EventType.AmateurAstronomicalTwilight:
-                        {
-                            altitiudeMinus1 -= AMATEUR_ASRONOMICAL_TWILIGHT;
-                            altitiude0 = AMATEUR_ASRONOMICAL_TWILIGHT;
-                            altitiudePlus1 -= AMATEUR_ASRONOMICAL_TWILIGHT;
-                            break;
-                        }
-                    case EventType.AstronomicalTwilight:
-                        {
-                            altitiudeMinus1 -= ASTRONOMICAL_TWILIGHT;
-                            altitiude0 -= ASTRONOMICAL_TWILIGHT;
-                            altitiudePlus1 -= ASTRONOMICAL_TWILIGHT; // Planets so correct for radius of plant and refraction
-                            break;
-                        }
-                }
-
-                if (centreTime == 1.0d)
-                {
-                    aboveHorizon = altitiudeMinus1 >= 0d;
-                }
-
-                // Assess quadratic equation
-                c = altitiude0;
-                b = 0.5d * (altitiudePlus1 - altitiudeMinus1);
-                a = 0.5d * (altitiudePlus1 + altitiudeMinus1) - altitiude0;
-
-                xSymmetry = -b / (2.0d * a);
-                // yExtreme = (a * xSymmetry + b) * xSymmetry + c;
-                discriminant = b * b - 4.0d * a * c;
-
-                zero1 = double.NaN;
-                zero2 = double.NaN;
-                nZeros = 0;
-
-                if (discriminant > 0.0d)                 // there are zeros
-                {
-                    var deltaX = 0.5d * Math.Sqrt(discriminant) / Math.Abs(a);
-                    zero1 = xSymmetry - deltaX;
-                    zero2 = xSymmetry + deltaX;
-                    if (Math.Abs(zero1) <= 1.0d)
-                    {
-                        nZeros++; // This zero is in interval
-                    }
-                    if (Math.Abs(zero2) <= 1.0d)
-                    {
-                        nZeros++; // This zero is in interval
-                    }
-
-                    if (zero1 < -1.0d)
-                    {
-                        zero1 = zero2;
-                    }
-                }
-
-                switch (nZeros)
-                {
-                    // cases depend on values of discriminant - inner part of STEP 4
-                    case 0: // nothing  - go to next time slot
-                        {
-                            break;
-                        }
-                    case 1:                      // simple rise / set event
-                        {
-                            if (altitiudeMinus1 < 0.0d)       // The body is set at start of event so this must be a rising event
-                            {
-                                doesRise = true;
-                                bodyRises.Add(TimeSpan.FromHours(centreTime + zero1));
-                            }
-                            else                    // must be setting
-                            {
-                                doesSet = true;
-                                bodySets.Add(TimeSpan.FromHours(centreTime + zero1));
-                            }
-
-                            break;
-                        }
-                    case 2:                      // rises and sets within interval
-                        {
-                            if (altitiudeMinus1 < 0.0d) // The body is set at start of event so it must rise first then set
-                            {
-                                bodyRises.Add(TimeSpan.FromHours(centreTime + zero1));
-                                bodySets.Add(TimeSpan.FromHours(centreTime + zero2));
-                            }
-                            else                    // The body is risen at the start of the event so it must set first then rise
-                            {
-                                bodyRises.Add(TimeSpan.FromHours(centreTime + zero2));
-                                bodySets.Add(TimeSpan.FromHours(centreTime + zero1));
-                            }
-                            doesRise = true;
-                            doesSet = true;
-                            break;
-                        }
-                        // Zero2 = 1
-                }
-                centreTime += 2.0d; // Increment by 2 hours to get the next 2 hour slot in the day
+                pressure = SitePressure;
+                temp = SiteTemperature;
             }
-            while (!((doesRise && doesSet && Math.Abs(SiteLatitude) < 60.0d) || centreTime == 25.0d));
-
-            return (aboveHorizon, bodyRises, bodySets);
-
-            double BodyAltitude(double hour)
+            else
             {
-                VSOP87a.Reduce(celestialBody, _jdUTCValue1, _jdUTCValue2 + (hour / 24.0), _jdTTValue1, _jdTTValue2 + (hour / 24.0), SiteLatitude, SiteLongitude, out _, out _, out _, out var alt);
-                return alt;
+                pressure = double.NaN;
+                temp = double.NaN;
             }
+
+            return SOFAHelpers.RiseSetEventTimes(eventType, _jdUTCValue1, _jdUTCValue2, _jdTTValue1, _jdTTValue2, SiteLatitude, SiteLongitude, SiteElevation, pressure, temp);
         }
         #endregion
 
@@ -795,9 +657,6 @@ namespace Astap.Lib.Astrometry.SOFA
 
         private void J2000ToTopo()
         {
-            double dut1;
-            double aob = default, zob = default, hob = default, dob = default, rob = default, eo = default;
-
             CheckSet(_SiteElevValue, "Site elevation has not been set");
             CheckSet(_SiteLatValue, "Site latitude has not been set");
             CheckSet(_SiteLongValue, "Site longitude has not been set");
@@ -807,21 +666,7 @@ namespace Astap.Lib.Astrometry.SOFA
             CalculateSitePressureIfRequired();
             InitFromUtcNowIfRequired();
 
-            dut1 = LeapSecondsTable.DeltaTCalc(_jdUTCValue1 + _jdUTCValue2);
-
-            if (_RefracValue) // Include refraction
-            {
-                _ = wwaAtco13(_RAJ2000Value * HOURS2RADIANS, _DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, _jdUTCValue1, _jdUTCValue2, dut1, _SiteLongValue * DEGREES2RADIANS, _SiteLatValue * DEGREES2RADIANS, _SiteElevValue, 0.0d, 0.0d, _SitePressureValue, _SiteTempValue, 0.8d, 0.57d, ref aob, ref zob, ref hob, ref dob, ref rob, ref eo);
-            }
-            else // No refraction
-            {
-                _ = wwaAtco13(_RAJ2000Value * HOURS2RADIANS, _DECJ2000Value * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, _jdUTCValue1, _jdUTCValue2, dut1, _SiteLongValue * DEGREES2RADIANS, _SiteLatValue * DEGREES2RADIANS, _SiteElevValue, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, ref aob, ref zob, ref hob, ref dob, ref rob, ref eo);
-            }
-
-            _RATopoValue = wwaAnp(rob - eo) * RADIANS2HOURS; // // Convert CIO RA to equinox of date RA by subtracting the equation of the origins and convert from radians to hours
-            _DECTopoValue = dob * RADIANS2DEGREES; // Convert Dec from radians to degrees
-            _AzimuthTopoValue = aob * RADIANS2DEGREES;
-            _ElevationTopoValue = 90.0d - zob * RADIANS2DEGREES;
+            (_RATopoValue, _DECTopoValue, _AzimuthTopoValue, _ElevationTopoValue) = SOFAHelpers.J2000ToTopo(_RAJ2000Value, _DECJ2000Value, _jdUTCValue1, _jdUTCValue2, _SiteLatValue, _SiteLongValue, _SiteElevValue, _SitePressureValue, _SiteTempValue);
         }
 
         private void J2000ToApparent()
@@ -1173,7 +1018,7 @@ namespace Astap.Lib.Astrometry.SOFA
                         return new(dt, alt);
                     }
                 }
-                else if (VSOP87a.Reduce(idx, dt, SiteLatitude, SiteLongitude, out _, out _, out _, out var alt))
+                else if (VSOP87a.Reduce(idx, dt, SiteLatitude, SiteLongitude, out _, out _, out _, out var alt, out _))
                 {
                     return new(dt, alt);
                 }
