@@ -8,13 +8,29 @@ namespace Astap.Lib.Astrometry.VSOP87;
 
 public static class VSOP87a
 {
-    public static bool Reduce(CatalogIndex catIndex, DateTimeOffset time, double latitude, double longitude, out double ra, out double dec, out double az, out double alt)
+    public static bool Reduce(CatalogIndex catIndex, DateTimeOffset time, double latitude, double longitude, out double ra, out double dec, out double az, out double alt, out double distance)
     {
         time.ToSOFAUtcJdTT(out var utc1, out var utc2, out var tt1, out var tt2);
-        return Reduce(catIndex, utc1, utc2, tt1, tt2, latitude, longitude, out ra, out dec, out az, out alt);
+        return Reduce(catIndex, utc1, utc2, tt1, tt2, latitude, longitude, out ra, out dec, out az, out alt, out distance);
     }
 
-    public static bool Reduce(CatalogIndex catIndex, double utc1, double utc2, double tt1, double tt2, double latitude, double longitude, out double ra, out double dec, out double az, out double alt)
+    /// <summary>
+    ///
+    /// </summary>
+    /// <param name="catIndex"></param>
+    /// <param name="utc1"></param>
+    /// <param name="utc2"></param>
+    /// <param name="tt1"></param>
+    /// <param name="tt2"></param>
+    /// <param name="latitude"></param>
+    /// <param name="longitude"></param>
+    /// <param name="ra">RA in JNOW</param>
+    /// <param name="dec">Dec in JNOW</param>
+    /// <param name="az"></param>
+    /// <param name="alt"></param>
+    /// <param name="distance">dinstance in meters</param>
+    /// <returns></returns>
+    public static bool Reduce(CatalogIndex catIndex, double utc1, double utc2, double tt1, double tt2, double latitude, double longitude, out double ra, out double dec, out double az, out double alt, out double distance)
     {
         double et = (tt1 - 2451545.0 + tt2) / 365250.0;
 
@@ -28,6 +44,7 @@ public static class VSOP87a
             dec = double.NaN;
             az = double.NaN;
             alt = double.NaN;
+            distance = double.NaN;
             return false;
         }
 
@@ -37,6 +54,7 @@ public static class VSOP87a
             dec = double.NaN;
             az = double.NaN;
             alt = double.NaN;
+            distance = double.NaN;
             return false;
         }
 
@@ -45,7 +63,7 @@ public static class VSOP87a
         body[2] -= earth[2];
 
         //Compute light time to body, then recompute for apparent position
-        double distance = Math.Sqrt(body[0] * body[0] + body[1] * body[1] + body[2] * body[2]);
+        distance = Math.Sqrt(body[0] * body[0] + body[1] * body[1] + body[2] * body[2]);
         distance *= 1.496e+11; //Convert from AU to meters
         double lightTime = distance / 299792458.0;
         et -= lightTime / 24.0 / 60.0 / 60.0 / 365250.0;

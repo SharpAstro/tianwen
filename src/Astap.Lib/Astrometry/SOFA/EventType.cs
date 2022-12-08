@@ -22,18 +22,18 @@ public enum EventType
 
 public static class EventTypeEx
 {
-    public static CatalogIndex CelestialBody(this EventType eventType)
+    public static (CatalogIndex catIdx, double radius) CelestialBodyAndRadius(this EventType eventType)
         => eventType switch
         {
-            EventType.SunRiseSunset or EventType.CivilTwilight or EventType.NauticalTwilight or EventType.AmateurAstronomicalTwilight or EventType.AstronomicalTwilight => CatalogIndex.Sol,
-            EventType.MoonRiseMoonSet => CatalogIndex.Moon,
-            EventType.MercuryRiseSet => CatalogIndex.Mercury,
-            EventType.VenusRiseSet => CatalogIndex.Venus,
-            EventType.MarsRiseSet => CatalogIndex.Mars,
-            EventType.JupiterRiseSet => CatalogIndex.Jupiter,
-            EventType.SaturnRiseSet => CatalogIndex.Saturn,
-            EventType.UranusRiseSet => CatalogIndex.Uranus,
-            EventType.NeptuneRiseSet => CatalogIndex.Neptune,
+            EventType.SunRiseSunset or EventType.CivilTwilight or EventType.NauticalTwilight or EventType.AmateurAstronomicalTwilight or EventType.AstronomicalTwilight => (CatalogIndex.Sol, Constants.SUN_RADIUS),
+            EventType.MoonRiseMoonSet => (CatalogIndex.Moon, Constants.MOON_RADIUS),
+            EventType.MercuryRiseSet => (CatalogIndex.Mercury, Constants.MERCURY_RADIUS),
+            EventType.VenusRiseSet => (CatalogIndex.Venus, Constants.VENUS_RADIUS),
+            EventType.MarsRiseSet => (CatalogIndex.Mars, Constants.MARS_RADIUS),
+            EventType.JupiterRiseSet => (CatalogIndex.Jupiter, Constants.JUPITER_RADIUS),
+            EventType.SaturnRiseSet => (CatalogIndex.Saturn, Constants.SATURN_RADIUS),
+            EventType.UranusRiseSet => (CatalogIndex.Uranus, Constants.URANUS_RADIUS),
+            EventType.NeptuneRiseSet => (CatalogIndex.Neptune, Constants.NEPTUNE_RADIUS),
             _ => throw new ArgumentException($"No celestial body defined for {eventType}", nameof(eventType))
         };
 }
