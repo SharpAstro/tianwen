@@ -15,7 +15,7 @@ public class CoordinateUtilsTests
     [InlineData("0:0:0", 0d)]
     public void GivenHMSWHenConvertToHoursItReturnsHoursAsDouble(string hms, double expectedDegrees)
     {
-        CoordinateUtils.HMSToHours(hms).ShouldBe(expectedDegrees);
+        CoordinateUtils.HMSToHours(hms).ShouldBeInRange(expectedDegrees - 0.000000000000001d, expectedDegrees + 0.000000000000001d);
     }
 
     [Theory]

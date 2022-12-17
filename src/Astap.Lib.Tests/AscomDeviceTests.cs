@@ -8,6 +8,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using Xunit;
 
 namespace Astap.Lib.Tests;
@@ -61,7 +62,7 @@ public class AscomDeviceTests
     [SkippableFact]
     public void GivenAConnectedAscomSimulatorCameraWhenImageReadyThenItCanBeDownloaded()
     {
-        Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached);
+        Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached, "Skipped as this test is only run when on Windows and debugger is attached");
 
         // given
         const string Camera = nameof(Camera);
