@@ -28,6 +28,7 @@ using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Threading;
 
@@ -824,13 +825,34 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
     protected virtual void OnGuidingErrorEvent(GuidingErrorEventArgs eventArgs) => GuidingErrorEvent?.Invoke(this, eventArgs);
 
-    public void ConnectEquipment()
+    public bool TryGetActiveProfileName([NotNullWhen(true)] out string? activeProfileName)
     {
+        if (!Connected)
+        {
+            activeProfileName = null;
+            return false;
+        }
+
         using var profileResponse = Call("get_profile");
 
-        var activeProfile = profileResponse.RootElement.GetProperty("result");
+        if (profileResponse.RootElement.TryGetProperty("result", out var activeProfileProp)
+            && activeProfileProp.TryGetProperty("name", out var nameProp)
+            && nameProp.ValueKind is JsonValueKind.String
+            && nameProp.GetString() is string name
+        )
+        {
+            activeProfileName = name;
 
-        if (activeProfile.GetProperty("name").GetString() != ProfileName)
+            return true;
+        }
+
+        activeProfileName = null;
+        return false;
+    }
+
+    public void ConnectEquipment()
+    {
+        if (TryGetActiveProfileName(out var activeProfileName) && activeProfileName != ProfileName)
         {
             using var profilesResponse = Call("get_profiles");
             var profiles = profilesResponse.RootElement.GetProperty("result");
