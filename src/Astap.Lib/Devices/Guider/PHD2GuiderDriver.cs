@@ -36,7 +36,7 @@ namespace Astap.Lib.Devices.Guider;
 
 internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 {
-    internal const string PHD2 = "PHD2";
+    internal const string PHD2 = nameof(PHD2);
     public static string DeviceType { get; } = PHD2;
 
     Thread? m_worker;
@@ -44,10 +44,10 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     readonly object m_sync = new();
     readonly Dictionary<int, JsonDocument> _responses = new();
     readonly GuiderDevice _guiderDevice;
+    private string? _selectedProfileName;
 
     string Host { get; }
     uint Instance { get; }
-    string ProfileName { get; }
     IGuiderConnection Connection { get; }
     Accum AccumRA { get; } = new Accum();
     Accum AccumDEC { get; } = new Accum();
@@ -70,7 +70,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     {
         _guiderDevice = guiderDevice;
 
-        if (guiderDevice.DeviceType != "PHD2")
+        if (guiderDevice.DeviceType != PHD2)
         {
             throw new ArgumentException($"{guiderDevice} is not of type PHD2, but of type: {guiderDevice.DeviceType}", nameof(guiderDevice));
         }
@@ -83,8 +83,11 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
         Host = deviceIdSplit[0];
         Instance = instanceId;
-        ProfileName = deviceIdSplit.Length > 2 ? deviceIdSplit[2] : guiderDevice.DisplayName;
         Connection = connection;
+        if ((deviceIdSplit.Length > 2 ? deviceIdSplit[2] : guiderDevice.DisplayName) is var profile && string.IsNullOrWhiteSpace(profile))
+        {
+            _selectedProfileName = profile;
+        }
     }
 
     private void Worker()
@@ -852,7 +855,8 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
     public void ConnectEquipment()
     {
-        if (TryGetActiveProfileName(out var activeProfileName) && activeProfileName != ProfileName)
+        // this allows us to reuse the connection if we just want to connect to whatever profile has been selected by the user
+        if (TryGetActiveProfileName(out var activeProfileName) && (_selectedProfileName ??= activeProfileName) !=  _selectedProfileName)
         {
             using var profilesResponse = Call("get_profiles");
             var profiles = profilesResponse.RootElement.GetProperty("result");
@@ -861,7 +865,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
             {
                 string? name = profile.GetProperty("name").GetString();
                 Debug.WriteLine(String.Format("found profile {0}", name));
-                if (name == ProfileName)
+                if (name == _selectedProfileName)
                 {
                     profileId = profile.TryGetProperty("id", out var id) ? id.GetInt32() : -1;
                     Debug.WriteLine(String.Format("found profid {0}", profileId));
@@ -870,7 +874,9 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
             }
 
             if (profileId == -1)
-                throw new GuiderException("invalid phd2 profile name: " + ProfileName);
+            {
+                throw new GuiderException("invalid phd2 profile name: " + _selectedProfileName + " active is: " + activeProfileName);
+            }
 
             StopCapture(DEFAULT_STOPCAPTURE_TIMEOUT);
 
