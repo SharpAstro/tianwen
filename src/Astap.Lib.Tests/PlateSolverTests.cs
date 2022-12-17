@@ -31,7 +31,7 @@ public class PlateSolverTests
 
             Skip.If(plateSolver == typeof(AstrometryNetPlateSolverMultiPlatform) && platform == PlatformID.Win32NT && !Debugger.IsAttached,
                 $"Is multi-platform and running on Windows without debugger (Windows is skipped by default as WSL has a long cold start time)");
-            Skip.IfNot(await solver.CheckSupportAsync());
+            Skip.IfNot(await solver.CheckSupportAsync(), $"Platform {platform} is not supported!");
 
             if (SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords))
             {

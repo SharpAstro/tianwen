@@ -89,8 +89,8 @@ public class CelestialObjectDBTests
         celestialObject.Index.ShouldBe(expectedCatalogIindex);
         celestialObject.ObjectType.ShouldBe(expectedObjType);
         celestialObject.Constellation.ShouldBe(expectedConstellation);
-        celestialObject.RA.ShouldBe(expectedRaDeg);
-        celestialObject.Dec.ShouldBe(expectedDecDeg);
+        celestialObject.RA.ShouldBeInRange(expectedRaDeg - 0.000000000000001d, expectedRaDeg + 0.000000000000001d);
+        celestialObject.Dec.ShouldBeInRange(expectedDecDeg - 0.000000000000001d, expectedDecDeg + 0.000000000000001d);
     }
 
     [Theory]
