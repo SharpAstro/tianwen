@@ -26,6 +26,7 @@ SOFTWARE.
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 
 namespace Astap.Lib.Devices.Guider;
@@ -163,6 +164,15 @@ public interface IGuider : IDeviceDriver
     /// </summary>
     /// <returns></returns>
     IReadOnlyList<string> GetEquipmentProfiles();
+    
+    /// <summary>
+    /// Tries to obtain the active profile, useful for quick self-discovery.
+    /// 
+    /// Assumes an active connection.
+    /// </summary>
+    /// <param name="activeProfileName"></param>
+    /// <returns>true if <paramref name="activeProfileName"/> is the active profile (and not null)</returns>
+    bool TryGetActiveProfileName([NotNullWhen(true)] out string? activeProfileName);
 
     /// <summary>
     /// connect the the specified profile as constructed.
