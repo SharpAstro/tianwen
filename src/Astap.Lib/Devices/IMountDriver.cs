@@ -1,4 +1,6 @@
-﻿namespace Astap.Lib.Devices;
+﻿using System;
+
+namespace Astap.Lib.Devices;
 
 public enum TrackingSpeed
 {
@@ -17,4 +19,6 @@ public interface IMountDriver : IDeviceDriver
     bool IsSlewing { get; }
 
     bool SlewAsync(double ra, double dec);
+
+    DateTime? UTCDate { get; set; }
 }

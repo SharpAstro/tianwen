@@ -93,5 +93,24 @@ namespace Astap.Lib.Devices.Ascom
 
         public bool IsSlewing => _comObject?.Slewing is bool slewing && slewing;
 
+        public DateTime? UTCDate
+        {
+            get => _comObject?.UTCDate is DateTime utcDate ? utcDate : null;
+            set
+            {
+                if (_comObject is var obj and not null)
+                {
+                    try
+                    {
+                        obj.UTCDate = value;
+                    }
+                    catch (Exception e)
+                    {
+                        Interlocked.Exchange(ref _lastException, e);
+                    }
+                }
+            }
+        }
+
     }
 }
