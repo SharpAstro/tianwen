@@ -15,18 +15,4 @@ public class Cover : ControllableDeviceBase<ICoverDriver>
     {
         // empty
     }
-
-    public void Open() => Driver.Open();
-
-    public void Close() => Driver.Close();
-
-    public bool IsCalibrationReady => Driver.IsCalibrationReady;
-
-    public bool IsMoving => Driver.IsMoving;
-
-    public int Brightness
-    {
-        get => Driver.Brightness;
-        set => Driver.Brightness = value;
-    }
 }
