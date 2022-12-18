@@ -2,17 +2,23 @@
 
 namespace Astap.Lib.Devices;
 
-public enum TrackingSpeed
-{
-    None = 0,
-    Sidereal = 1,
-    Lunar = 2,
-    Solar = 3
-}
-
 public interface IMountDriver : IDeviceDriver
 {
+    bool CanSetTracking { get; }
+
+    bool CanSetSideOfPier { get; }
+
+    bool CanPark { get; }
+
+    bool CanSetPark { get; }
+
+    bool CanSlew { get; }
+
+    bool CanSlewAsync { get; }
+
     TrackingSpeed TrackingSpeed { get; set; }
+
+    bool IsTracking { get; set; }
 
     bool AtHome { get; }
 
@@ -21,4 +27,6 @@ public interface IMountDriver : IDeviceDriver
     bool SlewAsync(double ra, double dec);
 
     DateTime? UTCDate { get; set; }
+
+    PierSide SideOfPier { get; set; }
 }

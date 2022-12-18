@@ -4,14 +4,6 @@ using System.Threading;
 
 namespace Astap.Lib.Devices.Ascom
 {
-    enum DriveRate
-    {
-        Sidereal = 0, // Sidereal tracking rate (15.041 arcseconds per second).
-        Lunar  = 1, // Lunar tracking rate (14.685 arcseconds per second).
-        Solar = 2, // Solar tracking rate (15.0 arcseconds per second).
-        King = 3 // King tracking rate (15.0369 arcseconds per second).
-    }
-
     public class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
     {
         private readonly Dictionary<TrackingSpeed, DriveRate> _trackingSpeedMapping = new();
@@ -25,15 +17,15 @@ namespace Astap.Lib.Devices.Ascom
 
         private void AscomTelescopeDriver_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
         {
-            if (e.Connected)
+            if (e.Connected && _comObject is var obj and not null)
             {
                 _trackingSpeedMapping.Clear();
 
-                if (_comObject?.TrackingRates?.Count is int count)
+                if (obj.TrackingRates?.Count is int count)
                 {
                     for (var i = 0; i < count; i++)
                     {
-                        if (_comObject?.TrackingRates.Item[i] is DriveRate driveRate)
+                        if (obj.TrackingRates.Item[i] is DriveRate driveRate)
                         {
                             var trackingSpeed = DriveRateToTrackingSpeed(driveRate);
 
@@ -44,6 +36,13 @@ namespace Astap.Lib.Devices.Ascom
                         }
                     }
                 }
+
+                CanSetTracking = obj.CanSetTracking is bool canSetTracking && canSetTracking;
+                CanSetSideOfPier = obj.CanSetSideOfPier is bool canSetSideOfPier && canSetSideOfPier;
+                CanPark = obj.CanPark is bool canPark && canPark;
+                CanSetPark = obj.CanSetPark is bool canSetPark && canSetPark;
+                CanSlew = obj.CanSlew is bool canSlew && canSlew;
+                CanSlewAsync = obj.CanSlewAsync is bool canSlewAsync && canSlewAsync;
             }
         }
 
@@ -93,6 +92,8 @@ namespace Astap.Lib.Devices.Ascom
 
         public bool IsSlewing => _comObject?.Slewing is bool slewing && slewing;
 
+        public double SiderealTime => _comObject?.SiderealTime is double siderealTime ? siderealTime : double.NaN;
+
         public DateTime? UTCDate
         {
             get => _comObject?.UTCDate is DateTime utcDate ? utcDate : null;
@@ -112,5 +113,48 @@ namespace Astap.Lib.Devices.Ascom
             }
         }
 
+        public bool IsTracking
+        {
+            get => _comObject?.IsTracking is bool tracking && tracking;
+            set
+            {
+                if (_comObject is var obj and not null)
+                {
+                    if (obj.CanSetTracking is false)
+                    {
+                        throw new InvalidOperationException("Driver does not support setting tracking");
+                    }
+                    obj.IsTracking = value;
+                }
+            }
+        }
+
+        public bool CanSetTracking { get; private set; }
+
+        public bool CanSetSideOfPier { get; private set; }
+
+        public bool CanPark { get; private set; }
+
+        public bool CanSetPark { get; private set; }
+
+        public bool CanSlew { get; private set; }
+
+        public bool CanSlewAsync { get; private set; }
+
+        public PierSide SideOfPier
+        {
+            get => _comObject?.SideOfPier is PierSide sop ? sop : PierSide.Unknown;
+            set
+            {
+                if (CanSetSideOfPier && _comObject is var obj and not null)
+                {
+                    obj.SideOfPier = value;
+                }
+                else
+                {
+                    throw new InvalidOperationException("Cannot set side of pier to: " + value);
+                }
+            }
+        }
     }
 }

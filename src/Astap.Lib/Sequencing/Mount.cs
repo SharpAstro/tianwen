@@ -1,5 +1,6 @@
 ﻿
 using Astap.Lib.Devices;
+using System;
 
 namespace Astap.Lib.Sequencing;
 
@@ -18,7 +19,19 @@ public class Mount : ControllableDeviceBase<IMountDriver>
         set => Driver.TrackingSpeed = value;
     }
 
+    public bool IsTracking
+    {
+        get => Driver.IsTracking;
+        set => Driver.IsTracking = value;
+    }
+
     public bool IsSlewing => Driver.IsSlewing;
+
+    public PierSide SideOfPier
+    {
+        get => Driver.SideOfPier;
+        set => Driver.SideOfPier = value;
+    }
 
     /// <summary>
     ///
@@ -26,5 +39,11 @@ public class Mount : ControllableDeviceBase<IMountDriver>
     /// <param name="ra">RA in degrees (0..360)</param>
     /// <param name="dec">Declination in degrees (-90..90)</param>
     /// <returns>True if slewing operation was accepted and mount is slewing</returns>
-    public bool SlewAsync(double ra, double dec) => Driver.SlewAsync(ra, dec);
+    public bool SlewAsync(double ra, double dec) => Driver.CanSlewAsync && Driver.SlewAsync(ra, dec);
+
+    public DateTime UTCDate
+    {
+        get => Driver.UTCDate ?? throw new InvalidOperationException("Cannot determine UTC date from mount driver");
+        set => Driver.UTCDate = value;
+    }
 }
