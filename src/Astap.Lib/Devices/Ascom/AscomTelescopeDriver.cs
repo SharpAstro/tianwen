@@ -21,24 +21,21 @@ namespace Astap.Lib.Devices.Ascom
             {
                 _trackingSpeedMapping.Clear();
 
-                if (obj.TrackingRates?.Count is int count)
+                if (obj.TrackingRates?.Count is int count && count > 0)
                 {
-                    for (var i = 0; i < count; i++)
+                    foreach (DriveRate driveRate in obj.TrackingRates)
                     {
-                        if (obj.TrackingRates.Item[i] is DriveRate driveRate)
-                        {
-                            var trackingSpeed = DriveRateToTrackingSpeed(driveRate);
+                        var trackingSpeed = DriveRateToTrackingSpeed(driveRate);
 
-                            if (trackingSpeed != TrackingSpeed.None)
-                            {
-                                _trackingSpeedMapping[trackingSpeed] = driveRate;
-                            }
+                        if (trackingSpeed != TrackingSpeed.None)
+                        {
+                            _trackingSpeedMapping[trackingSpeed] = driveRate;
                         }
                     }
                 }
 
                 CanSetTracking = obj.CanSetTracking is bool canSetTracking && canSetTracking;
-                CanSetSideOfPier = obj.CanSetSideOfPier is bool canSetSideOfPier && canSetSideOfPier;
+                CanSetSideOfPier = obj.CanSetPierSide is bool canSetSideOfPier && canSetSideOfPier;
                 CanPark = obj.CanPark is bool canPark && canPark;
                 CanSetPark = obj.CanSetPark is bool canSetPark && canSetPark;
                 CanSlew = obj.CanSlew is bool canSlew && canSlew;

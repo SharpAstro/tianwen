@@ -60,6 +60,28 @@ public class AscomDeviceTests
     }
 
     [SkippableFact]
+    public void GivenAConnectedAscomSimulatorTelescopeWhenConnectedThenTrackingRatesArePopulated()
+    {
+        Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached, "Skipped as this test is only run when on Windows and debugger is attached");
+
+        // given
+        const string Telescope = nameof(Telescope);
+
+        using var profile = new AscomProfile();
+        var allTelescopes = profile.RegisteredDevices(Telescope);
+        var simTelescopeDevice = allTelescopes.FirstOrDefault(e => e.DeviceId == "ASCOM.Simulator." + Telescope);
+
+        // when
+        if (simTelescopeDevice?.TryInstantiateDriver(out IMountDriver? driver) is true)
+        {
+            using (driver)
+            {
+                driver.Connected = true;
+            }
+        }
+    }
+
+    [SkippableFact]
     public void GivenAConnectedAscomSimulatorCameraWhenImageReadyThenItCanBeDownloaded()
     {
         Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached, "Skipped as this test is only run when on Windows and debugger is attached");
