@@ -80,7 +80,7 @@ public class AscomDeviceTests
                 driver.StartExposure(TimeSpan.FromSeconds(0.1), true);
 
                 Thread.Sleep((int)TimeSpan.FromSeconds(0.5).TotalMilliseconds);
-                driver.ImageReady.ShouldNotBeNull().ShouldBeTrue();
+                driver.ImageReady.ShouldBeTrue();
                 var imgData = driver.ImageData;
 
                 var image = driver.Image;

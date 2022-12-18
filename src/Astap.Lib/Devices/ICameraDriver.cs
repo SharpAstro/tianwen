@@ -6,23 +6,53 @@ namespace Astap.Lib.Devices;
 
 public interface ICameraDriver : IDeviceDriver
 {
-    bool? CanGetCoolerPower { get; }
+    bool CanGetCoolerPower { get; }
 
-    double? PixelSizeX { get; }
+    bool CanSetCCDTemperature { get; }
 
-    double? PixelSizeY { get; }
+    bool CanStopExposure { get; }
 
-    int? StartX { get; }
+    bool CanAbortExposure { get; }
 
-    int? StartY { get; }
+    double PixelSizeX { get; }
+
+    double PixelSizeY { get; }
+
+    int StartX { get; }
+
+    int StartY { get; }
 
     int[,]? ImageData { get; }
 
-    bool? ImageReady { get; }
+    bool ImageReady { get; }
+
+    bool CoolerOn { get; }
+
+    double CoolerPower { get; }
+
+    /// <summary>
+    /// Returns the current heat sink temperature (called "ambient temperature" by some manufacturers) in degrees Celsius.
+    /// </summary>
+    double HeatSinkTemperature { get; }
+
+    /// <summary>
+    /// Returns the current CCD temperature in degrees Celsius.
+    /// </summary>
+    double CCDTemperature { get; }
 
     int? BitDepth { get; }
 
     void StartExposure(TimeSpan duration, bool light);
+
+    /// <summary>
+    /// Should only be called when <see cref="CanStopExposure"/> is true.
+    /// </summary>
+    void StopExposure();
+
+    /// <summary>
+    /// Should only be called when <see cref="CanAbortExposure"/> is true.
+    /// </summary>
+    void AbortExposure();
 
     Image? Image => ImageReady is true && ImageData is int[,] data && BitDepth is int bitDepth and > 0
         ? DataToImage(data, bitDepth)

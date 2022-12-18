@@ -64,16 +64,14 @@ public class Session
             return false;
         }
 
-        if (!Setup.Mount.Connected)
-        {
-            Setup.Mount.Connected = true;
-        }
+        Setup.Mount.Connected = true;
 
-        if (Setup.Mount.TrackingSpeed != Devices.TrackingSpeed.None)
+        if (Setup.Mount.Driver.TrackingSpeed != TrackingSpeed.None)
         {
-            if (Setup.Mount.SlewAsync(activeTarget.RA, activeTarget.Dec))
+            // TODO convert from J2000 to topo if required
+            if (Setup.Mount.Driver.SlewAsync(activeTarget.RA, activeTarget.Dec))
             {
-                while (Setup.Mount.IsSlewing)
+                while (Setup.Mount.Driver.IsSlewing)
                 {
                     Thread.Sleep(500);
                 }
@@ -92,15 +90,12 @@ public class Session
     {
         foreach (var telescope in Setup.Telescopes)
         {
-            if (telescope?.Cover is Cover cover)
+            if (telescope.Cover is Cover cover)
             {
-                if (!cover.Connected)
-                {
-                    cover.Connected = true;
-                }
+                cover.Connected = true;
 
-                cover.Brightness = 0;
-                cover.Open();
+                cover.Driver.Brightness = 0;
+                cover.Driver.Open();
             }
         }
     }

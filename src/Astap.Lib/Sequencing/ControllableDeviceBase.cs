@@ -30,7 +30,13 @@ public abstract class ControllableDeviceBase<TDriver> : IDisposable
     public bool Connected
     {
         get => Driver.Connected;
-        set => Driver.Connected = value;
+        set
+        {
+            if (value != Driver.Connected)
+            {
+                Driver.Connected = value;
+            }
+        }
     }
 
     protected virtual void Dispose(bool disposing)

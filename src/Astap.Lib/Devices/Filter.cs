@@ -1,3 +1,3 @@
-﻿namespace Astap.Lib.Sequencing;
+﻿namespace Astap.Lib.Devices;
 
 public record Filter(string Name);
