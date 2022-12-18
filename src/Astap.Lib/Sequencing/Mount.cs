@@ -19,10 +19,10 @@ public class Mount : ControllableDeviceBase<IMountDriver>
         set => Driver.TrackingSpeed = value;
     }
 
-    public bool IsTracking
+    public bool Tracking
     {
-        get => Driver.IsTracking;
-        set => Driver.IsTracking = value;
+        get => Driver.Tracking;
+        set => Driver.Tracking = value;
     }
 
     public bool IsSlewing => Driver.IsSlewing;

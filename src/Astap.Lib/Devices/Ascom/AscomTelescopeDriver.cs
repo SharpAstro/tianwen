@@ -113,9 +113,9 @@ namespace Astap.Lib.Devices.Ascom
             }
         }
 
-        public bool IsTracking
+        public bool Tracking
         {
-            get => _comObject?.IsTracking is bool tracking && tracking;
+            get => _comObject?.Tracking is bool tracking && tracking;
             set
             {
                 if (_comObject is var obj and not null)
@@ -124,7 +124,7 @@ namespace Astap.Lib.Devices.Ascom
                     {
                         throw new InvalidOperationException("Driver does not support setting tracking");
                     }
-                    obj.IsTracking = value;
+                    obj.Tracking = value;
                 }
             }
         }
