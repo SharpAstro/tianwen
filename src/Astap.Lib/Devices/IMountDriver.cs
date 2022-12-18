@@ -18,7 +18,7 @@ public interface IMountDriver : IDeviceDriver
 
     TrackingSpeed TrackingSpeed { get; set; }
 
-    bool IsTracking { get; set; }
+    bool Tracking { get; set; }
 
     bool AtHome { get; }
 
