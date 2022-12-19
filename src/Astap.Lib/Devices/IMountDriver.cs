@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 
 namespace Astap.Lib.Devices;
 
@@ -17,6 +18,8 @@ public interface IMountDriver : IDeviceDriver
     bool CanSlewAsync { get; }
 
     TrackingSpeed TrackingSpeed { get; set; }
+
+    IReadOnlyCollection<TrackingSpeed> TrackingSpeeds { get; }
 
     bool Tracking { get; set; }
 

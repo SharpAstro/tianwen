@@ -1,14 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Threading;
 
 namespace Astap.Lib.Devices.Ascom
 {
     public class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
     {
         private readonly Dictionary<TrackingSpeed, DriveRate> _trackingSpeedMapping = new();
-
-        private Exception? _lastException;
 
         public AscomTelescopeDriver(AscomDevice device) : base(device)
         {
@@ -63,15 +60,16 @@ namespace Astap.Lib.Devices.Ascom
                     _comObject.SlewToCoordinatesAsync(ra, dec);
                     return true;
                 }
-                catch (Exception e)
+                catch
                 {
-                    Interlocked.Exchange(ref _lastException, e);
                     return false;
                 }
             }
 
             return false;
         }
+
+        public IReadOnlyCollection<TrackingSpeed> TrackingSpeeds => _trackingSpeedMapping.Keys;
 
         public TrackingSpeed TrackingSpeed
         {
@@ -91,6 +89,8 @@ namespace Astap.Lib.Devices.Ascom
 
         public double SiderealTime => _comObject?.SiderealTime is double siderealTime ? siderealTime : double.NaN;
 
+        public bool TimeSyncedSuccess { get; private set; }
+
         public DateTime? UTCDate
         {
             get => _comObject?.UTCDate is DateTime utcDate ? utcDate : null;
@@ -98,14 +98,8 @@ namespace Astap.Lib.Devices.Ascom
             {
                 if (_comObject is var obj and not null)
                 {
-                    try
-                    {
-                        obj.UTCDate = value;
-                    }
-                    catch (Exception e)
-                    {
-                        Interlocked.Exchange(ref _lastException, e);
-                    }
+                    obj.UTCDate = value;
+                    TimeSyncedSuccess = true;
                 }
             }
         }
