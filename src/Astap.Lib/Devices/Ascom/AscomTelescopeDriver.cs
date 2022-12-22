@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using Astap.Lib.Astrometry;
 
 namespace Astap.Lib.Devices.Ascom
 {
@@ -144,6 +145,44 @@ namespace Astap.Lib.Devices.Ascom
                 else
                 {
                     throw new InvalidOperationException("Cannot set side of pier to: " + value);
+                }
+            }
+        }
+
+        public EquatorialCoordinateType EquatorialSystem => _comObject?.EquatorialSystem is EquatorialCoordinateType ect ? ect : EquatorialCoordinateType.Other;
+
+        public double SiteElevation
+        {
+            get => _comObject?.SiteElevation is double siteElevation ? siteElevation : double.NaN;
+            set
+            {
+                if (_comObject is var obj and not null)
+                {
+                    obj.SiteElevation = value;
+                }
+            }
+        }
+
+        public double SiteLatitude
+        {
+            get => _comObject?.SiteLatitude is double siteLatitude ? siteLatitude : double.NaN;
+            set
+            {
+                if (_comObject is var obj and not null)
+                {
+                    obj.SiteLatitude = value;
+                }
+            }
+        }
+
+        public double SiteLongitude
+        {
+            get => _comObject?.SiteLongitude is double siteLongitude ? siteLongitude : double.NaN;
+            set
+            {
+                if (_comObject is var obj and not null)
+                {
+                    obj.SiteLongitude = value;
                 }
             }
         }
