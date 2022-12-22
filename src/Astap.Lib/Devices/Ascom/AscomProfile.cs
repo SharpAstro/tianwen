@@ -7,6 +7,11 @@ public class AscomProfile : DynamicComObject, IDeviceSource<AscomDevice>
 {
     public AscomProfile() : base("ASCOM.Utilities.Profile") { }
 
+    /// <summary>
+    /// Returns true if COM object was initalised successfully.
+    /// </summary>
+    public bool IsSupported => _comObject is not null;
+
     public IEnumerable<string> RegisteredDeviceTypes => EnumerateProperty<string>(_comObject?.RegisteredDeviceTypes);
 
     IEnumerable<(string key, string value)> RegisteredDevicesKV(string deviceType) => EnumerateKeyValueProperty(_comObject?.RegisteredDevices(deviceType));
