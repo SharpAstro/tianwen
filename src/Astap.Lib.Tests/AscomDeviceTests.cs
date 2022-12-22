@@ -21,7 +21,7 @@ public class AscomDeviceTests
         using var profile = new AscomProfile();
         var types = profile.RegisteredDeviceTypes;
 
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && profile.IsSupported)
         {
             types.ShouldNotBeEmpty();
         }

@@ -46,6 +46,11 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     readonly GuiderDevice _guiderDevice;
     private string? _selectedProfileName;
 
+    /// <summary>
+    /// PHD2 is in principle always supported on any platform.
+    /// </summary>
+    public bool IsSupported { get; } = true;
+
     string Host { get; }
     uint Instance { get; }
     IGuiderConnection Connection { get; }
