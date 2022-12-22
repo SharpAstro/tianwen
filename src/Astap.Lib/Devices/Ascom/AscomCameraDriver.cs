@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Globalization;
 
 namespace Astap.Lib.Devices.Ascom;
 
@@ -49,6 +50,14 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
     public int MaxADU => _comObject?.MaxADU is int maxADU ? maxADU : int.MinValue;
 
     public double FullWellCapacity => _comObject?.FullWellCapacity is double fullWellCapacity ? fullWellCapacity : double.NaN;
+
+    public DateTime LastExposureStartTime
+        => _comObject?.LastExposureStartTime is string lastExposureStartTime
+        && DateTime.TryParse(lastExposureStartTime, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal, out var dt)
+            ? dt
+            : DateTime.MinValue;
+
+    public TimeSpan LastExposureDuration => _comObject?.LastExposureDuration is double lastExposureDuration ? TimeSpan.FromSeconds(lastExposureDuration) : TimeSpan.MinValue;
 
     public int? BitDepth
     {

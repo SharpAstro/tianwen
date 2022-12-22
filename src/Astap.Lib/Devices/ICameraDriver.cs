@@ -54,17 +54,21 @@ public interface ICameraDriver : IDeviceDriver
     /// </summary>
     void AbortExposure();
 
+    DateTime LastExposureStartTime { get; }
+
+    TimeSpan LastExposureDuration { get; }
+
     Image? Image => ImageReady is true && ImageData is int[,] data && BitDepth is int bitDepth and > 0
-        ? DataToImage(data, bitDepth)
+        ? DataToImage(data, bitDepth, Name, LastExposureStartTime, LastExposureDuration)
         : null;
 
     /// <summary>
     /// TODO: assumes width x height arrays and assumes little endian.
     /// </summary>
     /// <param name="sourceData">2d image array</param>
-    /// <param name="bitDepth">either 8 or 16</param>
+    /// <param name="bitDepth">either 8 or 16, -32 for float is not yet supported</param>
     /// <returns></returns>
-    public static Image DataToImage(int[,] sourceData, int bitDepth)
+    public static Image DataToImage(int[,] sourceData, int bitDepth, string instrument, DateTime exposureStartTime, TimeSpan exposureDuration)
     {
         var width = sourceData.GetLength(0);
         var height = sourceData.GetLength(1);
@@ -84,6 +88,6 @@ public interface ICameraDriver : IDeviceDriver
             }
         }
 
-        return new Image(targetData, width, height, bitDepth, maxVal);
+        return new Image(targetData, width, height, bitDepth, maxVal, instrument, exposureStartTime, exposureDuration);
     }
 }

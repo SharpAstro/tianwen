@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Diagnostics.Metrics;
 using System.IO;
 using System.Runtime.CompilerServices;
 using static Astap.Lib.Stat.StatisticsHelper;
@@ -19,19 +20,25 @@ public sealed class Image
     readonly int _bitsPerPixel;
     readonly float _maxVal;
 
-    public Image(float[,] data, int width, int height, int bitsPerPixel, float maxVal)
+    public Image(float[,] data, int width, int height, int bitsPerPixel, float maxVal, string instrument, DateTime exposureStartTime, TimeSpan exposureDuration)
     {
         _data = data;
         _width = width;
         _height = height;
         _bitsPerPixel = bitsPerPixel;
         _maxVal = maxVal;
+        ExposureStartTime = exposureStartTime;
+        ExposureDuration = exposureDuration;
+        Instrument = instrument;
     }
 
     public int Width => _width;
     public int Height => _height;
     public int BitsPerPixel => _bitsPerPixel;
     public float MaxValue => _maxVal;
+    public DateTime ExposureStartTime { get; }
+    public TimeSpan ExposureDuration { get; }
+    public string Instrument { get; }
 
     public static bool TryReadFitsFile(string fileName, [NotNullWhen(true)] out Image? image)
     {
@@ -54,6 +61,9 @@ public sealed class Image
         var height = hdu.Axes[0];
         var width = hdu.Axes[1];
         var bitsPerPixel = hdu.BitPix;
+        var exposureStartTime = hdu.ObservationDate;
+        var exposureDuration = TimeSpan.FromSeconds(hdu.Header.GetDoubleValue("EXPTIME")); // TODO What about other units?
+        var instrument = hdu.Instrument;
 
         var bzero = (float)hdu.BZero;
         var bscale = (float)hdu.BScale;
@@ -65,7 +75,12 @@ public sealed class Image
         Span<float> scratchRow = stackalloc float[Math.Min(256, width)];
 
         var quot = Math.DivRem(width, scratchRow.Length, out var rem);
-        var maxVal = 0f;
+        var maxVal = (float)hdu.MaximumValue;
+        bool needsMaxValRecalc = !double.IsNormal(maxVal);
+        if (needsMaxValRecalc)
+        {
+            maxVal = float.MinValue;
+        }
 
         switch (elementType)
         {
@@ -81,7 +96,10 @@ public sealed class Image
                         {
                             var val = bscale * byteWidthArray[sourceIndex + w] + bzero;
                             scratchRow[w] = val;
-                            maxVal = MathF.Max(maxVal, val);
+                            if (needsMaxValRecalc)
+                            {
+                                maxVal = MathF.Max(maxVal, val);
+                            }
                         }
                         sourceIndex += scratchRow.Length;
                         scratchRow.CopyTo(row);
@@ -94,7 +112,10 @@ public sealed class Image
                         {
                             var val = bscale * byteWidthArray[sourceIndex + w] + bzero;
                             scratchRow[w] = val;
-                            maxVal = MathF.Max(maxVal, val);
+                            if (needsMaxValRecalc)
+                            {
+                                maxVal = MathF.Max(maxVal, val);
+                            }
                         }
                         scratchRow[..rem].CopyTo(row);
                     }
@@ -113,7 +134,10 @@ public sealed class Image
                         {
                             var val = bscale * shortWidthArray[sourceIndex + w] + bzero;
                             scratchRow[w] = val;
-                            maxVal = MathF.Max(maxVal, val);
+                            if (needsMaxValRecalc)
+                            {
+                                maxVal = MathF.Max(maxVal, val);
+                            }
                         }
                         sourceIndex += scratchRow.Length;
                         scratchRow.CopyTo(row);
@@ -126,7 +150,10 @@ public sealed class Image
                         {
                             var val = bscale * shortWidthArray[sourceIndex + w] + bzero;
                             scratchRow[w] = val;
-                            maxVal = MathF.Max(maxVal, val);
+                            if (needsMaxValRecalc)
+                            {
+                                maxVal = MathF.Max(maxVal, val);
+                            }
                         }
                         scratchRow[..rem].CopyTo(row);
                     }
@@ -145,7 +172,10 @@ public sealed class Image
                         {
                             var val = bscale * intWidthArray[sourceIndex + w] + bzero;
                             scratchRow[w] = val;
-                            maxVal = MathF.Max(maxVal, val);
+                            if (needsMaxValRecalc)
+                            {
+                                maxVal = MathF.Max(maxVal, val);
+                            }
                         }
                         sourceIndex += scratchRow.Length;
                         scratchRow.CopyTo(row);
@@ -158,7 +188,10 @@ public sealed class Image
                         {
                             var val = bscale * intWidthArray[sourceIndex + w] + bzero;
                             scratchRow[w] = val;
-                            maxVal = MathF.Max(maxVal, val);
+                            if (needsMaxValRecalc)
+                            {
+                                maxVal = MathF.Max(maxVal, val);
+                            }
                         }
                         scratchRow[..rem].CopyTo(row);
                     }
@@ -177,7 +210,10 @@ public sealed class Image
                         {
                             var val = bscale * floatWidthArray[sourceIndex + w] + bzero;
                             scratchRow[w] = val;
-                            maxVal = MathF.Max(maxVal, val);
+                            if (needsMaxValRecalc)
+                            {
+                                maxVal = MathF.Max(maxVal, val);
+                            }
                         }
                         sourceIndex += scratchRow.Length;
                         scratchRow.CopyTo(row);
@@ -190,7 +226,10 @@ public sealed class Image
                         {
                             var val = bscale * floatWidthArray[sourceIndex + w] + bzero;
                             scratchRow[w] = val;
-                            maxVal = MathF.Max(maxVal, val);
+                            if (needsMaxValRecalc)
+                            {
+                                maxVal = MathF.Max(maxVal, val);
+                            }
                         }
                         scratchRow[..rem].CopyTo(row);
                     }
@@ -202,7 +241,7 @@ public sealed class Image
                 return false;
         }
 
-        image = new Image(imgArray, width, height, bitsPerPixel, maxVal);
+        image = new Image(imgArray, width, height, bitsPerPixel, maxVal, instrument, exposureStartTime, exposureDuration);
         return true;
     }
 
@@ -250,6 +289,10 @@ public sealed class Image
         basicHdu.Header.Bitpix = BitsPerPixel;
         basicHdu.Header.AddCard(new HeaderCard("BZERO", bzero, "offset data range to that of unsigned short"));
         basicHdu.Header.AddCard(new HeaderCard("BSCALE", 1, "default scaling factor"));
+        basicHdu.Header.AddCard(new HeaderCard("DATE-OBS", ExposureStartTime.ToString("o"), ""));
+        basicHdu.Header.AddCard(new HeaderCard("EXPTIME", ExposureDuration.TotalSeconds, "seconds"));
+        basicHdu.Header.AddCard(new HeaderCard("DATAMAX", MaxValue, ""));
+        basicHdu.Header.AddCard(new HeaderCard("INSTRUME", Instrument, ""));
         fits.AddHDU(basicHdu);
 
         using var bufferedWriter = new BufferedFile(fileName, FileAccess.ReadWrite, FileShare.Read, 1000 * 2088);

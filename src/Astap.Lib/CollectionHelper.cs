@@ -34,4 +34,12 @@ public static class CollectionHelper
             }
         }
     }
+
+
+    public static IReadOnlyList<T> ConcatToReadOnlyList<T>(T first, ICollection<T> rest)
+    {
+        var list = new List<T>(1 + rest.Count) { first };
+        list.AddRange(rest);
+        return list;
+    }
 }
