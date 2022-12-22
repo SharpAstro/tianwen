@@ -7,6 +7,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Astap.Lib", "Astap.Lib\Asta
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Astap.Lib.Tests", "Astap.Lib.Tests\Astap.Lib.Tests.csproj", "{BC5524F5-67B2-44D0-B3D6-36EBAC00F37A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Astap.Lib.TestCli", "Astap.Lib.TestCli\Astap.Lib.TestCli.csproj", "{1604169D-6A26-43AF-9F9B-6D52589FB5C3}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +23,10 @@ Global
 		{BC5524F5-67B2-44D0-B3D6-36EBAC00F37A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{BC5524F5-67B2-44D0-B3D6-36EBAC00F37A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{BC5524F5-67B2-44D0-B3D6-36EBAC00F37A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1604169D-6A26-43AF-9F9B-6D52589FB5C3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1604169D-6A26-43AF-9F9B-6D52589FB5C3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1604169D-6A26-43AF-9F9B-6D52589FB5C3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1604169D-6A26-43AF-9F9B-6D52589FB5C3}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
