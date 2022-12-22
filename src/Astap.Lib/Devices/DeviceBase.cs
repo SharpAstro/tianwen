@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Specialized;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using System.Web;
@@ -36,6 +37,8 @@ public abstract record class DeviceBase(Uri DeviceUri)
 
     public string DeviceClass => DeviceUri.Host;
 
+    public override string ToString() => string.Create(CultureInfo.InvariantCulture, stackalloc char[64], $"{DeviceType} {(string.IsNullOrWhiteSpace(DisplayName) ? DeviceId : DisplayName)}");
+
     public static bool TryFromUri(Uri deviceUri, [NotNullWhen(true)] out DeviceBase? device)
     {
         if (deviceUri.Scheme != UriScheme)
@@ -64,7 +67,7 @@ public abstract record class DeviceBase(Uri DeviceUri)
     public virtual bool TryInstantiateDeviceSource<TDevice>([NotNullWhen(true)] out IDeviceSource<TDevice>? deviceSource) where TDevice : DeviceBase
         => TryInstantiate(out deviceSource);
 
-    public virtual bool TryInstantiate<T>([NotNullWhen(true)]  out T? driver)
+    public virtual bool TryInstantiate<T>([NotNullWhen(true)] out T? driver)
     {
         var obj = NewImplementationFromDevice();
 

@@ -42,6 +42,10 @@ public class ImageAnalyserTests
             readoutImage.Width.ShouldBe(_plateSolveTestImage.Width);
             readoutImage.Height.ShouldBe(_plateSolveTestImage.Height);
             readoutImage.BitsPerPixel.ShouldBe(_plateSolveTestImage.BitsPerPixel);
+            readoutImage.Instrument.ShouldBe(_plateSolveTestImage.Instrument);
+            readoutImage.MaxValue.ShouldBe(_plateSolveTestImage.MaxValue);
+            readoutImage.ExposureStartTime.ShouldBe(_plateSolveTestImage.ExposureStartTime);
+            readoutImage.ExposureDuration.ShouldBe(_plateSolveTestImage.ExposureDuration);
             var starsFromImage = imageAnalyser.FindStars(_plateSolveTestImage, snrMin: snrMin);
 
             starsFromImage.ShouldBeEquivalentTo(expectedStars);
@@ -120,10 +124,11 @@ public class ImageAnalyserTests
         const int Width = 1280;
         const int Height = 960;
         const int BitDepth = 16;
-        var imageData = await SharedTestData.ExtractGZippedImageData($"image_data_snr-{snr_min}_stars-{expectedStars}", Width, Height);
+        var fileName = $"image_data_snr-{snr_min}_stars-{expectedStars}";
+        var imageData = await SharedTestData.ExtractGZippedImageData(fileName, Width, Height);
 
         // when
-        var image = ICameraDriver.DataToImage(imageData, BitDepth);
+        var image = ICameraDriver.DataToImage(imageData, BitDepth, fileName, DateTime.UtcNow, TimeSpan.FromSeconds(42));
         var stars = image?.FindStars(snr_min: snr_min);
 
         // then

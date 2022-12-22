@@ -27,7 +27,7 @@ public class Setup : IDisposable
 
     public Guider Guider { get; }
 
-    public ICollection<Telescope> Telescopes { get { return _telescopes; } }
+    public IReadOnlyList<Telescope> Telescopes { get { return _telescopes; } }
 
     protected virtual void Dispose(bool disposing)
     {
