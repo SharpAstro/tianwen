@@ -2,8 +2,10 @@
 using Astap.Lib.Astrometry.SOFA;
 using Astap.Lib.Devices;
 using Astap.Lib.Imaging;
+using Astap.Lib.Stat;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -23,10 +25,20 @@ public class Session
         Observation observation,
         params Observation[] observations
     )
+        : this(setup, external, ConcatToReadOnlyList(observation, observations))
+    {
+        // calls below
+    }
+
+    public Session(
+        Setup setup,
+        IExternal external,
+        IReadOnlyList<Observation> observations
+    )
     {
         _external = external;
         Setup = setup;
-        _observations = ConcatToReadOnlyList(observation, observations);
+        _observations = observations.Count > 0 ? observations : throw new ArgumentException("Need at least one observation", nameof(observations));
         _activeObservation = -1; // -1 means we have not started imaging yet
     }
 
@@ -44,21 +56,30 @@ public class Session
 
         var guider = Setup.Guider;
         var mount = Setup.Mount;
+        var scopes = Setup.Telescopes.Count;
 
         try
         {
-
             var active = Interlocked.Increment(ref _activeObservation);
             // run initialisation code
             if (active == 0)
             {
                 guider.Connected = true;
 
-                for (var i = 0; i < Setup.Telescopes.Count; i++)
+                for (var i = 0; i < scopes; i++)
                 {
-                    var camera = Setup.Telescopes[i].Camera;
+                    var telescope = Setup.Telescopes[i];
+                    var camera = telescope.Camera;
                     camera.Connected = true;
+
+                    // copy over denormalised properties if required
+                    camera.Driver.Telescope ??= telescope.Name;
+                    if (camera.Driver.FocalLength is <= 0)
+                    {
+                        camera.Driver.FocalLength = telescope.FocalLength;
+                    }
                 }
+                CoolDownCameras();
             }
             else if (active >= _observations.Count)
             {
@@ -70,7 +91,7 @@ public class Session
             Observation? observation;
             while ((observation = CurrentObservation) is not null)
             {
-                var frameNumber = 0;
+                var frameNumbers = new int[scopes];
                 if (mount.Driver.CanSetTracking)
                 {
                     mount.Driver.TrackingSpeed = TrackingSpeed.Sidereal; // TODO: Support different tracking speed
@@ -158,7 +179,7 @@ public class Session
                         failsafeCounter = 0;
                         while (guider.Driver.IsSettling() && failsafeCounter++ < MAX_FAILSAFE)
                         {
-                            Sleep(TimeSpan.FromSeconds(1));
+                            Sleep(TimeSpan.FromSeconds(10));
                         }
 
                         guidingSuccess = failsafeCounter < MAX_FAILSAFE && guider.Driver.IsGuiding();
@@ -168,6 +189,8 @@ public class Session
                         LogError($"Start guiding try #{startGuidingTries} exception while checking if {guider.Device} is guiding: {e.Message}");
                         guidingSuccess = false;
                     }
+
+                    Sleep(TimeSpan.FromMinutes(5) + (startGuidingTries * TimeSpan.FromMinutes(3)));
                 }
 
                 if (!guidingSuccess)
@@ -180,57 +203,86 @@ public class Session
                 if (!mount.Driver.TryGetUTCDate(out var expStartTime))
                 {
                     LogError($"Failed to connect to mount {mount.Device}, aborting.");
-                    Interlocked.Increment(ref _activeObservation);
                     break;
                 }
 
-                camera.Driver.StartExposure(expDuration, true);
-
-                bool isImageReady = WaitForImageReady(camera, expDuration, Sleep);
-
-                if (!isImageReady)
+                var subExposuresInSeconds = new int[scopes];
+                for (var i = 0; i < scopes; i++)
                 {
-                    break;
+                    var camera = Setup.Telescopes[i].Camera;
+
+                    // TODO per camera exposure calculation, i.e. via f/ratio
+                    var subExposure = observation.SubExposure;
+                    subExposuresInSeconds[i] = (int)Math.Ceiling(subExposure.TotalSeconds);
+                    camera.Driver.StartExposure(subExposure, true);
                 }
 
-                var image = camera.Driver.Image;
+                var maxSubExposureSec = subExposuresInSeconds.Max();
+                var tickGCD = StatisticsHelper.GCD(subExposuresInSeconds);
+                var tickSec = TimeSpan.FromSeconds(tickGCD);
+                var ticksPerMaxSubExposure = maxSubExposureSec / tickGCD;
 
-                if (image is not null)
+                var imagesReady = new bool[scopes];
+                int tick = 0;
+                do
                 {
-                    WriteImageToFitsFile(image, observation, expStartTime, frameNumber);
+                    for (var i = 0; i < scopes; i++)
+                    {
+                        var camera = Setup.Telescopes[i].Camera;
+                        // wait 5 seconds if we are already over the expected max exposure time
+                        Sleep(tick < ticksPerMaxSubExposure ? tickSec : TimeSpan.FromSeconds(5));
 
-                    frameNumber++;
+                        if (!imagesReady[i] && camera.Driver.ImageReady is true && camera.Driver.Image is { Width: > 0, Height: > 0 } image)
+                        {
+                            imagesReady[i] = true;
+                            WriteImageToFitsFile(image, observation, expStartTime, frameNumbers[i]++);
+                        }
+                    }
                 }
-            } // end exposure loop
+                while (!imagesReady.All(x => x) && tick++ < MAX_FAILSAFE); // TODO ensure HA sign is not reversed
+            } // end observation loop
         }
         catch (Exception e)
         {
-            errorLogFunc($"Unrecoverable error {e.Message} occured, aborting session");
+            LogError($"Unrecoverable error {e.Message} occured, aborting session");
         }
-    }
-
-    public void OpenTelescopeCovers()
-    {
-        foreach (var telescope in Setup.Telescopes)
+        finally
         {
-            if (telescope.Cover is Cover cover)
-            {
-                cover.Connected = true;
-
-                cover.Driver.Brightness = 0;
-                cover.Driver.Open();
-            }
+            CoolUpCameras();
         }
     }
 
-    public void TurnOnCooledCameras()
+    internal void OpenTelescopeCovers()
     {
+        var covers =
+            from telescope in Setup.Telescopes
+            let cover = telescope.Cover
+            where cover is not null
+            select cover;
 
+        foreach (var cover in covers)
+        {
+            cover.Connected = true;
+
+            cover.Driver.Brightness = 0;
+            cover.Driver.Open();
+        }
     }
 
-    public void TurnOffCooledCameras()
+    internal void CoolDownCameras()
     {
+        for (var i = 0; i < Setup.Telescopes.Count; i++)
+        {
+            var camera = Setup.Telescopes[i].Camera;
+        }
+    }
 
+    internal void CoolUpCameras()
+    {
+        for (var i = 0; i < Setup.Telescopes.Count; i++)
+        {
+            var camera = Setup.Telescopes[i].Camera;
+        }
     }
 
     internal static string GetSafeFileName(string name, char replace = '_')
@@ -239,34 +291,15 @@ public class Session
         return new string(name.Select(c => invalids.Contains(c) ? replace : c).ToArray());
     }
 
-    internal void WriteImageToFitsFile(Image image, in Target target, DateTime expStartTime, int frameNumber)
+    internal void WriteImageToFitsFile(Image image, in Observation observation, DateTime subExpStartTime, int frameNumber)
     {
+        var target = observation.Target;
         var outputFolder = _external.OutputFolder;
         var targetFolder = GetSafeFileName(target.Name);
         var frameFolder = Directory.CreateDirectory(Path.Combine(outputFolder, targetFolder)).FullName;
-        var fitsFileName = GetSafeFileName($"frame_{expStartTime:o}_{frameNumber}.fits");
+        var fitsFileName = GetSafeFileName($"frame_{subExpStartTime:o}_{frameNumber}.fits");
 
         LogInfo($"Writing FITS file {targetFolder}/{fitsFileName}");
         image.WriteToFitsFile(Path.Combine(frameFolder, fitsFileName));
-    }
-
-    internal bool WaitForImageReady(Camera camera, TimeSpan expDuration)
-    {
-        Sleep(expDuration);
-
-        bool isImageReady = false;
-        for (var i = 0; i < 10; i++)
-        {
-            if (isImageReady = camera.Driver.ImageReady is true)
-            {
-                break;
-            }
-            else
-            {
-                Sleep(TimeSpan.FromMilliseconds(100 + i * 100));
-            }
-        }
-
-        return isImageReady;
     }
 }

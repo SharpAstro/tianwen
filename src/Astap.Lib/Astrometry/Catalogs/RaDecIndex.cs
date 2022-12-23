@@ -27,7 +27,7 @@ public sealed class RaDecIndex : IRaDecIndex
 
     private bool TryGetIndex(double ra, double dec, out int raIdx, out int decIdx)
     {
-        if (double.IsNormal(ra) && double.IsNormal(dec))
+        if (!double.IsNaN(ra) && !double.IsNaN(dec))
         {
             raIdx = (int)(ra * RaToRaIdxFactor) % _index.GetLength(0);
             decIdx = Math.Max(0, (int)((dec + 90) * DecToDecIdxFactor)) % _index.GetLength(1);

@@ -43,6 +43,27 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
     public int StartY => Connected && _comObject?.StartY is int startY ? startY : int.MinValue;
 
+    public int XBinning => Connected && _comObject?.XBinning is int xBinning ? xBinning : 1;
+
+    public int YBinning => Connected && _comObject?.YBinning is int yBinning ? yBinning : 1;
+
+    /// <summary>
+    /// TODO: Support Offsets and index mode (transparently)
+    /// </summary>
+    public int Offset
+    {
+        get => Connected && _comObject?.InterfaceVersion is 3 && _comObject?.Offset is int offset ? offset : 0;
+
+        set
+        {
+            if (Connected && _comObject is { } obj && obj.InterfaceVersion is 3)
+            {
+                obj.Offset = value;
+            }
+        }
+    }
+   
+
     public int[,]? ImageData => _comObject?.ImageArray is int[,] intArray ? intArray : null;
 
     public bool ImageReady => _comObject?.ImageReady is bool imageReady && imageReady;
@@ -111,4 +132,14 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
             }
         }
     }
+
+    #region Denormalised properties
+    public string? Telescope { get; set; }
+
+    public int FocalLength { get; set; } = -1;
+
+    public int FocusPos { get; set; } = -1;
+
+    public Filter Filter { get; set; } = Filter.Unknown;
+    #endregion
 }

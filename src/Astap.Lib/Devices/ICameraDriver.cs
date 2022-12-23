@@ -18,6 +18,10 @@ public interface ICameraDriver : IDeviceDriver
 
     double PixelSizeY { get; }
 
+    int XBinning { get; }
+
+    int YBinning { get; }
+
     int StartX { get; }
 
     int StartY { get; }
@@ -42,6 +46,8 @@ public interface ICameraDriver : IDeviceDriver
 
     int? BitDepth { get; }
 
+    int Offset { get; set; }
+
     void StartExposure(TimeSpan duration, bool light);
 
     /// <summary>
@@ -58,8 +64,34 @@ public interface ICameraDriver : IDeviceDriver
 
     TimeSpan LastExposureDuration { get; }
 
+    string? Telescope { get; set; }
+
+    int FocalLength { get; set; }
+
+    Filter Filter { get; set; }
+
+    int FocusPos { get; set; }
+
     Image? Image => ImageReady is true && ImageData is int[,] data && BitDepth is int bitDepth and > 0
-        ? DataToImage(data, bitDepth, Name, LastExposureStartTime, LastExposureDuration)
+        ? DataToImage(
+            data,
+            bitDepth,
+            Offset,
+            new ImageMeta(
+                Name,
+                LastExposureStartTime,
+                LastExposureDuration,
+                Telescope ?? "",
+                (float)PixelSizeX,
+                (float)PixelSizeY,
+                FocalLength,
+                FocusPos,
+                Filter,
+                XBinning,
+                YBinning,
+                (float)CCDTemperature
+            )
+        )
         : null;
 
     /// <summary>
@@ -67,8 +99,10 @@ public interface ICameraDriver : IDeviceDriver
     /// </summary>
     /// <param name="sourceData">2d image array</param>
     /// <param name="bitDepth">either 8 or 16, -32 for float is not yet supported</param>
-    /// <returns></returns>
-    public static Image DataToImage(int[,] sourceData, int bitDepth, string instrument, DateTime exposureStartTime, TimeSpan exposureDuration)
+    /// <param name="blackLevel">black level or offset</param>
+    /// <param name="imageMeta">image meta data</param>
+    /// <returns>image from data, transformed to floats</returns>
+    public static Image DataToImage(int[,] sourceData, int bitDepth, float blackLevel, in ImageMeta imageMeta)
     {
         var width = sourceData.GetLength(0);
         var height = sourceData.GetLength(1);
@@ -88,6 +122,6 @@ public interface ICameraDriver : IDeviceDriver
             }
         }
 
-        return new Image(targetData, width, height, bitDepth, maxVal, instrument, exposureStartTime, exposureDuration);
+        return new Image(targetData, width, height, bitDepth, maxVal, blackLevel, imageMeta);
     }
 }

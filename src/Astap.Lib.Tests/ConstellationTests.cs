@@ -1,5 +1,4 @@
-﻿using Astap.Lib.Astrometry;
-using Astap.Lib.Astrometry.Catalogs;
+﻿using Astap.Lib.Astrometry.Catalogs;
 using Shouldly;
 using Xunit;
 
