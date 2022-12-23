@@ -1,10 +1,14 @@
 ﻿using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Globalization;
 
 namespace Astap.Lib.Devices.Ascom;
 
 public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 {
+    private readonly List<string> _readoutModes = new(4);
+
     public AscomCameraDriver(AscomDevice device) : base(device)
     {
         this.DeviceConnectedEvent += AscomCameraDriver_DeviceConnectedEvent;
@@ -12,12 +16,22 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
     private void AscomCameraDriver_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
     {
-        if (e.Connected && _comObject is var obj and not null)
+        if (e.Connected && _comObject is { } obj)
         {
             CanGetCoolerPower = obj.CanGetCoolerPower is bool canGetCoolerPower && canGetCoolerPower;
             CanSetCCDTemperature = obj.CanSetCCDTemperature is bool canSetCCDTemperature && canSetCCDTemperature;
             CanStopExposure =  obj.CanStopExposure is bool canStopExposure && canStopExposure;
             CanAbortExposure =  obj.CanAbortExposure is bool canAbortExposure && canAbortExposure;
+            CanFastReadout = obj.CanFastReadout is bool canFastReadout && canFastReadout;
+
+            if (obj.ReadoutModes is IEnumerable readoutModes)
+            {
+                _readoutModes.Clear();
+                foreach (string readoutMode in readoutModes)
+                {
+                    _readoutModes.Add(readoutMode);
+                }
+            }
         }
     }
 
@@ -28,6 +42,8 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
     public bool CanStopExposure { get; private set; }
 
     public bool CanAbortExposure { get; private set; }
+
+    public bool CanFastReadout { get; private set; }
 
     public double CoolerPower => _comObject?.CoolerPower is double coolerPower ? coolerPower : double.NaN;
 
@@ -47,9 +63,6 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
     public int YBinning => Connected && _comObject?.YBinning is int yBinning ? yBinning : 1;
 
-    /// <summary>
-    /// TODO: Support Offsets and index mode (transparently)
-    /// </summary>
     public int Offset
     {
         get => Connected && _comObject?.InterfaceVersion is 3 && _comObject?.Offset is int offset ? offset : 0;
@@ -62,7 +75,31 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
             }
         }
     }
-   
+    
+    public bool FastReadout
+    {
+        get => Connected && CanFastReadout && _comObject?.FastReadout is bool fastReadout && fastReadout;
+        set
+        {
+            if (Connected && CanFastReadout && _comObject is { } obj)
+            {
+                obj.FastReadout = value;
+            }
+        }
+    }
+
+    public string? ReadoutMode
+    {
+        get => _comObject?.ReadoutMode is int readoutMode && readoutMode < _readoutModes.Count ? _readoutModes[readoutMode] : null;
+        set
+        {
+            int idx;
+            if (Connected && _comObject is { } obj && value is not null && (idx = _readoutModes.IndexOf(value)) >= 0)
+            {
+                obj.ReadoutMode = idx;
+            }
+        }
+    }
 
     public int[,]? ImageData => _comObject?.ImageArray is int[,] intArray ? intArray : null;
 
@@ -126,7 +163,7 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
         get => Connected && _comObject?.CoolerOn is bool coolerOn && coolerOn;
         set
         {
-            if (Connected && _comObject is var obj and not null)
+            if (Connected && _comObject is { } obj)
             {
                 obj.CoolerOn = value;
             }

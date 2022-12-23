@@ -14,6 +14,8 @@ public interface ICameraDriver : IDeviceDriver
 
     bool CanAbortExposure { get; }
 
+    bool CanFastReadout { get; }
+
     double PixelSizeX { get; }
 
     double PixelSizeY { get; }
@@ -25,6 +27,10 @@ public interface ICameraDriver : IDeviceDriver
     int StartX { get; }
 
     int StartY { get; }
+
+    string? ReadoutMode { get; set; }
+
+    bool FastReadout { get; set; }
 
     int[,]? ImageData { get; }
 
