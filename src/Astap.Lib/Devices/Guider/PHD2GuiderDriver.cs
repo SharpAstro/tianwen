@@ -197,11 +197,9 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
             AccumRA.Reset();
             AccumDEC.Reset();
 
-            GuideStats stats = AccumulateGuidingStats(AccumRA, AccumDEC);
-
             lock (m_sync)
             {
-                Stats = stats;
+                Stats = new GuideStats();
             }
         }
         else if (eventName == "GuideStep")
@@ -219,7 +217,9 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
                 AppState = "Guiding";
                 AverageDistance = @event.RootElement.GetProperty("AvgDist").GetDouble();
                 if (IsAccumActive)
+                {
                     Stats = stats;
+                }
             }
         }
         else if (eventName == "SettleBegin")
