@@ -1,5 +1,6 @@
 ﻿using Astap.Lib.Stat;
 using Shouldly;
+using System;
 using Xunit;
 
 namespace Astap.Lib.Tests;
@@ -15,5 +16,17 @@ public class StatisticsHelperTests
     public void GivenValuesWhenCalcMedianThenItIsReturned(float expectedMedian, params float[] values)
     {
         StatisticsHelper.Median(values).ShouldBe(expectedMedian);
+    }
+
+    [Theory]
+    [InlineData(20u, -120, -40, -60)]
+    [InlineData(1u, 1)]
+    [InlineData(0u, 0)]
+    [InlineData(0u, 0, 0)]
+    [InlineData(4u, 8, 12, 24)]
+    [InlineData(20u, 120, 40, 60)]
+    public void GivenValuesWhenCalcGCDThenItIsReturned(uint expectedGCD, int first, params int[] rest)
+    {
+        StatisticsHelper.GCD(first, rest).ShouldBe(expectedGCD);
     }
 }
