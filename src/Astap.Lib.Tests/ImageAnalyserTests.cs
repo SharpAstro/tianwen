@@ -42,10 +42,10 @@ public class ImageAnalyserTests
             readoutImage.Width.ShouldBe(_plateSolveTestImage.Width);
             readoutImage.Height.ShouldBe(_plateSolveTestImage.Height);
             readoutImage.BitsPerPixel.ShouldBe(_plateSolveTestImage.BitsPerPixel);
-            readoutImage.Instrument.ShouldBe(_plateSolveTestImage.Instrument);
+            readoutImage.ImageMeta.Instrument.ShouldBe(_plateSolveTestImage.ImageMeta.Instrument);
             readoutImage.MaxValue.ShouldBe(_plateSolveTestImage.MaxValue);
-            readoutImage.ExposureStartTime.ShouldBe(_plateSolveTestImage.ExposureStartTime);
-            readoutImage.ExposureDuration.ShouldBe(_plateSolveTestImage.ExposureDuration);
+            readoutImage.ImageMeta.ExposureStartTime.ShouldBe(_plateSolveTestImage.ImageMeta.ExposureStartTime);
+            readoutImage.ImageMeta.ExposureDuration.ShouldBe(_plateSolveTestImage.ImageMeta.ExposureDuration);
             var starsFromImage = imageAnalyser.FindStars(_plateSolveTestImage, snrMin: snrMin);
 
             starsFromImage.ShouldBeEquivalentTo(expectedStars);
@@ -124,11 +124,14 @@ public class ImageAnalyserTests
         const int Width = 1280;
         const int Height = 960;
         const int BitDepth = 16;
+        const int BlackLevel = 1;
+        var expTime = TimeSpan.FromSeconds(42);
         var fileName = $"image_data_snr-{snr_min}_stars-{expectedStars}";
         var imageData = await SharedTestData.ExtractGZippedImageData(fileName, Width, Height);
+        var imageMeta = new ImageMeta(fileName, DateTime.UtcNow, expTime, "", 2.4f, 2.4f, 190, -1, Filter.None, 1, 1, float.NaN);
 
         // when
-        var image = ICameraDriver.DataToImage(imageData, BitDepth, fileName, DateTime.UtcNow, TimeSpan.FromSeconds(42));
+        var image = ICameraDriver.DataToImage(imageData, BitDepth, BlackLevel, imageMeta);
         var stars = image?.FindStars(snr_min: snr_min);
 
         // then

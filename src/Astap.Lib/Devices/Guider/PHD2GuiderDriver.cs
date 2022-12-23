@@ -869,11 +869,11 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
             foreach (var profile in profiles.EnumerateArray())
             {
                 string? name = profile.GetProperty("name").GetString();
-                Debug.WriteLine(String.Format("found profile {0}", name));
+                Debug.WriteLine($"found profile {name}");
                 if (name == _selectedProfileName)
                 {
                     profileId = profile.TryGetProperty("id", out var id) ? id.GetInt32() : -1;
-                    Debug.WriteLine(String.Format("found profid {0}", profileId));
+                    Debug.WriteLine($"found profid {profileId}");
                     break;
                 }
             }
@@ -933,8 +933,8 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
     public override string ToString() =>
         Connected
-            ? $"PHD2 {_guiderDevice} {Version}/{PHDSubvVersion}: Looping? {IsLooping()}, Guiding? {IsGuiding()}, settling? {IsSettling()}"
-            : $"PHD2 {_guiderDevice} not connected!";
+            ? $"PHD2 {_guiderDevice.DeviceId} {Version}/{PHDSubvVersion}: Looping? {IsLooping()}, Guiding? {IsGuiding()}, settling? {IsSettling()}"
+            : $"PHD2 {_guiderDevice.DeviceId} not connected!";
 
     /// <summary>
     /// Caller should ensure that device is connected

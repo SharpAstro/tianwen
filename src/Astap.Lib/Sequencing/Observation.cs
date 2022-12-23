@@ -2,4 +2,4 @@
 
 namespace Astap.Lib.Sequencing;
 
-public record Observation(Target Target, DateTimeOffset Start, TimeSpan Duration, bool AcrossMeridian);
+public record Observation(Target Target, DateTimeOffset Start, TimeSpan Duration, bool AcrossMeridian, TimeSpan SubExposure);
