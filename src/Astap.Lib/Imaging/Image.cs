@@ -23,8 +23,8 @@ public record ImageMeta(
     int FocalLength,
     int FocusPos,
     Filter Filter,
-    int XBinning,
-    int YBinning,
+    int BinX,
+    int BinY,
     float CCDTemperature
 );
 
@@ -344,8 +344,8 @@ public sealed class Image
         basicHdu.Header.AddCard(new HeaderCard("BSCALE", 1, "default scaling factor"));
         basicHdu.Header.AddCard(new HeaderCard("BSCALE", 1, "default scaling factor"));
         basicHdu.Header.AddCard(isInt ? new HeaderCard("BLKLEVEL", (int)BlackLevel, "") : new HeaderCard("BLKLEVEL", BlackLevel, ""));
-        basicHdu.Header.AddCard(new HeaderCard("XBINNING", ImageMeta.XBinning, ""));
-        basicHdu.Header.AddCard(new HeaderCard("YBINNING", ImageMeta.YBinning, ""));
+        basicHdu.Header.AddCard(new HeaderCard("XBINNING", ImageMeta.BinX, ""));
+        basicHdu.Header.AddCard(new HeaderCard("YBINNING", ImageMeta.BinY, ""));
         basicHdu.Header.AddCard(new HeaderCard("XPIXSZ", ImageMeta.PixelSizeX, ""));
         basicHdu.Header.AddCard(new HeaderCard("YPIXSZ", ImageMeta.PixelSizeX, ""));
         basicHdu.Header.AddCard(new HeaderCard("DATE-OBS", ImageMeta.ExposureStartTime.ToString("o"), ""));

@@ -59,9 +59,9 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
     public int StartY => Connected && _comObject?.StartY is int startY ? startY : int.MinValue;
 
-    public int XBinning => Connected && _comObject?.XBinning is int xBinning ? xBinning : 1;
+    public int BinX => Connected && _comObject?.BinX is int binX ? binX : 1;
 
-    public int YBinning => Connected && _comObject?.YBinning is int yBinning ? yBinning : 1;
+    public int BinY => Connected && _comObject?.BinY is int binY ? binY : 1;
 
     public int Offset
     {
@@ -169,6 +169,8 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
             }
         }
     }
+
+    public CameraState CameraState => Connected && _comObject?.CameraState is int cs ? (CameraState)cs : CameraState.NotConnected;
 
     #region Denormalised properties
     public string? Telescope { get; set; }

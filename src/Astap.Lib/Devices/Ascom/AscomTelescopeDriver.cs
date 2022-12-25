@@ -15,7 +15,7 @@ namespace Astap.Lib.Devices.Ascom
 
         private void AscomTelescopeDriver_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
         {
-            if (e.Connected && _comObject is var obj and not null)
+            if (e.Connected && _comObject is { } obj)
             {
                 _trackingSpeedMapping.Clear();
 
@@ -77,7 +77,7 @@ namespace Astap.Lib.Devices.Ascom
             get => _comObject?.TrackingRate is DriveRate driveRate ? DriveRateToTrackingSpeed(driveRate) : TrackingSpeed.None;
             set
             {
-                if (_trackingSpeedMapping.TryGetValue(value, out var driveRate) && _comObject is var obj and not null)
+                if (_trackingSpeedMapping.TryGetValue(value, out var driveRate) && _comObject is { } obj)
                 {
                     obj.TrackingRate = driveRate;
                 }
@@ -90,17 +90,17 @@ namespace Astap.Lib.Devices.Ascom
 
         public double SiderealTime => _comObject?.SiderealTime is double siderealTime ? siderealTime : double.NaN;
 
-        public bool TimeSyncedSuccess { get; private set; }
+        public bool TimeSuccessfullySynchronised { get; private set; }
 
         public DateTime? UTCDate
         {
             get => _comObject?.UTCDate is DateTime utcDate ? utcDate : null;
             set
             {
-                if (_comObject is var obj and not null)
+                if (_comObject is { } obj)
                 {
                     obj.UTCDate = value;
-                    TimeSyncedSuccess = true;
+                    TimeSuccessfullySynchronised = true;
                 }
             }
         }
@@ -110,7 +110,7 @@ namespace Astap.Lib.Devices.Ascom
             get => _comObject?.Tracking is bool tracking && tracking;
             set
             {
-                if (_comObject is var obj and not null)
+                if (_comObject is { } obj)
                 {
                     if (obj.CanSetTracking is false)
                     {
@@ -135,10 +135,10 @@ namespace Astap.Lib.Devices.Ascom
 
         public PierSide SideOfPier
         {
-            get => _comObject?.SideOfPier is PierSide sop ? sop : PierSide.Unknown;
+            get => _comObject?.SideOfPier is int sop ? (PierSide)sop : PierSide.Unknown;
             set
             {
-                if (CanSetSideOfPier && _comObject is var obj and not null)
+                if (CanSetSideOfPier && _comObject is { } obj)
                 {
                     obj.SideOfPier = value;
                 }
@@ -149,14 +149,21 @@ namespace Astap.Lib.Devices.Ascom
             }
         }
 
-        public EquatorialCoordinateType EquatorialSystem => _comObject?.EquatorialSystem is EquatorialCoordinateType ect ? ect : EquatorialCoordinateType.Other;
+        public PierSide DestinationSideOfPier(double ra, double dec)
+            => _comObject?.DestinationSideOfPier(ra, dec) is int dsop ? (PierSide)dsop : PierSide.Unknown;
+
+        public EquatorialCoordinateType EquatorialSystem => Connected && _comObject?.EquatorialSystem is int es ? (EquatorialCoordinateType)es : EquatorialCoordinateType.Other;
+
+        public double RightAscension => _comObject?.RightAscension is double ra ? ra : double.NaN;
+
+        public double Declination => _comObject?.Declination is double dec ? dec : double.NaN;
 
         public double SiteElevation
         {
             get => _comObject?.SiteElevation is double siteElevation ? siteElevation : double.NaN;
             set
             {
-                if (_comObject is var obj and not null)
+                if (_comObject is { } obj)
                 {
                     obj.SiteElevation = value;
                 }
@@ -168,7 +175,7 @@ namespace Astap.Lib.Devices.Ascom
             get => _comObject?.SiteLatitude is double siteLatitude ? siteLatitude : double.NaN;
             set
             {
-                if (_comObject is var obj and not null)
+                if (_comObject is { } obj)
                 {
                     obj.SiteLatitude = value;
                 }
@@ -180,7 +187,7 @@ namespace Astap.Lib.Devices.Ascom
             get => _comObject?.SiteLongitude is double siteLongitude ? siteLongitude : double.NaN;
             set
             {
-                if (_comObject is var obj and not null)
+                if (_comObject is { } obj)
                 {
                     obj.SiteLongitude = value;
                 }

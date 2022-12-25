@@ -5,8 +5,12 @@ using Astap.Lib.Imaging;
 using Astap.Lib.Stat;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Reflection.Metadata.Ecma335;
 using System.Threading;
 using static Astap.Lib.CollectionHelper;
 
@@ -49,7 +53,7 @@ public class Session
     void LogInfo(string info) => _external.LogInfo(info);
     void LogError(string info) => _external.LogError(info);
 
-    public void Run()
+    public void Run(CancellationToken cancellationToken)
     {
         const int MAX_FAILSAFE = 1000;
 
@@ -63,6 +67,7 @@ public class Session
             // run initialisation code
             if (active == 0)
             {
+                mount.Connected = true;
                 guider.Connected = true;
 
                 for (var i = 0; i < scopes; i++)
@@ -88,7 +93,7 @@ public class Session
             Setup.Guider.Driver.ConnectEquipment();
 
             Observation? observation;
-            while ((observation = CurrentObservation) is not null)
+            while ((observation = CurrentObservation) is not null && !cancellationToken.IsCancellationRequested)
             {
                 var frameNumbers = new int[scopes];
                 if (mount.Driver.CanSetTracking)
@@ -100,71 +105,61 @@ public class Session
                 LogInfo($"Stop guiding to start slewing mount to target {observation}");
                 guider.Driver.StopCapture();
 
-                Transform transform;
-                if (mount.Driver.TryGetUTCDate(out var utc))
-                {
-                    transform = new Transform
-                    {
-                        SiteElevation = mount.Driver.SiteElevation,
-                        SiteLatitude = mount.Driver.SiteLatitude,
-                        SiteLongitude = mount.Driver.SiteLongitude,
-                        SitePressure = 1010, // TODO standard atmosphere
-                        SiteTemperature = 10, // TODO check either online or if compatible devices connected
-                        DateTimeOffset = new DateTimeOffset(utc, observation.Start.Offset),
-                        Refraction = true // TODO assumes that driver does not support/do refraction
-                    };
-                    transform.SetJ2000(observation.Target.RA, observation.Target.Dec);
-                }
-                else
-                {
-                    LogError($"Could not determine UTC time from mount {mount.Device}, skipping target {observation}");
-
-                    continue;
-                }
-
-                var equSys = mount.Driver.EquatorialSystem;
-                var (raMount, decMount) = equSys switch
-                {
-                    EquatorialCoordinateType.J2000 => (transform.RAJ2000, transform.DecJ2000),
-                    EquatorialCoordinateType.Topocentric => (transform.RAApparent, transform.DECApparent),
-                    _ => throw new InvalidOperationException($"{equSys} is not supported!")
-                };
-
                 // skip target if slew is not successful
-                if (!mount.Driver.SlewAsync(raMount, decMount))
+                if (!TryGetTransformOfObservation(mount, observation, out var transform)
+                    || !TryTransformJ2000ToMountNative(mount, transform, observation, out var raMount, out var decMount)
+                    || !mount.Driver.SlewAsync(raMount, decMount))
                 {
-                    LogError($"Failed to slew to target {observation}, skipping.");
+                    LogError($"Failed to slew {mount} to target {observation}, skipping.");
 
                     continue;
                 }
 
+                double hourAngleAtSlewTime;
                 int failsafeCounter = 0;
                 try
                 {
-                    while (mount.Driver.IsSlewing && failsafeCounter++ < MAX_FAILSAFE)
+                    while (mount.Driver.IsSlewing && failsafeCounter++ < MAX_FAILSAFE && !cancellationToken.IsCancellationRequested)
                     {
                         Sleep(TimeSpan.FromSeconds(1));
                     }
 
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        LogError($"Cancellation requested, abort slewing to target {observation} and quit imaging loop");
+                        break;
+                    }
+ 
                     if (mount.Driver.IsSlewing || failsafeCounter == MAX_FAILSAFE)
                     {
-                        LogError($"Failsafe activated when slewing to {observation}, skipping.");
-                        Interlocked.Increment(ref _activeObservation);
-                        continue;
+                        throw new InvalidOperationException($"Failsafe activated when slewing {mount.Device.DisplayName} to {observation}");
                     }
+
+                    if (double.IsNaN(hourAngleAtSlewTime = mount.Driver.HourAngle))
+                    {
+                        throw new InvalidOperationException($"Could not obtain hour angle after slewing {mount.Device.DisplayName} to {observation}");
+                    }
+
+                    LogInfo($"Finished slewing mount {mount.Device.DisplayName} to target {observation}");
                 }
                 catch (Exception e)
                 {
-                    LogError($"Skipping target as slewing to target {observation} failed: {e.Message}");
-                    Interlocked.Increment(ref _activeObservation);
-                    continue;
-                }
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        break;
+                    }
+                    else
+                    {
+                        LogError($"Skipping target as slewing to target {observation} failed: {e.Message}");
+                        Interlocked.Increment(ref _activeObservation);
 
-                LogInfo($"Finished slewing mount to target {observation}");
+                        continue;
+                    }
+                }
 
                 bool guidingSuccess = false;
                 int startGuidingTries = 0;
-                while (!guidingSuccess && startGuidingTries++ < 2)
+                while (!guidingSuccess && startGuidingTries++ < 2 && !cancellationToken.IsCancellationRequested)
                 {
                     try
                     {
@@ -172,73 +167,154 @@ public class Session
                         var settleTime = 15 + (startGuidingTries * 5);
                         var settleTimeout = 50 + (startGuidingTries * 10);
 
-                        LogInfo($"Start guiding start guiding using {guider.Device}, settle pixels: {settlePix}, settle time: {settleTime}s, timeout: {settleTimeout}s");
+                        LogInfo($"Start guiding using {guider.Device.DeviceId}, settle pixels: {settlePix}, settle time: {settleTime}s, timeout: {settleTimeout}s");
                         guider.Driver.Guide(settlePix, settleTime, settleTimeout);
 
                         failsafeCounter = 0;
-                        while (guider.Driver.IsSettling() && failsafeCounter++ < MAX_FAILSAFE)
+                        while (guider.Driver.IsSettling() && failsafeCounter++ < MAX_FAILSAFE && !cancellationToken.IsCancellationRequested)
                         {
                             Sleep(TimeSpan.FromSeconds(10));
                         }
 
                         guidingSuccess = failsafeCounter < MAX_FAILSAFE && guider.Driver.IsGuiding();
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            break;
+                        }
+                        else if (!guidingSuccess)
+                        {
+                            Sleep(TimeSpan.FromMinutes(5 * startGuidingTries));
+                        }
                     }
                     catch (Exception e)
                     {
-                        LogError($"Start guiding try #{startGuidingTries} exception while checking if {guider.Device} is guiding: {e.Message}");
+                        LogError($"Start guiding try #{startGuidingTries} exception while checking if {guider.Device.DeviceId} is guiding: {e.Message}");
                         guidingSuccess = false;
                     }
-
-                    Sleep(TimeSpan.FromMinutes(5) + (startGuidingTries * TimeSpan.FromMinutes(3)));
                 }
 
-                if (!guidingSuccess)
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    LogError($"Cancellation requested, abort setting up guiding and quit imaging loop");
+                    break;
+                }
+                else if (!guidingSuccess)
                 {
                     LogError($"Skipping target {observation} as starting guiding failed after trying twice");
                     Interlocked.Increment(ref _activeObservation);
                     continue;
                 }
 
-                if (!mount.Driver.TryGetUTCDate(out var expStartTime))
-                {
-                    LogError($"Failed to connect to mount {mount.Device}, aborting.");
-                    break;
-                }
-
-                var subExposuresInSeconds = new int[scopes];
+                var subExposuresSec = new int[scopes];
                 for (var i = 0; i < scopes; i++)
                 {
                     var camera = Setup.Telescopes[i].Camera;
 
                     // TODO per camera exposure calculation, i.e. via f/ratio
                     var subExposure = observation.SubExposure;
-                    subExposuresInSeconds[i] = (int)Math.Ceiling(subExposure.TotalSeconds);
-                    camera.Driver.StartExposure(subExposure, true);
+                    subExposuresSec[i] = (int)Math.Ceiling(subExposure.TotalSeconds);
                 }
 
-                var maxSubExposureSec = subExposuresInSeconds.Max();
-                var tickGCD = StatisticsHelper.GCD(subExposuresInSeconds);
+                var maxSubExposureSec = subExposuresSec.Max();
+                var tickGCD = StatisticsHelper.GCD(subExposuresSec);
                 var tickSec = TimeSpan.FromSeconds(tickGCD);
                 var ticksPerMaxSubExposure = maxSubExposureSec / tickGCD;
+                var expStartTimes = new DateTime[scopes];
+                var expTicks = new int[scopes];
 
-                var imagesReady = new bool[scopes];
-                int tick = 0;
-                do
+                var overslept = TimeSpan.Zero;
+                double currentHourAngle;
+                PierSide pierSide;
+                var imageWriteQueue = new Queue<(Image image, Observation observation, DateTime expStartTime, int frameNumber)>();
+                while (!cancellationToken.IsCancellationRequested
+                    && mount.Connected
+                    && Catch(() => mount.Driver.Tracking)
+                    && guider.Connected
+                    && Catch(guider.Driver.IsGuiding)
+                    && (pierSide = mount.Driver.SideOfPier) == mount.Driver.ExpectedSideOfPier
+                    && !double.IsNaN(currentHourAngle = mount.Driver.HourAngle)
+                    && (pierSide != PierSide.Unknown || Math.Sign(hourAngleAtSlewTime) == Math.Sign(currentHourAngle))
+                    && mount.Driver.TryGetUTCDate(out var expStartTime)
+                )
                 {
                     for (var i = 0; i < scopes; i++)
                     {
-                        var camera = Setup.Telescopes[i].Camera;
-                        // wait 5 seconds if we are already over the expected max exposure time
-                        Sleep(tick < ticksPerMaxSubExposure ? tickSec : TimeSpan.FromSeconds(5));
-
-                        if (!imagesReady[i] && camera.Driver.ImageReady is true && camera.Driver.Image is { Width: > 0, Height: > 0 } image)
+                        var cameraDriver = Setup.Telescopes[i].Camera.Driver;
+                        switch (cameraDriver.CameraState)
                         {
-                            imagesReady[i] = true;
-                            WriteImageToFitsFile(image, observation, expStartTime, frameNumbers[i]++);
+                            case CameraState.Idle:
+                                var subExposureSec = subExposuresSec[i];
+                                var frameExpTime = TimeSpan.FromSeconds(subExposureSec);
+                                cameraDriver.StartExposure(frameExpTime, true);
+                                expStartTimes[i] = expStartTime;
+                                expTicks[i] = (int)(subExposureSec / tickGCD);
+                                var frameNo = ++frameNumbers[i];
+
+                                LogInfo($"Camera #{(i + 1)} {cameraDriver.Name} starting {frameExpTime} exposure of frame #{frameNo}");
+                                break;
+                        }
+                    }
+
+                    var stopWatch = Stopwatch.StartNew();
+                    while (imageWriteQueue.TryDequeue(out var imageWrite))
+                    {
+                        WriteImageToFitsFile(imageWrite.image, imageWrite.observation, imageWrite.expStartTime, imageWrite.frameNumber);
+                    }
+                    var elapsed = stopWatch.Elapsed;
+                    stopWatch.Stop();
+
+                    var tickMinusElapsed = tickSec - elapsed - overslept;
+                    // clear overslept
+                    overslept = TimeSpan.Zero;
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        LogError("Cancellation rquested, abort image acquisition and quit imaging loop");
+                        break;
+                    }
+                    else if (tickMinusElapsed > TimeSpan.Zero)
+                    {
+                        Sleep(tickMinusElapsed);
+                    }
+
+                    for (var i = 0; i < scopes && !cancellationToken.IsCancellationRequested; i++)
+                    {
+                        var tick = --expTicks[i];
+ 
+                        var camera = Setup.Telescopes[i].Camera;
+                        if (tick <= 0)
+                        {
+                            bool fetchImageSuccess = false;
+                            var frameNo = frameNumbers[i];
+                            var frameExpTime = TimeSpan.FromSeconds(subExposuresSec[i]);
+                            do
+                            {
+                                if (camera.Driver.ImageReady is true && camera.Driver.Image is { Width: > 0, Height: > 0 } image)
+                                {
+                                    fetchImageSuccess = true;
+                                    LogInfo($"Camera #{(i + 1)} {camera.Driver.Name} finished {frameExpTime} exposure of frame #{frameNo}");
+
+                                    imageWriteQueue.Enqueue((image, observation, expStartTime, frameNo));
+                                    break;
+                                }
+                                else
+                                {
+                                    var spinDuration = TimeSpan.FromMilliseconds(100);
+                                    overslept += spinDuration;
+                                    Sleep(spinDuration);
+                                }
+                            }
+                            while (overslept < (tickSec / 5)
+                                && camera.Driver.CameraState is not CameraState.Error or CameraState.NotConnected
+                                && !cancellationToken.IsCancellationRequested
+                            );
+
+                            if (!fetchImageSuccess)
+                            {
+                                LogError($"Failed fetching camera #{(i + 1)} {camera.Driver.Name} {frameExpTime} exposure of frame #{frameNo}, camera state: {camera.Driver.CameraState}");
+                            }
                         }
                     }
                 }
-                while (!imagesReady.All(x => x) && tick++ < MAX_FAILSAFE); // TODO ensure HA sign is not reversed
             } // end observation loop
         }
         catch (Exception e)
@@ -247,8 +323,65 @@ public class Session
         }
         finally
         {
+            Catch(() => guider.Driver.Connected = false);
             CoolUpCameras();
         }
+    }
+
+    internal static bool TryGetTransformOfObservation(Mount mount, in Observation observation, [NotNullWhen(true)] out Transform? transform)
+    {
+        if (mount.Driver.TryGetUTCDate(out var utc))
+        {
+            transform = new Transform
+            {
+                SiteElevation = mount.Driver.SiteElevation,
+                SiteLatitude = mount.Driver.SiteLatitude,
+                SiteLongitude = mount.Driver.SiteLongitude,
+                SitePressure = 1010, // TODO standard atmosphere
+                SiteTemperature = 10, // TODO check either online or if compatible devices connected
+                DateTimeOffset = new DateTimeOffset(utc, observation.Start.Offset),
+                Refraction = true // TODO assumes that driver does not support/do refraction
+            };
+
+            return true;
+        }
+
+        transform = null;
+        return false;
+    }
+
+    /// <summary>
+    /// Not reentrant if using a shared <paramref name="transform"/>.
+    /// </summary>
+    /// <param name="mount"></param>
+    /// <param name="transform"></param>
+    /// <param name="observation"></param>
+    /// <param name="raMount"></param>
+    /// <param name="decMount"></param>
+    /// <returns>true if transform was successful.</returns>
+    internal static bool TryTransformJ2000ToMountNative(Mount mount, Transform transform, in Observation observation, out double raMount, out double decMount)
+    {
+        if (mount.Driver.TryGetUTCDate(out var utc))
+        {
+            transform.DateTimeOffset = new DateTimeOffset(utc, observation.Start.Offset);
+            transform.SetJ2000(observation.Target.RA, observation.Target.Dec);
+            transform.Refresh();
+
+            var equSys = mount.Driver.EquatorialSystem;
+            (raMount, decMount) = equSys switch
+            {
+                EquatorialCoordinateType.J2000 => (transform.RAJ2000, transform.DecJ2000),
+                EquatorialCoordinateType.Topocentric => (transform.RAApparent, transform.DECApparent),
+                _ => (double.NaN, double.NaN)
+            };
+        }
+        else
+        {
+            raMount = double.NaN;
+            decMount = double.NaN;
+        }
+
+        return !double.IsNaN(raMount) && !double.IsNaN(decMount);
     }
 
     internal void OpenTelescopeCovers()
@@ -300,5 +433,19 @@ public class Session
 
         LogInfo($"Writing FITS file {targetFolder}/{fitsFileName}");
         image.WriteToFitsFile(Path.Combine(frameFolder, fitsFileName));
+    }
+
+    internal T Catch<T>(Func<T> func)
+        where T : struct
+    {
+        try
+        {
+            return func();
+        }
+        catch (Exception ex)
+        {
+            LogError($"Error {ex.Message} while executing: {func.Method.Name}");
+            return default(T);
+        }
     }
 }
