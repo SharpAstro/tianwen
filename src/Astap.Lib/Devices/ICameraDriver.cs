@@ -20,9 +20,9 @@ public interface ICameraDriver : IDeviceDriver
 
     double PixelSizeY { get; }
 
-    int XBinning { get; }
+    int BinX { get; }
 
-    int YBinning { get; }
+    int BinY { get; }
 
     int StartX { get; }
 
@@ -78,7 +78,9 @@ public interface ICameraDriver : IDeviceDriver
 
     int FocusPos { get; set; }
 
-    Image? Image => ImageReady is true && ImageData is int[,] data && BitDepth is int bitDepth and > 0
+    CameraState CameraState { get; }
+
+    Image? Image => Connected && ImageReady && ImageData is { Length: > 0 } data && BitDepth is int bitDepth and > 0
         ? DataToImage(
             data,
             bitDepth,
@@ -93,8 +95,8 @@ public interface ICameraDriver : IDeviceDriver
                 FocalLength,
                 FocusPos,
                 Filter,
-                XBinning,
-                YBinning,
+                BinX,
+                BinY,
                 (float)CCDTemperature
             )
         )

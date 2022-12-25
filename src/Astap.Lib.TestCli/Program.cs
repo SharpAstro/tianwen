@@ -3,14 +3,24 @@ using Astap.Lib.Devices;
 using Astap.Lib.Devices.Guider;
 using Astap.Lib.Sequencing;
 
+
+var cts = new CancellationTokenSource();
+Console.CancelKeyPress += Console_CancelKeyPress;
+
+void Console_CancelKeyPress(object? sender, ConsoleCancelEventArgs e)
+{
+    e.Cancel = true;
+    cts.Cancel();
+}
+
 const string Camera = nameof(Camera);
 
 var argIdx = 0;
 var mountDeviceId = args.Length > 0 ? args[argIdx++] : "ASCOM.DeviceHub.Telescope";
 var cameraDeviceId = args.Length > 1 ? args[argIdx++] : "ASCOM.Simulator.Camera";
 var expDuration = TimeSpan.FromSeconds(args.Length > 2 ? int.Parse(args[argIdx++]) : 10);
-var outputFolder = Directory.CreateDirectory(args.Length > 3 ? args[argIdx++] : "C:/Temp/AstroPics").FullName;
-var external = new ConsoleOutput();
+var outputFolder = Directory.CreateDirectory(args.Length > 3 ? args[argIdx++] : "C:/Temp/Astap.Lib.TestCli").FullName;
+var external = new ConsoleOutput(outputFolder);
 
 var observations = new List<Observation>
 {
@@ -80,13 +90,18 @@ var setup = new Setup(mount, guider, new Telescope("Sim Scope", 250, camera, nul
 
 var session = new Session(setup, external, observations);
 
-session.Run();
+session.Run(cts.Token);
 
 return 0;
 
 class ConsoleOutput : IExternal
 {
-    public string OutputFolder => throw new NotImplementedException();
+    public ConsoleOutput(string outputFolder)
+    {
+        OutputFolder=outputFolder;
+    }
+
+    public string OutputFolder { get; init; }
 
     public void LogError(string error) => Console.Error.WriteLine(error);
 
