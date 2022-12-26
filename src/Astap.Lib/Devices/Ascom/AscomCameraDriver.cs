@@ -170,6 +170,18 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
         }
     }
 
+    public double SetCCDTemperature
+    {
+        get => Connected && _comObject?.SetCCDTemperature is double setCCDTemperature ? setCCDTemperature : double.NaN;
+        set
+        {
+            if (Connected && CanSetCCDTemperature && _comObject is { } obj)
+            {
+                obj.SetCCDTemperature = value;
+            }
+        }
+    }
+
     public CameraState CameraState => Connected && _comObject?.CameraState is int cs ? (CameraState)cs : CameraState.NotConnected;
 
     #region Denormalised properties

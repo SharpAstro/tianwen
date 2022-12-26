@@ -36,9 +36,14 @@ public interface ICameraDriver : IDeviceDriver
 
     bool ImageReady { get; }
 
-    bool CoolerOn { get; }
+    bool CoolerOn { get; set; }
 
     double CoolerPower { get; }
+
+    /// <summary>
+    /// Sets the camera cooler setpoint in degrees Celsius, and returns the current setpoint.
+    /// </summary>
+    double SetCCDTemperature { get; set; }
 
     /// <summary>
     /// Returns the current heat sink temperature (called "ambient temperature" by some manufacturers) in degrees Celsius.
