@@ -24,28 +24,33 @@ public class Session
 
     public Session(
         Setup setup,
+        int setpointCCDTemperature,
         IExternal external,
         Observation observation,
         params Observation[] observations
     )
-        : this(setup, external, ConcatToReadOnlyList(observation, observations))
+        : this(setup, setpointCCDTemperature, external, ConcatToReadOnlyList(observation, observations))
     {
         // calls below
     }
 
     public Session(
         Setup setup,
+        int setpointCCDTemperature,
         IExternal external,
         IReadOnlyList<Observation> observations
     )
     {
-        _external = external;
         Setup = setup;
+        SetpointCCDTemperature = setpointCCDTemperature;
+        _external = external;
         _observations = observations.Count > 0 ? observations : throw new ArgumentException("Need at least one observation", nameof(observations));
         _activeObservation = -1; // -1 means we have not started imaging yet
     }
 
     public Setup Setup { get; }
+
+    public int SetpointCCDTemperature { get; }
 
     public Observation? CurrentObservation => _activeObservation is int active and >= 0 && active < _observations.Count ? _observations[active] : null;
 
@@ -83,7 +88,9 @@ public class Session
                         camera.Driver.FocalLength = telescope.FocalLength;
                     }
                 }
-                CoolDownCameras();
+                CoolCamerasToSensorTemp();
+
+                Sleep(TimeSpan.FromSeconds(30));
             }
             else if (active >= _observations.Count)
             {
@@ -91,6 +98,9 @@ public class Session
             }
 
             Setup.Guider.Driver.ConnectEquipment();
+
+            // TODO wait until 20 before astro dark to start cooling down without loosing time
+            CoolCamerasToSetpoint(SetpointCCDTemperature, TimeSpan.FromSeconds(20), 80, CoolDirection.Down, cancellationToken);
 
             Observation? observation;
             while ((observation = CurrentObservation) is not null && !cancellationToken.IsCancellationRequested)
@@ -324,7 +334,7 @@ public class Session
         finally
         {
             Catch(() => guider.Driver.Connected = false);
-            CoolUpCameras();
+            CoolCamerasToSetpoint(null, TimeSpan.FromMinutes(1), 0.1, CoolDirection.Up);
         }
     }
 
@@ -401,20 +411,93 @@ public class Session
         }
     }
 
-    internal void CoolDownCameras()
+    /// <summary>
+    /// Idea is that we keep cooler on but only on the currently reached temperature, so we have less cases to manage in the imaging loop.
+    /// Assumes that power is switched on.
+    /// </summary>
+    internal void CoolCamerasToSensorTemp()
     {
         for (var i = 0; i < Setup.Telescopes.Count; i++)
         {
             var camera = Setup.Telescopes[i].Camera;
+            if (camera.Connected
+                && camera.Driver.CanSetCCDTemperature
+                && camera.Driver.CCDTemperature is double ccdTemp and >= -40 and <= 50
+                && camera.Driver.HeatSinkTemperature is double heatSinkTemp and >= -40 and <= 50)
+            {
+                camera.Driver.CoolerOn = true;
+                var actualSetpointTemp = camera.Driver.SetCCDTemperature = Math.Ceiling(Math.Min(ccdTemp, heatSinkTemp));
+                var coolerPower = camera.Driver.CanGetCoolerPower ? camera.Driver.CoolerPower : double.NaN;
+
+                LogInfo($"Camera #{(i + 1)} setpoint temperature set to {actualSetpointTemp:0.00} °C, Heatsink {heatSinkTemp:0.00} °C, Power={coolerPower:0.00}%");
+            }
         }
     }
 
-    internal void CoolUpCameras()
+    /// <summary>
+    /// Assumes that power is on (c.f. <see cref="CoolCamerasToSensorTemp"/>).
+    /// </summary>
+    /// <param name="maybeSetpointTemp">Desired degrees Celcius setpoint temperature, if null then ambient temp is chosen</param>
+    /// <param name="rampInterval">interval to wait until further adjusting setpoint.</param>
+    internal void CoolCamerasToSetpoint(int? maybeSetpointTemp, TimeSpan rampInterval, double thresPower, CoolDirection direction, CancellationToken cancellationToken = default)
     {
-        for (var i = 0; i < Setup.Telescopes.Count; i++)
+        var count = Setup.Telescopes.Count;
+        var isRamping = new bool[count];
+        var thresholdReachedConsecutiveCounts = new int[count];
+
+        var accSleep = TimeSpan.Zero;
+        do
         {
-            var camera = Setup.Telescopes[i].Camera;
-        }
+            for (var i = 0; i < Setup.Telescopes.Count; i++)
+            {
+                var camera = Setup.Telescopes[i].Camera;
+                if (camera.Driver.CanSetCCDTemperature
+                    && camera.Driver.CoolerOn
+                    && camera.Driver.CCDTemperature is double ccdTemp
+                    && !double.IsNaN(ccdTemp)
+                    && camera.Driver.HeatSinkTemperature is double heatSinkTemp
+                    && !double.IsNaN(heatSinkTemp)
+                )
+                {
+                    var coolerPower = camera.Driver.CanGetCoolerPower ? camera.Driver.CoolerPower : double.NaN;
+                    var setpointTemp = maybeSetpointTemp ?? (!double.IsNaN(heatSinkTemp) ? heatSinkTemp : direction.DefaultSetpointTemp());
+
+                    if (direction.NeedsFurtherRamping(ccdTemp, setpointTemp)
+                        && (double.IsNaN(coolerPower) || !direction.ThresholdPowerReached(coolerPower, thresPower))
+                    )
+                    {
+                        var actualSetpointTemp = camera.Driver.SetCCDTemperature = direction.SetpointTemp(ccdTemp, setpointTemp);
+                        isRamping[i] = true;
+                        thresholdReachedConsecutiveCounts[i] = 0;
+
+                        LogInfo($"Camera {(i + 1)} setpoint temperature {setpointTemp:0.00} °C not yet reached, " +
+                            $"cooling {direction.ToString().ToLowerInvariant()} stepwise, currently at {actualSetpointTemp:0.00} °C. " +
+                            $" Heatsink={heatSinkTemp:0.00} °C, CCD={ccdTemp:0.00} °C, Power={coolerPower:0.00}%");
+                    }
+                    else if (++thresholdReachedConsecutiveCounts[i] < 2)
+                    {
+                        isRamping[i] = true;
+                        
+                        LogInfo($"Camera {(i + 1)} setpoint temperature {setpointTemp:0.00} °C or {thresPower:0.00} % power reached. Heatsink={heatSinkTemp:0.00} °C, CCD={ccdTemp:0.00} °C, Power={coolerPower:0.00}%");
+                    }
+                    else
+                    {
+                        isRamping[i] = false;
+
+                        LogInfo($"Camera {(i + 1)} setpoint temperature {setpointTemp:0.00} °C or {thresPower:0.00} % power reached twice in a row. Heatsink={heatSinkTemp:0.00} °C, CCD={ccdTemp:0.00} °C, Power={coolerPower:0.00}%");
+                    }
+                }
+                else
+                {
+                    isRamping[i] = false;
+
+                    LogInfo($"Skipping camera {(i + 1)} setpoint temperature {maybeSetpointTemp?.ToString("0.00") + " °C" ?? "ambient"} as we cannot get the current CCD temperature or cooling is not supported. Power is {(camera.Driver.CoolerOn ? "on" : "off")}");
+                }
+            }
+
+            accSleep += rampInterval;
+            Sleep(rampInterval);
+        } while (isRamping.Any(p => p) && accSleep < rampInterval * 100);
     }
 
     internal static string GetSafeFileName(string name, char replace = '_')
@@ -445,7 +528,7 @@ public class Session
         catch (Exception ex)
         {
             LogError($"Error {ex.Message} while executing: {func.Method.Name}");
-            return default(T);
+            return default;
         }
     }
 }

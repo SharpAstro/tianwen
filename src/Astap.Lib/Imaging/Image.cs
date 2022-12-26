@@ -354,6 +354,7 @@ public sealed class Image
         basicHdu.Header.AddCard(new HeaderCard("INSTRUME", ImageMeta.Instrument, ""));
         basicHdu.Header.AddCard(new HeaderCard("TELESCOP", ImageMeta.Telescope, ""));
         basicHdu.Header.AddCard(new HeaderCard("ROWORDER", "TOP-DOWN", ""));
+        basicHdu.Header.AddCard(new HeaderCard("CCD-TEMP", ImageMeta.CCDTemperature, "Celsius"));
         fits.AddHDU(basicHdu);
 
         using var bufferedWriter = new BufferedFile(fileName, FileAccess.ReadWrite, FileShare.Read, 1000 * 2088);
