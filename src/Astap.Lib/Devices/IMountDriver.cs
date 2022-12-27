@@ -29,6 +29,10 @@ public interface IMountDriver : IDeviceDriver
 
     bool AtHome { get; }
 
+    bool AtPark { get; }
+
+    bool Park();
+
     bool IsSlewing { get; }
 
     /// <summary>
