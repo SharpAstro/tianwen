@@ -116,11 +116,13 @@ public class Session
                 guider.Driver.StopCapture();
 
                 // skip target if slew is not successful
+                var az = double.NaN;
+                var alt = double.NaN;
                 if (!TryGetTransformOfObservation(mount, observation, out var transform)
-                    || !TryTransformJ2000ToMountNative(mount, transform, observation, out var raMount, out var decMount)
+                    || !TryTransformJ2000ToMountNative(mount, transform, observation, out var raMount, out var decMount, out az, out alt)
                     || !mount.Driver.SlewAsync(raMount, decMount))
                 {
-                    LogError($"Failed to slew {mount} to target {observation}, skipping.");
+                    LogError($"Failed to slew {mount.Device.DisplayName} to target {observation} az={az:0.00} alt={alt:0.00}, skipping.");
 
                     continue;
                 }
@@ -398,7 +400,7 @@ public class Session
     /// <param name="raMount"></param>
     /// <param name="decMount"></param>
     /// <returns>true if transform was successful.</returns>
-    internal static bool TryTransformJ2000ToMountNative(Mount mount, Transform transform, in Observation observation, out double raMount, out double decMount)
+    internal static bool TryTransformJ2000ToMountNative(Mount mount, Transform transform, in Observation observation, out double raMount, out double decMount, out double az, out double alt)
     {
         if (mount.Driver.TryGetUTCDate(out var utc))
         {
@@ -413,14 +415,18 @@ public class Session
                 EquatorialCoordinateType.Topocentric => (transform.RAApparent, transform.DECApparent),
                 _ => (double.NaN, double.NaN)
             };
+            az = transform.AzimuthTopocentric;
+            alt = transform.AzimuthTopocentric;
         }
         else
         {
             raMount = double.NaN;
             decMount = double.NaN;
+            az = double.NaN;
+            alt = double.NaN;
         }
 
-        return !double.IsNaN(raMount) && !double.IsNaN(decMount);
+        return !double.IsNaN(raMount) && !double.IsNaN(decMount) && !double.IsNaN(az) && !double.IsNaN(alt);
     }
 
     internal void OpenTelescopeCovers()
@@ -520,7 +526,8 @@ public class Session
                 {
                     isRamping[i] = false;
 
-                    LogInfo($"Skipping camera {(i + 1)} setpoint temperature {maybeSetpointTemp?.ToString("0.00") + " °C" ?? "ambient"} as we cannot get the current CCD temperature or cooling is not supported. Power is {(camera.Driver.CoolerOn ? "on" : "off")}");
+                    var coolerOnOff = Catch(() => camera.Driver.CoolerOn);
+                    LogInfo($"Skipping camera {(i + 1)} setpoint temperature {maybeSetpointTemp?.ToString("0.00") + " °C" ?? "ambient"} as we cannot get the current CCD temperature or cooling is not supported. Power is {(coolerOnOff ? "on" : "off")}");
                 }
             }
 
