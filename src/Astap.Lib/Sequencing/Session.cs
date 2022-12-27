@@ -58,9 +58,10 @@ public class Session
     void LogInfo(string info) => _external.LogInfo(info);
     void LogError(string info) => _external.LogError(info);
 
+    const int MAX_FAILSAFE = 1000;
+
     public void Run(CancellationToken cancellationToken)
     {
-        const int MAX_FAILSAFE = 1000;
 
         var guider = Setup.Guider;
         var mount = Setup.Mount;
@@ -105,7 +106,6 @@ public class Session
             Observation? observation;
             while ((observation = CurrentObservation) is not null && !cancellationToken.IsCancellationRequested)
             {
-                var frameNumbers = new int[scopes];
                 if (mount.Driver.CanSetTracking)
                 {
                     mount.Driver.TrackingSpeed = TrackingSpeed.Sidereal; // TODO: Support different tracking speed
@@ -139,7 +139,7 @@ public class Session
                         LogError($"Cancellation requested, abort slewing to target {observation} and quit imaging loop");
                         break;
                     }
- 
+
                     if (mount.Driver.IsSlewing || failsafeCounter == MAX_FAILSAFE)
                     {
                         throw new InvalidOperationException($"Failsafe activated when slewing {mount.Device.DisplayName} to {observation}");
@@ -167,41 +167,7 @@ public class Session
                     }
                 }
 
-                bool guidingSuccess = false;
-                int startGuidingTries = 0;
-                while (!guidingSuccess && startGuidingTries++ < 2 && !cancellationToken.IsCancellationRequested)
-                {
-                    try
-                    {
-                        var settlePix = 0.3 + (startGuidingTries * 0.2);
-                        var settleTime = 15 + (startGuidingTries * 5);
-                        var settleTimeout = 50 + (startGuidingTries * 10);
-
-                        LogInfo($"Start guiding using {guider.Device.DeviceId}, settle pixels: {settlePix}, settle time: {settleTime}s, timeout: {settleTimeout}s");
-                        guider.Driver.Guide(settlePix, settleTime, settleTimeout);
-
-                        failsafeCounter = 0;
-                        while (guider.Driver.IsSettling() && failsafeCounter++ < MAX_FAILSAFE && !cancellationToken.IsCancellationRequested)
-                        {
-                            Sleep(TimeSpan.FromSeconds(10));
-                        }
-
-                        guidingSuccess = failsafeCounter < MAX_FAILSAFE && guider.Driver.IsGuiding();
-                        if (cancellationToken.IsCancellationRequested)
-                        {
-                            break;
-                        }
-                        else if (!guidingSuccess)
-                        {
-                            Sleep(TimeSpan.FromMinutes(5 * startGuidingTries));
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        LogError($"Start guiding try #{startGuidingTries} exception while checking if {guider.Device.DeviceId} is guiding: {e.Message}");
-                        guidingSuccess = false;
-                    }
-                }
+                var guidingSuccess = StartGuidingLoop(guider, cancellationToken);
 
                 if (cancellationToken.IsCancellationRequested)
                 {
@@ -215,116 +181,7 @@ public class Session
                     continue;
                 }
 
-                var subExposuresSec = new int[scopes];
-                for (var i = 0; i < scopes; i++)
-                {
-                    var camera = Setup.Telescopes[i].Camera;
-
-                    // TODO per camera exposure calculation, i.e. via f/ratio
-                    var subExposure = observation.SubExposure;
-                    subExposuresSec[i] = (int)Math.Ceiling(subExposure.TotalSeconds);
-                }
-
-                var maxSubExposureSec = subExposuresSec.Max();
-                var tickGCD = StatisticsHelper.GCD(subExposuresSec);
-                var tickSec = TimeSpan.FromSeconds(tickGCD);
-                var ticksPerMaxSubExposure = maxSubExposureSec / tickGCD;
-                var expStartTimes = new DateTime[scopes];
-                var expTicks = new int[scopes];
-
-                var overslept = TimeSpan.Zero;
-                double currentHourAngle;
-                PierSide pierSide;
-                var imageWriteQueue = new Queue<(Image image, Observation observation, DateTime expStartTime, int frameNumber)>();
-                while (!cancellationToken.IsCancellationRequested
-                    && mount.Connected
-                    && Catch(() => mount.Driver.Tracking)
-                    && guider.Connected
-                    && Catch(guider.Driver.IsGuiding)
-                    && (pierSide = mount.Driver.SideOfPier) == mount.Driver.ExpectedSideOfPier
-                    && !double.IsNaN(currentHourAngle = mount.Driver.HourAngle)
-                    && (pierSide != PierSide.Unknown || Math.Sign(hourAngleAtSlewTime) == Math.Sign(currentHourAngle))
-                    && mount.Driver.TryGetUTCDate(out var expStartTime)
-                )
-                {
-                    for (var i = 0; i < scopes; i++)
-                    {
-                        var cameraDriver = Setup.Telescopes[i].Camera.Driver;
-                        switch (cameraDriver.CameraState)
-                        {
-                            case CameraState.Idle:
-                                var subExposureSec = subExposuresSec[i];
-                                var frameExpTime = TimeSpan.FromSeconds(subExposureSec);
-                                cameraDriver.StartExposure(frameExpTime, true);
-                                expStartTimes[i] = expStartTime;
-                                expTicks[i] = (int)(subExposureSec / tickGCD);
-                                var frameNo = ++frameNumbers[i];
-
-                                LogInfo($"Camera #{(i + 1)} {cameraDriver.Name} starting {frameExpTime} exposure of frame #{frameNo}");
-                                break;
-                        }
-                    }
-
-                    var stopWatch = Stopwatch.StartNew();
-                    while (imageWriteQueue.TryDequeue(out var imageWrite))
-                    {
-                        WriteImageToFitsFile(imageWrite.image, imageWrite.observation, imageWrite.expStartTime, imageWrite.frameNumber);
-                    }
-                    var elapsed = stopWatch.Elapsed;
-                    stopWatch.Stop();
-
-                    var tickMinusElapsed = tickSec - elapsed - overslept;
-                    // clear overslept
-                    overslept = TimeSpan.Zero;
-                    if (cancellationToken.IsCancellationRequested)
-                    {
-                        LogError("Cancellation rquested, abort image acquisition and quit imaging loop");
-                        break;
-                    }
-                    else if (tickMinusElapsed > TimeSpan.Zero)
-                    {
-                        Sleep(tickMinusElapsed);
-                    }
-
-                    for (var i = 0; i < scopes && !cancellationToken.IsCancellationRequested; i++)
-                    {
-                        var tick = --expTicks[i];
- 
-                        var camera = Setup.Telescopes[i].Camera;
-                        if (tick <= 0)
-                        {
-                            bool fetchImageSuccess = false;
-                            var frameNo = frameNumbers[i];
-                            var frameExpTime = TimeSpan.FromSeconds(subExposuresSec[i]);
-                            do
-                            {
-                                if (camera.Driver.ImageReady is true && camera.Driver.Image is { Width: > 0, Height: > 0 } image)
-                                {
-                                    fetchImageSuccess = true;
-                                    LogInfo($"Camera #{(i + 1)} {camera.Driver.Name} finished {frameExpTime} exposure of frame #{frameNo}");
-
-                                    imageWriteQueue.Enqueue((image, observation, expStartTime, frameNo));
-                                    break;
-                                }
-                                else
-                                {
-                                    var spinDuration = TimeSpan.FromMilliseconds(100);
-                                    overslept += spinDuration;
-                                    Sleep(spinDuration);
-                                }
-                            }
-                            while (overslept < (tickSec / 5)
-                                && camera.Driver.CameraState is not CameraState.Error or CameraState.NotConnected
-                                && !cancellationToken.IsCancellationRequested
-                            );
-
-                            if (!fetchImageSuccess)
-                            {
-                                LogError($"Failed fetching camera #{(i + 1)} {camera.Driver.Name} {frameExpTime} exposure of frame #{frameNo}, camera state: {camera.Driver.CameraState}");
-                            }
-                        }
-                    }
-                }
+                ImagingLoop(guider, mount, scopes, observation, hourAngleAtSlewTime, cancellationToken);
             } // end observation loop
         }
         catch (Exception e)
@@ -333,8 +190,180 @@ public class Session
         }
         finally
         {
-            Catch(() => guider.Driver.Connected = false);
-            CoolCamerasToSetpoint(null, TimeSpan.FromMinutes(1), 0.1, CoolDirection.Up);
+            LogInfo("Executing session run finaliser: Stop tracking, disconnect guider, cool up, turn off cooler, park scope.");
+
+            var stopTrackingSuccess = Catch(() => mount.Driver.CanSetTracking && !(mount.Driver.Tracking = false));
+            var stopGuiderSuccess = Catch(() => !(guider.Driver.Connected = false));
+            var parkTelescopeSuccess = Catch(() => mount.Driver.CanPark && mount.Driver.Park());
+            CoolCamerasToSetpoint(null, TimeSpan.FromMinutes(1), 0.1, CoolDirection.Up, CancellationToken.None);
+
+            foreach (var telescope in Setup.Telescopes)
+            {
+                Catch(() => telescope.Camera.Driver.CoolerOn = false);
+            }
+        }
+    }
+
+    internal bool StartGuidingLoop(Guider guider, CancellationToken cancellationToken)
+    {
+        bool guidingSuccess = false;
+        int startGuidingTries = 0;
+        while (!guidingSuccess && startGuidingTries++ < 2 && !cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                var settlePix = 0.3 + (startGuidingTries * 0.2);
+                var settleTime = 15 + (startGuidingTries * 5);
+                var settleTimeout = 50 + (startGuidingTries * 10);
+
+                LogInfo($"Start guiding using {guider.Device.DeviceId}, settle pixels: {settlePix}, settle time: {settleTime}s, timeout: {settleTimeout}s");
+                guider.Driver.Guide(settlePix, settleTime, settleTimeout);
+
+                var failsafeCounter = 0;
+                while (guider.Driver.IsSettling() && failsafeCounter++ < MAX_FAILSAFE && !cancellationToken.IsCancellationRequested)
+                {
+                    Sleep(TimeSpan.FromSeconds(10));
+                }
+
+                guidingSuccess = failsafeCounter < MAX_FAILSAFE && guider.Driver.IsGuiding();
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                else if (!guidingSuccess)
+                {
+                    Sleep(TimeSpan.FromMinutes(5 * startGuidingTries));
+                }
+            }
+            catch (Exception e)
+            {
+                LogError($"Start guiding try #{startGuidingTries} exception while checking if {guider.Device.DeviceId} is guiding: {e.Message}");
+                guidingSuccess = false;
+            }
+        }
+
+        return guidingSuccess;
+    }
+
+    internal void ImagingLoop(Guider guider, Mount mount, int scopes, in Observation observation, double hourAngleAtSlewTime, CancellationToken cancellationToken)
+    {
+        var frameNumbers = new int[scopes];
+        var subExposuresSec = new int[scopes];
+        for (var i = 0; i < scopes; i++)
+        {
+            var camera = Setup.Telescopes[i].Camera;
+
+            // TODO per camera exposure calculation, i.e. via f/ratio
+            var subExposure = observation.SubExposure;
+            subExposuresSec[i] = (int)Math.Ceiling(subExposure.TotalSeconds);
+        }
+
+        var maxSubExposureSec = subExposuresSec.Max();
+        var tickGCD = StatisticsHelper.GCD(subExposuresSec);
+        var tickSec = TimeSpan.FromSeconds(tickGCD);
+        var ticksPerMaxSubExposure = maxSubExposureSec / tickGCD;
+        var expStartTimes = new DateTime[scopes];
+        var expTicks = new int[scopes];
+
+        var overslept = TimeSpan.Zero;
+        double currentHourAngle;
+        PierSide pierSide;
+        var imageWriteQueue = new Queue<(Image image, Observation observation, DateTime expStartTime, int frameNumber)>();
+        while (!cancellationToken.IsCancellationRequested
+            && mount.Connected
+            && Catch(() => mount.Driver.Tracking)
+            && guider.Connected
+            && Catch(guider.Driver.IsGuiding)
+            && (pierSide = mount.Driver.SideOfPier) == mount.Driver.ExpectedSideOfPier
+            && !double.IsNaN(currentHourAngle = mount.Driver.HourAngle)
+            && (pierSide != PierSide.Unknown || Math.Sign(hourAngleAtSlewTime) == Math.Sign(currentHourAngle))
+            && mount.Driver.TryGetUTCDate(out var expStartTime)
+        )
+        {
+            for (var i = 0; i < scopes; i++)
+            {
+                var cameraDriver = Setup.Telescopes[i].Camera.Driver;
+                switch (cameraDriver.CameraState)
+                {
+                    case CameraState.Idle:
+                        var subExposureSec = subExposuresSec[i];
+                        var frameExpTime = TimeSpan.FromSeconds(subExposureSec);
+                        cameraDriver.StartExposure(frameExpTime, true);
+                        expStartTimes[i] = expStartTime;
+                        expTicks[i] = (int)(subExposureSec / tickGCD);
+                        var frameNo = ++frameNumbers[i];
+
+                        LogInfo($"Camera #{(i + 1)} {cameraDriver.Name} starting {frameExpTime} exposure of frame #{frameNo}");
+                        break;
+                }
+            }
+
+            var stopWatch = Stopwatch.StartNew();
+            while (imageWriteQueue.TryDequeue(out var imageWrite))
+            {
+                try
+                {
+                    WriteImageToFitsFile(imageWrite.image, imageWrite.observation, imageWrite.expStartTime, imageWrite.frameNumber);
+                }
+                catch (Exception ex)
+                {
+                    LogError($"Failed to save frame #{imageWrite.frameNumber} taken at {imageWrite.expStartTime:o} by {imageWrite.image.ImageMeta.Instrument} due to error: {ex.Message}");
+                }
+            }
+            var elapsed = stopWatch.Elapsed;
+            stopWatch.Stop();
+
+            var tickMinusElapsed = tickSec - elapsed - overslept;
+            // clear overslept
+            overslept = TimeSpan.Zero;
+            if (cancellationToken.IsCancellationRequested)
+            {
+                LogError("Cancellation rquested, abort image acquisition and quit imaging loop");
+                break;
+            }
+            else if (tickMinusElapsed > TimeSpan.Zero)
+            {
+                Sleep(tickMinusElapsed);
+            }
+
+            for (var i = 0; i < scopes && !cancellationToken.IsCancellationRequested; i++)
+            {
+                var tick = --expTicks[i];
+
+                var camera = Setup.Telescopes[i].Camera;
+                if (tick <= 0)
+                {
+                    bool fetchImageSuccess = false;
+                    var frameNo = frameNumbers[i];
+                    var frameExpTime = TimeSpan.FromSeconds(subExposuresSec[i]);
+                    do
+                    {
+                        if (camera.Driver.ImageReady is true && camera.Driver.Image is { Width: > 0, Height: > 0 } image)
+                        {
+                            fetchImageSuccess = true;
+                            LogInfo($"Camera #{(i + 1)} {camera.Driver.Name} finished {frameExpTime} exposure of frame #{frameNo}");
+
+                            imageWriteQueue.Enqueue((image, observation, expStartTime, frameNo));
+                            break;
+                        }
+                        else
+                        {
+                            var spinDuration = TimeSpan.FromMilliseconds(100);
+                            overslept += spinDuration;
+                            Sleep(spinDuration);
+                        }
+                    }
+                    while (overslept < (tickSec / 5)
+                        && camera.Driver.CameraState is not CameraState.Error or CameraState.NotConnected
+                        && !cancellationToken.IsCancellationRequested
+                    );
+
+                    if (!fetchImageSuccess)
+                    {
+                        LogError($"Failed fetching camera #{(i + 1)} {camera.Driver.Name} {frameExpTime} exposure of frame #{frameNo}, camera state: {camera.Driver.CameraState}");
+                    }
+                }
+            }
         }
     }
 
@@ -426,7 +455,7 @@ public class Session
                 && camera.Driver.HeatSinkTemperature is double heatSinkTemp and >= -40 and <= 50)
             {
                 camera.Driver.CoolerOn = true;
-                var actualSetpointTemp = camera.Driver.SetCCDTemperature = Math.Ceiling(Math.Min(ccdTemp, heatSinkTemp));
+                var actualSetpointTemp = camera.Driver.SetCCDTemperature = Math.Truncate(Math.Min(ccdTemp, heatSinkTemp));
                 var coolerPower = camera.Driver.CanGetCoolerPower ? camera.Driver.CoolerPower : double.NaN;
 
                 LogInfo($"Camera #{(i + 1)} setpoint temperature set to {actualSetpointTemp:0.00} °C, Heatsink {heatSinkTemp:0.00} °C, Power={coolerPower:0.00}%");
@@ -460,7 +489,7 @@ public class Session
                 )
                 {
                     var coolerPower = camera.Driver.CanGetCoolerPower ? camera.Driver.CoolerPower : double.NaN;
-                    var setpointTemp = maybeSetpointTemp ?? (!double.IsNaN(heatSinkTemp) ? heatSinkTemp : direction.DefaultSetpointTemp());
+                    var setpointTemp = maybeSetpointTemp ?? (!double.IsNaN(heatSinkTemp) ? Math.Truncate(heatSinkTemp) : direction.DefaultSetpointTemp());
 
                     if (direction.NeedsFurtherRamping(ccdTemp, setpointTemp)
                         && (double.IsNaN(coolerPower) || !direction.ThresholdPowerReached(coolerPower, thresPower))
@@ -496,13 +525,25 @@ public class Session
             }
 
             accSleep += rampInterval;
-            Sleep(rampInterval);
-        } while (isRamping.Any(p => p) && accSleep < rampInterval * 100);
+            if (cancellationToken.IsCancellationRequested)
+            {
+                LogInfo("Cancellation requested, quiting cooldown loop");
+                break;
+            }
+            else
+            {
+                Sleep(rampInterval);
+            }
+        } while (isRamping.Any(p => p) && accSleep < rampInterval * 100 && !cancellationToken.IsCancellationRequested);
     }
 
     internal static string GetSafeFileName(string name, char replace = '_')
     {
         char[] invalids = Path.GetInvalidFileNameChars();
+        if (invalids.Contains(replace))
+        {
+            throw new ArgumentException($"Cannot use '{replace}' as the replacing character as it is itself not file system safe.", nameof(replace));
+        }
         return new string(name.Select(c => invalids.Contains(c) ? replace : c).ToArray());
     }
 

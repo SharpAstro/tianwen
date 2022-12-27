@@ -88,7 +88,7 @@ else
 
 var setup = new Setup(mount, guider, new Telescope("Sim Scope", 250, camera, null, null, null, null));
 
-var session = new Session(setup, -10, external, observations);
+var session = new Session(setup, 3, external, observations);
 
 session.Run(cts.Token);
 

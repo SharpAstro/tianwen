@@ -86,6 +86,8 @@ namespace Astap.Lib.Devices.Ascom
 
         public bool AtHome => _comObject?.AtHome is bool atHome && atHome;
 
+        public bool AtPark => _comObject?.AtPark is bool atPark && atPark;
+
         public bool IsSlewing => _comObject?.Slewing is bool slewing && slewing;
 
         public double SiderealTime => _comObject?.SiderealTime is double siderealTime ? siderealTime : double.NaN;
@@ -192,6 +194,17 @@ namespace Astap.Lib.Devices.Ascom
                     obj.SiteLongitude = value;
                 }
             }
+        }
+
+        public bool Park()
+        {
+            if (Connected && CanPark && _comObject is { } obj)
+            {
+                obj.Park();
+                return AtPark;
+            }
+
+            return false;
         }
     }
 }
