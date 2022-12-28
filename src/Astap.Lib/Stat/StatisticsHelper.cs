@@ -43,10 +43,31 @@ public static class StatisticsHelper
         values[0] = first;
         rest.AsSpan().CopyTo(values[1..]);
 
-        return GCD(values);
+        return GCDNoCopy(values);
     }
 
-    public static uint GCD(in Span<int> values)
+    /// <summary>
+    /// Makes a copy of values and calculates the GCD.
+    /// </summary>
+    /// <param name="values">Values to calculate GCD from.</param>
+    /// <returns>GCD</returns>
+    /// <exception cref="ArgumentException">if <paramref name="values"/> span is empty</exception>
+    public static uint GCD(in ReadOnlySpan<int> values)
+    {
+        var len = values.Length;
+        Span<int> copy = len < 128 ? stackalloc int[len] : new int[len];
+        values.CopyTo(copy);
+
+        return GCDNoCopy(copy);
+    }
+
+    /// <summary>
+    /// Warning: Overwrites values so input values are lost on exit.
+    /// </summary>
+    /// <param name="values">Values to calculate GCD from.</param>
+    /// <returns>GCD</returns>
+    /// <exception cref="ArgumentException">if <paramref name="values"/> span is empty</exception>
+    internal static uint GCDNoCopy(in Span<int> values)
     {
         if (values.Length > 1)
         {
@@ -65,7 +86,55 @@ public static class StatisticsHelper
             }
             while (true);
         }
+        else if (values.Length == 1)
+        {
+            return (uint)Math.Abs(values[0]);
+        }
+        else
+        {
+            throw new ArgumentException("Must provide at least one value", nameof(values));
+        }
+    }
 
-        return (uint)Math.Abs(values[0]);
+    public static ulong LCM(int first, params int[] rest)
+    {
+        var len = rest.Length + 1;
+        Span<int> values = len < 128 ? stackalloc int[len] : new int[len];
+
+        values[0] = first;
+        rest.AsSpan().CopyTo(values[1..]);
+
+        return LCM(values);
+    }
+
+    public static ulong LCM(in Span<int> values) => LCM(GCD(values), values);
+
+    internal static ulong LCM(uint gcd, in Span<int> values)
+    {
+        if (gcd == 0)
+        {
+            foreach (var value in values)
+            {
+                if (value == 0)
+                {
+                    return 0;
+                }
+            }
+            throw new ArgumentException("A GCD of 0 was provided but no value 0", nameof(gcd));
+        }
+        else if (values.Length >= 1)
+        {
+            // TODO: there must be a faster way to multiply all values in an array/span?
+            var prod = 1L;
+            for (var i = 0; i < values.Length; i++)
+            {
+                prod *= values[i];
+            }
+            return (ulong)Math.Abs(prod) / gcd;
+        }
+        else
+        {
+            throw new ArgumentException("Must provide at least one value", nameof(values));
+        }
     }
 }
