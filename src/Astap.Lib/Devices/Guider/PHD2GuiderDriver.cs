@@ -108,7 +108,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
                 }
                 catch (Exception ex)
                 {
-                    OnGuidingErrorEvent(new GuidingErrorEventArgs($"Error {ex.Message} while reading from input stream", ex));
+                    OnGuidingErrorEvent(new GuidingErrorEventArgs(_guiderDevice, _selectedProfileName, $"Error {ex.Message} while reading from input stream", ex));
                     // use recovery logic
                 }
 
@@ -127,7 +127,12 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
                 }
                 catch (JsonException ex)
                 {
-                    OnGuidingErrorEvent(new GuidingErrorEventArgs(string.Format("ignoring invalid json from server: {0}: {1}", ex.Message, line), ex));
+                    OnGuidingErrorEvent(new GuidingErrorEventArgs(
+                        _guiderDevice,
+                        _selectedProfileName,
+                        $"ignoring invalid json from server: {ex.Message}: {line}",
+                        ex
+                    ));
                     continue;
                 }
 
@@ -152,7 +157,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         }
         catch (Exception ex)
         {
-            OnGuidingErrorEvent(new GuidingErrorEventArgs($"caught exception in worker thread while processing: {line}: {ex.Message}", ex));
+            OnGuidingErrorEvent(new GuidingErrorEventArgs(_guiderDevice, _selectedProfileName, $"caught exception in worker thread while processing: {line}: {ex.Message}", ex));
         }
         finally
         {
@@ -301,7 +306,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         }
         else
         {
-            OnUnhandledEvent(new UnhandledEventArgs(eventName ?? "Unknown", @event.RootElement.GetRawText()));
+            OnUnhandledEvent(new UnhandledEventArgs(_guiderDevice, _selectedProfileName, eventName ?? "Unknown", @event.RootElement.GetRawText()));
         }
     }
 
@@ -451,8 +456,8 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         }
         catch (Exception e)
         {
-            string errorMsg = string.Format("Could not connect to PHD2 instance {0} on {1}:{2}", Instance, Host, port);
-            OnGuidingErrorEvent(new GuidingErrorEventArgs(errorMsg, e));
+            string errorMsg = $"Could not connect to PHD2 instance {Instance} on {Host}:{port}";
+            OnGuidingErrorEvent(new GuidingErrorEventArgs(_guiderDevice, _selectedProfileName, errorMsg, e));
             throw new GuiderException(errorMsg);
         }
 
@@ -545,7 +550,9 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         lock (m_sync)
         {
             if (Settle != null && !Settle.Done)
+            {
                 throw new GuiderException("cannot guide while settling");
+            }
             Settle = settleProgress;
         }
 
@@ -556,7 +563,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         }
         catch (Exception ex)
         {
-            var guidingErrorEventArgs = new GuidingErrorEventArgs($"while calling guide({settlePixels}, {settleTime}, {settleTimeout}): {ex.Message}", ex);
+            var guidingErrorEventArgs = new GuidingErrorEventArgs(_guiderDevice, _selectedProfileName, $"while calling guide({settlePixels}, {settleTime}, {settleTimeout}): {ex.Message}", ex);
             OnGuidingErrorEvent(guidingErrorEventArgs);
             // failed - remove the settle state
             lock (m_sync)
@@ -597,7 +604,12 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         catch (Exception ex)
         {
             var guidingErrorEventArgs = new GuidingErrorEventArgs(
-                $"while calling dither(ditherPixels: {ditherPixels}, raOnly: {raOnly}, (settlePixels: {settlePixels}, settleTime: {settleTime}, settleTimeout: {settleTimeout}): {ex.Message}", ex);
+                _guiderDevice,
+                _selectedProfileName,
+                $"while calling dither(ditherPixels: {ditherPixels}, raOnly: {raOnly}, " +
+                $"(settlePixels: {settlePixels}, settleTime: {settleTime}, settleTimeout: {settleTimeout}): {ex.Message}",
+                ex
+            );
             OnGuidingErrorEvent(guidingErrorEventArgs);
             // call failed - remove the settle state
             lock (m_sync)
@@ -717,7 +729,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
             {
                 appstate = AppState;
             }
-            Debug.WriteLine(String.Format("StopCapture: AppState = {0}", appstate));
+            Debug.WriteLine($"StopCapture: AppState = {appstate}");
             if (appstate == "Stopped")
                 return;
 
@@ -739,7 +751,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
             return;
         // end workaround
 
-        throw new GuiderException(string.Format("guider did not stop capture after {0} seconds!", timeoutSeconds));
+        throw new GuiderException($"guider did not stop capture after {timeoutSeconds} seconds!");
     }
 
     public void Loop(uint timeoutSeconds)

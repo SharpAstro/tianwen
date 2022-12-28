@@ -1,12 +1,15 @@
 ﻿using Astap.Lib.Imaging;
 using CommunityToolkit.HighPerformance;
 using System;
+using System.Transactions;
 
 namespace Astap.Lib.Devices;
 
 public interface ICameraDriver : IDeviceDriver
 {
     bool CanGetCoolerPower { get; }
+
+    bool CanGetCoolerOn { get; }
 
     bool CanSetCCDTemperature { get; }
 
@@ -83,6 +86,12 @@ public interface ICameraDriver : IDeviceDriver
 
     int FocusPos { get; set; }
 
+    SensorType SensorType { get; }
+
+    int BayerOffsetX { get; }
+
+    int BayerOffsetY { get; }
+
     CameraState CameraState { get; }
 
     Image? Image => Connected && ImageReady && ImageData is { Length: > 0 } data && BitDepth is int bitDepth and > 0
@@ -102,7 +111,10 @@ public interface ICameraDriver : IDeviceDriver
                 Filter,
                 BinX,
                 BinY,
-                (float)CCDTemperature
+                (float)CCDTemperature,
+                SensorType,
+                BayerOffsetX,
+                BayerOffsetY
             )
         )
         : null;
