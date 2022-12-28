@@ -35,6 +35,7 @@ namespace Astap.Lib.Devices.Ascom
                 CanSetTracking = obj.CanSetTracking is bool canSetTracking && canSetTracking;
                 CanSetSideOfPier = obj.CanSetPierSide is bool canSetSideOfPier && canSetSideOfPier;
                 CanPark = obj.CanPark is bool canPark && canPark;
+                CanUnpark = obj.CanUnpark is bool canUnpark && canUnpark;
                 CanSetPark = obj.CanSetPark is bool canSetPark && canSetPark;
                 CanSlew = obj.CanSlew is bool canSlew && canSlew;
                 CanSlewAsync = obj.CanSlewAsync is bool canSlewAsync && canSlewAsync;
@@ -129,6 +130,8 @@ namespace Astap.Lib.Devices.Ascom
 
         public bool CanPark { get; private set; }
 
+        public bool CanUnpark { get; private set; }
+
         public bool CanSetPark { get; private set; }
 
         public bool CanSlew { get; private set; }
@@ -202,6 +205,16 @@ namespace Astap.Lib.Devices.Ascom
             {
                 obj.Park();
                 return AtPark;
+            }
+
+            return false;
+        }
+        public bool Unpark()
+        {
+            if (Connected && CanUnpark && _comObject is { } obj)
+            {
+                obj.Unpark();
+                return !AtPark;
             }
 
             return false;

@@ -226,9 +226,24 @@ public interface IGuider : IDeviceDriver
     event EventHandler<GuidingErrorEventArgs>? GuidingErrorEvent;
 }
 
-public class UnhandledEventArgs : EventArgs
+public abstract class GuiderEventArgs : EventArgs
 {
-    public UnhandledEventArgs(string @event, string payload)
+    public GuiderEventArgs(GuiderDevice device, string? profile)
+    {
+        Device = device;
+        Profile = profile;
+    }
+
+    public GuiderDevice Device { get; }
+
+    public string? Profile { get; }
+
+}
+
+public class UnhandledEventArgs : GuiderEventArgs
+{
+    public UnhandledEventArgs(GuiderDevice device, string? profile, string @event, string payload)
+        : base(device, profile)
     {
         Event = @event;
         Payload = payload;
@@ -239,9 +254,10 @@ public class UnhandledEventArgs : EventArgs
     public string Payload { get; }
 }
 
-public class GuidingErrorEventArgs : EventArgs
+public class GuidingErrorEventArgs : GuiderEventArgs
 {
-    public GuidingErrorEventArgs(string msg, Exception? ex = null)
+    public GuidingErrorEventArgs(GuiderDevice device, string? profile, string msg, Exception? ex = null)
+        : base(device, profile)
     {
         Message = msg;
         Exception = ex;
@@ -251,6 +267,7 @@ public class GuidingErrorEventArgs : EventArgs
 
     public Exception? Exception { get; }
 }
+
 class Accum
 {
     uint n;

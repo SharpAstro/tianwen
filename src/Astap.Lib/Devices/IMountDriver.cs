@@ -15,6 +15,8 @@ public interface IMountDriver : IDeviceDriver
 
     bool CanSetPark { get; }
 
+    bool CanUnpark { get; }
+
     bool CanSlew { get; }
 
     bool CanSlewAsync { get; }
@@ -32,6 +34,8 @@ public interface IMountDriver : IDeviceDriver
     bool AtPark { get; }
 
     bool Park();
+
+    bool Unpark();
 
     bool IsSlewing { get; }
 

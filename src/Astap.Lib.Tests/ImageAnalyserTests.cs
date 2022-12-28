@@ -128,7 +128,7 @@ public class ImageAnalyserTests
         var expTime = TimeSpan.FromSeconds(42);
         var fileName = $"image_data_snr-{snr_min}_stars-{expectedStars}";
         var imageData = await SharedTestData.ExtractGZippedImageData(fileName, Width, Height);
-        var imageMeta = new ImageMeta(fileName, DateTime.UtcNow, expTime, "", 2.4f, 2.4f, 190, -1, Filter.None, 1, 1, float.NaN);
+        var imageMeta = new ImageMeta(fileName, DateTime.UtcNow, expTime, "", 2.4f, 2.4f, 190, -1, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0);
 
         // when
         var image = ICameraDriver.DataToImage(imageData, BitDepth, BlackLevel, imageMeta);

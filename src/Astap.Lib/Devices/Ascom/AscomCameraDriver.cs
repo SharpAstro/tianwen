@@ -23,6 +23,15 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
             CanStopExposure =  obj.CanStopExposure is bool canStopExposure && canStopExposure;
             CanAbortExposure =  obj.CanAbortExposure is bool canAbortExposure && canAbortExposure;
             CanFastReadout = obj.CanFastReadout is bool canFastReadout && canFastReadout;
+            try
+            {
+                _ = CoolerOn;
+                CanGetCoolerOn = true;
+            }
+            catch
+            {
+                CanGetCoolerOn = false;
+            }
 
             if (obj.ReadoutModes is IEnumerable readoutModes)
             {
@@ -36,6 +45,8 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
     }
 
     public bool CanGetCoolerPower { get; private set; }
+
+    public bool CanGetCoolerOn { get; private set; }
 
     public bool CanSetCCDTemperature { get; private set; }
 
@@ -90,7 +101,7 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
     public string? ReadoutMode
     {
-        get => _comObject?.ReadoutMode is int readoutMode && readoutMode < _readoutModes.Count ? _readoutModes[readoutMode] : null;
+        get => _comObject?.ReadoutMode is int readoutMode && readoutMode >= 0 && readoutMode < _readoutModes.Count ? _readoutModes[readoutMode] : null;
         set
         {
             int idx;
@@ -183,6 +194,12 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
     }
 
     public CameraState CameraState => Connected && _comObject?.CameraState is int cs ? (CameraState)cs : CameraState.NotConnected;
+
+    public SensorType SensorType => Connected && _comObject?.SensorType is int st ? (SensorType)st : SensorType.Unknown;
+
+    public int BayerOffsetX => _comObject?.BayerOffsetX is int bayerOffsetX ? bayerOffsetX : 0;
+
+    public int BayerOffsetY => _comObject?.BayerOffsetY is int bayerOffsetY ? bayerOffsetY : 0;
 
     #region Denormalised properties
     public string? Telescope { get; set; }

@@ -25,7 +25,10 @@ public record ImageMeta(
     Filter Filter,
     int BinX,
     int BinY,
-    float CCDTemperature
+    float CCDTemperature,
+    SensorType SensorType,
+    int BayerOffsetX,
+    int BayerOffsetY
 );
 
 public sealed class Image
@@ -100,9 +103,21 @@ public sealed class Image
         var focusPos = hdu.Header.GetIntValue("FOCUSPOS", -1);
         var filterName = hdu.Header.GetStringValue("FILTER");
         var ccdTemp = hdu.Header.GetFloatValue("CCD-TEMP", float.NaN);
+        var colorType = hdu.Header.GetStringValue("COLORTYP");
+        var bayerPattern = hdu.Header.GetStringValue("BAYERPAT");
+        var isMono = string.IsNullOrWhiteSpace(colorType) && string.IsNullOrWhiteSpace(bayerPattern);
+        var bayerOffsetX = hdu.Header.GetIntValue("BAYOFFX", 0);
+        var bayerOffsetY = hdu.Header.GetIntValue("BAYOFFY", 0);
         var filter = string.IsNullOrWhiteSpace(filterName) ? Filter.None : new Filter(filterName);
         var bzero = (float)hdu.BZero;
         var bscale = (float)hdu.BScale;
+        // TODO this is a bit simplified, support stuff like GRGB etc and support inferring via BayerOffsetY
+        var sensorType = isMono
+            ? SensorType.Monochrome
+            : string.Equals(colorType, "RGGB", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(bayerPattern, "RGGB", StringComparison.OrdinalIgnoreCase)
+                ? SensorType.RGGB
+                : SensorType.Unknown;
 
         var elementType = Type.GetTypeCode(heightArray[0].GetType().GetElementType());
 
@@ -289,7 +304,10 @@ public sealed class Image
             filter,
             xbinning,
             ybinning,
-            ccdTemp
+            ccdTemp,
+            sensorType,
+            bayerOffsetX,
+            bayerOffsetY
         );
         image = new Image(imgArray, width, height, bitsPerPixel, maxVal, blackLevel, imageMeta);
         return true;
@@ -355,6 +373,14 @@ public sealed class Image
         basicHdu.Header.AddCard(new HeaderCard("TELESCOP", ImageMeta.Telescope, ""));
         basicHdu.Header.AddCard(new HeaderCard("ROWORDER", "TOP-DOWN", ""));
         basicHdu.Header.AddCard(new HeaderCard("CCD-TEMP", ImageMeta.CCDTemperature, "Celsius"));
+        basicHdu.Header.AddCard(new HeaderCard("BAYOFFX", ImageMeta.BayerOffsetX, ""));
+        basicHdu.Header.AddCard(new HeaderCard("BAYOFFY", ImageMeta.BayerOffsetY, ""));
+        if (ImageMeta.SensorType is SensorType.RGGB)
+        {
+            // TODO support other Bayer patterns
+            basicHdu.Header.AddCard(new HeaderCard("BAYERPAT", "RGGB", ""));
+            basicHdu.Header.AddCard(new HeaderCard("COLORTYP", "RGGB", ""));
+        }
         fits.AddHDU(basicHdu);
 
         using var bufferedWriter = new BufferedFile(fileName, FileAccess.ReadWrite, FileShare.Read, 1000 * 2088);
