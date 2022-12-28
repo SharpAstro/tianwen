@@ -29,4 +29,17 @@ public class StatisticsHelperTests
     {
         StatisticsHelper.GCD(first, rest).ShouldBe(expectedGCD);
     }
+
+    [Theory]
+    [InlineData(14400uL, -120, -40, -60)]
+    [InlineData(1u, 1)]
+    [InlineData(0u, 0)]
+    [InlineData(0u, 0, 0)]
+    [InlineData(576uL, 8, 12, 24)]
+    [InlineData(120uL, 120, 60)]
+    [InlineData(14400uL, 120, 40, 60)]
+    public void GivenValuesWhenCalcLCMThenItIsReturned(uint expectedLCM, int first, params int[] rest)
+    {
+        StatisticsHelper.LCM(first, rest).ShouldBe(expectedLCM);
+    }
 }

@@ -10,6 +10,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Drawing;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection.Metadata.Ecma335;
@@ -636,7 +637,9 @@ public class Session
         var target = observation.Target;
         var outputFolder = _external.OutputFolder;
         var targetFolder = GetSafeFileName(target.Name);
-        var frameFolder = Directory.CreateDirectory(Path.Combine(outputFolder, targetFolder)).FullName;
+        // TODO make order of target/date configurable
+        var dateFolder = GetSafeFileName(subExpStartTime.ToString("yyyy-MM-dd", DateTimeFormatInfo.InvariantInfo));
+        var frameFolder = Directory.CreateDirectory(Path.Combine(outputFolder, targetFolder, dateFolder)).FullName;
         var fitsFileName = GetSafeFileName($"frame_{subExpStartTime:o}_{frameNumber}.fits");
 
         LogInfo($"Writing FITS file {targetFolder}/{fitsFileName}");
