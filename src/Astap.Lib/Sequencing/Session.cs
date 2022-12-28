@@ -3,19 +3,17 @@ using Astap.Lib.Astrometry.SOFA;
 using Astap.Lib.Devices;
 using Astap.Lib.Devices.Guider;
 using Astap.Lib.Imaging;
-using Astap.Lib.Stat;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Reflection.Metadata.Ecma335;
 using System.Threading;
 using static Astap.Lib.CollectionHelper;
+using static Astap.Lib.Stat.StatisticsHelper;
 
 namespace Astap.Lib.Sequencing;
 
@@ -24,37 +22,36 @@ public class Session
     private readonly IExternal _external;
     private readonly IReadOnlyList<Observation> _observations;
     private readonly ConcurrentQueue<GuiderEventArgs> _guiderEvents = new();
+    private readonly SessionConfiguration _sessionConfiguration;
     private int _activeObservation;
 
     public Session(
         Setup setup,
-        int setpointCCDTemperature,
+        in SessionConfiguration sessionConfiguration,
         IExternal external,
         Observation observation,
         params Observation[] observations
     )
-        : this(setup, setpointCCDTemperature, external, ConcatToReadOnlyList(observation, observations))
+        : this(setup, sessionConfiguration, external, ConcatToReadOnlyList(observation, observations))
     {
         // calls below
     }
 
     public Session(
         Setup setup,
-        int setpointCCDTemperature,
+        in SessionConfiguration sessionConfiguration,
         IExternal external,
         IReadOnlyList<Observation> observations
     )
     {
         Setup = setup;
-        SetpointCCDTemperature = setpointCCDTemperature;
+        _sessionConfiguration = sessionConfiguration;
         _external = external;
         _observations = observations.Count > 0 ? observations : throw new ArgumentException("Need at least one observation", nameof(observations));
         _activeObservation = -1; // -1 means we have not started imaging yet
     }
 
     public Setup Setup { get; }
-
-    public int SetpointCCDTemperature { get; }
 
     public Observation? CurrentObservation => _activeObservation is int active and >= 0 && active < _observations.Count ? _observations[active] : null;
 
@@ -63,7 +60,6 @@ public class Session
     void LogError(string info) => _external.LogError(info);
 
     const int MAX_FAILSAFE = 1000;
-    const int ALT_OBSERVATION_LIMIT = 15;
 
     public void Run(CancellationToken cancellationToken)
     {
@@ -87,7 +83,7 @@ public class Session
             }
 
             // TODO wait until 20 before astro dark to start cooling down without loosing time
-            CoolCamerasToSetpoint(SetpointCCDTemperature, TimeSpan.FromSeconds(20), 80, CoolDirection.Down, cancellationToken);
+            CoolCamerasToSetpoint(_sessionConfiguration.SetpointCCDTemperature, _sessionConfiguration.CooldownRampInterval, 80, CoolDirection.Down, cancellationToken);
 
             ObservationLoop(cancellationToken);
         }
@@ -104,7 +100,7 @@ public class Session
                 ["Stop Tracking"] = Catch(() => mount.Driver.CanSetTracking && !(mount.Driver.Tracking = false)),
                 ["Stop Guider"] = Catch(() => !(guider.Driver.Connected = false)),
                 ["Park Mount"] = Catch(() => mount.Driver.CanPark && mount.Driver.Park()),
-                ["Ramped down cooling"] = Catch(() => CoolCamerasToSetpoint(null, TimeSpan.FromMinutes(1), 0.1, CoolDirection.Up, CancellationToken.None))
+                ["Ramped down cooling"] = Catch(() => CoolCamerasToSetpoint(null, _sessionConfiguration.CoolupRampInterval, 0.1, CoolDirection.Up, CancellationToken.None))
             };
 
             for (var i = 0; i < Setup.Telescopes.Count; i++)
@@ -210,7 +206,7 @@ public class Session
             if (!TryGetTransformOfObservation(mount, observation, out var transform)
                 || !TryTransformJ2000ToMountNative(mount, transform, observation, out var raMount, out var decMount, out az, out alt)
                 || double.IsNaN(alt)
-                || alt < ALT_OBSERVATION_LIMIT
+                || alt < _sessionConfiguration.MinHeightAboveHorizon
                 || !mount.Driver.SlewAsync(raMount, decMount))
             {
                 LogError($"Failed to slew {mount.Device.DisplayName} to target {observation} az={az:0.00} alt={alt:0.00}, skipping.");
@@ -334,7 +330,8 @@ public class Session
         }
 
         var maxSubExposureSec = subExposuresSec.Max();
-        var tickGCD = StatisticsHelper.GCD(subExposuresSec);
+        var tickGCD = GCD(subExposuresSec);
+        var tickLCM = LCM(tickGCD, subExposuresSec);
         var tickSec = TimeSpan.FromSeconds(tickGCD);
         var ticksPerMaxSubExposure = maxSubExposureSec / tickGCD;
         var expStartTimes = new DateTime[scopes];
