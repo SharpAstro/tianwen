@@ -92,7 +92,7 @@ public interface IGuider : IDeviceDriver
 
     /// <summary>
     /// Start guiding with the given settling parameters. PHD2 takes care of looping exposures,
-    /// guide star selection, and settling. Call CheckSettling() periodically to see when settling
+    /// guide star selection, and settling. Call <see cref="TryGetSettleProgress(out SettleProgress?)"/> periodically to see when settling
     /// is complete.
     /// </summary>
     /// <param name="settlePixels">settle threshold in pixels</param>
@@ -101,7 +101,7 @@ public interface IGuider : IDeviceDriver
     void Guide(double settlePixels, double settleTime, double settleTimeout);
 
     /// <summary>
-    /// Dither guiding with the given dither amount and settling parameters. Call <see cref="CheckSettling()"/>
+    /// Dither guiding with the given dither amount and settling parameters. Call <see cref="TryGetSettleProgress(out SettleProgress?)"/> or <see cref="IsSettling()"/>
     /// periodically to see when settling is complete.
     /// </summary>
     /// <param name="ditherPixels"></param>
@@ -117,16 +117,18 @@ public interface IGuider : IDeviceDriver
     bool IsLooping();
 
     /// <summary>
-    /// Check if phd2 is currently in the process of settling after a Guide or Dither
+    /// Check if guider is currently in the process of settling after a Guide or Dither.
+    /// A simplified version of <see cref="TryGetSettleProgress(out SettleProgress?)"/>
     /// </summary>
-    /// <returns></returns>
+    /// <returns>true if settling is in progress.</returns>
     bool IsSettling();
 
     /// <summary>
-    /// Get the progress of settling
+    /// Returns true if settling is in progress and additional information in <paramref name="settleProgress"/>
     /// </summary>
-    /// <returns></returns>
-    SettleProgress CheckSettling();
+    /// <param name="settleProgress"></param>
+    /// <returns>true if still settling</returns>
+    public bool TryGetSettleProgress([NotNullWhen(true)] out SettleProgress? settleProgress);
 
     // Get the guider statistics since guiding started. Frames captured while settling is in progress
     // are excluded from the stats.
