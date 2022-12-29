@@ -33,6 +33,7 @@ public interface IMountDriver : IDeviceDriver
 
     bool AtPark { get; }
 
+    // returns true if park command was accepted
     bool Park();
 
     bool Unpark();

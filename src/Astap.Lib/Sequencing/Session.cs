@@ -97,12 +97,28 @@ public class Session
         {
             LogInfo("Executing session run finaliser: Stop tracking, disconnect guider, cool up, turn off cooler, park scope.");
 
+            var stopTracking = Catch(() => mount.Driver.CanSetTracking && !(mount.Driver.Tracking = false));
+            var stopGuider = Catch(() => !(guider.Driver.Connected = false));
+            var initiatePark = Catch(() => mount.Driver.CanPark && mount.Driver.Park());
+            var completePark = initiatePark && Catch(() =>
+            {
+                int i = 0;
+                while (mount.Driver.IsSlewing && i++ < MAX_FAILSAFE)
+                {
+                    Sleep(TimeSpan.FromMilliseconds(100));
+                }
+
+                return mount.Driver.AtPark;
+            });
+            var cooledUpCameras = Catch(() => CoolCamerasToSetpoint(null, Configuration.CoolupRampInterval, 0.1, CoolDirection.Up, CancellationToken.None));
+
             var shutdownReport = new Dictionary<string, bool>
             {
-                ["Stop Tracking"] = Catch(() => mount.Driver.CanSetTracking && !(mount.Driver.Tracking = false)),
-                ["Stop Guider"] = Catch(() => !(guider.Driver.Connected = false)),
-                ["Park Mount"] = Catch(() => mount.Driver.CanPark && mount.Driver.Park()),
-                ["Ramped down cooling"] = Catch(() => CoolCamerasToSetpoint(null, Configuration.CoolupRampInterval, 0.1, CoolDirection.Up, CancellationToken.None))
+                ["Stop tracking"] = stopTracking,
+                ["Stop guider"] = stopGuider,
+                ["Park initiated"] = initiatePark,
+                ["Park completed"] = completePark,
+                ["Cooled up cameras"] = cooledUpCameras
             };
 
             for (var i = 0; i < Setup.Telescopes.Count; i++)
@@ -131,17 +147,10 @@ public class Session
         mount.Connected = true;
         guider.Connected = true;
 
-        if (mount.Driver.AtPark)
+        if (mount.Driver.AtPark && (!mount.Driver.CanUnpark || !mount.Driver.Unpark()))
         {
-            if (mount.Driver.CanUnpark)
-            {
-                mount.Driver.Unpark();
-            }
-            else
-            {
-                LogError($"Mount {mount.Device.DisplayName} is parked but cannot be unparked. Aborting.");
-                return false;
-            }
+            LogError($"Mount {mount.Device.DisplayName} is parked but cannot be unparked. Aborting.");
+            return false;
         }
 
         for (var i = 0; i < Setup.Telescopes.Count; i++)

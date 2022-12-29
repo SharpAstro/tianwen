@@ -204,7 +204,7 @@ namespace Astap.Lib.Devices.Ascom
             if (Connected && CanPark && _comObject is { } obj)
             {
                 obj.Park();
-                return AtPark;
+                return true;
             }
 
             return false;
