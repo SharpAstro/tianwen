@@ -87,7 +87,15 @@ else
 }
 
 var setup = new Setup(mount, guider, new Telescope("Sim Scope", 250, camera, null, null, null, null));
-var sessionConfiguration = new SessionConfiguration(3, TimeSpan.FromSeconds(20), TimeSpan.FromMilliseconds(1), 15);
+var sessionConfiguration = new SessionConfiguration(
+    SetpointCCDTemperature: 3,
+    CooldownRampInterval: TimeSpan.FromSeconds(20),
+    CoolupRampInterval: TimeSpan.FromMilliseconds(1),
+    MinHeightAboveHorizon: 15,
+    DitherPixel: 30d,
+    SettlePixel: 0.3d,
+    SettleTime: TimeSpan.FromSeconds(30)
+);
 var session = new Session(setup, sessionConfiguration, external, observations);
 
 session.Run(cts.Token);

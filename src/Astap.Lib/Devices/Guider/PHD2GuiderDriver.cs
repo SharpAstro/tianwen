@@ -669,37 +669,44 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         return isSettling;
     }
 
-    public SettleProgress CheckSettling()
+    public bool TryGetSettleProgress([NotNullWhen(true)] out SettleProgress? settleProgress)
     {
         EnsureConnected();
-
-        var settleProgress = new SettleProgress();
 
         lock (m_sync)
         {
             if (Settle == null)
-                throw new GuiderException("not settling");
+            {
+                settleProgress = null;
+                return false;
+            }
 
             if (Settle.Done)
             {
-                // settle is done
-                settleProgress.Done = true;
-                settleProgress.Status = Settle.Status;
-                settleProgress.Error = Settle.Error;
+                settleProgress = new SettleProgress
+                {
+                    Done = true,
+                    Status = Settle.Status,
+                    Error = Settle.Error
+                };
                 Settle = null;
+
+                return true;
             }
             else
             {
-                // settle in progress
-                settleProgress.Done = false;
-                settleProgress.Distance = Settle.Distance;
-                settleProgress.SettlePx = SettlePixels;
-                settleProgress.Time = Settle.Time;
-                settleProgress.SettleTime = Settle.SettleTime;
+                settleProgress = new SettleProgress
+                {
+                    Done = false,
+                    Distance = Settle.Distance,
+                    SettlePx = SettlePixels,
+                    Time = Settle.Time,
+                    SettleTime = Settle.SettleTime
+                };
+
+                return true;
             }
         }
-
-        return settleProgress;
     }
 
     public GuideStats? GetStats()

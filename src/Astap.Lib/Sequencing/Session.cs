@@ -61,6 +61,7 @@ public class Session
     void LogError(string info) => _external.LogError(info);
 
     const int MAX_FAILSAFE = 1000;
+    const int SETTLE_TIMEOUT_FACTOR = 3;
 
     public void Run(CancellationToken cancellationToken)
     {
@@ -271,7 +272,7 @@ public class Session
                 continue;
             }
 
-            ImagingLoop(guider, mount, observation, hourAngleAtSlewTime, cancellationToken);
+            ImagingLoop(observation, hourAngleAtSlewTime, cancellationToken);
         } // end observation loop
     }
 
@@ -285,7 +286,7 @@ public class Session
             {
                 var settlePix = 0.3 + (startGuidingTries * 0.2);
                 var settleTime = 15 + (startGuidingTries * 5);
-                var settleTimeout = 50 + (startGuidingTries * 10);
+                var settleTimeout = settleTime * SETTLE_TIMEOUT_FACTOR;
 
                 LogInfo($"Start guiding using {guider.Device.DeviceId}, settle pixels: {settlePix}, settle time: {settleTime}s, timeout: {settleTimeout}s");
                 guider.Driver.Guide(settlePix, settleTime, settleTimeout);
@@ -303,7 +304,7 @@ public class Session
                 }
                 else if (!guidingSuccess)
                 {
-                    Sleep(TimeSpan.FromMinutes(5 * startGuidingTries));
+                    Sleep(TimeSpan.FromMinutes(startGuidingTries));
                 }
             }
             catch (Exception e)
@@ -316,11 +317,14 @@ public class Session
         return guidingSuccess;
     }
 
-    internal void ImagingLoop(Guider guider, Mount mount, in Observation observation, double hourAngleAtSlewTime, CancellationToken cancellationToken)
+    internal void ImagingLoop(in Observation observation, double hourAngleAtSlewTime, CancellationToken cancellationToken)
     {
+        var guider = Setup.Guider;
+        var mount = Setup.Mount;
         var scopes = Setup.Telescopes.Count;
         var frameNumbers = new int[scopes];
         var subExposuresSec = new int[scopes];
+
         for (var i = 0; i < scopes; i++)
         {
             var camera = Setup.Telescopes[i].Camera;
@@ -339,17 +343,13 @@ public class Session
         var expTicks = new int[scopes];
 
         var overslept = TimeSpan.Zero;
-        double currentHourAngle;
-        PierSide pierSide;
         var imageWriteQueue = new Queue<(Image image, Observation observation, DateTime expStartTime, int frameNumber)>();
         while (!cancellationToken.IsCancellationRequested
             && mount.Connected
             && Catch(() => mount.Driver.Tracking)
             && guider.Connected
             && Catch(guider.Driver.IsGuiding)
-            && (pierSide = mount.Driver.SideOfPier) == mount.Driver.ExpectedSideOfPier
-            && !double.IsNaN(currentHourAngle = mount.Driver.HourAngle)
-            && (pierSide != PierSide.Unknown || Math.Sign(hourAngleAtSlewTime) == Math.Sign(currentHourAngle))
+            && IsOnSamePierSide()
             && mount.Driver.TryGetUTCDate(out var expStartTime)
         )
         {
@@ -371,21 +371,7 @@ public class Session
                 }
             }
 
-            var stopWatch = Stopwatch.StartNew();
-            while (imageWriteQueue.TryDequeue(out var imageWrite))
-            {
-                try
-                {
-                    WriteImageToFitsFile(imageWrite.image, imageWrite.observation, imageWrite.expStartTime, imageWrite.frameNumber);
-                }
-                catch (Exception ex)
-                {
-                    LogError($"Failed to save frame #{imageWrite.frameNumber} taken at {imageWrite.expStartTime:o} by {imageWrite.image.ImageMeta.Instrument} due to error: {ex.Message}");
-                }
-            }
-            var elapsed = stopWatch.Elapsed;
-            stopWatch.Stop();
-
+            var elapsed = WriteQueuedImagesToFitsFiles();
             var tickMinusElapsed = tickSec - elapsed - overslept;
             // clear overslept
             overslept = TimeSpan.Zero;
@@ -399,21 +385,22 @@ public class Session
                 Sleep(tickMinusElapsed);
             }
 
+            var imageFetchSuccess = new bool[scopes];
             for (var i = 0; i < scopes && !cancellationToken.IsCancellationRequested; i++)
             {
                 var tick = --expTicks[i];
 
                 var camera = Setup.Telescopes[i].Camera;
+                imageFetchSuccess[i] = false;
                 if (tick <= 0)
                 {
-                    bool fetchImageSuccess = false;
                     var frameNo = frameNumbers[i];
                     var frameExpTime = TimeSpan.FromSeconds(subExposuresSec[i]);
-                    do
+                    do // wait for image loop
                     {
                         if (camera.Driver.ImageReady is true && camera.Driver.Image is { Width: > 0, Height: > 0 } image)
                         {
-                            fetchImageSuccess = true;
+                            imageFetchSuccess[i] = true;
                             LogInfo($"Camera #{(i + 1)} {camera.Driver.Name} finished {frameExpTime} exposure of frame #{frameNo}");
 
                             imageWriteQueue.Enqueue((image, observation, expStartTime, frameNo));
@@ -431,11 +418,110 @@ public class Session
                         && !cancellationToken.IsCancellationRequested
                     );
 
-                    if (!fetchImageSuccess)
+                    if (!imageFetchSuccess[i])
                     {
                         LogError($"Failed fetching camera #{(i + 1)} {camera.Driver.Name} {frameExpTime} exposure of frame #{frameNo}, camera state: {camera.Driver.CameraState}");
                     }
                 }
+            }
+
+            if (!IsOnSamePierSide())
+            {
+                if (observation.AcrossMeridian)
+                {
+                    // TODO, stop guiding flip, resync, verify and restart guiding
+                    throw new InvalidOperationException("Observing across meridian is not yet supported");
+                }
+            }
+            else if (Array.TrueForAll(imageFetchSuccess, x => x))
+            {
+                var ditherPixel = Configuration.DitherPixel;
+                var settlePixel = Configuration.SettlePixel;
+                var settleTime = Configuration.SettleTime;
+                var settleTimeout = (settleTime * SETTLE_TIMEOUT_FACTOR);
+
+                LogInfo($"Start dithering pixel={ditherPixel} settlePixel={settlePixel} settleTime={settleTime}, timeout={settleTimeout}");
+
+                guider.Driver.Dither(ditherPixel, settlePixel, settleTime.TotalSeconds, settleTimeout.TotalSeconds);
+
+                elapsed = WriteQueuedImagesToFitsFiles();
+
+                for (var i = 0; i < SETTLE_TIMEOUT_FACTOR; i++)
+                {
+                    if (!cancellationToken.IsCancellationRequested)
+                    {
+                        SleepWithOvertime(settleTime, elapsed);
+                    }
+                    else
+                    {
+                        break;
+                    }
+                    if (guider.Driver.TryGetSettleProgress(out var settleProgress) && settleProgress is { Done: false })
+                    {
+                        if (settleProgress.Error is { Length: > 0 } error)
+                        {
+                            LogError($"Settling after dithering failed with: {error}");
+                        }
+                        else
+                        {
+                            LogInfo($"Settle still in progress: settle pixel={settleProgress.SettlePx} dist={settleProgress.Distance}");
+                        }
+                    }
+                    else
+                    {
+                        if (settleProgress?.Error is { Length: > 0 } error)
+                        {
+                            LogError($"Settling after dithering failed with: {error} pixel={settleProgress.SettlePx} dist={settleProgress.Distance}");
+                        }
+                        else if (settleProgress is not null)
+                        {
+                            LogInfo($"Settle finished: settle pixel={settleProgress.SettlePx} pixel={settleProgress.SettlePx} dist={settleProgress.Distance}");
+                        }
+                        break;
+                    }    
+                }
+            }
+        } // end imaging loop
+
+        bool IsOnSamePierSide()
+        {
+            var pierSide = Catch(() => mount.Driver.SideOfPier, PierSide.Unknown);
+            var currentHourAngle = Catch(() => mount.Driver.HourAngle, double.NaN);
+            return pierSide == mount.Driver.ExpectedSideOfPier
+                && !double.IsNaN(currentHourAngle)
+                && (pierSide != PierSide.Unknown || Math.Sign(hourAngleAtSlewTime) == Math.Sign(currentHourAngle));
+        }
+
+        TimeSpan WriteQueuedImagesToFitsFiles()
+        {
+            var stopWatch = Stopwatch.StartNew();
+            while (imageWriteQueue.TryDequeue(out var imageWrite))
+            {
+                try
+                {
+                    WriteImageToFitsFile(imageWrite.image, imageWrite.observation, imageWrite.expStartTime, imageWrite.frameNumber);
+                }
+                catch (Exception ex)
+                {
+                    LogError($"Failed to save frame #{imageWrite.frameNumber} taken at {imageWrite.expStartTime:o} by {imageWrite.image.ImageMeta.Instrument} due to error: {ex.Message}");
+                }
+            }
+            var elapsed = stopWatch.Elapsed;
+            stopWatch.Stop();
+            return elapsed;
+        }
+
+        void SleepWithOvertime(TimeSpan sleep, TimeSpan extra)
+        {
+            var adjustedTime = sleep - extra;
+            if (adjustedTime >= TimeSpan.Zero)
+            {
+                overslept = TimeSpan.Zero;
+                Sleep(adjustedTime);
+            }
+            else
+            {
+                overslept = adjustedTime.Negate();
             }
         }
     }
@@ -644,7 +730,7 @@ public class Session
         image.WriteToFitsFile(Path.Combine(frameFolder, fitsFileName));
     }
 
-    internal T Catch<T>(Func<T> func)
+    internal T Catch<T>(Func<T> func, T @default = default)
         where T : struct
     {
         try
@@ -654,7 +740,7 @@ public class Session
         catch (Exception ex)
         {
             LogError($"Error {ex.Message} while executing: {func.Method.Name}");
-            return default;
+            return @default;
         }
     }
 }
