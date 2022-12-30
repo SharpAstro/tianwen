@@ -97,7 +97,7 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
             }
         }
     }
-    
+
     public bool FastReadout
     {
         get => Connected && CanFastReadout && _comObject?.FastReadout is bool fastReadout && fastReadout;
