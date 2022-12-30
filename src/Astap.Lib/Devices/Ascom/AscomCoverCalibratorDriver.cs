@@ -36,7 +36,7 @@ public class AscomCoverCalibratorDriver : AscomDeviceDriverBase, ICoverDriver
     {
         if (Connected && _comObject is { } obj)
         {
-            obj.CloseClover();
+            obj.CloseCover();
             return true;
         }
         return false;
@@ -46,7 +46,7 @@ public class AscomCoverCalibratorDriver : AscomDeviceDriverBase, ICoverDriver
     {
         if (Connected && _comObject is { } obj)
         {
-            obj.OpenClover();
+            obj.OpenCover();
             return true;
         }
         return false;
