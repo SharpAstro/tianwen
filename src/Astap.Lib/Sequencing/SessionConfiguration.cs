@@ -9,5 +9,6 @@ public record SessionConfiguration(
     byte MinHeightAboveHorizon,
     double DitherPixel,
     double SettlePixel,
+    int DitherEveryNFrame,
     TimeSpan SettleTime
 );

@@ -56,82 +56,134 @@ public class Session
 
     public Observation? CurrentObservation => _activeObservation is int active and >= 0 && active < _observations.Count ? _observations[active] : null;
 
-    void Sleep(TimeSpan duration) => _external.Sleep(duration);
-    void LogInfo(string info) => _external.LogInfo(info);
-    void LogError(string info) => _external.LogError(info);
-
     const int MAX_FAILSAFE = 1000;
     const int SETTLE_TIMEOUT_FACTOR = 3;
 
     public void Run(CancellationToken cancellationToken)
-    {
-        var guider = Setup.Guider;
-        var mount = Setup.Mount;
+        => Run(Setup, Configuration, _guiderEvents, () => CurrentObservation, () => Interlocked.Increment(ref _activeObservation), _external, cancellationToken);
 
+    internal static void Run(
+        Setup setup,
+        SessionConfiguration configuration,
+        ConcurrentQueue<GuiderEventArgs> guiderEvents,
+        Func<Observation?> currentObservation,
+        Func<int> nextObservation,
+        IExternal external,
+        CancellationToken cancellationToken
+    )
+    {
         try
         {
-            var active = Interlocked.Increment(ref _activeObservation);
+            var active = nextObservation();
             // run initialisation code
             if (active == 0)
             {
-                if (!Initialisation(cancellationToken))
+                if (!Initialisation(setup, guiderEvents, external, cancellationToken))
                 {
                     return;
                 }
             }
-            else if (active >= _observations.Count)
+            else if (currentObservation() is null)
             {
                 return;
             }
 
             // TODO wait until 20 before astro dark to start cooling down without loosing time
-            CoolCamerasToSetpoint(Configuration.SetpointCCDTemperature, Configuration.CooldownRampInterval, 80, CoolDirection.Down, cancellationToken);
+            CoolCamerasToSetpoint(setup, configuration.SetpointCCDTemperature, configuration.CooldownRampInterval, 80, CoolDirection.Down, external, cancellationToken);
 
-            ObservationLoop(cancellationToken);
+            ObservationLoop(setup, configuration, currentObservation, nextObservation, external, cancellationToken);
         }
         catch (Exception e)
         {
-            LogError($"Unrecoverable error {e.Message} occured, aborting session");
+            external.LogException(e, "in main run loop, unrecoverable, ending session.");
         }
         finally
         {
-            LogInfo("Executing session run finaliser: Stop tracking, disconnect guider, cool up, turn off cooler, park scope.");
+            Finalise(setup, configuration, external, cancellationToken);
+        }
+    }
 
-            var stopTracking = Catch(() => mount.Driver.CanSetTracking && !(mount.Driver.Tracking = false));
-            var stopGuider = Catch(() => !(guider.Driver.Connected = false));
-            var initiatePark = Catch(() => mount.Driver.CanPark && mount.Driver.Park());
-            var completePark = initiatePark && Catch(() =>
+    internal static void Finalise(Setup setup, SessionConfiguration configuration, IExternal external, CancellationToken cancellationToken)
+    {
+        external.LogInfo("Executing session run finaliser: Stop tracking, disconnect guider, cool up, turn off cooler, park scope.");
+
+        var mount = setup.Mount;
+        var guider = setup.Guider;
+
+        var maybeCoversClosed = null as bool?;
+        var maybeCooledCamerasToAmbient = null as bool?;
+        var trackingStopped = Catch(() => mount.Driver.CanSetTracking && !(mount.Driver.Tracking = false), external);
+
+        if (trackingStopped)
+        {
+            maybeCoversClosed ??= Catch(CloseCovers, external);
+            maybeCooledCamerasToAmbient ??= Catch(CoolCamerasToAmbient, external);
+        }
+        
+        var guiderStopped = Catch(() => !(guider.Driver.Connected = false), external);
+        
+        var parkInitiated = Catch(() => mount.Driver.CanPark && mount.Driver.Park(), external);
+        
+        var parkCompleted = parkInitiated && Catch(() =>
+        {
+            int i = 0;
+            while (!mount.Driver.AtPark && i++ < MAX_FAILSAFE)
             {
-                int i = 0;
-                while (mount.Driver.IsSlewing && i++ < MAX_FAILSAFE)
-                {
-                    Sleep(TimeSpan.FromMilliseconds(100));
-                }
-
-                return mount.Driver.AtPark;
-            });
-            var cooledUpCameras = Catch(() => CoolCamerasToSetpoint(null, Configuration.CoolupRampInterval, 0.1, CoolDirection.Up, CancellationToken.None));
-
-            var shutdownReport = new Dictionary<string, bool>
-            {
-                ["Stop tracking"] = stopTracking,
-                ["Stop guider"] = stopGuider,
-                ["Park initiated"] = initiatePark,
-                ["Park completed"] = completePark,
-                ["Cooled up cameras"] = cooledUpCameras
-            };
-
-            for (var i = 0; i < Setup.Telescopes.Count; i++)
-            {
-                var telescope = Setup.Telescopes[i];
-                shutdownReport[$"Camera #{(i + 1)} Cooler Off"] = Catch(() => telescope.Camera.Driver.CanGetCoolerOn && !(telescope.Camera.Driver.CoolerOn = false));
+                external.Sleep(TimeSpan.FromMilliseconds(100));
             }
 
-            if (shutdownReport.Values.Any(v => !v))
+            return mount.Driver.AtPark;
+        }, external);
+
+        if (parkCompleted)
+        {
+            maybeCoversClosed ??= Catch(CloseCovers, external);
+            maybeCooledCamerasToAmbient ??= Catch(CoolCamerasToAmbient, external);
+        }
+
+        var coversClosed = maybeCoversClosed ??= Catch(CloseCovers, external);
+        var cooledCamerasToAmbient = maybeCooledCamerasToAmbient ??= Catch(CoolCamerasToAmbient, external);
+
+        var shutdownReport = new Dictionary<string, bool>
+        {
+            ["Covers closed"] = coversClosed,
+            ["Stop tracking"] = trackingStopped,
+            ["Stop guider"] = guiderStopped,
+            ["Park initiated"] = parkInitiated,
+            ["Park completed"] = parkCompleted,
+            ["Cooled up cameras"] = cooledCamerasToAmbient
+        };
+
+        for (var i = 0; i < setup.Telescopes.Count; i++)
+        {
+            var camDriver = setup.Telescopes[i].Camera.Driver;
+            if (Catch(() => camDriver.CanGetCoolerOn, external))
             {
-                LogError($"Partially failed shut-down of session: {string.Join(", ", shutdownReport.Select(p => p.Key + ": " + (p.Value ? "success" : "fail")))}");
+                shutdownReport[$"Camera #{(i + 1)} Cooler Off"] = Catch(() => !camDriver.CoolerOn || !(camDriver.CoolerOn = false), external);
+            }
+            if (Catch(() => camDriver.CanGetCoolerPower, external))
+            {
+                shutdownReport[$"Camera #{(i + 1)} Cooler Power <= 0.1"] = Catch(() => camDriver.CoolerPower is <= 0.1, external);
+            }
+            if (Catch(() => camDriver.CanGetHeatsinkTemperature, external))
+            {
+                shutdownReport[$"Camera #{(i + 1)} Temp near ambient"] = Catch(() => Math.Abs(camDriver.CCDTemperature - camDriver.HeatSinkTemperature) < 1d, external);
             }
         }
+
+        if (shutdownReport.Values.Any(v => !v))
+        {
+            external.LogError($"Partially failed shut-down of session: {string.Join(", ", shutdownReport.Select(p => p.Key + ": " + (p.Value ? "success" : "fail")))}");
+        }
+        else
+        {
+            external.LogInfo("Shutdown complete, session ended. Please turn off mount and camera cooler power.");
+        }
+
+        // cannot be cancelled (as it would possibly destroy the cameras)
+        bool CoolCamerasToAmbient() => CoolCamerasToSetpoint(setup, null, configuration.CoolupRampInterval, 0.1, CoolDirection.Up, external, CancellationToken.None);
+
+        bool CloseCovers() => MoveTelescopeCoversToSate(setup, CoverStatus.Closed, external, cancellationToken);
     }
 
     /// <summary>
@@ -139,23 +191,23 @@ public class Session
     /// </summary>
     /// <param name="cancellationToken"></param>
     /// <returns>True if initialisation was successful.</returns>
-    internal bool Initialisation(CancellationToken cancellationToken)
+    internal static bool Initialisation(Setup setup, ConcurrentQueue<GuiderEventArgs> guiderEvents, IExternal external, CancellationToken cancellationToken)
     {
-        var guider = Setup.Guider;
-        var mount = Setup.Mount;
+        var mount = setup.Mount;
+        var guider = setup.Guider;
 
-        mount.Connected = true;
+        setup.Mount.Connected = true;
         guider.Connected = true;
 
         if (mount.Driver.AtPark && (!mount.Driver.CanUnpark || !mount.Driver.Unpark()))
         {
-            LogError($"Mount {mount.Device.DisplayName} is parked but cannot be unparked. Aborting.");
+            external.LogError($"Mount {mount.Device.DisplayName} is parked but cannot be unparked. Aborting.");
             return false;
         }
 
-        for (var i = 0; i < Setup.Telescopes.Count; i++)
+        for (var i = 0; i < setup.Telescopes.Count; i++)
         {
-            var telescope = Setup.Telescopes[i];
+            var telescope = setup.Telescopes[i];
             var camera = telescope.Camera;
             camera.Connected = true;
 
@@ -167,11 +219,21 @@ public class Session
             }
         }
 
-        Setup.Guider.Driver.UnhandledEvent += GuiderUnhandledEvent;
-        Setup.Guider.Driver.GuidingErrorEvent += GuidingErrorEvent;
-        Setup.Guider.Driver.ConnectEquipment();
+        CoolCamerasToSensorTemp(setup, external);
 
-        CoolCamerasToSensorTemp();
+        if (MoveTelescopeCoversToSate(setup, CoverStatus.Open, external, cancellationToken))
+        {
+            external.LogInfo("All covers opened, and calibrator turned off.");
+        }
+        else
+        {
+            external.LogError("Openening telescope covers failed, aborting session.");
+            return false;
+        }
+
+        guider.Driver.UnhandledEvent += (_, e) => guiderEvents.Enqueue(e);
+        guider.Driver.GuidingErrorEvent +=  (_, e) => guiderEvents.Enqueue(e);
+        guider.Driver.ConnectEquipment();
 
         if (cancellationToken.IsCancellationRequested)
         {
@@ -179,28 +241,25 @@ public class Session
         }
 
         // wait for cameras to settle (QHY dodgy power value, Simulator cam starts on 100% power, ...)
-        Sleep(TimeSpan.FromSeconds(30));
+        external.Sleep(TimeSpan.FromSeconds(30));
 
         return true;
     }
 
-    private void GuidingErrorEvent(object? sender, GuidingErrorEventArgs e)
+    internal static void ObservationLoop(
+        Setup setup,
+        SessionConfiguration configuration,
+        Func<Observation?> currentObservation,
+        Func<int> nextObservation,
+        IExternal external,
+        CancellationToken cancellationToken
+    )
     {
-        _guiderEvents.Enqueue(e);
-    }
-
-    private void GuiderUnhandledEvent(object? sender, Devices.Guider.UnhandledEventArgs e)
-    {
-        _guiderEvents.Enqueue(e);
-    }
-
-    internal void ObservationLoop(CancellationToken cancellationToken)
-    {
-        var guider = Setup.Guider;
-        var mount = Setup.Mount;
+        var guider = setup.Guider;
+        var mount = setup.Mount;
 
         Observation? observation;
-        while ((observation = CurrentObservation) is not null && !cancellationToken.IsCancellationRequested)
+        while ((observation = currentObservation()) is not null && !cancellationToken.IsCancellationRequested)
         {
             if (mount.Driver.CanSetTracking)
             {
@@ -208,7 +267,7 @@ public class Session
                 mount.Driver.Tracking = true;
             }
 
-            LogInfo($"Stop guiding to start slewing mount to target {observation}");
+            external.LogInfo($"Stop guiding to start slewing mount to target {observation}.");
             guider.Driver.StopCapture();
 
             // skip target if slew is not successful
@@ -217,11 +276,11 @@ public class Session
             if (!TryGetTransformOfObservation(mount, observation, out var transform)
                 || !TryTransformJ2000ToMountNative(mount, transform, observation, out var raMount, out var decMount, out az, out alt)
                 || double.IsNaN(alt)
-                || alt < Configuration.MinHeightAboveHorizon
+                || alt < configuration.MinHeightAboveHorizon
                 || !mount.Driver.SlewAsync(raMount, decMount))
             {
-                LogError($"Failed to slew {mount.Device.DisplayName} to target {observation} az={az:0.00} alt={alt:0.00}, skipping.");
-                Interlocked.Increment(ref _activeObservation);
+                external.LogError($"Failed to slew {mount.Device.DisplayName} to target {observation} az={az:0.00} alt={alt:0.00}, skipping.");
+                nextObservation();
                 continue;
             }
 
@@ -231,61 +290,62 @@ public class Session
             {
                 while (mount.Driver.IsSlewing && failsafeCounter++ < MAX_FAILSAFE && !cancellationToken.IsCancellationRequested)
                 {
-                    Sleep(TimeSpan.FromSeconds(1));
+                    external.Sleep(TimeSpan.FromSeconds(1));
                 }
 
                 if (cancellationToken.IsCancellationRequested)
                 {
-                    LogError($"Cancellation requested, abort slewing to target {observation} and quit imaging loop");
+                    external.LogWarning($"Cancellation requested, abort slewing to target {observation} and quit imaging loop.");
                     break;
                 }
 
                 if (mount.Driver.IsSlewing || failsafeCounter == MAX_FAILSAFE)
                 {
-                    throw new InvalidOperationException($"Failsafe activated when slewing {mount.Device.DisplayName} to {observation}");
+                    throw new InvalidOperationException($"Failsafe activated when slewing {mount.Device.DisplayName} to {observation}.");
                 }
 
                 if (double.IsNaN(hourAngleAtSlewTime = mount.Driver.HourAngle))
                 {
-                    throw new InvalidOperationException($"Could not obtain hour angle after slewing {mount.Device.DisplayName} to {observation}");
+                    throw new InvalidOperationException($"Could not obtain hour angle after slewing {mount.Device.DisplayName} to {observation}.");
                 }
 
-                LogInfo($"Finished slewing mount {mount.Device.DisplayName} to target {observation}");
+                external.LogInfo($"Finished slewing mount {mount.Device.DisplayName} to target {observation}.");
             }
             catch (Exception e)
             {
                 if (cancellationToken.IsCancellationRequested)
                 {
+                    external.LogException(e, $"while slewing to target {observation} failed and cancellation requested, aborting.");
                     break;
                 }
                 else
                 {
-                    LogError($"Skipping target as slewing to target {observation} failed: {e.Message}");
-                    Interlocked.Increment(ref _activeObservation);
+                    external.LogException(e, $"while slewing to target {observation} failed, skipping.");
+                    nextObservation();
 
                     continue;
                 }
             }
 
-            var guidingSuccess = StartGuidingLoop(guider, cancellationToken);
+            var guidingSuccess = StartGuidingLoop(guider, external, cancellationToken);
 
             if (cancellationToken.IsCancellationRequested)
             {
-                LogError($"Cancellation requested, abort setting up guiding and quit imaging loop");
+                external.LogWarning($"Cancellation requested, abort setting up guiding and quit imaging loop.");
                 break;
             }
             else if (!guidingSuccess)
             {
-                LogError($"Skipping target {observation} as starting guiding failed after trying twice");
-                Interlocked.Increment(ref _activeObservation);
+                external.LogError($"Skipping target {observation} as starting guiding failed after trying twice.");
+                nextObservation();
                 continue;
             }
 
-            ImagingLoop(observation, hourAngleAtSlewTime, cancellationToken);
+            ImagingLoop(setup, configuration, observation, hourAngleAtSlewTime, external, cancellationToken);
         } // end observation loop
     }
 
-    internal bool StartGuidingLoop(Guider guider, CancellationToken cancellationToken)
+    internal static bool StartGuidingLoop(Guider guider, IExternal external, CancellationToken cancellationToken)
     {
         bool guidingSuccess = false;
         int startGuidingTries = 0;
@@ -297,13 +357,13 @@ public class Session
                 var settleTime = 15 + (startGuidingTries * 5);
                 var settleTimeout = settleTime * SETTLE_TIMEOUT_FACTOR;
 
-                LogInfo($"Start guiding using {guider.Device.DeviceId}, settle pixels: {settlePix}, settle time: {settleTime}s, timeout: {settleTimeout}s");
+                external.LogInfo($"Start guiding using {guider.Device.DeviceId}, settle pixels: {settlePix}, settle time: {settleTime}s, timeout: {settleTimeout}s.");
                 guider.Driver.Guide(settlePix, settleTime, settleTimeout);
 
                 var failsafeCounter = 0;
                 while (guider.Driver.IsSettling() && failsafeCounter++ < MAX_FAILSAFE && !cancellationToken.IsCancellationRequested)
                 {
-                    Sleep(TimeSpan.FromSeconds(10));
+                    external.Sleep(TimeSpan.FromSeconds(10));
                 }
 
                 guidingSuccess = failsafeCounter < MAX_FAILSAFE && guider.Driver.IsGuiding();
@@ -313,12 +373,12 @@ public class Session
                 }
                 else if (!guidingSuccess)
                 {
-                    Sleep(TimeSpan.FromMinutes(startGuidingTries));
+                    external.Sleep(TimeSpan.FromMinutes(startGuidingTries));
                 }
             }
             catch (Exception e)
             {
-                LogError($"Start guiding try #{startGuidingTries} exception while checking if {guider.Device.DeviceId} is guiding: {e.Message}");
+                external.LogException(e, $"while on try #{startGuidingTries} checking if {guider.Device.DeviceId} is guiding.");
                 guidingSuccess = false;
             }
         }
@@ -326,17 +386,17 @@ public class Session
         return guidingSuccess;
     }
 
-    internal void ImagingLoop(in Observation observation, double hourAngleAtSlewTime, CancellationToken cancellationToken)
+    internal static void ImagingLoop(Setup setup, SessionConfiguration configuration, in Observation observation, double hourAngleAtSlewTime, IExternal external, CancellationToken cancellationToken)
     {
-        var guider = Setup.Guider;
-        var mount = Setup.Mount;
-        var scopes = Setup.Telescopes.Count;
+        var guider = setup.Guider;
+        var mount = setup.Mount;
+        var scopes = setup.Telescopes.Count;
         var frameNumbers = new int[scopes];
         var subExposuresSec = new int[scopes];
 
         for (var i = 0; i < scopes; i++)
         {
-            var camera = Setup.Telescopes[i].Camera;
+            var camera = setup.Telescopes[i].Camera;
 
             // TODO per camera exposure calculation, i.e. via f/ratio
             var subExposure = observation.SubExposure;
@@ -350,21 +410,22 @@ public class Session
         var ticksPerMaxSubExposure = maxSubExposureSec / tickGCD;
         var expStartTimes = new DateTime[scopes];
         var expTicks = new int[scopes];
+        var ditherRound = 0;
 
         var overslept = TimeSpan.Zero;
         var imageWriteQueue = new Queue<(Image image, Observation observation, DateTime expStartTime, int frameNumber)>();
         while (!cancellationToken.IsCancellationRequested
             && mount.Connected
-            && Catch(() => mount.Driver.Tracking)
+            && Catch(() => mount.Driver.Tracking, external)
             && guider.Connected
-            && Catch(guider.Driver.IsGuiding)
+            && Catch(guider.Driver.IsGuiding, external)
             && IsOnSamePierSide()
             && mount.Driver.TryGetUTCDate(out var expStartTime)
         )
         {
             for (var i = 0; i < scopes; i++)
             {
-                var cameraDriver = Setup.Telescopes[i].Camera.Driver;
+                var cameraDriver = setup.Telescopes[i].Camera.Driver;
                 switch (cameraDriver.CameraState)
                 {
                     case CameraState.Idle:
@@ -375,7 +436,7 @@ public class Session
                         expTicks[i] = (int)(subExposureSec / tickGCD);
                         var frameNo = ++frameNumbers[i];
 
-                        LogInfo($"Camera #{(i + 1)} {cameraDriver.Name} starting {frameExpTime} exposure of frame #{frameNo}");
+                        external.LogInfo($"Camera #{(i + 1)} {cameraDriver.Name} starting {frameExpTime} exposure of frame #{frameNo}.");
                         break;
                 }
             }
@@ -386,12 +447,12 @@ public class Session
             overslept = TimeSpan.Zero;
             if (cancellationToken.IsCancellationRequested)
             {
-                LogError("Cancellation rquested, abort image acquisition and quit imaging loop");
+                external.LogWarning("Cancellation rquested, abort image acquisition and quit imaging loop");
                 break;
             }
             else if (tickMinusElapsed > TimeSpan.Zero)
             {
-                Sleep(tickMinusElapsed);
+                external.Sleep(tickMinusElapsed);
             }
 
             var imageFetchSuccess = new bool[scopes];
@@ -399,7 +460,7 @@ public class Session
             {
                 var tick = --expTicks[i];
 
-                var camera = Setup.Telescopes[i].Camera;
+                var camera = setup.Telescopes[i].Camera;
                 imageFetchSuccess[i] = false;
                 if (tick <= 0)
                 {
@@ -410,7 +471,7 @@ public class Session
                         if (camera.Driver.ImageReady is true && camera.Driver.Image is { Width: > 0, Height: > 0 } image)
                         {
                             imageFetchSuccess[i] = true;
-                            LogInfo($"Camera #{(i + 1)} {camera.Driver.Name} finished {frameExpTime} exposure of frame #{frameNo}");
+                            external.LogInfo($"Camera #{(i + 1)} {camera.Driver.Name} finished {frameExpTime} exposure of frame #{frameNo}");
 
                             imageWriteQueue.Enqueue((image, observation, expStartTime, frameNo));
                             break;
@@ -419,7 +480,7 @@ public class Session
                         {
                             var spinDuration = TimeSpan.FromMilliseconds(100);
                             overslept += spinDuration;
-                            Sleep(spinDuration);
+                            external.Sleep(spinDuration);
                         }
                     }
                     while (overslept < (tickSec / 5)
@@ -429,27 +490,38 @@ public class Session
 
                     if (!imageFetchSuccess[i])
                     {
-                        LogError($"Failed fetching camera #{(i + 1)} {camera.Driver.Name} {frameExpTime} exposure of frame #{frameNo}, camera state: {camera.Driver.CameraState}");
+                        external.LogError($"Failed fetching camera #{(i + 1)} {camera.Driver.Name} {frameExpTime} exposure of frame #{frameNo}, camera state: {camera.Driver.CameraState}");
                     }
                 }
             }
 
+            var allimageFetchSuccess = Array.TrueForAll(imageFetchSuccess, x => x);
+            var shouldDither = ++ditherRound % configuration.DitherEveryNFrame == 0;
             if (!IsOnSamePierSide())
             {
+                // write all images as the loop is ending here
+                WriteQueuedImagesToFitsFiles();
+                
+                // TODO stop exposures (if we can, and if there are any)
+
                 if (observation.AcrossMeridian)
                 {
                     // TODO, stop guiding flip, resync, verify and restart guiding
                     throw new InvalidOperationException("Observing across meridian is not yet supported");
                 }
+                else
+                {
+
+                }
             }
-            else if (Array.TrueForAll(imageFetchSuccess, x => x))
+            else if (allimageFetchSuccess && shouldDither)
             {
-                var ditherPixel = Configuration.DitherPixel;
-                var settlePixel = Configuration.SettlePixel;
-                var settleTime = Configuration.SettleTime;
+                var ditherPixel = configuration.DitherPixel;
+                var settlePixel = configuration.SettlePixel;
+                var settleTime = configuration.SettleTime;
                 var settleTimeout = (settleTime * SETTLE_TIMEOUT_FACTOR);
 
-                LogInfo($"Start dithering pixel={ditherPixel} settlePixel={settlePixel} settleTime={settleTime}, timeout={settleTimeout}");
+                external.LogInfo($"Start dithering pixel={ditherPixel} settlePixel={settlePixel} settleTime={settleTime}, timeout={settleTimeout}");
 
                 guider.Driver.Dither(ditherPixel, settlePixel, settleTime.TotalSeconds, settleTimeout.TotalSeconds);
 
@@ -469,33 +541,37 @@ public class Session
                     {
                         if (settleProgress.Error is { Length: > 0 } error)
                         {
-                            LogError($"Settling after dithering failed with: {error}");
+                            external.LogError($"Settling after dithering failed with: {error}");
                         }
                         else
                         {
-                            LogInfo($"Settle still in progress: settle pixel={settleProgress.SettlePx} dist={settleProgress.Distance}");
+                            external.LogInfo($"Settle still in progress: settle pixel={settleProgress.SettlePx} dist={settleProgress.Distance}");
                         }
                     }
                     else
                     {
                         if (settleProgress?.Error is { Length: > 0 } error)
                         {
-                            LogError($"Settling after dithering failed with: {error} pixel={settleProgress.SettlePx} dist={settleProgress.Distance}");
+                            external.LogError($"Settling after dithering failed with: {error} pixel={settleProgress.SettlePx} dist={settleProgress.Distance}");
                         }
                         else if (settleProgress is not null)
                         {
-                            LogInfo($"Settle finished: settle pixel={settleProgress.SettlePx} pixel={settleProgress.SettlePx} dist={settleProgress.Distance}");
+                            external.LogInfo($"Settle finished: settle pixel={settleProgress.SettlePx} pixel={settleProgress.SettlePx} dist={settleProgress.Distance}");
                         }
                         break;
                     }    
                 }
             }
+            else if (allimageFetchSuccess)
+            {
+                external.LogInfo($"Skipping dithering ({ditherRound}/{configuration.DitherEveryNFrame} frame)");
+            }
         } // end imaging loop
 
         bool IsOnSamePierSide()
         {
-            var pierSide = Catch(() => mount.Driver.SideOfPier, PierSide.Unknown);
-            var currentHourAngle = Catch(() => mount.Driver.HourAngle, double.NaN);
+            var pierSide = Catch(() => mount.Driver.SideOfPier, external, PierSide.Unknown);
+            var currentHourAngle = Catch(() => mount.Driver.HourAngle, external, double.NaN);
             return pierSide == mount.Driver.ExpectedSideOfPier
                 && !double.IsNaN(currentHourAngle)
                 && (pierSide != PierSide.Unknown || Math.Sign(hourAngleAtSlewTime) == Math.Sign(currentHourAngle));
@@ -508,11 +584,11 @@ public class Session
             {
                 try
                 {
-                    WriteImageToFitsFile(imageWrite.image, imageWrite.observation, imageWrite.expStartTime, imageWrite.frameNumber);
+                    WriteImageToFitsFile(imageWrite.image, imageWrite.observation, imageWrite.expStartTime, imageWrite.frameNumber, external);
                 }
                 catch (Exception ex)
                 {
-                    LogError($"Failed to save frame #{imageWrite.frameNumber} taken at {imageWrite.expStartTime:o} by {imageWrite.image.ImageMeta.Instrument} due to error: {ex.Message}");
+                    external.LogException(ex, $"while saving frame #{imageWrite.frameNumber} taken at {imageWrite.expStartTime:o} by {imageWrite.image.ImageMeta.Instrument}");
                 }
             }
             var elapsed = stopWatch.Elapsed;
@@ -526,7 +602,7 @@ public class Session
             if (adjustedTime >= TimeSpan.Zero)
             {
                 overslept = TimeSpan.Zero;
-                Sleep(adjustedTime);
+                external.Sleep(adjustedTime);
             }
             else
             {
@@ -595,35 +671,61 @@ public class Session
         return !double.IsNaN(raMount) && !double.IsNaN(decMount) && !double.IsNaN(az) && !double.IsNaN(alt);
     }
 
-    internal void OpenTelescopeCovers()
+    internal static bool MoveTelescopeCoversToSate(Setup setup, CoverStatus finalState, IExternal external, CancellationToken cancellationToken)
     {
-        var covers =
-            from telescope in Setup.Telescopes
+        var covers = (
+            from telescope in setup.Telescopes
             let cover = telescope.Cover
             where cover is not null
-            select cover;
+            select cover
+        ).ToArray();
 
-        foreach (var cover in covers)
+        var commandSuccess = new bool[covers.Length];
+
+        for (var i = 0; i < covers.Length; i++)
         {
+            var cover = covers[i];
             cover.Connected = true;
 
             cover.Driver.Brightness = 0;
-            cover.Driver.Open();
+
+            commandSuccess[i] = cover.Driver.CoverState == finalState || finalState switch
+            {
+                CoverStatus.Closed => cover.Driver.Close(),
+                CoverStatus.Open => cover.Driver.Open(),
+                _ => true
+            };
         }
+
+        var finalStateReached = new bool[covers.Length];
+        for (var i = 0; i < covers.Length; i++)
+        {
+            var cover = covers[i];
+            while (cover.Driver.IsMoving && !cancellationToken.IsCancellationRequested)
+            {
+                external.Sleep(TimeSpan.FromSeconds(1));
+            }
+
+            finalStateReached[i] = cover.Driver.CoverState == finalState;
+        }
+
+        return Array.TrueForAll(finalStateReached, x => x);
     }
 
     /// <summary>
     /// Idea is that we keep cooler on but only on the currently reached temperature, so we have less cases to manage in the imaging loop.
     /// Assumes that power is switched on.
     /// </summary>
-    internal void CoolCamerasToSensorTemp()
+    internal static void CoolCamerasToSensorTemp(Setup setup, IExternal external)
     {
-        for (var i = 0; i < Setup.Telescopes.Count; i++)
+        var telescopes = setup.Telescopes;
+        for (var i = 0; i < telescopes.Count; i++)
         {
-            var camera = Setup.Telescopes[i].Camera;
+            var camera = telescopes[i].Camera;
             if (camera.Connected
                 && camera.Driver.CanGetCoolerOn
                 && camera.Driver.CanSetCCDTemperature
+                && camera.Driver.CanGetHeatsinkTemperature
                 && camera.Driver.CCDTemperature is double ccdTemp and >= -40 and <= 50
                 && camera.Driver.HeatSinkTemperature is double heatSinkTemp and >= -40 and <= 50)
             {
@@ -631,7 +733,7 @@ public class Session
                 var actualSetpointTemp = camera.Driver.SetCCDTemperature = Math.Truncate(Math.Min(ccdTemp, heatSinkTemp));
                 var coolerPower = camera.Driver.CanGetCoolerPower ? camera.Driver.CoolerPower : double.NaN;
 
-                LogInfo($"Camera #{(i + 1)} setpoint temperature set to {actualSetpointTemp:0.00} °C, Heatsink {heatSinkTemp:0.00} °C, Power={coolerPower:0.00}%");
+                external.LogInfo($"Camera #{(i + 1)} setpoint temperature set to {actualSetpointTemp:0.00} °C, Heatsink {heatSinkTemp:0.00} °C, Power={coolerPower:0.00}%");
             }
         }
     }
@@ -641,30 +743,37 @@ public class Session
     /// </summary>
     /// <param name="maybeSetpointTemp">Desired degrees Celcius setpoint temperature, if null then ambient temp is chosen</param>
     /// <param name="rampInterval">interval to wait until further adjusting setpoint.</param>
-    internal bool CoolCamerasToSetpoint(int? maybeSetpointTemp, TimeSpan rampInterval, double thresPower, CoolDirection direction, CancellationToken cancellationToken = default)
+    internal static bool CoolCamerasToSetpoint(
+        Setup setup,
+        int? maybeSetpointTemp,
+        TimeSpan rampInterval,
+        double thresPower,
+        CoolDirection direction,
+        IExternal external,
+        CancellationToken cancellationToken
+    )
     {
-        var count = Setup.Telescopes.Count;
+        var count = setup.Telescopes.Count;
         var isRamping = new bool[count];
         var thresholdReachedConsecutiveCounts = new int[count];
 
         var accSleep = TimeSpan.Zero;
         do
         {
-            for (var i = 0; i < Setup.Telescopes.Count; i++)
+            for (var i = 0; i < setup.Telescopes.Count; i++)
             {
-                var camera = Setup.Telescopes[i].Camera;
+                var camera = setup.Telescopes[i].Camera;
                 if (camera.Connected
                     && camera.Driver.CanSetCCDTemperature
                     && camera.Driver.CanGetCoolerOn
+                    && camera.Driver.CanGetHeatsinkTemperature
                     && camera.Driver.CoolerOn
-                    && camera.Driver.CCDTemperature is double ccdTemp
-                    && !double.IsNaN(ccdTemp)
-                    && camera.Driver.HeatSinkTemperature is double heatSinkTemp
-                    && !double.IsNaN(heatSinkTemp)
+                    && camera.Driver.CCDTemperature is double ccdTemp and >= -40 and <= 50
+                    && camera.Driver.HeatSinkTemperature is double heatSinkTemp and >= -40 and <= 50
                 )
                 {
                     var coolerPower = camera.Driver.CanGetCoolerPower ? camera.Driver.CoolerPower : double.NaN;
-                    var setpointTemp = maybeSetpointTemp ?? (!double.IsNaN(heatSinkTemp) ? Math.Truncate(heatSinkTemp) : direction.DefaultSetpointTemp());
+                    var setpointTemp = maybeSetpointTemp ?? Math.Truncate(heatSinkTemp);
 
                     if (direction.NeedsFurtherRamping(ccdTemp, setpointTemp)
                         && (double.IsNaN(coolerPower) || !direction.ThresholdPowerReached(coolerPower, thresPower))
@@ -674,7 +783,7 @@ public class Session
                         isRamping[i] = true;
                         thresholdReachedConsecutiveCounts[i] = 0;
 
-                        LogInfo($"Camera {(i + 1)} setpoint temperature {setpointTemp:0.00} °C not yet reached, " +
+                        external.LogInfo($"Camera {(i + 1)} setpoint temperature {setpointTemp:0.00} °C not yet reached, " +
                             $"cooling {direction.ToString().ToLowerInvariant()} stepwise, currently at {actualSetpointTemp:0.00} °C. " +
                             $" Heatsink={heatSinkTemp:0.00} °C, CCD={ccdTemp:0.00} °C, Power={coolerPower:0.00}%");
                     }
@@ -682,33 +791,33 @@ public class Session
                     {
                         isRamping[i] = true;
                         
-                        LogInfo($"Camera {(i + 1)} setpoint temperature {setpointTemp:0.00} °C or {thresPower:0.00} % power reached. Heatsink={heatSinkTemp:0.00} °C, CCD={ccdTemp:0.00} °C, Power={coolerPower:0.00}%");
+                        external.LogInfo($"Camera {(i + 1)} setpoint temperature {setpointTemp:0.00} °C or {thresPower:0.00} % power reached. Heatsink={heatSinkTemp:0.00} °C, CCD={ccdTemp:0.00} °C, Power={coolerPower:0.00}%");
                     }
                     else
                     {
                         isRamping[i] = false;
 
-                        LogInfo($"Camera {(i + 1)} setpoint temperature {setpointTemp:0.00} °C or {thresPower:0.00} % power reached twice in a row. Heatsink={heatSinkTemp:0.00} °C, CCD={ccdTemp:0.00} °C, Power={coolerPower:0.00}%");
+                        external.LogInfo($"Camera {(i + 1)} setpoint temperature {setpointTemp:0.00} °C or {thresPower:0.00} % power reached twice in a row. Heatsink={heatSinkTemp:0.00} °C, CCD={ccdTemp:0.00} °C, Power={coolerPower:0.00}%");
                     }
                 }
                 else
                 {
                     isRamping[i] = false;
 
-                    var coolerOnOff = Catch(() => camera.Driver.CanGetCoolerOn && camera.Driver.CoolerOn);
-                    LogInfo($"Skipping camera {(i + 1)} setpoint temperature {maybeSetpointTemp?.ToString("0.00") + " °C" ?? "ambient"} as we cannot get the current CCD temperature or cooling is not supported. Power is {(coolerOnOff ? "on" : "off")}");
+                    var coolerOnOff = Catch(() => camera.Driver.CanGetCoolerOn && camera.Driver.CoolerOn, external);
+                    external.LogWarning($"Skipping camera {(i + 1)} setpoint temperature {maybeSetpointTemp?.ToString("0.00") + " °C" ?? "ambient"} as we cannot get the current CCD temperature or cooling is not supported. Power is {(coolerOnOff ? "on" : "off")}");
                 }
             }
 
             accSleep += rampInterval;
             if (cancellationToken.IsCancellationRequested)
             {
-                LogInfo("Cancellation requested, quiting cooldown loop");
+                external.LogWarning("Cancellation requested, quiting cooldown loop");
                 break;
             }
             else
             {
-                Sleep(rampInterval);
+                external.Sleep(rampInterval);
             }
         } while (isRamping.Any(p => p) && accSleep < rampInterval * 100 && !cancellationToken.IsCancellationRequested);
 
@@ -725,21 +834,21 @@ public class Session
         return new string(name.Select(c => invalids.Contains(c) ? replace : c).ToArray());
     }
 
-    internal void WriteImageToFitsFile(Image image, in Observation observation, DateTime subExpStartTime, int frameNumber)
+    internal static void WriteImageToFitsFile(Image image, in Observation observation, DateTime subExpStartTime, int frameNumber, IExternal external)
     {
         var target = observation.Target;
-        var outputFolder = _external.OutputFolder;
+        var outputFolder = external.OutputFolder;
         var targetFolder = GetSafeFileName(target.Name);
         // TODO make order of target/date configurable
         var dateFolder = GetSafeFileName(subExpStartTime.ToString("yyyy-MM-dd", DateTimeFormatInfo.InvariantInfo));
         var frameFolder = Directory.CreateDirectory(Path.Combine(outputFolder, targetFolder, dateFolder)).FullName;
         var fitsFileName = GetSafeFileName($"frame_{subExpStartTime:o}_{frameNumber}.fits");
 
-        LogInfo($"Writing FITS file {targetFolder}/{fitsFileName}");
+        external.LogInfo($"Writing FITS file {targetFolder}/{fitsFileName}");
         image.WriteToFitsFile(Path.Combine(frameFolder, fitsFileName));
     }
 
-    internal T Catch<T>(Func<T> func, T @default = default)
+    internal static T Catch<T>(Func<T> func, IExternal external, T @default = default)
         where T : struct
     {
         try
@@ -748,7 +857,7 @@ public class Session
         }
         catch (Exception ex)
         {
-            LogError($"Error {ex.Message} while executing: {func.Method.Name}");
+            external.LogException(ex, $"while executing: {func.Method.Name}");
             return @default;
         }
     }
