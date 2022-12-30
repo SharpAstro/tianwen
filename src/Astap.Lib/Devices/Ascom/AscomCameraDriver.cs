@@ -11,7 +11,7 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
     public AscomCameraDriver(AscomDevice device) : base(device)
     {
-        this.DeviceConnectedEvent += AscomCameraDriver_DeviceConnectedEvent;
+        DeviceConnectedEvent += AscomCameraDriver_DeviceConnectedEvent;
     }
 
     private void AscomCameraDriver_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
