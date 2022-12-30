@@ -13,7 +13,11 @@ public class AscomCoverCalibratorDriver : AscomDeviceDriverBase, ICoverDriver
 
     public bool CalibratorOn(int brightness)
     {
-        if (Connected && _comObject is { } obj && IsCalibrationReady && brightness >= 0 && brightness <= MaxBrightness)
+        if (Connected && _comObject is { } obj
+            && ((ICoverDriver)this).IsCalibrationReady
+            && brightness >= 0
+            && brightness <= MaxBrightness
+        )
         {
             obj.CalibratorOn(brightness);
             return true;
@@ -41,14 +45,6 @@ public class AscomCoverCalibratorDriver : AscomDeviceDriverBase, ICoverDriver
     public CoverStatus CoverState => Connected && _comObject?.CoverState is int cs ? (CoverStatus)cs : CoverStatus.Unknown;
 
     public CalibratorStatus CalibratorState => Connected && _comObject?.CalibratorState is int cs ? (CalibratorStatus)cs : CalibratorStatus.Unknown;
-
-    public bool IsOpen => CoverState == CoverStatus.Open;
-
-    public bool IsClosed => CoverState == CoverStatus.Closed;
-
-    public bool IsMoving => CoverState == CoverStatus.Moving;
-
-    public bool IsCalibrationReady => IsClosed && CalibratorState is not CalibratorStatus.NotReady or CalibratorStatus.Error;
 
     public bool Close()
     {
