@@ -16,8 +16,9 @@ void Console_CancelKeyPress(object? sender, ConsoleCancelEventArgs e)
 const string Camera = nameof(Camera);
 
 var argIdx = 0;
-var mountDeviceId = args.Length > 0 ? args[argIdx++] : "ASCOM.DeviceHub.Telescope";
-var cameraDeviceId = args.Length > 1 ? args[argIdx++] : "ASCOM.Simulator.Camera";
+var mountDeviceId = args.Length > argIdx ? args[argIdx++] : "ASCOM.DeviceHub.Telescope";
+var cameraDeviceId = args.Length > argIdx ? args[argIdx++] : "ASCOM.Simulator.Camera";
+var coverDeviceId = args.Length > argIdx ? args[argIdx++] : "ASCOM.Simulator.CoverCalibrator";
 var expDuration = TimeSpan.FromSeconds(args.Length > 2 ? int.Parse(args[argIdx++]) : 10);
 var outputFolder = Directory.CreateDirectory(args.Length > 3 ? args[argIdx++] : "C:/Temp/Astap.Lib.TestCli").FullName;
 var external = new ConsoleOutput(outputFolder);
@@ -35,6 +36,9 @@ var cameraDevice = allCameras.FirstOrDefault(e => e.DeviceId == cameraDeviceId);
 
 var allMounts = profile.RegisteredDevices(DeviceBase.TelescopeType);
 var mountDevice = allMounts.FirstOrDefault(e => e.DeviceId == mountDeviceId);
+
+var allCovers = profile.RegisteredDevices(DeviceBase.CoverCalibratorType);
+var coverDevice = allCovers.FirstOrDefault(e => e.DeviceId == coverDeviceId);
 
 Mount mount;
 if (mountDevice is not null)
@@ -86,7 +90,22 @@ else
     return 1;
 }
 
-var setup = new Setup(mount, guider, new Telescope("Sim Scope", 250, camera, null, null, null, null));
+Cover? cover;
+if (coverDevice is not null)
+{
+    cover = new Cover(coverDevice);
+}
+else
+{
+    cover = null;
+}
+
+var setup = new Setup(
+    mount,
+    guider,
+    new Telescope("Sim Scope", 250, camera, cover, null, null, null)
+);
+
 var sessionConfiguration = new SessionConfiguration(
     SetpointCCDTemperature: 3,
     CooldownRampInterval: TimeSpan.FromSeconds(20),
@@ -95,7 +114,8 @@ var sessionConfiguration = new SessionConfiguration(
     DitherPixel: 30d,
     SettlePixel: 0.3d,
     DitherEveryNFrame: 3,
-    SettleTime: TimeSpan.FromSeconds(30)
+    SettleTime: TimeSpan.FromSeconds(30),
+    GuidingTries: 3
 );
 var session = new Session(setup, sessionConfiguration, external, observations);
 

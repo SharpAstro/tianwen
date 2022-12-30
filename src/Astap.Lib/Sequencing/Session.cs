@@ -105,7 +105,7 @@ public class Session
 
     internal static void Finalise(Setup setup, SessionConfiguration configuration, IExternal external, CancellationToken cancellationToken)
     {
-        external.LogInfo("Executing session run finaliser: Stop tracking, disconnect guider, cool up, turn off cooler, park scope.");
+        external.LogInfo("Executing session run finaliser: Stop tracking, disconnect guider, close covers, cool to ambient temp, turn off cooler, park scope.");
 
         var mount = setup.Mount;
         var guider = setup.Guider;
@@ -119,11 +119,11 @@ public class Session
             maybeCoversClosed ??= Catch(CloseCovers, external);
             maybeCooledCamerasToAmbient ??= Catch(CoolCamerasToAmbient, external);
         }
-        
+
         var guiderStopped = Catch(() => !(guider.Driver.Connected = false), external);
-        
+
         var parkInitiated = Catch(() => mount.Driver.CanPark && mount.Driver.Park(), external);
-        
+
         var parkCompleted = parkInitiated && Catch(() =>
         {
             int i = 0;
@@ -327,7 +327,7 @@ public class Session
                 }
             }
 
-            var guidingSuccess = StartGuidingLoop(guider, external, cancellationToken);
+            var guidingSuccess = StartGuidingLoop(guider, configuration, external, cancellationToken);
 
             if (cancellationToken.IsCancellationRequested)
             {
@@ -345,11 +345,12 @@ public class Session
         } // end observation loop
     }
 
-    internal static bool StartGuidingLoop(Guider guider, IExternal external, CancellationToken cancellationToken)
+    internal static bool StartGuidingLoop(Guider guider, SessionConfiguration configuration, IExternal external, CancellationToken cancellationToken)
     {
         bool guidingSuccess = false;
         int startGuidingTries = 0;
-        while (!guidingSuccess && startGuidingTries++ < 2 && !cancellationToken.IsCancellationRequested)
+
+        while (!guidingSuccess && ++startGuidingTries <= configuration.GuidingTries && !cancellationToken.IsCancellationRequested)
         {
             try
             {
@@ -501,7 +502,7 @@ public class Session
             {
                 // write all images as the loop is ending here
                 WriteQueuedImagesToFitsFiles();
-                
+
                 // TODO stop exposures (if we can, and if there are any)
 
                 if (observation.AcrossMeridian)
@@ -559,7 +560,7 @@ public class Session
                             external.LogInfo($"Settle finished: settle pixel={settleProgress.SettlePx} pixel={settleProgress.SettlePx} dist={settleProgress.Distance}");
                         }
                         break;
-                    }    
+                    }
                 }
             }
             else if (allimageFetchSuccess)
@@ -687,14 +688,21 @@ public class Session
             var cover = covers[i];
             cover.Connected = true;
 
-            cover.Driver.Brightness = 0;
-
-            commandSuccess[i] = cover.Driver.CoverState == finalState || finalState switch
+            if (cover.Driver.CoverState is CoverStatus.NotPresent || cover.Driver.CalibratorOff())
             {
-                CoverStatus.Closed => cover.Driver.Close(),
-                CoverStatus.Open => cover.Driver.Open(),
-                _ => true
-            };
+                external.LogInfo($"Calibrator {cover.Device.DisplayName} is off");
+
+                commandSuccess[i] = cover.Driver.CoverState == finalState || finalState switch
+                {
+                    CoverStatus.Closed => cover.Driver.Close(),
+                    CoverStatus.Open => cover.Driver.Open(),
+                    _ => true
+                };
+            }
+            else
+            {
+                commandSuccess[i] = false;
+            }
         }
 
         var finalStateReached = new bool[covers.Length];
@@ -790,7 +798,7 @@ public class Session
                     else if (++thresholdReachedConsecutiveCounts[i] < 2)
                     {
                         isRamping[i] = true;
-                        
+
                         external.LogInfo($"Camera {(i + 1)} setpoint temperature {setpointTemp:0.00} °C or {thresPower:0.00} % power reached. Heatsink={heatSinkTemp:0.00} °C, CCD={ccdTemp:0.00} °C, Power={coolerPower:0.00}%");
                     }
                     else
