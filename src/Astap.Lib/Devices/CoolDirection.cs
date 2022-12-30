@@ -19,14 +19,6 @@ public static class CoolDirectionEx
             _ => setpointTemp
         };
 
-    public static double DefaultSetpointTemp(this CoolDirection direction) =>
-        direction switch
-        {
-            CoolDirection.Up => 15,
-            CoolDirection.Down => -10,
-            _ => 30,
-        };
-
     public static bool NeedsFurtherRamping(this CoolDirection direction, double ccdTemp, double setpointTemp) =>
         direction switch
         {

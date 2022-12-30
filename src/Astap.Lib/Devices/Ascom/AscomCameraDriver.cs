@@ -33,6 +33,15 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
                 CanGetCoolerOn = false;
             }
 
+            try
+            {
+                CanGetHeatsinkTemperature = !double.IsNaN(HeatSinkTemperature);
+            }
+            catch
+            {
+                CanGetHeatsinkTemperature = false;
+            }
+
             if (obj.ReadoutModes is IEnumerable readoutModes)
             {
                 _readoutModes.Clear();
@@ -47,6 +56,8 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
     public bool CanGetCoolerPower { get; private set; }
 
     public bool CanGetCoolerOn { get; private set; }
+
+    public bool CanGetHeatsinkTemperature { get; private set; }
 
     public bool CanSetCCDTemperature { get; private set; }
 

@@ -1,7 +1,6 @@
 ﻿using Astap.Lib.Imaging;
 using CommunityToolkit.HighPerformance;
 using System;
-using System.Transactions;
 
 namespace Astap.Lib.Devices;
 
@@ -12,6 +11,8 @@ public interface ICameraDriver : IDeviceDriver
     bool CanGetCoolerOn { get; }
 
     bool CanSetCCDTemperature { get; }
+
+    bool CanGetHeatsinkTemperature { get; }
 
     bool CanStopExposure { get; }
 

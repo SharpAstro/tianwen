@@ -1,25 +1,5 @@
 ﻿namespace Astap.Lib.Devices.Ascom;
 
-enum CoverStatus
-{
-    NotPresent = 0, // This device does not have a cover that can be closed independently
-    Closed = 1, // The cover is closed
-    Moving = 2, // The cover is moving to a new position
-    Open = 3, // The cover is open
-    Unknown = 4, // The state of the cover is unknown
-    Error = 5, // The device encountered an error when changing state
-}
-
-enum CalibratorStatus
-{
-    NotPresent = 0, // This device does not have a calibration capability
-    Off = 1, // The calibrator is off
-    NotReady = 2, // The calibrator is stabilising or is not yet in the commanded state
-    Ready = 3, // The calibrator is ready for use
-    Unknown = 4, // The calibrator state is unknown
-    Error = 5, // The calibrator encountered an error when changing state
-}
-
 public class AscomCoverCalibratorDriver : AscomDeviceDriverBase, ICoverDriver
 {
     public AscomCoverCalibratorDriver(AscomDevice device) : base(device)
@@ -40,9 +20,9 @@ public class AscomCoverCalibratorDriver : AscomDeviceDriverBase, ICoverDriver
         }
     }
 
-    CoverStatus CoverState => Connected && _comObject?.CoverState is CoverStatus status ? status : CoverStatus.Unknown;
+    public CoverStatus CoverState => Connected && _comObject?.CoverState is int cs ? (CoverStatus)cs : CoverStatus.Unknown;
 
-    CalibratorStatus CalibratorState => Connected && _comObject?.CoverState is CalibratorStatus status ? status : CalibratorStatus.Unknown;
+    public CalibratorStatus CalibratorState => Connected && _comObject?.CalibratorState is int cs ? (CalibratorStatus)cs : CalibratorStatus.Unknown;
 
     public bool IsOpen => CoverState == CoverStatus.Open;
 
@@ -52,7 +32,23 @@ public class AscomCoverCalibratorDriver : AscomDeviceDriverBase, ICoverDriver
 
     public bool IsCalibrationReady => IsClosed && CalibratorState is CalibratorStatus.Ready;
 
-    public void Close() => _comObject?.CloseCover();
+    public bool Close()
+    {
+        if (Connected && _comObject is { } obj)
+        {
+            obj.CloseClover();
+            return true;
+        }
+        return false;
+    }
 
-    public void Open() => _comObject?.OpenCover();
+    public bool Open()
+    {
+        if (Connected && _comObject is { } obj)
+        {
+            obj.OpenClover();
+            return true;
+        }
+        return false;
+    }
 }

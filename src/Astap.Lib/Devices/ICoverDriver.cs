@@ -1,6 +1,4 @@
-﻿using System;
-
-namespace Astap.Lib.Devices;
+﻿namespace Astap.Lib.Devices;
 
 public interface ICoverDriver : IDeviceDriver
 {
@@ -12,9 +10,13 @@ public interface ICoverDriver : IDeviceDriver
 
     bool IsCalibrationReady { get; }
 
-    void Open();
+    bool Open();
 
-    void Close();
+    bool Close();
 
     int Brightness { get; set; }
+
+    CoverStatus CoverState { get; }
+
+    CalibratorStatus CalibratorState { get; }
 }

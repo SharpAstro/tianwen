@@ -2,7 +2,7 @@
 using Astap.Lib.Devices;
 using Astap.Lib.Devices.Guider;
 using Astap.Lib.Sequencing;
-
+using Pastel;
 
 var cts = new CancellationTokenSource();
 Console.CancelKeyPress += Console_CancelKeyPress;
@@ -62,16 +62,16 @@ if (guiderDevice is not null)
 
     if (guider.Driver.TryGetActiveProfileName(out var activeProfileName))
     {
-        external.LogError($"Connected to {guider.Device.DeviceType} guider profile {activeProfileName}");
+        external.LogInfo($"Connected to {guider.Device.DeviceType} guider profile {activeProfileName}");
     }
     else
     {
-        external.LogError($"Connected to {guider.Device.DeviceType} guider at {guider.Device.DeviceId}");
+        external.LogInfo($"Connected to {guider.Device.DeviceType} guider at {guider.Device.DeviceId}");
     }
 }
 else
 {
-    external.LogError("Could not connect to guider");
+    external.LogError("No guider was specified, aborting.");
     return 1;
 }
 
@@ -94,6 +94,7 @@ var sessionConfiguration = new SessionConfiguration(
     MinHeightAboveHorizon: 15,
     DitherPixel: 30d,
     SettlePixel: 0.3d,
+    DitherEveryNFrame: 3,
     SettleTime: TimeSpan.FromSeconds(30)
 );
 var session = new Session(setup, sessionConfiguration, external, observations);
@@ -111,9 +112,13 @@ class ConsoleOutput : IExternal
 
     public string OutputFolder { get; init; }
 
-    public void LogError(string error) => Console.Error.WriteLine(error);
+    public void LogError(string error) => Console.Error.WriteLine($"[{DateTime.Now:o}] {error.Pastel(ConsoleColor.Red)}");
 
-    public void LogInfo(string info) => Console.WriteLine(info);
+    public void LogWarning(string warning) => Console.WriteLine($"[{DateTime.Now:o}] {warning.Pastel(ConsoleColor.Yellow)}");
+
+    public void LogInfo(string info) => Console.WriteLine($"[{DateTime.Now:o}] {info.Pastel(ConsoleColor.White)}");
+
+    public void LogException(Exception exception, string extra) => LogError($"{exception.Message} {extra}");
 
     public void Sleep(TimeSpan duration) => Thread.Sleep(duration);
 }
