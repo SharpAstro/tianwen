@@ -14,7 +14,11 @@ public interface ICoverDriver : IDeviceDriver
 
     bool Close();
 
-    int Brightness { get; set; }
+    bool CalibratorOn(int brightness);
+
+    bool CalibratorOff();
+
+    int Brightness { get; }
 
     CoverStatus CoverState { get; }
 

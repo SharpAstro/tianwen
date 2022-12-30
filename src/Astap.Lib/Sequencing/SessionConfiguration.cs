@@ -10,5 +10,6 @@ public record SessionConfiguration(
     double DitherPixel,
     double SettlePixel,
     int DitherEveryNFrame,
-    TimeSpan SettleTime
+    TimeSpan SettleTime,
+    int GuidingTries
 );

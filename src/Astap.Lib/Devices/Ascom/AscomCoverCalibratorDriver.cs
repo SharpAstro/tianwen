@@ -1,4 +1,6 @@
-﻿namespace Astap.Lib.Devices.Ascom;
+﻿using System;
+
+namespace Astap.Lib.Devices.Ascom;
 
 public class AscomCoverCalibratorDriver : AscomDeviceDriverBase, ICoverDriver
 {
@@ -7,17 +9,33 @@ public class AscomCoverCalibratorDriver : AscomDeviceDriverBase, ICoverDriver
 
     }
 
+    public int MaxBrightness => _comObject?.MaxBrightness is int maxBrightness ? maxBrightness : -1;
+
+    public bool CalibratorOn(int brightness)
+    {
+        if (Connected && _comObject is { } obj && IsCalibrationReady && brightness >= 0 && brightness <= MaxBrightness)
+        {
+            obj.CalibratorOn(brightness);
+            return true;
+        }
+
+        return false;
+    }
+
+    public bool CalibratorOff()
+    {
+        if (Connected && _comObject is { } obj)
+        {
+            obj.CalibratorOff();
+            return true;
+        }
+
+        return false;
+    }
+
     public int Brightness
     {
         get => _comObject?.Brightness is int brightness ? brightness : -1;
-        set
-        {
-            if (value <= 0)
-            {
-                _comObject?.CalibratorOff();
-            }
-            _comObject?.CalibratorOn(value);
-        }
     }
 
     public CoverStatus CoverState => Connected && _comObject?.CoverState is int cs ? (CoverStatus)cs : CoverStatus.Unknown;
@@ -30,7 +48,7 @@ public class AscomCoverCalibratorDriver : AscomDeviceDriverBase, ICoverDriver
 
     public bool IsMoving => CoverState == CoverStatus.Moving;
 
-    public bool IsCalibrationReady => IsClosed && CalibratorState is CalibratorStatus.Ready;
+    public bool IsCalibrationReady => IsClosed && CalibratorState is not CalibratorStatus.NotReady or CalibratorStatus.Error;
 
     public bool Close()
     {
