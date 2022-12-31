@@ -114,10 +114,10 @@ else
     focuser = null;
 }
 
-var setup = new Setup(
+using var setup = new Setup(
     mount,
     guider,
-    new Telescope("Sim Scope", 250, camera, cover, focuser, null, null)
+    new Telescope("Sim Scope", 250, camera, cover, focuser, new(true, true),  null, null)
 );
 
 var sessionConfiguration = new SessionConfiguration(
