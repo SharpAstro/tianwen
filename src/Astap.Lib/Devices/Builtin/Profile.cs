@@ -9,23 +9,30 @@ using static Astap.Lib.Base64UrlSafe;
 
 namespace Astap.Lib.Devices.Builtin;
 
-using ValueDict = IReadOnlyDictionary<string, Uri>;
+using ValueDictRO = IReadOnlyDictionary<string, Uri>;
+using ValueDict = Dictionary<string, Uri>;
 
 public record class Profile(Uri DeviceUri)
     : DeviceBase(DeviceUri)
 {
-    public Profile(Guid profileId, string name, ValueDict values)
-        : this(new Uri($"{UriScheme}://{nameof(Profile)}/{profileId:D}?displayName={name}&values={EncodeValues(values)}#{nameof(Profile)}"))
+    public Profile(Guid profileId, string name, ValueDictRO values) : this(CreateProfileUri(profileId, name, values))
     {
-
+        _valuesCache = values;
     }
 
-    public ValueDict Values
-        => Query["values"] is string encodedValues && JsonSerializer.Deserialize<ValueDict>(Base64UrlDecode(encodedValues)) is { } dict
-            ? dict
-            : new Dictionary<string, Uri>();
+    public static Uri CreateProfileUri(Guid profileId, string name, ValueDictRO? values = null)
+        => new UriBuilder(UriScheme, nameof(Profile), -1, $"/{profileId:D}", $"?displayName={name}&values={EncodeValues(values ?? new ValueDict())}#{nameof(Profile)}").Uri;
 
-    static string EncodeValues(ValueDict values) => Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(values, new JsonSerializerOptions { WriteIndented = false }));
+    private ValueDictRO? _valuesCache;
+    public ValueDictRO Values
+        => _valuesCache ??= (
+            Query["values"] is string encodedValues && JsonSerializer.Deserialize<ValueDict>(Base64UrlDecode(encodedValues)) is { } dict
+                ? dict
+                : new ValueDict()
+        );
+
+    static string EncodeValues(ValueDictRO values)
+        => Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(values, new JsonSerializerOptions { WriteIndented = false }));
 
     const string ProfileExt = ".json";
 
@@ -40,7 +47,7 @@ public record class Profile(Uri DeviceUri)
         }
     }
 
-    public static async Task<IList<Profile>> LoadExistingProfilesAsync(DirectoryInfo profileFolder, string profileKey)
+    public static async Task<IList<Profile>> LoadExistingProfilesAsync(DirectoryInfo profileFolder)
     {
         var profiles = new List<Profile>();
         foreach (var (_, file) in ListExistingProfiles(profileFolder))
@@ -48,8 +55,8 @@ public record class Profile(Uri DeviceUri)
             using var stream = file.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
             try
             {
-                if (await JsonSerializer.DeserializeAsync<ValueDict>(stream) is ValueDict values
-                    && values[profileKey] is Uri profileUri
+                if (await JsonSerializer.DeserializeAsync<ValueDict>(stream) is { } values
+                    && values[nameof(Profile)] is Uri profileUri
                     && TryFromUri(profileUri, out var profileInfo)
                     && profileInfo.DeviceType == nameof(Profile)
                     && Guid.TryParse(profileInfo.DeviceId, out var profileId)
