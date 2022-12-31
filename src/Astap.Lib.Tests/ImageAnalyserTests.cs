@@ -6,6 +6,7 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Astap.Lib.Tests;
 
@@ -13,12 +14,14 @@ public class ImageAnalyserTests
 {
     const string PlateSolveTestFile = nameof(PlateSolveTestFile);
     private readonly Image _plateSolveTestImage;
+    private readonly ITestOutputHelper _testOutputHelper;
 
     private static Image? _plateSolveTestImageCache;
 
-    public ImageAnalyserTests()
+    public ImageAnalyserTests(ITestOutputHelper testOutputHelper)
     {
         _plateSolveTestImage = (_plateSolveTestImageCache ??= SharedTestData.ExtractGZippedFitsImage(PlateSolveTestFile));
+        _testOutputHelper = testOutputHelper;
     }
 
     [Theory]
@@ -165,6 +168,7 @@ public class ImageAnalyserTests
     [Theory]
     [InlineData(SampleKind.HFD, 28208, 28211, 1, 1, 1, 10f, 20, 2, 130)]
     [InlineData(SampleKind.HFD, 28227, 28231, 1, 1, 1, 10f, 20, 2, 140)]
+    // [InlineData(SampleKind.HFD, 28208, 28231, 1, 1, 1, 10f, 20, 2, 130)]
     public void GivenFocusSamplesWhenSolvingAHyperboleIsFound(SampleKind kind, int focusStart, int focusEndIncl, int focusStepSize, int sampleCount, int filterNo, float snrMin, int maxIterations, int expectedSolutionAfterSteps, int expectedMinStarCount)
     {
         // given
@@ -179,6 +183,8 @@ public class ImageAnalyserTests
                 var image = SharedTestData.ExtractGZippedFitsImage($"fp{fp}-cs{cs}-ms{sampleCount}-fw{filterNo}");
 
                 var (median, solution, minPos, maxPos, count) = imageAnalyser.SampleStarsAtFocusPosition(image, fp, sampleMap, snrMin: snrMin, maxFocusIterations: maxIterations);
+
+                _testOutputHelper.WriteLine($"focuspos={fp} stars={count} median={median} solution={solution} minPos={minPos} maxPos={maxPos}");
 
                 median.ShouldNotBeNull().ShouldBeGreaterThan(1f);
                 count.ShouldBeGreaterThan(expectedMinStarCount);

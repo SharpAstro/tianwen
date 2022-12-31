@@ -68,9 +68,7 @@ public abstract record class DeviceBase(Uri DeviceUri)
 
     public virtual bool TryInstantiate<T>([NotNullWhen(true)] out T? driver)
     {
-        var obj = NewImplementationFromDevice();
-
-        if (obj is T asT)
+        if (NewImplementationFromDevice() is T asT)
         {
             driver = asT;
             return true;

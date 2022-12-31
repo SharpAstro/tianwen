@@ -12,6 +12,7 @@ public class Telescope : IDisposable
         Camera camera,
         Cover? cover,
         Focuser? focuser,
+        FocusDirection focusDirection,
         FilterWheel? filterWheel,
         Switch? switches
     )

@@ -5,23 +5,43 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using System.Web;
 
 namespace Astap.Lib.Devices.Builtin;
 
-using ValueDict = Dictionary<string, Uri>;
+using ValueDict = IReadOnlyDictionary<string, Uri>;
 
 public record class Profile(Uri DeviceUri)
     : DeviceBase(DeviceUri)
 {
     public Profile(Guid profileId, string name, ValueDict values)
-        : this(new Uri($"{UriScheme}://{nameof(Profile)}/{profileId:D}?displayName={name}#{nameof(Profile)}"))
+        : this(new Uri($"{UriScheme}://{nameof(Profile)}/{profileId:D}?displayName={name}{ToQueryString(values)}#{nameof(Profile)}"))
     {
-        Values = values;
+
     }
 
-    const string ProfileExt = ".json";
+    public ValueDict Values
+    {
+        get
+        {
+            var values = new Dictionary<string, Uri>(Query.Count);
 
-    public ValueDict? Values { get; init; }
+            foreach (var key in Query.AllKeys)
+            {
+                if (!string.IsNullOrWhiteSpace(key) && key.StartsWith("$") && Uri.TryCreate(Query[key], UriKind.Absolute, out Uri? value))
+                {
+                    values[key] = value;
+                }
+            }
+
+            return values;
+        }
+    }
+
+    static string ToQueryString(ValueDict values)
+        => (values.Count > 0 ? "&" : "") + string.Join("&", values.Select(p => $"{p.Key}=${HttpUtility.UrlEncode(p.Value.ToString())}"));
+
+    const string ProfileExt = ".json";
 
     public static IEnumerable<(Guid profileId, FileInfo file)> ListExistingProfiles(DirectoryInfo profileFolder)
     {
