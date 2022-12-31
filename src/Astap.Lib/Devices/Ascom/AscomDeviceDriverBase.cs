@@ -25,8 +25,7 @@ public abstract class AscomDeviceDriverBase : DynamicComObject, IDeviceDriver
         get => _comObject?.Connected is bool connected && connected;
         set
         {
-            var obj = _comObject;
-            if (obj is not null)
+            if (_comObject is { } obj)
             {
                 obj.Connected = value;
 

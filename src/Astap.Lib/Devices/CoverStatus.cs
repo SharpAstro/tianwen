@@ -1,4 +1,6 @@
-﻿namespace Astap.Lib.Devices;
+﻿using System;
+
+namespace Astap.Lib.Devices;
 
 public enum CoverStatus
 {

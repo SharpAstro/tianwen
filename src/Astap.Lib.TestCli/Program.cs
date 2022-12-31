@@ -19,8 +19,9 @@ var argIdx = 0;
 var mountDeviceId = args.Length > argIdx ? args[argIdx++] : "ASCOM.DeviceHub.Telescope";
 var cameraDeviceId = args.Length > argIdx ? args[argIdx++] : "ASCOM.Simulator.Camera";
 var coverDeviceId = args.Length > argIdx ? args[argIdx++] : "ASCOM.Simulator.CoverCalibrator";
+var focuserDeviceId = args.Length > argIdx ? args[argIdx++] : "ASCOM.Simulator.Focuser";
 var expDuration = TimeSpan.FromSeconds(args.Length > 2 ? int.Parse(args[argIdx++]) : 10);
-var outputFolder = Directory.CreateDirectory(args.Length > 3 ? args[argIdx++] : "C:/Temp/Astap.Lib.TestCli").FullName;
+var outputFolder = Directory.CreateDirectory(args.Length > 3 ? args[argIdx++] : Path.Combine(Directory.GetCurrentDirectory(), "Astap.Lib.TestCli", "Light")).FullName;
 var external = new ConsoleOutput(outputFolder);
 
 var observations = new List<Observation>
@@ -39,6 +40,9 @@ var mountDevice = allMounts.FirstOrDefault(e => e.DeviceId == mountDeviceId);
 
 var allCovers = profile.RegisteredDevices(DeviceBase.CoverCalibratorType);
 var coverDevice = allCovers.FirstOrDefault(e => e.DeviceId == coverDeviceId);
+
+var allFocusers = profile.RegisteredDevices(DeviceBase.FocuserType);
+var focuserDevice = allFocusers.FirstOrDefault(e => e.DeviceId == focuserDeviceId);
 
 Mount mount;
 if (mountDevice is not null)
@@ -100,10 +104,20 @@ else
     cover = null;
 }
 
+Focuser? focuser;
+if (focuserDevice is not null)
+{
+    focuser = new Focuser(focuserDevice);
+}
+else
+{
+    focuser = null;
+}
+
 var setup = new Setup(
     mount,
     guider,
-    new Telescope("Sim Scope", 250, camera, cover, null, null, null)
+    new Telescope("Sim Scope", 250, camera, cover, focuser, null, null)
 );
 
 var sessionConfiguration = new SessionConfiguration(

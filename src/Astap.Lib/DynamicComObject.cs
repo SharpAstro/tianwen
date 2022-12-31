@@ -40,9 +40,9 @@ public class DynamicComObject : IDisposable
 
         foreach (var item in property)
         {
-            if (item is not null)
+            if (item?.Key is string key && item.Value is string value)
             {
-                yield return ((string)item.Key, (string)item.Value);
+                yield return (key, value);
             }
         }
     }

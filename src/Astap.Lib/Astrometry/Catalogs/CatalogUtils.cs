@@ -163,7 +163,7 @@ public static class CatalogUtils
                 break;
         }
 
-        if (cleanedUp is not null && cleanedUp.Length <= MaxLenInASCII)
+        if (cleanedUp is { Length: <= MaxLenInASCII })
         {
             catalogIndex = (CatalogIndex)(isBase91Encoded ? 1L << 63 : 0L) | AbbreviationToEnumMember<CatalogIndex>(cleanedUp);
             return true;

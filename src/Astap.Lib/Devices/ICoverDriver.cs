@@ -2,22 +2,9 @@
 
 public interface ICoverDriver : IDeviceDriver
 {
-    /// <summary>
-    /// Convenience method for <see cref="CoverState"/> == <see cref="CoverStatus.Open"/>.
-    /// </summary>
-    public bool IsOpen => CoverState == CoverStatus.Open;
-
-    /// <summary>
-    /// Convenience method for <see cref="CoverState"/> == <see cref="CoverStatus.Closed"/>.
-    /// </summary>
-    public bool IsClosed => CoverState == CoverStatus.Closed;
-
-    /// <summary>
-    /// Returns true when either closing or opening, convenience method for <see cref="CoverState"/> == <see cref="CoverStatus.Moving"/>.
-    /// </summary>
-    public bool IsMoving => CoverState == CoverStatus.Moving;
-
-    public bool IsCalibrationReady => IsClosed && CalibratorState is not CalibratorStatus.NotReady or CalibratorStatus.NotPresent or CalibratorStatus.Error;
+    public bool IsCalibrationReady
+        => CoverState is not CoverStatus.Error and not CoverStatus.Moving
+        && CalibratorState is not CalibratorStatus.NotReady and not CalibratorStatus.NotPresent and not CalibratorStatus.Error;
 
     /// <summary>
     /// Returns true if cover started opening.

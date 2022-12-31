@@ -128,7 +128,7 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
             {
                 index = crossIndices.i1;
             }
-            else if (crossIndices.ext is not null)
+            else if (crossIndices.ext is { Length: > 0 })
             {
                 foreach (var crossIndex in crossIndices.ext)
                 {
@@ -257,7 +257,7 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
         {
             if (csvReader.TryGetField<string>("Name", out var entryName)
                 && csvReader.TryGetField<string>("Type", out var objectTypeAbbr)
-                && objectTypeAbbr is not null
+                && objectTypeAbbr is { Length: > 0 }
                 && csvReader.TryGetField<string>("RA", out var raHMS)
                 && raHMS is not null
                 && csvReader.TryGetField<string>("Dec", out var decDMS)
@@ -335,7 +335,7 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
                         _crossIndexLookuptable.AddLookupEntry(indexEntry, messierIndexEntry);
                     }
 
-                    if (csvReader.TryGetField<string>("Identifiers", out var identifiersEntry) && identifiersEntry is not null)
+                    if (csvReader.TryGetField<string>("Identifiers", out var identifiersEntry) && identifiersEntry is { Length: > 0 })
                     {
                         var identifiers = identifiersEntry.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                         foreach (var identifier in identifiers)
