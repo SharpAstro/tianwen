@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
-using System.Web;
+using static Astap.Lib.Base64UrlSafe;
 
 namespace Astap.Lib.Devices.Builtin;
 
@@ -28,7 +28,9 @@ public record class Profile(Uri DeviceUri)
 
             foreach (var key in Query.AllKeys)
             {
-                if (!string.IsNullOrWhiteSpace(key) && key.StartsWith("$") && Uri.TryCreate(Query[key], UriKind.Absolute, out Uri? value))
+                if (!string.IsNullOrWhiteSpace(key) && key.StartsWith("$")
+                    && Uri.TryCreate(Utf8Base64UrlDecode(Query[key]), UriKind.Absolute, out Uri? value)
+                )
                 {
                     values[key] = value;
                 }
@@ -39,7 +41,7 @@ public record class Profile(Uri DeviceUri)
     }
 
     static string ToQueryString(ValueDict values)
-        => (values.Count > 0 ? "&" : "") + string.Join("&", values.Select(p => $"{p.Key}=${HttpUtility.UrlEncode(p.Value.ToString())}"));
+        => (values.Count > 0 ? "&" : "") + string.Join("&", values.Select(p => $"{p.Key}=${Utf8Base64UrlEncode(p.Value.ToString())}"));
 
     const string ProfileExt = ".json";
 
