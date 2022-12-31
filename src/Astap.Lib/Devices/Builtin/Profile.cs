@@ -15,33 +15,17 @@ public record class Profile(Uri DeviceUri)
     : DeviceBase(DeviceUri)
 {
     public Profile(Guid profileId, string name, ValueDict values)
-        : this(new Uri($"{UriScheme}://{nameof(Profile)}/{profileId:D}?displayName={name}{ToQueryString(values)}#{nameof(Profile)}"))
+        : this(new Uri($"{UriScheme}://{nameof(Profile)}/{profileId:D}?displayName={name}&values={EncodeValues(values)}#{nameof(Profile)}"))
     {
 
     }
 
     public ValueDict Values
-    {
-        get
-        {
-            var values = new Dictionary<string, Uri>(Query.Count);
+        => Query["values"] is string encodedValues && JsonSerializer.Deserialize<ValueDict>(Base64UrlDecode(encodedValues)) is { } dict
+            ? dict
+            : new Dictionary<string, Uri>();
 
-            foreach (var key in Query.AllKeys)
-            {
-                if (!string.IsNullOrWhiteSpace(key) && key.StartsWith("$")
-                    && Uri.TryCreate(Utf8Base64UrlDecode(Query[key]), UriKind.Absolute, out Uri? value)
-                )
-                {
-                    values[key] = value;
-                }
-            }
-
-            return values;
-        }
-    }
-
-    static string ToQueryString(ValueDict values)
-        => (values.Count > 0 ? "&" : "") + string.Join("&", values.Select(p => $"{p.Key}=${Utf8Base64UrlEncode(p.Value.ToString())}"));
+    static string EncodeValues(ValueDict values) => Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(values, new JsonSerializerOptions { WriteIndented = false }));
 
     const string ProfileExt = ".json";
 
