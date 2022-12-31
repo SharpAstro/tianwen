@@ -221,7 +221,7 @@ public class Session
 
         CoolCamerasToSensorTemp(setup, external);
 
-        if (MoveTelescopeCoversToSate(setup, CoverStatus.Open, external, cancellationToken))
+        if (MoveTelescopeCoversToSate(setup, CoverStatus.Open, external, CancellationToken.None))
         {
             external.LogInfo("All covers opened, and calibrator turned off.");
         }
@@ -241,7 +241,14 @@ public class Session
         }
 
         // wait for cameras to settle (QHY dodgy power value, Simulator cam starts on 100% power, ...)
-        external.Sleep(TimeSpan.FromSeconds(30));
+        for (var i = 0; i < 30; i++)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return false;
+            }
+            external.Sleep(TimeSpan.FromSeconds(1));
+        }
 
         return true;
     }
@@ -485,7 +492,7 @@ public class Session
                         }
                     }
                     while (overslept < (tickSec / 5)
-                        && camera.Driver.CameraState is not CameraState.Error or CameraState.NotConnected
+                        && camera.Driver.CameraState is not CameraState.Error and not CameraState.NotConnected
                         && !cancellationToken.IsCancellationRequested
                     );
 
@@ -709,10 +716,13 @@ public class Session
         for (var i = 0; i < covers.Length; i++)
         {
             var cover = covers[i];
-            while (cover.Driver.IsMoving && !cancellationToken.IsCancellationRequested)
+            int failSafe = 0;
+            while (cover.Driver.CoverState is CoverStatus.Moving && !cancellationToken.IsCancellationRequested && ++failSafe < MAX_FAILSAFE)
+
             {
                 external.Sleep(TimeSpan.FromSeconds(1));
             }
+
 
             finalStateReached[i] = cover.Driver.CoverState == finalState;
         }
@@ -813,7 +823,8 @@ public class Session
                     isRamping[i] = false;
 
                     var coolerOnOff = Catch(() => camera.Driver.CanGetCoolerOn && camera.Driver.CoolerOn, external);
-                    external.LogWarning($"Skipping camera {(i + 1)} setpoint temperature {maybeSetpointTemp?.ToString("0.00") + " °C" ?? "ambient"} as we cannot get the current CCD temperature or cooling is not supported. Power is {(coolerOnOff ? "on" : "off")}");
+                    var setpointTemp = (maybeSetpointTemp.HasValue ? $"{maybeSetpointTemp.Value:0.00} °C" : "ambient");
+                    external.LogWarning($"Skipping camera {(i + 1)} setpoint temperature {setpointTemp} as we cannot get the current CCD temperature or cooling is not supported. Power is {(coolerOnOff ? "on" : "off")}");
                 }
             }
 

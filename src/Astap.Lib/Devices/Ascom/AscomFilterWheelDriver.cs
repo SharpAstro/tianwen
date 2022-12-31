@@ -27,9 +27,9 @@ public class AscomFilterWheelDriver : AscomDeviceDriverBase, IFilterWheelDriver
         get => _comObject?.Position is int pos ? pos : -1;
         set
         {
-            if (_comObject is not null && value is >= 0 && value < Filters.Count)
+            if (_comObject is { } obj && value is >= 0 && value < Filters.Count)
             {
-                _comObject.Position = value;
+                obj.Position = value;
             }
             else
             {

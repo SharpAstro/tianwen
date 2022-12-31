@@ -116,7 +116,7 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
         set
         {
             int idx;
-            if (Connected && _comObject is { } obj && value is not null && (idx = _readoutModes.IndexOf(value)) >= 0)
+            if (Connected && _comObject is { } obj && value is { Length: > 0 } && (idx = _readoutModes.IndexOf(value)) >= 0)
             {
                 obj.ReadoutMode = idx;
             }
