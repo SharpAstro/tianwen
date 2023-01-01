@@ -1,6 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.InteropServices;
 using Astap.Lib.Astrometry;
+using Astap.Lib.Astrometry.SOFA;
+using Astap.Lib.Sequencing;
 using static Astap.Lib.Astrometry.CoordinateUtils;
 
 namespace Astap.Lib.Devices;
@@ -136,4 +141,32 @@ public interface IMountDriver : IDeviceDriver
     /// The longitude (degrees, positive East, WGS84) of the site at which the telescope is located.
     /// </summary>
     double SiteLongitude { get; set; }
+
+    /// <summary>
+    /// Initialises using standard pressure and atmosphere. Please adjust if available.
+    /// </summary>
+    /// <param name="utcOffset">timezone offset</param>
+    /// <param name="transform"></param>
+    /// <returns></returns>
+    bool TryGetTransform([NotNullWhen(true)] out Transform? transform)
+    {
+        if (Connected && TryGetUTCDate(out var utc))
+        {
+            transform = new Transform
+            {
+                SiteElevation = SiteElevation,
+                SiteLatitude = SiteLatitude,
+                SiteLongitude = SiteLongitude,
+                SitePressure = 1010, // TODO standard atmosphere
+                SiteTemperature = 10, // TODO check either online or if compatible devices connected
+                DateTimeOffset = utc,
+                Refraction = true // TODO assumes that driver does not support/do refraction
+            };
+
+            return true;
+        }
+
+        transform = null;
+        return false;
+    }
 }
