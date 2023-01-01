@@ -55,15 +55,11 @@ public record class Profile(Uri DeviceUri)
             using var stream = file.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
             try
             {
-                if (await JsonSerializer.DeserializeAsync<ValueDict>(stream) is { } values
-                    && values[nameof(Profile)] is Uri profileUri
-                    && TryFromUri(profileUri, out var profileInfo)
-                    && profileInfo.DeviceType == nameof(Profile)
-                    && Guid.TryParse(profileInfo.DeviceId, out var profileId)
+                if (await JsonSerializer.DeserializeAsync<ProfileDto>(stream) is { } profileDto
+                    && !string.IsNullOrWhiteSpace(profileDto.Name)
                 )
                 {
-                    var profile = new Profile(profileId, profileInfo.DisplayName, values);
-                    profiles.Add(profile);
+                    profiles.Add(new Profile(profileDto.ProfileId, profileDto.Name, profileDto.Values));
                 }
             }
             catch (Exception ex) when (Debugger.IsAttached)
@@ -93,8 +89,10 @@ public record class Profile(Uri DeviceUri)
         }
 
         using var stream = file.Open(mode, FileAccess.Write, FileShare.None);
-        return JsonSerializer.SerializeAsync(stream, Values, new JsonSerializerOptions { WriteIndented = true });
+        return JsonSerializer.SerializeAsync(stream, new ProfileDto(ProfileId, DisplayName, Values), new JsonSerializerOptions { WriteIndented = true });
     }
 
     protected override object? NewImplementationFromDevice() => null;
+
+    record ProfileDto(Guid ProfileId, string Name, ValueDictRO Values);
 }
