@@ -46,21 +46,21 @@ public interface IMountDriver : IDeviceDriver
     /// <param name="ra">RA in hours (0..24)</param>
     /// <param name="dec">Declination in degrees (-90..90)</param>
     /// <returns>True if slewing operation was accepted and mount is slewing</returns>
-    bool SlewAsync(double ra, double dec);
+    bool SlewRaDecAsync(double ra, double dec);
 
     /// <summary>
     /// Slews to given equatorial coordinates (HA, Dec) in the mounts native epoch, <see cref="EquatorialSystem"/>.
     /// Uses current <see cref="SiderealTime"/> to convert to RA.
-    /// Succeeds if <see cref="Connected"/> and <see cref="SlewAsync(double, double)"/> succeeds.
+    /// Succeeds if <see cref="Connected"/> and <see cref="SlewRaDecAsync(double, double)"/> succeeds.
     /// </summary>
     /// <param name="ra">HA in hours (-12..12), as returned by <see cref="HourAngle"/></param>
     /// <param name="dec">Declination in degrees (-90..90)</param>
     /// <returns>True if slewing operation was accepted and mount is slewing</returns>
-    bool SlewHAAsync(double ha, double dec)
+    bool SlewHourAngleDecAsync(double ha, double dec)
         => Connected
         && !double.IsNaN(SiderealTime)
         && ha is >= -12 and <= 12
-        && SlewAsync(ConditionRA(SiderealTime - ha), dec);
+        && SlewRaDecAsync(ConditionRA(SiderealTime - (ha + 12)), dec);
 
     /// <summary>
     /// The UTC date/time of the telescope's internal clock.

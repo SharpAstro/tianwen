@@ -8,6 +8,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -88,8 +89,16 @@ public class Session
                 return;
             }
 
-            // TODO wait until 20 before astro dark to start cooling down without loosing time
+            // TODO wait until 25 before astro dark to start cooling down without loosing time
             CoolCamerasToSetpoint(setup, configuration.SetpointCCDTemperature, configuration.CooldownRampInterval, 80, CoolDirection.Down, external, cancellationToken);
+
+            // TODO wait until 5 min to astro dark
+
+            if (!InitialFocus(setup, external, cancellationToken))
+            {
+                return;
+            }
+            // TODO: Slew near meridian (opposite of pole), CalibrateGuider();
 
             ObservationLoop(setup, configuration, currentObservation, nextObservation, external, cancellationToken);
         }
@@ -101,6 +110,28 @@ public class Session
         {
             Finalise(setup, configuration, external, cancellationToken);
         }
+    }
+
+    internal static bool InitialFocus(Setup setup, IExternal external, CancellationToken cancellationToken)
+    {
+        var mount = setup.Mount;
+
+        if (mount.Connected && mount.Driver.CanSetTracking)
+        {
+            mount.Driver.TrackingSpeed = TrackingSpeed.Sidereal;
+            mount.Driver.Tracking = true;
+        }
+
+        external.LogInfo($"Slew mount {mount.Device.DisplayName} to zenith for focusing");
+
+        mount.Driver.SlewHourAngleDecAsync(11.57, 0);
+
+        while (mount.Driver.IsSlewing && !cancellationToken.IsCancellationRequested)
+        {
+            external.Sleep(TimeSpan.FromSeconds(1));
+        }
+
+        return false;
     }
 
     internal static void Finalise(Setup setup, SessionConfiguration configuration, IExternal external, CancellationToken cancellationToken)
@@ -241,13 +272,16 @@ public class Session
         }
 
         // wait for cameras to settle (QHY dodgy power value, Simulator cam starts on 100% power, ...)
-        for (var i = 0; i < 30; i++)
+        if (false)
         {
-            if (cancellationToken.IsCancellationRequested)
+            for (var i = 0; i < 30; i++)
             {
-                return false;
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    return false;
+                }
+                external.Sleep(TimeSpan.FromSeconds(1));
             }
-            external.Sleep(TimeSpan.FromSeconds(1));
         }
 
         return true;
@@ -284,7 +318,7 @@ public class Session
                 || !TryTransformJ2000ToMountNative(mount, transform, observation, out var raMount, out var decMount, out az, out alt)
                 || double.IsNaN(alt)
                 || alt < configuration.MinHeightAboveHorizon
-                || !mount.Driver.SlewAsync(raMount, decMount))
+                || !mount.Driver.SlewRaDecAsync(raMount, decMount))
             {
                 external.LogError($"Failed to slew {mount.Device.DisplayName} to target {observation} az={az:0.00} alt={alt:0.00}, skipping.");
                 nextObservation();

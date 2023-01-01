@@ -53,7 +53,7 @@ namespace Astap.Lib.Devices.Ascom
             };
         }
 
-        public bool SlewAsync(double ra, double dec)
+        public bool SlewRaDecAsync(double ra, double dec)
         {
             if (_comObject?.CanSlewAsync is bool canSlewAsync && canSlewAsync)
             {
