@@ -1,5 +1,6 @@
 ﻿using Astap.Lib.Astrometry.Catalogs;
 using Astap.Lib.Astrometry.VSOP87;
+using GeoTimeZone;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
@@ -23,7 +24,7 @@ namespace Astap.Lib.Astrometry.SOFA
     {
         private double _RAJ2000Value, _RATopoValue, _DECJ2000Value, _DECTopoValue;
         private double _SiteElevValue, _SiteLatValue, _SiteLongValue;
-        private TimeSpan _SiteTimeZoneValue;
+        private TimeSpan? _SiteTimeZoneValue;
         private double _SiteTempValue, _SitePressureValue;
         private double _RAApparentValue, _DECApparentValue, _AzimuthTopoValue, _ElevationTopoValue;
         private double _jdTTValue1, _jdTTValue2, _jdUTCValue1, _jdUTCValue2;
@@ -50,7 +51,7 @@ namespace Astap.Lib.Astrometry.SOFA
             _SiteElevValue = double.NaN;
             _SiteLatValue = double.NaN;
             _SiteLongValue = double.NaN;
-            _SiteTimeZoneValue = TimeSpan.MinValue;
+            _SiteTimeZoneValue = null;
             _SitePressureValue = double.NaN;
 
             _RefracValue = false;
@@ -621,26 +622,65 @@ namespace Astap.Lib.Astrometry.SOFA
             }
         }
 
+        public DateTime DateTime
+        {
+            [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.AggressiveInlining)]
+            get => TimeUtils.FromJulian(_jdUTCValue1, _jdUTCValue2);
+
+            [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.AggressiveInlining)]
+            set
+            {
+                value.ToSOFAUtcJdTT(out _jdUTCValue1, out _jdUTCValue2, out _jdTTValue1, out _jdTTValue2);
+                _RequiresRecalculate = true;
+            }
+        }
+
         /// <summary>
         /// Initialises time via <see cref="TimeUtils.ToSOFAUtcJdTT(DateTimeOffset, out double, out double, out double, out double)"/>.
         /// </summary>
         public DateTimeOffset DateTimeOffset
         {
+            [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.AggressiveInlining)]
+            get => new(DateTime, SiteTimeZone);
+
+            [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.AggressiveInlining)]
             set
             {
                 value.ToSOFAUtcJdTT(out _jdUTCValue1, out _jdUTCValue2, out _jdTTValue1, out _jdTTValue2);
-                _SiteTimeZoneValue = value.Offset;
+                _RequiresRecalculate = true;
             }
         }
 
         /// <summary>
-        /// Timezone offset, will <see cref="TimeSpan.MinValue"/> if not provided via <see cref="DateTimeOffset"/>.
+        /// Timezone offset, will be calculated via SiteLong, SiteLat
         /// Is used to calculate <see cref="EventTimes(EventType)"/>.
         /// </summary>
         public TimeSpan SiteTimeZone
         {
-            get => _SiteTimeZoneValue;
-            set => _SiteTimeZoneValue = value;
+            get
+            {
+                if (_RequiresRecalculate)
+                {
+                    _SiteTimeZoneValue = null;
+                }
+                else if (_SiteTimeZoneValue.HasValue)
+                {
+                    return _SiteTimeZoneValue.Value;
+                }
+
+                if (SiteLatitude is var lat && !double.IsNaN(lat)
+                    && SiteLongitude is var @long && !double.IsNaN(@long)
+                    && TimeZoneLookup.GetTimeZone(lat, @long).Result is { Length: > 0 } tzId && tzId.Contains('/')
+                )
+                {
+                    var tzInfo = TimeZoneInfo.FindSystemTimeZoneById(tzId);
+                    return _SiteTimeZoneValue ??= tzInfo.GetUtcOffset(DateTime);
+                }
+                else
+                {
+                    throw new InvalidOperationException("Could not calculate timezone");
+                }
+            }
         }
 
         #endregion

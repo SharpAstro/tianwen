@@ -6,11 +6,16 @@ namespace Astap.Lib.Astrometry;
 
 public static class TimeUtils
 {
+    const double OAOffset = 2415018.5;
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static double ToJulian(this DateTimeOffset dateTimeOffset) => dateTimeOffset.UtcDateTime.ToJulian();
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static double ToJulian(this DateTime dt) => dt.ToOADate() + 2415018.5;
+    public static double ToJulian(this DateTime dt) => dt.ToOADate() + OAOffset;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static DateTime FromJulian(double utc1, double utc2) => new(DateTime.FromOADate(utc1 - OAOffset + utc2).Ticks, DateTimeKind.Utc);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void ToSOFAUtcJd(this DateTimeOffset dateTimeOffset, out double utc1, out double utc2)

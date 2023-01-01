@@ -124,7 +124,11 @@ public class Session
 
         external.LogInfo($"Slew mount {mount.Device.DisplayName} to zenith for focusing");
 
-        mount.Driver.SlewHourAngleDecAsync(11.57, 0);
+        // coordinates not quite accurate but good enough for this purpose.
+
+        mount.Driver.TryGetTransform(out var transform);
+
+        mount.Driver.SlewHourAngleDecAsync((TimeSpan.FromHours(12) - TimeSpan.FromMinutes(15)).TotalHours, mount.Driver.SiteLatitude);
 
         while (mount.Driver.IsSlewing && !cancellationToken.IsCancellationRequested)
         {
@@ -272,6 +276,7 @@ public class Session
         }
 
         // wait for cameras to settle (QHY dodgy power value, Simulator cam starts on 100% power, ...)
+        // TODO reenable
         if (false)
         {
             for (var i = 0; i < 30; i++)
@@ -314,7 +319,7 @@ public class Session
             // skip target if slew is not successful
             var az = double.NaN;
             var alt = double.NaN;
-            if (!TryGetTransformOfObservation(mount, observation, out var transform)
+            if (!mount.Driver.TryGetTransform(out var transform)
                 || !TryTransformJ2000ToMountNative(mount, transform, observation, out var raMount, out var decMount, out az, out alt)
                 || double.IsNaN(alt)
                 || alt < configuration.MinHeightAboveHorizon
@@ -653,28 +658,6 @@ public class Session
         }
     }
 
-    internal static bool TryGetTransformOfObservation(Mount mount, in Observation observation, [NotNullWhen(true)] out Transform? transform)
-    {
-        if (mount.Driver.TryGetUTCDate(out var utc))
-        {
-            transform = new Transform
-            {
-                SiteElevation = mount.Driver.SiteElevation,
-                SiteLatitude = mount.Driver.SiteLatitude,
-                SiteLongitude = mount.Driver.SiteLongitude,
-                SitePressure = 1010, // TODO standard atmosphere
-                SiteTemperature = 10, // TODO check either online or if compatible devices connected
-                DateTimeOffset = new DateTimeOffset(utc, observation.Start.Offset),
-                Refraction = true // TODO assumes that driver does not support/do refraction
-            };
-
-            return true;
-        }
-
-        transform = null;
-        return false;
-    }
-
     /// <summary>
     /// Not reentrant if using a shared <paramref name="transform"/>.
     /// </summary>
@@ -688,7 +671,7 @@ public class Session
     {
         if (mount.Driver.TryGetUTCDate(out var utc))
         {
-            transform.DateTimeOffset = new DateTimeOffset(utc, observation.Start.Offset);
+            transform.DateTime = utc;
             transform.SetJ2000(observation.Target.RA, observation.Target.Dec);
             transform.Refresh();
 
