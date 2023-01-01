@@ -22,8 +22,8 @@ public static class CoolDirectionEx
     public static bool NeedsFurtherRamping(this CoolDirection direction, double ccdTemp, double setpointTemp) =>
         direction switch
         {
-            CoolDirection.Up => ccdTemp < setpointTemp,
-            CoolDirection.Down => ccdTemp > setpointTemp,
+            CoolDirection.Up => ccdTemp + 0.1 < setpointTemp,
+            CoolDirection.Down => ccdTemp - 0.1 > setpointTemp,
             _ => false
         };
 

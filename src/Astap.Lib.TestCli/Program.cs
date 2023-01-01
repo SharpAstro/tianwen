@@ -121,9 +121,9 @@ using var setup = new Setup(
 );
 
 var sessionConfiguration = new SessionConfiguration(
-    SetpointCCDTemperature: 3,
+    SetpointCCDTemperature: 7,
     CooldownRampInterval: TimeSpan.FromSeconds(20),
-    CoolupRampInterval: TimeSpan.FromMilliseconds(1),
+    CoolupRampInterval: TimeSpan.FromMinutes(1),
     MinHeightAboveHorizon: 15,
     DitherPixel: 30d,
     SettlePixel: 0.3d,
