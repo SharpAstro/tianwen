@@ -725,14 +725,14 @@ public class Session
         {
             var cover = covers[i];
             int failSafe = 0;
-            while (cover.Driver.CoverState is CoverStatus.Moving && !cancellationToken.IsCancellationRequested && ++failSafe < MAX_FAILSAFE)
-
+            CoverStatus cs;
+            while (!(finalStateReached[i] = (cs = cover.Driver.CoverState) == finalState) && cs is CoverStatus.Moving or CoverStatus.Unknown && !cancellationToken.IsCancellationRequested && ++failSafe < MAX_FAILSAFE)
             {
+                external.LogInfo($"Cover {cover.Device.DisplayName} is still {cs} while reaching {finalState}, waiting.");
                 external.Sleep(TimeSpan.FromSeconds(1));
             }
 
-
-            finalStateReached[i] = cover.Driver.CoverState == finalState;
+            finalStateReached[i] |= cover.Driver.CoverState == finalState;
         }
 
         return Array.TrueForAll(finalStateReached, x => x);
@@ -780,7 +780,7 @@ public class Session
                 )
                 {
                     var coolerPower = camera.Driver.CanGetCoolerPower ? camera.Driver.CoolerPower : double.NaN;
-                    var setpointTemp = maybeSetpointTemp ?? Math.Truncate(setpointIsCCDTemp ? Math.Min(ccdTemp, heatSinkTemp) : heatSinkTemp);
+                    var setpointTemp = maybeSetpointTemp ?? Math.Round(setpointIsCCDTemp ? Math.Min(ccdTemp, heatSinkTemp) : heatSinkTemp);
 
                     if (direction.NeedsFurtherRamping(ccdTemp, setpointTemp)
                         && (double.IsNaN(coolerPower) || !direction.ThresholdPowerReached(coolerPower, thresPower))
