@@ -20,16 +20,29 @@ public abstract class AscomDeviceDriverBase : DynamicComObject, IDeviceDriver
 
     public void SetupDialog() => _comObject?.SetupDialog();
 
+    private bool? _connectedCache;
     public bool Connected
     {
-        get => _comObject?.Connected is bool connected && connected;
+        get => _connectedCache ??= _comObject?.Connected is bool connected && connected;
         set
         {
             if (_comObject is { } obj)
             {
                 obj.Connected = value;
+                if (obj.Connected is bool actualConnected)
+                {
+                    _connectedCache = actualConnected;
 
-                DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(Connected));
+                    DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(actualConnected));
+                }
+                else
+                {
+                    _connectedCache = null;
+                }
+            }
+            else
+            {
+                _connectedCache = null;
             }
         }
     }

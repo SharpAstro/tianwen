@@ -3,6 +3,8 @@ using Astap.Lib.Devices;
 using Astap.Lib.Devices.Guider;
 using Astap.Lib.Sequencing;
 using Pastel;
+using Astap.Lib.Astrometry.Focus;
+using Astap.Lib.Astrometry.PlateSolve;
 
 var cts = new CancellationTokenSource();
 Console.CancelKeyPress += Console_CancelKeyPress;
@@ -121,7 +123,7 @@ using var setup = new Setup(
 );
 
 var sessionConfiguration = new SessionConfiguration(
-    SetpointCCDTemperature: 7,
+    SetpointCCDTemperature: 10,
     CooldownRampInterval: TimeSpan.FromSeconds(20),
     CoolupRampInterval: TimeSpan.FromSeconds(30),
     MinHeightAboveHorizon: 15,
@@ -131,7 +133,16 @@ var sessionConfiguration = new SessionConfiguration(
     SettleTime: TimeSpan.FromSeconds(30),
     GuidingTries: 3
 );
-var session = new Session(setup, sessionConfiguration, external, observations);
+
+// TODO: implement DI
+var analyser = new ImageAnalyser();
+var plateSolver = new CombinedPlateSolver(new AstapPlateSolver(), new AstrometryNetPlateSolverMultiPlatform(), new AstrometryNetPlateSolverUnix());
+if (!await plateSolver.CheckSupportAsync(cts.Token))
+{
+    external.LogError("No proper plate solver configured, aborting!");
+}
+
+var session = new Session(setup, sessionConfiguration, analyser, plateSolver, external, observations);
 
 session.Run(cts.Token);
 
@@ -141,10 +152,10 @@ class ConsoleOutput : IExternal
 {
     public ConsoleOutput(string outputFolder)
     {
-        OutputFolder=outputFolder;
+        OutputFolder = outputFolder;
     }
 
-    public string OutputFolder { get; init; }
+    public string OutputFolder { get; }
 
     public void LogError(string error) => Console.Error.WriteLine($"[{DateTime.Now:o}] {error.Pastel(ConsoleColor.Red)}");
 

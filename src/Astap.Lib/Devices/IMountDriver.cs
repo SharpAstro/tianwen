@@ -1,11 +1,8 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
-using System.Runtime.InteropServices;
-using Astap.Lib.Astrometry;
+﻿using Astap.Lib.Astrometry;
 using Astap.Lib.Astrometry.SOFA;
-using Astap.Lib.Sequencing;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using static Astap.Lib.Astrometry.CoordinateUtils;
 
 namespace Astap.Lib.Devices;
@@ -25,6 +22,8 @@ public interface IMountDriver : IDeviceDriver
     bool CanSlew { get; }
 
     bool CanSlewAsync { get; }
+
+    bool CanSync { get; }
 
     TrackingSpeed TrackingSpeed { get; set; }
 
@@ -58,7 +57,7 @@ public interface IMountDriver : IDeviceDriver
     /// Uses current <see cref="SiderealTime"/> to convert to RA.
     /// Succeeds if <see cref="Connected"/> and <see cref="SlewRaDecAsync(double, double)"/> succeeds.
     /// </summary>
-    /// <param name="ra">HA in hours (-12..12), as returned by <see cref="HourAngle"/></param>
+    /// <param name="ha">HA in hours (-12..12), as returned by <see cref="HourAngle"/></param>
     /// <param name="dec">Declination in degrees (-90..90)</param>
     /// <returns>True if slewing operation was accepted and mount is slewing</returns>
     bool SlewHourAngleDecAsync(double ha, double dec)
@@ -66,6 +65,15 @@ public interface IMountDriver : IDeviceDriver
         && !double.IsNaN(SiderealTime)
         && ha is >= -12 and <= 12
         && SlewRaDecAsync(ConditionRA(SiderealTime - (ha + 12)), dec);
+
+    /// <summary>
+    /// Syncs to given equatorial coordinates (RA, Dec) in the mounts native epoch, <see cref="EquatorialSystem"/>.
+    /// Can still throw exceptions when underlying implementation prohibits syncing.
+    /// </summary>
+    /// <param name="ra">RA in hours (0..24)</param>
+    /// <param name="dec">Declination in degrees (-90..90)</param>
+    /// <returns>true if mount is synced to the given coordinates.</returns>
+    bool SyncRaDec(double ra, double dec);
 
     /// <summary>
     /// The UTC date/time of the telescope's internal clock.
@@ -168,5 +176,44 @@ public interface IMountDriver : IDeviceDriver
 
         transform = null;
         return false;
+    }
+
+    /// <summary>
+    /// Not reentrant if using a shared <paramref name="transform"/>.
+    /// </summary>
+    /// <param name="mount"></param>
+    /// <param name="transform"></param>
+    /// <param name="observation"></param>
+    /// <param name="raMount"></param>
+    /// <param name="decMount"></param>
+    /// <returns>true if transform was successful.</returns>
+    bool TryTransformJ2000ToMountNative(Transform transform, double raJ2000, double decJ2000, bool updateTime, out double raMount, out double decMount, out double az, out double alt)
+    {
+        if (Connected && updateTime && TryGetUTCDate(out var utc))
+        {
+            transform.DateTime = utc;
+        }
+        else if (updateTime || !Connected)
+        {
+            raMount = double.NaN;
+            decMount = double.NaN;
+            az = double.NaN;
+            alt = double.NaN;
+            return false;
+        }
+
+        transform.SetJ2000(raJ2000, decJ2000);
+        transform.Refresh();
+
+        (raMount, decMount) = EquatorialSystem switch
+        {
+            EquatorialCoordinateType.J2000 => (transform.RAJ2000, transform.DecJ2000),
+            EquatorialCoordinateType.Topocentric => (transform.RAApparent, transform.DECApparent),
+            _ => (double.NaN, double.NaN)
+        };
+        az = transform.AzimuthTopocentric;
+        alt = transform.ElevationTopocentric;
+
+        return !double.IsNaN(raMount) && !double.IsNaN(decMount) && !double.IsNaN(az) && !double.IsNaN(alt);
     }
 }

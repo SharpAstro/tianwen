@@ -2,6 +2,7 @@
 
 public enum SampleKind
 {
-    HFD,
-    FWHM
+    None = 0,
+    HFD = 1,
+    FWHM = 2
 }

@@ -39,6 +39,7 @@ namespace Astap.Lib.Devices.Ascom
                 CanSetPark = obj.CanSetPark is bool canSetPark && canSetPark;
                 CanSlew = obj.CanSlew is bool canSlew && canSlew;
                 CanSlewAsync = obj.CanSlewAsync is bool canSlewAsync && canSlewAsync;
+                CanSync = obj.CanSync is bool canSync && canSync;
             }
         }
 
@@ -138,6 +139,8 @@ namespace Astap.Lib.Devices.Ascom
 
         public bool CanSlewAsync { get; private set; }
 
+        public bool CanSync { get; private set; }
+
         public PierSide SideOfPier
         {
             get => _comObject?.SideOfPier is int sop ? (PierSide)sop : PierSide.Unknown;
@@ -215,6 +218,18 @@ namespace Astap.Lib.Devices.Ascom
             {
                 obj.Unpark();
                 return !AtPark;
+            }
+
+            return false;
+        }
+
+        public bool SyncRaDec(double ra, double dec)
+        {
+            // prevent syncs on other side of meridian (most mounts do not support that).
+            if (Connected && CanSync && Tracking && !AtPark && DestinationSideOfPier(ra, dec) == SideOfPier && _comObject is { } obj)
+            {
+                obj.SyncToCoordinates(ra, dec);
+                return true;
             }
 
             return false;
