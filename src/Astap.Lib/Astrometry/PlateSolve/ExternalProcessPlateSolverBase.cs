@@ -12,7 +12,7 @@ namespace Astap.Lib.Astrometry.PlateSolve;
 
 public abstract class ExternalProcessPlateSolverBase : IPlateSolver
 {
-    protected const PlatformID CygwinPlatformId = (PlatformID)('C' << 16 | 'y' << 8 | 'g');
+    protected const PlatformID CygwinPlatformId = (PlatformID)('C' << 14 | 'y' << 7 | 'g');
 
     public abstract string Name { get; }
 
@@ -34,7 +34,7 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
                 return false;
             }
             proc.BeginOutputReadLine();
-            await proc.WaitForExitAsync(cancellationToken);
+            await proc.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
 
             return proc.ExitCode == 0;
         }
@@ -54,7 +54,7 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
         CancellationToken cancellationToken = default
     )
     {
-        if (imageDim is ImageDim dim)
+        if (imageDim is { } dim)
         {
             if (dim.PixelScale <= 0)
             {
@@ -68,17 +68,17 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
             {
                 throw new ArgumentOutOfRangeException(nameof(imageDim), dim.Height, "Image height  must be greater than 0");
             }
+            if (range > dim.PixelScale)
+            {
+                throw new ArgumentOutOfRangeException(nameof(range), range, "Range must be smaller than pixel scale");
+            }
         }
-        if (range <= 0)
+        if (range is <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(range), range, "Range must be greater than 0");
         }
-        if (range > imageDim?.PixelScale)
-        {
-            throw new ArgumentOutOfRangeException(nameof(range), range, "Range must be smaller than pixel scale");
-        }
 
-        var normalisedFilePath = await NormaliseFilePathAsync(fitsFile, cancellationToken);
+        var normalisedFilePath = await NormaliseFilePathAsync(fitsFile, cancellationToken).ConfigureAwait(false);
 
         var solveFieldArgs = FormatSolveProcessArgs(normalisedFilePath, FormatImageDimenstions(imageDim, range), FormatSearchPosition(searchOrigin, searchRadius));
         var solveFieldProc = StartRedirectedProcess(CommandFile, solveFieldArgs);
@@ -94,7 +94,7 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
         solveFieldProc.BeginOutputReadLine();
         solveFieldProc.BeginErrorReadLine();
 
-        await solveFieldProc.WaitForExitAsync(cancellationToken);
+        await solveFieldProc.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
 
         var axyFile = Path.ChangeExtension(fitsFile, ".axy");
         if (File.Exists(axyFile))
@@ -203,7 +203,7 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
         pathTranslateProc.BeginOutputReadLine();
         pathTranslateProc.BeginErrorReadLine();
 
-        await pathTranslateProc.WaitForExitAsync(cancellationToken);
+        await pathTranslateProc.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
 
         if (pathTranslateProc.ExitCode == 0)
         {

@@ -24,6 +24,7 @@ SOFTWARE.
 
 */
 
+using Astap.Lib.Imaging;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
@@ -135,13 +136,13 @@ public interface IGuider : IDeviceDriver
     GuideStats? GetStats();
 
     // stop looping and guiding
-    void StopCapture(uint timeoutSeconds = 10);
+    void StopCapture(uint timeoutSeconds = 10, Action<TimeSpan>? sleep = null);
 
     /// <summary>
     /// start looping exposures
     /// </summary>
     /// <param name="timeoutSeconds">timeout after looping attempt is cancelled</param>
-    void Loop(uint timeoutSeconds = 10);
+    bool Loop(uint timeoutSeconds = 10, Action<TimeSpan>? sleep = null);
 
     /// <summary>
     /// get the guider pixel scale in arc-seconds per pixel
@@ -156,6 +157,19 @@ public interface IGuider : IDeviceDriver
     public (int width, int height)? CameraFrameSize();
 
     /// <summary>
+    /// When true, <paramref name="dim"/> contains the image dimensions of the guiding exposure,
+    /// <see cref="PixelScale()"/> and <see cref="CameraFrameSize()"/>.
+    /// Might still throw exceptions when not connected.
+    /// </summary>
+    /// <param name="dim"></param>
+    /// <returns>true if image dimensions could be obtained.</returns>
+    public bool TryGetImageDim([NotNullWhen(true)] out ImageDim? dim)
+        => (dim = CameraFrameSize() is var(width, height) && PixelScale() is var pixelScale and > 0
+            ? new ImageDim(pixelScale, width, height)
+            : default
+        ) is not null;
+
+    /// <summary>
     /// get the exposure time of each looping exposure.
     /// </summary>
     /// <returns>exposure time</returns>
@@ -166,10 +180,10 @@ public interface IGuider : IDeviceDriver
     /// </summary>
     /// <returns></returns>
     IReadOnlyList<string> GetEquipmentProfiles();
-    
+
     /// <summary>
     /// Tries to obtain the active profile, useful for quick self-discovery.
-    /// 
+    ///
     /// Assumes an active connection.
     /// </summary>
     /// <param name="activeProfileName"></param>
@@ -213,9 +227,10 @@ public interface IGuider : IDeviceDriver
     /// <summary>
     /// save the current guide camera frame (FITS format), returning the name of the file.
     /// The caller will need to remove the file when done.
+    /// THe implementation will copy the output file to <paramref name="outputFolder"/> and delete the temporary file created by the guider.
     /// </summary>
-    /// <returns></returns>
-    string? SaveImage();
+    /// <returns>the full path of the output file if successfully captured.</returns>
+    string? SaveImage(string outputFolder);
 
     /// <summary>
     /// Event that is triggered when an unknown event is received from the guiding application.

@@ -29,6 +29,7 @@ using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.IO;
 using System.Text.Json;
 using System.Threading;
 
@@ -725,8 +726,9 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         return stats;
     }
 
-    public void StopCapture(uint timeoutSeconds)
+    public void StopCapture(uint timeoutSeconds, Action<TimeSpan>? sleep = null)
     {
+        sleep ??= Thread.Sleep;
         using var stopCaptureResponse = Call("stop_capture");
 
         for (uint i = 0; i < timeoutSeconds; i++)
@@ -740,7 +742,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
             if (appstate == "Stopped")
                 return;
 
-            Thread.Sleep(1000);
+            sleep(TimeSpan.FromSeconds(1));
             EnsureConnected();
         }
         Debug.WriteLine("StopCapture: timed-out waiting for stopped");
@@ -761,36 +763,43 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         throw new GuiderException($"guider did not stop capture after {timeoutSeconds} seconds!");
     }
 
-    public void Loop(uint timeoutSeconds)
+    public bool Loop(uint timeoutSeconds, Action<TimeSpan>? sleep = null)
     {
+        sleep ??= Thread.Sleep;
+
         EnsureConnected();
 
         // already looping?
         lock (m_sync)
         {
             if (AppState == "Looping")
-                return;
+            {
+                return true;
+            }
         }
 
         var exposureTime = ExposureTime();
 
         using var loopingResponse = Call("loop");
 
-        Thread.Sleep(exposureTime);
+        sleep(exposureTime);
 
         for (uint i = 0; i < timeoutSeconds; i++)
         {
             lock (m_sync)
             {
                 if (AppState == "Looping")
-                    return;
+                {
+                    return true;
+                }
             }
 
-            Thread.Sleep(1000);
+            sleep(TimeSpan.FromSeconds(1));
+
             EnsureConnected();
         }
 
-        throw new GuiderException("timed-out waiting for guiding to start looping");
+        return false;
     }
 
     public double PixelScale()
@@ -944,10 +953,22 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         using var response = Call("set_paused", false);
     }
 
-    public string? SaveImage()
+    public string? SaveImage(string outputFolder)
     {
         using var response = Call("save_image");
-        return response.RootElement.GetProperty("result").GetProperty("filename").GetString();
+        if (response.RootElement.GetProperty("result").GetProperty("filename").GetString() is { Length: > 0} tempFileName
+            && File.Exists(tempFileName)
+        )
+        {
+            var outputFolderFullName = Directory.CreateDirectory(outputFolder).FullName;
+            var copiedFile = Path.Combine(outputFolderFullName, $"{Guid.NewGuid():D}.fits");
+            File.Copy(tempFileName, copiedFile);
+            File.Delete(tempFileName);
+
+            return copiedFile;
+        }
+
+        return null;
     }
 
     public override string ToString() =>

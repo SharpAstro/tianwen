@@ -25,7 +25,7 @@ public class AstapPlateSolver : ExternalProcessPlateSolverBase
         const float ScaleFactor = 0.007f / IPlateSolver.DefaultRange;
 
         var sb = new StringBuilder(30);
-        if (imageDim is ImageDim dim)
+        if (imageDim is { } dim)
         {
             sb.AppendFormat(" -fov {0:0.000}", dim.FieldOfView.height);
         }

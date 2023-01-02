@@ -114,8 +114,8 @@ public interface ICameraDriver : IDeviceDriver
                 BinY,
                 (float)CCDTemperature,
                 SensorType,
-                BayerOffsetX,
-                BayerOffsetY
+                SensorType != SensorType.Monochrome ? BayerOffsetX : 0,
+                SensorType != SensorType.Monochrome ? BayerOffsetY : 0
             )
         )
         : null;

@@ -1,4 +1,6 @@
 ﻿using Astap.Lib.Astrometry;
+using Astap.Lib.Astrometry.Focus;
+using Astap.Lib.Astrometry.PlateSolve;
 using Astap.Lib.Astrometry.SOFA;
 using Astap.Lib.Devices;
 using Astap.Lib.Devices.Guider;
@@ -7,12 +9,12 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
-using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using static Astap.Lib.CollectionHelper;
 using static Astap.Lib.Stat.StatisticsHelper;
 
@@ -20,6 +22,8 @@ namespace Astap.Lib.Sequencing;
 
 public class Session
 {
+    private readonly IImageAnalyser _analyser;
+    private readonly IPlateSolver _plateSolver;
     private readonly IExternal _external;
     private readonly IReadOnlyList<Observation> _observations;
     private readonly ConcurrentQueue<GuiderEventArgs> _guiderEvents = new();
@@ -28,11 +32,13 @@ public class Session
     public Session(
         Setup setup,
         in SessionConfiguration sessionConfiguration,
+        IImageAnalyser analyser,
+        IPlateSolver plateSolver,
         IExternal external,
         Observation observation,
         params Observation[] observations
     )
-        : this(setup, sessionConfiguration, external, ConcatToReadOnlyList(observation, observations))
+        : this(setup, sessionConfiguration, analyser, plateSolver, external, ConcatToReadOnlyList(observation, observations))
     {
         // calls below
     }
@@ -40,12 +46,16 @@ public class Session
     public Session(
         Setup setup,
         in SessionConfiguration sessionConfiguration,
+        IImageAnalyser analyser,
+        IPlateSolver plateSolver,
         IExternal external,
         IReadOnlyList<Observation> observations
     )
     {
         Setup = setup;
         Configuration = sessionConfiguration;
+        _analyser = analyser;
+        _plateSolver = plateSolver;
         _external = external;
         _observations = observations.Count > 0 ? observations : throw new ArgumentException("Need at least one observation", nameof(observations));
         _activeObservation = -1; // -1 means we have not started imaging yet
@@ -61,7 +71,16 @@ public class Session
     const int SETTLE_TIMEOUT_FACTOR = 3;
 
     public void Run(CancellationToken cancellationToken)
-        => Run(Setup, Configuration, _guiderEvents, () => CurrentObservation, () => Interlocked.Increment(ref _activeObservation), _external, cancellationToken);
+        => Run(Setup,
+            Configuration,
+            _guiderEvents,
+            () => CurrentObservation,
+            () => Interlocked.Increment(ref _activeObservation),
+            _analyser,
+            _plateSolver,
+            _external,
+            cancellationToken
+        );
 
     internal static void Run(
         Setup setup,
@@ -69,6 +88,8 @@ public class Session
         ConcurrentQueue<GuiderEventArgs> guiderEvents,
         Func<Observation?> currentObservation,
         Func<int> nextObservation,
+        IImageAnalyser analyser,
+        IPlateSolver plateSolver,
         IExternal external,
         CancellationToken cancellationToken
     )
@@ -92,9 +113,9 @@ public class Session
             // TODO wait until 25 before astro dark to start cooling down without loosing time
             CoolCamerasToSetpoint(setup, configuration.SetpointCCDTemperature, configuration.CooldownRampInterval, 80, CoolDirection.Down, false, external, cancellationToken);
 
-            // TODO wait until 5 min to astro dark
+            // TODO wait until 5 min to astro dark, and/or implement IExternal.IsPolarAligned
 
-            if (!InitialFocus(setup, external, cancellationToken))
+            if (!InitialRoughFocus(setup, analyser, plateSolver, external, cancellationToken))
             {
                 external.LogError("Failed to focus cameras (first time), aborting session.");
                 return;
@@ -113,9 +134,11 @@ public class Session
         }
     }
 
-    internal static bool InitialFocus(Setup setup, IExternal external, CancellationToken cancellationToken)
+    internal static bool InitialRoughFocus(Setup setup, IImageAnalyser analyser, IPlateSolver plateSolver, IExternal external, CancellationToken cancellationToken)
     {
         var mount = setup.Mount;
+        var guider = setup.Guider;
+        var distMeridian = TimeSpan.FromMinutes(15);
 
         if (mount.Connected && mount.Driver.CanSetTracking)
         {
@@ -126,17 +149,137 @@ public class Session
         external.LogInfo($"Slew mount {mount.Device.DisplayName} near zenith for focusing.");
 
         // coordinates not quite accurate but good enough for this purpose.
+        if (!SlewToZenith(mount, distMeridian, external, cancellationToken))
+        {
+            return false;
+        }
 
-        mount.Driver.TryGetTransform(out var transform);
+        const int guiderLoopTimeoutSec = 10;
+        Task<(double ra, double dec)?> solveTask;
+        if (Catch(() => guider.Driver.Loop(guiderLoopTimeoutSec, external.Sleep), external))
+        {
+            if (guider.Driver.SaveImage(Path.Combine(external.OutputFolder, "Guider")) is { Length: > 0 } file)
+            {
+                if (!guider.Driver.TryGetImageDim(out var dim))
+                {
+                    external.LogWarning($"Failed to obtain image dimensions of \"{guider.Driver}\" camera, will use blind search.");
+                }
 
-        mount.Driver.SlewHourAngleDecAsync((TimeSpan.FromHours(12) - TimeSpan.FromMinutes(15)).TotalHours, mount.Driver.SiteLatitude);
+                solveTask = plateSolver.SolveFileAsync(
+                    file,
+                    dim,
+                    searchOrigin: (mount.Driver.RightAscension, mount.Driver.Declination),
+                    searchRadius: 7,
+                    cancellationToken: cancellationToken
+                );
+            }
+            else
+            {
+                external.LogWarning($"Failed to obtain image from guider \"{guider.Driver}\"");
+                solveTask = Task.FromResult<(double, double)?>(null);
+            }
+        }
+        else
+        {
+            external.LogWarning($"Failed to start guider \"{guider.Driver}\" capture loop after {guiderLoopTimeoutSec}s");
+            solveTask = Task.FromResult<(double, double)?>(null);
+        }
+
+        var plateSolveWaitTime = TimeSpan.Zero;
+        while (!solveTask.IsCompleted && !cancellationToken.IsCancellationRequested && plateSolveWaitTime.TotalSeconds < guiderLoopTimeoutSec)
+        {
+            var spinWait = TimeSpan.FromMilliseconds(100);
+            plateSolveWaitTime += spinWait;
+            external.Sleep(spinWait);
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            external.LogWarning($"Cancellation requested, abort setting up guider \"{guider.Driver}\" and quit imaging loop.");
+            return false;
+        }
+        else if (mount.Driver.CanSync
+            && solveTask.IsCompletedSuccessfully
+            && solveTask.Result is var (solvedRa, solvedDec)
+            && mount.Driver.TryGetTransform(out var transform)
+            && mount.Driver.TryTransformJ2000ToMountNative(transform, solvedRa, solvedDec, false, out var raMount, out var decMount, out _, out _)
+        )
+        {
+            mount.Driver.SyncRaDec(raMount, decMount);
+        }
+        else if (solveTask.IsFaulted || solveTask.IsCanceled)
+        {
+            external.LogWarning($"Failed to plate solve guider \"{guider.Driver}\" captured frame due to: {solveTask.Exception?.Message}");
+        }
+
+        var count = setup.Telescopes.Count;
+        for (var i = 0; i < count; i++)
+        {
+            setup.Telescopes[i].Camera.Driver.StartExposure(TimeSpan.FromSeconds(1), true);
+        }
+
+        var expTimesSec = new int[count];
+        var hasRoughFocus = new bool[count];
+        Array.Fill(expTimesSec, 1);
+
+        var sw = Stopwatch.StartNew();
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            for (var i = 0; i < count; i++)
+            {
+                var camDriver = setup.Telescopes[i].Camera.Driver;
+
+                if (camDriver.ImageReady is true && camDriver.Image is { Width: > 0, Height: > 0 } image)
+                {
+                    var stars = analyser.FindStars(image, snrMin: 15);
+
+                    if (stars.Count < 15)
+                    {
+                        expTimesSec[i]++;
+
+                        if (sw.Elapsed + TimeSpan.FromSeconds(count * 5 + expTimesSec[i]) < distMeridian)
+                        {
+                            camDriver.StartExposure(TimeSpan.FromSeconds(expTimesSec[i]), true);
+                        }
+                    }
+                    else
+                    {
+                        hasRoughFocus[i] = true;
+                    }
+                }
+            }
+
+            if (sw.Elapsed > distMeridian)
+            {
+                sw.Reset();
+                if (!SlewToZenith(mount, distMeridian, external, cancellationToken))
+                {
+                    return false;
+                }
+                sw.Start();
+            }
+
+            if (hasRoughFocus.Any(v => v))
+            {
+                return true;
+            }
+
+            external.Sleep(TimeSpan.FromMilliseconds(100));
+        }
+
+        return false;
+    }
+
+    internal static bool SlewToZenith(Mount mount, TimeSpan distMeridian, IExternal external, CancellationToken cancellationToken)
+    {
+        mount.Driver.SlewHourAngleDecAsync((TimeSpan.FromHours(12) - distMeridian).TotalHours, mount.Driver.SiteLatitude);
 
         while (mount.Driver.IsSlewing && !cancellationToken.IsCancellationRequested)
         {
             external.Sleep(TimeSpan.FromSeconds(1));
         }
 
-        return false;
+        return !cancellationToken.IsCancellationRequested;
     }
 
     internal static void Finalise(Setup setup, SessionConfiguration configuration, IExternal external, CancellationToken cancellationToken)
@@ -311,7 +454,7 @@ public class Session
             var az = double.NaN;
             var alt = double.NaN;
             if (!mount.Driver.TryGetTransform(out var transform)
-                || !TryTransformJ2000ToMountNative(mount, transform, observation, out var raMount, out var decMount, out az, out alt)
+                || !mount.Driver.TryTransformJ2000ToMountNative(transform, observation.Target.RA, observation.Target.Dec, false, out var raMount, out var decMount, out az, out alt)
                 || double.IsNaN(alt)
                 || alt < configuration.MinHeightAboveHorizon
                 || !mount.Driver.SlewRaDecAsync(raMount, decMount))
@@ -368,12 +511,12 @@ public class Session
 
             if (cancellationToken.IsCancellationRequested)
             {
-                external.LogWarning($"Cancellation requested, abort setting up guiding and quit imaging loop.");
+                external.LogWarning($"Cancellation requested, abort setting up guider \"{guider.Driver}\" and quit imaging loop.");
                 break;
             }
             else if (!guidingSuccess)
             {
-                external.LogError($"Skipping target {observation} as starting guiding failed after trying twice.");
+                external.LogError($"Skipping target {observation} as starting guider \"{guider.Driver}\" failed after trying twice.");
                 nextObservation();
                 continue;
             }
@@ -463,18 +606,18 @@ public class Session
         {
             for (var i = 0; i < scopes; i++)
             {
-                var cameraDriver = setup.Telescopes[i].Camera.Driver;
-                switch (cameraDriver.CameraState)
+                var camDriver = setup.Telescopes[i].Camera.Driver;
+                switch (camDriver.CameraState)
                 {
                     case CameraState.Idle:
                         var subExposureSec = subExposuresSec[i];
                         var frameExpTime = TimeSpan.FromSeconds(subExposureSec);
-                        cameraDriver.StartExposure(frameExpTime, true);
+                        camDriver.StartExposure(frameExpTime, true);
                         expStartTimes[i] = expStartTime;
                         expTicks[i] = (int)(subExposureSec / tickGCD);
                         var frameNo = ++frameNumbers[i];
 
-                        external.LogInfo($"Camera #{(i + 1)} {cameraDriver.Name} starting {frameExpTime} exposure of frame #{frameNo}.");
+                        external.LogInfo($"Camera #{(i + 1)} {camDriver.Name} starting {frameExpTime} exposure of frame #{frameNo}.");
                         break;
                 }
             }
@@ -498,7 +641,7 @@ public class Session
             {
                 var tick = --expTicks[i];
 
-                var camera = setup.Telescopes[i].Camera;
+                var camDriver = setup.Telescopes[i].Camera.Driver;
                 imageFetchSuccess[i] = false;
                 if (tick <= 0)
                 {
@@ -506,10 +649,10 @@ public class Session
                     var frameExpTime = TimeSpan.FromSeconds(subExposuresSec[i]);
                     do // wait for image loop
                     {
-                        if (camera.Driver.ImageReady is true && camera.Driver.Image is { Width: > 0, Height: > 0 } image)
+                        if (camDriver.ImageReady is true && camDriver.Image is { Width: > 0, Height: > 0 } image)
                         {
                             imageFetchSuccess[i] = true;
-                            external.LogInfo($"Camera #{(i + 1)} {camera.Driver.Name} finished {frameExpTime} exposure of frame #{frameNo}");
+                            external.LogInfo($"Camera #{(i + 1)} {camDriver.Name} finished {frameExpTime} exposure of frame #{frameNo}");
 
                             imageWriteQueue.Enqueue((image, observation, expStartTime, frameNo));
                             break;
@@ -522,13 +665,13 @@ public class Session
                         }
                     }
                     while (overslept < (tickSec / 5)
-                        && camera.Driver.CameraState is not CameraState.Error and not CameraState.NotConnected
+                        && camDriver.CameraState is not CameraState.Error and not CameraState.NotConnected
                         && !cancellationToken.IsCancellationRequested
                     );
 
                     if (!imageFetchSuccess[i])
                     {
-                        external.LogError($"Failed fetching camera #{(i + 1)} {camera.Driver.Name} {frameExpTime} exposure of frame #{frameNo}, camera state: {camera.Driver.CameraState}");
+                        external.LogError($"Failed fetching camera #{(i + 1)} {camDriver.Name} {frameExpTime} exposure of frame #{frameNo}, camera state: {camDriver.CameraState}");
                     }
                 }
             }
@@ -649,90 +792,55 @@ public class Session
         }
     }
 
-    /// <summary>
-    /// Not reentrant if using a shared <paramref name="transform"/>.
-    /// </summary>
-    /// <param name="mount"></param>
-    /// <param name="transform"></param>
-    /// <param name="observation"></param>
-    /// <param name="raMount"></param>
-    /// <param name="decMount"></param>
-    /// <returns>true if transform was successful.</returns>
-    internal static bool TryTransformJ2000ToMountNative(Mount mount, Transform transform, in Observation observation, out double raMount, out double decMount, out double az, out double alt)
-    {
-        if (mount.Driver.TryGetUTCDate(out var utc))
-        {
-            transform.DateTime = utc;
-            transform.SetJ2000(observation.Target.RA, observation.Target.Dec);
-            transform.Refresh();
-
-            var equSys = mount.Driver.EquatorialSystem;
-            (raMount, decMount) = equSys switch
-            {
-                EquatorialCoordinateType.J2000 => (transform.RAJ2000, transform.DecJ2000),
-                EquatorialCoordinateType.Topocentric => (transform.RAApparent, transform.DECApparent),
-                _ => (double.NaN, double.NaN)
-            };
-            az = transform.AzimuthTopocentric;
-            alt = transform.ElevationTopocentric;
-        }
-        else
-        {
-            raMount = double.NaN;
-            decMount = double.NaN;
-            az = double.NaN;
-            alt = double.NaN;
-        }
-
-        return !double.IsNaN(raMount) && !double.IsNaN(decMount) && !double.IsNaN(az) && !double.IsNaN(alt);
-    }
-
     internal static bool MoveTelescopeCoversToSate(Setup setup, CoverStatus finalState, IExternal external, CancellationToken cancellationToken)
     {
-        var covers = (
-            from telescope in setup.Telescopes
-            let cover = telescope.Cover
-            where cover is not null
-            select cover
-        ).ToArray();
+        var count = setup.Telescopes.Count;
 
-        var commandSuccess = new bool[covers.Length];
+        var commandSuccess = new bool[count];
 
-        for (var i = 0; i < covers.Length; i++)
+        for (var i = 0; i < count; i++)
         {
-            var cover = covers[i];
-            cover.Connected = true;
-
-            if (cover.Driver.CoverState is CoverStatus.NotPresent || cover.Driver.CalibratorOff())
+            if (setup.Telescopes[i].Cover is { } cover)
             {
-                external.LogInfo($"Calibrator {cover.Device.DisplayName} is off");
+                cover.Connected = true;
 
-                commandSuccess[i] = cover.Driver.CoverState == finalState || finalState switch
+                if (cover.Driver.CoverState is CoverStatus.NotPresent || cover.Driver.CalibratorOff())
                 {
-                    CoverStatus.Closed => cover.Driver.Close(),
-                    CoverStatus.Open => cover.Driver.Open(),
-                    _ => true
-                };
+                    external.LogInfo($"Calibrator {cover.Device.DisplayName} of telescope {i + 1} is off.");
+
+                    commandSuccess[i] = cover.Driver.CoverState == finalState || finalState switch
+                    {
+                        CoverStatus.Closed => cover.Driver.Close(),
+                        CoverStatus.Open => cover.Driver.Open(),
+                        _ => true
+                    };
+                }
+                else
+                {
+                    commandSuccess[i] = false;
+                }
             }
             else
             {
-                commandSuccess[i] = false;
+                commandSuccess[i] = true;
             }
         }
 
-        var finalStateReached = new bool[covers.Length];
-        for (var i = 0; i < covers.Length; i++)
+        var finalStateReached = new bool[count];
+        for (var i = 0; i < count; i++)
         {
-            var cover = covers[i];
-            int failSafe = 0;
-            CoverStatus cs;
-            while (!(finalStateReached[i] = (cs = cover.Driver.CoverState) == finalState) && cs is CoverStatus.Moving or CoverStatus.Unknown && !cancellationToken.IsCancellationRequested && ++failSafe < MAX_FAILSAFE)
+            if (setup.Telescopes[i].Cover is { } cover)
             {
-                external.LogInfo($"Cover {cover.Device.DisplayName} is still {cs} while reaching {finalState}, waiting.");
-                external.Sleep(TimeSpan.FromSeconds(1));
-            }
+                int failSafe = 0;
+                CoverStatus cs;
+                while (!(finalStateReached[i] = (cs = cover.Driver.CoverState) == finalState) && cs is CoverStatus.Moving or CoverStatus.Unknown && !cancellationToken.IsCancellationRequested && ++failSafe < MAX_FAILSAFE)
+                {
+                    external.LogInfo($"Cover {cover.Device.DisplayName} of telescope {i + 1} is still {cs} while reaching {finalState}, waiting.");
+                    external.Sleep(TimeSpan.FromSeconds(3));
+                }
 
-            finalStateReached[i] |= cover.Driver.CoverState == finalState;
+                finalStateReached[i] |= cover.Driver.CoverState == finalState;
+            }
         }
 
         return Array.TrueForAll(finalStateReached, x => x);

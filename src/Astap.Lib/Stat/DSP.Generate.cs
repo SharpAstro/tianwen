@@ -132,7 +132,7 @@ public partial class DSP
             // Make an n length noise vector
             rval = Noise(_randomFactory.Value, points, amplitudeVrms);
 
-            rval = Math.Add(rval, dcV);
+            rval = VectorMath.Add(rval, dcV);
 
             return rval;
         }

@@ -182,12 +182,14 @@ public class ImageAnalyserTests
             {
                 var image = SharedTestData.ExtractGZippedFitsImage($"fp{fp}-cs{cs}-ms{sampleCount}-fw{filterNo}");
 
-                var (median, solution, minPos, maxPos, count) = imageAnalyser.SampleStarsAtFocusPosition(image, fp, sampleMap, snrMin: snrMin, maxFocusIterations: maxIterations);
+                var stars = imageAnalyser.FindStars(image, snrMin: snrMin);
+                var median = imageAnalyser.MedianStarProperty(stars, sampleMap.Kind);
+                var (solution, minPos, maxPos) = imageAnalyser.SampleStarsAtFocusPosition(sampleMap, fp, median, stars.Count, maxFocusIterations: maxIterations);
 
-                _testOutputHelper.WriteLine($"focuspos={fp} stars={count} median={median} solution={solution} minPos={minPos} maxPos={maxPos}");
+                _testOutputHelper.WriteLine($"focuspos={fp} stars={stars.Count} median={median} solution={solution} minPos={minPos} maxPos={maxPos}");
 
-                median.ShouldNotBeNull().ShouldBeGreaterThan(1f);
-                count.ShouldBeGreaterThan(expectedMinStarCount);
+                median.ShouldBeGreaterThan(1f);
+                stars.Count.ShouldBeGreaterThan(expectedMinStarCount);
 
                 if (fp - focusStart >= expectedSolutionAfterSteps)
                 {
