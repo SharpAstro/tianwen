@@ -32,7 +32,7 @@ public static class VSOP87a
     /// <returns></returns>
     public static bool Reduce(CatalogIndex catIndex, double utc1, double utc2, double tt1, double tt2, double latitude, double longitude, out double ra, out double dec, out double az, out double alt, out double distance)
     {
-        double et = (tt1 - 2451545.0 + tt2) / 365250.0;
+        double et = (tt1 - Constants.J2000BASE + tt2) / 365250.0;
 
         //Compute initial position
         Span<double> earth = stackalloc double[3];

@@ -1,6 +1,9 @@
 ﻿using Astap.Lib.Imaging;
 using CommunityToolkit.HighPerformance;
 using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace Astap.Lib.Devices;
 
@@ -19,6 +22,26 @@ public interface ICameraDriver : IDeviceDriver
     bool CanAbortExposure { get; }
 
     bool CanFastReadout { get; }
+
+    /// <summary>
+    /// True if <see cref="Gain"/> value is supported. Exclusive with <see cref="UsesGainMode"/>.
+    /// </summary>
+    bool UsesGainValue { get; }
+
+    /// <summary>
+    /// True if <see cref="Gain"/> mode is supported. Exclusive with <see cref="UsesGainValue"/>.
+    /// </summary>
+    bool UsesGainMode { get; }
+
+    /// <summary>
+    /// True if <see cref="Offset"/> value mode is supported. Exclusive with  <see cref="UseOffsetMode"/>.
+    /// </summary>
+    bool UsesOffsetValue { get; }
+
+    /// <summary>
+    /// True if <see cref="Offset"/> mode is supported. Exclusive with <see cref="UsesOffsetValue"/>.
+    /// </summary>
+    bool UseOffsetMode { get; }
 
     double PixelSizeX { get; }
 
@@ -61,7 +84,51 @@ public interface ICameraDriver : IDeviceDriver
 
     int? BitDepth { get; }
 
+    short Gain { get; set; }
+
+    short GainMin { get; }
+
+    short GainMax { get; }
+
+    IReadOnlyList<string> Gains { get; }
+
+    string? GainMode
+    {
+        get => Connected && UsesGainMode && Gains is { Count: > 0 } gains && Gain is short idx && idx >= 0 && idx < gains.Count
+            ? gains[idx]
+            : null;
+
+        set
+        {
+            if (Connected && UsesGainMode && Gains is { Count: > 0} gains && value is not null && gains.IndexOf(value) is var idx and <= short.MaxValue)
+            {
+                Gain = (short)idx;
+            }
+        }
+    }
+
     int Offset { get; set; }
+
+    int OffsetMin { get; }
+
+    int OffsetMax { get; }
+
+    string? OffsetMode
+    {
+        get => Connected && UseOffsetMode && Offsets is { Count: > 0 } offsets && Offset is int idx && idx >= 0 && idx < offsets.Count
+            ? offsets[idx]
+            : null;
+
+        set
+        {
+            if (Connected && UseOffsetMode && Offsets is { Count: > 0 } offsets && value is not null && offsets.IndexOf(value) is var idx)
+            {
+                Offset = idx;
+            }
+        }
+    }
+
+    IReadOnlyList<string> Offsets { get; }
 
     void StartExposure(TimeSpan duration, bool light);
 

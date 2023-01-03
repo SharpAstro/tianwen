@@ -64,7 +64,7 @@ public interface IMountDriver : IDeviceDriver
         => Connected
         && !double.IsNaN(SiderealTime)
         && ha is >= -12 and <= 12
-        && SlewRaDecAsync(ConditionRA(SiderealTime - (ha + 12)), dec);
+        && SlewRaDecAsync(ConditionRA(SiderealTime - ha - 12), dec);
 
     /// <summary>
     /// Syncs to given equatorial coordinates (RA, Dec) in the mounts native epoch, <see cref="EquatorialSystem"/>.
@@ -74,6 +74,18 @@ public interface IMountDriver : IDeviceDriver
     /// <param name="dec">Declination in degrees (-90..90)</param>
     /// <returns>true if mount is synced to the given coordinates.</returns>
     bool SyncRaDec(double ra, double dec);
+
+    /// <summary>
+    /// Calls <see cref="SyncRaDec(double, double)"/> by first transforming J2000 coordinates to native ones using <see cref="TryTransformJ2000ToMountNative"/>.
+    /// </summary>
+    /// <param name="ra">RA in hours (0..24)</param>
+    /// <param name="dec">Declination in degrees (-90..90)</param>
+    /// <returns>true if mount is synced to the given coordinates.</returns>
+    bool SyncRaDecJ2000(double ra, double dec)
+        => Connected && CanSync
+        && TryGetTransform(out var transform)
+        && TryTransformJ2000ToMountNative(transform, ra, dec, updateTime: false, out var raMount, out var decMount, out _, out _)
+        && SyncRaDec(raMount, decMount);
 
     /// <summary>
     /// The UTC date/time of the telescope's internal clock.
@@ -118,7 +130,7 @@ public interface IMountDriver : IDeviceDriver
     /// <summary>
     /// The current hour angle, using <see cref="RightAscension"/> and <see cref="SiderealTime"/>, (-12,12).
     /// </summary>
-    double HourAngle => Connected ? ConditionHA(SiderealTime - RightAscension) : double.NaN;
+    double HourAngle => Connected ? ConditionHA(SiderealTime - RightAscension + 12) : double.NaN;
 
     /// <summary>
     /// The local apparent sidereal time from the telescope's internal clock (hours, sidereal).
@@ -153,7 +165,6 @@ public interface IMountDriver : IDeviceDriver
     /// <summary>
     /// Initialises using standard pressure and atmosphere. Please adjust if available.
     /// </summary>
-    /// <param name="utcOffset">timezone offset</param>
     /// <param name="transform"></param>
     /// <returns></returns>
     bool TryGetTransform([NotNullWhen(true)] out Transform? transform)
@@ -167,7 +178,7 @@ public interface IMountDriver : IDeviceDriver
                 SiteLongitude = SiteLongitude,
                 SitePressure = 1010, // TODO standard atmosphere
                 SiteTemperature = 10, // TODO check either online or if compatible devices connected
-                DateTimeOffset = utc,
+                DateTime = utc,
                 Refraction = true // TODO assumes that driver does not support/do refraction
             };
 
