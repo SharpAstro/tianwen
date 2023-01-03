@@ -35,6 +35,25 @@ public static class CollectionHelper
         }
     }
 
+    public static int IndexOf<T>(this IReadOnlyList<T> @this, T item)
+    {
+        if (@this is IList<T> list)
+        {
+            return list.IndexOf(item);
+        }
+        else
+        {
+            for (var i = 0; i < @this.Count; i++)
+            {
+                if (@this[i]?.Equals(item) == true)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+    }
 
     public static IReadOnlyList<T> ConcatToReadOnlyList<T>(T first, ICollection<T> rest)
     {

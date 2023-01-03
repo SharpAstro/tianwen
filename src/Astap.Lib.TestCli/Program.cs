@@ -5,6 +5,7 @@ using Astap.Lib.Sequencing;
 using Pastel;
 using Astap.Lib.Astrometry.Focus;
 using Astap.Lib.Astrometry.PlateSolve;
+using Astap.Lib.Astrometry.Catalogs;
 
 var cts = new CancellationTokenSource();
 Console.CancelKeyPress += Console_CancelKeyPress;
@@ -28,7 +29,7 @@ var external = new ConsoleOutput(outputFolder);
 
 var observations = new List<Observation>
 {
-    new Observation(new Target(85.205782 / 15, -2.5, "Horsehead Nebula"), DateTimeOffset.Now, TimeSpan.FromMinutes(100), false, TimeSpan.FromSeconds(20))
+    new Observation(new Target(5.5877777777777773, -5.389444444444444, "Orion Nebula", CatalogUtils.TryGetCleanedUpCatalogName("M42", out var catIdx) ? catIdx : null), DateTimeOffset.Now, TimeSpan.FromMinutes(100), false, TimeSpan.FromSeconds(20))
 };
 
 var guiderDevice = new GuiderDevice("PHD2", "localhost/1", "");

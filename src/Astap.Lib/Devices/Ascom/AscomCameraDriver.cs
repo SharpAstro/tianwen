@@ -8,6 +8,8 @@ namespace Astap.Lib.Devices.Ascom;
 public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 {
     private readonly List<string> _readoutModes = new(4);
+    private readonly List<string> _offsets = new(4);
+    private readonly List<string> _gains = new(4);
 
     public AscomCameraDriver(AscomDevice device) : base(device)
     {
@@ -42,13 +44,62 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
                 CanGetHeatsinkTemperature = false;
             }
 
-            if (obj.ReadoutModes is IEnumerable readoutModes)
+            try
             {
-                _readoutModes.Clear();
-                foreach (string readoutMode in readoutModes)
+                _ = OffsetMin;
+                _ = OffsetMax;
+                UsesOffsetValue = true;
+            }
+            catch
+            {
+                UsesOffsetValue = false;
+            }
+
+            try
+            {
+                _ = Offsets;
+                UseOffsetMode = true;
+            }
+            catch
+            {
+                UseOffsetMode = false;
+            }
+
+            try
+            {
+                _ = GainMin;
+                _ = GainMax;
+                UsesGainValue = true;
+            }
+            catch
+            {
+                UsesGainValue = false;
+            }
+
+            try
+            {
+                _ = Gains;
+                UsesGainMode = true;
+            }
+            catch
+            {
+                UsesGainMode = false;
+            }
+
+            _readoutModes.Clear();
+            try
+            {
+                if (obj.ReadoutModes is IEnumerable readoutModes)
                 {
-                    _readoutModes.Add(readoutMode);
+                    foreach (string readoutMode in readoutModes)
+                    {
+                        _readoutModes.Add(readoutMode);
+                    }
                 }
+            }
+            catch
+            {
+                // no readout modes
             }
         }
     }
@@ -66,6 +117,14 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
     public bool CanAbortExposure { get; private set; }
 
     public bool CanFastReadout { get; private set; }
+
+    public bool UsesGainValue { get; private set; }
+
+    public bool UsesGainMode { get; private set; }
+
+    public bool UsesOffsetValue { get; private set; }
+
+    public bool UseOffsetMode { get; private set; }
 
     public double CoolerPower => _comObject?.CoolerPower is double coolerPower ? coolerPower : double.NaN;
 
@@ -87,7 +146,7 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
     public int Offset
     {
-        get => Connected && _comObject?.InterfaceVersion is 3 && _comObject?.Offset is int offset ? offset : 0;
+        get => Connected && _comObject?.InterfaceVersion is 3 && _comObject?.Offset is int offset ? offset : int.MinValue;
 
         set
         {
@@ -97,6 +156,31 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
             }
         }
     }
+
+    public int OffsetMin { get; private set; }
+
+    public int OffsetMax { get; private set; }
+
+    public IReadOnlyList<string> Offsets => _offsets;
+
+    public short Gain
+    {
+        get => Connected && _comObject?.Gain is short gain ? gain : short.MinValue;
+
+        set
+        {
+            if (Connected && _comObject is { } obj)
+            {
+               obj.Gain = value;
+            }
+        }
+    }
+
+    public short GainMin { get; private set; }
+
+    public short GainMax { get; private set; }
+
+    public IReadOnlyList<string> Gains => _gains;
 
     public bool FastReadout
     {

@@ -640,8 +640,9 @@ namespace Astap.Lib.Astrometry.SOFA
         /// </summary>
         public DateTimeOffset DateTimeOffset
         {
-            [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.AggressiveInlining)]
-            get => new(DateTime, SiteTimeZone);
+            get => TryGetSiteTimeZone(out var offset, out var dt)
+                ? new(DateTime.SpecifyKind(dt + offset, DateTimeKind.Unspecified), offset)
+                : throw new InvalidOperationException("Could not calculate timezone");
 
             [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.AggressiveInlining)]
             set
@@ -655,31 +656,36 @@ namespace Astap.Lib.Astrometry.SOFA
         /// Timezone offset, will be calculated via SiteLong, SiteLat
         /// Is used to calculate <see cref="EventTimes(EventType)"/>.
         /// </summary>
-        public TimeSpan SiteTimeZone
-        {
-            get
-            {
-                if (_RequiresRecalculate)
-                {
-                    _SiteTimeZoneValue = null;
-                }
-                else if (_SiteTimeZoneValue.HasValue)
-                {
-                    return _SiteTimeZoneValue.Value;
-                }
+        public TimeSpan SiteTimeZone => TryGetSiteTimeZone(out var offset, out _) ? offset : throw new InvalidOperationException("Could not calculate timezone");
 
-                if (SiteLatitude is var lat && !double.IsNaN(lat)
-                    && SiteLongitude is var @long && !double.IsNaN(@long)
-                    && TimeZoneLookup.GetTimeZone(lat, @long).Result is { Length: > 0 } tzId && tzId.Contains('/')
-                )
-                {
-                    var tzInfo = TimeZoneInfo.FindSystemTimeZoneById(tzId);
-                    return _SiteTimeZoneValue ??= tzInfo.GetUtcOffset(DateTime);
-                }
-                else
-                {
-                    throw new InvalidOperationException("Could not calculate timezone");
-                }
+        public bool TryGetSiteTimeZone(out TimeSpan offset, out DateTime dt)
+        {
+            if (_RequiresRecalculate)
+            {
+                _SiteTimeZoneValue = null;
+            }
+            else if (_SiteTimeZoneValue.HasValue)
+            {
+                offset = _SiteTimeZoneValue.Value;
+                dt = DateTime;
+                return true;
+            }
+
+            if (SiteLatitude is var lat && !double.IsNaN(lat)
+                && SiteLongitude is var @long && !double.IsNaN(@long)
+                && TimeZoneLookup.GetTimeZone(lat, @long).Result is { Length: > 0 } tzId && tzId.Contains('/')
+            )
+            {
+                var tzInfo = TimeZoneInfo.FindSystemTimeZoneById(tzId);
+                dt = DateTime;
+                offset = _SiteTimeZoneValue ??= tzInfo.GetUtcOffset(dt);
+                return true;
+            }
+            else
+            {
+                dt = DateTime.MinValue;
+                offset = TimeSpan.MaxValue;
+                return false;
             }
         }
 
@@ -923,7 +929,7 @@ namespace Astap.Lib.Astrometry.SOFA
         {
             if (_jdUTCValue1 == 0.0d && _jdTTValue1 == 0.0d) // No specific TT date / time has been set so use the current date / time
             {
-                DateTimeOffset = DateTimeOffset.Now;
+                DateTime = DateTime.UtcNow;
             }
         }
 
@@ -990,10 +996,37 @@ namespace Astap.Lib.Astrometry.SOFA
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public IReadOnlyDictionary<RaDecEventTime, RaDecEventInfo> CalculateObjElevation(in CelestialObject obj, DateTimeOffset astroDark, DateTimeOffset astroTwilight, double siderealTimeAtAstroDark)
-            => CalculateObjElevation(obj.Index, obj.ObjectType, obj.RA, obj.Dec, astroDark, astroTwilight, siderealTimeAtAstroDark);
+        public IReadOnlyDictionary<RaDecEventTime, RaDecEventInfo> CalculateObjElevation(in CelestialObject obj, DateTimeOffset astroDark, DateTimeOffset astroTwilight)
+            => CalculateObjElevation(obj.Index, obj.ObjectType, obj.RA, obj.Dec, astroDark, astroTwilight);
 
-        public IReadOnlyDictionary<RaDecEventTime, RaDecEventInfo> CalculateObjElevation(CatalogIndex idx, ObjectType objectType, double ra, double dec, DateTimeOffset astroDark, DateTimeOffset astroTwilight, double siderealTimeAtAstroDark)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public IReadOnlyDictionary<RaDecEventTime, RaDecEventInfo> CalculateObjElevation(
+            CatalogIndex idx,
+            ObjectType objectType,
+            double ra,
+            double dec,
+            DateTimeOffset astroDark,
+            DateTimeOffset astroTwilight)
+            => CalculateObjElevation(
+                ra,
+                dec,
+                astroDark,
+                astroTwilight,
+                idx == CatalogIndex.Sol || objectType == ObjectType.Planet ? (pDTO) => CalcRaDecEventInfoMovingObject(pDTO, idx) : CalcRaDecEventInfoFixedObject
+            );
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+        public IReadOnlyDictionary<RaDecEventTime, RaDecEventInfo> CalculateObjElevation(double ra, double dec, DateTimeOffset astroDark, DateTimeOffset astroTwilight)
+            => CalculateObjElevation(ra, dec, astroDark, astroTwilight, CalcRaDecEventInfoFixedObject);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+        public IReadOnlyDictionary<RaDecEventTime, RaDecEventInfo> CalculateObjElevation(
+            double ra,
+            double dec,
+            DateTimeOffset astroDark,
+            DateTimeOffset astroTwilight,
+            Func<DateTimeOffset, RaDecEventInfo> calcRaDecEventInfo
+        )
         {
             if (double.IsNaN(ra))
             {
@@ -1007,27 +1040,26 @@ namespace Astap.Lib.Astrometry.SOFA
 
             SetJ2000(ra, dec);
 
-            var isFixed = idx != CatalogIndex.Sol && objectType != ObjectType.Planet;
-
             var raDecEventTimes = new Dictionary<RaDecEventTime, RaDecEventInfo>(4);
 
+            var siderealTimeAtAstroDark = LocalSiderealTime(astroDark, SiteLongitude);
             var hourAngle = TimeSpan.FromHours(CoordinateUtils.ConditionHA(siderealTimeAtAstroDark - ra));
             var crossMeridianTime = astroDark - hourAngle;
 
-            var darkEvent = raDecEventTimes[RaDecEventTime.AstroDark] = CalcRaDecEventInfo(astroDark);
-            var twilightEvent = raDecEventTimes[RaDecEventTime.AstroTwilight] = CalcRaDecEventInfo(astroTwilight);
-            var meridianEvent = raDecEventTimes[RaDecEventTime.Meridian] = CalcRaDecEventInfo(crossMeridianTime);
+            var darkEvent = raDecEventTimes[RaDecEventTime.AstroDark] = calcRaDecEventInfo(astroDark);
+            var twilightEvent = raDecEventTimes[RaDecEventTime.AstroTwilight] = calcRaDecEventInfo(astroTwilight);
+            var meridianEvent = raDecEventTimes[RaDecEventTime.Meridian] = calcRaDecEventInfo(crossMeridianTime);
 
-            raDecEventTimes[RaDecEventTime.MeridianL1] = CalcRaDecEventInfo(crossMeridianTime - TimeSpan.FromHours(0.2));
-            raDecEventTimes[RaDecEventTime.MeridianL2] = CalcRaDecEventInfo(crossMeridianTime - TimeSpan.FromHours(12));
-            raDecEventTimes[RaDecEventTime.MeridianR1] = CalcRaDecEventInfo(crossMeridianTime + TimeSpan.FromHours(0.2));
-            raDecEventTimes[RaDecEventTime.MeridianR2] = CalcRaDecEventInfo(crossMeridianTime + TimeSpan.FromHours(12));
+            raDecEventTimes[RaDecEventTime.MeridianL1] = calcRaDecEventInfo(crossMeridianTime - TimeSpan.FromHours(0.2));
+            raDecEventTimes[RaDecEventTime.MeridianL2] = calcRaDecEventInfo(crossMeridianTime - TimeSpan.FromHours(12));
+            raDecEventTimes[RaDecEventTime.MeridianR1] = calcRaDecEventInfo(crossMeridianTime + TimeSpan.FromHours(0.2));
+            raDecEventTimes[RaDecEventTime.MeridianR2] = calcRaDecEventInfo(crossMeridianTime + TimeSpan.FromHours(12));
 
             TimeSpan duration;
             DateTimeOffset start;
             if (TryBalanceTimeAroundMeridian(meridianEvent.Time, darkEvent.Time, twilightEvent.Time, out var maybeBalance) && maybeBalance is DateTimeOffset balance)
             {
-                raDecEventTimes[RaDecEventTime.Balance] = CalcRaDecEventInfo(balance);
+                raDecEventTimes[RaDecEventTime.Balance] = calcRaDecEventInfo(balance);
                 var absHours = Math.Abs((balance - meridianEvent.Time).TotalHours);
                 duration = TimeSpan.FromHours(absHours * 2);
                 start = meridianEvent.Time.AddHours(-absHours);
@@ -1043,28 +1075,31 @@ namespace Astap.Lib.Astrometry.SOFA
             for (var it = 1; it < iterations; it++)
             {
                 start += step;
-                raDecEventTimes[RaDecEventTime.Balance + it] = CalcRaDecEventInfo(start);
+                raDecEventTimes[RaDecEventTime.Balance + it] = calcRaDecEventInfo(start);
             }
 
             return raDecEventTimes;
+        }
 
-            RaDecEventInfo CalcRaDecEventInfo(in DateTimeOffset dt)
+        RaDecEventInfo CalcRaDecEventInfoFixedObject(DateTimeOffset dt)
+        {
+            JulianDateUTC = dt.ToJulian();
+            if (ElevationTopocentric is double alt)
             {
-                if (isFixed)
-                {
-                    JulianDateUTC = dt.ToJulian();
-                    if (ElevationTopocentric is double alt)
-                    {
-                        return new(dt, alt);
-                    }
-                }
-                else if (VSOP87a.Reduce(idx, dt, SiteLatitude, SiteLongitude, out _, out _, out _, out var alt, out _))
-                {
-                    return new(dt, alt);
-                }
-
-                return new(dt, double.NaN);
+                return new(dt, alt);
             }
+
+            return new(dt, double.NaN);
+        }
+
+        RaDecEventInfo CalcRaDecEventInfoMovingObject(DateTimeOffset dt, CatalogIndex idx)
+        {
+            if (VSOP87a.Reduce(idx, dt, SiteLatitude, SiteLongitude, out _, out _, out _, out var alt, out _))
+            {
+                return new(dt, alt);
+            }
+
+            return new(dt, double.NaN);
         }
 
 

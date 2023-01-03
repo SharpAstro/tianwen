@@ -111,7 +111,7 @@ public class Session
             }
 
             // TODO wait until 25 before astro dark to start cooling down without loosing time
-            CoolCamerasToSetpoint(setup, configuration.SetpointCCDTemperature, configuration.CooldownRampInterval, 80, CoolDirection.Down, false, external, cancellationToken);
+            CoolCamerasToSetpoint(setup, configuration.SetpointCCDTemperature, configuration.CooldownRampInterval, 80, CoolDirection.Down, setpointIsCCDTemp: false, external, cancellationToken);
 
             // TODO wait until 5 min to astro dark, and/or implement IExternal.IsPolarAligned
 
@@ -140,11 +140,7 @@ public class Session
         var guider = setup.Guider;
         var distMeridian = TimeSpan.FromMinutes(15);
 
-        if (mount.Connected && mount.Driver.CanSetTracking)
-        {
-            mount.Driver.TrackingSpeed = TrackingSpeed.Sidereal;
-            mount.Driver.Tracking = true;
-        }
+        TurnOnTracking(mount);
 
         external.LogInfo($"Slew mount {mount.Device.DisplayName} near zenith for focusing.");
 
@@ -155,35 +151,7 @@ public class Session
         }
 
         const int guiderLoopTimeoutSec = 10;
-        Task<(double ra, double dec)?> solveTask;
-        if (Catch(() => guider.Driver.Loop(guiderLoopTimeoutSec, external.Sleep), external))
-        {
-            if (guider.Driver.SaveImage(Path.Combine(external.OutputFolder, "Guider")) is { Length: > 0 } file)
-            {
-                if (!guider.Driver.TryGetImageDim(out var dim))
-                {
-                    external.LogWarning($"Failed to obtain image dimensions of \"{guider.Driver}\" camera, will use blind search.");
-                }
-
-                solveTask = plateSolver.SolveFileAsync(
-                    file,
-                    dim,
-                    searchOrigin: (mount.Driver.RightAscension, mount.Driver.Declination),
-                    searchRadius: 7,
-                    cancellationToken: cancellationToken
-                );
-            }
-            else
-            {
-                external.LogWarning($"Failed to obtain image from guider \"{guider.Driver}\"");
-                solveTask = Task.FromResult<(double, double)?>(null);
-            }
-        }
-        else
-        {
-            external.LogWarning($"Failed to start guider \"{guider.Driver}\" capture loop after {guiderLoopTimeoutSec}s");
-            solveTask = Task.FromResult<(double, double)?>(null);
-        }
+        var solveTask = PlateSolveGuiderImageAsync(guider, mount.Driver.RightAscension, mount.Driver.Declination, guiderLoopTimeoutSec, plateSolver, external, cancellationToken);
 
         var plateSolveWaitTime = TimeSpan.Zero;
         while (!solveTask.IsCompleted && !cancellationToken.IsCancellationRequested && plateSolveWaitTime.TotalSeconds < guiderLoopTimeoutSec)
@@ -198,14 +166,16 @@ public class Session
             external.LogWarning($"Cancellation requested, abort setting up guider \"{guider.Driver}\" and quit imaging loop.");
             return false;
         }
-        else if (mount.Driver.CanSync
-            && solveTask.IsCompletedSuccessfully
-            && solveTask.Result is var (solvedRa, solvedDec)
-            && mount.Driver.TryGetTransform(out var transform)
-            && mount.Driver.TryTransformJ2000ToMountNative(transform, solvedRa, solvedDec, false, out var raMount, out var decMount, out _, out _)
-        )
+        else if (solveTask.IsCompletedSuccessfully && solveTask.Result is var (solvedRa, solvedDec))
         {
-            mount.Driver.SyncRaDec(raMount, decMount);
+            if (Catch(() => mount.Driver.SyncRaDecJ2000(solvedRa, solvedDec), external))
+            {
+                external.LogInfo($"Syncing mount {mount.Device.DisplayName} to ({solvedRa}, {solvedDec}) in {mount.Driver.EquatorialSystem} succeeded");
+            }
+            else
+            {
+                external.LogWarning($"Syncing mount {mount.Device.DisplayName} to ({solvedRa}, {solvedDec}) in {mount.Driver.EquatorialSystem} failed");
+            }
         }
         else if (solveTask.IsFaulted || solveTask.IsCanceled)
         {
@@ -244,7 +214,7 @@ public class Session
                     }
                     else
                     {
-                        hasRoughFocus[i] = true;
+                         hasRoughFocus[i] = true;
                     }
                 }
             }
@@ -270,16 +240,59 @@ public class Session
         return false;
     }
 
+    internal static Task<(double ra, double dec)?> PlateSolveGuiderImageAsync(
+        Guider guider,
+        double raJ2000,
+        double decJ2000,
+        uint guiderLoopTimeoutSec,
+        IPlateSolver plateSolver,
+        IExternal external,
+        CancellationToken cancellationToken
+    )
+    {
+        if (Catch(() => guider.Driver.Loop(guiderLoopTimeoutSec, external.Sleep), external))
+        {
+            if (guider.Driver.SaveImage(Path.Combine(external.OutputFolder, "Guider")) is { Length: > 0 } file)
+            {
+                if (!guider.Driver.TryGetImageDim(out var dim))
+                {
+                    external.LogWarning($"Failed to obtain image dimensions of \"{guider.Driver}\" camera, will use blind search.");
+                }
+
+                return plateSolver.SolveFileAsync(
+                    file,
+                    dim,
+                    searchOrigin: (raJ2000, decJ2000),
+                    searchRadius: 7,
+                    cancellationToken: cancellationToken
+                );
+            }
+            else
+            {
+                external.LogWarning($"Failed to obtain image from guider \"{guider.Driver}\"");
+                return Task.FromResult<(double, double)?>(null);
+            }
+        }
+        else
+        {
+            external.LogWarning($"Failed to start guider \"{guider.Driver}\" capture loop after {guiderLoopTimeoutSec}s");
+            return Task.FromResult<(double, double)?>(null);
+        }
+    }
+
     internal static bool SlewToZenith(Mount mount, TimeSpan distMeridian, IExternal external, CancellationToken cancellationToken)
     {
-        mount.Driver.SlewHourAngleDecAsync((TimeSpan.FromHours(12) - distMeridian).TotalHours, mount.Driver.SiteLatitude);
-
-        while (mount.Driver.IsSlewing && !cancellationToken.IsCancellationRequested)
+        if (mount.Driver.CanSlew && mount.Driver.SlewHourAngleDecAsync((TimeSpan.FromHours(12) - distMeridian).TotalHours, mount.Driver.SiteLatitude))
         {
-            external.Sleep(TimeSpan.FromSeconds(1));
+            while (mount.Driver.IsSlewing && !cancellationToken.IsCancellationRequested)
+            {
+                external.Sleep(TimeSpan.FromSeconds(1));
+            }
+
+            return !cancellationToken.IsCancellationRequested;
         }
 
-        return !cancellationToken.IsCancellationRequested;
+        return false;
     }
 
     internal static void Finalise(Setup setup, SessionConfiguration configuration, IExternal external, CancellationToken cancellationToken)
@@ -359,8 +372,7 @@ public class Session
             external.LogInfo("Shutdown complete, session ended. Please turn off mount and camera cooler power.");
         }
 
-        // cannot be cancelled (as it would possibly destroy the cameras)
-        bool CoolCamerasToAmbient() => CoolCamerasToSetpoint(setup, null, configuration.CoolupRampInterval, 0.1, CoolDirection.Up, false, external, CancellationToken.None);
+        bool CoolCamerasToAmbient() => Session.CoolCamerasToAmbient(setup, configuration.CoolupRampInterval, external);
 
         bool CloseCovers() => MoveTelescopeCoversToSate(setup, CoverStatus.Closed, external, cancellationToken);
     }
@@ -398,7 +410,7 @@ public class Session
             }
         }
 
-        if (!CoolCamerasToSensorTemp(setup, external, cancellationToken))
+        if (!CoolCamerasToSensorTemp(setup, TimeSpan.FromSeconds(10), external, cancellationToken))
         {
             external.LogError("Failed to set camera cooler setpoint to current CCD temperature, aborting session.");
             return false;
@@ -441,11 +453,7 @@ public class Session
         Observation? observation;
         while ((observation = currentObservation()) is not null && !cancellationToken.IsCancellationRequested)
         {
-            if (mount.Driver.CanSetTracking)
-            {
-                mount.Driver.TrackingSpeed = TrackingSpeed.Sidereal; // TODO: Support different tracking speed
-                mount.Driver.Tracking = true;
-            }
+            TurnOnTracking(mount);
 
             external.LogInfo($"Stop guiding to start slewing mount to target {observation}.");
             guider.Driver.StopCapture();
@@ -454,10 +462,11 @@ public class Session
             var az = double.NaN;
             var alt = double.NaN;
             if (!mount.Driver.TryGetTransform(out var transform)
-                || !mount.Driver.TryTransformJ2000ToMountNative(transform, observation.Target.RA, observation.Target.Dec, false, out var raMount, out var decMount, out az, out alt)
+                || !mount.Driver.TryTransformJ2000ToMountNative(transform, observation.Target.RA, observation.Target.Dec, updateTime: false, out var raMount, out var decMount, out az, out alt)
                 || double.IsNaN(alt)
                 || alt < configuration.MinHeightAboveHorizon
-                || !mount.Driver.SlewRaDecAsync(raMount, decMount))
+                || !mount.Driver.SlewRaDecAsync(raMount, decMount)
+            )
             {
                 external.LogError($"Failed to slew {mount.Device.DisplayName} to target {observation} az={az:0.00} alt={alt:0.00}, skipping.");
                 nextObservation();
@@ -792,6 +801,15 @@ public class Session
         }
     }
 
+    internal static void TurnOnTracking(Mount mount, TrackingSpeed speed = TrackingSpeed.Sidereal)
+    {
+        if (mount.Driver.CanSetTracking && (mount.Driver.TrackingSpeed != speed || !mount.Driver.Tracking))
+        {
+            mount.Driver.TrackingSpeed = speed;
+            mount.Driver.Tracking = true;
+        }
+    }
+
     internal static bool MoveTelescopeCoversToSate(Setup setup, CoverStatus finalState, IExternal external, CancellationToken cancellationToken)
     {
         var count = setup.Telescopes.Count;
@@ -850,8 +868,23 @@ public class Session
     /// Idea is that we keep cooler on but only on the currently reached temperature, so we have less cases to manage in the imaging loop.
     /// Assumes that power is switched on.
     /// </summary>
-    internal static bool CoolCamerasToSensorTemp(Setup setup, IExternal external, CancellationToken cancellationToken)
-        => CoolCamerasToSetpoint(setup, null, TimeSpan.FromSeconds(10), 0.1, CoolDirection.Up, true, external, cancellationToken);
+    /// <param name="setup">Setup contains all telescopes (with cameras)</param>
+    /// <param name="rampTime">Interval between temperature checks</param>
+    /// <param name="external">Used for <see cref="IExternal.Sleep(TimeSpan)"/> and logging.</param>
+    /// <returns>True if setpoint temperature was reached.</returns>
+    internal static bool CoolCamerasToSensorTemp(Setup setup, TimeSpan rampTime, IExternal external, CancellationToken cancellationToken)
+        => CoolCamerasToSetpoint(setup, null, rampTime, 0.1, CoolDirection.Up, setpointIsCCDTemp: true, external, cancellationToken);
+
+
+    /// <summary>
+    /// Attention: Cannot be cancelled (as it would possibly destroy the cameras)
+    /// </summary>
+    /// <param name="setup">Setup contains all telescopes (with cameras)</param>
+    /// <param name="rampTime">Interval between temperature checks</param>
+    /// <param name="external">Used for <see cref="IExternal.Sleep(TimeSpan)"/> and logging.</param>
+    /// <returns>True if setpoint temperature was reached.</returns>
+    internal static bool CoolCamerasToAmbient(Setup setup, TimeSpan rampTime, IExternal external)
+        => CoolCamerasToSetpoint(setup, null, rampTime, 0.1, CoolDirection.Up, setpointIsCCDTemp: false, external, CancellationToken.None);
 
     /// <summary>
     /// Assumes that power is on (c.f. <see cref="CoolCamerasToSensorTemp"/>).
@@ -887,18 +920,23 @@ public class Session
                     && camera.Driver.HeatSinkTemperature is double heatSinkTemp and >= -40 and <= 50
                 )
                 {
-                    var coolerPower = camera.Driver.CanGetCoolerPower ? camera.Driver.CoolerPower : double.NaN;
+                    var coolerPower = CoolerPower(camera);
                     var setpointTemp = maybeSetpointTemp ?? Math.Round(setpointIsCCDTemp ? Math.Min(ccdTemp, heatSinkTemp) : heatSinkTemp);
 
                     if (direction.NeedsFurtherRamping(ccdTemp, setpointTemp)
-                        && (double.IsNaN(coolerPower) || !direction.ThresholdPowerReached(coolerPower, thresPower))
+                        && (double.IsNaN(coolerPower) || !camera.Driver.CoolerOn || !direction.ThresholdPowerReached(coolerPower, thresPower))
                     )
                     {
                         var actualSetpointTemp = camera.Driver.SetCCDTemperature = direction.SetpointTemp(ccdTemp, setpointTemp);
 
-                        if (!camera.Driver.CoolerOn)
+                        string coolerPrev;
+                        if (IsCoolerOn(camera))
                         {
-                            external.LogInfo($"Turning on camera {(i + 1)} cooler");
+                            coolerPrev = "";
+                        }
+                        else
+                        {
+                            coolerPrev = "off -> ";
                             camera.Driver.CoolerOn = true;
                         }
 
@@ -907,21 +945,21 @@ public class Session
 
                         external.LogInfo($"Camera {(i + 1)} setpoint temperature {setpointTemp:0.00} °C not yet reached, " +
                             $"cooling {direction.ToString().ToLowerInvariant()} stepwise, currently at {actualSetpointTemp:0.00} °C. " +
-                            $"Heatsink={heatSinkTemp:0.00} °C, CCD={ccdTemp:0.00} °C, Power={coolerPower:0.00}%, Cooler={(IsCoolerOn(camera) ? "on" : "off")}.");
+                            $"Heatsink={heatSinkTemp:0.00} °C, CCD={ccdTemp:0.00} °C, Power={CoolerPower(camera):0.00}%, Cooler={coolerPrev}{(IsCoolerOn(camera) ? "on" : "off")}.");
                     }
                     else if (++thresholdReachedConsecutiveCounts[i] < 2)
                     {
                         isRamping[i] = true;
 
                         external.LogInfo($"Camera {(i + 1)} setpoint temperature {setpointTemp:0.00} °C or {thresPower:0.00} % power reached. "
-                            + $"Heatsink={heatSinkTemp:0.00} °C, CCD={ccdTemp:0.00} °C, Power={coolerPower:0.00}%, Cooler={(IsCoolerOn(camera) ? "on" : "off")}.");
+                            + $"Heatsink={heatSinkTemp:0.00} °C, CCD={ccdTemp:0.00} °C, Power={CoolerPower(camera):0.00}%, Cooler={(IsCoolerOn(camera) ? "on" : "off")}.");
                     }
                     else
                     {
                         isRamping[i] = false;
 
                         external.LogInfo($"Camera {(i + 1)} setpoint temperature {setpointTemp:0.00} °C or {thresPower:0.00} % power reached twice in a row. "
-                            + $"Heatsink={heatSinkTemp:0.00} °C, CCD={ccdTemp:0.00} °C, Power={coolerPower:0.00}%, Cooler={(IsCoolerOn(camera) ? "on" : "off")}.");
+                            + $"Heatsink={heatSinkTemp:0.00} °C, CCD={ccdTemp:0.00} °C, Power={CoolerPower(camera):0.00}%, Cooler={(IsCoolerOn(camera) ? "on" : "off")}.");
                     }
                 }
                 else
@@ -948,6 +986,8 @@ public class Session
         return !isRamping.Any(p => p);
 
         bool IsCoolerOn(Camera camera) => Catch(() => camera.Driver.CanGetCoolerOn && camera.Driver.CoolerOn, external);
+
+        double CoolerPower(Camera camera) => Catch(() => camera.Driver.CanGetCoolerPower ? camera.Driver.CoolerPower : double.NaN, external, double.NaN);
     }
 
     internal static string GetSafeFileName(string name, char replace = '_')

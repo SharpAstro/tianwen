@@ -3,6 +3,7 @@ using Astap.Lib.Devices;
 using Astap.Lib.Imaging;
 using Shouldly;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Xunit;
@@ -13,43 +14,56 @@ namespace Astap.Lib.Tests;
 public class ImageAnalyserTests
 {
     const string PlateSolveTestFile = nameof(PlateSolveTestFile);
-    private readonly Image _plateSolveTestImage;
+    const string PHD2SimGuider = nameof(PHD2SimGuider);
+
     private readonly ITestOutputHelper _testOutputHelper;
 
-    private static Image? _plateSolveTestImageCache;
+    private static readonly IReadOnlyDictionary<string, Image> _imageCache;
+
+    static ImageAnalyserTests()
+    {
+        var imageCache = new Dictionary<string, Image>();
+        foreach (var name in new[] {PlateSolveTestFile, PHD2SimGuider})
+        {
+            imageCache[name] = SharedTestData.ExtractGZippedFitsImage(name);
+        }
+
+        _imageCache = imageCache;
+    }
+
 
     public ImageAnalyserTests(ITestOutputHelper testOutputHelper)
     {
-        _plateSolveTestImage = (_plateSolveTestImageCache ??= SharedTestData.ExtractGZippedFitsImage(PlateSolveTestFile));
         _testOutputHelper = testOutputHelper;
     }
 
     [Theory]
-    [InlineData(10f)]
-    [InlineData(15f)]
-    public void GivenFileNameWhenWritingImageAndReadingBackThenItIsIdentical(float snrMin)
+    [InlineData(PlateSolveTestFile, 10f)]
+    [InlineData(PlateSolveTestFile, 15f)]
+    public void GivenFileNameWhenWritingImageAndReadingBackThenItIsIdentical(string name, float snrMin)
     {
         // given
+        var image = _imageCache[name];
         var fullPath = Path.Combine(Path.GetTempPath(), $"roundtrip_{Guid.NewGuid():D}.fits");
         IImageAnalyser imageAnalyser = new ImageAnalyser();
-        var expectedStars = imageAnalyser.FindStars(_plateSolveTestImage, snrMin: snrMin);
+        var expectedStars = imageAnalyser.FindStars(image, snrMin: snrMin);
 
         try
         {
             // when
-            _plateSolveTestImage.WriteToFitsFile(fullPath);
+            image.WriteToFitsFile(fullPath);
 
             // then
             File.Exists(fullPath).ShouldBeTrue();
             Image.TryReadFitsFile(fullPath, out var readoutImage).ShouldBeTrue();
-            readoutImage.Width.ShouldBe(_plateSolveTestImage.Width);
-            readoutImage.Height.ShouldBe(_plateSolveTestImage.Height);
-            readoutImage.BitsPerPixel.ShouldBe(_plateSolveTestImage.BitsPerPixel);
-            readoutImage.ImageMeta.Instrument.ShouldBe(_plateSolveTestImage.ImageMeta.Instrument);
-            readoutImage.MaxValue.ShouldBe(_plateSolveTestImage.MaxValue);
-            readoutImage.ImageMeta.ExposureStartTime.ShouldBe(_plateSolveTestImage.ImageMeta.ExposureStartTime);
-            readoutImage.ImageMeta.ExposureDuration.ShouldBe(_plateSolveTestImage.ImageMeta.ExposureDuration);
-            var starsFromImage = imageAnalyser.FindStars(_plateSolveTestImage, snrMin: snrMin);
+            readoutImage.Width.ShouldBe(image.Width);
+            readoutImage.Height.ShouldBe(image.Height);
+            readoutImage.BitsPerPixel.ShouldBe(image.BitsPerPixel);
+            readoutImage.ImageMeta.Instrument.ShouldBe(image.ImageMeta.Instrument);
+            readoutImage.MaxValue.ShouldBe(image.MaxValue);
+            readoutImage.ImageMeta.ExposureStartTime.ShouldBe(image.ImageMeta.ExposureStartTime);
+            readoutImage.ImageMeta.ExposureDuration.ShouldBe(image.ImageMeta.ExposureDuration);
+            var starsFromImage = imageAnalyser.FindStars(image, snrMin: snrMin);
 
             starsFromImage.ShouldBeEquivalentTo(expectedStars);
         }
@@ -147,22 +161,35 @@ public class ImageAnalyserTests
 
 
     [Theory]
-    [InlineData(5, 3, 11)]
-    [InlineData(9.5, 3, 6)]
-    [InlineData(20, 3, 2)]
-    [InlineData(30, 3, 1)]
-    public void GivenFitsFileWhenAnalysingThenMedianHFDAndFWHMIsCalculated(float snr_min, int max_retries, int expected_stars)
+    [InlineData(PlateSolveTestFile, 5, 3, 11, 1242, 220, 38)]
+    [InlineData(PlateSolveTestFile, 9.5, 3, 6, 1242, 220, 38)]
+    [InlineData(PlateSolveTestFile, 20, 3, 2, 1242, 220, 38)]
+    [InlineData(PlateSolveTestFile, 30, 3, 1, 1242, 220, 38)]
+    [InlineData(PHD2SimGuider, 2, 3, 10)]
+    [InlineData(PHD2SimGuider, 5, 3, 10)]
+    [InlineData(PHD2SimGuider, 5, 10, 10)]
+    [InlineData(PHD2SimGuider, 20, 3, 7)]
+    [InlineData(PHD2SimGuider, 30, 3, 2)]
+    [InlineData(PHD2SimGuider, 30, 10, 2)]
+    public void GivenFitsFileWhenAnalysingThenMedianHFDAndFWHMIsCalculated(string name, float snr_min, int max_retries, int expected_stars, params int[] sampleStar)
     {
         var analyser = new ImageAnalyser();
 
         // when
-        var result = analyser.FindStars(_plateSolveTestImage, snrMin: snr_min, maxIterations: max_retries);
+        var result = analyser.FindStars(_imageCache[name], snrMin: snr_min, maxIterations: max_retries);
 
         // then
         result.ShouldNotBeEmpty();
         result.Count.ShouldBe(expected_stars);
         result.ShouldAllBe(p => p.SNR >= snr_min);
-        result.ShouldContain(p => p.XCentroid > 1241 && p.XCentroid < 1243 && p.YCentroid > 219 && p.YCentroid < 221 && p.SNR > 38);
+
+        if (sampleStar is { Length: 3 })
+        {
+            var x = sampleStar[0];
+            var y = sampleStar[1];
+            var snr = sampleStar[2];
+            result.ShouldContain(p => p.XCentroid > x - 1 && p.XCentroid < x + 1 && p.YCentroid > y - 1 && p.YCentroid < y + 1 && p.SNR > snr);
+        }
     }
 
     [Theory]

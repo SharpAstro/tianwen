@@ -22,6 +22,32 @@ public class TimeUtilTests
     }
 
     [Theory]
+    [InlineData("2022-11-05T22:03:25.5847372Z", 2459889.419046111d)]
+    [InlineData("2022-11-06T09:11:14.6430197+11:00", 2459889.4244750347d)]
+    [InlineData("2022-11-05T11:11:14.6430197-11:00", 2459889.4244750347d)]
+    public void GivenDTUtcWhenToJulianThenItIsReturned(string dtStr, double expectedJulian)
+    {
+        // given
+        var dt = DateTime.ParseExact(dtStr, "o", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
+
+        // when / then
+        dt.ToJulian().ShouldBe(expectedJulian);
+    }
+
+    [Theory]
+    [InlineData("2022-11-05T22:03:25.5847372Z", 2459889, .419046111d)]
+    [InlineData("2022-11-06T09:11:14.6430197+11:00", 2459889, .4244750347d)]
+    [InlineData("2022-11-05T11:11:14.6430197-11:00", 2459889, .4244750347d)]
+    public void GivenJulianDateWhenToDTThenItIsSame(string expectedDtStr, double jd1, double jd2)
+    {
+        // given
+        var dt = DateTime.ParseExact(expectedDtStr, "o", CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal);
+
+        // when / then
+        TimeUtils.FromJulian(jd1, jd2).ShouldBeInRange(dt - TimeSpan.FromMilliseconds(1), dt + TimeSpan.FromMilliseconds(1));
+    }
+
+    [Theory]
     [InlineData("2022-11-05T22:03:25.5847372Z", 2459888.5d, 0.9190461111111111d)]
     [InlineData("2022-11-06T09:11:14.6430197+11:00", 2459888.5d, 0.9244750347222221d)]
     [InlineData("2022-11-05T11:11:14.6430197-11:00", 2459888.5d, 0.9244750347222221d)]

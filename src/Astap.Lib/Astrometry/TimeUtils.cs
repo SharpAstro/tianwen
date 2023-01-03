@@ -15,7 +15,7 @@ public static class TimeUtils
     public static double ToJulian(this DateTime dt) => dt.ToOADate() + OAOffset;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static DateTime FromJulian(double utc1, double utc2) => new(DateTime.FromOADate(utc1 - OAOffset + utc2).Ticks, DateTimeKind.Utc);
+    public static DateTime FromJulian(double utc1, double utc2) => DateTime.SpecifyKind(DateTime.FromOADate(utc1 - OAOffset + utc2), DateTimeKind.Utc);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void ToSOFAUtcJd(this DateTimeOffset dateTimeOffset, out double utc1, out double utc2)
