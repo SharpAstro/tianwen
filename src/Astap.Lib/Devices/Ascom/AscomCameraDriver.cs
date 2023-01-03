@@ -46,6 +46,7 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
             try
             {
+                _ = Offset;
                 _ = OffsetMin;
                 _ = OffsetMax;
                 UsesOffsetValue = true;
@@ -55,18 +56,23 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
                 UsesOffsetValue = false;
             }
 
-            try
+            if (!UsesOffsetValue)
             {
-                _ = Offsets;
-                UseOffsetMode = true;
-            }
-            catch
-            {
-                UseOffsetMode = false;
+                try
+                {
+                    _ = Offset;
+                    _ = Offsets;
+                    UseOffsetMode = true;
+                }
+                catch
+                {
+                    UseOffsetMode = false;
+                }
             }
 
             try
             {
+                _ = Gain;
                 _ = GainMin;
                 _ = GainMax;
                 UsesGainValue = true;
@@ -76,14 +82,18 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
                 UsesGainValue = false;
             }
 
-            try
+            if (!UsesGainValue)
             {
-                _ = Gains;
-                UsesGainMode = true;
-            }
-            catch
-            {
-                UsesGainMode = false;
+                try
+                {
+                    _ = Gain;
+                    _ = Gains;
+                    UsesGainMode = true;
+                }
+                catch
+                {
+                    UsesGainMode = false;
+                }
             }
 
             _readoutModes.Clear();

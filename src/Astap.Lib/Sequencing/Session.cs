@@ -1,7 +1,5 @@
-﻿using Astap.Lib.Astrometry;
-using Astap.Lib.Astrometry.Focus;
+﻿using Astap.Lib.Astrometry.Focus;
 using Astap.Lib.Astrometry.PlateSolve;
-using Astap.Lib.Astrometry.SOFA;
 using Astap.Lib.Devices;
 using Astap.Lib.Devices.Guider;
 using Astap.Lib.Imaging;
@@ -12,7 +10,6 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using static Astap.Lib.CollectionHelper;
@@ -183,9 +180,24 @@ public class Session
         }
 
         var count = setup.Telescopes.Count;
+        var origGain = new short[count];
         for (var i = 0; i < count; i++)
         {
-            setup.Telescopes[i].Camera.Driver.StartExposure(TimeSpan.FromSeconds(1), true);
+            var camDriver = setup.Telescopes[i].Camera.Driver;
+
+            if (camDriver.UsesGainValue)
+            {
+                origGain[i] = camDriver.Gain;
+
+                // set high gain
+                camDriver.Gain = (short)MathF.Truncate((camDriver.GainMin + camDriver.GainMin) * 0.75f);
+            }
+            else
+            {
+                origGain[i] = short.MinValue;
+            }
+
+            camDriver.StartExposure(TimeSpan.FromSeconds(1), true);
         }
 
         var expTimesSec = new int[count];
@@ -214,7 +226,12 @@ public class Session
                     }
                     else
                     {
-                         hasRoughFocus[i] = true;
+                        if (camDriver.UsesGainValue)
+                        {
+                            camDriver.Gain = origGain[i];
+                        }
+
+                        hasRoughFocus[i] = true;
                     }
                 }
             }
