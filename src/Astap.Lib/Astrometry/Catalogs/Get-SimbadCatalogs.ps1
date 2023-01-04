@@ -1,5 +1,5 @@
 
-$commonFilter = "^(Barnard|RCW|LDN|GUM|SH|NAME|NGC|IC|Ced|CG|M |HD|HR)"
+$commonFilter = "^(Barnard|RCW|LDN|GUM|SH|NAME|NGC|IC|Ced|CG |M |HD|HR)"
 $starCatFilter = '^(HD|HR|NAME|2MASS|[*]|M |(NGC|IC)\s+\d+[A-Za-z]?$)'
 
 $catalogs = [ordered]@{
@@ -10,7 +10,6 @@ $catalogs = [ordered]@{
    LDN = $commonFilter
    Ced = $commonFilter
    Sh = $commonFilter
-   Pl = $commonFilter
    CG = $commonFilter
 }
 $outParams = "main_id,ids,otype(3),ra(d;ICRS),dec(d,ICRS),fluxdata(V)"
