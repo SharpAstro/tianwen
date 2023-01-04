@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Diagnostics;
+using System.Threading;
 
 namespace Astap.Lib.Devices.Ascom;
 
@@ -18,31 +20,61 @@ public abstract class AscomDeviceDriverBase : DynamicComObject, IDeviceDriver
 
     public string DriverType => _device.DeviceType;
 
+    [DebuggerHidden]
     public void SetupDialog() => _comObject?.SetupDialog();
 
-    private bool? _connectedCache;
+    const int STATE_UNKNOWN = 0;
+    const int CONNECTED = 1;
+    const int DISCONNECTED = 2;
+    private int _connectionState;
     public bool Connected
     {
-        get => _connectedCache ??= _comObject?.Connected is bool connected && connected;
+        get
+        {
+            var state = Volatile.Read(ref _connectionState);
+            switch (state)
+            {
+                case STATE_UNKNOWN:
+                    if (_comObject?.Connected is bool connected)
+                    {
+                        Volatile.Write(ref _connectionState, connected ? CONNECTED : DISCONNECTED);
+                        return connected;
+                    }
+                    return false;
+
+                case CONNECTED:
+                    return true;
+
+                case DISCONNECTED:
+                default:
+                    return false;
+            }
+        }
+
         set
         {
             if (_comObject is { } obj)
             {
-                obj.Connected = value;
-                if (obj.Connected is bool actualConnected)
+                if (obj.Connected is bool currentConnected)
                 {
-                    _connectedCache = actualConnected;
+                    var actualState = currentConnected ? CONNECTED : DISCONNECTED;
+                    var desiredState = value ? CONNECTED : DISCONNECTED;
+                    var prevState = Volatile.Read(ref _connectionState);
+                    if (prevState != actualState || actualState != desiredState)
+                    {
+                        Volatile.Write(ref _connectionState, desiredState);
 
-                    DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(actualConnected));
+                        DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(obj.Connected = value));
+                    }
                 }
                 else
                 {
-                    _connectedCache = null;
+                    _connectionState = STATE_UNKNOWN;
                 }
             }
             else
             {
-                _connectedCache = null;
+                _connectionState = STATE_UNKNOWN;
             }
         }
     }

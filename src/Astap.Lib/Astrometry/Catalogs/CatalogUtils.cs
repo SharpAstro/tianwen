@@ -13,6 +13,8 @@ public static class CatalogUtils
 
     static readonly Regex BDPattern = new(@"(?:BD) \s* ([-+]) ([0-9]{1,2}) (?:\s+|[-_]) ([0-9]{1,5})", CommonOpts);
 
+    static readonly Regex CGPattern = new(@"(?:CG) ([0-9][A-Z0-9]*)", CommonOpts);
+
     static readonly Regex ExtendedCatalogEntryPattern = new(@"^(N|I|NGC|IC) ([0-9]{1,4}) (?:(N(?:ED)? ([0-9]{1,2})) | [_]?([A-Z]{1,2}))$", CommonOpts);
 
     static readonly Regex PSRDesignationPattern = new(@"^(?:PSR) ([BJ]) ([0-9]{4}) ([-+]) ([0-9]{2,4})$", CommonOpts);
@@ -56,6 +58,7 @@ public static class CatalogUtils
         bool isBase91Encoded;
         // test for slow path
         var firstDigit = trimmedInput.IndexOfAny(Digit);
+        Span<char> chars = stackalloc char[template.Length];
 
         switch (catalog)
         {
@@ -76,6 +79,23 @@ public static class CatalogUtils
                             var letterSuffix = extendedNgcMatch.Groups[5].ValueSpan;
                             cleanedUp = string.Concat(NorI, number, "_", letterSuffix);
                         }
+                    }
+                    else
+                    {
+                        cleanedUp = null;
+                    }
+                    isBase91Encoded = false;
+                }
+                break;
+
+            case Catalog.CG:
+                {
+                    var cgMatch = CGPattern.Match(trimmedInput);
+                    if (cgMatch.Success && cgMatch.Groups.Count == 2)
+                    {
+                        template.CopyTo(chars);
+                        cgMatch.Groups[1].ValueSpan.CopyTo(chars.Slice(chars.Length - cgMatch.Groups[1].ValueSpan.Length));
+                        cleanedUp = new string(chars).Replace('*', '0');
                     }
                     else
                     {
@@ -107,7 +127,6 @@ public static class CatalogUtils
                 break;
 
             default:
-                Span<char> chars = stackalloc char[template.Length];
                 template.CopyTo(chars);
                 int foundDigits = 0;
                 var maybeWildcardsLeft = false;
@@ -269,6 +288,7 @@ public static class CatalogUtils
             'B' when secondIsDigit || secondChar is 'A' or 'a' => ("B000", 3, Catalog.Barnard),
             'C' when secondChar == 'l' || secondChar == 'r' => ("Cr000", 3, Catalog.Collinder),
             'C' when secondChar == 'e' => ("Ced000*", 4, Catalog.Ced),
+            'C' when secondChar == 'G' => ("CG00**", 4, Catalog.CG),
             'C' when secondIsDigit => ("C000", 3, Catalog.Caldwell),
             'E' => ("E000-000", 7, Catalog.ESO),
             'G' when secondChar is 'U' or 'u' => ("GUM00*", 3, Catalog.GUM),

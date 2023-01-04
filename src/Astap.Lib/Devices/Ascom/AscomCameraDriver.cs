@@ -2,15 +2,12 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 
 namespace Astap.Lib.Devices.Ascom;
 
 public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 {
-    private readonly List<string> _readoutModes = new(4);
-    private readonly List<string> _offsets = new(4);
-    private readonly List<string> _gains = new(4);
-
     public AscomCameraDriver(AscomDevice device) : base(device)
     {
         DeviceConnectedEvent += AscomCameraDriver_DeviceConnectedEvent;
@@ -61,12 +58,12 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
                 try
                 {
                     _ = Offset;
-                    _ = Offsets;
-                    UseOffsetMode = true;
+                    _ = obj.Offsets;
+                    UsesOffsetMode = true;
                 }
                 catch
                 {
-                    UseOffsetMode = false;
+                    UsesOffsetMode = false;
                 }
             }
 
@@ -87,29 +84,13 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
                 try
                 {
                     _ = Gain;
-                    _ = Gains;
+                    _ = obj.Gains;
                     UsesGainMode = true;
                 }
                 catch
                 {
                     UsesGainMode = false;
                 }
-            }
-
-            _readoutModes.Clear();
-            try
-            {
-                if (obj.ReadoutModes is IEnumerable readoutModes)
-                {
-                    foreach (string readoutMode in readoutModes)
-                    {
-                        _readoutModes.Add(readoutMode);
-                    }
-                }
-            }
-            catch
-            {
-                // no readout modes
             }
         }
     }
@@ -134,7 +115,7 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
     public bool UsesOffsetValue { get; private set; }
 
-    public bool UseOffsetMode { get; private set; }
+    public bool UsesOffsetMode { get; private set; }
 
     public double CoolerPower => _comObject?.CoolerPower is double coolerPower ? coolerPower : double.NaN;
 
@@ -171,7 +152,7 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
     public int OffsetMax { get; private set; }
 
-    public IReadOnlyList<string> Offsets => _offsets;
+    public IEnumerable<string> Offsets => Connected && UsesOffsetMode && _comObject is { } obj ? EnumerateProperty<string>(obj.Offsets) : Enumerable.Empty<string>();
 
     public short Gain
     {
@@ -190,7 +171,7 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
     public short GainMax { get; private set; }
 
-    public IReadOnlyList<string> Gains => _gains;
+    public IEnumerable<string> Gains => Connected && UsesGainMode && _comObject is { } obj ? EnumerateProperty<string>(obj.Gains) : Enumerable.Empty<string>();
 
     public bool FastReadout
     {
@@ -204,13 +185,16 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
         }
     }
 
+    private IReadOnlyList<string> ReadoutModes
+        => Connected && _comObject is { } obj && EnumerateProperty<string>(obj.ReadoutModes) is IEnumerable<string> modes ? modes.ToList() : Array.Empty<string>();
+
     public string? ReadoutMode
     {
-        get => _comObject?.ReadoutMode is int readoutMode && readoutMode >= 0 && readoutMode < _readoutModes.Count ? _readoutModes[readoutMode] : null;
+        get => _comObject?.ReadoutMode is int readoutMode && readoutMode >= 0 && ReadoutModes is { Count: > 0 } modes  && readoutMode < modes.Count ? modes[readoutMode] : null;
         set
         {
             int idx;
-            if (Connected && _comObject is { } obj && value is { Length: > 0 } && (idx = _readoutModes.IndexOf(value)) >= 0)
+            if (Connected && _comObject is { } obj && value is { Length: > 0 } && (idx = ReadoutModes.IndexOf(value)) >= 0)
             {
                 obj.ReadoutMode = idx;
             }

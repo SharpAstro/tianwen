@@ -9,6 +9,8 @@ public class CatalogIndexTests
 {
     [Theory]
     [InlineData(BD_16_1591s, BD_16_1591s_Enc)]
+    [InlineData(CG0004, "CG0004")]
+    [InlineData(CG22B1, "CG22B1")]
     [InlineData(NGC7293, "N7293")]
     [InlineData(NGC0056, "N0056")]
     [InlineData(NGC0526_B, "N0526_B")]
@@ -33,6 +35,8 @@ public class CatalogIndexTests
 
     [Theory]
     [InlineData(BD_16_1591s, Catalog.BonnerDurchmusterung)]
+    [InlineData(CG0004, Catalog.CG)]
+    [InlineData(CG22B1, Catalog.CG)]
     [InlineData(NGC7293, Catalog.NGC)]
     [InlineData(NGC0056, Catalog.NGC)]
     [InlineData(NGC0526_B, Catalog.NGC)]
@@ -61,6 +65,8 @@ public class CatalogIndexTests
     [InlineData(IC0720_NED02, "IC 720 NED02")]
     [InlineData(M040, "M40")]
     [InlineData(M102, "M102")]
+    [InlineData(CG0004, "CG 4")]
+    [InlineData(CG22B1, "CG 22B1")]
     [InlineData(NGC0526_B, "NGC 526B")]
     [InlineData(ESO056_115, "ESO 56-115")]
     [InlineData(PSR_J0002_6216n, "PSR J0002+6216")]

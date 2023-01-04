@@ -4,7 +4,7 @@ namespace Astap.Lib.Devices;
 
 public interface IFilterWheelDriver : IDeviceDriver
 {
-    IReadOnlyCollection<Filter> Filters { get; }
+    IReadOnlyList<Filter> Filters { get; }
 
     int Position { get; set; }
 }
