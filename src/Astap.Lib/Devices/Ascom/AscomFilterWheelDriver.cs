@@ -6,28 +6,19 @@ namespace Astap.Lib.Devices.Ascom;
 
 public class AscomFilterWheelDriver : AscomDeviceDriverBase, IFilterWheelDriver
 {
-    private readonly List<Filter> _filters = new();
-
     public AscomFilterWheelDriver(AscomDevice device) : base(device)
     {
-        DeviceConnectedEvent += AscomFilterWheelDriver_DeviceConnectedEvent;
+
     }
 
-    private void AscomFilterWheelDriver_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
-    {
-        if (e.Connected)
-        {
-            _filters.Clear();
-            _filters.AddRange(EnumerateProperty<string>("Names").Where(p => !string.IsNullOrEmpty(p)).Select(p => new Filter(p)));
-        }
-    }
+    string[] Names => _comObject?.Names is string[] names ? names : Array.Empty<string>();
 
     public int Position
     {
         get => _comObject?.Position is int pos ? pos : -1;
         set
         {
-            if (_comObject is { } obj && value is >= 0 && value < Filters.Count)
+            if (_comObject is { } obj && Filters is { Count: > 0 } filters && value is >= 0 && value < filters.Count)
             {
                 obj.Position = value;
             }
@@ -38,5 +29,5 @@ public class AscomFilterWheelDriver : AscomDeviceDriverBase, IFilterWheelDriver
         }
     }
 
-    public IReadOnlyCollection<Filter> Filters => _filters;
+    public IReadOnlyList<Filter> Filters => Names.Select(p => new Filter(p)).ToList();
 }

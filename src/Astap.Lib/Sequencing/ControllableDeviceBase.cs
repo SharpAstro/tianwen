@@ -17,7 +17,7 @@ public abstract class ControllableDeviceBase<TDriver> : IDisposable
         }
         else
         {
-            throw new ArgumentException($"Could not instantiate driver {typeof(TDriver)} for device {device} which is a {device.DeviceType}", nameof(device));
+            throw new ArgumentException($"Could not instantiate driver {typeof(TDriver)} for device {device.DisplayName} which is a {device.DeviceType}", nameof(device));
         }
     }
 
@@ -26,18 +26,6 @@ public abstract class ControllableDeviceBase<TDriver> : IDisposable
     public DeviceBase Device { get; }
 
     public TDriver Driver { get; }
-
-    public bool Connected
-    {
-        get => Driver.Connected;
-        set
-        {
-            if (value != Driver.Connected)
-            {
-                Driver.Connected = value;
-            }
-        }
-    }
 
     protected virtual void Dispose(bool disposing)
     {

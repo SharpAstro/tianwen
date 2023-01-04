@@ -10,6 +10,7 @@ public enum Catalog : ulong
     Caldwell = 'C',
     Collinder = 'C' << 7 | 'r', // Cl is normalised to Cr
     Ced = 'C' << 14 | 'e' << 7 | 'd', // Cederblad
+    CG = 'C' << 7 | 'G', // Cometary Globule
     ESO = 'E',
     GJ = 'G' << 7 | 'J', // Gliese Jahreiß
     GUM = 'G' << 14 | 'U' << 7 | 'M',

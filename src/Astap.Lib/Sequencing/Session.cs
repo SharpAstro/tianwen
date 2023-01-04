@@ -404,8 +404,8 @@ public class Session
         var mount = setup.Mount;
         var guider = setup.Guider;
 
-        setup.Mount.Connected = true;
-        guider.Connected = true;
+        mount.Driver.Connected = true;
+        guider.Driver.Connected = true;
 
         if (mount.Driver.AtPark && (!mount.Driver.CanUnpark || !mount.Driver.Unpark()))
         {
@@ -417,7 +417,7 @@ public class Session
         {
             var telescope = setup.Telescopes[i];
             var camera = telescope.Camera;
-            camera.Connected = true;
+            camera.Driver.Connected = true;
 
             // copy over denormalised properties if required
             camera.Driver.Telescope ??= telescope.Name;
@@ -547,7 +547,11 @@ public class Session
                 continue;
             }
 
-            ImagingLoop(setup, configuration, observation, hourAngleAtSlewTime, external, cancellationToken);
+            var sw = Stopwatch.StartNew();
+            if (!ImagingLoop(setup, configuration, observation, hourAngleAtSlewTime, external, cancellationToken))
+            {
+                external.LogError($"Imaging loop for {observation} did not complete successfully, total runtime: {sw.Elapsed:c}");
+            }
         } // end observation loop
     }
 
@@ -593,7 +597,7 @@ public class Session
         return guidingSuccess;
     }
 
-    internal static void ImagingLoop(Setup setup, SessionConfiguration configuration, in Observation observation, double hourAngleAtSlewTime, IExternal external, CancellationToken cancellationToken)
+    internal static bool ImagingLoop(Setup setup, SessionConfiguration configuration, in Observation observation, double hourAngleAtSlewTime, IExternal external, CancellationToken cancellationToken)
     {
         var guider = setup.Guider;
         var mount = setup.Mount;
@@ -621,10 +625,11 @@ public class Session
 
         var overslept = TimeSpan.Zero;
         var imageWriteQueue = new Queue<(Image image, Observation observation, DateTime expStartTime, int frameNumber)>();
+
         while (!cancellationToken.IsCancellationRequested
-            && mount.Connected
+            && mount.Driver.Connected
             && Catch(() => mount.Driver.Tracking, external)
-            && guider.Connected
+            && guider.Driver.Connected
             && Catch(guider.Driver.IsGuiding, external)
             && IsOnSamePierSide()
             && mount.Driver.TryGetUTCDate(out var expStartTime)
@@ -654,8 +659,8 @@ public class Session
             overslept = TimeSpan.Zero;
             if (cancellationToken.IsCancellationRequested)
             {
-                external.LogWarning("Cancellation rquested, abort image acquisition and quit imaging loop");
-                break;
+                external.LogWarning("Cancellation rquested, all images in queue written to disk, abort image acquisition and quit imaging loop");
+                return false;
             }
             else if (tickMinusElapsed > TimeSpan.Zero)
             {
@@ -687,6 +692,7 @@ public class Session
                         {
                             var spinDuration = TimeSpan.FromMilliseconds(100);
                             overslept += spinDuration;
+
                             external.Sleep(spinDuration);
                         }
                     }
@@ -718,62 +724,36 @@ public class Session
                 }
                 else
                 {
-
+                    // finished this target
+                    return true;
                 }
             }
             else if (allimageFetchSuccess && shouldDither)
             {
-                var ditherPixel = configuration.DitherPixel;
-                var settlePixel = configuration.SettlePixel;
-                var settleTime = configuration.SettleTime;
-                var settleTimeout = (settleTime * SETTLE_TIMEOUT_FACTOR);
-
-                external.LogInfo($"Start dithering pixel={ditherPixel} settlePixel={settlePixel} settleTime={settleTime}, timeout={settleTimeout}");
-
-                guider.Driver.Dither(ditherPixel, settlePixel, settleTime.TotalSeconds, settleTimeout.TotalSeconds);
-
-                elapsed = WriteQueuedImagesToFitsFiles();
-
-                for (var i = 0; i < SETTLE_TIMEOUT_FACTOR; i++)
+                bool ditheringSuccess;
+                int ditheringTries = 0;
+                do
                 {
-                    if (!cancellationToken.IsCancellationRequested)
-                    {
-                        SleepWithOvertime(settleTime, elapsed);
-                    }
-                    else
-                    {
-                        break;
-                    }
-                    if (guider.Driver.TryGetSettleProgress(out var settleProgress) && settleProgress is { Done: false })
-                    {
-                        if (settleProgress.Error is { Length: > 0 } error)
-                        {
-                            external.LogError($"Settling after dithering failed with: {error}");
-                        }
-                        else
-                        {
-                            external.LogInfo($"Settle still in progress: settle pixel={settleProgress.SettlePx} dist={settleProgress.Distance}");
-                        }
-                    }
-                    else
-                    {
-                        if (settleProgress?.Error is { Length: > 0 } error)
-                        {
-                            external.LogError($"Settling after dithering failed with: {error} pixel={settleProgress.SettlePx} dist={settleProgress.Distance}");
-                        }
-                        else if (settleProgress is not null)
-                        {
-                            external.LogInfo($"Settle finished: settle pixel={settleProgress.SettlePx} pixel={settleProgress.SettlePx} dist={settleProgress.Distance}");
-                        }
-                        break;
-                    }
+                    ditheringSuccess = Dither(guider, configuration, WriteQueuedImagesToFitsFiles, external, cancellationToken);
+                } while (++ditheringTries <= 2 && !ditheringSuccess && !cancellationToken.IsCancellationRequested);
+
+                if (ditheringSuccess)
+                {
+                    external.LogInfo($"Dithering using \"{guider.Driver}\" succeeded after {ditheringTries} tries.");
+                }
+                else
+                {
+                    external.LogError($"Abort imaging loop after failing {ditheringTries} times to dither guider \"{guider.Driver}\".");
+                    return false;
                 }
             }
             else if (allimageFetchSuccess)
             {
-                external.LogInfo($"Skipping dithering ({ditherRound}/{configuration.DitherEveryNFrame} frame)");
+                external.LogInfo($"Skipping dithering ({ditherRound % configuration.DitherEveryNFrame}/{configuration.DitherEveryNFrame} frame)");
             }
         } // end imaging loop
+
+        return !cancellationToken.IsCancellationRequested && !imageWriteQueue.TryPeek(out _);
 
         bool IsOnSamePierSide()
         {
@@ -802,20 +782,86 @@ public class Session
             stopWatch.Stop();
             return elapsed;
         }
+    }
 
-        void SleepWithOvertime(TimeSpan sleep, TimeSpan extra)
+    internal static bool Dither(Guider guider, SessionConfiguration configuration, Func<TimeSpan> writeQueuedImagesToFitsFiles, IExternal external, CancellationToken cancellationToken)
+    {
+        var ditherPixel = configuration.DitherPixel;
+        var settlePixel = configuration.SettlePixel;
+        var settleTime = configuration.SettleTime;
+        var settleTimeout = (settleTime * SETTLE_TIMEOUT_FACTOR);
+
+        external.LogInfo($"Start dithering pixel={ditherPixel} settlePixel={settlePixel} settleTime={settleTime}, timeout={settleTimeout}");
+
+        guider.Driver.Dither(ditherPixel, settlePixel, settleTime.TotalSeconds, settleTimeout.TotalSeconds);
+
+        var overslept = TimeSpan.Zero;
+        var elapsed = writeQueuedImagesToFitsFiles();
+
+        for (var i = 0; i < SETTLE_TIMEOUT_FACTOR; i++)
         {
-            var adjustedTime = sleep - extra;
-            if (adjustedTime >= TimeSpan.Zero)
+            if (cancellationToken.IsCancellationRequested)
             {
-                overslept = TimeSpan.Zero;
-                external.Sleep(adjustedTime);
+                external.LogWarning("Cancellation rquested, all images in queue written to disk, abort image acquisition and quit imaging loop");
+                return false;
             }
             else
             {
-                overslept = adjustedTime.Negate();
+                overslept = SleepWithOvertime(settleTime, elapsed + overslept, external);
+            }
+
+            if (guider.Driver.TryGetSettleProgress(out var settleProgress) && settleProgress is { Done: false })
+            {
+                if (settleProgress.Error is { Length: > 0 } error)
+                {
+                    external.LogError($"Settling after dithering failed with: {error}");
+                    return false;
+                }
+                else
+                {
+                    external.LogInfo($"Settle still in progress: settle pixel={settleProgress.SettlePx} dist={settleProgress.Distance}");
+                }
+            }
+            else
+            {
+                if (settleProgress?.Error is { Length: > 0 } error)
+                {
+                    external.LogError($"Settling after dithering failed with: {error} pixel={settleProgress.SettlePx} dist={settleProgress.Distance}");
+                    return false;
+                }
+                else if (settleProgress is not null)
+                {
+                    external.LogInfo($"Settling finished: settle pixel={settleProgress.SettlePx} pixel={settleProgress.SettlePx} dist={settleProgress.Distance}");
+                    return true;
+                }
+                else
+                {
+                    external.LogError($"Settling failed with no specific error message, assume dithering failed.");
+                    return false;
+                }
             }
         }
+
+        external.LogError($"Settling timeout after {settleTimeout:c}, aborting dithering.");
+        return false;
+    }
+
+    internal static TimeSpan SleepWithOvertime(TimeSpan sleep, TimeSpan extra, IExternal external)
+    {
+        var adjustedTime = sleep - extra;
+
+        TimeSpan overslept;
+        if (adjustedTime >= TimeSpan.Zero)
+        {
+            overslept = TimeSpan.Zero;
+            external.Sleep(adjustedTime);
+        }
+        else
+        {
+            overslept = adjustedTime.Negate();
+        }
+
+        return overslept;
     }
 
     internal static void TurnOnTracking(Mount mount, TrackingSpeed speed = TrackingSpeed.Sidereal)
@@ -837,7 +883,7 @@ public class Session
         {
             if (setup.Telescopes[i].Cover is { } cover)
             {
-                cover.Connected = true;
+                cover.Driver.Connected = true;
 
                 if (cover.Driver.CoverState is CoverStatus.NotPresent || cover.Driver.CalibratorOff())
                 {
@@ -928,33 +974,33 @@ public class Session
         {
             for (var i = 0; i < setup.Telescopes.Count; i++)
             {
-                var camera = setup.Telescopes[i].Camera;
-                if (camera.Connected
-                    && camera.Driver.CanSetCCDTemperature
-                    && camera.Driver.CanGetCoolerOn
-                    && camera.Driver.CanGetHeatsinkTemperature
-                    && camera.Driver.CCDTemperature is double ccdTemp and >= -40 and <= 50
-                    && camera.Driver.HeatSinkTemperature is double heatSinkTemp and >= -40 and <= 50
+                var camDriver = setup.Telescopes[i].Camera.Driver;
+                if (camDriver.Connected
+                    && camDriver.CanSetCCDTemperature
+                    && camDriver.CanGetCoolerOn
+                    && camDriver.CanGetHeatsinkTemperature
+                    && camDriver.CCDTemperature is double ccdTemp and >= -40 and <= 50
+                    && camDriver.HeatSinkTemperature is double heatSinkTemp and >= -40 and <= 50
                 )
                 {
-                    var coolerPower = CoolerPower(camera);
+                    var coolerPower = CoolerPower(camDriver);
                     var setpointTemp = maybeSetpointTemp ?? Math.Round(setpointIsCCDTemp ? Math.Min(ccdTemp, heatSinkTemp) : heatSinkTemp);
 
                     if (direction.NeedsFurtherRamping(ccdTemp, setpointTemp)
-                        && (double.IsNaN(coolerPower) || !camera.Driver.CoolerOn || !direction.ThresholdPowerReached(coolerPower, thresPower))
+                        && (double.IsNaN(coolerPower) || !camDriver.CoolerOn || !direction.ThresholdPowerReached(coolerPower, thresPower))
                     )
                     {
-                        var actualSetpointTemp = camera.Driver.SetCCDTemperature = direction.SetpointTemp(ccdTemp, setpointTemp);
+                        var actualSetpointTemp = camDriver.SetCCDTemperature = direction.SetpointTemp(ccdTemp, setpointTemp);
 
                         string coolerPrev;
-                        if (IsCoolerOn(camera))
+                        if (IsCoolerOn(camDriver))
                         {
                             coolerPrev = "";
                         }
                         else
                         {
                             coolerPrev = "off -> ";
-                            camera.Driver.CoolerOn = true;
+                            camDriver.CoolerOn = true;
                         }
 
                         isRamping[i] = true;
@@ -962,21 +1008,21 @@ public class Session
 
                         external.LogInfo($"Camera {(i + 1)} setpoint temperature {setpointTemp:0.00} °C not yet reached, " +
                             $"cooling {direction.ToString().ToLowerInvariant()} stepwise, currently at {actualSetpointTemp:0.00} °C. " +
-                            $"Heatsink={heatSinkTemp:0.00} °C, CCD={ccdTemp:0.00} °C, Power={CoolerPower(camera):0.00}%, Cooler={coolerPrev}{(IsCoolerOn(camera) ? "on" : "off")}.");
+                            $"Heatsink={heatSinkTemp:0.00} °C, CCD={ccdTemp:0.00} °C, Power={CoolerPower(camDriver):0.00}%, Cooler={coolerPrev}{(IsCoolerOn(camDriver) ? "on" : "off")}.");
                     }
                     else if (++thresholdReachedConsecutiveCounts[i] < 2)
                     {
                         isRamping[i] = true;
 
                         external.LogInfo($"Camera {(i + 1)} setpoint temperature {setpointTemp:0.00} °C or {thresPower:0.00} % power reached. "
-                            + $"Heatsink={heatSinkTemp:0.00} °C, CCD={ccdTemp:0.00} °C, Power={CoolerPower(camera):0.00}%, Cooler={(IsCoolerOn(camera) ? "on" : "off")}.");
+                            + $"Heatsink={heatSinkTemp:0.00} °C, CCD={ccdTemp:0.00} °C, Power={CoolerPower(camDriver):0.00}%, Cooler={(IsCoolerOn(camDriver) ? "on" : "off")}.");
                     }
                     else
                     {
                         isRamping[i] = false;
 
                         external.LogInfo($"Camera {(i + 1)} setpoint temperature {setpointTemp:0.00} °C or {thresPower:0.00} % power reached twice in a row. "
-                            + $"Heatsink={heatSinkTemp:0.00} °C, CCD={ccdTemp:0.00} °C, Power={CoolerPower(camera):0.00}%, Cooler={(IsCoolerOn(camera) ? "on" : "off")}.");
+                            + $"Heatsink={heatSinkTemp:0.00} °C, CCD={ccdTemp:0.00} °C, Power={CoolerPower(camDriver):0.00}%, Cooler={(IsCoolerOn(camDriver) ? "on" : "off")}.");
                     }
                 }
                 else
@@ -984,7 +1030,7 @@ public class Session
                     isRamping[i] = false;
 
                     var setpointTemp = (maybeSetpointTemp.HasValue ? $"{maybeSetpointTemp.Value:0.00} °C" : "ambient");
-                    external.LogWarning($"Skipping camera {(i + 1)} setpoint temperature {setpointTemp} as we cannot get the current CCD temperature or cooling is not supported. Cooler is {(IsCoolerOn(camera) ? "on" : "off")}.");
+                    external.LogWarning($"Skipping camera {(i + 1)} setpoint temperature {setpointTemp} as we cannot get the current CCD temperature or cooling is not supported. Cooler is {(IsCoolerOn(camDriver) ? "on" : "off")}.");
                 }
             }
 
@@ -1002,9 +1048,9 @@ public class Session
 
         return !isRamping.Any(p => p);
 
-        bool IsCoolerOn(Camera camera) => Catch(() => camera.Driver.CanGetCoolerOn && camera.Driver.CoolerOn, external);
+        bool IsCoolerOn(ICameraDriver camDriver) => Catch(() => camDriver.CanGetCoolerOn && camDriver.CoolerOn, external);
 
-        double CoolerPower(Camera camera) => Catch(() => camera.Driver.CanGetCoolerPower ? camera.Driver.CoolerPower : double.NaN, external, double.NaN);
+        double CoolerPower(ICameraDriver camDriver) => Catch(() => camDriver.CanGetCoolerPower ? camDriver.CoolerPower : double.NaN, external, double.NaN);
     }
 
     internal static string GetSafeFileName(string name, char replace = '_')

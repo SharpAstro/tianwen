@@ -29,6 +29,7 @@ var external = new ConsoleOutput(outputFolder);
 
 var observations = new List<Observation>
 {
+    new Observation(new Target(19.5, -20, "Mercury", CatalogIndex.Mercury), DateTimeOffset.Now, TimeSpan.FromMinutes(100), false, TimeSpan.FromSeconds(20)),
     new Observation(new Target(5.5877777777777773, -5.389444444444444, "Orion Nebula", CatalogUtils.TryGetCleanedUpCatalogName("M42", out var catIdx) ? catIdx : null), DateTimeOffset.Now, TimeSpan.FromMinutes(100), false, TimeSpan.FromSeconds(20))
 };
 
@@ -50,12 +51,8 @@ var focuserDevice = allFocusers.FirstOrDefault(e => e.DeviceId == focuserDeviceI
 Mount mount;
 if (mountDevice is not null)
 {
-    mount = new Mount(mountDevice)
-    {
-        Connected = true
-    };
-
-    external.LogInfo($"Connected to mount {mountDevice}");
+    mount = new Mount(mountDevice);
+    external.LogInfo($"Found mount {mountDevice.DisplayName}, using {mount.Driver.DriverInfo ?? mount.Driver.GetType().Name}");
 }
 else
 {
@@ -66,10 +63,7 @@ else
 Guider guider;
 if (guiderDevice is not null)
 {
-    guider = new Guider(guiderDevice)
-    {
-        Connected = true
-    };
+    guider = new Guider(guiderDevice);
 
     if (guider.Driver.TryGetActiveProfileName(out var activeProfileName))
     {

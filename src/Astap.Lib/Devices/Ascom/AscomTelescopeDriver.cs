@@ -6,7 +6,7 @@ namespace Astap.Lib.Devices.Ascom
 {
     public class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
     {
-        private readonly Dictionary<TrackingSpeed, DriveRate> _trackingSpeedMapping = new();
+        private Dictionary<TrackingSpeed, DriveRate> _trackingSpeedMapping = new();
 
         public AscomTelescopeDriver(AscomDevice device) : base(device)
         {
@@ -17,20 +17,7 @@ namespace Astap.Lib.Devices.Ascom
         {
             if (e.Connected && _comObject is { } obj)
             {
-                _trackingSpeedMapping.Clear();
-
-                if (obj.TrackingRates?.Count is int count && count > 0)
-                {
-                    foreach (DriveRate driveRate in obj.TrackingRates)
-                    {
-                        var trackingSpeed = DriveRateToTrackingSpeed(driveRate);
-
-                        if (trackingSpeed != TrackingSpeed.None)
-                        {
-                            _trackingSpeedMapping[trackingSpeed] = driveRate;
-                        }
-                    }
-                }
+                _trackingSpeedMapping = DriveRatesToTrackingSpeeds(EnumerateProperty<DriveRate>(obj.TrackingRates));
 
                 CanSetTracking = obj.CanSetTracking is bool canSetTracking && canSetTracking;
                 CanSetSideOfPier = obj.CanSetPierSide is bool canSetSideOfPier && canSetSideOfPier;
@@ -41,6 +28,23 @@ namespace Astap.Lib.Devices.Ascom
                 CanSlewAsync = obj.CanSlewAsync is bool canSlewAsync && canSlewAsync;
                 CanSync = obj.CanSync is bool canSync && canSync;
             }
+        }
+
+        internal static Dictionary<TrackingSpeed, DriveRate> DriveRatesToTrackingSpeeds(IEnumerable<DriveRate> driveRates)
+        {
+            var trackingSpeedMapping = new Dictionary<TrackingSpeed, DriveRate>();
+
+            foreach (var driveRate in driveRates)
+            {
+                var trackingSpeed = DriveRateToTrackingSpeed(driveRate);
+
+                if (trackingSpeed != TrackingSpeed.None)
+                {
+                    trackingSpeedMapping[trackingSpeed] = driveRate;
+                }
+            }
+
+            return trackingSpeedMapping;
         }
 
         private static TrackingSpeed DriveRateToTrackingSpeed(DriveRate driveRate)
