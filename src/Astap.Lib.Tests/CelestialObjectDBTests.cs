@@ -44,6 +44,7 @@ public class CelestialObjectDBTests
     [InlineData("C041", ObjectType.OpenCluster, C041, Constellation.Taurus, 4.448333333333333d, 15.866666666666667d)]
     [InlineData("C099", ObjectType.DarkNeb, C099, Constellation.Crux, 12.521944444444445d, -63.74333333333333d)]
     [InlineData("C30", ObjectType.Galaxy, NGC7331, Constellation.Pegasus, 22.617780555555555d, 34.415527777777775d)]
+    [InlineData("CG4", ObjectType.DarkNeb, CG0004, Constellation.Puppis, 7.5691999999999995d, -46.905d)]
     [InlineData("ESO056-115", ObjectType.Galaxy, ESO056_115, Constellation.Dorado, 5.392916666666667d, -69.75611111111111d)]
     [InlineData("IC0048", ObjectType.Galaxy, IC0048, Constellation.Cetus, 0.7262416666666667d, -8.1865d)]
     [InlineData("IC0381", ObjectType.Galaxy, NGC1530_A, Constellation.Camelopardalis, 4.74125d, 75.63975d)]
