@@ -1698,8 +1698,8 @@
       "LDN  160"
     ],
     "ObjType": "DNe",
-    "Ra": 266.3015,
-    "Dec": -23.1409,
+    "Ra": 266.2596,
+    "Dec": -23.1867,
     "VMag": null
   },
   {
@@ -1778,8 +1778,8 @@
       "LDN  168"
     ],
     "ObjType": "DNe",
-    "Ra": 263.3182,
-    "Dec": -20.9653,
+    "Ra": 263.2471,
+    "Dec": -21.0344,
     "VMag": null
   },
   {
@@ -16800,6 +16800,26 @@
     "ObjType": "PoC",
     "Ra": 76.029,
     "Dec": 25.255,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1544E",
+    "Ids": [
+      "LDN 1544E"
+    ],
+    "ObjType": "cor",
+    "Ra": 76.1804,
+    "Dec": 25.1933,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1544W",
+    "Ids": [
+      "LDN 1544W"
+    ],
+    "ObjType": "cor",
+    "Ra": 75.9288,
+    "Dec": 25.3078,
     "VMag": null
   },
   {

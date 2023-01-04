@@ -11,9 +11,9 @@
       "SH  2-6"
     ],
     "ObjType": "PN",
-    "Ra": 258.434746,
-    "Dec": -37.103042,
-    "VMag": 10.1
+    "Ra": 258.435469,
+    "Dec": -37.103156,
+    "VMag": null
   },
   {
     "MainId": "SH  2-4",
@@ -159,9 +159,9 @@
       "SH  2-6"
     ],
     "ObjType": "PN",
-    "Ra": 258.434746,
-    "Dec": -37.103042,
-    "VMag": 10.1
+    "Ra": 258.435469,
+    "Dec": -37.103156,
+    "VMag": null
   },
   {
     "MainId": "LBN  1099",
@@ -2910,6 +2910,7 @@
     "MainId": "IC  443",
     "Ids": [
       "IC  443",
+      "NAME Jellyfish Nebula",
       "NAME Gem A",
       "SH  2-248"
     ],
@@ -3727,7 +3728,7 @@
       "RCW  16",
       "SH  2-311"
     ],
-    "ObjType": "Cl*",
+    "ObjType": "OpC",
     "Ra": 118.077,
     "Dec": -26.428,
     "VMag": null

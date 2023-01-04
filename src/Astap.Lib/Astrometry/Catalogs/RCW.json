@@ -170,7 +170,7 @@
       "RCW  16",
       "SH  2-311"
     ],
-    "ObjType": "Cl*",
+    "ObjType": "OpC",
     "Ra": 118.077,
     "Dec": -26.428,
     "VMag": null
@@ -702,7 +702,7 @@
       "NAME lam Cen Nebula",
       "RCW  62"
     ],
-    "ObjType": "HII",
+    "ObjType": "OpC",
     "Ra": 174.58333,
     "Dec": -63.37278,
     "VMag": null
@@ -1149,7 +1149,7 @@
     "VMag": null
   },
   {
-    "MainId": "GAL 327.30-00.60",
+    "MainId": "RCW  97",
     "Ids": [
       "RCW  97"
     ],
@@ -1588,9 +1588,9 @@
       "SH  2-6"
     ],
     "ObjType": "PN",
-    "Ra": 258.434746,
-    "Dec": -37.103042,
-    "VMag": 10.1
+    "Ra": 258.435469,
+    "Dec": -37.103156,
+    "VMag": null
   },
   {
     "MainId": "GRS G350.10 +00.10",
