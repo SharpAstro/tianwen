@@ -7,6 +7,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -65,7 +66,7 @@ public class Session
     public Observation? CurrentObservation => _activeObservation is int active and >= 0 && active < _observations.Count ? _observations[active] : null;
 
     const int MAX_FAILSAFE = 1000;
-    const int SETTLE_TIMEOUT_FACTOR = 3;
+    const int SETTLE_TIMEOUT_FACTOR = 5;
 
     public void Run(CancellationToken cancellationToken)
         => Run(Setup,
@@ -475,62 +476,14 @@ public class Session
             external.LogInfo($"Stop guiding to start slewing mount to target {observation}.");
             guider.Driver.StopCapture();
 
-            // skip target if slew is not successful
-            var az = double.NaN;
-            var alt = double.NaN;
-            if (!mount.Driver.TryGetTransform(out var transform)
-                || !mount.Driver.TryTransformJ2000ToMountNative(transform, observation.Target.RA, observation.Target.Dec, updateTime: false, out var raMount, out var decMount, out az, out alt)
-                || double.IsNaN(alt)
-                || alt < configuration.MinHeightAboveHorizon
-                || !mount.Driver.SlewRaDecAsync(raMount, decMount)
-            )
+            var (postCondition, hourAngleAtSlewTime) = SlewToTarget(mount, configuration.MinHeightAboveHorizon, observation, external, cancellationToken);
+            if (postCondition is SlewPostCondition.SkipToNext)
             {
-                external.LogError($"Failed to slew {mount.Device.DisplayName} to target {observation} az={az:0.00} alt={alt:0.00}, skipping.");
                 nextObservation();
-                continue;
             }
-
-            double hourAngleAtSlewTime;
-            int failsafeCounter = 0;
-            try
+            else if (postCondition is SlewPostCondition.Cancelled or SlewPostCondition.Abort)
             {
-                while (mount.Driver.IsSlewing && failsafeCounter++ < MAX_FAILSAFE && !cancellationToken.IsCancellationRequested)
-                {
-                    external.Sleep(TimeSpan.FromSeconds(1));
-                }
-
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    external.LogWarning($"Cancellation requested, abort slewing to target {observation} and quit imaging loop.");
-                    break;
-                }
-
-                if (mount.Driver.IsSlewing || failsafeCounter == MAX_FAILSAFE)
-                {
-                    throw new InvalidOperationException($"Failsafe activated when slewing {mount.Device.DisplayName} to {observation}.");
-                }
-
-                if (double.IsNaN(hourAngleAtSlewTime = mount.Driver.HourAngle))
-                {
-                    throw new InvalidOperationException($"Could not obtain hour angle after slewing {mount.Device.DisplayName} to {observation}.");
-                }
-
-                external.LogInfo($"Finished slewing mount {mount.Device.DisplayName} to target {observation}.");
-            }
-            catch (Exception e)
-            {
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    external.LogException(e, $"while slewing to target {observation} failed and cancellation requested, aborting.");
-                    break;
-                }
-                else
-                {
-                    external.LogException(e, $"while slewing to target {observation} failed, skipping.");
-                    nextObservation();
-
-                    continue;
-                }
+                break;
             }
 
             var guidingSuccess = StartGuidingLoop(guider, configuration, external, cancellationToken);
@@ -553,6 +506,70 @@ public class Session
                 external.LogError($"Imaging loop for {observation} did not complete successfully, total runtime: {sw.Elapsed:c}");
             }
         } // end observation loop
+    }
+
+    internal enum SlewPostCondition
+    {
+        Sucess = 0,
+        SkipToNext = 1,
+        Abort = 2,
+        Cancelled = 3
+    }
+
+    internal record SlewResult(SlewPostCondition PostCondition, double HourAngleAtSlewTime);
+
+    internal static SlewResult SlewToTarget(Mount mount, int minAboveHorizon, Observation observation, IExternal external, CancellationToken cancellationToken)
+    {
+        var az = double.NaN;
+        var alt = double.NaN;
+        var dsop = PierSide.Unknown;
+        if (!mount.Driver.TryGetTransform(out var transform)
+            || !mount.Driver.TryTransformJ2000ToMountNative(transform, observation.Target.RA, observation.Target.Dec, updateTime: false, out var raMount, out var decMount, out az, out alt)
+            || double.IsNaN(alt)
+            || alt < minAboveHorizon
+            || (dsop = mount.Driver.DestinationSideOfPier(raMount, decMount)) == PierSide.Unknown
+            || !mount.Driver.SlewRaDecAsync(raMount, decMount)
+        )
+        {
+            external.LogError($"Failed to slew {mount.Device.DisplayName} to target {observation} az={az:0.00} alt={alt:0.00} dsop={dsop}, skipping.");
+            return new(SlewPostCondition.SkipToNext, double.NaN);
+        }
+
+        int failsafeCounter = 0;
+
+        while (mount.Driver.IsSlewing && failsafeCounter++ < MAX_FAILSAFE && !cancellationToken.IsCancellationRequested)
+        {
+            external.Sleep(TimeSpan.FromSeconds(1));
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            external.LogWarning($"Cancellation requested, abort slewing to target {observation} and quit imaging loop.");
+            return new(SlewPostCondition.Cancelled, double.NaN);
+        }
+
+        if (mount.Driver.IsSlewing || failsafeCounter == MAX_FAILSAFE)
+        {
+            throw new InvalidOperationException($"Failsafe activated when slewing {mount.Device.DisplayName} to {observation}.");
+        }
+
+        var actualSop = mount.Driver.SideOfPier;
+        if (actualSop != dsop)
+        {
+            external.LogError($"Slewing {mount.Device.DisplayName} to {observation} completed but actual side of pier {actualSop} is different from the expected one {dsop}, skipping.");
+            return new(SlewPostCondition.SkipToNext, double.NaN);
+        }
+
+        double hourAngleAtSlewTime;
+        if (double.IsNaN(hourAngleAtSlewTime = mount.Driver.HourAngle))
+        {
+            external.LogError($"Could not obtain hour angle after slewing {mount.Device.DisplayName} to {observation}, skipping.");
+            return new(SlewPostCondition.SkipToNext, double.NaN);
+        }
+
+        external.LogInfo($"Finished slewing mount {mount.Device.DisplayName} to target {observation}.");
+
+        return new(SlewPostCondition.Sucess, hourAngleAtSlewTime);
     }
 
     internal static bool StartGuidingLoop(Guider guider, SessionConfiguration configuration, IExternal external, CancellationToken cancellationToken)
@@ -730,20 +747,13 @@ public class Session
             }
             else if (allimageFetchSuccess && shouldDither)
             {
-                bool ditheringSuccess;
-                int ditheringTries = 0;
-                do
+                if (Dither(guider, configuration, WriteQueuedImagesToFitsFiles, external, cancellationToken))
                 {
-                    ditheringSuccess = Dither(guider, configuration, WriteQueuedImagesToFitsFiles, external, cancellationToken);
-                } while (++ditheringTries <= 2 && !ditheringSuccess && !cancellationToken.IsCancellationRequested);
-
-                if (ditheringSuccess)
-                {
-                    external.LogInfo($"Dithering using \"{guider.Driver}\" succeeded after {ditheringTries} tries.");
+                    external.LogInfo($"Dithering using \"{guider.Driver}\" succeeded.");
                 }
                 else
                 {
-                    external.LogError($"Abort imaging loop after failing {ditheringTries} times to dither guider \"{guider.Driver}\".");
+                    external.LogError($"Dithering using \"{guider.Driver}\" failed, aborting.");
                     return false;
                 }
             }
@@ -1073,7 +1083,7 @@ public class Session
         var frameFolder = Directory.CreateDirectory(Path.Combine(outputFolder, targetFolder, dateFolder)).FullName;
         var fitsFileName = GetSafeFileName($"frame_{subExpStartTime:o}_{frameNumber}.fits");
 
-        external.LogInfo($"Writing FITS file {targetFolder}/{fitsFileName}");
+        external.LogInfo($"Writing FITS file {frameFolder}/{fitsFileName}");
         image.WriteToFitsFile(Path.Combine(frameFolder, fitsFileName));
     }
 
