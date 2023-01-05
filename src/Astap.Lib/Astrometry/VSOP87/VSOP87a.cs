@@ -1,7 +1,6 @@
 ﻿using Astap.Lib.Astrometry.Catalogs;
 using Astap.Lib.Astrometry.SOFA;
 using System;
-using System.Diagnostics;
 using static WorldWideAstronomy.WWA;
 
 namespace Astap.Lib.Astrometry.VSOP87;
@@ -38,7 +37,7 @@ public static class VSOP87a
         Span<double> earth = stackalloc double[3];
         var body = new double[3]; // not stack allocated due to wwaRxp expecting double[]
 
-        if (!GetBody(CatalogIndex.Earth, et, earth))
+        if (!GetBody(catIndex, et, body))
         {
             ra = double.NaN;
             dec = double.NaN;
@@ -48,7 +47,7 @@ public static class VSOP87a
             return false;
         }
 
-        if (!GetBody(catIndex, et, body))
+        if (!GetBody(CatalogIndex.Earth, et, earth))
         {
             ra = double.NaN;
             dec = double.NaN;

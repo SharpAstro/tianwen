@@ -166,14 +166,7 @@ public class Session
         }
         else if (solveTask.IsCompletedSuccessfully && solveTask.Result is var (solvedRa, solvedDec))
         {
-            if (Catch(() => mount.Driver.SyncRaDecJ2000(solvedRa, solvedDec), external))
-            {
-                external.LogInfo($"Syncing mount {mount.Device.DisplayName} to ({solvedRa}, {solvedDec}) in {mount.Driver.EquatorialSystem} succeeded");
-            }
-            else
-            {
-                external.LogWarning($"Syncing mount {mount.Device.DisplayName} to ({solvedRa}, {solvedDec}) in {mount.Driver.EquatorialSystem} failed");
-            }
+            external.LogInfo($"Guider \"{guider.Driver}\" is in focus and camera image plate solve succeeded with ({solvedRa}, {solvedDec})");
         }
         else if (solveTask.IsFaulted || solveTask.IsCanceled)
         {
