@@ -11,6 +11,7 @@ public class CatalogIndexTests
     [InlineData(BD_16_1591s, BD_16_1591s_Enc)]
     [InlineData(CG0004, "CG0004")]
     [InlineData(CG22B1, "CG22B1")]
+    [InlineData(DOBASHI_0222, "Do00222")]
     [InlineData(NGC7293, "N7293")]
     [InlineData(NGC0056, "N0056")]
     [InlineData(NGC0526_B, "N0526_B")]
@@ -38,6 +39,7 @@ public class CatalogIndexTests
     [InlineData(BD_16_1591s, Catalog.BonnerDurchmusterung)]
     [InlineData(CG0004, Catalog.CG)]
     [InlineData(CG22B1, Catalog.CG)]
+    [InlineData(DOBASHI_0222, Catalog.Dobashi)]
     [InlineData(NGC7293, Catalog.NGC)]
     [InlineData(NGC0056, Catalog.NGC)]
     [InlineData(NGC0526_B, Catalog.NGC)]
@@ -59,6 +61,7 @@ public class CatalogIndexTests
 
     [Theory]
     [InlineData(BD_16_1591s, "BD-16 1591")]
+    [InlineData(DOBASHI_0222, "Dobashi 222")]
     [InlineData(NGC7293, "NGC 7293")]
     [InlineData(NGC0056, "NGC 56")]
     [InlineData(IC1000, "IC 1000")]
