@@ -102,9 +102,11 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
         Catalog.Ced,
         Catalog.Collinder,
         Catalog.CG,
+        Catalog.Dobashi,
         Catalog.GUM,
         Catalog.HD,
         Catalog.HR,
+        Catalog.HH,
         Catalog.IC,
         Catalog.LDN,
         Catalog.Messier,
@@ -217,12 +219,14 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
             ("HR", Catalog.HR),
             ("GUM", Catalog.GUM),
             ("RCW", Catalog.RCW),
+            ("Dobashi", Catalog.Dobashi),
             ("LDN", Catalog.LDN),
             ("Sh", Catalog.Sharpless2),
             ("Barnard", Catalog.Barnard),
             ("Ced", Catalog.Ced),
             ("CG", Catalog.CG),
-            ("vdB", Catalog.vdB)
+            ("vdB", Catalog.vdB),
+            ("HH", Catalog.HH)
         };
         foreach (var (fileName, catToAdd) in simbadCatalogs)
         {

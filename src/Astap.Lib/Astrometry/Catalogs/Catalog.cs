@@ -11,6 +11,7 @@ public enum Catalog : ulong
     Collinder = 'C' << 7 | 'r', // Cl is normalised to Cr
     Ced = 'C' << 14 | 'e' << 7 | 'd', // Cederblad
     CG = 'C' << 7 | 'G', // Cometary Globule
+    Dobashi = 'D' << '7' | 'o',
     ESO = 'E',
     GJ = 'G' << 7 | 'J', // Gliese Jahreiß
     GUM = 'G' << 14 | 'U' << 7 | 'M',
@@ -18,6 +19,7 @@ public enum Catalog : ulong
     HAT_P = (ulong)'H' << 28 | 'A' << 21 | 'T' << 14 | '-' << 7 | 'P', // Hungarian Automated Telescope Network (North)
     HATS = 'H' << 21 | 'A' << 14 | 'T' << 7 | 'S', // Hungarian Automated Telescope Network (South)
     HD = 'H' << 7 | 'D', // Henry Draper
+    HH = 'H' << 7 | 'H', // Herbig-Haro
     HIP = 'H' << 7 | 'I', // Hipparcos
     HR = 'H' << 7 | 'R', // Havard revised bright star catalog
     HCG = 'H' << 14 | 'C' << 7 | 'G', // Hickson Compact Group
