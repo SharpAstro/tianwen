@@ -5,7 +5,8 @@
       "IC 2177",
       "GUM  1",
       "RCW   2",
-      "SH  2-292"
+      "SH  2-292",
+      "VDB  93"
     ],
     "ObjType": "RNe",
     "Ra": 106.104,
@@ -29,7 +30,8 @@
     "Ids": [
       "HD  53623",
       "GUM  3",
-      "HRW 27"
+      "HRW 27",
+      "VDB  94"
     ],
     "ObjType": "*",
     "Ra": 106.31978283919,
@@ -118,7 +120,8 @@
     "MainId": "NGC  2579",
     "Ids": [
       "NGC  2579",
-      "GUM 11"
+      "GUM 11",
+      "VdBH 13a"
     ],
     "ObjType": "OpC",
     "Ra": 125.2304,
@@ -216,7 +219,8 @@
     "MainId": "RCW  34",
     "Ids": [
       "GUM 19",
-      "RCW  34"
+      "RCW  34",
+      "VdBH 25"
     ],
     "ObjType": "HII",
     "Ra": 134.1171,
@@ -487,7 +491,8 @@
     "MainId": "HD 100099",
     "Ids": [
       "HD 100099",
-      "GUM 41"
+      "GUM 41",
+      "VdBH 50a"
     ],
     "ObjType": "*",
     "Ra": 172.6012805066,
@@ -752,7 +757,8 @@
   {
     "MainId": "VdBH 86",
     "Ids": [
-      "GUM 61"
+      "GUM 61",
+      "VdBH 86"
     ],
     "ObjType": "RNe",
     "Ra": 259.942,
@@ -820,7 +826,8 @@
       "HD 147165",
       "HR  6084",
       "NAME Alniyat",
-      "SH  2-9"
+      "SH  2-9",
+      "VDB 104"
     ],
     "ObjType": "bC*",
     "Ra": 245.2971488058,

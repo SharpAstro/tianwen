@@ -299,6 +299,7 @@ public static class CatalogUtils
             'C' when secondChar == 'G' => ("CG00**", 4, Catalog.CG),
             'C' when secondIsDigit => ("C000", 3, Catalog.Caldwell),
             'D' when secondChar is 'o' or 'O' => ("Do00000", 5, Catalog.Dobashi),
+            'D' when secondChar == 'G' => ("DG000*", 4, Catalog.DG),
             'E' => ("E000-000", 7, Catalog.ESO),
             'G' when secondChar is 'U' or 'u' => ("GUM00*", 3, Catalog.GUM),
             'G' when secondChar == 'J' => ("GJ0000", 4, Catalog.GJ),

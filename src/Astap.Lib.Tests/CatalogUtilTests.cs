@@ -37,6 +37,7 @@ public class CatalogUtilTests
     [InlineData("CG 4", "CG0004", Catalog.CG)]
     [InlineData("CG 22B1", "CG22B1", Catalog.CG)]
     [InlineData("CG 587", "CG0587", Catalog.CG)]
+    [InlineData("DG 11", "DG0011", Catalog.DG)]
     [InlineData("LDN 1002A", "LDN1002A", Catalog.LDN)]
     [InlineData("Mel 025", "Mel025", Catalog.Melotte)]
     [InlineData("NGC0526A", "N0526_A", Catalog.NGC)]

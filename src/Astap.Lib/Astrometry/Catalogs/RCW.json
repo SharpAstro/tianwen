@@ -15,7 +15,8 @@
       "IC 2177",
       "GUM  1",
       "RCW   2",
-      "SH  2-292"
+      "SH  2-292",
+      "VDB  93"
     ],
     "ObjType": "RNe",
     "Ra": 106.104,
@@ -70,6 +71,7 @@
   {
     "MainId": "RCW   7",
     "Ids": [
+      "DG 121",
       "RCW   7"
     ],
     "ObjType": "HII",
@@ -352,7 +354,8 @@
     "MainId": "RCW  34",
     "Ids": [
       "GUM 19",
-      "RCW  34"
+      "RCW  34",
+      "VdBH 25"
     ],
     "ObjType": "HII",
     "Ra": 134.1171,
@@ -582,7 +585,8 @@
   {
     "MainId": "BRAN 328A",
     "Ids": [
-      "RCW  55"
+      "RCW  55",
+      "VdBH 45"
     ],
     "ObjType": "HII",
     "Ra": 164.1354,
@@ -687,7 +691,8 @@
   {
     "MainId": "BRAN 362F",
     "Ids": [
-      "RCW  61"
+      "RCW  61",
+      "VdBH 50"
     ],
     "ObjType": "HII",
     "Ra": 172.6008,

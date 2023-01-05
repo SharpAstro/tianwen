@@ -377,6 +377,7 @@
     "MainId": "V* T Tau",
     "Ids": [
       "HD 284419",
+      "HH  355",
       "NAME T Tau A",
       "NAME T Tau N",
       "NAME T Tau S",
@@ -1047,6 +1048,7 @@
     "Ids": [
       "NGC  2282",
       "Ced  87",
+      "DG 112",
       "IC 2172",
       "VDB  85"
     ],
@@ -1403,6 +1405,7 @@
     "MainId": "* alf Sco",
     "Ids": [
       "Ced 132",
+      "DG 141",
       "HD 148478",
       "HR  6134",
       "NAME Antares",
@@ -1540,6 +1543,7 @@
     "Ids": [
       "NGC  6590",
       "Ced 157b",
+      "DG 150",
       "SH  2-37",
       "VDB 119"
     ],
@@ -1980,6 +1984,8 @@
     "MainId": "EM* LkHA  234",
     "Ids": [
       "Ced 196",
+      "DG 176",
+      "HH  167",
       "VDB 146c"
     ],
     "ObjType": "Ae*",

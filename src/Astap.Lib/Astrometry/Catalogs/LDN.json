@@ -1555,7 +1555,8 @@
   {
     "MainId": "LDN  146",
     "Ids": [
-      "LDN  146"
+      "LDN  146",
+      "DOBASHI 0222"
     ],
     "ObjType": "MoC",
     "Ra": 254.3229,
@@ -16875,7 +16876,8 @@
   {
     "MainId": "LDN 1550",
     "Ids": [
-      "LDN 1550"
+      "LDN 1550",
+      "DOBASHI 4500"
     ],
     "ObjType": "DNe",
     "Ra": 90.0138,
@@ -17863,6 +17865,7 @@
     "MainId": "NAME HH 240/241",
     "Ids": [
       "NAME HH 240/241",
+      "HHL 18",
       "LDN 1634",
       "NAME HH 240-241",
       "NAME RNO 40 FIR"

@@ -6627,6 +6627,7 @@
     "MainId": "V* DG Tau",
     "Ids": [
       "Ced  33",
+      "DG  32",
       "HH  158"
     ],
     "ObjType": "Or*",
@@ -6718,6 +6719,7 @@
     "MainId": "EM* LkHA  234",
     "Ids": [
       "Ced 196",
+      "DG 176",
       "HH  167",
       "VDB 146c"
     ],
