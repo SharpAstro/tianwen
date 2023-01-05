@@ -995,34 +995,56 @@ namespace Astap.Lib.Astrometry.SOFA
             return CoordinateUtils.ConditionRA(gmst);
         }
 
+        /// <summary>
+        /// Calls <see cref="TryGetOrbitalPositionRaDec(CatalogIndex, DateTimeOffset, out double, out double)"/> with the current
+        /// <see cref="DateTimeOffset"/> property, assuming that it is already set via one of the usual ways of setting date time.
+        /// </summary>
+        /// <param name="idx">object id</param>
+        /// <param name="ra">RA in JNOW of the current instance</param>
+        /// <param name="dec">Dec in JNOW of the current instance</param>
+        /// <returns></returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public IReadOnlyDictionary<RaDecEventTime, RaDecEventInfo> CalculateObjElevation(in CelestialObject obj, DateTimeOffset astroDark, DateTimeOffset astroTwilight)
-            => CalculateObjElevation(obj.Index, obj.ObjectType, obj.RA, obj.Dec, astroDark, astroTwilight);
+        public bool TryGetOrbitalPositionRaDec(CatalogIndex idx, out double ra, out double dec) => TryGetOrbitalPositionRaDec(idx, DateTimeOffset, out ra, out dec);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public IReadOnlyDictionary<RaDecEventTime, RaDecEventInfo> CalculateObjElevation(
-            CatalogIndex idx,
-            ObjectType objectType,
-            double ra,
-            double dec,
-            DateTimeOffset astroDark,
-            DateTimeOffset astroTwilight)
-            => CalculateObjElevation(
-                ra,
-                dec,
-                astroDark,
-                astroTwilight,
-                idx == CatalogIndex.Sol || objectType == ObjectType.Planet ? (pDTO) => CalcRaDecEventInfoMovingObject(pDTO, idx) : CalcRaDecEventInfoFixedObject
-            );
+        public bool TryGetOrbitalPositionRaDec(CatalogIndex idx, DateTimeOffset dto, out double ra, out double dec)
+        {
+            if (SiteLatitude is var lat
+                && !double.IsNaN(lat)
+                && SiteLongitude is var @long
+                && !double.IsNaN(@long)
+                && VSOP87a.Reduce(idx, dto, lat, @long, out ra, out dec, out _, out _, out _)
+            )
+            {
+                return true;
+            }
+            else
+            {
+                ra = double.NaN;
+                dec = double.NaN;
+                return false;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public IReadOnlyDictionary<RaDecEventTime, RaDecEventInfo> CalculateObjElevation(in CelestialObject obj, DateTimeOffset astroDark, DateTimeOffset astroTwilight)
+            => CalculateObjElevation(obj.Index, obj.RA, obj.Dec, astroDark, astroTwilight);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public IReadOnlyDictionary<RaDecEventTime, RaDecEventInfo> CalculateObjElevation(CatalogIndex idx, double ra, double dec, DateTimeOffset astroDark, DateTimeOffset astroTwilight)
+            => (double.IsNaN(ra) || double.IsNaN(dec)) && TryGetOrbitalPositionRaDec(idx, astroDark, out ra, out dec)
+                ? CalculateObjElevation(ra, dec, EquatorialCoordinateType.Topocentric, astroDark, astroTwilight, (pDTO) => CalcRaDecEventInfoMovingObject(pDTO, idx))
+                : CalculateObjElevation(ra, dec, EquatorialCoordinateType.J2000, astroDark, astroTwilight, CalcRaDecEventInfoFixedObject);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         public IReadOnlyDictionary<RaDecEventTime, RaDecEventInfo> CalculateObjElevation(double ra, double dec, DateTimeOffset astroDark, DateTimeOffset astroTwilight)
-            => CalculateObjElevation(ra, dec, astroDark, astroTwilight, CalcRaDecEventInfoFixedObject);
+            => CalculateObjElevation(ra, dec, EquatorialCoordinateType.J2000, astroDark, astroTwilight, CalcRaDecEventInfoFixedObject);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         public IReadOnlyDictionary<RaDecEventTime, RaDecEventInfo> CalculateObjElevation(
             double ra,
             double dec,
+            EquatorialCoordinateType ect,
             DateTimeOffset astroDark,
             DateTimeOffset astroTwilight,
             Func<DateTimeOffset, RaDecEventInfo> calcRaDecEventInfo
@@ -1038,7 +1060,19 @@ namespace Astap.Lib.Astrometry.SOFA
                 throw new ArgumentException("Dec should not be NaN", nameof(dec));
             }
 
-            SetJ2000(ra, dec);
+            switch (ect)
+            {
+                case EquatorialCoordinateType.J2000:
+                    SetJ2000(ra, dec);
+                    break;
+
+                case EquatorialCoordinateType.Topocentric:
+                    SetTopocentric(ra, dec);
+                    break;
+
+                default:
+                    throw new ArgumentException($"Coordinate system {ect} is not supported!");
+            }
 
             var raDecEventTimes = new Dictionary<RaDecEventTime, RaDecEventInfo>(4);
 
