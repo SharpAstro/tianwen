@@ -2,7 +2,8 @@
   {
     "MainId": "LBN   590",
     "Ids": [
-      "Ced   1"
+      "Ced   1",
+      "DG   3"
     ],
     "ObjType": "RNe",
     "Ra": 3.346,
@@ -177,7 +178,8 @@
   {
     "MainId": "LBN 157.58-20.59",
     "Ids": [
-      "Ced  12"
+      "Ced  12",
+      "DG  14"
     ],
     "ObjType": "RNe",
     "Ra": 51.5,
@@ -187,7 +189,8 @@
   {
     "MainId": "Ced  13",
     "Ids": [
-      "Ced  13"
+      "Ced  13",
+      "DG  15"
     ],
     "ObjType": "RNe",
     "Ra": 51.48,
@@ -197,7 +200,8 @@
   {
     "MainId": "LBN 142.14+01.97",
     "Ids": [
-      "Ced  14"
+      "Ced  14",
+      "DG  17"
     ],
     "ObjType": "RNe",
     "Ra": 52.2,
@@ -207,7 +211,8 @@
   {
     "MainId": "LBN 159.31-21.67",
     "Ids": [
-      "Ced  15"
+      "Ced  15",
+      "DG  16"
     ],
     "ObjType": "RNe",
     "Ra": 52.2,
@@ -218,7 +223,8 @@
     "MainId": "NGC  1333",
     "Ids": [
       "NGC  1333",
-      "Ced  16"
+      "Ced  16",
+      "DG  18"
     ],
     "ObjType": "OpC",
     "Ra": 52.297,
@@ -248,7 +254,8 @@
   {
     "MainId": "Ced  18b",
     "Ids": [
-      "Ced  18b"
+      "Ced  18b",
+      "DG  22"
     ],
     "ObjType": "RNe",
     "Ra": 56.05,
@@ -259,7 +266,8 @@
     "MainId": "IC  336",
     "Ids": [
       "IC  336",
-      "Ced  19"
+      "Ced  19",
+      "DG  20"
     ],
     "ObjType": "HII",
     "Ra": 54.25,
@@ -446,6 +454,7 @@
     "Ids": [
       "IC  348",
       "Ced  20",
+      "DG  23",
       "NAME Gingrich 1",
       "NAME omi Per Cloud"
     ],
@@ -457,7 +466,8 @@
   {
     "MainId": "Ced  21",
     "Ids": [
-      "Ced  21"
+      "Ced  21",
+      "DG  24"
     ],
     "ObjType": "RNe",
     "Ra": 56.15,
@@ -553,6 +563,7 @@
     "MainId": "Ced  30",
     "Ids": [
       "Ced  30",
+      "DG  29",
       "IC  359a"
     ],
     "ObjType": "RNe",
@@ -563,7 +574,8 @@
   {
     "MainId": "LBN 169.30-14.89",
     "Ids": [
-      "Ced  31"
+      "Ced  31",
+      "DG  30"
     ],
     "ObjType": "RNe",
     "Ra": 65.5021,
@@ -575,6 +587,7 @@
     "Ids": [
       "NGC  1554",
       "Ced  32",
+      "DG  31",
       "NAME Struve's nebula"
     ],
     "ObjType": "RNe",
@@ -595,6 +608,7 @@
   {
     "MainId": "NGC  1555",
     "Ids": [
+      "HH  155",
       "Ced  32b",
       "NAME Hind's Nebula",
       "NAME Hind's Variable Nebula",
@@ -611,6 +625,7 @@
     "Ids": [
       "NAME Burnham Nebula",
       "Ced  32c",
+      "HH  255",
       "NAME Burnham's Nebula"
     ],
     "ObjType": "HII",
@@ -621,7 +636,9 @@
   {
     "MainId": "V* DG Tau",
     "Ids": [
-      "Ced  33"
+      "Ced  33",
+      "DG  32",
+      "HH  158"
     ],
     "ObjType": "Or*",
     "Ra": 66.76955053162,
@@ -631,7 +648,8 @@
   {
     "MainId": "LBN 174.34-17.75",
     "Ids": [
-      "Ced  34"
+      "Ced  34",
+      "DG  33"
     ],
     "ObjType": "HII",
     "Ra": 66.7,
@@ -643,6 +661,7 @@
     "Ids": [
       "NGC  1579",
       "Ced  35",
+      "DG  34",
       "SH  2-222"
     ],
     "ObjType": "OpC",
@@ -653,7 +672,8 @@
   {
     "MainId": "Ced  36",
     "Ids": [
-      "Ced  36"
+      "Ced  36",
+      "DG  35"
     ],
     "ObjType": "RNe",
     "Ra": 67.57,
@@ -674,6 +694,7 @@
     "MainId": "IRAS 0437+257P08",
     "Ids": [
       "Ced  38",
+      "DG  43",
       "IC 2087",
       "NAME IC 2087 IR"
     ],
@@ -696,7 +717,8 @@
     "MainId": "NGC  1788",
     "Ids": [
       "NGC  1788",
-      "Ced  40"
+      "Ced  40",
+      "DG  51"
     ],
     "ObjType": "RNe",
     "Ra": 76.725,
@@ -708,6 +730,7 @@
     "Ids": [
       "NGC  1909",
       "Ced  41",
+      "DG  52",
       "IC 2118",
       "NAME the Witch Head Nebula"
     ],
@@ -761,7 +784,8 @@
   {
     "MainId": "LBN 194.69-15.60",
     "Ids": [
-      "Ced  44"
+      "Ced  44",
+      "DG  53"
     ],
     "ObjType": "HII",
     "Ra": 80.5,
@@ -846,7 +870,8 @@
     "MainId": "IC  423",
     "Ids": [
       "IC  423",
-      "Ced  52"
+      "Ced  52",
+      "DG  58"
     ],
     "ObjType": "MoC",
     "Ra": 83.337,
@@ -961,7 +986,8 @@
     "MainId": "NGC  1999",
     "Ids": [
       "NGC  1999",
-      "Ced  55i"
+      "Ced  55i",
+      "DG  60"
     ],
     "ObjType": "RNe",
     "Ra": 84.104,
@@ -972,7 +998,8 @@
     "MainId": "IC  426",
     "Ids": [
       "IC  426",
-      "Ced  55j"
+      "Ced  55j",
+      "DG  61"
     ],
     "ObjType": "MoC",
     "Ra": 84.117,
@@ -983,6 +1010,7 @@
     "MainId": "IC  430",
     "Ids": [
       "Ced  55k",
+      "DG  69",
       "IC  430"
     ],
     "ObjType": "ISM",
@@ -994,7 +1022,8 @@
     "MainId": "IC  431",
     "Ids": [
       "IC  431",
-      "Ced  55l"
+      "Ced  55l",
+      "DG  72"
     ],
     "ObjType": "RNe",
     "Ra": 85.2,
@@ -1005,7 +1034,8 @@
     "MainId": "IC  432",
     "Ids": [
       "IC  432",
-      "Ced  55m"
+      "Ced  55m",
+      "DG  74"
     ],
     "ObjType": "RNe",
     "Ra": 85.5,
@@ -1046,7 +1076,8 @@
     "MainId": "IC  435",
     "Ids": [
       "IC  435",
-      "Ced  55q"
+      "Ced  55q",
+      "DG  77"
     ],
     "ObjType": "RNe",
     "Ra": 85.7521,
@@ -1069,7 +1100,8 @@
     "MainId": "NGC  2064",
     "Ids": [
       "NGC  2064",
-      "Ced  55s"
+      "Ced  55s",
+      "DG  78"
     ],
     "ObjType": "RNe",
     "Ra": 86.65,
@@ -1080,7 +1112,8 @@
     "MainId": "NGC  2067",
     "Ids": [
       "NGC  2067",
-      "Ced  55t"
+      "Ced  55t",
+      "DG  79"
     ],
     "ObjType": "RNe",
     "Ra": 86.65,
@@ -1092,6 +1125,7 @@
     "Ids": [
       "M  78",
       "Ced  55u",
+      "DG  80",
       "NGC  2068"
     ],
     "ObjType": "RNe",
@@ -1103,7 +1137,8 @@
     "MainId": "NGC  2071",
     "Ids": [
       "NGC  2071",
-      "Ced  55v"
+      "Ced  55v",
+      "DG  81"
     ],
     "ObjType": "RNe",
     "Ra": 86.791,
@@ -1178,7 +1213,8 @@
   {
     "MainId": "LBN 180.71+04.30",
     "Ids": [
-      "Ced  61"
+      "Ced  61",
+      "DG  86"
     ],
     "ObjType": "RNe",
     "Ra": 91.143,
@@ -1189,7 +1225,8 @@
     "MainId": "NGC  2163",
     "Ids": [
       "NGC  2163",
-      "Ced  62"
+      "Ced  62",
+      "DG  87"
     ],
     "ObjType": "RNe",
     "Ra": 91.9562,
@@ -1201,6 +1238,7 @@
     "Ids": [
       "NGC  2170",
       "Ced  63",
+      "DG  88",
       "NAME Mon R2 IRS3"
     ],
     "ObjType": "RNe",
@@ -1221,7 +1259,8 @@
   {
     "MainId": "LBN 213.63-12.34",
     "Ids": [
-      "Ced  65"
+      "Ced  65",
+      "DG  89"
     ],
     "ObjType": "HII",
     "Ra": 92.0,
@@ -1231,7 +1270,8 @@
   {
     "MainId": "LBN 213.76-12.40",
     "Ids": [
-      "Ced  66"
+      "Ced  66",
+      "DG  90"
     ],
     "ObjType": "HII",
     "Ra": 92.0,
@@ -1272,7 +1312,8 @@
     "MainId": "NGC  2182",
     "Ids": [
       "NGC  2182",
-      "Ced  68"
+      "Ced  68",
+      "DG  93"
     ],
     "ObjType": "RNe",
     "Ra": 92.3752,
@@ -1283,7 +1324,8 @@
     "MainId": "NGC  2183",
     "Ids": [
       "NGC  2183",
-      "Ced  69"
+      "Ced  69",
+      "DG  94"
     ],
     "ObjType": "RNe",
     "Ra": 92.69479,
@@ -1294,7 +1336,8 @@
     "MainId": "NGC  2185",
     "Ids": [
       "NGC  2185",
-      "Ced  70"
+      "Ced  70",
+      "DG  95"
     ],
     "ObjType": "RNe",
     "Ra": 92.5,
@@ -1304,7 +1347,8 @@
   {
     "MainId": "LBN  1000",
     "Ids": [
-      "Ced  71"
+      "Ced  71",
+      "DG  96"
     ],
     "ObjType": "HII",
     "Ra": 92.7,
@@ -1325,7 +1369,8 @@
     "MainId": "IC  444",
     "Ids": [
       "IC  444",
-      "Ced  74"
+      "Ced  74",
+      "DG 100"
     ],
     "ObjType": "RNe",
     "Ra": 94.642,
@@ -1337,6 +1382,7 @@
     "Ids": [
       "IC 2167",
       "Ced  77",
+      "DG 102",
       "IC  446"
     ],
     "ObjType": "Cl*",
@@ -1349,6 +1395,7 @@
     "Ids": [
       "IC 2169",
       "Ced  78",
+      "DG 103",
       "IC  447"
     ],
     "ObjType": "HII",
@@ -1360,7 +1407,8 @@
     "MainId": "IC  448",
     "Ids": [
       "IC  448",
-      "Ced  79"
+      "Ced  79",
+      "DG 107"
     ],
     "ObjType": "HII",
     "Ra": 98.5,
@@ -1371,7 +1419,8 @@
     "MainId": "NGC  2245",
     "Ids": [
       "NGC  2245",
-      "Ced  80"
+      "Ced  80",
+      "DG 108"
     ],
     "ObjType": "RNe",
     "Ra": 98.1722,
@@ -1382,7 +1431,8 @@
     "MainId": "NGC  2247",
     "Ids": [
       "NGC  2247",
-      "Ced  81"
+      "Ced  81",
+      "DG 109"
     ],
     "ObjType": "RNe",
     "Ra": 98.2684,
@@ -1456,7 +1506,8 @@
     "MainId": "NGC  2283",
     "Ids": [
       "NGC  2283",
-      "Ced  86"
+      "Ced  86",
+      "DG 111"
     ],
     "ObjType": "G",
     "Ra": 101.46995878074,
@@ -1468,7 +1519,9 @@
     "Ids": [
       "NGC  2282",
       "Ced  87",
-      "IC 2172"
+      "DG 112",
+      "IC 2172",
+      "VDB  85"
     ],
     "ObjType": "RNe",
     "Ra": 101.713,
@@ -1488,7 +1541,8 @@
   {
     "MainId": "Ced  89b",
     "Ids": [
-      "Ced  89b"
+      "Ced  89b",
+      "DG 115"
     ],
     "ObjType": "RNe",
     "Ra": 106.03,
@@ -1539,7 +1593,8 @@
   {
     "MainId": "RAFGL 5223",
     "Ids": [
-      "Ced  92"
+      "Ced  92",
+      "DG 117"
     ],
     "ObjType": "Ae?",
     "Ra": 107.16162783734,
@@ -1559,7 +1614,8 @@
   {
     "MainId": "Ced  96",
     "Ids": [
-      "Ced  96"
+      "Ced  96",
+      "HH   72"
     ],
     "ObjType": "Y*O",
     "Ra": 110.0429,
@@ -1569,7 +1625,8 @@
   {
     "MainId": "DG 118",
     "Ids": [
-      "Ced  96a"
+      "Ced  96a",
+      "DG 118"
     ],
     "ObjType": "RNe",
     "Ra": 109.904,
@@ -1579,7 +1636,8 @@
   {
     "MainId": "Ced  96b",
     "Ids": [
-      "Ced  96b"
+      "Ced  96b",
+      "DG 119"
     ],
     "ObjType": "RNe",
     "Ra": 109.95,
@@ -1589,7 +1647,8 @@
   {
     "MainId": "Ced  96c",
     "Ids": [
-      "Ced  96c"
+      "Ced  96c",
+      "DG 120"
     ],
     "ObjType": "RNe",
     "Ra": 110.03,
@@ -1609,7 +1668,8 @@
   {
     "MainId": "LBN  1062",
     "Ids": [
-      "Ced 101"
+      "Ced 101",
+      "DG 122"
     ],
     "ObjType": "HII",
     "Ra": 114.0,
@@ -1620,7 +1680,8 @@
     "MainId": "NGC  2626",
     "Ids": [
       "NGC  2626",
-      "Ced 106h"
+      "Ced 106h",
+      "VdBH 17"
     ],
     "ObjType": "RNe",
     "Ra": 128.883,
@@ -1696,7 +1757,8 @@
     "MainId": "IC 2966",
     "Ids": [
       "IC 2966",
-      "Ced 121"
+      "Ced 121",
+      "VdBH 56"
     ],
     "ObjType": "RNe",
     "Ra": 177.5525,
@@ -1716,7 +1778,8 @@
   {
     "MainId": "GN 15.50.6",
     "Ids": [
-      "Ced 125a"
+      "Ced 125a",
+      "DG 126"
     ],
     "ObjType": "RNe",
     "Ra": 237.746,
@@ -1726,7 +1789,8 @@
   {
     "MainId": "Ced 125b",
     "Ids": [
-      "Ced 125b"
+      "Ced 125b",
+      "DG 127"
     ],
     "ObjType": "RNe",
     "Ra": 238.4,
@@ -1736,7 +1800,8 @@
   {
     "MainId": "Ced 125c",
     "Ids": [
-      "Ced 125c"
+      "Ced 125c",
+      "DG 128"
     ],
     "ObjType": "RNe",
     "Ra": 238.48,
@@ -1746,7 +1811,8 @@
   {
     "MainId": "LBN  1094",
     "Ids": [
-      "Ced 125d"
+      "Ced 125d",
+      "DG 130"
     ],
     "ObjType": "RNe",
     "Ra": 240.0,
@@ -1757,7 +1823,8 @@
     "MainId": "IC 4591",
     "Ids": [
       "IC 4591",
-      "Ced 127"
+      "Ced 127",
+      "DG 131"
     ],
     "ObjType": "HII",
     "Ra": 243.0,
@@ -1768,7 +1835,8 @@
     "MainId": "IC 4592",
     "Ids": [
       "IC 4592",
-      "Ced 128"
+      "Ced 128",
+      "DG 132"
     ],
     "ObjType": "RNe",
     "Ra": 243.3,
@@ -1788,7 +1856,8 @@
   {
     "MainId": "Ced 129a",
     "Ids": [
-      "Ced 129a"
+      "Ced 129a",
+      "DG 133"
     ],
     "ObjType": "RNe",
     "Ra": 244.77,
@@ -1799,6 +1868,7 @@
     "MainId": "GN 16.17.2",
     "Ids": [
       "Ced 129b",
+      "DG 134",
       "IC 4601a"
     ],
     "ObjType": "RNe",
@@ -1810,6 +1880,7 @@
     "MainId": "Ced 129c",
     "Ids": [
       "Ced 129c",
+      "DG 135",
       "IC 4601b"
     ],
     "ObjType": "RNe",
@@ -1820,7 +1891,8 @@
   {
     "MainId": "LBN  1104",
     "Ids": [
-      "Ced 130"
+      "Ced 130",
+      "DG 136"
     ],
     "ObjType": "HII",
     "Ra": 245.3,
@@ -1831,7 +1903,8 @@
     "MainId": "IC 4603",
     "Ids": [
       "IC 4603",
-      "Ced 131a"
+      "Ced 131a",
+      "DG 138"
     ],
     "ObjType": "GNe",
     "Ra": 246.5,
@@ -1843,6 +1916,7 @@
     "Ids": [
       "IC 4604",
       "Ced 131b",
+      "DG 139",
       "NAME rho Oph Nebula"
     ],
     "ObjType": "GNe",
@@ -1854,9 +1928,11 @@
     "MainId": "* alf Sco",
     "Ids": [
       "Ced 132",
+      "DG 141",
       "HD 148478",
       "HR  6134",
-      "NAME Antares"
+      "NAME Antares",
+      "VDB 107"
     ],
     "ObjType": "s*r",
     "Ra": 247.35191542,
@@ -1867,7 +1943,8 @@
     "MainId": "IC 4605",
     "Ids": [
       "IC 4605",
-      "Ced 133"
+      "Ced 133",
+      "DG 142"
     ],
     "ObjType": "GNe",
     "Ra": 247.8,
@@ -1941,7 +2018,8 @@
     "MainId": "IC 4681",
     "Ids": [
       "IC 4681",
-      "Ced 154a"
+      "Ced 154a",
+      "DG 147"
     ],
     "ObjType": "HII",
     "Ra": 272.0,
@@ -1952,7 +2030,8 @@
     "MainId": "IC 4684",
     "Ids": [
       "IC 4684",
-      "Ced 154b"
+      "Ced 154b",
+      "DG 148"
     ],
     "ObjType": "RNe",
     "Ra": 272.3,
@@ -1983,6 +2062,7 @@
     "MainId": "IRAS 18138-1954",
     "Ids": [
       "Ced 157a",
+      "DG 149",
       "NGC  6589"
     ],
     "ObjType": "IR",
@@ -1995,7 +2075,9 @@
     "Ids": [
       "NGC  6590",
       "Ced 157b",
-      "SH  2-37"
+      "DG 150",
+      "SH  2-37",
+      "VDB 119"
     ],
     "ObjType": "RNe",
     "Ra": 274.275,
@@ -2006,7 +2088,8 @@
     "MainId": "IC 1283",
     "Ids": [
       "IC 1283",
-      "Ced 157c"
+      "Ced 157c",
+      "DG 151"
     ],
     "ObjType": "HII",
     "Ra": 274.3,
@@ -2028,7 +2111,8 @@
     "MainId": "IC 1287",
     "Ids": [
       "IC 1287",
-      "Ced 163"
+      "Ced 163",
+      "DG 154"
     ],
     "ObjType": "GNe",
     "Ra": 278.0,
@@ -2058,7 +2142,8 @@
   {
     "MainId": "LBN 057.03+03.02",
     "Ids": [
-      "Ced 167"
+      "Ced 167",
+      "DG 156"
     ],
     "ObjType": "RNe",
     "Ra": 291.52,
@@ -2090,7 +2175,8 @@
     "MainId": "IC 4954",
     "Ids": [
       "IC 4954",
-      "Ced 175"
+      "Ced 175",
+      "DG 160"
     ],
     "ObjType": "HII",
     "Ra": 301.2,
@@ -2131,6 +2217,7 @@
     "MainId": "Ced 176d",
     "Ids": [
       "Ced 176d",
+      "DG 162",
       "NGC  6914a"
     ],
     "ObjType": "RNe",
@@ -2142,6 +2229,7 @@
     "MainId": "Ced 176e",
     "Ids": [
       "Ced 176e",
+      "DG 163",
       "NGC  6914b"
     ],
     "ObjType": "RNe",
@@ -2162,7 +2250,8 @@
   {
     "MainId": "LBN 094.20+08.02",
     "Ids": [
-      "Ced 184"
+      "Ced 184",
+      "DG 164"
     ],
     "ObjType": "HII",
     "Ra": 312.5,
@@ -2173,7 +2262,8 @@
     "MainId": "IC 5076",
     "Ids": [
       "IC 5076",
-      "Ced 185"
+      "Ced 185",
+      "DG 165"
     ],
     "ObjType": "RNe",
     "Ra": 314.0,
@@ -2183,7 +2273,8 @@
   {
     "MainId": "Ced 187",
     "Ids": [
-      "Ced 187"
+      "Ced 187",
+      "DG 167"
     ],
     "ObjType": "RNe",
     "Ra": 315.48,
@@ -2203,7 +2294,8 @@
   {
     "MainId": "LBN 097.99+06.51",
     "Ids": [
-      "Ced 191"
+      "Ced 191",
+      "DG 173"
     ],
     "ObjType": "HII",
     "Ra": 319.3,
@@ -2213,7 +2305,8 @@
   {
     "MainId": "Ced 194",
     "Ids": [
-      "Ced 194"
+      "Ced 194",
+      "DG 175"
     ],
     "ObjType": "RNe",
     "Ra": 325.3,
@@ -2223,7 +2316,10 @@
   {
     "MainId": "EM* LkHA  234",
     "Ids": [
-      "Ced 196"
+      "Ced 196",
+      "DG 176",
+      "HH  167",
+      "VDB 146c"
     ],
     "ObjType": "Ae*",
     "Ra": 325.77842421395,
@@ -2234,7 +2330,8 @@
     "MainId": "NAME Cave Nebula",
     "Ids": [
       "NAME Cave Nebula",
-      "Ced 201"
+      "Ced 201",
+      "DG 179"
     ],
     "ObjType": "RNe",
     "Ra": 333.362,

@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Xunit;
 using static Astap.Lib.Tests.SharedTestData;
 using System.Threading;
+using System;
 
 namespace Astap.Lib.Tests;
 
@@ -159,6 +160,10 @@ public class CelestialObjectDBTests
 
     [Theory]
     [InlineData(C099)]
+    [InlineData(NGC1333, Ced0016, DG0018)]
+    [InlineData(DG0018, NGC1333)]
+    [InlineData(DG0017, Ced0014)]
+    [InlineData(Ced0014, DG0017)]
     [InlineData(DOBASHI_0222, LDN00146)]
     [InlineData(M042, NGC1976)]
     [InlineData(NGC1976, M042)]

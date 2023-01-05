@@ -13,6 +13,7 @@ public class CatalogTests
     [InlineData(Catalog.Caldwell, "C")]
     [InlineData(Catalog.Ced, "Ced")]
     [InlineData(Catalog.Collinder, "Cr")]
+    [InlineData(Catalog.DG, "DG")]
     [InlineData(Catalog.Dobashi, "Dobashi")]
     [InlineData(Catalog.CG, "CG")]
     [InlineData(Catalog.ESO, "ESO")]
