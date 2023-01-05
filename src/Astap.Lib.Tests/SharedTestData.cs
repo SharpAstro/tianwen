@@ -27,6 +27,7 @@ public static class SharedTestData
     internal const CatalogIndex Ced135b = (CatalogIndex)((ulong)'C' << 42 | (ulong)'e' << 35 | (ulong)'d' << 28 | '1' << 21 | '3' << 14 | '5' << 7 | 'b');
     internal const CatalogIndex CG0004 = (CatalogIndex)((ulong)'C' << 35 | (ulong)'G' << 28 | '0' << 21 | '0' << 14 | '0' << 7 | '4');
     internal const CatalogIndex CG22B1 = (CatalogIndex)((ulong)'C' << 35 | (ulong)'G' << 28 | '2' << 21 | '2' << 14 | 'B' << 7 | '1');
+    internal const CatalogIndex DOBASHI_0222 = (CatalogIndex)((ulong)'D' << 42 | (ulong)'o' << 35 | (ulong)'0' << 28 | '0' << 21 | '2' << 14 | '2' << 7 | '2');
     internal const CatalogIndex GUM016 = (CatalogIndex)((ulong)'G' << 35 | (ulong)'U' << 28 | 'M' << 21 | '0' << 14 | '1' << 7 | '6');
     internal const CatalogIndex GUM020 = (CatalogIndex)((ulong)'G' << 35 | (ulong)'U' << 28 | 'M' << 21 | '0' << 14 | '2' << 7 | '0');
     internal const CatalogIndex GUM033 = (CatalogIndex)((ulong)'G' << 35 | (ulong)'U' << 28 | 'M' << 21 | '0' << 14 | '3' << 7 | '3');
@@ -44,6 +45,7 @@ public static class SharedTestData
     internal const CatalogIndex IC1000 = (CatalogIndex)((ulong)'I' << 28 | '1' << 21 | '0' << 14 | '0' << 7 | '0');
     internal const CatalogIndex IC1577 = (CatalogIndex)((ulong)'I' << 28 | '1' << 21 | '5' << 14 | '7' << 7 | '7');
     internal const CatalogIndex IC4703 = (CatalogIndex)((ulong)'I' << 28 | '4' << 21 | '7' << 14 | '0' << 7 | '3');
+    internal const CatalogIndex LDN00146 = (CatalogIndex)((ulong)'L' << 49 | (ulong)'D' << 42 | (ulong)'N' << 35 | (ulong)'0' << 28 | '0' << 21 | '1' << 14 | '4' << 7 | '6');
     internal const CatalogIndex M040 = (CatalogIndex)('M' << 21 | '0' << 14 | '4' << 7 | '0');
     internal const CatalogIndex M042 = (CatalogIndex)('M' << 21 | '0' << 14 | '4' << 7 | '2');
     internal const CatalogIndex M045 = (CatalogIndex)('M' << 21 | '0' << 14 | '4' << 7 | '5');

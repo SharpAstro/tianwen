@@ -159,6 +159,7 @@ public class CelestialObjectDBTests
 
     [Theory]
     [InlineData(C099)]
+    [InlineData(DOBASHI_0222, LDN00146)]
     [InlineData(M042, NGC1976)]
     [InlineData(NGC1976, M042)]
     [InlineData(M051, NGC5194)]

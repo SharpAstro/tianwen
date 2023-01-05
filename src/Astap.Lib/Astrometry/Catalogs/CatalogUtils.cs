@@ -91,11 +91,11 @@ public static class CatalogUtils
             case Catalog.CG:
             case Catalog.HH:
                 {
-                    var cgMatch = CGorHHPattern.Match(trimmedInput);
-                    if (cgMatch.Success && cgMatch.Groups.Count == 2)
+                    var cgOrHHMatch = CGorHHPattern.Match(trimmedInput);
+                    if (cgOrHHMatch.Success && cgOrHHMatch.Groups.Count == 2 && cgOrHHMatch.Groups[1].Length <= digits)
                     {
                         template.CopyTo(chars);
-                        cgMatch.Groups[1].ValueSpan.CopyTo(chars[^cgMatch.Groups[1].ValueSpan.Length..]);
+                        cgOrHHMatch.Groups[1].ValueSpan.CopyTo(chars[^cgOrHHMatch.Groups[1].ValueSpan.Length..]);
                         for (int i = 0; i < chars.Length; i++)
                         {
                             if (chars[i] == '*')
@@ -298,7 +298,7 @@ public static class CatalogUtils
             'C' when secondChar == 'e' => ("Ced000*", 4, Catalog.Ced),
             'C' when secondChar == 'G' => ("CG00**", 4, Catalog.CG),
             'C' when secondIsDigit => ("C000", 3, Catalog.Caldwell),
-            'D' when secondChar == 'o' => ("Do00000", 5, Catalog.Dobashi),
+            'D' when secondChar is 'o' or 'O' => ("Do00000", 5, Catalog.Dobashi),
             'E' => ("E000-000", 7, Catalog.ESO),
             'G' when secondChar is 'U' or 'u' => ("GUM00*", 3, Catalog.GUM),
             'G' when secondChar == 'J' => ("GJ0000", 4, Catalog.GJ),
