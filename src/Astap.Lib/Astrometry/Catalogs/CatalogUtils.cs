@@ -329,6 +329,7 @@ public static class CatalogUtils
             'S' when secondChar is 'H' or 'h' && noSpaces.Length > 2 && noSpaces[2] == '2' => ("Sh2-000*", 4, Catalog.Sharpless2),
             'T' when secondIsDigit || secondChar == 'r' => ("TrES00", 2, Catalog.TrES),
             'U' when secondIsDigit || secondChar == 'G' => ("U00000", 5, Catalog.UGC),
+            'v' or 'V' when secondChar is 'd' or 'D' => ("vdB000*", 4, Catalog.vdB),
             'W' when secondChar == 'D' && noSpaces.Length > 2 && noSpaces[2] == 'S' => ("", 10, Catalog.WDS),
             'W' when secondIsDigit || secondChar == 'A' => ("WASP000", 3, Catalog.WASP),
             'X' when secondIsDigit || secondChar == 'O' => ("XO000*", 4, Catalog.XO),
