@@ -403,8 +403,8 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
                 continue;
             }
 
-            CatalogIndex catToAddIdx = 0;
-            var relevantIds = new Dictionary<Catalog, CatalogIndex>();
+            var catToAddIdxs = new SortedSet<CatalogIndex>();
+            var relevantIds = new Dictionary<Catalog, CatalogIndex[]>();
             var commonNames = new HashSet<string>(8);
             foreach (var id in record.Ids)
             {
@@ -419,74 +419,75 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
                 else if (TryGetCleanedUpCatalogName(id, out var catId))
                 {
                     var cat = catId.ToCatalog();
-                    if (cat == catToAdd && catToAddIdx == 0)
+                    if (cat == catToAdd)
                     {
-                        catToAddIdx = catId;
+                        catToAddIdxs.Add(catId);
                     }
-                    else if (mainCatalogs.Contains(cat) && !relevantIds.ContainsKey(cat))
+                    else if (mainCatalogs.Contains(cat))
                     {
-                        relevantIds.Add(cat, catId);
+                        relevantIds.AddLookupEntry(cat, catId);
                     }
                 }
             }
+            commonNames.TrimExcess();
 
-            if (catToAddIdx != 0)
+            if (catToAddIdxs.Any())
             {
-                var bestMatch = relevantIds.OrderBy(
-                    p => p.Key switch
+                var bestMatches = (
+                    from relevantIdPerCat in relevantIds
+                    from relevantId in relevantIdPerCat.Value
+                    where _objectsByIndex.ContainsKey(relevantId)
+                    let sortKey = relevantIdPerCat.Key switch
                     {
                         Catalog.NGC => 1u,
                         Catalog.IC => 2u,
                         Catalog.Messier => 3u,
-                        _ => (ulong)p.Key
-                    })
-                    .FirstOrDefault(p => _objectsByIndex.ContainsKey(p.Value));
-
-                if (bestMatch.Value is CatalogIndex id and not 0)
-                {
-                    _crossIndexLookuptable.AddLookupEntry(id, catToAddIdx);
-                    _crossIndexLookuptable.AddLookupEntry(catToAddIdx, id);
-
-                    if (commonNames.Count > 0)
-                    {
-                        UpdateObjectCommonNames(id, commonNames);
+                        _ => (ulong)relevantIdPerCat.Key
                     }
-                }
-                else if (TryGetCrossIndices(catToAddIdx, out var crossIndices))
+                    orderby sortKey, relevantId
+                    select relevantId
+                ).ToList();
+
+                foreach (var catToAddIdx in catToAddIdxs)
                 {
-                    if (commonNames.Count > 0)
+                    if (bestMatches.Any())
                     {
-                        foreach (var crossIndex in crossIndices)
+                        foreach (var bestMatch in bestMatches)
                         {
-                            UpdateObjectCommonNames(crossIndex, commonNames);
+                            _crossIndexLookuptable.AddLookupEntry(bestMatch, catToAddIdx);
+                            _crossIndexLookuptable.AddLookupEntry(catToAddIdx, bestMatch);
+
+                            if (commonNames.Count > 0)
+                            {
+                                UpdateObjectCommonNames(bestMatch, commonNames);
+                            }
                         }
                     }
-                }
-                else
-                {
-                    var raInH = record.Ra / 15;
-                    if (ConstellationBoundary.TryFindConstellation(raInH, record.Dec, out var constellation))
+                    else if (TryGetCrossIndices(catToAddIdx, out var crossIndices))
                     {
-                        var objType = AbbreviationToEnumMember<ObjectType>(record.ObjType);
-                        IReadOnlySet<string> trimmedSetOrEmpty;
                         if (commonNames.Count > 0)
                         {
-                            commonNames.TrimExcess();
-                            trimmedSetOrEmpty = commonNames;
-                            commonNames = null; // make sure nobody modifies it after this point;
+                            foreach (var crossIndex in crossIndices)
+                            {
+                                UpdateObjectCommonNames(crossIndex, commonNames);
+                            }
                         }
-                        else
-                        {
-                            trimmedSetOrEmpty = EmptySet;
-                        }
-
-                        var obj = _objectsByIndex[catToAddIdx] = new CelestialObject(catToAddIdx, objType, raInH, record.Dec, constellation, float.NaN, float.NaN, trimmedSetOrEmpty);
-
-                        AddCommonNameAndPosIndices(obj);
                     }
                     else
                     {
-                        failed++;
+                        var raInH = record.Ra / 15;
+                        if (ConstellationBoundary.TryFindConstellation(raInH, record.Dec, out var constellation))
+                        {
+                            var objType = AbbreviationToEnumMember<ObjectType>(record.ObjType);
+                            var trimmedSetOrEmpty = commonNames.Count > 0 ? new HashSet<string>(commonNames) : EmptySet;
+                            var obj = _objectsByIndex[catToAddIdx] = new CelestialObject(catToAddIdx, objType, raInH, record.Dec, constellation, float.NaN, float.NaN, trimmedSetOrEmpty);
+
+                            AddCommonNameAndPosIndices(obj);
+                        }
+                        else
+                        {
+                            failed++;
+                        }
                     }
                 }
             }

@@ -94,8 +94,15 @@ public static class CatalogUtils
                     if (cgMatch.Success && cgMatch.Groups.Count == 2)
                     {
                         template.CopyTo(chars);
-                        cgMatch.Groups[1].ValueSpan.CopyTo(chars.Slice(chars.Length - cgMatch.Groups[1].ValueSpan.Length));
-                        cleanedUp = new string(chars).Replace('*', '0');
+                        cgMatch.Groups[1].ValueSpan.CopyTo(chars[^cgMatch.Groups[1].ValueSpan.Length..]);
+                        for (int i = 0; i < chars.Length; i++)
+                        {
+                            if (chars[i] == '*')
+                            {
+                                chars[i] = '0';
+                            }
+                        }
+                        cleanedUp = new string(chars);
                     }
                     else
                     {
