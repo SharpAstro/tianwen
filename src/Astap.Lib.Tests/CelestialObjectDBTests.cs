@@ -70,6 +70,7 @@ public class CelestialObjectDBTests
     [InlineData("GUM033", ObjectType.HIIReg, NGC3372, Constellation.Carina, 10.752369444444444d, -59.86669444444445d)]
     [InlineData("GUM016", ObjectType.HIIReg, GUM016, Constellation.Vela, 8.553333333333335d, -44.1d)]
     [InlineData("C009", ObjectType.HIIReg, C009, Constellation.Cepheus, 22.965d, 62.51833333333333d)]
+    [InlineData("vdB0005", ObjectType.BeStar, HR0264, Constellation.Cassiopeia, 0.9451475262466666d, 60.7167400247d)]
     public async Task GivenObjectIdWhenLookingItUpThenAnObjIsReturned(
         string indexEntry,
         ObjectType expectedObjType,
@@ -179,6 +180,7 @@ public class CelestialObjectDBTests
     [InlineData(Sh2_0006, NGC6302)]
     [InlineData(Sh2_0155, C009)]
     [InlineData(C009, Sh2_0155)]
+    [InlineData(vdB0005, HR0264)]
     public async Task GivenACatalogIndexWhenTryingToGetCrossIndicesThenTheyAreFound(CatalogIndex catalogIndex, params CatalogIndex[] expectedCrossIndices)
     {
         // given

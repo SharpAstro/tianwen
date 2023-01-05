@@ -1,17 +1,19 @@
 
-$commonFilter = "^(Barnard|RCW|LDN|GUM|SH|NAME|NGC|IC|Ced|CG |M |HD|HR)"
+$commonFilter = "^(Barnard|RCW|LDN|GUM|SH|NAME|NGC|IC|Ced|CG |M |HD|HR|VDB)"
 $starCatFilter = '^(HD|HR|NAME|2MASS|[*]|M |(NGC|IC)\s+\d+[A-Za-z]?$)'
 
 $catalogs = [ordered]@{
-   HR = $starCatFilter
-   Barnard = $commonFilter
-   RCW = $commonFilter
-   GUM = $commonFilter
-   LDN = $commonFilter
-   Ced = $commonFilter
-   Sh = $commonFilter
-   CG = $commonFilter
+    HR = $starCatFilter
+    Barnard = $commonFilter
+    RCW = $commonFilter
+    GUM = $commonFilter
+    LDN = $commonFilter
+    Ced = $commonFilter
+    Sh = $commonFilter
+    CG = $commonFilter
+    vdB = $commonFilter # van den Bergh
 }
+
 $outParams = "main_id,ids,otype(3),ra(d;ICRS),dec(d,ICRS),fluxdata(V)"
 $catalogs.GetEnumerator() | ForEach-Object {
     $cat = $_.Name

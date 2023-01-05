@@ -111,7 +111,8 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
         Catalog.Melotte,
         Catalog.Sharpless2,
         Catalog.RCW,
-        Catalog.UGC
+        Catalog.UGC,
+        Catalog.vdB
     }.Select(c => (ulong)c).OrderBy(x => x).ToArray();
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -220,7 +221,8 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
             ("Sh", Catalog.Sharpless2),
             ("Barnard", Catalog.Barnard),
             ("Ced", Catalog.Ced),
-            ("CG", Catalog.CG)
+            ("CG", Catalog.CG),
+            ("vdB", Catalog.vdB)
         };
         foreach (var (fileName, catToAdd) in simbadCatalogs)
         {

@@ -26,16 +26,17 @@ public enum Catalog : ulong
     Melotte = 'M' << 14 | 'e' << 7 | 'l',
     Messier = 'M',
     NGC = 'N',
-    Pl = 'P' << 7 | 'l', // Major planets, their moons and Sol
-    PSR = 'P', // uses MSB = 1
+    Pl = 'P' << 7 | 'l', // Major planets, their moons and Sol (created by author)
+    PSR = 'P', // Pulsars, uses MSB = 1
     RCW = 'R' << 14| 'C' << 7 | 'W', //  Rodgers, Campbell & Whiteoak
     Sharpless2 = 'S' << 14 | 'h' << 7 | '2', // Sharpless 2
     TrES = 'T' << 21 | 'r' << 14 | 'E' << 7 | 'S',
     TwoMass = '2', // uses MSB = 1
     TwoMassX = 'x', // uses MSB = 1
     UGC = 'U', // Uppsala General Catalogue
+    vdB = 'v' << 14 | 'd' << 7 | 'B', // van den Bergh
     WASP = 'W' << 21 | 'A' << 14 | 'S' << 7 | 'P',
-    WDS = 'W', // uses MSB = 1
+    WDS = 'W', // Washington double star catalogue, uses MSB = 1
     XO = 'X' << 7 | 'O'
 }
 

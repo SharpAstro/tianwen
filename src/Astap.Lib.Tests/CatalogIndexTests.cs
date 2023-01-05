@@ -26,6 +26,7 @@ public class CatalogIndexTests
     [InlineData(Sh2_0006, "Sh2-0006")]
     [InlineData(Sh2_0155, "Sh2-0155")]
     [InlineData(TrES03, "TrES03")]
+    [InlineData(vdB0005, "vdB0005")]
     [InlineData(WDS_02583_4018s, "ÁAg4}-8&G")]
     [InlineData(WDS_23599_3112s, "ÁA+i),N%G")]
     public void GivenACatalogIndexValueWhenToAbbreviationThenItIsReturned(CatalogIndex catalogIndex, string expectedAbbreviation)
@@ -78,6 +79,7 @@ public class CatalogIndexTests
     [InlineData(TwoMX_J11380904_0936257s, "2MASX J11380904-0936257")]
     [InlineData(Sh2_0006, "Sh2-6")]
     [InlineData(TrES03, "TrES-3")]
+    [InlineData(vdB0005, "vdB 5")]
     [InlineData(WDS_23599_3112s, "WDS J23599-3112")]
     [InlineData(XO0003, "XO-3")]
     [InlineData(XO002N, "XO-2N")]

@@ -33,6 +33,7 @@ public static class SharedTestData
     internal const CatalogIndex GUM052 = (CatalogIndex)((ulong)'G' << 35 | (ulong)'U' << 28 | 'M' << 21 | '0' << 14 | '5' << 7 | '2');
     internal const CatalogIndex GUM060 = (CatalogIndex)((ulong)'G' << 35 | (ulong)'U' << 28 | 'M' << 21 | '0' << 14 | '6' << 7 | '0');
     internal const CatalogIndex HR0897 = (CatalogIndex)((ulong)'H' << 35 | (ulong)'R' << 28 | '0' << 21 | '8' << 14 | '9' << 7 | '7');
+    internal const CatalogIndex HR0264 = (CatalogIndex)((ulong)'H' << 35 | (ulong)'R' << 28 | '0' << 21 | '2' << 14 | '6' << 7 | '4');
     internal const CatalogIndex HR1084 = (CatalogIndex)((ulong)'H' << 35 | (ulong)'R' << 28 | '1' << 21 | '0' << 14 | '8' << 7 | '4');
     internal const CatalogIndex IC0458 = (CatalogIndex)((ulong)'I' << 28 | '0' << 21 | (ulong)'4' << 14 | (ulong)'5' << 7 | '8');
     internal const CatalogIndex IC0715NW = (CatalogIndex)((ulong)'I' << 49 | (ulong)'0' << 42 | (ulong)'7' << 35 | (ulong)'1' << 28 | '5' << 21 | '_' << 14 | 'N' << 7 | 'W');
@@ -86,6 +87,7 @@ public static class SharedTestData
     internal const CatalogIndex TwoM_J12015301_1852034s = (CatalogIndex)(Base91Enc | (ulong)']' << 56 | (ulong)'#' << 49 | (ulong)'f' << 42 | (ulong)'R' << 35 | (ulong)'t' << 28 | 'u' << 21 | 'K' << 14 | 'O' << 7 | 'L');
     internal const CatalogIndex TwoMX_J00185316_1035410n = (CatalogIndex)(Base91Enc | (ulong)'r' << 56 | (ulong)'1' << 49 | (ulong)'5' << 42 | (ulong)'|' << 35 | (ulong)'s' << 28 | '1' << 21 | 'V' << 14 | 'w' << 7 | 'H');
     internal const CatalogIndex TwoMX_J11380904_0936257s = (CatalogIndex)(Base91Enc | (ulong)'l' << 56 | (ulong)'Y' << 49 | (ulong)'<' << 42 | (ulong)'7' << 35 | (ulong)'i' << 28 | 'z' << 21 | 'o' << 14| 'u' << 7 | 'P');
+    internal const CatalogIndex vdB0005 = (CatalogIndex)((ulong)'v' << 42 | (ulong)'d' << 35 | (ulong)'B' << 28 | '0' << 21 | '0' << 14 | '0' << 7 | '5');
     internal const CatalogIndex WDS_02583_4018s = (CatalogIndex)(Base91Enc | (ulong)'A' << 56 | (ulong)'A' << 49 | (ulong)'g' << 42 | (ulong)'4' << 35 | (ulong)'}' << 28 | '-' << 21 | '8' << 14 | '&' << 7 | 'G');
     internal const CatalogIndex WDS_23599_3112s = (CatalogIndex)(Base91Enc | (ulong)'A' << 56 | (ulong)'A' << 49 | (ulong)'+' << 42 | (ulong)'i' << 35 | (ulong)')' << 28 | ',' << 21 | 'N' << 14 | '%' << 7 | 'G');
     internal const CatalogIndex XO0003 = (CatalogIndex)((ulong)'X' << 35 | (ulong)'O' << 28 | '0' << 21 | '0' << 14 | '0' << 7 | '3');
