@@ -46,6 +46,7 @@ public class CelestialObjectDBTests
     [InlineData("C099", ObjectType.DarkNeb, C099, Constellation.Crux, 12.521944444444445d, -63.74333333333333d)]
     [InlineData("C30", ObjectType.Galaxy, NGC7331, Constellation.Pegasus, 22.617780555555555d, 34.415527777777775d)]
     [InlineData("CG4", ObjectType.DarkNeb, CG0004, Constellation.Puppis, 7.5691999999999995d, -46.905d)]
+    [InlineData("Cr050", ObjectType.OpenCluster, C041, Constellation.Taurus, 4.448333333333333d, 15.866666666666667d)]
     [InlineData("ESO056-115", ObjectType.Galaxy, ESO056_115, Constellation.Dorado, 5.392916666666667d, -69.75611111111111d)]
     [InlineData("IC0048", ObjectType.Galaxy, IC0048, Constellation.Cetus, 0.7262416666666667d, -8.1865d)]
     [InlineData("IC0381", ObjectType.Galaxy, NGC1530_A, Constellation.Camelopardalis, 4.74125d, 75.63975d)]
@@ -106,6 +107,7 @@ public class CelestialObjectDBTests
     [InlineData("30 Dor Cluster", NGC2070)]
     [InlineData("Orion Nebula", NGC1976)]
     [InlineData("Great Orion Nebula", NGC1976)]
+    [InlineData("Hyades", C041)]
     [InlineData("Pleiades", Mel022)]
     [InlineData("Keyhole", NGC3372)]
     [InlineData("Car Nebula", NGC3372)]
@@ -115,6 +117,7 @@ public class CelestialObjectDBTests
     [InlineData("Cave Nebula", C009, Ced0201)]
     [InlineData("Coalsack Nebula", C099)]
     [InlineData("tet01 Eri", HR0897)]
+    [InlineData("Trifid Nebula", NGC6514)]
     [InlineData("Ran", HR1084)]
     [InlineData("18 Eri", HR1084)]
     [InlineData("eps Eri", HR1084)]
@@ -198,6 +201,7 @@ public class CelestialObjectDBTests
     [InlineData(HR1142, vdB0020)]
     [InlineData(vdB0005, HR0264)]
     [InlineData(vdB0020, HR1142)]
+    [InlineData(NGC6514, M020, Cr360)]
     public async Task GivenACatalogIndexWhenTryingToGetCrossIndicesThenTheyAreFound(CatalogIndex catalogIndex, params CatalogIndex[] expectedCrossIndices)
     {
         // given
