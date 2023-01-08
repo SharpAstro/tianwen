@@ -22,6 +22,7 @@ public static class SharedTestData
     internal const CatalogIndex C069 = (CatalogIndex)((ulong)'C' << 21 | '0' << 14 | '6' << 7 | '9');
     internal const CatalogIndex C092 = (CatalogIndex)((ulong)'C' << 21 | '0' << 14 | '9' << 7 | '2');
     internal const CatalogIndex C099 = (CatalogIndex)((ulong)'C' << 21 | '0' << 14 | '9' << 7 | '9');
+    internal const CatalogIndex Cr399 = (CatalogIndex)((ulong)'C' << 28 | 'r' << 21 | '3' << 14 | '9' << 7 | '9');
     internal const CatalogIndex Ced0014 = (CatalogIndex)((ulong)'C' << 42 | (ulong)'e' << 35 | (ulong)'d' << 28 | '0' << 21 | '0' << 14 | '1' << 7 | '4');
     internal const CatalogIndex Ced0016 = (CatalogIndex)((ulong)'C' << 42 | (ulong)'e' << 35 | (ulong)'d' << 28 | '0' << 21 | '0' << 14 | '1' << 7 | '6');
     internal const CatalogIndex Ced0201 = (CatalogIndex)((ulong)'C' << 42 | (ulong)'e' << 35 | (ulong)'d' << 28 | '0' << 21 | '2' << 14 | '0' << 7 | '1');
