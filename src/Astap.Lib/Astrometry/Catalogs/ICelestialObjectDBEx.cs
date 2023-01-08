@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.Linq;
 
 namespace Astap.Lib.Astrometry.Catalogs;
 
@@ -14,15 +15,18 @@ public static class ICelestialObjectDBEx
     {
         var commonNames = @this.CommonNames;
         var objIndices = @this.ObjectIndices;
-        var names = new string[objIndices.Count + commonNames.Count];
-        var i = 0;
 
+        var canonicalSet = new HashSet<string>((int)(objIndices.Count * 1.3f));
         foreach (var objIndex in objIndices)
         {
-            names[i++] = objIndex.ToCanonical();
+            canonicalSet.Add(objIndex.ToCanonical(CanonicalFormat.Normal));
+            canonicalSet.Add(objIndex.ToCanonical(CanonicalFormat.Long));
         }
+        var canonicalArray = canonicalSet.ToArray();
 
-        commonNames.CopyTo(names, i);
+        var names = new string[canonicalArray.Length + commonNames.Count];
+        canonicalArray.CopyTo(names, 0);
+        commonNames.CopyTo(names, canonicalArray.Length);
 
         return names;
     }

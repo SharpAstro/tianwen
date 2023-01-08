@@ -35,7 +35,7 @@ public class CatalogTests
     [InlineData(Catalog.Pl, "Pl")]
     [InlineData(Catalog.PSR, "PSR")]
     [InlineData(Catalog.RCW, "RCW")]
-    [InlineData(Catalog.Sharpless2, "Sh2")]
+    [InlineData(Catalog.Sharpless, "Sh2")]
     [InlineData(Catalog.TrES, "TrES")]
     [InlineData(Catalog.UGC, "UGC")]
     [InlineData(Catalog.WASP, "WASP")]

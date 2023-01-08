@@ -52,7 +52,7 @@ public class CatalogIndexTests
     [InlineData(ESO056_115, Catalog.ESO)]
     [InlineData(PSR_J2144_3933s, Catalog.PSR)]
     [InlineData(PSR_B0633_17n, Catalog.PSR)]
-    [InlineData(Sh2_0006, Catalog.Sharpless2)]
+    [InlineData(Sh2_0006, Catalog.Sharpless)]
     [InlineData(TrES03, Catalog.TrES)]
     [InlineData(WDS_23599_3112s, Catalog.WDS)]
     public void GivenACatalogIndexValueWhenToCatalogThenItIsReturned(CatalogIndex catalogIndex, Catalog expectedCatalog)

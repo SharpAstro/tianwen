@@ -358,7 +358,7 @@ public class CelestialObjectDBTests
         var list = db.CreateAutoCompleteList();
 
         // then
-        list.Length.ShouldBe(db.CommonNames.Count + db.ObjectIndices.Count);
+        list.Length.ShouldBeGreaterThan(db.CommonNames.Count + db.ObjectIndices.Count);
 
         db.CommonNames.ShouldBeSubsetOf(list);
         db.ObjectIndices.Select(p => p.ToCanonical()).ShouldBeSubsetOf(list);
