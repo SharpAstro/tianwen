@@ -1,6 +1,13 @@
 ﻿namespace Astap.Lib.Astrometry.Catalogs;
 
+using System.Runtime.CompilerServices;
 using static Astap.Lib.EnumHelper;
+
+public enum CanonicalFormat : byte
+{
+    Normal = 1,
+    Long = 2
+}
 
 public enum Catalog : ulong
 {
@@ -32,7 +39,7 @@ public enum Catalog : ulong
     Pl = 'P' << 7 | 'l', // Major planets, their moons and Sol (created by author)
     PSR = 'P', // Pulsars, uses MSB = 1
     RCW = 'R' << 14| 'C' << 7 | 'W', //  Rodgers, Campbell & Whiteoak
-    Sharpless2 = 'S' << 14 | 'h' << 7 | '2', // Sharpless 2
+    Sharpless = 'S' << 14 | 'h' << 7 | '2', // Sharpless
     TrES = 'T' << 21 | 'r' << 14 | 'E' << 7 | 'S',
     TwoMass = '2', // uses MSB = 1
     TwoMassX = 'x', // uses MSB = 1
@@ -51,17 +58,18 @@ public static class CatalogEx
     /// </summary>
     /// <param name="catalog"></param>
     /// <returns></returns>
-    public static string ToCanonical(this Catalog catalog)
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public static string ToCanonical(this Catalog catalog, CanonicalFormat format = CanonicalFormat.Normal)
         => catalog switch
         {
             Catalog.Abell => "ACO",
             Catalog.BonnerDurchmusterung => "BD",
-            Catalog.Caldwell => "C",
-            Catalog.Collinder => "Cr",
-            Catalog.Melotte => "Mel",
-            Catalog.Messier => "M",
+            Catalog.Caldwell when format is CanonicalFormat.Normal => "C",
+            Catalog.Collinder when format is CanonicalFormat.Normal => "Cr",
+            Catalog.Melotte when format is CanonicalFormat.Normal => "Mel",
+            Catalog.Messier when format is CanonicalFormat.Normal => "M",
             Catalog.HAT_P => "HAT-P",
-            Catalog.Sharpless2 => "Sh2",
+            Catalog.Sharpless when format is CanonicalFormat.Normal => "Sh2",
             Catalog.TwoMass => "2MASS",
             Catalog.TwoMassX => "2MASX",
             Catalog.WDS => "WDS",

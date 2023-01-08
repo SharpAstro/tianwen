@@ -31,11 +31,11 @@ public enum CatalogIndex : ulong
 
 public static class CatalogIndexEx
 {
-    public static string ToCanonical(this CatalogIndex catalogIndex)
+    public static string ToCanonical(this CatalogIndex catalogIndex, CanonicalFormat format = CanonicalFormat.Normal)
     {
         var (catalog, decoded, isMSBSet) = catalogIndex.ToCatalogAndDecoded();
 
-        var prefix = catalog.ToCanonical();
+        var prefix = catalog.ToCanonical(format);
         if (isMSBSet)
         {
             return catalog switch
@@ -75,7 +75,7 @@ public static class CatalogIndexEx
             {
                 var sep = catalog switch
                 {
-                    Catalog.Sharpless2 or Catalog.TrES or Catalog.WASP or Catalog.XO => "-",
+                    Catalog.Sharpless or Catalog.TrES or Catalog.WASP or Catalog.XO => "-",
                     Catalog.Messier or Catalog.Caldwell => "",
                     _ => " "
                 };

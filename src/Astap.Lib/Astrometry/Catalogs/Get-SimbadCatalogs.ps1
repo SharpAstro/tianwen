@@ -20,7 +20,8 @@ if ([string]::IsNullOrWhiteSpace($Cat)) {
         CG = $commonFilter
         vdB = $commonFilter # van den Bergh
         HH = $commonFilter # Herbig-Haro
-        DG = $commonFilte
+        HD = $starCatFilter
+        DG = $commonFilter
     }
 } else {
     $catalogs = [ordered]@{

@@ -112,7 +112,7 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
         Catalog.LDN,
         Catalog.Messier,
         Catalog.Melotte,
-        Catalog.Sharpless2,
+        Catalog.Sharpless,
         Catalog.RCW,
         Catalog.UGC,
         Catalog.vdB
@@ -222,7 +222,7 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
             ("RCW", Catalog.RCW),
             ("LDN", Catalog.LDN),
             ("Dobashi", Catalog.Dobashi),
-            ("Sh", Catalog.Sharpless2),
+            ("Sh", Catalog.Sharpless),
             ("Barnard", Catalog.Barnard),
             ("Ced", Catalog.Ced),
             ("CG", Catalog.CG),
