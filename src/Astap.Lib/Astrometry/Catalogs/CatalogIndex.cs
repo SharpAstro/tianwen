@@ -75,8 +75,9 @@ public static class CatalogIndexEx
             {
                 var sep = catalog switch
                 {
-                    Catalog.Sharpless or Catalog.TrES or Catalog.WASP or Catalog.XO => "-",
-                    Catalog.Messier or Catalog.Caldwell => "",
+                    Catalog.Sharpless or Catalog.TrES or Catalog.WASP or Catalog.XO when format is CanonicalFormat.Normal => "-",
+                    Catalog.Messier or Catalog.Caldwell when format is CanonicalFormat.Normal => "",
+                    Catalog.TrES or Catalog.WASP or Catalog.XO when format is CanonicalFormat.Long => "-",
                     _ => " "
                 };
 
