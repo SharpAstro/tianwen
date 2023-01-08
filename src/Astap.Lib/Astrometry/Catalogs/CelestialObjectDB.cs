@@ -12,6 +12,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using static Astap.Lib.Astrometry.Catalogs.CatalogUtils;
 using static Astap.Lib.Astrometry.CoordinateUtils;
@@ -228,7 +229,9 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
             ("CG", Catalog.CG),
             ("vdB", Catalog.vdB),
             ("DG", Catalog.DG),
-            ("HH", Catalog.HH)
+            ("HH", Catalog.HH),
+            ("OCl", Catalog.Melotte),
+            ("OCl", Catalog.Collinder)
         };
         foreach (var (fileName, catToAdd) in simbadCatalogs)
         {
@@ -382,10 +385,13 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
         }
     }
 
+    static readonly Regex ClusterMemberPattern = new(@"^[A-Za-z]+\s+\d+\s+\d+$", RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnorePatternWhitespace);
+
     private async Task<(int processed, int failed)> ReadEmbeddedGzippedJsonDataFileAsync(Assembly assembly, string jsonName, Catalog catToAdd)
     {
         const string NAME_CAT_PREFIX = "NAME ";
         const string STAR_CAT_PREFIX = "* ";
+        const string CLUSTER_PREFIX = "Cl ";
 
         var processed = 0;
         var failed = 0;
@@ -414,8 +420,10 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
             var catToAddIdxs = new SortedSet<CatalogIndex>();
             var relevantIds = new Dictionary<Catalog, CatalogIndex[]>();
             var commonNames = new HashSet<string>(8);
-            foreach (var id in record.Ids)
+            foreach (var idOrig in record.Ids)
             {
+                var isCluster = idOrig.StartsWith(CLUSTER_PREFIX);
+                var id = isCluster ? idOrig[CLUSTER_PREFIX.Length..] : idOrig;
                 if (id.StartsWith(NAME_CAT_PREFIX))
                 {
                     commonNames.Add(id[NAME_CAT_PREFIX.Length..].TrimStart());
@@ -424,8 +432,9 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
                 {
                     commonNames.Add(id[STAR_CAT_PREFIX.Length..].TrimStart());
                 }
-                else if (TryGetCleanedUpCatalogName(id, out var catId))
+                else if ((isCluster || !ClusterMemberPattern.IsMatch(id)) && TryGetCleanedUpCatalogName(id, out var catId))
                 {
+                    // skip open cluster members for now
                     var cat = catId.ToCatalog();
                     if (cat == catToAdd)
                     {

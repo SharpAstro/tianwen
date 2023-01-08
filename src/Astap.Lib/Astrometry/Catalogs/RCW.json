@@ -114,6 +114,7 @@
     "MainId": "HD  50896",
     "Ids": [
       "HD  50896",
+      "Cl Collinder  121     4",
       "HR  2583",
       "RCW  11",
       "SH  2-308"
@@ -536,6 +537,8 @@
     "MainId": "NGC  3293",
     "Ids": [
       "NGC  3293",
+      "Cl Collinder  224",
+      "Cl Melotte  100",
       "GUM 30",
       "RCW  51"
     ],

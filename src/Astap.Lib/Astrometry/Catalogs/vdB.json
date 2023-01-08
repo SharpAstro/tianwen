@@ -279,6 +279,8 @@
   {
     "MainId": "*  17 Tau",
     "Ids": [
+      "Cl Melotte   22   468",
+      "Cl Melotte   22  4681",
       "HD  23302",
       "HR  1142",
       "NAME Electra",
@@ -292,6 +294,8 @@
   {
     "MainId": "*  20 Tau",
     "Ids": [
+      "Cl Melotte   22   785",
+      "Cl Melotte   22  7851",
       "HD  23408",
       "HR  1149",
       "NAME Maia",
@@ -305,6 +309,7 @@
   {
     "MainId": "*  23 Tau",
     "Ids": [
+      "Cl Melotte   22   980",
       "HD  23480",
       "HR  1156",
       "NAME Merope",
@@ -318,6 +323,7 @@
   {
     "MainId": "* eta Tau",
     "Ids": [
+      "Cl Melotte   22  1432",
       "HD  23630",
       "HR  1165",
       "NAME Alcyone",
