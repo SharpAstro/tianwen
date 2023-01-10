@@ -24,7 +24,7 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
 {
     private static readonly Dictionary<CatalogIndex, (ObjectType objType, string[] commonNames)> _predefinedObjects = new()
     {
-        [CatalogIndex.Sol] = (ObjectType.Star, new []{ "Sun", "Sol" }),
+        [CatalogIndex.Sol] = (ObjectType.Star, new[] { "Sun", "Sol" }),
         [CatalogIndex.Mercury] = (ObjectType.Planet, new[] { "Mercury" }),
         [CatalogIndex.Venus] = (ObjectType.Planet, new[] { "Venus" }),
         [CatalogIndex.Earth] = (ObjectType.Planet, new[] { "Earth" }),
@@ -59,13 +59,9 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
                 return cache;
             }
 
-            var objs = _objectsByIndex.Count + _crossIndexLookuptable.Count;
-
-            if (objs > 0)
-            {
-                return _catalogCache ??= this.IndicesToCatalogs<HashSet<Catalog>>();
-            }
-            return new HashSet<Catalog>(0);
+            return _objectsByIndex.Count > 0 && _crossIndexLookuptable.Count > 0
+                ? (_catalogCache ??= IndicesToCatalogs<HashSet<Catalog>>())
+                : (IReadOnlySet<Catalog>)new HashSet<Catalog>(0);
         }
     }
 
@@ -557,5 +553,16 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
         {
             _objectsByCommonName.AddLookupEntry(commonName, catIdx);
         }
+    }
+
+    TSet IndicesToCatalogs<TSet>() where TSet : ISet<Catalog>, new()
+    {
+        var catalogs = new TSet();
+        foreach (var objIndex in ObjectIndices)
+        {
+            _ = catalogs.Add(objIndex.ToCatalog());
+        }
+
+        return catalogs;
     }
 }

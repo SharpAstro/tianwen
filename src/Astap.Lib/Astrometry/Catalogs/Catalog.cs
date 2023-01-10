@@ -6,7 +6,10 @@ using static Astap.Lib.EnumHelper;
 public enum CanonicalFormat : byte
 {
     Normal = 1,
-    Long = 2
+    /// <summary>
+    /// Usually the longer name, e.g. M => Messier, but Barnard => B
+    /// </summary>
+    Alternative = 2
 }
 
 public enum Catalog : ulong
@@ -63,6 +66,7 @@ public static class CatalogEx
         => catalog switch
         {
             Catalog.Abell => "ACO",
+            Catalog.Barnard when format is CanonicalFormat.Alternative => "B",
             Catalog.BonnerDurchmusterung => "BD",
             Catalog.Caldwell when format is CanonicalFormat.Normal => "C",
             Catalog.Collinder when format is CanonicalFormat.Normal => "Cr",
