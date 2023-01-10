@@ -23,6 +23,7 @@ if ([string]::IsNullOrWhiteSpace($Cat)) {
         HH = $commonFilter # Herbig-Haro
         HD = $starCatFilter
         DG = $commonFilter
+        OCl = $commonFilter
     }
 } else {
     $catalogs = [ordered]@{

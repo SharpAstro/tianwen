@@ -61,6 +61,7 @@ public class CatalogIndexTests
     }
 
     [Theory]
+    [InlineData(Barnard_22, "Barnard 22")]
     [InlineData(BD_16_1591s, "BD-16 1591")]
     [InlineData(C041, "C41")]
     [InlineData(Cr399, "Cr 399")]
@@ -96,6 +97,7 @@ public class CatalogIndexTests
     }
 
     [Theory]
+    [InlineData(Barnard_22, "B22")]
     [InlineData(BD_16_1591s, "BD-16 1591")]
     [InlineData(C041, "Caldwell 41")]
     [InlineData(Cr399, "Collinder 399")]
@@ -125,8 +127,8 @@ public class CatalogIndexTests
     [InlineData(WDS_23599_3112s, "WDS J23599-3112")]
     [InlineData(XO0003, "XO-3")]
     [InlineData(XO002N, "XO-2N")]
-    public void GivenACatalogIndexValueWhenToCanonicalLongFormatThenItIsReturnedInLongForm(CatalogIndex catalogIndex, string expectedCanon)
+    public void GivenACatalogIndexValueWhenToCanonicalAlternativeFormatThenItIsReturnedInAlternativeForm(CatalogIndex catalogIndex, string expectedCanon)
     {
-        catalogIndex.ToCanonical(CanonicalFormat.Long).ShouldBe(expectedCanon);
+        catalogIndex.ToCanonical(CanonicalFormat.Alternative).ShouldBe(expectedCanon);
     }
 }
