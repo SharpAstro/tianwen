@@ -414,51 +414,58 @@ public sealed class Image
         }
 
         var starList = new List<ImagedStar>(max_stars / 2);
-        var img_sa = new BitMatrix(_height, _width);
+        var img_star_area = new BitMatrix(_height, _width);
 
         do
         {
-            if (retries < max_retries)
+            if (retries < max_retries && retries > 0)
             {
                 // clear from last iteration to avoid spurious data
                 starList.Clear();
-                img_sa.ClearAll();
+                img_star_area.ClearAll();
             }
 
             for (var fitsY = 0; fitsY < _height; fitsY++)
             {
                 for (var fitsX = 0; fitsX < _width; fitsX++)
                 {
-                    if (!img_sa[fitsY, fitsX]/* star free area */ && _data[fitsY, fitsX] - background > detection_level)  /* new star. For analyse used sigma is 5, so not too low. */
+                    // new star. For analyse used sigma is 5, so not too low.
+                    if (_data[fitsY, fitsX] - background > detection_level
+                        && !img_star_area[fitsY, fitsX]
+                        && AnalyseStar(fitsX, fitsY, 14/* box size */, out var star)
+                        && star.HFD is > 0.8f and <= 30 /* at least 2 pixels in size */
+                        && star.SNR >= snr_min
+                    )
                     {
-                        if (AnalyseStar(fitsX, fitsY, 14/* box size */, out var star) && star.HFD <= 30 && star.SNR > snr_min && star.HFD > 0.8f /* two pixels minimum */ )
+                        starList.Add(star);
+
+                        var diam = (int)MathF.Round(3.0f * star.HFD); /* for marking star area. Emperical a value between 2.5*hfd and 3.5*hfd gives same performance. Note in practise a star PSF has larger wings  predicted by a Gaussian function */
+                        var sqr_diam = diam * diam;
+                        var xci = (int)MathF.Round(star.XCentroid); /* star center as integer */
+                        var yci = (int)MathF.Round(star.YCentroid);
+
+                        for (var n = -diam; n <= +diam; n++)  /* mark the whole circular star area width diameter "diam" as occupied to prevent double detections */
                         {
-                            starList.Add(star);
-
-                            var diam = (int)MathF.Round(3.0f * star.HFD); /* for marking star area. Emperical a value between 2.5*hfd and 3.5*hfd gives same performance. Note in practise a star PSF has larger wings  predicted by a Gaussian function */
-                            var sqr_diam = diam * diam;
-                            var xci = (int)MathF.Round(star.XCentroid); /* star center as integer */
-                            var yci = (int)MathF.Round(star.YCentroid);
-
-                            for (var n = -diam; n <= +diam; n++)  /* mark the whole circular star area width diameter "diam" as occupied to prevent double detections */
+                            var j = n + yci;
+                            int? start = null;
+                            int? end = null;
+                            for (var m = -diam; m <= +diam; m++)
                             {
-                                var j = n + yci;
-                                int? start = null;
-                                int? end = null;
-                                for (var m = -diam; m <= +diam; m++)
+                                var i = m + xci;
+                                if (j >= 0 && i >= 0 && j < _height && i < _width && m * m + n * n <= sqr_diam)
                                 {
-                                    var i = m + xci;
-                                    if (j >= 0 && i >= 0 && j < _height && i < _width && m * m + n * n <= sqr_diam)
-                                    {
-                                        start ??= i;
-                                        end = i;
-                                    }
+                                    start ??= i;
+                                    end = i;
                                 }
+                            }
 
-                                if (start.HasValue && end.HasValue)
-                                {
-                                    img_sa[j, new Range(start.Value, end.Value)] = true;
-                                }
+                            if (start.HasValue && start == end)
+                            {
+                                img_star_area[j, start.Value] = true;
+                            }
+                            else if (start < end)
+                            {
+                                img_star_area[j, new Range(start.Value, end.Value + 1)] = true;
                             }
                         }
                     }
@@ -632,6 +639,7 @@ public sealed class Image
     /// <param name="y1">y</param>
     /// <param name="rs">box size</param>
     /// <returns>true if a star was detected</returns>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public bool AnalyseStar(int x1, int y1, int rs, out ImagedStar star)
     {
         const int maxAnnulusBg = 328; // depends on rs <= 50
@@ -815,11 +823,6 @@ public sealed class Image
                 }
             }
         }
-        catch (Exception ex) when (Environment.UserInteractive)
-        {
-            GC.KeepAlive(ex);
-            throw;
-        }
         catch
         {
             star = default;
@@ -971,9 +974,9 @@ public sealed class Image
         var w1 = _width - 1;
         var h1 = _height - 1;
 
-        for (int y = 0; y < _height - 1; y++)
+        for (int y = 0; y < h1; y++)
         {
-            for (int x = 0; x < _width - 1; x++)
+            for (int x = 0; x < w1; x++)
             {
                 debayered[y, x] = (float)(0.25d * ((double)_data[y, x] + _data[y+1, x+1] + _data[y, x+1] + _data[y + 1, x]));
             }
@@ -983,7 +986,7 @@ public sealed class Image
         }
 
         // last row
-        for (int x = 0; x < _width - 1; x++)
+        for (int x = 0; x < w1; x++)
         {
             debayered[h1, x] = (float)(0.25d * ((double)_data[h1, x] + _data[h1 - 1, x+1] + _data[h1, x+1] + _data[h1 - 1, x]));
         }
