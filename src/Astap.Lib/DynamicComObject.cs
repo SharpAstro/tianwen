@@ -6,15 +6,14 @@ namespace Astap.Lib;
 
 public class DynamicComObject : IDisposable
 {
-    public static dynamic? NewComObject(string progId) =>
+    public static object? NewComObject(string progId) =>
         RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Type.GetTypeFromProgID(progId) is Type type
             ? Activator.CreateInstance(type)
-            : null as dynamic;
+            : null;
 
     protected readonly dynamic? _comObject;
 
     private bool _disposedValue;
-
 
     public DynamicComObject(string progId) => _comObject = NewComObject(progId);
 

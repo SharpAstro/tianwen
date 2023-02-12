@@ -109,17 +109,18 @@ public class ImageAnalyserTests
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 10f, 89)]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 20f, 28)]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 30f, 13)]
-    public async Task GivenImageFileAndMinSNRWhenFindingStarsThenTheyAreFound(string name, float snrMin, int expectedStars)
+    [InlineData("RGGB_frame_bx0_by0_top_down", 30f, 2722, 5000)]
+    [InlineData("RGGB_frame_bx0_by0_top_down", 10f, 2956, 5000)]
+    public async Task GivenImageFileAndMinSNRWhenFindingStarsThenTheyAreFound(string name, float snrMin, int expectedStars, int? maxStars = null)
     {
         // given
         var extractedFitsFile = await SharedTestData.ExtractGZippedFitsFileAsync(name);
         IImageAnalyser imageAnalyser = new ImageAnalyser();
         try
         {
-
             // when
             Image.TryReadFitsFile(extractedFitsFile, out var image).ShouldBeTrue();
-            var actualStars = imageAnalyser.FindStars(image, snrMin);
+            var actualStars = imageAnalyser.FindStars(image, snrMin, maxStars ?? 500);
 
             // then
             actualStars.ShouldNotBeEmpty();
