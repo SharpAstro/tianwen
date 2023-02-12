@@ -36,7 +36,8 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
         [CatalogIndex.Neptune] = (ObjectType.Planet, new[] { "Neptune" })
     };
 
-    private static readonly IReadOnlySet<string> EmptySet = ImmutableHashSet.Create<string>();
+    private static readonly IReadOnlySet<string> EmptyNameSet = ImmutableHashSet.Create<string>();
+    private static readonly IReadOnlySet<Catalog> EmptyCatalogSet = ImmutableHashSet.Create<Catalog>();
 
     private readonly Dictionary<CatalogIndex, CelestialObject> _objectsByIndex = new(17000);
     private readonly Dictionary<CatalogIndex, (CatalogIndex i1, CatalogIndex[]? ext)> _crossIndexLookuptable = new(11000);
@@ -61,7 +62,7 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
 
             return _objectsByIndex.Count > 0 && _crossIndexLookuptable.Count > 0
                 ? (_catalogCache ??= IndicesToCatalogs<HashSet<Catalog>>())
-                : (IReadOnlySet<Catalog>)new HashSet<Catalog>(0);
+                : EmptyCatalogSet;
         }
     }
 
@@ -296,7 +297,7 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
                 }
                 else
                 {
-                    commonNames = EmptySet;
+                    commonNames = EmptyNameSet;
                 }
 
                 var ra = HMSToHours(raHMS);
@@ -492,7 +493,7 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
                         if (ConstellationBoundary.TryFindConstellation(raInH, record.Dec, out var constellation))
                         {
                             var objType = AbbreviationToEnumMember<ObjectType>(record.ObjType);
-                            var trimmedSetOrEmpty = commonNames.Count > 0 ? new HashSet<string>(commonNames) : EmptySet;
+                            var trimmedSetOrEmpty = commonNames.Count > 0 ? new HashSet<string>(commonNames) : EmptyNameSet;
                             var obj = _objectsByIndex[catToAddIdx] = new CelestialObject(catToAddIdx, objType, raInH, record.Dec, constellation, float.NaN, float.NaN, trimmedSetOrEmpty);
 
                             AddCommonNameAndPosIndices(obj);
@@ -544,7 +545,7 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     void AddCommonNameIndex(CatalogIndex catIdx, IReadOnlySet<string> commonNames)
     {
-        if (ReferenceEquals(commonNames, EmptySet))
+        if (ReferenceEquals(commonNames, EmptyNameSet))
         {
             return;
         }
