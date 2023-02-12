@@ -398,6 +398,11 @@ public sealed class Image
     /// <returns></returns>
     public IReadOnlyList<ImagedStar> FindStars(float snr_min = 20f, int max_stars = 500, int max_retries = 2)
     {
+        if (_imageMeta.SensorType is not SensorType.Monochrome)
+        {
+            return DebayerOSCToSyntheticLuminance().FindStars(snr_min, max_stars, max_retries);
+        }
+
         var (background, star_level, noise_level, hist_threshold) = Background();
 
         var detection_level = MathF.Max(3.5f * noise_level, star_level); /* level above background. Start with a high value */
@@ -931,11 +936,11 @@ public sealed class Image
         var y_frac = y1 - y_trunc;
         try
         {
-            var result = _data[y_trunc, x_trunc]      * (1 - x_frac) * (1 - y_frac); // pixel left top, 1
-            result += _data[y_trunc, x_trunc + 1]     * x_frac * (1 - y_frac);       // pixel right top, 2
-            result += _data[y_trunc + 1, x_trunc]     * (1 - x_frac) * y_frac;       // pixel left bottom, 3
-            result += _data[y_trunc + 1, x_trunc + 1] * x_frac * y_frac;             // pixel right bottom, 4
-            return result;
+            var result = (double)_data[y_trunc, x_trunc]      * (1 - x_frac) * (1 - y_frac); // pixel left top, 1
+            result += (double)_data[y_trunc, x_trunc + 1]     * x_frac * (1 - y_frac);       // pixel right top, 2
+            result += (double)_data[y_trunc + 1, x_trunc]     * (1 - x_frac) * y_frac;       // pixel left bottom, 3
+            result += (double)_data[y_trunc + 1, x_trunc + 1] * x_frac * y_frac;             // pixel right bottom, 4
+            return (float)result;
         }
         catch (Exception ex) when (Environment.UserInteractive)
         {
@@ -946,5 +951,63 @@ public sealed class Image
         {
             return 0;
         }
+    }
+
+    /// <summary>
+    /// Uses a simple 2x2 sliding window to calculate the average of 4 pixels, assumes simple 2x2 Bayer matrix.
+    /// Is a no-op for monochrome fames.
+    /// </summary>
+    /// <returns>Debayered monochrome image</returns>
+    public Image DebayerOSCToSyntheticLuminance()
+    {
+        // NO-OP for monochrome images
+        if (_imageMeta.SensorType is SensorType.Monochrome)
+        {
+            return this;
+        }
+
+        var debayered = new float[_height,_width];
+        // Loop through each pixel in the raw image
+        var w1 = _width - 1;
+        var h1 = _height - 1;
+
+        for (int y = 0; y < _height - 1; y++)
+        {
+            for (int x = 0; x < _width - 1; x++)
+            {
+                debayered[y, x] = (float)(0.25d * ((double)_data[y, x] + _data[y+1, x+1] + _data[y, x+1] + _data[y + 1, x]));
+            }
+
+            // last column
+            debayered[y, w1] = (float)(0.25d * ((double)_data[y, w1] + _data[y+1, w1 - 1] + _data[y, w1 - 1] + _data[y + 1, w1]));
+        }
+
+        // last row
+        for (int x = 0; x < _width - 1; x++)
+        {
+            debayered[h1, x] = (float)(0.25d * ((double)_data[h1, x] + _data[h1 - 1, x+1] + _data[h1, x+1] + _data[h1 - 1, x]));
+        }
+
+        // last pixel
+        debayered[h1, w1] = (float)(0.25d * ((double)_data[h1, w1] + _data[h1 - 1, w1 - 1] + _data[h1, w1 - 1] + _data[h1 - 1, w1]));
+
+        var meta = new ImageMeta(
+            _imageMeta.Instrument,
+            _imageMeta.ExposureStartTime,
+            _imageMeta.ExposureDuration,
+            _imageMeta.Telescope,
+            _imageMeta.PixelSizeX,
+            _imageMeta.PixelSizeY,
+            _imageMeta.FocalLength,
+            _imageMeta.FocusPos,
+            new Filter("Lum"),
+            _imageMeta.BinX,
+            _imageMeta.BinY,
+            _imageMeta.CCDTemperature,
+            SensorType.Monochrome,
+            0,
+            0
+        );
+        return new Image(debayered, _width, _height, _bitsPerPixel, _maxVal, _blackLevel, meta);
     }
 }
