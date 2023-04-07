@@ -7,41 +7,28 @@ namespace Astap.Lib;
 
 public class DynamicComObject : IDisposable
 {
-    private static readonly ConcurrentDictionary<string, Func<string, object?>> _initaliserMap = new();
     private static readonly ConcurrentDictionary<string, Type?> _progIdTypeCache = new();
 
     /// <summary>
     /// Register an <paramref name="initialiser"/> for a given <paramref name="progId"/>.
+    /// Overrides any existing type.
     /// </summary>
-    /// <param name="progId"></param>
-    /// <param name="initialiser"></param>
-    public static void RegisterTypeCreator(string progId, Func<string, object?> initialiser)
-        => _initaliserMap.AddOrUpdate(progId, initialiser, (_, _) => initialiser);
+    /// <param name="progId">prog id</param>
+    /// <param name="type">type to register, or null to unregister any previous type.</param>
+    public static void RegisterTypeForProgId(string progId, Type? type)
+        => _progIdTypeCache.AddOrUpdate(progId, type, (_, _) => type);
 
     private static Type? TryGetTypeFromProgID(string progId)
         => RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Type.GetTypeFromProgID(progId) is { } type ? type : null;
 
     /// <summary>
-    /// Uses <paramref name="progId"/> to lookup a registered initialiser that was previously registered with <see cref="RegisterTypeCreator(string, Func{string, object?})"/>.
+    /// Uses <paramref name="progId"/> to lookup a registered <see cref="Type"/> that was previously registered with <see cref="RegisterTypeForProgId(string, Type)"/>.
     /// If none is found and the current platform is <see cref="OSPlatform.Windows"/> and a ProgID mapping exists then that is used to create an instance.
     /// </summary>
     /// <param name="progId"></param>
     /// <returns></returns>
     public static object? CreateInstanceFromProgId(string progId)
-    {
-        if (_initaliserMap.TryGetValue(progId, out var initialiser))
-        {
-            return initialiser(progId);
-        }
-        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && _progIdTypeCache.GetOrAdd(progId, TryGetTypeFromProgID) is { } type)
-        {
-            return Activator.CreateInstance(type);
-        }
-        else
-        {
-            return null;
-        }
-    }
+        => _progIdTypeCache.GetOrAdd(progId, TryGetTypeFromProgID) is { } type ? Activator.CreateInstance(type) : null;
 
     protected readonly dynamic? _comObject;
 
