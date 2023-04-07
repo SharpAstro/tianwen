@@ -728,14 +728,14 @@
   {
     "MainId": "IC  430",
     "Ids": [
+      "IC  430",
       "Ced  55k",
-      "DG  69",
-      "IC  430"
+      "DG  69"
     ],
-    "ObjType": "ISM",
+    "ObjType": "RNe",
     "Ra": 84.576,
     "Dec": -7.04061,
-    "VMag": 14.4
+    "VMag": null
   },
   {
     "MainId": "LBN 200.62-14.08",
