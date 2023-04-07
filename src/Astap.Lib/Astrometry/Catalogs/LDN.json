@@ -440,8 +440,8 @@
       "LDN   42"
     ],
     "ObjType": "DNe",
-    "Ra": 263.305,
-    "Dec": -25.67347,
+    "Ra": 263.3,
+    "Dec": -25.67,
     "VMag": null
   },
   {
@@ -16583,6 +16583,7 @@
     "MainId": "NAME Kutner's Cloud",
     "Ids": [
       "NAME Kutner's Cloud",
+      "Barnard  18",
       "LDN 1529"
     ],
     "ObjType": "MoC",

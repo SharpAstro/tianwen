@@ -8,6 +8,8 @@ param(
 $commonFilter = "^(Barnard|RCW|LDN|GUM|SH|NAME|NGC|IC|Ced|CG |M |HD|HR|VDB|HH|Dobashi|DG |Cl\s+(Collinder|Melotte))"
 $starCatFilter = '^(HD|HR|NAME|2MASS|[*]|M |(NGC|IC)\s+\d+[A-Za-z]?$)'
 
+# missing:
+# 1. Collinder
 if ([string]::IsNullOrWhiteSpace($Cat)) {
     $catalogs = [ordered]@{
         HR = $starCatFilter

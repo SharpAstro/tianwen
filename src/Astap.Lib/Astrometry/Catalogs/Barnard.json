@@ -186,13 +186,15 @@
     "VMag": null
   },
   {
-    "MainId": "Barnard  18",
+    "MainId": "NAME Kutner's Cloud",
     "Ids": [
-      "Barnard  18"
+      "NAME Kutner's Cloud",
+      "Barnard  18",
+      "LDN 1529"
     ],
-    "ObjType": "Cld",
-    "Ra": 67.8,
-    "Dec": 24.35,
+    "ObjType": "MoC",
+    "Ra": 68.1858,
+    "Dec": 24.3869,
     "VMag": null
   },
   {
