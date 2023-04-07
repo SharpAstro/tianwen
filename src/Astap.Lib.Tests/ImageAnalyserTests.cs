@@ -58,7 +58,7 @@ public class ImageAnalyserTests
             Image.TryReadFitsFile(fullPath, out var readoutImage).ShouldBeTrue();
             readoutImage.Width.ShouldBe(image.Width);
             readoutImage.Height.ShouldBe(image.Height);
-            readoutImage.BitsPerPixel.ShouldBe(image.BitsPerPixel);
+            readoutImage.BitDepth.ShouldBe(image.BitDepth);
             readoutImage.ImageMeta.Instrument.ShouldBe(image.ImageMeta.Instrument);
             readoutImage.MaxValue.ShouldBe(image.MaxValue);
             readoutImage.ImageMeta.ExposureStartTime.ShouldBe(image.ImageMeta.ExposureStartTime);
@@ -141,12 +141,12 @@ public class ImageAnalyserTests
         // given
         const int Width = 1280;
         const int Height = 960;
-        const int BitDepth = 16;
+        const BitDepth BitDepth = BitDepth.Int16;
         const int BlackLevel = 1;
         var expTime = TimeSpan.FromSeconds(42);
         var fileName = $"image_data_snr-{snr_min}_stars-{expectedStars}";
         var imageData = await SharedTestData.ExtractGZippedImageData(fileName, Width, Height);
-        var imageMeta = new ImageMeta(fileName, DateTime.UtcNow, expTime, "", 2.4f, 2.4f, 190, -1, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0);
+        var imageMeta = new ImageMeta(fileName, DateTime.UtcNow, expTime, "", 2.4f, 2.4f, 190, -1, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0, RowOrder.TopDown);
 
         // when
         var image = ICameraDriver.DataToImage(imageData, BitDepth, BlackLevel, imageMeta);
@@ -156,7 +156,7 @@ public class ImageAnalyserTests
         image.ShouldNotBeNull();
         image.Height.ShouldBe(Height);
         image.Width.ShouldBe(Width);
-        image.BitsPerPixel.ShouldBe(BitDepth);
+        image.BitDepth.ShouldBe(BitDepth);
         stars.ShouldNotBeNull().Count.ShouldBe(expectedStars);
     }
 
@@ -191,12 +191,16 @@ public class ImageAnalyserTests
             var snr = sampleStar[2];
             result.ShouldContain(p => p.XCentroid > x - 1 && p.XCentroid < x + 1 && p.YCentroid > y - 1 && p.YCentroid < y + 1 && p.SNR > snr);
         }
+        else if (sampleStar is { Length: > 0 })
+        {
+            Assert.Fail($"Sample star needs to be exactly 3 elements (x, y, snr), but only {sampleStar.Length} where given.");
+        }
     }
 
     [Theory]
     [InlineData(SampleKind.HFD, 28208, 28211, 1, 1, 1, 10f, 20, 2, 130)]
     [InlineData(SampleKind.HFD, 28227, 28231, 1, 1, 1, 10f, 20, 2, 140)]
-    // [InlineData(SampleKind.HFD, 28208, 28231, 1, 1, 1, 10f, 20, 2, 130)]
+    [InlineData(SampleKind.HFD, 28208, 28231, 1, 1, 1, 10f, 20, 2, 130, Skip = "Computationally expensive")]
     public void GivenFocusSamplesWhenSolvingAHyperboleIsFound(SampleKind kind, int focusStart, int focusEndIncl, int focusStepSize, int sampleCount, int filterNo, float snrMin, int maxIterations, int expectedSolutionAfterSteps, int expectedMinStarCount)
     {
         // given

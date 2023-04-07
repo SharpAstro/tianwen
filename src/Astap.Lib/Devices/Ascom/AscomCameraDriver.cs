@@ -217,7 +217,7 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
     public TimeSpan LastExposureDuration => _comObject?.LastExposureDuration is double lastExposureDuration ? TimeSpan.FromSeconds(lastExposureDuration) : TimeSpan.MinValue;
 
-    public int? BitDepth
+    public BitDepth? BitDepth
     {
         get
         {
@@ -236,7 +236,7 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
             var bytesPerPixel = (log2 + 7) / 8;
             int bitDepth = bytesPerPixel * 8;
 
-            return bitDepth;
+            return BitDepthEx.FromValue(bitDepth);
         }
     }
 
