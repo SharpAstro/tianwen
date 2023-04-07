@@ -13,40 +13,22 @@ using static Astap.Lib.Stat.StatisticsHelper;
 
 namespace Astap.Lib.Imaging;
 
-public record ImageMeta(
-    string Instrument,
-    DateTime ExposureStartTime,
-    TimeSpan ExposureDuration,
-    string Telescope,
-    float PixelSizeX,
-    float PixelSizeY,
-    int FocalLength,
-    int FocusPos,
-    Filter Filter,
-    int BinX,
-    int BinY,
-    float CCDTemperature,
-    SensorType SensorType,
-    int BayerOffsetX,
-    int BayerOffsetY
-);
-
 public sealed class Image
 {
     readonly float[,] _data;
     readonly int _width;
     readonly int _height;
-    readonly int _bitsPerPixel;
+    readonly BitDepth _bitDepth;
     readonly float _maxVal;
     readonly float _blackLevel;
     readonly ImageMeta _imageMeta;
 
-    public Image(float[,] data, int width, int height, int bitsPerPixel, float maxVal, float blackLevel, in ImageMeta imageMeta)
+    public Image(float[,] data, int width, int height, BitDepth bitDepth, float maxVal, float blackLevel, in ImageMeta imageMeta)
     {
         _data = data;
         _width = width;
         _height = height;
-        _bitsPerPixel = bitsPerPixel;
+        _bitDepth = bitDepth;
         _maxVal = maxVal;
         _blackLevel = blackLevel;
         _imageMeta = imageMeta;
@@ -54,7 +36,7 @@ public sealed class Image
 
     public int Width => _width;
     public int Height => _height;
-    public int BitsPerPixel => _bitsPerPixel;
+    public BitDepth BitDepth => _bitDepth;
     public float MaxValue => _maxVal;
     /// <summary>
     /// Black level or offset value, defaults to 0 if unknown
@@ -77,7 +59,9 @@ public sealed class Image
         if ((hdu?.Axes?.Length) != 2
             || hdu.Data is not ImageData imageData
             || imageData.DataArray is not object[] heightArray
-            || heightArray.Length == 0)
+            || heightArray.Length == 0
+            || !(BitDepthEx.FromValue(hdu.BitPix) is { } bitDepth)
+        )
         {
             image = default;
             return false;
@@ -85,7 +69,6 @@ public sealed class Image
 
         var height = hdu.Axes[0];
         var width = hdu.Axes[1];
-        var bitsPerPixel = hdu.BitPix;
         var exposureStartTime = hdu.ObservationDate;
         var maybeExpTime = hdu.Header.GetDoubleValue("EXPTIME", double.NaN);
         var maybeExposure = hdu.Header.GetDoubleValue("EXPOSURE", double.NaN);
@@ -105,19 +88,13 @@ public sealed class Image
         var ccdTemp = hdu.Header.GetFloatValue("CCD-TEMP", float.NaN);
         var colorType = hdu.Header.GetStringValue("COLORTYP");
         var bayerPattern = hdu.Header.GetStringValue("BAYERPAT");
-        var isMono = string.IsNullOrWhiteSpace(colorType) && string.IsNullOrWhiteSpace(bayerPattern);
         var bayerOffsetX = hdu.Header.GetIntValue("BAYOFFX", 0);
         var bayerOffsetY = hdu.Header.GetIntValue("BAYOFFY", 0);
+        var rowOrder = RowOrderEx.FromFITSValue(hdu.Header.GetStringValue("ROWORDER")) ?? RowOrder.TopDown;
         var filter = string.IsNullOrWhiteSpace(filterName) ? Filter.None : new Filter(filterName);
         var bzero = (float)hdu.BZero;
         var bscale = (float)hdu.BScale;
-        // TODO this is a bit simplified, support stuff like GRGB etc and support inferring via BayerOffsetY
-        var sensorType = isMono
-            ? SensorType.Monochrome
-            : string.Equals(colorType, "RGGB", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(bayerPattern, "RGGB", StringComparison.OrdinalIgnoreCase)
-                ? SensorType.RGGB
-                : SensorType.Unknown;
+        var sensorType = SensorTypeEx.FromFITSValue(bayerPattern, colorType);
 
         var elementType = Type.GetTypeCode(heightArray[0].GetType().GetElementType());
 
@@ -307,9 +284,10 @@ public sealed class Image
             ccdTemp,
             sensorType,
             bayerOffsetX,
-            bayerOffsetY
+            bayerOffsetY,
+            rowOrder
         );
-        image = new Image(imgArray, width, height, bitsPerPixel, maxVal, blackLevel, imageMeta);
+        image = new Image(imgArray, width, height, bitDepth, maxVal, blackLevel, imageMeta);
         return true;
     }
 
@@ -319,9 +297,9 @@ public sealed class Image
         object[] jaggedArray;
         int bzero;
         bool isInt;
-        switch (BitsPerPixel)
+        switch (BitDepth)
         {
-            case 8:
+            case BitDepth.Int8:
                 var jaggedByteArray = new byte[_height][];
                 bzero = 0;
                 isInt = true;
@@ -337,7 +315,7 @@ public sealed class Image
                 jaggedArray = jaggedByteArray;
                 break;
 
-            case 16:
+            case BitDepth.Int16:
                 var jaggedShortArray = new short[_height][];
                 bzero = 32768;
                 isInt = true;
@@ -354,28 +332,28 @@ public sealed class Image
                 break;
 
             default:
-                throw new NotSupportedException($"Bits per pixel {BitsPerPixel} is not supported");
+                throw new NotSupportedException($"Bits per pixel {BitDepth} is not supported");
         }
         var basicHdu = FitsFactory.HDUFactory(jaggedArray);
-        basicHdu.Header.Bitpix = BitsPerPixel;
+        basicHdu.Header.Bitpix = (int)BitDepth;
         basicHdu.Header.AddCard(new HeaderCard("BZERO", bzero, "offset data range to that of unsigned short"));
         basicHdu.Header.AddCard(new HeaderCard("BSCALE", 1, "default scaling factor"));
         basicHdu.Header.AddCard(new HeaderCard("BSCALE", 1, "default scaling factor"));
         basicHdu.Header.AddCard(isInt ? new HeaderCard("BLKLEVEL", (int)BlackLevel, "") : new HeaderCard("BLKLEVEL", BlackLevel, ""));
-        basicHdu.Header.AddCard(new HeaderCard("XBINNING", ImageMeta.BinX, ""));
-        basicHdu.Header.AddCard(new HeaderCard("YBINNING", ImageMeta.BinY, ""));
-        basicHdu.Header.AddCard(new HeaderCard("XPIXSZ", ImageMeta.PixelSizeX, ""));
-        basicHdu.Header.AddCard(new HeaderCard("YPIXSZ", ImageMeta.PixelSizeX, ""));
-        basicHdu.Header.AddCard(new HeaderCard("DATE-OBS", ImageMeta.ExposureStartTime.ToString("o"), ""));
-        basicHdu.Header.AddCard(new HeaderCard("EXPTIME", ImageMeta.ExposureDuration.TotalSeconds, "seconds"));
+        basicHdu.Header.AddCard(new HeaderCard("XBINNING", _imageMeta.BinX, ""));
+        basicHdu.Header.AddCard(new HeaderCard("YBINNING", _imageMeta.BinY, ""));
+        basicHdu.Header.AddCard(new HeaderCard("XPIXSZ", _imageMeta.PixelSizeX, ""));
+        basicHdu.Header.AddCard(new HeaderCard("YPIXSZ", _imageMeta.PixelSizeX, ""));
+        basicHdu.Header.AddCard(new HeaderCard("DATE-OBS", _imageMeta.ExposureStartTime.ToString("o"), ""));
+        basicHdu.Header.AddCard(new HeaderCard("EXPTIME", _imageMeta.ExposureDuration.TotalSeconds, "seconds"));
         basicHdu.Header.AddCard(new HeaderCard("DATAMAX", MaxValue, ""));
-        basicHdu.Header.AddCard(new HeaderCard("INSTRUME", ImageMeta.Instrument, ""));
-        basicHdu.Header.AddCard(new HeaderCard("TELESCOP", ImageMeta.Telescope, ""));
-        basicHdu.Header.AddCard(new HeaderCard("ROWORDER", "TOP-DOWN", ""));
-        basicHdu.Header.AddCard(new HeaderCard("CCD-TEMP", ImageMeta.CCDTemperature, "Celsius"));
-        basicHdu.Header.AddCard(new HeaderCard("BAYOFFX", ImageMeta.BayerOffsetX, ""));
-        basicHdu.Header.AddCard(new HeaderCard("BAYOFFY", ImageMeta.BayerOffsetY, ""));
-        if (ImageMeta.SensorType is SensorType.RGGB)
+        basicHdu.Header.AddCard(new HeaderCard("INSTRUME", _imageMeta.Instrument, ""));
+        basicHdu.Header.AddCard(new HeaderCard("TELESCOP", _imageMeta.Telescope, ""));
+        basicHdu.Header.AddCard(new HeaderCard("ROWORDER", _imageMeta.RowOrder.ToFITSValue(), ""));
+        basicHdu.Header.AddCard(new HeaderCard("CCD-TEMP", _imageMeta.CCDTemperature, "Celsius"));
+        basicHdu.Header.AddCard(new HeaderCard("BAYOFFX", _imageMeta.BayerOffsetX, ""));
+        basicHdu.Header.AddCard(new HeaderCard("BAYOFFY", _imageMeta.BayerOffsetY, ""));
+        if (_imageMeta.SensorType is SensorType.RGGB)
         {
             // TODO support other Bayer patterns
             basicHdu.Header.AddCard(new HeaderCard("BAYERPAT", "RGGB", ""));
@@ -432,7 +410,7 @@ public sealed class Image
                     // new star. For analyse used sigma is 5, so not too low.
                     if (_data[fitsY, fitsX] - background > detection_level
                         && !img_star_area[fitsY, fitsX]
-                        && AnalyseStar(fitsX, fitsY, 14/* box size */, out var star)
+                        && AnalyseStar(fitsX, fitsY, boxRadius: 14, out var star)
                         && star.HFD is > 0.8f and <= 30 /* at least 2 pixels in size */
                         && star.SNR >= snr_min
                     )
@@ -459,13 +437,16 @@ public sealed class Image
                                 }
                             }
 
-                            if (start.HasValue && start == end)
+                            if (start.HasValue && end.HasValue)
                             {
-                                img_star_area[j, start.Value] = true;
-                            }
-                            else if (start < end)
-                            {
-                                img_star_area[j, new Range(start.Value, end.Value + 1)] = true;
+                                if (start == end)
+                                {
+                                    img_star_area[j, start.Value] = true;
+                                }
+                                else if (start < end)
+                                {
+                                    img_star_area[j, new Range(start.Value, end.Value + 1)] = true;
+                                }
                             }
                         }
                     }
@@ -637,16 +618,16 @@ public sealed class Image
     /// </summary>
     /// <param name="x1">x</param>
     /// <param name="y1">y</param>
-    /// <param name="rs">box size</param>
+    /// <param name="boxRadius">box radius</param>
     /// <returns>true if a star was detected</returns>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public bool AnalyseStar(int x1, int y1, int rs, out ImagedStar star)
+    public bool AnalyseStar(int x1, int y1, int boxRadius, out ImagedStar star)
     {
-        const int maxAnnulusBg = 328; // depends on rs <= 50
-        Debug.Assert(rs <= 50, "rs should be <= 50 to prevent runtime errors");
+        const int maxAnnulusBg = 328; // depends on boxSize <= 50
+        Debug.Assert(boxRadius <= 50, nameof(boxRadius) + " should be <= 50 to prevent runtime errors");
 
-        var r1_square = rs * rs; /*square radius*/
-        var r2 = rs + 1; /*annulus width us 1*/
+        var r1_square = boxRadius * boxRadius; /*square radius*/
+        var r2 = boxRadius + 1; /*annulus width us 1*/
         var r2_square = r2 * r2;
 
         var valMax = 0.0f;
@@ -704,9 +685,9 @@ public sealed class Image
                 var sumValY = 0.0f;
                 var signal_counter = 0;
 
-                for (var i = -rs; i <= rs; i++)
+                for (var i = -boxRadius; i <= boxRadius; i++)
                 {
-                    for (var j = -rs; j <= rs; j++)
+                    for (var j = -boxRadius; j <= boxRadius; j++)
                     {
                         var val = _data[y1 + i, x1 + j] - bg;
                         if (val > 3.0f * sd_bg)
@@ -732,24 +713,24 @@ public sealed class Image
                 yc = y1 + yg;
                 /* center of gravity found */
 
-                if (xc - rs < 0 || xc + rs > _width - 1 || yc - rs < 0 || yc + rs > _height - 1)
+                if (xc - boxRadius < 0 || xc + boxRadius > _width - 1 || yc - boxRadius < 0 || yc + boxRadius > _height - 1)
                 {
                     star = default; /* prevent runtime errors near sides of images */
                     return false;
                 }
 
-                var rs2_1 = rs + rs + 1;
+                var rs2_1 = boxRadius + boxRadius + 1;
                 boxed = signal_counter >= 2.0f / 9 * (rs2_1 * rs2_1);/*are inside the box 2 of the 9 of the pixels illuminated? Works in general better for solving then ovality measurement as used in the past*/
 
                 if (!boxed)
                 {
-                    if (rs > 4)
+                    if (boxRadius > 4)
                     {
-                        rs -= 2;
+                        boxRadius -= 2;
                     }
                     else
                     {
-                        rs--; /*try a smaller window to exclude nearby stars*/
+                        boxRadius--; /*try a smaller window to exclude nearby stars*/
                     }
                 }
 
@@ -759,19 +740,19 @@ public sealed class Image
                     star = default; /*one hot pixel*/
                     return false;
                 }
-            } while (!boxed && rs > 1); /*loop and reduce aperture radius until star is boxed*/
+            } while (!boxed && boxRadius > 1); /*loop and reduce aperture radius until star is boxed*/
 
-            rs += 2; /* add some space */
+            boxRadius += 2; /* add some space */
 
             // Build signal histogram from center of gravity
-            Span<int> distance_histogram = stackalloc int[rs + 1]; // this has a fixed upper bound
+            Span<int> distance_histogram = stackalloc int[boxRadius + 1]; // this has a fixed upper bound
 
-            for (var i = -rs; i <= rs; i++)
+            for (var i = -boxRadius; i <= boxRadius; i++)
             {
-                for (var j = -rs; j <= rs; j++)
+                for (var j = -boxRadius; j <= boxRadius; j++)
                 {
                     var distance = (int)MathF.Round(MathF.Sqrt(i * i + j * j)); /* distance from gravity center */
-                    if (distance <= rs) /* build histogram for circel with radius rs */
+                    if (distance <= boxRadius) /* build histogram for circle with radius boxRadius */
                     {
                         var val = SubpixelValue(xc + i, yc + j) - bg;
                         if (val > 3.0 * sd_bg) /* 3 * sd should be signal */
@@ -804,9 +785,9 @@ public sealed class Image
                     distance_top_value = distance_histogram[r_aperture]; /* this should be 2*pi*r_aperture if it is nice defocused star disk */
                 }
                 /* find a distance where there is no pixel illuminated, so the border of the star image of interest */
-            } while (r_aperture < rs && (!histStart || distance_histogram[r_aperture] > 0.1f * distance_top_value));
+            } while (r_aperture < boxRadius && (!histStart || distance_histogram[r_aperture] > 0.1f * distance_top_value));
 
-            if (r_aperture >= rs)
+            if (r_aperture >= boxRadius)
             {
                 star = default; /* star is equal or larger then box, abort */
                 return false;
@@ -1009,8 +990,9 @@ public sealed class Image
             _imageMeta.CCDTemperature,
             SensorType.Monochrome,
             0,
-            0
+            0,
+            _imageMeta.RowOrder
         );
-        return new Image(debayered, _width, _height, _bitsPerPixel, _maxVal, _blackLevel, meta);
+        return new Image(debayered, _width, _height, BitDepth.Float32, _maxVal, _blackLevel, meta);
     }
 }

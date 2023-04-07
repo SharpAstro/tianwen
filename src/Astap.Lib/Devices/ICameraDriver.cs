@@ -81,7 +81,7 @@ public interface ICameraDriver : IDeviceDriver
     /// </summary>
     double CCDTemperature { get; }
 
-    int? BitDepth { get; }
+    BitDepth? BitDepth { get; }
 
     short Gain { get; set; }
 
@@ -161,7 +161,7 @@ public interface ICameraDriver : IDeviceDriver
 
     CameraState CameraState { get; }
 
-    Image? Image => Connected && ImageReady && ImageData is { Length: > 0 } data && BitDepth is int bitDepth and > 0
+    Image? Image => Connected && ImageReady && ImageData is { Length: > 0 } data && BitDepth is { } bitDepth && bitDepth.IsIntegral()
         ? DataToImage(
             data,
             bitDepth,
@@ -181,7 +181,8 @@ public interface ICameraDriver : IDeviceDriver
                 (float)CCDTemperature,
                 SensorType,
                 SensorType != SensorType.Monochrome ? BayerOffsetX : 0,
-                SensorType != SensorType.Monochrome ? BayerOffsetY : 0
+                SensorType != SensorType.Monochrome ? BayerOffsetY : 0,
+                RowOrder.TopDown
             )
         )
         : null;
@@ -194,7 +195,7 @@ public interface ICameraDriver : IDeviceDriver
     /// <param name="blackLevel">black level or offset</param>
     /// <param name="imageMeta">image meta data</param>
     /// <returns>image from data, transformed to floats</returns>
-    public static Image DataToImage(int[,] sourceData, int bitDepth, float blackLevel, in ImageMeta imageMeta)
+    public static Image DataToImage(int[,] sourceData, BitDepth bitDepth, float blackLevel, in ImageMeta imageMeta)
     {
         var width = sourceData.GetLength(0);
         var height = sourceData.GetLength(1);

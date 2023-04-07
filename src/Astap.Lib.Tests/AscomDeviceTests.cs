@@ -118,7 +118,7 @@ public class AscomDeviceTests
                 image.ShouldNotBeNull();
                 image.Width.ShouldBe(imgData.GetLength(0));
                 image.Height.ShouldBe(imgData.GetLength(1));
-                image.BitsPerPixel.ShouldBe(driver.BitDepth.ShouldNotBeNull());
+                image.BitDepth.ShouldBe(driver.BitDepth.ShouldNotBeNull());
                 image.MaxValue.ShouldBeGreaterThan(0f);
                 image.MaxValue.ShouldBe(expectedMax);
                 var stars = image.FindStars(snr_min: 10);
