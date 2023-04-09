@@ -1,11 +1,11 @@
-﻿using Astap.Lib.Devices.Ascom;
+﻿using Astap.Lib.Astrometry.Catalogs;
+using Astap.Lib.Astrometry.Focus;
+using Astap.Lib.Astrometry.PlateSolve;
 using Astap.Lib.Devices;
+using Astap.Lib.Devices.Ascom;
 using Astap.Lib.Devices.Guider;
 using Astap.Lib.Sequencing;
 using Pastel;
-using Astap.Lib.Astrometry.Focus;
-using Astap.Lib.Astrometry.PlateSolve;
-using Astap.Lib.Astrometry.Catalogs;
 
 var cts = new CancellationTokenSource();
 Console.CancelKeyPress += Console_CancelKeyPress;
@@ -118,7 +118,7 @@ using var setup = new Setup(
 );
 
 var sessionConfiguration = new SessionConfiguration(
-    SetpointCCDTemperature: 10,
+    SetpointCCDTemperature: new(10, SetpointTempKind.Normal),
     CooldownRampInterval: TimeSpan.FromSeconds(20),
     CoolupRampInterval: TimeSpan.FromSeconds(30),
     MinHeightAboveHorizon: 15,

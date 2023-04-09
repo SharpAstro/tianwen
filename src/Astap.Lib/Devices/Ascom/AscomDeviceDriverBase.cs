@@ -26,7 +26,7 @@ public abstract class AscomDeviceDriverBase : DynamicComObject, IDeviceDriver
     const int STATE_UNKNOWN = 0;
     const int CONNECTED = 1;
     const int DISCONNECTED = 2;
-    private int _connectionState;
+    private int _connectionState = STATE_UNKNOWN;
     public bool Connected
     {
         get
@@ -69,12 +69,12 @@ public abstract class AscomDeviceDriverBase : DynamicComObject, IDeviceDriver
                 }
                 else
                 {
-                    _connectionState = STATE_UNKNOWN;
+                    Volatile.Write(ref _connectionState, STATE_UNKNOWN);
                 }
             }
             else
             {
-                _connectionState = STATE_UNKNOWN;
+                Volatile.Write(ref _connectionState, STATE_UNKNOWN);
             }
         }
     }
