@@ -7,7 +7,6 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -109,7 +108,7 @@ public class Session
             }
 
             // TODO wait until 25 before astro dark to start cooling down without loosing time
-            CoolCamerasToSetpoint(setup, configuration.SetpointCCDTemperature, configuration.CooldownRampInterval, 80, CoolDirection.Down, setpointIsCCDTemp: false, external, cancellationToken);
+            CoolCamerasToSetpoint(setup, configuration.SetpointCCDTemperature, configuration.CooldownRampInterval, 80, CoolDirection.Down, external, cancellationToken);
 
             // TODO wait until 5 min to astro dark, and/or implement IExternal.IsPolarAligned
 
@@ -939,7 +938,7 @@ public class Session
     /// <param name="external">Used for <see cref="IExternal.Sleep(TimeSpan)"/> and logging.</param>
     /// <returns>True if setpoint temperature was reached.</returns>
     internal static bool CoolCamerasToSensorTemp(Setup setup, TimeSpan rampTime, IExternal external, CancellationToken cancellationToken)
-        => CoolCamerasToSetpoint(setup, null, rampTime, 0.1, CoolDirection.Up, setpointIsCCDTemp: true, external, cancellationToken);
+        => CoolCamerasToSetpoint(setup, new SetpointTemp(sbyte.MinValue, SetpointTempKind.CCD), rampTime, 0.1, CoolDirection.Up, external, cancellationToken);
 
 
     /// <summary>
@@ -950,20 +949,22 @@ public class Session
     /// <param name="external">Used for <see cref="IExternal.Sleep(TimeSpan)"/> and logging.</param>
     /// <returns>True if setpoint temperature was reached.</returns>
     internal static bool CoolCamerasToAmbient(Setup setup, TimeSpan rampTime, IExternal external)
-        => CoolCamerasToSetpoint(setup, null, rampTime, 0.1, CoolDirection.Up, setpointIsCCDTemp: false, external, CancellationToken.None);
+        => CoolCamerasToSetpoint(setup, new SetpointTemp(sbyte.MinValue, SetpointTempKind.Ambient), rampTime, 0.1, CoolDirection.Up, external, CancellationToken.None);
 
     /// <summary>
     /// Assumes that power is on (c.f. <see cref="CoolCamerasToSensorTemp"/>).
     /// </summary>
-    /// <param name="maybeSetpointTemp">Desired degrees Celcius setpoint temperature, if null then ambient temp is chosen</param>
+    /// <param name="desiredSetpointTemp">Desired degrees Celcius setpoint temperature,
+    /// if <paramref name="desiredSetpointTemp"/>'s <see cref="SetpointTemp.Kind"/> is <see cref="SetpointTempKind.CCD" /> then sensor temperature is chosen,
+    /// if its <see cref="SetpointTempKind.Normal" /> then the temp value is chosen
+    /// or else ambient temperature is chosen (if available)</param>
     /// <param name="rampInterval">interval to wait until further adjusting setpoint.</param>
     internal static bool CoolCamerasToSetpoint(
         Setup setup,
-        int? maybeSetpointTemp,
+        SetpointTemp desiredSetpointTemp,
         TimeSpan rampInterval,
         double thresPower,
         CoolDirection direction,
-        bool setpointIsCCDTemp,
         IExternal external,
         CancellationToken cancellationToken
     )
@@ -981,13 +982,31 @@ public class Session
                 if (camDriver.Connected
                     && camDriver.CanSetCCDTemperature
                     && camDriver.CanGetCoolerOn
-                    && camDriver.CanGetHeatsinkTemperature
-                    && camDriver.CCDTemperature is double ccdTemp and >= -40 and <= 50
-                    && camDriver.HeatSinkTemperature is double heatSinkTemp and >= -40 and <= 50
+                    && camDriver.CanSetCoolerOn
+                    && (camDriver.CanGetHeatsinkTemperature || camDriver.CanGetCCDTemperature)
                 )
                 {
+                    var ccdTemp = camDriver.CCDTemperature;
+                    var hasCCDTemp = !double.IsNaN(ccdTemp) && ccdTemp is >= -40 and <= 50;
+                    var heatSinkTemp = camDriver.HeatSinkTemperature;
+                    var hasHeatSinkTemp = !double.IsNaN(heatSinkTemp) && heatSinkTemp is >= -40 and <= 50;
+
                     var coolerPower = CoolerPower(camDriver);
-                    var setpointTemp = maybeSetpointTemp ?? Math.Round(setpointIsCCDTemp ? Math.Min(ccdTemp, heatSinkTemp) : heatSinkTemp);
+                    // TODO: Consider using external temp sensor if no heatsink temp is available
+                    var heatSinkOrCCDTemp = hasHeatSinkTemp ? heatSinkTemp : ccdTemp;
+                    var setpointTemp = desiredSetpointTemp.Kind switch
+                    {
+                        SetpointTempKind.Normal => desiredSetpointTemp.TempC,
+                        SetpointTempKind.CCD when hasCCDTemp && hasHeatSinkTemp => Math.Min(ccdTemp, heatSinkOrCCDTemp),
+                        SetpointTempKind.CCD when hasCCDTemp && !hasHeatSinkTemp => ccdTemp,
+                        SetpointTempKind.Ambient when hasHeatSinkTemp => ccdTemp,
+                        _ => double.NaN
+                    };
+
+                    if (double.IsNaN(setpointTemp))
+                    {
+                        continue;
+                    }
 
                     if (direction.NeedsFurtherRamping(ccdTemp, setpointTemp)
                         && (double.IsNaN(coolerPower) || !camDriver.CoolerOn || !direction.ThresholdPowerReached(coolerPower, thresPower))
@@ -1032,7 +1051,12 @@ public class Session
                 {
                     isRamping[i] = false;
 
-                    var setpointTemp = (maybeSetpointTemp.HasValue ? $"{maybeSetpointTemp.Value:0.00} °C" : "ambient");
+                    var setpointTemp = desiredSetpointTemp.Kind switch
+                    {
+                        SetpointTempKind.Ambient => "ambient",
+                        SetpointTempKind.CCD => "current sensor",
+                        _ => $"{desiredSetpointTemp.TempC:0.00} °C"
+                    };
                     external.LogWarning($"Skipping camera {(i + 1)} setpoint temperature {setpointTemp} as we cannot get the current CCD temperature or cooling is not supported. Cooler is {(IsCoolerOn(camDriver) ? "on" : "off")}.");
                 }
             }

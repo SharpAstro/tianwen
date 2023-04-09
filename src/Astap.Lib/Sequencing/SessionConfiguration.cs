@@ -3,7 +3,7 @@
 namespace Astap.Lib.Sequencing;
 
 public record SessionConfiguration(
-    int SetpointCCDTemperature,
+    SetpointTemp SetpointCCDTemperature,
     TimeSpan CooldownRampInterval,
     TimeSpan CoolupRampInterval,
     byte MinHeightAboveHorizon,

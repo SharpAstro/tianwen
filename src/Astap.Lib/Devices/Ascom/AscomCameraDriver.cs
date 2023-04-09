@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -17,19 +16,25 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
     {
         if (e.Connected && _comObject is { } obj)
         {
+            MaxBinX = obj.MaxBinX is short maxBinX ? maxBinX : (short)1;
+            MaxBinY = obj.MaxBinY is short maxBinY ? maxBinY : (short)1;
+
             CanGetCoolerPower = obj.CanGetCoolerPower is bool canGetCoolerPower && canGetCoolerPower;
             CanSetCCDTemperature = obj.CanSetCCDTemperature is bool canSetCCDTemperature && canSetCCDTemperature;
             CanStopExposure =  obj.CanStopExposure is bool canStopExposure && canStopExposure;
             CanAbortExposure =  obj.CanAbortExposure is bool canAbortExposure && canAbortExposure;
             CanFastReadout = obj.CanFastReadout is bool canFastReadout && canFastReadout;
+
             try
             {
-                _ = CoolerOn;
+                _ = obj.CoolerOn;
                 CanGetCoolerOn = true;
+                CanSetCoolerOn = true;
             }
             catch
             {
                 CanGetCoolerOn = false;
+                CanSetCoolerOn = false;
             }
 
             try
@@ -43,21 +48,34 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
             try
             {
-                _ = Offset;
-                _ = OffsetMin;
-                _ = OffsetMax;
+                CanGetCCDTemperature = !double.IsNaN(CCDTemperature);
+            }
+            catch
+            {
+                CanGetCCDTemperature = false;
+            }
+
+            try
+            {
+                _ = obj.Offset;
+                var min = obj.OffsetMin;
+                var max = obj.OffsetMax;
                 UsesOffsetValue = true;
+                OffsetMin = min;
+                OffsetMax = max;
             }
             catch
             {
                 UsesOffsetValue = false;
+                OffsetMin = int.MinValue;
+                OffsetMax = int.MinValue;
             }
 
             if (!UsesOffsetValue)
             {
                 try
                 {
-                    _ = Offset;
+                    _ = obj.Offset;
                     _ = obj.Offsets;
                     UsesOffsetMode = true;
                 }
@@ -69,21 +87,25 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
             try
             {
-                _ = Gain;
-                _ = GainMin;
-                _ = GainMax;
+                _ = obj.Gain;
+                var min = obj.GainMin;
+                var max = obj.GainMax;
                 UsesGainValue = true;
+                GainMin = min;
+                GainMax = max;
             }
             catch
             {
                 UsesGainValue = false;
+                GainMin = short.MinValue;
+                GainMax = short.MinValue;
             }
 
             if (!UsesGainValue)
             {
                 try
                 {
-                    _ = Gain;
+                    _ = obj.Gain;
                     _ = obj.Gains;
                     UsesGainMode = true;
                 }
@@ -98,8 +120,11 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
     public bool CanGetCoolerPower { get; private set; }
 
     public bool CanGetCoolerOn { get; private set; }
+    public bool CanSetCoolerOn { get; private set; }
 
     public bool CanGetHeatsinkTemperature { get; private set; }
+
+    public bool CanGetCCDTemperature { get; private set; }
 
     public bool CanSetCCDTemperature { get; private set; }
 
@@ -109,6 +134,8 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
     public bool CanFastReadout { get; private set; }
 
+    public bool CanSetBitDepth { get; } = false;
+
     public bool UsesGainValue { get; private set; }
 
     public bool UsesGainMode { get; private set; }
@@ -117,31 +144,79 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
     public bool UsesOffsetMode { get; private set; }
 
-    public double CoolerPower => _comObject?.CoolerPower is double coolerPower ? coolerPower : double.NaN;
+    public double CoolerPower => Connected && _comObject?.CoolerPower is double coolerPower ? coolerPower : double.NaN;
 
-    public double HeatSinkTemperature => _comObject?.HeatSinkTemperature is double heatSinkTemperature ? heatSinkTemperature : double.NaN;
+    public double HeatSinkTemperature => Connected && _comObject?.HeatSinkTemperature is double heatSinkTemperature ? heatSinkTemperature : double.NaN;
 
-    public double CCDTemperature => _comObject?.CCDTemperature is double ccdTemperature ? ccdTemperature : double.NaN;
+    public double CCDTemperature => Connected && _comObject?.CCDTemperature is double ccdTemperature ? ccdTemperature : double.NaN;
 
     public double PixelSizeX => Connected && _comObject?.PixelSizeX is double pixelSizeX ? pixelSizeX : double.NaN;
 
     public double PixelSizeY => Connected && _comObject?.PixelSizeY is double pixelSizeY ? pixelSizeY : double.NaN;
 
-    public int StartX => Connected && _comObject?.StartX is int startX ? startX : int.MinValue;
+    public int StartX
+    {
+        get => Connected && _comObject?.StartX is int startX ? startX : int.MinValue;
+        set
+        {
+            if (Connected && _comObject is { } obj && value >= 0)
+            {
+                obj.StartX = value;
+            }
+        }
+    }
 
-    public int StartY => Connected && _comObject?.StartY is int startY ? startY : int.MinValue;
+    public int StartY
+    {
+        get => Connected && _comObject?.StartY is int startY ? startY : int.MinValue;
+        set
+        {
+            if (Connected && _comObject is { } obj && value >= 0)
+            {
+                obj.StartY = value;
+            }
+        }
+    }
 
-    public int BinX => Connected && _comObject?.BinX is int binX ? binX : 1;
+    public int BinX
+    {
+        get => Connected && _comObject?.BinX is int binX ? binX : 1;
+        set
+        {
+            if (Connected && _comObject is { } obj && value >= 1 && value <= MaxBinX)
+            {
+                obj.BinX = value;
+            }
+        }
+    }
 
-    public int BinY => Connected && _comObject?.BinY is int binY ? binY : 1;
+    public int BinY
+    {
+        get => Connected && _comObject?.BinY is int binY ? binY : 1;
+        set
+        {
+            if (Connected && _comObject is { } obj && value >= 1 && value <= MaxBinY)
+            {
+                obj.BinY = value;
+            }
+        }
+    }
+
+    public short MaxBinX { get; private set; } = short.MinValue;
+
+    public short MaxBinY { get; private set; } = short.MinValue;
+
+    public int CameraXSize => Connected && _comObject?.CameraXSize is int xSize ? xSize : int.MinValue;
+
+    public int CameraYSize => Connected && _comObject?.CameraYSize is int ySize ? ySize : int.MinValue;
 
     public int Offset
     {
-        get => Connected && _comObject?.InterfaceVersion is 3 && _comObject?.Offset is int offset ? offset : int.MinValue;
+        get => Connected && _comObject?.InterfaceVersion is >= 3 && _comObject?.Offset is int offset ? offset : int.MinValue;
 
         set
         {
-            if (Connected && _comObject is { } obj && obj.InterfaceVersion is 3)
+            if (Connected && _comObject is { } obj && obj.InterfaceVersion is >= 3)
             {
                 obj.Offset = value;
             }
@@ -201,21 +276,23 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
         }
     }
 
-    public int[,]? ImageData => _comObject?.ImageArray is int[,] intArray ? intArray : null;
+    public int[,]? ImageData => Connected && _comObject?.ImageArray is int[,] intArray ? intArray : null;
 
-    public bool ImageReady => _comObject?.ImageReady is bool imageReady && imageReady;
+    public bool ImageReady => Connected && _comObject?.ImageReady is bool imageReady && imageReady;
 
-    public int MaxADU => _comObject?.MaxADU is int maxADU ? maxADU : int.MinValue;
+    public int MaxADU => Connected && _comObject?.MaxADU is int maxADU ? maxADU : int.MinValue;
 
-    public double FullWellCapacity => _comObject?.FullWellCapacity is double fullWellCapacity ? fullWellCapacity : double.NaN;
+    public double FullWellCapacity => Connected && _comObject?.FullWellCapacity is double fullWellCapacity ? fullWellCapacity : double.NaN;
+
+    public double ElectronsPerADU => Connected && _comObject?.ElectronsPerADU is { } elecPerADU ? elecPerADU : double.NaN;
 
     public DateTime LastExposureStartTime
-        => _comObject?.LastExposureStartTime is string lastExposureStartTime
+        => Connected && _comObject?.LastExposureStartTime is string lastExposureStartTime
         && DateTime.TryParse(lastExposureStartTime, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal, out var dt)
             ? dt
             : DateTime.MinValue;
 
-    public TimeSpan LastExposureDuration => _comObject?.LastExposureDuration is double lastExposureDuration ? TimeSpan.FromSeconds(lastExposureDuration) : TimeSpan.MinValue;
+    public TimeSpan LastExposureDuration => Connected && _comObject?.LastExposureDuration is double lastExposureDuration ? TimeSpan.FromSeconds(lastExposureDuration) : TimeSpan.MinValue;
 
     public BitDepth? BitDepth
     {
@@ -238,7 +315,11 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
             return BitDepthEx.FromValue(bitDepth);
         }
+
+        set => throw new InvalidOperationException("Setting bit depth is not supported!");
     }
+
+    public double ExposureResolution => Connected && _comObject?.ExposureResolution is double expResolution ? expResolution : double.NaN;
 
     public void StartExposure(TimeSpan duration, bool light) => _comObject?.StartExposure(duration.TotalSeconds, light);
 
@@ -286,9 +367,14 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
     public SensorType SensorType => Connected && _comObject?.SensorType is int st ? (SensorType)st : SensorType.Unknown;
 
-    public int BayerOffsetX => _comObject?.BayerOffsetX is int bayerOffsetX ? bayerOffsetX : 0;
+    public int BayerOffsetX => Connected && _comObject?.BayerOffsetX is int bayerOffsetX ? bayerOffsetX : 0;
 
-    public int BayerOffsetY => _comObject?.BayerOffsetY is int bayerOffsetY ? bayerOffsetY : 0;
+    public int BayerOffsetY => Connected && _comObject?.BayerOffsetY is int bayerOffsetY ? bayerOffsetY : 0;
+
+    /// <summary>
+    /// Always <see cref="ImageSourceFormat.WidthXHeightLE"/> as required by ASCOM.
+    /// </summary>
+    public ImageSourceFormat ImageSourceFormat { get; } = ImageSourceFormat.WidthXHeightLE;
 
     #region Denormalised properties
     public string? Telescope { get; set; }

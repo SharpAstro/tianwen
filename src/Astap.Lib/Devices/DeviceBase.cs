@@ -21,7 +21,7 @@ public abstract record class DeviceBase(Uri DeviceUri)
     public static readonly string CoverCalibratorType = CoverCalibrator;
     public static readonly string TelescopeType = Telescope;
     public static readonly string FocuserType = Focuser;
-    public static readonly string FilterWheelType = nameof(FilterWheel);
+    public static readonly string FilterWheelType = FilterWheel;
     public static readonly string SwitchType = Switch;
 
     protected const string UriScheme = "device";

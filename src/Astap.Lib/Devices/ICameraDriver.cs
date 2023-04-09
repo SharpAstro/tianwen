@@ -12,6 +12,10 @@ public interface ICameraDriver : IDeviceDriver
 
     bool CanGetCoolerOn { get; }
 
+    bool CanSetCoolerOn { get; }
+
+    bool CanGetCCDTemperature { get; }
+
     bool CanSetCCDTemperature { get; }
 
     bool CanGetHeatsinkTemperature { get; }
@@ -21,6 +25,8 @@ public interface ICameraDriver : IDeviceDriver
     bool CanAbortExposure { get; }
 
     bool CanFastReadout { get; }
+
+    bool CanSetBitDepth { get; }
 
     /// <summary>
     /// True if <see cref="Gain"/> value is supported. Exclusive with <see cref="UsesGainMode"/>.
@@ -46,13 +52,45 @@ public interface ICameraDriver : IDeviceDriver
 
     double PixelSizeY { get; }
 
-    int BinX { get; }
+    /// <summary>
+    /// Returns the maximum allowed binning for the X camera axis.
+    /// </summary>
+    short MaxBinX { get; }
 
-    int BinY { get; }
+    /// <summary>
+    /// Returns the maximum allowed binning for the Y camera axis.
+    /// </summary>
+    short MaxBinY { get; }
 
-    int StartX { get; }
+    /// <summary>
+    /// Sets the binning factor for the X axis, also returns the current value.
+    /// </summary>
+    int BinX { get; set; }
 
-    int StartY { get; }
+    /// <summary>
+    /// Sets the binning factor for the Y axis, also returns the current value.
+    /// </summary>
+    int BinY { get; set; }
+
+    /// <summary>
+    /// Sets the subframe start position for the X axis (0 based) and returns the current value.
+    /// </summary>
+    int StartX { get; set; }
+
+    /// <summary>
+    /// Sets the subframe start position for the Y axis (0 based). Also returns the current value.
+    /// </summary>
+    int StartY { get; set; }
+
+    /// <summary>
+    /// Returns the width of the camera chip in unbinned pixels or a value smaller than 0 when not initialised.
+    /// </summary>
+    int CameraXSize { get; }
+
+    /// <summary>
+    /// Returns the height of the camera chip in unbinned pixels or a value smaller than 0 when not initialised.
+    /// </summary>
+    int CameraYSize { get; }
 
     string? ReadoutMode { get; set; }
 
@@ -81,7 +119,11 @@ public interface ICameraDriver : IDeviceDriver
     /// </summary>
     double CCDTemperature { get; }
 
-    BitDepth? BitDepth { get; }
+    /// <summary>
+    /// Returns bit depth, usually <see cref="BitDepth.Int8"/> or <see cref="BitDepth.Int16"/> or <see langword="null"/> if camera is not initialised.
+    /// Will throw if <see cref="CanSetBitDepth"/> is <see langword="false" /> and an attempt to set value is made.
+    /// </summary>
+    BitDepth? BitDepth { get; set; }
 
     short Gain { get; set; }
 
@@ -129,6 +171,8 @@ public interface ICameraDriver : IDeviceDriver
 
     IEnumerable<string> Offsets { get; }
 
+    double ExposureResolution { get; }
+
     void StartExposure(TimeSpan duration, bool light);
 
     /// <summary>
@@ -140,6 +184,21 @@ public interface ICameraDriver : IDeviceDriver
     /// Should only be called when <see cref="CanAbortExposure"/> is true.
     /// </summary>
     void AbortExposure();
+
+    /// <summary>
+    /// Reports the maximum ADU value the camera can produce.
+    /// </summary>
+    int MaxADU { get; }
+
+    /// <summary>
+    /// Reports the full well capacity of the camera in electrons, at the current camera settings (binning, SetupDialog settings, etc.)
+    /// </summary>
+    double FullWellCapacity { get; }
+
+    /// <summary>
+    /// Returns the gain of the camera in photoelectrons per A/D unit.
+    /// </summary>
+    double ElectronsPerADU { get; }
 
     DateTime LastExposureStartTime { get; }
 
@@ -161,9 +220,12 @@ public interface ICameraDriver : IDeviceDriver
 
     CameraState CameraState { get; }
 
+    ImageSourceFormat ImageSourceFormat { get; }
+
     Image? Image => Connected && ImageReady && ImageData is { Length: > 0 } data && BitDepth is { } bitDepth && bitDepth.IsIntegral()
         ? DataToImage(
             data,
+            ImageSourceFormat,
             bitDepth,
             Offset,
             new ImageMeta(
@@ -188,14 +250,15 @@ public interface ICameraDriver : IDeviceDriver
         : null;
 
     /// <summary>
-    /// TODO: assumes width x height arrays and assumes little endian.
+    /// Returns an <see cref="Image"/> by transposing and converting image source data if required to Height X Width X 32-bit floats.
     /// </summary>
     /// <param name="sourceData">2d image array</param>
+    /// <param name="sourceFormat">source format of <paramref name="sourceData"/></param>
     /// <param name="bitDepth">either 8 or 16, -32 for float is not yet supported</param>
     /// <param name="blackLevel">black level or offset</param>
     /// <param name="imageMeta">image meta data</param>
-    /// <returns>image from data, transformed to floats</returns>
-    public static Image DataToImage(int[,] sourceData, BitDepth bitDepth, float blackLevel, in ImageMeta imageMeta)
+    /// <returns>image from data, transposed and transformed to 32-bit floats</returns>
+    public static Image DataToImage(int[,] sourceData, ImageSourceFormat sourceFormat, BitDepth bitDepth, float blackLevel, in ImageMeta imageMeta)
     {
         var width = sourceData.GetLength(0);
         var height = sourceData.GetLength(1);
@@ -204,15 +267,36 @@ public interface ICameraDriver : IDeviceDriver
         var maxVal = 0f;
         var targetData = new float[height, width];
 
-        for (var h = 0; h < height; h++)
+        switch (sourceFormat)
         {
-            int w = 0;
-            foreach (var val in span2d.GetColumn(h))
-            {
-                float valF = val;
-                targetData[h, w++] = valF;
-                maxVal = MathF.Max(valF, maxVal);
-            }
+            case ImageSourceFormat.WidthXHeightLE:
+                for (var h = 0; h < height; h++)
+                {
+                    int w = 0;
+                    foreach (var val in span2d.GetColumn(h))
+                    {
+                        float valF = val;
+                        targetData[h, w++] = valF;
+                        maxVal = MathF.Max(valF, maxVal);
+                    }
+                }
+                break;
+
+            case ImageSourceFormat.HeightXWidthLE:
+                for (var h = 0; h < height; h++)
+                {
+                    for (var w = 0; w < width; w++)
+                    {
+                        float valF = sourceData[h, w];
+                        targetData[h, w] = valF;
+                        maxVal = MathF.Max(valF, maxVal);
+                    }
+                }
+                break;
+
+
+            default:
+                throw new ArgumentException($"Source format {sourceFormat} is not supported!", nameof(sourceFormat));
         }
 
         return new Image(targetData, width, height, bitDepth, maxVal, blackLevel, imageMeta);
