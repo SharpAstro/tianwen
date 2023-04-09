@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Astap.Lib.Imaging;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -276,7 +277,7 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
         }
     }
 
-    public int[,]? ImageData => Connected && _comObject?.ImageArray is int[,] intArray ? intArray : null;
+    public Float32HxWImageData? ImageData => Connected && _comObject?.ImageArray is int[,] intArray ? Float32HxWImageData.FromWxHImageData(intArray) : null;
 
     public bool ImageReady => Connected && _comObject?.ImageReady is bool imageReady && imageReady;
 
@@ -370,11 +371,6 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
     public int BayerOffsetX => Connected && _comObject?.BayerOffsetX is int bayerOffsetX ? bayerOffsetX : 0;
 
     public int BayerOffsetY => Connected && _comObject?.BayerOffsetY is int bayerOffsetY ? bayerOffsetY : 0;
-
-    /// <summary>
-    /// Always <see cref="ImageSourceFormat.WidthXHeightLE"/> as required by ASCOM.
-    /// </summary>
-    public ImageSourceFormat ImageSourceFormat { get; } = ImageSourceFormat.WidthXHeightLE;
 
     #region Denormalised properties
     public string? Telescope { get; set; }
