@@ -2,7 +2,7 @@
 
 namespace Astap.Lib.Devices;
 
-public enum BitDepth : sbyte
+public enum BitDepth
 {
     Int8 = 8,
     Int16 = 16,
@@ -26,6 +26,8 @@ public static class BitDepthEx
         BitDepth.Int64 => throw new ArgumentException($"{@this} is not supported or too large"),
         _ => int.MinValue // unknown
     };
+
+    public static int BitSize(this BitDepth @this) => Math.Abs((int)@this);
 
     public static BitDepth? FromValue(int value) => Enum.IsDefined(typeof(BitDepth), value) ? (BitDepth)value : null;
 }
