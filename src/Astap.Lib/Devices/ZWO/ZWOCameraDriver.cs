@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
+using ZWOptical.ASISDK;
 using static ZWOptical.ASISDK.ASICameraDll2;
 using static ZWOptical.ASISDK.ASICameraDll2.ASI_BOOL;
 using static ZWOptical.ASISDK.ASICameraDll2.ASI_ERROR_CODE;
@@ -11,9 +12,45 @@ namespace Astap.Lib.Devices.ZWO;
 
 public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriver
 {
+    const int IMAGE_STATE_NO_IMG = 0;
+    const int IMAGE_STATE_READY_TO_DOWNLOAD = 1;
+    const int IMAGE_STATE_DOWNLOADED = 2;
+
     private ExposureSettings _cameraSettings;
-    private ExposureSettings _snapshotSettings;
+    private ExposureSettings _exposureSettings;
     private IReadOnlySet<BitDepth> _supportedBitDepth = ImmutableHashSet.Create<BitDepth>();
+
+    /// <summary>
+    /// If fast readout is true, then high speed mode will be enabled on next exposure.
+    /// </summary>
+    private volatile bool _fastReadout = false;
+
+    /// <summary>
+    /// Holds currently connected camera info
+    /// </summary>
+    private ASICameraDll2.ASI_CAMERA_INFO _camInfo;
+
+    /// <summary>
+    /// Camera state
+    /// </summary>
+    private volatile CameraState _camState = CameraState.Idle;
+
+    /// <summary>
+    /// Holds a native (COM) buffer that can be filled by the native ASI SDK.
+    /// </summary>
+    private IntPtr _nativeBuffer;
+
+    /// <summary>
+    /// Size of the <see cref="_nativeBuffer"/>. Non-positive size means no buffer allocated.
+    /// </summary>
+    private int _nativeBufferSize = -1;
+
+    // Initialise variables to hold values required for functionality tested by Conform
+
+    private DateTime _exposureStart = DateTime.MinValue;
+    private double? _camLastExposureDuration;
+    private int _camImageReady = 0;
+    private int[,]? _camImageArray;
 
     public ZWOCameraDriver(ZWODevice device) : base(device)
     {
@@ -50,6 +87,8 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
                 CanGetCoolerOn = isCoolerCam;
                 CanSetCoolerOn = isCoolerCam;
 
+                CanFastReadout = TryGetControlRange(camInfo.CameraID, ASI_CONTROL_TYPE.ASI_HIGH_SPEED_MODE, out _, out _);
+
                 try
                 {
                     CanGetHeatsinkTemperature = !double.IsNaN(HeatSinkTemperature);
@@ -80,6 +119,7 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
                 _cameraSettings = new(0, 0, CameraXSize  = camInfo.MaxWidth, CameraYSize = camInfo.MaxHeight, 1, Devices.BitDepth.Int8);
                 PixelSizeX = PixelSizeY = camInfo.PixelSize;
                 ElectronsPerADU = camInfo.ElecPerADU is var elecPerADU and > 0f ? elecPerADU : double.NaN;
+                ADCBitDepth = camInfo.BitDepth;
 
                 // update supported bidepth set
                 {
@@ -125,6 +165,8 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
             // TODO initalise stuff
         }
     }
+
+    private int ADCBitDepth { get; set; } = int.MinValue;
 
     public override string? DriverVersion => ASIGetSDKVersion();
 
@@ -236,13 +278,13 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
 
     public bool CanSetCCDTemperature { get; private set; }
 
-    public bool CanStopExposure => true;
+    public bool CanStopExposure { get; } = true;
 
-    public bool CanAbortExposure { get; private set; }
+    public bool CanAbortExposure { get; } = true;
 
     public bool CanFastReadout { get; private set; }
 
-    public bool CanSetBitDepth { get; } = true;
+    public bool CanSetBitDepth => _supportedBitDepth.Count > 1;
 
     public bool UsesGainValue { get; private set; }
 
@@ -436,11 +478,27 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
 
     public double ExposureResolution { get; } = 1E-06;
 
-    public int MaxADU => Connected ? _cameraSettings.BitDepth.MaxIntValue() : int.MinValue;
+    public int MaxADU
+    {
+        get
+        {
+            if (Connected && _cameraSettings.BitDepth.IsIntegral() && _cameraSettings.BitDepth.BitSize() is { } bitSize and > 0)
+            {
+                return bitSize switch
+                {
+                    8 => byte.MaxValue,
+                    // return true ADC size if available
+                    16 => BitDepthEx.FromValue(ADCBitDepth) is { } adcBitDepth ? adcBitDepth.MaxIntValue() : ushort.MaxValue,
+                    _ => int.MinValue
+                };
+            }
+            return int.MinValue;
+        }
+    }
 
     public double ElectronsPerADU { get; private set; } = double.NaN;
 
-    public double FullWellCapacity => ElectronsPerADU * 65536.0;
+    public double FullWellCapacity => ElectronsPerADU * MaxADU;
 
     public void AbortExposure() => StopExposure();
 

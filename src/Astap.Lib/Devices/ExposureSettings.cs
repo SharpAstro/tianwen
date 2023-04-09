@@ -4,12 +4,12 @@ namespace Astap.Lib.Devices;
 
 public readonly struct ExposureSettings
 {
-    public ExposureSettings(Index startX, Index startY, Index width, Index height, byte bin, BitDepth bitDepth)
+    public ExposureSettings(int startX, int startY, int width, int height, byte bin, BitDepth bitDepth)
     {
-        StartX = startX.Value;
-        StartY = startY.Value;
-        Width = width.Value;
-        Height = height.Value;
+        StartX = startX;
+        StartY = startY;
+        Width = width;
+        Height = height;
         Bin = bin;
         BitDepth = bitDepth;
     }
@@ -22,16 +22,16 @@ public readonly struct ExposureSettings
     public byte Bin { get; }
     public BitDepth BitDepth { get; }
 
-    public static void WithStartX(ref ExposureSettings @this, Index startX)
+    public static void WithStartX(ref ExposureSettings @this, int startX)
         => @this = new ExposureSettings(startX, @this.StartY, @this.Width, @this.Height, @this.Bin, @this.BitDepth);
 
-    public static void WithStartY(ref ExposureSettings @this, Index startY)
+    public static void WithStartY(ref ExposureSettings @this, int startY)
         => @this = new ExposureSettings(@this.StartX, startY, @this.Width, @this.Height, @this.Bin, @this.BitDepth);
 
-    public static void WithWidth(ref ExposureSettings @this, Index width)
+    public static void WithWidth(ref ExposureSettings @this, int width)
         => @this = new ExposureSettings(@this.StartX, @this.StartY, width, @this.Height, @this.Bin, @this.BitDepth);
 
-    public static void WithHeight(ref ExposureSettings @this, Index height)
+    public static void WithHeight(ref ExposureSettings @this, int height)
         => @this = new ExposureSettings(@this.StartX, @this.StartY, @this.Width, height, @this.Bin, @this.BitDepth);
 
     public static void WithBin(ref ExposureSettings @this, byte bin)
