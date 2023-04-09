@@ -96,7 +96,7 @@ public interface ICameraDriver : IDeviceDriver
 
     bool FastReadout { get; set; }
 
-    int[,]? ImageData { get; }
+    Float32HxWImageData? ImageData { get; }
 
     bool ImageReady { get; }
 
@@ -220,12 +220,10 @@ public interface ICameraDriver : IDeviceDriver
 
     CameraState CameraState { get; }
 
-    ImageSourceFormat ImageSourceFormat { get; }
-
-    Image? Image => Connected && ImageReady && ImageData is { Length: > 0 } data && BitDepth is { } bitDepth && bitDepth.IsIntegral()
+    Image? Image => Connected && ImageReady && ImageData is ({ Length: > 0 } data, { } maxVal) && BitDepth is { } bitDepth && bitDepth.IsIntegral()
         ? DataToImage(
             data,
-            ImageSourceFormat,
+            maxVal,
             bitDepth,
             Offset,
             new ImageMeta(
@@ -250,55 +248,14 @@ public interface ICameraDriver : IDeviceDriver
         : null;
 
     /// <summary>
-    /// Returns an <see cref="Image"/> by transposing and converting image source data if required to Height X Width X 32-bit floats.
+    /// Returns an immutable <see cref="Image"/> from source data in height x width format.
     /// </summary>
-    /// <param name="sourceData">2d image array</param>
-    /// <param name="sourceFormat">source format of <paramref name="sourceData"/></param>
-    /// <param name="bitDepth">either 8 or 16, -32 for float is not yet supported</param>
+    /// <param name="data">2d image array</param>
+    /// <param name="maxVal">max scalar value of <paramref name="data"/></param>
+    /// <param name="bitDepth">bit depth</param>
     /// <param name="blackLevel">black level or offset</param>
     /// <param name="imageMeta">image meta data</param>
     /// <returns>image from data, transposed and transformed to 32-bit floats</returns>
-    public static Image DataToImage(int[,] sourceData, ImageSourceFormat sourceFormat, BitDepth bitDepth, float blackLevel, in ImageMeta imageMeta)
-    {
-        var width = sourceData.GetLength(0);
-        var height = sourceData.GetLength(1);
-        var span2d = sourceData.AsSpan2D();
-
-        var maxVal = 0f;
-        var targetData = new float[height, width];
-
-        switch (sourceFormat)
-        {
-            case ImageSourceFormat.WidthXHeightLE:
-                for (var h = 0; h < height; h++)
-                {
-                    int w = 0;
-                    foreach (var val in span2d.GetColumn(h))
-                    {
-                        float valF = val;
-                        targetData[h, w++] = valF;
-                        maxVal = MathF.Max(valF, maxVal);
-                    }
-                }
-                break;
-
-            case ImageSourceFormat.HeightXWidthLE:
-                for (var h = 0; h < height; h++)
-                {
-                    for (var w = 0; w < width; w++)
-                    {
-                        float valF = sourceData[h, w];
-                        targetData[h, w] = valF;
-                        maxVal = MathF.Max(valF, maxVal);
-                    }
-                }
-                break;
-
-
-            default:
-                throw new ArgumentException($"Source format {sourceFormat} is not supported!", nameof(sourceFormat));
-        }
-
-        return new Image(targetData, width, height, bitDepth, maxVal, blackLevel, imageMeta);
-    }
+    public static Image DataToImage(float[,] data, float maxVal, BitDepth bitDepth, float blackLevel, in ImageMeta imageMeta)
+        => new(data, data.GetLength(1), data.GetLength(0), bitDepth, maxVal, blackLevel, imageMeta);
 }

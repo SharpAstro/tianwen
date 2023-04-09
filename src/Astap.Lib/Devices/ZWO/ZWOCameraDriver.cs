@@ -1,9 +1,11 @@
-﻿using System;
+﻿using Astap.Lib.Imaging;
+using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
-using ZWOptical.ASISDK;
 using static ZWOptical.ASISDK.ASICameraDll2;
 using static ZWOptical.ASISDK.ASICameraDll2.ASI_BOOL;
 using static ZWOptical.ASISDK.ASICameraDll2.ASI_ERROR_CODE;
@@ -28,7 +30,7 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
     /// <summary>
     /// Holds currently connected camera info
     /// </summary>
-    private ASICameraDll2.ASI_CAMERA_INFO _camInfo;
+    private ASI_CAMERA_INFO _camInfo;
 
     /// <summary>
     /// Camera state
@@ -48,9 +50,9 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
     // Initialise variables to hold values required for functionality tested by Conform
 
     private DateTime _exposureStart = DateTime.MinValue;
-    private double? _camLastExposureDuration;
+    private TimeSpan _camLastExposureDuration;
     private int _camImageReady = 0;
-    private int[,]? _camImageArray;
+    private Float32HxWImageData? _camImageArray;
 
     public ZWOCameraDriver(ZWODevice device) : base(device)
     {
@@ -61,108 +63,111 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
     {
         if (e.Connected)
         {
-            ProcessDeviceInfo((in ASI_CAMERA_INFO camInfo) =>
+            ProcessDeviceInfo(InitCamera);
+        }
+    }
+
+    private void InitCamera(in ASI_CAMERA_INFO camInfo)
+    {
+        // set max binning values
+        {
+            short maxBin = 0;
+            foreach (var supportedBin in camInfo.SupportedBins)
             {
-                // set max binning values
+                if (supportedBin is 0)
                 {
-                    short maxBin = 0;
-                    foreach (var supportedBin in camInfo.SupportedBins)
-                    {
-                        if (supportedBin is 0)
-                        {
-                            break;
-                        }
-                        else if (supportedBin is <= short.MaxValue)
-                        {
-                            maxBin = Math.Max(maxBin, (short)supportedBin);
-                        }
-                    }
-                    MaxBinX = maxBin;
-                    MaxBinY = maxBin;
+                    break;
                 }
-
-                var isCoolerCam = camInfo.IsCoolerCam is ASI_TRUE;
-                CanSetCCDTemperature = isCoolerCam;
-                CanGetCoolerPower = isCoolerCam;
-                CanGetCoolerOn = isCoolerCam;
-                CanSetCoolerOn = isCoolerCam;
-
-                CanFastReadout = TryGetControlRange(camInfo.CameraID, ASI_CONTROL_TYPE.ASI_HIGH_SPEED_MODE, out _, out _);
-
-                try
+                else if (supportedBin is <= short.MaxValue)
                 {
-                    CanGetHeatsinkTemperature = !double.IsNaN(HeatSinkTemperature);
+                    maxBin = Math.Max(maxBin, (short)supportedBin);
                 }
-                catch
+            }
+            MaxBinX = maxBin;
+            MaxBinY = maxBin;
+        }
+
+        // update supported bidepth set
+        {
+            var supported = new HashSet<BitDepth>();
+
+            foreach (var videoFormat in camInfo.SupportedVideoFormat)
+            {
+                if (videoFormat == ASI_IMG_TYPE.ASI_IMG_END)
                 {
-                    CanGetHeatsinkTemperature = false;
+                    break;
                 }
-
-                try
+                else if (videoFormat.ToBitDepth() is { } bitDepth)
                 {
-                    CanGetCCDTemperature = !double.IsNaN(CCDTemperature);
+                    supported.Add(bitDepth);
                 }
-                catch
-                {
-                    CanGetCCDTemperature = false;
-                }
+            }
 
-                {
-                    OffsetMin = TryGetControlRange(ConnectionId, ASI_CONTROL_TYPE.ASI_BRIGHTNESS, out var min, out _) ? min : int.MinValue;
-                    OffsetMax = TryGetControlRange(ConnectionId, ASI_CONTROL_TYPE.ASI_BRIGHTNESS, out _, out var max) ? max : int.MinValue;
-                }
-                {
-                    GainMin = TryGetControlRange(ConnectionId, ASI_CONTROL_TYPE.ASI_GAIN, out var min, out _) && min <= short.MaxValue ? (short)min : short.MinValue;
-                    GainMax = TryGetControlRange(ConnectionId, ASI_CONTROL_TYPE.ASI_GAIN, out _, out var max) && max <= short.MaxValue ? (short)max : short.MinValue;
-                }
+            _ = Interlocked.Exchange(ref _supportedBitDepth, supported);
+        }
 
-                _cameraSettings = new(0, 0, CameraXSize  = camInfo.MaxWidth, CameraYSize = camInfo.MaxHeight, 1, Devices.BitDepth.Int8);
-                PixelSizeX = PixelSizeY = camInfo.PixelSize;
-                ElectronsPerADU = camInfo.ElecPerADU is var elecPerADU and > 0f ? elecPerADU : double.NaN;
-                ADCBitDepth = camInfo.BitDepth;
+        var isCoolerCam = camInfo.IsCoolerCam is ASI_TRUE;
+        CanSetCCDTemperature = isCoolerCam;
+        CanGetCoolerPower = isCoolerCam;
+        CanGetCoolerOn = isCoolerCam;
+        CanSetCoolerOn = isCoolerCam;
 
-                // update supported bidepth set
-                {
-                    var supported = new HashSet<BitDepth>();
+        CanFastReadout = TryGetControlRange(camInfo.CameraID, ASI_CONTROL_TYPE.ASI_HIGH_SPEED_MODE, out _, out _);
 
-                    foreach (var videoFormat in camInfo.SupportedVideoFormat)
-                    {
-                        if (videoFormat == ASI_IMG_TYPE.ASI_IMG_END)
-                        {
-                            break;
-                        }
-                        else if (videoFormat.ToBitDepth() is { } bitDepth)
-                        {
-                            supported.Add(bitDepth);
-                        }
-                    }
+        try
+        {
+            CanGetHeatsinkTemperature = !double.IsNaN(HeatSinkTemperature);
+        }
+        catch
+        {
+            CanGetHeatsinkTemperature = false;
+        }
 
-                    _ = Interlocked.Exchange(ref _supportedBitDepth, supported);
-                }
+        try
+        {
+            CanGetCCDTemperature = !double.IsNaN(CCDTemperature);
+        }
+        catch
+        {
+            CanGetCCDTemperature = false;
+        }
 
-                var initControlValues = new Dictionary<ASI_CONTROL_TYPE, int>
-                {
-                    [ASI_CONTROL_TYPE.ASI_FLIP] = 0,
-                    [ASI_CONTROL_TYPE.ASI_GAMMA] = 50,
-                    [ASI_CONTROL_TYPE.ASI_HIGH_SPEED_MODE] = 0,
-                    [ASI_CONTROL_TYPE.ASI_MONO_BIN] = 0,
-                    [ASI_CONTROL_TYPE.ASI_HARDWARE_BIN] = 0,
-                    [ASI_CONTROL_TYPE.ASI_WB_R] = 50,
-                    [ASI_CONTROL_TYPE.ASI_WB_B] = 50,
-                    [ASI_CONTROL_TYPE.ASI_PATTERN_ADJUST] = 0,
-                    [ASI_CONTROL_TYPE.ASI_BANDWIDTHOVERLOAD] = 50,
-                    [ASI_CONTROL_TYPE.ASI_ENABLE_DDR] = 1,
-                    [ASI_CONTROL_TYPE.ASI_GAIN] = (int)MathF.FusedMultiplyAdd(GainMax - GainMin, 0.4f, GainMin),
-                    [ASI_CONTROL_TYPE.ASI_BRIGHTNESS] = (int)MathF.FusedMultiplyAdd(OffsetMax - OffsetMin, 0.1f, OffsetMin),
-                };
+        {
+            OffsetMin = TryGetControlRange(ConnectionId, ASI_CONTROL_TYPE.ASI_BRIGHTNESS, out var min, out _) ? min : int.MinValue;
+            OffsetMax = TryGetControlRange(ConnectionId, ASI_CONTROL_TYPE.ASI_BRIGHTNESS, out _, out var max) ? max : int.MinValue;
+        }
+        {
+            GainMin = TryGetControlRange(ConnectionId, ASI_CONTROL_TYPE.ASI_GAIN, out var min, out _) && min <= short.MaxValue ? (short)min : short.MinValue;
+            GainMax = TryGetControlRange(ConnectionId, ASI_CONTROL_TYPE.ASI_GAIN, out _, out var max) && max <= short.MaxValue ? (short)max : short.MinValue;
+        }
 
-                foreach (var pair in initControlValues)
-                {
-                    // ignore
-                    _ = ASISetControlValue(camInfo.CameraID, pair.Key, pair.Value);
-                }
-            });
-            // TODO initalise stuff
+        var highestPossibleBitDepth = _supportedBitDepth.Where(x => x.IsIntegral()).OrderByDescending(x => x.BitSize()).First();
+        _cameraSettings = new(0, 0, CameraXSize  = camInfo.MaxWidth, CameraYSize = camInfo.MaxHeight, 1, highestPossibleBitDepth, fastReadout: false);
+        PixelSizeX = PixelSizeY = camInfo.PixelSize;
+        ElectronsPerADU = camInfo.ElecPerADU is var elecPerADU and > 0f ? elecPerADU : double.NaN;
+        ADCBitDepth = camInfo.BitDepth;
+
+
+        var initControlValues = new Dictionary<ASI_CONTROL_TYPE, int>
+        {
+            [ASI_CONTROL_TYPE.ASI_FLIP] = 0,
+            [ASI_CONTROL_TYPE.ASI_GAMMA] = 50,
+            [ASI_CONTROL_TYPE.ASI_HIGH_SPEED_MODE] = Convert.ToInt32(_cameraSettings.FastReadout),
+            [ASI_CONTROL_TYPE.ASI_MONO_BIN] = 0,
+            [ASI_CONTROL_TYPE.ASI_HARDWARE_BIN] = 0,
+            [ASI_CONTROL_TYPE.ASI_WB_R] = 50,
+            [ASI_CONTROL_TYPE.ASI_WB_B] = 50,
+            [ASI_CONTROL_TYPE.ASI_PATTERN_ADJUST] = 0,
+            [ASI_CONTROL_TYPE.ASI_BANDWIDTHOVERLOAD] = 50,
+            [ASI_CONTROL_TYPE.ASI_ENABLE_DDR] = 1,
+            [ASI_CONTROL_TYPE.ASI_GAIN] = (int)MathF.FusedMultiplyAdd(GainMax - GainMin, 0.4f, GainMin),
+            [ASI_CONTROL_TYPE.ASI_BRIGHTNESS] = (int)MathF.FusedMultiplyAdd(OffsetMax - OffsetMin, 0.1f, OffsetMin),
+        };
+
+        foreach (var pair in initControlValues)
+        {
+            // ignore
+            _ = ASISetControlValue(camInfo.CameraID, pair.Key, pair.Value);
         }
     }
 
@@ -357,9 +362,112 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
     public string? ReadoutMode { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
     public bool FastReadout { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
 
-    public int[,]? ImageData => throw new NotImplementedException();
+    public Float32HxWImageData? ImageData
+    {
+        get
+        {
+            switch (Interlocked.CompareExchange(ref _camImageReady, IMAGE_STATE_DOWNLOADED, IMAGE_STATE_READY_TO_DOWNLOAD))
+            {
+                case IMAGE_STATE_NO_IMG:
+                    throw new InvalidOperationException("Call to ImageArray before the first image has been taken!");
 
-    public bool ImageReady => throw new NotImplementedException();
+                case IMAGE_STATE_READY_TO_DOWNLOAD:
+                    var exposureSettings = _exposureSettings;
+                    _camState = CameraState.Download;
+
+                    return DownloadImage(exposureSettings);
+            }
+
+            return _camImageArray;
+        }
+    }
+
+    Float32HxWImageData DownloadImage(in ExposureSettings exposureSettings)
+    {
+        var w = exposureSettings.Width;
+        var h = exposureSettings.Height;
+        var nativeBufferAddr = Interlocked.CompareExchange(ref _nativeBuffer, IntPtr.Zero, IntPtr.Zero);
+        var nativeBufferSize = Interlocked.CompareExchange(ref _nativeBufferSize, -1, -1);
+
+        if (nativeBufferAddr == IntPtr.Zero)
+        {
+            throw new InvalidOperationException("No native image array present!");
+        }
+
+        var expBufferSize = CalculateBufferSize(exposureSettings);
+        if (nativeBufferSize < expBufferSize)
+        {
+            throw new InvalidOperationException($"Native buffer size {nativeBufferSize} smaller than required {expBufferSize}");
+        }
+
+        var dataAfterExpErrorCode = ASIGetDataAfterExp(_camInfo.CameraID, nativeBufferAddr, expBufferSize);
+        if (dataAfterExpErrorCode is not ASI_SUCCESS)
+        {
+            throw new InvalidOperationException($"Getting data after exposure returned {dataAfterExpErrorCode} w={w} h={h} bit={exposureSettings.BitDepth}");
+        }
+
+        var cachedArray = Interlocked.Exchange(ref _camImageArray, null);
+        var (data, maxValue) = cachedArray?.Data is null || cachedArray.Data.GetLength(0) != h || cachedArray.Data.GetLength(1) != w
+            ? new(new float[h, w], 0f)
+            : cachedArray;
+
+        switch (exposureSettings.BitDepth.BitSize())
+        {
+            case 8:
+                var bytes = new byte[w * h];
+                Marshal.Copy(nativeBufferAddr, bytes, 0, bytes.Length);
+                for (var i = 0; i < h; i++)
+                {
+                    for (var j = 0; j < w; j++)
+                    {
+                        maxValue = MathF.Max(data[i, j] = bytes[(w * i) + j], maxValue);
+                    }
+                }
+                break;
+
+            case 16:
+                var shorts = new short[w * h];
+                Marshal.Copy(nativeBufferAddr, shorts, 0, shorts.Length);
+                for (var i = 0; i < h; i++)
+                {
+                    for (var j = 0; j < w; j++)
+                    {
+                        maxValue = MathF.Max(data[i, j] = shorts[(w * i) + j], maxValue);
+                    }
+                }
+                break;
+
+            default:
+                throw new InvalidOperationException($"Cannot handle bit depth {exposureSettings.BitDepth}");
+        }
+
+        // put the new array back
+        var array = new Float32HxWImageData(data, maxValue);
+        _ = Interlocked.CompareExchange(ref _camImageArray, array, null);
+        // finished downloading
+        _camState = CameraState.Idle;
+
+        return array;
+    }
+
+    public bool ImageReady
+    {
+        get
+        {
+            if (!Connected)
+            {
+                return false;
+            }
+            else if (CameraState is CameraState.Error)
+            {
+                return false;
+            }
+
+            var isReady = IMAGE_STATE_NO_IMG != Interlocked.CompareExchange(ref _camImageReady, IMAGE_STATE_NO_IMG, IMAGE_STATE_NO_IMG);
+
+            return isReady;
+        }
+    }
 
     public bool CoolerOn
     {
@@ -466,15 +574,40 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
 
     public TimeSpan LastExposureDuration => throw new NotImplementedException();
 
-    public SensorType SensorType => throw new NotImplementedException();
+    public SensorType SensorType { get; private set; }
 
     public int BayerOffsetX => throw new NotImplementedException();
 
     public int BayerOffsetY => throw new NotImplementedException();
 
-    public CameraState CameraState => throw new NotImplementedException();
+    public CameraState CameraState
+    {
+        get
+        {
+            if (_camState is CameraState.Exposing && ASIGetExpStatus(_camInfo.CameraID, out var snapStatus) is ASI_SUCCESS)
+            {
+                switch (snapStatus)
+                {
+                    case ASI_EXPOSURE_STATUS.ASI_EXP_IDLE:
+                    case ASI_EXPOSURE_STATUS.ASI_EXP_FAILED:
+                        _camState = CameraState.Idle;
+                        Interlocked.Exchange(ref _camImageReady, IMAGE_STATE_NO_IMG);
+                        break;
 
-    public ImageSourceFormat ImageSourceFormat { get; } = ImageSourceFormat.HeightXWidthLE;
+                    case ASI_EXPOSURE_STATUS.ASI_EXP_SUCCESS:
+                        _camState = CameraState.Idle;
+                        Interlocked.CompareExchange(ref _camImageReady, IMAGE_STATE_READY_TO_DOWNLOAD, IMAGE_STATE_NO_IMG);
+                        break;
+
+                    case ASI_EXPOSURE_STATUS.ASI_EXP_WORKING:
+                        _camState = CameraState.Exposing;
+                        break;
+                }
+            }
+
+            return _camState;
+        }
+    }
 
     public double ExposureResolution { get; } = 1E-06;
 
@@ -504,12 +637,162 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
 
     public void StartExposure(TimeSpan duration, bool light)
     {
-        throw new NotImplementedException();
+        var settingsSnapshot = _cameraSettings;
+
+        if (duration < TimeSpan.Zero) throw new ArgumentOutOfRangeException(nameof(duration), duration, "0.0 upwards");
+
+        int durationInNanoSecs;
+        if (TryGetControlRange(ConnectionId, ASI_CONTROL_TYPE.ASI_EXPOSURE, out var min, out var max))
+        {
+            durationInNanoSecs = Math.Min(max, Math.Max(min, (int)(duration.TotalMilliseconds * 1000)));
+        }
+        else
+        {
+            throw new ArgumentOutOfRangeException(nameof(duration), duration, "Could not find min,max");
+        }
+
+        var getROIErrorCode = ASIGetROIFormat(_camInfo.CameraID, out var currentWidth, out var currentHeight, out var currentBin, out var currentImgType);
+        var getStartXYErrorCode = ASIGetStartPos(_camInfo.CameraID, out var currentStartX, out var currentStartY);
+
+        // check if any parameters that require stopping expore changed
+        bool bitDepthChanged;
+        if (getROIErrorCode is ASI_SUCCESS && getStartXYErrorCode is ASI_SUCCESS)
+        {
+            bitDepthChanged = currentImgType.ToBitDepth() != settingsSnapshot.BitDepth;
+
+            if (bitDepthChanged
+                || currentBin != BinX
+                || currentBin != BinY
+                || currentWidth != settingsSnapshot.Width
+                || currentHeight != settingsSnapshot.Height
+                || currentStartX != settingsSnapshot.StartX
+                || currentStartY != settingsSnapshot.StartY)
+            {
+                StopExposure();
+
+                var setROIErrorCode = ASISetROIFormat(_camInfo.CameraID, settingsSnapshot.Width, settingsSnapshot.Height, BinX, settingsSnapshot.BitDepth.ToASIImageType());
+                var setStartXYErrorCode = ASISetStartPos(_camInfo.CameraID, settingsSnapshot.StartX, settingsSnapshot.StartY);
+                if (setROIErrorCode != ASI_ERROR_CODE.ASI_SUCCESS || setStartXYErrorCode != ASI_ERROR_CODE.ASI_SUCCESS)
+                {
+                    _camState = CameraState.Error;
+                    return;
+                }
+            }
+        }
+        else
+        {
+            _camState = CameraState.Error;
+            return;
+        }
+
+        // reallocate buffer if required
+        int bufferSize = CalculateBufferSize(_cameraSettings);
+        var existingBufferAddr = Interlocked.CompareExchange(ref _nativeBuffer, IntPtr.Zero, IntPtr.Zero);
+        var existingBufferSize = Interlocked.CompareExchange(ref _nativeBufferSize, -1, -1);
+
+        if (bitDepthChanged || (existingBufferAddr == IntPtr.Zero) || (existingBufferSize != bufferSize))
+        {
+            // return if reallocation fails
+            if (!AllocateNativeBuffer(bufferSize))
+            {
+                return;
+            }
+        }
+
+        // check if we need to update exposure time
+        // TODO: Support auto-exposure
+        var getExposureErrorCode = ASIGetControlValue(_camInfo.CameraID, ASI_CONTROL_TYPE.ASI_EXPOSURE, out int currentExposure, out _);
+        if (getExposureErrorCode == ASI_ERROR_CODE.ASI_SUCCESS)
+        {
+            if (currentExposure != durationInNanoSecs)
+            {
+                var setExposureErrorCode = ASISetControlValue(_camInfo.CameraID, ASI_CONTROL_TYPE.ASI_EXPOSURE, durationInNanoSecs);
+                if (setExposureErrorCode != ASI_ERROR_CODE.ASI_SUCCESS)
+                {
+                    _camState = CameraState.Error;
+                    return;
+                }
+            }
+        }
+        else
+        {
+            _camState = CameraState.Error;
+            return;
+        }
+
+        var startExposureErrorCode =  ASIStartExposure(_camInfo.CameraID, light ? ASI_FALSE : ASI_TRUE);
+        if (startExposureErrorCode is ASI_SUCCESS)
+        {
+            _camState = CameraState.Exposing;
+            _camLastExposureDuration = duration;
+            _exposureStart = DateTime.UtcNow;
+            // ensure that on image readout we use the settings that the image was exposed with
+            _exposureSettings = settingsSnapshot;
+            Interlocked.Exchange(ref _camImageReady, IMAGE_STATE_NO_IMG);
+        }
+        else
+        {
+            _camState = CameraState.Error;
+            return;
+        }
     }
+
+    /// <summary>
+    /// Allocates memory from the COM task scheduler.
+    /// where the latter in turn is based on <seealso cref="ReadoutMode"/>.
+    /// </summary>
+    /// <param name="bufferSize">new buffer size in bytes</param>
+    /// <returns>True if a buffer is allocated.</returns>
+    private bool AllocateNativeBuffer(int bufferSize)
+    {
+        // deallocate existing buffer (if any)
+        DisposeNativeBuffer();
+
+        if (bufferSize <= 0)
+        {
+            // escape if we are not properly initialised
+            return false;
+        }
+        var newBuffer = Marshal.AllocCoTaskMem(bufferSize);
+
+        // deallocate this buffer if it was not the one that was inserted
+        if (Interlocked.CompareExchange(ref _nativeBuffer, newBuffer, IntPtr.Zero) != IntPtr.Zero)
+        {
+            Marshal.FreeCoTaskMem(newBuffer);
+            return false;
+        }
+
+        Interlocked.Exchange(ref _nativeBufferSize, bufferSize);
+
+        return true;
+    }
+    private void DisposeNativeBuffer()
+    {
+        var buffer = Interlocked.CompareExchange(ref _nativeBuffer, IntPtr.Zero, _nativeBuffer);
+        if (buffer != IntPtr.Zero)
+        {
+            Marshal.FreeCoTaskMem(buffer);
+
+            Interlocked.Exchange(ref _nativeBufferSize, -1);
+        }
+    }
+
+    protected override void DisposeNative() => DisposeNativeBuffer();
+
+    static int CalculateBufferSize(in ExposureSettings settings) => settings.BitDepth.BitSize() / 8 * settings.Width * settings.Height;
 
     public void StopExposure()
     {
-        throw new NotImplementedException();
+        if (_camState == CameraState.Idle)
+        {
+            return;
+        }
+
+        if (ASIStopExposure(_camInfo.CameraID) is ASI_SUCCESS)
+        {
+            Interlocked.CompareExchange(ref _camImageReady, IMAGE_STATE_READY_TO_DOWNLOAD, IMAGE_STATE_NO_IMG);
+            _camState = CameraState.Idle;
+        }
     }
 
     #region Denormalised properties

@@ -145,11 +145,12 @@ public class ImageAnalyserTests
         const int BlackLevel = 1;
         var expTime = TimeSpan.FromSeconds(42);
         var fileName = $"image_data_snr-{snr_min}_stars-{expectedStars}";
-        var imageData = await SharedTestData.ExtractGZippedImageData(fileName, Width, Height);
+        var int16WxHData = await SharedTestData.ExtractGZippedImageData(fileName, Width, Height);
         var imageMeta = new ImageMeta(fileName, DateTime.UtcNow, expTime, "", 2.4f, 2.4f, 190, -1, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0, RowOrder.TopDown);
 
         // when
-        var image = ICameraDriver.DataToImage(imageData, ImageSourceFormat.WidthXHeightLE, BitDepth, BlackLevel, imageMeta);
+        var (float32HxWData, maxValue) = Float32HxWImageData.FromWxHImageData(int16WxHData);
+        var image = ICameraDriver.DataToImage(float32HxWData, maxValue, BitDepth, BlackLevel, imageMeta);
         var stars = image?.FindStars(snr_min: snr_min);
 
         // then

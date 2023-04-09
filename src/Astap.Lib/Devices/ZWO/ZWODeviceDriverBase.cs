@@ -13,6 +13,11 @@ public abstract class ZWODeviceDriverBase<TDeviceInfo> : IDeviceDriver
 
     public ZWODeviceDriverBase(ZWODevice device) => _device = device;
 
+    ~ZWODeviceDriverBase()
+    {
+        Dispose(false);
+    }
+
     private bool disposedValue;
 
     public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
@@ -91,11 +96,13 @@ public abstract class ZWODeviceDriverBase<TDeviceInfo> : IDeviceDriver
                 Connected = false;
             }
 
-            // TODO: free unmanaged resources (unmanaged objects) and override finalizer
-            // TODO: set large fields to null
+            DisposeNative();
+
             disposedValue = true;
         }
     }
+
+    protected abstract void DisposeNative();
 
     public void Dispose()
     {
