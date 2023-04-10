@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
+using System.Dynamic;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -85,6 +86,13 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
             }
             MaxBinX = maxBin;
             MaxBinY = maxBin;
+        }
+
+        // Bayer pattern
+        if (camInfo.IsCoolerCam is ASI_TRUE)
+        {
+            BayerOffsetX = camInfo.BayerPattern.BayerXOffset();
+            BayerOffsetY = camInfo.BayerPattern.BayerYOffset();
         }
 
         // update supported bidepth set
@@ -359,8 +367,26 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
 
     public int CameraYSize { get; private set; } = int.MinValue;
 
-    public string? ReadoutMode { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-    public bool FastReadout { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    /// <summary>
+    /// TODO: implement trigger
+    /// </summary>
+    public string? ReadoutMode
+    {
+        get => null;
+        set { }
+    }
+
+    public bool FastReadout
+    {
+        get => Connected && CanFastReadout && _cameraSettings.FastReadout;
+        set
+        {
+            if (Connected && CanFastReadout)
+            {
+                ExposureSettings.WithFastReadout(ref  _cameraSettings, value);
+            }
+        }
+    }
 
     public Float32HxWImageData? ImageData
     {
@@ -491,9 +517,29 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
             ? percentage
             : double.NaN;
 
-    public double SetCCDTemperature { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    public double SetCCDTemperature
+    {
+        get => Connected
+            && CanSetCCDTemperature
+            && ASIGetControlValue(ConnectionId, ASI_CONTROL_TYPE.ASI_TARGET_TEMP, out var val, out _) is ASI_SUCCESS
+                ? val
+                : double.NaN;
 
-    public double HeatSinkTemperature => throw new InvalidOperationException($"{nameof(HeatSinkTemperature)} is not implemented!");
+        set
+        {
+            if (Connected
+                && CanSetCCDTemperature
+                && TryGetControlRange(ConnectionId, ASI_CONTROL_TYPE.ASI_TARGET_TEMP, out var min, out var max)
+                && value >= min
+                && value <= max
+            )
+            {
+                ASISetControlValue(ConnectionId, ASI_CONTROL_TYPE.ASI_TARGET_TEMP, (int)value);
+            }
+        }
+    }
+
+    public double HeatSinkTemperature { get; } = double.NaN;
 
     public double CCDTemperature
         => ASIGetControlValue(ConnectionId, ASI_CONTROL_TYPE.ASI_TEMPERATURE, out var intTemp, out _) is ASI_SUCCESS ? intTemp * 0.1d : double.NaN;
@@ -570,15 +616,15 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
 
     public IEnumerable<string> Offsets => throw new InvalidOperationException($"{nameof(Offsets)} is not supported");
 
-    public DateTime LastExposureStartTime => throw new NotImplementedException();
+    public DateTime LastExposureStartTime => _exposureStart;
 
-    public TimeSpan LastExposureDuration => throw new NotImplementedException();
+    public TimeSpan LastExposureDuration => _camLastExposureDuration;
 
     public SensorType SensorType { get; private set; }
 
-    public int BayerOffsetX => throw new NotImplementedException();
+    public int BayerOffsetX { get; private set; } = int.MinValue;
 
-    public int BayerOffsetY => throw new NotImplementedException();
+    public int BayerOffsetY { get; private set; } = int.MinValue;
 
     public CameraState CameraState
     {

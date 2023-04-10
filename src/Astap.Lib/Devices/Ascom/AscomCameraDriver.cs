@@ -354,7 +354,7 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
     public double SetCCDTemperature
     {
-        get => Connected && _comObject?.SetCCDTemperature is double setCCDTemperature ? setCCDTemperature : double.NaN;
+        get => Connected && CanSetCCDTemperature && _comObject?.SetCCDTemperature is double setCCDTemperature ? setCCDTemperature : double.NaN;
         set
         {
             if (Connected && CanSetCCDTemperature && _comObject is { } obj)
