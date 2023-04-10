@@ -718,7 +718,7 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
 
                 var setROIErrorCode = ASISetROIFormat(_camInfo.CameraID, settingsSnapshot.Width, settingsSnapshot.Height, BinX, settingsSnapshot.BitDepth.ToASIImageType());
                 var setStartXYErrorCode = ASISetStartPos(_camInfo.CameraID, settingsSnapshot.StartX, settingsSnapshot.StartY);
-                if (setROIErrorCode != ASI_ERROR_CODE.ASI_SUCCESS || setStartXYErrorCode != ASI_ERROR_CODE.ASI_SUCCESS)
+                if (setROIErrorCode is not ASI_SUCCESS || setStartXYErrorCode is not ASI_SUCCESS)
                 {
                     _camState = CameraState.Error;
                     return;
@@ -748,12 +748,12 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
         // check if we need to update exposure time
         // TODO: Support auto-exposure
         var getExposureErrorCode = ASIGetControlValue(_camInfo.CameraID, ASI_CONTROL_TYPE.ASI_EXPOSURE, out int currentExposure, out _);
-        if (getExposureErrorCode == ASI_ERROR_CODE.ASI_SUCCESS)
+        if (getExposureErrorCode is ASI_SUCCESS)
         {
             if (currentExposure != durationInNanoSecs)
             {
                 var setExposureErrorCode = ASISetControlValue(_camInfo.CameraID, ASI_CONTROL_TYPE.ASI_EXPOSURE, durationInNanoSecs);
-                if (setExposureErrorCode != ASI_ERROR_CODE.ASI_SUCCESS)
+                if (setExposureErrorCode is not ASI_SUCCESS)
                 {
                     _camState = CameraState.Error;
                     return;
