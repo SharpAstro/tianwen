@@ -3,7 +3,6 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
-using System.Dynamic;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -181,7 +180,7 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
 
     private int ADCBitDepth { get; set; } = int.MinValue;
 
-    public override string? DriverVersion => ASIGetSDKVersion();
+    public override string? DriverVersion => ASIGetSDKVersion().ToString();
 
     public override string? Description => "ZWO Camera driver using C# SDK wrapper";
 
@@ -766,7 +765,8 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
             return;
         }
 
-        var startExposureErrorCode =  ASIStartExposure(_camInfo.CameraID, light ? ASI_FALSE : ASI_TRUE);
+        Func<int, ASI_ERROR_CODE> exposureFunc = light ? ASIStartLightExposure : ASIStartDarkExposure;
+        var startExposureErrorCode = exposureFunc(_camInfo.CameraID);
         if (startExposureErrorCode is ASI_SUCCESS)
         {
             _camState = CameraState.Exposing;

@@ -307,13 +307,20 @@ public class Session
 
     internal static void Finalise(Setup setup, SessionConfiguration configuration, IExternal external, CancellationToken cancellationToken)
     {
-        external.LogInfo("Executing session run finaliser: Stop tracking, disconnect guider, close covers, cool to ambient temp, turn off cooler, park scope.");
+        external.LogInfo("Executing session run finaliser: Stop guiding, stop tracking, disconnect guider, close covers, cool to ambient temp, turn off cooler, park scope.");
 
         var mount = setup.Mount;
         var guider = setup.Guider;
 
         var maybeCoversClosed = null as bool?;
         var maybeCooledCamerasToAmbient = null as bool?;
+
+        var guiderStopped = Catch(() =>
+        {
+            guider.Driver.StopCapture(sleep: external.Sleep);
+            return !guider.Driver.IsGuiding();
+        }, external);
+
         var trackingStopped = Catch(() => mount.Driver.CanSetTracking && !(mount.Driver.Tracking = false), external);
 
         if (trackingStopped)
@@ -322,7 +329,7 @@ public class Session
             maybeCooledCamerasToAmbient ??= Catch(CoolCamerasToAmbient, external);
         }
 
-        var guiderStopped = Catch(() => !(guider.Driver.Connected = false), external);
+        var guiderDisconnected = Catch(() => !(guider.Driver.Connected = false), external);
 
         var parkInitiated = Catch(() => mount.Driver.CanPark && mount.Driver.Park(), external);
 
@@ -346,14 +353,18 @@ public class Session
         var coversClosed = maybeCoversClosed ??= Catch(CloseCovers, external);
         var cooledCamerasToAmbient = maybeCooledCamerasToAmbient ??= Catch(CoolCamerasToAmbient, external);
 
+        var mountDisconnected = Catch(() => !(mount.Driver.Connected = false), external);
+
         var shutdownReport = new Dictionary<string, bool>
         {
             ["Covers closed"] = coversClosed,
-            ["Stop tracking"] = trackingStopped,
-            ["Stop guider"] = guiderStopped,
+            ["Tracking stopped"] = trackingStopped,
+            ["Guider stopped"] = guiderStopped,
             ["Park initiated"] = parkInitiated,
             ["Park completed"] = parkCompleted,
-            ["Cooled up cameras"] = cooledCamerasToAmbient
+            ["Camera cooler at ambient"] = cooledCamerasToAmbient,
+            ["Guider disconnected"] = guiderDisconnected,
+            ["Mount disconnected"] = mountDisconnected
         };
 
         for (var i = 0; i < setup.Telescopes.Count; i++)
@@ -384,7 +395,7 @@ public class Session
 
         bool CoolCamerasToAmbient() => Session.CoolCamerasToAmbient(setup, configuration.CoolupRampInterval, external);
 
-        bool CloseCovers() => MoveTelescopeCoversToSate(setup, CoverStatus.Closed, external, cancellationToken);
+        bool CloseCovers() => MoveTelescopeCoversToSate(setup, CoverStatus.Closed, external, CancellationToken.None);
     }
 
     /// <summary>
@@ -875,11 +886,22 @@ public class Session
         }
     }
 
-    internal static bool MoveTelescopeCoversToSate(Setup setup, CoverStatus finalState, IExternal external, CancellationToken cancellationToken)
+    /// <summary>
+    /// Closes or opens telescope covers (if any). Also turns of a present calibrator when opening cover.
+    /// </summary>
+    /// <param name="setup">Telescope setup, used to enumerate each telescopes' <see cref="Telescope.Cover"/></param>
+    /// <param name="finalCoverState">One of <see cref="CoverStatus.Open"/> or <see cref="CoverStatus.Closed"/></param>
+    /// <param name="external">Uses <see cref="IExternal.Sleep(TimeSpan)"/> to wait for state transition.</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    /// <returns></returns>
+    /// <exception cref="ArgumentException"></exception>
+    internal static bool MoveTelescopeCoversToSate(Setup setup, CoverStatus finalCoverState, IExternal external, CancellationToken cancellationToken)
     {
         var count = setup.Telescopes.Count;
 
-        var commandSuccess = new bool[count];
+        var finalCoverStateReached = new bool[count];
+        var coversToWait = new List<int>();
+        var shouldOpen = finalCoverState is CoverStatus.Open;
 
         for (var i = 0; i < count; i++)
         {
@@ -887,46 +909,107 @@ public class Session
             {
                 cover.Driver.Connected = true;
 
-                if (cover.Driver.CoverState is CoverStatus.NotPresent || cover.Driver.CalibratorOff())
+                bool calibratorActionCompleted;
+                if (cover.Driver.CoverState is CoverStatus.NotPresent)
                 {
-                    external.LogInfo($"Calibrator {cover.Device.DisplayName} of telescope {i + 1} is off.");
-
-                    commandSuccess[i] = cover.Driver.CoverState == finalState || finalState switch
-                    {
-                        CoverStatus.Closed => cover.Driver.Close(),
-                        CoverStatus.Open => cover.Driver.Open(),
-                        _ => true
-                    };
+                    calibratorActionCompleted = true;
+                    finalCoverStateReached[i] = true;
+                }
+                else if (finalCoverState is CoverStatus.Open)
+                {
+                    calibratorActionCompleted = TurnOffCalibrator(cover, external, cancellationToken);
+                }
+                else if (finalCoverState is CoverStatus.Closed)
+                {
+                    calibratorActionCompleted = true;
                 }
                 else
                 {
-                    commandSuccess[i] = false;
+                    throw new ArgumentException($"Invalid final cover state {finalCoverState}, can only be open or closed", nameof(finalCoverState));
+                }
+
+                if (calibratorActionCompleted && !finalCoverStateReached[i])
+                {
+                    Func<bool> action = shouldOpen ? cover.Driver.Open : cover.Driver.Close;
+
+                    if (action())
+                    {
+                        coversToWait.Add(i);
+                    }
+                    else
+                    {
+                        external.LogError($"Failed to {(shouldOpen ? "open" : "close")} cover of telescope {(i + 1)}.");
+                    }
+                }
+                else if (!calibratorActionCompleted)
+                {
+                    external.LogError($"Failed to turn off calibrator of telescope {(i + 1)}, current state {cover.Driver.CalibratorState}");
                 }
             }
             else
             {
-                commandSuccess[i] = true;
+                finalCoverStateReached[i] = true;
             }
         }
 
-        var finalStateReached = new bool[count];
-        for (var i = 0; i < count; i++)
+        foreach (var i in coversToWait)
         {
             if (setup.Telescopes[i].Cover is { } cover)
             {
                 int failSafe = 0;
                 CoverStatus cs;
-                while (!(finalStateReached[i] = (cs = cover.Driver.CoverState) == finalState) && cs is CoverStatus.Moving or CoverStatus.Unknown && !cancellationToken.IsCancellationRequested && ++failSafe < MAX_FAILSAFE)
+                while ((finalCoverStateReached[i] = (cs = cover.Driver.CoverState) == finalCoverState) is false
+                    && cs is CoverStatus.Moving or CoverStatus.Unknown
+                    && !cancellationToken.IsCancellationRequested
+                    && ++failSafe < MAX_FAILSAFE
+                )
                 {
-                    external.LogInfo($"Cover {cover.Device.DisplayName} of telescope {i + 1} is still {cs} while reaching {finalState}, waiting.");
+                    external.LogInfo($"Cover {cover.Device.DisplayName} of telescope {i + 1} is still {cs} while reaching {finalCoverState}, waiting.");
                     external.Sleep(TimeSpan.FromSeconds(3));
                 }
 
-                finalStateReached[i] |= cover.Driver.CoverState == finalState;
+                var finalCoverStateAfterMoving = cover.Driver.CoverState;
+                finalCoverStateReached[i] |= finalCoverStateAfterMoving == finalCoverState;
+
+                if (!finalCoverStateReached[i])
+                {
+                    external.LogError($"Failed to {(shouldOpen ? "open" : "close")} cover of telescope {(i + 1)} after moving, current state {finalCoverStateAfterMoving}");
+                }
             }
         }
 
-        return Array.TrueForAll(finalStateReached, x => x);
+        return Array.TrueForAll(finalCoverStateReached, x => x);
+    }
+
+    internal static bool TurnOffCalibrator(Cover cover, IExternal external, CancellationToken cancellationToken)
+    {
+        var calState = cover.Driver.CalibratorState;
+
+        if (calState is CalibratorStatus.NotPresent or CalibratorStatus.Off)
+        {
+            return true;
+        }
+        else if (calState is CalibratorStatus.Unknown or CalibratorStatus.Error)
+        {
+            return false;
+        }
+        else
+        {
+            if (cover.Driver.CalibratorOff())
+            {
+                while ((calState = cover.Driver.CalibratorState) == CalibratorStatus.NotReady
+                    && !cancellationToken.IsCancellationRequested)
+                {
+                    external.Sleep(TimeSpan.FromSeconds(3));
+                }
+
+                return calState is CalibratorStatus.Off;
+            }
+            else
+            {
+                return false;
+            }
+        }
     }
 
     /// <summary>

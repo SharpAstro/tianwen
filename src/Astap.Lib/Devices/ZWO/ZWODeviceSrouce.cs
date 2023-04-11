@@ -16,7 +16,7 @@ public class ZWODeviceSrouce : IDeviceSource<ZWODevice>
         bool supportsCamera;
         try
         {
-            supportsCamera = !string.IsNullOrWhiteSpace(ASIGetSDKVersion());
+            supportsCamera = ASIGetSDKVersion().Major > 0;
         }
         catch
         {
