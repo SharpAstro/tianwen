@@ -92,7 +92,7 @@ public class AscomDeviceTests
         var allCameras = profile.RegisteredDevices(Camera);
         var simCameraDevice = allCameras.FirstOrDefault(e => e.DeviceId == "ASCOM.Simulator." + Camera);
 
-        // when
+        // when / then
         if (simCameraDevice?.TryInstantiateDriver(out ICameraDriver? driver) is true)
         {
             using (driver)
@@ -102,22 +102,14 @@ public class AscomDeviceTests
 
                 Thread.Sleep((int)TimeSpan.FromSeconds(0.5).TotalMilliseconds);
                 driver.ImageReady.ShouldBeTrue();
-                var imgData = driver.ImageData;
+                var (data, expectedMax) = driver.ImageData.ShouldNotBeNull();
 
-                var image = driver.Image;
-
-                // then
-                var expectedMax = 0;
-                foreach (var item in imgData.AsMemory().Span.Enumerate())
-                {
-                    expectedMax = Math.Max(item.Value, expectedMax);
-                }
+                var image = driver.Image.ShouldNotBeNull();
 
                 driver.DriverType.ShouldBe(Camera);
-                imgData.ShouldNotBeNull();
                 image.ShouldNotBeNull();
-                image.Width.ShouldBe(imgData.GetLength(0));
-                image.Height.ShouldBe(imgData.GetLength(1));
+                image.Width.ShouldBe(data.GetLength(0));
+                image.Height.ShouldBe(data.GetLength(1));
                 image.BitDepth.ShouldBe(driver.BitDepth.ShouldNotBeNull());
                 image.MaxValue.ShouldBeGreaterThan(0f);
                 image.MaxValue.ShouldBe(expectedMax);

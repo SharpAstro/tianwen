@@ -23,16 +23,6 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
     private IReadOnlySet<BitDepth> _supportedBitDepth = ImmutableHashSet.Create<BitDepth>();
 
     /// <summary>
-    /// If fast readout is true, then high speed mode will be enabled on next exposure.
-    /// </summary>
-    private volatile bool _fastReadout = false;
-
-    /// <summary>
-    /// Holds currently connected camera info
-    /// </summary>
-    private ASI_CAMERA_INFO _camInfo;
-
-    /// <summary>
     /// Camera state
     /// </summary>
     private volatile CameraState _camState = CameraState.Idle;
@@ -425,7 +415,7 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
             throw new InvalidOperationException($"Native buffer size {nativeBufferSize} smaller than required {expBufferSize}");
         }
 
-        var dataAfterExpErrorCode = ASIGetDataAfterExp(_camInfo.CameraID, nativeBufferAddr, expBufferSize);
+        var dataAfterExpErrorCode = ASIGetDataAfterExp(ConnectionId, nativeBufferAddr, expBufferSize);
         if (dataAfterExpErrorCode is not ASI_SUCCESS)
         {
             throw new InvalidOperationException($"Getting data after exposure returned {dataAfterExpErrorCode} w={w} h={h} bit={exposureSettings.BitDepth}");
@@ -629,7 +619,7 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
     {
         get
         {
-            if (_camState is CameraState.Exposing && ASIGetExpStatus(_camInfo.CameraID, out var snapStatus) is ASI_SUCCESS)
+            if (_camState is CameraState.Exposing && ASIGetExpStatus(ConnectionId, out var snapStatus) is ASI_SUCCESS)
             {
                 switch (snapStatus)
                 {
@@ -696,8 +686,8 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
             throw new ArgumentOutOfRangeException(nameof(duration), duration, "Could not find min,max");
         }
 
-        var getROIErrorCode = ASIGetROIFormat(_camInfo.CameraID, out var currentWidth, out var currentHeight, out var currentBin, out var currentImgType);
-        var getStartXYErrorCode = ASIGetStartPos(_camInfo.CameraID, out var currentStartX, out var currentStartY);
+        var getROIErrorCode = ASIGetROIFormat(ConnectionId, out var currentWidth, out var currentHeight, out var currentBin, out var currentImgType);
+        var getStartXYErrorCode = ASIGetStartPos(ConnectionId, out var currentStartX, out var currentStartY);
 
         // check if any parameters that require stopping expore changed
         bool bitDepthChanged;
@@ -715,8 +705,8 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
             {
                 StopExposure();
 
-                var setROIErrorCode = ASISetROIFormat(_camInfo.CameraID, settingsSnapshot.Width, settingsSnapshot.Height, BinX, settingsSnapshot.BitDepth.ToASIImageType());
-                var setStartXYErrorCode = ASISetStartPos(_camInfo.CameraID, settingsSnapshot.StartX, settingsSnapshot.StartY);
+                var setROIErrorCode = ASISetROIFormat(ConnectionId, settingsSnapshot.Width, settingsSnapshot.Height, BinX, settingsSnapshot.BitDepth.ToASIImageType());
+                var setStartXYErrorCode = ASISetStartPos(ConnectionId, settingsSnapshot.StartX, settingsSnapshot.StartY);
                 if (setROIErrorCode is not ASI_SUCCESS || setStartXYErrorCode is not ASI_SUCCESS)
                 {
                     _camState = CameraState.Error;
@@ -746,12 +736,12 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
 
         // check if we need to update exposure time
         // TODO: Support auto-exposure
-        var getExposureErrorCode = ASIGetControlValue(_camInfo.CameraID, ASI_CONTROL_TYPE.ASI_EXPOSURE, out int currentExposure, out _);
+        var getExposureErrorCode = ASIGetControlValue(ConnectionId, ASI_CONTROL_TYPE.ASI_EXPOSURE, out int currentExposure, out _);
         if (getExposureErrorCode is ASI_SUCCESS)
         {
             if (currentExposure != durationInNanoSecs)
             {
-                var setExposureErrorCode = ASISetControlValue(_camInfo.CameraID, ASI_CONTROL_TYPE.ASI_EXPOSURE, durationInNanoSecs);
+                var setExposureErrorCode = ASISetControlValue(ConnectionId, ASI_CONTROL_TYPE.ASI_EXPOSURE, durationInNanoSecs);
                 if (setExposureErrorCode is not ASI_SUCCESS)
                 {
                     _camState = CameraState.Error;
@@ -766,7 +756,7 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
         }
 
         Func<int, ASI_ERROR_CODE> exposureFunc = light ? ASIStartLightExposure : ASIStartDarkExposure;
-        var startExposureErrorCode = exposureFunc(_camInfo.CameraID);
+        var startExposureErrorCode = exposureFunc(ConnectionId);
         if (startExposureErrorCode is ASI_SUCCESS)
         {
             _camState = CameraState.Exposing;
@@ -834,7 +824,7 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
             return;
         }
 
-        if (ASIStopExposure(_camInfo.CameraID) is ASI_SUCCESS)
+        if (ASIStopExposure(ConnectionId) is ASI_SUCCESS)
         {
             Interlocked.CompareExchange(ref _camImageReady, IMAGE_STATE_READY_TO_DOWNLOAD, IMAGE_STATE_NO_IMG);
             _camState = CameraState.Idle;
