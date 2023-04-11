@@ -6,6 +6,7 @@ using Astap.Lib.Devices.Ascom;
 using Astap.Lib.Devices.Guider;
 using Astap.Lib.Sequencing;
 using Pastel;
+using ZWOptical.ASISDK;
 
 var cts = new CancellationTokenSource();
 Console.CancelKeyPress += Console_CancelKeyPress;
@@ -16,8 +17,6 @@ void Console_CancelKeyPress(object? sender, ConsoleCancelEventArgs e)
     cts.Cancel();
 }
 
-const string Camera = nameof(Camera);
-
 var argIdx = 0;
 var mountDeviceId = args.Length > argIdx ? args[argIdx++] : "ASCOM.DeviceHub.Telescope";
 var cameraDeviceId = args.Length > argIdx ? args[argIdx++] : "ASCOM.Simulator.Camera";
@@ -27,9 +26,11 @@ var expDuration = TimeSpan.FromSeconds(args.Length > 2 ? int.Parse(args[argIdx++
 var outputFolder = Directory.CreateDirectory(args.Length > 3 ? args[argIdx++] : Path.Combine(Directory.GetCurrentDirectory(), "Astap.Lib.TestCli", "Light")).FullName;
 var external = new ConsoleOutput(outputFolder);
 
+external.LogInfo($"SDK Version: {ASICameraDll2.ASIGetSDKVersion()}");
+
 var observations = new List<Observation>
 {
-    new Observation(new Target(19.5, -20, "Mercury", CatalogIndex.Mercury), DateTimeOffset.Now, TimeSpan.FromMinutes(100), false, TimeSpan.FromSeconds(20)),
+    // new Observation(new Target(19.5, -20, "Mercury", CatalogIndex.Mercury), DateTimeOffset.Now, TimeSpan.FromMinutes(100), false, TimeSpan.FromSeconds(20)),
     new Observation(new Target(5.5877777777777773, -5.389444444444444, "Orion Nebula", CatalogUtils.TryGetCleanedUpCatalogName("M42", out var catIdx) ? catIdx : null), DateTimeOffset.Now, TimeSpan.FromMinutes(100), false, TimeSpan.FromSeconds(20))
 };
 
