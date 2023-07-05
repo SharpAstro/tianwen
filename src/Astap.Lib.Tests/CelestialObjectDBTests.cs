@@ -350,7 +350,7 @@ public class CelestialObjectDBTests
                     var isBordering =
                         ConstellationBoundary.TryFindConstellation(ra_s, obj.Dec, out var const_s)
                         && ConstellationBoundary.TryFindConstellation(ra_l, obj.Dec, out var const_l)
-                        && (obj.Constellation.IsContainedWithin(const_s) || const_l.IsContainedWithin(const_l));
+                        && (obj.Constellation.IsContainedWithin(const_s) || obj.Constellation.IsContainedWithin(const_l));
 
                     isBordering.ShouldBeTrue($"{desc}: {obj.Constellation} is not contained within {calculatedConstellation} or any bordering");
                 }
