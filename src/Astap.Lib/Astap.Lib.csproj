@@ -6,6 +6,7 @@
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <AssemblyVersion>1.1.0.0</AssemblyVersion>
     <PackageID>Astap.Lib</PackageID>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <RepositoryUrl>https://github.com/sebgod/astap-lib.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
@@ -34,7 +35,8 @@
     <Compile Remove="Astrometry/Catalogs/*.json" />
     <EmbeddedResource Remove="Astrometry/Catalogs/*.json" />
     <EmbeddedResource Include="Astrometry/Catalogs/*.gz" />
-    <None Include="../../LICENSE" PackagePath="" Pack="True" />
+    <None Include="../../README.md" Pack="true" PackagePath="/"/>
+    <None Include="../../LICENSE" Pack="True" PackagePath="/" />
   </ItemGroup>
 
   <ItemGroup>
