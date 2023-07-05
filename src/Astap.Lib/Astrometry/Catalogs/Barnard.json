@@ -92,13 +92,14 @@
     "VMag": null
   },
   {
-    "MainId": "[DB2002b] G168.87-15.58",
+    "MainId": "LDN 1495A",
     "Ids": [
+      "LDN 1495A",
       "Barnard  10"
     ],
     "ObjType": "DNe",
-    "Ra": 64.67,
-    "Dec": 28.27,
+    "Ra": 64.65,
+    "Dec": 28.42,
     "VMag": null
   },
   {

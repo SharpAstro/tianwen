@@ -110,6 +110,16 @@
     "VMag": null
   },
   {
+    "MainId": "2MASS J05461134-0007550",
+    "Ids": [
+      "HH 1200"
+    ],
+    "ObjType": "Y*O",
+    "Ra": 86.54734993744,
+    "Dec": -0.13202190598,
+    "VMag": null
+  },
+  {
     "MainId": "HH   1",
     "Ids": [
       "HH    1"
