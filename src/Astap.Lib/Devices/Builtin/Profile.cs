@@ -21,7 +21,7 @@ public record class Profile(Uri DeviceUri)
     }
 
     public static Uri CreateProfileUri(Guid profileId, string name, ValueDictRO? values = null)
-        => new UriBuilder(UriScheme, nameof(Profile), -1, $"/{profileId:D}", $"?displayName={name}&values={EncodeValues(values ?? new ValueDict())}#{nameof(Profile)}").Uri;
+        => new UriBuilder(nameof(Profile), nameof(Profile), -1, $"/{profileId:D}", $"?values={EncodeValues(values ?? new ValueDict())}#{name}").Uri;
 
     private ValueDictRO? _valuesCache;
     public ValueDictRO Values

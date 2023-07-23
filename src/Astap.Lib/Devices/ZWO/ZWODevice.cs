@@ -5,7 +5,7 @@ namespace Astap.Lib.Devices.ZWO;
 public record class ZWODevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 {
     public ZWODevice(DeviceType deviceType, string deviceId, string displayName)
-        : this(new Uri($"{UriScheme}://{typeof(ZWODevice).Name}/{deviceId}?displayName={displayName}#{deviceType}"))
+        : this(new Uri($"{deviceType}://{typeof(ZWODevice).Name}/{deviceId}#{displayName}"))
     {
 
     }

@@ -5,7 +5,7 @@ namespace Astap.Lib.Devices.Ascom;
 public record class AscomDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 {
     public AscomDevice(DeviceType deviceType, string deviceId, string displayName)
-        : this(new Uri($"{UriScheme}://{typeof(AscomDevice).Name}/{deviceId}?displayName={displayName}#{deviceType}"))
+        : this(new Uri($"{deviceType}://{typeof(AscomDevice).Name}/{deviceId}#{displayName}"))
     {
 
     }
