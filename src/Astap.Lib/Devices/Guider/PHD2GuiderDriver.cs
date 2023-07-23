@@ -37,9 +37,6 @@ namespace Astap.Lib.Devices.Guider;
 
 internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 {
-    internal const string PHD2 = nameof(PHD2);
-    public static string DeviceType { get; } = PHD2;
-
     Thread? m_worker;
     volatile bool m_terminate;
     readonly object m_sync = new();
@@ -76,7 +73,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     {
         _guiderDevice = guiderDevice;
 
-        if (guiderDevice.DeviceType != PHD2)
+        if (guiderDevice.DeviceType != DeviceType.PHD2)
         {
             throw new ArgumentException($"{guiderDevice} is not of type PHD2, but of type: {guiderDevice.DeviceType}", nameof(guiderDevice));
         }
@@ -516,7 +513,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         }
     }
 
-    public IEnumerable<string> RegisteredDeviceTypes => new[] { DeviceType };
+    public IEnumerable<DeviceType> RegisteredDeviceTypes => new[] { DriverType };
 
     public string Name => "PHD2 Driver";
 
@@ -526,12 +523,14 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
     public string? DriverVersion => Version;
 
-    public string DriverType => DeviceType;
+    public DeviceType DriverType { get; } = DeviceType.PHD2;
 
     void EnsureConnected()
     {
         if (!Connected)
+        {
             throw new GuiderException("PHD2 Server disconnected");
+        }
     }
 
     public void Guide(double settlePixels, double settleTime, double settleTimeout)
@@ -981,9 +980,9 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     /// </summary>
     /// <param name="deviceType"></param>
     /// <returns></returns>
-    public IEnumerable<GuiderDevice> RegisteredDevices(string deviceType)
+    public IEnumerable<GuiderDevice> RegisteredDevices(DeviceType deviceType)
     {
-        if (deviceType != DeviceType)
+        if (deviceType != DeviceType.PHD2)
         {
             yield break;
         }

@@ -8,7 +8,7 @@ public class DeviceMap<TDevice>
     where TDevice : DeviceBase
 {
     private readonly Dictionary<string, TDevice> _deviceIdToDevice = new();
-    private readonly Dictionary<string, List<TDevice>> _devicesByType = new();
+    private readonly Dictionary<DeviceType, List<TDevice>> _devicesByType = new();
 
     public DeviceMap(IDeviceSource<TDevice> source)
     {
@@ -32,5 +32,5 @@ public class DeviceMap<TDevice>
 
     public bool TryFindByDeviceId(string deviceId, [NotNullWhen(true)] out TDevice? device) => _deviceIdToDevice.TryGetValue(deviceId, out device);
 
-    public IReadOnlyCollection<TDevice> FindAllByType(string type) => _devicesByType.TryGetValue(type, out var list) ? list : Array.Empty<TDevice>();
+    public IReadOnlyCollection<TDevice> FindAllByType(DeviceType type) => _devicesByType.TryGetValue(type, out var list) ? list : Array.Empty<TDevice>();
 }

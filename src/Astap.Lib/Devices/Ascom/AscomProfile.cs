@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace Astap.Lib.Devices.Ascom;
@@ -12,10 +13,12 @@ public class AscomProfile : DynamicComObject, IDeviceSource<AscomDevice>
     /// </summary>
     public bool IsSupported => _comObject is not null;
 
-    public IEnumerable<string> RegisteredDeviceTypes => EnumerateProperty<string>(_comObject?.RegisteredDeviceTypes);
+    public IEnumerable<DeviceType> RegisteredDeviceTypes => RegisteredDeviceTypesInternal.Select(DeviceTypeHelper.TryParseDeviceType);
 
-    IEnumerable<KeyValuePair<string, string>> RegisteredDevicesKV(string deviceType) => EnumerateKeyValueProperty(_comObject?.RegisteredDevices(deviceType));
+    private IEnumerable<string> RegisteredDeviceTypesInternal => EnumerateProperty<string>(_comObject?.RegisteredDeviceTypes);
 
-    public IEnumerable<AscomDevice> RegisteredDevices(string deviceType)
+    private IEnumerable<KeyValuePair<string, string>> RegisteredDevicesKV(DeviceType deviceType) => EnumerateKeyValueProperty(_comObject?.RegisteredDevices(deviceType));
+
+    public IEnumerable<AscomDevice> RegisteredDevices(DeviceType deviceType)
         => RegisteredDevicesKV(deviceType).Select(p => new AscomDevice(deviceType, p.Key, p.Value));
 }

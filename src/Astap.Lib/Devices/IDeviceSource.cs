@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using Astap.Lib.Devices.Ascom;
+using System.Collections.Generic;
 
 namespace Astap.Lib.Devices;
 
@@ -7,7 +8,7 @@ public interface IDeviceSource<TDevice>
 {
     bool IsSupported { get; }
 
-    IEnumerable<string> RegisteredDeviceTypes { get; }
+    IEnumerable<DeviceType> RegisteredDeviceTypes { get; }
 
-    IEnumerable<TDevice> RegisteredDevices(string deviceType);
+    IEnumerable<TDevice> RegisteredDevices(DeviceType deviceType);
 }

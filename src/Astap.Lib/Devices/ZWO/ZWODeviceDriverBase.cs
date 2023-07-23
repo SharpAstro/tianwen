@@ -32,7 +32,7 @@ public abstract class ZWODeviceDriverBase<TDeviceInfo> : IDeviceDriver
 
     public abstract string? DriverVersion { get; }
 
-    public virtual string DriverType => _device.DeviceType;
+    public virtual DeviceType DriverType => _device.DeviceType;
 
     private int _connectionId;
 

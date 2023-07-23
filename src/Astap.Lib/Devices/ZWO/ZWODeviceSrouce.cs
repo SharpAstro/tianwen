@@ -9,7 +9,7 @@ namespace Astap.Lib.Devices.ZWO;
 
 public class ZWODeviceSrouce : IDeviceSource<ZWODevice>
 {
-    static readonly Dictionary<string, bool> _supportedDeviceTypes = new();
+    static readonly Dictionary<DeviceType, bool> _supportedDeviceTypes = new();
 
     static ZWODeviceSrouce()
     {
@@ -23,20 +23,20 @@ public class ZWODeviceSrouce : IDeviceSource<ZWODevice>
             supportsCamera = false;
         }
 
-        _supportedDeviceTypes[DeviceBase.Camera] = supportsCamera;
+        _supportedDeviceTypes[DeviceType.Camera] = supportsCamera;
     }
 
     public bool IsSupported => _supportedDeviceTypes.Count > 0;
 
-    public IEnumerable<string> RegisteredDeviceTypes { get; } = _supportedDeviceTypes.Where(p => p.Value).Select(p => p.Key).ToList();
+    public IEnumerable<DeviceType> RegisteredDeviceTypes { get; } = _supportedDeviceTypes.Where(p => p.Value).Select(p => p.Key).ToList();
 
-    public IEnumerable<ZWODevice> RegisteredDevices(string deviceType)
+    public IEnumerable<ZWODevice> RegisteredDevices(DeviceType deviceType)
     {
         if (_supportedDeviceTypes.TryGetValue(deviceType, out var isSupported) && isSupported)
         {
             return deviceType switch
             {
-                DeviceBase.Camera => ListCameras(),
+                DeviceType.Camera => ListCameras(),
                 _ => throw new ArgumentException($"Device type {deviceType} not implemented!", nameof(deviceType))
             };
         }
@@ -62,15 +62,15 @@ public class ZWODeviceSrouce : IDeviceSource<ZWODevice>
                 {
                     if (ASIGetSerialNumber(camInfo.CameraID, out var camSerial) is ASI_SUCCESS)
                     {
-                        yield return new ZWODevice(DeviceBase.Camera, camSerial.ID, camInfo.Name);
+                        yield return new ZWODevice(DeviceType.Camera, camSerial.ID, camInfo.Name);
                     }
                     else if (camInfo.IsUSB3Camera is ASI_TRUE && ASIGetID(camInfo.CameraID, out var camId) is ASI_SUCCESS)
                     {
-                        yield return new ZWODevice(DeviceBase.Camera, camId.ID, camInfo.Name);
+                        yield return new ZWODevice(DeviceType.Camera, camId.ID, camInfo.Name);
                     }
                     else
                     {
-                        yield return new ZWODevice(DeviceBase.Camera, camInfo.Name, camInfo.Name);
+                        yield return new ZWODevice(DeviceType.Camera, camInfo.Name, camInfo.Name);
                     }
 
                     camIds.Add(camInfo.CameraID);

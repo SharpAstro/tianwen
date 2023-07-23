@@ -34,19 +34,19 @@ var observations = new List<Observation>
     new Observation(new Target(5.5877777777777773, -5.389444444444444, "Orion Nebula", CatalogUtils.TryGetCleanedUpCatalogName("M42", out var catIdx) ? catIdx : null), DateTimeOffset.Now, TimeSpan.FromMinutes(100), false, TimeSpan.FromSeconds(20))
 };
 
-var guiderDevice = new GuiderDevice("PHD2", "localhost/1", "");
+var guiderDevice = new GuiderDevice(DeviceType.PHD2, "localhost/1", "");
 
 using var profile = new AscomProfile();
-var allCameras = profile.RegisteredDevices(DeviceBase.CameraType);
+var allCameras = profile.RegisteredDevices(DeviceType.Camera);
 var cameraDevice = allCameras.FirstOrDefault(e => e.DeviceId == cameraDeviceId);
 
-var allMounts = profile.RegisteredDevices(DeviceBase.TelescopeType);
+var allMounts = profile.RegisteredDevices(DeviceType.Telescope);
 var mountDevice = allMounts.FirstOrDefault(e => e.DeviceId == mountDeviceId);
 
-var allCovers = profile.RegisteredDevices(DeviceBase.CoverCalibratorType);
+var allCovers = profile.RegisteredDevices(DeviceType.CoverCalibrator);
 var coverDevice = allCovers.FirstOrDefault(e => e.DeviceId == coverDeviceId);
 
-var allFocusers = profile.RegisteredDevices(DeviceBase.FocuserType);
+var allFocusers = profile.RegisteredDevices(DeviceType.Focuser);
 var focuserDevice = allFocusers.FirstOrDefault(e => e.DeviceId == focuserDeviceId);
 
 Mount mount;

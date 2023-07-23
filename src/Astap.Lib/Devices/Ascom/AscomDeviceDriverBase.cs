@@ -18,7 +18,7 @@ public abstract class AscomDeviceDriverBase : DynamicComObject, IDeviceDriver
 
     public string? DriverVersion => _comObject?.DriverVersion as string;
 
-    public string DriverType => _device.DeviceType;
+    public DeviceType DriverType => _device.DeviceType;
 
     [DebuggerHidden]
     public void SetupDialog() => _comObject?.SetupDialog();
