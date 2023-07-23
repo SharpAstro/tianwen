@@ -17,7 +17,7 @@ public class AscomProfile : DynamicComObject, IDeviceSource<AscomDevice>
 
     private IEnumerable<string> RegisteredDeviceTypesInternal => EnumerateProperty<string>(_comObject?.RegisteredDeviceTypes);
 
-    private IEnumerable<KeyValuePair<string, string>> RegisteredDevicesKV(DeviceType deviceType) => EnumerateKeyValueProperty(_comObject?.RegisteredDevices(deviceType));
+    private IEnumerable<KeyValuePair<string, string>> RegisteredDevicesKV(DeviceType deviceType) => EnumerateKeyValueProperty(_comObject?.RegisteredDevices(deviceType.ToString()));
 
     public IEnumerable<AscomDevice> RegisteredDevices(DeviceType deviceType)
         => RegisteredDevicesKV(deviceType).Select(p => new AscomDevice(deviceType, p.Key, p.Value));
