@@ -12,7 +12,7 @@ public interface IDeviceDriver : IDisposable
 
     public string? DriverVersion { get; }
 
-    public string DriverType { get; }
+    public DeviceType DriverType { get; }
 
     public bool Connected { get; set; }
 

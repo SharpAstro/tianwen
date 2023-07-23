@@ -31,11 +31,11 @@ public class AscomDeviceTests
     }
 
     [SkippableTheory]
-    [InlineData("Camera")]
-    [InlineData("CoverCalibrator")]
-    [InlineData("Focuser")]
-    [InlineData("Switch")]
-    public void GivenSimulatorDeviceTypeVersionAndNameAreReturned(string type)
+    [InlineData(DeviceType.Camera)]
+    [InlineData(DeviceType.CoverCalibrator)]
+    [InlineData(DeviceType.Focuser)]
+    [InlineData(DeviceType.Switch)]
+    public void GivenSimulatorDeviceTypeVersionAndNameAreReturned(DeviceType type)
     {
         Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached);
 
@@ -46,7 +46,7 @@ public class AscomDeviceTests
         device.ShouldNotBeNull();
         device.DeviceClass.ShouldBe(nameof(AscomDevice), StringCompareShould.IgnoreCase);
         device.DeviceId.ShouldNotBeNullOrEmpty();
-        device.DeviceType.ShouldNotBeNullOrEmpty();
+        device.DeviceType.ShouldBe(type);
         device.DisplayName.ShouldNotBeNullOrEmpty();
 
         device.TryInstantiateDriver<IDeviceDriver>(out var driver).ShouldBeTrue();
@@ -64,11 +64,9 @@ public class AscomDeviceTests
         Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached, "Skipped as this test is only run when on Windows and debugger is attached");
 
         // given
-        const string Telescope = nameof(Telescope);
-
         using var profile = new AscomProfile();
-        var allTelescopes = profile.RegisteredDevices(Telescope);
-        var simTelescopeDevice = allTelescopes.FirstOrDefault(e => e.DeviceId == "ASCOM.Simulator." + Telescope);
+        var allTelescopes = profile.RegisteredDevices(DeviceType.Telescope);
+        var simTelescopeDevice = allTelescopes.FirstOrDefault(e => e.DeviceId == "ASCOM.Simulator." + DeviceType.Telescope);
 
         // when
         if (simTelescopeDevice?.TryInstantiateDriver(out IMountDriver? driver) is true)
@@ -86,11 +84,9 @@ public class AscomDeviceTests
         Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached, "Skipped as this test is only run when on Windows and debugger is attached");
 
         // given
-        const string Camera = nameof(Camera);
-
         using var profile = new AscomProfile();
-        var allCameras = profile.RegisteredDevices(Camera);
-        var simCameraDevice = allCameras.FirstOrDefault(e => e.DeviceId == "ASCOM.Simulator." + Camera);
+        var allCameras = profile.RegisteredDevices(DeviceType.Camera);
+        var simCameraDevice = allCameras.FirstOrDefault(e => e.DeviceId == "ASCOM.Simulator." + DeviceType.Camera);
 
         // when / then
         if (simCameraDevice?.TryInstantiateDriver(out ICameraDriver? driver) is true)
@@ -106,7 +102,7 @@ public class AscomDeviceTests
 
                 var image = driver.Image.ShouldNotBeNull();
 
-                driver.DriverType.ShouldBe(Camera);
+                driver.DriverType.ShouldBe(DeviceType.Camera);
                 image.ShouldNotBeNull();
                 image.Width.ShouldBe(data.GetLength(0));
                 image.Height.ShouldBe(data.GetLength(1));
@@ -124,9 +120,9 @@ public class AscomDeviceTests
     }
 
     [Theory]
-    [InlineData(@"device://AscomDevice/EQMOD.Telescope?displayName=EQMOD ASCOM HEQ5/6#Telescope", "Telescope", "EQMOD.Telescope", "EQMOD ASCOM HEQ5/6")]
-    [InlineData(@"device://ascomdevice/ASCOM.EAF.Focuser?displayName=ZWO Focuser (1)#Focuser", "Focuser", "ASCOM.EAF.Focuser", "ZWO Focuser (1)")]
-    public void GivenAnUriDisplayNameDeviceTypeAndClassAreReturned(string uriString, string expectedType, string expectedId, string expectedDisplayName)
+    [InlineData(@"device://AscomDevice/EQMOD.Telescope?displayName=EQMOD ASCOM HEQ5/6#Telescope", DeviceType.Telescope, "EQMOD.Telescope", "EQMOD ASCOM HEQ5/6")]
+    [InlineData(@"device://ascomdevice/ASCOM.EAF.Focuser?displayName=ZWO Focuser (1)#Focuser", DeviceType.Focuser, "ASCOM.EAF.Focuser", "ZWO Focuser (1)")]
+    public void GivenAnUriDisplayNameDeviceTypeAndClassAreReturned(string uriString, DeviceType expectedType, string expectedId, string expectedDisplayName)
     {
         var uri = new Uri(uriString);
         DeviceBase.TryFromUri(uri, out var device).ShouldBeTrue();
@@ -146,6 +142,6 @@ public class AscomDeviceTests
         none.DeviceClass.ShouldBe(nameof(NoneDevice), StringCompareShould.IgnoreCase);
         none.DeviceId.ShouldBe("None");
         none.DisplayName.ShouldBe("");
-        none.DeviceType.ShouldBe("None");
+        none.DeviceType.ShouldBe(DeviceType.None);
     }
 }

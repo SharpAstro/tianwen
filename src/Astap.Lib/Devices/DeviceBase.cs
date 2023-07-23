@@ -10,25 +10,15 @@ namespace Astap.Lib.Devices;
 
 public abstract record class DeviceBase(Uri DeviceUri)
 {
-    internal const string Camera = nameof(Camera);
-    internal const string CoverCalibrator = nameof(CoverCalibrator);
-    internal const string Telescope = nameof(Telescope);
-    internal const string Focuser = nameof(Focuser);
-    internal const string FilterWheel = nameof(FilterWheel);
-    internal const string Switch = nameof(Switch);
-
-    public static readonly string CameraType = Camera;
-    public static readonly string CoverCalibratorType = CoverCalibrator;
-    public static readonly string TelescopeType = Telescope;
-    public static readonly string FocuserType = Focuser;
-    public static readonly string FilterWheelType = FilterWheel;
-    public static readonly string SwitchType = Switch;
-
     protected const string UriScheme = "device";
 
-    public string DeviceType => HttpUtility.HtmlDecode(DeviceUri.Fragment.TrimStart('#'));
+    private DeviceType? _deviceType;
+    public DeviceType DeviceType => _deviceType ??= TryParseDeviceType();
 
-    public string DeviceId => string.Concat(DeviceUri.Segments[1..]);
+    private DeviceType TryParseDeviceType() => DeviceTypeHelper.TryParseDeviceType(HttpUtility.HtmlDecode(DeviceUri.Fragment.TrimStart('#')));
+
+    private string? _deviceId;
+    public string DeviceId => _deviceId ??= string.Concat(DeviceUri.Segments[1..]);
 
     private NameValueCollection? _query;
     protected NameValueCollection Query => _query ??= HttpUtility.ParseQueryString(DeviceUri.Query);
@@ -61,7 +51,7 @@ public abstract record class DeviceBase(Uri DeviceUri)
         return device is not null;
     }
 
-    public virtual bool TryInstantiateDriver<T>([NotNullWhen(true)] out T? driver) where T : IDeviceDriver => TryInstantiate<T>(out driver);
+    public virtual bool TryInstantiateDriver<T>([NotNullWhen(true)] out T? driver) where T : IDeviceDriver => TryInstantiate(out driver);
 
     public virtual bool TryInstantiateDeviceSource<TDevice>([NotNullWhen(true)] out IDeviceSource<TDevice>? deviceSource) where TDevice : DeviceBase
         => TryInstantiate(out deviceSource);

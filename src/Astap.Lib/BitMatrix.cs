@@ -4,7 +4,7 @@ using System.Text;
 
 namespace Astap.Lib;
 
-public struct BitMatrix
+public readonly struct BitMatrix
 {
     const int VECTOR_SIZE = 32;
     const int VECTOR_SIZE_SHIFT = 5;
@@ -20,7 +20,7 @@ public struct BitMatrix
         _data = new uint[d0, div + (rem > 0 ? 1 : 0)];
     }
 
-    public bool this[int d0, int d1]
+    public readonly bool this[int d0, int d1]
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         get
@@ -36,7 +36,7 @@ public struct BitMatrix
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-        set
+set
         {
             if (d1 < 0 || d1 >= _d1)
             {
@@ -56,13 +56,13 @@ public struct BitMatrix
         }
     }
 
-    public bool this[int d0, Index d1]
+    public readonly bool this[int d0, Index d1]
     {
         get => this[d0, d1.IsFromEnd ? _d1 - d1.Value : d1.Value];
         set => this[d0, d1.IsFromEnd ? _d1 - d1.Value : d1.Value] = value;
     }
 
-    public bool this[int d0, Range d1]
+    public readonly bool this[int d0, Range d1]
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         set
@@ -115,14 +115,14 @@ public struct BitMatrix
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    public int GetLength(int dim) => dim switch
+    public readonly int GetLength(int dim) => dim switch
     {
         0 => _data.GetLength(0),
         1 => _d1,
         _ => throw new ArgumentOutOfRangeException(nameof(dim), dim, "Must be 0 or 1"),
     };
 
-    public void ClearAll()
+    public readonly void ClearAll()
     {
         for (var i = 0; i < _data.GetLength(0); i++)
         {
@@ -133,7 +133,7 @@ public struct BitMatrix
         }
     }
 
-    public void SetAll()
+    public readonly void SetAll()
     {
         unchecked
         {
@@ -147,7 +147,7 @@ public struct BitMatrix
         }
     }
 
-    public override string ToString()
+    public override readonly string ToString()
     {
         var sb = new StringBuilder();
         for (var i = 0; i < _data.GetLength(0); i++)
