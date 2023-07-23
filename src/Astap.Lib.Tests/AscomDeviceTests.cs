@@ -120,8 +120,9 @@ public class AscomDeviceTests
     }
 
     [Theory]
-    [InlineData(@"device://AscomDevice/EQMOD.Telescope?displayName=EQMOD ASCOM HEQ5/6#Telescope", DeviceType.Telescope, "EQMOD.Telescope", "EQMOD ASCOM HEQ5/6")]
-    [InlineData(@"device://ascomdevice/ASCOM.EAF.Focuser?displayName=ZWO Focuser (1)#Focuser", DeviceType.Focuser, "ASCOM.EAF.Focuser", "ZWO Focuser (1)")]
+    [InlineData(@"telescope://AscomDevice/EQMOD.Telescope#EQMOD ASCOM HEQ5/6", DeviceType.Telescope, "EQMOD.Telescope", "EQMOD ASCOM HEQ5/6")]
+    [InlineData(@"Focuser://ascomdevice/ASCOM.EAF.Focuser#ZWO Focuser (1)", DeviceType.Focuser, "ASCOM.EAF.Focuser", "ZWO Focuser (1)")]
+    [InlineData(@"filterWheel://ascomDevice/ASCOM.EFW.FilterWheel#ZWO Filter Wheel #1", DeviceType.FilterWheel, "ASCOM.EFW.FilterWheel", "ZWO Filter Wheel #1")]
     public void GivenAnUriDisplayNameDeviceTypeAndClassAreReturned(string uriString, DeviceType expectedType, string expectedId, string expectedDisplayName)
     {
         var uri = new Uri(uriString);

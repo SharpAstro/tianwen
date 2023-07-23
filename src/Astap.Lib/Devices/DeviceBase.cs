@@ -10,12 +10,10 @@ namespace Astap.Lib.Devices;
 
 public abstract record class DeviceBase(Uri DeviceUri)
 {
-    protected const string UriScheme = "device";
-
     private DeviceType? _deviceType;
     public DeviceType DeviceType => _deviceType ??= TryParseDeviceType();
 
-    private DeviceType TryParseDeviceType() => DeviceTypeHelper.TryParseDeviceType(HttpUtility.HtmlDecode(DeviceUri.Fragment.TrimStart('#')));
+    private DeviceType TryParseDeviceType() => DeviceTypeHelper.TryParseDeviceType(DeviceUri.Scheme);
 
     private string? _deviceId;
     public string DeviceId => _deviceId ??= string.Concat(DeviceUri.Segments[1..]);
@@ -23,7 +21,7 @@ public abstract record class DeviceBase(Uri DeviceUri)
     private NameValueCollection? _query;
     protected NameValueCollection Query => _query ??= HttpUtility.ParseQueryString(DeviceUri.Query);
 
-    public string DisplayName => Query["displayName"] ?? "";
+    public string DisplayName => HttpUtility.UrlDecode(DeviceUri.Fragment.TrimStart('#'));
 
     public string DeviceClass => DeviceUri.Host;
 
@@ -31,12 +29,6 @@ public abstract record class DeviceBase(Uri DeviceUri)
 
     public static bool TryFromUri(Uri deviceUri, [NotNullWhen(true)] out DeviceBase? device)
     {
-        if (deviceUri.Scheme != UriScheme)
-        {
-            device = null;
-            return false;
-        }
-
         var findDeviceInSubclass =
             from assembly in new[] { typeof(DeviceBase).Assembly, Assembly.GetCallingAssembly(), Assembly.GetEntryAssembly() }
             where assembly is not null

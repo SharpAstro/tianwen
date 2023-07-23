@@ -8,8 +8,8 @@ namespace Astap.Lib.Tests
     public class GuiderDeviceTests
     {
         [Theory]
-        [InlineData("device://guiderdevice/localhost/1?displayName=Profile#PHD2", DeviceType.PHD2, "localhost/1", "Profile")]
-        [InlineData("device://guiderdevice/localhost/1/Profile?displayName=Display#PHD2", DeviceType.PHD2, "localhost/1/Profile", "Display")]
+        [InlineData("phd2://guiderdevice/localhost/1#Profile", DeviceType.PHD2, "localhost/1", "Profile")]
+        [InlineData("phd2://guiderdevice/localhost/1/Profile#Display", DeviceType.PHD2, "localhost/1/Profile", "Display")]
         public void GivenAnUriDisplayNameDeviceTypeAndClassAreReturned(string uriString, DeviceType expectedType, string expectedId, string expectedDisplayName)
         {
             var uri = new Uri(uriString);

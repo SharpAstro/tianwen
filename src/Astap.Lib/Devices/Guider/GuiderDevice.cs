@@ -5,7 +5,7 @@ namespace Astap.Lib.Devices.Guider
     public record class GuiderDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
     {
         public GuiderDevice(DeviceType deviceType, string deviceId, string displayName)
-            : this(new Uri($"{UriScheme}://{typeof(GuiderDevice).Name}/{deviceId}?displayName={displayName}#{deviceType}"))
+            : this(new Uri($"{deviceType}://{typeof(GuiderDevice).Name}/{deviceId}#{displayName}"))
         {
 
         }

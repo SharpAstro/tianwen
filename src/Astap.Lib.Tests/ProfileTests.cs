@@ -11,7 +11,7 @@ namespace Astap.Lib.Tests;
 public class ProfileTests
 {
     [Theory]
-    [InlineData("00000000-0000-0000-0000-000000000000", "Empty profile", "device://profile/00000000-0000-0000-0000-000000000000?displayName=Empty profile&values=e30#Profile")]
+    [InlineData("00000000-0000-0000-0000-000000000000", "Empty profile", "profile://profile/00000000-0000-0000-0000-000000000000?values=e30#Empty profile")]
     public void GivenGuidAndProfileNameAProfileUriIsCreated(string guid, string name, string expectedUriStr)
     {
         var actualUri = Profile.CreateProfileUri(new Guid(guid), name);
