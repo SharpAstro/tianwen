@@ -4100,9 +4100,7 @@
   {
     "MainId": "V* S CrA",
     "Ids": [
-      "HH   82",
-      "NAME S CrA N",
-      "NAME S CrA S"
+      "HH   82"
     ],
     "ObjType": "Or*",
     "Ra": 285.2858212,
@@ -16104,6 +16102,7 @@
     "MainId": "V* DX Cha",
     "Ids": [
       "HD 104237",
+      "HD 104237A",
       "HH  669"
     ],
     "ObjType": "Ae*",
