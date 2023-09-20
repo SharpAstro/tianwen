@@ -362,7 +362,7 @@
       "NAME Lagoon Nebula",
       "SH  2-25"
     ],
-    "ObjType": "HII",
+    "ObjType": "OpC",
     "Ra": 270.904,
     "Dec": -24.387,
     "VMag": null
@@ -1647,9 +1647,9 @@
       "LDN 1204A",
       "SH  2-140 A"
     ],
-    "ObjType": "DNe",
-    "Ra": 335.3437,
-    "Dec": 63.8536,
+    "ObjType": "HII",
+    "Ra": 335.36117,
+    "Dec": 63.86061,
     "VMag": null
   },
   {
@@ -2257,7 +2257,7 @@
     "ObjType": "OpC",
     "Ra": 38.21,
     "Dec": 61.471,
-    "VMag": 6.5
+    "VMag": null
   },
   {
     "MainId": "LBN   659",
@@ -2693,9 +2693,9 @@
     "Ids": [
       "SH  2-231"
     ],
-    "ObjType": "HII",
-    "Ra": 84.8038,
-    "Dec": 35.765,
+    "ObjType": "Y*O",
+    "Ra": 84.805,
+    "Dec": 35.7633,
     "VMag": null
   },
   {
@@ -3138,8 +3138,8 @@
       "SH  2-259"
     ],
     "ObjType": "HII",
-    "Ra": 92.8575,
-    "Dec": 17.4403,
+    "Ra": 92.84821,
+    "Dec": 17.44217,
     "VMag": null
   },
   {

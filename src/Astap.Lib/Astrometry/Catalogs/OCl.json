@@ -190,7 +190,7 @@
     "ObjType": "OpC",
     "Ra": 274.688,
     "Dec": -13.792,
-    "VMag": 6.0
+    "VMag": null
   },
   {
     "MainId": "NGC  6604",
@@ -1337,11 +1337,11 @@
     "VMag": null
   },
   {
-    "MainId": "C 2206+717",
+    "MainId": "Cl Collinder  471",
     "Ids": [
       "Cl Collinder  471"
     ],
-    "ObjType": "OpC",
+    "ObjType": "err",
     "Ra": 331.688,
     "Dec": 71.975,
     "VMag": null
@@ -1705,7 +1705,7 @@
     "ObjType": "OpC",
     "Ra": 17.0829,
     "Dec": 61.5839,
-    "VMag": 9.3
+    "VMag": null
   },
   {
     "MainId": "NGC   433",
@@ -1997,7 +1997,7 @@
     "ObjType": "OpC",
     "Ra": 38.21,
     "Dec": 61.471,
-    "VMag": 6.5
+    "VMag": null
   },
   {
     "MainId": "NGC   884",
@@ -2625,10 +2625,10 @@
     "Ids": [
       "NGC  1746"
     ],
-    "ObjType": "OpC",
+    "ObjType": "err",
     "Ra": 75.958,
     "Dec": 23.77,
-    "VMag": 6.1
+    "VMag": null
   },
   {
     "MainId": "NGC  1758",
@@ -2702,10 +2702,10 @@
     "Ids": [
       "NGC  1663"
     ],
-    "ObjType": "OpC",
+    "ObjType": "err",
     "Ra": 72.315,
     "Dec": 13.17,
-    "VMag": 14.54
+    "VMag": null
   },
   {
     "MainId": "NGC  1807",
@@ -3627,12 +3627,12 @@
     "VMag": null
   },
   {
-    "MainId": "C 0759-193",
+    "MainId": "Cl Ruprecht   46",
     "Ids": [],
-    "ObjType": "OpC",
+    "ObjType": "err",
     "Ra": 120.547,
     "Dec": -19.465,
-    "VMag": 9.1
+    "VMag": null
   },
   {
     "MainId": "NGC  2354",
@@ -3645,9 +3645,9 @@
     "VMag": 6.5
   },
   {
-    "MainId": "ESO 426-33",
+    "MainId": "Cl Ruprecht    3",
     "Ids": [],
-    "ObjType": "OpC",
+    "ObjType": "err",
     "Ra": 100.523,
     "Dec": -29.445,
     "VMag": null
@@ -4170,7 +4170,7 @@
     "ObjType": "OpC",
     "Ra": 161.177,
     "Dec": -59.369,
-    "VMag": 7.0
+    "VMag": null
   },
   {
     "MainId": "Cl Collinder  228",
@@ -4180,7 +4180,7 @@
     "ObjType": "OpC",
     "Ra": 161.0,
     "Dec": -60.087,
-    "VMag": 4.4
+    "VMag": null
   },
   {
     "MainId": "Cl Trumpler   16",
@@ -4188,7 +4188,7 @@
     "ObjType": "OpC",
     "Ra": 161.253,
     "Dec": -59.7,
-    "VMag": 5.0
+    "VMag": null
   },
   {
     "MainId": "Cl Collinder  234",
@@ -4962,10 +4962,10 @@
     "Ids": [
       "NGC  6169"
     ],
-    "ObjType": "OpC",
+    "ObjType": "err",
     "Ra": 248.528,
     "Dec": -44.016,
-    "VMag": 6.6
+    "VMag": null
   },
   {
     "MainId": "NGC  6250",
@@ -5004,7 +5004,7 @@
     "ObjType": "OpC",
     "Ra": 253.545,
     "Dec": -41.812,
-    "VMag": 2.6
+    "VMag": null
   },
   {
     "MainId": "C 1652-407",
