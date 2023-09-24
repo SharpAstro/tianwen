@@ -1,7 +1,5 @@
 using Astap.Lib.Devices;
 using Astap.Lib.Devices.Ascom;
-using Astap.Lib.Devices.Builtin;
-using CommunityToolkit.HighPerformance;
 using Shouldly;
 using System;
 using System.Diagnostics;
@@ -103,9 +101,8 @@ public class AscomDeviceTests
                 var image = driver.Image.ShouldNotBeNull();
 
                 driver.DriverType.ShouldBe(DeviceType.Camera);
-                image.ShouldNotBeNull();
-                image.Width.ShouldBe(data.GetLength(0));
-                image.Height.ShouldBe(data.GetLength(1));
+                image.Width.ShouldBe(data.GetLength(1));
+                image.Height.ShouldBe(data.GetLength(0));
                 image.BitDepth.ShouldBe(driver.BitDepth.ShouldNotBeNull());
                 image.MaxValue.ShouldBeGreaterThan(0f);
                 image.MaxValue.ShouldBe(expectedMax);
@@ -117,32 +114,5 @@ public class AscomDeviceTests
         {
             Assert.Fail($"Could not instantiate camera device {simCameraDevice}");
         }
-    }
-
-    [Theory]
-    [InlineData(@"telescope://AscomDevice/EQMOD.Telescope#EQMOD ASCOM HEQ5/6", DeviceType.Telescope, "EQMOD.Telescope", "EQMOD ASCOM HEQ5/6")]
-    [InlineData(@"Focuser://ascomdevice/ASCOM.EAF.Focuser#ZWO Focuser (1)", DeviceType.Focuser, "ASCOM.EAF.Focuser", "ZWO Focuser (1)")]
-    [InlineData(@"filterWheel://ascomDevice/ASCOM.EFW.FilterWheel#ZWO Filter Wheel #1", DeviceType.FilterWheel, "ASCOM.EFW.FilterWheel", "ZWO Filter Wheel #1")]
-    public void GivenAnUriDisplayNameDeviceTypeAndClassAreReturned(string uriString, DeviceType expectedType, string expectedId, string expectedDisplayName)
-    {
-        var uri = new Uri(uriString);
-        DeviceBase.TryFromUri(uri, out var device).ShouldBeTrue();
-
-        device.DeviceClass.ShouldBe(device.GetType().Name, StringCompareShould.IgnoreCase);
-
-        device.DeviceType.ShouldBe(expectedType);
-        device.DeviceId.ShouldBe(expectedId);
-        device.DisplayName.ShouldBe(expectedDisplayName);
-    }
-
-    [Fact]
-    public void GivenNoneDeviceItIsNoneClass()
-    {
-        var none = new NoneDevice();
-
-        none.DeviceClass.ShouldBe(nameof(NoneDevice), StringCompareShould.IgnoreCase);
-        none.DeviceId.ShouldBe("None");
-        none.DisplayName.ShouldBe("");
-        none.DeviceType.ShouldBe(DeviceType.None);
     }
 }

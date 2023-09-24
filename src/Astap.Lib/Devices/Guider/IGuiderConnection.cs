@@ -36,5 +36,5 @@ public interface IGuiderConnection : IDisposable
 
     string? ReadLine();
 
-    void WriteLine(ReadOnlyMemory<byte> jsonlUtf8Bytes);
+    bool WriteLine(ReadOnlyMemory<byte> jsonlUtf8Bytes);
 }

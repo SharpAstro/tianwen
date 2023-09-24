@@ -71,7 +71,7 @@ class GuiderConnection : IGuiderConnection
 
     public string? ReadLine() => _streamReader?.ReadLine();
 
-    public void WriteLine(ReadOnlyMemory<byte> jsonlUtf8Bytes)
+    public bool WriteLine(ReadOnlyMemory<byte> jsonlUtf8Bytes)
     {
         Span<byte> CRLF = stackalloc byte[2] { (byte)'\r', (byte)'\n' };
 
@@ -80,6 +80,9 @@ class GuiderConnection : IGuiderConnection
             stream.Write(jsonlUtf8Bytes.Span);
             stream.Write(CRLF);
             stream.Flush();
+            return true;
         }
+
+        return false;
     }
 }

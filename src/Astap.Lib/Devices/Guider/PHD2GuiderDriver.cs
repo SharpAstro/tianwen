@@ -483,7 +483,10 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         var (memory, id) = MakeJsonRPCCall(method, @params);
 
         // send request
-        Connection.WriteLine(memory);
+        if (!Connection.WriteLine(memory))
+        {
+            throw new GuiderException($"Failed to send message {method} params: {string.Join(", ", @params)}");
+        }
 
         // wait for response
 
