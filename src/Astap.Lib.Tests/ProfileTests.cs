@@ -1,4 +1,4 @@
-﻿using Astap.Lib.Devices.Builtin;
+﻿using Astap.Lib.Devices;
 using Shouldly;
 using System;
 using System.Collections.Generic;
