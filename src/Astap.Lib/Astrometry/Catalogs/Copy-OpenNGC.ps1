@@ -1,6 +1,6 @@
 ﻿
-$csvFiles = @{ NGC = 'NGC'; 'NGC.addendum' = 'addendum/addendum' }
+$csvFiles = @{ NGC = 'NGC'; 'NGC.addendum' = 'addendum' }
 
 $csvFiles.GetEnumerator() | ForEach-Object {
-    $null = 7z -mx9 -scsUTF-8 a "$($_.Key).csv.gz" "$PSScriptRoot/../../OpenNGC/$($_.Value).csv"
+    $null = 7z -mx9 -scsUTF-8 a "$($_.Key).csv.gz" "$PSScriptRoot/../../OpenNGC/database_files/$($_.Value).csv"
 }
