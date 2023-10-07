@@ -1,3 +1,10 @@
 [submodule "src/Astap.Lib/OpenNGC"]
 	path = src/Astap.Lib/OpenNGC
 	url = https://github.com/mattiaverga/OpenNGC.git
+	branch = master
+	shallow = true
+[submodule "src/Astap.Lib/hip2000"]
+	path = src/Astap.Lib/hip2000
+	url = https://github.com/gmiller123456/hip2000
+	branch = master
+	shallow = true
