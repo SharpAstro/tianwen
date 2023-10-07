@@ -204,13 +204,25 @@ namespace Astap.Lib.Astrometry.Catalogs
                 ? info.Genetitive
                 : throw new ArgumentException($"Cannot find genitive for constellation {constellation}", nameof(constellation));
 
-        public static CatalogIndex ToBrighestStar(this Constellation constellation)
+        public static CatalogIndex GetBrighestStar(this Constellation constellation)
             => _info.TryGetValue(constellation, out var info)
                 ? info.BrightestStar
                 : throw new ArgumentException($"Cannot find brightest star for constellation {constellation}", nameof(constellation));
 
         public static string ToIAUAbbreviation(this Constellation constellation) => EnumValueToAbbreviation((ulong)constellation);
 
+        /// <summary>
+        /// Returns <see langword="true"/> if <paramref name="constellation"/> is part of <paramref name="parent"/>.
+        /// A constellation is always contained within itself.
+        /// Special case is <see cref="Constellation.Serpens"/>, as it has two parts:
+        /// <list type="bullet">
+        ///   <item><see cref="Constellation.SerpensCaput"/></item>
+        ///   <item><see cref="Constellation.SerpensCauda"/></item>
+        /// </list>
+        /// </summary>
+        /// <param name="constellation"></param>
+        /// <param name="parent"></param>
+        /// <returns></returns>
         public static bool IsContainedWithin(this Constellation constellation, Constellation parent)
         {
             if (constellation == parent)

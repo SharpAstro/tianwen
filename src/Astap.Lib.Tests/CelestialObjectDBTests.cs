@@ -311,7 +311,7 @@ public class CelestialObjectDBTests
         var db = await InitDB();
 
         // when
-        var star = constellation.ToBrighestStar();
+        var star = constellation.GetBrighestStar();
 
         // then
         db.TryLookupByIndex(star, out var starObj).ShouldBeTrue();
