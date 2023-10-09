@@ -337,21 +337,16 @@ public class CelestialObjectDBTests
             catalogs.ShouldContain(cat);
             var couldCalculate = ConstellationBoundary.TryFindConstellation(obj.RA, obj.Dec, out var calculatedConstellation);
 
-            if ((cat != Catalog.Pl) && (obj.ObjectType != ObjectType.Inexistent || obj.Constellation != 0))
+            if (cat is not Catalog.Pl && obj.ObjectType is not ObjectType.Inexistent)
             {
                 couldCalculate.ShouldBeTrue();
+
                 obj.Constellation.ShouldNotBe((Constellation)0, $"{desc}: Constellation should not be 0");
                 calculatedConstellation.ShouldNotBe((Constellation)0, $"{desc}: Calculated constellation should not be 0");
 
                 if (!obj.Constellation.IsContainedWithin(calculatedConstellation))
                 {
-                    var ra_s = CoordinateUtils.ConditionRA(obj.RA - 0.001);
-                    var ra_l = CoordinateUtils.ConditionRA(obj.RA + 0.001);
-
-                    var isBordering =
-                        ConstellationBoundary.TryFindConstellation(ra_s, obj.Dec, out var const_s)
-                        && ConstellationBoundary.TryFindConstellation(ra_l, obj.Dec, out var const_l)
-                        && (obj.Constellation.IsContainedWithin(const_s) || obj.Constellation.IsContainedWithin(const_l));
+                    var isBordering = ConstellationBoundary.IsBordering(obj.Constellation, obj.RA, obj.Dec);
 
                     isBordering.ShouldBeTrue($"{desc}: {obj.Constellation} is not contained within {calculatedConstellation} or any bordering");
                 }
