@@ -1,5 +1,6 @@
 ﻿using Roydl.Text.BinaryToText;
 using System;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 
@@ -18,24 +19,43 @@ public static class EnumHelper
     internal static readonly Base91 Base91Encoder = new();
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    public static T AbbreviationToEnumMember<T>(string name)
+    public static T AbbreviationToEnumMember<T>(ReadOnlySpan<char> name)
         where T : struct, Enum
     {
-        var len = Math.Min(MaxLenInASCII, name.Length);
-
-        if (len is <= 0)
+        if (name.Length is <= 0)
         {
             return default;
         }
 
-        var msbMask = len == MaxLenInASCII ? ByteMask : ASCIIMask;
-        ulong val = (ulong)(name[0] & msbMask) << (len - 1) * ASCIIBits;
-        for (var i = 1; i < len; i++)
+        return (T)Enum.ToObject(typeof(T), AbbreviationToASCIIPackedInt(name));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public static T PrefixedNumericToASCIIPackedInt<T>(ulong prefix, int number, int digits)
+        where T : struct, Enum
+    {
+        if (digits > MaxLenInASCII)
         {
-            val |= (ulong)(name[i] & ASCIIMask) << (len - i - 1) * ASCIIBits;
+            throw new ArgumentOutOfRangeException(nameof(digits), digits, $"Must not exceed {MaxLenInASCII} digits");
         }
 
+        var val = prefix << (digits * ASCIIBits);
+        val |= AbbreviationToASCIIPackedInt(number.ToString(new string('0', digits), CultureInfo.InvariantCulture));
         return (T)Enum.ToObject(typeof(T), val);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public static ulong AbbreviationToASCIIPackedInt(ReadOnlySpan<char> name)
+    {
+        var len = Math.Min(MaxLenInASCII, name.Length);
+        var msbMask = len == MaxLenInASCII ? ByteMask : ASCIIMask;
+        ulong val = (name[0] & msbMask);
+        for (var i = 1; i < len; i++)
+        {
+            val <<= ASCIIBits;
+            val |= (name[i] & ASCIIMask);
+        }
+        return val;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
@@ -65,6 +85,35 @@ public static class EnumHelper
         {
             return new string(chars.Slice(MaxLenInASCII - i, i));
         }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public static ulong EnumValueToNumeric(ulong enumValue)
+    {
+        var msb = (enumValue & MSBUlongMask) == MSBUlongMask;
+
+        if (msb)
+        {
+            throw new ArgumentException("Enum values with MSB set are not supported", nameof(enumValue));
+        }
+
+        var numeric = 0ul;
+        var factor = 1;
+        for (var i = 0; i < MaxLenInASCII; i++)
+        {
+            var current = (char)(enumValue & ASCIIMask);
+            if (current == 0)
+            {
+                break;
+            }
+
+            numeric += (ulong)(factor * (current - '0'));
+            factor *= 10;
+
+            enumValue >>= ASCIIBits;
+        }
+
+        return numeric;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]

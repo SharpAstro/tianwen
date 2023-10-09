@@ -111,6 +111,7 @@ public static class SharedTestData
     internal const CatalogIndex WDS_23599_3112s = (CatalogIndex)(Base91Enc | (ulong)'A' << 56 | (ulong)'A' << 49 | (ulong)'+' << 42 | (ulong)'i' << 35 | (ulong)')' << 28 | ',' << 21 | 'N' << 14 | '%' << 7 | 'G');
     internal const CatalogIndex XO0003 = (CatalogIndex)((ulong)'X' << 35 | (ulong)'O' << 28 | '0' << 21 | '0' << 14 | '0' << 7 | '3');
     internal const CatalogIndex XO002N = (CatalogIndex)((ulong)'X' << 35 | (ulong)'O' << 28 | '0' << 21 | '0' << 14 | '2' << 7 | 'N');
+    internal const CatalogIndex HIP120404 = (CatalogIndex)((ulong)'H' << 49 | (ulong)'I' << 42 | (ulong)'1' << 35 | (ulong)'2' << 28 | '0' << 21 | '4' << 14 | '0' << 7 | '4');
 
     internal static Image ExtractGZippedFitsImage(string name)
     {

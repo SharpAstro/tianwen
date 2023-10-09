@@ -33,7 +33,7 @@ public static class CatalogIndexEx
 {
     public static string ToCanonical(this CatalogIndex catalogIndex, CanonicalFormat format = CanonicalFormat.Normal)
     {
-        var (catalog, decoded, isMSBSet) = catalogIndex.ToCatalogAndDecoded();
+        var (catalog, decoded, isMSBSet) = catalogIndex.ToCatalogAndValue();
 
         var prefix = catalog.ToCanonical(format);
         if (isMSBSet)
@@ -168,21 +168,21 @@ public static class CatalogIndexEx
 
     public static Catalog ToCatalog(this CatalogIndex catalogIndex)
     {
-        var (catalog, _, _) = catalogIndex.ToCatalogAndDecoded();
+        var (catalog, _, _) = catalogIndex.ToCatalogAndValue();
         return catalog;
     }
 
     /// <summary>
     /// Identifies the <see cref="Catalog"/> of the given <see cref="CatalogIndex"/> <paramref name="catalogIndex"/>.
     /// Will return 0 for Catalog if Catalog cannot be determined.
-    /// Additionally the decoded result together with the MSB is set information is returned so it can be used to extract
-    /// embedded information such as RA and DEC or catalog index number.
+    /// Additionally the embedded value specific to the catalog is returned together with indication wether the MSB is set.
+    /// This can be used to extract RA and DEC or catalog index number.
     /// </summary>
-    /// <param name="catalogIndex"></param>
+    /// <param name="catalogIndex">Catalog index to decode</param>
     /// <returns>(catalog entry, decoded integral without catalog prefix/suffix, true if MSB is set)</returns>
     /// <exception cref="ArgumentException">Will throw if catalog cannot be found in the known list of catalogs</exception>
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    public static (Catalog catalog, ulong decoded, bool msbSet) ToCatalogAndDecoded(this CatalogIndex catalogIndex)
+    public static (Catalog Catalog, ulong Value, bool MSBSet) ToCatalogAndValue(this CatalogIndex catalogIndex)
     {
         if (catalogIndex == 0)
         {
@@ -196,7 +196,7 @@ public static class CatalogIndexEx
         if (isMSBSet)
         {
             var encoded = EnumValueToAbbreviation(catalogIndexUl);
-            if (Base91Encoder.DecodeBytes(encoded) is byte[] decoded && decoded.Length > 1)
+            if (Base91Encoder.DecodeBytes(encoded) is { Length: > 1} decoded)
             {
                 const int max = BytesInUlong;
                 Span<byte> bytesUlN = stackalloc byte[max];
@@ -227,8 +227,9 @@ public static class CatalogIndexEx
             var catalogIndexCat = (Catalog)(catalogIndexUl >> shift);
             if (entry == catalogIndexCat)
             {
-                var decoded = catalogIndexUl & ~(ulong.MaxValue << shift);
-                return (entry, decoded, false);
+                var mask = ~(ulong.MaxValue << shift);
+                var value = catalogIndexUl & mask;
+                return (entry, value, false);
             }
         }
 

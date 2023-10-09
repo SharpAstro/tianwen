@@ -131,4 +131,16 @@ public class CatalogIndexTests
     {
         catalogIndex.ToCanonical(CanonicalFormat.Alternative).ShouldBe(expectedCanon);
     }
+
+    [Theory]
+    [InlineData(Catalog.Messier, 42, M042)]
+    [InlineData(Catalog.HIP, 120404, HIP120404)]
+    public void GivenACatalogAndNumericalValueWhenConvertingToCatalogIndexThenTheyAreIdentical(Catalog catalog, int value, CatalogIndex expectedCatalogIndex)
+    {
+        var num = catalog.GetNumericalIndexSize();
+        num.ShouldBeGreaterThan(0);
+
+        var actual = EnumHelper.PrefixedNumericToASCIIPackedInt<CatalogIndex>((ulong)catalog, value, num);
+        actual.ShouldBe(expectedCatalogIndex);
+    }
 }
