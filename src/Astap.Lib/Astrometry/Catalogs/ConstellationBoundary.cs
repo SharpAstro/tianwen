@@ -380,13 +380,14 @@ public record struct ConstellationBoundary(double LowerRA, double UpperRA, doubl
 
     public static bool TryFindConstellation(double ra, double dec, double epoch, out Constellation constellation)
     {
-        var convh = Math.PI / 12.0;
-        var convd = Math.PI / 180.0;
-        ra *= convh;
-        dec *= convd;
+        const double ConvH = Math.PI / 12.0;
+        const double ConvD = Math.PI / 180.0;
+        ra *= ConvH;
+        dec *= ConvD;
         (ra, dec) = CoordinateUtils.Precess(ra, dec, epoch, 1875.0);
-        ra /= convh;
-        dec /= convd;
+        ra /= ConvH;
+        dec /= ConvD;
+        // TODO: Binary search??
         for (var i = 0; i < _table.Length; i++)
         {
             var entry = _table[i];

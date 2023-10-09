@@ -81,4 +81,48 @@ public static class CatalogEx
         };
 
     public static string ToAbbreviation(this Catalog catalog) => EnumValueToAbbreviation((ulong)catalog);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public static int GetNumericalIndexSize(this Catalog catalog)
+        => catalog switch
+        {
+            Catalog.Abell => 4,
+            Catalog.Barnard => 3,
+            Catalog.BonnerDurchmusterung => 6,
+            Catalog.Caldwell => 3,
+            Catalog.Ced => 4,
+            Catalog.CG => 4,
+            Catalog.Collinder => 3,
+            Catalog.DG => 4,
+            Catalog.Dobashi => 5,
+            Catalog.ESO => 7,
+            Catalog.HCG => 4,
+            Catalog.HD => 6,
+            Catalog.GJ => 4,
+            Catalog.GUM => 3,
+            Catalog.H => 2,
+            Catalog.HATS => 3,
+            Catalog.HAT_P => 3,
+            Catalog.HH => 5,
+            Catalog.HIP => 6,
+            Catalog.HR => 4,
+            Catalog.IC => 4,
+            Catalog.LDN => 5,
+            Catalog.Melotte => 5,
+            Catalog.Messier => 3,
+            Catalog.Pl => 5,
+            Catalog.PSR => 8,
+            Catalog.NGC => 4,
+            Catalog.RCW => 4,
+            Catalog.Sharpless => 4,
+            Catalog.TrES => 2,
+            Catalog.UGC => 5,
+            Catalog.vdB => 4,
+            Catalog.WASP => 3,
+            Catalog.WDS => 10,
+            Catalog.XO => 4,
+            Catalog.TwoMass => 15,
+            Catalog.TwoMassX => 15,
+            _ => 0
+        };
 }

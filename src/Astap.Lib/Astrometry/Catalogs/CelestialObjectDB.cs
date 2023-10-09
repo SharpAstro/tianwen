@@ -1,6 +1,7 @@
 ﻿using CsvHelper;
 using CsvHelper.Configuration;
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
@@ -8,6 +9,7 @@ using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Net;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -39,6 +41,7 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
     private static readonly IReadOnlySet<string> EmptyNameSet = ImmutableHashSet.Create<string>();
     private static readonly IReadOnlySet<Catalog> EmptyCatalogSet = ImmutableHashSet.Create<Catalog>();
 
+    private readonly CelestialObject[] _hip2000 = new CelestialObject[120404];
     private readonly Dictionary<CatalogIndex, CelestialObject> _objectsByIndex = new(17000);
     private readonly Dictionary<CatalogIndex, (CatalogIndex i1, CatalogIndex[]? ext)> _crossIndexLookuptable = new(11000);
     private readonly Dictionary<string, (CatalogIndex i1, CatalogIndex[]? ext)> _objectsByCommonName = new(5600);
@@ -70,7 +73,7 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
     {
         get
         {
-            if (_catalogIndicesCache is var cache and not null)
+            if (_catalogIndicesCache is { } cache)
             {
                 return cache;
             }
@@ -122,8 +125,21 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
     /// <inheritdoc/>
     public bool TryLookupByIndex(CatalogIndex index, [NotNullWhen(true)] out CelestialObject celestialObject)
     {
-        if (!_objectsByIndex.TryGetValue(index, out celestialObject)
-            && IsCrossCat(index.ToCatalog())
+        var (cat, value, msbSet) = index.ToCatalogAndValue();
+        if (cat is Catalog.HIP && !msbSet)
+        {
+            var number = EnumValueToNumeric(value);
+            if (number <= (ulong)_hip2000.Length)
+            {
+                celestialObject = _hip2000[number - 1];
+            }
+            else
+            {
+                celestialObject = default;
+            }
+        }
+        else if (!_objectsByIndex.TryGetValue(index, out celestialObject)
+            && IsCrossCat(cat)
             && _crossIndexLookuptable.TryGetValue(index, out var crossIndices)
         )
         {
@@ -131,9 +147,9 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
             {
                 index = crossIndices.i1;
             }
-            else if (crossIndices.ext is { Length: > 0 })
+            else if (crossIndices.ext is { Length: > 0 } ext)
             {
-                foreach (var crossIndex in crossIndices.ext)
+                foreach (var crossIndex in ext)
                 {
                     if (crossIndex != 0 && crossIndex != index && _objectsByIndex.TryGetValue(crossIndex, out celestialObject))
                     {
@@ -148,7 +164,7 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
         {
             return false;
         }
-        if (celestialObject.ObjectType is not ObjectType.Duplicate)
+        else if (celestialObject.ObjectType is not ObjectType.Duplicate)
         {
             return true;
         }
@@ -197,6 +213,8 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
         int totalProcessed = 0;
         int totalFailed = 0;
 
+        var initHIP200Task = ReadEmbeddedGzippedHIP200BinaryFileAsync(assembly);
+
         foreach (var predefined in _predefinedObjects)
         {
             var cat = predefined.Key.ToCatalog();
@@ -237,7 +255,58 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
             totalFailed += failed;
         }
 
+        var (hipProcessed, hipFailed) = await initHIP200Task;
+        totalProcessed += hipProcessed;
+        totalFailed += hipFailed;
+
         return (totalProcessed, totalFailed);
+    }
+
+    private Task<(int processed, int failed)> ReadEmbeddedGzippedHIP200BinaryFileAsync(Assembly assembly)
+    {
+        var manifestFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith(".HIP.bin.gz"));
+        if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
+        {
+            return Task.FromResult((0, 0));
+        }
+
+        return Task.Run(() =>
+        {
+            const int entrySize = 20; // update in ConvertTo-HIP2000Bin.ps1 as well
+            var table = new byte[entrySize * _hip2000.Length];
+            var entry = table.AsSpan();
+
+            // Span<byte> entry = stackalloc byte[entrySize];
+            int processed = 0;
+            int failed = 0;
+
+            var digits = Catalog.HIP.GetNumericalIndexSize();
+
+            using var gzipStream = new GZipStream(stream, CompressionMode.Decompress, false);
+            using var memStream = new MemoryStream(table);
+            gzipStream.CopyTo(memStream);
+            for (var index = 0; index < _hip2000.Length; index++, entry = entry[entrySize..])
+            {
+                var ra = BinaryPrimitives.ReadDoubleBigEndian(entry);
+                var dec = BinaryPrimitives.ReadDoubleBigEndian(entry[8..]);
+                var vmag = BinaryPrimitives.ReadSingleBigEndian(entry[16..]);
+                if (ra != 0d || dec != 0d || vmag != 0f)
+                {
+                    var catIndex = PrefixedNumericToASCIIPackedInt<CatalogIndex>((uint)Catalog.HIP, index + 1, digits);
+                    if (ConstellationBoundary.TryFindConstellation(ra, dec, out var constellation))
+                    {
+                        _hip2000[index] = new CelestialObject(catIndex, ObjectType.Star, ra, dec, constellation, vmag, float.NaN, EmptyNameSet);
+                        processed++;
+                    }
+                    else
+                    {
+                        failed++;
+                    }
+                }
+            }
+
+            return (processed, failed);
+        });
     }
 
     private async Task<(int processed, int failed)> ReadEmbeddedGzippedCsvDataFileAsync(Assembly assembly, string csvName)
@@ -255,7 +324,7 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
         }
 
         using var gzipStream = new GZipStream(stream, CompressionMode.Decompress, false);
-        using var streamReader = new StreamReader(gzipStream, new UTF8Encoding(false), leaveOpen: true);
+        using var streamReader = new StreamReader(gzipStream, new UTF8Encoding(false), detectEncodingFromByteOrderMarks: false, leaveOpen: true);
         using var csvReader = new CsvReader(new CsvParser(streamReader, new CsvConfiguration(CultureInfo.InvariantCulture) { Delimiter = ";" }, leaveOpen: true));
 
         if (!await csvReader.ReadAsync() || !csvReader.ReadHeader())

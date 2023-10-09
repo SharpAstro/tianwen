@@ -29,12 +29,14 @@
     <EmbeddedResource Remove="MAttiaverga.OpenNGC/**" />
     <EmbeddedResource Remove="OpenNGC/**" />
     <None Remove="OpenNGC/**" />
-    <EmbeddedResource Include="Astrometry/*.gz" />
     <None Remove="MAttiaverga.OpenNGC/**" />
     <None Remove=".git*." />
+    <Compile Remove="hip2000/**" />
+    <None Remove="hip2000/**" />
+    <EmbeddedResource Remove="hip2000/**" />
     <Compile Remove="Astrometry/Catalogs/*.json" />
     <EmbeddedResource Remove="Astrometry/Catalogs/*.json" />
-    <EmbeddedResource Include="Astrometry/Catalogs/*.gz" />
+    <EmbeddedResource Include="Astrometry/Catalogs/*.gz" WithCulture="false" />
     <None Include="../../README.md" Pack="true" PackagePath="/" />
     <None Include="../../LICENSE" Pack="True" PackagePath="/" />
   </ItemGroup>

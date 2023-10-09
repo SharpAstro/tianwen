@@ -74,6 +74,7 @@ public class CelestialObjectDBTests
     [InlineData("C009", ObjectType.HIIReg, C009, Constellation.Cepheus, 22.965d, 62.51833333333333d)]
     [InlineData("vdB0005", ObjectType.BeStar, HR0264, Constellation.Cassiopeia, 0.9451475262466666d, 60.7167400247d)]
     [InlineData("vdB0020", ObjectType.BeStar, HR1142, Constellation.Taurus, 3.7479269116133334d, 24.1133364492d)]
+    [InlineData("HIP120404", ObjectType.Star, HIP120404, Constellation.Carina, 7.967475347333333d, -60.61478539d)]
     public async Task GivenObjectIdWhenLookingItUpThenAnObjIsReturned(
         string indexEntry,
         ObjectType expectedObjType,
