@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 
 namespace Astap.Lib.Astrometry.Catalogs;
 
@@ -376,29 +378,92 @@ public record struct ConstellationBoundary(double LowerRA, double UpperRA, doubl
         new ConstellationBoundary(0.0000, 24.0000, -90.0000, Constellation.Octans)
     };
 
+    private static readonly int[] _decLookupTable = new int[90 + 90 + 1];
+
+    static ConstellationBoundary()
+    {
+        Array.Fill(_decLookupTable, -1);
+        for (var index = 0; index < _table.Length; index++)
+        {
+            var entry = _table[index];
+            var lookupIndex = DecToLookupIndex(entry.LowerDec);
+            var tableIndex = _decLookupTable[lookupIndex];
+            if (tableIndex < 0)
+            {
+                _decLookupTable[lookupIndex] = index;
+            }
+        }
+
+        var fillIndex = 0;
+        for (var decIndex = 0; decIndex < _decLookupTable.Length; decIndex++)
+        {
+            var tableIndex = _decLookupTable[decIndex];
+
+            if (tableIndex >= 0)
+            {
+                fillIndex = tableIndex;
+            }
+            else
+            {
+                _decLookupTable[decIndex] = fillIndex;
+            }
+        }
+    }
+
+    public static bool IsBordering(Constellation borderingConstellation, double ra, double dec, double epoch = 2000.0)
+    {
+        var ra_s = CoordinateUtils.ConditionRA(ra - 0.001);
+        var ra_l = CoordinateUtils.ConditionRA(ra + 0.001);
+
+        return TryFindConstellation(ra_s, dec, epoch, out var const_s)
+            && TryFindConstellation(ra_l, dec, epoch, out var const_l)
+            && (borderingConstellation.IsContainedWithin(const_s) || borderingConstellation.IsContainedWithin(const_l));
+    }
+
     public static bool TryFindConstellation(double ra, double dec, out Constellation constellation) => TryFindConstellation(ra, dec, 2000.0, out constellation);
 
     public static bool TryFindConstellation(double ra, double dec, double epoch, out Constellation constellation)
     {
         const double ConvH = Math.PI / 12.0;
         const double ConvD = Math.PI / 180.0;
+
+        if (double.IsNaN(dec) || double.IsNaN(ra) || double.IsNaN(epoch))
+        {
+            constellation = (Constellation)ulong.MaxValue;
+            return false;
+        }
+
         ra *= ConvH;
         dec *= ConvD;
         (ra, dec) = CoordinateUtils.Precess(ra, dec, epoch, 1875.0);
         ra /= ConvH;
         dec /= ConvD;
-        // TODO: Binary search??
-        for (var i = 0; i < _table.Length; i++)
+
+        var startIdx = DecToTableIndex(dec);
+        for (var i = startIdx; i < _table.Length; i++)
         {
             var entry = _table[i];
-            if (dec < entry.LowerDec || ra < entry.LowerRA || ra >= entry.UpperRA)
+            if (dec < entry.LowerDec)
             {
                 continue;
             }
+
+            // TODO: binary search on RA
+            if (ra < entry.LowerRA || ra >= entry.UpperRA)
+            {
+                continue;
+            }
+
             constellation = entry.Constellation;
             return true;
         }
-        constellation = 0;
+        constellation = (Constellation)ulong.MaxValue;
         return false;
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private static int DecToLookupIndex(double dec) => (int)Math.Ceiling(dec + 90);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private static int DecToTableIndex(double dec) => _decLookupTable[DecToLookupIndex(dec)];
 }
