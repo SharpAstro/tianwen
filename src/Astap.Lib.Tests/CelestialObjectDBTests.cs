@@ -13,7 +13,7 @@ namespace Astap.Lib.Tests;
 public class CelestialObjectDBTests
 {
     private static ICelestialObjectDB? _cachedDB;
-    private static readonly SemaphoreSlim _sem = new(1, 1);
+    private static readonly SemaphoreSlim _sem = new SemaphoreSlim(1, 1);
     private static int _processed = 0;
     private static int _failed = 0;
 
