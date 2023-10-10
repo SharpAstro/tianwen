@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 
 namespace Astap.Lib.Astrometry.Catalogs;
@@ -424,32 +423,23 @@ public record struct ConstellationBoundary(double LowerRA, double UpperRA, doubl
 
     public static bool TryFindConstellation(double ra, double dec, double epoch, out Constellation constellation)
     {
-        const double ConvH = Math.PI / 12.0;
-        const double ConvD = Math.PI / 180.0;
-
         if (double.IsNaN(dec) || double.IsNaN(ra) || double.IsNaN(epoch))
         {
             constellation = (Constellation)ulong.MaxValue;
             return false;
         }
 
-        ra *= ConvH;
-        dec *= ConvD;
-        (ra, dec) = CoordinateUtils.Precess(ra, dec, epoch, 1875.0);
-        ra /= ConvH;
-        dec /= ConvD;
+        var (ra1875, dec1875) = CoordinateUtils.Precess(ra, dec, epoch, 1875.0);
+        return TryFindConstellationInEpoch1875Boundaries(ra1875, dec1875, out constellation);
+    }
 
+    private static bool TryFindConstellationInEpoch1875Boundaries(double ra, double dec, out Constellation constellation)
+    {
         var startIdx = DecToTableIndex(dec);
         for (var i = startIdx; i < _table.Length; i++)
         {
             var entry = _table[i];
-            if (dec < entry.LowerDec)
-            {
-                continue;
-            }
-
-            // TODO: binary search on RA
-            if (ra < entry.LowerRA || ra >= entry.UpperRA)
+            if (dec < entry.LowerDec || ra < entry.LowerRA || ra >= entry.UpperRA)
             {
                 continue;
             }

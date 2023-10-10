@@ -223,21 +223,40 @@ public static class CoordinateUtils
 
 
     /// <summary>
+    /// Calculates precession, RA, Dec is in 24h, -90..90 degrees format in <paramref name="epoch1"/>.
+    /// Response is the same format but in epoch <paramref name="epoch2"/>.
+    /// </summary>
+    /// <param name="ra1Rad">RA for <paramref name="epoch1"/> in 24h</param>
+    /// <param name="dec1Rad">Dec for <paramref name="epoch1"/> in -90..90 degrees</param>
+    /// <param name="epoch1">Origin epoch (years AD)</param>
+    /// <param name="epoch2">Target epoch (years AD)</param>
+    /// <returns>(RA, Dec), in (24h, -90..90 degrees), precessed to <paramref name="epoch2"/>, where the epoch is in years AD.</returns>
+    public static (double RA2, double Dec2) Precess(double ra1, double dec1, double epoch1, double epoch2)
+    {
+        const double ConvH = Math.PI / 12.0;
+        const double ConvD = Math.PI / 180.0;
+
+        var (ra2Rad, dec2Dec) = PrecessRadians(ra1 * ConvH, dec1 * ConvD, epoch1, epoch2);
+
+        return (ra2Rad /= ConvH, dec2Dec /= ConvD);
+    }
+
+    /// <summary>
     /// Calculates precession.
     /// Original comment:
     /// Herget precession, see p. 9 of Publ. Cincinnati Obs., No. 24.
     /// </summary>
-    /// <param name="ra1">RA for <paramref name="epoch1"/></param>
-    /// <param name="dec1">Dec for <paramref name="epoch1"/></param>
+    /// <param name="ra1Rad">RA for <paramref name="epoch1"/> in radians</param>
+    /// <param name="dec1Rad">Dec for <paramref name="epoch1"/> in radians</param>
     /// <param name="epoch1">Origin epoch (years AD)</param>
     /// <param name="epoch2">Target epoch (years AD)</param>
     /// <returns>(RA, Dec), in radians, precessed to <paramref name="epoch2"/>, where the epoch is in years AD.</returns>
-    public static (double ra2, double dec2) Precess(double ra1, double dec1, double epoch1, double epoch2)
+    public static (double RA, double Dec) PrecessRadians(double ra1Rad, double dec1Rad, double epoch1, double epoch2)
     {
         var cdr = Math.PI / 180.0;
         var csr = cdr / 3600.0;
-        var a = Math.Cos(dec1);
-        var x1 = new double[] { a * Math.Cos(ra1), a * Math.Sin(ra1), Math.Sin(dec1) };
+        var a = Math.Cos(dec1Rad);
+        var x1 = new double[] { a * Math.Cos(ra1Rad), a * Math.Sin(ra1Rad), Math.Sin(dec1Rad) };
         var t = 0.001 * (epoch2 - epoch1);
         var st = 0.001 * (epoch1 - 1900.0);
         a = csr * t * (23042.53 + st * (139.75 + 0.06 * st) + t * (30.23 - 0.27 * st + 18.0 * t));
