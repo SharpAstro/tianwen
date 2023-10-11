@@ -5,8 +5,8 @@ param(
     [switch] $SkipStarCats = $false
 )
 
-$commonFilter = "^(Barnard|RCW|LDN|GUM|SH|NAME|NGC|IC|Ced|CG\s+|M\s+|HD|HR|VDB|HH|Dobashi|DG\s+|Cl\s+\w+)"
-$starCatFilter = '^(HD|HR|NAME|2MASS|[*]|M\s+|(NGC|IC)\s+\d+[A-Za-z]?$)'
+$commonFilter = "^(Barnard|RCW|LDN|GUM|SH|NAME|NGC|IC|Ced|CG\s+|M\s+|HD|HR|HIP|VDB|HH|Dobashi|DG\s+|Cl\s+\w+)"
+$starCatFilter = '^(HD|HR|HIP|NAME|2MASS|[*]|M\s+|(NGC|IC)\s+\d+[A-Za-z]?$)'
 
 # missing:
 if ([string]::IsNullOrWhiteSpace($Cat)) {
@@ -47,7 +47,7 @@ $catalogs.GetEnumerator() | ForEach-Object {
             $url = "https://simbad.cds.unistra.fr/simbad/sim-sam?Criteria=cat+%3D+%27Cl%27+%26+otype+%3D+%27OpenCluster%27&submit=submit+query&OutputMode=LIST&maxObject=10000$($commonOutputQueryPart)"
         } else { 
             Write-Host "Querying catalog $($cat) using ID filter $($filter)"
-            $url = "http://simbad.u-strasbg.fr/simbad/sim-id?Ident=$($cat)$($typeFilter)&NbIdent=cat$($commonOutputQueryPart)"
+            $url = "http://simbad.u-strasbg.fr/simbad/sim-id?Ident=$($cat)&NbIdent=cat$($commonOutputQueryPart)"
         }
 
         [xml]$table = Invoke-RestMethod $url

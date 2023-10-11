@@ -7059,7 +7059,8 @@
     "MainId": "HD  75127",
     "Ids": [
       "HD  75127",
-      "Cl Trumpler   10    12"
+      "Cl Trumpler   10    12",
+      "HIP 43087"
     ],
     "ObjType": "**",
     "Ra": 131.64344275331,
@@ -7070,7 +7071,8 @@
     "MainId": "HD  75446",
     "Ids": [
       "HD  75446",
-      "Cl Trumpler   10     6"
+      "Cl Trumpler   10     6",
+      "HIP 43240"
     ],
     "ObjType": "SB*",
     "Ra": 132.12844341153,
@@ -7081,7 +7083,8 @@
     "MainId": "HD  75126",
     "Ids": [
       "Cl Trumpler   10     3",
-      "HD  75126"
+      "HD  75126",
+      "HIP 43085"
     ],
     "ObjType": "**",
     "Ra": 131.63791956,
@@ -9391,6 +9394,7 @@
       "NGC   104",
       "Cl Melotte    1",
       "HD   2051",
+      "HIP 1902",
       "HR    95",
       "NAME 47 Tuc Cluster"
     ],
@@ -9966,7 +9970,7 @@
     "ObjType": "OpC",
     "Ra": 202.325,
     "Dec": -61.2,
-    "VMag": 8.4
+    "VMag": null
   },
   {
     "MainId": "Cl Collinder  272",
