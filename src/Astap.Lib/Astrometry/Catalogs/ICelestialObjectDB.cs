@@ -11,7 +11,7 @@ public interface ICelestialObjectDB
 
     bool TryGetCrossIndices(CatalogIndex catalogIndex, out IReadOnlyList<CatalogIndex> crossIndices);
 
-    IReadOnlySet<CatalogIndex> ObjectIndices { get; }
+    IReadOnlySet<CatalogIndex> AllObjectIndices { get; }
 
     IReadOnlySet<Catalog> Catalogs { get; }
 
@@ -37,7 +37,7 @@ public interface ICelestialObjectDB
     }
 
     /// <summary>
-    /// Uses <see cref="ICelestialObjectDB.CommonNames"/> and <see cref="ICelestialObjectDB.ObjectIndices"/> to create a list
+    /// Uses <see cref="ICelestialObjectDB.CommonNames"/> and <see cref="ICelestialObjectDB.AllObjectIndices"/> to create a list
     /// of all names and designations.
     /// </summary>
     /// <param name="this">Initialised object db</param>
@@ -45,7 +45,7 @@ public interface ICelestialObjectDB
     public string[] CreateAutoCompleteList()
     {
         var commonNames = CommonNames;
-        var objIndices = ObjectIndices;
+        var objIndices = AllObjectIndices;
 
         var canonicalSet = new HashSet<string>((int)(objIndices.Count * 1.3f));
         foreach (var objIndex in objIndices)

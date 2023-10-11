@@ -49,74 +49,15 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
     private HashSet<Catalog>? _completeCatalogCache;
     private volatile int _hipProcessed;
     private volatile bool _isInitialized;
+    private volatile int _hipCacheItemCount;
 
     public CelestialObjectDB() { }
 
     public IReadOnlyCollection<string> CommonNames => _objectsByCommonName.Keys;
 
-    public IReadOnlySet<Catalog> Catalogs
-    {
-        get
-        {
-            if (_completeCatalogCache is { } cache && _isInitialized)
-            {
-                return cache;
-            }
+    public IReadOnlySet<Catalog> Catalogs => GetOrRebuildIndex(ref _completeCatalogCache, RebuildCatalogCache);
 
-            var catalogs = IndicesToCatalogs<HashSet<Catalog>>();
-            catalogs.EnsureCapacity(catalogs.Count + CrossCats.Count);
-            catalogs.UnionWith(CrossCats);
-
-            // only cache the final result
-            if (_isInitialized)
-            {
-                return _completeCatalogCache ??= catalogs;
-            }
-            else
-            {
-                return catalogs;
-            }
-
-            throw new InvalidOperationException("Collection has not been initialized");
-        }
-    }
-
-    public IReadOnlySet<CatalogIndex> ObjectIndices
-    {
-        get
-        {
-            if (_catalogIndicesCache is { } cache && _isInitialized)
-            {
-                return cache;
-            }
-
-            var objCount = _objectsByIndex.Count + _crossIndexLookuptable.Count + _hipProcessed;
-            if (objCount > 0 && _hipProcessed > 0)
-            {
-                cache = _catalogIndicesCache ?? new HashSet<CatalogIndex>(HIPIndex());
-                cache.EnsureCapacity(objCount);
-                cache.UnionWith(_objectsByIndex.Keys);
-                cache.UnionWith(_crossIndexLookuptable.Keys);
-
-                return cache;
-            }
-
-            return new HashSet<CatalogIndex>(0);
-
-            HashSet<CatalogIndex> HIPIndex()
-            {
-                var hipIndex = new HashSet<CatalogIndex>(_hipProcessed);
-                for (var i = 0; i < _hip2000.Length; i++)
-                {
-                    if (_hip2000[i].Index is { } idx and not 0)
-                    {
-                        _ = hipIndex.Add(idx);
-                    }
-                }
-                return hipIndex;
-            }
-        }
-    }
+    public IReadOnlySet<CatalogIndex> AllObjectIndices => GetOrRebuildIndex(ref _catalogIndicesCache, RebuildObjectIndices);
 
     public IRaDecIndex CoordinateGrid => _raDecIndex;
 
@@ -681,7 +622,7 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    void AddCommonNameAndPosIndices(in CelestialObject obj)
+    private void AddCommonNameAndPosIndices(in CelestialObject obj)
     {
         _raDecIndex.Add(obj);
 
@@ -689,7 +630,7 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    void AddCommonNameIndex(CatalogIndex catIdx, IReadOnlySet<string> commonNames)
+    private void AddCommonNameIndex(CatalogIndex catIdx, IReadOnlySet<string> commonNames)
     {
         if (ReferenceEquals(commonNames, EmptyNameSet))
         {
@@ -702,15 +643,73 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
         }
     }
 
-    TSet IndicesToCatalogs<TSet>() where TSet : ISet<Catalog>, new()
+    private IReadOnlySet<T> GetOrRebuildIndex<T>(ref HashSet<T>? cacheVar, Func<HashSet<T>> rebuildFunc)
     {
-        var catalogs = new TSet();
+        if (cacheVar is { } cache && _isInitialized)
+        {
+            return cache;
+        }
 
-        foreach (var objIndex in ObjectIndices)
+        var rebuildIndex = rebuildFunc();
+
+        if (_isInitialized)
+        {
+            // this is the finite version of the cache as after intialization the DB
+            // is immutable
+            return cacheVar = rebuildIndex;
+        }
+        else
+        {
+            // return the cache but do no
+            return rebuildIndex;
+        }
+    }
+
+    private HashSet<Catalog> RebuildCatalogCache()
+    {
+        var catalogs = new HashSet<Catalog>(50);
+
+        foreach (var objIndex in AllObjectIndices)
         {
             _ = catalogs.Add(objIndex.ToCatalog());
         }
 
+        catalogs.EnsureCapacity(catalogs.Count + CrossCats.Count);
+        catalogs.UnionWith(CrossCats);
         return catalogs;
+    }
+
+    private HashSet<CatalogIndex> RebuildObjectIndices()
+    {
+        var objCount = _objectsByIndex.Count + _crossIndexLookuptable.Count + _hipProcessed;
+        if (objCount > 0 && _hipProcessed > 0)
+        {
+            // allow for a changing HIP array (recovered items etc.)
+            var index = _catalogIndicesCache is { } cache && _hipCacheItemCount == _hipProcessed ? cache : HIPIndex();
+
+            index.EnsureCapacity(objCount);
+            index.UnionWith(_objectsByIndex.Keys);
+            index.UnionWith(_crossIndexLookuptable.Keys);
+
+            return index;
+        }
+
+        return new HashSet<CatalogIndex>(0);
+
+        HashSet<CatalogIndex> HIPIndex()
+        {
+            var hipIndex = new HashSet<CatalogIndex>(_hipProcessed);
+            for (var i = 0; i < _hip2000.Length; i++)
+            {
+                if (_hip2000[i].Index is { } idx and not 0)
+                {
+                    _ = hipIndex.Add(idx);
+                }
+            }
+            // keep track of how many items we used to create the HIP index cache with
+            // this works as we dont remove items but only potentially add items
+            _hipCacheItemCount = hipIndex.Count;
+            return hipIndex;
+        }
     }
 }
