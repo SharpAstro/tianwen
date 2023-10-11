@@ -5,7 +5,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
-using static Astap.Lib.Tests.SharedTestData;
 
 namespace Astap.Lib.Tests;
 
@@ -325,7 +324,7 @@ public class CelestialObjectDBTests
     {
         // given
         var db = await InitDBAsync();
-        var idxs = db.ObjectIndices;
+        var idxs = db.AllObjectIndices;
         var catalogs = db.Catalogs;
 
         foreach (var idx in idxs)
@@ -376,9 +375,9 @@ public class CelestialObjectDBTests
         var list = db.CreateAutoCompleteList();
 
         // then
-        list.Length.ShouldBeGreaterThan(db.CommonNames.Count + db.ObjectIndices.Count);
+        list.Length.ShouldBeGreaterThan(db.CommonNames.Count + db.AllObjectIndices.Count);
 
         db.CommonNames.ShouldBeSubsetOf(list);
-        db.ObjectIndices.Select(p => p.ToCanonical()).ShouldBeSubsetOf(list);
+        db.AllObjectIndices.Select(p => p.ToCanonical()).ShouldBeSubsetOf(list);
     }
 }
