@@ -23,7 +23,7 @@ namespace Astap.Lib.Astrometry.Catalogs;
 
 public sealed class CelestialObjectDB : ICelestialObjectDB
 {
-    private static readonly Dictionary<CatalogIndex, (ObjectType objType, string[] commonNames)> _predefinedObjects = new()
+    private static readonly Dictionary<CatalogIndex, (ObjectType ObjType, string[] CommonNames)> _predefinedObjects = new()
     {
         [CatalogIndex.Sol] = (ObjectType.Star, new[] { "Sun", "Sol" }),
         [CatalogIndex.Mercury] = (ObjectType.Planet, new[] { "Mercury" }),
@@ -38,16 +38,17 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
     };
 
     private static readonly IReadOnlySet<string> EmptyNameSet = ImmutableHashSet.Create<string>();
-    private static readonly IReadOnlySet<Catalog> EmptyCatalogSet = ImmutableHashSet.Create<Catalog>();
 
     private readonly CelestialObject[] _hip2000 = new CelestialObject[120404];
-    private readonly Dictionary<CatalogIndex, CelestialObject> _objectsByIndex = new(17000);
-    private readonly Dictionary<CatalogIndex, (CatalogIndex i1, CatalogIndex[]? ext)> _crossIndexLookuptable = new(11000);
-    private readonly Dictionary<string, (CatalogIndex i1, CatalogIndex[]? ext)> _objectsByCommonName = new(5600);
+    private readonly Dictionary<CatalogIndex, CelestialObject> _objectsByIndex = new(32000);
+    private readonly Dictionary<CatalogIndex, (CatalogIndex i1, CatalogIndex[]? ext)> _crossIndexLookuptable = new(39000);
+    private readonly Dictionary<string, (CatalogIndex i1, CatalogIndex[]? ext)> _objectsByCommonName = new(5700);
     private readonly RaDecIndex _raDecIndex = new();
-
+    
     private HashSet<CatalogIndex>? _catalogIndicesCache;
-    private HashSet<Catalog>? _catalogCache;
+    private HashSet<Catalog>? _completeCatalogCache;
+    private volatile int _hipProcessed;
+    private volatile bool _isInitialized;
 
     public CelestialObjectDB() { }
 
@@ -57,14 +58,26 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
     {
         get
         {
-            if (_catalogCache is var cache and not null)
+            if (_completeCatalogCache is { } cache && _isInitialized)
             {
                 return cache;
             }
 
-            return _objectsByIndex.Count > 0 && _crossIndexLookuptable.Count > 0
-                ? (_catalogCache ??= IndicesToCatalogs<HashSet<Catalog>>())
-                : EmptyCatalogSet;
+            var catalogs = IndicesToCatalogs<HashSet<Catalog>>();
+            catalogs.EnsureCapacity(catalogs.Count + CrossCats.Count);
+            catalogs.UnionWith(CrossCats);
+
+            // only cache the final result
+            if (_isInitialized)
+            {
+                return _completeCatalogCache ??= catalogs;
+            }
+            else
+            {
+                return catalogs;
+            }
+
+            throw new InvalidOperationException("Collection has not been initialized");
         }
     }
 
@@ -72,22 +85,36 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
     {
         get
         {
-            if (_catalogIndicesCache is { } cache)
+            if (_catalogIndicesCache is { } cache && _isInitialized)
             {
                 return cache;
             }
 
-            var objs = _objectsByIndex.Count + _crossIndexLookuptable.Count;
-            if (objs > 0)
+            var objCount = _objectsByIndex.Count + _crossIndexLookuptable.Count + _hipProcessed;
+            if (objCount > 0 && _hipProcessed > 0)
             {
-                cache = new HashSet<CatalogIndex>(objs);
+                cache = _catalogIndicesCache ?? new HashSet<CatalogIndex>(HIPIndex());
+                cache.EnsureCapacity(objCount);
                 cache.UnionWith(_objectsByIndex.Keys);
                 cache.UnionWith(_crossIndexLookuptable.Keys);
 
-                return _catalogIndicesCache ??= cache;
+                return cache;
             }
 
             return new HashSet<CatalogIndex>(0);
+
+            HashSet<CatalogIndex> HIPIndex()
+            {
+                var hipIndex = new HashSet<CatalogIndex>(_hipProcessed);
+                for (var i = 0; i < _hip2000.Length; i++)
+                {
+                    if (_hip2000[i].Index is { } idx and not 0)
+                    {
+                        _ = hipIndex.Add(idx);
+                    }
+                }
+                return hipIndex;
+            }
         }
     }
 
@@ -96,7 +123,7 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
     /// <inheritdoc/>
     public bool TryResolveCommonName(string name, out IReadOnlyList<CatalogIndex> matches) => _objectsByCommonName.TryGetLookupEntries(name, out matches);
 
-    private static readonly ulong[] CrossCats = new[] {
+    private static readonly IReadOnlySet<Catalog> CrossCats = new HashSet<Catalog>() {
         Catalog.Barnard,
         Catalog.Caldwell,
         Catalog.Ced,
@@ -106,6 +133,7 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
         Catalog.Dobashi,
         Catalog.GUM,
         Catalog.HD,
+        Catalog.HIP,
         Catalog.HR,
         Catalog.HH,
         Catalog.IC,
@@ -116,33 +144,58 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
         Catalog.RCW,
         Catalog.UGC,
         Catalog.vdB
-    }.Select(c => (ulong)c).OrderBy(x => x).ToArray();
+    };
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool IsCrossCat(Catalog cat) => Array.BinarySearch(CrossCats, (ulong)cat) >= 0;
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private static bool IsCrossCat(Catalog cat) => CrossCats.Contains(cat);
 
-    /// <inheritdoc/>
-    public bool TryLookupByIndex(CatalogIndex index, [NotNullWhen(true)] out CelestialObject celestialObject)
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private bool TryLookupByIndexDirect(CatalogIndex index, [NotNullWhen(true)] out CelestialObject celestialObject, out Catalog cat, out int? arrayIndex)
     {
-        var (cat, value, msbSet) = index.ToCatalogAndValue();
+        (cat, var value, var msbSet) = index.ToCatalogAndValue();
+
         if (cat is Catalog.HIP && !msbSet)
         {
             var number = EnumValueToNumeric(value);
             if (number <= (ulong)_hip2000.Length)
             {
-                celestialObject = _hip2000[number - 1];
-            }
-            else
-            {
-                celestialObject = default;
+                var idx = (int)number - 1;
+                celestialObject = _hip2000[idx];
+
+                if (celestialObject.Index != 0)
+                {
+                    arrayIndex = idx;
+
+                    return true;
+                }
+                else
+                {
+                    arrayIndex = null;
+
+                    return false;
+                }
             }
         }
-        else if (!_objectsByIndex.TryGetValue(index, out celestialObject)
+        else if (_objectsByIndex.TryGetValue(index, out celestialObject))
+        {
+            arrayIndex = null;
+            return true;
+        }
+
+        arrayIndex = null;
+        celestialObject = default;
+        return false;
+    }
+
+    /// <inheritdoc/>
+    public bool TryLookupByIndex(CatalogIndex index, [NotNullWhen(true)] out CelestialObject celestialObject)
+    {
+        if (!TryLookupByIndexDirect(index, out celestialObject, out var cat, out _)
             && IsCrossCat(cat)
             && _crossIndexLookuptable.TryGetValue(index, out var crossIndices)
         )
         {
-            if (crossIndices.i1 != 0 && crossIndices.i1 != index && _objectsByIndex.TryGetValue(crossIndices.i1, out celestialObject))
+            if (crossIndices.i1 != 0 && crossIndices.i1 != index && TryLookupByIndexDirect(crossIndices.i1, out celestialObject, out _, out _))
             {
                 index = crossIndices.i1;
             }
@@ -150,7 +203,7 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
             {
                 foreach (var crossIndex in ext)
                 {
-                    if (crossIndex != 0 && crossIndex != index && _objectsByIndex.TryGetValue(crossIndex, out celestialObject))
+                    if (crossIndex != 0 && crossIndex != index && TryLookupByIndexDirect(crossIndex, out celestialObject, out _, out _))
                     {
                         index = crossIndex;
                         break;
@@ -195,7 +248,7 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
 
         void AddToFollowObjs(List<CelestialObject> followedObjs, CatalogIndex index, CatalogIndex followIndex)
         {
-            if (followIndex != index && _objectsByIndex.TryGetValue(followIndex, out var followedObj) && followedObj.ObjectType != ObjectType.Duplicate)
+            if (followIndex != index && TryLookupByIndexDirect(followIndex, out var followedObj, out _, out _) && followedObj.ObjectType != ObjectType.Duplicate)
             {
                 followedObjs.Add(followedObj);
             }
@@ -206,20 +259,21 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
         => _crossIndexLookuptable.TryGetLookupEntries(catalogIndex, out crossIndices);
 
     /// <inheritdoc/>
-    public async Task<(int processed, int failed)> InitDBAsync()
+    public async Task<(int Processed, int Failed)> InitDBAsync()
     {
         var assembly = typeof(CelestialObjectDB).Assembly;
-        int totalProcessed = 0;
-        int totalFailed = 0;
+        var totalProcessed = 0;
+        var totalFailed = 0;
 
         var initHIP200Task = ReadEmbeddedGzippedHIP200BinaryFileAsync(assembly);
 
         foreach (var predefined in _predefinedObjects)
         {
             var cat = predefined.Key.ToCatalog();
-            var commonNames = new HashSet<string>(predefined.Value.commonNames);
+
+            var commonNames = new HashSet<string>(predefined.Value.CommonNames);
             commonNames.TrimExcess();
-            _objectsByIndex[predefined.Key] = new CelestialObject(predefined.Key, predefined.Value.objType, double.NaN, double.NaN, 0, float.NaN, float.NaN, commonNames);
+            _objectsByIndex[predefined.Key] = new CelestialObject(predefined.Key, predefined.Value.ObjType, double.NaN, double.NaN, 0, float.NaN, float.NaN, commonNames);
             AddCommonNameIndex(predefined.Key, commonNames);
             totalProcessed++;
         }
@@ -231,8 +285,13 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
             totalFailed += failed;
         }
 
+        (_hipProcessed, var hipFailed) = await initHIP200Task;
+        totalProcessed += _hipProcessed;
+        totalFailed += hipFailed;
+
         var simbadCatalogs = new[] {
             ("HR", Catalog.HR),
+            ("HD", Catalog.HD),
             ("GUM", Catalog.GUM),
             ("RCW", Catalog.RCW),
             ("LDN", Catalog.LDN),
@@ -254,14 +313,11 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
             totalFailed += failed;
         }
 
-        var (hipProcessed, hipFailed) = await initHIP200Task;
-        totalProcessed += hipProcessed;
-        totalFailed += hipFailed;
-
+        _isInitialized = true;
         return (totalProcessed, totalFailed);
     }
 
-    private Task<(int processed, int failed)> ReadEmbeddedGzippedHIP200BinaryFileAsync(Assembly assembly)
+    private Task<(int Processed, int Failed)> ReadEmbeddedGzippedHIP200BinaryFileAsync(Assembly assembly)
     {
         var manifestFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith(".HIP.bin.gz"));
         if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
@@ -294,7 +350,9 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
                     var catIndex = PrefixedNumericToASCIIPackedInt<CatalogIndex>((uint)Catalog.HIP, index + 1, digits);
                     if (ConstellationBoundary.TryFindConstellation(ra, dec, out var constellation))
                     {
-                        _hip2000[index] = new CelestialObject(catIndex, ObjectType.Star, ra, dec, constellation, vmag, float.NaN, EmptyNameSet);
+                        var obj = _hip2000[index] = new CelestialObject(catIndex, ObjectType.Star, ra, dec, constellation, vmag, float.NaN, EmptyNameSet);
+
+                        AddCommonNameAndPosIndices(obj);
                         processed++;
                     }
                     else
@@ -308,7 +366,7 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
         });
     }
 
-    private async Task<(int processed, int failed)> ReadEmbeddedGzippedCsvDataFileAsync(Assembly assembly, string csvName)
+    private async Task<(int Processed, int Failed)> ReadEmbeddedGzippedCsvDataFileAsync(Assembly assembly, string csvName)
     {
         const string NGC = nameof(NGC);
         const string IC = nameof(IC);
@@ -322,9 +380,10 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
             return (processed, failed);
         }
 
-        using var gzipStream = new GZipStream(stream, CompressionMode.Decompress, false);
+        using var gzipStream = new GZipStream(stream, CompressionMode.Decompress);
         using var streamReader = new StreamReader(gzipStream, new UTF8Encoding(false), detectEncodingFromByteOrderMarks: false, leaveOpen: true);
-        using var csvReader = new CsvReader(new CsvParser(streamReader, new CsvConfiguration(CultureInfo.InvariantCulture) { Delimiter = ";" }, leaveOpen: true));
+        using var csvParser = new CsvParser(streamReader, new CsvConfiguration(CultureInfo.InvariantCulture) { Delimiter = ";" }, leaveOpen: true);
+        using var csvReader = new CsvReader(csvParser);
 
         if (!await csvReader.ReadAsync() || !csvReader.ReadHeader())
         {
@@ -452,7 +511,7 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
 
     static readonly Regex ClusterMemberPattern = new(@"^[A-Za-z]+\s+\d+\s+\d+$", RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnorePatternWhitespace);
 
-    private async Task<(int processed, int failed)> ReadEmbeddedGzippedJsonDataFileAsync(Assembly assembly, string jsonName, Catalog catToAdd)
+    private async Task<(int Processed, int Failed)> ReadEmbeddedGzippedJsonDataFileAsync(Assembly assembly, string jsonName, Catalog catToAdd)
     {
         const string NAME_CAT_PREFIX = "NAME ";
         const string STAR_CAT_PREFIX = "* ";
@@ -469,11 +528,11 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
 
         using var gzipStream = new GZipStream(stream, CompressionMode.Decompress, false);
 
-        var mainCatalogs = new HashSet<Catalog>();
-        foreach (var objIndex in new HashSet<CatalogIndex>(_objectsByIndex.Keys))
+        // will not be using cache as initialization is not complete
+        var mainCatalogs = new HashSet<Catalog>(new HashSet<CatalogIndex>(_objectsByIndex.Keys).Select(idx => idx.ToCatalog()))
         {
-            _ = mainCatalogs.Add(objIndex.ToCatalog());
-        }
+            Catalog.HIP
+        };
 
         await foreach (var record in JsonSerializer.DeserializeAsyncEnumerable<SimbadCatalogDto>(gzipStream))
         {
@@ -497,7 +556,8 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
                 {
                     commonNames.Add(id[STAR_CAT_PREFIX.Length..].TrimStart());
                 }
-                else if ((isCluster || !ClusterMemberPattern.IsMatch(id)) && TryGetCleanedUpCatalogName(id, out var catId))
+                else if ((isCluster || !ClusterMemberPattern.IsMatch(id))
+                    && TryGetCleanedUpCatalogName(id, out var catId))
                 {
                     // skip open cluster members for now
                     var cat = catId.ToCatalog();
@@ -518,12 +578,14 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
                 var bestMatches = (
                     from relevantIdPerCat in relevantIds
                     from relevantId in relevantIdPerCat.Value
-                    where _objectsByIndex.ContainsKey(relevantId)
+                    // TODO: Fixup missing HIP entries for which we have a HR/HD entry
+                    where TryLookupByIndexDirect(relevantId, out _, out _, out _)
                     let sortKey = relevantIdPerCat.Key switch
                     {
                         Catalog.NGC => 1u,
                         Catalog.IC => 2u,
                         Catalog.Messier => 3u,
+                        Catalog.HIP => uint.MaxValue,
                         _ => (ulong)relevantIdPerCat.Key
                     }
                     orderby sortKey, relevantId
@@ -580,12 +642,18 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
         return (processed, failed);
     }
 
-    void UpdateObjectCommonNames(CatalogIndex id, HashSet<string> commonNames)
+    /// <summary>
+    /// WARNING: Destructively updates <paramref name="commonNames"/>.
+    /// </summary>
+    /// <param name="catIdx"></param>
+    /// <param name="commonNames"></param>
+    private void UpdateObjectCommonNames(CatalogIndex catIdx, HashSet<string> commonNames)
     {
-        if (_objectsByIndex.TryGetValue(id, out var obj) && !obj.CommonNames.SetEquals(commonNames))
+        if (TryLookupByIndexDirect(catIdx, out var obj, out var cat, out var arrayIndex)
+            && !obj.CommonNames.SetEquals(commonNames))
         {
             var modObj = new CelestialObject(
-                id,
+                catIdx,
                 obj.ObjectType,
                 obj.RA,
                 obj.Dec,
@@ -595,10 +663,20 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
                 commonNames.UnionWithAsReadOnlyCopy(obj.CommonNames)
             );
 
-            _objectsByIndex[id] = modObj;
+            if (arrayIndex is { } idx)
+            {
+                if (cat == Catalog.HIP)
+                {
+                    _hip2000[idx] = modObj;
+                }
+            }
+            else
+            {
+                _objectsByIndex[catIdx] = modObj;
+            }
 
             commonNames.ExceptWith(obj.CommonNames);
-            AddCommonNameIndex(id, commonNames);
+            AddCommonNameIndex(catIdx, commonNames);
         }
     }
 
@@ -627,6 +705,7 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
     TSet IndicesToCatalogs<TSet>() where TSet : ISet<Catalog>, new()
     {
         var catalogs = new TSet();
+
         foreach (var objIndex in ObjectIndices)
         {
             _ = catalogs.Add(objIndex.ToCatalog());

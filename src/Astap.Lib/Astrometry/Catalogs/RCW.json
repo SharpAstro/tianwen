@@ -115,6 +115,7 @@
     "Ids": [
       "HD  50896",
       "Cl Collinder  121     4",
+      "HIP 33165",
       "HR  2583",
       "RCW  11",
       "SH  2-308"
@@ -539,6 +540,7 @@
       "NGC  3293",
       "Cl Collinder  224",
       "Cl Melotte  100",
+      "Cl VDBH   98",
       "GUM 30",
       "RCW  51"
     ],
@@ -632,6 +634,7 @@
     "MainId": "NGC  3603",
     "Ids": [
       "NGC  3603",
+      "Cl VDBH  115",
       "GUM 38b",
       "RCW  57B"
     ],
@@ -644,6 +647,7 @@
     "MainId": "HD  96548",
     "Ids": [
       "HD  96548",
+      "HIP 54283",
       "RCW  58"
     ],
     "ObjType": "WR*",
@@ -1347,6 +1351,7 @@
       "Ced 135a",
       "Ced 135b",
       "GUM 52",
+      "HIP 81100",
       "NGC  6164",
       "NGC  6165",
       "RCW 107"

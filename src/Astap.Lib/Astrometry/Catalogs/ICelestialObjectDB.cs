@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading.Tasks;
 using static Astap.Lib.Astrometry.Catalogs.CatalogUtils;
 
@@ -14,15 +15,15 @@ public interface ICelestialObjectDB
 
     IReadOnlySet<Catalog> Catalogs { get; }
 
-    Task<(int processed, int failed)> InitDBAsync();
+    Task<(int Processed, int Failed)> InitDBAsync();
 
     IReadOnlyCollection<string> CommonNames { get; }
 
     IRaDecIndex CoordinateGrid { get; }
 
-    bool TryLookupByIndex(CatalogIndex index, out CelestialObject celestialObject);
+    bool TryLookupByIndex(CatalogIndex index, [NotNullWhen(true)] out CelestialObject celestialObject);
 
-    public bool TryLookupByIndex(string name, out CelestialObject celestialObject)
+    public bool TryLookupByIndex(string name, [NotNullWhen(true)] out CelestialObject celestialObject)
     {
         if (TryGetCleanedUpCatalogName(name, out var index) && TryLookupByIndex(index, out celestialObject))
         {
