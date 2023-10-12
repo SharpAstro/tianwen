@@ -18,6 +18,9 @@ namespace Astap.Lib.Astrometry.Catalogs;
 [DebuggerDisplay("{CatalogIndexEx.ToCanonical(this),nq}")]
 public enum CatalogIndex : ulong
 {
+    // Internal constant used to represent MSB
+    Base91Enc = 1UL << 63,
+
     Sol = (ulong)'P' << 28 | 'l' << 21 | 'S' << 14 | 'o' << 7 | 'l',
     Mercury = 'P' << 21 | 'l' << 14 | 'M' << 7 | 'e',
     Venus = (ulong)'P' << 14 | 'l' << 7 | 'V',
@@ -31,7 +34,6 @@ public enum CatalogIndex : ulong
     Neptune = 'P' << 14 | 'l' << 7 | 'N',
 
     // Used for testing
-    Base91Enc = 1UL << 63,
     Barnard_22 = 'B' << 21 | '0' << 14 | '2' << 7 | '2',
     BD_16_1591s = Base91Enc | (ulong)'A' << 56 | (ulong)'A' << 49 | (ulong)'v' << 42 | (ulong)'(' << 35 | (ulong)'f' << 28 | 'T' << 21 | 'n' << 14 | 'L' << 7 | 'H',
     C009 = (ulong)'C' << 21 | '0' << 14 | '0' << 7 | '9',
