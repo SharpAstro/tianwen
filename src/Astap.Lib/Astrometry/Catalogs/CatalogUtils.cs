@@ -7,21 +7,50 @@ using static Astap.Lib.EnumHelper;
 
 namespace Astap.Lib.Astrometry.Catalogs;
 
-public static class CatalogUtils
+[Flags]
+internal enum Base91EncRADecOptions
 {
-    const RegexOptions CommonOpts = RegexOptions.CultureInvariant | RegexOptions.Compiled | RegexOptions.IgnorePatternWhitespace;
+    None = 0,
+    ImpliedJ2000 = 1
+}
 
-    static readonly Regex BDPattern = new(@"(?:BD) \s* ([-+]) ([0-9]{1,2}) (?:\s+|[-_]) ([0-9]{1,5})", CommonOpts);
+public static partial class CatalogUtils
+{
 
-    static readonly Regex CGorHHPattern = new(@"(?:CG|HH) ([0-9][A-Z0-9]*)", CommonOpts);
+    [Flags]
+    private enum Base91AlgoOptions
+    {
+        None = 0,
+        ImpliedJ2000 = 1,
+        DecIsNegative = 1 << 1,
+        IsJ2000 = 1 << 2,
+    }
 
-    static readonly Regex ExtendedCatalogEntryPattern = new(@"^(N|I|NGC|IC) ([0-9]{1,4}) (?:(N(?:ED)? ([0-9]{1,2})) | [_]?([A-Z]{1,2}))$", CommonOpts);
+    private const RegexOptions CommonOpts = RegexOptions.CultureInvariant | RegexOptions.Compiled | RegexOptions.IgnorePatternWhitespace;
 
-    static readonly Regex PSRDesignationPattern = new(@"^(?:PSR) ([BJ]) ([0-9]{4}) ([-+]) ([0-9]{2,4})$", CommonOpts);
+    [GeneratedRegex("(?:BD) \\s* ([-+]) ([0-9]{1,2}) (?:\\s+|[-_]) ([0-9]{1,5})", CommonOpts)]
+    private static partial Regex BDPatternGen();
+    private static readonly Regex BDPattern = BDPatternGen();
 
-    static readonly Regex TwoMassAnd2MassXPattern = new(@"^(?:2MAS[SX]) ([J]) ([0-9]{8}) ([-+]) ([0-9]{7})$", CommonOpts);
+    [GeneratedRegex(@"(?:CG|HH) ([0-9][A-Z0-9]*)", CommonOpts)]
+    private static partial Regex CGorHHPatternGen();
+    private static readonly Regex CGorHHPattern = CGorHHPatternGen();
 
-    static readonly Regex WDSPattern = new(@"^(?:WDS) ([J]) ([0-9]{5}) ([-+]) ([0-9]{4})$", CommonOpts);
+    [GeneratedRegex(@"^(N|I|NGC|IC) ([0-9]{1,4}) (?:(N(?:ED)? ([0-9]{1,2})) | [_]?([A-Z]{1,2}))$", CommonOpts)]
+    private static partial Regex ExtendedCatalogEntryPatternGen();
+    private static readonly Regex ExtendedCatalogEntryPattern = ExtendedCatalogEntryPatternGen();
+
+    [GeneratedRegex(@"^(?:PSR) ([BJ]) ([0-9]{4}) ([-+]) ([0-9]{2,4})$", CommonOpts)]
+    private static partial Regex PSRDesignationPatternGen();
+    private static readonly Regex PSRDesignationPattern = PSRDesignationPatternGen();
+
+    [GeneratedRegex(@"^(?:2MAS[SX]) ([J]) ([0-9]{8}) ([-+]) ([0-9]{7})$", CommonOpts)]
+    private static partial Regex TwoMassAnd2MassXPatternGen();
+    private static readonly Regex TwoMassAnd2MassXPattern = TwoMassAnd2MassXPatternGen();
+
+    [GeneratedRegex(@"^(?:WDS) ([J]) ([0-9]{5}) ([-+]) ([0-9]{4})$", CommonOpts)]
+    private static partial Regex WDSPatternGen();
+    private static readonly Regex WDSPattern = WDSPatternGen();
 
     internal const uint PSRRaMask = 0xf_ff;
     internal const int PSRRaShift = 14;
@@ -46,6 +75,7 @@ public static class CatalogUtils
     static readonly char[] Digit = new[] { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9' };
     static readonly char[] NGCExt = new[] { 'A', 'B', 'C', 'D', 'E', 'F', 'S', 'W', 'N' };
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static bool TryGetCleanedUpCatalogName(string? input, out CatalogIndex catalogIndex)
     {
         if (!TryGuessCatalogFormat(input, out var trimmedInput, out var template, out var digits, out var catalog))
@@ -192,7 +222,7 @@ public static class CatalogUtils
 
         if (cleanedUp is { Length: <= MaxLenInASCII })
         {
-            catalogIndex = (CatalogIndex)(isBase91Encoded ? 1L << 63 : 0L) | AbbreviationToEnumMember<CatalogIndex>(cleanedUp);
+            catalogIndex = (isBase91Encoded ? CatalogIndex.Base91Enc : 0L) | AbbreviationToEnumMember<CatalogIndex>(cleanedUp);
             return true;
         }
         else
@@ -202,8 +232,8 @@ public static class CatalogUtils
         }
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    static string? CleanupRADecBasedCatalogIndex(Regex pattern, string trimmedInput, Catalog catalog, ulong raMask, int raShift, ulong decMask, Base91EncRADecOptions epochSupport)
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private static string? CleanupRADecBasedCatalogIndex(Regex pattern, string trimmedInput, Catalog catalog, ulong raMask, int raShift, ulong decMask, Base91EncRADecOptions base91EncOptions)
     {
         var match = pattern.Match(trimmedInput);
 
@@ -212,16 +242,17 @@ public static class CatalogUtils
             return null;
         }
 
-        var isJ2000 = match.Groups[1].ValueSpan[0] == 'J';
+        var algoOptions = base91EncOptions.ToAlgoOptions();
+        algoOptions |= match.Groups[1].ValueSpan[0] == 'J' ? Base91AlgoOptions.IsJ2000 : Base91AlgoOptions.None;
         var ra = match.Groups[2].ValueSpan;
-        var decIsNeg = match.Groups[3].ValueSpan[0] == '-';
+        algoOptions |= match.Groups[3].ValueSpan[0] == '-' ? Base91AlgoOptions.DecIsNegative : Base91AlgoOptions.None;
         var dec = match.Groups[4].ValueSpan;
 
-        return EncodeRADecBasedCatalogIndex(catalog, raMask, raShift, decMask, isJ2000, ra, decIsNeg, dec, epochSupport);
+        return EncodeRADecBasedCatalogIndex(catalog, raMask, raShift, decMask, ra, dec, algoOptions);
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    static string? CleanupBDCatalogIndex(Regex pattern, string trimmedInput, Catalog catalog, ulong raMask, int raShift, ulong decMask, Base91EncRADecOptions epochSupport)
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private static string? CleanupBDCatalogIndex(Regex pattern, string trimmedInput, Catalog catalog, ulong raMask, int raShift, ulong decMask, Base91EncRADecOptions base91EncOptions)
     {
         var match = pattern.Match(trimmedInput);
 
@@ -230,20 +261,23 @@ public static class CatalogUtils
             return null;
         }
 
+        var algoOptions = base91EncOptions.ToAlgoOptions();
         var ra = match.Groups[3].ValueSpan;
-        var decIsNeg = match.Groups[1].Value[0] == '-';
+        algoOptions |= match.Groups[1].Value[0] == '-' ? Base91AlgoOptions.DecIsNegative : Base91AlgoOptions.None;
         var dec = match.Groups[2].ValueSpan;
 
-        return EncodeRADecBasedCatalogIndex(catalog, raMask, raShift, decMask, false, ra, decIsNeg, dec, epochSupport);
+        return EncodeRADecBasedCatalogIndex(catalog, raMask, raShift, decMask, ra, dec, algoOptions);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private static string? EncodeRADecBasedCatalogIndex(Catalog catalog, ulong raMask, int raShift, ulong decMask, bool isJ2000, in ReadOnlySpan<char> ra, bool decIsNeg, in ReadOnlySpan<char> dec, Base91EncRADecOptions epochSupport)
+    private static string? EncodeRADecBasedCatalogIndex(Catalog catalog, ulong raMask, int raShift, ulong decMask, in ReadOnlySpan<char> ra, in ReadOnlySpan<char> dec, Base91AlgoOptions options)
     {
         if (ulong.TryParse(ra, NumberStyles.None, CultureInfo.InvariantCulture, out var raVal)
             && ulong.TryParse(dec, NumberStyles.None, CultureInfo.InvariantCulture, out var decVal))
         {
-            var j2000implied = epochSupport.HasFlag(Base91EncRADecOptions.ImpliedJ2000);
+            var isJ2000 = options.HasFlag(Base91AlgoOptions.IsJ2000);
+            var j2000implied = options.HasFlag(Base91AlgoOptions.ImpliedJ2000);
+            var decIsNeg = options.HasFlag(Base91AlgoOptions.DecIsNegative);
 
             const int signShift = ASCIIBits;
             var epochShift = signShift + (!j2000implied ? 1 : 0);
@@ -264,6 +298,10 @@ public static class CatalogUtils
 
         return null;
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private static Base91AlgoOptions ToAlgoOptions(this Base91EncRADecOptions encodingOptions)
+        => encodingOptions.HasFlag(Base91EncRADecOptions.ImpliedJ2000) ? Base91AlgoOptions.ImpliedJ2000 : Base91AlgoOptions.None;
 
     /// <summary>
     /// Tries to guess the <see cref="Catalog"/> and format from user input.
