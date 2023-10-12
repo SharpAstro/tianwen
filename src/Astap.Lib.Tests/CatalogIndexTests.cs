@@ -28,8 +28,8 @@ public class CatalogIndexTests
     [InlineData(CatalogIndex.Sh2_0155, "Sh2-0155")]
     [InlineData(CatalogIndex.TrES03, "TrES03")]
     [InlineData(CatalogIndex.vdB0005, "vdB0005")]
-    [InlineData(CatalogIndex.WDS_02583_4018s, "ÁAg4}-8&G")]
-    [InlineData(CatalogIndex.WDS_23599_3112s, "ÁA+i),N%G")]
+    [InlineData(CatalogIndex.WDS_02583_4018s, "\u00C1Ag4}-8&G")]
+    [InlineData(CatalogIndex.WDS_23599_3112s, "\u00C1A+i),N%G")]
     public void GivenACatalogIndexValueWhenToAbbreviationThenItIsReturned(CatalogIndex catalogIndex, string expectedAbbreviation)
     {
         catalogIndex.ToAbbreviation().ShouldBe(expectedAbbreviation);

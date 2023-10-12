@@ -8,10 +8,10 @@ namespace Astap.Lib.Tests;
 public class CatalogUtilTests
 {
     [Theory]
-    [InlineData("2MASS J11400198+3152397", "Ð63ATJ,yB", Catalog.TwoMass)]
-    [InlineData("2MASS J12015301-1852034", "Ý#fRtuKOL", Catalog.TwoMass)]
-    [InlineData("2MASX J00185316+1035410", "ò15|s1VwH", Catalog.TwoMassX)]
-    [InlineData("2MASX J11380904-0936257", "ìY<7izouP", Catalog.TwoMassX)]
+    [InlineData("2MASS J11400198+3152397", "\u00D063ATJ,yB", Catalog.TwoMass)]
+    [InlineData("2MASS J12015301-1852034", "\u00DD#fRtuKOL", Catalog.TwoMass)]
+    [InlineData("2MASX J00185316+1035410", "\u00F215|s1VwH", Catalog.TwoMassX)]
+    [InlineData("2MASX J11380904-0936257", "\u00ECY<7izouP", Catalog.TwoMassX)]
     [InlineData("BD-16 1591", BD_16_1591s_Enc, Catalog.BonnerDurchmusterung)]
     [InlineData("N11", "N0011", Catalog.NGC)]
     [InlineData("NGC0011", "N0011", Catalog.NGC)]
@@ -60,14 +60,14 @@ public class CatalogUtilTests
     [InlineData("PSR J0002+6216", PSR_J0002_6216n_Enc, Catalog.PSR)]
     [InlineData("PSR J2144-3933", PSR_J2144_3933s_Enc, Catalog.PSR)]
     [InlineData("PSR B0633+17", PSR_B0633_17n_Enc, Catalog.PSR)]
-    [InlineData("PSR J2400-9000", "ÁAQAo5{WD", Catalog.PSR)]
-    [InlineData("PSR B2400-90", "ÁAQALA*4B", Catalog.PSR)]
+    [InlineData("PSR J2400-9000", "\u00C1AQAo5{WD", Catalog.PSR)]
+    [InlineData("PSR B2400-90", "\u00C1AQALA*4B", Catalog.PSR)]
     [InlineData("GJ 551", "GJ0551", Catalog.GJ)]
     [InlineData("Sh 2 - 6", "Sh2-0006", Catalog.Sharpless)]
     [InlineData("Tres - 3", "TrES03", Catalog.TrES)]
     [InlineData("WASP-11", "WASP011", Catalog.WASP)]
-    [InlineData("WDS J02583-4018", "ÁAg4}-8&G", Catalog.WDS)]
-    [InlineData("WDS J23599-3112", "ÁA+i),N%G", Catalog.WDS)]
+    [InlineData("WDS J02583-4018", "\u00C1Ag4}-8&G", Catalog.WDS)]
+    [InlineData("WDS J23599-3112", "\u00C1A+i),N%G", Catalog.WDS)]
     public void GivenInputWhenCleaningItUpThenCatalogAndAbbreviationAreReturned(string input, string expectedAbbreviation, Catalog expectedCatalog)
     {
         var success = CatalogUtils.TryGetCleanedUpCatalogName(input, out var actualCatalogIndex);

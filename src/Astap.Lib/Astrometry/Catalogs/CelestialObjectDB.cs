@@ -202,6 +202,11 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
     /// <inheritdoc/>
     public async Task<(int Processed, int Failed)> InitDBAsync()
     {
+        if (_isInitialized)
+        {
+            throw new InvalidOperationException("Already initialized!");
+        }
+
         var assembly = typeof(CelestialObjectDB).Assembly;
         var totalProcessed = 0;
         var totalFailed = 0;

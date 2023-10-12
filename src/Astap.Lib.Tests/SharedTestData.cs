@@ -13,10 +13,10 @@ namespace Astap.Lib.Tests;
 
 public static class SharedTestData
 {
-    internal const string BD_16_1591s_Enc = "ÁAv(fTnLH";
-    internal const string PSR_J2144_3933s_Enc = "ÁAQAdywXD";
-    internal const string PSR_B0633_17n_Enc = "ÁAFtItjtC";
-    internal const string PSR_J0002_6216n_Enc = "ÁAXL@Q3uC";
+    internal const string BD_16_1591s_Enc = "\u00C1Av(fTnLH";
+    internal const string PSR_J2144_3933s_Enc = "\u00C1AQAdywXD";
+    internal const string PSR_B0633_17n_Enc = "\u00C1AFtItjtC";
+    internal const string PSR_J0002_6216n_Enc = "\u00C1AXL@Q3uC";
 
     internal static Image ExtractGZippedFitsImage(string name)
     {

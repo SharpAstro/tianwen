@@ -1,4 +1,6 @@
 ﻿using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
 
 namespace Astap.Lib.Astrometry.Catalogs;
 
@@ -14,6 +16,7 @@ namespace Astap.Lib.Astrometry.Catalogs;
 /// <param name="V_Mag">Visual magnitude or V-mag (in UVB), NaN if not defined</param>
 /// <param name="SurfaceBrightness">Surface brightness for galaxies in mag/arcsec^2, NaN if not defined</param>
 /// <param name="CommonNames">A set of common names referring to this object</param>
+[DebuggerDisplay("{DebuggerDisplay(),nq}")]
 public readonly record struct CelestialObject(
     CatalogIndex Index,
     ObjectType ObjectType,
@@ -23,4 +26,9 @@ public readonly record struct CelestialObject(
     float V_Mag,
     float SurfaceBrightness,
     IReadOnlySet<string> CommonNames
-);
+)
+{
+    private string DebuggerDisplay()
+        => $"{Index.ToCanonical()} [{string.Join(",", CommonNames.OrderByDescending(p => p.Length))}] {Constellation.ToIAUAbbreviation()} {ObjectType.ToAbbreviation()} " +
+           $"{CoordinateUtils.HoursToHMS(RA)}/{CoordinateUtils.DegreesToDMS(Dec)} v_mag={(double.IsNaN(V_Mag) ? "n/a" : V_Mag.ToString("0.00"))}";
+}
