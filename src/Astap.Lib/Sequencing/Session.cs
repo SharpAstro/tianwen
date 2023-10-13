@@ -250,7 +250,7 @@ public class Session
         return false;
     }
 
-    internal static Task<(double ra, double dec)?> PlateSolveGuiderImageAsync(
+    internal static Task<WCS?> PlateSolveGuiderImageAsync(
         Guider guider,
         double raJ2000,
         double decJ2000,
@@ -272,7 +272,7 @@ public class Session
                 return plateSolver.SolveFileAsync(
                     file,
                     dim,
-                    searchOrigin: (raJ2000, decJ2000),
+                    searchOrigin: new WCS(raJ2000, decJ2000),
                     searchRadius: 7,
                     cancellationToken: cancellationToken
                 );
@@ -280,13 +280,13 @@ public class Session
             else
             {
                 external.LogWarning($"Failed to obtain image from guider \"{guider.Driver}\"");
-                return Task.FromResult<(double, double)?>(null);
+                return Task.FromResult(null as WCS?);
             }
         }
         else
         {
             external.LogWarning($"Failed to start guider \"{guider.Driver}\" capture loop after {guiderLoopTimeoutSec}s");
-            return Task.FromResult<(double, double)?>(null);
+            return Task.FromResult(null as WCS?);
         }
     }
 

@@ -88,7 +88,7 @@ public class ImageAnalyserTests
             ImageDim dim;
             SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords).ShouldBeTrue();
 
-            (dim, _, _) = dimAndCoords;
+            (dim, _) = dimAndCoords;
 
             // when
             var actualSuccess = Image.TryReadFitsFile(extractedFitsFile, out var image);
