@@ -38,6 +38,7 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
     };
 
     private static readonly IReadOnlySet<string> EmptyNameSet = ImmutableHashSet.Create<string>();
+    private static readonly IReadOnlySet<CatalogIndex> EmptyCatalogIndexSet = ImmutableHashSet.Create<CatalogIndex>();
 
     private readonly CelestialObject[] _hip2000 = new CelestialObject[120404];
     private readonly Dictionary<CatalogIndex, CelestialObject> _objectsByIndex = new(32000);
@@ -196,8 +197,46 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
         }
     }
 
-    public bool TryGetCrossIndices(CatalogIndex catalogIndex, out IReadOnlyList<CatalogIndex> crossIndices)
-        => _crossIndexLookuptable.TryGetLookupEntries(catalogIndex, out crossIndices);
+    public bool TryGetCrossIndices(CatalogIndex catalogIndex, out IReadOnlySet<CatalogIndex> crossIndices)
+    {
+        var alreadyChecked = new HashSet<CatalogIndex>();
+        var toCheckList = new List<CatalogIndex>
+        {
+            catalogIndex
+        };
+
+        while (toCheckList.Count > 0)
+        {
+            var lastIdx = toCheckList.Count - 1;
+            var check = toCheckList[lastIdx];
+            toCheckList.RemoveAt(lastIdx);
+
+            if (_crossIndexLookuptable.TryGetLookupEntries(check, out var current))
+            {
+                alreadyChecked.Add(check);
+
+                foreach (var item in current)
+                {
+                    if (alreadyChecked.Add(item))
+                    {
+                        toCheckList.Add(item);
+                    }
+                }
+            }
+        }
+
+        // remove item to be looked up
+        _ = alreadyChecked.Remove(catalogIndex);
+
+        if (alreadyChecked.Count > 0)
+        {
+            crossIndices = alreadyChecked;
+            return true;
+        }
+
+        crossIndices = EmptyCatalogIndexSet;
+        return false;
+    }
 
     /// <inheritdoc/>
     public async Task<(int Processed, int Failed)> InitDBAsync()
