@@ -1,4 +1,5 @@
 ﻿using Astap.Lib.Astrometry.PlateSolve;
+using Astap.Lib.Imaging;
 using Shouldly;
 using System;
 using System.Diagnostics;
@@ -39,12 +40,13 @@ public class PlateSolverTests
             if (SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords))
             {
                 // when
-                var solution = await solver.SolveFileAsync(extractedFitsFile, dimAndCoords.imageDim, cancellationToken: cts.Token);
+                var solution = await solver.SolveFileAsync(extractedFitsFile, dimAndCoords.ImageDim, cancellationToken: cts.Token);
 
                 // then
                 solution.HasValue.ShouldBe(true);
-                solution.Value.ra.ShouldBeInRange(dimAndCoords.ra - Accuracy, dimAndCoords.ra + Accuracy);
-                solution.Value.dec.ShouldBeInRange(dimAndCoords.dec - Accuracy, dimAndCoords.dec + Accuracy);
+                var (ra, dec) = solution.Value;
+                ra.ShouldBeInRange(dimAndCoords.WCS.CenterRA - Accuracy, dimAndCoords.WCS.CenterRA + Accuracy);
+                dec.ShouldBeInRange(dimAndCoords.WCS.CenterDec - Accuracy, dimAndCoords.WCS.CenterDec + Accuracy);
             }
             else
             {
@@ -82,12 +84,13 @@ public class PlateSolverTests
             if (SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords))
             {
                 // when
-                var solution = await solver.SolveFileAsync(extractedFitsFile, dimAndCoords.imageDim, searchOrigin: (dimAndCoords.ra, dimAndCoords.dec), searchRadius: 1d, cancellationToken: cts.Token);
+                var solution = await solver.SolveFileAsync(extractedFitsFile, dimAndCoords.ImageDim, searchOrigin: dimAndCoords.WCS, searchRadius: 1d, cancellationToken: cts.Token);
 
                 // then
                 solution.HasValue.ShouldBe(true);
-                solution.Value.ra.ShouldBeInRange(dimAndCoords.ra - Accuracy, dimAndCoords.ra + Accuracy);
-                solution.Value.dec.ShouldBeInRange(dimAndCoords.dec - Accuracy, dimAndCoords.dec + Accuracy);
+                var (ra, dec) = solution.Value;
+                ra.ShouldBeInRange(dimAndCoords.WCS.CenterRA - Accuracy, dimAndCoords.WCS.CenterRA + Accuracy);
+                dec.ShouldBeInRange(dimAndCoords.WCS.CenterDec - Accuracy, dimAndCoords.WCS.CenterDec + Accuracy);
             }
             else
             {

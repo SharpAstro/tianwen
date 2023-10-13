@@ -59,7 +59,8 @@ public class CombinedPlateSolver : IPlateSolver
         return (Selected = supported.OrderByDescending(p => p.Priority).FirstOrDefault()) is not null;
     }
 
-    public async Task<(double ra, double dec)?> SolveFileAsync(string fitsFile, ImageDim? imageDim = null, float range = 0.03F, (double ra, double dec)? searchOrigin = null, double? searchRadius = null, CancellationToken cancellationToken = default)
+    /// <inheritdoc/>
+    public async Task<WCS?> SolveFileAsync(string fitsFile, ImageDim? imageDim = null, float range = 0.03F, WCS? searchOrigin = null, double? searchRadius = null, CancellationToken cancellationToken = default)
     {
         if (Selected is { } selected)
         {

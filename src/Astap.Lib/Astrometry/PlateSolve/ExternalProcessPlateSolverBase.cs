@@ -45,11 +45,11 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
     }
 
     /// <inheritdoc/>
-    public async Task<(double ra, double dec)?> SolveFileAsync(
+    public async Task<WCS?> SolveFileAsync(
         string fitsFile,
         ImageDim? imageDim = default,
         float range = IPlateSolver.DefaultRange,
-        (double ra, double dec)? searchOrigin = null,
+        WCS? searchOrigin = null,
         double? searchRadius = null,
         CancellationToken cancellationToken = default
     )
@@ -115,19 +115,8 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
         {
             using (wcs.Stream)
             {
-                var hdu = wcs.ReadHDU();
-                if (hdu?.Header is Header header)
-                {
-                    var ra = header.GetDoubleValue("CRVAL1");
-                    var dec = header.GetDoubleValue("CRVAL2");
-
-                    if (!double.IsNaN(ra) && !double.IsNaN(dec))
-                    {
-                        return (ra, dec);
-                    }
-                }
+                return WCS.FromFits(wcs);
             }
-            return default;
         }
         finally
         {
@@ -137,7 +126,7 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
 
     protected abstract string FormatImageDimenstions(ImageDim? imageDim, float range);
 
-    protected abstract string FormatSearchPosition((double ra, double dec)? searchOrigin, double? searchRadius);
+    protected abstract string FormatSearchPosition(WCS? searchOrigin, double? searchRadius);
 
     protected abstract string FormatSolveProcessArgs(string normalisedFilePath, string pixelScaleFmt, string searchPosFmt);
 

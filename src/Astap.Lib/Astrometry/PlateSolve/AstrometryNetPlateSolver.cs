@@ -35,9 +35,9 @@ public abstract class AstrometryNetPlateSolver : ExternalProcessPlateSolverBase
 
     protected override string CommandFile => "solve-field";
 
-    protected override string FormatSearchPosition((double ra, double dec)? searchOrigin, double? searchRadius)
+    protected override string FormatSearchPosition(WCS? searchOrigin, double? searchRadius)
         => searchOrigin is (double ra, double dec) && searchRadius is double radius
-            ? $"--ra {ra:0.######} --dec \"{dec:0.######}\" --radius {radius:0.##}"
+            ? $"--ra {ra * 15.0:0.######} --dec \"{dec:0.######}\" --radius {radius:0.##}"
             : "";
 
     protected override string FormatSolveProcessArgs(string normalisedFilePath, string pixelScaleFmt, string searchPosFmt)

@@ -37,11 +37,11 @@ public static class SharedTestData
         throw new ArgumentException($"Missing test data {name}", nameof(name));
     }
 
-    internal static readonly IReadOnlyDictionary<string, (ImageDim imageDim, double ra, double dec)> TestFileImageDimAndCoords =
-        new Dictionary<string, (ImageDim imageDim, double ra, double dec)>
+    internal static readonly IReadOnlyDictionary<string, (ImageDim ImageDim, WCS WCS)> TestFileImageDimAndCoords =
+        new Dictionary<string, (ImageDim imageDim, WCS WCS)>
         {
-            ["PlateSolveTestFile"] = (new ImageDim(4.38934f, 1280, 960), 1.7632d, -31.5193d),
-            ["image_file-snr-20_stars-28_1280x960x16"] = (new ImageDim(5.6f, 1280, 960), 337.264d, -22.918d)
+            ["PlateSolveTestFile"] = (new ImageDim(4.38934f, 1280, 960), new WCS(1.7632d  / 15.0d, -31.5193d)),
+            ["image_file-snr-20_stars-28_1280x960x16"] = (new ImageDim(5.6f, 1280, 960), new WCS(337.264d / 15.0d, -22.918d))
         };
 
     internal static async Task<string> ExtractGZippedFitsFileAsync(string name)

@@ -33,7 +33,7 @@ public class AstapPlateSolver : ExternalProcessPlateSolverBase
         return sb.ToString();
     }
 
-    protected override string FormatSearchPosition((double ra, double dec)? searchOrigin, double? searchRadius)
+    protected override string FormatSearchPosition(WCS? searchOrigin, double? searchRadius)
     {
         if (!searchOrigin.HasValue)
         {
@@ -41,7 +41,7 @@ public class AstapPlateSolver : ExternalProcessPlateSolverBase
         }
         (var ra, var dec) = searchOrigin.Value;
 
-        var sb = new StringBuilder(40).AppendFormat(" -ra {0:0.0000} -spd {1:0.0000}", Math.Clamp(ra / 15.0, 0, 24), Math.Clamp(dec + 90.0, 0.0, 180.0));
+        var sb = new StringBuilder(40).AppendFormat(" -ra {0:0.0000} -spd {1:0.0000}", Math.Clamp(ra, 0, 24), Math.Clamp(dec + 90.0, 0.0, 180.0));
 
         if (searchRadius is double radius)
         {

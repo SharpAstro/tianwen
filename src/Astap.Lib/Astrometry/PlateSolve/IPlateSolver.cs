@@ -16,6 +16,11 @@ public interface IPlateSolver
     /// </summary>
     float Priority { get; }
 
+    /// <summary>
+    /// Indicates if the implementation is supported or properly setup on the executing system.
+    /// </summary>
+    /// <param name="cancellationToken"></param>
+    /// <returns>true if the implementation is supported on this platform/installed on the system.</returns>
     Task<bool> CheckSupportAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -25,18 +30,18 @@ public interface IPlateSolver
     /// <param name="fitsFile">An absolute path to a FITS file without a lock. Path should be in system native format.</param>
     /// <param name="imageDim"></param>
     /// <param name="range"></param>
-    /// <param name="searchOrigin"></param>
-    /// <param name="searchRadius"></param>
-    /// <param name="cancellationToken"></param>
+    /// <param name="searchOrigin">Prefilled WCS if known</param>
+    /// <param name="searchRadius">radius in degrees</param>
+    /// <param name="cancellationToken">cancellation token</param>
     /// <returns></returns>
     /// <exception cref="ArgumentOutOfRangeException">Will be thrown if any of the parameters are out of range.</exception>
     /// <exception cref="PlateSolverException">Will be thrown is solving failed to an abnormal error.</exception>
     /// <exception cref="TaskCanceledException">If cancellation was requested via <paramref name="cancellationToken"/> and no solution was found.</exception>
-    Task<(double ra, double dec)?> SolveFileAsync(
+    Task<WCS?> SolveFileAsync(
         string fitsFile,
         ImageDim? imageDim = default,
         float range = DefaultRange,
-        (double ra, double dec)? searchOrigin = default,
+        WCS? searchOrigin = default,
         double? searchRadius = default,
         CancellationToken cancellationToken = default
     );
