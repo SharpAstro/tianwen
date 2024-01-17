@@ -17,9 +17,5 @@ namespace Astap.Lib.Astrometry.PlateSolve
         public PlateSolverException(string? message, Exception? innerException) : base(message, innerException)
         {
         }
-
-        protected PlateSolverException(SerializationInfo info, StreamingContext context) : base(info, context)
-        {
-        }
     }
 }
