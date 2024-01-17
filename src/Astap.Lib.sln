@@ -7,7 +7,13 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Astap.Lib", "Astap.Lib\Asta
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Astap.Lib.Tests", "Astap.Lib.Tests\Astap.Lib.Tests.csproj", "{BC5524F5-67B2-44D0-B3D6-36EBAC00F37A}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Astap.Lib.TestCli", "Astap.Lib.TestCli\Astap.Lib.TestCli.csproj", "{1604169D-6A26-43AF-9F9B-6D52589FB5C3}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Astap.Lib.TestCli", "Astap.Lib.TestCli\Astap.Lib.TestCli.csproj", "{1604169D-6A26-43AF-9F9B-6D52589FB5C3}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{2C52B130-30B2-4A18-A907-A7C901EEC395}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+		..\.github\workflows\dotnet.yml = ..\.github\workflows\dotnet.yml
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
