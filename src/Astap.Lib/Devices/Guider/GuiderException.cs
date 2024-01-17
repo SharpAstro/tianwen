@@ -33,9 +33,4 @@ public class GuiderException : Exception
 {
     public GuiderException(string message) : base(message) { }
     public GuiderException(string message, Exception? inner) : base(message, inner) { }
-
-    protected GuiderException(System.Runtime.Serialization.SerializationInfo info, System.Runtime.Serialization.StreamingContext context) : base(info, context)
-    {
-
-    }
 }

@@ -5,7 +5,7 @@ using System.Runtime.InteropServices;
 
 namespace Astap.Lib;
 
-public class DynamicComObject : IDisposable
+public class DynamicComObject(string progId) : IDisposable
 {
     private static readonly ConcurrentDictionary<string, Type?> _progIdTypeCache = new();
 
@@ -30,11 +30,9 @@ public class DynamicComObject : IDisposable
     public static object? CreateInstanceFromProgId(string progId)
         => _progIdTypeCache.GetOrAdd(progId, TryGetTypeFromProgID) is { } type ? Activator.CreateInstance(type) : null;
 
-    protected readonly dynamic? _comObject;
+    protected readonly dynamic? _comObject = CreateInstanceFromProgId(progId);
 
     private bool _disposedValue;
-
-    public DynamicComObject(string progId) => _comObject = CreateInstanceFromProgId(progId);
 
     public static IEnumerable<T> EnumerateProperty<T>(dynamic property)
     {
