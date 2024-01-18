@@ -3,15 +3,13 @@ using System.Threading;
 
 namespace Astap.Lib.Devices.ZWO;
 
-public abstract class ZWODeviceDriverBase<TDeviceInfo> : IDeviceDriver
+public abstract class ZWODeviceDriverBase<TDeviceInfo>(ZWODevice device) : IDeviceDriver
     where TDeviceInfo : struct
 {
     public delegate void ProcessDeviceInfoDelegate(in TDeviceInfo deviceInfo);
 
-    protected readonly ZWODevice _device;
+    protected readonly ZWODevice _device = device;
     private TDeviceInfo _deviceInfo;
-
-    public ZWODeviceDriverBase(ZWODevice device) => _device = device;
 
     ~ZWODeviceDriverBase()
     {

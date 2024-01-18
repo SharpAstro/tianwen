@@ -2,13 +2,8 @@
 
 namespace Astap.Lib.Devices.Ascom;
 
-public class AscomCoverCalibratorDriver : AscomDeviceDriverBase, ICoverDriver
+public class AscomCoverCalibratorDriver(AscomDevice device) : AscomDeviceDriverBase(device), ICoverDriver
 {
-    public AscomCoverCalibratorDriver(AscomDevice device) : base(device)
-    {
-
-    }
-
     public int MaxBrightness => _comObject?.MaxBrightness is int maxBrightness ? maxBrightness : -1;
 
     public bool CalibratorOn(int brightness)

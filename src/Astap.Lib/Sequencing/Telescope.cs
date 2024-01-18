@@ -2,43 +2,32 @@
 
 namespace Astap.Lib.Sequencing;
 
-public class Telescope : IDisposable
+public class Telescope(
+    string name,
+    int focalLength,
+    Camera camera,
+    Cover? cover,
+    Focuser? focuser,
+    FocusDirection focusDirection,
+    FilterWheel? filterWheel,
+    Switch? switches
+    ) : IDisposable
 {
     private bool disposedValue;
 
-    public Telescope(
-        string name,
-        int focalLength,
-        Camera camera,
-        Cover? cover,
-        Focuser? focuser,
-        FocusDirection focusDirection,
-        FilterWheel? filterWheel,
-        Switch? switches
-    )
-    {
-        Name = name;
-        FocalLength = focalLength;
-        Camera = camera;
-        Cover = cover;
-        Focuser = focuser;
-        FilterWheel = filterWheel;
-        Switches = switches;
-    }
+    public string Name { get; } = name;
 
-    public string Name { get; }
+    public int FocalLength { get; } = focalLength;
 
-    public int FocalLength { get; }
+    public Camera Camera { get; } = camera;
 
-    public Camera Camera { get; }
+    public Cover? Cover { get; } = cover;
 
-    public Cover? Cover { get; }
+    public Focuser? Focuser { get; } = focuser;
 
-    public Focuser? Focuser { get; }
+    public FilterWheel? FilterWheel { get; } = filterWheel;
 
-    public FilterWheel? FilterWheel { get; }
-
-    public Switch? Switches { get; }
+    public Switch? Switches { get; } = switches;
 
     protected virtual void Dispose(bool disposing)
     {

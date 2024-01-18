@@ -73,7 +73,7 @@ class GuiderConnection : IGuiderConnection
 
     public bool WriteLine(ReadOnlyMemory<byte> jsonlUtf8Bytes)
     {
-        Span<byte> CRLF = stackalloc byte[2] { (byte)'\r', (byte)'\n' };
+        Span<byte> CRLF = [(byte)'\r', (byte)'\n'];
 
         if (_tcpClient?.GetStream() is NetworkStream stream && stream.CanWrite)
         {

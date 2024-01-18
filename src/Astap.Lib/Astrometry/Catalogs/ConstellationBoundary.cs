@@ -17,7 +17,7 @@ public record struct ConstellationBoundary(double LowerRA, double UpperRA, doubl
     /// (3) lower (southern) declination boundary (degrees)
     /// (4) constellation abbreviation (3 letters)
     /// </summary>
-    static readonly ConstellationBoundary[] _table = new ConstellationBoundary[] {
+    static readonly ConstellationBoundary[] _table = [
         new ConstellationBoundary(0.0000, 24.0000, 88.0000, Constellation.UrsaMinor),
         new ConstellationBoundary(8.0000, 14.5000, 86.5000, Constellation.UrsaMinor),
         new ConstellationBoundary(21.0000, 23.0000, 86.1667, Constellation.UrsaMinor),
@@ -375,7 +375,7 @@ public record struct ConstellationBoundary(double LowerRA, double UpperRA, doubl
         new ConstellationBoundary(13.6667, 18.0000, -82.5000, Constellation.Apus),
         new ConstellationBoundary(3.5000, 7.6667, -85.0000, Constellation.Mensa),
         new ConstellationBoundary(0.0000, 24.0000, -90.0000, Constellation.Octans)
-    };
+    ];
 
     private static readonly int[] _decLookupTable = new int[90 + 90 + 1];
 

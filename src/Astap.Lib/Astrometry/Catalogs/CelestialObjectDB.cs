@@ -21,7 +21,7 @@ using static Astap.Lib.EnumHelper;
 
 namespace Astap.Lib.Astrometry.Catalogs;
 
-public sealed class CelestialObjectDB : ICelestialObjectDB
+public sealed partial class CelestialObjectDB : ICelestialObjectDB
 {
     private static readonly Dictionary<CatalogIndex, (ObjectType ObjType, string[] CommonNames)> _predefinedObjects = new()
     {
@@ -85,7 +85,8 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
         Catalog.Sharpless,
         Catalog.RCW,
         Catalog.UGC,
-        Catalog.vdB
+        Catalog.vdB,
+        Catalog.Tycho2
     };
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
@@ -276,7 +277,6 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
 
         var simbadCatalogs = new[] {
             ("HR", Catalog.HR),
-            ("HD", Catalog.HD),
             ("GUM", Catalog.GUM),
             ("RCW", Catalog.RCW),
             ("LDN", Catalog.LDN),
@@ -494,7 +494,7 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
         }
     }
 
-    static readonly Regex ClusterMemberPattern = new(@"^[A-Za-z]+\s+\d+\s+\d+$", RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnorePatternWhitespace);
+    static readonly Regex ClusterMemberPattern = ClusterMemberPatternGen();
 
     private async Task<(int Processed, int Failed)> ReadEmbeddedGzippedJsonDataFileAsync(Assembly assembly, string jsonName, Catalog catToAdd)
     {
@@ -558,7 +558,7 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
             }
             commonNames.TrimExcess();
 
-            if (catToAddIdxs.Any())
+            if (catToAddIdxs.Count > 0)
             {
                 var bestMatches = (
                     from relevantIdPerCat in relevantIds
@@ -579,7 +579,7 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
 
                 foreach (var catToAddIdx in catToAddIdxs)
                 {
-                    if (bestMatches.Any())
+                    if (bestMatches.Count > 0)
                     {
                         foreach (var bestMatch in bestMatches)
                         {
@@ -756,4 +756,7 @@ public sealed class CelestialObjectDB : ICelestialObjectDB
             return hipIndex;
         }
     }
+
+    [GeneratedRegex(@"^[A-Za-z]+\s+\d+\s+\d+$", RegexOptions.Compiled | RegexOptions.IgnorePatternWhitespace | RegexOptions.CultureInvariant)]
+    private static partial Regex ClusterMemberPatternGen();
 }

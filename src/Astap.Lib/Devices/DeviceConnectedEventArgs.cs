@@ -2,12 +2,7 @@
 
 namespace Astap.Lib.Devices;
 
-public class DeviceConnectedEventArgs : EventArgs
+public class DeviceConnectedEventArgs(bool connected) : EventArgs
 {
-    public DeviceConnectedEventArgs(bool connected)
-    {
-        Connected = connected;
-    }
-
-    public bool Connected { get; }
+    public bool Connected { get; } = connected;
 }

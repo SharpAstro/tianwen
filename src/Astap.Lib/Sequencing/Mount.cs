@@ -2,10 +2,8 @@
 
 namespace Astap.Lib.Sequencing;
 
-public class Mount : ControllableDeviceBase<IMountDriver>
+public class Mount(DeviceBase device) : ControllableDeviceBase<IMountDriver>(device)
 {
-    public Mount(DeviceBase device) : base(device) { }
-
     protected override void Driver_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
     {
         // nothing

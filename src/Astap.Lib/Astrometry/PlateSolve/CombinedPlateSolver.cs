@@ -9,20 +9,15 @@ using static Astap.Lib.CollectionHelper;
 
 namespace Astap.Lib.Astrometry.PlateSolve;
 
-public class CombinedPlateSolver : IPlateSolver
+public class CombinedPlateSolver(IReadOnlyList<IPlateSolver> solvers) : IPlateSolver
 {
     public CombinedPlateSolver(IPlateSolver plateSolver, params IPlateSolver[] other)
         : this(ConcatToReadOnlyList(plateSolver, other))
     {
-        // calls below
+        // calls primary constructor
     }
 
-    public CombinedPlateSolver(IReadOnlyList<IPlateSolver> solvers)
-    {
-        Solvers = solvers;
-    }
-
-    private IReadOnlyList<IPlateSolver> Solvers { get; }
+    private IReadOnlyList<IPlateSolver> Solvers { get; } = solvers;
 
     private IPlateSolver? Selected { get; set; }
 

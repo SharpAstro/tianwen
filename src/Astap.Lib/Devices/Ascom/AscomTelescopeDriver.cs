@@ -6,7 +6,7 @@ namespace Astap.Lib.Devices.Ascom
 {
     public class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
     {
-        private Dictionary<TrackingSpeed, DriveRate> _trackingSpeedMapping = new();
+        private Dictionary<TrackingSpeed, DriveRate> _trackingSpeedMapping = [];
 
         public AscomTelescopeDriver(AscomDevice device) : base(device)
         {

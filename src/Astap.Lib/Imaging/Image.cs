@@ -13,39 +13,20 @@ using static Astap.Lib.Stat.StatisticsHelper;
 
 namespace Astap.Lib.Imaging;
 
-public sealed class Image
+public sealed class Image(float[,] data, int width, int height, BitDepth bitDepth, float maxVal, float blackLevel, ImageMeta imageMeta)
 {
-    readonly float[,] _data;
-    readonly int _width;
-    readonly int _height;
-    readonly BitDepth _bitDepth;
-    readonly float _maxVal;
-    readonly float _blackLevel;
-    readonly ImageMeta _imageMeta;
-
-    public Image(float[,] data, int width, int height, BitDepth bitDepth, float maxVal, float blackLevel, in ImageMeta imageMeta)
-    {
-        _data = data;
-        _width = width;
-        _height = height;
-        _bitDepth = bitDepth;
-        _maxVal = maxVal;
-        _blackLevel = blackLevel;
-        _imageMeta = imageMeta;
-    }
-
-    public int Width => _width;
-    public int Height => _height;
-    public BitDepth BitDepth => _bitDepth;
-    public float MaxValue => _maxVal;
+    public int Width => width;
+    public int Height => height;
+    public BitDepth BitDepth => bitDepth;
+    public float MaxValue => maxVal;
     /// <summary>
     /// Black level or offset value, defaults to 0 if unknown
     /// </summary>
-    public float BlackLevel => _blackLevel;
+    public float BlackLevel => blackLevel;
     /// <summary>
     /// Image metadata such as instrument, exposure time, focal length, pixel size, ...
     /// </summary>
-    public ImageMeta ImageMeta => _imageMeta;
+    public ImageMeta ImageMeta => imageMeta;
 
     public static bool TryReadFitsFile(string fileName, [NotNullWhen(true)] out Image? image)
     {
@@ -297,18 +278,18 @@ public sealed class Image
         object[] jaggedArray;
         int bzero;
         bool isInt;
-        switch (BitDepth)
+        switch (bitDepth)
         {
             case BitDepth.Int8:
-                var jaggedByteArray = new byte[_height][];
+                var jaggedByteArray = new byte[height][];
                 bzero = 0;
                 isInt = true;
-                for (var h = 0; h < _height; h++)
+                for (var h = 0; h < height; h++)
                 {
-                    var row = new byte[_width];
-                    for (var w = 0; w < _width; w++)
+                    var row = new byte[width];
+                    for (var w = 0; w < width; w++)
                     {
-                        row[w] = (byte)_data[h, w];
+                        row[w] = (byte)data[h, w];
                     }
                     jaggedByteArray[h] = row;
                 }
@@ -316,44 +297,55 @@ public sealed class Image
                 break;
 
             case BitDepth.Int16:
-                var jaggedShortArray = new short[_height][];
+                var jaggedShortArray = new short[height][];
                 bzero = 32768;
                 isInt = true;
-                for (var h = 0; h < _height; h++)
+                for (var h = 0; h < height; h++)
                 {
-                    var row = new short[_width];
-                    for (var w = 0; w < _width; w++)
+                    var row = new short[width];
+                    for (var w = 0; w < width; w++)
                     {
-                        row[w] = (short)(_data[h, w] - bzero);
+                        row[w] = (short)(data[h, w] - bzero);
                     }
                     jaggedShortArray[h] = row;
                 }
                 jaggedArray = jaggedShortArray;
                 break;
 
+            case BitDepth.Float32:
+                var jaggedFloatArray = new float[height][];
+                bzero = 0;
+                isInt = false;
+                for (var h = 0; h < height; h++)
+                {
+                    jaggedFloatArray[h] = data.GetRowSpan(h).ToArray();
+                }
+                jaggedArray = jaggedFloatArray;
+                break;
+
             default:
-                throw new NotSupportedException($"Bits per pixel {BitDepth} is not supported");
+                throw new NotSupportedException($"Bits per pixel {bitDepth} is not supported");
         }
         var basicHdu = FitsFactory.HDUFactory(jaggedArray);
-        basicHdu.Header.Bitpix = (int)BitDepth;
+        basicHdu.Header.Bitpix = (int)bitDepth;
         basicHdu.Header.AddCard(new HeaderCard("BZERO", bzero, "offset data range to that of unsigned short"));
         basicHdu.Header.AddCard(new HeaderCard("BSCALE", 1, "default scaling factor"));
         basicHdu.Header.AddCard(new HeaderCard("BSCALE", 1, "default scaling factor"));
         basicHdu.Header.AddCard(isInt ? new HeaderCard("BLKLEVEL", (int)BlackLevel, "") : new HeaderCard("BLKLEVEL", BlackLevel, ""));
-        basicHdu.Header.AddCard(new HeaderCard("XBINNING", _imageMeta.BinX, ""));
-        basicHdu.Header.AddCard(new HeaderCard("YBINNING", _imageMeta.BinY, ""));
-        basicHdu.Header.AddCard(new HeaderCard("XPIXSZ", _imageMeta.PixelSizeX, ""));
-        basicHdu.Header.AddCard(new HeaderCard("YPIXSZ", _imageMeta.PixelSizeX, ""));
-        basicHdu.Header.AddCard(new HeaderCard("DATE-OBS", _imageMeta.ExposureStartTime.ToString("o"), ""));
-        basicHdu.Header.AddCard(new HeaderCard("EXPTIME", _imageMeta.ExposureDuration.TotalSeconds, "seconds"));
-        basicHdu.Header.AddCard(new HeaderCard("DATAMAX", MaxValue, ""));
-        basicHdu.Header.AddCard(new HeaderCard("INSTRUME", _imageMeta.Instrument, ""));
-        basicHdu.Header.AddCard(new HeaderCard("TELESCOP", _imageMeta.Telescope, ""));
-        basicHdu.Header.AddCard(new HeaderCard("ROWORDER", _imageMeta.RowOrder.ToFITSValue(), ""));
-        basicHdu.Header.AddCard(new HeaderCard("CCD-TEMP", _imageMeta.CCDTemperature, "Celsius"));
-        basicHdu.Header.AddCard(new HeaderCard("BAYOFFX", _imageMeta.BayerOffsetX, ""));
-        basicHdu.Header.AddCard(new HeaderCard("BAYOFFY", _imageMeta.BayerOffsetY, ""));
-        if (_imageMeta.SensorType is SensorType.RGGB)
+        basicHdu.Header.AddCard(new HeaderCard("XBINNING", imageMeta.BinX, ""));
+        basicHdu.Header.AddCard(new HeaderCard("YBINNING", imageMeta.BinY, ""));
+        basicHdu.Header.AddCard(new HeaderCard("XPIXSZ", imageMeta.PixelSizeX, ""));
+        basicHdu.Header.AddCard(new HeaderCard("YPIXSZ", imageMeta.PixelSizeX, ""));
+        basicHdu.Header.AddCard(new HeaderCard("DATE-OBS", imageMeta.ExposureStartTime.ToString("o"), ""));
+        basicHdu.Header.AddCard(new HeaderCard("EXPTIME", imageMeta.ExposureDuration.TotalSeconds, "seconds"));
+        basicHdu.Header.AddCard(new HeaderCard("DATAMAX", maxVal, ""));
+        basicHdu.Header.AddCard(new HeaderCard("INSTRUME", imageMeta.Instrument, ""));
+        basicHdu.Header.AddCard(new HeaderCard("TELESCOP", imageMeta.Telescope, ""));
+        basicHdu.Header.AddCard(new HeaderCard("ROWORDER", imageMeta.RowOrder.ToFITSValue(), ""));
+        basicHdu.Header.AddCard(new HeaderCard("CCD-TEMP", imageMeta.CCDTemperature, "Celsius"));
+        basicHdu.Header.AddCard(new HeaderCard("BAYOFFX", imageMeta.BayerOffsetX, ""));
+        basicHdu.Header.AddCard(new HeaderCard("BAYOFFY", imageMeta.BayerOffsetY, ""));
+        if (imageMeta.SensorType is SensorType.RGGB)
         {
             // TODO support other Bayer patterns
             basicHdu.Header.AddCard(new HeaderCard("BAYERPAT", "RGGB", ""));
@@ -376,7 +368,7 @@ public sealed class Image
     /// <returns></returns>
     public IReadOnlyList<ImagedStar> FindStars(float snr_min = 20f, int max_stars = 500, int max_retries = 2)
     {
-        if (_imageMeta.SensorType is not SensorType.Monochrome)
+        if (imageMeta.SensorType is not SensorType.Monochrome)
         {
             return DebayerOSCToSyntheticLuminance().FindStars(snr_min, max_stars, max_retries);
         }
@@ -392,7 +384,7 @@ public sealed class Image
         }
 
         var starList = new List<ImagedStar>(max_stars / 2);
-        var img_star_area = new BitMatrix(_height, _width);
+        var img_star_area = new BitMatrix(height, width);
 
         do
         {
@@ -403,12 +395,12 @@ public sealed class Image
                 img_star_area.ClearAll();
             }
 
-            for (var fitsY = 0; fitsY < _height; fitsY++)
+            for (var fitsY = 0; fitsY < height; fitsY++)
             {
-                for (var fitsX = 0; fitsX < _width; fitsX++)
+                for (var fitsX = 0; fitsX < width; fitsX++)
                 {
                     // new star. For analyse used sigma is 5, so not too low.
-                    if (_data[fitsY, fitsX] - background > detection_level
+                    if (data[fitsY, fitsX] - background > detection_level
                         && !img_star_area[fitsY, fitsX]
                         && AnalyseStar(fitsX, fitsY, boxRadius: 14, out var star)
                         && star.HFD is > 0.8f and <= 30 /* at least 2 pixels in size */
@@ -430,7 +422,7 @@ public sealed class Image
                             for (var m = -diam; m <= +diam; m++)
                             {
                                 var i = m + xci;
-                                if (j >= 0 && i >= 0 && j < _height && i < _width && m * m + n * n <= sqr_diam)
+                                if (j >= 0 && i >= 0 && j < height && i < width && m * m + n * n <= sqr_diam)
                                 {
                                     start ??= i;
                                     end = i;
@@ -468,28 +460,29 @@ public sealed class Image
         return starList;
     }
 
+    /// <summary>
+    /// This function assumes that data has discrete integer values.
+    /// TODO: support normalized floating point data.
+    /// </summary>
+    /// <returns></returns>
     public ImageHistogram Histogram()
     {
-        var offsetH = (int)(_height * 0.015); // if Libraw is used, ignored unused sensor areas up to 1.5 %
-        var offsetW = (int)(_width * 0.042); // if Libraw is used, ignored unused sensor areas up to 4.2 %
-
-        var maxPossibleValue = _maxVal;
-        var threshold = (uint)(maxPossibleValue * 0.91);
+        var threshold = (uint)(maxVal * 0.91);
         var histogram = new uint[threshold];
 
         var hist_total = 0u;
         var count = 1; /* prevent divide by zero */
         var total_value = 0f;
 
-        for(var h = offsetH; h <= _height - 1 - offsetH; h++)
+        for (var h = 0; h <= height - 1; h++)
         {
-            for (var w = 0 + offsetW; w <= _width - 1 - offsetW; w++)
+            for (var w = 0; w <= width - 1; w++)
             {
-                var value = _data[h, w];
+                var value = data[h, w];
                 var valueAsInt = (int)MathF.Round(value);
 
                 // ignore black overlap areas and bright stars
-                if (value >= 1 && value < threshold && valueAsInt < int.MaxValue)
+                if (value >= 1 && value < threshold)
                 {
                     histogram[valueAsInt]++; // calculate histogram
                     hist_total++;
@@ -512,7 +505,7 @@ public sealed class Image
     {
         // get histogram of img_loaded and his_total
         var histogram = Histogram();
-        var background = _data[0, 0]; // define something for images containing 0 or 65535 only
+        var background = data[0, 0]; // define something for images containing 0 or 65535 only
 
         // find peak in histogram which should be the average background
         var pixels = 0u;
@@ -536,7 +529,7 @@ public sealed class Image
             background = histogram.Mean; // strange peak at low value, ignore histogram and use mean
         }
 
-        i = (uint)MathF.Ceiling(_maxVal);
+        i = (uint)MathF.Ceiling(maxVal);
 
         var starLevel = 0.0f;
         var above = 0u;
@@ -565,7 +558,7 @@ public sealed class Image
         }
 
         // calculate noise level
-        var stepSize = (int)MathF.Round(_height / 71.0f); // get about 71x71 = 5000 samples.So use only a fraction of the pixels
+        var stepSize = (int)MathF.Round(height / 71.0f); // get about 71x71 = 5000 samples.So use only a fraction of the pixels
 
         // prevent problems with even raw OSC images
         if (stepSize % 2 == 0)
@@ -584,12 +577,12 @@ public sealed class Image
 
             sd_old = sd;
             var fitsY = 15;
-            while (fitsY <= _height - 1 - 15)
+            while (fitsY <= height - 1 - 15)
             {
                 var fitsX = 15;
-                while (fitsX <= _width - 1 - 15)
+                while (fitsX <= width - 1 - 15)
                 {
-                    var value = _data[fitsY, fitsX];
+                    var value = data[fitsY, fitsX];
                     // not an outlier, noise should be symmetrical so should be less then twice background
                     if (value < background * 2 && value != 0)
                     {
@@ -638,7 +631,7 @@ public sealed class Image
         float xc = float.NaN, yc = float.NaN;
         int r_aperture = -1;
 
-        if (x1 - r2 <= 0 || x1 + r2 >= _width - 1 || y1 - r2 <= 0 || y1 + r2 >= _height - 1)
+        if (x1 - r2 <= 0 || x1 + r2 >= width - 1 || y1 - r2 <= 0 || y1 + r2 >= height - 1)
         {
             star = default;
             return false;
@@ -658,7 +651,7 @@ public sealed class Image
                     /*annulus, circular area outside rs, typical one pixel wide*/
                     if (distance > r1_square && distance <= r2_square)
                     {
-                        backgroundScratch[backgroundIndex++] = _data[y1 + i, x1 + j];
+                        backgroundScratch[backgroundIndex++] = data[y1 + i, x1 + j];
                     }
                 }
             }
@@ -689,7 +682,7 @@ public sealed class Image
                 {
                     for (var j = -boxRadius; j <= boxRadius; j++)
                     {
-                        var val = _data[y1 + i, x1 + j] - bg;
+                        var val = data[y1 + i, x1 + j] - bg;
                         if (val > 3.0f * sd_bg)
                         {
                             sumVal += val;
@@ -713,7 +706,7 @@ public sealed class Image
                 yc = y1 + yg;
                 /* center of gravity found */
 
-                if (xc - boxRadius < 0 || xc + boxRadius > _width - 1 || yc - boxRadius < 0 || yc + boxRadius > _height - 1)
+                if (xc - boxRadius < 0 || xc + boxRadius > width - 1 || yc - boxRadius < 0 || yc + boxRadius > height - 1)
                 {
                     star = default; /* prevent runtime errors near sides of images */
                     return false;
@@ -911,7 +904,7 @@ public sealed class Image
         var x_trunc = (int)MathF.Truncate(x1);
         var y_trunc = (int)MathF.Truncate(y1);
 
-        if (x_trunc <= 0 || x_trunc >= _width - 2 || y_trunc <= 0 || y_trunc >= _height - 2)
+        if (x_trunc <= 0 || x_trunc >= width - 2 || y_trunc <= 0 || y_trunc >= height - 2)
         {
             return 0;
         }
@@ -920,10 +913,10 @@ public sealed class Image
         var y_frac = y1 - y_trunc;
         try
         {
-            var result = (double)_data[y_trunc, x_trunc]      * (1 - x_frac) * (1 - y_frac); // pixel left top, 1
-            result += (double)_data[y_trunc, x_trunc + 1]     * x_frac * (1 - y_frac);       // pixel right top, 2
-            result += (double)_data[y_trunc + 1, x_trunc]     * (1 - x_frac) * y_frac;       // pixel left bottom, 3
-            result += (double)_data[y_trunc + 1, x_trunc + 1] * x_frac * y_frac;             // pixel right bottom, 4
+            var result = (double)data[y_trunc, x_trunc]      * (1 - x_frac) * (1 - y_frac); // pixel left top, 1
+            result += (double)data[y_trunc, x_trunc + 1]     * x_frac * (1 - y_frac);       // pixel right top, 2
+            result += (double)data[y_trunc + 1, x_trunc]     * (1 - x_frac) * y_frac;       // pixel left bottom, 3
+            result += (double)data[y_trunc + 1, x_trunc + 1] * x_frac * y_frac;             // pixel right bottom, 4
             return (float)result;
         }
         catch (Exception ex) when (Environment.UserInteractive)
@@ -945,54 +938,54 @@ public sealed class Image
     public Image DebayerOSCToSyntheticLuminance()
     {
         // NO-OP for monochrome images
-        if (_imageMeta.SensorType is SensorType.Monochrome)
+        if (imageMeta.SensorType is SensorType.Monochrome)
         {
             return this;
         }
 
-        var debayered = new float[_height,_width];
+        var debayered = new float[height,width];
         // Loop through each pixel in the raw image
-        var w1 = _width - 1;
-        var h1 = _height - 1;
+        var w1 = width - 1;
+        var h1 = height - 1;
 
         for (int y = 0; y < h1; y++)
         {
             for (int x = 0; x < w1; x++)
             {
-                debayered[y, x] = (float)(0.25d * ((double)_data[y, x] + _data[y+1, x+1] + _data[y, x+1] + _data[y + 1, x]));
+                debayered[y, x] = (float)(0.25d * ((double)data[y, x] + data[y+1, x+1] + data[y, x+1] + data[y + 1, x]));
             }
 
             // last column
-            debayered[y, w1] = (float)(0.25d * ((double)_data[y, w1] + _data[y+1, w1 - 1] + _data[y, w1 - 1] + _data[y + 1, w1]));
+            debayered[y, w1] = (float)(0.25d * ((double)data[y, w1] + data[y+1, w1 - 1] + data[y, w1 - 1] + data[y + 1, w1]));
         }
 
         // last row
         for (int x = 0; x < w1; x++)
         {
-            debayered[h1, x] = (float)(0.25d * ((double)_data[h1, x] + _data[h1 - 1, x+1] + _data[h1, x+1] + _data[h1 - 1, x]));
+            debayered[h1, x] = (float)(0.25d * ((double)data[h1, x] + data[h1 - 1, x+1] + data[h1, x+1] + data[h1 - 1, x]));
         }
 
         // last pixel
-        debayered[h1, w1] = (float)(0.25d * ((double)_data[h1, w1] + _data[h1 - 1, w1 - 1] + _data[h1, w1 - 1] + _data[h1 - 1, w1]));
+        debayered[h1, w1] = (float)(0.25d * ((double)data[h1, w1] + data[h1 - 1, w1 - 1] + data[h1, w1 - 1] + data[h1 - 1, w1]));
 
         var meta = new ImageMeta(
-            _imageMeta.Instrument,
-            _imageMeta.ExposureStartTime,
-            _imageMeta.ExposureDuration,
-            _imageMeta.Telescope,
-            _imageMeta.PixelSizeX,
-            _imageMeta.PixelSizeY,
-            _imageMeta.FocalLength,
-            _imageMeta.FocusPos,
+            imageMeta.Instrument,
+            imageMeta.ExposureStartTime,
+            imageMeta.ExposureDuration,
+            imageMeta.Telescope,
+            imageMeta.PixelSizeX,
+            imageMeta.PixelSizeY,
+            imageMeta.FocalLength,
+            imageMeta.FocusPos,
             new Filter("Lum"),
-            _imageMeta.BinX,
-            _imageMeta.BinY,
-            _imageMeta.CCDTemperature,
+            imageMeta.BinX,
+            imageMeta.BinY,
+            imageMeta.CCDTemperature,
             SensorType.Monochrome,
             0,
             0,
-            _imageMeta.RowOrder
+            imageMeta.RowOrder
         );
-        return new Image(debayered, _width, _height, BitDepth.Float32, _maxVal, _blackLevel, meta);
+        return new Image(debayered, width, height, BitDepth.Float32, maxVal, blackLevel, meta);
     }
 }

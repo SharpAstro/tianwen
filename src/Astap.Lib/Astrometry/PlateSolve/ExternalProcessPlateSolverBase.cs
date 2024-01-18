@@ -177,13 +177,12 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
             return fitsFile;
         }
 
-        var pathTranslateProc = CommandPlatform == CygwinPlatformId
-            ? StartRedirectedProcess("cygpath", $"\"{fitsFile}\"", executionPlatform: PlatformID.Win32NT)
-            : StartRedirectedProcess("wslpath", $"\"{fitsFile}\"");
-        if (pathTranslateProc is null)
-        {
-            throw new PlateSolverException($"Failed to start process for {fitsFile}");
-        }
+        var pathTranslateProc = (
+            CommandPlatform == CygwinPlatformId
+                ? StartRedirectedProcess("cygpath", $"\"{fitsFile}\"", executionPlatform: PlatformID.Win32NT)
+                : StartRedirectedProcess("wslpath", $"\"{fitsFile}\"")
+            )
+            ?? throw new PlateSolverException($"Failed to start process for {fitsFile}");
 
         string? line = null;
         var errorLog = new ConcurrentQueue<string>();

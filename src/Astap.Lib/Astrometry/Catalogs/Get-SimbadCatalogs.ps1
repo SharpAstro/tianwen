@@ -22,7 +22,7 @@ if ([string]::IsNullOrWhiteSpace($Cat)) {
         CG = $commonFilter
         vdB = $commonFilter # van den Bergh
         HH = $commonFilter # Herbig-Haro
-        HD = $starCatFilter
+        # HD = $starCatFilter
         DG = $commonFilter
         # OCl = $commonFilter
         Cl = $commonFilter

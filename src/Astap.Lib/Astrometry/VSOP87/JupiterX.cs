@@ -1552,7 +1552,7 @@ partial class Jupiter
         jupiter_x_1 += 0.00000000526 * Math.Cos(1.28579140279 + 3377.21779200400 * t);
         jupiter_x_1 += 0.00000000409 * Math.Cos(2.96470929082 + 1357.61455258110 * t);
         jupiter_x_1 += 0.00000000453 * Math.Cos(4.96226113717 + 4319.27985397300 * t);
-        jupiter_x_1 = jupiter_x_1 * t;
+        jupiter_x_1 *= t;
 
         double jupiter_x_2 = 0.0;
         jupiter_x_2 += 0.00123864644 * Math.Cos(4.13563277513 + 522.57741809380 * t);

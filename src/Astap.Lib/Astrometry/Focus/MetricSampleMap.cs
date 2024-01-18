@@ -8,16 +8,11 @@ using static Astap.Lib.Stat.StatisticsHelper;
 
 namespace Astap.Lib.Astrometry.Focus;
 
-public class MetricSampleMap
+public class MetricSampleMap(SampleKind kind)
 {
     private readonly ConcurrentDictionary<int, ConcurrentBag<float>> _samples = new();
 
-    public MetricSampleMap(SampleKind kind)
-    {
-        Kind = kind;
-    }
-
-    public SampleKind Kind { [MethodImpl(MethodImplOptions.AggressiveInlining)] get; }
+    public SampleKind Kind { [MethodImpl(MethodImplOptions.AggressiveInlining)] get; } = kind;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public ConcurrentBag<float> Samples(int focusPos) => _samples.GetOrAdd(focusPos, pFocusPos => new ConcurrentBag<float>());

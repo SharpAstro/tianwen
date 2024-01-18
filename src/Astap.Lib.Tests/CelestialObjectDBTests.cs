@@ -122,6 +122,7 @@ public class CelestialObjectDBTests
     [InlineData("18 Eri", CatalogIndex.HIP016537)]
     [InlineData("eps Eri", CatalogIndex.HIP016537)]
     [InlineData("Electra", CatalogIndex.HIP017499)]
+    [InlineData("Erakis", CatalogIndex.HIP107259)]
     public async Task GivenANameWhenLookingItUpThenAnObjIsReturned(string name, params CatalogIndex[] expectedMatches)
     {
         // given
@@ -202,10 +203,11 @@ public class CelestialObjectDBTests
     [InlineData(CatalogIndex.C009, CatalogIndex.Sh2_0155)]
     [InlineData(CatalogIndex.HIP034178, CatalogIndex.GUM003, CatalogIndex.vdB0094)]
     [InlineData(CatalogIndex.HIP107259, CatalogIndex.HR8316)]
-    [InlineData(CatalogIndex.HIP000424, CatalogIndex.HR0001, CatalogIndex.HD000003)]
-    [InlineData(CatalogIndex.HR0264, CatalogIndex.vdB0005, CatalogIndex.HIP004427, CatalogIndex.HD005394)]
+    [InlineData(CatalogIndex.HR8316, CatalogIndex.HIP107259)]
+    [InlineData(CatalogIndex.HIP000424, CatalogIndex.HR0001)] // TODO: CatalogIndex.HD000003
+    [InlineData(CatalogIndex.HR0264, CatalogIndex.vdB0005, CatalogIndex.HIP004427)] // TODO: CatalogIndex.HD005394
     [InlineData(CatalogIndex.HR1142, CatalogIndex.vdB0020, CatalogIndex.HIP017499)]
-    [InlineData(CatalogIndex.vdB0005, CatalogIndex.HR0264, CatalogIndex.HIP004427, CatalogIndex.HD005394)]
+    [InlineData(CatalogIndex.vdB0005, CatalogIndex.HR0264, CatalogIndex.HIP004427)] // TODO:  CatalogIndex.HD005394
     [InlineData(CatalogIndex.vdB0020, CatalogIndex.HR1142, CatalogIndex.HIP017499)]
     [InlineData(CatalogIndex.vdB0094, CatalogIndex.GUM003, CatalogIndex.HIP034178)]
     [InlineData(CatalogIndex.NGC6514, CatalogIndex.M020, CatalogIndex.Cr360)]
