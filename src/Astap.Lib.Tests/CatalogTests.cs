@@ -41,6 +41,7 @@ public class CatalogTests
     [InlineData(Catalog.WASP, "WASP")]
     [InlineData(Catalog.WDS, "WDS")]
     [InlineData(Catalog.XO, "XO")]
+    [InlineData(Catalog.Tycho2, "TYC")]
     public void GivenCatalogWhenToCanonicalThenItIsNormalNameReturned(Catalog catalog, string expectedCanon)
     {
         catalog.ToCanonical().ShouldBe(expectedCanon);
@@ -81,6 +82,7 @@ public class CatalogTests
     [InlineData(Catalog.WASP, "WASP")]
     [InlineData(Catalog.WDS, "WDS")]
     [InlineData(Catalog.XO, "XO")]
+    [InlineData(Catalog.Tycho2, "TYC")]
     public void GivenCatalogWhenToCanonicalAlternativeThenItsAlternativeNameIsReturned(Catalog catalog, string expectedCanon)
     {
         catalog.ToCanonical(CanonicalFormat.Alternative).ShouldBe(expectedCanon);

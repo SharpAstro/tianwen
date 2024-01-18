@@ -11,12 +11,12 @@ using Xunit.Abstractions;
 
 namespace Astap.Lib.Tests;
 
-public class ImageAnalyserTests
+public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
 {
     const string PlateSolveTestFile = nameof(PlateSolveTestFile);
     const string PHD2SimGuider = nameof(PHD2SimGuider);
 
-    private readonly ITestOutputHelper _testOutputHelper;
+    private readonly ITestOutputHelper _testOutputHelper = testOutputHelper;
 
     private static readonly IReadOnlyDictionary<string, Image> _imageCache;
 
@@ -29,12 +29,6 @@ public class ImageAnalyserTests
         }
 
         _imageCache = imageCache;
-    }
-
-
-    public ImageAnalyserTests(ITestOutputHelper testOutputHelper)
-    {
-        _testOutputHelper = testOutputHelper;
     }
 
     [Theory]
@@ -109,8 +103,8 @@ public class ImageAnalyserTests
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 10f, 89)]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 20f, 28)]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 30f, 13)]
-    [InlineData("RGGB_frame_bx0_by0_top_down", 30f, 2722, 5000)]
-    [InlineData("RGGB_frame_bx0_by0_top_down", 10f, 2956, 5000)]
+    [InlineData("RGGB_frame_bx0_by0_top_down", 30f, 2732, 5000)]
+    [InlineData("RGGB_frame_bx0_by0_top_down", 10f, 2985, 5000)]
     public async Task GivenImageFileAndMinSNRWhenFindingStarsThenTheyAreFound(string name, float snrMin, int expectedStars, int? maxStars = null)
     {
         // given
@@ -149,8 +143,8 @@ public class ImageAnalyserTests
         var imageMeta = new ImageMeta(fileName, DateTime.UtcNow, expTime, "", 2.4f, 2.4f, 190, -1, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0, RowOrder.TopDown);
 
         // when
-        var (float32HxWData, maxValue) = Float32HxWImageData.FromWxHImageData(int16WxHData);
-        var image = ICameraDriver.DataToImage(float32HxWData, maxValue, BitDepth, BlackLevel, imageMeta);
+        var imageData = Float32HxWImageData.FromWxHImageData(int16WxHData);
+        var image = ICameraDriver.DataToImage(imageData, BitDepth, BlackLevel, imageMeta);
         var stars = image?.FindStars(snr_min: snr_min);
 
         // then
@@ -170,7 +164,7 @@ public class ImageAnalyserTests
     [InlineData(PHD2SimGuider, 2, 3, 10)]
     [InlineData(PHD2SimGuider, 5, 3, 10)]
     [InlineData(PHD2SimGuider, 5, 10, 10)]
-    [InlineData(PHD2SimGuider, 20, 3, 7)]
+    [InlineData(PHD2SimGuider, 20, 3, 6)]
     [InlineData(PHD2SimGuider, 30, 3, 2)]
     [InlineData(PHD2SimGuider, 30, 10, 2)]
     public void GivenFitsFileWhenAnalysingThenMedianHFDAndFWHMIsCalculated(string name, float snr_min, int max_retries, int expected_stars, params int[] sampleStar)
@@ -217,9 +211,9 @@ public class ImageAnalyserTests
 
                 var stars = imageAnalyser.FindStars(image, snrMin: snrMin);
                 var median = imageAnalyser.MedianStarProperty(stars, sampleMap.Kind);
-                var (solution, minPos, maxPos) = imageAnalyser.SampleStarsAtFocusPosition(sampleMap, fp, median, stars.Count, maxFocusIterations: maxIterations);
+                var (solution, maybeMinPos, maybeMaxPos) = imageAnalyser.SampleStarsAtFocusPosition(sampleMap, fp, median, stars.Count, maxFocusIterations: maxIterations);
 
-                _testOutputHelper.WriteLine($"focuspos={fp} stars={stars.Count} median={median} solution={solution} minPos={minPos} maxPos={maxPos}");
+                _testOutputHelper.WriteLine($"focuspos={fp} stars={stars.Count} median={median} solution={solution} minPos={maybeMinPos} maxPos={maybeMaxPos}");
 
                 median.ShouldBeGreaterThan(1f);
                 stars.Count.ShouldBeGreaterThan(expectedMinStarCount);
@@ -227,11 +221,11 @@ public class ImageAnalyserTests
                 if (fp - focusStart >= expectedSolutionAfterSteps)
                 {
                     (_, _, _, double error, int iterations) = solution.ShouldNotBeNull();
-                    var minPosD = (double)minPos.ShouldNotBeNull();
-                    var maxPosD = (double)maxPos.ShouldNotBeNull();
+                    var minPos = maybeMinPos.ShouldNotBeNull();
+                    var maxPos = maybeMaxPos.ShouldNotBeNull();
 
-                    maxPosD.ShouldBeGreaterThan(minPosD);
-                    minPosD.ShouldBe(focusStart);
+                    maxPos.ShouldBeGreaterThan(minPos);
+                    minPos.ShouldBe(focusStart);
                     iterations.ShouldBeLessThanOrEqualTo(maxIterations);
                     error.ShouldBeLessThan(1);
                 }

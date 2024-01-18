@@ -1,9 +1,5 @@
 ﻿namespace Astap.Lib.Devices.Ascom;
 
-public class AscomSwitchDriver : AscomDeviceDriverBase, ISwitchDriver
+public class AscomSwitchDriver(AscomDevice device) : AscomDeviceDriverBase(device), ISwitchDriver
 {
-    public AscomSwitchDriver(AscomDevice device) : base(device)
-    {
-
-    }
 }

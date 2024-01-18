@@ -3,7 +3,7 @@ using System;
 
 namespace Astap.Lib.Imaging;
 
-public record ImageMeta(
+public record struct ImageMeta(
     string Instrument,
     DateTime ExposureStartTime,
     TimeSpan ExposureDuration,

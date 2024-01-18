@@ -4,11 +4,9 @@ using System.Threading;
 
 namespace Astap.Lib.Devices.Ascom;
 
-public abstract class AscomDeviceDriverBase : DynamicComObject, IDeviceDriver
+public abstract class AscomDeviceDriverBase(AscomDevice device) : DynamicComObject(device.DeviceId), IDeviceDriver
 {
-    private readonly AscomDevice _device;
-
-    public AscomDeviceDriverBase(AscomDevice device) : base(device.DeviceId) => _device = device;
+    private readonly AscomDevice _device = device;
 
     public string Name => _comObject?.Name as string ?? _device.DisplayName;
 

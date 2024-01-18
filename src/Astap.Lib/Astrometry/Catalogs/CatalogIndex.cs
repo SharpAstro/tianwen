@@ -64,6 +64,7 @@ public enum CatalogIndex : ulong
     GUM060 = (ulong)'G' << 35 | (ulong)'U' << 28 | 'M' << 21 | '0' << 14 | '6' << 7 | '0',
     HD000003 = (ulong)'H' << 49 | (ulong)'D' << 42 | (ulong)'0' << 35 | (ulong)'0' << 28 | '0' << 21 | '0' << 14 | '0' << 7 | '3',
     HD005394 = (ulong)'H' << 49 | (ulong)'D' << 42 | (ulong)'0' << 35 | (ulong)'0' << 28 | '5' << 21 | '3' << 14 | '9' << 7 | '4',
+    HD206936 = (ulong)'H' << 49 | (ulong)'D' << 42 | (ulong)'2' << 35 | (ulong)'0' << 28 | '6' << 21 | '9' << 14 | '3' << 7 | '6',
     HIP000935 = (ulong)'H' << 49 | (ulong)'I' << 42 | (ulong)'0' << 35 | (ulong)'0' << 28 | '0' << 21 | '9' << 14 | '3' << 7 | '5',
     HIP000424 = (ulong)'H' << 49 | (ulong)'I' << 42 | (ulong)'0' << 35 | (ulong)'0' << 28 | '0' << 21 | '4' << 14 | '2' << 7 | '4',
     HIP004427 = (ulong)'H' << 49 | (ulong)'I' << 42 | (ulong)'0' << 35 | (ulong)'0' << 28 | '4' << 21 | '4' << 14 | '2' << 7 | '7',
@@ -135,6 +136,7 @@ public enum CatalogIndex : ulong
     TwoM_J12015301_1852034s = Base91Enc | (ulong)']' << 56 | (ulong)'#' << 49 | (ulong)'f' << 42 | (ulong)'R' << 35 | (ulong)'t' << 28 | 'u' << 21 | 'K' << 14 | 'O' << 7 | 'L',
     TwoMX_J00185316_1035410n = Base91Enc | (ulong)'r' << 56 | (ulong)'1' << 49 | (ulong)'5' << 42 | (ulong)'|' << 35 | (ulong)'s' << 28 | '1' << 21 | 'V' << 14 | 'w' << 7 | 'H',
     TwoMX_J11380904_0936257s = Base91Enc | (ulong)'l' << 56 | (ulong)'Y' << 49 | (ulong)'<' << 42 | (ulong)'7' << 35 | (ulong)'i' << 28 | 'z' << 21 | 'o' << 14| 'u' << 7 | 'P',
+    Tyc_9537_12121_3 = Base91Enc | (ulong)'A' << 56 | (ulong)'A' << 49 | (ulong) '*' << 42 | (ulong) 'Z' << 35 | (ulong)'V' << 28 | 'h' << 21 | 'b' << 14 | '-' << 7 | 'H',
     UGC08493 = (ulong)'U' << 35 | (ulong)'0' << 28 | '8' << 21 | '4' << 14 | '9' << 7 | '3',
     vdB0005 = (ulong)'v' << 42 | (ulong)'d' << 35 | (ulong)'B' << 28 | '0' << 21 | '0' << 14 | '0' << 7 | '5',
     vdB0020 = (ulong)'v' << 42 | (ulong)'d' << 35 | (ulong)'B' << 28 | '0' << 21 | '0' << 14 | '2' << 7 | '0',
@@ -164,6 +166,8 @@ public static class CatalogIndexEx
                     RADecEncodedIndexToCanonical(prefix, decoded, 5, 4, WDSRaMask, WDSRaShift, WDSDecMask, WDSEncOptions),
                 Catalog.BonnerDurchmusterung =>
                     BDEncodedIndexToCanonical(prefix, decoded, 0, 2, BDRaMask, BDRaShift, BDDecMask, BDEncOptions),
+                Catalog.Tycho2 =>
+                    Tyc2EncodedIndexToCanonical(prefix, decoded),
                 _ => throw new ArgumentException($"Catalog index {catalogIndex} with MSB = true could not be parsed", nameof(catalogIndex))
             };
         }
@@ -206,7 +210,7 @@ public static class CatalogIndexEx
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     static string BDEncodedIndexToCanonical(string prefix, ulong decoded, int raDigits, int decDigits, uint raMask, int raShift, uint decMask, Base91EncRADecOptions encOptions)
     {
-        DecodeBase91(decoded, decDigits, raMask, raShift, decMask, encOptions, out var decIsNeg, out _, out var actualDecDigits, out var dec, out var ra);
+        DecodeRADec(decoded, decDigits, raMask, raShift, decMask, encOptions, out var decIsNeg, out _, out var actualDecDigits, out var dec, out var ra);
 
         return string.Concat(
             prefix,
@@ -217,11 +221,26 @@ public static class CatalogIndexEx
         );
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    static string Tyc2EncodedIndexToCanonical(string prefix, ulong decoded)
+    {
+        var (tyc1, tyc2, tyc3) = DecodeTyc2CatalogIndex(decoded);
+
+        return string.Concat(
+            prefix,
+            " ",
+            tyc1.ToString(CultureInfo.InvariantCulture),
+            "-",
+            tyc2.ToString(CultureInfo.InvariantCulture),
+            "-",
+            tyc3.ToString(CultureInfo.InvariantCulture)
+        );
+    }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     static string RADecEncodedIndexToCanonical(string prefix, ulong decoded, int raDigits, int decDigits, uint raMask, int raShift, uint decMask, Base91EncRADecOptions encOptions)
     {
-        DecodeBase91(decoded, decDigits, raMask, raShift, decMask, encOptions, out var decIsNeg, out var epoch, out var actualDecDigits, out var dec, out var ra);
+        DecodeRADec(decoded, decDigits, raMask, raShift, decMask, encOptions, out var decIsNeg, out var epoch, out var actualDecDigits, out var dec, out var ra);
 
         // 2 digits for B is only valid for PSR
         return string.Concat(
@@ -233,7 +252,7 @@ public static class CatalogIndexEx
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private static void DecodeBase91(ulong decoded, int decDigits, uint raMask, int raShift, uint decMask, Base91EncRADecOptions encOptions, out bool decIsNeg, out string epoch, out int actualDecDigits, out ulong dec, out ulong ra)
+    private static void DecodeRADec(ulong decoded, int decDigits, uint raMask, int raShift, uint decMask, Base91EncRADecOptions encOptions, out bool decIsNeg, out string epoch, out int actualDecDigits, out ulong dec, out ulong ra)
     {
         // sign
         decIsNeg = (decoded & 1) == 0b1;

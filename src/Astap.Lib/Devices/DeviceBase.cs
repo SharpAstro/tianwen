@@ -34,7 +34,7 @@ public abstract record class DeviceBase(Uri DeviceUri)
             where assembly is not null
             from exported in assembly.GetExportedTypes()
             where exported.Name.Equals(deviceUri.Host, StringComparison.OrdinalIgnoreCase) && exported.IsSubclassOf(typeof(DeviceBase))
-            let constructor = exported.GetConstructor(new[] { typeof(Uri) })
+            let constructor = exported.GetConstructor([typeof(Uri)])
             let obj = constructor?.Invoke(new[] { deviceUri }) as DeviceBase
             where obj is not null
             select obj;

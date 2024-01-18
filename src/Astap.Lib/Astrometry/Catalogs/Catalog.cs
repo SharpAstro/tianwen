@@ -46,6 +46,7 @@ public enum Catalog : ulong
     TrES = 'T' << 21 | 'r' << 14 | 'E' << 7 | 'S',
     TwoMass = '2', // uses MSB = 1
     TwoMassX = 'x', // uses MSB = 1
+    Tycho2 = 'y', // uses MSB = 1
     UGC = 'U', // Uppsala General Catalogue
     vdB = 'v' << 14 | 'd' << 7 | 'B', // van den Bergh
     WASP = 'W' << 21 | 'A' << 14 | 'S' << 7 | 'P',
@@ -76,6 +77,7 @@ public static class CatalogEx
             Catalog.Sharpless when format is CanonicalFormat.Normal => "Sh2",
             Catalog.TwoMass => "2MASS",
             Catalog.TwoMassX => "2MASX",
+            Catalog.Tycho2 => "TYC",
             Catalog.WDS => "WDS",
             _ => catalog.ToString()
         };
@@ -123,6 +125,7 @@ public static class CatalogEx
             Catalog.XO => 4,
             Catalog.TwoMass => 15,
             Catalog.TwoMassX => 15,
+            Catalog.Tycho2 => 10,
             _ => 0
         };
 }

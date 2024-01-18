@@ -3,7 +3,7 @@ using System;
 
 namespace Astap.Lib.Imaging;
 
-public record class Float32HxWImageData(float[,] Data, float MaxValue)
+public record Float32HxWImageData(float[,] Data, float MaxValue)
 {
     /// <summary>
     /// Transposes and converts image source data if required to Height X Width X 32-bit floats.

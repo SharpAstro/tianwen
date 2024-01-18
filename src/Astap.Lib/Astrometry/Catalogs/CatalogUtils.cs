@@ -2,6 +2,7 @@
 using System.Buffers.Binary;
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Text.RegularExpressions;
 using static Astap.Lib.EnumHelper;
 
@@ -16,6 +17,7 @@ internal enum Base91EncRADecOptions
 
 public static partial class CatalogUtils
 {
+    private static readonly System.Buffers.SearchValues<char> searchValueDigits = System.Buffers.SearchValues.Create("0123456789");
 
     [Flags]
     private enum Base91AlgoOptions
@@ -52,6 +54,10 @@ public static partial class CatalogUtils
     private static partial Regex WDSPatternGen();
     private static readonly Regex WDSPattern = WDSPatternGen();
 
+    [GeneratedRegex(@"(?:TYC) ([0-9]{1,4})-([0-9]{1,5})-([1-3])", CommonOpts)]
+    private static partial Regex Tyc2PatternGen();
+    private static readonly Regex Tyc2Pattern = Tyc2PatternGen();
+
     internal const uint PSRRaMask = 0xf_ff;
     internal const int PSRRaShift = 14;
     internal const uint PSRDecMask = 0x3f_ff;
@@ -72,8 +78,14 @@ public static partial class CatalogUtils
     internal const uint BDDecMask = 0xff;
     internal const Base91EncRADecOptions BDEncOptions = Base91EncRADecOptions.ImpliedJ2000;
 
-    static readonly char[] Digit = new[] { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9' };
-    static readonly char[] NGCExt = new[] { 'A', 'B', 'C', 'D', 'E', 'F', 'S', 'W', 'N' };
+    private const ushort TYC1_MASK = 0xff_ff;
+
+    private const uint TYC2_MASK = 0xff_ff;
+    private const int TYC2_SHIFT = 16;
+
+    private const uint TYC3_MASK = 0b11;
+    private const int TYC3_SHIFT = 2;
+    static readonly char[] NGCExt = ['A', 'B', 'C', 'D', 'E', 'F', 'S', 'W', 'N'];
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public static bool TryGetCleanedUpCatalogName(string? input, out CatalogIndex catalogIndex)
@@ -87,7 +99,7 @@ public static partial class CatalogUtils
         string? cleanedUp;
         bool isBase91Encoded;
         // test for slow path
-        var firstDigit = trimmedInput.IndexOfAny(Digit);
+        var firstDigit = trimmedInput.AsSpan().IndexOfAny(searchValueDigits);
         Span<char> chars = stackalloc char[template.Length];
 
         switch (catalog)
@@ -161,6 +173,11 @@ public static partial class CatalogUtils
 
             case Catalog.BonnerDurchmusterung:
                 cleanedUp = CleanupBDCatalogIndex(BDPattern, trimmedInput, catalog, BDRaMask, BDRaShift, BDDecMask, BDEncOptions);
+                isBase91Encoded = true;
+                break;
+
+            case Catalog.Tycho2:
+                cleanedUp = CleanupTyc2CatalogIndex(Tyc2Pattern, trimmedInput, catalog);
                 isBase91Encoded = true;
                 break;
 
@@ -269,6 +286,18 @@ public static partial class CatalogUtils
         return EncodeRADecBasedCatalogIndex(catalog, raMask, raShift, decMask, ra, dec, algoOptions);
     }
 
+    private static string? CleanupTyc2CatalogIndex(Regex pattern, string trimmedInput, Catalog catalog)
+    {
+        var match = pattern.Match(trimmedInput);
+
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        return EncodeTyc2CatalogIndex(catalog, match.Groups[1].ValueSpan, match.Groups[2].ValueSpan, match.Groups[3].ValueSpan);
+    }
+
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     private static string? EncodeRADecBasedCatalogIndex(Catalog catalog, ulong raMask, int raShift, ulong decMask, in ReadOnlySpan<char> ra, in ReadOnlySpan<char> dec, Base91AlgoOptions options)
     {
@@ -297,6 +326,45 @@ public static partial class CatalogUtils
         }
 
         return null;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private static string? EncodeTyc2CatalogIndex(Catalog catalog, in ReadOnlySpan<char> tyc1Input, in ReadOnlySpan<char> tyc2Input, in ReadOnlySpan<char> tyc3Input)
+    {
+        if (ushort.TryParse(tyc1Input, NumberStyles.None, CultureInfo.InvariantCulture, out var tyc1)
+            && uint.TryParse(tyc2Input, NumberStyles.None, CultureInfo.InvariantCulture, out var tyc2)
+            && byte.TryParse(tyc3Input, NumberStyles.None, CultureInfo.InvariantCulture, out var tyc3))
+        {
+            var idAsLongH = (ulong)(tyc1 & TYC1_MASK);
+            idAsLongH <<= TYC2_SHIFT;
+            idAsLongH |= tyc2 & TYC2_MASK;
+            idAsLongH <<= TYC3_SHIFT;
+            idAsLongH |= tyc3 & TYC3_MASK;
+            idAsLongH <<= ASCIIBits;
+            idAsLongH |= (ulong)catalog & ASCIIMask;
+
+            Span<byte> bytesN = stackalloc byte[8];
+            BinaryPrimitives.WriteUInt64BigEndian(bytesN, idAsLongH);
+
+            // TODO update lib to accept spans
+            return Base91Encoder.EncodeBytes(bytesN[1..].ToArray());
+        }
+
+        return null;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static (ushort Tyc1, uint Tyc2, byte Tyc3) DecodeTyc2CatalogIndex(ulong decoded)
+    {
+        byte tyc3 = (byte)(decoded & TYC3_MASK);
+        decoded >>= TYC3_SHIFT;
+
+        var tyc2 = (uint)(decoded & TYC2_MASK);
+        decoded >>= TYC2_SHIFT;
+
+        var tyc1 = (ushort)(decoded & TYC1_MASK);
+
+        return (tyc1, tyc2, tyc3);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
@@ -370,6 +438,7 @@ public static partial class CatalogUtils
             'R' when secondChar == 'C' => ("RCW000*", Catalog.RCW),
             'S' when secondChar is 'H' or 'h' && noSpaces.Length > 2 && noSpaces[2] is '2' or 'a' => ("Sh2-000*", Catalog.Sharpless),
             'T' when secondIsDigit || secondChar == 'r' => ("TrES00", Catalog.TrES),
+            'T' when secondChar is 'Y' or 'Y' => ("TYC 0000-00000-0", Catalog.Tycho2),
             'U' when secondIsDigit || secondChar == 'G' => ("U00000", Catalog.UGC),
             'v' or 'V' when secondChar is 'd' or 'D' => ("vdB000*", Catalog.vdB),
             'W' when secondChar == 'D' && noSpaces.Length > 2 && noSpaces[2] == 'S' => ("", Catalog.WDS),

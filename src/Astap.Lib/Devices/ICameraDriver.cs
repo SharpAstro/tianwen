@@ -219,10 +219,9 @@ public interface ICameraDriver : IDeviceDriver
 
     CameraState CameraState { get; }
 
-    Image? Image => Connected && ImageReady && ImageData is ({ Length: > 0 } data, { } maxVal) && BitDepth is { } bitDepth && bitDepth.IsIntegral()
+    Image? Image => Connected && ImageReady && ImageData is ({ Length: > 0 }, >= 0) imageData && BitDepth is { } bitDepth && bitDepth.IsIntegral()
         ? DataToImage(
-            data,
-            maxVal,
+            imageData,
             bitDepth,
             Offset,
             new ImageMeta(
@@ -249,12 +248,12 @@ public interface ICameraDriver : IDeviceDriver
     /// <summary>
     /// Returns an immutable <see cref="Image"/> from source data in height x width format.
     /// </summary>
-    /// <param name="data">2d image array</param>
-    /// <param name="maxVal">max scalar value of <paramref name="data"/></param>
+    /// <param name="imageData">2d image array</param>
+    /// <param name="maxVal">max scalar value of <paramref name="imageData"/></param>
     /// <param name="bitDepth">bit depth</param>
     /// <param name="blackLevel">black level or offset</param>
     /// <param name="imageMeta">image meta data</param>
     /// <returns>image from data, transposed and transformed to 32-bit floats</returns>
-    public static Image DataToImage(float[,] data, float maxVal, BitDepth bitDepth, float blackLevel, in ImageMeta imageMeta)
-        => new(data, data.GetLength(1), data.GetLength(0), bitDepth, maxVal, blackLevel, imageMeta);
+    public static Image DataToImage(in Float32HxWImageData imageData, BitDepth bitDepth, float blackLevel, in ImageMeta imageMeta)
+        => new Image(imageData.Data, imageData.Data.GetLength(1), imageData.Data.GetLength(0), bitDepth, imageData.MaxValue, blackLevel, imageMeta);
 }

@@ -10,5 +10,5 @@ public record struct ImageDim(
     /// <summary>
     /// Returns field of view in degrees
     /// </summary>
-    public (double width, double height) FieldOfView => (ArcSecToDeg * PixelScale * Width, ArcSecToDeg * PixelScale * Height);
+    public readonly (double width, double height) FieldOfView => (ArcSecToDeg * PixelScale * Width, ArcSecToDeg * PixelScale * Height);
 }

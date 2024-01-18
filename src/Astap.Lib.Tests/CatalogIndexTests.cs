@@ -123,6 +123,7 @@ public class CatalogIndexTests
     [InlineData(CatalogIndex.TwoMX_J11380904_0936257s, "2MASX J11380904-0936257")]
     [InlineData(CatalogIndex.Sh2_0006, "Sharpless 6")]
     [InlineData(CatalogIndex.TrES03, "TrES-3")]
+    [InlineData(CatalogIndex.Tyc_9537_12121_3, "TYC 9537-12121-3")]
     [InlineData(CatalogIndex.vdB0005, "vdB 5")]
     [InlineData(CatalogIndex.WDS_23599_3112s, "WDS J23599-3112")]
     [InlineData(CatalogIndex.XO0003, "XO-3")]

@@ -31,7 +31,7 @@ external.LogInfo($"SDK Version: {ASICameraDll2.ASIGetSDKVersion()}");
 var observations = new List<Observation>
 {
     // new Observation(new Target(19.5, -20, "Mercury", CatalogIndex.Mercury), DateTimeOffset.Now, TimeSpan.FromMinutes(100), false, TimeSpan.FromSeconds(20)),
-    new Observation(new Target(5.5877777777777773, -5.389444444444444, "Orion Nebula", CatalogUtils.TryGetCleanedUpCatalogName("M42", out var catIdx) ? catIdx : null), DateTimeOffset.Now, TimeSpan.FromMinutes(100), false, TimeSpan.FromSeconds(20))
+    new(new Target(5.5877777777777773, -5.389444444444444, "Orion Nebula", CatalogUtils.TryGetCleanedUpCatalogName("M42", out var catIdx) ? catIdx : null), DateTimeOffset.Now, TimeSpan.FromMinutes(100), false, TimeSpan.FromSeconds(20))
 };
 
 var guiderDevice = new GuiderDevice(DeviceType.PHD2, "localhost/1", "");
@@ -144,14 +144,9 @@ session.Run(cts.Token);
 
 return 0;
 
-class ConsoleOutput : IExternal
+class ConsoleOutput(string outputFolder) : IExternal
 {
-    public ConsoleOutput(string outputFolder)
-    {
-        OutputFolder = outputFolder;
-    }
-
-    public string OutputFolder { get; }
+    public string OutputFolder { get; } = outputFolder;
 
     public void LogError(string error) => Console.Error.WriteLine($"[{DateTime.Now:o}] {error.Pastel(ConsoleColor.Red)}");
 

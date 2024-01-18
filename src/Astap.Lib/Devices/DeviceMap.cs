@@ -7,8 +7,8 @@ namespace Astap.Lib.Devices;
 public class DeviceMap<TDevice>
     where TDevice : DeviceBase
 {
-    private readonly Dictionary<string, TDevice> _deviceIdToDevice = new();
-    private readonly Dictionary<DeviceType, List<TDevice>> _devicesByType = new();
+    private readonly Dictionary<string, TDevice> _deviceIdToDevice = [];
+    private readonly Dictionary<DeviceType, List<TDevice>> _devicesByType = [];
 
     public DeviceMap(IDeviceSource<TDevice> source)
     {
@@ -18,7 +18,7 @@ public class DeviceMap<TDevice>
         {
             if (!_devicesByType.TryGetValue(type, out var typeDeviceList))
             {
-                typeDeviceList = _devicesByType[type] = new List<TDevice>();
+                typeDeviceList = _devicesByType[type] = [];
             }
 
             foreach (var device in source.RegisteredDevices(type))

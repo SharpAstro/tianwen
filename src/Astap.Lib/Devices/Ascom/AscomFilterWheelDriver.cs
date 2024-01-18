@@ -4,14 +4,9 @@ using System.Linq;
 
 namespace Astap.Lib.Devices.Ascom;
 
-public class AscomFilterWheelDriver : AscomDeviceDriverBase, IFilterWheelDriver
+public class AscomFilterWheelDriver(AscomDevice device) : AscomDeviceDriverBase(device), IFilterWheelDriver
 {
-    public AscomFilterWheelDriver(AscomDevice device) : base(device)
-    {
-
-    }
-
-    string[] Names => _comObject?.Names is string[] names ? names : Array.Empty<string>();
+    string[] Names => _comObject?.Names is string[] names ? names : [];
 
     public int Position
     {

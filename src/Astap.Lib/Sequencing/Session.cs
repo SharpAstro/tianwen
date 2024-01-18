@@ -17,14 +17,21 @@ using static Astap.Lib.Stat.StatisticsHelper;
 
 namespace Astap.Lib.Sequencing;
 
-public class Session
+public class Session(
+    Setup setup,
+    in SessionConfiguration sessionConfiguration,
+    IImageAnalyser analyser,
+    IPlateSolver plateSolver,
+    IExternal external,
+    IReadOnlyList<Observation> observations
+    )
 {
-    private readonly IImageAnalyser _analyser;
-    private readonly IPlateSolver _plateSolver;
-    private readonly IExternal _external;
-    private readonly IReadOnlyList<Observation> _observations;
+    private readonly IImageAnalyser _analyser = analyser;
+    private readonly IPlateSolver _plateSolver = plateSolver;
+    private readonly IExternal _external = external;
+    private readonly IReadOnlyList<Observation> _observations = observations.Count > 0 ? observations : throw new ArgumentException("Need at least one observation", nameof(observations));
     private readonly ConcurrentQueue<GuiderEventArgs> _guiderEvents = new();
-    private int _activeObservation;
+    private int _activeObservation = -1;
 
     public Session(
         Setup setup,
@@ -40,27 +47,9 @@ public class Session
         // calls below
     }
 
-    public Session(
-        Setup setup,
-        in SessionConfiguration sessionConfiguration,
-        IImageAnalyser analyser,
-        IPlateSolver plateSolver,
-        IExternal external,
-        IReadOnlyList<Observation> observations
-    )
-    {
-        Setup = setup;
-        Configuration = sessionConfiguration;
-        _analyser = analyser;
-        _plateSolver = plateSolver;
-        _external = external;
-        _observations = observations.Count > 0 ? observations : throw new ArgumentException("Need at least one observation", nameof(observations));
-        _activeObservation = -1; // -1 means we have not started imaging yet
-    }
+    public Setup Setup { get; } = setup;
 
-    public Setup Setup { get; }
-
-    public SessionConfiguration Configuration { get; }
+    public SessionConfiguration Configuration { get; } = sessionConfiguration;
 
     public Observation? CurrentObservation => _activeObservation is int active and >= 0 && active < _observations.Count ? _observations[active] : null;
 
