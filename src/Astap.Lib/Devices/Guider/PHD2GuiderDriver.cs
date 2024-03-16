@@ -281,6 +281,13 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
                 newAppState = AppState = "Calibrating";
             }
         }
+        else if (eventName == "StarSelected")
+        {
+            lock (m_sync)
+            {
+                newAppState = AppState = "Selected";
+            }
+        }
         else if (eventName == "LoopingExposures")
         {
             lock (m_sync)
