@@ -24,7 +24,7 @@ public class Session(
     IPlateSolver plateSolver,
     IExternal external,
     IReadOnlyList<Observation> observations
-    )
+)
 {
     private readonly IImageAnalyser _analyser = analyser;
     private readonly IPlateSolver _plateSolver = plateSolver;
@@ -436,7 +436,7 @@ public class Session(
             return false;
         }
 
-        guider.Driver.UnhandledEvent += (_, e) => guiderEvents.Enqueue(e);
+        guider.Driver.GuiderStateChangedEvent += (_, e) => guiderEvents.Enqueue(e);
         guider.Driver.GuidingErrorEvent +=  (_, e) => guiderEvents.Enqueue(e);
         guider.Driver.ConnectEquipment();
 
@@ -540,7 +540,7 @@ public class Session(
             return new(SlewPostCondition.Cancelled, double.NaN);
         }
 
-        if (mount.Driver.IsSlewing || failsafeCounter == MAX_FAILSAFE)
+        if (mount.Driver.IsSlewing || failsafeCounter >= MAX_FAILSAFE)
         {
             throw new InvalidOperationException($"Failsafe activated when slewing {mount.Device.DisplayName} to {observation}.");
         }
