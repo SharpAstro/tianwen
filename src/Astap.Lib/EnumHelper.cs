@@ -1,5 +1,4 @@
-﻿using Roydl.Text.BinaryToText;
-using System;
+﻿using System;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
@@ -11,15 +10,13 @@ public static class EnumHelper
     internal const uint ASCIIMask = 0x7f;
     internal const uint ByteMask = 0xff;
     internal const int ASCIIBits = 7;
-    internal const int BitsInUlong = 64;
-    internal const int BytesInUlong = BitsInUlong / 8;
+    internal const int BitsInUlong = BytesInUlong * 8;
+    internal const int BytesInUlong = sizeof(ulong);
     internal const int MaxLenInASCII = BitsInUlong / ASCIIBits;
     internal const ulong MSBUlongMask = 1ul << (BitsInUlong - 1);
 
-    internal static readonly Base91 Base91Encoder = new();
-
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    public static T AbbreviationToEnumMember<T>(ReadOnlySpan<char> name)
+    public static T AbbreviationToEnumMember<T>(in ReadOnlySpan<char> name)
         where T : struct, Enum
     {
         if (name.Length is <= 0)
@@ -45,7 +42,7 @@ public static class EnumHelper
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    public static ulong AbbreviationToASCIIPackedInt(ReadOnlySpan<char> name)
+    public static ulong AbbreviationToASCIIPackedInt(in ReadOnlySpan<char> name)
     {
         var len = Math.Min(MaxLenInASCII, name.Length);
         var msbMask = len == MaxLenInASCII ? ByteMask : ASCIIMask;

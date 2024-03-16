@@ -419,6 +419,16 @@ public record struct ConstellationBoundary(double LowerRA, double UpperRA, doubl
             && (borderingConstellation.IsContainedWithin(const_s) || borderingConstellation.IsContainedWithin(const_l));
     }
 
+    public static Constellation FindConstellation(double ra, double dec, double epoch = 2000.0)
+    {
+        if (TryFindConstellation(ra, dec, epoch, out var constellation))
+        {
+            return constellation;
+        }
+
+        throw new InvalidOperationException($"Cannot find constellation given ra={ra} dec={dec} and epoch {epoch}");
+    }
+
     public static bool TryFindConstellation(double ra, double dec, out Constellation constellation) => TryFindConstellation(ra, dec, 2000.0, out constellation);
 
     public static bool TryFindConstellation(double ra, double dec, double epoch, out Constellation constellation)

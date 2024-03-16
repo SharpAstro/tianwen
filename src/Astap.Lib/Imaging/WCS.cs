@@ -17,7 +17,7 @@ public record struct WCS(double CenterRA, double CenterDec)
     public static WCS? FromFits(Fits fits)
     {
         var hdu = fits.ReadHDU();
-        if (hdu?.Header is Header header)
+        if (hdu?.Header is { } header)
         {
             var ra = header.GetDoubleValue("CRVAL1");
             var dec = header.GetDoubleValue("CRVAL2");

@@ -2,6 +2,44 @@ param(
     [switch] $ForceDownload
 )
 
+function Import-AstapClass
+{
+    [CmdletBinding()]
+    param (
+        [Parameter()]
+        [string]
+        $ClassName,
+
+        [Parameter(Mandatory = $false)]
+        [string]
+        $Path = '.',
+
+        [Parameter(Mandatory = $false)]
+        [string[]]
+        $ReferencedAssemblies = @()
+    )
+
+    if (-not ("Astap.Lib.$ClassName" -as [type])) {
+        $assy = "tmp-data/$($ClassName).dll"
+        if (Test-Path -PathType Leaf $assy) {
+            Remove-Item -Force $assy
+        }
+        Add-Type -OutputAssembly $assy -Path $Path/$($ClassName).cs -ReferencedAssemblies $ReferencedAssemblies
+
+        $assy
+    }
+}
+
+Push-Location $PSScriptRoot
+
+if (-not (Test-Path -PathType Container -Path 'tmp-data')) {
+    New-Item -ItemType Directory 'tmp-data'
+}
+
+$base91Assy = Import-AstapClass -ClassName Base91 -Path '../..'
+$enumHelperAssy = Import-AstapClass -ClassName EnumHelper -Path '../..'
+$catalogAssy = Import-AstapClass -ClassName Catalog -ReferencedAssemblies $enumHelperAssy
+
 # HIPS main
 $cats = [ordered]@{
     # hip     = [PSCustomObject]@{ Cat = 'I/239';    File = 'hip_main' } 
@@ -9,7 +47,31 @@ $cats = [ordered]@{
     # hd      = [PSCustomObject]@{ Cat = 'III/135A'; File = 'catalog.dat.gz' } 
     # hde     = [PSCustomObject]@{ Cat = 'III/182';  File = 'catalog.dat.gz' }
     tyc2_hd = [PSCustomObject]@{ Cat = 'J/A+A/386/709';  File = 'tyc2_hd.dat.gz'; Data = @{ } }
-    tyc2    = [PSCustomObject]@{ Cat = 'I/259';  File = 'tyc2.dat.{0}.gz'; FileCount = 20 }
+    tyc2    = [PSCustomObject]@{ Cat = 'I/259';  File = 'tyc2.dat.{0}.gz'; FileCount = 20; StreamCount = 9537 }
+}
+
+function ConvertTo-Tycho2CatalogIndex
+{
+    [CmdletBinding()]
+    param(
+        [Parameter()] [ushort] $TycId1,
+        [Parameter()] [ushort] $TycId2,
+        [Parameter()] [byte] $TycId3
+    )
+
+    $idAsLongH = [ulong]$TycId1 -band 0xffff
+    $idAsLongH = $idAsLongH -shl 16
+    $idAsLongH = $idAsLongH -bor ($TycId2 -band 0xffff)
+    $idAsLongH = $idAsLongH -shl 2
+    $idAsLongH = $idAsLongH -bor ($TycId3 -band 0b11)
+    $idAsLongH = $idAsLongH -shl 7
+    $idAsLongH = $idAsLongH -bor ([byte][char]'y' -band 0x7f)
+
+    $bytesN = [byte[]]::new(8)
+    [System.Buffers.Binary.BinaryPrimitives]::WriteUInt64BigEndian($bytesN, $idAsLongH)
+    $bytesN7 = [byte[]]::new(7)
+    [System.Array]::Copy($bytesN, 1, $bytesN7, 0, 7)
+    [Astap.Lib.Base91]::EncodeBytes($bytesN7)
 }
 
 function ConvertFrom-EpochRADec
@@ -156,22 +218,22 @@ function ConvertTo-Tycho2_BinTable
     [CmdletBinding()]
     param (
         [Parameter(Mandatory = $true, ValueFromPipeline = $true)] [PSCustomObject] $InputObject,
-        [Parameter(Mandatory = $true)] [System.IO.FileStream] $OutputStream
+        [Parameter(Mandatory = $true)] [PSCustomObject] $OutputData
     )
 
-    begin {
-        $count = 0
-    }
-
     process {
-        $tycIdShort = $InputObject.IDComp 
+        $tycIdShort = $InputObject.IDComp
+
+        $gscIdx = $tycIdShort[0] - 1
+        $stream = $OutputData.Streams[$gscIdx]
 
         $hd1 = if ($null -ne $InputObject.HD -and $InputObject.HD.Length -ge 1) { $InputObject.HD[0] } else { 0 }
         $hd2 = if ($null -ne $InputObject.HD -and $InputObject.HD.Length -eq 2) { $InputObject.HD[1] } else { 0 }
         
-        $tycId0 = [BitConverter]::GetBytes([ipaddress]::HostToNetworkOrder($tycIdShort[0]))
-        $tycId1 = [BitConverter]::GetBytes([ipaddress]::HostToNetworkOrder($tycIdShort[1]))
-        [byte]$tycId2 = $tycIdShort[2]
+        # first part of ID can be inferred from file name
+        # $tycId1 = [BitConverter]::GetBytes([ipaddress]::HostToNetworkOrder($tycIdShort[0]))
+        $tycId2 = [BitConverter]::GetBytes([ipaddress]::HostToNetworkOrder($tycIdShort[1]))
+        [byte]$tycId3 = $tycIdShort[2]
 
         $hipBytes = [BitConverter]::GetBytes([ipaddress]::HostToNetworkOrder($InputObject.HIP))
         $hd1Bytes = [BitConverter]::GetBytes([ipaddress]::HostToNetworkOrder($hd1))
@@ -180,23 +242,18 @@ function ConvertTo-Tycho2_BinTable
         $raHBytes = [BitConverter]::GetBytes([ipaddress]::HostToNetworkOrder([BitConverter]::SingleToInt32Bits($InputObject.RA)))
         $decBytes = [BitConverter]::GetBytes([ipaddress]::HostToNetworkOrder([BitConverter]::SingleToInt32Bits($InputObject.Dec)))
 
-        $entry = [byte[]]::new(22)
-        [array]::Copy($tycId0, 0, $entry, 0, 2)
-        [array]::Copy($tycId1, 0, $entry, 2, 2)
-        $entry[4] = $tycId2
-        [array]::Copy($hipBytes, 1, $entry, 5, 3)
-        [array]::Copy($hd1Bytes, 1, $entry, 8, 3)
-        [array]::Copy($hd2Bytes, 1, $entry, 11, 3)
-        [array]::Copy($raHBytes, 0, $entry, 14, 4)
-        [array]::Copy($decBytes, 0, $entry, 18, 4)
-
-        $OutputStream.Write($entry)
-
-        if ($count % 1000 -eq 0) {
-            $OutputStream.Flush()
-        }
-
-        $count++
+        $entry = [byte[]]::new(11)
+        # [array]::Copy($tycId1, 0, $entry, 0, 2)
+        [array]::Copy($tycId2, 0, $entry, 0, 2)
+        $entry[2] = $tycId3
+        
+        [array]::Copy($raHBytes, 0, $entry, 3, 4)
+        [array]::Copy($decBytes, 0, $entry, 7, 4)
+        #[array]::Copy($hipBytes, 1, $entry, 5, 3)
+        #[array]::Copy($hd1Bytes, 1, $entry, 8, 3)
+        #[array]::Copy($hd2Bytes, 1, $entry, 11, 3)
+        
+        $stream.Write($entry)
     }
 }
 
@@ -229,12 +286,6 @@ function ConvertFrom-Tycho2_HD_ASCIIDat
             Write-Warning "$tycId : Invalid HD: $maybeHD"
         }
     }
-}
-
-Push-Location $PSScriptRoot
-
-if (-not (Test-Path -PathType Container -Path 'tmp-data')) {
-    New-Item -ItemType Directory 'tmp-data'
 }
 
 Push-Location 'tmp-data'
@@ -283,35 +334,46 @@ $cats.GetEnumerator() | ForEach-Object {
 
     if ($isSplitFile) {
         $unzippedFilePattern = [System.IO.Path]::GetFileNameWithoutExtension($cat.File)
-
         $location = Get-Location
-        $outputFile = [System.IO.Path]::Combine($location, "$($folder).bin")
-        $outputStream = [System.IO.File]::Open($outputFile, [System.IO.FileMode]::Create, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::Read)
+        $outputData = [PSCustomObject] @{ Streams = [System.IO.FileStream[]]::new($cat.StreamCount) }
 
+        for ($i = 0; $i -lt $cat.StreamCount; $i++) {
+            $formattedStreamId = $($i + 1).ToString('D4')
+            $tmpBinFolder = [System.IO.Path]::Combine($location, 'out', $formattedStreamId[0])
+            if (-not (Test-Path -PathType Container $tmpBinFolder)) {
+                $null = New-Item -ItemType Directory $tmpBinFolder
+            }
+            $tmpBinFile = [System.IO.Path]::Combine($tmpBinFolder, "$($folder)_$($($i + 1).ToString('D4')).bin")
+            $outputData.Streams[$i] = [System.IO.File]::Open($tmpBinFile, [System.IO.FileMode]::Create, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::Read)
+        }
+    
         for ($i = 0; $i -lt $dataFileCount; $i++) {
-           $formattedDigit = [string]::Format($digitFormat, $i)
-           $zippedDataFileName = [string]::Format($cat.File, $formattedDigit)
-           $unzippedDataFileName = [string]::Format($unzippedFilePattern, $formattedDigit)
+            $formattedDigit = [string]::Format($digitFormat, $i)
+            $zippedDataFileName = [string]::Format($cat.File, $formattedDigit)
+            $unzippedDataFileName = [string]::Format($unzippedFilePattern, $formattedDigit)
 
-           & 7z e -y $zippedDataFileName
+            & 7z e -y $zippedDataFileName
 
-           if ($folder -eq 'tyc2') {
-               ConvertFrom-Tycho2_ASCIIDat -UnzippedDataFileName $unzippedDataFileName -HDCrossTable $cats['tyc2_hd'].Data
-               | ConvertTo-Tycho2_BinTable -OutputStream $outputStream
-           }
+            if ($folder -eq 'tyc2') {
+                ConvertFrom-Tycho2_ASCIIDat -UnzippedDataFileName $unzippedDataFileName -HDCrossTable $cats['tyc2_hd'].Data
+                    | ConvertTo-Tycho2_BinTable -OutputData $outputData
+            }
 
-           Remove-Item $unzippedDataFileName
+            Remove-Item $unzippedDataFileName
         }
 
-        $outputStream.Close()
+        for ($i = 0; $i -lt $cat.StreamCount; $i++) {
+            $formattedStreamId = $($i + 1).ToString('D4')
 
-        $gzippedOutputFile = "$($folder).bin.gz"
+            $outputData.Streams[$i].Close()
+        }
 
-        & 7z -mx9 -scsUTF-8 a "$gzippedOutputFile" "$outputFile"
+        $gzippedOutputFile = [System.IO.Path]::Combine($location, "$($folder).bin.zip")
+        $tmpBinOutFolder =  [System.IO.Path]::Combine($location, "out", '*')
+
+        & 7z -mx9 -scsUTF-8 a "$gzippedOutputFile" "$($tmpBinOutFolder)"
 
         Move-Item -Force $gzippedOutputFile $PSScriptRoot
-
-        Remove-Item $outputFile
     } elseif ($null -ne $catalogTable) {
         $unzippedDataFileName = [System.IO.Path]::GetFileNameWithoutExtension($cat.File)
         & 7z e -y $cat.File

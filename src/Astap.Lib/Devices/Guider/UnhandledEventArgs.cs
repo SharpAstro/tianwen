@@ -28,7 +28,7 @@ namespace Astap.Lib.Devices.Guider;
 
 public class UnhandledEventArgs(GuiderDevice device, string? profile, string @event, string payload) : GuiderEventArgs(device, profile)
 {
-    public string Event { get; } = @event;
+    public string Event { get; init; } = @event;
 
-    public string Payload { get; } = payload;
+    public string Payload { get; init; } = payload;
 }

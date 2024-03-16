@@ -2,7 +2,6 @@
 using System.Buffers.Binary;
 using System.Globalization;
 using System.Runtime.CompilerServices;
-using System.Text;
 using System.Text.RegularExpressions;
 using static Astap.Lib.EnumHelper;
 
@@ -239,7 +238,7 @@ public static partial class CatalogUtils
 
         if (cleanedUp is { Length: <= MaxLenInASCII })
         {
-            catalogIndex = (isBase91Encoded ? CatalogIndex.Base91Enc : 0L) | AbbreviationToEnumMember<CatalogIndex>(cleanedUp);
+            catalogIndex = AbbreviationToCatalogIndex(cleanedUp, isBase91Encoded);
             return true;
         }
         else
@@ -248,6 +247,9 @@ public static partial class CatalogUtils
             return false;
         }
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    internal static CatalogIndex AbbreviationToCatalogIndex(string cleanedUp, bool isBase91Encoded) => (isBase91Encoded ? CatalogIndex.Base91Enc : 0L) | AbbreviationToEnumMember<CatalogIndex>(cleanedUp);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     private static string? CleanupRADecBasedCatalogIndex(Regex pattern, string trimmedInput, Catalog catalog, ulong raMask, int raShift, ulong decMask, Base91EncRADecOptions base91EncOptions)
@@ -322,35 +324,41 @@ public static partial class CatalogUtils
             BinaryPrimitives.WriteUInt64BigEndian(bytesN, idAsLongH);
 
             // TODO update lib to accept spans
-            return Base91Encoder.EncodeBytes(bytesN[1..].ToArray());
+            return Base91.EncodeBytes(bytesN[1..].ToArray());
         }
 
         return null;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private static string? EncodeTyc2CatalogIndex(Catalog catalog, in ReadOnlySpan<char> tyc1Input, in ReadOnlySpan<char> tyc2Input, in ReadOnlySpan<char> tyc3Input)
+    internal static string? EncodeTyc2CatalogIndex(Catalog catalog, in ReadOnlySpan<char> tyc1Input, in ReadOnlySpan<char> tyc2Input, in ReadOnlySpan<char> tyc3Input)
     {
         if (ushort.TryParse(tyc1Input, NumberStyles.None, CultureInfo.InvariantCulture, out var tyc1)
-            && uint.TryParse(tyc2Input, NumberStyles.None, CultureInfo.InvariantCulture, out var tyc2)
+            && ushort.TryParse(tyc2Input, NumberStyles.None, CultureInfo.InvariantCulture, out var tyc2)
             && byte.TryParse(tyc3Input, NumberStyles.None, CultureInfo.InvariantCulture, out var tyc3))
         {
-            var idAsLongH = (ulong)(tyc1 & TYC1_MASK);
-            idAsLongH <<= TYC2_SHIFT;
-            idAsLongH |= tyc2 & TYC2_MASK;
-            idAsLongH <<= TYC3_SHIFT;
-            idAsLongH |= tyc3 & TYC3_MASK;
-            idAsLongH <<= ASCIIBits;
-            idAsLongH |= (ulong)catalog & ASCIIMask;
-
-            Span<byte> bytesN = stackalloc byte[8];
-            BinaryPrimitives.WriteUInt64BigEndian(bytesN, idAsLongH);
-
-            // TODO update lib to accept spans
-            return Base91Encoder.EncodeBytes(bytesN[1..].ToArray());
+            return EncodeTyc2CatalogIndex(catalog, tyc1, tyc2, tyc3);
         }
 
         return null;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    internal static string EncodeTyc2CatalogIndex(Catalog catalog, ushort tyc1, ushort tyc2, byte tyc3)
+    {
+        var idAsLongH = (ulong)(tyc1 & TYC1_MASK);
+        idAsLongH <<= TYC2_SHIFT;
+        idAsLongH |= tyc2 & TYC2_MASK;
+        idAsLongH <<= TYC3_SHIFT;
+        idAsLongH |= tyc3 & TYC3_MASK;
+        idAsLongH <<= ASCIIBits;
+        idAsLongH |= (ulong)catalog & ASCIIMask;
+
+        Span<byte> bytesN = stackalloc byte[sizeof(ulong)];
+        BinaryPrimitives.WriteUInt64BigEndian(bytesN, idAsLongH);
+
+        // TODO update lib to accept spans
+        return Base91.EncodeBytes(bytesN[1..].ToArray());
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

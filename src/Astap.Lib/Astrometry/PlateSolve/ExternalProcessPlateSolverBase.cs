@@ -211,7 +211,7 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
     }
 
     string FullNativeCmdPath(string cmd) =>
-    CommandFolder is string folder && !string.IsNullOrEmpty(folder) && Directory.Exists(folder)
-        ? Path.Combine(folder, cmd)
-        : cmd;
+        CommandFolder is string folder && !string.IsNullOrEmpty(folder) && Directory.Exists(folder)
+            ? Path.Combine(folder, cmd)
+            : cmd;
 }
