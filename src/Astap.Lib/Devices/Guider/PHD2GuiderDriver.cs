@@ -218,7 +218,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
             lock (m_sync)
             {
-                AppState = "Guiding";
+                newAppState = AppState = "Guiding";
                 AverageDistance = @event.RootElement.GetProperty("AvgDist").GetDouble();
                 if (IsAccumActive)
                 {
