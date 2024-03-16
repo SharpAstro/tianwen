@@ -174,12 +174,13 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     private void HandleEvent(JsonDocument @event)
     {
         string? eventName = @event.RootElement.GetProperty("Event").GetString();
+        string? newAppState = null;
 
         if (eventName == "AppState")
         {
             lock (m_sync)
             {
-                AppState = @event.RootElement.GetProperty("State").GetString();
+                newAppState = AppState = @event.RootElement.GetProperty("State").GetString();
                 if (IsGuidingAppState(AppState))
                 {
                     AverageDistance = 0.0;   // until we get a GuideStep event
@@ -270,41 +271,46 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         {
             lock (m_sync)
             {
-                AppState = "Paused";
+                newAppState = AppState = "Paused";
             }
         }
         else if (eventName == "StartCalibration")
         {
             lock (m_sync)
             {
-                AppState = "Calibrating";
+                newAppState = AppState = "Calibrating";
             }
         }
         else if (eventName == "LoopingExposures")
         {
             lock (m_sync)
             {
-                AppState = "Looping";
+                newAppState = AppState = "Looping";
             }
         }
         else if (eventName == "LoopingExposuresStopped" || eventName == "GuidingStopped")
         {
             lock (m_sync)
             {
-                AppState = "Stopped";
+                newAppState = AppState = "Stopped";
             }
         }
         else if (eventName == "StarLost")
         {
             lock (m_sync)
             {
-                AppState = "LostLock";
+                newAppState = AppState = "LostLock";
                 AverageDistance = @event.RootElement.GetProperty("AvgDist").GetDouble();
             }
         }
         else
         {
             OnUnhandledEvent(new UnhandledEventArgs(_guiderDevice, _selectedProfileName, eventName ?? "Unknown", @event.RootElement.GetRawText()));
+        }
+
+        if (newAppState is not null)
+        {
+            OnAppStateChangedEvent(new AppStateChangedEventArgs(_guiderDevice, _selectedProfileName, eventName ?? "Unknown", newAppState));
         }
     }
 
@@ -859,9 +865,14 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     protected virtual void OnUnhandledEvent(UnhandledEventArgs eventArgs) => UnhandledEvent?.Invoke(this, eventArgs);
 
     public event EventHandler<GuidingErrorEventArgs>? GuidingErrorEvent;
-    public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
 
     protected virtual void OnGuidingErrorEvent(GuidingErrorEventArgs eventArgs) => GuidingErrorEvent?.Invoke(this, eventArgs);
+
+    public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
+
+    public event EventHandler<AppStateChangedEventArgs>? AppStateChangedEvent;
+
+    protected virtual void OnAppStateChangedEvent(AppStateChangedEventArgs eventArgs) => AppStateChangedEvent?.Invoke(this, eventArgs);
 
     public bool TryGetActiveProfileName([NotNullWhen(true)] out string? activeProfileName)
     {

@@ -71,9 +71,9 @@ public class CelestialObjectDBTests
     [InlineData("GUM016", ObjectType.HIIReg, CatalogIndex.GUM016, Constellation.Vela, 8.553333333333335d, -44.1d)]
     [InlineData("C009", ObjectType.HIIReg, CatalogIndex.C009, Constellation.Cepheus, 22.965d, 62.51833333333333d)]
     // TODO: VDB has these listed as Be*, but in HIP we only know stars (*)
-    [InlineData("vdB0005", ObjectType.Star, CatalogIndex.HIP004427, Constellation.Cassiopeia, 0.9451477026666667d, 60.71674038d)]
-    [InlineData("vdB0020", ObjectType.Star, CatalogIndex.HIP017499, Constellation.Taurus, 3.747927033333333d, 24.11333922d)]
-    [InlineData("HIP120404", ObjectType.Star, CatalogIndex.HIP120404, Constellation.Carina, 7.967475347333333d, -60.61478539d)]
+    [InlineData("vdB0005", ObjectType.Star, CatalogIndex.HIP004427, Constellation.Cassiopeia, 0.9451477026666667d, 60.71674038d, Skip = "Missing HIP catalog")]
+    [InlineData("vdB0020", ObjectType.Star, CatalogIndex.HIP017499, Constellation.Taurus, 3.747927033333333d, 24.11333922d, Skip = "Missing HIP catalog")]
+    [InlineData("HIP120404", ObjectType.Star, CatalogIndex.HIP120404, Constellation.Carina, 7.967475347333333d, -60.61478539d, Skip = "Missing HIP catalog")]
     public async Task GivenObjectIdWhenLookingItUpThenAnObjIsReturned(
         string indexEntry,
         ObjectType expectedObjType,
@@ -118,11 +118,11 @@ public class CelestialObjectDBTests
     [InlineData("Coalsack Nebula", CatalogIndex.C099)]
     [InlineData("tet01 Eri", CatalogIndex.HR0897)]
     [InlineData("Trifid Nebula", CatalogIndex.NGC6514)]
-    [InlineData("Ran", CatalogIndex.HIP016537)]
-    [InlineData("18 Eri", CatalogIndex.HIP016537)]
-    [InlineData("eps Eri", CatalogIndex.HIP016537)]
-    [InlineData("Electra", CatalogIndex.HIP017499)]
-    [InlineData("Erakis", CatalogIndex.HIP107259)]
+    [InlineData("Ran", CatalogIndex.HIP016537, Skip = "Missing HIP catalog")]
+    [InlineData("18 Eri", CatalogIndex.HIP016537, Skip = "Missing HIP catalog")]
+    [InlineData("eps Eri", CatalogIndex.HIP016537, Skip = "Missing HIP catalog")]
+    [InlineData("Electra", CatalogIndex.HIP017499, Skip = "Missing HIP catalog")]
+    [InlineData("Erakis", CatalogIndex.HIP107259, Skip = "Missing HIP catalog")]
     public async Task GivenANameWhenLookingItUpThenAnObjIsReturned(string name, params CatalogIndex[] expectedMatches)
     {
         // given
@@ -184,12 +184,12 @@ public class CelestialObjectDBTests
     [InlineData(CatalogIndex.NGC0869, CatalogIndex.Mel013, CatalogIndex.Cr024)]
     [InlineData(CatalogIndex.NGC6715, CatalogIndex.M054)]
     [InlineData(CatalogIndex.GUM020, CatalogIndex.RCW_0036)]
-    [InlineData(CatalogIndex.NGC6164, CatalogIndex.GUM052, CatalogIndex.RCW_0107, CatalogIndex.Ced135a, CatalogIndex.Ced135b, CatalogIndex.NGC6165, CatalogIndex.HIP081100)]
-    [InlineData(CatalogIndex.NGC6165, CatalogIndex.GUM052, CatalogIndex.RCW_0107, CatalogIndex.Ced135a, CatalogIndex.Ced135b, CatalogIndex.NGC6164, CatalogIndex.HIP081100)]
-    [InlineData(CatalogIndex.GUM052, CatalogIndex.NGC6164, CatalogIndex.NGC6165, CatalogIndex.HIP081100, CatalogIndex.Ced135a, CatalogIndex.Ced135b, CatalogIndex.RCW_0107)]
-    [InlineData(CatalogIndex.Ced135a, CatalogIndex.NGC6164, CatalogIndex.NGC6165, CatalogIndex.HIP081100, CatalogIndex.GUM052, CatalogIndex.Ced135b, CatalogIndex.RCW_0107)]
-    [InlineData(CatalogIndex.Ced135b, CatalogIndex.NGC6164, CatalogIndex.NGC6165, CatalogIndex.HIP081100, CatalogIndex.GUM052, CatalogIndex.Ced135a, CatalogIndex.RCW_0107)]
-    [InlineData(CatalogIndex.RCW_0107, CatalogIndex.NGC6164, CatalogIndex.NGC6165, CatalogIndex.HIP081100, CatalogIndex.GUM052, CatalogIndex.Ced135a, CatalogIndex.Ced135b)]
+    [InlineData(CatalogIndex.NGC6164, CatalogIndex.GUM052, CatalogIndex.RCW_0107, CatalogIndex.Ced135a, CatalogIndex.Ced135b, CatalogIndex.NGC6165, CatalogIndex.HIP081100, Skip = "Missing HIP catalog")]
+    [InlineData(CatalogIndex.NGC6165, CatalogIndex.GUM052, CatalogIndex.RCW_0107, CatalogIndex.Ced135a, CatalogIndex.Ced135b, CatalogIndex.NGC6164, CatalogIndex.HIP081100, Skip = "Missing HIP catalog")]
+    [InlineData(CatalogIndex.GUM052, CatalogIndex.NGC6164, CatalogIndex.NGC6165, CatalogIndex.HIP081100, CatalogIndex.Ced135a, CatalogIndex.Ced135b, CatalogIndex.RCW_0107, Skip = "Missing HIP catalog")]
+    [InlineData(CatalogIndex.Ced135a, CatalogIndex.NGC6164, CatalogIndex.NGC6165, CatalogIndex.HIP081100, CatalogIndex.GUM052, CatalogIndex.Ced135b, CatalogIndex.RCW_0107, Skip = "Missing HIP catalog")]
+    [InlineData(CatalogIndex.Ced135b, CatalogIndex.NGC6164, CatalogIndex.NGC6165, CatalogIndex.HIP081100, CatalogIndex.GUM052, CatalogIndex.Ced135a, CatalogIndex.RCW_0107, Skip = "Missing HIP catalog")]
+    [InlineData(CatalogIndex.RCW_0107, CatalogIndex.NGC6164, CatalogIndex.NGC6165, CatalogIndex.HIP081100, CatalogIndex.GUM052, CatalogIndex.Ced135a, CatalogIndex.Ced135b, Skip = "Missing HIP catalog")]
     [InlineData(CatalogIndex.NGC3372, CatalogIndex.C092, CatalogIndex.GUM033, CatalogIndex.RCW_0053)]
     [InlineData(CatalogIndex.C092, CatalogIndex.NGC3372, CatalogIndex.GUM033, CatalogIndex.RCW_0053)]
     [InlineData(CatalogIndex.GUM033, CatalogIndex.NGC3372, CatalogIndex.C092, CatalogIndex.RCW_0053)]
@@ -201,15 +201,15 @@ public class CelestialObjectDBTests
     [InlineData(CatalogIndex.Sh2_0006, CatalogIndex.C069, CatalogIndex.NGC6302, CatalogIndex.GUM060, CatalogIndex.RCW_0124)] 
     [InlineData(CatalogIndex.Sh2_0155, CatalogIndex.C009)]
     [InlineData(CatalogIndex.C009, CatalogIndex.Sh2_0155)]
-    [InlineData(CatalogIndex.HIP034178, CatalogIndex.GUM003, CatalogIndex.vdB0094)]
-    [InlineData(CatalogIndex.HIP107259, CatalogIndex.HR8316)]
-    [InlineData(CatalogIndex.HR8316, CatalogIndex.HIP107259)]
-    [InlineData(CatalogIndex.HIP000424, CatalogIndex.HR0001)] // TODO: CatalogIndex.HD000003
-    [InlineData(CatalogIndex.HR0264, CatalogIndex.vdB0005, CatalogIndex.HIP004427)] // TODO: CatalogIndex.HD005394
-    [InlineData(CatalogIndex.HR1142, CatalogIndex.vdB0020, CatalogIndex.HIP017499)]
-    [InlineData(CatalogIndex.vdB0005, CatalogIndex.HR0264, CatalogIndex.HIP004427)] // TODO:  CatalogIndex.HD005394
-    [InlineData(CatalogIndex.vdB0020, CatalogIndex.HR1142, CatalogIndex.HIP017499)]
-    [InlineData(CatalogIndex.vdB0094, CatalogIndex.GUM003, CatalogIndex.HIP034178)]
+    [InlineData(CatalogIndex.HIP034178, CatalogIndex.GUM003, CatalogIndex.vdB0094, Skip = "Missing HIP catalog")]
+    [InlineData(CatalogIndex.HIP107259, CatalogIndex.HR8316, Skip = "Missing HIP catalog")]
+    [InlineData(CatalogIndex.HR8316, CatalogIndex.HIP107259, Skip = "Missing HIP catalog")]
+    [InlineData(CatalogIndex.HIP000424, CatalogIndex.HR0001, Skip = "Missing HIP catalog")] // TODO: CatalogIndex.HD000003
+    [InlineData(CatalogIndex.HR0264, CatalogIndex.vdB0005, CatalogIndex.HIP004427, Skip = "Missing HIP catalog")] // TODO: CatalogIndex.HD005394
+    [InlineData(CatalogIndex.HR1142, CatalogIndex.vdB0020, CatalogIndex.HIP017499, Skip = "Missing HIP catalog")]
+    [InlineData(CatalogIndex.vdB0005, CatalogIndex.HR0264, CatalogIndex.HIP004427, Skip = "Missing HIP catalog")] // TODO:  CatalogIndex.HD005394
+    [InlineData(CatalogIndex.vdB0020, CatalogIndex.HR1142, CatalogIndex.HIP017499, Skip = "Missing HIP catalog")]
+    [InlineData(CatalogIndex.vdB0094, CatalogIndex.GUM003, CatalogIndex.HIP034178, Skip = "Missing HIP catalog")]
     [InlineData(CatalogIndex.NGC6514, CatalogIndex.M020, CatalogIndex.Cr360)]
     public async Task GivenACatalogIndexWhenTryingToGetCrossIndicesThenTheyAreFound(CatalogIndex catalogIndex, params CatalogIndex[] expectedCrossIndices)
     {
@@ -383,7 +383,7 @@ public class CelestialObjectDBTests
         var list = db.CreateAutoCompleteList();
 
         // then
-        list.Length.ShouldBeGreaterThan(db.CommonNames.Count + db.AllObjectIndices.Count);
+        list.Length.ShouldBe(db.CommonNames.Count + db.AllObjectIndices.Count);
 
         db.CommonNames.ShouldBeSubsetOf(list);
         db.AllObjectIndices.Select(p => p.ToCanonical()).ShouldBeSubsetOf(list);

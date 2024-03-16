@@ -1,5 +1,4 @@
 ﻿using Astap.Lib.Astrometry.PlateSolve;
-using Astap.Lib.Imaging;
 using Shouldly;
 using System;
 using System.Diagnostics;

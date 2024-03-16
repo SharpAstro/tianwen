@@ -238,7 +238,7 @@ public static class CatalogIndexEx
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    static string RADecEncodedIndexToCanonical(string prefix, ulong decoded, int raDigits, int decDigits, uint raMask, int raShift, uint decMask, Base91EncRADecOptions encOptions)
+    private static string RADecEncodedIndexToCanonical(string prefix, ulong decoded, int raDigits, int decDigits, uint raMask, int raShift, uint decMask, Base91EncRADecOptions encOptions)
     {
         DecodeRADec(decoded, decDigits, raMask, raShift, decMask, encOptions, out var decIsNeg, out var epoch, out var actualDecDigits, out var dec, out var ra);
 
@@ -331,7 +331,7 @@ public static class CatalogIndexEx
         if (isMSBSet)
         {
             var encoded = EnumValueToAbbreviation(catalogIndexUl);
-            if (Base91Encoder.DecodeBytes(encoded) is { Length: > 1} decoded)
+            if (Base91.DecodeBytes(encoded) is { Length: > 1} decoded)
             {
                 const int max = BytesInUlong;
                 Span<byte> bytesUlN = stackalloc byte[max];

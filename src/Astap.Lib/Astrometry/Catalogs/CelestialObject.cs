@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 
@@ -23,12 +24,12 @@ public readonly record struct CelestialObject(
     double RA,
     double Dec,
     Constellation Constellation,
-    float V_Mag,
-    float SurfaceBrightness,
+    Half V_Mag,
+    Half SurfaceBrightness,
     IReadOnlySet<string> CommonNames
 )
 {
     private string DebuggerDisplay()
         => $"{Index.ToCanonical()} [{string.Join(",", CommonNames.OrderByDescending(p => p.Length))}] {Constellation.ToIAUAbbreviation()} {ObjectType.ToAbbreviation()} " +
-           $"{CoordinateUtils.HoursToHMS(RA)}/{CoordinateUtils.DegreesToDMS(Dec)} v_mag={(double.IsNaN(V_Mag) ? "n/a" : V_Mag.ToString("0.00"))}";
+           $"{CoordinateUtils.HoursToHMS(RA)}/{CoordinateUtils.DegreesToDMS(Dec)} v_mag={(Half.IsNaN(V_Mag) ? "n/a" : V_Mag.ToString("0.00"))}";
 }

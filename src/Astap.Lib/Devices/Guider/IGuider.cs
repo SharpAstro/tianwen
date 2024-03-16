@@ -220,4 +220,9 @@ public interface IGuider : IDeviceDriver
     /// Event that is triggered when an exception occurs.
     /// </summary>
     event EventHandler<GuidingErrorEventArgs>? GuidingErrorEvent;
+
+    /// <summary>
+    /// Event that is triggered when the application state changes.
+    /// </summary>
+    event EventHandler<AppStateChangedEventArgs>? AppStateChangedEvent;
 }

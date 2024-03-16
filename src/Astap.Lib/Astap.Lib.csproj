@@ -40,6 +40,7 @@
     <EmbeddedResource Remove="hip2000/**" />
     <EmbeddedResource Remove="Astrometry/Catalogs/*.json" />
     <EmbeddedResource Include="Astrometry/Catalogs/*.gz" WithCulture="false" />
+    <EmbeddedResource Include="Astrometry/Catalogs/*.zip" WithCulture="false" />
     <None Include="../../README.md" Pack="true" PackagePath="/" />
     <None Include="../../LICENSE" Pack="True" PackagePath="/" />
     <None Include="../.editorconfig" Link=".editorconfig" />
@@ -54,7 +55,6 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Roydl.Text" Version="1.0.2" />
     <PackageReference Include="WWA.Core" Version="1.2.0" />
     <PackageReference Include="ZWOptical.ASISDK" Version="1.4.271" />
   </ItemGroup>

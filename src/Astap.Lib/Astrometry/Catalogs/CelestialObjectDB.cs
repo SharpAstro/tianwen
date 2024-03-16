@@ -4,6 +4,7 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
@@ -14,6 +15,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using static Astap.Lib.Astrometry.Catalogs.CatalogUtils;
 using static Astap.Lib.Astrometry.CoordinateUtils;
@@ -23,6 +25,8 @@ namespace Astap.Lib.Astrometry.Catalogs;
 
 public sealed partial class CelestialObjectDB : ICelestialObjectDB
 {
+    private static readonly Half HalfUndefined = Half.NaN;
+
     private static readonly Dictionary<CatalogIndex, (ObjectType ObjType, string[] CommonNames)> _predefinedObjects = new()
     {
         [CatalogIndex.Sol] = (ObjectType.Star, new[] { "Sun", "Sol" }),
@@ -41,6 +45,7 @@ public sealed partial class CelestialObjectDB : ICelestialObjectDB
     private static readonly IReadOnlySet<CatalogIndex> EmptyCatalogIndexSet = ImmutableHashSet.Create<CatalogIndex>();
 
     private readonly CelestialObject[] _hip2000 = new CelestialObject[120404];
+    private byte[] _tycho2 = []; 
     private readonly Dictionary<CatalogIndex, CelestialObject> _objectsByIndex = new(32000);
     private readonly Dictionary<CatalogIndex, (CatalogIndex i1, CatalogIndex[]? ext)> _crossIndexLookuptable = new(39000);
     private readonly Dictionary<string, (CatalogIndex i1, CatalogIndex[]? ext)> _objectsByCommonName = new(5700);
@@ -48,7 +53,7 @@ public sealed partial class CelestialObjectDB : ICelestialObjectDB
     
     private HashSet<CatalogIndex>? _catalogIndicesCache;
     private HashSet<Catalog>? _completeCatalogCache;
-    private volatile int _hipProcessed;
+    private volatile int _tycho2DataProcessed;
     private volatile bool _isInitialized;
     private volatile int _hipCacheItemCount;
 
@@ -180,7 +185,7 @@ public sealed partial class CelestialObjectDB : ICelestialObjectDB
                     AddToFollowObjs(followedObjs, index, followIndex);
                 }
 
-                if (followedObjs.Count == 1)
+                if (followedObjs.Count is 1)
                 {
                     celestialObject = followedObjs[0];
                     return true;
@@ -251,7 +256,7 @@ public sealed partial class CelestialObjectDB : ICelestialObjectDB
         var totalProcessed = 0;
         var totalFailed = 0;
 
-        var initHIP200Task = ReadEmbeddedGzippedHIP200BinaryFileAsync(assembly);
+        var initTycho2DataTask = ReadEmbeddedGzippedTycho2BinaryFileAsync(assembly);
 
         foreach (var predefined in _predefinedObjects)
         {
@@ -259,7 +264,7 @@ public sealed partial class CelestialObjectDB : ICelestialObjectDB
 
             var commonNames = new HashSet<string>(predefined.Value.CommonNames);
             commonNames.TrimExcess();
-            _objectsByIndex[predefined.Key] = new CelestialObject(predefined.Key, predefined.Value.ObjType, double.NaN, double.NaN, 0, float.NaN, float.NaN, commonNames);
+            _objectsByIndex[predefined.Key] = new CelestialObject(predefined.Key, predefined.Value.ObjType, double.NaN, double.NaN, 0, HalfUndefined, HalfUndefined, commonNames);
             AddCommonNameIndex(predefined.Key, commonNames);
             totalProcessed++;
         }
@@ -271,8 +276,8 @@ public sealed partial class CelestialObjectDB : ICelestialObjectDB
             totalFailed += failed;
         }
 
-        (_hipProcessed, var hipFailed) = await initHIP200Task;
-        totalProcessed += _hipProcessed;
+        (_tycho2DataProcessed, var hipFailed) = await initTycho2DataTask;
+        totalProcessed += _tycho2DataProcessed;
         totalFailed += hipFailed;
 
         var simbadCatalogs = new[] {
@@ -302,54 +307,73 @@ public sealed partial class CelestialObjectDB : ICelestialObjectDB
         return (totalProcessed, totalFailed);
     }
 
-    private Task<(int Processed, int Failed)> ReadEmbeddedGzippedHIP200BinaryFileAsync(Assembly assembly)
+    private async Task<(int Processed, int Failed)> ReadEmbeddedGzippedTycho2BinaryFileAsync(Assembly assembly)
     {
-        var manifestFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith(".HIP.bin.gz"));
+        var manifestFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith(".tyc2.bin.gz"));
         if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
         {
-            return Task.FromResult((0, 0));
+            return (0, 0);
         }
 
-        return Task.Run(() =>
+        const int entrySize = 22; // update in Get-Tycho2Catalogs.ps1 as well
+
+        // Span<byte> entry = stackalloc byte[entrySize];
+
+        // var digits = Catalog.HIP.GetNumericalIndexSize();
+
+        var buffer = new byte[(int)Math.Ceiling(stream.Length * 2.3f)];
+
+        using var gzipStream = new GZipStream(stream, CompressionMode.Decompress, false);
+        using var memStream = new MemoryStream(buffer);
+
+        await gzipStream.CopyToAsync(memStream);
+
+        _ = Interlocked.Exchange(ref _tycho2, buffer);
+
+        return ((int)(memStream.Position / entrySize), 0);
+    }
+
+    /*
+        var chunks = Environment.ProcessorCount;
+        await Parallel.ForAsync(0, chunks, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount }, (chunk, cancellationToken) =>
         {
-            const int entrySize = 20; // update in ConvertTo-HIP2000Bin.ps1 as well
-            var table = new byte[entrySize * _hip2000.Length];
-            var entry = table.AsSpan();
+            Span<byte> int32Buffer = stackalloc byte[sizeof(int)];
+            int32Buffer[0] = 0;
 
-            // Span<byte> entry = stackalloc byte[entrySize];
-            int processed = 0;
-            int failed = 0;
+            var firstIdx = (int)Math.Floor(copiedItems * ((float)chunk / chunks));
+            var lastIdx = (int)Math.Min(copiedItems, Math.Ceiling(copiedItems *  ((float)(chunk + 1) / chunks)));
 
-            var digits = Catalog.HIP.GetNumericalIndexSize();
+            var entry = buffer.AsSpan()[(firstIdx * entrySize)..];
 
-            using var gzipStream = new GZipStream(stream, CompressionMode.Decompress, false);
-            using var memStream = new MemoryStream(table);
-            gzipStream.CopyTo(memStream);
-            for (var index = 0; index < _hip2000.Length; index++, entry = entry[entrySize..])
+            for (var idx = firstIdx; idx < lastIdx; idx++, entry = entry[entrySize..])
             {
-                var ra = BinaryPrimitives.ReadDoubleBigEndian(entry);
-                var dec = BinaryPrimitives.ReadDoubleBigEndian(entry[8..]);
-                var vmag = BinaryPrimitives.ReadSingleBigEndian(entry[16..]);
-                if (ra != 0d || dec != 0d || vmag != 0f)
-                {
-                    var catIndex = PrefixedNumericToASCIIPackedInt<CatalogIndex>((uint)Catalog.HIP, index + 1, digits);
-                    if (ConstellationBoundary.TryFindConstellation(ra, dec, out var constellation))
-                    {
-                        var obj = _hip2000[index] = new CelestialObject(catIndex, ObjectType.Star, ra, dec, constellation, vmag, float.NaN, EmptyNameSet);
+                var tycId1 = BinaryPrimitives.ReadUInt16BigEndian(entry);
+                var tycId2 = BinaryPrimitives.ReadUInt16BigEndian(entry[2..]);
+                var tycId3 = entry[4];
 
-                        AddCommonNameAndPosIndices(obj);
-                        processed++;
-                    }
-                    else
-                    {
-                        failed++;
-                    }
-                }
+                entry[5..8].CopyTo(int32Buffer[1..]);
+                var hip = BinaryPrimitives.ReadUInt32BigEndian(int32Buffer);
+
+                entry[8..11].CopyTo(int32Buffer[1..]);
+                var hd1 = BinaryPrimitives.ReadUInt32BigEndian(int32Buffer);
+
+                entry[11..14].CopyTo(int32Buffer[1..]);
+                var hd2 = BinaryPrimitives.ReadUInt32BigEndian(int32Buffer);
+
+                var ra = BinaryPrimitives.ReadSingleBigEndian(entry[14..]);
+                var dec = BinaryPrimitives.ReadSingleBigEndian(entry[18..]);
+                // TODO: calc visual mag for Tycho2 entries var vmag = BinaryPrimitives.ReadHalfBigEndian(entry[22..]);
+                var catIndex = AbbreviationToCatalogIndex(EncodeTyc2CatalogIndex(Catalog.Tycho2, tycId1, tycId2, tycId3), isBase91Encoded: true);
+
+                var vmag = HalfUndefined;
+
+                // var catIndex = PrefixedNumericToASCIIPackedInt<CatalogIndex>((uint)Catalog.HIP, itemIdx + 1, digits);
+                var constellation = ConstellationBoundary.FindConstellation(ra, dec);
             }
 
-            return (processed, failed);
+            return ValueTask.CompletedTask;
         });
-    }
+    */
 
     private async Task<(int Processed, int Failed)> ReadEmbeddedGzippedCsvDataFileAsync(Assembly assembly, string csvName)
     {
@@ -393,14 +417,14 @@ public sealed partial class CelestialObjectDB : ICelestialObjectDB
                 var @const = AbbreviationToEnumMember<Constellation>(constAbbr);
 
                 var vmag = csvReader.TryGetField<string>("V-Mag", out var vmagStr)
-                    && float.TryParse(vmagStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var vmagFloat)
+                    && Half.TryParse(vmagStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var vmagFloat)
                     ? vmagFloat
-                    : float.NaN;
+                    : HalfUndefined;
 
                 var surfaceBrightness = csvReader.TryGetField<string>("SurfBr", out var surfaceBrightnessStr)
-                    && float.TryParse(surfaceBrightnessStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var surfaceBrightnessFloat)
+                    && Half.TryParse(surfaceBrightnessStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var surfaceBrightnessFloat)
                     ? surfaceBrightnessFloat
-                    : float.NaN;
+                    : HalfUndefined;
 
                 IReadOnlySet<string> commonNames;
                 if (csvReader.TryGetField<string>("Common names", out var commonNamesEntry) && !string.IsNullOrWhiteSpace(commonNamesEntry))
@@ -609,7 +633,7 @@ public sealed partial class CelestialObjectDB : ICelestialObjectDB
                         {
                             var objType = AbbreviationToEnumMember<ObjectType>(record.ObjType);
                             var trimmedSetOrEmpty = commonNames.Count > 0 ? new HashSet<string>(commonNames) : EmptyNameSet;
-                            var obj = _objectsByIndex[catToAddIdx] = new CelestialObject(catToAddIdx, objType, raInH, record.Dec, constellation, float.NaN, float.NaN, trimmedSetOrEmpty);
+                            var obj = _objectsByIndex[catToAddIdx] = new CelestialObject(catToAddIdx, objType, raInH, record.Dec, constellation, HalfUndefined, HalfUndefined, trimmedSetOrEmpty);
 
                             AddCommonNameAndPosIndices(obj);
                         }
@@ -725,11 +749,11 @@ public sealed partial class CelestialObjectDB : ICelestialObjectDB
 
     private HashSet<CatalogIndex> RebuildObjectIndices()
     {
-        var objCount = _objectsByIndex.Count + _crossIndexLookuptable.Count + _hipProcessed;
-        if (objCount > 0 && _hipProcessed > 0)
+        var objCount = _objectsByIndex.Count + _crossIndexLookuptable.Count + _tycho2DataProcessed;
+        if (objCount > 0 && _tycho2DataProcessed > 0)
         {
             // allow for a changing HIP array (recovered items etc.)
-            var index = _catalogIndicesCache is { } cache && _hipCacheItemCount == _hipProcessed ? cache : HIPIndex();
+            var index = _catalogIndicesCache is { } cache && _hipCacheItemCount == _tycho2DataProcessed ? cache : HIPIndex();
 
             index.EnsureCapacity(objCount);
             index.UnionWith(_objectsByIndex.Keys);
@@ -742,7 +766,7 @@ public sealed partial class CelestialObjectDB : ICelestialObjectDB
 
         HashSet<CatalogIndex> HIPIndex()
         {
-            var hipIndex = new HashSet<CatalogIndex>(_hipProcessed);
+            var hipIndex = new HashSet<CatalogIndex>(_tycho2DataProcessed);
             for (var i = 0; i < _hip2000.Length; i++)
             {
                 if (_hip2000[i].Index is { } idx and not 0)
