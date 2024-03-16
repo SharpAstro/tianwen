@@ -239,7 +239,8 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
                 SettlePx = SettlePixels,
                 Time = @event.RootElement.GetProperty("Time").GetDouble(),
                 SettleTime = @event.RootElement.GetProperty("SettleTime").GetDouble(),
-                Status = 0
+                Status = 0,
+                StarLocked = @event.RootElement.GetProperty("StarLocked").GetBoolean(),
             };
             lock (m_sync)
             {

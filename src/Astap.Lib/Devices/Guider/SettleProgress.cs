@@ -35,4 +35,5 @@ public class SettleProgress
     public double SettleTime { get; internal set; }
     public int Status { get; internal set; }
     public string? Error { get; internal set; }
+    public bool StarLocked { get; internal set; }
 }
