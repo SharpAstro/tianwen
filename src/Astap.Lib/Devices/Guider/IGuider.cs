@@ -212,11 +212,6 @@ public interface IGuider : IDeviceDriver
     string? SaveImage(string outputFolder);
 
     /// <summary>
-    /// Event that is triggered when an unknown event is received from the guiding application.
-    /// </summary>
-    event EventHandler<UnhandledEventArgs>? UnhandledEvent;
-
-    /// <summary>
     /// Event that is triggered when an exception occurs.
     /// </summary>
     event EventHandler<GuidingErrorEventArgs>? GuidingErrorEvent;
@@ -224,5 +219,5 @@ public interface IGuider : IDeviceDriver
     /// <summary>
     /// Event that is triggered when the application state changes.
     /// </summary>
-    event EventHandler<AppStateChangedEventArgs>? AppStateChangedEvent;
+    event EventHandler<GuiderStateChangedEventArgs>? GuiderStateChangedEvent;
 }

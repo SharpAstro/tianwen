@@ -310,15 +310,8 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
                 AverageDistance = @event.RootElement.GetProperty("AvgDist").GetDouble();
             }
         }
-        else
-        {
-            OnUnhandledEvent(new UnhandledEventArgs(_guiderDevice, _selectedProfileName, eventName ?? "Unknown", @event.RootElement.GetRawText()));
-        }
 
-        if (newAppState is not null)
-        {
-            OnAppStateChangedEvent(new AppStateChangedEventArgs(_guiderDevice, _selectedProfileName, eventName ?? "Unknown", newAppState));
-        }
+        OnGuiderStateChangedEvent(new GuiderStateChangedEventArgs(_guiderDevice, _selectedProfileName, eventName ?? "Unknown", newAppState));
     }
 
     static int MessageId = 1;
@@ -867,19 +860,15 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
     static readonly uint DEFAULT_STOPCAPTURE_TIMEOUT = 10;
 
-    public event EventHandler<UnhandledEventArgs>? UnhandledEvent;
-
-    protected virtual void OnUnhandledEvent(UnhandledEventArgs eventArgs) => UnhandledEvent?.Invoke(this, eventArgs);
-
     public event EventHandler<GuidingErrorEventArgs>? GuidingErrorEvent;
 
     protected virtual void OnGuidingErrorEvent(GuidingErrorEventArgs eventArgs) => GuidingErrorEvent?.Invoke(this, eventArgs);
 
     public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
 
-    public event EventHandler<AppStateChangedEventArgs>? AppStateChangedEvent;
+    public event EventHandler<GuiderStateChangedEventArgs>? GuiderStateChangedEvent;
 
-    protected virtual void OnAppStateChangedEvent(AppStateChangedEventArgs eventArgs) => AppStateChangedEvent?.Invoke(this, eventArgs);
+    protected virtual void OnGuiderStateChangedEvent(GuiderStateChangedEventArgs eventArgs) => GuiderStateChangedEvent?.Invoke(this, eventArgs);
 
     public bool TryGetActiveProfileName([NotNullWhen(true)] out string? activeProfileName)
     {
