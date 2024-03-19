@@ -44,11 +44,6 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     readonly GuiderDevice _guiderDevice;
     private string? _selectedProfileName;
 
-    /// <summary>
-    /// PHD2 is in principle always supported on any platform.
-    /// </summary>
-    public bool IsSupported { get; } = true;
-
     string Host { get; }
     uint Instance { get; }
     IGuiderConnection Connection { get; }
@@ -62,6 +57,11 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     string? Version { get; set; }
     string? PHDSubvVersion { get; set; }
     SettleProgress? Settle { get; set; }
+
+    /// <summary>
+    /// PHD2 is in principle always supported on any platform.
+    /// </summary>
+    public bool IsSupported { get; } = true;
 
     public PHD2GuiderDriver(GuiderDevice guiderDevice)
         : this(guiderDevice, new GuiderConnection())
@@ -312,7 +312,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
             }
         }
 
-        OnGuiderStateChangedEvent(new GuiderStateChangedEventArgs(_guiderDevice, _selectedProfileName, eventName ?? "Unknown", newAppState));
+        OnGuiderStateChangedEvent(new GuiderStateChangedEventArgs(_guiderDevice, _selectedProfileName, eventName ?? "Unknown", newAppState ?? "Unknown"));
     }
 
     static int MessageId = 1;
@@ -724,13 +724,19 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         EnsureConnected();
 
         GuideStats? stats;
+        double? lastRaErr;
+        double? lastDecErr;
         lock (m_sync)
         {
             stats = Stats?.Clone();
+            lastRaErr = AccumRA.Last;
+            lastDecErr = AccumDEC.Last;
         }
         if (stats is not null)
         {
             stats.TotalRMS = Math.Sqrt(stats.RaRMS * stats.RaRMS + stats.DecRMS * stats.DecRMS);
+            stats.LastRaErr = lastRaErr;
+            stats.LastDecErr = lastDecErr;
         }
         return stats;
     }
