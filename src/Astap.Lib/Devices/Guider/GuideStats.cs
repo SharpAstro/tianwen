@@ -33,6 +33,8 @@ public class GuideStats
     public double DecRMS { get; internal set; }
     public double PeakRa { get; internal set; }
     public double PeakDec { get; internal set; }
+    public double? LastRaErr { get; internal set; }
+    public double? LastDecErr { get; internal set; }
 
     public GuideStats Clone() => (GuideStats)MemberwiseClone();
 }

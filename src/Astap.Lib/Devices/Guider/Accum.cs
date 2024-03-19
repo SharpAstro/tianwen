@@ -39,13 +39,19 @@ class Accum
     {
         Reset();
     }
+
+    public double? Last { get; private set; }
+
     public void Reset()
     {
         n = 0;
         a = q = peak = 0;
+        Last = null;
     }
+
     public void Add(double x)
     {
+        Last = x;
         double ax = Math.Abs(x);
         if (ax > peak) peak = ax;
         ++n;
