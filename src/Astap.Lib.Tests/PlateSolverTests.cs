@@ -11,14 +11,12 @@ namespace Astap.Lib.Tests;
 
 public class PlateSolverTests
 {
-    const double Accuracy = 0.01;
-
     [SkippableTheory]
     [InlineData("PlateSolveTestFile", typeof(AstrometryNetPlateSolverUnix))]
     [InlineData("PlateSolveTestFile", typeof(AstrometryNetPlateSolverMultiPlatform))]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", typeof(AstrometryNetPlateSolverMultiPlatform))]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", typeof(AstapPlateSolver))]
-    public async Task GivenStarFieldTestFileWhenBlindPlateSolvingThenItIsSolved(string name, Type plateSolver)
+    public async Task GivenStarFieldTestFileWhenBlindPlateSolvingThenItIsSolved(string name, Type plateSolver, double accuracy = 0.01)
     {
         // given
         var extractedFitsFile = await SharedTestData.ExtractGZippedFitsFileAsync(name);
@@ -44,8 +42,8 @@ public class PlateSolverTests
                 // then
                 solution.HasValue.ShouldBe(true);
                 var (ra, dec) = solution.Value;
-                ra.ShouldBeInRange(dimAndCoords.WCS.CenterRA - Accuracy, dimAndCoords.WCS.CenterRA + Accuracy);
-                dec.ShouldBeInRange(dimAndCoords.WCS.CenterDec - Accuracy, dimAndCoords.WCS.CenterDec + Accuracy);
+                ra.ShouldBeInRange(dimAndCoords.WCS.CenterRA - accuracy, dimAndCoords.WCS.CenterRA + accuracy);
+                dec.ShouldBeInRange(dimAndCoords.WCS.CenterDec - accuracy, dimAndCoords.WCS.CenterDec + accuracy);
             }
             else
             {
@@ -63,7 +61,7 @@ public class PlateSolverTests
     [InlineData("PlateSolveTestFile", typeof(AstrometryNetPlateSolverUnix))]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", typeof(AstrometryNetPlateSolverMultiPlatform))]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", typeof(AstapPlateSolver))]
-    public async Task GivenStarFieldTestFileAndSearchOriginWhenPlateSolvingThenItIsSolved(string name, Type plateSolver)
+    public async Task GivenStarFieldTestFileAndSearchOriginWhenPlateSolvingThenItIsSolved(string name, Type plateSolver, double accuracy = 0.01)
     {
         // given
         var extractedFitsFile = await SharedTestData.ExtractGZippedFitsFileAsync(name);
@@ -88,8 +86,8 @@ public class PlateSolverTests
                 // then
                 solution.HasValue.ShouldBe(true);
                 var (ra, dec) = solution.Value;
-                ra.ShouldBeInRange(dimAndCoords.WCS.CenterRA - Accuracy, dimAndCoords.WCS.CenterRA + Accuracy);
-                dec.ShouldBeInRange(dimAndCoords.WCS.CenterDec - Accuracy, dimAndCoords.WCS.CenterDec + Accuracy);
+                ra.ShouldBeInRange(dimAndCoords.WCS.CenterRA - accuracy, dimAndCoords.WCS.CenterRA + accuracy);
+                dec.ShouldBeInRange(dimAndCoords.WCS.CenterDec - accuracy, dimAndCoords.WCS.CenterDec + accuracy);
             }
             else
             {
