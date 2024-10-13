@@ -27,7 +27,16 @@ public class StatisticsHelperTests
     [InlineData(20u, 120, 40, 60)]
     public void GivenValuesWhenCalcGCDThenItIsReturned(uint expectedGCD, int first, params int[] rest)
     {
+        var firstCopy = first;
+        var rest0copy = rest.Length > 0 ? rest[0] : int.MinValue;
         StatisticsHelper.GCD(first, rest).ShouldBe(expectedGCD);
+
+        first.ShouldBe(firstCopy);
+        if (rest.Length > 0)
+        {
+            var rest0after = rest[0];
+            rest0after.ShouldBe(rest0copy);
+        }
     }
 
     [Theory]

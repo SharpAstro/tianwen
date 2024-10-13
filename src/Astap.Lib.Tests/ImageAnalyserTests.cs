@@ -1,6 +1,7 @@
 ﻿using Astap.Lib.Astrometry.Focus;
 using Astap.Lib.Devices;
 using Astap.Lib.Imaging;
+using Astap.Lib.Stat;
 using Shouldly;
 using System;
 using System.Collections.Generic;
@@ -17,6 +18,7 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
     const string PHD2SimGuider = nameof(PHD2SimGuider);
 
     private readonly ITestOutputHelper _testOutputHelper = testOutputHelper;
+    private readonly IImageAnalyser _imageAnalyser = new ImageAnalyser();
 
     private static readonly IReadOnlyDictionary<string, Image> _imageCache;
 
@@ -39,8 +41,7 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
         // given
         var image = _imageCache[name];
         var fullPath = Path.Combine(Path.GetTempPath(), $"roundtrip_{Guid.NewGuid():D}.fits");
-        IImageAnalyser imageAnalyser = new ImageAnalyser();
-        var expectedStars = imageAnalyser.FindStars(image, snrMin: snrMin);
+        var expectedStars = _imageAnalyser.FindStars(image, snrMin: snrMin);
 
         try
         {
@@ -57,7 +58,7 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
             readoutImage.MaxValue.ShouldBe(image.MaxValue);
             readoutImage.ImageMeta.ExposureStartTime.ShouldBe(image.ImageMeta.ExposureStartTime);
             readoutImage.ImageMeta.ExposureDuration.ShouldBe(image.ImageMeta.ExposureDuration);
-            var starsFromImage = imageAnalyser.FindStars(image, snrMin: snrMin);
+            var starsFromImage = _imageAnalyser.FindStars(image, snrMin: snrMin);
 
             starsFromImage.ShouldBeEquivalentTo(expectedStars);
         }
@@ -109,12 +110,12 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
     {
         // given
         var extractedFitsFile = await SharedTestData.ExtractGZippedFitsFileAsync(name);
-        IImageAnalyser imageAnalyser = new ImageAnalyser();
+
         try
         {
             // when
             Image.TryReadFitsFile(extractedFitsFile, out var image).ShouldBeTrue();
-            var actualStars = imageAnalyser.FindStars(image, snrMin, maxStars ?? 500);
+            var actualStars = _imageAnalyser.FindStars(image, snrMin, maxStars ?? 500);
 
             // then
             actualStars.ShouldNotBeEmpty();
@@ -140,12 +141,12 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
         var expTime = TimeSpan.FromSeconds(42);
         var fileName = $"image_data_snr-{snr_min}_stars-{expectedStars}";
         var int16WxHData = await SharedTestData.ExtractGZippedImageData(fileName, Width, Height);
-        var imageMeta = new ImageMeta(fileName, DateTime.UtcNow, expTime, "", 2.4f, 2.4f, 190, -1, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0, RowOrder.TopDown);
+        var imageMeta = new ImageMeta(fileName, DateTime.UtcNow, expTime, FrameType.Light, "", 2.4f, 2.4f, 190, -1, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
 
         // when
         var imageData = Float32HxWImageData.FromWxHImageData(int16WxHData);
         var image = ICameraDriver.DataToImage(imageData, BitDepth, BlackLevel, imageMeta);
-        var stars = image?.FindStars(snr_min: snr_min);
+        var stars = _imageAnalyser.FindStars(image, snrMin: snr_min);
 
         // then
         image.ShouldNotBeNull();
@@ -169,10 +170,8 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
     [InlineData(PHD2SimGuider, 30, 10, 2)]
     public void GivenFitsFileWhenAnalysingThenMedianHFDAndFWHMIsCalculated(string name, float snr_min, int max_retries, int expected_stars, params int[] sampleStar)
     {
-        var analyser = new ImageAnalyser();
-
         // when
-        var result = analyser.FindStars(_imageCache[name], snrMin: snr_min, maxIterations: max_retries);
+        var result = _imageAnalyser.FindStars(_imageCache[name], snrMin: snr_min, maxIterations: max_retries);
 
         // then
         result.ShouldNotBeEmpty();
@@ -193,14 +192,13 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
     }
 
     [Theory]
-    [InlineData(SampleKind.HFD, 28208, 28211, 1, 1, 1, 10f, 20, 2, 130)]
-    [InlineData(SampleKind.HFD, 28227, 28231, 1, 1, 1, 10f, 20, 2, 140)]
-    [InlineData(SampleKind.HFD, 28208, 28231, 1, 1, 1, 10f, 20, 2, 130, Skip = "Computationally expensive")]
-    public void GivenFocusSamplesWhenSolvingAHyperboleIsFound(SampleKind kind, int focusStart, int focusEndIncl, int focusStepSize, int sampleCount, int filterNo, float snrMin, int maxIterations, int expectedSolutionAfterSteps, int expectedMinStarCount)
+    [InlineData(SampleKind.HFD, AggregationMethod.Average, 28208, 28211, 1, 1, 1, 10f, 20, 2, 130)]
+    [InlineData(SampleKind.HFD, AggregationMethod.Average, 28227, 28231, 1, 1, 1, 10f, 20, 2, 140)]
+    [InlineData(SampleKind.HFD, AggregationMethod.Average, 28208, 28231, 1, 1, 1, 10f, 20, 2, 130, Skip = "Computationally expensive")]
+    public void GivenFocusSamplesWhenSolvingAHyperboleIsFound(SampleKind kind, AggregationMethod aggregationMethod, int focusStart, int focusEndIncl, int focusStepSize, int sampleCount, int filterNo, float snrMin, int maxIterations, int expectedSolutionAfterSteps, int expectedMinStarCount)
     {
         // given
-        var sampleMap = new MetricSampleMap(kind);
-        IImageAnalyser imageAnalyser = new ImageAnalyser();
+        var sampleMap = new MetricSampleMap(kind, aggregationMethod);
 
         // when
         for (int fp = focusStart; fp <= focusEndIncl; fp += focusStepSize)
@@ -209,9 +207,9 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
             {
                 var image = SharedTestData.ExtractGZippedFitsImage($"fp{fp}-cs{cs}-ms{sampleCount}-fw{filterNo}");
 
-                var stars = imageAnalyser.FindStars(image, snrMin: snrMin);
-                var median = imageAnalyser.MedianStarProperty(stars, sampleMap.Kind);
-                var (solution, maybeMinPos, maybeMaxPos) = imageAnalyser.SampleStarsAtFocusPosition(sampleMap, fp, median, stars.Count, maxFocusIterations: maxIterations);
+                var stars = _imageAnalyser.FindStars(image, snrMin: snrMin);
+                var median = _imageAnalyser.MapReduceStarProperty(stars, sampleMap.Kind, AggregationMethod.Median);
+                var (solution, maybeMinPos, maybeMaxPos) = _imageAnalyser.SampleStarsAtFocusPosition(sampleMap, fp, median, stars.Count, maxFocusIterations: maxIterations);
 
                 _testOutputHelper.WriteLine($"focuspos={fp} stars={stars.Count} median={median} solution={solution} minPos={maybeMinPos} maxPos={maybeMaxPos}");
 

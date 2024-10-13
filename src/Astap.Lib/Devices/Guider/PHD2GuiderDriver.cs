@@ -40,7 +40,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     Thread? m_worker;
     volatile bool m_terminate;
     readonly object m_sync = new();
-    readonly Dictionary<int, JsonDocument> _responses = new();
+    readonly Dictionary<int, JsonDocument> _responses = [];
     readonly GuiderDevice _guiderDevice;
     private string? _selectedProfileName;
 
@@ -485,7 +485,14 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
     static bool IsGuidingAppState(string? appState) => appState == "Guiding" || appState == "LostLock";
 
-    public JsonDocument Call(string method, params object[] @params)
+    /// <summary>
+    /// support raw JSONRPC method invocation. Generally you won't need to
+    /// use this function as it is much more convenient to use the higher-level methods below
+    /// </summary>
+    /// <param name="method"></param>
+    /// <param name="params"></param>
+    /// <returns></returns>
+    protected JsonDocument Call(string method, params object[] @params)
     {
         var (memory, id) = MakeJsonRPCCall(method, @params);
 
@@ -972,7 +979,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     public string? SaveImage(string outputFolder)
     {
         using var response = Call("save_image");
-        if (response.RootElement.GetProperty("result").GetProperty("filename").GetString() is { Length: > 0} tempFileName
+        if (response.RootElement.GetProperty("result").GetProperty("filename").GetString() is { Length: > 0 } tempFileName
             && File.Exists(tempFileName)
         )
         {

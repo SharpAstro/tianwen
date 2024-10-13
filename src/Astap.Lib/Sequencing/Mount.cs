@@ -2,10 +2,26 @@
 
 namespace Astap.Lib.Sequencing;
 
-public class Mount(DeviceBase device) : ControllableDeviceBase<IMountDriver>(device)
+public record Mount(DeviceBase Device) : ControllableDeviceBase<IMountDriver>(Device)
 {
     protected override void Driver_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
     {
         // nothing
+    }
+
+    public bool EnsureTracking(TrackingSpeed speed = TrackingSpeed.Sidereal)
+    {
+        if (!Driver.Connected)
+        {
+            return false;
+        }
+
+        if (Driver.CanSetTracking && (Driver.TrackingSpeed != speed || !Driver.Tracking))
+        {
+            Driver.TrackingSpeed = speed;
+            Driver.Tracking = true;
+        }
+
+        return Driver.Tracking;
     }
 }

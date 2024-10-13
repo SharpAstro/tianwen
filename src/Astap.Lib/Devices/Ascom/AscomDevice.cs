@@ -7,18 +7,17 @@ public record class AscomDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
     public AscomDevice(DeviceType deviceType, string deviceId, string displayName)
         : this(new Uri($"{deviceType}://{typeof(AscomDevice).Name}/{deviceId}#{displayName}"))
     {
-
+        // calls primary constructor
     }
 
-    protected override object? NewImplementationFromDevice()
-        => DeviceType switch
-        {
-            DeviceType.Camera => new AscomCameraDriver(this),
-            DeviceType.CoverCalibrator => new AscomCoverCalibratorDriver(this),
-            DeviceType.FilterWheel => new AscomFilterWheelDriver(this),
-            DeviceType.Focuser => new AscomFocuserDriver(this),
-            DeviceType.Switch => new AscomSwitchDriver(this),
-            DeviceType.Telescope => new AscomTelescopeDriver(this),
-            _ => null
-        };
+    protected override IDeviceDriver? NewImplementationFromDevice() => DeviceType switch
+    {
+        DeviceType.Camera => new AscomCameraDriver(this),
+        DeviceType.CoverCalibrator => new AscomCoverCalibratorDriver(this),
+        DeviceType.FilterWheel => new AscomFilterWheelDriver(this),
+        DeviceType.Focuser => new AscomFocuserDriver(this),
+        DeviceType.Switch => new AscomSwitchDriver(this),
+        DeviceType.Telescope => new AscomTelescopeDriver(this),
+        _ => null
+    };
 }

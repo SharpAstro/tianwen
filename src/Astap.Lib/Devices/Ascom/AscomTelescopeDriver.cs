@@ -2,241 +2,277 @@
 using System.Collections.Generic;
 using Astap.Lib.Astrometry;
 
-namespace Astap.Lib.Devices.Ascom
+namespace Astap.Lib.Devices.Ascom;
+
+public class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
 {
-    public class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
+    private Dictionary<TrackingSpeed, DriveRate> _trackingSpeedMapping = [];
+
+    public AscomTelescopeDriver(AscomDevice device) : base(device)
     {
-        private Dictionary<TrackingSpeed, DriveRate> _trackingSpeedMapping = [];
+        DeviceConnectedEvent += AscomTelescopeDriver_DeviceConnectedEvent;
+    }
 
-        public AscomTelescopeDriver(AscomDevice device) : base(device)
+    private void AscomTelescopeDriver_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
+    {
+        if (e.Connected && _comObject is { } obj)
         {
-            DeviceConnectedEvent += AscomTelescopeDriver_DeviceConnectedEvent;
+            _trackingSpeedMapping = DriveRatesToTrackingSpeeds(EnumerateProperty<DriveRate>(obj.TrackingRates));
+
+            CanSetTracking = obj.CanSetTracking is bool canSetTracking && canSetTracking;
+            CanSetSideOfPier = obj.CanSetPierSide is bool canSetSideOfPier && canSetSideOfPier;
+            CanPark = obj.CanPark is bool canPark && canPark;
+            CanUnpark = obj.CanUnpark is bool canUnpark && canUnpark;
+            CanSetPark = obj.CanSetPark is bool canSetPark && canSetPark;
+            CanSlew = obj.CanSlew is bool canSlew && canSlew;
+            CanSlewAsync = obj.CanSlewAsync is bool canSlewAsync && canSlewAsync;
+            CanSync = obj.CanSync is bool canSync && canSync;
+            CanPulseGuide = obj.CanPulseGuide is bool canPulseGuide && canPulseGuide;
         }
+    }
 
-        private void AscomTelescopeDriver_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
+    internal static Dictionary<TrackingSpeed, DriveRate> DriveRatesToTrackingSpeeds(IEnumerable<DriveRate> driveRates)
+    {
+        var trackingSpeedMapping = new Dictionary<TrackingSpeed, DriveRate>();
+
+        foreach (var driveRate in driveRates)
         {
-            if (e.Connected && _comObject is { } obj)
-            {
-                _trackingSpeedMapping = DriveRatesToTrackingSpeeds(EnumerateProperty<DriveRate>(obj.TrackingRates));
+            var trackingSpeed = DriveRateToTrackingSpeed(driveRate);
 
-                CanSetTracking = obj.CanSetTracking is bool canSetTracking && canSetTracking;
-                CanSetSideOfPier = obj.CanSetPierSide is bool canSetSideOfPier && canSetSideOfPier;
-                CanPark = obj.CanPark is bool canPark && canPark;
-                CanUnpark = obj.CanUnpark is bool canUnpark && canUnpark;
-                CanSetPark = obj.CanSetPark is bool canSetPark && canSetPark;
-                CanSlew = obj.CanSlew is bool canSlew && canSlew;
-                CanSlewAsync = obj.CanSlewAsync is bool canSlewAsync && canSlewAsync;
-                CanSync = obj.CanSync is bool canSync && canSync;
+            if (trackingSpeed != TrackingSpeed.None)
+            {
+                trackingSpeedMapping[trackingSpeed] = driveRate;
             }
         }
 
-        internal static Dictionary<TrackingSpeed, DriveRate> DriveRatesToTrackingSpeeds(IEnumerable<DriveRate> driveRates)
+        return trackingSpeedMapping;
+    }
+
+    private static TrackingSpeed DriveRateToTrackingSpeed(DriveRate driveRate)
+    {
+        return driveRate switch
         {
-            var trackingSpeedMapping = new Dictionary<TrackingSpeed, DriveRate>();
+            DriveRate.Sidereal => TrackingSpeed.Sidereal,
+            DriveRate.Solar => TrackingSpeed.Solar,
+            DriveRate.Lunar => TrackingSpeed.Lunar,
+            _ => TrackingSpeed.None
+        };
+    }
 
-            foreach (var driveRate in driveRates)
+    public bool SlewRaDecAsync(double ra, double dec)
+    {
+        if (_comObject?.CanSlewAsync is bool canSlewAsync && canSlewAsync)
+        {
+            try
             {
-                var trackingSpeed = DriveRateToTrackingSpeed(driveRate);
-
-                if (trackingSpeed != TrackingSpeed.None)
-                {
-                    trackingSpeedMapping[trackingSpeed] = driveRate;
-                }
+                _comObject.SlewToCoordinatesAsync(ra, dec);
+                return true;
             }
-
-            return trackingSpeedMapping;
-        }
-
-        private static TrackingSpeed DriveRateToTrackingSpeed(DriveRate driveRate)
-        {
-            return driveRate switch
+            catch
             {
-                DriveRate.Sidereal => TrackingSpeed.Sidereal,
-                DriveRate.Solar => TrackingSpeed.Solar,
-                DriveRate.Lunar => TrackingSpeed.Lunar,
-                _ => TrackingSpeed.None
-            };
+                return false;
+            }
         }
 
-        public bool SlewRaDecAsync(double ra, double dec)
+        return false;
+    }
+
+    public IReadOnlyCollection<TrackingSpeed> TrackingSpeeds => _trackingSpeedMapping.Keys;
+
+    public TrackingSpeed TrackingSpeed
+    {
+        get => _comObject?.TrackingRate is DriveRate driveRate ? DriveRateToTrackingSpeed(driveRate) : TrackingSpeed.None;
+        set
         {
-            if (_comObject?.CanSlewAsync is bool canSlewAsync && canSlewAsync)
+            if (_trackingSpeedMapping.TryGetValue(value, out var driveRate) && _comObject is { } obj)
+            {
+                obj.TrackingRate = driveRate;
+            }
+        }
+    }
+
+    public bool AtHome => _comObject?.AtHome is bool atHome && atHome;
+
+    public bool AtPark => _comObject?.AtPark is bool atPark && atPark;
+
+    public bool IsSlewing => _comObject?.Slewing is bool slewing && slewing;
+
+    public double SiderealTime => _comObject?.SiderealTime is double siderealTime ? siderealTime : double.NaN;
+
+    public bool TimeIsSetByUs { get; private set; }
+
+    public DateTime? UTCDate
+    {
+        get
+        {
+            try
+            {
+                return Connected && _comObject?.UTCDate is DateTime utcDate ? utcDate : default;
+            }
+            catch
+            {
+                return default;
+            }
+        }
+
+        set
+        {
+            if (_comObject is { } obj && value is { } utcDate)
             {
                 try
                 {
-                    _comObject.SlewToCoordinatesAsync(ra, dec);
-                    return true;
+                    obj.UTCDate = utcDate;
+                    TimeIsSetByUs = true;
                 }
                 catch
                 {
-                    return false;
+                    TimeIsSetByUs = false;
                 }
             }
-
-            return false;
-        }
-
-        public IReadOnlyCollection<TrackingSpeed> TrackingSpeeds => _trackingSpeedMapping.Keys;
-
-        public TrackingSpeed TrackingSpeed
-        {
-            get => _comObject?.TrackingRate is DriveRate driveRate ? DriveRateToTrackingSpeed(driveRate) : TrackingSpeed.None;
-            set
+            else
             {
-                if (_trackingSpeedMapping.TryGetValue(value, out var driveRate) && _comObject is { } obj)
+                TimeIsSetByUs = false;
+            }
+        }
+    }
+
+    public bool Tracking
+    {
+        get => _comObject?.Tracking is bool tracking && tracking;
+        set
+        {
+            if (_comObject is { } obj)
+            {
+                if (obj.CanSetTracking is false)
                 {
-                    obj.TrackingRate = driveRate;
+                    throw new InvalidOperationException("Driver does not support setting tracking");
                 }
+                obj.Tracking = value;
             }
         }
+    }
 
-        public bool AtHome => _comObject?.AtHome is bool atHome && atHome;
+    public bool CanSetTracking { get; private set; }
 
-        public bool AtPark => _comObject?.AtPark is bool atPark && atPark;
+    public bool CanSetSideOfPier { get; private set; }
 
-        public bool IsSlewing => _comObject?.Slewing is bool slewing && slewing;
+    public bool CanPark { get; private set; }
 
-        public double SiderealTime => _comObject?.SiderealTime is double siderealTime ? siderealTime : double.NaN;
+    public bool CanUnpark { get; private set; }
 
-        public bool TimeSuccessfullySynchronised { get; private set; }
+    public bool CanSetPark { get; private set; }
 
-        public DateTime? UTCDate
+    public bool CanSlew { get; private set; }
+
+    public bool CanSlewAsync { get; private set; }
+
+    public bool CanSync { get; private set; }
+
+    public bool CanPulseGuide { get; private set; }
+
+    public PierSide SideOfPier
+    {
+        get => _comObject?.SideOfPier is int sop ? (PierSide)sop : PierSide.Unknown;
+        set
         {
-            get => _comObject?.UTCDate is DateTime utcDate ? utcDate : null;
-            set
+            if (CanSetSideOfPier && _comObject is { } obj)
             {
-                if (_comObject is { } obj)
-                {
-                    obj.UTCDate = value;
-                    TimeSuccessfullySynchronised = true;
-                }
+                obj.SideOfPier = value;
+            }
+            else
+            {
+                throw new InvalidOperationException("Cannot set side of pier to: " + value);
             }
         }
+    }
 
-        public bool Tracking
+    public PierSide DestinationSideOfPier(double ra, double dec)
+        => _comObject?.DestinationSideOfPier(ra, dec) is int dsop ? (PierSide)dsop : PierSide.Unknown;
+
+    public EquatorialCoordinateType EquatorialSystem => Connected && _comObject?.EquatorialSystem is int es ? (EquatorialCoordinateType)es : EquatorialCoordinateType.Other;
+
+    public double RightAscension => _comObject?.RightAscension is double ra ? ra : double.NaN;
+
+    public double Declination => _comObject?.Declination is double dec ? dec : double.NaN;
+
+    public double SiteElevation
+    {
+        get => _comObject?.SiteElevation is double siteElevation ? siteElevation : double.NaN;
+        set
         {
-            get => _comObject?.Tracking is bool tracking && tracking;
-            set
+            if (_comObject is { } obj)
             {
-                if (_comObject is { } obj)
-                {
-                    if (obj.CanSetTracking is false)
-                    {
-                        throw new InvalidOperationException("Driver does not support setting tracking");
-                    }
-                    obj.Tracking = value;
-                }
+                obj.SiteElevation = value;
             }
         }
+    }
 
-        public bool CanSetTracking { get; private set; }
-
-        public bool CanSetSideOfPier { get; private set; }
-
-        public bool CanPark { get; private set; }
-
-        public bool CanUnpark { get; private set; }
-
-        public bool CanSetPark { get; private set; }
-
-        public bool CanSlew { get; private set; }
-
-        public bool CanSlewAsync { get; private set; }
-
-        public bool CanSync { get; private set; }
-
-        public PierSide SideOfPier
+    public double SiteLatitude
+    {
+        get => _comObject?.SiteLatitude is double siteLatitude ? siteLatitude : double.NaN;
+        set
         {
-            get => _comObject?.SideOfPier is int sop ? (PierSide)sop : PierSide.Unknown;
-            set
+            if (_comObject is { } obj)
             {
-                if (CanSetSideOfPier && _comObject is { } obj)
-                {
-                    obj.SideOfPier = value;
-                }
-                else
-                {
-                    throw new InvalidOperationException("Cannot set side of pier to: " + value);
-                }
+                obj.SiteLatitude = value;
             }
         }
+    }
 
-        public PierSide DestinationSideOfPier(double ra, double dec)
-            => _comObject?.DestinationSideOfPier(ra, dec) is int dsop ? (PierSide)dsop : PierSide.Unknown;
-
-        public EquatorialCoordinateType EquatorialSystem => Connected && _comObject?.EquatorialSystem is int es ? (EquatorialCoordinateType)es : EquatorialCoordinateType.Other;
-
-        public double RightAscension => _comObject?.RightAscension is double ra ? ra : double.NaN;
-
-        public double Declination => _comObject?.Declination is double dec ? dec : double.NaN;
-
-        public double SiteElevation
+    public double SiteLongitude
+    {
+        get => _comObject?.SiteLongitude is double siteLongitude ? siteLongitude : double.NaN;
+        set
         {
-            get => _comObject?.SiteElevation is double siteElevation ? siteElevation : double.NaN;
-            set
+            if (_comObject is { } obj)
             {
-                if (_comObject is { } obj)
-                {
-                    obj.SiteElevation = value;
-                }
+                obj.SiteLongitude = value;
             }
         }
+    }
 
-        public double SiteLatitude
+    public bool Park()
+    {
+        if (Connected && CanPark && _comObject is { } obj)
         {
-            get => _comObject?.SiteLatitude is double siteLatitude ? siteLatitude : double.NaN;
-            set
-            {
-                if (_comObject is { } obj)
-                {
-                    obj.SiteLatitude = value;
-                }
-            }
+            obj.Park();
+            return true;
         }
 
-        public double SiteLongitude
+        return false;
+    }
+    public bool Unpark()
+    {
+        if (Connected && CanUnpark && _comObject is { } obj)
         {
-            get => _comObject?.SiteLongitude is double siteLongitude ? siteLongitude : double.NaN;
-            set
-            {
-                if (_comObject is { } obj)
-                {
-                    obj.SiteLongitude = value;
-                }
-            }
+            obj.Unpark();
+            return !AtPark;
         }
 
-        public bool Park()
+        return false;
+    }
+
+    public bool PulseGuide(GuideDirection direction, TimeSpan duration)
+    {
+        if (Connected && CanPulseGuide && _comObject is { } obj)
         {
-            if (Connected && CanPark && _comObject is { } obj)
-            {
-                obj.Park();
-                return true;
-            }
+            obj.PulseGuide(direction, (int)duration.TotalMilliseconds);
 
-            return false;
+            return true;
         }
-        public bool Unpark()
+
+        return false;
+    }
+
+    public bool SyncRaDec(double ra, double dec)
+    {
+        // prevent syncs on other side of meridian (most mounts do not support that).
+        if (Connected && CanSync && Tracking && !AtPark && DestinationSideOfPier(ra, dec) == SideOfPier && _comObject is { } obj)
         {
-            if (Connected && CanUnpark && _comObject is { } obj)
-            {
-                obj.Unpark();
-                return !AtPark;
-            }
-
-            return false;
+            obj.SyncToCoordinates(ra, dec);
+            return true;
         }
 
-        public bool SyncRaDec(double ra, double dec)
-        {
-            // prevent syncs on other side of meridian (most mounts do not support that).
-            if (Connected && CanSync && Tracking && !AtPark && DestinationSideOfPier(ra, dec) == SideOfPier && _comObject is { } obj)
-            {
-                obj.SyncToCoordinates(ra, dec);
-                return true;
-            }
-
-            return false;
-        }
+        return false;
     }
 }

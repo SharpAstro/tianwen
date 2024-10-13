@@ -3,6 +3,7 @@ using Astap.Lib.Astrometry.SOFA;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Threading;
 using static Astap.Lib.Astrometry.CoordinateUtils;
 
 namespace Astap.Lib.Devices;
@@ -41,6 +42,8 @@ public interface IMountDriver : IDeviceDriver
     bool Park();
 
     bool Unpark();
+
+    bool PulseGuide(GuideDirection direction, TimeSpan duration);
 
     bool IsSlewing { get; }
 
@@ -81,9 +84,9 @@ public interface IMountDriver : IDeviceDriver
     /// <param name="ra">RA in hours (0..24)</param>
     /// <param name="dec">Declination in degrees (-90..90)</param>
     /// <returns>true if mount is synced to the given coordinates.</returns>
-    bool SyncRaDecJ2000(double ra, double dec)
+    bool SyncRaDecJ2000(double ra, double dec, TimeProvider? timeProvider = null)
         => Connected && CanSync
-        && TryGetTransform(out var transform)
+        && TryGetTransform(timeProvider ?? TimeProvider.System, out var transform)
         && TryTransformJ2000ToMountNative(transform, ra, dec, updateTime: false, out var raMount, out var decMount, out _, out _)
         && SyncRaDec(raMount, decMount);
 
@@ -97,14 +100,21 @@ public interface IMountDriver : IDeviceDriver
     /// Returns true iff <see cref="UTCDate"/> was updated succcessfully when setting,
     /// typically via <code>UTCDate = DateTime.UTCNow</code>.
     /// </summary>
-    bool TimeSuccessfullySynchronised { get; }
+    bool TimeIsSetByUs { get; }
 
     bool TryGetUTCDate(out DateTime dateTime)
     {
-        if (Connected && UTCDate is DateTime utc)
+        try
         {
-            dateTime = utc;
-            return true;
+            if (Connected && UTCDate is DateTime utc)
+            {
+                dateTime = utc;
+                return true;
+            }
+        }
+        catch
+        {
+            // ignore
         }
 
         dateTime = DateTime.MinValue;
@@ -167,11 +177,11 @@ public interface IMountDriver : IDeviceDriver
     /// </summary>
     /// <param name="transform"></param>
     /// <returns></returns>
-    bool TryGetTransform([NotNullWhen(true)] out Transform? transform)
+    bool TryGetTransform(TimeProvider timeProvider, [NotNullWhen(true)] out Transform? transform)
     {
         if (Connected && TryGetUTCDate(out var utc))
         {
-            transform = new Transform
+            transform = new Transform(timeProvider)
             {
                 SiteElevation = SiteElevation,
                 SiteLatitude = SiteLatitude,
@@ -227,4 +237,91 @@ public interface IMountDriver : IDeviceDriver
 
         return !double.IsNaN(raMount) && !double.IsNaN(decMount) && !double.IsNaN(az) && !double.IsNaN(alt);
     }
+
+    public bool IsOnSamePierSide(double hourAngleAtSlewTime, IExternal external)
+    {
+        var pierSide = external.Catch(() => SideOfPier, PierSide.Unknown);
+        var currentHourAngle = external.Catch(() => HourAngle, double.NaN);
+        return pierSide == ExpectedSideOfPier
+            && !double.IsNaN(currentHourAngle)
+            && (pierSide != PierSide.Unknown || Math.Sign(hourAngleAtSlewTime) == Math.Sign(currentHourAngle));
+    }
+
+    public bool SlewToZenith(TimeSpan distMeridian, IExternal external, CancellationToken cancellationToken)
+    {
+        if (CanSlew && SlewHourAngleDecAsync((TimeSpan.FromHours(12) - distMeridian).TotalHours, SiteLatitude))
+        {
+            while (IsSlewing && !cancellationToken.IsCancellationRequested)
+            {
+                external.Sleep(TimeSpan.FromSeconds(1));
+            }
+
+            return !cancellationToken.IsCancellationRequested;
+        }
+
+        return false;
+    }
+
+    public SlewResult SlewToTarget(int minAboveHorizon, Target target, IExternal external, CancellationToken cancellationToken)
+    {
+        var az = double.NaN;
+        var alt = double.NaN;
+        var dsop = PierSide.Unknown;
+        if (!TryGetTransform(external.TimeProvider, out var transform)
+            || !TryTransformJ2000ToMountNative(transform, target.RA, target.Dec, updateTime: false, out var raMount, out var decMount, out az, out alt)
+            || double.IsNaN(alt)
+            || alt < minAboveHorizon
+            || (dsop = DestinationSideOfPier(raMount, decMount)) == PierSide.Unknown
+            || !SlewRaDecAsync(raMount, decMount)
+        )
+        {
+            external.LogError($"Failed to slew {Name} to target {target.Name} az={az:0.00} alt={alt:0.00} dsop={dsop}, skipping.");
+            return new SlewResult(SlewPostCondition.SkipToNext, double.NaN);
+        }
+
+        int failsafeCounter = 0;
+
+        while (IsSlewing && failsafeCounter++ < MAX_FAILSAFE && !cancellationToken.IsCancellationRequested)
+        {
+            external.Sleep(TimeSpan.FromSeconds(1));
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            external.LogWarning($"Cancellation requested, abort slewing to target {target.Name} and quit imaging loop.");
+            return new SlewResult(SlewPostCondition.Cancelled, double.NaN);
+        }
+
+        if (IsSlewing || failsafeCounter >= MAX_FAILSAFE)
+        {
+            throw new InvalidOperationException($"Failsafe activated when slewing {Name} to {target.Name}.");
+        }
+
+        var actualSop = SideOfPier;
+        if (actualSop != dsop)
+        {
+            external.LogError($"Slewing {Name} to {target.Name} completed but actual side of pier {actualSop} is different from the expected one {dsop}, skipping.");
+            return new SlewResult(SlewPostCondition.SkipToNext, double.NaN);
+        }
+
+        double hourAngleAtSlewTime;
+        if (double.IsNaN(hourAngleAtSlewTime = HourAngle))
+        {
+            external.LogError($"Could not obtain hour angle after slewing {Name} to {target.Name}, skipping.");
+            return new SlewResult(SlewPostCondition.SkipToNext, double.NaN);
+        }
+
+        external.LogInfo($"Finished slewing mount {Name} to target {target.Name}.");
+
+        return new SlewResult(SlewPostCondition.Success, hourAngleAtSlewTime);
+    }
 }
+public enum SlewPostCondition
+{
+    Success = 0,
+    SkipToNext = 1,
+    Abort = 2,
+    Cancelled = 3
+}
+
+public record struct SlewResult(SlewPostCondition PostCondition, double HourAngleAtSlewTime);

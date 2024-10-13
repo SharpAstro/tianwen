@@ -26,7 +26,7 @@ public class TransformTests
         bool actualAboveHorizon;
         IReadOnlyList<TimeSpan> actualRiseEvents;
         IReadOnlyList<TimeSpan> actualSetEvents;
-        var transform = new Transform()
+        var transform = new Transform(TimeProvider.System)
         {
             SiteLatitude = lat,
             SiteLongitude = @long,
@@ -66,7 +66,7 @@ public class TransformTests
     public void GivenJ2000CoordsAndLocationWhenTransformingThenAltAzAndTopocentricIsReturned(double ra2000, double dec2000, double julianUTC, double @long, double lat, double elevation, double expAlt, double expAz, double expRaTopo, double expDecTopo)
     {
         // given
-        var transform = new Transform
+        var transform = new Transform(TimeProvider.System)
         {
             SiteLatitude = lat,
             SiteLongitude = @long,

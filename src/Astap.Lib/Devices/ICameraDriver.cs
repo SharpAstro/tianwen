@@ -172,7 +172,7 @@ public interface ICameraDriver : IDeviceDriver
 
     double ExposureResolution { get; }
 
-    void StartExposure(TimeSpan duration, bool light);
+    void StartExposure(TimeProvider provider, TimeSpan duration, FrameType frameType = FrameType.Light);
 
     /// <summary>
     /// Should only be called when <see cref="CanStopExposure"/> is true.
@@ -199,13 +199,19 @@ public interface ICameraDriver : IDeviceDriver
     /// </summary>
     double ElectronsPerADU { get; }
 
-    DateTime LastExposureStartTime { get; }
+    DateTime? LastExposureStartTime { get; }
 
-    TimeSpan LastExposureDuration { get; }
+    TimeSpan? LastExposureDuration { get; }
+
+    FrameType LastExposureFrameType { get; }
 
     string? Telescope { get; set; }
 
     int FocalLength { get; set; }
+
+    double? Latitude { get; set; }
+
+    double? Longitude { get; set; }
 
     Filter Filter { get; set; }
 
@@ -226,8 +232,9 @@ public interface ICameraDriver : IDeviceDriver
             Offset,
             new ImageMeta(
                 Name,
-                LastExposureStartTime,
-                LastExposureDuration,
+                LastExposureStartTime ?? DateTime.UnixEpoch,
+                LastExposureDuration ?? TimeSpan.Zero,
+                LastExposureFrameType,
                 Telescope ?? "",
                 (float)PixelSizeX,
                 (float)PixelSizeY,
@@ -240,7 +247,9 @@ public interface ICameraDriver : IDeviceDriver
                 SensorType,
                 SensorType != SensorType.Monochrome ? BayerOffsetX : 0,
                 SensorType != SensorType.Monochrome ? BayerOffsetY : 0,
-                RowOrder.TopDown
+                RowOrder.TopDown,
+                (float)(Latitude ?? double.NaN),
+                (float)(Longitude ?? double.NaN)
             )
         )
         : null;
@@ -249,11 +258,144 @@ public interface ICameraDriver : IDeviceDriver
     /// Returns an immutable <see cref="Image"/> from source data in height x width format.
     /// </summary>
     /// <param name="imageData">2d image array</param>
-    /// <param name="maxVal">max scalar value of <paramref name="imageData"/></param>
     /// <param name="bitDepth">bit depth</param>
     /// <param name="blackLevel">black level or offset</param>
     /// <param name="imageMeta">image meta data</param>
     /// <returns>image from data, transposed and transformed to 32-bit floats</returns>
     public static Image DataToImage(in Float32HxWImageData imageData, BitDepth bitDepth, float blackLevel, in ImageMeta imageMeta)
         => new Image(imageData.Data, imageData.Data.GetLength(1), imageData.Data.GetLength(0), bitDepth, imageData.MaxValue, blackLevel, imageMeta);
+
+
+    /// <summary>
+    /// A coolable camera is a camera that is:
+    /// <list type="bullet">
+    ///   <item>connected</item>
+    ///   <item>can get/set cooler power state</item>
+    ///   <item>can get either heat-sink or CCD temperature</item>
+    /// </list>
+    /// Should not throw an exception.
+    /// </summary>
+    /// <param name="external"></param>
+    /// <returns>true if camera is a coolable camera</returns>
+    public bool IsCoolable(IExternal external) =>
+        external.Catch(() => Connected)
+        && CanSetCCDTemperature
+        && CanGetCoolerOn
+        && CanSetCoolerOn
+        && (CanGetHeatsinkTemperature || CanGetCCDTemperature);
+
+    public CameraCoolingState CoolToSetpoint(SetpointTemp desiredSetpointTemp, double thresPower, CoolDirection direction, CameraCoolingState coolingState, IExternal external)
+    {
+        if (IsCoolable(external))
+        {
+            var ccdTemp = CCDTemperature;
+            var hasCCDTemp = !double.IsNaN(ccdTemp) && ccdTemp is >= -40 and <= 50;
+            var heatSinkTemp = HeatSinkTemperature;
+            var hasHeatSinkTemp = !double.IsNaN(heatSinkTemp) && heatSinkTemp is >= -40 and <= 50;
+
+            var coolerPower = CoolerPowerSafe();
+            // TODO: Consider using external temp sensor if no heatsink temp is available
+            var heatSinkOrCCDTemp = hasHeatSinkTemp ? heatSinkTemp : ccdTemp;
+            var setpointTemp = desiredSetpointTemp.Kind switch
+            {
+                SetpointTempKind.Normal => desiredSetpointTemp.TempC,
+                SetpointTempKind.CCD when hasCCDTemp && hasHeatSinkTemp => Math.Min(ccdTemp, heatSinkOrCCDTemp),
+                SetpointTempKind.CCD when hasCCDTemp && !hasHeatSinkTemp => ccdTemp,
+                SetpointTempKind.Ambient when hasHeatSinkTemp => ccdTemp,
+                _ => double.NaN
+            };
+
+            if (double.IsNaN(setpointTemp))
+            {
+                return new CameraCoolingState(false, 0, false, true);
+            }
+
+            CameraCoolingState newState;
+            var needsFurtherRamping = direction.NeedsFurtherRamping(ccdTemp, setpointTemp);
+
+            if (needsFurtherRamping
+                && (double.IsNaN(coolerPower) || !IsCoolerOnSafe() || !direction.ThresholdPowerReached(coolerPower, thresPower))
+            )
+            {
+                var actualSetpointTemp = SetCCDTemperature = direction.SetpointTemp(ccdTemp, setpointTemp);
+
+                // turn cooler on if required
+                string coolerPrev;
+                if (IsCoolerOnSafe())
+                {
+                    coolerPrev = "";
+                }
+                else
+                {
+                    coolerPrev = "off -> ";
+                    CoolerOn = true;
+                }
+
+                newState = coolingState with
+                {
+                    IsRamping = true,
+                    ThresholdReachedConsecutiveCounts = 0,
+                    TargetSetpointReached = !needsFurtherRamping,
+                    IsCoolable = true
+                };
+
+                external.LogInfo($"Camera {Name} setpoint temperature {setpointTemp:0.00} °C not yet reached, " +
+                    $"cooling {direction.ToString().ToLowerInvariant()} stepwise, currently at {actualSetpointTemp:0.00} °C. " +
+                    $"Heatsink={heatSinkTemp:0.00} °C, CCD={ccdTemp:0.00} °C, Power={CoolerPowerSafe():0.00}%, Cooler={coolerPrev}{(IsCoolerOnSafe() ? "on" : "off")}.");
+            }
+            else if (coolingState.ThresholdReachedConsecutiveCounts < 3)
+            {
+                newState = coolingState with
+                {
+                    IsRamping = true,
+                    ThresholdReachedConsecutiveCounts = coolingState.ThresholdReachedConsecutiveCounts + 1,
+                    TargetSetpointReached = !needsFurtherRamping,
+                    IsCoolable = true
+                };
+
+                external.LogInfo($"Camera {Name} setpoint temperature {setpointTemp:0.00} °C or {thresPower:0.00} % power reached. "
+                    + $"Heatsink={heatSinkTemp:0.00} °C, CCD={ccdTemp:0.00} °C, Power={CoolerPowerSafe():0.00}%, Cooler={(IsCoolerOnSafe() ? "on" : "off")}.");
+            }
+            else
+            {
+                newState = coolingState with
+                {
+                    IsRamping = false,
+                    TargetSetpointReached = !needsFurtherRamping,
+                    IsCoolable = true
+                };
+
+                external.LogInfo($"Camera {Name} setpoint temperature {setpointTemp:0.00} °C or {thresPower:0.00} % power reached twice in a row. "
+                    + $"Heatsink={heatSinkTemp:0.00} °C, CCD={ccdTemp:0.00} °C, Power={CoolerPowerSafe():0.00}%, Cooler={(IsCoolerOnSafe() ? "on" : "off")}.");
+            }
+
+            return newState;
+        }
+        else
+        {
+            var setpointTemp = desiredSetpointTemp.Kind switch
+            {
+                SetpointTempKind.Ambient => "ambient",
+                SetpointTempKind.CCD => "current sensor",
+                _ => $"{desiredSetpointTemp.TempC:0.00} °C"
+            };
+            external.LogWarning($"Skipping camera {Name} setpoint temperature {setpointTemp} as we cannot get the current CCD temperature or cooling is not supported. Cooler is {(IsCoolerOnSafe() ? "on" : "off")}.");
+
+            return new CameraCoolingState(false, 0, false, false);
+        }
+
+        bool IsCoolerOnSafe() => external.Catch(() => CanGetCoolerOn && CoolerOn);
+
+        double CoolerPowerSafe() => external.Catch(() => CanGetCoolerPower ? CoolerPower : double.NaN, double.NaN);
+    }
 }
+public record struct CameraCoolingState(bool IsRamping, int ThresholdReachedConsecutiveCounts, bool? TargetSetpointReached, bool? IsCoolable);
+
+public enum SetpointTempKind : byte
+{
+    Normal,
+    CCD,
+    Ambient
+}
+
+public record struct SetpointTemp(sbyte TempC, SetpointTempKind Kind);

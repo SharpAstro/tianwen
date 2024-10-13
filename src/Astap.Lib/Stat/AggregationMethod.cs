@@ -1,8 +1,9 @@
 ﻿namespace Astap.Lib.Stat;
 
-public enum AggregationMethod
+public enum AggregationMethod : byte
 {
     Median,
-    Best,
+    Mininum,
+    Maximum,
     Average
 }

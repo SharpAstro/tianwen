@@ -4,6 +4,8 @@ namespace Astap.Lib.Devices;
 
 public interface IDeviceDriver : IDisposable
 {
+    internal const int MAX_FAILSAFE = 1_000;
+
     public string Name { get; }
 
     public string? Description { get; }

@@ -6,7 +6,7 @@ using Astap.Lib.Devices.Ascom;
 using Astap.Lib.Devices.Guider;
 using Astap.Lib.Sequencing;
 using Pastel;
-using ZWOptical.ASISDK;
+using ZWOptical.SDK;
 
 var cts = new CancellationTokenSource();
 Console.CancelKeyPress += Console_CancelKeyPress;
@@ -26,12 +26,15 @@ var expDuration = TimeSpan.FromSeconds(args.Length > 2 ? int.Parse(args[argIdx++
 var outputFolder = Directory.CreateDirectory(args.Length > 3 ? args[argIdx++] : Path.Combine(Directory.GetCurrentDirectory(), "Astap.Lib.TestCli", "Light")).FullName;
 var external = new ConsoleOutput(outputFolder);
 
-external.LogInfo($"SDK Version: {ASICameraDll2.ASIGetSDKVersion()}");
+
+external.LogInfo($"EAF SDK Version: {EAFFocuser1_6.EAFGetSDKVersion()}");
+external.LogInfo($"EFW SDK Version: {EFW1_7.EFWGetSDKVersion()}");
+external.LogInfo($"ASI SDK Version: {ASICamera2.ASIGetSDKVersion()}");
 
 var observations = new List<Observation>
 {
     // new Observation(new Target(19.5, -20, "Mercury", CatalogIndex.Mercury), DateTimeOffset.Now, TimeSpan.FromMinutes(100), false, TimeSpan.FromSeconds(20)),
-    new(new Target(5.5877777777777773, -5.389444444444444, "Orion Nebula", CatalogUtils.TryGetCleanedUpCatalogName("M42", out var catIdx) ? catIdx : null), DateTimeOffset.Now, TimeSpan.FromMinutes(100), false, TimeSpan.FromSeconds(20))
+    new Observation(new Target(5.5877777777777773, -5.389444444444444, "Orion Nebula", CatalogUtils.TryGetCleanedUpCatalogName("M42", out var catIdx) ? catIdx : null), DateTimeOffset.Now, TimeSpan.FromMinutes(100), false, TimeSpan.FromSeconds(20))
 };
 
 var guiderDevice = new GuiderDevice(DeviceType.PHD2, "localhost/1", "");
@@ -115,17 +118,18 @@ else
 using var setup = new Setup(
     mount,
     guider,
-    new Telescope("Sim Scope", 250, camera, cover, focuser, new(true, true),  null, null)
+    new GuiderFocuser(),
+    new Telescope("Sim Scope", 250, camera, cover, focuser, new FocusDirection(false, true), null, null)
 );
 
 var sessionConfiguration = new SessionConfiguration(
-    SetpointCCDTemperature: new(10, SetpointTempKind.Normal),
+    SetpointCCDTemperature: new SetpointTemp(10, SetpointTempKind.Normal),
     CooldownRampInterval: TimeSpan.FromSeconds(20),
     CoolupRampInterval: TimeSpan.FromSeconds(30),
     MinHeightAboveHorizon: 15,
     DitherPixel: 30d,
     SettlePixel: 0.3d,
-    DitherEveryNFrame: 3,
+    DitherEveryNthFrame: 3,
     SettleTime: TimeSpan.FromSeconds(30),
     GuidingTries: 3
 );
@@ -146,6 +150,8 @@ return 0;
 
 class ConsoleOutput(string outputFolder) : IExternal
 {
+    public TimeProvider TimeProvider => TimeProvider.System;
+
     public string OutputFolder { get; } = outputFolder;
 
     public void LogError(string error) => Console.Error.WriteLine($"[{DateTime.Now:o}] {error.Pastel(ConsoleColor.Red)}");

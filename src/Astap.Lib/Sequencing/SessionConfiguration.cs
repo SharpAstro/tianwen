@@ -1,15 +1,16 @@
-﻿using System;
+﻿using Astap.Lib.Devices;
+using System;
 
 namespace Astap.Lib.Sequencing;
 
-public record SessionConfiguration(
+public record struct SessionConfiguration(
     SetpointTemp SetpointCCDTemperature,
     TimeSpan CooldownRampInterval,
     TimeSpan CoolupRampInterval,
     byte MinHeightAboveHorizon,
     double DitherPixel,
     double SettlePixel,
-    int DitherEveryNFrame,
+    int DitherEveryNthFrame,
     TimeSpan SettleTime,
     int GuidingTries
 );

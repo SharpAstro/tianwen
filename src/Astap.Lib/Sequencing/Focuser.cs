@@ -2,14 +2,8 @@
 
 namespace Astap.Lib.Sequencing;
 
-public class Focuser : ControllableDeviceBase<IFocuserDriver>
+public record Focuser(DeviceBase Device) : ControllableDeviceBase<IFocuserDriver>(Device)
 {
-    public Focuser(DeviceBase device)
-        : base(device)
-    {
-
-    }
-
     protected override void Driver_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
     {
         // nothing

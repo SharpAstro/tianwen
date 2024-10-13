@@ -1,10 +1,11 @@
 ﻿using System;
 using System.Threading;
+using ZWOptical.SDK;
 
 namespace Astap.Lib.Devices.ZWO;
 
 public abstract class ZWODeviceDriverBase<TDeviceInfo>(ZWODevice device) : IDeviceDriver
-    where TDeviceInfo : struct
+    where TDeviceInfo : struct, IZWODeviceInfo
 {
     public delegate void ProcessDeviceInfoDelegate(in TDeviceInfo deviceInfo);
 
@@ -80,9 +81,47 @@ public abstract class ZWODeviceDriverBase<TDeviceInfo>(ZWODevice device) : IDevi
         }
     }
 
-    protected abstract bool ConnectDevice(out int connectionId, out TDeviceInfo deviceInfo);
+    protected virtual bool ConnectDevice(out int connectionId, out TDeviceInfo connectedDeviceInfo)
+    {
+        var deviceIterator = new DeviceIterator<TDeviceInfo>();
+        var searchId = _device.DeviceId;
 
-    protected abstract bool DisconnectDevice(int connectionId);
+        foreach (var (deviceId, deviceInfo) in deviceIterator)
+        {
+            bool hasOpened = false; 
+            try
+            {
+                hasOpened = deviceInfo.Open();
+                if (hasOpened && (IsSameSerialNumber(deviceInfo) || IsSameCustomId(deviceInfo) || IsSameName(deviceInfo)))
+                {
+                    connectionId = deviceId;
+                    connectedDeviceInfo = deviceInfo;
+
+                    return true;
+                }
+            }
+            finally
+            {
+                if (hasOpened)
+                {
+                    deviceInfo.Close();
+                }
+            }
+        }
+
+        connectionId = int.MinValue;
+        connectedDeviceInfo = default;
+
+        return false;
+
+        bool IsSameSerialNumber(in TDeviceInfo deviceInfo) => deviceInfo.SerialNumber?.ToString() is { Length: > 0 } serialNumber && serialNumber == searchId;
+
+        bool IsSameCustomId(in TDeviceInfo deviceInfo) => deviceInfo.IsUSB3Device && deviceInfo.CustomId is { Length: > 0 } customId && customId == searchId;
+
+        bool IsSameName(in TDeviceInfo deviceInfo) => deviceInfo.Name is { Length: > 0 } name && name == searchId;
+    }
+
+    protected virtual bool DisconnectDevice(int connectionId) => _deviceInfo.Close();
 
     protected virtual void Dispose(bool disposing)
     {

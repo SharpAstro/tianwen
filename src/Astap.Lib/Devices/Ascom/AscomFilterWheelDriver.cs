@@ -8,6 +8,8 @@ public class AscomFilterWheelDriver(AscomDevice device) : AscomDeviceDriverBase(
 {
     string[] Names => _comObject?.Names is string[] names ? names : [];
 
+    int[] FocusOffsets => _comObject?.FocusOffsets is int[] focusOffsets ? focusOffsets : [];
+
     public int Position
     {
         get => _comObject?.Position is int pos ? pos : -1;
@@ -24,5 +26,19 @@ public class AscomFilterWheelDriver(AscomDevice device) : AscomDeviceDriverBase(
         }
     }
 
-    public IReadOnlyList<Filter> Filters => Names.Select(p => new Filter(p)).ToList();
+    public IReadOnlyList<Filter> Filters
+    {
+        get
+        {
+            var names = Names;
+            var offsets = FocusOffsets;
+            var filters = new List<Filter>(names.Length);
+            for (var i = 0; i < names.Length; i++)
+            {
+                filters[i] = new Filter(names[i], i < offsets.Length ? offsets[i] : 0);
+            }
+
+            return filters;
+        }
+    }
 }

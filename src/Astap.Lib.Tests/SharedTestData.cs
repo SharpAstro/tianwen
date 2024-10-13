@@ -1,5 +1,4 @@
-﻿using Astap.Lib.Astrometry.Catalogs;
-using Astap.Lib.Imaging;
+﻿using Astap.Lib.Imaging;
 using CommunityToolkit.HighPerformance;
 using nom.tam.fits;
 using System;

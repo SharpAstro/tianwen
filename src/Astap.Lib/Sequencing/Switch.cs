@@ -2,15 +2,10 @@
 
 namespace Astap.Lib.Sequencing;
 
-public class Switch : ControllableDeviceBase<ISwitchDriver>
+public record Switch(DeviceBase Device) : ControllableDeviceBase<ISwitchDriver>(Device)
 {
-    public Switch(DeviceBase device) : base(device)
-    {
-        // calls base
-    }
-
     protected override void Driver_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
     {
-
+        // nothing
     }
 }

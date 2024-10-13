@@ -1,4 +1,7 @@
-﻿namespace Astap.Lib.Devices;
+﻿using System.Threading;
+using System;
+
+namespace Astap.Lib.Devices;
 
 public interface ICoverDriver : IDeviceDriver
 {
@@ -38,4 +41,36 @@ public interface ICoverDriver : IDeviceDriver
     /// Returns the state of the calibration device, if present, otherwise returns <see cref="CalibratorStatus.NotPresent"/>.
     /// </summary>
     CalibratorStatus CalibratorState { get; }
+
+
+
+    bool TurnOffCalibrator(IExternal external, CancellationToken cancellationToken)
+    {
+        var calState = CalibratorState;
+
+        if (calState is CalibratorStatus.NotPresent or CalibratorStatus.Off)
+        {
+            return true;
+        }
+        else if (calState is CalibratorStatus.Unknown or CalibratorStatus.Error)
+        {
+            return false;
+        }
+        else if (CalibratorOff())
+        {
+            var tries = 0;
+            while ((calState = CalibratorState) == CalibratorStatus.NotReady
+                && !cancellationToken.IsCancellationRequested
+                && ++tries < MAX_FAILSAFE)
+            {
+                external.Sleep(TimeSpan.FromSeconds(3));
+            }
+
+            return calState is CalibratorStatus.Off;
+        }
+        else
+        {
+            return false;
+        }
+    }
 }
