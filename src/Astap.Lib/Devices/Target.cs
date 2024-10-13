@@ -1,4 +1,4 @@
-﻿namespace Astap.Lib.Sequencing;
+﻿namespace Astap.Lib.Devices;
 
 using Astap.Lib.Astrometry.Catalogs;
 using System.Globalization;
