@@ -748,12 +748,13 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         return stats;
     }
 
-    public void StopCapture(uint timeoutSeconds, Action<TimeSpan>? sleep = null)
+    public void StopCapture(TimeSpan timeout, Action<TimeSpan>? sleep = null)
     {
         sleep ??= Thread.Sleep;
         using var stopCaptureResponse = Call("stop_capture");
 
-        for (uint i = 0; i < timeoutSeconds; i++)
+        var totalSeconds = (uint)timeout.TotalSeconds;
+        for (uint i = 0; i < totalSeconds; i++)
         {
             string? appstate;
             lock (m_sync)
@@ -782,10 +783,10 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
             return;
         // end workaround
 
-        throw new GuiderException($"guider did not stop capture after {timeoutSeconds} seconds!");
+        throw new GuiderException($"guider did not stop capture after {totalSeconds} seconds!");
     }
 
-    public bool Loop(uint timeoutSeconds, Action<TimeSpan>? sleep = null)
+    public bool Loop(TimeSpan timeout, Action<TimeSpan>? sleep = null)
     {
         sleep ??= Thread.Sleep;
 
@@ -806,7 +807,8 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
         sleep(exposureTime);
 
-        for (uint i = 0; i < timeoutSeconds; i++)
+        var totalSeconds = (uint)timeout.TotalSeconds;
+        for (uint i = 0; i < totalSeconds; i++)
         {
             lock (m_sync)
             {
@@ -872,7 +874,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         return profiles;
     }
 
-    static readonly uint DEFAULT_STOPCAPTURE_TIMEOUT = 10;
+    static readonly TimeSpan DEFAULT_STOPCAPTURE_TIMEOUT = TimeSpan.FromSeconds(10);
 
     public event EventHandler<GuidingErrorEventArgs>? GuidingErrorEvent;
 
