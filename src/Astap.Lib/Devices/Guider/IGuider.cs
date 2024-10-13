@@ -90,10 +90,10 @@ public interface IGuider : IDeviceDriver
     /// <summary>
     /// stop looping and guiding
     /// </summary>
-    /// <param name="timeoutSeconds">timeout after throwing exception</param>
+    /// <param name="timeout">timeout after throwing exception</param>
     /// <param name="sleep">custom sleep function if any.</param>
     /// <exception cref="GuiderException">Throws if not connected or command could not be issued (see timeout)</exception>
-    void StopCapture(uint timeoutSeconds = 10, Action<TimeSpan>? sleep = null);
+    void StopCapture(TimeSpan timeout, Action<TimeSpan>? sleep = null);
 
     /// <summary>
     /// start looping exposures
@@ -101,7 +101,7 @@ public interface IGuider : IDeviceDriver
     /// <param name="timeoutSeconds">timeout after looping attempt is cancelled</param>
     /// <returns>true if looping.</returns>
     /// <exception cref="GuiderException">Throws if not connected or command could not be issued</exception>
-    bool Loop(uint timeoutSeconds = 10, Action<TimeSpan>? sleep = null);
+    bool Loop(TimeSpan timeout, Action<TimeSpan>? sleep = null);
 
     /// <summary>
     /// get the guider pixel scale in arc-seconds per pixel
@@ -313,13 +313,14 @@ public interface IGuider : IDeviceDriver
     public Task<WCS?> PlateSolveGuiderImageAsync(
         double raJ2000,
         double decJ2000,
-        uint guiderLoopTimeoutSec,
+        TimeSpan timeout,
         IPlateSolver plateSolver,
         IExternal external,
+        double? searchRadius,
         CancellationToken cancellationToken
     )
     {
-        if (external.Catch(() => Loop(guiderLoopTimeoutSec, external.Sleep)))
+        if (external.Catch(() => Loop(timeout, external.Sleep)))
         {
             if (SaveImage(Path.Combine(external.OutputFolder, "Guider")) is { Length: > 0 } file)
             {
@@ -332,7 +333,7 @@ public interface IGuider : IDeviceDriver
                     file,
                     dim,
                     searchOrigin: new WCS(raJ2000, decJ2000),
-                    searchRadius: 7,
+                    searchRadius: searchRadius ?? 7,
                     cancellationToken: cancellationToken
                 );
             }
@@ -344,7 +345,7 @@ public interface IGuider : IDeviceDriver
         }
         else
         {
-            external.LogWarning($"Failed to start guider \"{(TryGetActiveProfileName(out var profile) ? profile : Name)}\" capture loop after {guiderLoopTimeoutSec}s");
+            external.LogWarning($"Failed to start guider \"{(TryGetActiveProfileName(out var profile) ? profile : Name)}\" capture loop after {(int) timeout.TotalSeconds} s");
             return Task.FromResult(null as WCS?);
         }
     }

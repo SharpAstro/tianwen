@@ -82,7 +82,6 @@ public record Session(
     internal bool InitialRoughFocus(CancellationToken cancellationToken)
     {
         var mount = Setup.Mount;
-        var guider = Setup.Guider;
         var distMeridian = TimeSpan.FromMinutes(15);
 
         mount.EnsureTracking();
@@ -95,31 +94,11 @@ public record Session(
             return false;
         }
 
-        var slewTime = mount.Driver.UTCDate;
-
-        const int guiderLoopTimeoutSec = 10;
-        var solveTask = guider.Driver.PlateSolveGuiderImageAsync(mount.Driver.RightAscension, mount.Driver.Declination, guiderLoopTimeoutSec, PlateSolver, External, cancellationToken);
-
-        var plateSolveWaitTime = TimeSpan.Zero;
-        while (!solveTask.IsCompleted && !cancellationToken.IsCancellationRequested && plateSolveWaitTime.TotalSeconds < guiderLoopTimeoutSec)
+        var slewTime = GetCurrentUtc();
+        
+        if (!GuiderFocusLoop(TimeSpan.FromMinutes(1), cancellationToken))
         {
-            var spinWait = TimeSpan.FromMilliseconds(100);
-            plateSolveWaitTime += spinWait;
-            External.Sleep(spinWait);
-        }
-
-        if (cancellationToken.IsCancellationRequested)
-        {
-            External.LogWarning($"Cancellation requested, abort setting up guider \"{guider.Driver}\" and quit imaging loop.");
             return false;
-        }
-        else if (solveTask.IsCompletedSuccessfully && solveTask.Result is var (solvedRa, solvedDec))
-        {
-            External.LogInfo($"Guider \"{guider.Driver}\" is in focus and camera image plate solve succeeded with ({solvedRa}, {solvedDec})");
-        }
-        else if (solveTask.IsFaulted || solveTask.IsCanceled)
-        {
-            External.LogWarning($"Failed to plate solve guider \"{guider.Driver}\" captured frame due to: {solveTask.Exception?.Message}");
         }
 
         var count = Setup.Telescopes.Count;
@@ -161,15 +140,14 @@ public record Session(
                     {
                         expTimesSec[i]++;
 
-                        var elapsed = mount.Driver.UTCDate - slewTime;
-                        if (elapsed + TimeSpan.FromSeconds(count * 5 + expTimesSec[i]) < distMeridian)
+                        if (GetCurrentUtc() - slewTime + TimeSpan.FromSeconds(count * 5 + expTimesSec[i]) < distMeridian)
                         {
                             camDriver.StartExposure(External.TimeProvider, TimeSpan.FromSeconds(expTimesSec[i]));
                         }
                     }
                     else
                     {
-                        if (camDriver.UsesGainValue)
+                        if (camDriver.UsesGainValue && origGain[i] is >= 0)
                         {
                             camDriver.Gain = origGain[i];
                         }
@@ -180,14 +158,13 @@ public record Session(
             }
 
             // slew back to start position
-            var elapsed = mount.Driver.UTCDate - slewTime;
-            if (elapsed > distMeridian)
+            if (GetCurrentUtc() - slewTime > distMeridian)
             {
                 if (!mount.Driver.SlewToZenith(distMeridian, External, cancellationToken))
                 {
                     return false;
                 }
-                slewTime = mount.Driver.UTCDate;
+                slewTime = GetCurrentUtc();
             }
 
             if (hasRoughFocus.All(v => v))
@@ -196,6 +173,45 @@ public record Session(
             }
 
             External.Sleep(TimeSpan.FromMilliseconds(100));
+        }
+
+        return false;
+    }
+
+    private bool GuiderFocusLoop(TimeSpan timeoutAfter, CancellationToken cancellationToken)
+    {
+        var mount = Setup.Mount;
+        var guider = Setup.Guider;
+
+        var plateSolveTimeout = timeoutAfter > TimeSpan.FromSeconds(5) ? timeoutAfter - TimeSpan.FromSeconds(3) : timeoutAfter;
+        var solveTask = guider.Driver.PlateSolveGuiderImageAsync(mount.Driver.RightAscension, mount.Driver.Declination, plateSolveTimeout, PlateSolver, External, 10, cancellationToken);
+
+        var plateSolveWaitTime = TimeSpan.Zero;
+        while (!solveTask.IsCompleted && !cancellationToken.IsCancellationRequested && plateSolveWaitTime < timeoutAfter)
+        {
+            var spinWait = TimeSpan.FromMilliseconds(100);
+            plateSolveWaitTime += spinWait;
+            External.Sleep(spinWait);
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            External.LogWarning($"Cancellation requested, abort setting up guider \"{guider.Driver}\" and quit imaging loop.");
+            return false;
+        }
+        
+        if (solveTask.IsCompletedSuccessfully && solveTask.Result is var (solvedRa, solvedDec))
+        {
+            External.LogInfo($"Guider \"{guider.Driver}\" is in focus and camera image plate solve succeeded with ({solvedRa}, {solvedDec})");
+            return true;
+        }
+        else if (solveTask.IsFaulted || solveTask.IsCanceled)
+        {
+            External.LogWarning($"Failed to plate solve guider \"{guider.Driver}\" captured frame due to: {solveTask.Exception?.Message}");
+        }
+        else
+        {
+            External.LogWarning($"Failed to plate solve guider \"{guider.Driver}\" without a specific reason (probably not enough stars detected)");
         }
 
         return false;
@@ -213,7 +229,7 @@ public record Session(
 
         var guiderStopped = Catch(() =>
         {
-            guider.Driver.StopCapture(sleep: External.Sleep);
+            guider.Driver.StopCapture(TimeSpan.FromSeconds(15), sleep: External.Sleep);
             return !guider.Driver.IsGuiding();
         });
 
@@ -289,7 +305,7 @@ public record Session(
             External.LogInfo("Shutdown complete, session ended. Please turn off mount and camera cooler power.");
         }
 
-        bool CloseCovers() => MoveTelescopeCoversToSate(CoverStatus.Closed, CancellationToken.None);
+        bool CloseCovers() => MoveTelescopeCoversToState(CoverStatus.Closed, CancellationToken.None);
 
         bool TurnOffCameraCooling() => CoolCamerasToAmbient(Configuration.CoolupRampInterval);
     }
@@ -338,7 +354,7 @@ public record Session(
             return false;
         }
 
-        if (MoveTelescopeCoversToSate(CoverStatus.Open, CancellationToken.None))
+        if (MoveTelescopeCoversToState(CoverStatus.Open, CancellationToken.None))
         {
             External.LogInfo("All covers opened, and calibrator turned off.");
         }
@@ -371,7 +387,7 @@ public record Session(
             mount.EnsureTracking();
 
             External.LogInfo($"Stop guiding to start slewing mount to target {observation}.");
-            guider.Driver.StopCapture();
+            guider.Driver.StopCapture(TimeSpan.FromSeconds(15));
 
             var (postCondition, hourAngleAtSlewTime) = mount.Driver.SlewToTarget(Configuration.MinHeightAboveHorizon, observation.Target, External, cancellationToken);
             if (postCondition is SlewPostCondition.SkipToNext)
@@ -442,7 +458,7 @@ public record Session(
             && mount.Driver.IsOnSamePierSide(hourAngleAtSlewTime, External)
         )
         {
-            var expStartTime = GetCurrentTime();
+            var expStartTime = GetCurrentUtc();
             for (var i = 0; i < scopes; i++)
             {
                 var camDriver = Setup.Telescopes[i].Camera.Driver;
@@ -574,16 +590,6 @@ public record Session(
             stopWatch.Stop();
             return elapsed;
         }
-
-        DateTime GetCurrentTime()
-        {
-            if (mount.Driver.TryGetUTCDate(out var dateTime))
-            {
-                return dateTime;
-            }
-
-            return External.TimeProvider.GetUtcNow().UtcDateTime;
-        }
     }
 
     /// <summary>
@@ -593,7 +599,7 @@ public record Session(
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns></returns>
     /// <exception cref="ArgumentException"></exception>
-    internal bool MoveTelescopeCoversToSate(CoverStatus finalCoverState, CancellationToken cancellationToken)
+    internal bool MoveTelescopeCoversToState(CoverStatus finalCoverState, CancellationToken cancellationToken)
     {
         var scopes = Setup.Telescopes.Count;
 
@@ -757,4 +763,14 @@ public record Session(
     }
 
     internal T Catch<T>(Func<T> func, T @default = default) where T : struct => External.Catch(func, @default);
+
+    internal DateTime GetCurrentUtc()
+    {
+        if (Setup.Mount.Driver.TryGetUTCDate(out var dateTime))
+        {
+            return dateTime;
+        }
+
+        return External.TimeProvider.GetUtcNow().UtcDateTime;
+    }
 }
