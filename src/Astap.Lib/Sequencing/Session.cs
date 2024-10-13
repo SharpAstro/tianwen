@@ -75,6 +75,7 @@ public record Session(
 
     /// <summary>
     /// Rough focus in this context is defined as: at least 15 stars can be detected by plate-solving when doing a short, high-gain exposure.
+    /// Assumes that zenith is visible, which should hopefully be the default for most setups.
     /// </summary>
     /// <param name="cancellationToken"></param>
     /// <returns>true iff all cameras have at least rough focus.</returns>
@@ -86,13 +87,15 @@ public record Session(
 
         mount.EnsureTracking();
 
-        External.LogInfo($"Slew mount {mount.Device.DisplayName} near zenith for focusing.");
+        External.LogInfo($"Slew mount {mount.Device.DisplayName} near zenith to verify that we have rough focus.");
 
         // coordinates not quite accurate but good enough for this purpose.
         if (!mount.Driver.SlewToZenith(distMeridian, External, cancellationToken))
         {
             return false;
         }
+
+        var slewTime = mount.Driver.UTCDate;
 
         const int guiderLoopTimeoutSec = 10;
         var solveTask = guider.Driver.PlateSolveGuiderImageAsync(mount.Driver.RightAscension, mount.Driver.Declination, guiderLoopTimeoutSec, PlateSolver, External, cancellationToken);
@@ -144,7 +147,6 @@ public record Session(
         var hasRoughFocus = new bool[count];
         Array.Fill(expTimesSec, 1);
 
-        var sw = Stopwatch.StartNew();
         while (!cancellationToken.IsCancellationRequested)
         {
             for (var i = 0; i < count; i++)
@@ -159,7 +161,8 @@ public record Session(
                     {
                         expTimesSec[i]++;
 
-                        if (sw.Elapsed + TimeSpan.FromSeconds(count * 5 + expTimesSec[i]) < distMeridian)
+                        var elapsed = mount.Driver.UTCDate - slewTime;
+                        if (elapsed + TimeSpan.FromSeconds(count * 5 + expTimesSec[i]) < distMeridian)
                         {
                             camDriver.StartExposure(External.TimeProvider, TimeSpan.FromSeconds(expTimesSec[i]));
                         }
@@ -176,14 +179,15 @@ public record Session(
                 }
             }
 
-            if (sw.Elapsed > distMeridian)
+            // slew back to start position
+            var elapsed = mount.Driver.UTCDate - slewTime;
+            if (elapsed > distMeridian)
             {
-                sw.Reset();
                 if (!mount.Driver.SlewToZenith(distMeridian, External, cancellationToken))
                 {
                     return false;
                 }
-                sw.Start();
+                slewTime = mount.Driver.UTCDate;
             }
 
             if (hasRoughFocus.All(v => v))

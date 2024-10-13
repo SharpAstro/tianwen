@@ -1,4 +1,5 @@
 ﻿using System;
+using Astap.Lib.Devices;
 
 namespace Astap.Lib.Sequencing;
 
