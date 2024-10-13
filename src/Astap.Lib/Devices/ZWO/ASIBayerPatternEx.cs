@@ -1,5 +1,5 @@
 ﻿using System;
-using static ZWOptical.ASISDK.ASICameraDll2;
+using static ZWOptical.SDK.ASICamera2;
 
 namespace Astap.Lib.Devices.ZWO;
 

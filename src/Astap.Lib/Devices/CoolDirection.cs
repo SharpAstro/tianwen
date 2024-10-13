@@ -10,7 +10,6 @@ public enum CoolDirection
 
 public static class CoolDirectionEx
 {
-
     public static double SetpointTemp(this CoolDirection direction, double ccdTemp, double setpointTemp) =>
         direction switch
         {
@@ -19,15 +18,13 @@ public static class CoolDirectionEx
             _ => setpointTemp
         };
 
-    public static bool NeedsFurtherRamping(this CoolDirection direction, double ccdTemp, double setpointTemp) =>
+    public static bool NeedsFurtherRamping(this CoolDirection direction, double ccdTemp, double setpointTemp, double tolerance = 0.1d) =>
         direction switch
         {
-            CoolDirection.Up => ccdTemp + 0.1 < setpointTemp,
-            CoolDirection.Down => ccdTemp - 0.1 > setpointTemp,
+            CoolDirection.Up => ccdTemp + tolerance < setpointTemp,
+            CoolDirection.Down => ccdTemp - tolerance > setpointTemp,
             _ => false
         };
-
-
 
     public static bool ThresholdPowerReached(this CoolDirection direction, double power, double thresholdPower) =>
         direction switch

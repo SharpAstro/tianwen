@@ -1,4 +1,5 @@
-﻿using System;
+﻿using CommunityToolkit.HighPerformance;
+using System;
 using System.Runtime.CompilerServices;
 
 namespace Astap.Lib.Stat;
@@ -30,21 +31,48 @@ public static class StatisticsHelper
     }
 
     /// <summary>
+    /// Calculates the average of <paramref name="values"/>, using <see cref="SumD(in Span{float})"/> for summation.
+    /// returns <see cref="float.NaN" /> if array is empty or null.
+    /// </summary>
+    /// <param name="values">values</param>
+    /// <returns>average value if any or NaN</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public static float Average(in Span<float> values) => (float)(SumD(values) / values.Length);
+
+    /// <summary>
+    /// Calculates the sum of <paramref name="values"/>, using <see langword="double"/> to preserve precision.
+    /// returns <see cref="float.NaN" /> if array is empty or null.
+    /// </summary>
+    /// <param name="values">values</param>
+    /// <returns>average value if any or NaN</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public static double SumD(in Span<float> values)
+    {
+        if (values.Length == 0)
+        {
+            return float.NaN;
+        }
+        else if (values.Length == 1)
+        {
+            return values[0];
+        }
+
+        var sum = 0d;
+        for (var i = 0; i < values.Length; i++)
+        {
+            sum += values[i];
+        }
+
+        return sum;
+    }
+
+    /// <summary>
     /// Calculates the GCD of the concatenated list first + rest (rest is copied).
     /// </summary>
     /// <param name="first">first item</param>
     /// <param name="rest">rest items</param>
     /// <returns>GCD of all values</returns>
-    public static uint GCD(int first, params int[] rest)
-    {
-        var len = rest.Length + 1;
-        Span<int> values = len < 128 ? stackalloc int[len] : new int[len];
-
-        values[0] = first;
-        rest.AsSpan().CopyTo(values[1..]);
-
-        return GCDNoCopy(values);
-    }
+    public static uint GCD(int first, params int[] rest) => GCDNoCopy([first, .. rest]);
 
     /// <summary>
     /// Makes a copy of values and calculates the GCD.
@@ -96,16 +124,7 @@ public static class StatisticsHelper
         }
     }
 
-    public static ulong LCM(int first, params int[] rest)
-    {
-        var len = rest.Length + 1;
-        Span<int> values = len < 128 ? stackalloc int[len] : new int[len];
-
-        values[0] = first;
-        rest.AsSpan().CopyTo(values[1..]);
-
-        return LCM(values);
-    }
+    public static ulong LCM(int first, params int[] rest) => LCM([first, .. rest]);
 
     public static ulong LCM(in Span<int> values) => LCM(GCD(values), values);
 

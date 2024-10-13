@@ -3,31 +3,20 @@ using System.Collections.Generic;
 
 namespace Astap.Lib.Sequencing;
 
-public class Setup : IDisposable
+public record Setup(
+    Mount Mount,
+    Guider Guider,
+    GuiderFocuser GuiderFocuser,
+    IReadOnlyList<Telescope> Telescopes
+) : IDisposable
 {
-    private readonly List<Telescope> _telescopes;
     private bool disposedValue;
 
-    public Setup(
-        Mount mount,
-        Guider guider,
-        Telescope telescope,
-        params Telescope[] telescopes)
+    public Setup(Mount mount, Guider guider, GuiderFocuser guiderFocuser, Telescope primary, params Telescope[] secondaries)
+        : this(mount, guider, guiderFocuser, [primary, .. secondaries])
     {
-        Mount = mount;
-        Guider = guider;
-        _telescopes = new(telescopes.Length + 1)
-        {
-            telescope
-        };
-        _telescopes.AddRange(telescopes);
+        // calls primary constructor
     }
-
-    public Mount Mount { get; }
-
-    public Guider Guider { get; }
-
-    public IReadOnlyList<Telescope> Telescopes { get { return _telescopes; } }
 
     protected virtual void Dispose(bool disposing)
     {
@@ -37,24 +26,16 @@ public class Setup : IDisposable
             {
                 Mount.Dispose();
                 Guider.Dispose();
-                foreach (var telescope in _telescopes)
+                GuiderFocuser.Focuser?.Dispose();
+                foreach (var telescope in Telescopes)
                 {
                     telescope.Dispose();
                 }
             }
 
-            // TODO: free unmanaged resources (unmanaged objects) and override finalizer
-            // TODO: set large fields to null
             disposedValue = true;
         }
     }
-
-    // // TODO: override finalizer only if 'Dispose(bool disposing)' has code to free unmanaged resources
-    // ~Setup()
-    // {
-    //     // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
-    //     Dispose(disposing: false);
-    // }
 
     public void Dispose()
     {

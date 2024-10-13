@@ -13,13 +13,39 @@ public class AscomFocuserDriver : AscomDeviceDriverBase, IFocuserDriver
         {
             Absolute = obj.Absolute is bool absolute && absolute;
             TempCompAvailable = obj.TempCompAvailable is bool tempCompAvailable && tempCompAvailable;
-            MaxIncrement = obj.MaxIncrement is int maxIncrement ? maxIncrement : -1;
-            MaxStep = obj.MaxStep is int maxStep ? maxStep : -1;
-            StepSize = obj.StepSize is double stepSize ? stepSize : double.NaN;
+
+            try
+            {
+                MaxIncrement = obj.MaxIncrement is int maxIncrement ? maxIncrement : int.MinValue;
+            }
+            catch
+            {
+                MaxIncrement = int.MinValue;
+            }
+            
+            try
+            {
+                MaxStep = obj.MaxStep is int maxStep ? maxStep : int.MinValue;
+            }
+            catch
+            {
+                MaxStep = int.MinValue;
+            }
+
+            try
+            {
+                StepSize = obj.StepSize is double stepSize && !double.IsNaN(stepSize) ? stepSize : double.NaN;
+                CanGetStepSize = !double.IsNaN(StepSize);
+            }
+            catch
+            {
+                StepSize = double.NaN;
+                CanGetStepSize = false;
+            }
         }
     }
 
-    public int Position => Connected && Absolute && _comObject?.Position is int pos ? pos : -1;
+    public int Position => Connected && Absolute && _comObject?.Position is int pos ? pos : int.MinValue;
 
     public bool Absolute { get; private set; }
 
@@ -30,6 +56,8 @@ public class AscomFocuserDriver : AscomDeviceDriverBase, IFocuserDriver
     public int MaxStep { get; private set; }
 
     public double StepSize { get; private set; }
+
+    public bool CanGetStepSize { get; private set; }
 
     public bool TempComp
     {
@@ -51,7 +79,7 @@ public class AscomFocuserDriver : AscomDeviceDriverBase, IFocuserDriver
     public bool Move(int position)
     {
         if (Connected
-            && (Absolute ? position is > 0 && position <= MaxStep : position >= -MaxIncrement && position <= MaxIncrement)
+            && (Absolute ? position is >= 0 && position <= MaxStep : position >= -MaxIncrement && position <= MaxIncrement)
             && _comObject is { } obj
         )
         {

@@ -1,11 +1,10 @@
 ﻿using Astap.Lib.Devices;
+using System;
 
 namespace Astap.Lib.Sequencing;
 
-public class Camera : ControllableDeviceBase<ICameraDriver>
+public record Camera(DeviceBase Device) : ControllableDeviceBase<ICameraDriver>(Device)
 {
-    public Camera(DeviceBase device) : base(device) { }
-
     protected override void Driver_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
     {
         // nothing

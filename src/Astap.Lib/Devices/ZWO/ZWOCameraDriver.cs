@@ -2,18 +2,19 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
-using static ZWOptical.ASISDK.ASICameraDll2;
-using static ZWOptical.ASISDK.ASICameraDll2.ASI_BOOL;
-using static ZWOptical.ASISDK.ASICameraDll2.ASI_ERROR_CODE;
+using static ZWOptical.SDK.ASICamera2;
+using static ZWOptical.SDK.ASICamera2.ASI_BOOL;
+using static ZWOptical.SDK.ASICamera2.ASI_ERROR_CODE;
 
 namespace Astap.Lib.Devices.ZWO;
 
 public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriver
 {
+    record class NativeBuffer(IntPtr Pointer, int Size);
+
     const int IMAGE_STATE_NO_IMG = 0;
     const int IMAGE_STATE_READY_TO_DOWNLOAD = 1;
     const int IMAGE_STATE_DOWNLOADED = 2;
@@ -30,19 +31,15 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
     /// <summary>
     /// Holds a native (COM) buffer that can be filled by the native ASI SDK.
     /// </summary>
-    private IntPtr _nativeBuffer;
-
-    /// <summary>
-    /// Size of the <see cref="_nativeBuffer"/>. Non-positive size means no buffer allocated.
-    /// </summary>
-    private int _nativeBufferSize = -1;
+    private NativeBuffer? _nativeBuffer;
 
     // Initialise variables to hold values required for functionality tested by Conform
 
-    private DateTime _exposureStart = DateTime.MinValue;
-    private TimeSpan _camLastExposureDuration;
+    private DateTime? _lastExposureStartTime;
+    private TimeSpan? _lastExposureDuration;
     private int _camImageReady = 0;
     private Float32HxWImageData? _camImageArray;
+    private FrameType _frameType;
 
     public ZWOCameraDriver(ZWODevice device) : base(device)
     {
@@ -176,95 +173,11 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
 
     protected override bool ConnectDevice(out int connectionId, out ASI_CAMERA_INFO camInfo)
     {
-        var deviceId = _device.DeviceId;
-        if (
-            (TryFindCameraBySerial(deviceId, out var camId, out camInfo)
-            || TryFindCameraByID(deviceId, out camId, out camInfo)
-            || TryFindCameraByName(deviceId, out camId, out camInfo)
-            )
-            && ASIInitCamera(camId.Value) is ASI_SUCCESS
-        )
+        if (base.ConnectDevice(out connectionId, out camInfo))
         {
-            connectionId = camId.Value;
-            return true;
+            return ASIInitCamera(camInfo.ID) is ASI_SUCCESS;
         }
 
-        connectionId = int.MinValue;
-        return false;
-    }
-
-    protected override bool DisconnectDevice(int connectionId) => ASICloseCamera(connectionId) is ASI_ERROR_CODE.ASI_SUCCESS;
-
-    static bool TryFindCameraBySerial(string deviceId, [NotNullWhen(true)] out int? camId, out ASI_CAMERA_INFO camInfo)
-    {
-        var count = ASIGetNumOfConnectedCameras();
-        for (var i = 0; i < count; i++)
-        {
-            if (ASIGetCameraProperty(out camInfo, i) is ASI_SUCCESS
-                && ASIOpenCamera(camInfo.CameraID) is ASI_SUCCESS
-            )
-            {
-                if (ASIGetSerialNumber(camInfo.CameraID, out var camSerial) is ASI_SUCCESS && camSerial.ID == deviceId)
-                {
-                    camId = camInfo.CameraID;
-                    return true;
-                }
-                else
-                {
-                    _ = ASICloseCamera(camInfo.CameraID);
-                }
-            }
-        }
-
-        camInfo = default;
-        camId = null;
-        return false;
-    }
-
-    static bool TryFindCameraByID(string deviceId, [NotNullWhen(true)] out int? camId, out ASI_CAMERA_INFO camInfo)
-    {
-        var count = ASIGetNumOfConnectedCameras();
-        for (var i = 0; i < count; i++)
-        {
-            if (ASIGetCameraProperty(out camInfo, i) is ASI_SUCCESS
-                && camInfo.IsUSB3Camera is ASI_TRUE
-                && ASIOpenCamera(camInfo.CameraID) is ASI_SUCCESS
-            )
-            {
-                if (ASIGetID(camInfo.CameraID, out var camSerial) is ASI_SUCCESS && camSerial.ID == deviceId)
-                {
-                    camId = camInfo.CameraID;
-                    return true;
-                }
-                else
-                {
-                    _ = ASICloseCamera(camInfo.CameraID);
-                }
-            }
-        }
-
-        camInfo = default;
-        camId = null;
-        return false;
-    }
-
-    static bool TryFindCameraByName(string name, [NotNullWhen(true)] out int? camId, out ASI_CAMERA_INFO camInfo)
-    {
-        var count = ASIGetNumOfConnectedCameras();
-        for (var i = 0; i < count; i++)
-        {
-            if (ASIGetCameraProperty(out camInfo, i) is ASI_SUCCESS
-                && camInfo.Name == name
-                && ASIOpenCamera(camInfo.CameraID) is ASI_SUCCESS
-            )
-            {
-                camId = camInfo.CameraID;
-                return true;
-            }
-        }
-
-        camInfo = default;
-        camId = null;
         return false;
     }
 
@@ -401,21 +314,20 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
     {
         var w = exposureSettings.Width;
         var h = exposureSettings.Height;
-        var nativeBufferAddr = Interlocked.CompareExchange(ref _nativeBuffer, IntPtr.Zero, IntPtr.Zero);
-        var nativeBufferSize = Interlocked.CompareExchange(ref _nativeBufferSize, -1, -1);
+        var nativeBuffer = Interlocked.CompareExchange(ref _nativeBuffer, null, null);
 
-        if (nativeBufferAddr == IntPtr.Zero)
+        if (nativeBuffer is null || nativeBuffer.Pointer == IntPtr.Zero)
         {
             throw new InvalidOperationException("No native image array present!");
         }
 
         var expBufferSize = CalculateBufferSize(exposureSettings);
-        if (nativeBufferSize < expBufferSize)
+        if (nativeBuffer.Size < expBufferSize)
         {
-            throw new InvalidOperationException($"Native buffer size {nativeBufferSize} smaller than required {expBufferSize}");
+            throw new InvalidOperationException($"Native buffer size {nativeBuffer.Size} smaller than required {expBufferSize}");
         }
 
-        var dataAfterExpErrorCode = ASIGetDataAfterExp(ConnectionId, nativeBufferAddr, expBufferSize);
+        var dataAfterExpErrorCode = ASIGetDataAfterExp(ConnectionId, nativeBuffer.Pointer, expBufferSize);
         if (dataAfterExpErrorCode is not ASI_SUCCESS)
         {
             throw new InvalidOperationException($"Getting data after exposure returned {dataAfterExpErrorCode} w={w} h={h} bit={exposureSettings.BitDepth}");
@@ -423,14 +335,14 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
 
         var cachedArray = Interlocked.Exchange(ref _camImageArray, null);
         var (data, maxValue) = cachedArray?.Data is null || cachedArray.Data.GetLength(0) != h || cachedArray.Data.GetLength(1) != w
-            ? new(new float[h, w], 0f)
+            ? new Float32HxWImageData(new float[h, w], 0f)
             : cachedArray;
 
         switch (exposureSettings.BitDepth.BitSize())
         {
             case 8:
                 var bytes = new byte[w * h];
-                Marshal.Copy(nativeBufferAddr, bytes, 0, bytes.Length);
+                Marshal.Copy(nativeBuffer.Pointer, bytes, 0, bytes.Length);
                 for (var i = 0; i < h; i++)
                 {
                     for (var j = 0; j < w; j++)
@@ -442,7 +354,7 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
 
             case 16:
                 var shorts = new short[w * h];
-                Marshal.Copy(nativeBufferAddr, shorts, 0, shorts.Length);
+                Marshal.Copy(nativeBuffer.Pointer, shorts, 0, shorts.Length);
                 for (var i = 0; i < h; i++)
                 {
                     for (var j = 0; j < w; j++)
@@ -605,9 +517,11 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
 
     public IEnumerable<string> Offsets => throw new InvalidOperationException($"{nameof(Offsets)} is not supported");
 
-    public DateTime LastExposureStartTime => _exposureStart;
+    public DateTime? LastExposureStartTime => _lastExposureStartTime;
 
-    public TimeSpan LastExposureDuration => _camLastExposureDuration;
+    public TimeSpan? LastExposureDuration => _lastExposureDuration;
+
+    public FrameType LastExposureFrameType => _frameType;
 
     public SensorType SensorType { get; private set; }
 
@@ -670,7 +584,7 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
 
     public void AbortExposure() => StopExposure();
 
-    public void StartExposure(TimeSpan duration, bool light)
+    public void StartExposure(TimeProvider timeProvider, TimeSpan duration, FrameType frameType)
     {
         var settingsSnapshot = _cameraSettings;
 
@@ -707,31 +621,38 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
 
                 var setROIErrorCode = ASISetROIFormat(ConnectionId, settingsSnapshot.Width, settingsSnapshot.Height, BinX, settingsSnapshot.BitDepth.ToASIImageType());
                 var setStartXYErrorCode = ASISetStartPos(ConnectionId, settingsSnapshot.StartX, settingsSnapshot.StartY);
-                if (setROIErrorCode is not ASI_SUCCESS || setStartXYErrorCode is not ASI_SUCCESS)
+                if (setROIErrorCode is not ASI_SUCCESS)
                 {
                     _camState = CameraState.Error;
-                    return;
+                    throw new ZWODriverException(setROIErrorCode, $"Failed to set ROI format: {settingsSnapshot}");
+                }
+                else if (setStartXYErrorCode is not ASI_SUCCESS)
+                {
+                    _camState = CameraState.Error;
+                    throw new ZWODriverException(setStartXYErrorCode, $"Failed to set X-Y offset of ROI to x={settingsSnapshot.StartX}, y={settingsSnapshot.StartY}");
                 }
             }
+        }
+        else if (getROIErrorCode is not ASI_SUCCESS)
+        {
+            _camState = CameraState.Error;
+
+            throw new ZWODriverException(getROIErrorCode, "Failed to retrieve current ROI format");
         }
         else
         {
             _camState = CameraState.Error;
-            return;
+
+            throw new ZWODriverException(getStartXYErrorCode,"Failed to retrieve X-Y offset of ROI");
         }
 
         // reallocate buffer if required
         int bufferSize = CalculateBufferSize(_cameraSettings);
-        var existingBufferAddr = Interlocked.CompareExchange(ref _nativeBuffer, IntPtr.Zero, IntPtr.Zero);
-        var existingBufferSize = Interlocked.CompareExchange(ref _nativeBufferSize, -1, -1);
+        var existingBuffer = Interlocked.CompareExchange(ref _nativeBuffer, null, null);
 
-        if (bitDepthChanged || (existingBufferAddr == IntPtr.Zero) || (existingBufferSize != bufferSize))
+        if (bitDepthChanged || existingBuffer is null || existingBuffer.Pointer == IntPtr.Zero || existingBuffer.Size < bufferSize)
         {
-            // return if reallocation fails
-            if (!AllocateNativeBuffer(bufferSize))
-            {
-                return;
-            }
+            AllocateNativeBuffer(bufferSize);
         }
 
         // check if we need to update exposure time
@@ -745,23 +666,23 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
                 if (setExposureErrorCode is not ASI_SUCCESS)
                 {
                     _camState = CameraState.Error;
-                    return;
+                    throw new ZWODriverException(setExposureErrorCode, $"Failed to set exposure to {durationInNanoSecs} ns");
                 }
             }
         }
         else
         {
             _camState = CameraState.Error;
-            return;
+            throw new ZWODriverException(getExposureErrorCode, "Failed to retrieve current exposure settings");
         }
 
-        Func<int, ASI_ERROR_CODE> exposureFunc = light ? ASIStartLightExposure : ASIStartDarkExposure;
-        var startExposureErrorCode = exposureFunc(ConnectionId);
+        var startExposureErrorCode = ASIStartExposure(ConnectionId, frameType.NeedsOpenShutter() ? ASI_FALSE : ASI_TRUE);
         if (startExposureErrorCode is ASI_SUCCESS)
         {
             _camState = CameraState.Exposing;
-            _camLastExposureDuration = duration;
-            _exposureStart = DateTime.UtcNow;
+            _lastExposureDuration = duration;
+            _lastExposureStartTime = timeProvider.GetUtcNow().UtcDateTime;
+            _frameType = frameType;
             // ensure that on image readout we use the settings that the image was exposed with
             _exposureSettings = settingsSnapshot;
             Interlocked.Exchange(ref _camImageReady, IMAGE_STATE_NO_IMG);
@@ -769,47 +690,39 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
         else
         {
             _camState = CameraState.Error;
-            return;
+            throw new ZWODriverException(startExposureErrorCode, $"Failed to start exposure frame type={frameType} duration={durationInNanoSecs} ns");
         }
     }
 
     /// <summary>
     /// Allocates memory from the COM task scheduler.
-    /// where the latter in turn is based on <seealso cref="ReadoutMode"/>.
     /// </summary>
     /// <param name="bufferSize">new buffer size in bytes</param>
     /// <returns>True if a buffer is allocated.</returns>
-    private bool AllocateNativeBuffer(int bufferSize)
+    private void AllocateNativeBuffer(int bufferSize)
     {
-        // deallocate existing buffer (if any)
-        DisposeNativeBuffer();
-
         if (bufferSize <= 0)
         {
-            // escape if we are not properly initialised
-            return false;
+            throw new ZWODriverException(ASI_ERROR_BUFFER_TOO_SMALL, $"Buffer size {bufferSize} is not large enough");
         }
-        var newBuffer = Marshal.AllocCoTaskMem(bufferSize);
 
-        // deallocate this buffer if it was not the one that was inserted
-        if (Interlocked.CompareExchange(ref _nativeBuffer, newBuffer, IntPtr.Zero) != IntPtr.Zero)
+        var newBuffer = new NativeBuffer(Marshal.AllocCoTaskMem(bufferSize), bufferSize);
+
+        var existingBuffer = Interlocked.Exchange(ref _nativeBuffer, newBuffer);
+
+        if (existingBuffer is not null && existingBuffer.Pointer != IntPtr.Zero && existingBuffer.Pointer != newBuffer.Pointer)
         {
-            Marshal.FreeCoTaskMem(newBuffer);
-            return false;
+            Marshal.FreeCoTaskMem(existingBuffer.Pointer);
         }
-
-        Interlocked.Exchange(ref _nativeBufferSize, bufferSize);
-
-        return true;
     }
+
     private void DisposeNativeBuffer()
     {
-        var buffer = Interlocked.CompareExchange(ref _nativeBuffer, IntPtr.Zero, _nativeBuffer);
-        if (buffer != IntPtr.Zero)
-        {
-            Marshal.FreeCoTaskMem(buffer);
+        var existingBuffer = Interlocked.Exchange(ref _nativeBuffer, null);
 
-            Interlocked.Exchange(ref _nativeBufferSize, -1);
+        if (existingBuffer is not null && existingBuffer.Pointer != IntPtr.Zero)
+        {
+            Marshal.FreeCoTaskMem(existingBuffer.Pointer);
         }
     }
 
@@ -839,5 +752,9 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
     public int FocusPos { get; set; } = -1;
 
     public Filter Filter { get; set; } = Filter.Unknown;
+ 
+    public double? Latitude { get; set; }
+
+    public double? Longitude { get; set; }
     #endregion
 }

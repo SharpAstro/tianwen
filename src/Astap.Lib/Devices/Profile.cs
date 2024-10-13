@@ -16,8 +16,7 @@ using ValueDictRO = IReadOnlyDictionary<string, Uri>;
 /// Build-in profile device, see <see cref="DeviceType.Profile"/>.
 /// </summary>
 /// <param name="DeviceUri">profile descriptor</param>
-public record class Profile(Uri DeviceUri)
-    : DeviceBase(DeviceUri)
+public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
 {
     public Profile(Guid profileId, string name, ValueDictRO values) : this(CreateProfileUri(profileId, name, values))
     {
@@ -77,7 +76,9 @@ public record class Profile(Uri DeviceUri)
 
     public Guid ProfileId => Guid.Parse(DeviceId);
 
-    public Task SaveAsync(DirectoryInfo profileFolder)
+    private static readonly JsonSerializerOptions SerializerOptions = new JsonSerializerOptions { WriteIndented = true };
+
+    public async Task SaveAsync(DirectoryInfo profileFolder)
     {
         var (_, file) = ListExistingProfiles(profileFolder).FirstOrDefault(x => x.profileId == ProfileId);
 
@@ -93,10 +94,10 @@ public record class Profile(Uri DeviceUri)
         }
 
         using var stream = file.Open(mode, FileAccess.Write, FileShare.None);
-        return JsonSerializer.SerializeAsync(stream, new ProfileDto(ProfileId, DisplayName, Values), new JsonSerializerOptions { WriteIndented = true });
+        await JsonSerializer.SerializeAsync(stream, new ProfileDto(ProfileId, DisplayName, Values), SerializerOptions);
     }
 
-    protected override object? NewImplementationFromDevice() => null;
+    protected override IDeviceDriver? NewImplementationFromDevice() => null;
 
     record ProfileDto(Guid ProfileId, string Name, ValueDictRO Values);
 }

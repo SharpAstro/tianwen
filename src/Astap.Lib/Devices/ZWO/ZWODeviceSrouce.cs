@@ -1,29 +1,37 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using static ZWOptical.ASISDK.ASICameraDll2;
-using static ZWOptical.ASISDK.ASICameraDll2.ASI_BOOL;
-using static ZWOptical.ASISDK.ASICameraDll2.ASI_ERROR_CODE;
+using ZWOptical.SDK;
+using static ZWOptical.SDK.ASICamera2;
+using static ZWOptical.SDK.EAFFocuser1_6;
+using static ZWOptical.SDK.EFW1_7;
 
 namespace Astap.Lib.Devices.ZWO;
 
 public class ZWODeviceSrouce : IDeviceSource<ZWODevice>
 {
-    static readonly Dictionary<DeviceType, bool> _supportedDeviceTypes = new();
+    static readonly Dictionary<DeviceType, bool> _supportedDeviceTypes = [];
 
     static ZWODeviceSrouce()
     {
-        bool supportsCamera;
+        CheckSupport(DeviceType.Camera, ASIGetSDKVersion);
+        CheckSupport(DeviceType.Focuser, EAFGetSDKVersion);
+        CheckSupport(DeviceType.FilterWheel, EFWGetSDKVersion);
+    }
+
+    private static void CheckSupport(DeviceType deviceType, Func<Version> sdkVersion)
+    {
+        bool isSupported;
         try
         {
-            supportsCamera = ASIGetSDKVersion().Major > 0;
+            isSupported = sdkVersion().Major > 0;
         }
         catch
         {
-            supportsCamera = false;
+            isSupported = false;
         }
 
-        _supportedDeviceTypes[DeviceType.Camera] = supportsCamera;
+        _supportedDeviceTypes[deviceType] = isSupported;
     }
 
     public bool IsSupported => _supportedDeviceTypes.Count > 0;
@@ -37,6 +45,8 @@ public class ZWODeviceSrouce : IDeviceSource<ZWODevice>
             return deviceType switch
             {
                 DeviceType.Camera => ListCameras(),
+                DeviceType.Focuser => ListEAFs(),
+                DeviceType.FilterWheel => ListEFWs(),
                 _ => throw new ArgumentException($"Device type {deviceType} not implemented!", nameof(deviceType))
             };
         }
@@ -46,38 +56,42 @@ public class ZWODeviceSrouce : IDeviceSource<ZWODevice>
         }
     }
 
-    static IEnumerable<ZWODevice> ListCameras()
-    {
-        var camIds = new HashSet<int>();
+    static IEnumerable<ZWODevice> ListCameras() => ListDevice<ASI_CAMERA_INFO>(DeviceType.Camera);
 
-        var count = ASIGetNumOfConnectedCameras();
-        for (var i = 0; i < count; i++)
+    static IEnumerable<ZWODevice> ListEAFs() => ListDevice<EAF_INFO>(DeviceType.Focuser);
+
+    static IEnumerable<ZWODevice> ListEFWs() => ListDevice<EFW_INFO>(DeviceType.FilterWheel);
+
+    static IEnumerable<ZWODevice> ListDevice<TDeviceInfo>(DeviceType deviceType) where TDeviceInfo : struct, IZWODeviceInfo
+    {
+        var ids = new HashSet<int>();
+
+        var cameraIterator = new DeviceIterator<TDeviceInfo>();
+
+        foreach (var (camId, deviceInfo) in cameraIterator)
         {
-            if (ASIGetCameraProperty(out var camInfo, i) is ASI_SUCCESS
-                && !camIds.Contains(camInfo.CameraID)
-                && ASIOpenCamera(camInfo.CameraID) is ASI_SUCCESS
-            )
+            if (!ids.Contains(camId) && deviceInfo.Open())
             {
                 try
                 {
-                    if (ASIGetSerialNumber(camInfo.CameraID, out var camSerial) is ASI_SUCCESS)
+                    if (deviceInfo.SerialNumber?.ToString() is { Length: > 0 } serialNumber)
                     {
-                        yield return new ZWODevice(DeviceType.Camera, camSerial.ID, camInfo.Name);
+                        yield return new ZWODevice(deviceType, serialNumber, deviceInfo.Name);
                     }
-                    else if (camInfo.IsUSB3Camera is ASI_TRUE && ASIGetID(camInfo.CameraID, out var camId) is ASI_SUCCESS)
+                    else if (deviceInfo.IsUSB3Device && deviceInfo.CustomId is { Length: > 0 } customId)
                     {
-                        yield return new ZWODevice(DeviceType.Camera, camId.ID, camInfo.Name);
+                        yield return new ZWODevice(deviceType, customId, deviceInfo.Name);
                     }
                     else
                     {
-                        yield return new ZWODevice(DeviceType.Camera, camInfo.Name, camInfo.Name);
+                        yield return new ZWODevice(deviceType, deviceInfo.Name, deviceInfo.Name);
                     }
 
-                    camIds.Add(camInfo.CameraID);
+                    ids.Add(camId);
                 }
                 finally
                 {
-                    _ = ASICloseCamera(camInfo.CameraID);
+                    _ = deviceInfo.Close();
                 }
             }
         }

@@ -3,7 +3,7 @@ using System;
 
 namespace Astap.Lib.Sequencing;
 
-public abstract class ControllableDeviceBase<TDriver> : IDisposable
+public abstract record ControllableDeviceBase<TDriver> : IDisposable
     where TDriver : IDeviceDriver
 {
     private bool disposedValue;

@@ -22,13 +22,15 @@ namespace Astap.Lib.Astrometry.SOFA
     /// </remarks>
     public sealed class Transform
     {
+        private readonly TimeProvider _timeProvider;
         private double _RAJ2000Value, _RATopoValue, _DECJ2000Value, _DECTopoValue;
         private double _SiteElevValue, _SiteLatValue, _SiteLongValue;
         private TimeSpan? _SiteTimeZoneValue;
         private double _SiteTempValue, _SitePressureValue;
         private double _RAApparentValue, _DECApparentValue, _AzimuthTopoValue, _ElevationTopoValue;
         private double _jdTTValue1, _jdTTValue2, _jdUTCValue1, _jdUTCValue2;
-        private bool _RefracValue, _RequiresRecalculate;
+        private bool _RefracValue;
+        private bool _RequiresRecalculate;
         private SetBy LastSetBy { get; set; }
 
         private enum SetBy
@@ -41,7 +43,7 @@ namespace Astap.Lib.Astrometry.SOFA
             Refresh
         }
 
-        public Transform()
+        public Transform(TimeProvider timeProvider)
         {
             // Initialise to invalid values in case these are read before they are set
             _RAJ2000Value = double.NaN;
@@ -60,6 +62,7 @@ namespace Astap.Lib.Astrometry.SOFA
             _jdUTCValue1 = 0d;
             _jdUTCValue2 = 0d;
             LastSetBy = SetBy.Never;
+            _timeProvider = timeProvider;
         }
 
         #region EventTimes Astroutils implemtation
@@ -929,7 +932,7 @@ namespace Astap.Lib.Astrometry.SOFA
         {
             if (_jdUTCValue1 == 0.0d && _jdTTValue1 == 0.0d) // No specific TT date / time has been set so use the current date / time
             {
-                DateTime = DateTime.UtcNow;
+                DateTime = _timeProvider.GetUtcNow().UtcDateTime;
             }
         }
 

@@ -92,7 +92,7 @@ public class AscomDeviceTests
             using (driver)
             {
                 driver.Connected = true;
-                driver.StartExposure(TimeSpan.FromSeconds(0.1), true);
+                driver.StartExposure(TimeProvider.System, TimeSpan.FromSeconds(0.1));
 
                 Thread.Sleep((int)TimeSpan.FromSeconds(0.5).TotalMilliseconds);
                 driver.ImageReady.ShouldBeTrue();

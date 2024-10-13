@@ -1,5 +1,4 @@
-﻿using Astap.Lib.Devices.Ascom;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 
 namespace Astap.Lib.Devices;
 

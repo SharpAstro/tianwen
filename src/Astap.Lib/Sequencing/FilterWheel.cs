@@ -2,10 +2,8 @@
 
 namespace Astap.Lib.Sequencing;
 
-public class FilterWheel : ControllableDeviceBase<IFilterWheelDriver>
+public record FilterWheel(DeviceBase Device) : ControllableDeviceBase<IFilterWheelDriver>(Device)
 {
-    public FilterWheel(DeviceBase device) : base(device) { }
-
     protected override void Driver_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
     {
         // nothing

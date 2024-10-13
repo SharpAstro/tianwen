@@ -4,6 +4,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Linq;
 using System.Reflection;
+using System.Text.Json.Serialization;
 using System.Web;
 
 namespace Astap.Lib.Devices;
@@ -19,7 +20,8 @@ public abstract record class DeviceBase(Uri DeviceUri)
     public string DeviceId => _deviceId ??= string.Concat(DeviceUri.Segments[1..]);
 
     private NameValueCollection? _query;
-    protected NameValueCollection Query => _query ??= HttpUtility.ParseQueryString(DeviceUri.Query);
+    [JsonIgnore]
+    public NameValueCollection Query => _query ??= HttpUtility.ParseQueryString(DeviceUri.Query);
 
     public string DisplayName => HttpUtility.UrlDecode(DeviceUri.Fragment.TrimStart('#'));
 
@@ -62,5 +64,5 @@ public abstract record class DeviceBase(Uri DeviceUri)
         }
     }
 
-    protected abstract object? NewImplementationFromDevice();
+    protected abstract IDeviceDriver? NewImplementationFromDevice();
 }

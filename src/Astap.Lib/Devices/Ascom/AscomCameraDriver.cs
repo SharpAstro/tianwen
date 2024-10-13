@@ -266,7 +266,7 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
     public string? ReadoutMode
     {
-        get => _comObject?.ReadoutMode is int readoutMode && readoutMode >= 0 && ReadoutModes is { Count: > 0 } modes  && readoutMode < modes.Count ? modes[readoutMode] : null;
+        get => _comObject?.ReadoutMode is int readoutMode && readoutMode >= 0 && ReadoutModes is { Count: > 0 } modes && readoutMode < modes.Count ? modes[readoutMode] : null;
         set
         {
             int idx;
@@ -287,13 +287,18 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
     public double ElectronsPerADU => Connected && _comObject?.ElectronsPerADU is { } elecPerADU ? elecPerADU : double.NaN;
 
-    public DateTime LastExposureStartTime
+    public DateTime? LastExposureStartTime
         => Connected && _comObject?.LastExposureStartTime is string lastExposureStartTime
         && DateTime.TryParse(lastExposureStartTime, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal, out var dt)
             ? dt
-            : DateTime.MinValue;
+            : _lastExposureStartTime;
 
-    public TimeSpan LastExposureDuration => Connected && _comObject?.LastExposureDuration is double lastExposureDuration ? TimeSpan.FromSeconds(lastExposureDuration) : TimeSpan.MinValue;
+    public TimeSpan? LastExposureDuration
+        => Connected && _comObject?.LastExposureDuration is double lastExposureDuration
+            ? TimeSpan.FromSeconds(lastExposureDuration)
+            : default;
+
+    public FrameType LastExposureFrameType { get; internal set; }
 
     public BitDepth? BitDepth
     {
@@ -322,7 +327,14 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
     public double ExposureResolution => Connected && _comObject?.ExposureResolution is double expResolution ? expResolution : double.NaN;
 
-    public void StartExposure(TimeSpan duration, bool light) => _comObject?.StartExposure(duration.TotalSeconds, light);
+    private DateTime? _lastExposureStartTime;
+
+    public void StartExposure(TimeProvider provider, TimeSpan duration, FrameType frameType)
+    {
+        _comObject?.StartExposure(duration.TotalSeconds, frameType.NeedsOpenShutter());
+        _lastExposureStartTime = provider.GetUtcNow().UtcDateTime;
+        LastExposureFrameType = frameType;
+    }
 
     public void StopExposure()
     {
@@ -380,5 +392,9 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
     public int FocusPos { get; set; } = -1;
 
     public Filter Filter { get; set; } = Filter.Unknown;
+
+    public double? Latitude { get; set; }
+
+    public double? Longitude { get; set; }
     #endregion
 }

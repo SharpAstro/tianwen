@@ -72,10 +72,13 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
         var bayerOffsetX = hdu.Header.GetIntValue("BAYOFFX", 0);
         var bayerOffsetY = hdu.Header.GetIntValue("BAYOFFY", 0);
         var rowOrder = RowOrderEx.FromFITSValue(hdu.Header.GetStringValue("ROWORDER")) ?? RowOrder.TopDown;
+        var frameType = FrameTypeEx.FromFITSValue(hdu.Header.GetStringValue("FRAMETYP") ?? hdu.Header.GetStringValue("IMAGETYP")) ?? FrameType.None;
         var filter = string.IsNullOrWhiteSpace(filterName) ? Filter.None : new Filter(filterName);
         var bzero = (float)hdu.BZero;
         var bscale = (float)hdu.BScale;
         var sensorType = SensorTypeEx.FromFITSValue(bayerPattern, colorType);
+        var latitude = hdu.Header.GetFloatValue("LATITUDE", float.NaN);
+        var longitude = hdu.Header.GetFloatValue("LONGITUDE", float.NaN);
 
         var elementType = Type.GetTypeCode(heightArray[0].GetType().GetElementType());
 
@@ -254,6 +257,7 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
             instrument,
             exposureStartTime,
             exposureDuration,
+            frameType,
             telescope,
             pixelSizeX,
             pixelSizeY,
@@ -266,7 +270,9 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
             sensorType,
             bayerOffsetX,
             bayerOffsetY,
-            rowOrder
+            rowOrder,
+            latitude,
+            longitude
         );
         image = new Image(imgArray, width, height, bitDepth, maxVal, blackLevel, imageMeta);
         return true;
@@ -277,13 +283,13 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
         var fits = new Fits();
         object[] jaggedArray;
         int bzero;
-        bool isInt;
+        bool dataIsInt;
         switch (bitDepth)
         {
             case BitDepth.Int8:
                 var jaggedByteArray = new byte[height][];
                 bzero = 0;
-                isInt = true;
+                dataIsInt = true;
                 for (var h = 0; h < height; h++)
                 {
                     var row = new byte[width];
@@ -299,7 +305,7 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
             case BitDepth.Int16:
                 var jaggedShortArray = new short[height][];
                 bzero = 32768;
-                isInt = true;
+                dataIsInt = true;
                 for (var h = 0; h < height; h++)
                 {
                     var row = new short[width];
@@ -315,7 +321,7 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
             case BitDepth.Float32:
                 var jaggedFloatArray = new float[height][];
                 bzero = 0;
-                isInt = false;
+                dataIsInt = false;
                 for (var h = 0; h < height; h++)
                 {
                     jaggedFloatArray[h] = data.GetRowSpan(h).ToArray();
@@ -328,28 +334,32 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
         }
         var basicHdu = FitsFactory.HDUFactory(jaggedArray);
         basicHdu.Header.Bitpix = (int)bitDepth;
-        basicHdu.Header.AddCard(new HeaderCard("BZERO", bzero, "offset data range to that of unsigned short"));
-        basicHdu.Header.AddCard(new HeaderCard("BSCALE", 1, "default scaling factor"));
-        basicHdu.Header.AddCard(new HeaderCard("BSCALE", 1, "default scaling factor"));
-        basicHdu.Header.AddCard(isInt ? new HeaderCard("BLKLEVEL", (int)BlackLevel, "") : new HeaderCard("BLKLEVEL", BlackLevel, ""));
-        basicHdu.Header.AddCard(new HeaderCard("XBINNING", imageMeta.BinX, ""));
-        basicHdu.Header.AddCard(new HeaderCard("YBINNING", imageMeta.BinY, ""));
-        basicHdu.Header.AddCard(new HeaderCard("XPIXSZ", imageMeta.PixelSizeX, ""));
-        basicHdu.Header.AddCard(new HeaderCard("YPIXSZ", imageMeta.PixelSizeX, ""));
-        basicHdu.Header.AddCard(new HeaderCard("DATE-OBS", imageMeta.ExposureStartTime.ToString("o"), ""));
-        basicHdu.Header.AddCard(new HeaderCard("EXPTIME", imageMeta.ExposureDuration.TotalSeconds, "seconds"));
-        basicHdu.Header.AddCard(new HeaderCard("DATAMAX", maxVal, ""));
-        basicHdu.Header.AddCard(new HeaderCard("INSTRUME", imageMeta.Instrument, ""));
-        basicHdu.Header.AddCard(new HeaderCard("TELESCOP", imageMeta.Telescope, ""));
-        basicHdu.Header.AddCard(new HeaderCard("ROWORDER", imageMeta.RowOrder.ToFITSValue(), ""));
-        basicHdu.Header.AddCard(new HeaderCard("CCD-TEMP", imageMeta.CCDTemperature, "Celsius"));
-        basicHdu.Header.AddCard(new HeaderCard("BAYOFFX", imageMeta.BayerOffsetX, ""));
-        basicHdu.Header.AddCard(new HeaderCard("BAYOFFY", imageMeta.BayerOffsetY, ""));
+        AddHeaderValueIfHasValue("BZERO", bzero, "offset data range to that of unsigned short");
+        AddHeaderValueIfHasValue("BSCALE", 1, "default scaling factor");
+        AddHeaderValueIfHasValue("BSCALE", 1, "default scaling factor");
+        AddHeaderValueIfHasValue("BLKLEVEL", BlackLevel, "", isDataValue: true);
+        AddHeaderValueIfHasValue("XBINNING", imageMeta.BinX, "");
+        AddHeaderValueIfHasValue("YBINNING", imageMeta.BinY, "");
+        AddHeaderValueIfHasValue("XPIXSZ", imageMeta.PixelSizeX, "");
+        AddHeaderValueIfHasValue("YPIXSZ", imageMeta.PixelSizeX, "");
+        AddHeaderValueIfHasValue("DATE-OBS", imageMeta.ExposureStartTime.ToString("o").TrimEnd('z', 'Z'), "");
+        AddHeaderValueIfHasValue("EXPTIME", imageMeta.ExposureDuration.TotalSeconds, "seconds");
+        AddHeaderValueIfHasValue("IMAGETYP", imageMeta.FrameType, "");
+        AddHeaderValueIfHasValue("FRAMETYP", imageMeta.FrameType, "");
+        AddHeaderValueIfHasValue("DATAMAX", maxVal, "");
+        AddHeaderValueIfHasValue("INSTRUME", imageMeta.Instrument, "");
+        AddHeaderValueIfHasValue("TELESCOP", imageMeta.Telescope, "");
+        AddHeaderValueIfHasValue("ROWORDER", imageMeta.RowOrder, "");
+        AddHeaderValueIfHasValue("CCD-TEMP", imageMeta.CCDTemperature, "Celsius");
+        AddHeaderValueIfHasValue("BAYOFFX", imageMeta.BayerOffsetX, "");
+        AddHeaderValueIfHasValue("BAYOFFY", imageMeta.BayerOffsetY, "");
+        AddHeaderValueIfHasValue("LATITUDE", imageMeta.Latitude, "degrees");
+        AddHeaderValueIfHasValue("LONGITUDE", imageMeta.Longitude, "degrees");
         if (imageMeta.SensorType is SensorType.RGGB)
         {
             // TODO support other Bayer patterns
-            basicHdu.Header.AddCard(new HeaderCard("BAYERPAT", "RGGB", ""));
-            basicHdu.Header.AddCard(new HeaderCard("COLORTYP", "RGGB", ""));
+            AddHeaderValueIfHasValue("BAYERPAT", "RGGB", "");
+            AddHeaderValueIfHasValue("COLORTYP", "RGGB", "");
         }
         fits.AddHDU(basicHdu);
 
@@ -357,6 +367,29 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
         fits.Write(bufferedWriter);
         bufferedWriter.Flush();
         bufferedWriter.Close();
+
+        void AddHeaderValueIfHasValue<T>(string key, T value, string comment = "", bool isDataValue = false)
+        {
+            var card = value switch
+            {
+                float f when !float.IsNaN(f) => new HeaderCard(key, f, comment),
+                float f when isDataValue && dataIsInt => new HeaderCard(key, (int)f, comment),
+                double d when !double.IsNaN(d) => new HeaderCard(key, d, comment),
+                double d when isDataValue && dataIsInt => new HeaderCard(key, (int)d, comment),
+                int i => new HeaderCard(key, i, comment),
+                long l => new HeaderCard(key, l, comment),
+                string s => new HeaderCard(key, s, comment),
+                bool b =>  new HeaderCard(key, b, comment),
+                FrameType ft => new HeaderCard(key, ft.ToFITSValue(), comment),
+                RowOrder ro => new HeaderCard(key, ro.ToFITSValue(), comment),
+                _ => null
+            };
+
+            if (card is not null)
+            {
+                basicHdu.Header.AddCard(card);
+            }
+        }
     }
 
     /// <summary>
@@ -366,6 +399,7 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
     /// <param name="max_stars"></param>
     /// <param name="max_retries"></param>
     /// <returns></returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     public IReadOnlyList<ImagedStar> FindStars(float snr_min = 20f, int max_stars = 500, int max_retries = 2)
     {
         if (imageMeta.SensorType is not SensorType.Monochrome)
@@ -968,24 +1002,12 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
         // last pixel
         debayered[h1, w1] = (float)(0.25d * ((double)data[h1, w1] + data[h1 - 1, w1 - 1] + data[h1, w1 - 1] + data[h1 - 1, w1]));
 
-        var meta = new ImageMeta(
-            imageMeta.Instrument,
-            imageMeta.ExposureStartTime,
-            imageMeta.ExposureDuration,
-            imageMeta.Telescope,
-            imageMeta.PixelSizeX,
-            imageMeta.PixelSizeY,
-            imageMeta.FocalLength,
-            imageMeta.FocusPos,
-            new Filter("Lum"),
-            imageMeta.BinX,
-            imageMeta.BinY,
-            imageMeta.CCDTemperature,
-            SensorType.Monochrome,
-            0,
-            0,
-            imageMeta.RowOrder
-        );
-        return new Image(debayered, width, height, BitDepth.Float32, maxVal, blackLevel, meta);
+        return new Image(debayered, width, height, BitDepth.Float32, maxVal, blackLevel, imageMeta with
+        {
+            SensorType = SensorType.Monochrome,
+            BayerOffsetX = 0,
+            BayerOffsetY = 0,
+            Filter = new Filter("LUM")
+        });
     }
 }

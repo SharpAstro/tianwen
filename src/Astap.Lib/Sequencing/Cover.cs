@@ -1,16 +1,9 @@
 ﻿using Astap.Lib.Devices;
 
-
 namespace Astap.Lib.Sequencing;
 
-public class Cover : ControllableDeviceBase<ICoverDriver>
+public record Cover(DeviceBase Device) : ControllableDeviceBase<ICoverDriver>(Device)
 {
-    public Cover(DeviceBase device)
-        : base(device)
-    {
-
-    }
-
     protected override void Driver_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
     {
         // empty

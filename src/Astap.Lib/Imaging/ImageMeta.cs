@@ -7,6 +7,7 @@ public record struct ImageMeta(
     string Instrument,
     DateTime ExposureStartTime,
     TimeSpan ExposureDuration,
+    FrameType FrameType,
     string Telescope,
     float PixelSizeX,
     float PixelSizeY,
@@ -19,5 +20,7 @@ public record struct ImageMeta(
     SensorType SensorType,
     int BayerOffsetX,
     int BayerOffsetY,
-    RowOrder RowOrder
+    RowOrder RowOrder,
+    float Latitude,
+    float Longitude
 );

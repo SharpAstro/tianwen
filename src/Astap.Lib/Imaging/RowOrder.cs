@@ -17,5 +17,6 @@ public static class RowOrderEx
         _ => throw new ArgumentException($"Value {@this} is not handled", nameof(@this))
     };
 
-    public static RowOrder? FromFITSValue(string? value) => Enum.TryParse(value?.Replace("-", ""), true, out RowOrder ro) ? ro : null;
+    public static RowOrder? FromFITSValue(string? value)
+        => Enum.TryParse(value?.Replace("-", ""), true, out RowOrder ro) ? ro : null;
 }

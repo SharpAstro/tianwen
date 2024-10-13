@@ -5,14 +5,12 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-using static Astap.Lib.CollectionHelper;
-
 namespace Astap.Lib.Astrometry.PlateSolve;
 
 public class CombinedPlateSolver(IReadOnlyList<IPlateSolver> solvers) : IPlateSolver
 {
     public CombinedPlateSolver(IPlateSolver plateSolver, params IPlateSolver[] other)
-        : this(ConcatToReadOnlyList(plateSolver, other))
+        : this([plateSolver, .. other])
     {
         // calls primary constructor
     }

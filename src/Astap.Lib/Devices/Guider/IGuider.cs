@@ -24,25 +24,19 @@ SOFTWARE.
 
 */
 
+using Astap.Lib.Astrometry.PlateSolve;
 using Astap.Lib.Imaging;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using System.Text.Json;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Astap.Lib.Devices.Guider;
 
 public interface IGuider : IDeviceDriver
 {
-    /// <summary>
-    /// support raw JSONRPC method invocation. Generally you won't need to
-    /// use this function as it is much more convenient to use the higher-level methods below
-    /// </summary>
-    /// <param name="method"></param>
-    /// <param name="params"></param>
-    /// <returns></returns>
-    JsonDocument Call(string method, params object[] @params);
-
     /// <summary>
     /// Start guiding with the given settling parameters. PHD2 takes care of looping exposures,
     /// guide star selection, and settling. Call <see cref="TryGetSettleProgress(out SettleProgress?)"/> periodically to see when settling
@@ -210,6 +204,150 @@ public interface IGuider : IDeviceDriver
     /// <returns>the full path of the output file if successfully captured.</returns>
     /// <exception cref="GuiderException">Throws if not connected or command could not be issued</exception>
     string? SaveImage(string outputFolder);
+
+
+    const int SETTLE_TIMEOUT_FACTOR = 5;
+    public bool StartGuidingLoop(int maxTries, IExternal external, CancellationToken cancellationToken)
+    {
+        bool guidingSuccess = false;
+        int startGuidingTries = 0;
+
+        while (!guidingSuccess && ++startGuidingTries <= maxTries && !cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                var settlePix = 0.3 + (startGuidingTries * 0.2);
+                var settleTime = 15 + (startGuidingTries * 5);
+                var settleTimeout = settleTime * SETTLE_TIMEOUT_FACTOR;
+
+                external.LogInfo($"Start guiding using \"{(TryGetActiveProfileName(out var profile) ? profile : Name)}\", settle pixels: {settlePix}, settle time: {settleTime}s, timeout: {settleTimeout}s.");
+                Guide(settlePix, settleTime, settleTimeout);
+
+                var failsafeCounter = 0;
+                while (IsSettling() && failsafeCounter++ < MAX_FAILSAFE && !cancellationToken.IsCancellationRequested)
+                {
+                    external.Sleep(TimeSpan.FromSeconds(10));
+                }
+
+                guidingSuccess = failsafeCounter < MAX_FAILSAFE && IsGuiding();
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                else if (!guidingSuccess)
+                {
+                    external.Sleep(TimeSpan.FromMinutes(startGuidingTries));
+                }
+            }
+            catch (Exception e)
+            {
+                external.LogException(e, $"while on try #{startGuidingTries} checking if \"{(TryGetActiveProfileName(out var profile) ? profile : Name)}\" is guiding.");
+                guidingSuccess = false;
+            }
+        }
+
+        return guidingSuccess;
+    }
+
+
+    public bool DitherWait(double ditherPixel, double settlePixel, TimeSpan settleTime, Func<TimeSpan> processQueuedWork, IExternal external, CancellationToken cancellationToken)
+    {
+
+        var settleTimeout = settleTime * SETTLE_TIMEOUT_FACTOR;
+
+        external.LogInfo($"Start dithering pixel={ditherPixel} settlePixel={settlePixel} settleTime={settleTime}, timeout={settleTimeout}");
+
+        Dither(ditherPixel, settlePixel, settleTime.TotalSeconds, settleTimeout.TotalSeconds);
+
+        var overslept = TimeSpan.Zero;
+        var elapsed = processQueuedWork();
+
+        for (var i = 0; i < SETTLE_TIMEOUT_FACTOR; i++)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                external.LogWarning("Cancellation rquested, all images in queue written to disk, abort image acquisition and quit imaging loop");
+                return false;
+            }
+            else
+            {
+                overslept = external.SleepWithOvertime(settleTime, elapsed + overslept);
+            }
+
+            if (TryGetSettleProgress(out var settleProgress) && settleProgress is { Done: false })
+            {
+                if (settleProgress.Error is { Length: > 0 } error)
+                {
+                    external.LogError($"Settling after dithering failed with: {error}");
+                    return false;
+                }
+                else
+                {
+                    external.LogInfo($"Settle still in progress: settle pixel={settleProgress.SettlePx} dist={settleProgress.Distance}");
+                }
+            }
+            else
+            {
+                if (settleProgress?.Error is { Length: > 0 } error)
+                {
+                    external.LogError($"Settling after dithering failed with: {error} pixel={settleProgress.SettlePx} dist={settleProgress.Distance}");
+                    return false;
+                }
+                else if (settleProgress is not null)
+                {
+                    external.LogInfo($"Settling finished: settle pixel={settleProgress.SettlePx} pixel={settleProgress.SettlePx} dist={settleProgress.Distance}");
+                    return true;
+                }
+                else
+                {
+                    external.LogError("Settling failed with no specific error message, assume dithering failed.");
+                    return false;
+                }
+            }
+        }
+
+        external.LogError($"Settling timeout after {settleTimeout:c}, aborting dithering.");
+        return false;
+    }
+
+    public Task<WCS?> PlateSolveGuiderImageAsync(
+        double raJ2000,
+        double decJ2000,
+        uint guiderLoopTimeoutSec,
+        IPlateSolver plateSolver,
+        IExternal external,
+        CancellationToken cancellationToken
+    )
+    {
+        if (external.Catch(() => Loop(guiderLoopTimeoutSec, external.Sleep)))
+        {
+            if (SaveImage(Path.Combine(external.OutputFolder, "Guider")) is { Length: > 0 } file)
+            {
+                if (!TryGetImageDim(out var dim))
+                {
+                    external.LogWarning($"Failed to obtain image dimensions of \"{(TryGetActiveProfileName(out var profile) ? profile : Name)}\" camera, will use blind search.");
+                }
+
+                return plateSolver.SolveFileAsync(
+                    file,
+                    dim,
+                    searchOrigin: new WCS(raJ2000, decJ2000),
+                    searchRadius: 7,
+                    cancellationToken: cancellationToken
+                );
+            }
+            else
+            {
+                external.LogWarning($"Failed to obtain image from guider \"{(TryGetActiveProfileName(out var profile) ? profile : Name)}\"");
+                return Task.FromResult(null as WCS?);
+            }
+        }
+        else
+        {
+            external.LogWarning($"Failed to start guider \"{(TryGetActiveProfileName(out var profile) ? profile : Name)}\" capture loop after {guiderLoopTimeoutSec}s");
+            return Task.FromResult(null as WCS?);
+        }
+    }
 
     /// <summary>
     /// Event that is triggered when an exception occurs.

@@ -13,5 +13,5 @@ public record class NoneDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 
     }
 
-    protected override object? NewImplementationFromDevice() => null;
+    protected override IDeviceDriver? NewImplementationFromDevice() => null;
 }

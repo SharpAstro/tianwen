@@ -1,13 +1,16 @@
-﻿using Astap.Lib.Devices;
+﻿using Astap.Lib.Astrometry.PlateSolve;
+using Astap.Lib.Devices;
 using Astap.Lib.Devices.Guider;
+using Astap.Lib.Imaging;
+using System.IO;
+using System.Threading.Tasks;
+using System.Threading;
+using System;
 
 namespace Astap.Lib.Sequencing;
 
-public class Guider : ControllableDeviceBase<IGuider>
+public record Guider(DeviceBase Device) : ControllableDeviceBase<IGuider>(Device)
 {
-    public Guider(GuiderDevice device) : base(device)
-    {
-    }
 
     protected override void Driver_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
     {

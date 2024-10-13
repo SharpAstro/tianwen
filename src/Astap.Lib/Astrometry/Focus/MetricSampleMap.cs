@@ -8,16 +8,16 @@ using static Astap.Lib.Stat.StatisticsHelper;
 
 namespace Astap.Lib.Astrometry.Focus;
 
-public class MetricSampleMap(SampleKind kind)
+public class MetricSampleMap(SampleKind kind, AggregationMethod aggregationMethod)
 {
     private readonly ConcurrentDictionary<int, ConcurrentBag<float>> _samples = new();
 
-    public SampleKind Kind { [MethodImpl(MethodImplOptions.AggressiveInlining)] get; } = kind;
+    public SampleKind Kind { get; } = kind;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public ConcurrentBag<float> Samples(int focusPos) => _samples.GetOrAdd(focusPos, pFocusPos => new ConcurrentBag<float>());
+    public ConcurrentBag<float> Samples(int focusPos) => _samples.GetOrAdd(focusPos, pFocusPos => []);
 
-    public bool TryGetBestFocusSolution(AggregationMethod method, [NotNullWhen(true)] out FocusSolution? solution, out int min, out int max, int maxIterations = 20)
+    public bool TryGetBestFocusSolution([NotNullWhen(true)] out FocusSolution? solution, out int min, out int max, int maxIterations = 20)
     {
         var keys = _samples.Keys.ToArray();
         Array.Sort(keys);
@@ -41,7 +41,7 @@ public class MetricSampleMap(SampleKind kind)
         {
             var focusPos = keys[i];
 
-            var aggregated = Aggregate(focusPos, method);
+            var aggregated = Aggregate(focusPos);
             if (!aggregated.HasValue)
             {
                 solution = null;
@@ -56,17 +56,17 @@ public class MetricSampleMap(SampleKind kind)
         return true;
     }
 
-    public float? Aggregate(int focusPos, AggregationMethod method)
+    public float? Aggregate(int focusPos)
     {
         if (_samples.TryGetValue(focusPos, out var samples))
         {
-            switch (method)
+            switch (aggregationMethod)
             {
                 case AggregationMethod.Median:
                     var median = Median(samples.ToArray());
                     return !float.IsNaN(median) ? median : default;
 
-                case AggregationMethod.Best:
+                case AggregationMethod.Mininum:
                     return !samples.IsEmpty ? samples.Min() : default;
 
                 case AggregationMethod.Average:

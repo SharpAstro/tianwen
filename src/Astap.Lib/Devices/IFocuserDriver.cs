@@ -30,6 +30,11 @@ public interface IFocuserDriver : IDeviceDriver
     public int Position { get; }
 
     /// <summary>
+    /// True if <see cref="StepSize"/> is the known step size of the focuser
+    /// </summary>
+    public bool CanGetStepSize { get; }
+
+    /// <summary>
     /// Step size(microns) for the focuser.
     /// </summary>
     public double StepSize { get; }
