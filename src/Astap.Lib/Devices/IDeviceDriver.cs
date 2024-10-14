@@ -6,17 +6,19 @@ public interface IDeviceDriver : IDisposable
 {
     internal const int MAX_FAILSAFE = 1_000;
 
-    public string Name { get; }
+    string Name { get; }
 
-    public string? Description { get; }
+    string? Description { get; }
 
-    public string? DriverInfo { get; }
+    string? DriverInfo { get; }
 
-    public string? DriverVersion { get; }
+    string? DriverVersion { get; }
 
-    public DeviceType DriverType { get; }
+    DeviceType DriverType { get; }
 
-    public bool Connected { get; set; }
+    bool Connected { get; set; }
+
+    IExternal External { get; }
 
     event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
 }

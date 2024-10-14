@@ -4,7 +4,7 @@ using static ZWOptical.SDK.EFW1_7.EFW_ERROR_CODE;
 
 namespace Astap.Lib.Devices.ZWO;
 
-public class ZWOFilterWheelDriver(ZWODevice device) : ZWODeviceDriverBase<EFW_INFO>(device), IFilterWheelDriver
+public class ZWOFilterWheelDriver(ZWODevice device, IExternal external) : ZWODeviceDriverBase<EFW_INFO>(device, external), IFilterWheelDriver
 {
     private int? _filterCount = null;
 
@@ -18,13 +18,8 @@ public class ZWOFilterWheelDriver(ZWODevice device) : ZWODeviceDriverBase<EFW_IN
 
                 for (var i = 0; i < filterCount; i++)
                 {
-                    int focusOffset;
-                    if (!int.TryParse(_device.Query[$"offset{i + 1}"], out focusOffset))
-                    {
-                        focusOffset = 0;
-                    }
-
-                    filters.Add(new Filter(_device.Query[$"filter{i + 1}"] ?? $"Filter {i + 1}", focusOffset));
+                    filters.Add(new Filter(_device.Query[$"filter{i + 1}"] ?? $"Filter {i + 1}",
+                        int.TryParse(_device.Query[$"offset{i + 1}"], out int focusOffset) ? focusOffset : 0));
                 }
 
                 return filters;

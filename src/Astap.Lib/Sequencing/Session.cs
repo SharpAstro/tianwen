@@ -6,7 +6,6 @@ using Astap.Lib.Imaging;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -89,12 +88,12 @@ public record Session(
         External.LogInfo($"Slew mount {mount.Device.DisplayName} near zenith to verify that we have rough focus.");
 
         // coordinates not quite accurate but good enough for this purpose.
-        if (!mount.Driver.SlewToZenith(distMeridian, External, cancellationToken))
+        if (!mount.Driver.SlewToZenith(distMeridian, cancellationToken))
         {
             return false;
         }
 
-        var slewTime = GetCurrentUtc();
+        var slewTime = MountUtcNow;
         
         if (!GuiderFocusLoop(TimeSpan.FromMinutes(1), cancellationToken))
         {
@@ -119,7 +118,7 @@ public record Session(
                 origGain[i] = short.MinValue;
             }
 
-            camDriver.StartExposure(External.TimeProvider, TimeSpan.FromSeconds(1));
+            camDriver.StartExposure(TimeSpan.FromSeconds(1));
         }
 
         var expTimesSec = new int[count];
@@ -140,9 +139,9 @@ public record Session(
                     {
                         expTimesSec[i]++;
 
-                        if (GetCurrentUtc() - slewTime + TimeSpan.FromSeconds(count * 5 + expTimesSec[i]) < distMeridian)
+                        if (MountUtcNow - slewTime + TimeSpan.FromSeconds(count * 5 + expTimesSec[i]) < distMeridian)
                         {
-                            camDriver.StartExposure(External.TimeProvider, TimeSpan.FromSeconds(expTimesSec[i]));
+                            camDriver.StartExposure(TimeSpan.FromSeconds(expTimesSec[i]));
                         }
                     }
                     else
@@ -158,13 +157,13 @@ public record Session(
             }
 
             // slew back to start position
-            if (GetCurrentUtc() - slewTime > distMeridian)
+            if (MountUtcNow - slewTime > distMeridian)
             {
-                if (!mount.Driver.SlewToZenith(distMeridian, External, cancellationToken))
+                if (!mount.Driver.SlewToZenith(distMeridian, cancellationToken))
                 {
                     return false;
                 }
-                slewTime = GetCurrentUtc();
+                slewTime = MountUtcNow;
             }
 
             if (hasRoughFocus.All(v => v))
@@ -389,10 +388,11 @@ public record Session(
             External.LogInfo($"Stop guiding to start slewing mount to target {observation}.");
             guider.Driver.StopCapture(TimeSpan.FromSeconds(15));
 
-            var (postCondition, hourAngleAtSlewTime) = mount.Driver.SlewToTarget(Configuration.MinHeightAboveHorizon, observation.Target, External, cancellationToken);
+            var (postCondition, hourAngleAtSlewTime) = mount.Driver.SlewToTarget(Configuration.MinHeightAboveHorizon, observation.Target, cancellationToken);
             if (postCondition is SlewPostCondition.SkipToNext)
             {
-                AdvanceObservation();
+                _ = AdvanceObservation();
+                continue;
             }
             else if (postCondition is SlewPostCondition.Cancelled or SlewPostCondition.Abort)
             {
@@ -409,14 +409,14 @@ public record Session(
             else if (!guidingSuccess)
             {
                 External.LogError($"Skipping target {observation} as starting guider \"{guider.Driver}\" failed after trying twice.");
-                AdvanceObservation();
+                _ = AdvanceObservation();
                 continue;
             }
 
-            var sw = Stopwatch.StartNew();
+            var imageLoopStart = MountUtcNow;
             if (!ImagingLoop(observation, hourAngleAtSlewTime, cancellationToken))
             {
-                External.LogError($"Imaging loop for {observation} did not complete successfully, total runtime: {sw.Elapsed:c}");
+                External.LogError($"Imaging loop for {observation} did not complete successfully, total runtime: {MountUtcNow - imageLoopStart:c}");
             }
         } // end observation loop
     }
@@ -432,6 +432,8 @@ public record Session(
         for (var i = 0; i < scopes; i++)
         {
             var camera = Setup.Telescopes[i].Camera;
+
+            camera.Driver.Target = observation.Target;
 
             // TODO per camera exposure calculation, i.e. via f/ratio
             var subExposure = observation.SubExposure;
@@ -455,25 +457,25 @@ public record Session(
             && Catch(() => mount.Driver.Tracking)
             && guider.Driver.Connected
             && Catch(guider.Driver.IsGuiding)
-            && mount.Driver.IsOnSamePierSide(hourAngleAtSlewTime, External)
+            && mount.Driver.IsOnSamePierSide(hourAngleAtSlewTime)
         )
         {
-            var expStartTime = GetCurrentUtc();
             for (var i = 0; i < scopes; i++)
             {
-                var camDriver = Setup.Telescopes[i].Camera.Driver;
-                switch (camDriver.CameraState)
+                var telescope = Setup.Telescopes[i];
+                var camerDriver = telescope.Camera.Driver;
+                if (camerDriver.CameraState is CameraState.Idle)
                 {
-                    case CameraState.Idle:
-                        var subExposureSec = subExposuresSec[i];
-                        var frameExpTime = TimeSpan.FromSeconds(subExposureSec);
-                        camDriver.StartExposure(External.TimeProvider, frameExpTime);
-                        expStartTimes[i] = expStartTime;
-                        expTicks[i] = (int)(subExposureSec / tickGCD);
-                        var frameNo = ++frameNumbers[i];
+                    camerDriver.FocusPosition = telescope.Focuser?.Driver is { Connected: true } focuserDriver ? focuserDriver.Position : -1;
+                    camerDriver.Filter = telescope.FilterWheel?.Driver?.CurrentFilter ?? Filter.None;
 
-                        External.LogInfo($"Camera #{(i + 1)} {camDriver.Name} starting {frameExpTime} exposure of frame #{frameNo}.");
-                        break;
+                    var subExposureSec = subExposuresSec[i];
+                    var frameExpTime = TimeSpan.FromSeconds(subExposureSec);
+                    expStartTimes[i] = camerDriver.StartExposure(frameExpTime);
+                    expTicks[i] = (int)(subExposureSec / tickGCD);
+                    var frameNo = ++frameNumbers[i];
+
+                    External.LogInfo($"Camera #{i + 1} {camerDriver.Name} starting {frameExpTime} exposure of frame #{frameNo}.");
                 }
             }
 
@@ -507,9 +509,9 @@ public record Session(
                         if (camDriver.ImageReady is true && camDriver.Image is { Width: > 0, Height: > 0 } image)
                         {
                             imageFetchSuccess[i] = true;
-                            External.LogInfo($"Camera #{(i + 1)} {camDriver.Name} finished {frameExpTime} exposure of frame #{frameNo}");
+                            External.LogInfo($"Camera #{i + 1} {camDriver.Name} finished {frameExpTime} exposure of frame #{frameNo}");
 
-                            imageWriteQueue.Enqueue((image, observation, expStartTime, frameNo));
+                            imageWriteQueue.Enqueue((image, observation, expStartTimes[i], frameNo));
                             break;
                         }
                         else
@@ -532,12 +534,11 @@ public record Session(
                 }
             }
 
-            var allimageFetchSuccess = Array.TrueForAll(imageFetchSuccess, x => x);
-            var shouldDither = (++ditherRound % Configuration.DitherEveryNthFrame) == 0;
-            if (!mount.Driver.IsOnSamePierSide(hourAngleAtSlewTime, External))
+            var allimageFetchSuccess = imageFetchSuccess.All(x => x);
+            if (!mount.Driver.IsOnSamePierSide(hourAngleAtSlewTime))
             {
                 // write all images as the loop is ending here
-                WriteQueuedImagesToFitsFiles();
+                _ = WriteQueuedImagesToFitsFiles();
 
                 // TODO stop exposures (if we can, and if there are any)
 
@@ -552,21 +553,25 @@ public record Session(
                     return true;
                 }
             }
-            else if (allimageFetchSuccess && shouldDither)
+            else if (allimageFetchSuccess)
             {
-                if (guider.Driver.DitherWait(Configuration.DitherPixel, Configuration.SettlePixel, Configuration.SettleTime, WriteQueuedImagesToFitsFiles, External, cancellationToken))
+                var shouldDither = (++ditherRound % Configuration.DitherEveryNthFrame) == 0;
+                if (shouldDither)
                 {
-                    External.LogInfo($"Dithering using \"{guider.Driver}\" succeeded.");
+                    if (guider.Driver.DitherWait(Configuration.DitherPixel, Configuration.SettlePixel, Configuration.SettleTime, WriteQueuedImagesToFitsFiles, External, cancellationToken))
+                    {
+                        External.LogInfo($"Dithering using \"{guider.Driver}\" succeeded.");
+                    }
+                    else
+                    {
+                        External.LogError($"Dithering using \"{guider.Driver}\" failed, aborting.");
+                        return false;
+                    }
                 }
                 else
                 {
-                    External.LogError($"Dithering using \"{guider.Driver}\" failed, aborting.");
-                    return false;
+                    External.LogInfo($"Skipping dithering ({ditherRound % Configuration.DitherEveryNthFrame}/{Configuration.DitherEveryNthFrame} frame)");
                 }
-            }
-            else if (allimageFetchSuccess)
-            {
-                External.LogInfo($"Skipping dithering ({ditherRound % Configuration.DitherEveryNthFrame}/{Configuration.DitherEveryNthFrame} frame)");
             }
         } // end imaging loop
 
@@ -574,7 +579,7 @@ public record Session(
 
         TimeSpan WriteQueuedImagesToFitsFiles()
         {
-            var stopWatch = Stopwatch.StartNew();
+            var writeQueueStart = MountUtcNow;
             while (imageWriteQueue.TryDequeue(out var imageWrite))
             {
                 try
@@ -586,9 +591,8 @@ public record Session(
                     External.LogException(ex, $"while saving frame #{imageWrite.frameNumber} taken at {imageWrite.expStartTime:o} by {imageWrite.image.ImageMeta.Instrument}");
                 }
             }
-            var elapsed = stopWatch.Elapsed;
-            stopWatch.Stop();
-            return elapsed;
+            
+            return MountUtcNow - writeQueueStart;
         }
     }
 
@@ -621,7 +625,7 @@ public record Session(
                 }
                 else if (finalCoverState is CoverStatus.Open)
                 {
-                    calibratorActionCompleted = cover.Driver.TurnOffCalibrator(External, cancellationToken);
+                    calibratorActionCompleted = cover.Driver.TurnOffCalibrator(cancellationToken);
                 }
                 else if (finalCoverState is CoverStatus.Closed)
                 {
@@ -682,7 +686,7 @@ public record Session(
             }
         }
 
-        return Array.TrueForAll(finalCoverStateReached, x => x);
+        return finalCoverStateReached.All(x => x);
     }
 
     /// <summary>
@@ -698,9 +702,7 @@ public record Session(
     /// <summary>
     /// Attention: Cannot be cancelled (as it would possibly destroy the cameras)
     /// </summary>
-    /// <param name="setup">Setup contains all telescopes (with cameras)</param>
     /// <param name="rampTime">Interval between temperature checks</param>
-    /// <param name="external">Used for <see cref="IExternal.Sleep(TimeSpan)"/> and logging.</param>
     /// <returns>True if setpoint temperature was reached.</returns>
     internal bool CoolCamerasToAmbient(TimeSpan rampTime)
         => CoolCamerasToSetpoint(new SetpointTemp(sbyte.MinValue, SetpointTempKind.Ambient), rampTime, 0.1, CoolDirection.Up, CancellationToken.None);
@@ -731,7 +733,7 @@ public record Session(
             for (var i = 0; i < Setup.Telescopes.Count; i++)
             {
                 var camera = Setup.Telescopes[i].Camera;
-                coolingStates[i] = camera.Driver.CoolToSetpoint(desiredSetpointTemp, thresPower, direction, coolingStates[i], External);
+                coolingStates[i] = camera.Driver.CoolToSetpoint(desiredSetpointTemp, thresPower, direction, coolingStates[i]);
             }
 
             accSleep += rampInterval;
@@ -764,13 +766,16 @@ public record Session(
 
     internal T Catch<T>(Func<T> func, T @default = default) where T : struct => External.Catch(func, @default);
 
-    internal DateTime GetCurrentUtc()
+    internal DateTime MountUtcNow
     {
-        if (Setup.Mount.Driver.TryGetUTCDate(out var dateTime))
+        get
         {
-            return dateTime;
-        }
+            if (Setup.Mount.Driver.TryGetUTCDate(out var dateTime))
+            {
+                return dateTime;
+            }
 
-        return External.TimeProvider.GetUtcNow().UtcDateTime;
+            return External.TimeProvider.GetUtcNow().UtcDateTime;
+        }
     }
 }

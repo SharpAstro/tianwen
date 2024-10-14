@@ -97,7 +97,7 @@ public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
         await JsonSerializer.SerializeAsync(stream, new ProfileDto(ProfileId, DisplayName, Values), SerializerOptions);
     }
 
-    protected override IDeviceDriver? NewImplementationFromDevice() => null;
+    protected override object? NewImplementationFromDevice(IExternal external) => null;
 
     record ProfileDto(Guid ProfileId, string Name, ValueDictRO Values);
 }

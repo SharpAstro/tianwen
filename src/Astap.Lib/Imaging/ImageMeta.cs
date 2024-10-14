@@ -5,7 +5,7 @@ namespace Astap.Lib.Imaging;
 
 public record struct ImageMeta(
     string Instrument,
-    DateTime ExposureStartTime,
+    DateTimeOffset ExposureStartTime,
     TimeSpan ExposureDuration,
     FrameType FrameType,
     string Telescope,

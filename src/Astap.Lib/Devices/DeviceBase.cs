@@ -45,14 +45,15 @@ public abstract record class DeviceBase(Uri DeviceUri)
         return device is not null;
     }
 
-    public virtual bool TryInstantiateDriver<T>([NotNullWhen(true)] out T? driver) where T : IDeviceDriver => TryInstantiate(out driver);
+    public virtual bool TryInstantiateDriver<TDeviceDriver>(IExternal external, [NotNullWhen(true)] out TDeviceDriver? driver)
+        where TDeviceDriver : IDeviceDriver => TryInstantiate(external, out driver);
 
-    public virtual bool TryInstantiateDeviceSource<TDevice>([NotNullWhen(true)] out IDeviceSource<TDevice>? deviceSource) where TDevice : DeviceBase
-        => TryInstantiate(out deviceSource);
+    public virtual bool TryInstantiateDeviceSource<TDevice>(IExternal external, [NotNullWhen(true)] out IDeviceSource<TDevice>? deviceSource)
+        where TDevice : DeviceBase => TryInstantiate(external, out deviceSource);
 
-    public virtual bool TryInstantiate<T>([NotNullWhen(true)] out T? driver)
+    public virtual bool TryInstantiate<T>(IExternal external, [NotNullWhen(true)] out T? driver)
     {
-        if (NewImplementationFromDevice() is T asT)
+        if (NewImplementationFromDevice(external) is T asT)
         {
             driver = asT;
             return true;
@@ -64,5 +65,5 @@ public abstract record class DeviceBase(Uri DeviceUri)
         }
     }
 
-    protected abstract IDeviceDriver? NewImplementationFromDevice();
+    protected abstract object? NewImplementationFromDevice(IExternal external);
 }

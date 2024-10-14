@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Microsoft.Extensions.Logging;
+using System;
 using System.IO;
 using System.Linq;
 
@@ -48,13 +49,15 @@ public interface IExternal
 
     void Sleep(TimeSpan duration);
 
-    void LogInfo(string info);
+    void Log(LogLevel logLevel, string message);
 
-    void LogWarning(string warning);
+    void LogInfo(string info) => Log(LogLevel.Information, info);
 
-    void LogError(string error);
+    void LogWarning(string warning) => Log(LogLevel.Warning, warning);
 
-    void LogException(Exception ex, string extra);
+    void LogError(string error) => Log(LogLevel.Error, error);
+
+    void LogException(Exception ex, string extra) => Log(LogLevel.Error, $"{ex.Message} extra");
 
     string OutputFolder { get; }
 

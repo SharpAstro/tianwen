@@ -238,22 +238,22 @@ public interface IMountDriver : IDeviceDriver
         return !double.IsNaN(raMount) && !double.IsNaN(decMount) && !double.IsNaN(az) && !double.IsNaN(alt);
     }
 
-    public bool IsOnSamePierSide(double hourAngleAtSlewTime, IExternal external)
+    public bool IsOnSamePierSide(double hourAngleAtSlewTime)
     {
-        var pierSide = external.Catch(() => SideOfPier, PierSide.Unknown);
-        var currentHourAngle = external.Catch(() => HourAngle, double.NaN);
+        var pierSide = External.Catch(() => SideOfPier, PierSide.Unknown);
+        var currentHourAngle = External.Catch(() => HourAngle, double.NaN);
         return pierSide == ExpectedSideOfPier
             && !double.IsNaN(currentHourAngle)
             && (pierSide != PierSide.Unknown || Math.Sign(hourAngleAtSlewTime) == Math.Sign(currentHourAngle));
     }
 
-    public bool SlewToZenith(TimeSpan distMeridian, IExternal external, CancellationToken cancellationToken)
+    public bool SlewToZenith(TimeSpan distMeridian, CancellationToken cancellationToken)
     {
         if (CanSlew && SlewHourAngleDecAsync((TimeSpan.FromHours(12) - distMeridian).TotalHours, SiteLatitude))
         {
             while (IsSlewing && !cancellationToken.IsCancellationRequested)
             {
-                external.Sleep(TimeSpan.FromSeconds(1));
+                External.Sleep(TimeSpan.FromSeconds(1));
             }
 
             return !cancellationToken.IsCancellationRequested;
@@ -262,12 +262,12 @@ public interface IMountDriver : IDeviceDriver
         return false;
     }
 
-    public SlewResult SlewToTarget(int minAboveHorizon, Target target, IExternal external, CancellationToken cancellationToken)
+    public SlewResult SlewToTarget(int minAboveHorizon, Target target, CancellationToken cancellationToken)
     {
         var az = double.NaN;
         var alt = double.NaN;
         var dsop = PierSide.Unknown;
-        if (!TryGetTransform(external.TimeProvider, out var transform)
+        if (!TryGetTransform(External.TimeProvider, out var transform)
             || !TryTransformJ2000ToMountNative(transform, target.RA, target.Dec, updateTime: false, out var raMount, out var decMount, out az, out alt)
             || double.IsNaN(alt)
             || alt < minAboveHorizon
@@ -275,7 +275,7 @@ public interface IMountDriver : IDeviceDriver
             || !SlewRaDecAsync(raMount, decMount)
         )
         {
-            external.LogError($"Failed to slew {Name} to target {target.Name} az={az:0.00} alt={alt:0.00} dsop={dsop}, skipping.");
+            External.LogError($"Failed to slew {Name} to target {target.Name} az={az:0.00} alt={alt:0.00} dsop={dsop}, skipping.");
             return new SlewResult(SlewPostCondition.SkipToNext, double.NaN);
         }
 
@@ -283,12 +283,12 @@ public interface IMountDriver : IDeviceDriver
 
         while (IsSlewing && failsafeCounter++ < MAX_FAILSAFE && !cancellationToken.IsCancellationRequested)
         {
-            external.Sleep(TimeSpan.FromSeconds(1));
+            External.Sleep(TimeSpan.FromSeconds(1));
         }
 
         if (cancellationToken.IsCancellationRequested)
         {
-            external.LogWarning($"Cancellation requested, abort slewing to target {target.Name} and quit imaging loop.");
+            External.LogWarning($"Cancellation requested, abort slewing to target {target.Name} and quit imaging loop.");
             return new SlewResult(SlewPostCondition.Cancelled, double.NaN);
         }
 
@@ -300,18 +300,18 @@ public interface IMountDriver : IDeviceDriver
         var actualSop = SideOfPier;
         if (actualSop != dsop)
         {
-            external.LogError($"Slewing {Name} to {target.Name} completed but actual side of pier {actualSop} is different from the expected one {dsop}, skipping.");
+            External.LogError($"Slewing {Name} to {target.Name} completed but actual side of pier {actualSop} is different from the expected one {dsop}, skipping.");
             return new SlewResult(SlewPostCondition.SkipToNext, double.NaN);
         }
 
         double hourAngleAtSlewTime;
         if (double.IsNaN(hourAngleAtSlewTime = HourAngle))
         {
-            external.LogError($"Could not obtain hour angle after slewing {Name} to {target.Name}, skipping.");
+            External.LogError($"Could not obtain hour angle after slewing {Name} to {target.Name}, skipping.");
             return new SlewResult(SlewPostCondition.SkipToNext, double.NaN);
         }
 
-        external.LogInfo($"Finished slewing mount {Name} to target {target.Name}.");
+        External.LogInfo($"Finished slewing mount {Name} to target {target.Name}.");
 
         return new SlewResult(SlewPostCondition.Success, hourAngleAtSlewTime);
     }
