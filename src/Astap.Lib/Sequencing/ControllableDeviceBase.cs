@@ -8,10 +8,10 @@ public abstract record ControllableDeviceBase<TDriver> : IDisposable
 {
     private bool disposedValue;
 
-    public ControllableDeviceBase(DeviceBase device)
+    public ControllableDeviceBase(DeviceBase device, IExternal external)
     {
         Device = device;
-        if (device.TryInstantiateDriver<TDriver>(out var driver))
+        if (device.TryInstantiateDriver<TDriver>(external, out var driver))
         {
             (Driver = driver).DeviceConnectedEvent += Driver_DeviceConnectedEvent;
         }

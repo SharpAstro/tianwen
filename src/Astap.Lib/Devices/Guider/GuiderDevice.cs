@@ -10,9 +10,9 @@ public record class GuiderDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 
     }
 
-    protected override IDeviceDriver? NewImplementationFromDevice() => DeviceType switch
+    protected override object? NewImplementationFromDevice(IExternal external) => DeviceType switch
     {
-        DeviceType.PHD2 => new PHD2GuiderDriver(this),
+        DeviceType.DedicatedGuiderSoftware => new PHD2GuiderDriver(this, external),
         _ => null
     };
 }

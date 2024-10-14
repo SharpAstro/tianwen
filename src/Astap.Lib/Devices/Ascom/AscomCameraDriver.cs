@@ -1,14 +1,13 @@
 ﻿using Astap.Lib.Imaging;
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 
 namespace Astap.Lib.Devices.Ascom;
 
 public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 {
-    public AscomCameraDriver(AscomDevice device) : base(device)
+    public AscomCameraDriver(AscomDevice device, IExternal external) : base(device, external)
     {
         DeviceConnectedEvent += AscomCameraDriver_DeviceConnectedEvent;
     }
@@ -287,11 +286,7 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
     public double ElectronsPerADU => Connected && _comObject?.ElectronsPerADU is { } elecPerADU ? elecPerADU : double.NaN;
 
-    public DateTime? LastExposureStartTime
-        => Connected && _comObject?.LastExposureStartTime is string lastExposureStartTime
-        && DateTime.TryParse(lastExposureStartTime, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal, out var dt)
-            ? dt
-            : _lastExposureStartTime;
+    public DateTimeOffset? LastExposureStartTime { get; private set; }
 
     public TimeSpan? LastExposureDuration
         => Connected && _comObject?.LastExposureDuration is double lastExposureDuration
@@ -327,13 +322,13 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
     public double ExposureResolution => Connected && _comObject?.ExposureResolution is double expResolution ? expResolution : double.NaN;
 
-    private DateTime? _lastExposureStartTime;
-
-    public void StartExposure(TimeProvider provider, TimeSpan duration, FrameType frameType)
+    public DateTimeOffset StartExposure(TimeSpan duration, FrameType frameType)
     {
         _comObject?.StartExposure(duration.TotalSeconds, frameType.NeedsOpenShutter());
-        _lastExposureStartTime = provider.GetUtcNow().UtcDateTime;
+        var startTime = External.TimeProvider.GetLocalNow();
+        LastExposureStartTime = startTime;
         LastExposureFrameType = frameType;
+        return startTime;
     }
 
     public void StopExposure()
@@ -389,12 +384,14 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
     public int FocalLength { get; set; } = -1;
 
-    public int FocusPos { get; set; } = -1;
+    public int FocusPosition { get; set; } = -1;
 
     public Filter Filter { get; set; } = Filter.Unknown;
 
     public double? Latitude { get; set; }
 
     public double? Longitude { get; set; }
+
+    public Target? Target { get; set; }
     #endregion
 }

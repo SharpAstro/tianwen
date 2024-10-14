@@ -113,10 +113,32 @@ public static class LeapSecondsTable
 
             // NOTE: Starting April 2018 - Please note the use of modified Julian date in the formula rather than year fraction as in previous formulae
 
-            // DATE RANGE 18th July 2023 Onwards - This is beyond the sensible extrapolation range of the most recent data analysis so revert to the basic formula: DeltaT = LeapSeconds + 32.184
-            if (YearFraction >= 2023.55d)
+            // DATE RANGE 30th September 2025 onwards - This is beyond the sensible extrapolation range of the most recent data analysis so revert to the basic formula: DeltaT = LeapSeconds + 32.184
+            if (YearFraction >= 2025.75d)
             {
                 Retval = _taiUtc[_taiUtc.GetLength(0) - 1, 0] + TT_TAI_OFFSET; // Get today's leap second value using whatever mechanic the user has configured and convert to DeltaT
+            }
+            // DATE RANGE 1st July 2024 Onwards - The analysis was performed on 6th July 2024 and creates values within 0.01 of a second of the projections to 5th July 2025.
+            else if (YearFraction >= 2024.5d)
+            {
+                Retval =
+                    +0.0d * ModifiedJulianDay * ModifiedJulianDay * ModifiedJulianDay * ModifiedJulianDay * ModifiedJulianDay +
+                    +0.0d * ModifiedJulianDay * ModifiedJulianDay * ModifiedJulianDay * ModifiedJulianDay +
+                    -9.5006209397015300E-09d * ModifiedJulianDay * ModifiedJulianDay * ModifiedJulianDay +
+                    +0.00173000218299984d * ModifiedJulianDay * ModifiedJulianDay +
+                    -105.007206149992 * ModifiedJulianDay +
+                    +2124630.8440484d;
+            }
+            // DATE RANGE 20th August 2023 Onwards - The analysis was performed on 20th August 2023 and creates values within 0.01 of a second of the projections to 19th August 2024.
+            else if (YearFraction >= 2023.6d)
+            {
+                Retval =
+                    +0.0d * ModifiedJulianDay * ModifiedJulianDay * ModifiedJulianDay * ModifiedJulianDay * ModifiedJulianDay +
+                    +0.0d * ModifiedJulianDay * ModifiedJulianDay * ModifiedJulianDay * ModifiedJulianDay +
+                    -0.00000000836552733660643d * ModifiedJulianDay * ModifiedJulianDay * ModifiedJulianDay +
+                    +0.00151338479660039d * ModifiedJulianDay * ModifiedJulianDay +
+                    -91.2604650974829d * ModifiedJulianDay +
+                    +1834465.8890493d;
             }
             // DATE RANGE 18th July 2022 Onwards - The analysis was performed on 18th July 2022 and creates values within 0.01 of a second of the projections to 17th July 2023.
             else if (YearFraction >= 2022.55d)

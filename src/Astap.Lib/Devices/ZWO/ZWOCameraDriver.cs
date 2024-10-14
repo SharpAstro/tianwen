@@ -35,13 +35,13 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
 
     // Initialise variables to hold values required for functionality tested by Conform
 
-    private DateTime? _lastExposureStartTime;
+    private DateTimeOffset? _lastExposureStartTime;
     private TimeSpan? _lastExposureDuration;
     private int _camImageReady = 0;
     private Float32HxWImageData? _camImageArray;
     private FrameType _frameType;
 
-    public ZWOCameraDriver(ZWODevice device) : base(device)
+    public ZWOCameraDriver(ZWODevice device, IExternal external) : base(device, external)
     {
         DeviceConnectedEvent += ZWOCameraDriver_DeviceConnectedEvent;
     }
@@ -517,7 +517,7 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
 
     public IEnumerable<string> Offsets => throw new InvalidOperationException($"{nameof(Offsets)} is not supported");
 
-    public DateTime? LastExposureStartTime => _lastExposureStartTime;
+    public DateTimeOffset? LastExposureStartTime => _lastExposureStartTime;
 
     public TimeSpan? LastExposureDuration => _lastExposureDuration;
 
@@ -584,7 +584,7 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
 
     public void AbortExposure() => StopExposure();
 
-    public void StartExposure(TimeProvider timeProvider, TimeSpan duration, FrameType frameType)
+    public DateTimeOffset StartExposure(TimeSpan duration, FrameType frameType)
     {
         var settingsSnapshot = _cameraSettings;
 
@@ -681,11 +681,14 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
         {
             _camState = CameraState.Exposing;
             _lastExposureDuration = duration;
-            _lastExposureStartTime = timeProvider.GetUtcNow().UtcDateTime;
+            var startTime = External.TimeProvider.GetLocalNow();
+            _lastExposureStartTime = startTime;
             _frameType = frameType;
             // ensure that on image readout we use the settings that the image was exposed with
             _exposureSettings = settingsSnapshot;
             Interlocked.Exchange(ref _camImageReady, IMAGE_STATE_NO_IMG);
+
+            return startTime;
         }
         else
         {
@@ -749,12 +752,14 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
 
     public int FocalLength { get; set; } = -1;
 
-    public int FocusPos { get; set; } = -1;
+    public int FocusPosition { get; set; } = -1;
 
     public Filter Filter { get; set; } = Filter.Unknown;
  
     public double? Latitude { get; set; }
 
     public double? Longitude { get; set; }
+
+    public Target? Target { get; set; }
     #endregion
 }

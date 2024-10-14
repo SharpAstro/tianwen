@@ -3,7 +3,7 @@ using static ZWOptical.SDK.EAFFocuser1_6.EAF_ERROR_CODE;
 
 namespace Astap.Lib.Devices.ZWO;
 
-public class ZWOFocuserDriver(ZWODevice device) : ZWODeviceDriverBase<EAF_INFO>(device), IFocuserDriver
+public class ZWOFocuserDriver(ZWODevice device, IExternal external) : ZWODeviceDriverBase<EAF_INFO>(device, external), IFocuserDriver
 {
     public bool Absolute => true;
 

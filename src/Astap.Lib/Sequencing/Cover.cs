@@ -2,7 +2,7 @@
 
 namespace Astap.Lib.Sequencing;
 
-public record Cover(DeviceBase Device) : ControllableDeviceBase<ICoverDriver>(Device)
+public record Cover(DeviceBase Device, IExternal External) : ControllableDeviceBase<ICoverDriver>(Device, External)
 {
     protected override void Driver_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
     {

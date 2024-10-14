@@ -5,7 +5,7 @@ namespace Astap.Lib.Devices;
 
 public interface ICoverDriver : IDeviceDriver
 {
-    public bool IsCalibrationReady
+    bool IsCalibrationReady
         => CoverState is not CoverStatus.Error and not CoverStatus.Moving
         && CalibratorState is not CalibratorStatus.NotReady and not CalibratorStatus.NotPresent and not CalibratorStatus.Error;
 
@@ -42,9 +42,12 @@ public interface ICoverDriver : IDeviceDriver
     /// </summary>
     CalibratorStatus CalibratorState { get; }
 
-
-
-    bool TurnOffCalibrator(IExternal external, CancellationToken cancellationToken)
+    /// <summary>
+    /// Higher-level function to turn of the calibrator (if present)
+    /// </summary>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
+    bool TurnOffCalibrator(CancellationToken cancellationToken)
     {
         var calState = CalibratorState;
 
@@ -63,7 +66,7 @@ public interface ICoverDriver : IDeviceDriver
                 && !cancellationToken.IsCancellationRequested
                 && ++tries < MAX_FAILSAFE)
             {
-                external.Sleep(TimeSpan.FromSeconds(3));
+                External.Sleep(TimeSpan.FromSeconds(3));
             }
 
             return calState is CalibratorStatus.Off;

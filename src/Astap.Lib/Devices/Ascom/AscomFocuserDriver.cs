@@ -2,7 +2,7 @@
 
 public class AscomFocuserDriver : AscomDeviceDriverBase, IFocuserDriver
 {
-    public AscomFocuserDriver(AscomDevice device) : base(device)
+    public AscomFocuserDriver(AscomDevice device, IExternal external) : base(device, external)
     {
         DeviceConnectedEvent += AscomFocuserDriver_DeviceConnectedEvent;
     }

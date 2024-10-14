@@ -2,7 +2,7 @@
 
 namespace Astap.Lib.Sequencing;
 
-public record Mount(DeviceBase Device) : ControllableDeviceBase<IMountDriver>(Device)
+public record Mount(DeviceBase Device, IExternal External) : ControllableDeviceBase<IMountDriver>(Device, External)
 {
     protected override void Driver_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
     {

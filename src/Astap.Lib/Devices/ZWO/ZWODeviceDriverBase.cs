@@ -4,7 +4,7 @@ using ZWOptical.SDK;
 
 namespace Astap.Lib.Devices.ZWO;
 
-public abstract class ZWODeviceDriverBase<TDeviceInfo>(ZWODevice device) : IDeviceDriver
+public abstract class ZWODeviceDriverBase<TDeviceInfo>(ZWODevice device, IExternal external) : IDeviceDriver
     where TDeviceInfo : struct, IZWODeviceInfo
 {
     public delegate void ProcessDeviceInfoDelegate(in TDeviceInfo deviceInfo);
@@ -32,6 +32,8 @@ public abstract class ZWODeviceDriverBase<TDeviceInfo>(ZWODevice device) : IDevi
     public abstract string? DriverVersion { get; }
 
     public virtual DeviceType DriverType => _device.DeviceType;
+
+    public IExternal External { get; } = external;
 
     private int _connectionId;
 

@@ -4,7 +4,7 @@ using System.Linq;
 
 namespace Astap.Lib.Devices.Ascom;
 
-public class AscomFilterWheelDriver(AscomDevice device) : AscomDeviceDriverBase(device), IFilterWheelDriver
+public class AscomFilterWheelDriver(AscomDevice device, IExternal external) : AscomDeviceDriverBase(device, external), IFilterWheelDriver
 {
     string[] Names => _comObject?.Names is string[] names ? names : [];
 

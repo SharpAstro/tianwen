@@ -4,7 +4,7 @@ using System.Threading;
 
 namespace Astap.Lib.Devices.Ascom;
 
-public abstract class AscomDeviceDriverBase(AscomDevice device) : DynamicComObject(device.DeviceId), IDeviceDriver
+public abstract class AscomDeviceDriverBase(AscomDevice device, IExternal external) : DynamicComObject(device.DeviceId), IDeviceDriver
 {
     private readonly AscomDevice _device = device;
 
@@ -17,6 +17,8 @@ public abstract class AscomDeviceDriverBase(AscomDevice device) : DynamicComObje
     public string? DriverVersion => _comObject?.DriverVersion as string;
 
     public DeviceType DriverType => _device.DeviceType;
+
+    public IExternal External { get; } = external;
 
     [DebuggerHidden]
     public void SetupDialog() => _comObject?.SetupDialog();

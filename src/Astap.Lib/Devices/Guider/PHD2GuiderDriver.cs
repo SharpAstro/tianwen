@@ -63,17 +63,18 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     /// </summary>
     public bool IsSupported { get; } = true;
 
-    public PHD2GuiderDriver(GuiderDevice guiderDevice)
-        : this(guiderDevice, new GuiderConnection())
+    public PHD2GuiderDriver(GuiderDevice guiderDevice, IExternal external)
+        : this(guiderDevice, new GuiderConnection(), external)
     {
         // calls below
     }
 
-    public PHD2GuiderDriver(GuiderDevice guiderDevice, IGuiderConnection connection)
+    public PHD2GuiderDriver(GuiderDevice guiderDevice, IGuiderConnection connection, IExternal external)
     {
+        External = external;
         _guiderDevice = guiderDevice;
 
-        if (guiderDevice.DeviceType != DeviceType.PHD2)
+        if (guiderDevice.DeviceType != DeviceType.DedicatedGuiderSoftware)
         {
             throw new ArgumentException($"{guiderDevice} is not of type PHD2, but of type: {guiderDevice.DeviceType}", nameof(guiderDevice));
         }
@@ -530,7 +531,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         }
     }
 
-    public IEnumerable<DeviceType> RegisteredDeviceTypes => new[] { DriverType };
+    public IEnumerable<DeviceType> RegisteredDeviceTypes => [DriverType];
 
     public string Name => "PHD2 Driver";
 
@@ -541,6 +542,8 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     public string? DriverVersion => Version;
 
     public DeviceType DriverType { get; } = DeviceType.PHD2;
+
+    public IExternal External { get; }
 
     void EnsureConnected()
     {
@@ -1008,7 +1011,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     /// <returns></returns>
     public IEnumerable<GuiderDevice> RegisteredDevices(DeviceType deviceType)
     {
-        if (deviceType != DeviceType.PHD2)
+        if (deviceType != DeviceType.DedicatedGuiderSoftware)
         {
             yield break;
         }

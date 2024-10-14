@@ -1,5 +1,6 @@
 using Astap.Lib.Devices;
 using Astap.Lib.Devices.Ascom;
+using Astap.Lib.Tests.Fakes;
 using Shouldly;
 using System;
 using System.Diagnostics;
@@ -7,10 +8,11 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Astap.Lib.Tests;
 
-public class AscomDeviceTests
+public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
 {
     [Fact]
     public void TestWhenPlatformIsWindowsThatDeviceTypesAreReturned()
@@ -37,6 +39,7 @@ public class AscomDeviceTests
     {
         Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached);
 
+        var external = new FakeExternal(testOutputHelper);
         using var profile = new AscomProfile();
         var devices = profile.RegisteredDevices(type);
         var device = devices.FirstOrDefault(e => e.DeviceId == $"ASCOM.Simulator.{type}");
@@ -47,7 +50,7 @@ public class AscomDeviceTests
         device.DeviceType.ShouldBe(type);
         device.DisplayName.ShouldNotBeNullOrEmpty();
 
-        device.TryInstantiateDriver<IDeviceDriver>(out var driver).ShouldBeTrue();
+        device.TryInstantiateDriver<IDeviceDriver>(external, out var driver).ShouldBeTrue();
 
         using (driver)
         {
@@ -62,12 +65,13 @@ public class AscomDeviceTests
         Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached, "Skipped as this test is only run when on Windows and debugger is attached");
 
         // given
+        var external = new FakeExternal(testOutputHelper);
         using var profile = new AscomProfile();
         var allTelescopes = profile.RegisteredDevices(DeviceType.Telescope);
         var simTelescopeDevice = allTelescopes.FirstOrDefault(e => e.DeviceId == "ASCOM.Simulator." + DeviceType.Telescope);
 
         // when
-        if (simTelescopeDevice?.TryInstantiateDriver(out IMountDriver? driver) is true)
+        if (simTelescopeDevice?.TryInstantiateDriver(external, out IMountDriver? driver) is true)
         {
             using (driver)
             {
@@ -82,17 +86,18 @@ public class AscomDeviceTests
         Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached, "Skipped as this test is only run when on Windows and debugger is attached");
 
         // given
+        var external = new FakeExternal(testOutputHelper);
         using var profile = new AscomProfile();
         var allCameras = profile.RegisteredDevices(DeviceType.Camera);
         var simCameraDevice = allCameras.FirstOrDefault(e => e.DeviceId == "ASCOM.Simulator." + DeviceType.Camera);
 
         // when / then
-        if (simCameraDevice?.TryInstantiateDriver(out ICameraDriver? driver) is true)
+        if (simCameraDevice?.TryInstantiateDriver(external, out ICameraDriver? driver) is true)
         {
             using (driver)
             {
                 driver.Connected = true;
-                driver.StartExposure(TimeProvider.System, TimeSpan.FromSeconds(0.1));
+                var startExposure = driver.StartExposure(TimeSpan.FromSeconds(0.1));
 
                 Thread.Sleep((int)TimeSpan.FromSeconds(0.5).TotalMilliseconds);
                 driver.ImageReady.ShouldBeTrue();
@@ -101,6 +106,7 @@ public class AscomDeviceTests
                 var image = driver.Image.ShouldNotBeNull();
 
                 driver.DriverType.ShouldBe(DeviceType.Camera);
+                image.ImageMeta.ExposureStartTime.ShouldBe(startExposure);
                 image.Width.ShouldBe(data.GetLength(1));
                 image.Height.ShouldBe(data.GetLength(0));
                 image.BitDepth.ShouldBe(driver.BitDepth.ShouldNotBeNull());

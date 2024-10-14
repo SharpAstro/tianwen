@@ -5,7 +5,6 @@ using Astap.Lib.Devices;
 using Astap.Lib.Devices.Ascom;
 using Astap.Lib.Devices.Guider;
 using Astap.Lib.Sequencing;
-using Pastel;
 using ZWOptical.SDK;
 
 var cts = new CancellationTokenSource();
@@ -24,8 +23,7 @@ var coverDeviceId = args.Length > argIdx ? args[argIdx++] : "ASCOM.Simulator.Cov
 var focuserDeviceId = args.Length > argIdx ? args[argIdx++] : "ASCOM.Simulator.Focuser";
 var expDuration = TimeSpan.FromSeconds(args.Length > 2 ? int.Parse(args[argIdx++]) : 10);
 var outputFolder = Directory.CreateDirectory(args.Length > 3 ? args[argIdx++] : Path.Combine(Directory.GetCurrentDirectory(), "Astap.Lib.TestCli", "Light")).FullName;
-var external = new ConsoleOutput(outputFolder);
-
+IExternal external = new ConsoleOutput(outputFolder);
 
 external.LogInfo($"EAF SDK Version: {EAFFocuser1_6.EAFGetSDKVersion()}");
 external.LogInfo($"EFW SDK Version: {EFW1_7.EFWGetSDKVersion()}");
@@ -55,7 +53,7 @@ var focuserDevice = allFocusers.FirstOrDefault(e => e.DeviceId == focuserDeviceI
 Mount mount;
 if (mountDevice is not null)
 {
-    mount = new Mount(mountDevice);
+    mount = new Mount(mountDevice, external);
     external.LogInfo($"Found mount {mountDevice.DisplayName}, using {mount.Driver.DriverInfo ?? mount.Driver.GetType().Name}");
 }
 else
@@ -67,7 +65,7 @@ else
 Guider guider;
 if (guiderDevice is not null)
 {
-    guider = new Guider(guiderDevice);
+    guider = new Guider(guiderDevice, external);
 
     if (guider.Driver.TryGetActiveProfileName(out var activeProfileName))
     {
@@ -87,7 +85,7 @@ else
 Camera camera;
 if (cameraDevice is not null)
 {
-    camera = new Camera(cameraDevice);
+    camera = new Camera(cameraDevice, external);
 }
 else
 {
@@ -98,7 +96,7 @@ else
 Cover? cover;
 if (coverDevice is not null)
 {
-    cover = new Cover(coverDevice);
+    cover = new Cover(coverDevice, external);
 }
 else
 {
@@ -108,7 +106,7 @@ else
 Focuser? focuser;
 if (focuserDevice is not null)
 {
-    focuser = new Focuser(focuserDevice);
+    focuser = new Focuser(focuserDevice, external);
 }
 else
 {
@@ -147,20 +145,3 @@ var session = new Session(setup, sessionConfiguration, analyser, plateSolver, ex
 session.Run(cts.Token);
 
 return 0;
-
-class ConsoleOutput(string outputFolder) : IExternal
-{
-    public TimeProvider TimeProvider => TimeProvider.System;
-
-    public string OutputFolder { get; } = outputFolder;
-
-    public void LogError(string error) => Console.Error.WriteLine($"[{DateTime.Now:o}] {error.Pastel(ConsoleColor.Red)}");
-
-    public void LogWarning(string warning) => Console.WriteLine($"[{DateTime.Now:o}] {warning.Pastel(ConsoleColor.Yellow)}");
-
-    public void LogInfo(string info) => Console.WriteLine($"[{DateTime.Now:o}] {info.Pastel(ConsoleColor.White)}");
-
-    public void LogException(Exception exception, string extra) => LogError($"{exception.Message} {extra}");
-
-    public void Sleep(TimeSpan duration) => Thread.Sleep(duration);
-}
