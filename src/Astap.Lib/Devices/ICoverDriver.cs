@@ -47,7 +47,7 @@ public interface ICoverDriver : IDeviceDriver
     /// </summary>
     /// <param name="cancellationToken"></param>
     /// <returns></returns>
-    bool TurnOffCalibrator(CancellationToken cancellationToken)
+    bool TurnOffCalibratorAndWait(CancellationToken cancellationToken)
     {
         var calState = CalibratorState;
 

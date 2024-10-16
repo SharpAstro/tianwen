@@ -6,6 +6,7 @@ namespace Astap.Lib.Astrometry.SOFA;
 public static class LeapSecondsTable
 {
     /// <summary>
+    /// <code>
     /// 1972 JAN  1 =JD 2441317.5  TAI-UTC=  10.0       S + (MJD - 41317.) X 0.0      S
     /// 1972 JUL  1 =JD 2441499.5  TAI-UTC=  11.0       S + (MJD - 41317.) X 0.0      S
     /// 1973 JAN  1 =JD 2441683.5  TAI-UTC=  12.0       S + (MJD - 41317.) X 0.0      S
@@ -34,6 +35,7 @@ public static class LeapSecondsTable
     /// 2012 JUL  1 =JD 2456109.5  TAI-UTC=  35.0       S + (MJD - 41317.) X 0.0      S
     /// 2015 JUL  1 =JD 2457204.5  TAI-UTC=  36.0       S + (MJD - 41317.) X 0.0      S
     /// 2017 JAN  1 =JD 2457754.5  TAI-UTC=  37.0       S + (MJD - 41317.) X 0.0      S
+    /// </code>
     /// </summary>
     private static readonly double[,] _taiUtc =
     {

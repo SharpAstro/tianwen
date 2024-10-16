@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -18,6 +19,8 @@ using ValueDictRO = IReadOnlyDictionary<string, Uri>;
 /// <param name="DeviceUri">profile descriptor</param>
 public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
 {
+    public static readonly Profile Root = new Profile(CreateProfileUri(Guid.Empty, "Root"));
+
     public Profile(Guid profileId, string name, ValueDictRO values) : this(CreateProfileUri(profileId, name, values))
     {
         _valuesCache = values;
@@ -34,8 +37,14 @@ public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
                 : new ValueDict()
         );
 
+    private static readonly JsonSerializerOptions ValueSerializerOptions = new JsonSerializerOptions { WriteIndented = false };
+
+    private static readonly JsonSerializerOptions ProfileSerializerOptions = new JsonSerializerOptions { WriteIndented = true };
+
     static string EncodeValues(ValueDictRO values)
-        => Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(values, new JsonSerializerOptions { WriteIndented = false }));
+    {
+        return Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(values, ValueSerializerOptions));
+    }
 
     const string ProfileExt = ".json";
 
@@ -76,8 +85,6 @@ public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
 
     public Guid ProfileId => Guid.Parse(DeviceId);
 
-    private static readonly JsonSerializerOptions SerializerOptions = new JsonSerializerOptions { WriteIndented = true };
-
     public async Task SaveAsync(DirectoryInfo profileFolder)
     {
         var (_, file) = ListExistingProfiles(profileFolder).FirstOrDefault(x => x.profileId == ProfileId);
@@ -94,10 +101,48 @@ public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
         }
 
         using var stream = file.Open(mode, FileAccess.Write, FileShare.None);
-        await JsonSerializer.SerializeAsync(stream, new ProfileDto(ProfileId, DisplayName, Values), SerializerOptions);
+        await JsonSerializer.SerializeAsync(stream, new ProfileDto(ProfileId, DisplayName, Values), ProfileSerializerOptions);
     }
 
-    protected override object? NewImplementationFromDevice(IExternal external) => null;
+    protected override object? NewInstanceFromDevice(IExternal external) => new ProfileIterator(external);
+}
 
-    record ProfileDto(Guid ProfileId, string Name, ValueDictRO Values);
+record ProfileDto(Guid ProfileId, string Name, ValueDictRO Values);
+
+record ProfileIterator(IExternal External) : IDeviceSource<Profile>
+{
+    public bool IsSupported => true;
+
+    public IEnumerable<DeviceType> RegisteredDeviceTypes => [DeviceType.Profile];
+
+    public IEnumerable<Profile> RegisteredDevices(DeviceType deviceType)
+    {
+        foreach (var (profileId, file) in Profile.ListExistingProfiles(External.ProfileFolder))
+        {
+            Profile? profile;
+            try
+            {
+                using var stream = file.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
+                if (JsonSerializer.Deserialize<ProfileDto>(stream) is { } profileDto && !string.IsNullOrWhiteSpace(profileDto.Name))
+                {
+                    profile = new Profile(profileDto.ProfileId, profileDto.Name, profileDto.Values);
+                }
+                else
+                {
+                    External.LogWarning($"Skipping invalid profile {profileId} in file {file}");
+                    profile = null;
+                }
+            }
+            catch (Exception ex)
+            {
+                External.LogException(ex, $"Failed to load profile {profileId} in file {file}");
+                profile = null;
+            }
+
+            if (profile is not null)
+            {
+                yield return profile;
+            }
+        }
+    }
 }

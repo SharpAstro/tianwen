@@ -2,11 +2,11 @@
 using Microsoft.Extensions.Logging;
 using Pastel;
 
-class ConsoleOutput(string outputFolder) : IExternal
+class ConsoleOutput(DirectoryInfo outputFolder) : IExternal
 {
     public TimeProvider TimeProvider => TimeProvider.System;
 
-    public string OutputFolder { get; } = outputFolder;
+    public DirectoryInfo OutputFolder { get; } = outputFolder;
 
     public void Sleep(TimeSpan duration) => Thread.Sleep(duration);
 

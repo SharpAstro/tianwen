@@ -3,9 +3,9 @@ using System;
 
 namespace Astap.Lib.Tests.Fakes;
 
-internal record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
+public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 {
-    protected override object? NewImplementationFromDevice(IExternal external) => DeviceType switch
+    protected override object? NewInstanceFromDevice(IExternal external) => DeviceType switch
     {
         // DeviceType.Camera => new FakeCameraDriver(this),
         DeviceType.FilterWheel => new FakeFilterWheelDriver(this, external),
