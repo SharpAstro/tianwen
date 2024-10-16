@@ -6,7 +6,7 @@ namespace Astap.Lib.Sequencing;
 public record struct SessionConfiguration(
     SetpointTemp SetpointCCDTemperature,
     TimeSpan CooldownRampInterval,
-    TimeSpan CoolupRampInterval,
+    TimeSpan WarmupRampInterval,
     byte MinHeightAboveHorizon,
     double DitherPixel,
     double SettlePixel,

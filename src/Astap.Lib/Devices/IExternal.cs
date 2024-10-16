@@ -59,7 +59,15 @@ public interface IExternal
 
     void LogException(Exception ex, string extra) => Log(LogLevel.Error, $"{ex.Message} extra");
 
-    string OutputFolder { get; }
+    /// <summary>
+    /// Folder root where images/flats/logs/... are stored
+    /// </summary>
+    DirectoryInfo OutputFolder { get; }
+
+    /// <summary>
+    /// Folder where profiles are stored
+    /// </summary>
+    DirectoryInfo ProfileFolder { get; }
 
     /// <summary>
     /// Time provider that should be used for all time operations
@@ -70,7 +78,7 @@ public interface IExternal
     /// Creates or returns a sub folder under the <see cref="OutputFolder"/>.
     /// </summary>
     /// <returns></returns>
-    public string CreateSubDirectoryInOutputFolder(params string[] subFolders)
+    public DirectoryInfo CreateSubDirectoryInOutputFolder(params string[] subFolders)
     {
         if (subFolders.Length is 0)
         {
@@ -84,7 +92,7 @@ public interface IExternal
 
         var subFolderPath = Path.Combine(subFolders.Select(GetSafeFileName).ToArray());
 
-        return Directory.CreateDirectory(Path.Combine(OutputFolder, subFolderPath)).FullName;
+        return Directory.CreateDirectory(Path.Combine(OutputFolder.FullName, subFolderPath));
     }
 
     public string GetSafeFileName(string name)

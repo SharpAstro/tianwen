@@ -49,7 +49,7 @@ public record Session(
             }
 
             // TODO wait until 25 min before astro dark to start cooling down without loosing time
-            CoolCamerasToSetpoint( Configuration.SetpointCCDTemperature, Configuration.CooldownRampInterval, 80, CoolDirection.Down, cancellationToken);
+            CoolCamerasToSetpoint( Configuration.SetpointCCDTemperature, Configuration.CooldownRampInterval, 80, SetupointDirection.Down, cancellationToken);
 
             // TODO wait until 5 min to astro dark, and/or implement IExternal.IsPolarAligned
 
@@ -306,7 +306,7 @@ public record Session(
 
         bool CloseCovers() => MoveTelescopeCoversToState(CoverStatus.Closed, CancellationToken.None);
 
-        bool TurnOffCameraCooling() => CoolCamerasToAmbient(Configuration.CoolupRampInterval);
+        bool TurnOffCameraCooling() => CoolCamerasToAmbient(Configuration.WarmupRampInterval);
     }
 
     /// <summary>
@@ -625,7 +625,7 @@ public record Session(
                 }
                 else if (finalCoverState is CoverStatus.Open)
                 {
-                    calibratorActionCompleted = cover.Driver.TurnOffCalibrator(cancellationToken);
+                    calibratorActionCompleted = cover.Driver.TurnOffCalibratorAndWait(cancellationToken);
                 }
                 else if (finalCoverState is CoverStatus.Closed)
                 {
@@ -696,7 +696,7 @@ public record Session(
     /// <param name="rampTime">Interval between temperature checks</param>
     /// <returns>True if setpoint temperature was reached.</returns>
     internal bool CoolCamerasToSensorTemp(TimeSpan rampTime, CancellationToken cancellationToken)
-        => CoolCamerasToSetpoint(new SetpointTemp(sbyte.MinValue, SetpointTempKind.CCD), rampTime, 0.1, CoolDirection.Up, cancellationToken);
+        => CoolCamerasToSetpoint(new SetpointTemp(sbyte.MinValue, SetpointTempKind.CCD), rampTime, 0.1, SetupointDirection.Up, cancellationToken);
 
 
     /// <summary>
@@ -705,7 +705,7 @@ public record Session(
     /// <param name="rampTime">Interval between temperature checks</param>
     /// <returns>True if setpoint temperature was reached.</returns>
     internal bool CoolCamerasToAmbient(TimeSpan rampTime)
-        => CoolCamerasToSetpoint(new SetpointTemp(sbyte.MinValue, SetpointTempKind.Ambient), rampTime, 0.1, CoolDirection.Up, CancellationToken.None);
+        => CoolCamerasToSetpoint(new SetpointTemp(sbyte.MinValue, SetpointTempKind.Ambient), rampTime, 0.1, SetupointDirection.Up, CancellationToken.None);
 
     /// <summary>
     /// Assumes that power is on (c.f. <see cref="CoolCamerasToSensorTemp"/>).
@@ -720,7 +720,7 @@ public record Session(
         SetpointTemp desiredSetpointTemp,
         TimeSpan rampInterval,
         double thresPower,
-        CoolDirection direction,
+        SetupointDirection direction,
         CancellationToken cancellationToken
     )
     {
@@ -757,7 +757,7 @@ public record Session(
         var dateFolderUtc = subExpStartTime.UtcDateTime.ToString("yyyy-MM-dd", DateTimeFormatInfo.InvariantInfo);
 
         // TODO: make configurable, add frame type
-        var frameFolder = External.CreateSubDirectoryInOutputFolder(targetName, dateFolderUtc, image.ImageMeta.Filter.Name);
+        var frameFolder = External.CreateSubDirectoryInOutputFolder(targetName, dateFolderUtc, image.ImageMeta.Filter.Name).FullName;
         var fitsFileName = External.GetSafeFileName($"frame_{subExpStartTime:o}_{frameNumber}.fits");
 
         External.LogInfo($"Writing FITS file {frameFolder}/{fitsFileName}");

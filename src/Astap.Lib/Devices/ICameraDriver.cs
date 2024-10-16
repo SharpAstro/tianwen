@@ -291,7 +291,7 @@ public interface ICameraDriver : IDeviceDriver
         && CanSetCoolerOn
         && (CanGetHeatsinkTemperature || CanGetCCDTemperature);
 
-    CameraCoolingState CoolToSetpoint(SetpointTemp desiredSetpointTemp, double thresPower, CoolDirection direction, CameraCoolingState coolingState)
+    CameraCoolingState CoolToSetpoint(SetpointTemp desiredSetpointTemp, double thresPower, SetupointDirection direction, CameraCoolingState coolingState)
     {
         if (IsCoolable)
         {

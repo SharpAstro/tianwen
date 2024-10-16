@@ -13,5 +13,5 @@ public record class NoneDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 
     }
 
-    protected override object? NewImplementationFromDevice(IExternal external) => null;
+    protected override object? NewInstanceFromDevice(IExternal external) => null;
 }

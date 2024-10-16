@@ -10,7 +10,7 @@ public record class ZWODevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         // calls primary constructor
     }
 
-    protected override object? NewImplementationFromDevice(IExternal external) => DeviceType switch
+    protected override object? NewInstanceFromDevice(IExternal external) => DeviceType switch
     {
         DeviceType.Camera => new ZWOCameraDriver(this, external),
         DeviceType.FilterWheel => new ZWOFilterWheelDriver(this, external),

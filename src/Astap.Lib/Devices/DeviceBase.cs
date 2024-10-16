@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
@@ -31,18 +32,27 @@ public abstract record class DeviceBase(Uri DeviceUri)
 
     public static bool TryFromUri(Uri deviceUri, [NotNullWhen(true)] out DeviceBase? device)
     {
-        var findDeviceInSubclass =
-            from assembly in new[] { typeof(DeviceBase).Assembly, Assembly.GetCallingAssembly(), Assembly.GetEntryAssembly() }
-            where assembly is not null
-            from exported in assembly.GetExportedTypes()
-            where exported.Name.Equals(deviceUri.Host, StringComparison.OrdinalIgnoreCase) && exported.IsSubclassOf(typeof(DeviceBase))
-            let constructor = exported.GetConstructor([typeof(Uri)])
-            let obj = constructor?.Invoke(new[] { deviceUri }) as DeviceBase
-            where obj is not null
-            select obj;
-
-        device = findDeviceInSubclass.FirstOrDefault();
+        device = EnumerateDeviceBase(deviceUri, typeof(DeviceBase).Assembly, Assembly.GetCallingAssembly(), Assembly.GetEntryAssembly()).FirstOrDefault();
         return device is not null;
+    }
+
+    internal static IEnumerable<DeviceBase> EnumerateDeviceBase(Uri deviceUri, params Assembly?[] assemblies)
+    {
+        foreach (var assembly in assemblies)
+        {
+            foreach (var exported in assembly?.GetExportedTypes() ?? [])
+            {
+                if (exported.Name.Equals(deviceUri.Host, StringComparison.OrdinalIgnoreCase) && exported.IsSubclassOf(typeof(DeviceBase)))
+                {
+                    var constructor = exported.GetConstructor([typeof(Uri)]);
+                    var obj = constructor?.Invoke(new[] { deviceUri }) as DeviceBase;
+                    if (obj is not null)
+                    {
+                        yield return obj;
+                    }
+                }
+            }
+        }
     }
 
     public virtual bool TryInstantiateDriver<TDeviceDriver>(IExternal external, [NotNullWhen(true)] out TDeviceDriver? driver)
@@ -53,7 +63,7 @@ public abstract record class DeviceBase(Uri DeviceUri)
 
     public virtual bool TryInstantiate<T>(IExternal external, [NotNullWhen(true)] out T? driver)
     {
-        if (NewImplementationFromDevice(external) is T asT)
+        if (NewInstanceFromDevice(external) is T asT)
         {
             driver = asT;
             return true;
@@ -65,5 +75,5 @@ public abstract record class DeviceBase(Uri DeviceUri)
         }
     }
 
-    protected abstract object? NewImplementationFromDevice(IExternal external);
+    protected abstract object? NewInstanceFromDevice(IExternal external);
 }

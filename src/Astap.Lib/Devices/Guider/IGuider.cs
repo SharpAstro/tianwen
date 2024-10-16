@@ -322,7 +322,7 @@ public interface IGuider : IDeviceDriver
     {
         if (external.Catch(() => Loop(timeout, external.Sleep)))
         {
-            if (SaveImage(Path.Combine(external.OutputFolder, "Guider")) is { Length: > 0 } file)
+            if (SaveImage(external.CreateSubDirectoryInOutputFolder("Guider").FullName) is { Length: > 0 } file)
             {
                 if (!TryGetImageDim(out var dim))
                 {

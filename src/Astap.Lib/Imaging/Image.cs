@@ -50,7 +50,7 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
 
         var height = hdu.Axes[0];
         var width = hdu.Axes[1];
-        var exposureStartTime = hdu.ObservationDate;
+        var exposureStartTime = new DateTime(hdu.ObservationDate.Ticks, DateTimeKind.Utc);
         var maybeExpTime = hdu.Header.GetDoubleValue("EXPTIME", double.NaN);
         var maybeExposure = hdu.Header.GetDoubleValue("EXPOSURE", double.NaN);
         var exposureDuration = TimeSpan.FromSeconds(new double[] { maybeExpTime, maybeExpTime, 0.0 }.First(x => !double.IsNaN(x)));
@@ -342,7 +342,7 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
         AddHeaderValueIfHasValue("YBINNING", imageMeta.BinY, "");
         AddHeaderValueIfHasValue("XPIXSZ", imageMeta.PixelSizeX, "");
         AddHeaderValueIfHasValue("YPIXSZ", imageMeta.PixelSizeX, "");
-        AddHeaderValueIfHasValue("DATE-OBS", imageMeta.ExposureStartTime.ToString("o").TrimEnd('z', 'Z'), "");
+        AddHeaderValueIfHasValue("DATE-OBS", FitsDate.GetFitsDateString(imageMeta.ExposureStartTime.UtcDateTime), "UT");
         AddHeaderValueIfHasValue("EXPTIME", imageMeta.ExposureDuration.TotalSeconds, "seconds");
         AddHeaderValueIfHasValue("IMAGETYP", imageMeta.FrameType, "");
         AddHeaderValueIfHasValue("FRAMETYP", imageMeta.FrameType, "");

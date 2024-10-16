@@ -11,21 +11,28 @@ namespace Astap.Lib.Tests.Fakes;
 internal class FakeExternal : IExternal
 {
     private readonly FakeTimeProvider _timeProvider;
-    private readonly string _outputFolder;
+    private readonly DirectoryInfo _profileRoot;
+    private readonly DirectoryInfo _outputFolder;
     private readonly ITestOutputHelper _outputHelper;
 
-    public FakeExternal(ITestOutputHelper outputHelper, DateTimeOffset? now = null, TimeSpan? autoAdvanceAmount = null)
+    public FakeExternal(ITestOutputHelper outputHelper, DirectoryInfo? root = null, DateTimeOffset? now = null, TimeSpan? autoAdvanceAmount = null)
     {
         _timeProvider = now is { }
             ? new FakeTimeProvider(now.Value) { AutoAdvanceAmount = autoAdvanceAmount ?? TimeSpan.Zero }
             : new FakeTimeProvider() { AutoAdvanceAmount = autoAdvanceAmount ?? TimeSpan.Zero };
-        _outputFolder = Path.Combine(Path.GetTempPath(), Assembly.GetExecutingAssembly().GetName().Name ?? nameof(FakeExternal), Guid.NewGuid().ToString("D"));
-        _outputHelper = outputHelper;
 
-        _ = Directory.CreateDirectory(_outputFolder);
+        _profileRoot = root ?? new DirectoryInfo(Path.GetTempPath())
+            .CreateSubdirectory(Assembly.GetExecutingAssembly().GetName().Name ?? nameof(FakeExternal))
+            .CreateSubdirectory(Guid.NewGuid().ToString("D"));
+
+        _outputFolder = _profileRoot.CreateSubdirectory("output");
+
+        _outputHelper = outputHelper;
     }
 
-    public string OutputFolder => _outputFolder;
+    public DirectoryInfo ProfileFolder => _profileRoot;
+
+    public DirectoryInfo OutputFolder => _outputFolder;
 
     public TimeProvider TimeProvider => _timeProvider;
 

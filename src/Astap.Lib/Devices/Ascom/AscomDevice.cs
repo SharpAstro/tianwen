@@ -10,7 +10,7 @@ public record class AscomDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         // calls primary constructor
     }
 
-    protected override object? NewImplementationFromDevice(IExternal external) => DeviceType switch
+    protected override object? NewInstanceFromDevice(IExternal external) => DeviceType switch
     {
         DeviceType.Camera => new AscomCameraDriver(this, external),
         DeviceType.CoverCalibrator => new AscomCoverCalibratorDriver(this, external),

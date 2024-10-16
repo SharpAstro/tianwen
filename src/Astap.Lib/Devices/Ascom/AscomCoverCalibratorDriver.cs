@@ -1,6 +1,4 @@
-﻿using System;
-
-namespace Astap.Lib.Devices.Ascom;
+﻿namespace Astap.Lib.Devices.Ascom;
 
 public class AscomCoverCalibratorDriver(AscomDevice device, IExternal external) : AscomDeviceDriverBase(device, external), ICoverDriver
 {
@@ -32,10 +30,7 @@ public class AscomCoverCalibratorDriver(AscomDevice device, IExternal external) 
         return false;
     }
 
-    public int Brightness
-    {
-        get => _comObject?.Brightness is int brightness ? brightness : -1;
-    }
+    public int Brightness => _comObject?.Brightness is int brightness ? brightness : -1;
 
     public CoverStatus CoverState => Connected && _comObject?.CoverState is int cs ? (CoverStatus)cs : CoverStatus.Unknown;
 

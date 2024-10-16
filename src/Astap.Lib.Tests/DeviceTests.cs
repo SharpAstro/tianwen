@@ -1,5 +1,6 @@
 ﻿using Astap.Lib.Devices;
 using Astap.Lib.Devices.Ascom;
+using Astap.Lib.Tests.Fakes;
 using Shouldly;
 using System;
 using Xunit;
@@ -12,6 +13,7 @@ public class DeviceTests
     [InlineData(@"telescope://AscomDevice/EQMOD.Telescope#EQMOD ASCOM HEQ5/6", typeof(AscomDevice), DeviceType.Telescope, "EQMOD.Telescope", "EQMOD ASCOM HEQ5/6")]
     [InlineData(@"Focuser://ascomdevice/ASCOM.EAF.Focuser#ZWO Focuser (1)", typeof(AscomDevice), DeviceType.Focuser, "ASCOM.EAF.Focuser", "ZWO Focuser (1)")]
     [InlineData(@"filterWheel://ascomDevice/ASCOM.EFW.FilterWheel#ZWO Filter Wheel #1", typeof(AscomDevice), DeviceType.FilterWheel, "ASCOM.EFW.FilterWheel", "ZWO Filter Wheel #1")]
+    [InlineData(@"focuser://FakeDevice/FakeFocuser1#Fake Focuser 1", typeof(FakeDevice), DeviceType.Focuser, "FakeFocuser1", "Fake Focuser 1")]
     [InlineData(@"none://NoneDevice/None", typeof(NoneDevice), DeviceType.None, "None", "")]
     public void GivenAnUriDisplayNameDeviceTypeAndClassAreReturned(string uriString, Type containerType, DeviceType expectedDeviceType, string expectedId, string expectedDisplayName)
     {

@@ -261,7 +261,7 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
     }
 
     private IReadOnlyList<string> ReadoutModes
-        => Connected && _comObject is { } obj && EnumerateProperty<string>(obj.ReadoutModes) is IEnumerable<string> modes ? modes.ToList() : Array.Empty<string>();
+        => Connected && _comObject is { } obj && EnumerateProperty<string>(obj.ReadoutModes) is IEnumerable<string> modes ? modes.ToList() : [];
 
     public string? ReadoutMode
     {

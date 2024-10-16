@@ -52,7 +52,7 @@ public class ZWODeviceSrouce : IDeviceSource<ZWODevice>
         }
         else
         {
-            return Enumerable.Empty<ZWODevice>();
+            return [];
         }
     }
 
