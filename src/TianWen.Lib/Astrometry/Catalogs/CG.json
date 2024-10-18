@@ -425,13 +425,13 @@
     "VMag": null
   },
   {
-    "MainId": "[DB2002b] G252.51+0.07",
+    "MainId": "BHR   7",
     "Ids": [
       "CG 32"
     ],
     "ObjType": "DNe",
-    "Ra": 123.57,
-    "Dec": -34.52,
+    "Ra": 123.59721,
+    "Dec": -34.51769,
     "VMag": null
   },
   {

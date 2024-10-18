@@ -68,6 +68,6 @@ $catalogs.GetEnumerator() | ForEach-Object {
 
         $outFile = "$PSScriptRoot/$($cat.Replace('*', '_')).json"
         $entries | ConvertTo-Json | Out-File -Encoding UTF8NoBOM $outFile
-        $null = 7z -mx9 -scsUTF-8 a "$($outFile).gz" $outFile
+        $null = 7z -mx9 -sccUTF-8 -scsUTF-8 a "$($outFile).gz" $outFile
     }
 }
