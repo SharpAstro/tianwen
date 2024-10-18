@@ -62,7 +62,7 @@
     "VMag": null
   },
   {
-    "MainId": "NAME Casado Alessi 1",
+    "MainId": "Cl Alessi    1",
     "Ids": [
       "NAME Casado Alessi 1",
       "Cl Alessi    1"
@@ -1543,7 +1543,7 @@
     "ObjType": "OpC",
     "Ra": 307.917,
     "Dec": 60.653,
-    "VMag": 7.8
+    "VMag": null
   },
   {
     "MainId": "C 2212+700",
@@ -3406,7 +3406,7 @@
     "ObjType": "OpC",
     "Ra": 109.362,
     "Dec": -37.044,
-    "VMag": 2.1
+    "VMag": null
   },
   {
     "MainId": "NGC  2395",
@@ -5974,6 +5974,17 @@
     "Ra": 276.335,
     "Dec": -9.995,
     "VMag": null
+  },
+  {
+    "MainId": "NGC  6649",
+    "Ids": [
+      "NGC  6649",
+      "Cl Collinder  384"
+    ],
+    "ObjType": "OpC",
+    "Ra": 278.359,
+    "Dec": -10.399,
+    "VMag": 8.9
   },
   {
     "MainId": "Cl Trumpler   34",
@@ -8680,8 +8691,8 @@
       "Cl Lindsay   96"
     ],
     "ObjType": "OpC",
-    "Ra": 18.72233,
-    "Dec": -71.54964,
+    "Ra": 18.72058,
+    "Dec": -71.55,
     "VMag": 11.66
   },
   {
@@ -9018,8 +9029,8 @@
       "Cl Lindsay   59"
     ],
     "ObjType": "OpC",
-    "Ra": 14.45375,
-    "Dec": -74.46672,
+    "Ra": 14.44842,
+    "Dec": -74.47072,
     "VMag": 12.21
   },
   {
@@ -9030,8 +9041,8 @@
       "Cl Lindsay   85"
     ],
     "ObjType": "OpC",
-    "Ra": 17.07413,
-    "Dec": -72.88411,
+    "Ra": 17.07192,
+    "Dec": -72.88383,
     "VMag": 10.5
   },
   {
@@ -9190,8 +9201,8 @@
       "Cl Lindsay   67"
     ],
     "ObjType": "OpC",
-    "Ra": 15.55346,
-    "Dec": -71.6045,
+    "Ra": 15.54629,
+    "Dec": -71.60703,
     "VMag": 11.77
   },
   {
@@ -9373,8 +9384,8 @@
       "Cl Lindsay   15"
     ],
     "ObjType": "OpC",
-    "Ra": 8.23442,
-    "Dec": -73.11572,
+    "Ra": 8.2365,
+    "Dec": -73.11567,
     "VMag": 12.26
   },
   {
@@ -9387,21 +9398,6 @@
     "Ra": 6.93821,
     "Dec": -72.78125,
     "VMag": 13.95
-  },
-  {
-    "MainId": "NGC   104",
-    "Ids": [
-      "NGC   104",
-      "Cl Melotte    1",
-      "HD   2051",
-      "HIP 1902",
-      "HR    95",
-      "NAME 47 Tuc Cluster"
-    ],
-    "ObjType": "GlC",
-    "Ra": 6.022329,
-    "Dec": -72.081444,
-    "VMag": 4.09
   },
   {
     "MainId": "ESO 130-11",
@@ -11485,17 +11481,6 @@
     "VMag": null
   },
   {
-    "MainId": "NAME Alessi 24",
-    "Ids": [
-      "NAME Alessi 24",
-      "Cl Alessi   24"
-    ],
-    "ObjType": "OpC",
-    "Ra": 260.764,
-    "Dec": -62.693,
-    "VMag": null
-  },
-  {
     "MainId": "Cl Mamajek    4",
     "Ids": [
       "Cl Mamajek    4"
@@ -12484,6 +12469,16 @@
     "ObjType": "OpC",
     "Ra": 141.746,
     "Dec": -55.127,
+    "VMag": null
+  },
+  {
+    "MainId": "Cl Alessi   36",
+    "Ids": [
+      "Cl Alessi   36"
+    ],
+    "ObjType": "OpC",
+    "Ra": 106.786,
+    "Dec": -37.729,
     "VMag": null
   },
   {

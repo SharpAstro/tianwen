@@ -15,8 +15,8 @@
       "LDN    2"
     ],
     "ObjType": "DNe",
-    "Ra": 271.8,
-    "Dec": -31.5,
+    "Ra": 271.8083,
+    "Dec": -31.4931,
     "VMag": null
   },
   {
@@ -25,8 +25,8 @@
       "LDN    3"
     ],
     "ObjType": "DNe",
-    "Ra": 270.8,
-    "Dec": -31.0,
+    "Ra": 270.8042,
+    "Dec": -30.9978,
     "VMag": null
   },
   {
@@ -358,8 +358,8 @@
       "LDN   34"
     ],
     "ObjType": "DNe",
-    "Ra": 267.05,
-    "Dec": -28.02,
+    "Ra": 267.0375,
+    "Dec": -28.0161,
     "VMag": null
   },
   {
@@ -5067,14 +5067,15 @@
     "VMag": null
   },
   {
-    "MainId": "NAME LDN 483-mm",
+    "MainId": "IRAS 18148-0440",
     "Ids": [
-      "NAME LDN 483-mm",
-      "LDN  483MM"
+      "LDN  483MM",
+      "NAME LDN 483 FIR",
+      "NAME LDN 483-mm"
     ],
-    "ObjType": "mm",
-    "Ra": 274.3742,
-    "Dec": -4.6606,
+    "ObjType": "Y*O",
+    "Ra": 274.37475,
+    "Dec": -4.66092,
     "VMag": null
   },
   {

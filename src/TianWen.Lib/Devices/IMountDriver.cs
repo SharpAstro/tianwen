@@ -1,11 +1,11 @@
-﻿using TianWen.Lib.Astrometry;
-using TianWen.Lib.Astrometry.SOFA;
+﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
+using TianWen.Lib.Astrometry;
+using TianWen.Lib.Astrometry.SOFA;
 using static TianWen.Lib.Astrometry.CoordinateUtils;
-using Microsoft.Extensions.Logging;
 
 namespace TianWen.Lib.Devices;
 

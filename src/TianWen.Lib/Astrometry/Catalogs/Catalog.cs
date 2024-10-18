@@ -38,8 +38,10 @@ public enum Catalog : ulong
     LDN = 'L' << 14 | 'D' << 7 | 'N', // Lynds Catalog of Dark Nebulae
     Melotte = 'M' << 14 | 'e' << 7 | 'l',
     Messier = 'M',
+    MWSC = 'M' << 21 | 'W' << 14 | 'S' << 7 | 'C', // Milky Way Star Clusters Catalog
     NGC = 'N',
     Pl = 'P' << 7 | 'l', // Major planets, their moons and Sol (created by author)
+    PGC = 'P' << 14 | 'G' << 7 | 'C', // Principal Galaxies Catalogue
     PSR = 'P', // Pulsars, uses MSB = 1
     RCW = 'R' << 14| 'C' << 7 | 'W', //  Rodgers, Campbell & Whiteoak
     Sharpless = 'S' << 14 | 'h' << 7 | '2', // Sharpless
@@ -112,7 +114,9 @@ public static class CatalogEx
             Catalog.LDN => 5,
             Catalog.Melotte => 5,
             Catalog.Messier => 3,
+            Catalog.MWSC => 4,
             Catalog.Pl => 5,
+            Catalog.PGC => 6,
             Catalog.PSR => 8,
             Catalog.NGC => 4,
             Catalog.RCW => 4,

@@ -435,6 +435,7 @@ public static partial class CatalogUtils
             {
                 'e' when noSpaces.Length > 2 && noSpaces[2] == 'l' => ("Mel000", Catalog.Melotte),
                 'e' when noSpaces.Length > 6 && noSpaces[0..7] == "Messier" => ("M00*", Catalog.Messier),
+                'W' => ("MWSC0000", Catalog.MWSC),
                 _ when secondIsDigit => ("M00*", Catalog.Messier),
                 _ => ("", 0)
             },
@@ -442,6 +443,7 @@ public static partial class CatalogUtils
             'N' when secondIsDigit || secondChar is 'G' or 'g' or 'C' or 'c' => ("N0000", Catalog.NGC),
             // make - required as to due to large count of wildcards
             'P' when secondChar == 'l' && noSpaces.Length > 2 && noSpaces[2] == '-' => ("Pl-*****", Catalog.Pl),
+            'P' when secondChar == 'G' && noSpaces.Length > 2 && noSpaces[2] == 'C' => ("PGC000000", Catalog.PGC),
             'P' when secondChar == 'S' && noSpaces.Length > 2 && noSpaces[2] == 'R' => ("", Catalog.PSR),
             'R' when secondChar == 'C' => ("RCW000*", Catalog.RCW),
             'S' when secondChar is 'H' or 'h' && noSpaces.Length > 2 && noSpaces[2] is '2' or 'a' => ("Sh2-000*", Catalog.Sharpless),
