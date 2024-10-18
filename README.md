@@ -1,4 +1,4 @@
-Astap-Lib
-=========
+TianWen library
+===============
 
-Porting of the well-known Astap program code to C# (from Delphi).
+Start detection is ported from Astap program code to C# (from Delphi).
