@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
 namespace TianWen.Lib.Devices;
 
-public interface IDeviceSource<out TDevice>
+public interface IDeviceSource<TDevice>
     where TDevice : DeviceBase
 {
     bool IsSupported { get; }

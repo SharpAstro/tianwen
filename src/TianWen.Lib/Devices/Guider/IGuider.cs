@@ -31,6 +31,7 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 
 namespace TianWen.Lib.Devices.Guider;
 
@@ -219,7 +220,12 @@ public interface IGuider : IDeviceDriver
                 var settleTime = 15 + (startGuidingTries * 5);
                 var settleTimeout = settleTime * SETTLE_TIMEOUT_FACTOR;
 
-                external.LogInfo($"Start guiding using \"{(TryGetActiveProfileName(out var profile) ? profile : Name)}\", settle pixels: {settlePix}, settle time: {settleTime}s, timeout: {settleTimeout}s.");
+                external.AppLogger.LogInformation("Start guiding using \"{ProfileName}\", settle pixels: {SettlePix}, settle time: {SettleTime}s, timeout: {SettleTimeout}s.",
+                    TryGetActiveProfileName(out var profile) ? profile : Name,
+                    settlePix,
+                    settleTime,
+                    settleTimeout
+                );
                 Guide(settlePix, settleTime, settleTimeout);
 
                 var failsafeCounter = 0;
@@ -240,7 +246,10 @@ public interface IGuider : IDeviceDriver
             }
             catch (Exception e)
             {
-                external.LogException(e, $"while on try #{startGuidingTries} checking if \"{(TryGetActiveProfileName(out var profile) ? profile : Name)}\" is guiding.");
+                external.AppLogger.LogError(e, "Exception while on try #{StartGuidingTries} checking if \"{ProfileName}\" is guiding.",
+                    startGuidingTries,
+                    TryGetActiveProfileName(out var profile) ? profile : Name
+                );
                 guidingSuccess = false;
             }
         }
@@ -254,7 +263,8 @@ public interface IGuider : IDeviceDriver
 
         var settleTimeout = settleTime * SETTLE_TIMEOUT_FACTOR;
 
-        external.LogInfo($"Start dithering pixel={ditherPixel} settlePixel={settlePixel} settleTime={settleTime}, timeout={settleTimeout}");
+        external.AppLogger.LogInformation("Start dithering pixel={DitherPixel} settlePixel={SettlePixel} settleTime={SettleTime}, timeout={SettleTimeout}",
+            ditherPixel, settlePixel, settlePixel, settleTimeout);
 
         Dither(ditherPixel, settlePixel, settleTime.TotalSeconds, settleTimeout.TotalSeconds);
 
@@ -265,7 +275,7 @@ public interface IGuider : IDeviceDriver
         {
             if (cancellationToken.IsCancellationRequested)
             {
-                external.LogWarning("Cancellation rquested, all images in queue written to disk, abort image acquisition and quit imaging loop");
+                external.AppLogger.LogWarning("Cancellation rquested, all images in queue written to disk, abort image acquisition and quit imaging loop");
                 return false;
             }
             else
@@ -277,35 +287,36 @@ public interface IGuider : IDeviceDriver
             {
                 if (settleProgress.Error is { Length: > 0 } error)
                 {
-                    external.LogError($"Settling after dithering failed with: {error}");
+                    external.AppLogger.LogError("Settling after dithering failed with: {ErrorMessage}", error);
                     return false;
                 }
                 else
                 {
-                    external.LogInfo($"Settle still in progress: settle pixel={settleProgress.SettlePx} dist={settleProgress.Distance}");
+                    external.AppLogger.LogError("Settle still in progress: settle pixel={SettlePx} dist={SettleDistance}", settleProgress.SettlePx, settleProgress.Distance);
                 }
             }
             else
             {
                 if (settleProgress?.Error is { Length: > 0 } error)
                 {
-                    external.LogError($"Settling after dithering failed with: {error} pixel={settleProgress.SettlePx} dist={settleProgress.Distance}");
+                    external.AppLogger.LogError("Settling after dithering failed with: {ErrorMessage} pixel={SettlePx} dist={SettleDistance}",
+                        error, settleProgress.SettlePx, settleProgress.Distance);
                     return false;
                 }
                 else if (settleProgress is not null)
                 {
-                    external.LogInfo($"Settling finished: settle pixel={settleProgress.SettlePx} pixel={settleProgress.SettlePx} dist={settleProgress.Distance}");
+                    external.AppLogger.LogInformation("Settling finished: settle pixel={SettlePx} dist={SettleDistance}", settleProgress.SettlePx, settleProgress.Distance);
                     return true;
                 }
                 else
                 {
-                    external.LogError("Settling failed with no specific error message, assume dithering failed.");
+                    external.AppLogger.LogError("Settling failed with no specific error message, assume dithering failed.");
                     return false;
                 }
             }
         }
 
-        external.LogError($"Settling timeout after {settleTimeout:c}, aborting dithering.");
+        external.AppLogger.LogError("Settling timeout after {SettleTimeout:c}, aborting dithering.", settleTimeout);
         return false;
     }
 
@@ -325,7 +336,8 @@ public interface IGuider : IDeviceDriver
             {
                 if (!TryGetImageDim(out var dim))
                 {
-                    external.LogWarning($"Failed to obtain image dimensions of \"{(TryGetActiveProfileName(out var profile) ? profile : Name)}\" camera, will use blind search.");
+                    external.AppLogger.LogWarning("Failed to obtain image dimensions of \"{ProfileName}\" camera, will use blind search.",
+                        TryGetActiveProfileName(out var profile) ? profile : Name);
                 }
 
                 return plateSolver.SolveFileAsync(
@@ -338,13 +350,15 @@ public interface IGuider : IDeviceDriver
             }
             else
             {
-                external.LogWarning($"Failed to obtain image from guider \"{(TryGetActiveProfileName(out var profile) ? profile : Name)}\"");
+                external.AppLogger.LogWarning("Failed to obtain image from guider \"{ProfileName}\"",
+                    TryGetActiveProfileName(out var profile) ? profile : Name);
                 return Task.FromResult(null as WCS?);
             }
         }
         else
         {
-            external.LogWarning($"Failed to start guider \"{(TryGetActiveProfileName(out var profile) ? profile : Name)}\" capture loop after {(int) timeout.TotalSeconds} s");
+            external.AppLogger.LogWarning("Failed to start guider \"{ProfileName}\" capture loop after {TimeoutSeconds} s",
+                TryGetActiveProfileName(out var profile) ? profile : Name, (int)timeout.TotalSeconds);
             return Task.FromResult(null as WCS?);
         }
     }

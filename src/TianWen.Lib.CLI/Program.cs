@@ -2,6 +2,7 @@
 using TianWen.Lib.Extensions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services
@@ -13,7 +14,14 @@ builder.Services
 
 using IHost host = builder.Build();
 
-var service = host.Services;
+var services = host.Services;
+
+var external = services.GetRequiredService<IExternal>();
+
+foreach (var deviceSource in services.GetServices<IDeviceSource<DeviceBase>>())
+{
+    external.AppLogger.LogInformation("{DeviceSource}: {IsSupported}", deviceSource.GetType().Name, deviceSource.IsSupported);
+}
 
 await host.RunAsync();
 
