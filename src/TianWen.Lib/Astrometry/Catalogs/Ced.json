@@ -1,0 +1,2359 @@
+[
+  {
+    "MainId": "LBN   590",
+    "Ids": [
+      "Ced   1",
+      "DG   3"
+    ],
+    "ObjType": "RNe",
+    "Ra": 3.346,
+    "Dec": 65.613,
+    "VMag": null
+  },
+  {
+    "MainId": "IC   11",
+    "Ids": [
+      "Ced   2",
+      "IC   11"
+    ],
+    "ObjType": "ISM",
+    "Ra": 5.0,
+    "Dec": 56.6,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC   281",
+    "Ids": [
+      "NGC   281",
+      "Ced   3",
+      "NGC   281W",
+      "SH  2-184"
+    ],
+    "ObjType": "HII",
+    "Ra": 13.1046,
+    "Dec": 56.565,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced   4a",
+    "Ids": [
+      "Ced   4a"
+    ],
+    "ObjType": "GNe",
+    "Ra": 14.67,
+    "Dec": 61.077847,
+    "VMag": null
+  },
+  {
+    "MainId": "IC   63",
+    "Ids": [
+      "IC   63",
+      "Ced   4b"
+    ],
+    "ObjType": "HII",
+    "Ra": 14.75571,
+    "Dec": 60.88828,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced   5",
+    "Ids": [
+      "Ced   5"
+    ],
+    "ObjType": "ISM",
+    "Ra": 26.87,
+    "Dec": 59.78,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced   6a",
+    "Ids": [
+      "Ced   6a"
+    ],
+    "ObjType": "ISM",
+    "Ra": 36.73,
+    "Dec": 62.07,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced   6b",
+    "Ids": [
+      "Ced   6b"
+    ],
+    "ObjType": "ISM",
+    "Ra": 36.73,
+    "Dec": 62.07,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced   6c",
+    "Ids": [
+      "Ced   6c"
+    ],
+    "ObjType": "ISM",
+    "Ra": 36.73,
+    "Dec": 62.07,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced   7",
+    "Ids": [
+      "Ced   7"
+    ],
+    "ObjType": "ISM",
+    "Ra": 38.03,
+    "Dec": 61.48,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced   8",
+    "Ids": [
+      "Ced   8"
+    ],
+    "ObjType": "ISM",
+    "Ra": 41.0,
+    "Dec": 63.0,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced   9a",
+    "Ids": [
+      "Ced   9a"
+    ],
+    "ObjType": "ISM",
+    "Ra": 42.83,
+    "Dec": 60.43,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced   9b",
+    "Ids": [
+      "Ced   9b"
+    ],
+    "ObjType": "ISM",
+    "Ra": 43.23,
+    "Dec": 60.47,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced   9c",
+    "Ids": [
+      "Ced   9c"
+    ],
+    "ObjType": "ISM",
+    "Ra": 43.4,
+    "Dec": 60.48,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced   9d",
+    "Ids": [
+      "Ced   9d"
+    ],
+    "ObjType": "ISM",
+    "Ra": 43.4,
+    "Dec": 60.57,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  10",
+    "Ids": [
+      "Ced  10"
+    ],
+    "ObjType": "ISM",
+    "Ra": 42.93,
+    "Dec": 58.32,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  11",
+    "Ids": [
+      "Ced  11"
+    ],
+    "ObjType": "ISM",
+    "Ra": 44.05,
+    "Dec": 60.68,
+    "VMag": null
+  },
+  {
+    "MainId": "LBN 157.58-20.59",
+    "Ids": [
+      "Ced  12",
+      "DG  14"
+    ],
+    "ObjType": "RNe",
+    "Ra": 51.5,
+    "Dec": 31.7,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  13",
+    "Ids": [
+      "Ced  13",
+      "DG  15"
+    ],
+    "ObjType": "RNe",
+    "Ra": 51.48,
+    "Dec": 30.93,
+    "VMag": null
+  },
+  {
+    "MainId": "LBN 142.14+01.97",
+    "Ids": [
+      "Ced  14",
+      "DG  17"
+    ],
+    "ObjType": "RNe",
+    "Ra": 52.2,
+    "Dec": 58.9,
+    "VMag": null
+  },
+  {
+    "MainId": "LBN 159.31-21.67",
+    "Ids": [
+      "Ced  15",
+      "DG  16"
+    ],
+    "ObjType": "RNe",
+    "Ra": 52.2,
+    "Dec": 29.9,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC  1333",
+    "Ids": [
+      "NGC  1333",
+      "Ced  16",
+      "DG  18"
+    ],
+    "ObjType": "OpC",
+    "Ra": 52.297,
+    "Dec": 31.31,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  17",
+    "Ids": [
+      "Ced  17"
+    ],
+    "ObjType": "ISM",
+    "Ra": 52.85,
+    "Dec": 43.92,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  18a",
+    "Ids": [
+      "Ced  18a"
+    ],
+    "ObjType": "ISM",
+    "Ra": 54.75,
+    "Dec": 32.25,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  18b",
+    "Ids": [
+      "Ced  18b",
+      "DG  22"
+    ],
+    "ObjType": "RNe",
+    "Ra": 56.05,
+    "Dec": 32.28,
+    "VMag": null
+  },
+  {
+    "MainId": "IC  336",
+    "Ids": [
+      "IC  336",
+      "Ced  19",
+      "DG  20"
+    ],
+    "ObjType": "HII",
+    "Ra": 54.25,
+    "Dec": 23.4,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  19a",
+    "Ids": [
+      "Ced  19a"
+    ],
+    "ObjType": "ISM",
+    "Ra": 54.7,
+    "Dec": 22.0,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  19b",
+    "Ids": [
+      "Ced  19b"
+    ],
+    "ObjType": "ISM",
+    "Ra": 55.5,
+    "Dec": 21.8,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  19c",
+    "Ids": [
+      "Ced  19c"
+    ],
+    "ObjType": "ISM",
+    "Ra": 56.2,
+    "Dec": 24.3,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  19d",
+    "Ids": [
+      "Ced  19d"
+    ],
+    "ObjType": "RNe",
+    "Ra": 56.23,
+    "Dec": 24.12,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  19e",
+    "Ids": [
+      "Ced  19e"
+    ],
+    "ObjType": "ISM",
+    "Ra": 56.32,
+    "Dec": 24.48,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  19f",
+    "Ids": [
+      "Ced  19f"
+    ],
+    "ObjType": "RNe",
+    "Ra": 56.48,
+    "Dec": 24.38,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  19g",
+    "Ids": [
+      "Ced  19g"
+    ],
+    "ObjType": "ISM",
+    "Ra": 56.5,
+    "Dec": 24.1,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  19h",
+    "Ids": [
+      "Ced  19h"
+    ],
+    "ObjType": "ISM",
+    "Ra": 56.5,
+    "Dec": 24.57,
+    "VMag": null
+  },
+  {
+    "MainId": "IC  349",
+    "Ids": [
+      "IC  349",
+      "Ced  19i",
+      "NAME Barnard's Merope Nebula"
+    ],
+    "ObjType": "RNe",
+    "Ra": 56.5888,
+    "Dec": 23.9411,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  19j",
+    "Ids": [
+      "Ced  19j"
+    ],
+    "ObjType": "ISM",
+    "Ra": 56.57,
+    "Dec": 23.78,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  19k",
+    "Ids": [
+      "Ced  19k"
+    ],
+    "ObjType": "ISM",
+    "Ra": 56.65,
+    "Dec": 23.63,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  19l",
+    "Ids": [
+      "Ced  19l"
+    ],
+    "ObjType": "RNe",
+    "Ra": 56.85,
+    "Dec": 24.12,
+    "VMag": null
+  },
+  {
+    "MainId": "IC 1990",
+    "Ids": [
+      "Ced  19m",
+      "IC 1990"
+    ],
+    "ObjType": "ISM",
+    "Ra": 56.9,
+    "Dec": 24.63,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC  1456",
+    "Ids": [
+      "Ced  19n",
+      "NGC  1456"
+    ],
+    "ObjType": "ISM",
+    "Ra": 57.02,
+    "Dec": 22.57,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  19o",
+    "Ids": [
+      "Ced  19o"
+    ],
+    "ObjType": "ISM",
+    "Ra": 57.27,
+    "Dec": 24.05,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  19p",
+    "Ids": [
+      "Ced  19p"
+    ],
+    "ObjType": "ISM",
+    "Ra": 57.32,
+    "Dec": 24.15,
+    "VMag": null
+  },
+  {
+    "MainId": "IC  354",
+    "Ids": [
+      "Ced  19q",
+      "IC  354"
+    ],
+    "ObjType": "ISM",
+    "Ra": 58.2,
+    "Dec": 23.0,
+    "VMag": null
+  },
+  {
+    "MainId": "IC  348",
+    "Ids": [
+      "IC  348",
+      "Ced  20",
+      "Cl Collinder   41",
+      "DG  23",
+      "NAME Gingrich 1",
+      "NAME omi Per Cloud"
+    ],
+    "ObjType": "OpC",
+    "Ra": 56.132,
+    "Dec": 32.159,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  21",
+    "Ids": [
+      "Ced  21",
+      "DG  24"
+    ],
+    "ObjType": "RNe",
+    "Ra": 56.15,
+    "Dec": 32.33,
+    "VMag": null
+  },
+  {
+    "MainId": "IC 1995",
+    "Ids": [
+      "Ced  22",
+      "IC 1995"
+    ],
+    "ObjType": "ISM",
+    "Ra": 57.58,
+    "Dec": 25.58,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  23",
+    "Ids": [
+      "Ced  23"
+    ],
+    "ObjType": "ISM",
+    "Ra": 58.42,
+    "Dec": 32.5,
+    "VMag": null
+  },
+  {
+    "MainId": "IC  353",
+    "Ids": [
+      "IC  353",
+      "Ced  24"
+    ],
+    "ObjType": "GNe",
+    "Ra": 57.63,
+    "Dec": 25.53,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC  1491",
+    "Ids": [
+      "NGC  1491",
+      "Ced  25",
+      "SH  2-206"
+    ],
+    "ObjType": "HII",
+    "Ra": 60.8163,
+    "Dec": 51.315,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  26",
+    "Ids": [
+      "Ced  26"
+    ],
+    "ObjType": "ISM",
+    "Ra": 60.85,
+    "Dec": 36.42,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  27",
+    "Ids": [
+      "Ced  27"
+    ],
+    "ObjType": "ISM",
+    "Ra": 61.65,
+    "Dec": 27.62,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  28",
+    "Ids": [
+      "Ced  28"
+    ],
+    "ObjType": "ISM",
+    "Ra": 62.33,
+    "Dec": 30.65,
+    "VMag": null
+  },
+  {
+    "MainId": "IC  360",
+    "Ids": [
+      "Ced  29",
+      "IC  360"
+    ],
+    "ObjType": "ISM",
+    "Ra": 63.2,
+    "Dec": 25.6,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  30",
+    "Ids": [
+      "Ced  30",
+      "DG  29",
+      "IC  359a"
+    ],
+    "ObjType": "RNe",
+    "Ra": 64.671,
+    "Dec": 28.29,
+    "VMag": null
+  },
+  {
+    "MainId": "LBN 169.30-14.89",
+    "Ids": [
+      "Ced  31",
+      "DG  30"
+    ],
+    "ObjType": "RNe",
+    "Ra": 65.5021,
+    "Dec": 28.4172,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC  1554",
+    "Ids": [
+      "NGC  1554",
+      "Ced  32",
+      "DG  31",
+      "NAME Struve's nebula"
+    ],
+    "ObjType": "RNe",
+    "Ra": 65.5,
+    "Dec": 19.6,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  32a",
+    "Ids": [
+      "Ced  32a"
+    ],
+    "ObjType": "ISM",
+    "Ra": 65.42,
+    "Dec": 19.52,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC  1555",
+    "Ids": [
+      "HH  155",
+      "Ced  32b",
+      "NAME Hind's Nebula",
+      "NAME Hind's Variable Nebula",
+      "NGC  1555",
+      "SH  2-238"
+    ],
+    "ObjType": "HH",
+    "Ra": 65.4879,
+    "Dec": 19.5353,
+    "VMag": null
+  },
+  {
+    "MainId": "NAME Burnham's Nebula",
+    "Ids": [
+      "NAME Burnham Nebula",
+      "Ced  32c",
+      "HH  255",
+      "NAME Burnham's Nebula"
+    ],
+    "ObjType": "HII",
+    "Ra": 65.4975,
+    "Dec": 19.535,
+    "VMag": null
+  },
+  {
+    "MainId": "V* DG Tau",
+    "Ids": [
+      "Ced  33",
+      "DG  32",
+      "HH  158"
+    ],
+    "ObjType": "Or*",
+    "Ra": 66.76955053162,
+    "Dec": 26.10446115813,
+    "VMag": 10.5
+  },
+  {
+    "MainId": "LBN 174.34-17.75",
+    "Ids": [
+      "Ced  34",
+      "DG  33"
+    ],
+    "ObjType": "HII",
+    "Ra": 66.7,
+    "Dec": 22.9,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC  1579",
+    "Ids": [
+      "NGC  1579",
+      "Ced  35",
+      "DG  34",
+      "SH  2-222"
+    ],
+    "ObjType": "OpC",
+    "Ra": 67.514,
+    "Dec": 35.325,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  36",
+    "Ids": [
+      "Ced  36",
+      "DG  35"
+    ],
+    "ObjType": "RNe",
+    "Ra": 67.57,
+    "Dec": 35.48,
+    "VMag": null
+  },
+  {
+    "MainId": "IRAS 04366+5022",
+    "Ids": [
+      "Ced  37"
+    ],
+    "ObjType": "Y*O",
+    "Ra": 70.11350377978,
+    "Dec": 50.47480950457,
+    "VMag": null
+  },
+  {
+    "MainId": "IRAS 0437+257P08",
+    "Ids": [
+      "Ced  38",
+      "DG  43",
+      "IC 2087",
+      "NAME IC 2087 IR"
+    ],
+    "ObjType": "Y*O",
+    "Ra": 69.98227394926,
+    "Dec": 25.75053919583,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  39",
+    "Ids": [
+      "Ced  39"
+    ],
+    "ObjType": "ISM",
+    "Ra": 70.7,
+    "Dec": 27.0,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC  1788",
+    "Ids": [
+      "NGC  1788",
+      "Ced  40",
+      "DG  51"
+    ],
+    "ObjType": "RNe",
+    "Ra": 76.725,
+    "Dec": -3.342,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC  1909",
+    "Ids": [
+      "NGC  1909",
+      "Ced  41",
+      "DG  52",
+      "IC 2118",
+      "NAME the Witch Head Nebula"
+    ],
+    "ObjType": "RNe",
+    "Ra": 75.5,
+    "Dec": -7.9,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  41a",
+    "Ids": [
+      "Ced  41a",
+      "IC 2118a"
+    ],
+    "ObjType": "ISM",
+    "Ra": 76.7,
+    "Dec": -7.2,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  41b",
+    "Ids": [
+      "Ced  41b",
+      "IC 2118b"
+    ],
+    "ObjType": "ISM",
+    "Ra": 76.7,
+    "Dec": -7.2,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  42",
+    "Ids": [
+      "Ced  42"
+    ],
+    "ObjType": "ISM",
+    "Ra": 79.0871,
+    "Dec": 34.3864,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  43",
+    "Ids": [
+      "Ced  43"
+    ],
+    "ObjType": "ISM",
+    "Ra": 80.5674,
+    "Dec": 33.5059,
+    "VMag": null
+  },
+  {
+    "MainId": "LBN 194.69-15.60",
+    "Ids": [
+      "Ced  44",
+      "DG  53"
+    ],
+    "ObjType": "HII",
+    "Ra": 80.5,
+    "Dec": 8.3,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  45",
+    "Ids": [
+      "Ced  45"
+    ],
+    "ObjType": "ISM",
+    "Ra": 81.3,
+    "Dec": 6.35,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  46",
+    "Ids": [
+      "Ced  46",
+      "IC  417a"
+    ],
+    "ObjType": "ISM",
+    "Ra": 82.03,
+    "Dec": 34.45,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  47",
+    "Ids": [
+      "Ced  47"
+    ],
+    "ObjType": "ISM",
+    "Ra": 82.2,
+    "Dec": 12.57,
+    "VMag": null
+  },
+  {
+    "MainId": "IC  419",
+    "Ids": [
+      "Ced  48",
+      "IC  419"
+    ],
+    "ObjType": "ISM",
+    "Ra": 82.75,
+    "Dec": 30.15,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC  1931",
+    "Ids": [
+      "NGC  1931",
+      "Ced  49",
+      "SH  2-237"
+    ],
+    "ObjType": "OpC",
+    "Ra": 82.845,
+    "Dec": 34.233,
+    "VMag": 10.1
+  },
+  {
+    "MainId": "Ced  50",
+    "Ids": [
+      "Ced  50"
+    ],
+    "ObjType": "ISM",
+    "Ra": 81.4,
+    "Dec": 30.37,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  51",
+    "Ids": [
+      "Ced  51"
+    ],
+    "ObjType": "GNe",
+    "Ra": 83.0,
+    "Dec": 12.4,
+    "VMag": null
+  },
+  {
+    "MainId": "IC  423",
+    "Ids": [
+      "IC  423",
+      "Ced  52",
+      "DG  58"
+    ],
+    "ObjType": "MoC",
+    "Ra": 83.337,
+    "Dec": -0.633,
+    "VMag": null
+  },
+  {
+    "MainId": "RX J0534.4+2200",
+    "Ids": [
+      "Ced  53"
+    ],
+    "ObjType": "ISM",
+    "Ra": 83.6356,
+    "Dec": 22.011,
+    "VMag": null
+  },
+  {
+    "MainId": "LBN 194.68-12.42",
+    "Ids": [
+      "Ced  54"
+    ],
+    "ObjType": "HII",
+    "Ra": 83.7847,
+    "Dec": 9.9246,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  55a",
+    "Ids": [
+      "Ced  55a"
+    ],
+    "ObjType": "ISM",
+    "Ra": 83.7,
+    "Dec": -5.57,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC  1973",
+    "Ids": [
+      "NGC  1973",
+      "Ced  55b"
+    ],
+    "ObjType": "GNe",
+    "Ra": 83.77,
+    "Dec": -4.73186,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  55c",
+    "Ids": [
+      "Ced  55c"
+    ],
+    "ObjType": "ISM",
+    "Ra": 83.8,
+    "Dec": -4.68,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  55d",
+    "Ids": [
+      "Ced  55d"
+    ],
+    "ObjType": "ISM",
+    "Ra": 83.82,
+    "Dec": -5.38,
+    "VMag": null
+  },
+  {
+    "MainId": "[MGR2000a] IRAS 00494+5617 P1",
+    "Ids": [
+      "Ced  55e"
+    ],
+    "ObjType": "HII",
+    "Ra": 83.81,
+    "Dec": -4.929,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  55f",
+    "Ids": [
+      "Ced  55f"
+    ],
+    "ObjType": "ISM",
+    "Ra": 83.85,
+    "Dec": -5.9,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  55g",
+    "Ids": [
+      "Ced  55g"
+    ],
+    "ObjType": "ISM",
+    "Ra": 83.87,
+    "Dec": -5.27,
+    "VMag": null
+  },
+  {
+    "MainId": "* eps Ori",
+    "Ids": [
+      "Ced  55h",
+      "HD  37128",
+      "HIP 26311",
+      "HR  1903",
+      "NAME Alnilam"
+    ],
+    "ObjType": "s*b",
+    "Ra": 84.05338894,
+    "Dec": -1.20191914,
+    "VMag": 1.69
+  },
+  {
+    "MainId": "NGC  1999",
+    "Ids": [
+      "NGC  1999",
+      "Ced  55i",
+      "DG  60"
+    ],
+    "ObjType": "RNe",
+    "Ra": 84.104,
+    "Dec": -6.712,
+    "VMag": null
+  },
+  {
+    "MainId": "IC  426",
+    "Ids": [
+      "IC  426",
+      "Ced  55j",
+      "DG  61"
+    ],
+    "ObjType": "MoC",
+    "Ra": 84.117,
+    "Dec": -0.277,
+    "VMag": null
+  },
+  {
+    "MainId": "IC  430",
+    "Ids": [
+      "IC  430",
+      "Ced  55k",
+      "DG  69"
+    ],
+    "ObjType": "RNe",
+    "Ra": 84.576,
+    "Dec": -7.04061,
+    "VMag": null
+  },
+  {
+    "MainId": "IC  431",
+    "Ids": [
+      "IC  431",
+      "Ced  55l",
+      "DG  72"
+    ],
+    "ObjType": "RNe",
+    "Ra": 85.2,
+    "Dec": -1.6,
+    "VMag": null
+  },
+  {
+    "MainId": "IC  432",
+    "Ids": [
+      "IC  432",
+      "Ced  55m",
+      "DG  74"
+    ],
+    "ObjType": "RNe",
+    "Ra": 85.5,
+    "Dec": -1.6,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  55n",
+    "Ids": [
+      "Ced  55n"
+    ],
+    "ObjType": "ISM",
+    "Ra": 85.25,
+    "Dec": -2.42,
+    "VMag": null
+  },
+  {
+    "MainId": "[KSP2003] J054139.80-021345.9",
+    "Ids": [
+      "Ced  55o"
+    ],
+    "ObjType": "RNe",
+    "Ra": 85.41583,
+    "Dec": -2.22942,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  55p",
+    "Ids": [
+      "Ced  55p"
+    ],
+    "ObjType": "ISM",
+    "Ra": 85.07,
+    "Dec": -1.75,
+    "VMag": null
+  },
+  {
+    "MainId": "IC  435",
+    "Ids": [
+      "IC  435",
+      "Ced  55q",
+      "DG  77"
+    ],
+    "ObjType": "RNe",
+    "Ra": 85.7521,
+    "Dec": -2.3125,
+    "VMag": null
+  },
+  {
+    "MainId": "NAME Orion Loop",
+    "Ids": [
+      "Ced  55r",
+      "NAME Ori Loop",
+      "NAME Orion Loop"
+    ],
+    "ObjType": "ISM",
+    "Ra": 86.2,
+    "Dec": 2.0,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC  2064",
+    "Ids": [
+      "NGC  2064",
+      "Ced  55s",
+      "DG  78"
+    ],
+    "ObjType": "RNe",
+    "Ra": 86.65,
+    "Dec": 0.057,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC  2067",
+    "Ids": [
+      "NGC  2067",
+      "Ced  55t",
+      "DG  79"
+    ],
+    "ObjType": "RNe",
+    "Ra": 86.65,
+    "Dec": 0.12,
+    "VMag": null
+  },
+  {
+    "MainId": "M  78",
+    "Ids": [
+      "M  78",
+      "Ced  55u",
+      "DG  80",
+      "NGC  2068"
+    ],
+    "ObjType": "RNe",
+    "Ra": 86.6908,
+    "Dec": 0.0792,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC  2071",
+    "Ids": [
+      "NGC  2071",
+      "Ced  55v",
+      "DG  81"
+    ],
+    "ObjType": "RNe",
+    "Ra": 86.791,
+    "Dec": 0.3,
+    "VMag": null
+  },
+  {
+    "MainId": "IC  425",
+    "Ids": [
+      "Ced  56",
+      "IC  425"
+    ],
+    "ObjType": "ISM",
+    "Ra": 84.5,
+    "Dec": 32.4,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC  1985",
+    "Ids": [
+      "NGC  1985",
+      "Ced  57"
+    ],
+    "ObjType": "RNe",
+    "Ra": 84.4493,
+    "Dec": 31.99,
+    "VMag": null
+  },
+  {
+    "MainId": "IC 2159",
+    "Ids": [
+      "Ced  57b",
+      "IC 2159"
+    ],
+    "ObjType": "ISM",
+    "Ra": 92.47,
+    "Dec": 20.42,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC  2045",
+    "Ids": [
+      "Ced  58",
+      "NGC  2045"
+    ],
+    "ObjType": "ISM",
+    "Ra": 86.25,
+    "Dec": 12.9,
+    "VMag": null
+  },
+  {
+    "MainId": "LBN 197.19-10.15",
+    "Ids": [
+      "Ced  59"
+    ],
+    "ObjType": "HII",
+    "Ra": 86.5,
+    "Dec": 9.0,
+    "VMag": null
+  },
+  {
+    "MainId": "IC  439",
+    "Ids": [
+      "Ced  60",
+      "IC  439"
+    ],
+    "ObjType": "ISM",
+    "Ra": 89.15,
+    "Dec": 32.03,
+    "VMag": null
+  },
+  {
+    "MainId": "LBN 180.71+04.30",
+    "Ids": [
+      "Ced  61",
+      "DG  86"
+    ],
+    "ObjType": "RNe",
+    "Ra": 91.143,
+    "Dec": 30.5111,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC  2163",
+    "Ids": [
+      "NGC  2163",
+      "Ced  62",
+      "DG  87"
+    ],
+    "ObjType": "RNe",
+    "Ra": 91.9562,
+    "Dec": 18.6575,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC  2170",
+    "Ids": [
+      "NGC  2170",
+      "Ced  63",
+      "DG  88",
+      "NAME Mon R2 IRS3"
+    ],
+    "ObjType": "RNe",
+    "Ra": 91.95,
+    "Dec": -6.385,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  64",
+    "Ids": [
+      "Ced  64"
+    ],
+    "ObjType": "ISM",
+    "Ra": 92.25,
+    "Dec": 15.7,
+    "VMag": null
+  },
+  {
+    "MainId": "LBN 213.63-12.34",
+    "Ids": [
+      "Ced  65",
+      "DG  89"
+    ],
+    "ObjType": "HII",
+    "Ra": 92.0,
+    "Dec": -6.2,
+    "VMag": null
+  },
+  {
+    "MainId": "LBN 213.76-12.40",
+    "Ids": [
+      "Ced  66",
+      "DG  90"
+    ],
+    "ObjType": "HII",
+    "Ra": 92.0,
+    "Dec": -6.3,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  67",
+    "Ids": [
+      "Ced  67"
+    ],
+    "ObjType": "ISM",
+    "Ra": 92.43,
+    "Dec": 20.47,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  67a",
+    "Ids": [
+      "Ced  67a"
+    ],
+    "ObjType": "ISM",
+    "Ra": 92.43,
+    "Dec": 20.48,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  67c",
+    "Ids": [
+      "Ced  67c"
+    ],
+    "ObjType": "ISM",
+    "Ra": 92.72,
+    "Dec": 20.62,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC  2182",
+    "Ids": [
+      "NGC  2182",
+      "Ced  68",
+      "DG  93"
+    ],
+    "ObjType": "RNe",
+    "Ra": 92.3752,
+    "Dec": -6.3278,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC  2183",
+    "Ids": [
+      "NGC  2183",
+      "Ced  69",
+      "DG  94"
+    ],
+    "ObjType": "RNe",
+    "Ra": 92.69479,
+    "Dec": -6.21247,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC  2185",
+    "Ids": [
+      "NGC  2185",
+      "Ced  70",
+      "DG  95"
+    ],
+    "ObjType": "RNe",
+    "Ra": 92.5,
+    "Dec": -6.2,
+    "VMag": null
+  },
+  {
+    "MainId": "LBN  1000",
+    "Ids": [
+      "Ced  71",
+      "DG  96"
+    ],
+    "ObjType": "HII",
+    "Ra": 92.7,
+    "Dec": -6.1,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  73",
+    "Ids": [
+      "Ced  73"
+    ],
+    "ObjType": "ISM",
+    "Ra": 94.5404,
+    "Dec": 22.7523,
+    "VMag": null
+  },
+  {
+    "MainId": "IC  444",
+    "Ids": [
+      "IC  444",
+      "Ced  74",
+      "DG 100"
+    ],
+    "ObjType": "RNe",
+    "Ra": 94.642,
+    "Dec": 23.313,
+    "VMag": null
+  },
+  {
+    "MainId": "IC  446",
+    "Ids": [
+      "IC 2167",
+      "Ced  77",
+      "DG 102",
+      "IC  446"
+    ],
+    "ObjType": "Cl*",
+    "Ra": 97.7596,
+    "Dec": 10.435,
+    "VMag": null
+  },
+  {
+    "MainId": "IC 2169",
+    "Ids": [
+      "IC 2169",
+      "Ced  78",
+      "DG 103",
+      "IC  447"
+    ],
+    "ObjType": "HII",
+    "Ra": 97.8,
+    "Dec": 10.1,
+    "VMag": null
+  },
+  {
+    "MainId": "IC  448",
+    "Ids": [
+      "IC  448",
+      "Ced  79",
+      "DG 107"
+    ],
+    "ObjType": "HII",
+    "Ra": 98.5,
+    "Dec": 7.3,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC  2245",
+    "Ids": [
+      "NGC  2245",
+      "Ced  80",
+      "DG 108"
+    ],
+    "ObjType": "RNe",
+    "Ra": 98.1722,
+    "Dec": 10.1593,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC  2247",
+    "Ids": [
+      "NGC  2247",
+      "Ced  81",
+      "DG 109"
+    ],
+    "ObjType": "RNe",
+    "Ra": 98.2684,
+    "Dec": 10.3225,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  82",
+    "Ids": [
+      "Ced  82"
+    ],
+    "ObjType": "ISM",
+    "Ra": 99.33,
+    "Dec": 5.92,
+    "VMag": null
+  },
+  {
+    "MainId": "V* R Mon",
+    "Ids": [
+      "Ced  83",
+      "NAME HUBBLE'S VAR NEB",
+      "NAME Hubble's Nebula",
+      "NGC  2261"
+    ],
+    "ObjType": "Ae*",
+    "Ra": 99.79147583352,
+    "Dec": 8.73598318962,
+    "VMag": 11.85
+  },
+  {
+    "MainId": "Ced  84a",
+    "Ids": [
+      "Ced  84a"
+    ],
+    "ObjType": "ISM",
+    "Ra": 99.98,
+    "Dec": 8.2,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  84b",
+    "Ids": [
+      "Ced  84b"
+    ],
+    "ObjType": "ISM",
+    "Ra": 100.25,
+    "Dec": 9.7,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  84c",
+    "Ids": [
+      "Ced  84c"
+    ],
+    "ObjType": "ISM",
+    "Ra": 101.1,
+    "Dec": 9.2,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  85",
+    "Ids": [
+      "Ced  85"
+    ],
+    "ObjType": "ISM",
+    "Ra": 100.45,
+    "Dec": 6.03,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC  2283",
+    "Ids": [
+      "NGC  2283",
+      "Ced  86",
+      "DG 111",
+      "HIPASS J0645-18"
+    ],
+    "ObjType": "AG?",
+    "Ra": 101.46995878074,
+    "Dec": -18.21043063538,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC  2282",
+    "Ids": [
+      "NGC  2282",
+      "Ced  87",
+      "DG 112",
+      "IC 2172",
+      "VDB  85"
+    ],
+    "ObjType": "RNe",
+    "Ra": 101.713,
+    "Dec": 1.315,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  89a",
+    "Ids": [
+      "Ced  89a"
+    ],
+    "ObjType": "ISM",
+    "Ra": 105.82,
+    "Dec": -11.5,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  89b",
+    "Ids": [
+      "Ced  89b",
+      "DG 115"
+    ],
+    "ObjType": "RNe",
+    "Ra": 106.03,
+    "Dec": -11.18,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  89c",
+    "Ids": [
+      "Ced  89c"
+    ],
+    "ObjType": "ISM",
+    "Ra": 106.17,
+    "Dec": -10.87,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  89d",
+    "Ids": [
+      "Ced  89d"
+    ],
+    "ObjType": "ISM",
+    "Ra": 106.43,
+    "Dec": -10.62,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  89e",
+    "Ids": [
+      "Ced  89e"
+    ],
+    "ObjType": "ISM",
+    "Ra": 107.13,
+    "Dec": -10.12,
+    "VMag": null
+  },
+  {
+    "MainId": "LBN  1039",
+    "Ids": [
+      "Ced  90",
+      "SH  2-297"
+    ],
+    "ObjType": "HII",
+    "Ra": 106.304,
+    "Dec": -12.317,
+    "VMag": null
+  },
+  {
+    "MainId": "RAFGL 5223",
+    "Ids": [
+      "Ced  92",
+      "DG 117"
+    ],
+    "ObjType": "Ae?",
+    "Ra": 107.16162783734,
+    "Dec": -4.31801323226,
+    "VMag": 12.06
+  },
+  {
+    "MainId": "Ced  93",
+    "Ids": [
+      "Ced  93"
+    ],
+    "ObjType": "ISM",
+    "Ra": 107.3,
+    "Dec": -18.45,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  96",
+    "Ids": [
+      "Ced  96",
+      "HH   72"
+    ],
+    "ObjType": "Y*O",
+    "Ra": 110.0429,
+    "Dec": -24.04,
+    "VMag": null
+  },
+  {
+    "MainId": "DG 118",
+    "Ids": [
+      "Ced  96a",
+      "DG 118"
+    ],
+    "ObjType": "RNe",
+    "Ra": 109.904,
+    "Dec": -24.023,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  96b",
+    "Ids": [
+      "Ced  96b",
+      "DG 119"
+    ],
+    "ObjType": "RNe",
+    "Ra": 109.95,
+    "Dec": -24.07,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  96c",
+    "Ids": [
+      "Ced  96c",
+      "DG 120"
+    ],
+    "ObjType": "RNe",
+    "Ra": 110.03,
+    "Dec": -24.1,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced  99",
+    "Ids": [
+      "Ced  99"
+    ],
+    "ObjType": "RNe",
+    "Ra": 111.1846,
+    "Dec": -16.4747,
+    "VMag": null
+  },
+  {
+    "MainId": "LBN  1062",
+    "Ids": [
+      "Ced 101",
+      "DG 122"
+    ],
+    "ObjType": "HII",
+    "Ra": 114.0,
+    "Dec": -25.3,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC  2626",
+    "Ids": [
+      "NGC  2626",
+      "Ced 106h",
+      "VdBH 17"
+    ],
+    "ObjType": "RNe",
+    "Ra": 128.883,
+    "Dec": -40.672,
+    "VMag": null
+  },
+  {
+    "MainId": "IC 2599",
+    "Ids": [
+      "IC 2599",
+      "Ced 108",
+      "GUM 31"
+    ],
+    "ObjType": "HII",
+    "Ra": 159.43,
+    "Dec": -58.65,
+    "VMag": null
+  },
+  {
+    "MainId": "BRAN 334B",
+    "Ids": [
+      "Ced 109b"
+    ],
+    "ObjType": "ISM",
+    "Ra": 165.2804,
+    "Dec": -60.7939,
+    "VMag": null
+  },
+  {
+    "MainId": "Ass Cha T 2-21",
+    "Ids": [
+      "Ced 110"
+    ],
+    "ObjType": "TT*",
+    "Ra": 166.5639463591,
+    "Dec": -77.36575565628,
+    "VMag": 11.01
+  },
+  {
+    "MainId": "BRAN 341B",
+    "Ids": [
+      "Ced 111"
+    ],
+    "ObjType": "RNe",
+    "Ra": 167.0142,
+    "Dec": -77.6553,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced 112",
+    "Ids": [
+      "IC 2631",
+      "Ced 112"
+    ],
+    "ObjType": "RNe",
+    "Ra": 167.4683,
+    "Dec": -76.6158,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC  3699",
+    "Ids": [
+      "NGC  3699",
+      "Ced 114",
+      "HD 306491"
+    ],
+    "ObjType": "PN",
+    "Ra": 171.990999335015,
+    "Dec": -59.9579039758308,
+    "VMag": 13.0
+  },
+  {
+    "MainId": "IC 2966",
+    "Ids": [
+      "IC 2966",
+      "Ced 121",
+      "VdBH 56"
+    ],
+    "ObjType": "RNe",
+    "Ra": 177.5525,
+    "Dec": -64.8719,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced 122",
+    "Ids": [
+      "Ced 122"
+    ],
+    "ObjType": "ISM",
+    "Ra": 201.17,
+    "Dec": -64.02,
+    "VMag": null
+  },
+  {
+    "MainId": "GN 15.50.6",
+    "Ids": [
+      "Ced 125a",
+      "DG 126"
+    ],
+    "ObjType": "RNe",
+    "Ra": 237.746,
+    "Dec": -25.752,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced 125b",
+    "Ids": [
+      "Ced 125b",
+      "DG 127"
+    ],
+    "ObjType": "RNe",
+    "Ra": 238.4,
+    "Dec": -25.33,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced 125c",
+    "Ids": [
+      "Ced 125c",
+      "DG 128"
+    ],
+    "ObjType": "RNe",
+    "Ra": 238.48,
+    "Dec": -24.55,
+    "VMag": null
+  },
+  {
+    "MainId": "LBN  1094",
+    "Ids": [
+      "Ced 125d",
+      "DG 130"
+    ],
+    "ObjType": "RNe",
+    "Ra": 240.0,
+    "Dec": -26.4,
+    "VMag": null
+  },
+  {
+    "MainId": "IC 4591",
+    "Ids": [
+      "IC 4591",
+      "Ced 127",
+      "DG 131"
+    ],
+    "ObjType": "HII",
+    "Ra": 243.0,
+    "Dec": -27.9,
+    "VMag": null
+  },
+  {
+    "MainId": "IC 4592",
+    "Ids": [
+      "IC 4592",
+      "Ced 128",
+      "DG 132"
+    ],
+    "ObjType": "RNe",
+    "Ra": 243.3,
+    "Dec": -19.3,
+    "VMag": null
+  },
+  {
+    "MainId": "LBN  1115",
+    "Ids": [
+      "Ced 129"
+    ],
+    "ObjType": "HII",
+    "Ra": 245.3,
+    "Dec": -20.1,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced 129a",
+    "Ids": [
+      "Ced 129a",
+      "DG 133"
+    ],
+    "ObjType": "RNe",
+    "Ra": 244.77,
+    "Dec": -20.23,
+    "VMag": null
+  },
+  {
+    "MainId": "GN 16.17.2",
+    "Ids": [
+      "Ced 129b",
+      "DG 134",
+      "IC 4601a"
+    ],
+    "ObjType": "RNe",
+    "Ra": 245.025,
+    "Dec": -20.055,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced 129c",
+    "Ids": [
+      "Ced 129c",
+      "DG 135",
+      "IC 4601b"
+    ],
+    "ObjType": "RNe",
+    "Ra": 245.15,
+    "Dec": -20.13,
+    "VMag": null
+  },
+  {
+    "MainId": "LBN  1104",
+    "Ids": [
+      "Ced 130",
+      "DG 136"
+    ],
+    "ObjType": "HII",
+    "Ra": 245.3,
+    "Dec": -25.6,
+    "VMag": null
+  },
+  {
+    "MainId": "IC 4603",
+    "Ids": [
+      "IC 4603",
+      "Ced 131a",
+      "DG 138"
+    ],
+    "ObjType": "GNe",
+    "Ra": 246.5,
+    "Dec": -24.4,
+    "VMag": null
+  },
+  {
+    "MainId": "IC 4604",
+    "Ids": [
+      "IC 4604",
+      "Ced 131b",
+      "DG 139",
+      "NAME rho Oph Nebula"
+    ],
+    "ObjType": "GNe",
+    "Ra": 246.5,
+    "Dec": -23.4,
+    "VMag": null
+  },
+  {
+    "MainId": "* alf Sco",
+    "Ids": [
+      "Ced 132",
+      "DG 141",
+      "HD 148478",
+      "HIP 80763",
+      "HR  6134",
+      "NAME Antares",
+      "VDB 107"
+    ],
+    "ObjType": "s*r",
+    "Ra": 247.35191542,
+    "Dec": -26.43200261,
+    "VMag": 0.91
+  },
+  {
+    "MainId": "IC 4605",
+    "Ids": [
+      "IC 4605",
+      "Ced 133",
+      "DG 142"
+    ],
+    "ObjType": "GNe",
+    "Ra": 247.8,
+    "Dec": -25.1,
+    "VMag": null
+  },
+  {
+    "MainId": "HD 148937",
+    "Ids": [
+      "HD 148937",
+      "Ced 135a",
+      "Ced 135b",
+      "GUM 52",
+      "HIP 81100",
+      "NGC  6164",
+      "NGC  6165",
+      "RCW 107"
+    ],
+    "ObjType": "SB*",
+    "Ra": 248.4682788273,
+    "Dec": -48.11124344965,
+    "VMag": 6.71
+  },
+  {
+    "MainId": "HD 148937",
+    "Ids": [
+      "HD 148937",
+      "Ced 135a",
+      "Ced 135b",
+      "GUM 52",
+      "HIP 81100",
+      "NGC  6164",
+      "NGC  6165",
+      "RCW 107"
+    ],
+    "ObjType": "SB*",
+    "Ra": 248.4682788273,
+    "Dec": -48.11124344965,
+    "VMag": 6.71
+  },
+  {
+    "MainId": "Ced 151",
+    "Ids": [
+      "Ced 151"
+    ],
+    "ObjType": "HII",
+    "Ra": 270.797,
+    "Dec": -23.0285,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced 152a",
+    "Ids": [
+      "Ced 152a"
+    ],
+    "ObjType": "HII",
+    "Ra": 271.0124,
+    "Dec": -24.4547,
+    "VMag": null
+  },
+  {
+    "MainId": "IC 4678",
+    "Ids": [
+      "IC 4678",
+      "Ced 152b"
+    ],
+    "ObjType": "GNe",
+    "Ra": 272.0,
+    "Dec": -23.87,
+    "VMag": null
+  },
+  {
+    "MainId": "IC 4681",
+    "Ids": [
+      "IC 4681",
+      "Ced 154a",
+      "DG 147"
+    ],
+    "ObjType": "HII",
+    "Ra": 272.0,
+    "Dec": -23.5,
+    "VMag": null
+  },
+  {
+    "MainId": "IC 4684",
+    "Ids": [
+      "IC 4684",
+      "Ced 154b",
+      "DG 148"
+    ],
+    "ObjType": "RNe",
+    "Ra": 272.3,
+    "Dec": -23.5,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced 155",
+    "Ids": [
+      "Ced 155"
+    ],
+    "ObjType": "ISM",
+    "Ra": 271.83,
+    "Dec": 45.85,
+    "VMag": null
+  },
+  {
+    "MainId": "IRAS 18138-1954",
+    "Ids": [
+      "Ced 157a",
+      "DG 149",
+      "NGC  6589"
+    ],
+    "ObjType": "IR",
+    "Ra": 274.2101,
+    "Dec": -19.89,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC  6590",
+    "Ids": [
+      "NGC  6590",
+      "Ced 157b",
+      "DG 150",
+      "SH  2-37",
+      "VDB 119"
+    ],
+    "ObjType": "RNe",
+    "Ra": 274.275,
+    "Dec": -19.865,
+    "VMag": null
+  },
+  {
+    "MainId": "IC 1283",
+    "Ids": [
+      "IC 1283",
+      "Ced 157c",
+      "DG 151"
+    ],
+    "ObjType": "HII",
+    "Ra": 274.3,
+    "Dec": -19.5,
+    "VMag": null
+  },
+  {
+    "MainId": "IC 1284",
+    "Ids": [
+      "IC 1284",
+      "Ced 157d"
+    ],
+    "ObjType": "GNe",
+    "Ra": 274.43,
+    "Dec": -19.67,
+    "VMag": null
+  },
+  {
+    "MainId": "IC 1287",
+    "Ids": [
+      "IC 1287",
+      "Ced 163",
+      "DG 154"
+    ],
+    "ObjType": "GNe",
+    "Ra": 278.0,
+    "Dec": -10.8,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced 165b",
+    "Ids": [
+      "Ced 165b"
+    ],
+    "ObjType": "GNe",
+    "Ra": 285.4,
+    "Dec": -36.9,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced 165c",
+    "Ids": [
+      "Ced 165c"
+    ],
+    "ObjType": "GNe",
+    "Ra": 285.48,
+    "Dec": -36.97,
+    "VMag": null
+  },
+  {
+    "MainId": "LBN 057.03+03.02",
+    "Ids": [
+      "Ced 167",
+      "DG 156"
+    ],
+    "ObjType": "RNe",
+    "Ra": 291.52,
+    "Dec": 22.75,
+    "VMag": null
+  },
+  {
+    "MainId": "LBN 053.52+00.03",
+    "Ids": [
+      "Ced 168"
+    ],
+    "ObjType": "HII",
+    "Ra": 292.5,
+    "Dec": 18.2,
+    "VMag": null
+  },
+  {
+    "MainId": "LBN 071.58+02.86",
+    "Ids": [
+      "Ced 173",
+      "SH  2-101"
+    ],
+    "ObjType": "HII",
+    "Ra": 299.979,
+    "Dec": 35.277,
+    "VMag": null
+  },
+  {
+    "MainId": "IC 4954",
+    "Ids": [
+      "IC 4954",
+      "Ced 175",
+      "DG 160"
+    ],
+    "ObjType": "HII",
+    "Ra": 301.2,
+    "Dec": 29.25,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced 175a",
+    "Ids": [
+      "Ced 175a"
+    ],
+    "ObjType": "ISM",
+    "Ra": 301.2,
+    "Dec": 29.25,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced 175b",
+    "Ids": [
+      "Ced 175b"
+    ],
+    "ObjType": "ISM",
+    "Ra": 301.2,
+    "Dec": 29.25,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced 175c",
+    "Ids": [
+      "Ced 175c"
+    ],
+    "ObjType": "ISM",
+    "Ra": 301.2,
+    "Dec": 29.25,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced 176d",
+    "Ids": [
+      "Ced 176d",
+      "DG 162",
+      "NGC  6914a"
+    ],
+    "ObjType": "RNe",
+    "Ra": 306.02,
+    "Dec": 42.28,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced 176e",
+    "Ids": [
+      "Ced 176e",
+      "DG 163",
+      "NGC  6914b"
+    ],
+    "ObjType": "RNe",
+    "Ra": 306.15,
+    "Dec": 42.37,
+    "VMag": null
+  },
+  {
+    "MainId": "LBN 083.77+03.32",
+    "Ids": [
+      "Ced 181"
+    ],
+    "ObjType": "HII",
+    "Ra": 308.5,
+    "Dec": 45.7,
+    "VMag": null
+  },
+  {
+    "MainId": "LBN 094.20+08.02",
+    "Ids": [
+      "Ced 184",
+      "DG 164"
+    ],
+    "ObjType": "HII",
+    "Ra": 312.5,
+    "Dec": 56.8,
+    "VMag": null
+  },
+  {
+    "MainId": "IC 5076",
+    "Ids": [
+      "IC 5076",
+      "Ced 185",
+      "DG 165"
+    ],
+    "ObjType": "RNe",
+    "Ra": 314.0,
+    "Dec": 47.4,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced 187",
+    "Ids": [
+      "Ced 187",
+      "DG 167"
+    ],
+    "ObjType": "RNe",
+    "Ra": 315.48,
+    "Dec": 68.17,
+    "VMag": null
+  },
+  {
+    "MainId": "LBN 098.26+07.84",
+    "Ids": [
+      "Ced 190"
+    ],
+    "ObjType": "HII",
+    "Ra": 317.7,
+    "Dec": 59.7,
+    "VMag": null
+  },
+  {
+    "MainId": "LBN 097.99+06.51",
+    "Ids": [
+      "Ced 191",
+      "DG 173"
+    ],
+    "ObjType": "HII",
+    "Ra": 319.3,
+    "Dec": 58.6,
+    "VMag": null
+  },
+  {
+    "MainId": "Ced 194",
+    "Ids": [
+      "Ced 194",
+      "DG 175"
+    ],
+    "ObjType": "RNe",
+    "Ra": 325.3,
+    "Dec": 68.5,
+    "VMag": null
+  },
+  {
+    "MainId": "EM* LkHA  234",
+    "Ids": [
+      "Ced 196",
+      "DG 176",
+      "HH  167",
+      "VDB 146c"
+    ],
+    "ObjType": "Ae*",
+    "Ra": 325.77842421395,
+    "Dec": 66.11505618689,
+    "VMag": 12.73
+  },
+  {
+    "MainId": "NAME Cave Nebula",
+    "Ids": [
+      "NAME Cave Nebula",
+      "Ced 201",
+      "DG 179"
+    ],
+    "ObjType": "RNe",
+    "Ra": 333.362,
+    "Dec": 70.255,
+    "VMag": null
+  },
+  {
+    "MainId": "NGC  7538",
+    "Ids": [
+      "NGC  7538",
+      "Ced 209",
+      "SH  2-158"
+    ],
+    "ObjType": "OpC",
+    "Ra": 348.405,
+    "Dec": 61.5,
+    "VMag": null
+  },
+  {
+    "MainId": "LBN 118.11+04.78",
+    "Ids": [
+      "Ced 214"
+    ],
+    "ObjType": "HII",
+    "Ra": 0.5,
+    "Dec": 67.2,
+    "VMag": null
+  }
+]

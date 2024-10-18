@@ -1,0 +1,3861 @@
+[
+  {
+    "MainId": "Barnard   1",
+    "Ids": [
+      "Barnard   1"
+    ],
+    "ObjType": "MoC",
+    "Ra": 53.3179,
+    "Dec": 31.1308,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G158.46-19.14",
+    "Ids": [
+      "Barnard   2"
+    ],
+    "ObjType": "DNe",
+    "Ra": 53.37,
+    "Dec": 32.32,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G159.83-18.56",
+    "Ids": [
+      "Barnard   3"
+    ],
+    "ObjType": "DNe",
+    "Ra": 55.0,
+    "Dec": 31.97,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G160.65-18.15",
+    "Ids": [
+      "Barnard   4"
+    ],
+    "ObjType": "DNe",
+    "Ra": 56.0,
+    "Dec": 31.78,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1471",
+    "Ids": [
+      "LDN 1471",
+      "Barnard   5"
+    ],
+    "ObjType": "DNe",
+    "Ra": 57.0,
+    "Dec": 32.9,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1387",
+    "Ids": [
+      "LDN 1387",
+      "Barnard   6"
+    ],
+    "ObjType": "DNe",
+    "Ra": 59.0331,
+    "Dec": 56.075,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G168.46-15.58",
+    "Ids": [
+      "Barnard   7"
+    ],
+    "ObjType": "DNe",
+    "Ra": 64.35,
+    "Dec": 28.55,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard   8",
+    "Ids": [
+      "Barnard   8"
+    ],
+    "ObjType": "DNe",
+    "Ra": 64.45,
+    "Dec": 55.23,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard   9",
+    "Ids": [
+      "Barnard   9"
+    ],
+    "ObjType": "DNe",
+    "Ra": 64.5,
+    "Dec": 55.0,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1495A",
+    "Ids": [
+      "LDN 1495A",
+      "Barnard  10"
+    ],
+    "ObjType": "DNe",
+    "Ra": 64.65,
+    "Dec": 28.42,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  11",
+    "Ids": [
+      "Barnard  11"
+    ],
+    "ObjType": "DNe",
+    "Ra": 66.65,
+    "Dec": 55.03,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1407",
+    "Ids": [
+      "LDN 1407",
+      "Barnard  12"
+    ],
+    "ObjType": "DNe",
+    "Ra": 67.496,
+    "Dec": 54.275,
+    "VMag": null
+  },
+  {
+    "MainId": "MLB 3-78",
+    "Ids": [
+      "Barnard  13"
+    ],
+    "ObjType": "DNe",
+    "Ra": 67.82,
+    "Dec": 54.88,
+    "VMag": null
+  },
+  {
+    "MainId": "HD   4732",
+    "Ids": [
+      "HD   4732",
+      "Barnard  13A",
+      "HIP 3834",
+      "HR   228"
+    ],
+    "ObjType": "PM*",
+    "Ra": 12.30812591117,
+    "Dec": -24.13666407026,
+    "VMag": 5.9
+  },
+  {
+    "MainId": "Barnard  14",
+    "Ids": [
+      "Barnard  14"
+    ],
+    "ObjType": "DNe",
+    "Ra": 70.0,
+    "Dec": 25.73,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1445",
+    "Ids": [
+      "LDN 1445",
+      "Barnard  15"
+    ],
+    "ObjType": "DNe",
+    "Ra": 68.03,
+    "Dec": 46.6,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G157.31-0.99",
+    "Ids": [
+      "Barnard  16"
+    ],
+    "ObjType": "DNe",
+    "Ra": 68.1,
+    "Dec": 46.6,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G157.38-1.04",
+    "Ids": [
+      "Barnard  17"
+    ],
+    "ObjType": "DNe",
+    "Ra": 68.12,
+    "Dec": 46.52,
+    "VMag": null
+  },
+  {
+    "MainId": "NAME Kutner's Cloud",
+    "Ids": [
+      "NAME Kutner's Cloud",
+      "Barnard  18",
+      "LDN 1529"
+    ],
+    "ObjType": "MoC",
+    "Ra": 68.1858,
+    "Dec": 24.3869,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  18A",
+    "Ids": [
+      "Barnard  18A"
+    ],
+    "ObjType": "DNe",
+    "Ra": 66.654,
+    "Dec": 24.615,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  18B",
+    "Ids": [
+      "Barnard  18B"
+    ],
+    "ObjType": "DNe",
+    "Ra": 67.296,
+    "Dec": 24.59,
+    "VMag": null
+  },
+  {
+    "MainId": "NAME B18-C",
+    "Ids": [
+      "NAME B18-C",
+      "Barnard  18C",
+      "NAME Barn 18C"
+    ],
+    "ObjType": "DNe",
+    "Ra": 68.067,
+    "Dec": 24.767,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  18D",
+    "Ids": [
+      "Barnard  18D"
+    ],
+    "ObjType": "DNe",
+    "Ra": 67.008,
+    "Dec": 24.705,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  18E",
+    "Ids": [
+      "Barnard  18E"
+    ],
+    "ObjType": "DNe",
+    "Ra": 68.108,
+    "Dec": 24.368,
+    "VMag": null
+  },
+  {
+    "MainId": "NAME B18-F",
+    "Ids": [
+      "NAME B18-F",
+      "Barnard  18F",
+      "NAME Barn 18F"
+    ],
+    "ObjType": "DNe",
+    "Ra": 67.871,
+    "Dec": 24.18,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  18G",
+    "Ids": [
+      "Barnard  18G"
+    ],
+    "ObjType": "DNe",
+    "Ra": 67.721,
+    "Dec": 24.192,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  18H",
+    "Ids": [
+      "Barnard  18H"
+    ],
+    "ObjType": "DNe",
+    "Ra": 68.492,
+    "Dec": 24.165,
+    "VMag": null
+  },
+  {
+    "MainId": "NAME B18-I",
+    "Ids": [
+      "NAME B18-I",
+      "Barnard  18I",
+      "NAME Barn 18I"
+    ],
+    "ObjType": "DNe",
+    "Ra": 68.912,
+    "Dec": 24.152,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  19",
+    "Ids": [
+      "Barnard  19"
+    ],
+    "ObjType": "DNe",
+    "Ra": 68.2,
+    "Dec": 26.3,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G154.61+2.53",
+    "Ids": [
+      "Barnard  20"
+    ],
+    "ObjType": "DNe",
+    "Ra": 69.28,
+    "Dec": 50.97,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  21",
+    "Ids": [
+      "Barnard  21"
+    ],
+    "ObjType": "DNe",
+    "Ra": 69.48,
+    "Dec": 55.35,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  22",
+    "Ids": [
+      "Barnard  22"
+    ],
+    "ObjType": "DNe",
+    "Ra": 69.5,
+    "Dec": 26.1,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1503",
+    "Ids": [
+      "LDN 1503",
+      "Barnard  23"
+    ],
+    "ObjType": "DNe",
+    "Ra": 70.1,
+    "Dec": 29.93,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1507",
+    "Ids": [
+      "LDN 1507",
+      "Barnard  24"
+    ],
+    "ObjType": "MoC",
+    "Ra": 70.883,
+    "Dec": 29.667,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1465",
+    "Ids": [
+      "LDN 1465",
+      "Barnard  25"
+    ],
+    "ObjType": "DNe",
+    "Ra": 73.18,
+    "Dec": 46.0,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  26",
+    "Ids": [
+      "Barnard  26"
+    ],
+    "ObjType": "DNe",
+    "Ra": 73.65,
+    "Dec": 30.62,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  27",
+    "Ids": [
+      "Barnard  27"
+    ],
+    "ObjType": "DNe",
+    "Ra": 73.78,
+    "Dec": 30.55,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  28",
+    "Ids": [
+      "Barnard  28"
+    ],
+    "ObjType": "DNe",
+    "Ra": 73.97,
+    "Dec": 30.63,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1523",
+    "Ids": [
+      "LDN 1523",
+      "Barnard  29"
+    ],
+    "ObjType": "DNe",
+    "Ra": 76.5575,
+    "Dec": 31.7056,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  30",
+    "Ids": [
+      "Barnard  30"
+    ],
+    "ObjType": "DNe",
+    "Ra": 82.57,
+    "Dec": 12.77,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G192.19-11.20",
+    "Ids": [
+      "Barnard  31"
+    ],
+    "ObjType": "DNe",
+    "Ra": 83.0,
+    "Dec": 12.75,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1582",
+    "Ids": [
+      "LDN 1582",
+      "Barnard  32"
+    ],
+    "ObjType": "DNe",
+    "Ra": 83.0013,
+    "Dec": 12.5078,
+    "VMag": null
+  },
+  {
+    "MainId": "NAME Horsehead Nebula",
+    "Ids": [
+      "NAME Horsehead Nebula",
+      "Barnard  33"
+    ],
+    "ObjType": "DNe",
+    "Ra": 85.2458,
+    "Dec": -2.4583,
+    "VMag": null
+  },
+  {
+    "MainId": "TGU H1235 P2",
+    "Ids": [
+      "Barnard  34"
+    ],
+    "ObjType": "Cld",
+    "Ra": 85.8238,
+    "Dec": 32.6183,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  34N",
+    "Ids": [
+      "Barnard  34N"
+    ],
+    "ObjType": "DNe",
+    "Ra": 85.854,
+    "Dec": 32.66,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  35",
+    "Ids": [
+      "Barnard  35"
+    ],
+    "ObjType": "DNe",
+    "Ra": 86.37,
+    "Dec": 9.05,
+    "VMag": null
+  },
+  {
+    "MainId": "JCMTSF J054429.8+090856",
+    "Ids": [
+      "Barnard  35A"
+    ],
+    "ObjType": "DNe",
+    "Ra": 86.123,
+    "Dec": 9.147,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  35B",
+    "Ids": [
+      "Barnard  35B"
+    ],
+    "ObjType": "DNe",
+    "Ra": 86.1846,
+    "Dec": 9.0203,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G199.11-10.12",
+    "Ids": [
+      "Barnard  36"
+    ],
+    "ObjType": "DNe",
+    "Ra": 87.2,
+    "Dec": 7.4,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G201.23+0.75",
+    "Ids": [
+      "Barnard  37"
+    ],
+    "ObjType": "DNe",
+    "Ra": 98.0,
+    "Dec": 10.5,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  38",
+    "Ids": [
+      "Barnard  38"
+    ],
+    "ObjType": "DNe",
+    "Ra": 98.42,
+    "Dec": 11.07,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1610",
+    "Ids": [
+      "LDN 1610",
+      "Barnard  39"
+    ],
+    "ObjType": "DNe",
+    "Ra": 99.4861,
+    "Dec": 10.4874,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1721",
+    "Ids": [
+      "LDN 1721",
+      "Barnard  40"
+    ],
+    "ObjType": "DNe",
+    "Ra": 243.6171,
+    "Dec": -18.9122,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G356.21+20.78",
+    "Ids": [
+      "Barnard  41"
+    ],
+    "ObjType": "DNe",
+    "Ra": 245.57,
+    "Dec": -19.62,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  42",
+    "Ids": [
+      "Barnard  42"
+    ],
+    "ObjType": "DNe",
+    "Ra": 246.3,
+    "Dec": -23.4,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1752",
+    "Ids": [
+      "LDN 1752",
+      "Barnard  43"
+    ],
+    "ObjType": "DNe",
+    "Ra": 247.47,
+    "Dec": -19.6,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1712",
+    "Ids": [
+      "LDN 1712",
+      "Barnard  44"
+    ],
+    "ObjType": "DNe",
+    "Ra": 249.5,
+    "Dec": -24.43,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G343.44+3.45",
+    "Ids": [
+      "Barnard  44A"
+    ],
+    "ObjType": "MoC",
+    "Ra": 251.208,
+    "Dec": -40.385,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1744",
+    "Ids": [
+      "LDN 1744",
+      "Barnard  45"
+    ],
+    "ObjType": "DNe",
+    "Ra": 250.0,
+    "Dec": -22.27,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1775",
+    "Ids": [
+      "LDN 1775",
+      "Barnard  46"
+    ],
+    "ObjType": "DNe",
+    "Ra": 254.262,
+    "Dec": -22.865,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1792",
+    "Ids": [
+      "LDN 1792",
+      "Barnard  47"
+    ],
+    "ObjType": "DNe",
+    "Ra": 254.9,
+    "Dec": -22.58,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G345.14+0.86",
+    "Ids": [
+      "Barnard  48"
+    ],
+    "ObjType": "DNe",
+    "Ra": 255.27,
+    "Dec": -40.72,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1679",
+    "Ids": [
+      "LDN 1679",
+      "Barnard  49"
+    ],
+    "ObjType": "MoC",
+    "Ra": 255.683,
+    "Dec": -33.273,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G350.03+5.78",
+    "Ids": [
+      "Barnard  50"
+    ],
+    "ObjType": "DNe",
+    "Ra": 254.2,
+    "Dec": -33.85,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN   15",
+    "Ids": [
+      "LDN   15",
+      "Barnard  51"
+    ],
+    "ObjType": "DNe",
+    "Ra": 256.18,
+    "Dec": -22.2,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  53",
+    "Ids": [
+      "Barnard  53"
+    ],
+    "ObjType": "DNe",
+    "Ra": 256.5,
+    "Dec": -33.6,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  54",
+    "Ids": [
+      "Barnard  54"
+    ],
+    "ObjType": "DNe",
+    "Ra": 256.65,
+    "Dec": -34.25,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1682",
+    "Ids": [
+      "LDN 1682",
+      "Barnard  55"
+    ],
+    "ObjType": "DNe",
+    "Ra": 257.05,
+    "Dec": -32.1,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1685",
+    "Ids": [
+      "LDN 1685",
+      "Barnard  56"
+    ],
+    "ObjType": "MoC",
+    "Ra": 257.192,
+    "Dec": -32.113,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN   11",
+    "Ids": [
+      "LDN   11",
+      "Barnard  57"
+    ],
+    "ObjType": "DNe",
+    "Ra": 257.129,
+    "Dec": -22.897,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  58",
+    "Ids": [
+      "Barnard  58"
+    ],
+    "ObjType": "Cld",
+    "Ra": 257.8442,
+    "Dec": -40.5844,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1746",
+    "Ids": [
+      "LDN 1746",
+      "Barnard  59"
+    ],
+    "ObjType": "DNe",
+    "Ra": 257.82,
+    "Dec": -27.37,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  60",
+    "Ids": [
+      "Barnard  60"
+    ],
+    "ObjType": "DNe",
+    "Ra": 257.95,
+    "Dec": -22.43,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  111",
+    "Ids": [
+      "LDN  111",
+      "Barnard  61"
+    ],
+    "ObjType": "DNe",
+    "Ra": 258.8,
+    "Dec": -20.35,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  100",
+    "Ids": [
+      "LDN  100",
+      "Barnard  62"
+    ],
+    "ObjType": "DNe",
+    "Ra": 258.981958,
+    "Dec": -20.934147,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  63",
+    "Ids": [
+      "Barnard  63"
+    ],
+    "ObjType": "DNe",
+    "Ra": 258.475,
+    "Dec": -21.915,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  173",
+    "Ids": [
+      "LDN  173",
+      "Barnard  64"
+    ],
+    "ObjType": "DNe",
+    "Ra": 259.35,
+    "Dec": -18.52,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1772",
+    "Ids": [
+      "LDN 1772",
+      "Barnard  65"
+    ],
+    "ObjType": "DNe",
+    "Ra": 259.95,
+    "Dec": -26.63,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1768",
+    "Ids": [
+      "LDN 1768",
+      "Barnard  66"
+    ],
+    "ObjType": "DNe",
+    "Ra": 260.02,
+    "Dec": -26.87,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  67",
+    "Ids": [
+      "Barnard  67"
+    ],
+    "ObjType": "DNe",
+    "Ra": 260.25,
+    "Dec": -26.85,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  67A",
+    "Ids": [
+      "Barnard  67A"
+    ],
+    "ObjType": "DNe",
+    "Ra": 260.62,
+    "Dec": -21.88,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN   57",
+    "Ids": [
+      "LDN   57",
+      "Barnard  68"
+    ],
+    "ObjType": "DNe",
+    "Ra": 260.6592,
+    "Dec": -23.8261,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN   55",
+    "Ids": [
+      "LDN   55",
+      "Barnard  69"
+    ],
+    "ObjType": "DNe",
+    "Ra": 260.75,
+    "Dec": -23.88,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN   54",
+    "Ids": [
+      "LDN   54",
+      "Barnard  70"
+    ],
+    "ObjType": "DNe",
+    "Ra": 260.9,
+    "Dec": -23.97,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN   53",
+    "Ids": [
+      "LDN   53",
+      "Barnard  71"
+    ],
+    "ObjType": "DNe",
+    "Ra": 260.871,
+    "Dec": -24.042,
+    "VMag": null
+  },
+  {
+    "MainId": "NAME Snake DCld",
+    "Ids": [
+      "NAME Snake DCld",
+      "Barnard  72",
+      "LDN   66"
+    ],
+    "ObjType": "DNe",
+    "Ra": 260.913,
+    "Dec": -23.695,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G1.33+6.53",
+    "Ids": [
+      "Barnard  73"
+    ],
+    "ObjType": "DNe",
+    "Ra": 261.02,
+    "Dec": -24.28,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  74",
+    "Ids": [
+      "Barnard  74"
+    ],
+    "ObjType": "DNe",
+    "Ra": 261.27,
+    "Dec": -24.2,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  112",
+    "Ids": [
+      "LDN  112",
+      "Barnard  75"
+    ],
+    "ObjType": "DNe",
+    "Ra": 261.25,
+    "Dec": -21.88,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  76",
+    "Ids": [
+      "Barnard  76"
+    ],
+    "ObjType": "DNe",
+    "Ra": 261.3,
+    "Dec": -24.4,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN   69",
+    "Ids": [
+      "LDN   69",
+      "Barnard  77"
+    ],
+    "ObjType": "DNe",
+    "Ra": 261.9929,
+    "Dec": -23.9995,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G1.31+4.20",
+    "Ids": [
+      "Barnard  78"
+    ],
+    "ObjType": "DNe",
+    "Ra": 263.0,
+    "Dec": -25.6,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  216",
+    "Ids": [
+      "LDN  216",
+      "Barnard  79"
+    ],
+    "ObjType": "DNe",
+    "Ra": 264.4246,
+    "Dec": -19.6624,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G5.57+5.55",
+    "Ids": [
+      "Barnard  80"
+    ],
+    "ObjType": "DNe",
+    "Ra": 264.43,
+    "Dec": -21.27,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G3.43+3.98",
+    "Ids": [
+      "Barnard  81"
+    ],
+    "ObjType": "DNe",
+    "Ra": 264.62,
+    "Dec": -23.92,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G3.55+4.03",
+    "Ids": [
+      "Barnard  82"
+    ],
+    "ObjType": "DNe",
+    "Ra": 264.65,
+    "Dec": -23.77,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  109",
+    "Ids": [
+      "LDN  109",
+      "Barnard  83"
+    ],
+    "ObjType": "DNe",
+    "Ra": 264.77,
+    "Dec": -24.12,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  233",
+    "Ids": [
+      "LDN  233",
+      "Barnard  83A"
+    ],
+    "ObjType": "DNe",
+    "Ra": 266.27,
+    "Dec": -20.02,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  235",
+    "Ids": [
+      "LDN  235",
+      "Barnard  84"
+    ],
+    "ObjType": "DNe",
+    "Ra": 266.62,
+    "Dec": -20.18,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  302",
+    "Ids": [
+      "LDN  302",
+      "Barnard  84A"
+    ],
+    "ObjType": "DNe",
+    "Ra": 269.4,
+    "Dec": -17.63,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G6.99-0.24",
+    "Ids": [
+      "Barnard  85"
+    ],
+    "ObjType": "DNe",
+    "Ra": 270.6,
+    "Dec": -23.02,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN   93",
+    "Ids": [
+      "LDN   93",
+      "Barnard  86"
+    ],
+    "ObjType": "DNe",
+    "Ra": 270.742,
+    "Dec": -27.868,
+    "VMag": null
+  },
+  {
+    "MainId": "NAME Parrot's Head",
+    "Ids": [
+      "NAME Parrot's Head",
+      "Barnard  87",
+      "LDN 1771"
+    ],
+    "ObjType": "DNe",
+    "Ra": 271.07,
+    "Dec": -32.67,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G6.30-1.23",
+    "Ids": [
+      "Barnard  88"
+    ],
+    "ObjType": "DNe",
+    "Ra": 271.15,
+    "Dec": -24.1,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G6.12-1.43",
+    "Ids": [
+      "Barnard  89"
+    ],
+    "ObjType": "DNe",
+    "Ra": 271.25,
+    "Dec": -24.35,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  108",
+    "Ids": [
+      "LDN  108",
+      "Barnard  90"
+    ],
+    "ObjType": "DNe",
+    "Ra": 272.562,
+    "Dec": -28.302,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  227",
+    "Ids": [
+      "LDN  227",
+      "Barnard  91"
+    ],
+    "ObjType": "DNe",
+    "Ra": 272.52,
+    "Dec": -23.65,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  323",
+    "Ids": [
+      "LDN  323",
+      "Barnard  92"
+    ],
+    "ObjType": "DNe",
+    "Ra": 273.87,
+    "Dec": -18.22,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  327",
+    "Ids": [
+      "LDN  327",
+      "Barnard  93"
+    ],
+    "ObjType": "DNe",
+    "Ra": 274.23,
+    "Dec": -18.07,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  94",
+    "Ids": [
+      "Barnard  94"
+    ],
+    "ObjType": "DNe",
+    "Ra": 276.48,
+    "Dec": -10.65,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  406",
+    "Ids": [
+      "LDN  406",
+      "Barnard  95"
+    ],
+    "ObjType": "DNe",
+    "Ra": 276.37,
+    "Dec": -11.78,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard  96",
+    "Ids": [
+      "Barnard  96"
+    ],
+    "ObjType": "DNe",
+    "Ra": 276.562,
+    "Dec": -10.303,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G21.57+0.39",
+    "Ids": [
+      "Barnard  97"
+    ],
+    "ObjType": "DNe",
+    "Ra": 277.27,
+    "Dec": -9.92,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  239",
+    "Ids": [
+      "LDN  239",
+      "Barnard  98"
+    ],
+    "ObjType": "DNe",
+    "Ra": 278.3447,
+    "Dec": -26.0223,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  313",
+    "Ids": [
+      "LDN  313",
+      "Barnard  99"
+    ],
+    "ObjType": "DNe",
+    "Ra": 278.37,
+    "Dec": -21.55,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  443",
+    "Ids": [
+      "LDN  443",
+      "Barnard 100"
+    ],
+    "ObjType": "DNe",
+    "Ra": 278.1774,
+    "Dec": -9.0787,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 101",
+    "Ids": [
+      "Barnard 101"
+    ],
+    "ObjType": "DNe",
+    "Ra": 278.133,
+    "Dec": -8.962,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  401",
+    "Ids": [
+      "LDN  401",
+      "Barnard 102"
+    ],
+    "ObjType": "DNe",
+    "Ra": 279.4878,
+    "Dec": -13.7625,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  497",
+    "Ids": [
+      "LDN  497",
+      "Barnard 103"
+    ],
+    "ObjType": "DNe",
+    "Ra": 279.7979,
+    "Dec": -6.6208,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  532",
+    "Ids": [
+      "LDN  532",
+      "Barnard 104"
+    ],
+    "ObjType": "DNe",
+    "Ra": 281.77,
+    "Dec": -4.37,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  506",
+    "Ids": [
+      "LDN  506",
+      "Barnard 105"
+    ],
+    "ObjType": "DNe",
+    "Ra": 281.92,
+    "Dec": -6.87,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G28.12-1.76",
+    "Ids": [
+      "Barnard 106"
+    ],
+    "ObjType": "DNe",
+    "Ra": 282.2,
+    "Dec": -5.07,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 107",
+    "Ids": [
+      "Barnard 107"
+    ],
+    "ObjType": "DNe",
+    "Ra": 282.37,
+    "Dec": -5.0,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G27.11-2.45",
+    "Ids": [
+      "Barnard 108"
+    ],
+    "ObjType": "DNe",
+    "Ra": 282.4,
+    "Dec": -6.3,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G26.03-3.10",
+    "Ids": [
+      "Barnard 109"
+    ],
+    "ObjType": "DNe",
+    "Ra": 282.4,
+    "Dec": -7.55,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G28.48-1.78",
+    "Ids": [
+      "Barnard 110"
+    ],
+    "ObjType": "DNe",
+    "Ra": 282.52,
+    "Dec": -4.77,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G28.36-1.94",
+    "Ids": [
+      "Barnard 111"
+    ],
+    "ObjType": "DNe",
+    "Ra": 282.5,
+    "Dec": -5.0,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 112",
+    "Ids": [
+      "Barnard 112"
+    ],
+    "ObjType": "DNe",
+    "Ra": 282.77,
+    "Dec": -6.67,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  548",
+    "Ids": [
+      "LDN  548",
+      "Barnard 113"
+    ],
+    "ObjType": "DNe",
+    "Ra": 282.4573,
+    "Dec": -3.7009,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  514",
+    "Ids": [
+      "LDN  514",
+      "Barnard 114"
+    ],
+    "ObjType": "DNe",
+    "Ra": 283.2143,
+    "Dec": -6.9271,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  518",
+    "Ids": [
+      "LDN  518",
+      "Barnard 115"
+    ],
+    "ObjType": "DNe",
+    "Ra": 283.3,
+    "Dec": -6.6,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  512",
+    "Ids": [
+      "LDN  512",
+      "Barnard 116"
+    ],
+    "ObjType": "DNe",
+    "Ra": 283.3,
+    "Dec": -7.1,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  509",
+    "Ids": [
+      "LDN  509",
+      "Barnard 117"
+    ],
+    "ObjType": "DNe",
+    "Ra": 283.43,
+    "Dec": -7.3,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G28.88-2.70",
+    "Ids": [
+      "Barnard 117A"
+    ],
+    "ObjType": "DNe",
+    "Ra": 283.43,
+    "Dec": -4.83,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 118",
+    "Ids": [
+      "Barnard 118"
+    ],
+    "ObjType": "DNe",
+    "Ra": 283.483,
+    "Dec": -7.442,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 119",
+    "Ids": [
+      "Barnard 119"
+    ],
+    "ObjType": "DNe",
+    "Ra": 283.65,
+    "Dec": -4.53,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G28.69-3.07",
+    "Ids": [
+      "Barnard 119A"
+    ],
+    "ObjType": "DNe",
+    "Ra": 283.67,
+    "Dec": -5.17,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 120",
+    "Ids": [
+      "Barnard 120"
+    ],
+    "ObjType": "DNe",
+    "Ra": 284.4,
+    "Dec": -3.93,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G29.24-2.92",
+    "Ids": [
+      "Barnard 121"
+    ],
+    "ObjType": "DNe",
+    "Ra": 283.85,
+    "Dec": -4.6,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  545",
+    "Ids": [
+      "LDN  545",
+      "Barnard 122"
+    ],
+    "ObjType": "DNe",
+    "Ra": 284.2,
+    "Dec": -4.77,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 123",
+    "Ids": [
+      "Barnard 123"
+    ],
+    "ObjType": "DNe",
+    "Ra": 284.4,
+    "Dec": -4.72,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G29.77-3.37",
+    "Ids": [
+      "Barnard 124"
+    ],
+    "ObjType": "DNe",
+    "Ra": 284.42,
+    "Dec": -4.35,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G29.81-3.53",
+    "Ids": [
+      "Barnard 125"
+    ],
+    "ObjType": "DNe",
+    "Ra": 284.57,
+    "Dec": -4.38,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  556",
+    "Ids": [
+      "LDN  556",
+      "Barnard 126"
+    ],
+    "ObjType": "DNe",
+    "Ra": 284.77,
+    "Dec": -4.52,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  544",
+    "Ids": [
+      "LDN  544",
+      "Barnard 127"
+    ],
+    "ObjType": "DNe",
+    "Ra": 285.4,
+    "Dec": -5.43,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 128",
+    "Ids": [
+      "Barnard 128"
+    ],
+    "ObjType": "DNe",
+    "Ra": 285.43,
+    "Dec": -4.57,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  549",
+    "Ids": [
+      "LDN  549",
+      "Barnard 129"
+    ],
+    "ObjType": "DNe",
+    "Ra": 285.5283,
+    "Dec": -5.3158,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  542",
+    "Ids": [
+      "LDN  542",
+      "Barnard 130"
+    ],
+    "ObjType": "DNe",
+    "Ra": 285.4177,
+    "Dec": -5.5914,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  562",
+    "Ids": [
+      "LDN  562",
+      "Barnard 131"
+    ],
+    "ObjType": "DNe",
+    "Ra": 285.65,
+    "Dec": -4.52,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 132",
+    "Ids": [
+      "Barnard 132"
+    ],
+    "ObjType": "DNe",
+    "Ra": 286.1,
+    "Dec": -4.42,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  531",
+    "Ids": [
+      "LDN  531",
+      "Barnard 133"
+    ],
+    "ObjType": "DNe",
+    "Ra": 286.5416,
+    "Dec": -6.8959,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  543",
+    "Ids": [
+      "LDN  543",
+      "Barnard 134"
+    ],
+    "ObjType": "DNe",
+    "Ra": 286.68,
+    "Dec": -6.17,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 135",
+    "Ids": [
+      "Barnard 135"
+    ],
+    "ObjType": "DNe",
+    "Ra": 286.87,
+    "Dec": -3.92,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 136",
+    "Ids": [
+      "Barnard 136"
+    ],
+    "ObjType": "DNe",
+    "Ra": 287.2,
+    "Dec": -4.0,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G34.55-6.05",
+    "Ids": [
+      "Barnard 137"
+    ],
+    "ObjType": "DNe",
+    "Ra": 288.983,
+    "Dec": -1.32,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  627",
+    "Ids": [
+      "LDN  627",
+      "Barnard 138"
+    ],
+    "ObjType": "DNe",
+    "Ra": 288.5,
+    "Dec": 0.83,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  619",
+    "Ids": [
+      "LDN  619",
+      "Barnard 139"
+    ],
+    "ObjType": "DNe",
+    "Ra": 289.512,
+    "Dec": -1.463,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 140",
+    "Ids": [
+      "Barnard 140"
+    ],
+    "ObjType": "DNe",
+    "Ra": 289.95,
+    "Dec": 5.22,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G37.90-5.53",
+    "Ids": [
+      "Barnard 141"
+    ],
+    "ObjType": "DNe",
+    "Ra": 290.05,
+    "Dec": 1.88,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G47.85-5.72",
+    "Ids": [
+      "Barnard 142"
+    ],
+    "ObjType": "DNe",
+    "Ra": 294.92,
+    "Dec": 10.52,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  694",
+    "Ids": [
+      "LDN  694",
+      "Barnard 143"
+    ],
+    "ObjType": "DNe",
+    "Ra": 295.18,
+    "Dec": 10.95,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G71.41+3.20",
+    "Ids": [
+      "Barnard 144"
+    ],
+    "ObjType": "DNe",
+    "Ra": 299.5,
+    "Dec": 35.3,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G73.91+3.60",
+    "Ids": [
+      "Barnard 145"
+    ],
+    "ObjType": "DNe",
+    "Ra": 300.7,
+    "Dec": 37.67,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 146",
+    "Ids": [
+      "Barnard 146"
+    ],
+    "ObjType": "DNe",
+    "Ra": 300.87,
+    "Dec": 36.02,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  853",
+    "Ids": [
+      "LDN  853",
+      "Barnard 147"
+    ],
+    "ObjType": "DNe",
+    "Ra": 301.7462,
+    "Dec": 35.2094,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 148",
+    "Ids": [
+      "Barnard 148"
+    ],
+    "ObjType": "DNe",
+    "Ra": 312.075,
+    "Dec": 59.64,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 149",
+    "Ids": [
+      "Barnard 149"
+    ],
+    "ObjType": "DNe",
+    "Ra": 312.25,
+    "Dec": 59.52,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1082",
+    "Ids": [
+      "LDN 1082",
+      "Barnard 150"
+    ],
+    "ObjType": "DNe",
+    "Ra": 312.77,
+    "Dec": 60.18,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G95.48+5.86",
+    "Ids": [
+      "Barnard 151"
+    ],
+    "ObjType": "DNe",
+    "Ra": 317.05,
+    "Dec": 56.32,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1125",
+    "Ids": [
+      "LDN 1125",
+      "Barnard 152"
+    ],
+    "ObjType": "DNe",
+    "Ra": 318.62,
+    "Dec": 61.73,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G96.80+4.66",
+    "Ids": [
+      "Barnard 153"
+    ],
+    "ObjType": "DNe",
+    "Ra": 320.25,
+    "Dec": 56.43,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1080",
+    "Ids": [
+      "LDN 1080",
+      "Barnard 154"
+    ],
+    "ObjType": "DNe",
+    "Ra": 320.37,
+    "Dec": 56.42,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  983",
+    "Ids": [
+      "LDN  983",
+      "Barnard 155"
+    ],
+    "ObjType": "DNe",
+    "Ra": 323.1,
+    "Dec": 45.05,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G90.74-4.59",
+    "Ids": [
+      "Barnard 156"
+    ],
+    "ObjType": "DNe",
+    "Ra": 323.5,
+    "Dec": 45.58,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1075",
+    "Ids": [
+      "LDN 1075",
+      "Barnard 157"
+    ],
+    "ObjType": "MoC",
+    "Ra": 323.483,
+    "Dec": 54.692,
+    "VMag": null
+  },
+  {
+    "MainId": "TGU H534 P2",
+    "Ids": [
+      "Barnard 158"
+    ],
+    "ObjType": "DNe",
+    "Ra": 324.297125,
+    "Dec": 43.3434056,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  973",
+    "Ids": [
+      "LDN  973",
+      "Barnard 159"
+    ],
+    "ObjType": "DNe",
+    "Ra": 324.37,
+    "Dec": 43.23,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1088",
+    "Ids": [
+      "LDN 1088",
+      "Barnard 160"
+    ],
+    "ObjType": "DNe",
+    "Ra": 324.55,
+    "Dec": 56.23,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 161",
+    "Ids": [
+      "Barnard 161"
+    ],
+    "ObjType": "DNe",
+    "Ra": 325.1,
+    "Dec": 57.82,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 162",
+    "Ids": [
+      "Barnard 162"
+    ],
+    "ObjType": "DNe",
+    "Ra": 325.3,
+    "Dec": 56.32,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1106",
+    "Ids": [
+      "LDN 1106",
+      "Barnard 163"
+    ],
+    "ObjType": "DNe",
+    "Ra": 325.5642,
+    "Dec": 56.7289,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1070",
+    "Ids": [
+      "LDN 1070",
+      "Barnard 164"
+    ],
+    "ObjType": "DNe",
+    "Ra": 326.77,
+    "Dec": 51.07,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G102.04+4.95",
+    "Ids": [
+      "Barnard 165"
+    ],
+    "ObjType": "DNe",
+    "Ra": 327.23,
+    "Dec": 60.2,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G102.18+4.69",
+    "Ids": [
+      "Barnard 166"
+    ],
+    "ObjType": "DNe",
+    "Ra": 327.77,
+    "Dec": 60.08,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G102.25+4.61",
+    "Ids": [
+      "Barnard 167"
+    ],
+    "ObjType": "DNe",
+    "Ra": 328.0,
+    "Dec": 60.07,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 168",
+    "Ids": [
+      "Barnard 168"
+    ],
+    "ObjType": "DNe",
+    "Ra": 328.32,
+    "Dec": 47.27,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G102.12+3.03",
+    "Ids": [
+      "Barnard 169"
+    ],
+    "ObjType": "DNe",
+    "Ra": 329.72,
+    "Dec": 58.75,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1149",
+    "Ids": [
+      "LDN 1149",
+      "Barnard 170"
+    ],
+    "ObjType": "DNe",
+    "Ra": 329.4,
+    "Dec": 59.12,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1153",
+    "Ids": [
+      "LDN 1153",
+      "Barnard 171"
+    ],
+    "ObjType": "DNe",
+    "Ra": 330.15,
+    "Dec": 58.98,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1164",
+    "Ids": [
+      "LDN 1164",
+      "Barnard 174",
+      "Barnard 172"
+    ],
+    "ObjType": "DNe",
+    "Ra": 331.68,
+    "Dec": 59.17,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 173",
+    "Ids": [
+      "Barnard 173"
+    ],
+    "ObjType": "DNe",
+    "Ra": 331.87,
+    "Dec": 59.67,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1164",
+    "Ids": [
+      "LDN 1164",
+      "Barnard 174",
+      "Barnard 172"
+    ],
+    "ObjType": "DNe",
+    "Ra": 331.68,
+    "Dec": 59.17,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G110.12+11.08",
+    "Ids": [
+      "Barnard 175"
+    ],
+    "ObjType": "DNe",
+    "Ra": 333.5,
+    "Dec": 69.9,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G133.87-4.05",
+    "Ids": [
+      "Barnard 201"
+    ],
+    "ObjType": "DNe",
+    "Ra": 33.25,
+    "Dec": 57.08,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1451",
+    "Ids": [
+      "LDN 1451",
+      "Barnard 202"
+    ],
+    "ObjType": "DNe",
+    "Ra": 51.53,
+    "Dec": 30.17,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1448",
+    "Ids": [
+      "LDN 1448",
+      "Barnard 203"
+    ],
+    "ObjType": "DNe",
+    "Ra": 50.63,
+    "Dec": 30.58,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1455",
+    "Ids": [
+      "LDN 1455",
+      "Barnard 204"
+    ],
+    "ObjType": "DNe",
+    "Ra": 52.0027,
+    "Dec": 30.133,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1450",
+    "Ids": [
+      "LDN 1450",
+      "Barnard 205"
+    ],
+    "ObjType": "DNe",
+    "Ra": 52.4,
+    "Dec": 31.33,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G159.07-21.41",
+    "Ids": [
+      "Barnard 206"
+    ],
+    "ObjType": "DNe",
+    "Ra": 52.3,
+    "Dec": 30.18,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 207",
+    "Ids": [
+      "Barnard 207"
+    ],
+    "ObjType": "DNe",
+    "Ra": 61.15,
+    "Dec": 26.33,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 208",
+    "Ids": [
+      "Barnard 208"
+    ],
+    "ObjType": "DNe",
+    "Ra": 62.88,
+    "Dec": 25.15,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 209",
+    "Ids": [
+      "Barnard 209"
+    ],
+    "ObjType": "DNe",
+    "Ra": 63.1,
+    "Dec": 28.32,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 210",
+    "Ids": [
+      "Barnard 210"
+    ],
+    "ObjType": "DNe",
+    "Ra": 63.9,
+    "Dec": 25.05,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 211",
+    "Ids": [
+      "Barnard 211"
+    ],
+    "ObjType": "DNe",
+    "Ra": 64.396,
+    "Dec": 27.718,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 212",
+    "Ids": [
+      "Barnard 212"
+    ],
+    "ObjType": "DNe",
+    "Ra": 64.8,
+    "Dec": 25.3,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 213",
+    "Ids": [
+      "Barnard 213"
+    ],
+    "ObjType": "DNe",
+    "Ra": 65.213,
+    "Dec": 27.272,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G169.18-14.88",
+    "Ids": [
+      "Barnard 214"
+    ],
+    "ObjType": "DNe",
+    "Ra": 65.47,
+    "Dec": 28.53,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 215",
+    "Ids": [
+      "Barnard 215"
+    ],
+    "ObjType": "DNe",
+    "Ra": 65.9,
+    "Dec": 25.03,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 216",
+    "Ids": [
+      "Barnard 216"
+    ],
+    "ObjType": "DNe",
+    "Ra": 66.0,
+    "Dec": 26.62,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 217",
+    "Ids": [
+      "Barnard 217"
+    ],
+    "ObjType": "DNe",
+    "Ra": 66.9437,
+    "Dec": 26.2978,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 217A",
+    "Ids": [
+      "Barnard 217A"
+    ],
+    "ObjType": "DNe",
+    "Ra": 65.525,
+    "Dec": 26.887,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 217B",
+    "Ids": [
+      "Barnard 217B"
+    ],
+    "ObjType": "DNe",
+    "Ra": 65.912,
+    "Dec": 26.603,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 217C",
+    "Ids": [
+      "Barnard 217C"
+    ],
+    "ObjType": "DNe",
+    "Ra": 66.333,
+    "Dec": 26.487,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 217D",
+    "Ids": [
+      "Barnard 217D"
+    ],
+    "ObjType": "DNe",
+    "Ra": 66.921,
+    "Dec": 26.335,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 217E",
+    "Ids": [
+      "Barnard 217E"
+    ],
+    "ObjType": "DNe",
+    "Ra": 66.737,
+    "Dec": 26.145,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 217F",
+    "Ids": [
+      "Barnard 217F"
+    ],
+    "ObjType": "DNe",
+    "Ra": 66.517,
+    "Dec": 26.378,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 217G",
+    "Ids": [
+      "Barnard 217G"
+    ],
+    "ObjType": "DNe",
+    "Ra": 67.342,
+    "Dec": 26.242,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 218",
+    "Ids": [
+      "NAME Northern Streamer",
+      "Barnard 218"
+    ],
+    "ObjType": "DNe",
+    "Ra": 67.03,
+    "Dec": 26.27,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 219",
+    "Ids": [
+      "Barnard 219"
+    ],
+    "ObjType": "DNe",
+    "Ra": 68.5,
+    "Dec": 29.6,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 220",
+    "Ids": [
+      "Barnard 220"
+    ],
+    "ObjType": "DNe",
+    "Ra": 70.4117,
+    "Dec": 26.0117,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 221",
+    "Ids": [
+      "Barnard 221"
+    ],
+    "ObjType": "DNe",
+    "Ra": 71.0,
+    "Dec": 31.7,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 222",
+    "Ids": [
+      "Barnard 222"
+    ],
+    "ObjType": "DNe",
+    "Ra": 77.1,
+    "Dec": 32.17,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G194.68-15.72",
+    "Ids": [
+      "Barnard 223"
+    ],
+    "ObjType": "DNe",
+    "Ra": 80.37,
+    "Dec": 8.32,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G192.98-14.01",
+    "Ids": [
+      "Barnard 224"
+    ],
+    "ObjType": "DNe",
+    "Ra": 80.97,
+    "Dec": 10.62,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G192.66-12.64",
+    "Ids": [
+      "Barnard 225"
+    ],
+    "ObjType": "DNe",
+    "Ra": 82.0,
+    "Dec": 11.6,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G174.94+0.88",
+    "Ids": [
+      "Barnard 226"
+    ],
+    "ObjType": "DNe",
+    "Ra": 84.15,
+    "Dec": 33.7,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1570",
+    "Ids": [
+      "LDN 1570",
+      "Barnard 227"
+    ],
+    "ObjType": "DNe",
+    "Ra": 91.8683,
+    "Dec": 19.4678,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 228",
+    "Ids": [
+      "Barnard 228"
+    ],
+    "ObjType": "cor",
+    "Ra": 235.7536,
+    "Dec": -34.1466,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G349.34+16.52",
+    "Ids": [
+      "Barnard 229"
+    ],
+    "ObjType": "DNe",
+    "Ra": 244.3,
+    "Dec": -27.3,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 230",
+    "Ids": [
+      "Barnard 230"
+    ],
+    "ObjType": "DNe",
+    "Ra": 246.8,
+    "Dec": -16.8,
+    "VMag": null
+  },
+  {
+    "MainId": "Sandqvist  21",
+    "Ids": [
+      "Barnard 231"
+    ],
+    "ObjType": "DNe",
+    "Ra": 249.208,
+    "Dec": -35.618,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 232",
+    "Ids": [
+      "Barnard 232"
+    ],
+    "ObjType": "DNe",
+    "Ra": 250.92,
+    "Dec": -39.82,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 233",
+    "Ids": [
+      "Barnard 233"
+    ],
+    "ObjType": "DNe",
+    "Ra": 251.07,
+    "Dec": -35.37,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G351.29+9.60",
+    "Ids": [
+      "Barnard 234"
+    ],
+    "ObjType": "DNe",
+    "Ra": 251.6,
+    "Dec": -30.47,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G340.53+0.50",
+    "Ids": [
+      "Barnard 235"
+    ],
+    "ObjType": "MoC",
+    "Ra": 251.687,
+    "Dec": -44.513,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G352.03+9.76",
+    "Ids": [
+      "Barnard 236"
+    ],
+    "ObjType": "DNe",
+    "Ra": 252.0,
+    "Dec": -29.8,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G352.03+9.50",
+    "Ids": [
+      "Barnard 237"
+    ],
+    "ObjType": "DNe",
+    "Ra": 252.22,
+    "Dec": -29.97,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1759",
+    "Ids": [
+      "LDN 1759",
+      "Barnard 238"
+    ],
+    "ObjType": "DNe",
+    "Ra": 253.02,
+    "Dec": -23.08,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G351.95+7.76",
+    "Ids": [
+      "Barnard 239"
+    ],
+    "ObjType": "DNe",
+    "Ra": 253.8,
+    "Dec": -31.1,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 240",
+    "Ids": [
+      "Barnard 240"
+    ],
+    "ObjType": "DNe",
+    "Ra": 254.82,
+    "Dec": -35.35,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G353.28+7.58",
+    "Ids": [
+      "Barnard 241"
+    ],
+    "ObjType": "DNe",
+    "Ra": 254.87,
+    "Dec": -30.18,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G352.23+5.27",
+    "Ids": [
+      "Barnard 242"
+    ],
+    "ObjType": "DNe",
+    "Ra": 256.27,
+    "Dec": -32.42,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 243",
+    "Ids": [
+      "Barnard 243"
+    ],
+    "ObjType": "DNe",
+    "Ra": 257.45,
+    "Dec": -29.57,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1736",
+    "Ids": [
+      "LDN 1736",
+      "Barnard 244"
+    ],
+    "ObjType": "DNe",
+    "Ra": 257.52,
+    "Dec": -28.4,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1726",
+    "Ids": [
+      "LDN 1726",
+      "Barnard 245"
+    ],
+    "ObjType": "DNe",
+    "Ra": 258.05,
+    "Dec": -29.23,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 246",
+    "Ids": [
+      "Barnard 246"
+    ],
+    "ObjType": "DNe",
+    "Ra": 258.0,
+    "Dec": -22.65,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G354.99+5.17",
+    "Ids": [
+      "Barnard 247"
+    ],
+    "ObjType": "DNe",
+    "Ra": 258.284,
+    "Dec": -30.2646,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1733",
+    "Ids": [
+      "LDN 1733",
+      "Barnard 248"
+    ],
+    "ObjType": "DNe",
+    "Ra": 258.12,
+    "Dec": -29.02,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1727",
+    "Ids": [
+      "LDN 1727",
+      "Barnard 249"
+    ],
+    "ObjType": "DNe",
+    "Ra": 258.12,
+    "Dec": -29.23,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1742",
+    "Ids": [
+      "LDN 1742",
+      "Barnard 250"
+    ],
+    "ObjType": "DNe",
+    "Ra": 258.05,
+    "Dec": -28.4,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G3.44+10.85",
+    "Ids": [
+      "Barnard 251"
+    ],
+    "ObjType": "DNe",
+    "Ra": 258.45,
+    "Dec": -20.15,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1698",
+    "Ids": [
+      "LDN 1698",
+      "Barnard 252"
+    ],
+    "ObjType": "DNe",
+    "Ra": 258.8,
+    "Dec": -32.18,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 253",
+    "Ids": [
+      "Barnard 253"
+    ],
+    "ObjType": "DNe",
+    "Ra": 258.8,
+    "Dec": -22.6,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G356.03+3.94",
+    "Ids": [
+      "Barnard 254"
+    ],
+    "ObjType": "DNe",
+    "Ra": 260.12,
+    "Dec": -30.12,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN   59",
+    "Ids": [
+      "LDN   59",
+      "Barnard 255"
+    ],
+    "ObjType": "DNe",
+    "Ra": 260.15,
+    "Dec": -23.38,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 256",
+    "Ids": [
+      "Barnard 256"
+    ],
+    "ObjType": "DNe",
+    "Ra": 260.55,
+    "Dec": -28.82,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G351.71+0.56",
+    "Ids": [
+      "Barnard 257"
+    ],
+    "ObjType": "MoC",
+    "Ra": 260.521,
+    "Dec": -35.608,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G352.53+0.90",
+    "Ids": [
+      "Barnard 258"
+    ],
+    "ObjType": "DNe",
+    "Ra": 260.73,
+    "Dec": -34.72,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 259",
+    "Ids": [
+      "Barnard 259"
+    ],
+    "ObjType": "DNe",
+    "Ra": 260.5,
+    "Dec": -19.28,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN   14",
+    "Ids": [
+      "LDN   14",
+      "Barnard 260"
+    ],
+    "ObjType": "DNe",
+    "Ra": 261.27,
+    "Dec": -25.55,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN   85",
+    "Ids": [
+      "LDN   85",
+      "Barnard 261"
+    ],
+    "ObjType": "DNe",
+    "Ra": 261.4608,
+    "Dec": -23.0157,
+    "VMag": null
+  },
+  {
+    "MainId": "TGU H25 P21",
+    "Ids": [
+      "Barnard 262"
+    ],
+    "ObjType": "DNe",
+    "Ra": 261.42,
+    "Dec": -22.38,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 263",
+    "Ids": [
+      "Barnard 263"
+    ],
+    "ObjType": "DNe",
+    "Ra": 261.73,
+    "Dec": -42.63,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G0.68+5.22",
+    "Ids": [
+      "Barnard 264"
+    ],
+    "ObjType": "DNe",
+    "Ra": 261.8,
+    "Dec": -25.52,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 265",
+    "Ids": [
+      "Barnard 265"
+    ],
+    "ObjType": "DNe",
+    "Ra": 261.9,
+    "Dec": -25.18,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 266",
+    "Ids": [
+      "Barnard 266"
+    ],
+    "ObjType": "DNe",
+    "Ra": 262.02,
+    "Dec": -20.93,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN   36",
+    "Ids": [
+      "LDN   36",
+      "Barnard 267"
+    ],
+    "ObjType": "DNe",
+    "Ra": 262.2279,
+    "Dec": -25.2156,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 268",
+    "Ids": [
+      "Barnard 268"
+    ],
+    "ObjType": "DNe",
+    "Ra": 262.8,
+    "Dec": -20.5,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G3.64+5.84",
+    "Ids": [
+      "Barnard 269"
+    ],
+    "ObjType": "DNe",
+    "Ra": 263.05,
+    "Dec": -22.75,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G6.31+7.46",
+    "Ids": [
+      "Barnard 270"
+    ],
+    "ObjType": "DNe",
+    "Ra": 263.17,
+    "Dec": -19.58,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G354.18-0.73",
+    "Ids": [
+      "Barnard 271"
+    ],
+    "ObjType": "DNe",
+    "Ra": 263.5,
+    "Dec": -34.2,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G3.75+4.44",
+    "Ids": [
+      "Barnard 272"
+    ],
+    "ObjType": "DNe",
+    "Ra": 264.3,
+    "Dec": -23.4,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G355.46-1.02",
+    "Ids": [
+      "Barnard 273"
+    ],
+    "ObjType": "DNe",
+    "Ra": 264.62,
+    "Dec": -33.33,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G4.39+4.71",
+    "Ids": [
+      "Barnard 274"
+    ],
+    "ObjType": "DNe",
+    "Ra": 264.5,
+    "Dec": -22.72,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G356.37-0.57",
+    "Ids": [
+      "Barnard 275"
+    ],
+    "ObjType": "DNe",
+    "Ra": 264.75,
+    "Dec": -32.32,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  219",
+    "Ids": [
+      "LDN  219",
+      "Barnard 276"
+    ],
+    "ObjType": "DNe",
+    "Ra": 264.87,
+    "Dec": -19.78,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  144",
+    "Ids": [
+      "LDN  144",
+      "Barnard 277"
+    ],
+    "ObjType": "DNe",
+    "Ra": 265.0676,
+    "Dec": -23.0205,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G356.80-1.22",
+    "Ids": [
+      "Barnard 278"
+    ],
+    "ObjType": "DNe",
+    "Ra": 265.65,
+    "Dec": -32.3,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G5.32+3.53",
+    "Ids": [
+      "Barnard 279"
+    ],
+    "ObjType": "DNe",
+    "Ra": 266.15,
+    "Dec": -22.47,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 280",
+    "Ids": [
+      "Barnard 280"
+    ],
+    "ObjType": "DNe",
+    "Ra": 266.25,
+    "Dec": -20.72,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G4.60+2.49",
+    "Ids": [
+      "Barnard 281"
+    ],
+    "ObjType": "DNe",
+    "Ra": 266.7,
+    "Dec": -23.72,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G5.04+2.27",
+    "Ids": [
+      "Barnard 282"
+    ],
+    "ObjType": "DNe",
+    "Ra": 267.15,
+    "Dec": -23.45,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 283",
+    "Ids": [
+      "Barnard 283"
+    ],
+    "ObjType": "DNe",
+    "Ra": 267.7,
+    "Dec": -33.9,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  330",
+    "Ids": [
+      "LDN  330",
+      "Barnard 284"
+    ],
+    "ObjType": "DNe",
+    "Ra": 267.6,
+    "Dec": -14.28,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G14.54+7.05",
+    "Ids": [
+      "Barnard 285"
+    ],
+    "ObjType": "DNe",
+    "Ra": 267.87,
+    "Dec": -12.87,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 286",
+    "Ids": [
+      "Barnard 286"
+    ],
+    "ObjType": "DNe",
+    "Ra": 268.25,
+    "Dec": -35.62,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 287",
+    "Ids": [
+      "Barnard 287"
+    ],
+    "ObjType": "DNe",
+    "Ra": 268.6,
+    "Dec": -35.18,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 288",
+    "Ids": [
+      "Barnard 288"
+    ],
+    "ObjType": "DNe",
+    "Ra": 269.27,
+    "Dec": -37.08,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN   35",
+    "Ids": [
+      "LDN   35",
+      "Barnard 289"
+    ],
+    "ObjType": "DNe",
+    "Ra": 269.12,
+    "Dec": -29.03,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 290",
+    "Ids": [
+      "Barnard 290"
+    ],
+    "ObjType": "DNe",
+    "Ra": 269.82,
+    "Dec": -37.13,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G357.26-5.10",
+    "Ids": [
+      "Barnard 291"
+    ],
+    "ObjType": "DNe",
+    "Ra": 269.93,
+    "Dec": -33.88,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 292",
+    "Ids": [
+      "Barnard 292"
+    ],
+    "ObjType": "DNe",
+    "Ra": 270.15,
+    "Dec": -33.33,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G356.14-6.08",
+    "Ids": [
+      "Barnard 293"
+    ],
+    "ObjType": "DNe",
+    "Ra": 270.3,
+    "Dec": -35.33,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G2.04-2.82",
+    "Ids": [
+      "Barnard 294"
+    ],
+    "ObjType": "DNe",
+    "Ra": 270.37,
+    "Dec": -28.6,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 295",
+    "Ids": [
+      "Barnard 295"
+    ],
+    "ObjType": "DNe",
+    "Ra": 271.02,
+    "Dec": -31.15,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G5.88-1.33",
+    "Ids": [
+      "Barnard 296"
+    ],
+    "ObjType": "DNe",
+    "Ra": 271.02,
+    "Dec": -24.52,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G10.93+1.53",
+    "Ids": [
+      "Barnard 297"
+    ],
+    "ObjType": "DNe",
+    "Ra": 271.0,
+    "Dec": -18.7,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 298",
+    "Ids": [
+      "Barnard 298"
+    ],
+    "ObjType": "DNe",
+    "Ra": 271.3,
+    "Dec": -30.08,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  120",
+    "Ids": [
+      "LDN  120",
+      "Barnard 299"
+    ],
+    "ObjType": "DNe",
+    "Ra": 271.6,
+    "Dec": -27.42,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 300",
+    "Ids": [
+      "Barnard 300"
+    ],
+    "ObjType": "DNe",
+    "Ra": 271.75,
+    "Dec": -32.65,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G11.51+0.55",
+    "Ids": [
+      "Barnard 301"
+    ],
+    "ObjType": "DNe",
+    "Ra": 272.2,
+    "Dec": -18.7,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  213",
+    "Ids": [
+      "LDN  213",
+      "Barnard 302"
+    ],
+    "ObjType": "DNe",
+    "Ra": 272.27,
+    "Dec": -24.0,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  210",
+    "Ids": [
+      "LDN  210",
+      "Barnard 303"
+    ],
+    "ObjType": "DNe",
+    "Ra": 272.2805,
+    "Dec": -24.1363,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G11.97-0.32",
+    "Ids": [
+      "Barnard 304"
+    ],
+    "ObjType": "DNe",
+    "Ra": 273.3,
+    "Dec": -18.7,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G0.60-6.85",
+    "Ids": [
+      "Barnard 305"
+    ],
+    "ObjType": "DNe",
+    "Ra": 273.65,
+    "Dec": -31.8,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  195",
+    "Ids": [
+      "LDN  195",
+      "Barnard 306"
+    ],
+    "ObjType": "DNe",
+    "Ra": 273.98,
+    "Dec": -25.73,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  335",
+    "Ids": [
+      "LDN  335",
+      "Barnard 307"
+    ],
+    "ObjType": "DNe",
+    "Ra": 274.77,
+    "Dec": -17.82,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G9.56-3.26",
+    "Ids": [
+      "Barnard 308"
+    ],
+    "ObjType": "DNe",
+    "Ra": 274.77,
+    "Dec": -22.23,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 309",
+    "Ids": [
+      "Barnard 309"
+    ],
+    "ObjType": "DNe",
+    "Ra": 275.77,
+    "Dec": -24.02,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G14.01-3.86",
+    "Ids": [
+      "Barnard 310"
+    ],
+    "ObjType": "DNe",
+    "Ra": 277.55,
+    "Dec": -18.58,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  356",
+    "Ids": [
+      "LDN  356",
+      "Barnard 311"
+    ],
+    "ObjType": "DNe",
+    "Ra": 277.5977,
+    "Dec": -17.6861,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G16.89-2.89",
+    "Ids": [
+      "Barnard 312"
+    ],
+    "ObjType": "DNe",
+    "Ra": 278.0,
+    "Dec": -15.6,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G17.22-3.75",
+    "Ids": [
+      "Barnard 313"
+    ],
+    "ObjType": "DNe",
+    "Ra": 278.97,
+    "Dec": -15.68,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  445",
+    "Ids": [
+      "LDN  445",
+      "Barnard 314"
+    ],
+    "ObjType": "DNe",
+    "Ra": 279.5,
+    "Dec": -9.67,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  344",
+    "Ids": [
+      "LDN  344",
+      "Barnard 315"
+    ],
+    "ObjType": "DNe",
+    "Ra": 280.5,
+    "Dec": -19.95,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 316",
+    "Ids": [
+      "Barnard 316"
+    ],
+    "ObjType": "DNe",
+    "Ra": 280.45,
+    "Dec": -2.13,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G19.62-5.19",
+    "Ids": [
+      "Barnard 317"
+    ],
+    "ObjType": "DNe",
+    "Ra": 281.45,
+    "Dec": -14.2,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G27.04-2.53",
+    "Ids": [
+      "Barnard 318"
+    ],
+    "ObjType": "DNe",
+    "Ra": 282.43,
+    "Dec": -6.38,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G31.86-0.70",
+    "Ids": [
+      "Barnard 319"
+    ],
+    "ObjType": "DNe",
+    "Ra": 283.0,
+    "Dec": -1.27,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 320",
+    "Ids": [
+      "Barnard 320"
+    ],
+    "ObjType": "DNe",
+    "Ra": 283.2,
+    "Dec": -5.85,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G23.12-5.70",
+    "Ids": [
+      "Barnard 321"
+    ],
+    "ObjType": "DNe",
+    "Ra": 283.5,
+    "Dec": -11.28,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G29.47-2.98",
+    "Ids": [
+      "Barnard 322"
+    ],
+    "ObjType": "DNe",
+    "Ra": 283.937,
+    "Dec": -4.442,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G30.59-2.92",
+    "Ids": [
+      "Barnard 323"
+    ],
+    "ObjType": "DNe",
+    "Ra": 284.4,
+    "Dec": -3.42,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G31.18-3.12",
+    "Ids": [
+      "Barnard 324"
+    ],
+    "ObjType": "DNe",
+    "Ra": 284.85,
+    "Dec": -2.98,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G30.28-3.72",
+    "Ids": [
+      "Barnard 325"
+    ],
+    "ObjType": "DNe",
+    "Ra": 284.98,
+    "Dec": -4.05,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G33.91-2.75",
+    "Ids": [
+      "Barnard 326"
+    ],
+    "ObjType": "DNe",
+    "Ra": 285.8,
+    "Dec": -0.4,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  552",
+    "Ids": [
+      "LDN  552",
+      "Barnard 327"
+    ],
+    "ObjType": "DNe",
+    "Ra": 286.1,
+    "Dec": -5.25,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G30.68-4.90",
+    "Ids": [
+      "Barnard 328"
+    ],
+    "ObjType": "DNe",
+    "Ra": 286.2,
+    "Dec": -4.23,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G37.54-2.00",
+    "Ids": [
+      "Barnard 329"
+    ],
+    "ObjType": "DNe",
+    "Ra": 286.75,
+    "Dec": 3.18,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  647",
+    "Ids": [
+      "LDN  647",
+      "Barnard 330"
+    ],
+    "ObjType": "DNe",
+    "Ra": 289.9,
+    "Dec": 7.47,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G43.63-4.16",
+    "Ids": [
+      "Barnard 331"
+    ],
+    "ObjType": "DNe",
+    "Ra": 291.5,
+    "Dec": 7.6,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G44.91-4.04",
+    "Ids": [
+      "Barnard 332"
+    ],
+    "ObjType": "DNe",
+    "Ra": 292.0,
+    "Dec": 8.8,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G46.60-3.13",
+    "Ids": [
+      "Barnard 333"
+    ],
+    "ObjType": "DNe",
+    "Ra": 292.0,
+    "Dec": 10.7,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  701",
+    "Ids": [
+      "LDN  701",
+      "Barnard 334"
+    ],
+    "ObjType": "DNe",
+    "Ra": 293.73,
+    "Dec": 12.28,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  663",
+    "Ids": [
+      "LDN  663",
+      "Barnard 335"
+    ],
+    "ObjType": "DNe",
+    "Ra": 294.229,
+    "Dec": 7.573,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  702",
+    "Ids": [
+      "LDN  702",
+      "Barnard 336"
+    ],
+    "ObjType": "DNe",
+    "Ra": 294.1,
+    "Dec": 12.28,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  705",
+    "Ids": [
+      "LDN  705",
+      "Barnard 337"
+    ],
+    "ObjType": "DNe",
+    "Ra": 294.2,
+    "Dec": 12.45,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  668",
+    "Ids": [
+      "LDN  668",
+      "Barnard 338"
+    ],
+    "ObjType": "DNe",
+    "Ra": 295.85,
+    "Dec": 7.37,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G46.40-7.73",
+    "Ids": [
+      "Barnard 339"
+    ],
+    "ObjType": "DNe",
+    "Ra": 296.0,
+    "Dec": 8.3,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 340",
+    "Ids": [
+      "Barnard 340"
+    ],
+    "ObjType": "DNe",
+    "Ra": 297.18,
+    "Dec": 11.4,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G69.65+4.06",
+    "Ids": [
+      "Barnard 341"
+    ],
+    "ObjType": "DNe",
+    "Ra": 297.5,
+    "Dec": 34.27,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  885",
+    "Ids": [
+      "LDN  885",
+      "Barnard 342"
+    ],
+    "ObjType": "DNe",
+    "Ra": 302.3,
+    "Dec": 41.15,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  880",
+    "Ids": [
+      "LDN  880",
+      "Barnard 343"
+    ],
+    "ObjType": "DNe",
+    "Ra": 303.45,
+    "Dec": 40.32,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G77.47+2.79",
+    "Ids": [
+      "Barnard 344"
+    ],
+    "ObjType": "DNe",
+    "Ra": 304.05,
+    "Dec": 40.22,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G83.22+5.62",
+    "Ids": [
+      "Barnard 345"
+    ],
+    "ObjType": "DNe",
+    "Ra": 305.25,
+    "Dec": 46.55,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G81.49+3.18",
+    "Ids": [
+      "Barnard 346"
+    ],
+    "ObjType": "DNe",
+    "Ra": 306.7,
+    "Dec": 43.73,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G78.56+0.70",
+    "Ids": [
+      "Barnard 347"
+    ],
+    "ObjType": "DNe",
+    "Ra": 307.12,
+    "Dec": 39.9,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G80.93+1.13",
+    "Ids": [
+      "Barnard 348"
+    ],
+    "ObjType": "DNe",
+    "Ra": 308.5,
+    "Dec": 42.1,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 349",
+    "Ids": [
+      "Barnard 349"
+    ],
+    "ObjType": "DNe",
+    "Ra": 311.85,
+    "Dec": 43.95,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G85.58+1.31",
+    "Ids": [
+      "Barnard 350"
+    ],
+    "ObjType": "DNe",
+    "Ra": 312.27,
+    "Dec": 45.87,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G87.13+1.84",
+    "Ids": [
+      "Barnard 351"
+    ],
+    "ObjType": "DNe",
+    "Ra": 313.12,
+    "Dec": 47.4,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 352",
+    "Ids": [
+      "Barnard 352"
+    ],
+    "ObjType": "DNe",
+    "Ra": 314.3,
+    "Dec": 45.88,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G86.20+0.00",
+    "Ids": [
+      "Barnard 353"
+    ],
+    "ObjType": "DNe",
+    "Ra": 314.35,
+    "Dec": 45.47,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G95.96+8.08",
+    "Ids": [
+      "Barnard 354"
+    ],
+    "ObjType": "DNe",
+    "Ra": 314.5,
+    "Dec": 58.1,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G84.75-1.83",
+    "Ids": [
+      "Barnard 355"
+    ],
+    "ObjType": "DNe",
+    "Ra": 314.9,
+    "Dec": 43.18,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  950",
+    "Ids": [
+      "LDN  950",
+      "Barnard 356"
+    ],
+    "ObjType": "DNe",
+    "Ra": 315.12,
+    "Dec": 46.62,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1053",
+    "Ids": [
+      "LDN 1053",
+      "Barnard 357"
+    ],
+    "ObjType": "DNe",
+    "Ra": 314.8421,
+    "Dec": 55.6297,
+    "VMag": 13.75
+  },
+  {
+    "MainId": "[DB2002b] G85.53-2.62",
+    "Ids": [
+      "Barnard 358"
+    ],
+    "ObjType": "DNe",
+    "Ra": 316.42,
+    "Dec": 43.27,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1068",
+    "Ids": [
+      "LDN 1068",
+      "Barnard 359"
+    ],
+    "ObjType": "DNe",
+    "Ra": 316.7,
+    "Dec": 57.17,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1063",
+    "Ids": [
+      "LDN 1063",
+      "Barnard 360"
+    ],
+    "ObjType": "DNe",
+    "Ra": 316.98,
+    "Dec": 56.3,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN  970",
+    "Ids": [
+      "LDN  970",
+      "Barnard 361"
+    ],
+    "ObjType": "DNe",
+    "Ra": 318.0546,
+    "Dec": 47.3897,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 362",
+    "Ids": [
+      "Barnard 362"
+    ],
+    "ObjType": "cor",
+    "Ra": 321.0165,
+    "Dec": 50.1635,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1007",
+    "Ids": [
+      "LDN 1007",
+      "Barnard 363"
+    ],
+    "ObjType": "DNe",
+    "Ra": 321.32,
+    "Dec": 48.88,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G96.80+2.02",
+    "Ids": [
+      "Barnard 364"
+    ],
+    "ObjType": "DNe",
+    "Ra": 323.5,
+    "Dec": 54.5,
+    "VMag": null
+  },
+  {
+    "MainId": "Barnard 365",
+    "Ids": [
+      "Barnard 365"
+    ],
+    "ObjType": "DNe",
+    "Ra": 323.73,
+    "Dec": 56.72,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1131",
+    "Ids": [
+      "LDN 1131",
+      "Barnard 366"
+    ],
+    "ObjType": "DNe",
+    "Ra": 325.05,
+    "Dec": 59.58,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1113",
+    "Ids": [
+      "LDN 1113",
+      "Barnard 367"
+    ],
+    "ObjType": "DNe",
+    "Ra": 326.15,
+    "Dec": 57.2,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1137",
+    "Ids": [
+      "LDN 1137",
+      "Barnard 368"
+    ],
+    "ObjType": "DNe",
+    "Ra": 327.9,
+    "Dec": 59.07,
+    "VMag": null
+  },
+  {
+    "MainId": "LDN 1150",
+    "Ids": [
+      "LDN 1150",
+      "Barnard 369"
+    ],
+    "ObjType": "DNe",
+    "Ra": 333.95,
+    "Dec": 56.0,
+    "VMag": null
+  },
+  {
+    "MainId": "[DB2002b] G104.84-1.33",
+    "Ids": [
+      "Barnard 370"
+    ],
+    "ObjType": "DNe",
+    "Ra": 338.5,
+    "Dec": 56.6,
+    "VMag": null
+  },
+  {
+    "MainId": "NAME B18-J",
+    "Ids": [
+      "NAME B18-J",
+      "Barnard  18J"
+    ],
+    "ObjType": "DNe",
+    "Ra": 69.25,
+    "Dec": 24.25,
+    "VMag": null
+  }
+]

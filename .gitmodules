@@ -1,10 +1,10 @@
-[submodule "src/Astap.Lib/OpenNGC"]
-	path = src/Astap.Lib/OpenNGC
+[submodule "src/TianWen.Lib/OpenNGC"]
+	path = src/TianWen.Lib/OpenNGC
 	url = https://github.com/mattiaverga/OpenNGC.git
 	branch = master
 	shallow = true
-[submodule "src/Astap.Lib/hip2000"]
-	path = src/Astap.Lib/hip2000
+[submodule "src/TianWen.Lib/hip2000"]
+	path = src/TianWen.Lib/hip2000
 	url = https://github.com/gmiller123456/hip2000
 	branch = master
 	shallow = true

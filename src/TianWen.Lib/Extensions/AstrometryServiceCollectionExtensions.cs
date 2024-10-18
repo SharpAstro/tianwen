@@ -1,0 +1,23 @@
+﻿using Astap.Lib.Astrometry.Catalogs;
+using Astap.Lib.Astrometry.Focus;
+using Astap.Lib.Astrometry.PlateSolve;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace Astap.Lib.Extensions;
+
+public static class AstrometryServiceCollectionExtensions
+{
+    /// <summary>
+    /// Adds all implemented plate solvers (as singleton, they are supposed to be stateless).
+    /// Adds an <see cref="ImageAnalyser"/>.
+    /// </summary>
+    /// <param name="services"></param>
+    /// <returns></returns>
+    public static IServiceCollection AddAstrometry(this IServiceCollection services) => services
+        .AddSingleton<IPlateSolver, AstapPlateSolver>()
+        .AddSingleton<IPlateSolver, AstrometryNetPlateSolverMultiPlatform>()
+        .AddSingleton<IPlateSolver, AstrometryNetPlateSolverUnix>()
+        .AddSingleton<IPlateSolver, CombinedPlateSolver>()
+        .AddScoped<IImageAnalyser, ImageAnalyser>()
+        .AddSingleton<ICelestialObjectDB, CelestialObjectDB>();
+}
