@@ -1,9 +1,9 @@
-﻿using Astap.Lib.Astrometry.Catalogs;
-using Astap.Lib.Astrometry.SOFA;
+﻿using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.SOFA;
 using System;
 using static WorldWideAstronomy.WWA;
 
-namespace Astap.Lib.Astrometry.VSOP87;
+namespace TianWen.Lib.Astrometry.VSOP87;
 
 public static class VSOP87a
 {

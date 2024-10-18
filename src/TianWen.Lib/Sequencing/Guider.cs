@@ -1,7 +1,7 @@
-﻿using Astap.Lib.Devices;
-using Astap.Lib.Devices.Guider;
+﻿using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Guider;
 
-namespace Astap.Lib.Sequencing;
+namespace TianWen.Lib.Sequencing;
 
 public record Guider(DeviceBase Device, IExternal External) : ControllableDeviceBase<IGuider>(Device, External)
 {

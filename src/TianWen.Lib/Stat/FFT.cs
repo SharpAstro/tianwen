@@ -2,7 +2,7 @@
 using System.Numerics;
 using System.Diagnostics;
 
-namespace Astap.Lib.Stat;
+namespace TianWen.Lib.Stat;
 
 /**
  * Released under the MIT License

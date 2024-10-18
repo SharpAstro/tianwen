@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 
-namespace Astap.Lib.Devices;
+namespace TianWen.Lib.Devices;
 
 public class DeviceMap<TDevice>
     where TDevice : DeviceBase

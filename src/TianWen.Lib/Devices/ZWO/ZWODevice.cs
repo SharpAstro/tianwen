@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Astap.Lib.Devices.ZWO;
+namespace TianWen.Lib.Devices.ZWO;
 
 public record class ZWODevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 {

@@ -5,7 +5,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <AssemblyVersion>1.5.0.0</AssemblyVersion>
-    <PackageID>Astap.Lib</PackageID>
+    <PackageID>TianWen.Lib</PackageID>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <RepositoryUrl>https://github.com/sebgod/astap-lib.git</RepositoryUrl>
@@ -29,7 +29,6 @@
     <Compile Remove="hip2000/**" />
     <Compile Remove="Astrometry/Catalogs/*.json" />
     <Compile Remove="Astrometry/Catalogs/tmp-data/**" />
-    <EmbeddedResource Remove="Astap.Lib.Tests/**" />
     <EmbeddedResource Remove="MAttiaverga.OpenNGC/**" />
     <EmbeddedResource Remove="OpenNGC/**" />
     <EmbeddedResource Remove="Astrometry/Catalogs/tmp-data/**" />

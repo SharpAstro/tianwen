@@ -1,4 +1,4 @@
-﻿namespace Astap.Lib.Astrometry;
+﻿namespace TianWen.Lib.Astrometry;
 
 public enum EquatorialCoordinateType
 {

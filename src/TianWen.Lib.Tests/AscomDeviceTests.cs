@@ -1,5 +1,5 @@
-using Astap.Lib.Devices;
-using Astap.Lib.Devices.Ascom;
+using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Ascom;
 using Shouldly;
 using System;
 using System.Diagnostics;
@@ -9,7 +9,7 @@ using System.Threading;
 using Xunit;
 using Xunit.Abstractions;
 
-namespace Astap.Lib.Tests;
+namespace TianWen.Lib.Tests;
 
 public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
 {

@@ -8,7 +8,7 @@
 // 15Oct17 - 1.03.1 - Slight interoperability correction to V1.03, same results, different design pattern.
 //
 
-namespace Astap.Lib.Stat;
+namespace TianWen.Lib.Stat;
 
 public partial class DSP
 {

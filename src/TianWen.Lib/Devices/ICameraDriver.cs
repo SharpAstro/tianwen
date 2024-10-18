@@ -1,9 +1,9 @@
-﻿using Astap.Lib.Imaging;
+﻿using TianWen.Lib.Imaging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace Astap.Lib.Devices;
+namespace TianWen.Lib.Devices;
 
 public interface ICameraDriver : IDeviceDriver
 {

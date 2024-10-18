@@ -1,4 +1,4 @@
-﻿namespace Astap.Lib.Imaging;
+﻿namespace TianWen.Lib.Imaging;
 
 public record struct ImageDim(
     double PixelScale, // arcsec per pixel

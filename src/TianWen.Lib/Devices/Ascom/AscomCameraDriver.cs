@@ -1,9 +1,9 @@
-﻿using Astap.Lib.Imaging;
+﻿using TianWen.Lib.Imaging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace Astap.Lib.Devices.Ascom;
+namespace TianWen.Lib.Devices.Ascom;
 
 public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 {

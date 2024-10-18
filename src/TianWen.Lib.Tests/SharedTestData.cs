@@ -1,4 +1,4 @@
-﻿using Astap.Lib.Imaging;
+﻿using TianWen.Lib.Imaging;
 using CommunityToolkit.HighPerformance;
 using nom.tam.fits;
 using System;
@@ -8,7 +8,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace Astap.Lib.Tests;
+namespace TianWen.Lib.Tests;
 
 public static class SharedTestData
 {

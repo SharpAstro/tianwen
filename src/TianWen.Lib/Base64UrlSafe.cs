@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Astap.Lib;
+namespace TianWen.Lib;
 
 public static class Base64UrlSafe
 {

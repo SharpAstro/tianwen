@@ -1,4 +1,4 @@
-﻿namespace Astap.Lib.Astrometry.SOFA;
+﻿namespace TianWen.Lib.Astrometry.SOFA;
 
 public enum RaDecEventTime
 {

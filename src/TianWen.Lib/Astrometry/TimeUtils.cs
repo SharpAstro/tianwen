@@ -2,7 +2,7 @@
 using System.Runtime.CompilerServices;
 using WorldWideAstronomy;
 
-namespace Astap.Lib.Astrometry;
+namespace TianWen.Lib.Astrometry;
 
 public static class TimeUtils
 {

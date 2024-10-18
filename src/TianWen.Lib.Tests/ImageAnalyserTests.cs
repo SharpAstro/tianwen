@@ -1,7 +1,7 @@
-﻿using Astap.Lib.Astrometry.Focus;
-using Astap.Lib.Devices;
-using Astap.Lib.Imaging;
-using Astap.Lib.Stat;
+﻿using TianWen.Lib.Astrometry.Focus;
+using TianWen.Lib.Devices;
+using TianWen.Lib.Imaging;
+using TianWen.Lib.Stat;
 using Shouldly;
 using System;
 using System.Collections.Generic;
@@ -10,7 +10,7 @@ using System.Threading.Tasks;
 using Xunit;
 using Xunit.Abstractions;
 
-namespace Astap.Lib.Tests;
+namespace TianWen.Lib.Tests;
 
 public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
 {

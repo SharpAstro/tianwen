@@ -1,4 +1,4 @@
-﻿namespace Astap.Lib.Devices.Ascom;
+﻿namespace TianWen.Lib.Devices.Ascom;
 
 public class AscomCoverCalibratorDriver(AscomDevice device, IExternal external) : AscomDeviceDriverBase(device, external), ICoverDriver
 {

@@ -1,11 +1,11 @@
-﻿using Astap.Lib.Devices;
-using Astap.Lib.Devices.Ascom;
-using Astap.Lib.Devices.Fake;
+﻿using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Ascom;
+using TianWen.Lib.Devices.Fake;
 using Shouldly;
 using System;
 using Xunit;
 
-namespace Astap.Lib.Tests;
+namespace TianWen.Lib.Tests;
 
 public class DeviceTests
 {

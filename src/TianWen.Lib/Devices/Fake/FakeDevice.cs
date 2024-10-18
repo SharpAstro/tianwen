@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Astap.Lib.Devices.Fake;
+namespace TianWen.Lib.Devices.Fake;
 
 public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 {

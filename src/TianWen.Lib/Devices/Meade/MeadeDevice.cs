@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Astap.Lib.Devices.Meade;
+namespace TianWen.Lib.Devices.Meade;
 
 public record MeadeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 {

@@ -1,4 +1,4 @@
-﻿using Astap.Lib.Imaging;
+﻿using TianWen.Lib.Imaging;
 using nom.tam.fits;
 using nom.tam.util;
 using System;
@@ -8,7 +8,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Astap.Lib.Astrometry.PlateSolve;
+namespace TianWen.Lib.Astrometry.PlateSolve;
 
 public abstract class ExternalProcessPlateSolverBase : IPlateSolver
 {

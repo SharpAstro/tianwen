@@ -1,9 +1,9 @@
-﻿using Astap.Lib.Imaging;
+﻿using TianWen.Lib.Imaging;
 using System;
 using System.IO;
 using System.Text;
 
-namespace Astap.Lib.Astrometry.PlateSolve;
+namespace TianWen.Lib.Astrometry.PlateSolve;
 
 internal class AstapPlateSolver : ExternalProcessPlateSolverBase
 {

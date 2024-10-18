@@ -1,9 +1,9 @@
-﻿using Astap.Lib.Astrometry.PlateSolve;
-using Astap.Lib.Imaging;
+﻿using TianWen.Lib.Astrometry.PlateSolve;
+using TianWen.Lib.Imaging;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Astap.Lib.Devices.Fake;
+namespace TianWen.Lib.Devices.Fake;
 
 internal class FakePlateSolver : IPlateSolver
 {

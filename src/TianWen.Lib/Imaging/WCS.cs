@@ -1,6 +1,6 @@
 ﻿using nom.tam.fits;
 
-namespace Astap.Lib.Imaging;
+namespace TianWen.Lib.Imaging;
 
 /// <summary>
 /// Represents world coordinates in J2000, but with <paramref name="CenterRA"/> in 24h.

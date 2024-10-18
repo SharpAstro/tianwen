@@ -1,7 +1,7 @@
-﻿using Astap.Lib.Devices;
-using Astap.Lib.Devices.Ascom;
+﻿using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Ascom;
 using Microsoft.Extensions.DependencyInjection;
-namespace Astap.Lib.Extensions;
+namespace TianWen.Lib.Extensions;
 
 public static class AscomServiceCollectionExtensions
 {

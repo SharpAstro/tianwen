@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Astap.Lib.Devices.Ascom;
+namespace TianWen.Lib.Devices.Ascom;
 
 public record class AscomDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 {

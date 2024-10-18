@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 
-namespace Astap.Lib.Astrometry.Catalogs;
+namespace TianWen.Lib.Astrometry.Catalogs;
 
 public sealed class RaDecIndex : IRaDecIndex
 {

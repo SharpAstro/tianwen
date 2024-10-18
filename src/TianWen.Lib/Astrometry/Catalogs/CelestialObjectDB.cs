@@ -15,11 +15,11 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using static Astap.Lib.Astrometry.Catalogs.CatalogUtils;
-using static Astap.Lib.Astrometry.CoordinateUtils;
-using static Astap.Lib.EnumHelper;
+using static TianWen.Lib.Astrometry.Catalogs.CatalogUtils;
+using static TianWen.Lib.Astrometry.CoordinateUtils;
+using static TianWen.Lib.EnumHelper;
 
-namespace Astap.Lib.Astrometry.Catalogs;
+namespace TianWen.Lib.Astrometry.Catalogs;
 
 internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 {

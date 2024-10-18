@@ -1,9 +1,9 @@
-﻿using Astap.Lib.Astrometry.Catalogs;
-using Astap.Lib.Astrometry.Focus;
-using Astap.Lib.Astrometry.PlateSolve;
+﻿using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.Focus;
+using TianWen.Lib.Astrometry.PlateSolve;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Astap.Lib.Extensions;
+namespace TianWen.Lib.Extensions;
 
 public static class AstrometryServiceCollectionExtensions
 {

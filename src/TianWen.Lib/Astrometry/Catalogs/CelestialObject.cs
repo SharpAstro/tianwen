@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 
-namespace Astap.Lib.Astrometry.Catalogs;
+namespace TianWen.Lib.Astrometry.Catalogs;
 
 /// <summary>
 /// Represents a single or collective object (e.g. a star cluster or a star within a cluster).

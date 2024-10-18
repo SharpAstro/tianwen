@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 
-namespace Astap.Lib.Devices.Ascom;
+namespace TianWen.Lib.Devices.Ascom;
 
 internal class AscomProfile : DynamicComObject, IDeviceSource<AscomDevice>
 {

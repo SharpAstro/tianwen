@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Astap.Lib.Devices.Guider;
+namespace TianWen.Lib.Devices.Guider;
 
 public record class GuiderDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 {

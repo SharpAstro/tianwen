@@ -2,7 +2,7 @@
 using System.Runtime.CompilerServices;
 using System.Text;
 
-namespace Astap.Lib;
+namespace TianWen.Lib;
 
 public readonly struct BitMatrix
 {

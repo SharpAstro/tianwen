@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Threading;
 
-namespace Astap.Lib.Devices.Fake;
+namespace TianWen.Lib.Devices.Fake;
 
 /// <summary>
 /// Can be used as a base class for focusers, filter wheels

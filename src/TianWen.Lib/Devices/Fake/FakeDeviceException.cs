@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Astap.Lib.Devices.Fake;
+namespace TianWen.Lib.Devices.Fake;
 
 public class FakeDeviceException : Exception
 {

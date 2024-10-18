@@ -1,7 +1,7 @@
 ﻿using System.Collections.Generic;
-using Astap.Lib.Imaging;
+using TianWen.Lib.Imaging;
 
-namespace Astap.Lib.Astrometry.Focus;
+namespace TianWen.Lib.Astrometry.Focus;
 
 internal class ImageAnalyser : IImageAnalyser
 {

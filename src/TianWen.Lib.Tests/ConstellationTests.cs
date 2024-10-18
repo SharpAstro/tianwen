@@ -1,8 +1,8 @@
-﻿using Astap.Lib.Astrometry.Catalogs;
+﻿using TianWen.Lib.Astrometry.Catalogs;
 using Shouldly;
 using Xunit;
 
-namespace Astap.Lib.Tests
+namespace TianWen.Lib.Tests
 {
     public class ConstellationTests
     {

@@ -1,9 +1,9 @@
-﻿using Astap.Lib.Devices;
+﻿using TianWen.Lib.Devices;
 using Shouldly;
 using System;
 using Xunit;
 
-namespace Astap.Lib.Tests
+namespace TianWen.Lib.Tests
 {
     public class GuiderDeviceTests
     {

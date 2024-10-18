@@ -1,5 +1,5 @@
-﻿using Astap.Lib.Devices;
-using Astap.Lib.Extensions;
+﻿using TianWen.Lib.Devices;
+using TianWen.Lib.Extensions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
@@ -24,7 +24,7 @@ var cameraDeviceId = args.Length > argIdx ? args[argIdx++] : "ASCOM.Simulator.Ca
 var coverDeviceId = args.Length > argIdx ? args[argIdx++] : "ASCOM.Simulator.CoverCalibrator";
 var focuserDeviceId = args.Length > argIdx ? args[argIdx++] : "ASCOM.Simulator.Focuser";
 var expDuration = TimeSpan.FromSeconds(args.Length > 2 ? int.Parse(args[argIdx++]) : 10);
-var outputFolder = Directory.CreateDirectory(args.Length > 3 ? args[argIdx++] : Path.Combine(Directory.GetCurrentDirectory(), "Astap.Lib.TestCli", "Light"));
+var outputFolder = Directory.CreateDirectory(args.Length > 3 ? args[argIdx++] : Path.Combine(Directory.GetCurrentDirectory(), "TianWen.Lib.TestCli", "Light"));
 IExternal external = new ConsoleOutput(outputFolder);
 
 

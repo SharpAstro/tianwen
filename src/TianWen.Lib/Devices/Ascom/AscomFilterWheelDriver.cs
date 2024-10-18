@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 
-namespace Astap.Lib.Devices.Ascom;
+namespace TianWen.Lib.Devices.Ascom;
 
 public class AscomFilterWheelDriver(AscomDevice device, IExternal external) : AscomDeviceDriverBase(device, external), IFilterWheelDriver
 {

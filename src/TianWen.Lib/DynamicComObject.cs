@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 
-namespace Astap.Lib;
+namespace TianWen.Lib;
 
 public class DynamicComObject(string progId) : IDisposable
 {

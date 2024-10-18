@@ -1,6 +1,6 @@
 ﻿using System;
-using Astap.Lib.Devices;
+using TianWen.Lib.Devices;
 
-namespace Astap.Lib.Sequencing;
+namespace TianWen.Lib.Sequencing;
 
 public record Observation(Target Target, DateTimeOffset Start, TimeSpan Duration, bool AcrossMeridian, TimeSpan SubExposure);

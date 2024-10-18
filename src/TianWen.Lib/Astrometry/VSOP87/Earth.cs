@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Astap.Lib.Astrometry.VSOP87;
+namespace TianWen.Lib.Astrometry.VSOP87;
 
 internal static partial class Earth
 {

@@ -3,9 +3,9 @@ using System.Buffers.Binary;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
-using static Astap.Lib.EnumHelper;
+using static TianWen.Lib.EnumHelper;
 
-namespace Astap.Lib.Astrometry.Catalogs;
+namespace TianWen.Lib.Astrometry.Catalogs;
 
 [Flags]
 internal enum Base91EncRADecOptions
