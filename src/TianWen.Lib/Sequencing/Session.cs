@@ -11,6 +11,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using static TianWen.Lib.Stat.StatisticsHelper;
+using Microsoft.Extensions.Logging;
 
 namespace TianWen.Lib.Sequencing;
 
@@ -55,7 +56,7 @@ public record Session(
 
             if (!InitialRoughFocus(cancellationToken))
             {
-                External.LogError("Failed to focus cameras (first time), aborting session.");
+                External.AppLogger.LogError("Failed to focus cameras (first time), aborting session.");
                 return;
             }
             // TODO: Slew near meridian (opposite of pole), CalibrateGuider();
@@ -64,7 +65,7 @@ public record Session(
         }
         catch (Exception e)
         {
-            External.LogException(e, "in main run loop, unrecoverable, aborting session.");
+            External.AppLogger.LogError(e, "Exception while in main run loop, unrecoverable, aborting session.");
         }
         finally
         {
@@ -85,7 +86,7 @@ public record Session(
 
         mount.EnsureTracking();
 
-        External.LogInfo($"Slew mount {mount.Device.DisplayName} near zenith to verify that we have rough focus.");
+        External.AppLogger.LogInformation("Slew mount {MountDisplayName} near zenith to verify that we have rough focus.", mount.Device.DisplayName);
 
         // coordinates not quite accurate but good enough for this purpose.
         if (!mount.Driver.SlewToZenith(distMeridian, cancellationToken))
@@ -195,22 +196,24 @@ public record Session(
 
         if (cancellationToken.IsCancellationRequested)
         {
-            External.LogWarning($"Cancellation requested, abort setting up guider \"{guider.Driver}\" and quit imaging loop.");
+            External.AppLogger.LogWarning("Cancellation requested, abort setting up guider \"{GuiderName}\" and quit imaging loop.", guider.Driver);
             return false;
         }
         
         if (solveTask.IsCompletedSuccessfully && solveTask.Result is var (solvedRa, solvedDec))
         {
-            External.LogInfo($"Guider \"{guider.Driver}\" is in focus and camera image plate solve succeeded with ({solvedRa}, {solvedDec})");
+            External.AppLogger.LogInformation("Guider \"{GuiderName}\" is in focus and camera image plate solve succeeded with ({SolvedRa}, {SolvedDec})",
+                guider.Driver, solvedRa, solvedDec);
             return true;
         }
         else if (solveTask.IsFaulted || solveTask.IsCanceled)
         {
-            External.LogWarning($"Failed to plate solve guider \"{guider.Driver}\" captured frame due to: {solveTask.Exception?.Message}");
+            External.AppLogger.LogWarning(solveTask.Exception, "Failed to plate solve guider \"{GuiderName}\" captured frame due to: {ErrorMessage}",
+                guider.Driver, solveTask.Exception?.Message);
         }
         else
         {
-            External.LogWarning($"Failed to plate solve guider \"{guider.Driver}\" without a specific reason (probably not enough stars detected)");
+            External.AppLogger.LogWarning("Failed to plate solve guider \"{GuiderName}\" without a specific reason (probably not enough stars detected)", guider.Driver);
         }
 
         return false;
@@ -218,7 +221,7 @@ public record Session(
 
     internal void Finalise(CancellationToken cancellationToken)
     {
-        External.LogInfo("Executing session run finaliser: Stop guiding, stop tracking, disconnect guider, close covers, cool to ambient temp, turn off cooler, park scope.");
+        External.AppLogger.LogInformation("Executing session run finaliser: Stop guiding, stop tracking, disconnect guider, close covers, cool to ambient temp, turn off cooler, park scope.");
 
         var mount = Setup.Mount;
         var guider = Setup.Guider;
@@ -297,11 +300,11 @@ public record Session(
 
         if (shutdownReport.Values.Any(v => !v))
         {
-            External.LogError($"Partially failed shut-down of session: {string.Join(", ", shutdownReport.Select(p => p.Key + ": " + (p.Value ? "success" : "fail")))}");
+            External.AppLogger.LogError("Partially failed shut-down of session: {@ShutdownReport}", shutdownReport.Select(p => p.Key + ": " + (p.Value ? "success" : "fail")));
         }
         else
         {
-            External.LogInfo("Shutdown complete, session ended. Please turn off mount and camera cooler power.");
+            External.AppLogger.LogInformation("Shutdown complete, session ended. Please turn off mount and camera cooler power.");
         }
 
         bool CloseCovers() => MoveTelescopeCoversToState(CoverStatus.Closed, CancellationToken.None);
@@ -324,7 +327,7 @@ public record Session(
 
         if (mount.Driver.AtPark && (!mount.Driver.CanUnpark || !mount.Driver.Unpark()))
         {
-            External.LogError($"Mount {mount.Device.DisplayName} is parked but cannot be unparked. Aborting.");
+            External.AppLogger.LogError("Mount {MountDisplayName} is parked but cannot be unparked. Aborting.", mount.Device.DisplayName);
             return false;
         }
 
@@ -349,17 +352,17 @@ public record Session(
 
         if (!CoolCamerasToSensorTemp(TimeSpan.FromSeconds(10), cancellationToken))
         {
-            External.LogError("Failed to set camera cooler setpoint to current CCD temperature, aborting session.");
+            External.AppLogger.LogError("Failed to set camera cooler setpoint to current CCD temperature, aborting session.");
             return false;
         }
 
         if (MoveTelescopeCoversToState(CoverStatus.Open, CancellationToken.None))
         {
-            External.LogInfo("All covers opened, and calibrator turned off.");
+            External.AppLogger.LogInformation("All covers opened, and calibrator turned off.");
         }
         else
         {
-            External.LogError("Openening telescope covers failed, aborting session.");
+            External.AppLogger.LogError("Openening telescope covers failed, aborting session.");
             return false;
         }
 
@@ -385,7 +388,7 @@ public record Session(
         {
             mount.EnsureTracking();
 
-            External.LogInfo($"Stop guiding to start slewing mount to target {observation}.");
+            External.AppLogger.LogInformation("Stop guiding to start slewing mount to target {Observation}.", observation);
             guider.Driver.StopCapture(TimeSpan.FromSeconds(15));
 
             var (postCondition, hourAngleAtSlewTime) = mount.Driver.SlewToTarget(Configuration.MinHeightAboveHorizon, observation.Target, cancellationToken);
@@ -403,12 +406,12 @@ public record Session(
 
             if (cancellationToken.IsCancellationRequested)
             {
-                External.LogWarning($"Cancellation requested, abort setting up guider \"{guider.Driver}\" and quit imaging loop.");
+                External.AppLogger.LogWarning("Cancellation requested, abort setting up guider \"{GuiderName}\" and quit imaging loop.", guider.Driver);
                 break;
             }
             else if (!guidingSuccess)
             {
-                External.LogError($"Skipping target {observation} as starting guider \"{guider.Driver}\" failed after trying twice.");
+                External.AppLogger.LogError("Skipping target {Observation} as starting guider \"{GuiderName}\" failed after trying twice.", observation, guider.Driver);
                 _ = AdvanceObservation();
                 continue;
             }
@@ -416,7 +419,7 @@ public record Session(
             var imageLoopStart = MountUtcNow;
             if (!ImagingLoop(observation, hourAngleAtSlewTime, cancellationToken))
             {
-                External.LogError($"Imaging loop for {observation} did not complete successfully, total runtime: {MountUtcNow - imageLoopStart:c}");
+                External.AppLogger.LogError("Imaging loop for {Observation} did not complete successfully, total runtime: {TotalRuntime:c}", observation, MountUtcNow - imageLoopStart);
             }
         } // end observation loop
     }
@@ -475,7 +478,8 @@ public record Session(
                     expTicks[i] = (int)(subExposureSec / tickGCD);
                     var frameNo = ++frameNumbers[i];
 
-                    External.LogInfo($"Camera #{i + 1} {camerDriver.Name} starting {frameExpTime} exposure of frame #{frameNo}.");
+                    External.AppLogger.LogInformation("Camera #{CameraNumber} {CamerName} starting {ExposureStartTime} exposure of frame #{FrameNo}.",
+                        i + 1, camerDriver.Name, frameExpTime, frameNo);
                 }
             }
 
@@ -485,7 +489,7 @@ public record Session(
             overslept = TimeSpan.Zero;
             if (cancellationToken.IsCancellationRequested)
             {
-                External.LogWarning("Cancellation rquested, all images in queue written to disk, abort image acquisition and quit imaging loop");
+                External.AppLogger.LogWarning("Cancellation rquested, all images in queue written to disk, abort image acquisition and quit imaging loop");
                 return false;
             }
             else if (tickMinusElapsed > TimeSpan.Zero)
@@ -509,7 +513,8 @@ public record Session(
                         if (camDriver.ImageReady is true && camDriver.Image is { Width: > 0, Height: > 0 } image)
                         {
                             imageFetchSuccess[i] = true;
-                            External.LogInfo($"Camera #{i + 1} {camDriver.Name} finished {frameExpTime} exposure of frame #{frameNo}");
+                            External.AppLogger.LogInformation("Camera #{CameraNumber} {CameraName} finished {ExposureStartTime} exposure of frame #{FrameNo}",
+                                i + 1, camDriver.Name, frameExpTime, frameNo);
 
                             imageWriteQueue.Enqueue((image, observation, expStartTimes[i], frameNo));
                             break;
@@ -529,7 +534,8 @@ public record Session(
 
                     if (!imageFetchSuccess[i])
                     {
-                        External.LogError($"Failed fetching camera #{(i + 1)} {camDriver.Name} {frameExpTime} exposure of frame #{frameNo}, camera state: {camDriver.CameraState}");
+                        External.AppLogger.LogError("Failed fetching camera #{CameraNumber)} {CameraName} {ExposureStartTime} exposure of frame #{FrameNo}, camera state: {CameraState}",
+                            i + 1, camDriver.Name, frameExpTime, frameNo, camDriver.CameraState);
                     }
                 }
             }
@@ -560,17 +566,18 @@ public record Session(
                 {
                     if (guider.Driver.DitherWait(Configuration.DitherPixel, Configuration.SettlePixel, Configuration.SettleTime, WriteQueuedImagesToFitsFiles, External, cancellationToken))
                     {
-                        External.LogInfo($"Dithering using \"{guider.Driver}\" succeeded.");
+                        External.AppLogger.LogInformation("Dithering using \"{GuiderName}\" succeeded.", guider.Driver);
                     }
                     else
                     {
-                        External.LogError($"Dithering using \"{guider.Driver}\" failed, aborting.");
+                        External.AppLogger.LogError("Dithering using \"{GuiderName}\" failed, aborting.", guider.Driver);
                         return false;
                     }
                 }
                 else
                 {
-                    External.LogInfo($"Skipping dithering ({ditherRound % Configuration.DitherEveryNthFrame}/{Configuration.DitherEveryNthFrame} frame)");
+                    External.AppLogger.LogInformation("Skipping dithering ({DitheringRound}/{DitherEveryNthFrame} frame)",
+                        ditherRound % Configuration.DitherEveryNthFrame, Configuration.DitherEveryNthFrame);
                 }
             }
         } // end imaging loop
@@ -588,7 +595,8 @@ public record Session(
                 }
                 catch (Exception ex)
                 {
-                    External.LogException(ex, $"while saving frame #{imageWrite.frameNumber} taken at {imageWrite.expStartTime:o} by {imageWrite.image.ImageMeta.Instrument}");
+                    External.AppLogger.LogError(ex, "Exception while saving frame #{FrameNumber} taken at {ExposureStartTime:o} by {Instrument}",
+                        imageWrite.frameNumber, imageWrite.expStartTime, imageWrite.image.ImageMeta.Instrument);
                 }
             }
             
@@ -646,12 +654,12 @@ public record Session(
                     }
                     else
                     {
-                        External.LogError($"Failed to {(shouldOpen ? "open" : "close")} cover of telescope {(i + 1)}.");
+                        External.AppLogger.LogError($"Failed to {(shouldOpen ? "open" : "close")} cover of telescope {(i + 1)}.");
                     }
                 }
                 else if (!calibratorActionCompleted)
                 {
-                    External.LogError($"Failed to turn off calibrator of telescope {(i + 1)}, current state {cover.Driver.CalibratorState}");
+                    External.AppLogger.LogError($"Failed to turn off calibrator of telescope {(i + 1)}, current state {cover.Driver.CalibratorState}");
                 }
             }
             else
@@ -672,7 +680,8 @@ public record Session(
                     && ++failSafe < IDeviceDriver.MAX_FAILSAFE
                 )
                 {
-                    External.LogInfo($"Cover {cover.Device.DisplayName} of telescope {i + 1} is still {cs} while reaching {finalCoverState}, waiting.");
+                    External.AppLogger.LogInformation("Cover {CoverDisplayName} of telescope {TelescopeNumber} is still {CurrentState} while reaching {FinalCoverState}, waiting.",
+                        cover.Device.DisplayName, i + 1, cs, finalCoverState);
                     External.Sleep(TimeSpan.FromSeconds(3));
                 }
 
@@ -681,7 +690,8 @@ public record Session(
 
                 if (!finalCoverStateReached[i])
                 {
-                    External.LogError($"Failed to {(shouldOpen ? "open" : "close")} cover of telescope {(i + 1)} after moving, current state {finalCoverStateAfterMoving}");
+                    External.AppLogger.LogError("Failed to {CoverAction} cover of telescope {TelescopeNumber} after moving, current state {CurrentCoverState}",
+                        shouldOpen ? "open" : "close",  i + 1, finalCoverStateAfterMoving);
                 }
             }
         }
@@ -739,7 +749,7 @@ public record Session(
             accSleep += rampInterval;
             if (cancellationToken.IsCancellationRequested)
             {
-                External.LogWarning("Cancellation requested, quiting cooldown loop");
+                External.AppLogger.LogWarning("Cancellation requested, quiting cooldown loop");
                 break;
             }
             else
@@ -760,7 +770,7 @@ public record Session(
         var frameFolder = External.CreateSubDirectoryInOutputFolder(targetName, dateFolderUtc, image.ImageMeta.Filter.Name).FullName;
         var fitsFileName = External.GetSafeFileName($"frame_{subExpStartTime:o}_{frameNumber}.fits");
 
-        External.LogInfo($"Writing FITS file {frameFolder}/{fitsFileName}");
+        External.AppLogger.LogInformation("Writing FITS file {FitsFilePath}", Path.Combine(frameFolder, fitsFileName));
         image.WriteToFitsFile(Path.Combine(frameFolder, fitsFileName));
     }
 

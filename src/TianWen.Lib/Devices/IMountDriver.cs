@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using static TianWen.Lib.Astrometry.CoordinateUtils;
+using Microsoft.Extensions.Logging;
 
 namespace TianWen.Lib.Devices;
 
@@ -275,7 +276,8 @@ public interface IMountDriver : IDeviceDriver
             || !SlewRaDecAsync(raMount, decMount)
         )
         {
-            External.LogError($"Failed to slew {Name} to target {target.Name} az={az:0.00} alt={alt:0.00} dsop={dsop}, skipping.");
+            External.AppLogger.LogError("Failed to slew {MountName} to target {TargetName} az={AZ:0.00} alt={Alt:0.00} dsop={DestinationSoP}, skipping.",
+                Name, target.Name, az, alt, dsop);
             return new SlewResult(SlewPostCondition.SkipToNext, double.NaN);
         }
 
@@ -288,7 +290,7 @@ public interface IMountDriver : IDeviceDriver
 
         if (cancellationToken.IsCancellationRequested)
         {
-            External.LogWarning($"Cancellation requested, abort slewing to target {target.Name} and quit imaging loop.");
+            External.AppLogger.LogWarning("Cancellation requested, abort slewing {MountName} to target {TargetName} and quit imaging loop.", Name, target.Name);
             return new SlewResult(SlewPostCondition.Cancelled, double.NaN);
         }
 
@@ -300,18 +302,19 @@ public interface IMountDriver : IDeviceDriver
         var actualSop = SideOfPier;
         if (actualSop != dsop)
         {
-            External.LogError($"Slewing {Name} to {target.Name} completed but actual side of pier {actualSop} is different from the expected one {dsop}, skipping.");
+            External.AppLogger.LogError("Slewing {MountName} to {TargetName} completed but actual side of pier {ActualSoP} is different from the expected one {DestinationSoP}, skipping.",
+                Name, target.Name, actualSop, dsop);
             return new SlewResult(SlewPostCondition.SkipToNext, double.NaN);
         }
 
         double hourAngleAtSlewTime;
         if (double.IsNaN(hourAngleAtSlewTime = HourAngle))
         {
-            External.LogError($"Could not obtain hour angle after slewing {Name} to {target.Name}, skipping.");
+            External.AppLogger.LogError("Could not obtain hour angle after slewing {MountName} to {TargetName}, skipping.", Name, target.Name);
             return new SlewResult(SlewPostCondition.SkipToNext, double.NaN);
         }
 
-        External.LogInfo($"Finished slewing mount {Name} to target {target.Name}.");
+        External.AppLogger.LogInformation("Finished slewing mount {MountName} to target {TargetName}.", Name, target.Name);
 
         return new SlewResult(SlewPostCondition.Success, hourAngleAtSlewTime);
     }

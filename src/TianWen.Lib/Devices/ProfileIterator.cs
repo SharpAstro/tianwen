@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Microsoft.Extensions.Logging;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
@@ -25,13 +26,13 @@ internal class ProfileIterator(IExternal external) : IDeviceSource<Profile>
                 }
                 else
                 {
-                    external.LogWarning($"Skipping invalid profile {profileId} in file {file}");
+                    external.AppLogger.LogWarning("Skipping invalid profile {ProfileId} in file {File}", profileId, file);
                     profile = null;
                 }
             }
             catch (Exception ex)
             {
-                external.LogException(ex, $"Failed to load profile {profileId} in file {file}");
+                external.AppLogger.LogError(ex, "Failed to load profile {ProfileId} in file {File}", profileId, file);
                 profile = null;
             }
 
@@ -46,15 +47,15 @@ internal class ProfileIterator(IExternal external) : IDeviceSource<Profile>
     {
         if (string.IsNullOrWhiteSpace(dto.Name))
         {
-            external.LogWarning($"Skipping profile {profileId} in file {file} as it does not have a name");
+            external.AppLogger.LogWarning("Skipping profile {ProfileId} in file {File} as it does not have a name", profileId, file);
         }
         else if (dto.ProfileId != profileId)
         {
-            external.LogWarning($"Skipping profile {profileId} ({dto.Name}) in file {file} as it does not match stored id {dto.ProfileId}");
+            external.AppLogger.LogWarning("Skipping profile {ProfileId} ({Name}) in file {File} as it does not match stored id {DtoProfileId}", profileId, dto.Name, file, dto.ProfileId);
         }
         else if (dto.ProfileId == Guid.Empty)
         {
-            external.LogWarning($"Skipping profile {profileId} ({dto.Name}) in file {file} has an invalid uuid");
+            external.AppLogger.LogWarning("Skipping profile {ProfileId} ({Name}) in file {File} has an invalid uuid", profileId, dto.Name, file);
         }
         else
         {

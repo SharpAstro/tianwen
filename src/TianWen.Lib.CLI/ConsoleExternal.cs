@@ -1,44 +1,21 @@
-﻿using TianWen.Lib.Devices;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
-using Pastel;
-using System.Reflection;
+﻿using Microsoft.Extensions.Logging;
+using TianWen.Lib.Devices;
 
-record ConsoleOptions(string OutputFolder);
-
-class ConsoleExternal(IOptions<ConsoleOptions> options) : IExternal
+class ConsoleExternal(ILoggerFactory loggerFactory) : IExternal
 {
     public TimeProvider TimeProvider => TimeProvider.System;
 
-    public DirectoryInfo OutputFolder { get; } = new DirectoryInfo(options.Value.OutputFolder);
+    public DirectoryInfo OutputFolder { get; } = 
+        new DirectoryInfo(
+            Environment.GetFolderPath(Environment.SpecialFolder.MyPictures, Environment.SpecialFolderOption.Create)
+        ).CreateSubdirectory(IExternal.ApplicationName);
 
-    public DirectoryInfo ProfileFolder =>
-        new DirectoryInfo(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData, Environment.SpecialFolderOption.Create)).CreateSubdirectory(
-            (Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly()).GetName().Name ?? "TianWen.Lib"
-        );
-            
+    public DirectoryInfo ProfileFolder { get; } =
+        new DirectoryInfo(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData, Environment.SpecialFolderOption.Create)
+        ).CreateSubdirectory(IExternal.ApplicationName);
+
+    public ILogger AppLogger => loggerFactory.CreateLogger<ConsoleExternal>();
+
     public void Sleep(TimeSpan duration) => Thread.Sleep(duration);
-
-    public void Log(LogLevel logLevel, string message)
-    {
-        Action<string> writeLineFun;
-        if (logLevel >= LogLevel.Error)
-        {
-            writeLineFun = Console.Error.WriteLine;
-        }
-        else
-        {
-            writeLineFun = Console.WriteLine;
-        }
-
-        var color = logLevel switch
-        {
-            LogLevel.Error => ConsoleColor.Red,
-            LogLevel.Warning => ConsoleColor.Yellow,
-            LogLevel.Information => ConsoleColor.White,
-            _ => ConsoleColor.Gray
-        };
-
-        writeLineFun($"[{TimeProvider.GetUtcNow():o}] {message.Pastel(color)}");
-    }
 }

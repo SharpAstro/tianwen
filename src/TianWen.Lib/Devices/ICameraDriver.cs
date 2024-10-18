@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Microsoft.Extensions.Logging;
 
 namespace TianWen.Lib.Devices;
 
@@ -346,9 +347,12 @@ public interface ICameraDriver : IDeviceDriver
                     IsCoolable = true
                 };
 
-                External.LogInfo($"Camera {Name} setpoint temperature {setpointTemp:0.00} °C not yet reached, " +
-                    $"cooling {direction.ToString().ToLowerInvariant()} stepwise, currently at {actualSetpointTemp:0.00} °C. " +
-                    $"Heatsink={heatSinkTemp:0.00} °C, CCD={ccdTemp:0.00} °C, Power={CoolerPowerSafe():0.00}%, Cooler={coolerPrev}{(IsCoolerOnSafe() ? "on" : "off")}.");
+                External.AppLogger.LogInformation("Camera {Name} setpoint temperature {SetpointTemp:0.00} °C not yet reached, " +
+                    "cooling {Direction} stepwise, currently at {ActualSetpointTemp:0.00} °C. " +
+                    "Heatsink={HeatSinkTemp:0.00} °C, CCD={CCDTemp:0.00} °C, Power={CoolerPower:0.00}%, Cooler={CoolerStateChange}.",
+                    Name, setpointTemp, direction.ToString().ToLowerInvariant(), actualSetpointTemp, heatSinkTemp, ccdTemp, CoolerPowerSafe(), coolerPrev + (IsCoolerOnSafe() ? "on" : "off")
+
+                );
             }
             else if (coolingState.ThresholdReachedConsecutiveCounts < 3)
             {
@@ -360,8 +364,8 @@ public interface ICameraDriver : IDeviceDriver
                     IsCoolable = true
                 };
 
-                External.LogInfo($"Camera {Name} setpoint temperature {setpointTemp:0.00} °C or {thresPower:0.00} % power reached. "
-                    + $"Heatsink={heatSinkTemp:0.00} °C, CCD={ccdTemp:0.00} °C, Power={CoolerPowerSafe():0.00}%, Cooler={(IsCoolerOnSafe() ? "on" : "off")}.");
+                External.AppLogger.LogInformation("Camera {Name} setpoint temperature {SetpointTemp:0.00} °C or {ThresPower:0.00} % power reached. Heatsink={HeatSinkTemp:0.00} °C, CCD={CCDTemp:0.00} °C, Power={CoolerPower:0.00}%, Cooler={CoolerState}.",
+                    Name, setpointTemp, thresPower, heatSinkTemp, ccdTemp, CoolerPowerSafe(), IsCoolerOnSafe() ? "on" : "off");
             }
             else
             {
@@ -372,8 +376,8 @@ public interface ICameraDriver : IDeviceDriver
                     IsCoolable = true
                 };
 
-                External.LogInfo($"Camera {Name} setpoint temperature {setpointTemp:0.00} °C or {thresPower:0.00} % power reached twice in a row. "
-                    + $"Heatsink={heatSinkTemp:0.00} °C, CCD={ccdTemp:0.00} °C, Power={CoolerPowerSafe():0.00}%, Cooler={(IsCoolerOnSafe() ? "on" : "off")}.");
+                External.AppLogger.LogInformation("Camera {Name} setpoint temperature {SetpointTemp:0.00} °C or {ThresPower:0.00} % power reached twice in a row. Heatsink={HeatSinkTemp:0.00} °C, CCD={CCDTemp:0.00} °C, Power={CoolerPower:0.00}%, Cooler={CoolerState}.",
+                    Name, setpointTemp, thresPower, heatSinkTemp, ccdTemp, CoolerPowerSafe(), IsCoolerOnSafe() ? "on" : "off");
             }
 
             return newState;
@@ -386,7 +390,8 @@ public interface ICameraDriver : IDeviceDriver
                 SetpointTempKind.CCD => "current sensor",
                 _ => $"{desiredSetpointTemp.TempC:0.00} °C"
             };
-            External.LogWarning($"Skipping camera {Name} setpoint temperature {setpointTemp} as we cannot get the current CCD temperature or cooling is not supported. Cooler is {(IsCoolerOnSafe() ? "on" : "off")}.");
+            External.AppLogger.LogWarning("Skipping camera {Name} setpoint temperature {setpointTemp} as we cannot get the current CCD temperature or cooling is not supported. Power={CoolerPower:0.00}%, Cooler={CoolerState}.",
+                Name, setpointTemp, CoolerPowerSafe(), IsCoolerOnSafe() ? "on" : "off");
 
             return new CameraCoolingState(false, 0, false, false);
         }

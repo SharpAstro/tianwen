@@ -1,9 +1,10 @@
-﻿using TianWen.Lib.Devices;
+﻿using Meziantou.Extensions.Logging.Xunit;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using System;
 using System.IO;
 using System.Reflection;
+using TianWen.Lib.Devices;
 using Xunit.Abstractions;
 
 namespace TianWen.Lib.Tests;
@@ -13,7 +14,6 @@ internal class FakeExternal : IExternal
     private readonly FakeTimeProvider _timeProvider;
     private readonly DirectoryInfo _profileRoot;
     private readonly DirectoryInfo _outputFolder;
-    private readonly ITestOutputHelper _outputHelper;
 
     public FakeExternal(ITestOutputHelper outputHelper, DirectoryInfo? root = null, DateTimeOffset? now = null, TimeSpan? autoAdvanceAmount = null)
     {
@@ -27,7 +27,7 @@ internal class FakeExternal : IExternal
 
         _outputFolder = _profileRoot.CreateSubdirectory("output");
 
-        _outputHelper = outputHelper;
+        AppLogger = new XUnitLoggerProvider(outputHelper, appendScope: false).CreateLogger("Test");
     }
 
     public DirectoryInfo ProfileFolder => _profileRoot;
@@ -36,7 +36,7 @@ internal class FakeExternal : IExternal
 
     public TimeProvider TimeProvider => _timeProvider;
 
-    public void Sleep(TimeSpan duration) => _timeProvider.Advance(duration);
+    public ILogger AppLogger { get; }
 
-    public void Log(LogLevel logLevel, string message) => _outputHelper.WriteLine("[{0:o}] {1}: {2}", TimeProvider.GetUtcNow(), logLevel, message);
+    public void Sleep(TimeSpan duration) => _timeProvider.Advance(duration);
 }

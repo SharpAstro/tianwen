@@ -7,27 +7,7 @@ namespace TianWen.Lib.Devices;
 
 public interface IExternal
 {
-    /// <summary>
-    /// Uses <see langword="try"/> <see langword="catch"/> to safely execute <paramref name="func"/>.
-    /// Returns result or <paramref name="default"/> on failure, and logs result using <see cref="LogException(Exception, string)"/>.
-    /// </summary>
-    /// <typeparam name="T"></typeparam>
-    /// <param name="func"></param>
-    /// <param name="default"></param>
-    /// <returns>Result or default</returns>
-    public T Catch<T>(Func<T> func, T @default = default)
-        where T : struct
-    {
-        try
-        {
-            return func();
-        }
-        catch (Exception ex)
-        {
-            LogException(ex, $"while executing: {func.Method.Name}");
-            return @default;
-        }
-    }
+    protected const string ApplicationName = "TianWen";
 
     public TimeSpan SleepWithOvertime(TimeSpan sleep, TimeSpan extra)
     {
@@ -47,17 +27,31 @@ public interface IExternal
         return overslept;
     }
 
+    /// <summary>
+    /// Uses <see langword="try"/> <see langword="catch"/> to safely execute <paramref name="func"/>.
+    /// Returns result or <paramref name="default"/> on failure, and logs result using <see cref="LogException(Exception, string)"/>.
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <param name="func"></param>
+    /// <param name="default"></param>
+    /// <returns>Result or default</returns>
+    public T Catch<T>(Func<T> func, T @default = default)
+        where T : struct
+    {
+        try
+        {
+            return func();
+        }
+        catch (Exception ex)
+        {
+            AppLogger.LogError(ex, "Exception {Message} while executing: {Method}", ex.Message, func.Method.Name);
+            return @default;
+        }
+    }
+
+    ILogger AppLogger { get; }
+
     void Sleep(TimeSpan duration);
-
-    void Log(LogLevel logLevel, string message);
-
-    void LogInfo(string info) => Log(LogLevel.Information, info);
-
-    void LogWarning(string warning) => Log(LogLevel.Warning, warning);
-
-    void LogError(string error) => Log(LogLevel.Error, error);
-
-    void LogException(Exception ex, string extra) => Log(LogLevel.Error, $"{ex.Message} extra");
 
     /// <summary>
     /// Folder root where images/flats/logs/... are stored
