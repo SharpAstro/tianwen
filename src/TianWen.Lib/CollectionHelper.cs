@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 
-namespace Astap.Lib;
+namespace TianWen.Lib;
 
 public static class CollectionHelper
 {

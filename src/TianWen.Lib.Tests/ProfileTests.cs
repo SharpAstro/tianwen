@@ -1,4 +1,4 @@
-﻿using Astap.Lib.Devices;
+﻿using TianWen.Lib.Devices;
 using Shouldly;
 using System;
 using System.Collections.Generic;
@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using Xunit;
 using Xunit.Abstractions;
 
-namespace Astap.Lib.Tests;
+namespace TianWen.Lib.Tests;
 
 public class ProfileTests(ITestOutputHelper outputHelper)
 {

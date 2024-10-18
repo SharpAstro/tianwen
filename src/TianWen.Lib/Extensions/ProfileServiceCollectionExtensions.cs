@@ -1,7 +1,7 @@
-﻿using Astap.Lib.Devices;
+﻿using TianWen.Lib.Devices;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Astap.Lib.Extensions;
+namespace TianWen.Lib.Extensions;
 
 public static class ProfileServiceCollectionExtensions
 {

@@ -8,7 +8,7 @@ using System.Reflection;
 using System.Text.Json.Serialization;
 using System.Web;
 
-namespace Astap.Lib.Devices;
+namespace TianWen.Lib.Devices;
 
 public abstract record class DeviceBase(Uri DeviceUri)
 {

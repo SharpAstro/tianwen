@@ -2,7 +2,7 @@
 using System.Diagnostics;
 using System.Threading;
 
-namespace Astap.Lib.Devices.Ascom;
+namespace TianWen.Lib.Devices.Ascom;
 
 public abstract class AscomDeviceDriverBase(AscomDevice device, IExternal external) : DynamicComObject(device.DeviceId), IDeviceDriver
 {

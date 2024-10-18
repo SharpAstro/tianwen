@@ -24,15 +24,15 @@ SOFTWARE.
 
 */
 
-using Astap.Lib.Astrometry.PlateSolve;
-using Astap.Lib.Imaging;
+using TianWen.Lib.Astrometry.PlateSolve;
+using TianWen.Lib.Imaging;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Astap.Lib.Devices.Guider;
+namespace TianWen.Lib.Devices.Guider;
 
 public interface IGuider : IDeviceDriver
 {

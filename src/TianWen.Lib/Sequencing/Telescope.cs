@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Astap.Lib.Sequencing;
+namespace TianWen.Lib.Sequencing;
 
 public record Telescope(
     string Name,

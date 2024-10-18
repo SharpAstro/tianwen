@@ -1,4 +1,4 @@
-﻿namespace Astap.Lib.Devices.Fake;
+﻿namespace TianWen.Lib.Devices.Fake;
 
 internal class FakeFocuserDriver(FakeDevice fakeDevice, IExternal external) : FakePositionBasedDriver(fakeDevice, external), IFocuserDriver
 {

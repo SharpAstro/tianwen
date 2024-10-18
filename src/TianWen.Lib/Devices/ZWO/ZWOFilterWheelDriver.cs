@@ -2,7 +2,7 @@
 using static ZWOptical.SDK.EFW1_7;
 using static ZWOptical.SDK.EFW1_7.EFW_ERROR_CODE;
 
-namespace Astap.Lib.Devices.ZWO;
+namespace TianWen.Lib.Devices.ZWO;
 
 public class ZWOFilterWheelDriver(ZWODevice device, IExternal external) : ZWODeviceDriverBase<EFW_INFO>(device, external), IFilterWheelDriver
 {

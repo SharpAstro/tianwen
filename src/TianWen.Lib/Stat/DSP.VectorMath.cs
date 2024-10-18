@@ -2,7 +2,7 @@
 using System.Diagnostics;
 using System.Numerics;
 
-namespace Astap.Lib.Stat;
+namespace TianWen.Lib.Stat;
 
 public partial class DSP
 {

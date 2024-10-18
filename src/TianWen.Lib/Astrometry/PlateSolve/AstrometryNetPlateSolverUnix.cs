@@ -1,4 +1,4 @@
-﻿namespace Astap.Lib.Astrometry.PlateSolve;
+﻿namespace TianWen.Lib.Astrometry.PlateSolve;
 
 internal class AstrometryNetPlateSolverUnix : AstrometryNetPlateSolver
 {

@@ -1,7 +1,7 @@
-﻿namespace Astap.Lib.Astrometry.Catalogs;
+﻿namespace TianWen.Lib.Astrometry.Catalogs;
 
 using System.Runtime.CompilerServices;
-using static Astap.Lib.EnumHelper;
+using static TianWen.Lib.EnumHelper;
 
 public enum CanonicalFormat : byte
 {

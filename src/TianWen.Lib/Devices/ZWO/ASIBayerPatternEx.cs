@@ -1,7 +1,7 @@
 ﻿using System;
 using static ZWOptical.SDK.ASICamera2;
 
-namespace Astap.Lib.Devices.ZWO;
+namespace TianWen.Lib.Devices.ZWO;
 
 public static class ASIBayerPatternEx
 {

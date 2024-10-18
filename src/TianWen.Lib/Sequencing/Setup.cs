@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 
-namespace Astap.Lib.Sequencing;
+namespace TianWen.Lib.Sequencing;
 
 public record Setup(
     Mount Mount,

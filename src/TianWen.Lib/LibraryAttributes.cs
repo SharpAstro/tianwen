@@ -1,3 +1,3 @@
 ﻿using System.Runtime.CompilerServices;
 
-[assembly: InternalsVisibleTo("Astap.Lib.Tests")]
+[assembly: InternalsVisibleTo("TianWen.Lib.Tests")]

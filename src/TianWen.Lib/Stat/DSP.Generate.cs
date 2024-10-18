@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Astap.Lib.Stat;
+namespace TianWen.Lib.Stat;
 
 public partial class DSP
 {

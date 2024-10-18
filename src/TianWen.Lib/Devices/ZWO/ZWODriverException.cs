@@ -3,7 +3,7 @@ using static ZWOptical.SDK.EAFFocuser1_6;
 using static ZWOptical.SDK.ASICamera2;
 using static ZWOptical.SDK.EFW1_7;
 
-namespace Astap.Lib.Devices.ZWO;
+namespace TianWen.Lib.Devices.ZWO;
 
 public class ZWODriverException : Exception
 {

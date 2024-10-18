@@ -7,10 +7,10 @@ using System.Linq;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Text;
-using static Astap.Lib.Astrometry.Catalogs.CatalogUtils;
-using static Astap.Lib.EnumHelper;
+using static TianWen.Lib.Astrometry.Catalogs.CatalogUtils;
+using static TianWen.Lib.EnumHelper;
 
-namespace Astap.Lib.Astrometry.Catalogs;
+namespace TianWen.Lib.Astrometry.Catalogs;
 
 /// <summary>
 /// Represents a unique entry in a catalogue s.th. NGC0001, M13 or IC0001

@@ -1,11 +1,11 @@
-﻿using Astap.Lib.Astrometry.Catalogs;
-using Astap.Lib.Astrometry.VSOP87;
+﻿using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.VSOP87;
 using Shouldly;
 using System;
 using System.Globalization;
 using Xunit;
 
-namespace Astap.Lib.Tests;
+namespace TianWen.Lib.Tests;
 
 public class VSOP87aTests
 {

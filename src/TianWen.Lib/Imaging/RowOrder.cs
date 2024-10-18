@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Astap.Lib.Imaging;
+namespace TianWen.Lib.Imaging;
 
 public enum RowOrder
 {

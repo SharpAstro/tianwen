@@ -33,7 +33,7 @@ using System.IO;
 using System.Text.Json;
 using System.Threading;
 
-namespace Astap.Lib.Devices.Guider;
+namespace TianWen.Lib.Devices.Guider;
 
 internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 {

@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Runtime.Serialization;
 
-namespace Astap.Lib.Astrometry.PlateSolve
+namespace TianWen.Lib.Astrometry.PlateSolve
 {
     [Serializable]
     public class PlateSolverException : Exception

@@ -3,10 +3,10 @@ using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Runtime.CompilerServices;
-using Astap.Lib.Stat;
-using static Astap.Lib.Stat.StatisticsHelper;
+using TianWen.Lib.Stat;
+using static TianWen.Lib.Stat.StatisticsHelper;
 
-namespace Astap.Lib.Astrometry.Focus;
+namespace TianWen.Lib.Astrometry.Focus;
 
 public class MetricSampleMap(SampleKind kind, AggregationMethod aggregationMethod)
 {

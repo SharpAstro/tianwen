@@ -1,10 +1,10 @@
-﻿using Astap.Lib.Imaging;
-using Astap.Lib.Stat;
+﻿using TianWen.Lib.Imaging;
+using TianWen.Lib.Stat;
 using System;
 using System.Collections.Generic;
-using static Astap.Lib.Stat.StatisticsHelper;
+using static TianWen.Lib.Stat.StatisticsHelper;
 
-namespace Astap.Lib.Astrometry.Focus;
+namespace TianWen.Lib.Astrometry.Focus;
 
 public interface IImageAnalyser
 {

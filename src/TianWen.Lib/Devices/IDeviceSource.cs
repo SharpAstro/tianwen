@@ -1,5 +1,5 @@
 ﻿using System.Collections.Generic;
-namespace Astap.Lib.Devices;
+namespace TianWen.Lib.Devices;
 
 public interface IDeviceSource<out TDevice>
     where TDevice : DeviceBase

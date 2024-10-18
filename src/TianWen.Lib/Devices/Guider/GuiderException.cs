@@ -26,7 +26,7 @@ SOFTWARE.
 
 using System;
 
-namespace Astap.Lib.Devices.Guider;
+namespace TianWen.Lib.Devices.Guider;
 
 [Serializable]
 public class GuiderException : Exception

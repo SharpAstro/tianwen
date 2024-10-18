@@ -3,7 +3,7 @@ using System;
 using System.IO;
 using System.Linq;
 
-namespace Astap.Lib.Devices;
+namespace TianWen.Lib.Devices;
 
 public interface IExternal
 {

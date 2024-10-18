@@ -1,11 +1,11 @@
-﻿using Astap.Lib.Astrometry.SOFA;
+﻿using TianWen.Lib.Astrometry.SOFA;
 using Shouldly;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Xunit;
 
-namespace Astap.Lib.Tests;
+namespace TianWen.Lib.Tests;
 
 public class TransformTests
 {

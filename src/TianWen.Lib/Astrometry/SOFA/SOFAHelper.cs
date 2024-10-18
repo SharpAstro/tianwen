@@ -1,10 +1,10 @@
-﻿using Astap.Lib.Astrometry.VSOP87;
+﻿using TianWen.Lib.Astrometry.VSOP87;
 using System;
-using static Astap.Lib.Astrometry.SOFA.Constants;
+using static TianWen.Lib.Astrometry.SOFA.Constants;
 using static WorldWideAstronomy.WWA;
 using System.Collections.Generic;
 
-namespace Astap.Lib.Astrometry.SOFA;
+namespace TianWen.Lib.Astrometry.SOFA;
 
 public static class SOFAHelpers
 {

@@ -1,4 +1,4 @@
-﻿using Astap.Lib.Astrometry.PlateSolve;
+﻿using TianWen.Lib.Astrometry.PlateSolve;
 using Shouldly;
 using System;
 using System.Diagnostics;
@@ -7,7 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
 
-namespace Astap.Lib.Tests;
+namespace TianWen.Lib.Tests;
 
 public class PlateSolverTests
 {

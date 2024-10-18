@@ -1,4 +1,4 @@
-﻿namespace Astap.Lib.Stat;
+﻿namespace TianWen.Lib.Stat;
 
 public enum AggregationMethod : byte
 {

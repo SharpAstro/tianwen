@@ -1,8 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
-using static Astap.Lib.EnumHelper;
+using static TianWen.Lib.EnumHelper;
 
-namespace Astap.Lib.Astrometry.Catalogs;
+namespace TianWen.Lib.Astrometry.Catalogs;
 
 public enum Constellation : ulong
 {

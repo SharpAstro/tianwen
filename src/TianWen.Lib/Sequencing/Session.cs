@@ -1,8 +1,8 @@
-﻿using Astap.Lib.Astrometry.Focus;
-using Astap.Lib.Astrometry.PlateSolve;
-using Astap.Lib.Devices;
-using Astap.Lib.Devices.Guider;
-using Astap.Lib.Imaging;
+﻿using TianWen.Lib.Astrometry.Focus;
+using TianWen.Lib.Astrometry.PlateSolve;
+using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Guider;
+using TianWen.Lib.Imaging;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -10,9 +10,9 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
-using static Astap.Lib.Stat.StatisticsHelper;
+using static TianWen.Lib.Stat.StatisticsHelper;
 
-namespace Astap.Lib.Sequencing;
+namespace TianWen.Lib.Sequencing;
 
 public record Session(
     Setup Setup,

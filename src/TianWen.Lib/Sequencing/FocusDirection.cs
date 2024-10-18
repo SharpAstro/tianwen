@@ -1,4 +1,4 @@
-﻿namespace Astap.Lib.Sequencing;
+﻿namespace TianWen.Lib.Sequencing;
 
 public record FocusDirection(
     bool PreferOutward,

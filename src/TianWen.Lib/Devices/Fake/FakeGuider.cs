@@ -1,9 +1,9 @@
-﻿using Astap.Lib.Devices.Guider;
+﻿using TianWen.Lib.Devices.Guider;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 
-namespace Astap.Lib.Devices.Fake;
+namespace TianWen.Lib.Devices.Fake;
 
 internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDeviceDriverBase(fakeDevice, external), IGuider
 {

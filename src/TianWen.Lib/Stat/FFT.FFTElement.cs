@@ -1,6 +1,6 @@
 ﻿using System.Runtime.CompilerServices;
 
-namespace Astap.Lib.Stat;
+namespace TianWen.Lib.Stat;
 
 public partial class FFT
 {

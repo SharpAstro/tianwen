@@ -1,12 +1,12 @@
-﻿using Astap.Lib.Astrometry;
-using Astap.Lib.Astrometry.SOFA;
+﻿using TianWen.Lib.Astrometry;
+using TianWen.Lib.Astrometry.SOFA;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
-using static Astap.Lib.Astrometry.CoordinateUtils;
+using static TianWen.Lib.Astrometry.CoordinateUtils;
 
-namespace Astap.Lib.Devices;
+namespace TianWen.Lib.Devices;
 
 public interface IMountDriver : IDeviceDriver
 {

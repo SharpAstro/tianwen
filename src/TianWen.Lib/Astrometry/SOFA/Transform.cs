@@ -1,14 +1,14 @@
-﻿using Astap.Lib.Astrometry.Catalogs;
-using Astap.Lib.Astrometry.VSOP87;
+﻿using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.VSOP87;
 using GeoTimeZone;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
-using static Astap.Lib.Astrometry.SOFA.Constants;
+using static TianWen.Lib.Astrometry.SOFA.Constants;
 using static WorldWideAstronomy.WWA;
 
-namespace Astap.Lib.Astrometry.SOFA
+namespace TianWen.Lib.Astrometry.SOFA
 {
     /// <summary>
     /// Coordinate transform component; J2000 - apparent - topocentric

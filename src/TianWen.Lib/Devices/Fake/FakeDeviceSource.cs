@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 
-namespace Astap.Lib.Devices.Fake;
+namespace TianWen.Lib.Devices.Fake;
 
 internal class FakeDeviceSource : IDeviceSource<FakeDevice>
 {

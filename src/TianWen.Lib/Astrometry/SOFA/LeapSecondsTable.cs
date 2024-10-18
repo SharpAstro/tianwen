@@ -1,7 +1,7 @@
 ﻿using System;
-using static Astap.Lib.Astrometry.SOFA.Constants;
+using static TianWen.Lib.Astrometry.SOFA.Constants;
 
-namespace Astap.Lib.Astrometry.SOFA;
+namespace TianWen.Lib.Astrometry.SOFA;
 
 public static class LeapSecondsTable
 {

@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
-using static Astap.Lib.Base64UrlSafe;
+using static TianWen.Lib.Base64UrlSafe;
 
-namespace Astap.Lib.Devices;
+namespace TianWen.Lib.Devices;
 
 using ValueDict = Dictionary<string, Uri>;
 using ValueDictRO = IReadOnlyDictionary<string, Uri>;

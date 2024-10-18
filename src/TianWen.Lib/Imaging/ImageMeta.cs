@@ -1,7 +1,7 @@
-﻿using Astap.Lib.Devices;
+﻿using TianWen.Lib.Devices;
 using System;
 
-namespace Astap.Lib.Imaging;
+namespace TianWen.Lib.Imaging;
 
 public record struct ImageMeta(
     string Instrument,

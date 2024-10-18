@@ -1,4 +1,4 @@
-﻿using Astap.Lib.Devices;
+﻿using TianWen.Lib.Devices;
 using CommunityToolkit.HighPerformance;
 using nom.tam.fits;
 using nom.tam.util;
@@ -9,9 +9,9 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
-using static Astap.Lib.Stat.StatisticsHelper;
+using static TianWen.Lib.Stat.StatisticsHelper;
 
-namespace Astap.Lib.Imaging;
+namespace TianWen.Lib.Imaging;
 
 public sealed class Image(float[,] data, int width, int height, BitDepth bitDepth, float maxVal, float blackLevel, ImageMeta imageMeta)
 {

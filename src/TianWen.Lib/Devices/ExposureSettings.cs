@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Astap.Lib.Devices;
+namespace TianWen.Lib.Devices;
 
 public readonly struct ExposureSettings
 {

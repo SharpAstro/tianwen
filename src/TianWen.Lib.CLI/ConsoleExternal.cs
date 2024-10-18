@@ -1,4 +1,4 @@
-﻿using Astap.Lib.Devices;
+﻿using TianWen.Lib.Devices;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Pastel;
@@ -14,7 +14,7 @@ class ConsoleExternal(IOptions<ConsoleOptions> options) : IExternal
 
     public DirectoryInfo ProfileFolder =>
         new DirectoryInfo(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData, Environment.SpecialFolderOption.Create)).CreateSubdirectory(
-            (Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly()).GetName().Name ?? "Astap.Lib"
+            (Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly()).GetName().Name ?? "TianWen.Lib"
         );
             
     public void Sleep(TimeSpan duration) => Thread.Sleep(duration);

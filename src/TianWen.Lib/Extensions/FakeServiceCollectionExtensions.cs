@@ -1,8 +1,8 @@
-﻿using Astap.Lib.Devices;
-using Astap.Lib.Devices.Fake;
+﻿using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Fake;
 using Microsoft.Extensions.DependencyInjection;
 
-namespace Astap.Lib.Extensions;
+namespace TianWen.Lib.Extensions;
 
 public static class FakeServiceCollectionExtensions
 {

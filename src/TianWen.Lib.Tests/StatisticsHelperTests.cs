@@ -1,9 +1,9 @@
-﻿using Astap.Lib.Stat;
+﻿using TianWen.Lib.Stat;
 using Shouldly;
 using System;
 using Xunit;
 
-namespace Astap.Lib.Tests;
+namespace TianWen.Lib.Tests;
 
 public class StatisticsHelperTests
 {

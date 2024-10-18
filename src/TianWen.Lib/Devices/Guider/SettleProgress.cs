@@ -24,7 +24,7 @@ SOFTWARE.
 
 */
 
-namespace Astap.Lib.Devices.Guider;
+namespace TianWen.Lib.Devices.Guider;
 
 public class SettleProgress
 {

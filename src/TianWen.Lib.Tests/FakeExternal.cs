@@ -1,4 +1,4 @@
-﻿using Astap.Lib.Devices;
+﻿using TianWen.Lib.Devices;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using System;
@@ -6,7 +6,7 @@ using System.IO;
 using System.Reflection;
 using Xunit.Abstractions;
 
-namespace Astap.Lib.Tests;
+namespace TianWen.Lib.Tests;
 
 internal class FakeExternal : IExternal
 {

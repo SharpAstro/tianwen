@@ -28,7 +28,7 @@ using System;
 using System.IO;
 using System.Net.Sockets;
 
-namespace Astap.Lib.Devices.Guider;
+namespace TianWen.Lib.Devices.Guider;
 
 class GuiderConnection : IGuiderConnection
 {

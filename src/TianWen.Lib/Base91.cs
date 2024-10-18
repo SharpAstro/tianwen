@@ -3,7 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 
-namespace Astap.Lib;
+namespace TianWen.Lib;
 
 /// <summary>Provides functionality for encoding data into the Base-91 (formerly written basE91) text representation and back.</summary>
 /// <remarks>See more: <seealso href="http://base91.sourceforge.net/"/>.</remarks>

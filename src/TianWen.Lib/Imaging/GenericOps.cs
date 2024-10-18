@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Linq.Expressions;
 
-namespace Astap.Lib.Imaging;
+namespace TianWen.Lib.Imaging;
 
 public static class Cast<T, U>
 {

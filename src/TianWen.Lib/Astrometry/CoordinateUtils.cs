@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Globalization;
 
-namespace Astap.Lib.Astrometry;
+namespace TianWen.Lib.Astrometry;
 
 public static class CoordinateUtils
 {

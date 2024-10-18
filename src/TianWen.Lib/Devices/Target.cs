@@ -1,8 +1,8 @@
-﻿namespace Astap.Lib.Devices;
+﻿namespace TianWen.Lib.Devices;
 
-using Astap.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.Catalogs;
 using System.Globalization;
-using static Astap.Lib.Astrometry.CoordinateUtils;
+using static TianWen.Lib.Astrometry.CoordinateUtils;
 
 public record Target(double RA, double Dec, string Name, CatalogIndex? CatalogIndex)
 {

@@ -1,4 +1,4 @@
-﻿namespace Astap.Lib.Devices.Ascom
+﻿namespace TianWen.Lib.Devices.Ascom
 {
     internal enum DriveRate
     {

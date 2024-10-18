@@ -1,6 +1,6 @@
-﻿using Astap.Lib.Devices;
+﻿using TianWen.Lib.Devices;
 
-namespace Astap.Lib.Sequencing;
+namespace TianWen.Lib.Sequencing;
 
 public record Mount(DeviceBase Device, IExternal External) : ControllableDeviceBase<IMountDriver>(Device, External)
 {

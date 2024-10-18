@@ -1,4 +1,4 @@
-﻿namespace Astap.Lib.Astrometry.Catalogs;
+﻿namespace TianWen.Lib.Astrometry.Catalogs;
 
 public enum ObjectType : ulong
 {

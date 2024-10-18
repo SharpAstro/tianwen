@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Runtime.CompilerServices;
 
-namespace Astap.Lib.Astrometry.Catalogs;
+namespace TianWen.Lib.Astrometry.Catalogs;
 
 public record struct ConstellationBoundary(double LowerRA, double UpperRA, double LowerDec, Constellation Constellation)
 {

@@ -12,7 +12,7 @@
 //
 
 
-namespace Astap.Lib.Stat;
+namespace TianWen.Lib.Stat;
 
 
 

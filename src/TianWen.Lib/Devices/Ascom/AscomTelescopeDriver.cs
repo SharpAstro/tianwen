@@ -1,8 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
-using Astap.Lib.Astrometry;
+using TianWen.Lib.Astrometry;
 
-namespace Astap.Lib.Devices.Ascom;
+namespace TianWen.Lib.Devices.Ascom;
 
 public class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
 {

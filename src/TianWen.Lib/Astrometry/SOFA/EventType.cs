@@ -1,7 +1,7 @@
-﻿using Astap.Lib.Astrometry.Catalogs;
+﻿using TianWen.Lib.Astrometry.Catalogs;
 using System;
 
-namespace Astap.Lib.Astrometry.SOFA;
+namespace TianWen.Lib.Astrometry.SOFA;
 
 public enum EventType
 {

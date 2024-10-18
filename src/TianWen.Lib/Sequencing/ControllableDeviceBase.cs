@@ -1,7 +1,7 @@
-﻿using Astap.Lib.Devices;
+﻿using TianWen.Lib.Devices;
 using System;
 
-namespace Astap.Lib.Sequencing;
+namespace TianWen.Lib.Sequencing;
 
 public abstract record ControllableDeviceBase<TDriver> : IDisposable
     where TDriver : IDeviceDriver

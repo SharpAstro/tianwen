@@ -1,8 +1,8 @@
-﻿using Astap.Lib.Astrometry;
+﻿using TianWen.Lib.Astrometry;
 using Shouldly;
 using Xunit;
 
-namespace Astap.Lib.Tests;
+namespace TianWen.Lib.Tests;
 
 public class CoordinateUtilsTests
 {

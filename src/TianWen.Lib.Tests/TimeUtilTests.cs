@@ -1,10 +1,10 @@
-﻿using Astap.Lib.Astrometry;
+﻿using TianWen.Lib.Astrometry;
 using Shouldly;
 using System;
 using System.Globalization;
 using Xunit;
 
-namespace Astap.Lib.Tests;
+namespace TianWen.Lib.Tests;
 
 public class TimeUtilTests
 {

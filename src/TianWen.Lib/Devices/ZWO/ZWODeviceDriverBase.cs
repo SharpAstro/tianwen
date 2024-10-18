@@ -2,7 +2,7 @@
 using System.Threading;
 using ZWOptical.SDK;
 
-namespace Astap.Lib.Devices.ZWO;
+namespace TianWen.Lib.Devices.ZWO;
 
 public abstract class ZWODeviceDriverBase<TDeviceInfo>(ZWODevice device, IExternal external) : IDeviceDriver
     where TDeviceInfo : struct, IZWODeviceInfo

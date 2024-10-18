@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 
-namespace Astap.Lib.Devices;
+namespace TianWen.Lib.Devices;
 
 internal class ProfileIterator(IExternal external) : IDeviceSource<Profile>
 {

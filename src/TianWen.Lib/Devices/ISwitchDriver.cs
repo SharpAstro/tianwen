@@ -1,4 +1,4 @@
-﻿namespace Astap.Lib.Devices;
+﻿namespace TianWen.Lib.Devices;
 
 public interface ISwitchDriver : IDeviceDriver
 {

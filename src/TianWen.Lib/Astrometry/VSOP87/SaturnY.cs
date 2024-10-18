@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Astap.Lib.Astrometry.VSOP87;
+namespace TianWen.Lib.Astrometry.VSOP87;
 
 partial class Saturn
 {

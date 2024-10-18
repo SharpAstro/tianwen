@@ -1,4 +1,4 @@
-﻿namespace Astap.Lib.Devices;
+﻿namespace TianWen.Lib.Devices;
 
 public readonly record struct Filter(string Name, int Offset = 0)
 {

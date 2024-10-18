@@ -1,7 +1,7 @@
 ﻿using CommunityToolkit.HighPerformance;
 using System;
 
-namespace Astap.Lib.Imaging;
+namespace TianWen.Lib.Imaging;
 
 public record Float32HxWImageData(float[,] Data, float MaxValue)
 {

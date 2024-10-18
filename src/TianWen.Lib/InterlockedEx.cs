@@ -1,6 +1,6 @@
 ﻿using System.Threading;
 
-namespace Astap.Lib;
+namespace TianWen.Lib;
 
 public class InterlockedEx
 {

@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Astap.Lib.Astrometry.Catalogs;
+namespace TianWen.Lib.Astrometry.Catalogs;
 
 internal enum OpenNGCObjectType : ulong
 {

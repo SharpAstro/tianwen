@@ -1,6 +1,6 @@
 using System;
 
-namespace Astap.Lib.Astrometry.Focus;
+namespace TianWen.Lib.Astrometry.Focus;
 
 public readonly record struct FocusSolution(double P, double A, double B, double Error, int Iterations);
 

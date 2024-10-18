@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace Astap.Lib.Astrometry.SOFA;
+namespace TianWen.Lib.Astrometry.SOFA;
 
 internal static class Constants
 {

@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 
-namespace Astap.Lib.Devices;
+namespace TianWen.Lib.Devices;
 
 using ValueDictRO = IReadOnlyDictionary<string, Uri>;
 
