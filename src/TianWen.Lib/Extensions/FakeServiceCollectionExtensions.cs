@@ -6,5 +6,5 @@ namespace TianWen.Lib.Extensions;
 
 public static class FakeServiceCollectionExtensions
 {
-    public static IServiceCollection AddFake(this IServiceCollection services) => services.AddSingleton<IDeviceSource<FakeDevice>, FakeDeviceSource>();
+    public static IServiceCollection AddFake(this IServiceCollection services) => services.AddSingleton<IDeviceSource<DeviceBase>, FakeDeviceSource>();
 }

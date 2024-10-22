@@ -5,6 +5,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.SOFA;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 using static TianWen.Lib.Astrometry.CoordinateUtils;
 
 namespace TianWen.Lib.Devices;
@@ -14,6 +15,14 @@ public interface IMountDriver : IDeviceDriver
     bool CanSetTracking { get; }
 
     bool CanSetSideOfPier { get; }
+
+    bool CanSetRightAscensionRate { get; }
+
+    bool CanSetDeclinationRate { get; }
+
+    bool CanSetGuideRates { get; }
+
+    bool CanPulseGuide { get; }
 
     bool CanPark { get; }
 
@@ -33,6 +42,8 @@ public interface IMountDriver : IDeviceDriver
 
     EquatorialCoordinateType EquatorialSystem { get; }
 
+    AlignmentMode? Alignment { get; }
+
     bool Tracking { get; set; }
 
     bool AtHome { get; }
@@ -46,7 +57,53 @@ public interface IMountDriver : IDeviceDriver
 
     bool PulseGuide(GuideDirection direction, TimeSpan duration);
 
+    /// <summary>
+    /// True if slewing as a result of <see cref="SlewRaDecAsync"/> or <see cref="SlewHourAngleDecAsync"/>.
+    /// </summary>
     bool IsSlewing { get; }
+
+    /// <summary>
+    /// True when a pulse guide command is still on-going (<see cref="PulseGuide(GuideDirection, TimeSpan)"/>
+    /// </summary>
+    bool IsPulseGuiding { get; }
+
+    /// <summary>
+    /// Read or set a secular rate of change to the mount's <see cref="RightAscension"/> (seconds of RA per sidereal second).
+    /// https://ascom-standards.org/newdocs/trkoffset-faq.html#trkoffset-faq
+    /// </summary>
+    double RightAscensionRate { get; set; }
+
+    /// <summary>
+    /// Read or set a secular rate of change to the mount's <see cref="Declination"/> in arc seconds per UTC (SI) second.
+    /// https://ascom-standards.org/newdocs/trkoffset-faq.html#trkoffset-faq
+    /// </summary>
+    double DeclinationRate { get; set; }
+
+    /// <summary>
+    /// The current rate of change of <see cref="RightAscension"/> (deg/sec) for guiding, typically via <see cref="PulseGuide(GuideDirection, TimeSpan)"/>.
+    /// <list type="bullet">
+    /// <item>This is the rate for both hardware/relay guiding and for <see cref="PulseGuide(GuideDirection, TimeSpan)"/></item>
+    /// <item>The mount may not support separate right ascension and declination guide rates. If so, setting either rate must set the other to the same value.</item>
+    /// <item>This value must be set to a default upon startup.</item>
+    /// </list>
+    /// </summary>
+    double GuideRateRightAscension { get; set; }
+
+    /// <summary>
+    /// The current rate of change of <see cref="Declination"/> (deg/sec) for guiding, typically via <see cref="PulseGuide(GuideDirection, TimeSpan)"/>.
+    /// <list type="bullet">
+    /// <item>This is the rate for both hardware/relay guiding and for <see cref="PulseGuide(GuideDirection, TimeSpan)"/></item>
+    /// <item>The mount may not support separate right ascension and declination guide rates. If so, setting either rate must set the other to the same value.</item>
+    /// <item>This value must be set to a default upon startup.</item>
+    /// </list>
+    /// </summary>
+    double GuideRateDeclination { get; set; }
+
+    /// <summary>
+    /// Stops all movement due to slew (might revert to previous tracking mode).
+    /// </summary>
+    /// <returns>True if not slewing or current slew was aborted</returns>
+    bool AbortSlew();
 
     /// <summary>
     /// Slews to given equatorial coordinates (RA, Dec) in the mounts native epoch, <see cref="EquatorialSystem"/>.
@@ -122,6 +179,9 @@ public interface IMountDriver : IDeviceDriver
         return false;
     }
 
+    /// <summary>
+    /// Side of pier as an indicator of pointing state/meridian flip indicator.
+    /// </summary>
     PierSide SideOfPier { get; set; }
 
     /// <summary>
@@ -328,3 +388,30 @@ public enum SlewPostCondition
 }
 
 public record struct SlewResult(SlewPostCondition PostCondition, double HourAngleAtSlewTime);
+
+public enum AlignmentMode
+{
+    /// <summary>
+    /// Altitude-Azimuth alignment.
+    /// </summary>
+    AltAz = 0,
+
+    /// <summary>
+    /// Polar (equatorial) mount other than German equatorial.
+    /// </summary>
+    Polar = 1,
+
+    /// <summary>
+    /// German equatorial mount.
+    /// </summary>
+    GermanPolar = 2
+}
+
+public enum TrackingSpeed
+{
+    None = 0,
+    Sidereal = 1,
+    Lunar = 2,
+    Solar = 3,
+    King = 4,
+}

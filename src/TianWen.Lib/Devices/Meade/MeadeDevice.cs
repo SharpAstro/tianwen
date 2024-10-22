@@ -9,4 +9,10 @@ public record MeadeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
     {
         // calls primary constructor
     }
+
+    protected override IDeviceDriver? NewInstanceFromDevice(IExternal external) => DeviceType switch
+    {
+        DeviceType.Mount => new MeadeLX200BasedMount(this, external),
+        _ => null
+    };
 }

@@ -34,6 +34,7 @@ public class CoordinateUtilsTests
     [InlineData("23:54:13.2", 358.555d)]
     [InlineData("23:59:59.9", 359.9995833333333d)]
     [InlineData("12:00:00", 180.0d)]
+    [InlineData("12:00", 180.0d)]
     [InlineData("0:0:0", 0d)]
     public void GivenHMSWHenConvertToDegreesItReturnsDegreesAsDouble(string hms, double expectedDegrees)
     {
@@ -46,6 +47,7 @@ public class CoordinateUtilsTests
     [InlineData("+90:0:0", +90.0d)]
     [InlineData("-89:30:0", -89.5d)]
     [InlineData("-90:0:0", -90.0d)]
+    [InlineData("-90:0", -90.0d)]
     [InlineData("0:0:0", 0.0d)]
     [InlineData("-08:11:11", -8.186388888888889d)]
     [InlineData("-00:38:16.5", -0.6379166666666667d)]

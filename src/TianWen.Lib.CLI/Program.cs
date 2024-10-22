@@ -4,13 +4,23 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-var builder = Host.CreateApplicationBuilder(args);
+var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = args, DisableDefaults = true });
 builder.Services
+    .AddLogging(builder =>
+    {
+        builder.AddSimpleConsole(options =>
+        {
+            options.SingleLine = true;
+            options.IncludeScopes = false;
+        });
+    })
     .AddSingleton<IExternal, ConsoleExternal>()
     .AddAstrometry()
     .AddZWO()
-    .AddASCOM()
-    .AddFake();
+    .AddAscom()
+    .AddProfile()
+    .AddFake()
+    .AddDeviceManager();
 
 using IHost host = builder.Build();
 
@@ -18,9 +28,9 @@ var services = host.Services;
 
 var external = services.GetRequiredService<IExternal>();
 
-foreach (var deviceSource in services.GetServices<IDeviceSource<DeviceBase>>())
+foreach (var device in services.GetRequiredService<IDeviceManager<DeviceBase>>())
 {
-    external.AppLogger.LogInformation("{DeviceSource}: {IsSupported}", deviceSource.GetType().Name, deviceSource.IsSupported);
+    external.AppLogger.LogInformation("{DeviceType}: {Device}", device.DeviceType, device.DisplayName);
 }
 
 await host.RunAsync();

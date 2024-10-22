@@ -124,13 +124,20 @@ public static class CoordinateUtils
 
         var split = hms.Split(':', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
 
-        if (split.Length == 3
+        if (split?.Length == 3
             && double.TryParse(split[0], NumberStyles.None, CultureInfo.InvariantCulture, out var hours)
             && double.TryParse(split[1], NumberStyles.None, CultureInfo.InvariantCulture, out var min)
             && double.TryParse(split[2], NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var sec)
         )
         {
             return Math.FusedMultiplyAdd(sec, secToHours, Math.FusedMultiplyAdd(min, minToHours, hours));
+        }
+        else if (split?.Length == 2
+            && double.TryParse(split[0], NumberStyles.None, CultureInfo.InvariantCulture, out hours)
+            && double.TryParse(split[1], NumberStyles.None, CultureInfo.InvariantCulture, out min)
+        )
+        {
+            return Math.FusedMultiplyAdd(min, minToHours, hours);
         }
         else
         {
@@ -152,6 +159,13 @@ public static class CoordinateUtils
         )
         {
             return Math.FusedMultiplyAdd(sec, secToDegs, Math.FusedMultiplyAdd(min, minToDegs, hours * 15.0));
+        }
+        else if (split?.Length == 2
+            && double.TryParse(split[0], NumberStyles.None, CultureInfo.InvariantCulture, out hours)
+            && double.TryParse(split[1], NumberStyles.None, CultureInfo.InvariantCulture, out min)
+        )
+        {
+            return Math.FusedMultiplyAdd(min, minToDegs, hours * 15.0);
         }
         else
         {
@@ -214,6 +228,13 @@ public static class CoordinateUtils
         )
         {
             return sign * (Math.Abs(deg) + (min * minToDeg) + (sec * secToDeg));
+        }
+        else if (split?.Length == 2
+            && double.TryParse(split[0], NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out deg)
+            && double.TryParse(split[1], NumberStyles.None, CultureInfo.InvariantCulture, out min)
+        )
+        {
+            return sign * Math.FusedMultiplyAdd(min, minToDeg, Math.Abs(deg));
         }
         else
         {

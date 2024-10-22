@@ -19,7 +19,7 @@ function Import-AstapClass
         $ReferencedAssemblies = @()
     )
 
-    if (-not ("Astap.Lib.$ClassName" -as [type])) {
+    if (-not ("TianWen.Lib.$ClassName" -as [type])) {
         $assy = "tmp-data/$($ClassName).dll"
         if (Test-Path -PathType Leaf $assy) {
             Remove-Item -Force $assy
@@ -48,6 +48,7 @@ $cats = [ordered]@{
     # hde     = [PSCustomObject]@{ Cat = 'III/182';  File = 'catalog.dat.gz' }
     tyc2_hd = [PSCustomObject]@{ Cat = 'J/A+A/386/709';  File = 'tyc2_hd.dat.gz'; Data = @{ } }
     tyc2    = [PSCustomObject]@{ Cat = 'I/259';  File = 'tyc2.dat.{0}.gz'; FileCount = 20; StreamCount = 9537 }
+    leda    = [PSCustomObject]@{ Cat = 'VII/237'; File = 'pgc.dat.gz'; }
 }
 
 function ConvertTo-Tycho2CatalogIndex
@@ -276,7 +277,7 @@ function ConvertFrom-Tycho2_HD_ASCIIDat
         $hd = 0
         if ([int]::TryParse($maybeHD, [cultureinfo]::InvariantCulture, [ref] $hd)) {
             
-        $existing = $CatalogTable[$tycId]
+            $existing = $CatalogTable[$tycId]
             if ($null -eq $existing) {
                 $CatalogTable[$tycId] = @($hd)
             } else {

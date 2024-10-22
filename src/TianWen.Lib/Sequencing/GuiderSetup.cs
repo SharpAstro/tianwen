@@ -1,6 +1,6 @@
 ﻿namespace TianWen.Lib.Sequencing;
 
-public record GuiderFocuser(Focuser? Focuser = null, Telescope? OAG = null)
+public record GuiderSetup(Focuser? Focuser = null, OTA? OAG = null)
 {
     public bool IsOAG => OAG != null;
 

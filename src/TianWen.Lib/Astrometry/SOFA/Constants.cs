@@ -31,6 +31,7 @@ internal static class Constants
     internal const double RAD2SEC = 206264.80624709636; //Angle conversion constants.
     internal const double DEG2RAD = 0.017453292519943295;
     internal const double RAD2DEG = 57.295779513082323;
+    internal const double SIDEREAL_RATE = 15.0417; // approx. rate of sky moving in arcseconds/second
 
     // Physical constants
     internal const double MOON_RADIUS = 1737.0; // km

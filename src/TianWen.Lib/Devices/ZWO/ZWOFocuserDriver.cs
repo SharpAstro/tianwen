@@ -3,7 +3,7 @@ using static ZWOptical.SDK.EAFFocuser1_6.EAF_ERROR_CODE;
 
 namespace TianWen.Lib.Devices.ZWO;
 
-public class ZWOFocuserDriver(ZWODevice device, IExternal external) : ZWODeviceDriverBase<EAF_INFO>(device, external), IFocuserDriver
+internal class ZWOFocuserDriver(ZWODevice device, IExternal external) : ZWODeviceDriverBase<EAF_INFO>(device, external), IFocuserDriver
 {
     public bool Absolute => true;
 
@@ -31,16 +31,9 @@ public class ZWOFocuserDriver(ZWODevice device, IExternal external) : ZWODeviceD
 
     public double Temperature => EAFGetTemp(ConnectionId, out var temp) is EAF_SUCCESS ? temp : double.NaN;
 
-    public override string? Description => "ZWO EAF driver using C# SDK wrapper";
-
-    public override string? DriverVersion => EAFGetSDKVersion().ToString();
+    public override string? Description { get; } = $"ZWO EAF driver using C# SDK wrapper v{EAFGetSDKVersion()}";
 
     public bool Halt() => EAFStop(ConnectionId) is EAF_SUCCESS;
 
     public bool Move(int position) => EAFMove(ConnectionId, position) is EAF_SUCCESS;
-
-    protected override void DisposeNative()
-    {
-        // nothing to do
-    }
 }
