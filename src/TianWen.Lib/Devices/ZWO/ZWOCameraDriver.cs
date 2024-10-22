@@ -11,7 +11,7 @@ using static ZWOptical.SDK.ASICamera2.ASI_ERROR_CODE;
 
 namespace TianWen.Lib.Devices.ZWO;
 
-public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriver
+internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriver
 {
     record class NativeBuffer(IntPtr Pointer, int Size);
 
@@ -167,9 +167,7 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
 
     private int ADCBitDepth { get; set; } = int.MinValue;
 
-    public override string? DriverVersion => ASIGetSDKVersion().ToString();
-
-    public override string? Description => "ZWO Camera driver using C# SDK wrapper";
+    public override string? Description { get; } = $"ZWO Camera driver using C# SDK wrapper v{ASIGetSDKVersion}";
 
     protected override bool ConnectDevice(out int connectionId, out ASI_CAMERA_INFO camInfo)
     {
@@ -719,7 +717,7 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
         }
     }
 
-    private void DisposeNativeBuffer()
+    protected override void DisposeNative()
     {
         var existingBuffer = Interlocked.Exchange(ref _nativeBuffer, null);
 
@@ -728,8 +726,6 @@ public class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriv
             Marshal.FreeCoTaskMem(existingBuffer.Pointer);
         }
     }
-
-    protected override void DisposeNative() => DisposeNativeBuffer();
 
     static int CalculateBufferSize(in ExposureSettings settings) => settings.BitDepth.BitSize() / 8 * settings.Width * settings.Height;
 

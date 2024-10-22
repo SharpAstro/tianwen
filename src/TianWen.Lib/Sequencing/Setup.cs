@@ -6,17 +6,11 @@ namespace TianWen.Lib.Sequencing;
 public record Setup(
     Mount Mount,
     Guider Guider,
-    GuiderFocuser GuiderFocuser,
-    IReadOnlyList<Telescope> Telescopes
+    GuiderSetup GuiderFocuser,
+    IReadOnlyList<OTA> Telescopes
 ) : IDisposable
 {
     private bool disposedValue;
-
-    public Setup(Mount mount, Guider guider, GuiderFocuser guiderFocuser, Telescope primary, params Telescope[] secondaries)
-        : this(mount, guider, guiderFocuser, [primary, .. secondaries])
-    {
-        // calls primary constructor
-    }
 
     protected virtual void Dispose(bool disposing)
     {

@@ -2,7 +2,7 @@
 
 namespace TianWen.Lib.Sequencing;
 
-public record Telescope(
+public record OTA(
     string Name,
     int FocalLength,
     Camera Camera,
@@ -34,7 +34,7 @@ public record Telescope(
     }
 
     // // TODO: override finalizer only if 'Dispose(bool disposing)' has code to free unmanaged resources
-    // ~Telescope()
+    // ~OTA()
     // {
     //     // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
     //     Dispose(disposing: false);

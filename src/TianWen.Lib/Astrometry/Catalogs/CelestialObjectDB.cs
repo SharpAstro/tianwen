@@ -68,7 +68,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// <inheritdoc/>
     public bool TryResolveCommonName(string name, out IReadOnlyList<CatalogIndex> matches) => _objectsByCommonName.TryGetLookupEntries(name, out matches);
 
-    private static readonly IReadOnlySet<Catalog> CrossCats = new HashSet<Catalog>() {
+    private static readonly ImmutableHashSet<Catalog> CrossCats = [
         Catalog.Barnard,
         Catalog.Caldwell,
         Catalog.Ced,
@@ -90,7 +90,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         Catalog.UGC,
         Catalog.vdB,
         Catalog.Tycho2
-    };
+    ];
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     private static bool IsCrossCat(Catalog cat) => CrossCats.Contains(cat);
@@ -709,7 +709,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
     }
 
-    private IReadOnlySet<T> GetOrRebuildIndex<T>(ref HashSet<T>? cacheVar, Func<HashSet<T>> rebuildFunc)
+    private HashSet<T> GetOrRebuildIndex<T>(ref HashSet<T>? cacheVar, Func<HashSet<T>> rebuildFunc)
     {
         if (cacheVar is { } cache && _isInitialized)
         {
@@ -760,7 +760,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             return index;
         }
 
-        return new HashSet<CatalogIndex>(0);
+        return [];
 
         HashSet<CatalogIndex> HIPIndex()
         {

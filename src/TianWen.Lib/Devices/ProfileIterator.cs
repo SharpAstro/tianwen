@@ -59,7 +59,7 @@ internal class ProfileIterator(IExternal external) : IDeviceSource<Profile>
         }
         else
         {
-            return new Profile(dto.ProfileId, dto.Name, dto.Values);
+            return new Profile(dto.ProfileId, dto.Name, dto.Data);
         }
 
         return null;

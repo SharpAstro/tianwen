@@ -1,32 +1,45 @@
-﻿using System.Collections.Generic;
+﻿using System.Collections;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
+using System.Threading;
 
 namespace TianWen.Lib.Devices;
 
-public class DeviceMap<TDevice>
+internal class DeviceMap<TDevice> : IDeviceManager<TDevice>
     where TDevice : DeviceBase
 {
-    private readonly Dictionary<string, TDevice> _deviceIdToDevice = [];
-    private readonly Dictionary<DeviceType, List<TDevice>> _devicesByType = [];
+    private readonly IDeviceSource<TDevice> _source;
+    private Dictionary<string, TDevice> _deviceMap = [];
 
     public DeviceMap(IDeviceSource<TDevice> source)
     {
-        var types = source.RegisteredDeviceTypes;
+        _source = source;
+        Refresh();
+    }
+
+    public void Refresh()
+    {
+        var types = _source.RegisteredDeviceTypes;
+
+        var deviceMap = new Dictionary<string, TDevice>();
 
         foreach (var type in types)
         {
-            var deviceList = _devicesByType.GetOrAdd(type, []);
-
-            foreach (var device in source.RegisteredDevices(type))
+            foreach (var device in _source.RegisteredDevices(type))
             {
-                _deviceIdToDevice.Add(device.DeviceId, device);
-
-                deviceList.Add(device);
+                deviceMap[device.DeviceId] = device;
             }
         }
+
+        Interlocked.Exchange(ref _deviceMap, deviceMap);
     }
 
-    public bool TryFindByDeviceId(string deviceId, [NotNullWhen(true)] out TDevice? device) => _deviceIdToDevice.TryGetValue(deviceId, out device);
+    public bool TryFindByDeviceId(string deviceId, [NotNullWhen(true)] out TDevice? device) => _deviceMap.TryGetValue(deviceId, out device);
 
-    public IReadOnlyCollection<TDevice> FindAllByType(DeviceType type) => _devicesByType.TryGetValue(type, out var list) ? list : [];
+    public IReadOnlyList<TDevice> FindAllByType(DeviceType type) => _deviceMap.Values.Where(device => device.DeviceType == type).ToList();
+
+    public IEnumerator<TDevice> GetEnumerator() => _deviceMap.Values.GetEnumerator();
+
+    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 }

@@ -1,9 +1,8 @@
-﻿using TianWen.Lib.Devices;
-using Shouldly;
+﻿using Shouldly;
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
+using TianWen.Lib.Devices;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -12,17 +11,17 @@ namespace TianWen.Lib.Tests;
 public class ProfileTests(ITestOutputHelper outputHelper)
 {
     [Theory]
-    [InlineData("00000000-0000-0000-0000-000000000000", "Empty profile", "profile://profile/00000000-0000-0000-0000-000000000000?values=e30#Empty profile")]
+    [InlineData("00000000-0000-0000-0000-000000000000", "Empty profile", "profile://profile/00000000-0000-0000-0000-000000000000?data=eyJNb3VudCI6Im5vbmU6Ly9Ob25lRGV2aWNlL05vbmUiLCJHdWlkZXIiOiJub25lOi8vTm9uZURldmljZS9Ob25lIiwiT1RBcyI6W10sIkd1aWRlckZvY3VzZXIiOm51bGwsIk9BR19PVEFfSW5kZXgiOm51bGx9#Empty profile")]
     public void GivenGuidAndProfileNameAProfileUriIsCreated(string guid, string name, string expectedUriStr)
     {
-        var actualUri = Profile.CreateProfileUri(new Guid(guid), name);
+        var actualUri = Profile.CreateProfileUri(new Guid(guid), name, ProfileData.Empty);
 
         actualUri.ToString().ShouldBe(expectedUriStr);
     }
 
     [Theory]
-    [InlineData("11111111-2222-3333-4444-555555555555", "Saved profile", "Key", "some:://value")]
-    public async Task GivenProfileWhenSavedAndLoadedThenItIsIdentical(string guid, string name, string key, string valueUriStr)
+    [InlineData("11111111-2222-3333-4444-555555555555", "Saved profile")]
+    public async Task GivenProfileWhenSavedAndLoadedThenItIsIdentical(string guid, string name)
     {
         // given
         var dir = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("D")));
@@ -31,7 +30,7 @@ public class ProfileTests(ITestOutputHelper outputHelper)
 
         try
         {
-            var profile = new Profile(new Guid(guid), name, new Dictionary<string, Uri> { [key] = new Uri(valueUriStr) });
+            var profile = new Profile(new Guid(guid), name, ProfileData.Empty);
 
             // when
             await profile.SaveAsync(external);
@@ -42,7 +41,7 @@ public class ProfileTests(ITestOutputHelper outputHelper)
             profileIterator.RegisteredDeviceTypes.ShouldBe([DeviceType.Profile]);
             profileIterator.IsSupported.ShouldBeTrue();
 
-            enumeratedProfiles.ShouldHaveSingleItem().ShouldBeEquivalentTo(profile);
+            enumeratedProfiles.ShouldHaveSingleItem().ShouldNotBeNull().DeviceUri.ShouldBe(profile.DeviceUri);
         }
         finally
         {

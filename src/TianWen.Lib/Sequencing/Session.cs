@@ -69,7 +69,7 @@ public record Session(
         }
         finally
         {
-            Finalise(cancellationToken);
+            Finalise();
         }
     }
 
@@ -219,7 +219,7 @@ public record Session(
         return false;
     }
 
-    internal void Finalise(CancellationToken cancellationToken)
+    internal void Finalise()
     {
         External.AppLogger.LogInformation("Executing session run finaliser: Stop guiding, stop tracking, disconnect guider, close covers, cool to ambient temp, turn off cooler, park scope.");
 
@@ -654,12 +654,12 @@ public record Session(
                     }
                     else
                     {
-                        External.AppLogger.LogError($"Failed to {(shouldOpen ? "open" : "close")} cover of telescope {(i + 1)}.");
+                        External.AppLogger.LogError("Failed to {FinalCoverState} cover of telescope {TelescopeNumber}.", shouldOpen ? "open" : "close", i + 1);
                     }
                 }
                 else if (!calibratorActionCompleted)
                 {
-                    External.AppLogger.LogError($"Failed to turn off calibrator of telescope {(i + 1)}, current state {cover.Driver.CalibratorState}");
+                    External.AppLogger.LogError("Failed to turn off calibrator of telescope {TelescopeNumber}, current state {CalibratorState}", i+1, cover.Driver.CalibratorState);
                 }
             }
             else

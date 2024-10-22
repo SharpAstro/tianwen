@@ -5,8 +5,10 @@ namespace TianWen.Lib;
 public static class Base64UrlSafe
 {
     /// <summary>
-    /// 62nd char of encoding + replaced with -
-    /// 63nd char of encoding / replaced with _
+    /// <list type="bullet">
+    /// <item>62nd char of encoding + replaced with <em>-</em></item>
+    /// <item>63nd char of encoding / replaced with <em>_</em></item>
+    /// </list>
     /// Removes padding
     /// </summary>
     /// <param name="bytes">input bytes</param>

@@ -10,7 +10,7 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
     /// <param name="deviceType"></param>
     /// <param name="deviceId">Fake device id (starting from 1)</param>
     public FakeDevice(DeviceType deviceType, int deviceId)
-        : this(new Uri($"{deviceType}://{typeof(FakeDevice).Name}/{deviceId}#Fake {deviceType.PascalCaseStringToName()} {deviceId}"))
+        : this(new Uri($"{deviceType}://{typeof(FakeDevice).Name}/{deviceType}{deviceId}#Fake {deviceType.PascalCaseStringToName()} {deviceId}"))
     {
         // calls primary constructor
     }

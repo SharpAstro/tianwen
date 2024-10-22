@@ -57,6 +57,7 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <PackageReference Include="System.IO.Ports" Version="8.0.0" />
     <PackageReference Include="WWA.Core" Version="1.2.0" />
     <PackageReference Include="ZWOptical.SDK" Version="2.0.411" />
   </ItemGroup>

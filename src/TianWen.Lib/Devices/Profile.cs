@@ -7,37 +7,35 @@ using static TianWen.Lib.Base64UrlSafe;
 
 namespace TianWen.Lib.Devices;
 
-using ValueDict = Dictionary<string, Uri>;
-using ValueDictRO = IReadOnlyDictionary<string, Uri>;
-
 /// <summary>
 /// Build-in profile device, see <see cref="DeviceType.Profile"/>.
 /// </summary>
 /// <param name="DeviceUri">profile descriptor</param>
 public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
 {
-    public Profile(Guid profileId, string name, ValueDictRO values) : this(CreateProfileUri(profileId, name, values))
+    private ProfileData? _data;
+
+    public Profile(Guid profileId, string name, ProfileData data) : this(CreateProfileUri(profileId, name, data))
     {
-        _valuesCache = values;
+        _data = data;
     }
 
-    public static Uri CreateProfileUri(Guid profileId, string name, ValueDictRO? values = null)
-        => new UriBuilder(nameof(Profile), nameof(Profile), -1, $"/{profileId:D}", $"?values={EncodeValues(values ?? new ValueDict())}#{name}").Uri;
+    const string DataKey = "data";
 
-    private ValueDictRO? _valuesCache;
-    public ValueDictRO Values
-        => _valuesCache ??= (
-            Query["values"] is string encodedValues && JsonSerializer.Deserialize<ValueDict>(Base64UrlDecode(encodedValues)) is { } dict
-                ? dict
-                : new ValueDict()
-        );
+    public static string DeviceIdFromUUID(Guid profileId) => profileId.ToString("D");
+
+
+    public static Uri CreateProfileUri(Guid profileId, string name, ProfileData data)
+        => new UriBuilder(nameof(Profile), nameof(Profile), -1, $"/{DeviceIdFromUUID(profileId)}", $"?{DataKey}={EncodeValues(data)}#{name}").Uri;
+
+    public ProfileData? Data
+        => _data ??= (Query[DataKey] is string encodedValues && JsonSerializer.Deserialize<ProfileData>(Base64UrlDecode(encodedValues)) is { } data ? data : null);
 
     private static readonly JsonSerializerOptions ValueSerializerOptions = new JsonSerializerOptions { WriteIndented = false };
 
     private static readonly JsonSerializerOptions ProfileSerializerOptions = new JsonSerializerOptions { WriteIndented = true };
 
-    static string EncodeValues(ValueDictRO values)
-        => Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(values, ValueSerializerOptions));
+    static string EncodeValues(object obj) => Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(obj, ValueSerializerOptions));
 
     const string ProfileExt = ".json";
 
@@ -56,9 +54,9 @@ public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
 
     public async Task SaveAsync(IExternal external)
     {
-        var file = new FileInfo(Path.Combine(external.ProfileFolder.FullName, ProfileId.ToString("D") + ProfileExt));
+        var file = new FileInfo(Path.Combine(external.ProfileFolder.FullName, DeviceIdFromUUID(ProfileId) + ProfileExt));
 
         using var stream = file.Open(file.Exists ? FileMode.Truncate : FileMode.CreateNew, FileAccess.Write, FileShare.None);
-        await JsonSerializer.SerializeAsync(stream, new ProfileDto(ProfileId, DisplayName, Values), ProfileSerializerOptions);
+        await JsonSerializer.SerializeAsync(stream, new ProfileDto(ProfileId, DisplayName, Data ?? ProfileData.Empty), ProfileSerializerOptions);
     }
 }
