@@ -69,7 +69,8 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
     {
         get
         {
-            if (TrySendAndReceive("GT"u8, out var response) && double.TryParse(response, CultureInfo.InvariantCulture, out var trackingHz))
+            SendAndReceive("GT"u8, out var response);
+            if (double.TryParse(response, CultureInfo.InvariantCulture, out var trackingHz))
             {
                 return trackingHz switch
                 {
@@ -78,8 +79,10 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
                     _ => TrackingSpeed.None
                 };
             }
-
-            return TrackingSpeed.None;
+            else
+            {
+                throw new InvalidOperationException($"Failed to convert GT response {_encoding.GetString(response)} to a tracking frequency");
+            }
         }
 
         set
@@ -88,14 +91,11 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
             {
                 TrackingSpeed.Sidereal or TrackingSpeed.Solar => "TQ"u8,
                 TrackingSpeed.Lunar => "TL"u8,
-                _ => throw new ArgumentException($"Tracking speed {value} is not yet supported!")
+                _ => throw new ArgumentException($"Tracking speed {value} is not yet supported!", nameof(value))
             };
 
-            if (!Connected || AtPark || !TrySend(speed))
-            {
-                throw new InvalidOperationException($"Failed to set tracking speed to {value}");
-            }
-        }        
+            Send(speed);
+        }
     }
 
     public IReadOnlyCollection<TrackingSpeed> TrackingSpeeds => [TrackingSpeed.Sidereal, TrackingSpeed.Lunar];
@@ -104,47 +104,67 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
 
     public bool Tracking
     {
-        get => TryGetAlignment(out _, out var tracking, out _) && tracking;
+        get
+        {
+            var (_, tracking, _) = AlignmentDetails;
+            return tracking;
+        }
+
         set
         {
-            if ((IsPulseGuiding || IsSlewing) && !TrySend(value ? "AP"u8 : "AL"u8))
+            if (IsPulseGuiding)
             {
-                throw new InvalidOperationException($"Failed to set tracking={value}");
+                throw new InvalidOperationException($"Cannot set tracking={value} while pulse guiding");
             }
+
+            if (IsSlewing)
+            {
+                throw new InvalidOperationException($"Cannot set tracking={value} while slewing");
+            }
+
+            Send(value ? "AP"u8 : "AL"u8);
         }
     }
 
-    public AlignmentMode? Alignment => TryGetAlignment(out var alignmentMode, out _, out _) ? alignmentMode : null;
-
-    private bool TryGetAlignment(out AlignmentMode mode, out bool tracking, out int alignmentStars)
+    public AlignmentMode Alignment
     {
-        if (TrySendAndReceive("GW"u8, out var gwBytes) && gwBytes is { Length: 3 })
+        get
         {
-            mode = gwBytes[0] switch
-            {
-                (byte)'A' => AlignmentMode.AltAz,
-                (byte)'P' => AlignmentMode.Polar,
-                (byte)'G' => AlignmentMode.GermanPolar,
-                var invalid => throw new InvalidOperationException($"Invalid alginment mode {invalid} returned")
-            };
-
-            tracking = gwBytes[1] == (byte)'T';
-
-            alignmentStars = gwBytes[2] switch
-            {
-                (byte)'1' => 1,
-                (byte)'2' => 2,
-                _ => 0
-            };
-
-            return true;
+            var (mode, _, _) = AlignmentDetails;
+            return mode;
         }
-        else
+    }
+
+    private (AlignmentMode Mode, bool Tracking, int AlignmentStars) AlignmentDetails
+    {
+        get
         {
-            mode = (AlignmentMode)(-1);
-            tracking = false;
-            alignmentStars = 0;
-            return false;
+            SendAndReceive("GW"u8, out var response);
+            if (response is { Length: 3 })
+            {
+                var mode = response[0] switch
+                {
+                    (byte)'A' => AlignmentMode.AltAz,
+                    (byte)'P' => AlignmentMode.Polar,
+                    (byte)'G' => AlignmentMode.GermanPolar,
+                    var invalid => throw new InvalidOperationException($"Invalid alginment mode {invalid} returned")
+                };
+
+                var tracking = response[1] == (byte)'T';
+
+                var alignmentStars = response[2] switch
+                {
+                    (byte)'1' => 1,
+                    (byte)'2' => 2,
+                    _ => 0
+                };
+
+                return (mode, tracking, alignmentStars);
+            }
+            else
+            {
+                throw new InvalidOperationException($"Failed to parse :GW# response {_encoding.GetString(response)}");
+            }
         }
     }
 
@@ -162,16 +182,31 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
     /// <summary>
     /// Uses :D# to check if mount is slewing (use this to update slewing state)
     /// </summary>
-    private bool IsSlewingFromMount => TrySendAndReceive("D"u8, out var response) && response is { Length: >= 1 } &&  response[0] is (byte)'|' or 0x7f;
+    private bool IsSlewingFromMount
+    {
+        get
+        {
+            Send("D"u8);
+
+            if (TryReadTerminated(out var response))
+            {
+                return response is { Length: >= 1 } && response[0] is (byte)'|' or 0x7f;
+            }
+            else
+            {
+                return false;
+            }
+        }
+    }
 
     public DateTime? UTCDate
     {
-        get => TryGetUtcCorrection(out var offset) && TryGetLocalDate(out var date) && TryGetLocalTime(out var time)
-                ? new DateTimeOffset(date.Add(time), offset).UtcDateTime
-                : null;
+        get => DateTime.SpecifyKind(LocalDate.Add(LocalTime).Add(UtcCorrection), DateTimeKind.Utc);
+
         set
         {
-            if (value is { Kind: DateTimeKind.Utc } utcDate && TryGetUtcCorrection(out var offset))
+            var offset = UtcCorrection;
+            if (value is { Kind: DateTimeKind.Utc } utcDate)
             {
                 Span<byte> buffer = stackalloc byte[2 + 8];
                 var adjustedDateTime = utcDate - offset;
@@ -183,9 +218,10 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
                     throw new InvalidOperationException($"Failed to convert {value} to HH:mm:ss");
                 }
 
-                if (!TrySendAndReceive(buffer, out var slResponse) && slResponse.SequenceEqual("1"u8))
+                SendAndReceive(buffer, out var slResponse);
+                if (slResponse.SequenceEqual("1"u8))
                 {
-                    throw new ArgumentException($"Failed to set date to {value}", nameof(value));
+                    throw new ArgumentException($"Failed to set date to {value}, command was {_encoding.GetString(buffer)} with response {_encoding.GetString(slResponse)}", nameof(value));
                 }
 
                 "SC"u8.CopyTo(buffer);
@@ -195,9 +231,10 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
                     throw new InvalidOperationException($"Failed to convert {value} to MM/dd/yy");
                 }
 
-                if (!TrySendAndReceive(buffer, out var scResponse) && scResponse.SequenceEqual("1"u8))
+                SendAndReceive(buffer, out var scResponse);
+                if (scResponse.SequenceEqual("1"u8))
                 {
-                    throw new ArgumentException($"Failed to set date to {value}", nameof(value));
+                    throw new ArgumentException($"Failed to set date to {value}, command was {_encoding.GetString(buffer)} with response {_encoding.GetString(scResponse)}", nameof(value));
                 }
 
                 //throwing away these two strings which represent
@@ -208,46 +245,52 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
         }
     }
 
-    private bool TryGetLocalDate(out DateTime date)
+    private DateTime LocalDate
     {
-        if (TrySendAndReceive("GC"u8, out var dateBytes)
-            && DateTime.TryParseExact(_encoding.GetString(dateBytes), "MM/dd/yy", CultureInfo.InvariantCulture, DateTimeStyles.None, out date)
-        )
+        get
         {
-            return true;
-        }
+            SendAndReceive("GC"u8, out var response);
 
-        date = DateTime.MinValue;
-        return false;
+            if (DateTime.TryParseExact(_encoding.GetString(response), "MM/dd/yy", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime date))
+            {
+                return date;
+            }
+
+            throw new InvalidOperationException($"Could not parse response {_encoding.GetString(response)} of GC (get local date)");
+        }
     }
 
-    private bool TryGetLocalTime(out TimeSpan time)
+    private TimeSpan LocalTime
     {
-        if (TrySendAndReceive("GL"u8, out var timeBytes)
-            && Utf8Parser.TryParse(timeBytes, out time, out _)
-        )
+        get
         {
-            return true;
-        }
+            SendAndReceive("GL"u8, out var response);
 
-        time = TimeSpan.Zero;
-        return false;
+            if (Utf8Parser.TryParse(response, out TimeSpan time, out _))
+            {
+                return time;
+            }
+
+            throw new InvalidOperationException($"Could not parse response {_encoding.GetString(response)} of GL (get local time)");
+        }
     }
 
-    private bool TryGetUtcCorrection(out TimeSpan offset)
+    private TimeSpan UtcCorrection
     {
-        // :GG# Get UTC offset time
-        // Returns: sHH# or sHH.H#
-        // The number of decimal hours to add to local time to convert it to UTC. If the number is a whole number the
-        // sHH# form is returned, otherwise the longer form is returned.
-        if (TrySendAndReceive("GG"u8, out var offsetStr) && double.TryParse(offsetStr, out var offsetHours))
+        get
         {
-            offset = TimeSpan.FromHours(offsetHours);
-            return true;
-        }
+            // :GG# Get UTC offset time
+            // Returns: sHH# or sHH.H#
+            // The number of decimal hours to add to local time to convert it to UTC. If the number is a whole number the
+            // sHH# form is returned, otherwise the longer form is returned.
+            SendAndReceive("GG"u8, out var response);
+            if (double.TryParse(response, out var offsetHours))
+            {
+                return TimeSpan.FromHours(offsetHours);
+            }
 
-        offset = TimeSpan.Zero;
-        return false;
+            throw new InvalidOperationException($"Could not parse response {_encoding.GetString(response)} of GG (get UTC offset)");
+        }
     }
 
     public bool TimeIsSetByUs { get; private set; }
@@ -309,25 +352,212 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
     {
         get
         {
-            if (TrySendAndReceive("GS"u8, out var timeStr) && Utf8Parser.TryParse(timeStr, out TimeSpan time, out _))
+            SendAndReceive("GS"u8, out var response);
+
+            if (Utf8Parser.TryParse(response, out TimeSpan time, out _))
             {
-                return time.TotalHours;
+                return time.ModuloHours(24).TotalHours;
             }
 
-            return double.NaN;
+            throw new InvalidOperationException($"Could not parse response {_encoding.GetString(response)} of GS (get sidereal time)");
         }
     }
 
-    public double RightAscension => TrySendAndReceive("GR"u8, out var raBytes) ? HmToHours(raBytes) : double.NaN;
+    public double RightAscension
+    {
+        get
+        {
+            var (ra, _) = GetRightAscensionWithPrecision(target: false);
+            return ra;
+        }
+    }
+
+    public double Declination
+    {
+        get
+        {
+            var (dec, _) = GetDeclinationWithPrecision(target: false);
+            return dec;
+        }
+    }
+
+    public double TargetRightAscension
+    {
+        get
+        {
+            var (ra, _) = GetRightAscensionWithPrecision(target: true);
+            return ra;
+        }
+
+        set
+        {
+            if (value >= 24)
+            {
+                throw new ArgumentException("Target right ascension cannot greater or equal 24h", nameof(value));
+            }
+
+            if (value < 0)
+            {
+                throw new ArgumentException("Target right ascension cannot be less than 0h", nameof(value));
+            }
+
+            // :SrHH:MM.T#   for low precision  (24h)
+            // :SrHH:MM:SS#  for high precision (24h)
+            var (ra, highPrecision) = GetRightAscensionWithPrecision(target: false);
+
+            // convert decimal hours to HH:MM.T (classic LX200 RA Notation) if low precision. T is the decimal part of minutes which is converted into seconds
+            var targetHms = TimeSpan.FromHours(Math.Abs(value)).Round(highPrecision ? TimeSpanRoundingType.Second : TimeSpanRoundingType.TenthMinute).ModuloHours(24);
+
+            const int offset = 2;
+            Span<byte> buffer = stackalloc byte[2 + 2 + 2 + 2 + (highPrecision ? 1 : 0)];
+            "Sr"u8.CopyTo(buffer);
+
+            if (targetHms.Hours.TryFormat(buffer[offset..], out int hoursWritten, "00", CultureInfo.InvariantCulture)
+                && offset + hoursWritten + 1 is int minOffset && minOffset < buffer.Length
+                && targetHms.Minutes.TryFormat(buffer[minOffset..], out int minutesWritten, "00", CultureInfo.InvariantCulture)
+            )
+            {
+                buffer[offset + hoursWritten] = (byte)':';
+            }
+            else
+            {
+                throw new ArgumentException($"Failed to convert value {value} to HM", nameof(value));
+            }
+
+            var secOffset = minOffset + minutesWritten + 1;
+            if (highPrecision)
+            {
+                buffer[secOffset - 1] = (byte)':';
+                if (!targetHms.Seconds.TryFormat(buffer[secOffset..], out _, "00", CultureInfo.InvariantCulture))
+                {
+                    throw new ArgumentException($"Failed to convert {value} to high precision seconds", nameof(value));
+                }
+            }
+            else
+            {
+                buffer[secOffset - 1] = (byte)'.';
+                if (!(targetHms.Seconds / 6).TryFormat(buffer[secOffset..], out _, "0", CultureInfo.InvariantCulture))
+                {
+                    throw new ArgumentException($"Failed to convert {value} to low precision tenth of minute", nameof(value));
+                }
+            }
+
+            SendAndReceive(buffer, out var response);
+
+            if (!response.SequenceEqual("1"u8))
+            {
+                throw new InvalidOperationException($"Failed to set target right ascension to {HoursToHMS(value)}, using command {_encoding.GetString(buffer)}, response={_encoding.GetString(response)}");
+            }
+
+#if TRACE
+            External.AppLogger.LogTrace("Set target right ascension to {TargetRightAscension}, current right ascension is {RightAscension}, high precision={HighPrecision}",
+                HoursToHMS(value), HoursToHMS(ra), highPrecision);
+#endif
+        }
+    }
+
+    public double TargetDeclination
+    {
+        get
+        {
+            var (dec, _) = GetDeclinationWithPrecision(target: true);
+            return dec;
+        }
+
+        set
+        {
+            if (value > 90)
+            {
+                throw new ArgumentException("Target declination cannot be greater than 90 degrees.", nameof(value));
+            }
+
+            if (value < -90)
+            {
+                throw new ArgumentException("Target declination cannot be lower than -90 degrees.", nameof(value));
+            }
+
+            // :SdsDD*MM#    for low precision
+            // :SdsDD*MM:SS# for high precision
+            var (dec, highPrecision) = GetDeclinationWithPrecision(target: false);
+
+            var sign = Math.Sign(value);
+            var offset = sign is -1 ? 1 : 0;
+            var degOffset = 2 + offset;
+            var minOffset = degOffset + 2 + 1;
+            var targetDms = TimeSpan.FromHours(Math.Abs(value)).Round(highPrecision ? TimeSpanRoundingType.Second : TimeSpanRoundingType.Minute).ModuloHours(90);
+
+            Span<byte> buffer = stackalloc byte[5 + (highPrecision ? 3 : 0) + offset];
+            "Sd"u8.CopyTo(buffer);
+
+            if (sign is -1)
+            {
+                buffer[degOffset - 1] = (byte)'-';
+            }
+
+            buffer[minOffset - 1] = (byte)'*';
+
+            if (targetDms.Hours.TryFormat(buffer[degOffset..], out _, "00", CultureInfo.InvariantCulture)
+                && targetDms.Minutes.TryFormat(buffer[minOffset..], out _, "00", CultureInfo.InvariantCulture)
+            )
+            {
+                if (highPrecision)
+                {
+                    var secOffset = minOffset + 2 + 1;
+                    buffer[secOffset - 1] = (byte)':';
+
+                    if (!targetDms.Seconds.TryFormat(buffer[secOffset..], out _, "00", CultureInfo.InvariantCulture))
+                    {
+                        throw new ArgumentException($"Failed to convert value {value} to DMS (high precision)", nameof(value));
+                    }
+                }
+            }
+            else
+            {
+                throw new ArgumentException($"Failed to convert value {value} to DM", nameof(value));
+            }
+
+            SendAndReceive(buffer, out var response);
+
+            if (!response.SequenceEqual("1"u8))
+            {
+                throw new InvalidOperationException($"Failed to set target declination to {DegreesToDMS(value)}, using command {_encoding.GetString(buffer)}, response={_encoding.GetString(response)}");
+            }
+
+#if TRACE
+            External.AppLogger.LogTrace("Set target declination to {TargetDeclination}, current declination is {Declination}, high precision={HighPrecision}",
+                DegreesToDMS(value), DegreesToDMS(dec), highPrecision);
+#endif
+        }
+    }
+
+    private (double RightAscension, bool HighPrecision) GetRightAscensionWithPrecision(bool target)
+    {
+        SendAndReceive(target ? "Gr"u8 : "GR"u8, out var response);
+        var ra = HmsOrHmTToHours(response, out var highPrecision) % 24;
+
+        return (ra, highPrecision);
+    }
+
+    private (double Declination, bool HighPrecision) GetDeclinationWithPrecision(bool target)
+    {
+        SendAndReceive(target ? "Gd"u8 : "GD"u8, out var response);
+        var dec = DMSToDegree(_encoding.GetString(response)) % 90;
+
+        return (dec, response.Length >= 7);
+    }
+
 
     /// <summary>
     /// convert a HH:MM.T (classic LX200 RA Notation) string to a double hours. T is the decimal part of minutes which is converted into seconds
     /// </summary>
-    private static double HmToHours(ReadOnlySpan<byte> hmValue)
+    private static double HmsOrHmTToHours(ReadOnlySpan<byte> hmValue, out bool highPrecision)
     {
         var hm = _encoding.GetString(hmValue);
         var token = hm.Split('.');
-        if (token.Length != 2)
+
+        // is high precision
+        highPrecision = token.Length != 2;
+        if (highPrecision)
         {
             return HMSToHours(hm);
         }
@@ -336,8 +566,6 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
         var hms = $"{token[0]}:{seconds}";
         return HMSToHours(hms);
     }
-
-    public double Declination => TrySendAndReceive("GD"u8, out var decBytes) ? DMSToDegree(_encoding.GetString(decBytes)) : double.NaN;
 
     public double RightAscensionRate { get => 0.0d; set => throw new InvalidOperationException("Setting right ascension rate is not supported"); }
 
@@ -367,93 +595,127 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
 
     public double SiteLatitude
     {
-        get => TryGetLatOrLong("Gt"u8, out var latitude) ? latitude : double.NaN;
+        get => GetLatOrLong("Gt"u8);
 
-        set => SetLatOrLong("latitude", "St"u8, value, "00", -1);
+        set
+        {
+            if (value > 90)
+            {
+                throw new ArgumentException("Site latitude cannot be greater than 90 degrees.", nameof(value));
+            }
+
+            if (value < -90)
+            {
+                throw new ArgumentException("Site latitude cannot be lower than -90 degrees.", nameof(value));
+            }
+
+            var abs = Math.Abs(value);
+            var dms = TimeSpan.FromHours(abs).Round(TimeSpanRoundingType.Minute).ModuloHours(90);
+
+            var needsSign = value < 0;
+            const int cmdLength = 2;
+            var offset = cmdLength + (needsSign ? 1 : 0);
+
+            Span<byte> buffer = stackalloc byte[offset + 1 + 2];
+            "St"u8.CopyTo(buffer);
+
+            if (needsSign)
+            {
+                buffer[cmdLength] = (byte)'-';
+            }
+
+            if (dms.Hours.TryFormat(buffer[offset..], out var degWritten, format: "00", provider: CultureInfo.InvariantCulture)
+                && dms.Minutes.TryFormat(buffer[(offset + degWritten + 1)..], out _, format: "00", provider: CultureInfo.InvariantCulture)
+            )
+            {
+                buffer[offset + degWritten] = (byte)'*';
+
+                SendAndReceive(buffer, out var response);
+
+                if (response.SequenceEqual("1"u8))
+                {
+                    External.AppLogger.LogInformation("Updated site latitude to {Degrees}", value);
+                }
+                else
+                {
+                    throw new InvalidOperationException($"Cannot update site latitude to {value} due to connectivity issue/command invalid: {_encoding.GetString(response)}");
+                }
+            }
+            else
+            {
+                throw new InvalidOperationException($"Cannot update site latitude to {value} due to formatting error");
+            }
+        }
     }
 
     public double SiteLongitude
     {
-        get => TryGetLatOrLong("Gg"u8, out var longitude) ? -longitude : double.NaN;
+        get => -1 * GetLatOrLong("Gg"u8);
 
-        set => SetLatOrLong("latitude", "Sg"u8, value, "000", +1);
+        set
+        {
+            if (value > 180)
+            {
+                throw new ArgumentException("Site longitude cannot be greater than 180 degrees.", nameof(value));
+            }
+
+            if (value < -180)
+            {
+                throw new ArgumentException("Site longitude cannot be lower than -180 degrees.", nameof(value));
+            }
+
+            var abs = Math.Abs(value);
+            var dms = TimeSpan.FromHours(abs).Round(TimeSpanRoundingType.Minute).ModuloHours(180);
+
+            var adjustedDegrees = value > 0 ? 360 - dms.Hours : dms.Hours;
+
+            const int offset = 2;
+            Span<byte> buffer = stackalloc byte[offset + 3 + 1 + 2];
+            "Sg"u8.CopyTo(buffer);
+
+            if (adjustedDegrees.TryFormat(buffer[offset..], out var degWritten, format: "000", provider: CultureInfo.InvariantCulture)
+                && dms.Minutes.TryFormat(buffer[(offset + degWritten + 1)..], out _, format: "00", provider: CultureInfo.InvariantCulture)
+            )
+            {
+                buffer[offset + degWritten] = (byte)'*';
+
+                SendAndReceive(buffer, out var response);
+
+                if (response.SequenceEqual("1"u8))
+                {
+                    External.AppLogger.LogInformation("Updated site longitude to {Degrees}", value);
+                }
+                else
+                {
+                    throw new InvalidOperationException($"Cannot update site longitude to {value} due to connectivity issue/command invalid: {_encoding.GetString(response)}");
+                }
+            }
+            else
+            {
+                throw new InvalidOperationException($"Cannot update site longitude to {value} due to formatting error");
+            }
+        }
     }
 
-    private bool TryGetLatOrLong(ReadOnlySpan<byte> command, out double latOrLong)
+    private double GetLatOrLong(ReadOnlySpan<byte> command)
     {
-        if (TrySendAndReceive(command, out var bytes) && bytes is { Length: >= 5 })
+        SendAndReceive(command, out var response);
+        if (response is { Length: >= 5 })
         {
-            var isNegative = bytes[0] is (byte)'-';
+            var isNegative = response[0] is (byte)'-';
             var offset = isNegative ? 1 : 0;
 
-            if (Utf8Parser.TryParse(bytes[offset..], out int degrees, out var consumed)
-                && Utf8Parser.TryParse(bytes[(offset+consumed+1)..], out int minutes, out _)
+            if (Utf8Parser.TryParse(response[offset..], out int degrees, out var consumed)
+                && Utf8Parser.TryParse(response[(offset+consumed+1)..], out int minutes, out _)
             )
             {
                 var latOrLongNotAdjusted = (isNegative ? -1 : 1) * (degrees + (minutes / 60d));
                 // adjust s.th. 214 from mount becomes -214 and then becomes 146
-                latOrLong = latOrLongNotAdjusted >= -180 ? latOrLongNotAdjusted : latOrLongNotAdjusted + 360;
-                return true;
+                return latOrLongNotAdjusted >= -180 ? latOrLongNotAdjusted : latOrLongNotAdjusted + 360;
             }
         }
 
-        latOrLong = double.NaN;
-        return false;
-    }
-
-    private void SetLatOrLong(string property, ReadOnlySpan<byte> command, double value, ReadOnlySpan<char> degreeFormat, int emitSignWhen)
-    {
-        var abs = Math.Abs(value);
-        var degrees = (int)Math.Truncate(abs);
-        var min = (int)Math.Round((abs - degrees) * 60);
-
-        if (min >= 60)
-        {
-            min -= 60;
-            degrees++;
-        }
-
-        Span<byte> buffer = stackalloc byte[8];
-        command.CopyTo(buffer);
-
-        int offset;
-        if (Math.Sign(value) == emitSignWhen)
-        {
-            offset = 3;
-            buffer[2] = (byte)'-';
-        }
-        else
-        {
-            offset = 2;
-        }
-
-        if (degrees.TryFormat(buffer[offset..], out var degWritten, format: degreeFormat, provider: CultureInfo.InvariantCulture)
-            && min.TryFormat(buffer[(offset + degWritten + 1)..], out _, format: "00", provider: CultureInfo.InvariantCulture)
-        )
-        {
-            buffer[offset + degWritten] = (byte)'*';
-
-            if (!Connected)
-            {
-                throw new InvalidOperationException("Mount is not connected");
-            }
-            else if (AtPark)
-            {
-                throw new InvalidOperationException("Mount is parked, so cannot update site location");
-            }
-            else if (TrySendAndReceive(buffer, out var response) && response.SequenceEqual("1"u8))
-            {
-                External.AppLogger.LogInformation("Updated site {Property} to {Degrees}", property, value);
-            }
-            else
-            {
-                throw new InvalidOperationException($"Cannot update site {property} to {value} due to connectivity issue/command invalid: {_encoding.GetString(response)}");
-            }
-        }
-        else
-        {
-            throw new InvalidOperationException($"Cannot update site {property} to {value} due to formatting error");
-        }
+        throw new InvalidOperationException($"Failed to parse response {_encoding.GetString(response)} of {_encoding.GetString(command)}");
     }
 
     public override string? DriverInfo => $"{_telescopeName} ({_telescopeFW})";
@@ -467,27 +729,24 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
             ? PierSide.East
             : PierSide.West;
 
-    public bool Park()
+    public void Park()
     {
-        if (TrySend("hP"u8))
-        {
-            var previousState = Interlocked.Exchange(ref _movingState, MOVING_STATE_SLEWING);
-#if TRACE
-            External.AppLogger.LogTrace("Parking mount, previous state: {PreviousMovingState}", MovingStateDisplayName(previousState));
-#endif
-            StartSlewTimer(MOVING_STATE_PARKED);
-            return true;
-        }
-        else
-        {
-            External.AppLogger.LogError("Failed to park mount, current state is {MovingState}", MovingStateDisplayName(_movingState));
+        Send("hP"u8);
 
-            return false;
-        }    
+        var previousState = Interlocked.Exchange(ref _movingState, MOVING_STATE_SLEWING);
+#if TRACE
+        External.AppLogger.LogTrace("Parking mount, previous state: {PreviousMovingState}", MovingStateDisplayName(previousState));
+#endif
+        StartSlewTimer(MOVING_STATE_PARKED);
     }
 
-    public bool PulseGuide(GuideDirection direction, TimeSpan duration)
+    public void PulseGuide(GuideDirection direction, TimeSpan duration)
     {
+        if (duration <= TimeSpan.Zero)
+        {
+            throw new ArgumentException("Timespan must be greater than 0", nameof(duration));
+        }
+
         Span<byte> buffer = stackalloc byte[7];
         "Mg"u8.CopyTo(buffer);
         buffer[2] = direction switch
@@ -498,10 +757,17 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
             GuideDirection.East => (byte)'e',
             _ => throw new ArgumentException($"Invalid guide direction {direction}", nameof(direction))
         };
-        var ms = Math.Round(duration.TotalMilliseconds);
- 
-        if (ms.TryFormat(buffer, out _, "0000", CultureInfo.InvariantCulture) && Tracking && TrySend(buffer))
+        var ms = (int)Math.Round(duration.TotalMilliseconds);
+
+        if (!Tracking)
         {
+            throw new InvalidOperationException("Cannot pulse guide when tracking is off");
+        }
+ 
+        if (ms.TryFormat(buffer, out _, "0000", CultureInfo.InvariantCulture))
+        {
+            Send(buffer);
+
             External.TimeProvider.CreateTimer(
                 _ => _ = Interlocked.CompareExchange(ref _movingState, MOVING_STATE_NORMAL, MOVING_STATE_PULSE_GUIDING),
                 null,
@@ -509,24 +775,63 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
                 Timeout.InfiniteTimeSpan
             );
         }
-
-        return false;
+        else
+        {
+            throw new ArgumentException($"Failed to create request for given duration={duration} message={_encoding.GetString(buffer)}", nameof(duration));
+        }
     }
 
-    public bool SlewRaDecAsync(double ra, double dec)
+    /// <summary>
+    /// Sets target coordinates to (<paramref name="ra"/>,<paramref name="dec"/>), using <see cref="EquatorialSystem"/>.
+    /// </summary>
+    /// <param name="ra"></param>
+    /// <param name="dec"></param>
+    /// <exception cref="InvalidOperationException"></exception>
+    public void SlewRaDecAsync(double ra, double dec)
     {
-        if (!IsPulseGuiding && !IsSlewing && !AtPark && TrySendAndReceive("INVALID"u8, out var response) && response is { Length: > 0 })
+        if (IsPulseGuiding)
+        {
+            throw new InvalidOperationException("Cannot slew while pulse-guiding");
+        }
+                
+        if (IsSlewing)
+        {
+            throw new InvalidOperationException("Cannot slew while a slew is still ongoing");
+        }
+                
+        if (AtPark)
+        {
+            throw new InvalidOperationException("Mount is parked");
+        }
+
+        TargetRightAscension = ra;
+        TargetDeclination = dec;
+
+        SendAndReceive("MS"u8, out var response);
+            
+        if (response.SequenceEqual("0"u8))
         {
             var previousState = Interlocked.Exchange(ref _movingState, MOVING_STATE_SLEWING);
 #if TRACE
-            External.AppLogger.LogTrace("Slewing to {RA}, {Dec}, previous state: {PreviousMovingState}", HoursToHMS(ra), DegreesToDMS(dec), MovingStateDisplayName(previousState));
+            External.AppLogger.LogTrace("Slewing to {RA},{Dec}, previous state: {PreviousMovingState}", HoursToHMS(ra), DegreesToDMS(dec), MovingStateDisplayName(previousState));
 #endif
             StartSlewTimer(MOVING_STATE_NORMAL);
-
-            return true;
         }
+        else if (response.Length > 0 && byte.TryParse(response[0..1], out var code))
+        {
+            var reason = code switch
+            {
+                1 => "below horizon limit",
+                2 => "above hight limit",
+                _ => $"unknown reason {code}"
+            };
 
-        return false;
+            throw new InvalidOperationException($"Failed to slew to {HoursToHMS(ra)},{DegreesToDMS(dec)} due to {reason} message={_encoding.GetString(response[1..])} response={_encoding.GetString(response)}");
+        }
+        else
+        {
+            throw new InvalidOperationException($"Failed to slew to {HoursToHMS(ra)},{DegreesToDMS(dec)} due to an unrecognized response: {_encoding.GetString(response)}");
+        }
     }
 
     private void StartSlewTimer(int finalState)
@@ -590,20 +895,18 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
     /// TODO: Verify :Q# stops pulse guiding as well
     /// </summary>
     /// <returns></returns>
-    public bool AbortSlew()
+    public void AbortSlew()
     {
-        if (IsPulseGuiding || !IsSlewing)
+        if (IsPulseGuiding)
         {
-            return false;
+            throw new InvalidOperationException("Cannot abort slewing while pulse guiding");
         }
 
-        if (TrySend("Q"u8))
+        if (IsSlewing)
         {
-            _ = Interlocked.CompareExchange(ref _movingState, MOVING_STATE_NORMAL, MOVING_STATE_SLEWING);
-            return true;
+            Send("Q"u8);
+            StartSlewTimer(MOVING_STATE_NORMAL);
         }
-
-        return false;
     }
 
     /// <summary>
@@ -612,36 +915,38 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
     /// <param name="ra"></param>
     /// <param name="dec"></param>
     /// <returns></returns>
-    public bool SyncRaDec(double ra, double dec) => SideOfPier == CalculateSideOfPier(ra) && TrySendAndReceive("CM"u8, out var response) && response is { Length: > 0 };
+    public void SyncRaDec(double ra, double dec)
+    {
+        var sideOfPier = SideOfPier;
+        if (sideOfPier is not PierSide.Unknown && sideOfPier != CalculateSideOfPier(ra))
+        {
+            throw new InvalidOperationException($"Cannot sync across meridian (current side of pier: {sideOfPier}) given {HoursToHMS(ra)},{DegreesToDMS(dec)}");
+        }
 
-    public bool Unpark() => throw new InvalidOperationException("Unparking is not supported");
+        SendAndReceive("CM"u8, out var response);
+        
+        if (response is not { Length: > 0 })
+        {
+            throw new InvalidOperationException($"Failed to sync {HoursToHMS(ra)},{DegreesToDMS(dec)}");
+        }
+    }
+
+    public void Unpark() => throw new InvalidOperationException("Unparking is not supported");
 
     protected override bool ConnectDevice(out int connectionId, out MountDeviceInfo connectedDeviceInfo)
     {
-        var deviceId = _device.DeviceId;
-        string port;
-        
-        if (deviceId.StartsWith("tty"))
-        {
-            port = $"/dev/{deviceId}";
-        }
-        else
-        {
-            port = deviceId;
-        }
-
         try
         {
             connectionId = CONNECTION_ID_EXCLUSIVE;
-            connectedDeviceInfo = new MountDeviceInfo(new StreamBasedSerialPort(port, 9600, External.AppLogger, _encoding));
+            connectedDeviceInfo = new MountDeviceInfo(External.OpenSerialDevice(_device.DeviceId, 9600, _encoding, TimeSpan.FromMicroseconds(500)));
 
             DeviceConnectedEvent += MeadeLX85Mount_DeviceConnectedEvent;
 
-            return connectedDeviceInfo.Port?.IsOpen is true;
+            return connectedDeviceInfo.SerialDevice?.IsOpen is true;
         }
         catch (Exception ex)
         {
-            External.AppLogger.LogError(ex, "Error {ErrorMessage} when connecting to mount on serial port {SerialPort}", ex.Message, port);
+            External.AppLogger.LogError(ex, "Error {ErrorMessage} when connecting to {DeviceId}", ex.Message, _device.DeviceId);
 
             connectedDeviceInfo = default;
             connectionId = CONNECTION_ID_UNKNOWN;
@@ -654,16 +959,38 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
     {
         if (e.Connected)
         {
-            if (TrySendAndReceive("GVP"u8, out var gvpBytes))
-            {
-                _telescopeName = _encoding.GetString(gvpBytes);
-            }
+            SendAndReceive("GVP"u8, out var gvpBytes);
+            _telescopeName = _encoding.GetString(gvpBytes);
 
-            if (TrySendAndReceive("GVN"u8, out var gvnBytes))
+            SendAndReceive("GVN"u8, out var gvnBytes);
+            _telescopeFW = _encoding.GetString(gvnBytes);
+
+            if (!TrySetHighPrecision())
             {
-                _telescopeFW = _encoding.GetString(gvnBytes);
+                External.AppLogger.LogWarning("Failed to set high precision via :U#");
             }
         }
+    }
+
+    private bool TrySetHighPrecision()
+    {
+        bool highPrecision;
+        int tries = 0;
+        do
+        {
+            (_, highPrecision) = GetRightAscensionWithPrecision(target: false);
+
+            if (highPrecision)
+            {
+                return true;
+            }
+            else
+            {
+                Send("U"u8);
+            }
+        } while (!highPrecision && ++tries < 3);
+
+        return false;
     }
 
     protected override bool DisconnectDevice(int connectionId)
@@ -672,11 +999,11 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
         {
             DeviceConnectedEvent -= MeadeLX85Mount_DeviceConnectedEvent;
 
-            if (_deviceInfo.Port is { IsOpen: true } port)
+            if (_deviceInfo.SerialDevice is { IsOpen: true } port)
             {
                 return port.TryClose();
             }
-            else if (_deviceInfo.Port is { })
+            else if (_deviceInfo.SerialDevice is { })
             {
                 return true;
             }
@@ -689,26 +1016,41 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
     }
 
     #region Serial I/O
-    private bool TrySend(ReadOnlySpan<byte> command)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void Send(ReadOnlySpan<byte> command)
     {
-        if (!Connected || (!CanUnpark && !CanSetPark && AtPark))
+        if (!Connected)
         {
-            return false;
+            throw new InvalidOperationException("Mount is not connected");
+        }
+                
+        if (!CanUnpark && !CanSetPark && AtPark)
+        {
+            throw new InvalidOperationException("Mount is parked, but it is not possible to unpark it");
+        }
+
+        if (_deviceInfo.SerialDevice is not { } port || !port.IsOpen)
+        {
+            throw new InvalidOperationException("Serial port is closed");
         }
 
         Span<byte> raw = stackalloc byte[command.Length + 2];
-
+        raw[0] = (byte)':';
         command.CopyTo(raw[1..]);
         raw[^1] = (byte)'#';
 
-        return _deviceInfo.Port?.TryWrite(raw) ?? false;
+        if (!port.TryWrite(raw))
+        {
+            throw new InvalidOperationException($"Failed to send raw message {_encoding.GetString(raw)}");
+        }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private bool TryReadTerminated(out ReadOnlySpan<byte> response)
     {
-        if (_deviceInfo.Port is { } port)
+        if (_deviceInfo.SerialDevice is { } port)
         {
-            return port.TryReadTerminated(out response, '#');
+            return port.TryReadTerminated(out response, "#\0"u8);
         }
 
         response = default;
@@ -717,29 +1059,26 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
 
     private bool TryReadExactly(int count, out ReadOnlySpan<byte> response)
     {
-        if (_deviceInfo.Port is { } port)
+        if (_deviceInfo.SerialDevice is { } port && port.TryReadExactly(count, out response))
         {
-            return port.TryReadExactly(count, out response);
+            return true;
         }
 
         response = default;
         return false;
     }
 
-    private bool TrySendAndReceive(ReadOnlySpan<byte> command, out ReadOnlySpan<byte> response)
+    private void SendAndReceive(ReadOnlySpan<byte> command, out ReadOnlySpan<byte> response)
     {
-        // TODO LX800 fixed this, account for that
-        if (TrySend(command) && (command.SequenceEqual("GW"u8) ? TryReadExactly(3, out response) : TryReadTerminated(out response)))
+        Send(command);
+
+        // TODO LX800 fixed GW response not being terminated, account for that
+        if (!(command.SequenceEqual("GW"u8) ? TryReadExactly(3, out response) : TryReadTerminated(out response)))
         {
-            return true;
-        }
-        else
-        {
-            response = null;
-            return false;
+            throw new InvalidOperationException($"Failed to get response for message {_encoding.GetString(command)}");
         }
     }
     #endregion
 }
 
-internal record struct MountDeviceInfo(StreamBasedSerialPort? Port);
+internal record struct MountDeviceInfo(ISerialDevice SerialDevice);

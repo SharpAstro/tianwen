@@ -200,7 +200,20 @@ public static class CoordinateUtils
         return $"{hoursInt:D2}:{minInt:D2}:{secInt:D2}{(hasMS ? $".{secFrac:D3}" : "")}";
     }
 
-    public static string DegreesToDMS(double degrees) => $"{(Math.Sign(degrees) >= 0 ? "+" : "-")}{HoursToHMS(Math.Abs(degrees))}";
+    /// <summary>
+    /// Hours to HH:MM.T (LX200 legacy format), where T is a tenth of a minute.
+    /// </summary>
+    /// <param name="hours">Hours in 24h format</param>
+    /// <returns>HH:MM.T formatted string</returns>
+    public static string HoursToHMT(double hours)
+    {
+        var span = TimeSpan.FromHours(Math.Abs(hours)).Round(TimeSpanRoundingType.TenthMinute).ModuloHours(24);
+
+        return $"{span.Hours:D2}:{span.Minutes:D2}.{span.Seconds / 6:0}";
+    }
+
+    public static string DegreesToDMS(double degrees, bool withPlus = true)
+        => $"{(Math.Sign(degrees) >= 0 ? (withPlus ? "+" : "") : "-")}{HoursToHMS(Math.Abs(degrees))}";
 
     public static double DMSToDegree(string dms)
     {

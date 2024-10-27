@@ -88,13 +88,11 @@ public record Session(
 
         External.AppLogger.LogInformation("Slew mount {MountDisplayName} near zenith to verify that we have rough focus.", mount.Device.DisplayName);
 
-        // coordinates not quite accurate but good enough for this purpose.
-        if (!mount.Driver.SlewToZenith(distMeridian, cancellationToken))
-        {
-            return false;
-        }
-
+        // coordinates not quite accurate at this point (we have not plate-solved yet) but good enough for this purpose.
+        mount.Driver.SlewToZenithAsync(distMeridian);
         var slewTime = MountUtcNow;
+
+        // TODO Wait
         
         if (!GuiderFocusLoop(TimeSpan.FromMinutes(1), cancellationToken))
         {
@@ -160,10 +158,10 @@ public record Session(
             // slew back to start position
             if (MountUtcNow - slewTime > distMeridian)
             {
-                if (!mount.Driver.SlewToZenith(distMeridian, cancellationToken))
-                {
-                    return false;
-                }
+                mount.Driver.SlewToZenithAsync(distMeridian);
+
+                // TODO wait!
+                
                 slewTime = MountUtcNow;
             }
 
@@ -245,7 +243,7 @@ public record Session(
 
         var guiderDisconnected = Catch(() => !(guider.Driver.Connected = false));
 
-        var parkInitiated = Catch(() => mount.Driver.CanPark && mount.Driver.Park());
+        bool parkInitiated = Catch(() => mount.Driver.CanPark) && Catch(mount.Driver.Park);
 
         var parkCompleted = parkInitiated && Catch(() =>
         {
@@ -325,7 +323,7 @@ public record Session(
         mount.Driver.Connected = true;
         guider.Driver.Connected = true;
 
-        if (mount.Driver.AtPark && (!mount.Driver.CanUnpark || !mount.Driver.Unpark()))
+        if (mount.Driver.AtPark && (!mount.Driver.CanUnpark || !Catch(mount.Driver.Unpark)))
         {
             External.AppLogger.LogError("Mount {MountDisplayName} is parked but cannot be unparked. Aborting.", mount.Device.DisplayName);
             return false;
@@ -391,15 +389,29 @@ public record Session(
             External.AppLogger.LogInformation("Stop guiding to start slewing mount to target {Observation}.", observation);
             guider.Driver.StopCapture(TimeSpan.FromSeconds(15));
 
-            var (postCondition, hourAngleAtSlewTime) = mount.Driver.SlewToTarget(Configuration.MinHeightAboveHorizon, observation.Target, cancellationToken);
-            if (postCondition is SlewPostCondition.SkipToNext)
+            double hourAngleAtSlewTime;
+            try
             {
+                (var postCondition, hourAngleAtSlewTime) = mount.Driver.SlewToTargetAsync(Configuration.MinHeightAboveHorizon, observation.Target);
+                if (postCondition is SlewPostCondition.SkipToNext)
+                {
+                    _ = AdvanceObservation();
+                    continue;
+                }
+                else if (postCondition is SlewPostCondition.Slewing)
+                {
+                    // TODO wait for finish
+                }
+                else
+                {
+                    throw new InvalidOperationException($"Unknown post condition {postCondition} after slewing to target {observation.Target}");
+                }
+            }
+            catch (Exception ex)
+            {
+                External.AppLogger.LogError(ex, "Error {ErrorMessage} while slewing to {Observation}, advance to next target", ex.Message, observation);
                 _ = AdvanceObservation();
                 continue;
-            }
-            else if (postCondition is SlewPostCondition.Cancelled or SlewPostCondition.Abort)
-            {
-                break;
             }
 
             var guidingSuccess = guider.Driver.StartGuidingLoop(Configuration.GuidingTries, External, cancellationToken);
@@ -773,6 +785,9 @@ public record Session(
         External.AppLogger.LogInformation("Writing FITS file {FitsFilePath}", Path.Combine(frameFolder, fitsFileName));
         image.WriteToFitsFile(Path.Combine(frameFolder, fitsFileName));
     }
+
+
+    internal bool Catch(Action action) => External.Catch(action);
 
     internal T Catch<T>(Func<T> func, T @default = default) where T : struct => External.Catch(func, @default);
 

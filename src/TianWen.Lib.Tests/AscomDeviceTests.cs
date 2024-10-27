@@ -1,11 +1,11 @@
-using TianWen.Lib.Devices;
-using TianWen.Lib.Devices.Ascom;
 using Shouldly;
 using System;
 using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
+using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Ascom;
 using Xunit;
 using Xunit.Abstractions;
 
