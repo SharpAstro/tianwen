@@ -2,6 +2,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text;
 
 namespace TianWen.Lib.Devices;
 
@@ -28,8 +29,29 @@ public interface IExternal
     }
 
     /// <summary>
+    /// Uses <see langword="try"/> <see langword="catch"/> to safely execute <paramref name="action"/>.
+    /// Returns <see langword="true"/> on success and  <see langword="false"/> failure, and logs errors using <see cref="AppLogger"/>.
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <param name="action"></param>
+    /// <returns>true if success</returns>
+    public bool Catch(Action action)
+    {
+        try
+        {
+            action();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppLogger.LogError(ex, "Exception {Message} while executing: {Method}", ex.Message, action.Method.Name);
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Uses <see langword="try"/> <see langword="catch"/> to safely execute <paramref name="func"/>.
-    /// Returns result or <paramref name="default"/> on failure, and logs result using <see cref="LogException(Exception, string)"/>.
+    /// Returns result or <paramref name="default"/> on failure, and logs errors using <see cref="AppLogger"/>.
     /// </summary>
     /// <typeparam name="T"></typeparam>
     /// <param name="func"></param>
@@ -101,4 +123,6 @@ public interface IExternal
         char[] invalids = Path.GetInvalidFileNameChars();
         return new string(name.Select(c => invalids.Contains(c) ? ReplacementChar : c).ToArray());
     }
+
+    ISerialDevice OpenSerialDevice(string address, int baud, Encoding encoding, TimeSpan? ioTimeout = null);
 }

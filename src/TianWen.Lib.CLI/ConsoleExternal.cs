@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.Logging;
+using System.Text;
 using TianWen.Lib.Devices;
 
 class ConsoleExternal(ILoggerFactory loggerFactory) : IExternal
@@ -16,6 +17,9 @@ class ConsoleExternal(ILoggerFactory loggerFactory) : IExternal
         ).CreateSubdirectory(IExternal.ApplicationName);
 
     public ILogger AppLogger => loggerFactory.CreateLogger<ConsoleExternal>();
+
+    public ISerialDevice OpenSerialDevice(string address, int baud, Encoding encoding, TimeSpan? ioTimeout = null)
+        => new StreamBasedSerialPort(address, baud, AppLogger, encoding, ioTimeout);
 
     public void Sleep(TimeSpan duration) => Thread.Sleep(duration);
 }

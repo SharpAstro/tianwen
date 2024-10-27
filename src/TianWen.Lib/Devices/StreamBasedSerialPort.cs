@@ -3,11 +3,12 @@ using System;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.IO.Ports;
+using System.Linq;
 using System.Text;
 
 namespace TianWen.Lib.Devices;
 
-public sealed class StreamBasedSerialPort : IDisposable
+public sealed class StreamBasedSerialPort : ISerialDevice
 {
     private readonly SerialPort _port;
     private readonly Stream _stream;
@@ -15,7 +16,8 @@ public sealed class StreamBasedSerialPort : IDisposable
 
     public StreamBasedSerialPort(string portName, int baud, ILogger logger, Encoding encoding, TimeSpan? ioTimeout = null)
     {
-        _port = new SerialPort(portName, baud);
+        var address = portName.StartsWith("tty") ? $"/dev/{portName}" : portName;
+        _port = new SerialPort(address, baud);
         _port.Open();
 
         var timeoutMs = (int)(ioTimeout ?? TimeSpan.FromMicroseconds(500)).TotalMilliseconds;
@@ -67,7 +69,7 @@ public sealed class StreamBasedSerialPort : IDisposable
         return true;
     }
 
-    public bool TryReadTerminated([NotNullWhen(true)] out ReadOnlySpan<byte> message, char terminator)
+    public bool TryReadTerminated([NotNullWhen(true)] out ReadOnlySpan<byte> message, ReadOnlySpan<byte> terminators)
     {
         Span<byte> buffer = stackalloc byte[100];
         try
@@ -78,11 +80,11 @@ public sealed class StreamBasedSerialPort : IDisposable
             {
                 bytesReadLast = _stream.ReadAtLeast(buffer[bytesRead..], 1, true);
                 bytesRead += bytesReadLast;
-            } while (buffer[bytesRead - bytesReadLast] != terminator);
+            } while (!terminators.Contains(buffer[bytesRead - bytesReadLast]));
 
-            message = buffer[0..(bytesRead - bytesReadLast -1)].ToArray();
+            message = buffer[0..(bytesRead - bytesReadLast - 1)].ToArray();
 #if DEBUG
-            _logger.LogDebug("<-- (terminated {Terminator}): {Response}", terminator, Encoding.GetString(message));
+            _logger.LogDebug("<-- (terminated by any of {Terminators}): {Response}", Encoding.GetString(terminators), Encoding.GetString(message));
 #endif
             return true;
         }

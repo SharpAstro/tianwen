@@ -43,14 +43,13 @@ internal abstract class DeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, I
     internal const int CONNECTION_ID_EXCLUSIVE = -100;
     internal const int CONNECTION_ID_UNKNOWN   = -200;
 
-    const int STATE_UNKNOWN = 0;
     const int CONNECTED = 1;
     const int CONNECTING = 2;
     const int DISCONNECTING = 9;
     const int DISCONNECTED = 10;
     const int CONNECTION_FAILURE = 99;
 
-    private int _connectionState = STATE_UNKNOWN;
+    private int _connectionState = DISCONNECTED;
 
     public bool Connected
     {

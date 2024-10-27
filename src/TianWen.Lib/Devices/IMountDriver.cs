@@ -2,10 +2,8 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using System.Threading;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.SOFA;
-using static System.Runtime.InteropServices.JavaScript.JSType;
 using static TianWen.Lib.Astrometry.CoordinateUtils;
 
 namespace TianWen.Lib.Devices;
@@ -42,7 +40,7 @@ public interface IMountDriver : IDeviceDriver
 
     EquatorialCoordinateType EquatorialSystem { get; }
 
-    AlignmentMode? Alignment { get; }
+    AlignmentMode Alignment { get; }
 
     bool Tracking { get; set; }
 
@@ -50,12 +48,25 @@ public interface IMountDriver : IDeviceDriver
 
     bool AtPark { get; }
 
-    // returns true if park command was accepted
-    bool Park();
+    /// <summary>
+    /// Async parking of the mount, will cause <see cref="IsSlewing"/> to be  <see langword="true"/>.
+    /// </summary>
+    void Park();
 
-    bool Unpark();
+    /// <summary>
+    /// Async unparking of the mount, will cause <see cref="IsSlewing"/> to be  <see langword="true"/>.
+    /// Will throw an exception if <see cref="CanUnpark"/> is <see langword="false"/>.
+    /// </summary>
+    void Unpark();
 
-    bool PulseGuide(GuideDirection direction, TimeSpan duration);
+    /// <summary>
+    /// Moves the mount in the specified angular direction for the specified time (<paramref name="duration"/>).
+    /// The directions are in the Equatorial coordinate system only, regardless of the mount’s <see cref="Alignment"/>. The distance moved depends on the <see cref="GuideRateDeclination"/> and <see cref="GuideRateRightAscension"/>,
+    /// as well as <paramref name="duration"/>.
+    /// </summary>
+    /// <param name="direction">equatorial direction</param>
+    /// <param name="duration">Duration (will be rounded to nearest millisecond internally)</param>
+    void PulseGuide(GuideDirection direction, TimeSpan duration);
 
     /// <summary>
     /// True if slewing as a result of <see cref="SlewRaDecAsync"/> or <see cref="SlewHourAngleDecAsync"/>.
@@ -102,16 +113,14 @@ public interface IMountDriver : IDeviceDriver
     /// <summary>
     /// Stops all movement due to slew (might revert to previous tracking mode).
     /// </summary>
-    /// <returns>True if not slewing or current slew was aborted</returns>
-    bool AbortSlew();
+    void AbortSlew();
 
     /// <summary>
     /// Slews to given equatorial coordinates (RA, Dec) in the mounts native epoch, <see cref="EquatorialSystem"/>.
     /// </summary>
     /// <param name="ra">RA in hours (0..24)</param>
     /// <param name="dec">Declination in degrees (-90..90)</param>
-    /// <returns>True if slewing operation was accepted and mount is slewing</returns>
-    bool SlewRaDecAsync(double ra, double dec);
+    void SlewRaDecAsync(double ra, double dec);
 
     /// <summary>
     /// Slews to given equatorial coordinates (HA, Dec) in the mounts native epoch, <see cref="EquatorialSystem"/>.
@@ -121,11 +130,25 @@ public interface IMountDriver : IDeviceDriver
     /// <param name="ha">HA in hours (-12..12), as returned by <see cref="HourAngle"/></param>
     /// <param name="dec">Declination in degrees (-90..90)</param>
     /// <returns>True if slewing operation was accepted and mount is slewing</returns>
-    bool SlewHourAngleDecAsync(double ha, double dec)
-        => Connected
-        && !double.IsNaN(SiderealTime)
-        && ha is >= -12 and <= 12
-        && SlewRaDecAsync(ConditionRA(SiderealTime - ha - 12), dec);
+    void SlewHourAngleDecAsync(double ha, double dec)
+    {
+        if (!Connected)
+        {
+            throw new InvalidOperationException("Device is not connected");
+        }
+
+        if (double.IsNaN(ha) || ha is < -12 or > 12)
+        {
+            throw new ArgumentException("Hour angle must be in [-12..12]", nameof(ha));
+        }
+
+        if (double.IsNaN(dec) || dec is < -90 or > 90)
+        {
+            throw new ArgumentException("Hour angle must be in [-90..90]", nameof(dec));
+        }
+
+        SlewRaDecAsync(ConditionRA(SiderealTime - ha - 12), dec);
+    }
 
     /// <summary>
     /// Syncs to given equatorial coordinates (RA, Dec) in the mounts native epoch, <see cref="EquatorialSystem"/>.
@@ -133,8 +156,7 @@ public interface IMountDriver : IDeviceDriver
     /// </summary>
     /// <param name="ra">RA in hours (0..24)</param>
     /// <param name="dec">Declination in degrees (-90..90)</param>
-    /// <returns>true if mount is synced to the given coordinates.</returns>
-    bool SyncRaDec(double ra, double dec);
+    void SyncRaDec(double ra, double dec);
 
     /// <summary>
     /// Calls <see cref="SyncRaDec(double, double)"/> by first transforming J2000 coordinates to native ones using <see cref="TryTransformJ2000ToMountNative"/>.
@@ -142,11 +164,32 @@ public interface IMountDriver : IDeviceDriver
     /// <param name="ra">RA in hours (0..24)</param>
     /// <param name="dec">Declination in degrees (-90..90)</param>
     /// <returns>true if mount is synced to the given coordinates.</returns>
-    bool SyncRaDecJ2000(double ra, double dec, TimeProvider? timeProvider = null)
-        => Connected && CanSync
-        && TryGetTransform(timeProvider ?? TimeProvider.System, out var transform)
-        && TryTransformJ2000ToMountNative(transform, ra, dec, updateTime: false, out var raMount, out var decMount, out _, out _)
-        && SyncRaDec(raMount, decMount);
+    void SyncRaDecJ2000(double ra, double dec)
+    {
+        if (!Connected)
+        {
+            throw new InvalidOperationException("Device is not connected");
+        }
+
+        if (!CanSync)
+        {
+            throw new InvalidOperationException("Device does not support syncing");
+        }
+
+        if (!TryGetTransform(out var transform))
+        {
+            throw new InvalidOperationException("Failed intialize coordinate transform function");
+        }
+
+        if (TryTransformJ2000ToMountNative(transform, ra, dec, updateTime: false, out var raMount, out var decMount, out _, out _))
+        {
+            SyncRaDec(raMount, decMount);
+        }
+        else
+        {
+            throw new InvalidOperationException($"Failed to transform {HoursToHMS(ra)}, {DegreesToDMS(dec)} to device native coordinate system");
+        }
+    }
 
     /// <summary>
     /// The UTC date/time of the telescope's internal clock.
@@ -238,11 +281,11 @@ public interface IMountDriver : IDeviceDriver
     /// </summary>
     /// <param name="transform"></param>
     /// <returns></returns>
-    bool TryGetTransform(TimeProvider timeProvider, [NotNullWhen(true)] out Transform? transform)
+    bool TryGetTransform([NotNullWhen(true)] out Transform? transform)
     {
         if (Connected && TryGetUTCDate(out var utc))
         {
-            transform = new Transform(timeProvider)
+            transform = new Transform(External.TimeProvider)
             {
                 SiteElevation = SiteElevation,
                 SiteLatitude = SiteLatitude,
@@ -308,32 +351,31 @@ public interface IMountDriver : IDeviceDriver
             && (pierSide != PierSide.Unknown || Math.Sign(hourAngleAtSlewTime) == Math.Sign(currentHourAngle));
     }
 
-    public bool SlewToZenith(TimeSpan distMeridian, CancellationToken cancellationToken)
+    public void SlewToZenithAsync(TimeSpan distMeridian)
     {
-        if (CanSlew && SlewHourAngleDecAsync((TimeSpan.FromHours(12) - distMeridian).TotalHours, SiteLatitude))
+        if (!Connected)
         {
-            while (IsSlewing && !cancellationToken.IsCancellationRequested)
-            {
-                External.Sleep(TimeSpan.FromSeconds(1));
-            }
-
-            return !cancellationToken.IsCancellationRequested;
+            throw new InvalidOperationException("Device is not connected");
         }
 
-        return false;
+        if (!CanSlew)
+        {
+            throw new InvalidOperationException("Device does not support slewing");
+        }
+
+        SlewHourAngleDecAsync((TimeSpan.FromHours(12) - distMeridian).TotalHours, SiteLatitude);
     }
 
-    public SlewResult SlewToTarget(int minAboveHorizon, Target target, CancellationToken cancellationToken)
+    public SlewResult SlewToTargetAsync(int minAboveHorizon, Target target)
     {
         var az = double.NaN;
         var alt = double.NaN;
         var dsop = PierSide.Unknown;
-        if (!TryGetTransform(External.TimeProvider, out var transform)
+        if (!TryGetTransform(out var transform)
             || !TryTransformJ2000ToMountNative(transform, target.RA, target.Dec, updateTime: false, out var raMount, out var decMount, out az, out alt)
             || double.IsNaN(alt)
             || alt < minAboveHorizon
             || (dsop = DestinationSideOfPier(raMount, decMount)) == PierSide.Unknown
-            || !SlewRaDecAsync(raMount, decMount)
         )
         {
             External.AppLogger.LogError("Failed to slew {MountName} to target {TargetName} az={AZ:0.00} alt={Alt:0.00} dsop={DestinationSoP}, skipping.",
@@ -341,50 +383,17 @@ public interface IMountDriver : IDeviceDriver
             return new SlewResult(SlewPostCondition.SkipToNext, double.NaN);
         }
 
-        int failsafeCounter = 0;
+        var hourAngle = HourAngle;
+        SlewRaDecAsync(raMount, decMount);
 
-        while (IsSlewing && failsafeCounter++ < MAX_FAILSAFE && !cancellationToken.IsCancellationRequested)
-        {
-            External.Sleep(TimeSpan.FromSeconds(1));
-        }
-
-        if (cancellationToken.IsCancellationRequested)
-        {
-            External.AppLogger.LogWarning("Cancellation requested, abort slewing {MountName} to target {TargetName} and quit imaging loop.", Name, target.Name);
-            return new SlewResult(SlewPostCondition.Cancelled, double.NaN);
-        }
-
-        if (IsSlewing || failsafeCounter >= MAX_FAILSAFE)
-        {
-            throw new InvalidOperationException($"Failsafe activated when slewing {Name} to {target.Name}.");
-        }
-
-        var actualSop = SideOfPier;
-        if (actualSop != dsop)
-        {
-            External.AppLogger.LogError("Slewing {MountName} to {TargetName} completed but actual side of pier {ActualSoP} is different from the expected one {DestinationSoP}, skipping.",
-                Name, target.Name, actualSop, dsop);
-            return new SlewResult(SlewPostCondition.SkipToNext, double.NaN);
-        }
-
-        double hourAngleAtSlewTime;
-        if (double.IsNaN(hourAngleAtSlewTime = HourAngle))
-        {
-            External.AppLogger.LogError("Could not obtain hour angle after slewing {MountName} to {TargetName}, skipping.", Name, target.Name);
-            return new SlewResult(SlewPostCondition.SkipToNext, double.NaN);
-        }
-
-        External.AppLogger.LogInformation("Finished slewing mount {MountName} to target {TargetName}.", Name, target.Name);
-
-        return new SlewResult(SlewPostCondition.Success, hourAngleAtSlewTime);
+        return new SlewResult(SlewPostCondition.Slewing, hourAngle);
     }
 }
+
 public enum SlewPostCondition
 {
-    Success = 0,
     SkipToNext = 1,
-    Abort = 2,
-    Cancelled = 3
+    Slewing = 2
 }
 
 public record struct SlewResult(SlewPostCondition PostCondition, double HourAngleAtSlewTime);
