@@ -35,11 +35,6 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
     private int _movingState = MOVING_STATE_NORMAL;
     private string _telescopeName = "Unknown";
     private string _telescopeFW = "Unknown";
-    /* TODO: Disable moveaxis for now
-    private int _primaryAxisMovingDirectlyRate = 0;
-    private int _secondaryAxisMovingDirectlyRate = 0;
-    private bool _trackingStatePriorMovingAxis;
-    */
 
     public bool CanSetTracking => true;
 
@@ -76,69 +71,6 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
     {
         throw new InvalidOperationException("Moving axis directly is not supported");
     }
-
-    /*
-    public bool CanMoveAxis(TelescopeAxis axis) => axis is TelescopeAxis.Primary or TelescopeAxis.Seconary;
-
-    public IReadOnlyList<AxisRate> AxisRates(TelescopeAxis axis) => axis switch
-    {
-        TelescopeAxis.Primary  => [0.004, 0.008, 3, 6.5],
-        TelescopeAxis.Seconary => [0.004, 0.008, 3, 6.5],
-        TelescopeAxis.Tertiary => [],
-        _ => throw new ArgumentException($"Invalid axis {axis}", nameof(axis))
-    };
-
-    public void MoveAxisDisabled(TelescopeAxis axis, double rate)
-    {
-        if (axis is not TelescopeAxis.Primary and not TelescopeAxis.Seconary)
-        {
-            throw new ArgumentException($"Invalid axis {axis}", nameof(axis));
-        }
-
-        var rates = AxisRates(axis);
-        int rateIdx = -1;
-        var absRate = Math.Abs(rate);
-        for (var i = 0; i < rates.Count; i++)
-        {
-            var (min, max) = rates[i];
-            if (absRate >= min && absRate <= max)
-            {
-                rateIdx = i;
-                break;
-            }
-        }
-
-        if (rateIdx < 0)
-        {
-            throw new ArgumentException($"Invalid rate {rate} for axis {axis}", nameof(rate));
-        }
-
-        if (AtPark)
-        {
-            throw new InvalidOperationException("Mount is parked");
-        }
-
-        var currentPrimaryAxisRate = Interlocked.CompareExchange(ref _primaryAxisMovingDirectlyRate, 0, 0);
-        var currentSecondaryAxisRate = Interlocked.CompareExchange(ref _secondaryAxisMovingDirectlyRate, 0, 0);
-        
-        if (IsSlewing && currentPrimaryAxisRate is 0 && currentSecondaryAxisRate is 0)
-        {
-            throw new InvalidOperationException("Telescope is slewing, cannot directly control axis. Stop slewing first");
-        }
-
-        var previousState = Interlocked.Exchange(ref _movingState, MOVING_STATE_SLEWING);
-        // ensure tracking state is only updated once
-        if (previousState != MOVING_STATE_SLEWING)
-        {
-            MoveAxis _trackingStatePriorMovingAxis = Tracking;
-        }
-#if TRACE
-        External.AppLogger.LogTrace("Moving {Axis} at {0.00} degrees/s, previous state: {PreviousMovingState}, was tracking {PreviousTrackingState}",
-            axis, rate, MovingStateDisplayName(previousState), _trackingStatePriorMovingAxis);
-#endif
-        StartSlewTimer(MOVING_STATE_NORMAL);
-    }
-    */
 
     public TrackingSpeed TrackingSpeed
     {
