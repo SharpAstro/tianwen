@@ -349,4 +349,19 @@ public class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
             throw new InvalidOperationException($"Failed to execute {nameof(AbortSlew)} connected={Connected} initialized={_comObject is not null}");
         }
     }
+
+    public bool CanMoveAxis(TelescopeAxis axis)
+    {
+        throw new NotImplementedException();
+    }
+
+    public IReadOnlyList<AxisRate> AxisRates(TelescopeAxis axis)
+    {
+        throw new NotImplementedException();
+    }
+
+    public void MoveAxis(TelescopeAxis axis, double rate)
+    {
+        throw new NotImplementedException();
+    }
 }

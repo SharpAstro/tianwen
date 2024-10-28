@@ -22,7 +22,7 @@ namespace TianWen.Lib.Astrometry.SOFA
     /// </remarks>
     public sealed class Transform
     {
-        private readonly TimeProvider _timeProvider;
+        public TimeProvider TimeProvider { get; }
         private double _RAJ2000Value, _RATopoValue, _DECJ2000Value, _DECTopoValue;
         private double _SiteElevValue, _SiteLatValue, _SiteLongValue;
         private TimeSpan? _SiteTimeZoneValue;
@@ -62,7 +62,7 @@ namespace TianWen.Lib.Astrometry.SOFA
             _jdUTCValue1 = 0d;
             _jdUTCValue2 = 0d;
             LastSetBy = SetBy.Never;
-            _timeProvider = timeProvider;
+            TimeProvider = timeProvider;
         }
 
         #region EventTimes Astroutils implemtation
@@ -932,7 +932,7 @@ namespace TianWen.Lib.Astrometry.SOFA
         {
             if (_jdUTCValue1 == 0.0d && _jdTTValue1 == 0.0d) // No specific TT date / time has been set so use the current date / time
             {
-                DateTime = _timeProvider.GetUtcNow().UtcDateTime;
+                DateTime = TimeProvider.GetUtcNow().UtcDateTime;
             }
         }
 

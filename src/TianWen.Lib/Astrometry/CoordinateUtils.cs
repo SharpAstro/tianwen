@@ -173,7 +173,7 @@ public static class CoordinateUtils
         }
     }
 
-    public static string HoursToHMS(double hours)
+    public static string HoursToHMS(double hours, char hourSeparator = ':')
     {
         var hoursInt = (int)Math.Floor(hours);
         var min = (hours - hoursInt) * 60d;
@@ -197,7 +197,7 @@ public static class CoordinateUtils
             hoursInt += 1;
         }
         var hasMS = secFrac > 0;
-        return $"{hoursInt:D2}:{minInt:D2}:{secInt:D2}{(hasMS ? $".{secFrac:D3}" : "")}";
+        return $"{hoursInt:D2}{hourSeparator}{minInt:D2}:{secInt:D2}{(hasMS ? $".{secFrac:D3}" : "")}";
     }
 
     /// <summary>
@@ -212,8 +212,8 @@ public static class CoordinateUtils
         return $"{span.Hours:D2}:{span.Minutes:D2}.{span.Seconds / 6:0}";
     }
 
-    public static string DegreesToDMS(double degrees, bool withPlus = true)
-        => $"{(Math.Sign(degrees) >= 0 ? (withPlus ? "+" : "") : "-")}{HoursToHMS(Math.Abs(degrees))}";
+    public static string DegreesToDMS(double degrees, bool withPlus = true, char degreeSign = ':')
+        => $"{(Math.Sign(degrees) >= 0 ? (withPlus ? "+" : "") : "-")}{HoursToHMS(Math.Abs(degrees), degreeSign)}";
 
     public static double DMSToDegree(string dms)
     {

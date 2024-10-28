@@ -34,6 +34,22 @@ public interface IMountDriver : IDeviceDriver
 
     bool CanSync { get; }
 
+    bool CanMoveAxis(TelescopeAxis axis);
+
+    /// <summary>
+    /// Determine the rates at which the telescope may be moved about the specified axis by the <see cref="MoveAxis(TelescopeAxis, double)"> method.
+    /// </summary>
+    /// <param name="axis"></param>
+    /// <returns>axis rates in degrees per second</returns>
+    IReadOnlyList<AxisRate> AxisRates(TelescopeAxis axis);
+
+    /// <summary>
+    /// Start or stop motion of the mount about the given mechanical axis at the given angular rate.
+    /// </summary>
+    /// <param name="axis">Which axis to move</param>
+    /// <param name="rate">One of <see cref="AxisRates(TelescopeAxis)"/> or 0 to stop/></param>
+    void MoveAxis(TelescopeAxis axis, double rate);
+
     TrackingSpeed TrackingSpeed { get; set; }
 
     IReadOnlyCollection<TrackingSpeed> TrackingSpeeds { get; }
@@ -358,7 +374,7 @@ public interface IMountDriver : IDeviceDriver
             throw new InvalidOperationException("Device is not connected");
         }
 
-        if (!CanSlew)
+        if (!CanSlewAsync)
         {
             throw new InvalidOperationException("Device does not support slewing");
         }
@@ -398,6 +414,16 @@ public enum SlewPostCondition
 
 public record struct SlewResult(SlewPostCondition PostCondition, double HourAngleAtSlewTime);
 
+public record struct AxisRate(double Mininum, double Maximum)
+{
+    public AxisRate(double Rate) : this(Rate, Rate)
+    {
+        // empty
+    }
+
+    public static implicit operator AxisRate(double rate) => new AxisRate(rate);
+}
+
 public enum AlignmentMode
 {
     /// <summary>
@@ -423,4 +449,11 @@ public enum TrackingSpeed
     Lunar = 2,
     Solar = 3,
     King = 4,
+}
+
+public enum TelescopeAxis
+{
+    Primary = 0,
+    Seconary = 1,
+    Tertiary = 2
 }
