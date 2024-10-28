@@ -3,6 +3,7 @@ using Shouldly;
 using System;
 using System.Text;
 using System.Threading;
+using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Devices.Meade;
@@ -14,18 +15,27 @@ namespace TianWen.Lib.Tests;
 public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
 {
     [Theory]
-    [InlineData("ttyUSB1", true)]
-    [InlineData("COM4", true)]
-    [InlineData("COM3", false)]
-    public void GivenMountWhenConnectingItOpensSerialPort(string deviceId, bool southPole)
+    [InlineData("ttyUSB1", -37.8743502, 145.1668205)]
+    [InlineData("COM4", -37.8743502, 145.1668205)]
+    [InlineData("COM3", 25.28022, 110.29639)]
+    public void GivenMountWhenConnectingItOpensSerialPort(string deviceId, double siteLat, double siteLong)
     {
         // given
         var device = new MeadeDevice(DeviceType.Mount, deviceId, $"Meade Mount on {deviceId}");
 
         var fakeExternal = Substitute.For<FakeExternal>(outputHelper, null, null, null);
+        var transform = new Transform(fakeExternal.TimeProvider)
+        {
+            SiteElevation = 80,
+            SiteLongitude = siteLong,
+            SiteLatitude = siteLat,
+            Refraction = true
+        };
+        transform.SetAzimuthElevation(siteLat < 0 ? 180 : 0, Math.Abs(siteLat));
+
         fakeExternal
             .OpenSerialDevice(Arg.Is(deviceId), Arg.Any<int>(), Arg.Any<Encoding>(), Arg.Any<TimeSpan>())
-            .Returns(x => new FakeMeadeLX200SerialDevice(true, southPole, x.ArgAt<Encoding>(2), fakeExternal.TimeProvider));
+            .Returns(x => new FakeMeadeLX200SerialDevice(true, x.ArgAt<Encoding>(2), transform));
 
         // when
         var mount = new MeadeLX200BasedMount(device, fakeExternal)
@@ -40,19 +50,28 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
     }
 
     [Theory]
-    [InlineData("ttyUSB1", true)]
-    [InlineData("COM4", true)]
-    [InlineData("COM3", false)]
-    public void GivenMountWhenConnectingAndDisconnectingThenSerialPortIsClosed(string deviceId, bool southPole)
+    [InlineData("ttyUSB1", -37.8743502, 145.1668205)]
+    [InlineData("COM4", -37.8743502, 145.1668205)]
+    [InlineData("COM3", 25.28022, 110.29639)]
+    public void GivenMountWhenConnectingAndDisconnectingThenSerialPortIsClosed(string deviceId, double siteLat, double siteLong)
     {
         // given
         var device = new MeadeDevice(DeviceType.Mount, deviceId, $"Meade Mount on {deviceId}");
-
+        
         FakeMeadeLX200SerialDevice? serialDevice = null;
         var fakeExternal = Substitute.For<FakeExternal>(outputHelper, null, null, null);
+        var transform = new Transform(fakeExternal.TimeProvider)
+        {
+            SiteElevation = 80,
+            SiteLongitude = siteLong,
+            SiteLatitude = siteLat,
+            Refraction = true
+        };
+        transform.SetAzimuthElevation(siteLat < 0 ? 180 : 0, Math.Abs(siteLat));
+
         fakeExternal
             .OpenSerialDevice(Arg.Is(deviceId), Arg.Any<int>(), Arg.Any<Encoding>(), Arg.Any<TimeSpan>())
-            .Returns(x => serialDevice ??= new FakeMeadeLX200SerialDevice(true, southPole, x.ArgAt<Encoding>(2), fakeExternal.TimeProvider));
+            .Returns(x => serialDevice ??= new FakeMeadeLX200SerialDevice(true, x.ArgAt<Encoding>(2), transform));
 
         int receivedConnect = 0;
         int receivedDisconnect = 0;

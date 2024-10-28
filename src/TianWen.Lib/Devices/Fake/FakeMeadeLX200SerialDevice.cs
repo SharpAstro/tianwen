@@ -6,17 +6,19 @@ using static TianWen.Lib.Astrometry.CoordinateUtils;
 
 namespace TianWen.Lib.Devices.Fake;
 
-internal class FakeMeadeLX200SerialDevice(bool isOpen, bool isSouthPole, Encoding encoding, TimeProvider timeProvider) : ISerialDevice
+internal class FakeMeadeLX200SerialDevice(bool isOpen, Encoding encoding, Transform initialPosition) : ISerialDevice
 {
     private readonly AlignmentMode _alignmentMode = AlignmentMode.GermanPolar;
     private bool _isTracking = false;
     private int _alignmentStars = 0;
     private bool _highPrecision = false;
     // start pointing to the celestial pole
-    private double _ra = 0;
-    private double _dec = isSouthPole ? -90 : 90;
-    private double _longitude = isSouthPole ? 146.78d : 110.29d;
-    private double _latitude = isSouthPole ? -37.81d : 25.28;
+    private double _ra = initialPosition.RATopocentric;
+    private double _dec = initialPosition.DECTopocentric;
+    private double _targetRa = initialPosition.RATopocentric;
+    private double _targetDec = initialPosition.DECTopocentric;
+    private double _longitude = initialPosition.SiteLatitude;
+    private double _latitude = initialPosition.SiteLatitude;
 
     // I/O properties
     private readonly StringBuilder _responseBuffer = new StringBuilder();
@@ -111,15 +113,23 @@ internal class FakeMeadeLX200SerialDevice(bool isOpen, bool isSouthPole, Encodin
                 return true;
 
             case ":GR#":
-                _responseBuffer.AppendFormat("{0}#", _highPrecision ? HoursToHMS(_ra) : HoursToHMT(_ra));
+                RespondHMS(_ra);
+                return true;
+
+            case ":Gr#":
+                RespondHMS(_targetRa);
                 return true;
 
             case ":GD#":
-                _responseBuffer.AppendFormat("{0}#", _highPrecision ? DegreesToDMS(_dec, withPlus: false) : DegreesToDM(_dec));
+                RespondDMS(_dec);
+                return true;
+
+            case ":Gd#":
+                RespondDMS(_targetDec);
                 return true;
 
             case ":GS#":
-                _responseBuffer.AppendFormat("{0}#", HoursToHMS(Transform.LocalSiderealTime(timeProvider.GetUtcNow(), _longitude)));
+                _responseBuffer.AppendFormat("{0}#", HoursToHMS(SiderealTime));
                 return true;
 
             case ":U#":
@@ -129,7 +139,13 @@ internal class FakeMeadeLX200SerialDevice(bool isOpen, bool isSouthPole, Encodin
             default:
                 return false;
         }
+
+        void RespondHMS(double ra) => _responseBuffer.AppendFormat("{0}#", _highPrecision ? HoursToHMS(ra) : HoursToHMT(ra));
+
+        void RespondDMS(double dec) => _responseBuffer.AppendFormat("{0}#", _highPrecision ? DegreesToDMS(dec, withPlus: false, degreeSign: '\xdf') : DegreesToDM(dec));
     }
+
+    private double SiderealTime => Transform.LocalSiderealTime(initialPosition.TimeProvider.GetUtcNow(), _longitude);
 
     private static string DegreesToDM(double degrees)
     {
