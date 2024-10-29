@@ -160,7 +160,7 @@ public interface IMountDriver : IDeviceDriver
 
         if (double.IsNaN(dec) || dec is < -90 or > 90)
         {
-            throw new ArgumentException("Hour angle must be in [-90..90]", nameof(dec));
+            throw new ArgumentException("Declination must be in [-90..90]", nameof(dec));
         }
 
         SlewRaDecAsync(ConditionRA(SiderealTime - ha - 12), dec);
@@ -210,12 +210,12 @@ public interface IMountDriver : IDeviceDriver
     /// <summary>
     /// The UTC date/time of the telescope's internal clock.
     /// Must be initalised from system time if no internal clock is supported.
+    /// <see cref="IExternal.TimeProvider"/>.
     /// </summary>
     DateTime? UTCDate { get; set; }
 
     /// <summary>
-    /// Returns true iff <see cref="UTCDate"/> was updated succcessfully when setting,
-    /// typically via <code>UTCDate = DateTime.UTCNow</code>.
+    /// Returns true iff <see cref="UTCDate"/> was updated succcessfully when setting.
     /// </summary>
     bool TimeIsSetByUs { get; }
 
@@ -260,7 +260,7 @@ public interface IMountDriver : IDeviceDriver
     /// <summary>
     /// The current hour angle, using <see cref="RightAscension"/> and <see cref="SiderealTime"/>, (-12,12).
     /// </summary>
-    double HourAngle => Connected ? ConditionHA(SiderealTime - RightAscension + 12) : double.NaN;
+    double HourAngle => Connected ? ConditionHA(SiderealTime - RightAscension) : double.NaN;
 
     /// <summary>
     /// The local apparent sidereal time from the telescope's internal clock (hours, sidereal).

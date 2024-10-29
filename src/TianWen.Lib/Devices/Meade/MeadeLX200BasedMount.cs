@@ -417,7 +417,7 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
             var targetHms = TimeSpan.FromHours(Math.Abs(value)).Round(highPrecision ? TimeSpanRoundingType.Second : TimeSpanRoundingType.TenthMinute).ModuloHours(24);
 
             const int offset = 2;
-            Span<byte> buffer = stackalloc byte[2 + 2 + 2 + 2 + (highPrecision ? 1 : 0)];
+            Span<byte> buffer = stackalloc byte[2 + 2 + 2 + 2 + 1 + (highPrecision ? 1 : 0)];
             "Sr"u8.CopyTo(buffer);
 
             if (targetHms.Hours.TryFormat(buffer[offset..], out int hoursWritten, "00", CultureInfo.InvariantCulture)
@@ -489,12 +489,12 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
             var (dec, highPrecision) = GetDeclinationWithPrecision(target: false);
 
             var sign = Math.Sign(value);
-            var offset = sign is -1 ? 1 : 0;
-            var degOffset = 2 + offset;
+            var signLength = sign is -1 ? 1 : 0;
+            var degOffset = 2 + signLength;
             var minOffset = degOffset + 2 + 1;
             var targetDms = TimeSpan.FromHours(Math.Abs(value)).Round(highPrecision ? TimeSpanRoundingType.Second : TimeSpanRoundingType.Minute).ModuloHours(90);
 
-            Span<byte> buffer = stackalloc byte[5 + (highPrecision ? 3 : 0) + offset];
+            Span<byte> buffer = stackalloc byte[minOffset + 2 + (highPrecision ? 3 : 0)];
             "Sd"u8.CopyTo(buffer);
 
             if (sign is -1)
@@ -549,7 +549,7 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
     private (double Declination, bool HighPrecision) GetDeclinationWithPrecision(bool target)
     {
         SendAndReceive(target ? "Gd"u8 : "GD"u8, out var response);
-        var dec = DMSToDegree(_encoding.GetString(response)) % 90;
+        var dec = DMSToDegree(_encoding.GetString(response).Replace('\xdf', ':')) % 90;
 
         return (dec, response.Length >= 7);
     }
@@ -815,7 +815,7 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
         TargetRightAscension = ra;
         TargetDeclination = dec;
 
-        SendAndReceive("MS"u8, out var response);
+        SendAndReceive("MS"u8, out var response, count: 1);
             
         if (response.SequenceEqual("0"u8))
         {
@@ -825,16 +825,16 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
 #endif
             StartSlewTimer(MOVING_STATE_NORMAL);
         }
-        else if (response.Length > 0 && byte.TryParse(response[0..1], out var code))
+        else if (response.Length is 1 && byte.TryParse(response[0..1], out var reasonCode) && TryReadTerminated(out var reasonMessage))
         {
-            var reason = code switch
+            var reason = reasonCode switch
             {
                 1 => "below horizon limit",
                 2 => "above hight limit",
-                _ => $"unknown reason {code}"
+                _ => $"unknown reason {reasonCode}: {_encoding.GetString(reasonMessage)}"
             };
 
-            throw new InvalidOperationException($"Failed to slew to {HoursToHMS(ra)},{DegreesToDMS(dec)} due to {reason} message={_encoding.GetString(response[1..])} response={_encoding.GetString(response)}");
+            throw new InvalidOperationException($"Failed to slew to {HoursToHMS(ra)},{DegreesToDMS(dec)} due to {reason} message={reasonCode}{_encoding.GetString(reasonMessage)}");
         }
         else
         {
@@ -845,7 +845,7 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
     private void StartSlewTimer(int finalState)
     {
         // start timer deactivated to capture itself
-        var timer = External.TimeProvider.CreateTimer(SlewTimerCallback, finalState, TimeSpan.FromMicroseconds(-1), TimeSpan.Zero);
+        var timer = External.TimeProvider.CreateTimer(SlewTimerCallback, finalState, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         Interlocked.Exchange(ref _slewTimer, timer)?.Dispose();
 
         // activate timer
@@ -872,7 +872,7 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
 
         if (!continueRunning)
         {
-            if (_slewTimer?.Change(TimeSpan.FromMicroseconds(-1), TimeSpan.Zero) is var changeResult and not true)
+            if (_slewTimer?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan) is var changeResult and not true)
             {
                 External.AppLogger.LogWarning("Failed to stop slewing timer has instance: {HasInstance}", changeResult is not null);
             }

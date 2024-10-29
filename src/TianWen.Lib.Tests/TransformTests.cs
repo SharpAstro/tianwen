@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Xunit;
+using Microsoft.Extensions.Time.Testing;
 
 namespace TianWen.Lib.Tests;
 
@@ -83,15 +84,17 @@ public class TransformTests
     }
 
     [Theory]
-    [InlineData("2022-11-28T12:37:30.8322741+11:00", 145.1663117892053d, 15.76)]
-    [InlineData("2023-11-28T12:37:30.8322741+11:00", 145.1663117892053d, 15.76)]
-    [InlineData("2021-11-28T11:37:30.8322741+10:00", 145.1663117892053d, 15.781)]
+    [InlineData("2021-11-28T12:37:30.8322741+11:00", 145.1663117892053d, 15.781732997527493d)]
+    [InlineData("2021-11-28T11:37:30.8322741+10:00", 145.1663117892053d, 15.781732997527493d)]
+    [InlineData("2024-10-29T20:04:00.0000000+11:00", 145.1663117892053d, 21.2901893215026d)]
+    [InlineData("1998-08-10T23:10:00.0000000Z", 1.916666666d, 20.576062887455556d)]
     public void GivenLocalDateTimeAndSiteLongitudeWhenSiderealTimeThenItIsReturnedFrom0To24h(string utc, double @long, double expected)
     {
         // given
         var dto = DateTimeOffset.ParseExact(utc, "o", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
+        var transform = new Transform(new FakeTimeProvider(dto)) { SiteLongitude = @long };
 
         // when / then
-        Transform.LocalSiderealTime(dto, @long).ShouldBeInRange(expected - 0.01, expected + 0.01);
+        transform.LocalSiderealTime.ShouldBeInRange(expected - 0.01, expected + 0.01);
     }
 }

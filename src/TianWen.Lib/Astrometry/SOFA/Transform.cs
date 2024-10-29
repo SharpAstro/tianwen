@@ -655,6 +655,8 @@ namespace TianWen.Lib.Astrometry.SOFA
             }
         }
 
+        public void RefreshDateTimeFromTimeProvider() => DateTime = TimeProvider.GetUtcNow().UtcDateTime;
+
         /// <summary>
         /// Timezone offset, will be calculated via SiteLong, SiteLat
         /// Is used to calculate <see cref="EventTimes(EventType)"/>.
@@ -932,7 +934,7 @@ namespace TianWen.Lib.Astrometry.SOFA
         {
             if (_jdUTCValue1 == 0.0d && _jdTTValue1 == 0.0d) // No specific TT date / time has been set so use the current date / time
             {
-                DateTime = TimeProvider.GetUtcNow().UtcDateTime;
+                RefreshDateTimeFromTimeProvider();
             }
         }
 
@@ -968,34 +970,24 @@ namespace TianWen.Lib.Astrometry.SOFA
         #endregion
 
         #region Additional functionality
-        public double LocalSiderealTime()
+        public double LocalSiderealTime
         {
-            InitFromUtcNowIfRequired();
-            return LocalSiderealTime(_jdUTCValue1, _jdUTCValue2, _jdTTValue1, _jdTTValue1, SiteLongitude);
+            get
+            {
+                InitFromUtcNowIfRequired();
+                return CalculateLocalSiderealTime(DateTime, SiteLongitude);
+            }
         }
 
-        public double LocalSiderealTime(DateTimeOffset dateTimeOffset) => LocalSiderealTime(dateTimeOffset, SiteLongitude);
-
-        public static double LocalSiderealTime(DateTimeOffset dateTimeOffset, double siteLongitude)
+        private static readonly DateTime JD2000 = DateTimeOffset.Parse("2000-01-01T12:00:00Z").UtcDateTime;
+        private static double CalculateLocalSiderealTime(DateTime dt, double siteLongitude)
         {
-            dateTimeOffset.ToSOFAUtcJdTT(out var utc1, out var utc2, out var tt1, out var tt2);
+            var d = (dt - JD2000).TotalDays;
+            var ut = dt.TimeOfDay.TotalHours;
 
-            return LocalSiderealTime(utc1, utc2, tt1, tt2, siteLongitude);
-        }
-
-        public static double LocalSiderealTime(double utc1, double utc2, double tt1, double tt2, double siteLongitude)
-        {
-            double ut11 = default, ut12 = default;
-            var dut1 = LeapSecondsTable.DeltaUT1(utc1 + utc2);
-            _ = wwaUtcut1(utc1, utc2, dut1, ref ut11, ref ut12);
-
-            var gmst = wwaGmst00(ut11, ut12, tt1, tt2) * RADIANS2HOURS;
-
-            // Allow for the longitude
-            gmst += siteLongitude / 360.0 * 24.0;
-
-            // Reduce to the range 0 to 24 hours
-            return CoordinateUtils.ConditionRA(gmst);
+            var lst_0 = 100.46 + 0.985647 * d + siteLongitude + 15 * ut;
+            var lst_360 = CoordinateUtils.ConnditionDegrees(lst_0);
+            return lst_360 / 15.0;
         }
 
         /// <summary>
@@ -1079,7 +1071,7 @@ namespace TianWen.Lib.Astrometry.SOFA
 
             var raDecEventTimes = new Dictionary<RaDecEventTime, RaDecEventInfo>(4);
 
-            var siderealTimeAtAstroDark = LocalSiderealTime(astroDark, SiteLongitude);
+            var siderealTimeAtAstroDark = new Transform(TimeProvider) { SiteLongitude = SiteLongitude, DateTimeOffset = astroDark }.LocalSiderealTime;
             var hourAngle = TimeSpan.FromHours(CoordinateUtils.ConditionHA(siderealTimeAtAstroDark - ra));
             var crossMeridianTime = astroDark - hourAngle;
 
