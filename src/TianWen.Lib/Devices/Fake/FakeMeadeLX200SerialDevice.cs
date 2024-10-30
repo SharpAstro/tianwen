@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using TianWen.Lib.Astrometry.SOFA;
 using static TianWen.Lib.Astrometry.CoordinateUtils;
+using static TianWen.Lib.Astrometry.Constants;
 
 namespace TianWen.Lib.Devices.Fake;
 
@@ -14,11 +15,11 @@ public class FakeMeadeLX200SerialDevice: ISerialDevice
     private readonly AlignmentMode _alignmentMode = AlignmentMode.GermanPolar;
     private readonly Transform _transform;
     private readonly int _alignmentStars = 0;
-    private double _slewRate = 1.5d; // arcsec per second
+    private double _slewRate = 1.5d; // degrees per second
     private bool _isTracking = false;
     private bool _isSlewing = false;
     private bool _highPrecision = false;
-    private double _hourAngle;
+    //private double _hourAngle;
     private double _targetRa;
     private double _targetDec;
     private ITimer? _slewTimer;
@@ -36,11 +37,12 @@ public class FakeMeadeLX200SerialDevice: ISerialDevice
             SiteLatitude = siteLatitude,
             SiteLongitude = siteLongitude
         };
-        _transform.SetAzimuthElevation(_transform.SiteLatitude < 0 ? 180 : 0, Math.Abs(_transform.SiteLatitude));
+        _transform.SetTopocentric(SiderealTime, _transform.SiteLatitude is < 0 ? -90 : 90);
 
         _targetRa = _transform.RATopocentric;
         _targetDec = _transform.DECTopocentric;
-        _hourAngle = CalcHourAngle(_transform.RATopocentric);
+        // TODO: Use hour angle as RA axis coordinate
+        var _hourAngle = CalcHourAngle(_transform.RATopocentric);
 
         IsOpen = isOpen;
         Encoding = encoding;
@@ -353,6 +355,10 @@ public class FakeMeadeLX200SerialDevice: ISerialDevice
         return '0';
     }
 
+    /// <summary>
+    /// Assumes a period of 1 call per second.
+    /// </summary>
+    /// <param name="state">state is of type <see cref="SlewSate"/></param>
     private void SlewTimerCallback(object? state)
     {
         if (state is SlewSate slewState)
@@ -362,7 +368,7 @@ public class FakeMeadeLX200SerialDevice: ISerialDevice
                 var raDirPositive = _targetRa > slewState.RaAtSlewTime;
                 var decDirPositive = _targetDec > slewState.DecAtSlewTime;
 
-                var ra = _transform.RATopocentric + (raDirPositive ? 1 : -1) * slewState.SlewRate;
+                var ra = _transform.RATopocentric + (raDirPositive ? DEG2HOURS : -DEG2HOURS) * slewState.SlewRate;
                 var dec = _transform.DECTopocentric + (decDirPositive ? 1 : -1) * slewState.SlewRate;
 
                 var isRaReached = raDirPositive switch

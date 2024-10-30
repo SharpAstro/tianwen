@@ -1,10 +1,8 @@
-﻿using Microsoft.Extensions.Time.Testing;
-using NSubstitute;
+﻿using NSubstitute;
 using Shouldly;
 using System;
 using System.Text;
 using System.Threading;
-using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Devices.Meade;
@@ -124,6 +122,7 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
         mount.IsSlewing.ShouldBe(true);
         while (mount.IsSlewing)
         {
+            // this will advance the fake timer and not actually sleep
             fakeExternal.Sleep(TimeSpan.FromSeconds(1));
         }
 

@@ -1,5 +1,4 @@
 ﻿using TianWen.Lib.Astrometry.Catalogs;
-using TianWen.Lib.Astrometry.SOFA;
 using System;
 using static WorldWideAstronomy.WWA;
 

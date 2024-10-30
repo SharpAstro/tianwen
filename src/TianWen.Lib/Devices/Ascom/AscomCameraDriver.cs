@@ -55,34 +55,42 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
                 CanGetCCDTemperature = false;
             }
 
-            try
-            {
-                _ = obj.Offset;
-                var min = obj.OffsetMin;
-                var max = obj.OffsetMax;
-                UsesOffsetValue = true;
-                OffsetMin = min;
-                OffsetMax = max;
-            }
-            catch
-            {
-                UsesOffsetValue = false;
-                OffsetMin = int.MinValue;
-                OffsetMax = int.MinValue;
-            }
-
-            if (!UsesOffsetValue)
+            if (obj.InterfaceVersion is int and >= 3)
             {
                 try
                 {
                     _ = obj.Offset;
-                    _ = obj.Offsets;
-                    UsesOffsetMode = true;
+                    var min = obj.OffsetMin;
+                    var max = obj.OffsetMax;
+                    UsesOffsetValue = true;
+                    OffsetMin = min;
+                    OffsetMax = max;
                 }
                 catch
                 {
-                    UsesOffsetMode = false;
+                    UsesOffsetValue = false;
+                    OffsetMin = int.MinValue;
+                    OffsetMax = int.MinValue;
                 }
+
+                if (!UsesOffsetValue)
+                {
+                    try
+                    {
+                        _ = obj.Offset;
+                        _ = obj.Offsets;
+                        UsesOffsetMode = true;
+                    }
+                    catch
+                    {
+                        UsesOffsetMode = false;
+                    }
+                }
+            }
+            else
+            {
+                UsesOffsetValue = false;
+                UsesOffsetMode = false;
             }
 
             try
@@ -212,7 +220,7 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
     public int Offset
     {
-        get => Connected && _comObject?.InterfaceVersion is >= 3 && _comObject?.Offset is int offset ? offset : int.MinValue;
+        get => Connected && _comObject?.InterfaceVersion is >= 3 && _comObject?.Offset is int offset ? offset : throw new InvalidOperationException("Offset property is not supported");
 
         set
         {
