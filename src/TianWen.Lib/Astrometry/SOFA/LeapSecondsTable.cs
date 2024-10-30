@@ -1,5 +1,5 @@
 ﻿using System;
-using static TianWen.Lib.Astrometry.SOFA.Constants;
+using static TianWen.Lib.Astrometry.Constants;
 
 namespace TianWen.Lib.Astrometry.SOFA;
 

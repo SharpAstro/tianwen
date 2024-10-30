@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace TianWen.Lib.Astrometry.SOFA;
+namespace TianWen.Lib.Astrometry;
 
 internal static class Constants
 {
@@ -8,6 +8,8 @@ internal static class Constants
     internal const double DEGREES2RADIANS = Math.PI / 180.0d;
     internal const double RADIANS2HOURS = 12.0d / Math.PI;
     internal const double RADIANS2DEGREES = 180.0d / Math.PI;
+    internal const double DEG2HOURS = 1.0 / HOURS2DEG;
+    internal const double HOURS2DEG = 15.0d;
 
     internal const double OLE_AUTOMATION_JULIAN_DATE_OFFSET = 2415018.5; // Offset of OLE automation dates from Julian dates
     internal const double JULIAN_DATE_MINIMUM_VALUE = -657435.0 + OLE_AUTOMATION_JULIAN_DATE_OFFSET; // Minimum valid Julian date value (1/1/0100 00:00:00) - because DateTime.FromOADate has this limit
@@ -32,6 +34,7 @@ internal static class Constants
     internal const double DEG2RAD = 0.017453292519943295;
     internal const double RAD2DEG = 57.295779513082323;
     internal const double SIDEREAL_RATE = 15.0417; // approx. rate of sky moving in arcseconds/second
+    internal const double MEAN_SOLAR_DAY_DEG = 0.985647332; //  number of degrees the Earth rotates in one mean solar day, sans a multiple of 360
 
     // Physical constants
     internal const double MOON_RADIUS = 1737.0; // km

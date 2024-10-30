@@ -5,7 +5,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.VSOP87;
-using static TianWen.Lib.Astrometry.SOFA.Constants;
+using static TianWen.Lib.Astrometry.Constants;
 using static WorldWideAstronomy.WWA;
 
 namespace TianWen.Lib.Astrometry.SOFA
@@ -979,15 +979,20 @@ namespace TianWen.Lib.Astrometry.SOFA
             }
         }
 
-        private static readonly DateTime JD2000 = DateTimeOffset.Parse("2000-01-01T12:00:00Z").UtcDateTime;
+        /// <summary>
+        /// Using formula from <see href="http://www.stargazing.net/kepler/altaz.html"/>
+        /// </summary>
+        /// <param name="dt"></param>
+        /// <param name="siteLongitude"></param>
+        /// <returns></returns>
         private static double CalculateLocalSiderealTime(DateTime dt, double siteLongitude)
         {
-            var d = (dt - JD2000).TotalDays;
+            var d = dt.JulianDaysSinceJ2000();
             var ut = dt.TimeOfDay.TotalHours;
 
-            var lst_0 = 100.46 + 0.985647 * d + siteLongitude + 15 * ut;
+            var lst_0 = 100.46 + MEAN_SOLAR_DAY_DEG * d + siteLongitude + HOURS2DEG * ut;
             var lst_360 = CoordinateUtils.ConnditionDegrees(lst_0);
-            return lst_360 / 15.0;
+            return lst_360 * DEG2HOURS;
         }
 
         /// <summary>

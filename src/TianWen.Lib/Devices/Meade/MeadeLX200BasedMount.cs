@@ -9,7 +9,7 @@ using System.Text;
 using System.Threading;
 using TianWen.Lib.Astrometry;
 using static TianWen.Lib.Astrometry.CoordinateUtils;
-using static TianWen.Lib.Astrometry.SOFA.Constants;
+using static TianWen.Lib.Astrometry.Constants;
 
 namespace TianWen.Lib.Devices.Meade;
 
@@ -330,25 +330,25 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
     /// </summary>
     /// <param name="ra">current RA</param>
     /// <returns>Side of pier calculation result</returns>
-    private (bool IsSlewing, PierSide SideOfPier, bool HasFlipped) SideOfPierCheck(double ra)
+    private (bool IsSlewing, PierSide SideOfPier, bool HasFlipped, double LST) SideOfPierCheck(double ra)
     {
         if (!Connected)
         {
-            return (false, PierSide.Unknown, false);
+            return (false, PierSide.Unknown, false, double.NaN);
         }
 
         var isSlewing = IsSlewingFromMount;
 
-        var raSideOfPier = CalculateSideOfPier(ra);
+        var (raSideOfPier, lst) = CalculateSideOfPier(ra);
 
-        return (isSlewing, isSlewing ? raSideOfPier : _sideOfPierAfterLastGoto, raSideOfPier != _sideOfPierAfterLastGoto && _sideOfPierAfterLastGoto is not PierSide.Unknown);
+        return (isSlewing, isSlewing ? raSideOfPier : _sideOfPierAfterLastGoto, raSideOfPier != _sideOfPierAfterLastGoto && _sideOfPierAfterLastGoto is not PierSide.Unknown, lst);
     }
 
     public PierSide SideOfPier
     {
         get
         {
-            var (_, sop, _) = SideOfPierCheck(RightAscension);
+            var (_, sop, _, _) = SideOfPierCheck(RightAscension);
 
             return sop;
         }
@@ -730,12 +730,21 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
 
     public override string? Description => $"{_telescopeName} driver based on the LX200 serial protocol v2010.10, firmware: {_telescopeFW}";
 
-    public PierSide DestinationSideOfPier(double ra, double dec) => CalculateSideOfPier(ra);
+    public PierSide DestinationSideOfPier(double ra, double dec)
+    {
+        var (sideOfPier, _) = CalculateSideOfPier(ra);
+        return sideOfPier;
+    }
 
-    private PierSide CalculateSideOfPier(double ra)
-        => ConditionHA(SiderealTime - ra) > 0
+    private (PierSide SideOfPier, double SiderealTime) CalculateSideOfPier(double ra)
+    {
+        var lst = SiderealTime;
+        var sideOfPier = ConditionHA(lst - ra) > 0
             ? PierSide.East
             : PierSide.West;
+
+        return (sideOfPier, lst);
+    }
 
     public void Park()
     {
@@ -856,9 +865,11 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
     {
         bool continueRunning;
         var ra = RightAscension;
+        var dec = Declination;
+        double lst;
         if (!double.IsNaN(ra) && !AtPark)
         {
-            (continueRunning, var sideOfPier, var hasFlipped) = SideOfPierCheck(ra);
+            (continueRunning, var sideOfPier, var hasFlipped, lst) = SideOfPierCheck(ra);
 
             if (hasFlipped)
             {
@@ -868,9 +879,15 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
         else
         {
             continueRunning = false;
+            lst = SiderealTime;
         }
 
-        if (!continueRunning)
+        if (continueRunning)
+        {
+            External.AppLogger.LogTrace("Still slewing hour angle={HourAngle} lst={LST} ra={Ra} dec={Dec}",
+                HoursToHMS(ConditionHA(lst - ra)), HoursToHMS(lst), HoursToHMS(ra), DegreesToDMS(dec));
+        }
+        else
         {
             if (_slewTimer?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan) is var changeResult and not true)
             {
@@ -926,7 +943,8 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
     public void SyncRaDec(double ra, double dec)
     {
         var sideOfPier = SideOfPier;
-        if (sideOfPier is not PierSide.Unknown && sideOfPier != CalculateSideOfPier(ra))
+        var (expectedSideOfPier, _) = CalculateSideOfPier(ra);
+        if (sideOfPier is not PierSide.Unknown && sideOfPier != expectedSideOfPier)
         {
             throw new InvalidOperationException($"Cannot sync across meridian (current side of pier: {sideOfPier}) given {HoursToHMS(ra)},{DegreesToDMS(dec)}");
         }

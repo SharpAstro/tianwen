@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using TianWen.Lib.Astrometry.VSOP87;
-using static TianWen.Lib.Astrometry.SOFA.Constants;
+using static TianWen.Lib.Astrometry.Constants;
 using static WorldWideAstronomy.WWA;
 
 namespace TianWen.Lib.Astrometry.SOFA;

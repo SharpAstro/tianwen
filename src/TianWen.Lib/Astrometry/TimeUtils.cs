@@ -1,21 +1,20 @@
 ﻿using System;
 using System.Runtime.CompilerServices;
 using WorldWideAstronomy;
+using static TianWen.Lib.Astrometry.Constants;
 
 namespace TianWen.Lib.Astrometry;
 
 public static class TimeUtils
 {
-    const double OAOffset = 2415018.5;
-
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static double ToJulian(this DateTimeOffset dateTimeOffset) => dateTimeOffset.UtcDateTime.ToJulian();
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static double ToJulian(this DateTime dt) => dt.ToOADate() + OAOffset;
+    public static double ToJulian(this DateTime dt) => dt.ToOADate() + OLE_AUTOMATION_JULIAN_DATE_OFFSET;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static DateTime FromJulian(double utc1, double utc2) => DateTime.SpecifyKind(DateTime.FromOADate(utc1 - OAOffset + utc2), DateTimeKind.Utc);
+    public static DateTime FromJulian(double utc1, double utc2) => DateTime.SpecifyKind(DateTime.FromOADate(utc1 - OLE_AUTOMATION_JULIAN_DATE_OFFSET + utc2), DateTimeKind.Utc);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void ToSOFAUtcJd(this DateTimeOffset dateTimeOffset, out double utc1, out double utc2)
@@ -45,4 +44,8 @@ public static class TimeUtils
         tt2 = default;
         _ = WWA.wwaTaitt(tai1, tai2, ref tt1, ref tt2);
     }
+
+    private static readonly DateTime JD2000 = DateTimeOffset.Parse("2000-01-01T12:00:00Z").UtcDateTime;
+
+    public static double JulianDaysSinceJ2000(this DateTime dt) => (dt - JD2000).TotalDays;
 }
