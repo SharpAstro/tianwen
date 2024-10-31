@@ -17,7 +17,11 @@ public static class TimeSpanHelper
         _ => throw new ArgumentException($"Unknown rounding type {type}", nameof(type))
     };
 
-    public static TimeSpan ModuloHours(this TimeSpan span, int hours) => span.Modulo(TimeSpan.FromHours(hours));
+    public static TimeSpan EnsureRange(this TimeSpan span, TimeSpan min, TimeSpan max) => span > max ? max : span < min ? min : span;
+
+    public static TimeSpan EnsureMax(this TimeSpan span, TimeSpan max) => span > max ? max : span;
+
+    public static TimeSpan Modulo24h(this TimeSpan span) => span.Modulo(TimeSpan.FromHours(24));
 
     public static TimeSpan Modulo(this TimeSpan span, TimeSpan mod) => TimeSpan.FromHours(span.TotalHours % mod.TotalHours);
 }

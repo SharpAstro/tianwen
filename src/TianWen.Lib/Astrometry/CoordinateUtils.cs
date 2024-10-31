@@ -228,7 +228,7 @@ public static class CoordinateUtils
     /// <returns>HH:MM.T formatted string</returns>
     public static string HoursToHMT(double hours)
     {
-        var span = TimeSpan.FromHours(Math.Abs(hours)).Round(TimeSpanRoundingType.TenthMinute).ModuloHours(24);
+        var span = TimeSpan.FromHours(Math.Abs(hours)).Round(TimeSpanRoundingType.TenthMinute).Modulo24h();
 
         return $"{span.Hours:D2}:{span.Minutes:D2}.{span.Seconds / 6:0}";
     }

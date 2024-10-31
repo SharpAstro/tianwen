@@ -10,7 +10,7 @@ using static TianWen.Lib.Astrometry.Constants;
 
 namespace TianWen.Lib.Devices.Fake;
 
-public class FakeMeadeLX200SerialDevice: ISerialDevice
+internal class FakeMeadeLX200SerialDevice: ISerialDevice
 {
     private readonly AlignmentMode _alignmentMode = AlignmentMode.GermanPolar;
     private readonly Transform _transform;
@@ -19,7 +19,7 @@ public class FakeMeadeLX200SerialDevice: ISerialDevice
     private bool _isTracking = false;
     private bool _isSlewing = false;
     private bool _highPrecision = false;
-    //private double _hourAngle;
+    private double _raAngle;
     private double _targetRa;
     private double _targetDec;
     private ITimer? _slewTimer;
@@ -41,8 +41,8 @@ public class FakeMeadeLX200SerialDevice: ISerialDevice
 
         _targetRa = _transform.RATopocentric;
         _targetDec = _transform.DECTopocentric;
-        // TODO: Use hour angle as RA axis coordinate
-        var _hourAngle = CalcHourAngle(_transform.RATopocentric);
+        // should be 0
+        _raAngle = CalcAngle24h(_transform.RATopocentric);
 
         IsOpen = isOpen;
         Encoding = encoding;
@@ -178,6 +178,10 @@ public class FakeMeadeLX200SerialDevice: ISerialDevice
                     _responseBuffer.AppendFormat("{0}#", HoursToHMS(SiderealTime, withFrac: false));
                     return true;
 
+                case ":Gt#":
+                    _responseBuffer.AppendFormat("{0}#", DegreesToDM(_transform.SiteLatitude));
+                    return true;
+
                 case ":U#":
                     _highPrecision = !_highPrecision;
                     return true;
@@ -221,9 +225,12 @@ public class FakeMeadeLX200SerialDevice: ISerialDevice
         }
     }
 
-    private double HourAngle => CalcHourAngle(_transform.RATopocentric);
-
-    private double CalcHourAngle(double ra) => ConditionHA(SiderealTime - ra);
+    /// <summary>
+    /// Calculates hour angle (24h format) given RA, or vice-versa.
+    /// </summary>
+    /// <param name="angle24h"></param>
+    /// <returns></returns>
+    private double CalcAngle24h(double angle24h) => ConditionRA(SiderealTime - angle24h);
 
     private static readonly Regex HMTParser = new Regex(@"^(\d{2}):(\d{2})[.](\d)$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex HMSParser = new Regex(@"^(\d{2}):(\d{2}):(\d{2})$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
@@ -342,50 +349,60 @@ public class FakeMeadeLX200SerialDevice: ISerialDevice
         _isTracking = true; // LX85 seems to start tracking on first slew, replicate this here
         _isSlewing = true;
 
-        var hourAngleAtSlewTime = HourAngle;
-        var targetHourAngle = CalcHourAngle(_targetRa);
-        var state = new SlewSate(_transform.RATopocentric, _transform.DECTopocentric, _slewRate, hourAngleAtSlewTime, targetHourAngle);
+        var hourAngleAtSlewTime = ConditionRA(_raAngle);
+        var period = TimeSpan.FromMilliseconds(100);
+        var state = new SlewSate(_transform.RATopocentric, _transform.DECTopocentric, _slewRate, hourAngleAtSlewTime, period);
 
         var slewTimer = timeProvider.CreateTimer(SlewTimerCallback, state, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
 
         Interlocked.Exchange(ref _slewTimer, slewTimer)?.Dispose();
 
-        slewTimer.Change(TimeSpan.FromMilliseconds(200), TimeSpan.FromSeconds(1));
+        slewTimer.Change(period, period);
         
         return '0';
     }
 
     /// <summary>
-    /// Assumes a period of 1 call per second.
+    /// Callback from slew timer.
     /// </summary>
     /// <param name="state">state is of type <see cref="SlewSate"/></param>
     private void SlewTimerCallback(object? state)
     {
         if (state is SlewSate slewState)
         {
-            lock (_lockObj) {
+            var slewRatePerPeriod = slewState.SlewRate * slewState.Period.TotalSeconds;
+
+            lock (_lockObj)
+            {
+                _transform.RefreshDateTimeFromTimeProvider();
                 // this is too simplistic, i.e. it does not respect the meridian
-                var raDirPositive = _targetRa > slewState.RaAtSlewTime;
+
+                var targetHourAngle = CalcAngle24h(_targetRa);
+                var raDirPositive = targetHourAngle > slewState.HourAngleAtSlewTime;
                 var decDirPositive = _targetDec > slewState.DecAtSlewTime;
+                var raSlewRate = (raDirPositive ? DEG2HOURS : -DEG2HOURS) * slewRatePerPeriod;
+                var decSlewRate = (decDirPositive ? 1 : -1) * slewRatePerPeriod;
+                var ha24h = ConditionRA(_raAngle);
+                var haNext = ha24h + raSlewRate;
+                var decNext = _transform.DECTopocentric + decSlewRate;
 
-                var ra = _transform.RATopocentric + (raDirPositive ? DEG2HOURS : -DEG2HOURS) * slewState.SlewRate;
-                var dec = _transform.DECTopocentric + (decDirPositive ? 1 : -1) * slewState.SlewRate;
-
-                var isRaReached = raDirPositive switch
+                double haDiff = haNext - targetHourAngle;
+                bool isRaReached = raDirPositive switch
                 {
-                    true => ra >= _targetRa,
-                    false => ra <= _targetRa
+                    true => haNext >= targetHourAngle,
+                    false => haNext <= targetHourAngle
                 };
 
                 var isDecReached = decDirPositive switch
                 {
-                    true => dec >= _targetDec,
-                    false => dec <= _targetDec
+                    true => decNext >= _targetDec,
+                    false => decNext <= _targetDec
                 };
 
+                var ra = CalcAngle24h(ConditionRA(haNext));
+                var dec = Math.Min(90, Math.Max(decNext, -90));
                 if (isRaReached && isDecReached)
                 {
-                    _transform.RefreshDateTimeFromTimeProvider();
                     _transform.SetTopocentric(_targetRa, _targetDec);
                     _isSlewing = false;
 
@@ -393,19 +410,18 @@ public class FakeMeadeLX200SerialDevice: ISerialDevice
                 }
                 else if (isRaReached)
                 {
-                    _transform.RefreshDateTimeFromTimeProvider();
-                    _transform.SetTopocentric(_targetRa, dec);
+                    _transform.SetTopocentric(_targetRa, decNext);
                 }
                 else if (isDecReached)
                 {
-                    _transform.RefreshDateTimeFromTimeProvider();
                     _transform.SetTopocentric(ra, _targetDec);
                 }
                 else
                 {
-                    _transform.RefreshDateTimeFromTimeProvider();
-                    _transform.SetTopocentric(ra, dec);
+                    _transform.SetTopocentric(ra, decNext);
                 }
+
+                _raAngle += raSlewRate - (isRaReached ? haDiff : 0);
             }
         }
     }
@@ -417,5 +433,5 @@ public class FakeMeadeLX200SerialDevice: ISerialDevice
         return dms[..dms.LastIndexOf(':')];
     }
 
-    private record SlewSate(double RaAtSlewTime, double DecAtSlewTime, double SlewRate, double HourAngleAtSlewTime, double TargetHourAngle);
+    private record SlewSate(double RaAtSlewTime, double DecAtSlewTime, double SlewRate, double HourAngleAtSlewTime, TimeSpan Period);
 }

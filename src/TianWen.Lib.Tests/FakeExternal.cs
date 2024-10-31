@@ -6,6 +6,7 @@ using System.IO;
 using System.Reflection;
 using System.Text;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Fake;
 using Xunit.Abstractions;
 
 namespace TianWen.Lib.Tests;
@@ -38,8 +39,15 @@ public class FakeExternal : IExternal
 
     public ILogger AppLogger { get; }
 
+    public virtual ISerialDevice OpenSerialDevice(DeviceBase device, int baud, Encoding encoding, TimeSpan? ioTimeout = null)
+        => device switch
+        {
+            FakeDevice fakeDevice when fakeDevice.DeviceType is DeviceType.Mount => new FakeMeadeLX200SerialDevice(true, Encoding.Latin1, _timeProvider, fakeDevice.SiteLatitude, fakeDevice.SiteLongitude),
+            _ => throw new ArgumentException($"Failed to instantiate serial device type={device.DeviceType} address={device.Address}", nameof(device))
+        };
+
     public virtual ISerialDevice OpenSerialDevice(string address, int baud, Encoding encoding, TimeSpan? ioTimeout = null)
-        => throw new ArgumentException($"Failed to instantiate serial device at {address}", address);
+        => throw new ArgumentException($"Failed to instantiate serial device at address={address}", nameof(address));
 
     public void Sleep(TimeSpan duration) => _timeProvider.Advance(duration);
 }

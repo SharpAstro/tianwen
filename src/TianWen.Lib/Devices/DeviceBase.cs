@@ -13,20 +13,29 @@ namespace TianWen.Lib.Devices;
 public abstract record class DeviceBase(Uri DeviceUri)
 {
     private DeviceType? _deviceType;
+
+    [JsonIgnore]
     public DeviceType DeviceType => _deviceType ??= TryParseDeviceType();
 
     private DeviceType TryParseDeviceType() => DeviceTypeHelper.TryParseDeviceType(DeviceUri.Scheme);
 
     private string? _deviceId;
+
+    [JsonIgnore]
     public string DeviceId => _deviceId ??= string.Concat(DeviceUri.Segments[1..]);
 
     private NameValueCollection? _query;
     [JsonIgnore]
     public NameValueCollection Query => _query ??= HttpUtility.ParseQueryString(DeviceUri.Query);
 
+    [JsonIgnore]
     public string DisplayName => HttpUtility.UrlDecode(DeviceUri.Fragment.TrimStart('#'));
 
+    [JsonIgnore]
     public string DeviceClass => DeviceUri.Host;
+
+    [JsonIgnore]
+    public virtual string? Address => null; 
 
     public override string ToString() => string.Create(CultureInfo.InvariantCulture, stackalloc char[64], $"{DeviceType} {(string.IsNullOrWhiteSpace(DisplayName) ? DeviceId : DisplayName)}");
 
