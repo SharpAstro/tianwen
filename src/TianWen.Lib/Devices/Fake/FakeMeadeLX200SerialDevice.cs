@@ -195,12 +195,12 @@ internal class FakeMeadeLX200SerialDevice: ISerialDevice
                     return true;
 
                 default:
-                    if (dataStr.StartsWith(":Sr"))
+                    if (dataStr.StartsWith(":Sr", StringComparison.Ordinal))
                     {
                         _responseBuffer.Append(ParseTargetRa(dataStr) ? '1' : '0');
                         return true;
                     }
-                    else if (dataStr.StartsWith(":Sd"))
+                    else if (dataStr.StartsWith(":Sd", StringComparison.Ordinal))
                     {
                         _responseBuffer.Append(ParseTargetDec(dataStr) ? '1' : '0');
                         return true;

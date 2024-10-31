@@ -18,8 +18,10 @@ builder.Services
     .AddAstrometry()
     .AddZWO()
     .AddAscom()
+    .AddMeade()
     .AddProfile()
     .AddFake()
+    .AddPHD2()
     .AddDeviceManager();
 
 using IHost host = builder.Build();

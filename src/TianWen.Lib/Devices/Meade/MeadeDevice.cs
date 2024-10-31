@@ -5,13 +5,11 @@ namespace TianWen.Lib.Devices.Meade;
 
 public record MeadeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 {
-    public MeadeDevice(DeviceType deviceType, string deviceId, string displayName, string address)
-        : this(new Uri($"{deviceType}://{typeof(MeadeDevice).Name}/{deviceId}#{displayName}?{new NameValueCollection { ["address"] = address }.ToQueryString()}"))
+    public MeadeDevice(DeviceType deviceType, string deviceId, string displayName, string port)
+        : this(new Uri($"{deviceType}://{typeof(MeadeDevice).Name}/{deviceId}#{displayName}?{new NameValueCollection { ["port"] = port }.ToQueryString()}"))
     {
         // calls primary constructor
     }
-
-    public override string? Address => Query["address"];
 
     protected override IDeviceDriver? NewInstanceFromDevice(IExternal external) => DeviceType switch
     {

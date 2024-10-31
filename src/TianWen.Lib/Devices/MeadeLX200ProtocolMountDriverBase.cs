@@ -995,15 +995,24 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         try
         {
             connectionId = CONNECTION_ID_EXCLUSIVE;
-            connectedDeviceInfo = new MountDeviceInfo(External.OpenSerialDevice(_device, 9600, _encoding, TimeSpan.FromMicroseconds(500)));
 
-            DeviceConnectedEvent += Mount_DeviceConnectedEvent;
+            if (_device.ConnectSerialDevice(external, encoding: _encoding, ioTimeout: TimeSpan.FromMilliseconds(500)) is { IsOpen: true } serialDevice)
+            {
+                connectedDeviceInfo = new MountDeviceInfo(serialDevice);
 
-            return connectedDeviceInfo.SerialDevice?.IsOpen is true;
+                DeviceConnectedEvent += Mount_DeviceConnectedEvent;
+
+                return true;
+            }
+            else
+            {
+                connectedDeviceInfo = default;
+                return false;
+            }
         }
         catch (Exception ex)
         {
-            External.AppLogger.LogError(ex, "Error {ErrorMessage} when connecting to serial port {DeviceAddress}", ex.Message, _device.Address);
+            External.AppLogger.LogError(ex, "Error {ErrorMessage} when connecting to serial port {DeviceUri}", ex.Message, _device.DeviceUri);
 
             connectedDeviceInfo = default;
             connectionId = CONNECTION_ID_UNKNOWN;

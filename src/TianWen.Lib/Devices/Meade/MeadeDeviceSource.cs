@@ -1,7 +1,6 @@
 ﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
-using System.IO.Ports;
 using System.Text;
 
 namespace TianWen.Lib.Devices.Meade;
@@ -14,7 +13,7 @@ internal class MeadeDeviceSource(IExternal external) : IDeviceSource<MeadeDevice
 
     public IEnumerable<MeadeDevice> RegisteredDevices(DeviceType deviceType)
     {
-        foreach (var portName in SerialPort.GetPortNames())
+        foreach (var portName in external.EnumerateSerialPorts())
         {
             MeadeDevice? device;
             try
@@ -22,7 +21,7 @@ internal class MeadeDeviceSource(IExternal external) : IDeviceSource<MeadeDevice
                 using var serialDevice = external.OpenSerialDevice(portName, 9600, Encoding.ASCII, TimeSpan.FromMilliseconds(100));
 
                 if (serialDevice.TryWrite(":GVP#"u8) && serialDevice.TryReadTerminated(out var productName, "#"u8)
-                    && (productName.StartsWith("LX"u8) || productName.StartsWith("Autostar"u8) || productName.StartsWith("Audiostar"u8))
+                    && productName.StartsWithAny("LX"u8, "Autostar"u8, "Audiostar"u8)
                     && serialDevice.TryWrite(":GVN#"u8) && serialDevice.TryReadTerminated(out var productNumber, "#"u8)
                 )
                 {
