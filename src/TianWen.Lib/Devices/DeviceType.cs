@@ -32,14 +32,14 @@ public enum DeviceType
     CoverCalibrator,
 
     /// <summary>
-    /// A telescope in the sense of the actual mount (inherited from ASCOM terminology), implements <see cref="IMountDriver"/>.
+    /// A device that implements implements <see cref="IMountDriver"/>.
     /// </summary>
-    Telescope,
+    Mount,
 
     /// <summary>
-    /// Alias of <see cref="Telescope"/>.
+    /// A telescope in the sense of the actual mount (inherited from ASCOM terminology), alias of <see cref="Mount"/>.
     /// </summary>
-    Mount = Telescope,
+    Telescope = Mount,
 
     /// <summary>
     /// A robotic focuser device that implements <see cref="IFocuserDriver"/>.

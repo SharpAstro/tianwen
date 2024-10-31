@@ -6,7 +6,7 @@ internal class FakeDeviceSource : IDeviceSource<FakeDevice>
 {
     public bool IsSupported => true;
 
-    public IEnumerable<DeviceType> RegisteredDeviceTypes => [DeviceType.Camera, DeviceType.Focuser, DeviceType.FilterWheel];
+    public IEnumerable<DeviceType> RegisteredDeviceTypes => [DeviceType.Mount, DeviceType.Camera, DeviceType.Focuser, DeviceType.FilterWheel];
 
     const int FakeDeviceCount = 9;
 
