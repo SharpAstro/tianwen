@@ -1,8 +1,8 @@
 ﻿using Microsoft.Extensions.Logging;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Net;
 using System.Text;
 
 namespace TianWen.Lib.Devices;
@@ -125,8 +125,11 @@ public interface IExternal
         return new string(name.Select(c => invalids.Contains(c) ? ReplacementChar : c).ToArray());
     }
 
-    public ISerialDevice OpenSerialDevice(DeviceBase device, int baud, Encoding encoding, TimeSpan? ioTimeout = null)
-        => OpenSerialDevice(device.Address ?? throw new ArgumentException($"No address defined for device {device}", nameof(device)), baud, encoding, ioTimeout);
+    /// <summary>
+    /// Returns all available serial ports on the system, prefixed with serial: <see cref="ISerialDevice.SerialProto"/>.
+    /// </summary>
+    /// <returns>list of available serial devices, or empty.</returns>
+    IReadOnlyList<string> EnumerateSerialPorts();
 
     ISerialDevice OpenSerialDevice(string address, int baud, Encoding encoding, TimeSpan? ioTimeout = null);
 }

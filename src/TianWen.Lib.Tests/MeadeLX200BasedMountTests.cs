@@ -1,5 +1,6 @@
 ﻿using Shouldly;
 using System;
+using System.Collections.Specialized;
 using System.Threading;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
@@ -16,7 +17,7 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
     public void GivenMountWhenConnectingItOpensSerialPort(double siteLat, double siteLong)
     {
         // given
-        var device = new FakeDevice(DeviceType.Mount, 1, new System.Collections.Specialized.NameValueCollection { ["latitude"] = Convert.ToString(siteLat), ["longitude"] = Convert.ToString(siteLong) });
+        var device = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection { ["latitude"] = Convert.ToString(siteLat), ["longitude"] = Convert.ToString(siteLong) });
         var fakeExternal = new FakeExternal(outputHelper, null, null, null);
 
         // when
@@ -37,7 +38,7 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
     public void GivenMountWhenConnectingAndDisconnectingThenSerialPortIsClosed(double siteLat, double siteLong)
     {
         // given
-        var device = new FakeDevice(DeviceType.Mount, 1, new System.Collections.Specialized.NameValueCollection { ["latitude"] = Convert.ToString(siteLat), ["longitude"] = Convert.ToString(siteLong) });
+        var device = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection { ["latitude"] = Convert.ToString(siteLat), ["longitude"] = Convert.ToString(siteLong) });
         var fakeExternal = new FakeExternal(outputHelper, null, null, null);
 
         int receivedConnect = 0;
@@ -83,7 +84,7 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
     public void GivenTargetWhenSlewingItSlewsToTarget(double siteLat, double siteLong, double targetRa, double targetDec, string? utc)
     {
         // given
-        var device = new FakeDevice(DeviceType.Mount, 1, new System.Collections.Specialized.NameValueCollection { ["latitude"] = Convert.ToString(siteLat), ["longitude"] = Convert.ToString(siteLong) });
+        var device = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection { ["latitude"] = Convert.ToString(siteLat), ["longitude"] = Convert.ToString(siteLong) });
         var fakeExternal = new FakeExternal(outputHelper, null, utc is not null ? DateTimeOffset.Parse(utc) : null, null);
 
         var mount = new FakeMeadeLX200ProtocolMountDriver(device, fakeExternal)

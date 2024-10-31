@@ -553,13 +553,13 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             var commonNames = new HashSet<string>(8);
             foreach (var idOrig in record.Ids)
             {
-                var isCluster = idOrig.StartsWith(CLUSTER_PREFIX);
+                var isCluster = idOrig.StartsWith(CLUSTER_PREFIX, StringComparison.Ordinal);
                 var id = isCluster ? idOrig[CLUSTER_PREFIX.Length..] : idOrig;
-                if (id.StartsWith(NAME_CAT_PREFIX))
+                if (id.StartsWith(NAME_CAT_PREFIX, StringComparison.Ordinal))
                 {
                     commonNames.Add(id[NAME_CAT_PREFIX.Length..].TrimStart());
                 }
-                else if (id.StartsWith(STAR_CAT_PREFIX))
+                else if (id.StartsWith(STAR_CAT_PREFIX, StringComparison.Ordinal))
                 {
                     commonNames.Add(id[STAR_CAT_PREFIX.Length..].TrimStart());
                 }

@@ -1,25 +1,26 @@
 ﻿using Microsoft.Extensions.Logging;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Threading;
-using TianWen.Lib.Devices;
 
-class SystemExternal(ILoggerFactory loggerFactory) : IExternal
+namespace TianWen.Lib.Devices;
+
+internal class SystemExternal(ILoggerFactory loggerFactory) : IExternal
 {
     public TimeProvider TimeProvider => TimeProvider.System;
 
-    public DirectoryInfo OutputFolder { get; } = 
-        new DirectoryInfo(
-            Environment.GetFolderPath(Environment.SpecialFolder.MyPictures, Environment.SpecialFolderOption.Create)
-        ).CreateSubdirectory(IExternal.ApplicationName);
+    public DirectoryInfo OutputFolder { get; } = CreateSpecialSubFolder(Environment.SpecialFolder.MyPictures);
 
-    public DirectoryInfo ProfileFolder { get; } =
-        new DirectoryInfo(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData, Environment.SpecialFolderOption.Create)
-        ).CreateSubdirectory(IExternal.ApplicationName);
+    public DirectoryInfo ProfileFolder { get; } = CreateSpecialSubFolder(Environment.SpecialFolder.ApplicationData);
+
+    private static DirectoryInfo CreateSpecialSubFolder(Environment.SpecialFolder specialFolder) =>
+        new DirectoryInfo(Environment.GetFolderPath(specialFolder, Environment.SpecialFolderOption.Create)).CreateSubdirectory(IExternal.ApplicationName);
 
     public ILogger AppLogger => loggerFactory.CreateLogger<SystemExternal>();
+
+    public IReadOnlyList<string> EnumerateSerialPorts() => StreamBasedSerialPort.EnumerateSerialPorts();
 
     public ISerialDevice OpenSerialDevice(string address, int baud, Encoding encoding, TimeSpan? ioTimeout = null)
         => new StreamBasedSerialPort(address, baud, AppLogger, encoding, ioTimeout);

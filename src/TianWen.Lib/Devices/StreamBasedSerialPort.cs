@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Logging;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.IO.Ports;
@@ -8,16 +9,35 @@ using System.Text;
 
 namespace TianWen.Lib.Devices;
 
-public sealed class StreamBasedSerialPort : ISerialDevice
+internal sealed class StreamBasedSerialPort : ISerialDevice
 {
+    public static IReadOnlyList<string> EnumerateSerialPorts()
+    {
+        var portNames = SerialPort.GetPortNames();
+
+        var prefixedPortNames = new List<string>(portNames.Length);
+        for (var i = 0; i < portNames.Length; i++)
+        {
+            prefixedPortNames[i] = $"{ISerialDevice.SerialProto}{portNames[i]}";
+        }
+
+        return prefixedPortNames;
+    }
+
+    public static string CleanupPortName(string portName)
+    {
+        var portNameWithoutPrefix = portName.StartsWith(ISerialDevice.SerialProto, StringComparison.Ordinal) ? portName[ISerialDevice.SerialProto.Length..] : portName;
+
+        return portNameWithoutPrefix.StartsWith("tty", StringComparison.Ordinal) ? $"/dev/{portNameWithoutPrefix}" : portNameWithoutPrefix;
+    }
+
     private readonly SerialPort _port;
     private readonly Stream _stream;
     private readonly ILogger _logger;
 
     public StreamBasedSerialPort(string portName, int baud, ILogger logger, Encoding encoding, TimeSpan? ioTimeout = null)
     {
-        var address = portName.StartsWith("tty") ? $"/dev/{portName}" : portName;
-        _port = new SerialPort(address, baud);
+        _port = new SerialPort(CleanupPortName(portName), baud);
         _port.Open();
 
         var timeoutMs = (int)(ioTimeout ?? TimeSpan.FromMicroseconds(500)).TotalMilliseconds;

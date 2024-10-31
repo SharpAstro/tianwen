@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Specialized;
+using System.Text;
 using System.Text.Json.Serialization;
 
 namespace TianWen.Lib.Devices.Fake;
@@ -17,14 +18,6 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         // calls primary constructor
     }
 
-
-    [JsonIgnore]
-    public double SiteLatitude => double.TryParse(Query["latitude"], out var latitude) ? latitude : throw new InvalidOperationException("Failed to parse latitude");
-
-    [JsonIgnore]
-    public double SiteLongitude => double.TryParse(Query["longitude"], out var latitude) ? latitude : throw new InvalidOperationException("Failed to parse longitude");
-
-
     protected override IDeviceDriver? NewInstanceFromDevice(IExternal external) => DeviceType switch
     {
         DeviceType.Camera => new FakeCameraDriver(this, external),
@@ -34,4 +27,17 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         DeviceType.Mount => new FakeMeadeLX200ProtocolMountDriver(this, external),
         _ => null
     };
+
+    public override ISerialDevice? ConnectSerialDevice(IExternal external, int baud = 9600, Encoding? encoding = null, TimeSpan? ioTimeout = null) => DeviceType switch
+    {
+        DeviceType.Mount => new FakeMeadeLX200SerialDevice(true, encoding ?? Encoding.Latin1, external.TimeProvider, SiteLatitude, SiteLongitude),
+        _ => null
+    };
+
+    [JsonIgnore]
+    private double SiteLatitude => double.TryParse(Query["latitude"], out var latitude) ? latitude : throw new InvalidOperationException("Failed to parse latitude");
+
+    [JsonIgnore]
+    private double SiteLongitude => double.TryParse(Query["longitude"], out var latitude) ? latitude : throw new InvalidOperationException("Failed to parse longitude");
+
 }

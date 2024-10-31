@@ -4,7 +4,9 @@ using System.Collections.Specialized;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Linq;
+using System.Net;
 using System.Reflection;
+using System.Text;
 using System.Text.Json.Serialization;
 using System.Web;
 
@@ -33,9 +35,6 @@ public abstract record class DeviceBase(Uri DeviceUri)
 
     [JsonIgnore]
     public string DeviceClass => DeviceUri.Host;
-
-    [JsonIgnore]
-    public virtual string? Address => null; 
 
     public override string ToString() => string.Create(CultureInfo.InvariantCulture, stackalloc char[64], $"{DeviceType} {(string.IsNullOrWhiteSpace(DisplayName) ? DeviceId : DisplayName)}");
 
@@ -80,4 +79,22 @@ public abstract record class DeviceBase(Uri DeviceUri)
     }
 
     protected virtual IDeviceDriver? NewInstanceFromDevice(IExternal external) => null;
+
+    public virtual ISerialDevice? ConnectSerialDevice(IExternal external, int baud = 9600, Encoding? encoding = null, TimeSpan? ioTimeout = null)
+    {
+        if (Query["port"] is { Length: > 0 } port)
+        {
+            var selectedBaud = int.TryParse(Query["baud"], CultureInfo.InvariantCulture, out var customBaud) ? customBaud : baud;
+
+            if (port.StartsWith(ISerialDevice.SerialProto, StringComparison.Ordinal)
+                || port.StartsWith("COM", StringComparison.OrdinalIgnoreCase)
+                || port.Split('/', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)[^1].StartsWith("tty", StringComparison.Ordinal)
+            )
+            {
+                return external.OpenSerialDevice(port, selectedBaud, encoding ?? Encoding.ASCII, ioTimeout);
+            }
+        }
+
+        return null;
+    }
 }
