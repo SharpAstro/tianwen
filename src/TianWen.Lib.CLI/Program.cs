@@ -14,7 +14,7 @@ builder.Services
             options.IncludeScopes = false;
         });
     })
-    .AddSingleton<IExternal, ConsoleExternal>()
+    .UseSystemExternal()
     .AddAstrometry()
     .AddZWO()
     .AddAscom()
