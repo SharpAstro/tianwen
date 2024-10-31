@@ -1,9 +1,29 @@
 ﻿using System.Collections.Generic;
+using System.Collections.Specialized;
+using System.Linq;
+using System.Text;
+using System.Web;
 
 namespace TianWen.Lib;
 
 public static class CollectionHelper
 {
+    public static string ToQueryString(this NameValueCollection @this)
+    {
+        var sb = new StringBuilder();
+
+        foreach (string name in @this)
+        {
+            if (sb.Length > 0)
+            {
+                sb.Append('&');
+            }
+            sb.Append(name).Append('=').Append(HttpUtility.UrlEncode(@this[name]));
+        }
+
+        return sb.ToString();
+    }
+
     public static void CopyTo<T>(this IReadOnlyList<T> @this, T[] array, int arrayIndex)
     {
         if (@this is ICollection<T> collection)

@@ -11,15 +11,19 @@ using TianWen.Lib.Astrometry;
 using static TianWen.Lib.Astrometry.CoordinateUtils;
 using static TianWen.Lib.Astrometry.Constants;
 
-namespace TianWen.Lib.Devices.Meade;
+namespace TianWen.Lib.Devices;
+
+internal record struct MountDeviceInfo(ISerialDevice SerialDevice);
 
 /// <summary>
-/// Mount based on the Meade LX200 protocol.
+/// Abstract mount based on the Meade LX200 protocol.
 /// Developed against LX85 Mount.
 /// </summary>
 /// <param name="device"></param>
 /// <param name="external"></param>
-internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : DeviceDriverBase<MeadeDevice, MountDeviceInfo>(device, external), IMountDriver
+internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice device, IExternal external)
+    : DeviceDriverBase<TDevice, MountDeviceInfo>(device, external), IMountDriver
+    where TDevice : DeviceBase
 {
     private static readonly Encoding _encoding = Encoding.Latin1;
 
@@ -28,11 +32,12 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
     const int MOVING_STATE_PULSE_GUIDING = 2;
     const int MOVING_STATE_SLEWING = 3;
 
-    const double DEFAULT_GUIDE_RATE = SIDEREAL_RATE * 2d/3d / 3600d;
+    const double DEFAULT_GUIDE_RATE = SIDEREAL_RATE * 2d / 3d / 3600d;
 
     private ITimer? _slewTimer;
-    private volatile PierSide _sideOfPierAfterLastGoto = PierSide.Unknown;
+    private volatile PierSide _sideOfPierAfterLastGoto;
     private int _movingState = MOVING_STATE_NORMAL;
+    private bool? _isSouthernHemisphere;
     private string _telescopeName = "Unknown";
     private string _telescopeFW = "Unknown";
 
@@ -276,7 +281,7 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
 
             if (Utf8Parser.TryParse(response, out TimeSpan time, out _))
             {
-                return time;
+                return time.Modulo24h();
             }
 
             throw new InvalidOperationException($"Could not parse response {_encoding.GetString(response)} of GL (get local time)");
@@ -341,6 +346,11 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
 
         var (raSideOfPier, lst) = CalculateSideOfPier(ra);
 
+        if (_sideOfPierAfterLastGoto is PierSide.Unknown)
+        {
+            _sideOfPierAfterLastGoto = IsSouthernHemisphere ? PierSide.East : PierSide.West;
+        }
+
         return (isSlewing, isSlewing ? raSideOfPier : _sideOfPierAfterLastGoto, raSideOfPier != _sideOfPierAfterLastGoto && _sideOfPierAfterLastGoto is not PierSide.Unknown, lst);
     }
 
@@ -364,7 +374,7 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
 
             if (Utf8Parser.TryParse(response, out TimeSpan time, out _))
             {
-                return time.ModuloHours(24).TotalHours;
+                return time.Modulo24h().TotalHours;
             }
 
             throw new InvalidOperationException($"Could not parse response {_encoding.GetString(response)} of GS (get sidereal time)");
@@ -414,7 +424,7 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
             var (ra, highPrecision) = GetRightAscensionWithPrecision(target: false);
 
             // convert decimal hours to HH:MM.T (classic LX200 RA Notation) if low precision. T is the decimal part of minutes which is converted into seconds
-            var targetHms = TimeSpan.FromHours(Math.Abs(value)).Round(highPrecision ? TimeSpanRoundingType.Second : TimeSpanRoundingType.TenthMinute).ModuloHours(24);
+            var targetHms = TimeSpan.FromHours(Math.Abs(value)).Round(highPrecision ? TimeSpanRoundingType.Second : TimeSpanRoundingType.TenthMinute).Modulo24h();
 
             const int offset = 2;
             Span<byte> buffer = stackalloc byte[2 + 2 + 2 + 2 + 1 + (highPrecision ? 1 : 0)];
@@ -492,7 +502,9 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
             var signLength = sign is -1 ? 1 : 0;
             var degOffset = 2 + signLength;
             var minOffset = degOffset + 2 + 1;
-            var targetDms = TimeSpan.FromHours(Math.Abs(value)).Round(highPrecision ? TimeSpanRoundingType.Second : TimeSpanRoundingType.Minute).ModuloHours(90);
+            var targetDms = TimeSpan.FromHours(Math.Abs(value))
+                .Round(highPrecision ? TimeSpanRoundingType.Second : TimeSpanRoundingType.Minute)
+                .EnsureMax(TimeSpan.FromHours(90));
 
             Span<byte> buffer = stackalloc byte[minOffset + 2 + (highPrecision ? 3 : 0)];
             "Sd"u8.CopyTo(buffer);
@@ -541,7 +553,7 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
     private (double RightAscension, bool HighPrecision) GetRightAscensionWithPrecision(bool target)
     {
         SendAndReceive(target ? "Gr"u8 : "GR"u8, out var response);
-        var ra = HmsOrHmTToHours(response, out var highPrecision) % 24;
+        var ra = HmsOrHmTToHours(response, out var highPrecision);
 
         return (ra, highPrecision);
     }
@@ -549,7 +561,7 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
     private (double Declination, bool HighPrecision) GetDeclinationWithPrecision(bool target)
     {
         SendAndReceive(target ? "Gd"u8 : "GD"u8, out var response);
-        var dec = DMSToDegree(_encoding.GetString(response).Replace('\xdf', ':')) % 90;
+        var dec = DMSToDegree(_encoding.GetString(response).Replace('\xdf', ':'));
 
         return (dec, response.Length >= 7);
     }
@@ -618,7 +630,7 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
             }
 
             var abs = Math.Abs(value);
-            var dms = TimeSpan.FromHours(abs).Round(TimeSpanRoundingType.Minute).ModuloHours(90);
+            var dms = TimeSpan.FromHours(abs).Round(TimeSpanRoundingType.Minute).EnsureMax(TimeSpan.FromHours(90));
 
             var needsSign = value < 0;
             const int cmdLength = 2;
@@ -673,7 +685,9 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
             }
 
             var abs = Math.Abs(value);
-            var dms = TimeSpan.FromHours(abs).Round(TimeSpanRoundingType.Minute).ModuloHours(180);
+            var dms = TimeSpan.FromHours(abs)
+                .Round(TimeSpanRoundingType.Minute)
+                .EnsureRange(TimeSpan.FromHours(-180), TimeSpan.FromHours(+180));
 
             var adjustedDegrees = value > 0 ? 360 - dms.Hours : dms.Hours;
 
@@ -714,10 +728,10 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
             var offset = isNegative ? 1 : 0;
 
             if (Utf8Parser.TryParse(response[offset..], out int degrees, out var consumed)
-                && Utf8Parser.TryParse(response[(offset+consumed+1)..], out int minutes, out _)
+                && Utf8Parser.TryParse(response[(offset + consumed + 1)..], out int minutes, out _)
             )
             {
-                var latOrLongNotAdjusted = (isNegative ? -1 : 1) * (degrees + (minutes / 60d));
+                var latOrLongNotAdjusted = (isNegative ? -1 : 1) * (degrees + minutes / 60d);
                 // adjust s.th. 214 from mount becomes -214 and then becomes 146
                 return latOrLongNotAdjusted >= -180 ? latOrLongNotAdjusted : latOrLongNotAdjusted + 360;
             }
@@ -736,12 +750,18 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
         return sideOfPier;
     }
 
+    private bool IsSouthernHemisphere => _isSouthernHemisphere ??= SiteLatitude < 0;
+
     private (PierSide SideOfPier, double SiderealTime) CalculateSideOfPier(double ra)
     {
         var lst = SiderealTime;
-        var sideOfPier = ConditionHA(lst - ra) > 0
-            ? PierSide.East
-            : PierSide.West;
+        var sideOfPier = ConditionHA(lst - ra) switch
+        {
+            0 => IsSouthernHemisphere ? PierSide.East : PierSide.West,
+            > 0 => PierSide.East,
+            < 0 => PierSide.West,
+            _ => PierSide.Unknown
+        };
 
         return (sideOfPier, lst);
     }
@@ -780,7 +800,7 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
         {
             throw new InvalidOperationException("Cannot pulse guide when tracking is off");
         }
- 
+
         if (ms.TryFormat(buffer, out _, "0000", CultureInfo.InvariantCulture))
         {
             Send(buffer);
@@ -810,12 +830,12 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
         {
             throw new InvalidOperationException("Cannot slew while pulse-guiding");
         }
-                
+
         if (IsSlewing)
         {
             throw new InvalidOperationException("Cannot slew while a slew is still ongoing");
         }
-                
+
         if (AtPark)
         {
             throw new InvalidOperationException("Mount is parked");
@@ -825,7 +845,7 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
         TargetDeclination = dec;
 
         SendAndReceive("MS"u8, out var response, count: 1);
-            
+
         if (response.SequenceEqual("0"u8))
         {
             var previousState = Interlocked.Exchange(ref _movingState, MOVING_STATE_SLEWING);
@@ -867,9 +887,10 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
         var ra = RightAscension;
         var dec = Declination;
         double lst;
+        PierSide sideOfPier;
         if (!double.IsNaN(ra) && !AtPark)
         {
-            (continueRunning, var sideOfPier, var hasFlipped, lst) = SideOfPierCheck(ra);
+            (continueRunning, sideOfPier, var hasFlipped, lst) = SideOfPierCheck(ra);
 
             if (hasFlipped)
             {
@@ -880,12 +901,15 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
         {
             continueRunning = false;
             lst = SiderealTime;
+            sideOfPier = PierSide.Unknown;
         }
 
         if (continueRunning)
         {
-            External.AppLogger.LogTrace("Still slewing hour angle={HourAngle} lst={LST} ra={Ra} dec={Dec}",
-                HoursToHMS(ConditionHA(lst - ra)), HoursToHMS(lst), HoursToHMS(ra), DegreesToDMS(dec));
+#if TRACE
+            External.AppLogger.LogTrace("Still slewing hour angle={HourAngle} lst={LST} ra={Ra} dec={Dec} sop={SideOfPier}",
+                HoursToHMS(ConditionHA(lst - ra)), HoursToHMS(lst), HoursToHMS(ra), DegreesToDMS(dec), sideOfPier);
+#endif
         }
         else
         {
@@ -901,6 +925,13 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
                 if (previousState != MOVING_STATE_SLEWING && previousState != finalMovingState)
                 {
                     External.AppLogger.LogWarning("Expected moving state to be slewing, but was: {PreviousMovingState}", MovingStateDisplayName(previousState));
+                }
+                else
+                {
+#if TRACE
+                    External.AppLogger.LogTrace("Slew complete hour angle={HourAngle} lst={LST} ra={Ra} dec={Dec} sop={SideOfPier}",
+                        HoursToHMS(ConditionHA(lst - ra)), HoursToHMS(lst), HoursToHMS(ra), DegreesToDMS(dec), sideOfPier);
+#endif
                 }
             }
         }
@@ -950,7 +981,7 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
         }
 
         SendAndReceive("CM"u8, out var response);
-        
+
         if (response is not { Length: > 0 })
         {
             throw new InvalidOperationException($"Failed to sync {HoursToHMS(ra)},{DegreesToDMS(dec)}");
@@ -964,24 +995,24 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
         try
         {
             connectionId = CONNECTION_ID_EXCLUSIVE;
-            connectedDeviceInfo = new MountDeviceInfo(External.OpenSerialDevice(_device.DeviceId, 9600, _encoding, TimeSpan.FromMicroseconds(500)));
+            connectedDeviceInfo = new MountDeviceInfo(External.OpenSerialDevice(_device, 9600, _encoding, TimeSpan.FromMicroseconds(500)));
 
-            DeviceConnectedEvent += MeadeLX85Mount_DeviceConnectedEvent;
+            DeviceConnectedEvent += Mount_DeviceConnectedEvent;
 
             return connectedDeviceInfo.SerialDevice?.IsOpen is true;
         }
         catch (Exception ex)
         {
-            External.AppLogger.LogError(ex, "Error {ErrorMessage} when connecting to {DeviceId}", ex.Message, _device.DeviceId);
+            External.AppLogger.LogError(ex, "Error {ErrorMessage} when connecting to serial port {DeviceAddress}", ex.Message, _device.Address);
 
             connectedDeviceInfo = default;
             connectionId = CONNECTION_ID_UNKNOWN;
-            
+
             return false;
         }
     }
 
-    private void MeadeLX85Mount_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
+    private void Mount_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
     {
         if (e.Connected)
         {
@@ -1023,7 +1054,7 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
     {
         if (connectionId == CONNECTION_ID_EXCLUSIVE)
         {
-            DeviceConnectedEvent -= MeadeLX85Mount_DeviceConnectedEvent;
+            DeviceConnectedEvent -= Mount_DeviceConnectedEvent;
 
             if (_deviceInfo.SerialDevice is { IsOpen: true } port)
             {
@@ -1049,7 +1080,7 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
         {
             throw new InvalidOperationException("Mount is not connected");
         }
-                
+
         if (!CanUnpark && !CanSetPark && AtPark)
         {
             throw new InvalidOperationException("Mount is parked, but it is not possible to unpark it");
@@ -1105,5 +1136,3 @@ internal class MeadeLX200BasedMount(MeadeDevice device, IExternal external) : De
     }
     #endregion
 }
-
-internal record struct MountDeviceInfo(ISerialDevice SerialDevice);

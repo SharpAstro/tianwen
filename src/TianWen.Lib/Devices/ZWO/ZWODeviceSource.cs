@@ -8,7 +8,7 @@ using static ZWOptical.SDK.EFW1_7;
 
 namespace TianWen.Lib.Devices.ZWO;
 
-public class ZWODeviceSource : IDeviceSource<ZWODevice>
+internal class ZWODeviceSource : IDeviceSource<ZWODevice>
 {
     static readonly Dictionary<DeviceType, bool> _supportedDeviceTypes = [];
 

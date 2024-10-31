@@ -2,6 +2,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Text;
 
 namespace TianWen.Lib.Devices;
@@ -123,6 +124,9 @@ public interface IExternal
         char[] invalids = Path.GetInvalidFileNameChars();
         return new string(name.Select(c => invalids.Contains(c) ? ReplacementChar : c).ToArray());
     }
+
+    public ISerialDevice OpenSerialDevice(DeviceBase device, int baud, Encoding encoding, TimeSpan? ioTimeout = null)
+        => OpenSerialDevice(device.Address ?? throw new ArgumentException($"No address defined for device {device}", nameof(device)), baud, encoding, ioTimeout);
 
     ISerialDevice OpenSerialDevice(string address, int baud, Encoding encoding, TimeSpan? ioTimeout = null);
 }

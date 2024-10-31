@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Collections.Specialized;
+using System.Text.Json.Serialization;
 
 namespace TianWen.Lib.Devices.Fake;
 
@@ -9,11 +11,19 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
     /// </summary>
     /// <param name="deviceType"></param>
     /// <param name="deviceId">Fake device id (starting from 1)</param>
-    public FakeDevice(DeviceType deviceType, int deviceId)
-        : this(new Uri($"{deviceType}://{typeof(FakeDevice).Name}/{deviceType}{deviceId}#Fake {deviceType.PascalCaseStringToName()} {deviceId}"))
+    public FakeDevice(DeviceType deviceType, int deviceId, NameValueCollection? values = null)
+        : this(new Uri($"{deviceType}://{typeof(FakeDevice).Name}/{deviceType}{deviceId}{(values is { Count: > 0 } ? "?" + values.ToQueryString() : "")}#Fake {deviceType.PascalCaseStringToName()} {deviceId}"))
     {
         // calls primary constructor
     }
+
+
+    [JsonIgnore]
+    public double SiteLatitude => double.TryParse(Query["latitude"], out var latitude) ? latitude : throw new InvalidOperationException("Failed to parse latitude");
+
+    [JsonIgnore]
+    public double SiteLongitude => double.TryParse(Query["longitude"], out var latitude) ? latitude : throw new InvalidOperationException("Failed to parse longitude");
+
 
     protected override IDeviceDriver? NewInstanceFromDevice(IExternal external) => DeviceType switch
     {
@@ -21,6 +31,7 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         DeviceType.FilterWheel => new FakeFilterWheelDriver(this, external),
         DeviceType.Focuser => new FakeFocuserDriver(this, external),
         DeviceType.DedicatedGuiderSoftware => new FakeGuider(this, external),
+        DeviceType.Mount => new FakeMeadeLX200ProtocolMountDriver(this, external),
         _ => null
     };
 }
