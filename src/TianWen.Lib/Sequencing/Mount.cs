@@ -8,20 +8,4 @@ public record Mount(DeviceBase Device, IExternal External) : ControllableDeviceB
     {
         // nothing
     }
-
-    public bool EnsureTracking(TrackingSpeed speed = TrackingSpeed.Sidereal)
-    {
-        if (!Driver.Connected)
-        {
-            return false;
-        }
-
-        if (Driver.CanSetTracking && (Driver.TrackingSpeed != speed || !Driver.Tracking))
-        {
-            Driver.TrackingSpeed = speed;
-            Driver.Tracking = true;
-        }
-
-        return Driver.Tracking;
-    }
 }

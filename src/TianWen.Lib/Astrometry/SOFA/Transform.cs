@@ -655,7 +655,7 @@ namespace TianWen.Lib.Astrometry.SOFA
             }
         }
 
-        public void RefreshDateTimeFromTimeProvider() => DateTime = TimeProvider.GetUtcNow().UtcDateTime;
+        internal void RefreshDateTimeFromTimeProvider() => DateTime = TimeProvider.GetUtcNow().UtcDateTime;
 
         /// <summary>
         /// Timezone offset, will be calculated via SiteLong, SiteLat

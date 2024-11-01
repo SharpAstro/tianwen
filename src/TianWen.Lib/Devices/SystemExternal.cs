@@ -2,12 +2,13 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net;
 using System.Text;
 using System.Threading;
 
 namespace TianWen.Lib.Devices;
 
-internal class SystemExternal(ILoggerFactory loggerFactory) : IExternal
+internal class SystemExternal(IUtf8TextBasedConnectionFactory textBasedConnectionFactory, ILoggerFactory loggerFactory) : IExternal
 {
     public TimeProvider TimeProvider => TimeProvider.System;
 
@@ -26,4 +27,6 @@ internal class SystemExternal(ILoggerFactory loggerFactory) : IExternal
         => new StreamBasedSerialPort(address, baud, AppLogger, encoding, ioTimeout);
 
     public void Sleep(TimeSpan duration) => Thread.Sleep(duration);
+
+    public IUtf8TextBasedConnection ConnectGuider(EndPoint address) => textBasedConnectionFactory.Connect(address);
 }

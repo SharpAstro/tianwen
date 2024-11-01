@@ -24,17 +24,11 @@ SOFTWARE.
 
 */
 
-using System;
+using System.Net;
 
-namespace TianWen.Lib.Devices.Guider;
+namespace TianWen.Lib.Devices;
 
-public interface IGuiderConnection : IDisposable
+public interface IUtf8TextBasedConnectionFactory
 {
-    void Connect(string hostname, ushort port);
-
-    bool IsConnected { get; }
-
-    string? ReadLine();
-
-    bool WriteLine(ReadOnlyMemory<byte> jsonlUtf8Bytes);
+    IUtf8TextBasedConnection Connect(EndPoint endPoint);
 }

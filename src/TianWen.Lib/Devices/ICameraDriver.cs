@@ -283,7 +283,6 @@ public interface ICameraDriver : IDeviceDriver
     /// </list>
     /// Should not throw an exception.
     /// </summary>
-    /// <param name="external"></param>
     /// <returns>true if camera is a coolable camera</returns>
     bool IsCoolable =>
         External.Catch(() => Connected)

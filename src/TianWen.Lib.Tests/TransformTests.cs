@@ -18,8 +18,10 @@ public class TransformTests
     [InlineData("2022-12-01T00:00:00+11:00", EventType.SunRiseSunset, -37.8845, 145.1663, 100, false, 1, 1, 1, "05:51:00", "20:25:00")]
     [InlineData("2022-11-06T00:00:00+11:00", EventType.AstronomicalTwilight, -37.8845, 145.1663, 120, false, 1, 1, 1, "04:27:00", "21:40:00")]
     [InlineData("2022-12-01T00:00:00+11:00", EventType.AstronomicalTwilight, -37.8845, 145.1663, 120, false, 1, 1, 1, "04:00:00", "22:17:00")]
+    [InlineData("2022-12-01T23:59:59+11:00", EventType.AstronomicalTwilight, -37.8845, 145.1663, 120, false, 1, 1, 1, "04:00:00", "22:17:00")]
     [InlineData("2022-12-01T00:00:00+1:00", EventType.AstronomicalTwilight, 51.395, 8.064, 400, false, 1, 1, 3, "06:09:00", "18:23:00")]
     [InlineData("2022-12-21T00:00:00+1:00", EventType.AstronomicalTwilight, 51.395, 8.064, 400, false, 1, 1, 3, "06:26:14", "18:25:00")]
+    [InlineData("2022-12-01T23:59:59+1:00", EventType.AstronomicalTwilight, 51.395, 8.064, 400, false, 1, 1, 3, "06:09:00", "18:23:00")]
     public void GivenDateEventPositionAndOffsetWhenCalcRiseAndSetTimesTheyAreReturned(string dtoStr, EventType eventType, double lat, double @long, double elevation, bool expAbove, int expRise, int expSet, double accuracy, params string[] dateTimeStrs)
     {
         var dto = DateTimeOffset.Parse(dtoStr, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);

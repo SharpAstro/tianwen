@@ -26,10 +26,12 @@ SOFTWARE.
 
 using System;
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Net;
 using System.Text.Json;
 using System.Threading;
 
@@ -39,14 +41,12 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 {
     Thread? m_worker;
     volatile bool m_terminate;
-    readonly object m_sync = new();
-    readonly Dictionary<int, JsonDocument> _responses = [];
+    readonly object m_sync = new object(); // TOOD: Change to Lock when upgrading to C# 13
+    readonly ConcurrentDictionary<int, JsonDocument> _responses = [];
     readonly GuiderDevice _guiderDevice;
-    private string? _selectedProfileName;
+    IUtf8TextBasedConnection? _connection;
+    string? _selectedProfileName;
 
-    string Host { get; }
-    uint Instance { get; }
-    IGuiderConnection Connection { get; }
     Accum AccumRA { get; } = new Accum();
     Accum AccumDEC { get; } = new Accum();
     bool IsAccumActive { get; set; }
@@ -63,35 +63,33 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     /// </summary>
     public bool IsSupported { get; } = true;
 
-    public PHD2GuiderDriver(GuiderDevice guiderDevice, IExternal external)
-        : this(guiderDevice, new GuiderConnection(), external)
+    public PHD2GuiderDriver(IExternal external) : this(MakeDefaultRootDevice(external), external)
     {
         // calls below
     }
 
-    public PHD2GuiderDriver(GuiderDevice guiderDevice, IGuiderConnection connection, IExternal external)
+    public PHD2GuiderDriver(GuiderDevice guiderDevice, IExternal external)
     {
-        External = external;
-        _guiderDevice = guiderDevice;
-
-        if (guiderDevice.DeviceType != DeviceType.DedicatedGuiderSoftware)
+        if (guiderDevice.DeviceType != DeviceType.PHD2)
         {
             throw new ArgumentException($"{guiderDevice} is not of type PHD2, but of type: {guiderDevice.DeviceType}", nameof(guiderDevice));
         }
 
-        var deviceIdSplit = guiderDevice.DeviceId.Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (deviceIdSplit.Length < 2 || !IsValidHost(deviceIdSplit[0]) || !uint.TryParse(deviceIdSplit[1], out uint instanceId))
-        {
-            throw new ArgumentException($"Could not parse {guiderDevice.DeviceId} in {guiderDevice}", nameof(guiderDevice));
-        }
+        External = external;
+        _guiderDevice = guiderDevice;
 
-        Host = deviceIdSplit[0];
-        Instance = instanceId;
-        Connection = connection;
-        if ((deviceIdSplit.Length > 2 ? deviceIdSplit[2] : guiderDevice.DisplayName) is var profile && string.IsNullOrWhiteSpace(profile))
+        if (_guiderDevice.ProfileName is { } profileName)
         {
-            _selectedProfileName = profile;
+            _selectedProfileName = profileName;
         }
+    }
+
+    private static GuiderDevice MakeDefaultRootDevice(IExternal external)
+    {
+        var ip = external.DefaultGuiderAddress;
+        var instanceId = ip.Port - 4400 + 1;
+
+        return new GuiderDevice(DeviceType.PHD2, string.Join('/', ip.Address, instanceId), $"PHD2 instance {instanceId} on {ip}");
     }
 
     private void Worker()
@@ -103,7 +101,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
             {
                 try
                 {
-                    line = Connection.ReadLine();
+                    line = _connection?.ReadLine();
                 }
                 catch (Exception ex)
                 {
@@ -139,7 +137,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
                 {
                     lock (m_sync)
                     {
-                        if (_responses.TryGetValue(id, out var old) && _responses.Remove(id))
+                        if (_responses.Remove(id, out var old))
                         {
                             old.Dispose();
                         }
@@ -160,7 +158,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         }
         finally
         {
-            Connection.Dispose();
+            Interlocked.Exchange(ref _connection, null)?.Dispose();
         }
     }
 
@@ -404,15 +402,6 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
     static bool IsFailedResponse(JsonDocument response) => response.RootElement.TryGetProperty("error", out _);
 
-    static bool IsValidHost(string host)
-        => Uri.CheckHostName(host) switch
-        {
-            UriHostNameType.Dns or
-            UriHostNameType.IPv4 or
-            UriHostNameType.IPv6 => true,
-            _ => false
-        };
-
     public void Dispose()
     {
         GC.SuppressFinalize(this);
@@ -423,21 +412,19 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     {
         if (disposing)
         {
-            if (m_worker is Thread prev)
+            if (Interlocked.Exchange(ref m_worker, null) is Thread prev)
             {
                 m_terminate = true;
-                Connection.Dispose();
                 prev.Join();
-                m_worker = null;
             }
 
-            Connection.Dispose();
+            Interlocked.Exchange(ref _connection, null)?.Dispose();
         }
     }
 
     public bool Connected
     {
-        get => Connection.IsConnected;
+        get => _connection?.IsConnected ?? false;
         set => Connect(value);
     }
 
@@ -454,15 +441,25 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
             return;
         }
 
-        ushort port = (ushort)(4400 + Instance - 1);
-
+        var instanceId = _guiderDevice.InstanceId;
+        var host = _guiderDevice.Host;
+        var port = (ushort)(4400 + instanceId - 1);
         try
         {
-            Connection.Connect(Host, port);
+            EndPoint endPoint = IPAddress.TryParse(host, out var ipAddress)
+                ? new IPEndPoint(ipAddress, port)
+                : new DnsEndPoint(host, port);
+
+            var connection = External.ConnectGuider(endPoint);
+            // try to establish this connection as the current one, if not dispose of it
+            if (Interlocked.CompareExchange(ref _connection, connection, null) is not not null)
+            {
+                connection.Dispose();
+            }
         }
         catch (Exception e)
         {
-            string errorMsg = $"Could not connect to PHD2 instance {Instance} on {Host}:{port}";
+            string errorMsg = $"Could not connect to PHD2 instance {instanceId} on {host}:{port}";
             OnGuidingErrorEvent(new GuidingErrorEventArgs(_guiderDevice, _selectedProfileName, errorMsg, e));
             throw new GuiderException(errorMsg);
         }
@@ -471,7 +468,8 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
         var thread = new Thread(new ParameterizedThreadStart(Worker));
         thread.Start(this);
-        m_worker = thread;
+
+        Interlocked.Exchange(ref m_worker, thread);
 
         DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(connect));
     }
@@ -498,7 +496,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         var (memory, id) = MakeJsonRPCCall(method, @params);
 
         // send request
-        if (!Connection.WriteLine(memory))
+        if (!_connection?.WriteLine(memory) ?? false)
         {
             throw new GuiderException($"Failed to send message {method} params: {string.Join(", ", @params)}");
         }
@@ -513,7 +511,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
                 Monitor.Wait(m_sync);
             }
 
-            _ = _responses.Remove(id);
+            _ = _responses.Remove(id, out _);
 
             if (IsFailedResponse(response))
             {

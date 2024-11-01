@@ -26,23 +26,24 @@ SOFTWARE.
 
 using System;
 using System.IO;
+using System.Net;
 using System.Net.Sockets;
 
 namespace TianWen.Lib.Devices.Guider;
 
-class GuiderConnection : IGuiderConnection
+class JsonRPCConnection() : IUtf8TextBasedConnection
 {
     private TcpClient? _tcpClient;
     private StreamReader? _streamReader;
 
-    public GuiderConnection()
+    public void Connect(EndPoint endPoint)
     {
-        // empty
-    }
+        if (endPoint is not IPEndPoint ipEndPoint)
+        {
+            throw new ArgumentException($"{endPoint} address familiy {endPoint.AddressFamily} is not supported", nameof(endPoint));
+        }
 
-    public void Connect(string hostname, ushort port)
-    {
-        _tcpClient = new TcpClient(hostname, port);
+        _tcpClient = new TcpClient(ipEndPoint);
         _streamReader = new StreamReader(_tcpClient.GetStream());
     }
 
@@ -58,11 +59,9 @@ class GuiderConnection : IGuiderConnection
         if (disposing)
         {
             _streamReader?.Close();
-            _streamReader?.Dispose();
             _streamReader = null;
 
             _tcpClient?.Close();
-            _tcpClient?.Dispose();
             _tcpClient = null;
         }
     }
