@@ -56,4 +56,6 @@ public abstract record ControllableDeviceBase<TDriver> : IDisposable
         Dispose(disposing: true);
         GC.SuppressFinalize(this);
     }
+
+    public override string ToString() => Device.DisplayName;
 }

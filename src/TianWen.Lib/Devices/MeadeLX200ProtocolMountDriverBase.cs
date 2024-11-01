@@ -996,7 +996,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         {
             connectionId = CONNECTION_ID_EXCLUSIVE;
 
-            if (_device.ConnectSerialDevice(external, encoding: _encoding, ioTimeout: TimeSpan.FromMilliseconds(500)) is { IsOpen: true } serialDevice)
+            if (_device.ConnectSerialDevice(External, encoding: _encoding, ioTimeout: TimeSpan.FromMilliseconds(500)) is { IsOpen: true } serialDevice)
             {
                 connectedDeviceInfo = new MountDeviceInfo(serialDevice);
 

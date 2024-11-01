@@ -3,10 +3,13 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
+using System.Net;
 using System.Reflection;
 using System.Text;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Imaging;
 using Xunit.Abstractions;
 
 namespace TianWen.Lib.Tests;
@@ -39,10 +42,29 @@ public class FakeExternal : IExternal
 
     public ILogger AppLogger { get; }
 
+    public virtual IUtf8TextBasedConnection ConnectGuider(EndPoint address)
+        => throw new ArgumentException($"No guider connection defined for address {address}", nameof(address));
+
     public IReadOnlyList<string> EnumerateSerialPorts() => [];
 
     public virtual ISerialDevice OpenSerialDevice(string address, int baud, Encoding encoding, TimeSpan? ioTimeout = null)
         => throw new ArgumentException($"Failed to instantiate serial device at address={address}", nameof(address));
 
     public void Sleep(TimeSpan duration) => _timeProvider.Advance(duration);
+
+    /// <summary>
+    /// Advance fake time to match time spent writing <paramref name="image"/> to <paramref name="fileName"/>,
+    /// as this is a potentially expensive operation
+    /// </summary>
+    /// <param name="image"></param>
+    /// <param name="fileName"></param>
+    public void WriteFitsFile(Image image, string fileName)
+    {
+        // use wall clock time
+        var sw = Stopwatch.StartNew();
+        image.WriteToFitsFile(fileName);
+        sw.Stop();
+
+        _timeProvider.Advance(sw.Elapsed);
+    }
 }

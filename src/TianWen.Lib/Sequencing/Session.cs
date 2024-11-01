@@ -1,8 +1,4 @@
-﻿using TianWen.Lib.Astrometry.Focus;
-using TianWen.Lib.Astrometry.PlateSolve;
-using TianWen.Lib.Devices;
-using TianWen.Lib.Devices.Guider;
-using TianWen.Lib.Imaging;
+﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -10,8 +6,13 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using TianWen.Lib.Astrometry.Focus;
+using TianWen.Lib.Astrometry.PlateSolve;
+using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Guider;
+using TianWen.Lib.Imaging;
+using static TianWen.Lib.Astrometry.CoordinateUtils;
 using static TianWen.Lib.Stat.StatisticsHelper;
-using Microsoft.Extensions.Logging;
 
 namespace TianWen.Lib.Sequencing;
 
@@ -41,16 +42,19 @@ public record Session(
             {
                 if (!Initialisation(cancellationToken))
                 {
+                    External.AppLogger.LogError("Initialization failed, aborting session.");
                     return;
                 }
             }
             else if (CurrentObservation is null)
             {
+                External.AppLogger.LogInformation("Session complete, finished {ObservationCount} observations, finalizing.", _activeObservation);
                 return;
             }
 
-            // TODO wait until 25 min before astro dark to start cooling down without loosing time
-            CoolCamerasToSetpoint( Configuration.SetpointCCDTemperature, Configuration.CooldownRampInterval, 80, SetupointDirection.Down, cancellationToken);
+            WaitUntilTenMinutesBeforeAmateurAstroTwilightEnds();
+
+            CoolCamerasToSetpoint(Configuration.SetpointCCDTemperature, Configuration.CooldownRampInterval, 80, SetupointDirection.Down, cancellationToken);
 
             // TODO wait until 5 min to astro dark, and/or implement IExternal.IsPolarAligned
 
@@ -59,13 +63,14 @@ public record Session(
                 External.AppLogger.LogError("Failed to focus cameras (first time), aborting session.");
                 return;
             }
-            // TODO: Slew near meridian (opposite of pole), CalibrateGuider();
+
+            CalibrateGuider(cancellationToken);
 
             ObservationLoop(cancellationToken);
         }
         catch (Exception e)
         {
-            External.AppLogger.LogError(e, "Exception while in main run loop, unrecoverable, aborting session.");
+            External.AppLogger.LogError(e, "Exception {ErrorMessage} while in main run loop, unrecoverable, aborting session.", e.Message);
         }
         finally
         {
@@ -84,15 +89,25 @@ public record Session(
         var mount = Setup.Mount;
         var distMeridian = TimeSpan.FromMinutes(15);
 
-        mount.EnsureTracking();
+        if (!mount.Driver.EnsureTracking())
+        {
+            External.AppLogger.LogError("Failed to enable tracking of {Mount}.", mount);
 
-        External.AppLogger.LogInformation("Slew mount {MountDisplayName} near zenith to verify that we have rough focus.", mount.Device.DisplayName);
+            return false;
+        }
+
+        External.AppLogger.LogInformation("Slew mount {Mount} near zenith to verify that we have rough focus.", mount);
 
         // coordinates not quite accurate at this point (we have not plate-solved yet) but good enough for this purpose.
         mount.Driver.SlewToZenithAsync(distMeridian);
         var slewTime = MountUtcNow;
 
-        // TODO Wait
+        if (!mount.Driver.WaitForSlewComplete(cancellationToken))
+        {
+            External.AppLogger.LogError("Failed to complete slewing of mount {Mount}", mount);
+
+            return false;
+        }
         
         if (!GuiderFocusLoop(TimeSpan.FromMinutes(1), cancellationToken))
         {
@@ -159,10 +174,15 @@ public record Session(
             if (MountUtcNow - slewTime > distMeridian)
             {
                 mount.Driver.SlewToZenithAsync(distMeridian);
-
-                // TODO wait!
                 
                 slewTime = MountUtcNow;
+
+                if (!mount.Driver.WaitForSlewComplete(cancellationToken))
+                {
+                    External.AppLogger.LogError("Failed to complete slewing of mount {Mount}", mount);
+
+                    return false;
+                }
             }
 
             if (hasRoughFocus.All(v => v))
@@ -182,7 +202,7 @@ public record Session(
         var guider = Setup.Guider;
 
         var plateSolveTimeout = timeoutAfter > TimeSpan.FromSeconds(5) ? timeoutAfter - TimeSpan.FromSeconds(3) : timeoutAfter;
-        var solveTask = guider.Driver.PlateSolveGuiderImageAsync(mount.Driver.RightAscension, mount.Driver.Declination, plateSolveTimeout, PlateSolver, External, 10, cancellationToken);
+        var solveTask = guider.Driver.PlateSolveGuiderImageAsync(PlateSolver, mount.Driver.RightAscension, mount.Driver.Declination, plateSolveTimeout, 10, cancellationToken);
 
         var plateSolveWaitTime = TimeSpan.Zero;
         while (!solveTask.IsCompleted && !cancellationToken.IsCancellationRequested && plateSolveWaitTime < timeoutAfter)
@@ -215,6 +235,27 @@ public record Session(
         }
 
         return false;
+    }
+
+    internal void CalibrateGuider(CancellationToken cancellationToken)
+    {
+        var mount = Setup.Mount;
+
+        // TODO: maybe slew slightly above/below 0 declination to avoid trees, etc.
+        // slew half an hour to meridian, plate solve and slew closer
+        var dec = 0;
+        mount.Driver.SlewHourAngleDecAsync(TimeSpan.FromMinutes(30).TotalHours, dec);
+
+        if (!mount.Driver.WaitForSlewComplete(cancellationToken))
+        {
+            throw new InvalidOperationException($"Failed to slew mount {mount} to guider calibration position (near meridian, {DegreesToDMS(dec)} declination)");
+        }
+
+        // TODO: plate solve and sync and reslew
+
+        var guider = Setup.Guider;
+
+        guider.Driver.StartGuidingLoop(Configuration.GuidingTries, cancellationToken);
     }
 
     internal void Finalise()
@@ -325,7 +366,8 @@ public record Session(
 
         if (mount.Driver.AtPark && (!mount.Driver.CanUnpark || !Catch(mount.Driver.Unpark)))
         {
-            External.AppLogger.LogError("Mount {MountDisplayName} is parked but cannot be unparked. Aborting.", mount.Device.DisplayName);
+            External.AppLogger.LogError("Mount {Mount} is parked but cannot be unparked. Aborting.", mount);
+
             return false;
         }
 
@@ -380,11 +422,20 @@ public record Session(
     {
         var guider = Setup.Guider;
         var mount = Setup.Mount;
+        var sessionStartTime = MountUtcNow;
+        var sessionEndTime = SessionEndTime(sessionStartTime);
 
         Observation? observation;
-        while ((observation = CurrentObservation) is not null && !cancellationToken.IsCancellationRequested)
+        while ((observation = CurrentObservation) is not null
+            && MountUtcNow < sessionEndTime
+            && !cancellationToken.IsCancellationRequested
+        )
         {
-            mount.EnsureTracking();
+            if (!mount.Driver.EnsureTracking())
+            {
+                External.AppLogger.LogError("Failed to enable tracking of {Mount}.", mount);
+                return;
+            }
 
             External.AppLogger.LogInformation("Stop guiding to start slewing mount to target {Observation}.", observation);
             guider.Driver.StopCapture(TimeSpan.FromSeconds(15));
@@ -400,7 +451,14 @@ public record Session(
                 }
                 else if (postCondition is SlewPostCondition.Slewing)
                 {
-                    // TODO wait for finish
+                    if (!mount.Driver.WaitForSlewComplete(cancellationToken))
+                    {
+                        External.AppLogger.LogError("Failed to complete slewing of mount {Mount}", mount);
+
+                        throw new InvalidOperationException($"Failed to complete slewing of mount {mount} while slewing to {observation.Target}");
+                    }
+
+                    // TODO: Plate solve and re-slew
                 }
                 else
                 {
@@ -414,7 +472,7 @@ public record Session(
                 continue;
             }
 
-            var guidingSuccess = guider.Driver.StartGuidingLoop(Configuration.GuidingTries, External, cancellationToken);
+            var guidingSuccess = guider.Driver.StartGuidingLoop(Configuration.GuidingTries, cancellationToken);
 
             if (cancellationToken.IsCancellationRequested)
             {
@@ -458,7 +516,7 @@ public record Session(
         var maxSubExposureSec = subExposuresSec.Max();
         var tickGCD = GCD(subExposuresSec);
         var tickLCM = LCM(tickGCD, subExposuresSec);
-        var tickSec = TimeSpan.FromSeconds(tickGCD);
+        var tickDuration = TimeSpan.FromSeconds(tickGCD);
         var ticksPerMaxSubExposure = maxSubExposureSec / tickGCD;
         var expStartTimes = new DateTimeOffset[scopes];
         var expTicks = new int[scopes];
@@ -496,7 +554,7 @@ public record Session(
             }
 
             var elapsed = WriteQueuedImagesToFitsFiles();
-            var tickMinusElapsed = tickSec - elapsed - overslept;
+            var tickMinusElapsed = tickDuration - elapsed - overslept;
             // clear overslept
             overslept = TimeSpan.Zero;
             if (cancellationToken.IsCancellationRequested)
@@ -518,8 +576,8 @@ public record Session(
                 imageFetchSuccess[i] = false;
                 if (tick <= 0)
                 {
-                    var frameNo = frameNumbers[i];
                     var frameExpTime = TimeSpan.FromSeconds(subExposuresSec[i]);
+                    var frameNo = frameNumbers[i];
                     do // wait for image loop
                     {
                         if (camDriver.ImageReady is true && camDriver.Image is { Width: > 0, Height: > 0 } image)
@@ -539,7 +597,7 @@ public record Session(
                             External.Sleep(spinDuration);
                         }
                     }
-                    while (overslept < (tickSec / 5)
+                    while (overslept < (tickDuration / 5)
                         && camDriver.CameraState is not CameraState.Error and not CameraState.NotConnected
                         && !cancellationToken.IsCancellationRequested
                     );
@@ -576,7 +634,7 @@ public record Session(
                 var shouldDither = (++ditherRound % Configuration.DitherEveryNthFrame) == 0;
                 if (shouldDither)
                 {
-                    if (guider.Driver.DitherWait(Configuration.DitherPixel, Configuration.SettlePixel, Configuration.SettleTime, WriteQueuedImagesToFitsFiles, External, cancellationToken))
+                    if (guider.Driver.DitherWait(Configuration.DitherPixel, Configuration.SettlePixel, Configuration.SettleTime, WriteQueuedImagesToFitsFiles, cancellationToken))
                     {
                         External.AppLogger.LogInformation("Dithering using \"{GuiderName}\" succeeded.", guider.Driver);
                     }
@@ -692,8 +750,8 @@ public record Session(
                     && ++failSafe < IDeviceDriver.MAX_FAILSAFE
                 )
                 {
-                    External.AppLogger.LogInformation("Cover {CoverDisplayName} of telescope {TelescopeNumber} is still {CurrentState} while reaching {FinalCoverState}, waiting.",
-                        cover.Device.DisplayName, i + 1, cs, finalCoverState);
+                    External.AppLogger.LogInformation("Cover {Cover} of telescope {TelescopeNumber} is still {CurrentState} while reaching {FinalCoverState}, waiting.",
+                        cover, i + 1, cs, finalCoverState);
                     External.Sleep(TimeSpan.FromSeconds(3));
                 }
 
@@ -781,11 +839,11 @@ public record Session(
         // TODO: make configurable, add frame type
         var frameFolder = External.CreateSubDirectoryInOutputFolder(targetName, dateFolderUtc, image.ImageMeta.Filter.Name).FullName;
         var fitsFileName = External.GetSafeFileName($"frame_{subExpStartTime:o}_{frameNumber}.fits");
+        var fitsFllFilePath = Path.Combine(frameFolder, fitsFileName);
 
-        External.AppLogger.LogInformation("Writing FITS file {FitsFilePath}", Path.Combine(frameFolder, fitsFileName));
-        image.WriteToFitsFile(Path.Combine(frameFolder, fitsFileName));
+        External.AppLogger.LogInformation("Writing FITS file {FitsFilePath}", fitsFllFilePath);
+        External.WriteFitsFile(image, fitsFllFilePath);
     }
-
 
     internal bool Catch(Action action) => External.Catch(action);
 
@@ -801,6 +859,63 @@ public record Session(
             }
 
             return External.TimeProvider.GetUtcNow().UtcDateTime;
+        }
+    }
+
+    internal void WaitUntilTenMinutesBeforeAmateurAstroTwilightEnds()
+    {
+        if (!Setup.Mount.Driver.TryGetTransform(out var transform))
+        {
+            throw new InvalidOperationException("Failed to retrieve time transformation from mount");
+        }
+
+        var (_, _, set) = transform.EventTimes(Astrometry.SOFA.EventType.AmateurAstronomicalTwilight);
+        if (set is { Count: 1 })
+        {
+            var now = External.TimeProvider.GetUtcNow().UtcDateTime;
+            var localNow = new DateTimeOffset(now, transform.SiteTimeZone);
+            var utcDayStart = now - now.TimeOfDay;
+            var localAstroTwilightSet = new DateTimeOffset(utcDayStart, transform.SiteTimeZone) + set[0];
+            var local10MinBeforeAstroTwilightSet = localAstroTwilightSet - TimeSpan.FromMinutes(10);
+            var diff = local10MinBeforeAstroTwilightSet - now;
+
+            if (diff > TimeSpan.Zero)
+            {
+                External.AppLogger.LogInformation("Current time {CurrentTimeLocal}, twilight ends {AmateurTwilightEndsLocal}, which is in {Diff}",
+                    localNow, localAstroTwilightSet, diff);
+                External.Sleep(diff);
+            }
+            else
+            {
+                External.AppLogger.LogWarning("Current time {CurrentTimeLocal}, twilight ends {AmateurTwilightEndsLocal}, ended {Diff} ago",
+                    localNow, localAstroTwilightSet, -diff);
+            }
+        }
+        else
+        {
+            throw new InvalidOperationException($"Failed to retrieve astro event time for {transform.DateTime}");
+        }
+    }
+
+    internal DateTime SessionEndTime(DateTime startTime)
+    {
+        if (!Setup.Mount.Driver.TryGetTransform(out var transform))
+        {
+            throw new InvalidOperationException("Failed to retrieve time transformation from mount");
+        }
+
+        // advance one day
+        var nowPlusOneDay = transform.DateTime = startTime.AddDays(1);
+        var (_, rise, _) = transform.EventTimes(Astrometry.SOFA.EventType.AstronomicalTwilight);
+
+        if (rise is { Count: 1 })
+        {
+            var tomorrowStartOfDay = nowPlusOneDay - nowPlusOneDay.TimeOfDay;
+            return (new DateTimeOffset(tomorrowStartOfDay, transform.SiteTimeZone) + rise[0]).UtcDateTime;
+        }
+        else
+        {
+            throw new InvalidOperationException($"Failed to retrieve astro event time for {transform.DateTime}");
         }
     }
 }

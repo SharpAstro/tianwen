@@ -3,7 +3,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Text;
+using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Devices;
 
@@ -125,6 +127,8 @@ public interface IExternal
         return new string(name.Select(c => invalids.Contains(c) ? ReplacementChar : c).ToArray());
     }
 
+    public void WriteFitsFile(Image image, string fileName) => image.WriteToFitsFile(fileName);
+
     /// <summary>
     /// Returns all available serial ports on the system, prefixed with serial: <see cref="ISerialDevice.SerialProto"/>.
     /// </summary>
@@ -132,4 +136,8 @@ public interface IExternal
     IReadOnlyList<string> EnumerateSerialPorts();
 
     ISerialDevice OpenSerialDevice(string address, int baud, Encoding encoding, TimeSpan? ioTimeout = null);
+
+    IPEndPoint DefaultGuiderAddress => new IPEndPoint(IPAddress.Loopback, 4400);
+
+    IUtf8TextBasedConnection ConnectGuider(EndPoint address);
 }

@@ -44,6 +44,12 @@ public abstract record class DeviceBase(Uri DeviceUri)
         return device is not null;
     }
 
+    /// <summary>
+    /// TODO <see cref="Type.GetConstructor(Type[])"/> considered harmful.
+    /// </summary>
+    /// <param name="deviceUri"></param>
+    /// <param name="assemblies"></param>
+    /// <returns></returns>
     internal static IEnumerable<DeviceBase> EnumerateDeviceBase(Uri deviceUri, params Assembly?[] assemblies)
     {
         foreach (var assembly in assemblies)
@@ -97,4 +103,12 @@ public abstract record class DeviceBase(Uri DeviceUri)
 
         return null;
     }
+
+    internal static bool IsValidHost(string host) => Uri.CheckHostName(host) switch
+    {
+        UriHostNameType.Dns or
+        UriHostNameType.IPv4 or
+        UriHostNameType.IPv6 => true,
+        _ => false
+    };
 }

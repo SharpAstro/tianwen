@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Threading;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.SOFA;
 using static TianWen.Lib.Astrometry.CoordinateUtils;
@@ -403,6 +404,52 @@ public interface IMountDriver : IDeviceDriver
         SlewRaDecAsync(raMount, decMount);
 
         return new SlewResult(SlewPostCondition.Slewing, hourAngle);
+    }
+
+    public bool WaitForSlewComplete(CancellationToken cancellationToken)
+    {
+        var period = TimeSpan.FromMilliseconds(250);
+        var maxSlewTime = TimeSpan.FromSeconds(MAX_FAILSAFE);
+
+        if (!TryGetUTCDate(out var slewStartTime))
+        {
+            return false;
+        }
+
+        while (!cancellationToken.IsCancellationRequested
+            && IsSlewing
+            && TryGetUTCDate(out var now)
+            && now - slewStartTime < maxSlewTime
+        )
+        {
+            External.Sleep(period);
+        }
+
+        var isStillSlewing = IsSlewing;
+        if (isStillSlewing && cancellationToken.IsCancellationRequested)
+        {
+            AbortSlew();
+
+            return false;
+        }
+
+        return !isStillSlewing;
+    }
+
+    public bool EnsureTracking(TrackingSpeed speed = TrackingSpeed.Sidereal)
+    {
+        if (!Connected)
+        {
+            return false;
+        }
+
+        if (CanSetTracking && (TrackingSpeed != speed || !Tracking))
+        {
+            TrackingSpeed = speed;
+            Tracking = true;
+        }
+
+        return Tracking;
     }
 }
 

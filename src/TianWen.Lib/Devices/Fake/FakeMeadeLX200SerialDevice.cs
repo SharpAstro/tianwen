@@ -19,6 +19,7 @@ internal class FakeMeadeLX200SerialDevice: ISerialDevice
     private bool _isTracking = false;
     private bool _isSlewing = false;
     private bool _highPrecision = false;
+    private int _trackingFrequency = 601; // TODO simulate tracking and tracking rate
     private double _raAngle;
     private double _targetRa;
     private double _targetDec;

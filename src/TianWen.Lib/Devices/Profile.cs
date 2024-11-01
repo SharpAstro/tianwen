@@ -35,7 +35,7 @@ public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
 
     private static readonly JsonSerializerOptions ProfileSerializerOptions = new JsonSerializerOptions { WriteIndented = true };
 
-    static string EncodeValues(object obj) => Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(obj, ValueSerializerOptions));
+    static string EncodeValues(ProfileData obj) => Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(obj, ValueSerializerOptions));
 
     const string ProfileExt = ".json";
 
