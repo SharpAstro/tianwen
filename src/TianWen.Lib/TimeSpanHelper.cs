@@ -6,6 +6,7 @@ public static class TimeSpanHelper
 {
     public static TimeSpan Round(this TimeSpan span, TimeSpanRoundingType type, MidpointRounding mode = MidpointRounding.ToEven) => type switch
     {
+        TimeSpanRoundingType.Millisecond => TimeSpan.FromMilliseconds(Math.Round(span.TotalMilliseconds, 0, mode)),
         TimeSpanRoundingType.Second => TimeSpan.FromSeconds(Math.Round(span.TotalSeconds, 0, mode)),
         TimeSpanRoundingType.TenthMinute => TimeSpan.FromSeconds(Math.Round(span.TotalSeconds / 6, 0, mode) * 6),
         TimeSpanRoundingType.QuarterMinute => TimeSpan.FromSeconds(Math.Round(span.TotalSeconds / 15, 0, mode) * 15),
@@ -28,6 +29,7 @@ public static class TimeSpanHelper
 
 public enum TimeSpanRoundingType
 {
+    Millisecond,
     Second,
     TenthMinute,
     QuarterMinute,

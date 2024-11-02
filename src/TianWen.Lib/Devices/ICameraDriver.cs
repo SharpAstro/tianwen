@@ -1,8 +1,8 @@
-﻿using TianWen.Lib.Imaging;
+﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Microsoft.Extensions.Logging;
+using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Devices;
 
@@ -27,6 +27,8 @@ public interface ICameraDriver : IDeviceDriver
     bool CanFastReadout { get; }
 
     bool CanSetBitDepth { get; }
+
+    bool CanPulseGuide { get; }
 
     /// <summary>
     /// True if <see cref="Gain"/> value is supported. Exclusive with <see cref="UsesGainMode"/>.
@@ -83,6 +85,16 @@ public interface ICameraDriver : IDeviceDriver
     int StartY { get; set; }
 
     /// <summary>
+    /// Sets the subframe width (in binned pixels). Also returns the current value.
+    /// </summary>
+    int NumX { get; set; }
+
+    /// <summary>
+    /// Sets the subframe height (in binned pixels). Also returns the current value.
+    /// </summary>
+    int NumY { get; set; }
+
+    /// <summary>
     /// Returns the width of the camera chip in unbinned pixels or a value smaller than 0 when not initialised.
     /// </summary>
     int CameraXSize { get; }
@@ -99,6 +111,8 @@ public interface ICameraDriver : IDeviceDriver
     Float32HxWImageData? ImageData { get; }
 
     bool ImageReady { get; }
+
+    bool IsPulseGuiding { get; }
 
     bool CoolerOn { get; set; }
 
@@ -176,14 +190,21 @@ public interface ICameraDriver : IDeviceDriver
     DateTimeOffset StartExposure(TimeSpan duration, FrameType frameType = FrameType.Light);
 
     /// <summary>
-    /// Should only be called when <see cref="CanStopExposure"/> is true.
+    /// Should only be called when <see cref="CanStopExposure"/> is <see langword="true"/>.
     /// </summary>
     void StopExposure();
 
     /// <summary>
-    /// Should only be called when <see cref="CanAbortExposure"/> is true.
+    /// Should only be called when <see cref="CanAbortExposure"/> is <see langword="true"/>.
     /// </summary>
     void AbortExposure();
+
+    /// <summary>
+    /// Should only be called when <see cref="CanPulseGuide"/> is <see langword="true"/>.
+    /// </summary>
+    /// <param name="direction"></param>
+    /// <param name="duration"></param>
+    void PulseGuide(GuideDirection direction, TimeSpan duration);
 
     /// <summary>
     /// Reports the maximum ADU value the camera can produce.

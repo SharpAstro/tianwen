@@ -1,10 +1,11 @@
-﻿using TianWen.Lib.Imaging;
+﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
+using TianWen.Lib.Imaging;
 using static ZWOptical.SDK.ASICamera2;
 using static ZWOptical.SDK.ASICamera2.ASI_BOOL;
 using static ZWOptical.SDK.ASICamera2.ASI_ERROR_CODE;
@@ -19,14 +20,16 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
     const int IMAGE_STATE_READY_TO_DOWNLOAD = 1;
     const int IMAGE_STATE_DOWNLOADED = 2;
 
-    private ExposureSettings _cameraSettings;
-    private ExposureSettings _exposureSettings;
+    private CameraSettings _cameraSettings;
+    private CameraSettings _exposureSettings;
+    private ExposureData? _exposureData;
     private IReadOnlySet<BitDepth> _supportedBitDepth = ImmutableHashSet.Create<BitDepth>();
 
     /// <summary>
     /// Camera state
     /// </summary>
     private volatile CameraState _camState = CameraState.Idle;
+    private int _pulseGuideDirections;
 
     /// <summary>
     /// Holds a native (COM) buffer that can be filled by the native ASI SDK.
@@ -35,11 +38,9 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
 
     // Initialise variables to hold values required for functionality tested by Conform
 
-    private DateTimeOffset? _lastExposureStartTime;
-    private TimeSpan? _lastExposureDuration;
     private int _camImageReady = 0;
     private Float32HxWImageData? _camImageArray;
-    private FrameType _frameType;
+    private readonly ITimer?[] _pulseGuiderTimers = new ITimer?[4];
 
     public ZWOCameraDriver(ZWODevice device, IExternal external) : base(device, external)
     {
@@ -105,6 +106,7 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
         CanGetCoolerPower = isCoolerCam;
         CanGetCoolerOn = isCoolerCam;
         CanSetCoolerOn = isCoolerCam;
+        CanPulseGuide = camInfo.ST4Port is ASI_TRUE;
 
         CanFastReadout = TryGetControlRange(camInfo.CameraID, ASI_CONTROL_TYPE.ASI_HIGH_SPEED_MODE, out _, out _);
 
@@ -136,7 +138,7 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
         }
 
         var highestPossibleBitDepth = _supportedBitDepth.Where(x => x.IsIntegral()).OrderByDescending(x => x.BitSize()).First();
-        _cameraSettings = new(0, 0, CameraXSize  = camInfo.MaxWidth, CameraYSize = camInfo.MaxHeight, 1, highestPossibleBitDepth, fastReadout: false);
+        _cameraSettings = new CameraSettings(0, 0, CameraXSize  = camInfo.MaxWidth, CameraYSize = camInfo.MaxHeight, 1, 1, highestPossibleBitDepth, false);
         PixelSizeX = PixelSizeY = camInfo.PixelSize;
         ElectronsPerADU = camInfo.ElecPerADU is var elecPerADU and > 0f ? elecPerADU : double.NaN;
         ADCBitDepth = camInfo.BitDepth;
@@ -199,6 +201,8 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
 
     public bool CanSetBitDepth => _supportedBitDepth.Count > 1;
 
+    public bool CanPulseGuide { get; private set; }
+
     public bool UsesGainValue { get; private set; }
 
     public bool UsesGainMode => false;
@@ -217,48 +221,154 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
 
     public int BinX
     {
-        get => _cameraSettings.Bin;
+        get
+        {
+            if (!Connected)
+            {
+                throw new ZWODriverException(ASI_ERROR_CAMERA_CLOSED, "Camera is not connected");
+            }
+            return _cameraSettings.BinX;
+        }
+
         set
         {
             if (Connected && value >= 1 && value <= MaxBinX && value <= MaxBinY && value <= byte.MaxValue)
             {
-                ExposureSettings.WithBin(ref _cameraSettings, (byte)value);
+                _cameraSettings = _cameraSettings with { BinX = (byte)value };
             }
         }
     }
 
     public int BinY
     {
-        get => _cameraSettings.Bin;
+        get
+        {
+            if (!Connected)
+            {
+                throw new ZWODriverException(ASI_ERROR_CAMERA_CLOSED, "Camera is not connected");
+            }
+            return _cameraSettings.BinY;
+        }
+
         set
         {
             if (Connected && value >= 1 && value <= MaxBinX && value <= MaxBinY && value <= byte.MaxValue)
             {
-                ExposureSettings.WithBin(ref _cameraSettings, (byte)value);
+                _cameraSettings = _cameraSettings with { BinY = (byte)value };
             }
         }
     }
 
     public int StartX
     {
-        get => _cameraSettings.StartX;
+        get
+        {
+            if (!Connected)
+            {
+                throw new ZWODriverException(ASI_ERROR_CAMERA_CLOSED, "Camera is not connected");
+            }
+            return _cameraSettings.StartX;
+        }
+
         set
         {
-            if (Connected && value >= 0 && value < CameraXSize)
+            if (!Connected)
             {
-                ExposureSettings.WithStartX(ref _cameraSettings, value);
+                throw new ZWODriverException(ASI_ERROR_CAMERA_CLOSED, "Camera is not connected");
+            }
+            else if (value >= 0 && value * BinX < CameraXSize)
+            {
+                _cameraSettings = _cameraSettings with { StartX = value };
+            }
+            else
+            {
+                throw new ZWODriverException(ASI_ERROR_OUTOF_BOUNDARY, "StartX must be between 0 and Camera size (binned)");
             }
         }
     }
 
     public int StartY
     {
-        get => _cameraSettings.StartY;
+        get
+        {
+            if (!Connected)
+            {
+                throw new ZWODriverException(ASI_ERROR_CAMERA_CLOSED, "Camera is not connected");
+            }
+
+            return _cameraSettings.StartY;
+        }
+
         set
         {
-            if (Connected && value >= 0 && value < CameraYSize)
+            if (!Connected)
             {
-                ExposureSettings.WithStartY(ref _cameraSettings, value);
+                throw new ZWODriverException(ASI_ERROR_CAMERA_CLOSED, "Camera is not connected");
+            }
+            else if (value >= 0 && value * BinY < CameraYSize)
+            {
+                _cameraSettings = _cameraSettings with { StartY = value };
+            }
+            else
+            {
+                throw new ZWODriverException(ASI_ERROR_OUTOF_BOUNDARY, "StartY must be between 0 and Camera size (binned)");
+            }
+        }
+    }
+
+    public int NumX
+    {
+        get
+        {
+            if (!Connected)
+            {
+                throw new ZWODriverException(ASI_ERROR_CAMERA_CLOSED, "Camera is not connected");
+            }
+            
+            return _cameraSettings.Height;
+        }
+
+        set
+        {
+            if (!Connected)
+            {
+                throw new ZWODriverException(ASI_ERROR_CAMERA_CLOSED, "Camera is not connected");
+            }
+            else if (value >= 1 && value * BinX < CameraXSize)
+            {
+                _cameraSettings = _cameraSettings with { Width = value };
+            }
+            else
+            {
+                throw new ZWODriverException(ASI_ERROR_OUTOF_BOUNDARY, "Width must be between 1 and Camera size (binned)");
+            }
+        }
+    }
+
+    public int NumY
+    {
+        get
+        {
+            if (!Connected)
+            {
+                throw new ZWODriverException(ASI_ERROR_CAMERA_CLOSED, "Camera is not connected");
+            }
+            return _cameraSettings.Height;
+        }
+
+        set
+        {
+            if (!Connected)
+            {
+                throw new ZWODriverException(ASI_ERROR_CAMERA_CLOSED, "Camera is not connected");
+            }
+            else if (value >= 1 && value * BinY < CameraYSize)
+            {
+                _cameraSettings = _cameraSettings with { Height = value };
+            }
+            else
+            {
+                throw new ZWODriverException(ASI_ERROR_OUTOF_BOUNDARY, "Height must be between 1 and Camera size (binned)");
             }
         }
     }
@@ -283,7 +393,7 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
         {
             if (Connected && CanFastReadout)
             {
-                ExposureSettings.WithFastReadout(ref  _cameraSettings, value);
+                _cameraSettings = _cameraSettings with { FastReadout = value };
             }
         }
     }
@@ -298,17 +408,16 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
                     throw new InvalidOperationException("Call to ImageArray before the first image has been taken!");
 
                 case IMAGE_STATE_READY_TO_DOWNLOAD:
-                    var exposureSettings = _exposureSettings;
                     _camState = CameraState.Download;
 
-                    return DownloadImage(exposureSettings);
+                    return DownloadImage(_exposureSettings);
             }
 
             return _camImageArray;
         }
     }
 
-    Float32HxWImageData DownloadImage(in ExposureSettings exposureSettings)
+    Float32HxWImageData DownloadImage(in CameraSettings exposureSettings)
     {
         var w = exposureSettings.Width;
         var h = exposureSettings.Height;
@@ -381,7 +490,7 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
         {
             if (!Connected)
             {
-                return false;
+                throw new ZWODriverException(ASI_ERROR_CAMERA_CLOSED, "Camera is not connected");
             }
             else if (CameraState is CameraState.Error)
             {
@@ -394,6 +503,8 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
         }
     }
 
+    public bool IsPulseGuiding => Interlocked.CompareExchange(ref _pulseGuideDirections, 0, 0) is not 0;
+
     public bool CoolerOn
     {
         get => Connected
@@ -403,29 +514,69 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
 
         set
         {
-            if (Connected && CanSetCoolerOn)
+            if (!Connected)
             {
-                _ = ASISetControlValue(ConnectionId, ASI_CONTROL_TYPE.ASI_COOLER_ON, Convert.ToInt32(value));
+                throw new ZWODriverException(ASI_ERROR_CAMERA_CLOSED, "Camera is not connected");
+            }
+            else if (!CanSetCoolerOn)
+            {
+                throw new ZWODriverException(ASI_ERROR_GENERAL_ERROR, "Cooler on is not supported");
+            }
+            else if (ASISetControlValue(ConnectionId, ASI_CONTROL_TYPE.ASI_COOLER_ON, Convert.ToInt32(value)) is var code and not ASI_SUCCESS)
+            {
+                throw new ZWODriverException(code, $"Failed to turn cooler {(value ? "on" : "off")}");
             }
         }
     }
 
-    public double CoolerPower => Connected
-        && CanGetCoolerPower
-        && ASIGetControlValue(ConnectionId, ASI_CONTROL_TYPE.ASI_COOLER_POWER_PERC, out var percentage, out _) is ASI_SUCCESS
-            ? percentage
-            : double.NaN;
+    public double CoolerPower
+    {
+        get
+        {
+            if (!Connected)
+            {
+                throw new ZWODriverException(ASI_ERROR_CAMERA_CLOSED, "Camera is not connected");
+            }
+            else if (!CanGetCoolerPower)
+            {
+                throw new ZWODriverException(ASI_ERROR_GENERAL_ERROR, "Getting cooler power on is not supported");
+            }
+            else if (ASIGetControlValue(ConnectionId, ASI_CONTROL_TYPE.ASI_COOLER_POWER_PERC, out var percentage, out _) is var code and not ASI_SUCCESS)
+            {
+                throw new ZWODriverException(code, "Failed to get cooler power");
+            }
+            else
+            {
+                return percentage;
+            }
+        }
+    }
 
     public double SetCCDTemperature
     {
-        get => Connected
-            && CanSetCCDTemperature
-            && ASIGetControlValue(ConnectionId, ASI_CONTROL_TYPE.ASI_TARGET_TEMP, out var val, out _) is ASI_SUCCESS
-                ? val
-                : double.NaN;
+        get
+        {
+            if (!Connected)
+            {
+                throw new ZWODriverException(ASI_ERROR_CAMERA_CLOSED, "Camera is not connected");
+            }
+            else if (!CanSetCCDTemperature)
+            {
+                throw new ZWODriverException(ASI_ERROR_GENERAL_ERROR, "Cooler set CCD temp is not supported");
+            }
+            else if (ASIGetControlValue(ConnectionId, ASI_CONTROL_TYPE.ASI_TARGET_TEMP, out var val, out _) is var code and not ASI_SUCCESS)
+            {
+                throw new ZWODriverException(code, "Failed to get CCD temperature");
+            }
+            else
+            {
+                return val;
+            }
+        }
 
         set
         {
+            // TODO exception
             if (Connected
                 && CanSetCCDTemperature
                 && TryGetControlRange(ConnectionId, ASI_CONTROL_TYPE.ASI_TARGET_TEMP, out var min, out var max)
@@ -450,7 +601,7 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
         {
             if (Connected && value is { } bitDepth && _supportedBitDepth.Contains(bitDepth))
             {
-                ExposureSettings.WithBitDepth(ref _cameraSettings, bitDepth);
+                _cameraSettings = _cameraSettings with { BitDepth = bitDepth };
             }
         }
     }
@@ -489,6 +640,7 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
     {
         get
         {
+            // TODO exception
             if (Connected
                 && ASIGetControlValue(ConnectionId, ASI_CONTROL_TYPE.ASI_BRIGHTNESS, out var offset, out _) is ASI_SUCCESS
                 && offset >= OffsetMin
@@ -515,11 +667,11 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
 
     public IEnumerable<string> Offsets => throw new InvalidOperationException($"{nameof(Offsets)} is not supported");
 
-    public DateTimeOffset? LastExposureStartTime => _lastExposureStartTime;
+    public DateTimeOffset? LastExposureStartTime => _exposureData?.StartTime;
 
-    public TimeSpan? LastExposureDuration => _lastExposureDuration;
+    public TimeSpan? LastExposureDuration => _exposureData?.ActualDuration;
 
-    public FrameType LastExposureFrameType => _frameType;
+    public FrameType LastExposureFrameType => _exposureData?.FrameType ?? FrameType.None;
 
     public SensorType SensorType { get; private set; }
 
@@ -543,7 +695,8 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
 
                     case ASI_EXPOSURE_STATUS.ASI_EXP_SUCCESS:
                         _camState = CameraState.Idle;
-                        Interlocked.CompareExchange(ref _camImageReady, IMAGE_STATE_READY_TO_DOWNLOAD, IMAGE_STATE_NO_IMG);
+                        // do not provide the actual time as it is not clear how long ago it finished
+                        SetImageReadyToDownload(null);
                         break;
 
                     case ASI_EXPOSURE_STATUS.ASI_EXP_WORKING:
@@ -553,6 +706,17 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
             }
 
             return _camState;
+        }
+    }
+
+    private void SetImageReadyToDownload(TimeSpan? actualDuration)
+    {
+        if (Interlocked.CompareExchange(ref _camImageReady, IMAGE_STATE_READY_TO_DOWNLOAD, IMAGE_STATE_NO_IMG) is IMAGE_STATE_NO_IMG
+                                    && _exposureData is { } data
+                                    && !data.ActualDuration.HasValue
+                                )
+        {
+            _exposureData = data with { ActualDuration = actualDuration ?? data.IntendedDuration };
         }
     }
 
@@ -591,7 +755,7 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
         int durationInNanoSecs;
         if (TryGetControlRange(ConnectionId, ASI_CONTROL_TYPE.ASI_EXPOSURE, out var min, out var max))
         {
-            durationInNanoSecs = Math.Min(max, Math.Max(min, (int)(duration.TotalMilliseconds * 1000)));
+            durationInNanoSecs = Math.Min(max, Math.Max(min, (int)Math.Round(duration.TotalMilliseconds * 1000)));
         }
         else
         {
@@ -613,7 +777,8 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
                 || currentWidth != settingsSnapshot.Width
                 || currentHeight != settingsSnapshot.Height
                 || currentStartX != settingsSnapshot.StartX
-                || currentStartY != settingsSnapshot.StartY)
+                || currentStartY != settingsSnapshot.StartY
+            )
             {
                 StopExposure();
 
@@ -678,10 +843,8 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
         if (startExposureErrorCode is ASI_SUCCESS)
         {
             _camState = CameraState.Exposing;
-            _lastExposureDuration = duration;
-            var startTime = External.TimeProvider.GetLocalNow();
-            _lastExposureStartTime = startTime;
-            _frameType = frameType;
+            var startTime = External.TimeProvider.GetUtcNow();
+            _exposureData = new ExposureData(startTime, duration, null, frameType, Gain, Offset);
             // ensure that on image readout we use the settings that the image was exposed with
             _exposureSettings = settingsSnapshot;
             Interlocked.Exchange(ref _camImageReady, IMAGE_STATE_NO_IMG);
@@ -692,6 +855,64 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
         {
             _camState = CameraState.Error;
             throw new ZWODriverException(startExposureErrorCode, $"Failed to start exposure frame type={frameType} duration={durationInNanoSecs} ns");
+        }
+    }
+
+    public void PulseGuide(GuideDirection guideDirection, TimeSpan duration)
+    {
+        var asiGuideDirection = guideDirection switch
+        {
+            GuideDirection.West => ASI_GUIDE_DIRECTION.ASI_GUIDE_WEST,
+            GuideDirection.North => ASI_GUIDE_DIRECTION.ASI_GUIDE_NORTH,
+            GuideDirection.East => ASI_GUIDE_DIRECTION.ASI_GUIDE_EAST,
+            GuideDirection.South => ASI_GUIDE_DIRECTION.ASI_GUIDE_SOUTH,
+            var invalid => throw new ArgumentException($"Invalid guide direction {invalid}", nameof(guideDirection))
+        };
+
+        var timer = External.TimeProvider.CreateTimer(StopPulseGuiding, asiGuideDirection, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        if (ASIPulseGuideOn(ConnectionId, asiGuideDirection) is var code and not ASI_SUCCESS)
+        {
+            throw new ZWODriverException(code, $"Failed to pulse guide {guideDirection} for {duration:o}");
+        }
+        else
+        {
+            UpdateGuideDirections(asiGuideDirection, (existing, bit) => existing | bit);
+
+            Interlocked.Exchange(ref _pulseGuiderTimers[(int)asiGuideDirection], timer)?.Dispose();
+            timer.Change(duration, Timeout.InfiniteTimeSpan);
+        }
+    }
+
+    private void UpdateGuideDirections(ASI_GUIDE_DIRECTION asiGuideDirection, Func<int, int, int> updateFunc)
+    {
+        var dirAsInt = (int)asiGuideDirection;
+        var bit = 1 << dirAsInt;
+        var existing = _pulseGuideDirections;
+        int set;
+        do
+        {
+            set = updateFunc(existing, bit);
+        } while ((existing = Interlocked.CompareExchange(ref _pulseGuideDirections, set, existing)) != existing);
+    }
+
+    private void StopPulseGuiding(object? obj)
+    {
+        if (obj is ASI_GUIDE_DIRECTION asiGuideDirection)
+        {
+            if (ASIPulseGuideOff(ConnectionId, asiGuideDirection) is var code and not ASI_SUCCESS)
+            {
+                External.AppLogger.LogError("Failed to stop guiding in direction {GuideDirection} due to error: {ErrorCode}", asiGuideDirection, code);
+            }
+            else
+            {
+                UpdateGuideDirections(asiGuideDirection, (existing, bit) => existing & ~bit);
+
+                Interlocked.Exchange(ref _pulseGuiderTimers[(int)asiGuideDirection], null)?.Dispose();
+            }
+        }
+        else
+        {
+            External.AppLogger.LogCritical("Invalid state: {obj} in stop pulse guiding callback", obj);
         }
     }
 
@@ -717,6 +938,19 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
         }
     }
 
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+
+        if (disposing)
+        {
+            for (var i = 0; i < _pulseGuiderTimers.Length; i++)
+            {
+                Interlocked.Exchange(ref _pulseGuiderTimers[i], null)?.Dispose();
+            }
+        }
+    }
+
     protected override void DisposeNative()
     {
         var existingBuffer = Interlocked.Exchange(ref _nativeBuffer, null);
@@ -727,7 +961,7 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
         }
     }
 
-    static int CalculateBufferSize(in ExposureSettings settings) => settings.BitDepth.BitSize() / 8 * settings.Width * settings.Height;
+    static int CalculateBufferSize(in CameraSettings settings) => settings.BitDepth.BitSize() / 8 * settings.Width * settings.Height;
 
     public void StopExposure()
     {
@@ -738,8 +972,8 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
 
         if (ASIStopExposure(ConnectionId) is ASI_SUCCESS)
         {
-            Interlocked.CompareExchange(ref _camImageReady, IMAGE_STATE_READY_TO_DOWNLOAD, IMAGE_STATE_NO_IMG);
             _camState = CameraState.Idle;
+            SetImageReadyToDownload(_exposureData is { } data ? External.TimeProvider.GetUtcNow() - data.StartTime : null);
         }
     }
 

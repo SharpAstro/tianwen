@@ -1,11 +1,11 @@
-﻿using TianWen.Lib.Imaging;
-using System;
+﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Astrometry.PlateSolve;
 
-public interface IPlateSolver
+public interface IPlateSolver : IAsyncSupportedCheck
 {
     internal const float DefaultRange = 0.03f;
 
@@ -15,13 +15,6 @@ public interface IPlateSolver
     /// A number from (0..1), where closer to one mans higher priority.
     /// </summary>
     float Priority { get; }
-
-    /// <summary>
-    /// Indicates if the implementation is supported or properly setup on the executing system.
-    /// </summary>
-    /// <param name="cancellationToken"></param>
-    /// <returns>true if the implementation is supported on this platform/installed on the system.</returns>
-    Task<bool> CheckSupportAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Solves FITS file <paramref name="fitsFile"/>, given the image resolution and a possible reference location

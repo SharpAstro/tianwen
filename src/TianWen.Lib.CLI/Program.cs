@@ -1,8 +1,9 @@
-﻿using TianWen.Lib.Devices;
-using TianWen.Lib.Extensions;
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using TianWen.Lib.Devices;
+using TianWen.Lib.Extensions;
+using TianWen.Lib.Sequencing;
 
 var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = args, DisableDefaults = true });
 builder.Services
@@ -14,23 +15,26 @@ builder.Services
             options.IncludeScopes = false;
         });
     })
-    .UseSystemExternal()
+    .AddExternal()
     .AddAstrometry()
     .AddZWO()
     .AddAscom()
     .AddMeade()
-    .AddProfile()
+    .AddProfiles()
     .AddFake()
     .AddPHD2()
-    .AddDeviceManager();
+    .AddDeviceManager()
+    .AddSessionFactory();
 
 using IHost host = builder.Build();
 
 var services = host.Services;
 
 var external = services.GetRequiredService<IExternal>();
+var deviceManager = services.GetRequiredService<IDeviceManager<DeviceBase>>();
+var sessionFactory = services.GetRequiredService<ISessionFactory>();
 
-foreach (var device in services.GetRequiredService<IDeviceManager<DeviceBase>>())
+foreach (var device in deviceManager)
 {
     external.AppLogger.LogInformation("{DeviceType}: {Device}", device.DeviceType, device.DisplayName);
 }

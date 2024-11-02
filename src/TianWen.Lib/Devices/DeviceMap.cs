@@ -12,11 +12,7 @@ internal class DeviceMap<TDevice> : IDeviceManager<TDevice>
     private readonly IDeviceSource<TDevice> _source;
     private Dictionary<string, TDevice> _deviceMap = [];
 
-    public DeviceMap(IDeviceSource<TDevice> source)
-    {
-        _source = source;
-        Refresh();
-    }
+    public DeviceMap(IDeviceSource<TDevice> source) => _source = source;
 
     public void Refresh()
     {

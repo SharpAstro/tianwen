@@ -5,5 +5,5 @@ namespace TianWen.Lib.Extensions;
 
 public static class ProfileServiceCollectionExtensions
 {
-    public static IServiceCollection AddProfile(this IServiceCollection services) => services.AddSingleton<IDeviceSource<DeviceBase>, ProfileIterator>();
+    public static IServiceCollection AddProfiles(this IServiceCollection services) => services.AddSingleton<IDeviceSource<DeviceBase>, ProfileIterator>();
 }

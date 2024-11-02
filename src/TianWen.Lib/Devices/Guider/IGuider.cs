@@ -24,14 +24,14 @@ SOFTWARE.
 
 */
 
-using TianWen.Lib.Astrometry.PlateSolve;
-using TianWen.Lib.Imaging;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
+using TianWen.Lib.Astrometry.PlateSolve;
+using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Devices.Guider;
 

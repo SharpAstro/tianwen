@@ -16,7 +16,7 @@ public class PlateSolverTests
     [InlineData("PlateSolveTestFile", typeof(AstrometryNetPlateSolverMultiPlatform))]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", typeof(AstrometryNetPlateSolverMultiPlatform))]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", typeof(AstapPlateSolver))]
-    public async Task GivenStarFieldTestFileWhenBlindPlateSolvingThenItIsSolved(string name, Type plateSolver, double accuracy = 0.01)
+    public async Task GivenStarFieldTestFileWhenBlindPlateSolvingThenItIsSolved(string name, Type solverType, double accuracy = 0.01)
     {
         // given
         var extractedFitsFile = await SharedTestData.ExtractGZippedFitsFileAsync(name);
@@ -24,10 +24,10 @@ public class PlateSolverTests
 
         try
         {
-            var solver = (Activator.CreateInstance(plateSolver) as IPlateSolver).ShouldNotBeNull();
+            var solver = (Activator.CreateInstance(solverType) as IPlateSolver).ShouldNotBeNull();
             var platform = Environment.OSVersion.Platform;
 
-            Skip.If(plateSolver.IsAssignableTo(typeof(AstrometryNetPlateSolver))
+            Skip.If(solverType.IsAssignableTo(typeof(AstrometryNetPlateSolver))
                 && platform == PlatformID.Win32NT
                 && !Debugger.IsAttached,
                 $"Is multi-platform and running on Windows without debugger (Windows is skipped by default as WSL has a long cold start time)");
@@ -61,7 +61,7 @@ public class PlateSolverTests
     [InlineData("PlateSolveTestFile", typeof(AstrometryNetPlateSolverUnix))]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", typeof(AstrometryNetPlateSolverMultiPlatform))]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", typeof(AstapPlateSolver))]
-    public async Task GivenStarFieldTestFileAndSearchOriginWhenPlateSolvingThenItIsSolved(string name, Type plateSolver, double accuracy = 0.01)
+    public async Task GivenStarFieldTestFileAndSearchOriginWhenPlateSolvingThenItIsSolved(string name, Type solverType, double accuracy = 0.01)
     {
         // given
         var extractedFitsFile = await SharedTestData.ExtractGZippedFitsFileAsync(name);
@@ -69,10 +69,10 @@ public class PlateSolverTests
 
         try
         {
-            var solver = (Activator.CreateInstance(plateSolver) as IPlateSolver).ShouldNotBeNull();
+            var solver = (Activator.CreateInstance(solverType) as IPlateSolver).ShouldNotBeNull();
             var platform = Environment.OSVersion.Platform;
 
-            Skip.If(plateSolver.IsAssignableTo(typeof(AstrometryNetPlateSolver))
+            Skip.If(solverType.IsAssignableTo(typeof(AstrometryNetPlateSolver))
                 && platform == PlatformID.Win32NT
                 && !Debugger.IsAttached,
                 $"Is multi-platform and running on Windows without debugger (Windows is skipped by default as WSL has a long cold start time)");

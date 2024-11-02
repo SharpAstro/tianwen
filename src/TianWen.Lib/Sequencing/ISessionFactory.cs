@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
@@ -15,7 +17,7 @@ internal class SessionFactory(
     IDeviceManager<DeviceBase> deviceManager,
     IExternal external,
     IImageAnalyser imageAnalyser,
-    IPlateSolver plateSolver
+    IPlateSolverFactory plateSolverFactory
 ) : ISessionFactory
 {
     public Session Create(Guid profileId, in SessionConfiguration configuration, IReadOnlyList<Observation> observations)
@@ -62,7 +64,7 @@ internal class SessionFactory(
 
         var setup = new Setup(mount, guider, guiderSetup, otas);
 
-        return new Session(setup, configuration, imageAnalyser, plateSolver, external, observations);
+        return new Session(setup, configuration, imageAnalyser, plateSolverFactory, external, observations);
 
         DeviceBase DeviceFromUri(Uri deviceUri, int? otaIdx = null)
         {

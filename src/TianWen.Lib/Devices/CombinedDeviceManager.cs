@@ -8,6 +8,8 @@ namespace TianWen.Lib.Devices;
 
 internal class CombinedDeviceManager(IEnumerable<IDeviceSource<DeviceBase>> deviceSources) : IDeviceManager<DeviceBase>
 {
+    private bool _refreshedOnce;
+
     private readonly List<DeviceMap<DeviceBase>> _deviceMaps = deviceSources
         .Where(source => source.IsSupported)
         .Select(source => new DeviceMap<DeviceBase>(source))
@@ -18,6 +20,12 @@ internal class CombinedDeviceManager(IEnumerable<IDeviceSource<DeviceBase>> devi
 
     public IEnumerator<DeviceBase> GetEnumerator()
     {
+        if (!_refreshedOnce)
+        {
+            _refreshedOnce = true;
+            Refresh();
+        }
+
         foreach (var map in _deviceMaps)
         {
             foreach (var device in map)
