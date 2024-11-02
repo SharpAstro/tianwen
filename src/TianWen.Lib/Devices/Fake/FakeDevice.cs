@@ -2,6 +2,7 @@
 using System.Collections.Specialized;
 using System.Text;
 using System.Text.Json.Serialization;
+using TianWen.Lib.Connections;
 
 namespace TianWen.Lib.Devices.Fake;
 
@@ -28,7 +29,7 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         _ => null
     };
 
-    public override ISerialDevice? ConnectSerialDevice(IExternal external, int baud = 9600, Encoding? encoding = null, TimeSpan? ioTimeout = null) => DeviceType switch
+    public override ISerialConnection? ConnectSerialDevice(IExternal external, int baud = 9600, Encoding? encoding = null, TimeSpan? ioTimeout = null) => DeviceType switch
     {
         DeviceType.Mount => new FakeMeadeLX200SerialDevice(true, encoding ?? Encoding.Latin1, external.TimeProvider, SiteLatitude, SiteLongitude),
         _ => null

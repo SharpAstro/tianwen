@@ -7,10 +7,11 @@ using System.Threading;
 using TianWen.Lib.Astrometry.SOFA;
 using static TianWen.Lib.Astrometry.CoordinateUtils;
 using static TianWen.Lib.Astrometry.Constants;
+using TianWen.Lib.Connections;
 
 namespace TianWen.Lib.Devices.Fake;
 
-internal class FakeMeadeLX200SerialDevice: ISerialDevice
+internal class FakeMeadeLX200SerialDevice: ISerialConnection
 {
     private readonly AlignmentMode _alignmentMode = AlignmentMode.GermanPolar;
     private readonly Transform _transform;

@@ -2,9 +2,9 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
 
-namespace TianWen.Lib.Devices;
+namespace TianWen.Lib.Connections;
 
-public interface ISerialDevice : IDisposable
+public interface ISerialConnection : IDisposable
 {
     internal const string SerialProto = "serial:";
 

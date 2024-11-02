@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Text;
+using TianWen.Lib.Connections;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Devices;
@@ -130,14 +131,20 @@ public interface IExternal
     public void WriteFitsFile(Image image, string fileName) => image.WriteToFitsFile(fileName);
 
     /// <summary>
-    /// Returns all available serial ports on the system, prefixed with serial: <see cref="ISerialDevice.SerialProto"/>.
+    /// Returns all available serial ports on the system, prefixed with serial: <see cref="ISerialConnection.SerialProto"/>.
     /// </summary>
     /// <returns>list of available serial devices, or empty.</returns>
     IReadOnlyList<string> EnumerateSerialPorts();
 
-    ISerialDevice OpenSerialDevice(string address, int baud, Encoding encoding, TimeSpan? ioTimeout = null);
+    ISerialConnection OpenSerialDevice(string address, int baud, Encoding encoding, TimeSpan? ioTimeout = null);
 
     IPEndPoint DefaultGuiderAddress => new IPEndPoint(IPAddress.Loopback, 4400);
 
-    IUtf8TextBasedConnection ConnectGuider(EndPoint address);
+    /// <summary>
+    /// Connect to an external dedicated guider software, using JSON RPC (only supported is Open PHD2 Guiding).
+    /// </summary>
+    /// <param name="address"></param>
+    /// <param name="protocol"></param>
+    /// <returns></returns>
+    IUtf8TextBasedConnection ConnectGuider(EndPoint address, CommunicationProtocol protocol = CommunicationProtocol.JsonRPC);
 }

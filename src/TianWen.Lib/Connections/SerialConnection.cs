@@ -7,9 +7,9 @@ using System.IO.Ports;
 using System.Linq;
 using System.Text;
 
-namespace TianWen.Lib.Devices;
+namespace TianWen.Lib.Connections;
 
-internal sealed class StreamBasedSerialPort : ISerialDevice
+internal sealed class SerialConnection : ISerialConnection
 {
     public static IReadOnlyList<string> EnumerateSerialPorts()
     {
@@ -18,7 +18,7 @@ internal sealed class StreamBasedSerialPort : ISerialDevice
         var prefixedPortNames = new List<string>(portNames.Length);
         for (var i = 0; i < portNames.Length; i++)
         {
-            prefixedPortNames[i] = $"{ISerialDevice.SerialProto}{portNames[i]}";
+            prefixedPortNames[i] = $"{ISerialConnection.SerialProto}{portNames[i]}";
         }
 
         return prefixedPortNames;
@@ -26,7 +26,7 @@ internal sealed class StreamBasedSerialPort : ISerialDevice
 
     public static string CleanupPortName(string portName)
     {
-        var portNameWithoutPrefix = portName.StartsWith(ISerialDevice.SerialProto, StringComparison.Ordinal) ? portName[ISerialDevice.SerialProto.Length..] : portName;
+        var portNameWithoutPrefix = portName.StartsWith(ISerialConnection.SerialProto, StringComparison.Ordinal) ? portName[ISerialConnection.SerialProto.Length..] : portName;
 
         return portNameWithoutPrefix.StartsWith("tty", StringComparison.Ordinal) ? $"/dev/{portNameWithoutPrefix}" : portNameWithoutPrefix;
     }
@@ -35,14 +35,14 @@ internal sealed class StreamBasedSerialPort : ISerialDevice
     private readonly Stream _stream;
     private readonly ILogger _logger;
 
-    public StreamBasedSerialPort(string portName, int baud, ILogger logger, Encoding encoding, TimeSpan? ioTimeout = null)
+    public SerialConnection(string portName, int baud, ILogger logger, Encoding encoding, TimeSpan? ioTimeout = null)
     {
         _port = new SerialPort(CleanupPortName(portName), baud);
         _port.Open();
 
         var timeoutMs = (int)(ioTimeout ?? TimeSpan.FromMicroseconds(500)).TotalMilliseconds;
         _stream = _port.BaseStream;
-        _stream.ReadTimeout  = timeoutMs;
+        _stream.ReadTimeout = timeoutMs;
         _stream.WriteTimeout = timeoutMs;
 
         _logger = logger;
@@ -80,8 +80,8 @@ internal sealed class StreamBasedSerialPort : ISerialDevice
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error {ErrorMessage} while sending message {Message} to serial device on port {Port}",
-                ex.Message, Encoding.GetString(message), _port.PortName);
+            _logger.LogError(ex, "Error while sending message {Message} to serial device on port {Port}",
+                Encoding.GetString(message), _port.PortName);
 
             return false;
         }
@@ -110,7 +110,7 @@ internal sealed class StreamBasedSerialPort : ISerialDevice
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error {ErrorMessage} while reading response from serial device on port {Port}", ex.Message, _port.PortName);
+            _logger.LogError(ex, "Error while reading response from serial device on port {Port}", _port.PortName);
 
             message = null;
             return false;
@@ -132,7 +132,7 @@ internal sealed class StreamBasedSerialPort : ISerialDevice
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error {ErrorMessage} while reading response from serial device on port {Port}", ex.Message, _port.PortName);
+            _logger.LogError(ex, "Error while reading response from serial device on port {Port}", _port.PortName);
 
             message = null;
             return false;

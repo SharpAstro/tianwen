@@ -8,6 +8,7 @@ using System.IO;
 using System.Net;
 using System.Reflection;
 using System.Text;
+using TianWen.Lib.Connections;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using Xunit.Abstractions;
@@ -42,12 +43,12 @@ public class FakeExternal : IExternal
 
     public ILogger AppLogger { get; }
 
-    public virtual IUtf8TextBasedConnection ConnectGuider(EndPoint address)
+    public virtual IUtf8TextBasedConnection ConnectGuider(EndPoint address, CommunicationProtocol protocol = CommunicationProtocol.JsonRPC)
         => throw new ArgumentException($"No guider connection defined for address {address}", nameof(address));
 
     public IReadOnlyList<string> EnumerateSerialPorts() => [];
 
-    public virtual ISerialDevice OpenSerialDevice(string address, int baud, Encoding encoding, TimeSpan? ioTimeout = null)
+    public virtual ISerialConnection OpenSerialDevice(string address, int baud, Encoding encoding, TimeSpan? ioTimeout = null)
         => throw new ArgumentException($"Failed to instantiate serial device at address={address}", nameof(address));
 
     public void Sleep(TimeSpan duration) => _timeProvider.Advance(duration);

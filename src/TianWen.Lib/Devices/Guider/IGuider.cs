@@ -205,7 +205,6 @@ public interface IGuider : IDeviceDriver
     /// <exception cref="GuiderException">Throws if not connected or command could not be issued</exception>
     string? SaveImage(string outputFolder);
 
-
     const int SETTLE_TIMEOUT_FACTOR = 5;
     public bool StartGuidingLoop(int maxTries, CancellationToken cancellationToken)
     {
