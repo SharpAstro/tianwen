@@ -40,7 +40,7 @@ internal sealed class SerialConnection : ISerialConnection
         _port = new SerialPort(CleanupPortName(portName), baud);
         _port.Open();
 
-        var timeoutMs = (int)(ioTimeout ?? TimeSpan.FromMicroseconds(500)).TotalMilliseconds;
+        var timeoutMs = (int)Math.Round((ioTimeout ?? TimeSpan.FromMilliseconds(500)).TotalMilliseconds);
         _stream = _port.BaseStream;
         _stream.ReadTimeout = timeoutMs;
         _stream.WriteTimeout = timeoutMs;

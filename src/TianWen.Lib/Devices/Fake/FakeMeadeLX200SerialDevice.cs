@@ -184,6 +184,11 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
                     _responseBuffer.AppendFormat("{0}#", DegreesToDM(_transform.SiteLatitude));
                     return true;
 
+                case ":GT#":
+                    var (trackingHz, tracking10thHz) = Math.DivRem(_trackingFrequency, 10);
+                    _responseBuffer.AppendFormat("{0:00}.{1:0}#", trackingHz, tracking10thHz);
+                    return true;
+
                 case ":U#":
                     _highPrecision = !_highPrecision;
                     return true;

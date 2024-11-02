@@ -31,10 +31,11 @@ internal abstract class FakePositionBasedDriver(FakeDevice fakeDevice, IExternal
 
             var state = new MovingState(currentPosition, position);
 
-            Interlocked.Exchange(
-                ref _movingTimer,
-                External.TimeProvider.CreateTimer(MovingTimerCallback, state, TimeSpan.FromMicroseconds(50), TimeSpan.FromMilliseconds(100))
-            )?.Dispose();
+            var movingTimer = External.TimeProvider.CreateTimer(MovingTimerCallback, state, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+
+            Interlocked.Exchange(ref _movingTimer, movingTimer)?.Dispose();
+
+            movingTimer.Change(TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(100));
 
             return true;
         }

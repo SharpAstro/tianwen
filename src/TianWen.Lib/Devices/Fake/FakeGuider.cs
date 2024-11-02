@@ -1,7 +1,7 @@
-﻿using TianWen.Lib.Devices.Guider;
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using TianWen.Lib.Devices.Guider;
 
 namespace TianWen.Lib.Devices.Fake;
 

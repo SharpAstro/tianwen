@@ -1,7 +1,6 @@
-﻿using TianWen.Lib.Devices;
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Guider;
-using TianWen.Lib.Connections;
 
 namespace TianWen.Lib.Extensions;
 

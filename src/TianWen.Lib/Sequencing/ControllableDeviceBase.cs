@@ -1,5 +1,5 @@
-﻿using TianWen.Lib.Devices;
-using System;
+﻿using System;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Sequencing;
 
