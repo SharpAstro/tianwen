@@ -29,9 +29,9 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 
-namespace TianWen.Lib.Devices.Guider;
+namespace TianWen.Lib.Connections;
 
-class JsonRPCConnection() : IUtf8TextBasedConnection
+internal class JsonRPCOverTcpConnection() : IUtf8TextBasedConnection
 {
     private TcpClient? _tcpClient;
     private StreamReader? _streamReader;
@@ -67,6 +67,8 @@ class JsonRPCConnection() : IUtf8TextBasedConnection
     }
 
     public bool IsConnected => _tcpClient?.Connected is true;
+
+    public CommunicationProtocol HighLevelProtocol => CommunicationProtocol.JsonRPC;
 
     public string? ReadLine() => _streamReader?.ReadLine();
 

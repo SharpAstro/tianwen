@@ -38,7 +38,7 @@ internal class MeadeDeviceSource(IExternal external) : IDeviceSource<MeadeDevice
             }
             catch (Exception ex)
             {
-                external.AppLogger.LogWarning(ex, "Failed to query device {PortName}: {ErrorMessage}", portName, ex.Message);
+                external.AppLogger.LogWarning(ex, "Failed to query device {PortName}", portName);
                 device = null;
             }
 

@@ -9,6 +9,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json.Serialization;
 using System.Web;
+using TianWen.Lib.Connections;
 
 namespace TianWen.Lib.Devices;
 
@@ -86,13 +87,13 @@ public abstract record class DeviceBase(Uri DeviceUri)
 
     protected virtual IDeviceDriver? NewInstanceFromDevice(IExternal external) => null;
 
-    public virtual ISerialDevice? ConnectSerialDevice(IExternal external, int baud = 9600, Encoding? encoding = null, TimeSpan? ioTimeout = null)
+    public virtual ISerialConnection? ConnectSerialDevice(IExternal external, int baud = 9600, Encoding? encoding = null, TimeSpan? ioTimeout = null)
     {
         if (Query["port"] is { Length: > 0 } port)
         {
             var selectedBaud = int.TryParse(Query["baud"], CultureInfo.InvariantCulture, out var customBaud) ? customBaud : baud;
 
-            if (port.StartsWith(ISerialDevice.SerialProto, StringComparison.Ordinal)
+            if (port.StartsWith(ISerialConnection.SerialProto, StringComparison.Ordinal)
                 || port.StartsWith("COM", StringComparison.OrdinalIgnoreCase)
                 || port.Split('/', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)[^1].StartsWith("tty", StringComparison.Ordinal)
             )

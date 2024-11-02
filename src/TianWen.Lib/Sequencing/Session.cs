@@ -70,7 +70,7 @@ public record Session(
         }
         catch (Exception e)
         {
-            External.AppLogger.LogError(e, "Exception {ErrorMessage} while in main run loop, unrecoverable, aborting session.", e.Message);
+            External.AppLogger.LogError(e, "Exception while in main run loop, unrecoverable, aborting session.");
         }
         finally
         {
@@ -226,8 +226,7 @@ public record Session(
         }
         else if (solveTask.IsFaulted || solveTask.IsCanceled)
         {
-            External.AppLogger.LogWarning(solveTask.Exception, "Failed to plate solve guider \"{GuiderName}\" captured frame due to: {ErrorMessage}",
-                guider.Driver, solveTask.Exception?.Message);
+            External.AppLogger.LogWarning(solveTask.Exception, "Failed to plate solve guider \"{GuiderName}\" captured frame", guider.Driver);
         }
         else
         {
@@ -255,7 +254,10 @@ public record Session(
 
         var guider = Setup.Guider;
 
-        guider.Driver.StartGuidingLoop(Configuration.GuidingTries, cancellationToken);
+        if (!guider.Driver.StartGuidingLoop(Configuration.GuidingTries, cancellationToken))
+        {
+            throw new InvalidOperationException($"Failed to start guider loop of guider {guider.Driver}");
+        }
     }
 
     internal void Finalise()
@@ -467,7 +469,7 @@ public record Session(
             }
             catch (Exception ex)
             {
-                External.AppLogger.LogError(ex, "Error {ErrorMessage} while slewing to {Observation}, advance to next target", ex.Message, observation);
+                External.AppLogger.LogError(ex, "Error while slewing to {Observation}, advance to next target", observation);
                 _ = AdvanceObservation();
                 continue;
             }

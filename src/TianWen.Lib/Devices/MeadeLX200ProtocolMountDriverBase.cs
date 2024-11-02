@@ -10,10 +10,11 @@ using System.Threading;
 using TianWen.Lib.Astrometry;
 using static TianWen.Lib.Astrometry.CoordinateUtils;
 using static TianWen.Lib.Astrometry.Constants;
+using TianWen.Lib.Connections;
 
 namespace TianWen.Lib.Devices;
 
-internal record struct MountDeviceInfo(ISerialDevice SerialDevice);
+internal record struct MountDeviceInfo(ISerialConnection SerialDevice);
 
 /// <summary>
 /// Abstract mount based on the Meade LX200 protocol.
@@ -1012,7 +1013,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         }
         catch (Exception ex)
         {
-            External.AppLogger.LogError(ex, "Error {ErrorMessage} when connecting to serial port {DeviceUri}", ex.Message, _device.DeviceUri);
+            External.AppLogger.LogError(ex, "Error when connecting to serial port {DeviceUri}", _device.DeviceUri);
 
             connectedDeviceInfo = default;
             connectionId = CONNECTION_ID_UNKNOWN;

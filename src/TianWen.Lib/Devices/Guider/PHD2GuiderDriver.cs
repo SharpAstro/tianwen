@@ -24,6 +24,7 @@ SOFTWARE.
 
 */
 
+using Microsoft.Extensions.Logging;
 using System;
 using System.Buffers;
 using System.Collections.Concurrent;
@@ -34,6 +35,7 @@ using System.IO;
 using System.Net;
 using System.Text.Json;
 using System.Threading;
+using TianWen.Lib.Connections;
 
 namespace TianWen.Lib.Devices.Guider;
 
@@ -493,6 +495,11 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     /// <returns></returns>
     protected JsonDocument Call(string method, params object[] @params)
     {
+        if (!Connected)
+        {
+            throw new GuiderException("Guider is not connected");
+        }
+
         var (memory, id) = MakeJsonRPCCall(method, @params);
 
         // send request
@@ -1011,6 +1018,16 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     {
         if (deviceType != DeviceType.DedicatedGuiderSoftware)
         {
+            yield break;
+        }
+
+        try
+        {
+            Connected = true;
+        }
+        catch (Exception e)
+        {
+            External.AppLogger.LogError(e, "Failed to enumerate profiles for guider {Guider} for {DeviceType}", _guiderDevice.DisplayName, deviceType);
             yield break;
         }
 
