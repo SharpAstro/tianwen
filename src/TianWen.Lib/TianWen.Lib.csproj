@@ -61,7 +61,7 @@
     </PackageReference>
     <PackageReference Include="System.IO.Ports" Version="8.0.0" />
     <PackageReference Include="WWA.Core" Version="1.2.0" />
-    <PackageReference Include="ZWOptical.SDK" Version="2.0.411" />
+    <PackageReference Include="ZWOptical.SDK" Version="2.0.421" />
   </ItemGroup>
 
 </Project>
