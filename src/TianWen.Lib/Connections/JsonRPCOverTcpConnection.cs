@@ -28,6 +28,7 @@ using System;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Threading.Tasks;
 
 namespace TianWen.Lib.Connections;
 
@@ -38,13 +39,26 @@ internal class JsonRPCOverTcpConnection() : IUtf8TextBasedConnection
 
     public void Connect(EndPoint endPoint)
     {
-        if (endPoint is not IPEndPoint ipEndPoint)
-        {
-            throw new ArgumentException($"{endPoint} address familiy {endPoint.AddressFamily} is not supported", nameof(endPoint));
-        }
-
         _tcpClient = new TcpClient();
-        _tcpClient.Connect(ipEndPoint);
+        switch (endPoint)
+        {
+            case IPEndPoint ip: _tcpClient.Connect(ip); break;
+            case DnsEndPoint dns: _tcpClient.Connect(dns.Host, dns.Port); break;
+            default:
+                throw new ArgumentException($"{endPoint} address familiy {endPoint.AddressFamily} is not supported", nameof(endPoint));
+        }
+        _streamReader = new StreamReader(_tcpClient.GetStream());
+    }
+
+    public async Task ConnectAsync(EndPoint endPoint)
+    {
+        _tcpClient = new TcpClient();
+        await (endPoint switch
+        {
+            IPEndPoint ip => _tcpClient.ConnectAsync(ip),
+            DnsEndPoint dns => _tcpClient.ConnectAsync(dns.Host, dns.Port),
+            _ => throw new ArgumentException($"{endPoint} address familiy {endPoint.AddressFamily} is not supported", nameof(endPoint))
+        });
         _streamReader = new StreamReader(_tcpClient.GetStream());
     }
 
