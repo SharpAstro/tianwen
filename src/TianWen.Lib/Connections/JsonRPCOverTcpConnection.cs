@@ -43,7 +43,8 @@ internal class JsonRPCOverTcpConnection() : IUtf8TextBasedConnection
             throw new ArgumentException($"{endPoint} address familiy {endPoint.AddressFamily} is not supported", nameof(endPoint));
         }
 
-        _tcpClient = new TcpClient(ipEndPoint);
+        _tcpClient = new TcpClient();
+        _tcpClient.Connect(ipEndPoint);
         _streamReader = new StreamReader(_tcpClient.GetStream());
     }
 
