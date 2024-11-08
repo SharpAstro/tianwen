@@ -5,6 +5,7 @@ using System.IO;
 using System.Net;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using TianWen.Lib.Connections;
 
 namespace TianWen.Lib.Devices;
@@ -34,4 +35,7 @@ internal class External(
 
     public IUtf8TextBasedConnection ConnectGuider(EndPoint address, CommunicationProtocol protocol = CommunicationProtocol.JsonRPC)
         => textBasedConnectionFactory.Connect(address, protocol);
+
+    public Task<IUtf8TextBasedConnection> ConnectGuiderAsync(EndPoint address, CommunicationProtocol protocol = CommunicationProtocol.JsonRPC)
+        => textBasedConnectionFactory.ConnectAsync(address, protocol);
 }
