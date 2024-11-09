@@ -50,32 +50,36 @@ public abstract class AscomDeviceDriverBase(AscomDevice device, IExternal extern
                     return false;
             }
         }
+    }
 
-        set
+    public virtual void Connect() => Connect(true);
+
+    public virtual void Disconnect() => Connect(false);
+
+    protected void Connect(bool connect)
+    {
+        if (_comObject is { } obj)
         {
-            if (_comObject is { } obj)
+            if (obj.Connected is bool currentConnected)
             {
-                if (obj.Connected is bool currentConnected)
+                var actualState = currentConnected ? CONNECTED : DISCONNECTED;
+                var desiredState = connect ? CONNECTED : DISCONNECTED;
+                var prevState = Volatile.Read(ref _connectionState);
+                if (prevState != actualState || actualState != desiredState)
                 {
-                    var actualState = currentConnected ? CONNECTED : DISCONNECTED;
-                    var desiredState = value ? CONNECTED : DISCONNECTED;
-                    var prevState = Volatile.Read(ref _connectionState);
-                    if (prevState != actualState || actualState != desiredState)
-                    {
-                        Volatile.Write(ref _connectionState, desiredState);
+                    Volatile.Write(ref _connectionState, desiredState);
 
-                        DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(obj.Connected = value));
-                    }
-                }
-                else
-                {
-                    Volatile.Write(ref _connectionState, STATE_UNKNOWN);
+                    DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(obj.Connected = connect));
                 }
             }
             else
             {
                 Volatile.Write(ref _connectionState, STATE_UNKNOWN);
             }
+        }
+        else
+        {
+            Volatile.Write(ref _connectionState, STATE_UNKNOWN);
         }
     }
 

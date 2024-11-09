@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Threading;
 
 namespace TianWen.Lib.Devices.Fake;
 
@@ -18,15 +19,17 @@ internal abstract class FakeDeviceDriverBase(FakeDevice fakeDevice, IExternal ex
 
     public string? DriverVersion => typeof(IDeviceDriver).Assembly.GetName().Version?.ToString() ?? "1.0";
 
-    public bool Connected
-    {
-        get => _connected;
-        set
-        {
-            _connected = value;
+    public bool Connected => Volatile.Read(ref _connected);
 
-            DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(value));
-        }
+    public void Connect() => SetConnect(true);
+
+    public void Disconnect() => SetConnect(false);
+
+    private void SetConnect(bool connected)
+    {
+        Volatile.Write(ref _connected, connected);
+
+        DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(connected));
     }
 
     public abstract DeviceType DriverType { get; }

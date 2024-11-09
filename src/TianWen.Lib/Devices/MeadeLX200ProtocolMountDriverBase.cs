@@ -991,7 +991,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
     public void Unpark() => throw new InvalidOperationException("Unparking is not supported");
 
-    protected override bool ConnectDevice(out int connectionId, out MountDeviceInfo connectedDeviceInfo)
+    protected override bool OnConnectDevice(out int connectionId, out MountDeviceInfo connectedDeviceInfo)
     {
         try
         {
@@ -1060,7 +1060,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         return false;
     }
 
-    protected override bool DisconnectDevice(int connectionId)
+    protected override bool OnDisconnectDevice(int connectionId)
     {
         if (connectionId == CONNECTION_ID_EXCLUSIVE)
         {

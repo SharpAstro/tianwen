@@ -29,9 +29,9 @@ internal class ZWOFilterWheelDriver(ZWODevice device, IExternal external) : ZWOD
         }
     }
 
-    protected override bool ConnectDevice(out int connectionId, out EFW_INFO connectedDeviceInfo)
+    protected override bool OnConnectDevice(out int connectionId, out EFW_INFO connectedDeviceInfo)
     {
-        if (base.ConnectDevice(out connectionId, out connectedDeviceInfo))
+        if (base.OnConnectDevice(out connectionId, out connectedDeviceInfo))
         {
             _filterCount = connectedDeviceInfo.slotNum;
             return true;

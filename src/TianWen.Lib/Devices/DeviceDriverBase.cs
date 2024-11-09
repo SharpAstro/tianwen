@@ -1,5 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
-using System;
+﻿using System;
 using System.Threading;
 
 namespace TianWen.Lib.Devices;
@@ -51,111 +50,94 @@ internal abstract class DeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, I
 
     private int _connectionState = DISCONNECTED;
 
-    public bool Connected
+    public bool Connected => Interlocked.CompareExchange(ref _connectionState, CONNECTED, CONNECTED) == CONNECTED;
+
+    public void Connect() => SetConnectionState(CONNECTED);
+
+    public void Disconnect() => SetConnectionState(DISCONNECTED);
+
+    private void SetConnectionState(int desiredState)
     {
-        get
+        if (!TrySetConnectionState(desiredState))
         {
-            var state = Volatile.Read(ref _connectionState);
-            return state switch
-            {
-                CONNECTED => true,
-                _ => false,
-            };
-        }
+            var desiredStateStr = desiredState switch { CONNECTED => "connect", DISCONNECTED => "disconnect", _ => $"reach unknown state {desiredState}" };
 
-        set
-        {
-            var desiredState = value ? CONNECTED : DISCONNECTED;
-
-            try
-            {
-                if (!SetConnectionState(desiredState))
-                {
-                    External.AppLogger.LogError("Failed to {DesiredState} to device {DeviceId} ({DeviceDisplayName}), current state is {CurrentState}",
-                        desiredState switch { CONNECTED => "connect", DISCONNECTED => "disconnect", _ => $"reach unknown state {desiredState}" },
-                        _device.DeviceId,
-                        _device.DisplayName,
-                        StateToString(Volatile.Read(ref _connectionState))
-                    );
-                }
-            }
-            catch (Exception ex)
-            {
-                External.AppLogger.LogError(ex, "Failed to {DesiredState} to device {DeviceId} ({DeviceDisplayName}), current state is {CurrentState}",
-                    desiredState switch { CONNECTED => "connect", DISCONNECTED => "disconnect", _ => $"reach unknown state {desiredState}" },
-                    _device.DeviceId,
-                    _device.DisplayName,
-                    StateToString(Volatile.Read(ref _connectionState))
-                );
-            }
-
-            static string StateToString(int state) => state switch
-            {
-                CONNECTED => "connected",
-                DISCONNECTED => "disconnected",
-                CONNECTING => "connecting",
-                DISCONNECTING => "disconnecting",
-                CONNECTION_FAILURE => "failure",
-                _ => $"unknown state {state}"
-            };
+            throw new InvalidOperationException($"Failed to {desiredStateStr} to device {_device.DeviceId} ({_device.DisplayName}), current state is {StateToString(Volatile.Read(ref _connectionState))}");
         }
     }
 
-    private bool SetConnectionState(int desiredState)
+    /// <summary>
+    /// Tries to transition device into <paramref name="desiredState"/> (either <see cref="CONNECTED"/> or <see cref="DISCONNECTED"/>) via intermediate states (<see cref="CONNECTING"/>, <see cref="DISCONNECTING"/>).
+    /// Will trigger <see cref="OnConnectDevice(out int, out TDeviceInfo)"/> and <see cref="OnDisconnectDevice(int)"/> <em>once</em> respectively.
+    /// </summary>
+    /// <param name="desiredState"></param>
+    /// <returns><see langword="true"/> if desired state has been reached</returns>
+    /// <exception cref="InvalidOperationException"></exception>
+    private bool TrySetConnectionState(int desiredState)
     {
         var wantsConnect = desiredState is CONNECTED;
         var intermediateState = wantsConnect ? CONNECTING : DISCONNECTING;
         var oppositeState = wantsConnect ? DISCONNECTED : CONNECTED;
         var prevState = Interlocked.CompareExchange(ref _connectionState, intermediateState, oppositeState);
 
-        if (prevState != desiredState)
+        if (prevState == desiredState)
         {
-            if (desiredState == CONNECTED)
-            {
-                if (ConnectDevice(out var connectionId, out _deviceInfo))
-                {
-                    // only trigger connected event once
-                    if (Interlocked.CompareExchange(ref _connectionState, desiredState, intermediateState) == intermediateState)
-                    {
-                        Volatile.Write(ref _connectionId, connectionId);
-                        DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(wantsConnect));
-
-                        return true;
-                    }
-                }
-                else if (Interlocked.CompareExchange(ref _connectionState, CONNECTION_FAILURE, intermediateState) == intermediateState)
-                {
-                    throw new InvalidOperationException($"Could not connect to device {_device.DeviceId}");
-                }
-            }
-            else if (desiredState == DISCONNECTED)
-            {
-                if (DisconnectDevice(Volatile.Read(ref _connectionId)))
-                {
-                    // only trigger disconnect event once
-                    if (Interlocked.CompareExchange(ref _connectionState, desiredState, intermediateState) == intermediateState)
-                    {
-                        Volatile.Write(ref _connectionId, CONNECTION_ID_UNKNOWN);
-                        DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(wantsConnect));
-
-                        return false;
-                    }
-                }
-                else if (Interlocked.CompareExchange(ref _connectionState, CONNECTION_FAILURE, intermediateState) == intermediateState)
-                {
-                    throw new InvalidOperationException($"Could not disconnect device {_device.DeviceId}");
-                }
-            }
-
-            return Volatile.Read(ref _connectionState) != desiredState;
+            return true;
         }
 
-        return true;
+        if (desiredState == CONNECTED)
+        {
+            if (OnConnectDevice(out var connectionId, out _deviceInfo))
+            {
+                // only trigger connected event once
+                if (Interlocked.CompareExchange(ref _connectionState, desiredState, intermediateState) == intermediateState)
+                {
+                    Volatile.Write(ref _connectionId, connectionId);
+                    DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(wantsConnect));
+
+                    return true;
+                }
+            }
+            else if (Interlocked.CompareExchange(ref _connectionState, CONNECTION_FAILURE, intermediateState) == intermediateState)
+            {
+                throw new InvalidOperationException($"Could not connect to device {_device.DeviceId}");
+            }
+        }
+        else if (desiredState == DISCONNECTED)
+        {
+            if (OnDisconnectDevice(Volatile.Read(ref _connectionId)))
+            {
+                // only trigger disconnect event once
+                if (Interlocked.CompareExchange(ref _connectionState, desiredState, intermediateState) == intermediateState)
+                {
+                    Volatile.Write(ref _connectionId, CONNECTION_ID_UNKNOWN);
+                    DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(wantsConnect));
+
+                    return true;
+                }
+            }
+            else if (Interlocked.CompareExchange(ref _connectionState, CONNECTION_FAILURE, intermediateState) == intermediateState)
+            {
+                throw new InvalidOperationException($"Could not disconnect device {_device.DeviceId}");
+            }
+        }
+
+        return Interlocked.CompareExchange(ref _connectionState, desiredState, desiredState) != desiredState;
     }
 
-    protected abstract bool ConnectDevice(out int connectionId, out TDeviceInfo connectedDeviceInfo);
+    static string StateToString(int state) => state switch
+    {
+        CONNECTED => "connected",
+        DISCONNECTED => "disconnected",
+        CONNECTING => "connecting",
+        DISCONNECTING => "disconnecting",
+        CONNECTION_FAILURE => "failure",
+        _ => $"unknown state {state}"
+    };
 
-    protected abstract bool DisconnectDevice(int connectionId);
+    protected abstract bool OnConnectDevice(out int connectionId, out TDeviceInfo connectedDeviceInfo);
+
+    protected abstract bool OnDisconnectDevice(int connectionId);
 
     protected virtual void Dispose(bool disposing)
     {
@@ -163,8 +145,8 @@ internal abstract class DeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, I
         {
             if (disposing)
             {
+                Disconnect();
                 DeviceConnectedEvent = null;
-                Connected = false;
             }
 
             DisposeNative();

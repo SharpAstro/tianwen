@@ -7,7 +7,7 @@ internal abstract class ZWODeviceDriverBase<TDeviceInfo>(ZWODevice device, IExte
 {
     public override string? DriverInfo => $"ZWO Driver v{DriverVersion}";
 
-    protected override bool ConnectDevice(out int connectionId, out TDeviceInfo connectedDeviceInfo)
+    protected override bool OnConnectDevice(out int connectionId, out TDeviceInfo connectedDeviceInfo)
     {
         var deviceIterator = new DeviceIterator<TDeviceInfo>();
         var searchId = _device.DeviceId;
@@ -47,5 +47,5 @@ internal abstract class ZWODeviceDriverBase<TDeviceInfo>(ZWODevice device, IExte
         bool IsSameName(in TDeviceInfo deviceInfo) => deviceInfo.Name is { Length: > 0 } name && name == searchId;
     }
 
-    protected override bool DisconnectDevice(int connectionId) => _deviceInfo.Close();
+    protected override bool OnDisconnectDevice(int connectionId) => _deviceInfo.Close();
 }

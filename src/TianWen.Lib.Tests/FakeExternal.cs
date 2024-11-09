@@ -8,6 +8,7 @@ using System.IO;
 using System.Net;
 using System.Reflection;
 using System.Text;
+using System.Threading.Tasks;
 using TianWen.Lib.Connections;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
@@ -44,6 +45,9 @@ public class FakeExternal : IExternal
     public ILogger AppLogger { get; }
 
     public virtual IUtf8TextBasedConnection ConnectGuider(EndPoint address, CommunicationProtocol protocol = CommunicationProtocol.JsonRPC)
+        => throw new ArgumentException($"No guider connection defined for address {address}", nameof(address));
+
+    public virtual Task<IUtf8TextBasedConnection> ConnectGuiderAsync(EndPoint address, CommunicationProtocol protocol = CommunicationProtocol.JsonRPC)
         => throw new ArgumentException($"No guider connection defined for address {address}", nameof(address));
 
     public IReadOnlyList<string> EnumerateSerialPorts() => [];
