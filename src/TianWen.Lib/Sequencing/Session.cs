@@ -6,6 +6,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
@@ -32,7 +33,7 @@ public record Session(
 
     private int AdvanceObservation() => Interlocked.Increment(ref _activeObservation);
 
-    public void Run(CancellationToken cancellationToken)
+    public async Task RunAsync(CancellationToken cancellationToken)
     {
         try
         {
@@ -40,7 +41,7 @@ public record Session(
             // run initialisation code
             if (active == 0)
             {
-                if (!Initialisation(cancellationToken))
+                if (!await Initialisation(cancellationToken))
                 {
                     External.AppLogger.LogError("Initialization failed, aborting session.");
                     return;
@@ -284,7 +285,7 @@ public record Session(
             maybeCooledCamerasToAmbient ??= Catch(TurnOffCameraCooling);
         }
 
-        var guiderDisconnected = Catch(() => !(guider.Driver.Connected = false));
+        var guiderDisconnected = Catch(guider.Driver.Disconnect);
 
         bool parkInitiated = Catch(() => mount.Driver.CanPark) && Catch(mount.Driver.Park);
 
@@ -308,7 +309,7 @@ public record Session(
         var coversClosed = maybeCoversClosed ??= Catch(CloseCovers);
         var cooledCamerasToAmbient = maybeCooledCamerasToAmbient ??= Catch(TurnOffCameraCooling);
 
-        var mountDisconnected = Catch(() => !(mount.Driver.Connected = false));
+        var mountDisconnected = Catch(mount.Driver.Disconnect);
 
         var shutdownReport = new Dictionary<string, bool>
         {
@@ -358,13 +359,13 @@ public record Session(
     /// </summary>
     /// <param name="cancellationToken"></param>
     /// <returns>True if initialisation was successful.</returns>
-    internal bool Initialisation(CancellationToken cancellationToken)
+    internal async Task<bool> Initialisation(CancellationToken cancellationToken)
     {
         var mount = Setup.Mount;
         var guider = Setup.Guider;
 
-        mount.Driver.Connected = true;
-        guider.Driver.Connected = true;
+        mount.Driver.Connect();
+        await guider.Driver.ConnectAsync();
 
         if (mount.Driver.AtPark && (!mount.Driver.CanUnpark || !Catch(mount.Driver.Unpark)))
         {
@@ -380,7 +381,7 @@ public record Session(
         {
             var telescope = Setup.Telescopes[i];
             var camera = telescope.Camera;
-            camera.Driver.Connected = true;
+            camera.Driver.Connect();
 
             // copy over denormalised properties if required
             camera.Driver.Telescope ??= telescope.Name;
@@ -695,7 +696,7 @@ public record Session(
         {
             if (Setup.Telescopes[i].Cover is { } cover)
             {
-                cover.Driver.Connected = true;
+                cover.Driver.Connect();
 
                 bool calibratorActionCompleted;
                 if (cover.Driver.CoverState is CoverStatus.NotPresent)

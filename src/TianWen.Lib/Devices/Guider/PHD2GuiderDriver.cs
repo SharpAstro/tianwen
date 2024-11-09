@@ -35,6 +35,7 @@ using System.IO;
 using System.Net;
 using System.Text.Json;
 using System.Threading;
+using System.Threading.Tasks;
 using TianWen.Lib.Connections;
 
 namespace TianWen.Lib.Devices.Guider;
@@ -424,13 +425,13 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         }
     }
 
-    public bool Connected
-    {
-        get => _connection?.IsConnected ?? false;
-        set => Connect(value);
-    }
+    public bool Connected => _connection?.IsConnected ?? false;
 
-    public void Connect(bool connect)
+    public void Connect() => SetConnected(true, false).GetAwaiter().GetResult();
+
+    public void Disconnect() => SetConnected(false, false).GetAwaiter().GetResult();
+
+    private async Task SetConnected(bool connect, bool async)
     {
         if (Connected)
         {
@@ -440,7 +441,6 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         if (!connect)
         {
             DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(connect));
-            return;
         }
 
         var instanceId = _guiderDevice.InstanceId;
@@ -452,12 +452,8 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
                 ? new IPEndPoint(ipAddress, port)
                 : new DnsEndPoint(host, port);
 
-            var connection = External.ConnectGuider(endPoint);
-            // try to establish this connection as the current one, if not dispose of it
-            if (Interlocked.CompareExchange(ref _connection, connection, null) is not not null)
-            {
-                connection.Dispose();
-            }
+            var connection = async ? await External.ConnectGuiderAsync(endPoint) : External.ConnectGuider(endPoint);
+            Interlocked.Exchange(ref _connection, connection)?.Dispose();
         }
         catch (Exception e)
         {
@@ -1023,7 +1019,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
         try
         {
-            Connected = true;
+            Connect();
         }
         catch (Exception e)
         {

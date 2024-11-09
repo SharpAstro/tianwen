@@ -171,9 +171,9 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
 
     public override string? Description { get; } = $"ZWO Camera driver using C# SDK wrapper v{ASIGetSDKVersion}";
 
-    protected override bool ConnectDevice(out int connectionId, out ASI_CAMERA_INFO camInfo)
+    protected override bool OnConnectDevice(out int connectionId, out ASI_CAMERA_INFO camInfo)
     {
-        if (base.ConnectDevice(out connectionId, out camInfo))
+        if (base.OnConnectDevice(out connectionId, out camInfo))
         {
             return ASIInitCamera(camInfo.ID) is ASI_SUCCESS;
         }

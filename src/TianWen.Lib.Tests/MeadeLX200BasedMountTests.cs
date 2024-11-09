@@ -19,12 +19,10 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
         // given
         var device = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection { ["latitude"] = Convert.ToString(siteLat), ["longitude"] = Convert.ToString(siteLong) });
         var fakeExternal = new FakeExternal(outputHelper, null, null, null);
+        var mount = new FakeMeadeLX200ProtocolMountDriver(device, fakeExternal);
 
         // when
-        var mount = new FakeMeadeLX200ProtocolMountDriver(device, fakeExternal)
-        {
-            Connected = true
-        };
+        mount.Connect();
 
         // then
         mount.Connected.ShouldBe(true);
@@ -56,9 +54,9 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
                 Interlocked.Increment(ref receivedDisconnect);
             }
         };
-        
+
         // when
-        mount.Connected = true;
+        mount.Connect();
 
         // then
         mount.Connected.ShouldBe(true);
@@ -67,7 +65,7 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
         Should.NotThrow(() => mount.SiderealTime);
 
         // after
-        mount.Connected = false;
+        mount.Disconnect();
 
         // then
         mount.Connected.ShouldBe(false);
@@ -87,14 +85,12 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
         var device = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection { ["latitude"] = Convert.ToString(siteLat), ["longitude"] = Convert.ToString(siteLong) });
         var fakeExternal = new FakeExternal(outputHelper, null, utc is not null ? DateTimeOffset.Parse(utc) : null, null);
 
-        var mount = new FakeMeadeLX200ProtocolMountDriver(device, fakeExternal)
-        {
-            Connected = true
-        };
+        var mount = new FakeMeadeLX200ProtocolMountDriver(device, fakeExternal);
 
         var timeStamp = fakeExternal.TimeProvider.GetTimestamp();
 
         // when
+        mount.Connect();
         mount.Tracking = true;
         mount.SlewRaDecAsync(targetRa, targetDec);
         mount.IsSlewing.ShouldBe(true);

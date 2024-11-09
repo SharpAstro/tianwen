@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Text;
+using System.Threading.Tasks;
 using TianWen.Lib.Connections;
 using TianWen.Lib.Imaging;
 
@@ -141,10 +142,18 @@ public interface IExternal
     IPEndPoint DefaultGuiderAddress => new IPEndPoint(IPAddress.Loopback, 4400);
 
     /// <summary>
-    /// Connect to an external dedicated guider software, using JSON RPC (only supported is Open PHD2 Guiding).
+    /// Connect to an external dedicated guider software at <paramref name="address"/>, using <paramref name="protocol"/>.
     /// </summary>
     /// <param name="address"></param>
     /// <param name="protocol"></param>
     /// <returns></returns>
     IUtf8TextBasedConnection ConnectGuider(EndPoint address, CommunicationProtocol protocol = CommunicationProtocol.JsonRPC);
+
+    /// <summary>
+    /// Connect to an external dedicated guider software at <paramref name="address"/>, using <paramref name="protocol"/> asynchronously.
+    /// </summary>
+    /// <param name="address"></param>
+    /// <param name="protocol"></param>
+    /// <returns></returns>
+    Task<IUtf8TextBasedConnection> ConnectGuiderAsync(EndPoint address, CommunicationProtocol protocol = CommunicationProtocol.JsonRPC);
 }

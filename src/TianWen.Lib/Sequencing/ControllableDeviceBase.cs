@@ -33,7 +33,7 @@ public abstract record ControllableDeviceBase<TDriver> : IDisposable
         {
             if (disposing)
             {
-                Driver.Connected = false;
+                Driver.Disconnect();
                 Driver.DeviceConnectedEvent -= Driver_DeviceConnectedEvent;
                 Driver.Dispose();
             }

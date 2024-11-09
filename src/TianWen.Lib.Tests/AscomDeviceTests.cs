@@ -74,7 +74,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         {
             using (driver)
             {
-                driver.Connected = true;
+                driver.Disconnect();
             }
         }
     }
@@ -95,7 +95,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         {
             using (driver)
             {
-                driver.Connected = true;
+                driver.Connect();
                 var startExposure = driver.StartExposure(TimeSpan.FromSeconds(0.1));
 
                 Thread.Sleep((int)TimeSpan.FromSeconds(0.5).TotalMilliseconds);
