@@ -14,17 +14,15 @@ env:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
-
     steps:
     - name: Install astrometry.net
       run: sudo apt-get install -y astrometry.net astrometry-data-2mass-08-19
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         submodules: recursive
     - name: Setup .NET
-      uses: actions/setup-dotnet@v2
+      uses: actions/setup-dotnet@v3
       with:
         dotnet-version: 8.0.x
     - name: Restore dependencies
@@ -37,7 +35,8 @@ jobs:
       run: dotnet test -c $BUILD_CONF --no-build
       working-directory: src
     - name: Upload Artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
+      id: nuget-package-artifact
       with:
         name: nuget-packages
         path: '**/*.nupkg'
@@ -49,7 +48,7 @@ jobs:
 
     steps:
     - name: Download NuGet packages
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: nuget-packages
     - name: Push NuGet package
