@@ -8,7 +8,7 @@
     <PackageID>TianWen.Lib</PackageID>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
-    <RepositoryUrl>https://github.com/sebgod/astap-lib.git</RepositoryUrl>
+    <RepositoryUrl>https://github.com/SharpAstro/tianwen.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <DebugType>embedded</DebugType>
