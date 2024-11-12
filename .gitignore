@@ -5,3 +5,4 @@ TestResults/
 *.TMP
 *.tmp
 tmp-data/
+*.csproj.user

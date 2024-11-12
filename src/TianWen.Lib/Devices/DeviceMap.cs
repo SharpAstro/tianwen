@@ -13,21 +13,13 @@ internal class DeviceMap<TDevice>(IDeviceSource<TDevice> source) : IDeviceManage
 
     public IEnumerable<DeviceType> RegisteredDeviceTypes => source.RegisteredDeviceTypes;
 
-    public async ValueTask DiscoverAsync(CancellationToken cancellationToken) => await Task.Run(Discover, cancellationToken);
-
-    private void Discover()
+    public async ValueTask DiscoverAsync(CancellationToken cancellationToken = default)
     {
-        var types = source.RegisteredDeviceTypes;
+        await source.DiscoverAsync(cancellationToken);
 
-        var deviceMap = new Dictionary<string, TDevice>();
-
-        foreach (var type in types)
-        {
-            foreach (var device in source.RegisteredDevices(type))
-            {
-                deviceMap[device.DeviceId] = device;
-            }
-        }
+        var deviceMap = RegisteredDeviceTypes
+            .SelectMany(source.RegisteredDevices)
+            .ToDictionary(device => device.DeviceId, device => device);
 
         Interlocked.Exchange(ref _deviceMap, deviceMap);
     }
