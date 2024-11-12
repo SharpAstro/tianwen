@@ -10,7 +10,7 @@ namespace TianWen.Lib.Astrometry.Focus;
 
 public class MetricSampleMap(SampleKind kind, AggregationMethod aggregationMethod)
 {
-    private readonly ConcurrentDictionary<int, ConcurrentBag<float>> _samples = new();
+    private readonly ConcurrentDictionary<int, ConcurrentBag<float>> _samples = [];
 
     public SampleKind Kind { get; } = kind;
 

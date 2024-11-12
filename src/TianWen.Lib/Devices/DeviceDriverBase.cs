@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace TianWen.Lib.Devices;
 
@@ -7,17 +8,10 @@ internal abstract class DeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, I
     where TDevice : DeviceBase
     where TDeviceInfo : struct
 {
-    ~DeviceDriverBase()
-    {
-        Dispose(false);
-    }
-
     public delegate void ProcessDeviceInfoDelegate(in TDeviceInfo deviceInfo);
 
     protected readonly TDevice _device = device;
     protected TDeviceInfo _deviceInfo;
-
-    private bool disposedValue;
 
     public virtual string Name => _device.DisplayName;
 
@@ -49,12 +43,23 @@ internal abstract class DeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, I
     const int CONNECTION_FAILURE = 99;
 
     private int _connectionState = DISCONNECTED;
+    private bool disposedValue;
 
     public bool Connected => Interlocked.CompareExchange(ref _connectionState, CONNECTED, CONNECTED) == CONNECTED;
 
-    public void Connect() => SetConnectionState(CONNECTED);
+    public ValueTask ConnectAsync(CancellationToken cancellationToken = default)
+    {
+        SetConnectionState(CONNECTED);
 
-    public void Disconnect() => SetConnectionState(DISCONNECTED);
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask DisconnectAsync(CancellationToken cancellationToken = default)
+    {
+        SetConnectionState(DISCONNECTED);
+
+        return ValueTask.CompletedTask;
+    }
 
     private void SetConnectionState(int desiredState)
     {
@@ -139,25 +144,45 @@ internal abstract class DeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, I
 
     protected abstract bool OnDisconnectDevice(int connectionId);
 
+    protected virtual async ValueTask DisposeAsyncCore()
+    {
+        await DisconnectAsync();
+    }
+
+    protected virtual void DisposeUnmanaged()
+    {
+        // empty
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        // Perform async cleanup.
+        await DisposeAsyncCore();
+
+        // Dispose of unmanaged resources.
+        Dispose(false);
+
+        // Suppress finalization.
+        GC.SuppressFinalize(this);
+    }
+
     protected virtual void Dispose(bool disposing)
     {
         if (!disposedValue)
         {
-            if (disposing)
+            if (!disposing)
             {
-                Disconnect();
-                DeviceConnectedEvent = null;
+                DisposeUnmanaged();
             }
-
-            DisposeNative();
 
             disposedValue = true;
         }
     }
 
-    protected virtual void DisposeNative()
+    ~DeviceDriverBase()
     {
-        // default empty
+        // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
+        Dispose(disposing: false);
     }
 
     public void Dispose()

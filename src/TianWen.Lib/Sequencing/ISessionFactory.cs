@@ -1,7 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
@@ -14,7 +12,7 @@ public interface ISessionFactory
 }
 
 internal class SessionFactory(
-    IDeviceManager<DeviceBase> deviceManager,
+    ICombinedDeviceManager deviceManager,
     IExternal external,
     IImageAnalyser imageAnalyser,
     IPlateSolverFactory plateSolverFactory

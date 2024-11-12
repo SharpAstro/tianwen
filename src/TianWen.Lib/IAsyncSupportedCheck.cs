@@ -10,5 +10,5 @@ public interface IAsyncSupportedCheck
     /// </summary>
     /// <param name="cancellationToken"></param>
     /// <returns>true if the implementation is supported on this platform/installed on the system.</returns>
-    Task<bool> CheckSupportAsync(CancellationToken cancellationToken = default);
+    ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken = default);
 }

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace TianWen.Lib.Devices.Fake;
 
@@ -21,17 +22,6 @@ internal abstract class FakeDeviceDriverBase(FakeDevice fakeDevice, IExternal ex
 
     public bool Connected => Volatile.Read(ref _connected);
 
-    public void Connect() => SetConnect(true);
-
-    public void Disconnect() => SetConnect(false);
-
-    private void SetConnect(bool connected)
-    {
-        Volatile.Write(ref _connected, connected);
-
-        DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(connected));
-    }
-
     public abstract DeviceType DriverType { get; }
 
     public IExternal External { get; } = external;
@@ -52,4 +42,27 @@ internal abstract class FakeDeviceDriverBase(FakeDevice fakeDevice, IExternal ex
         Dispose(disposing: true);
         GC.SuppressFinalize(this);
     }
+
+    public ValueTask ConnectAsync(CancellationToken cancellationToken = default)
+    {
+        SetConnect(true);
+
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask DisconnectAsync(CancellationToken cancellationToken = default)
+    {
+        SetConnect(false);
+
+        return ValueTask.CompletedTask;
+    }
+
+    private void SetConnect(bool connected)
+    {
+        Volatile.Write(ref _connected, connected);
+
+        DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(connected));
+    }
+
+    public async ValueTask DisposeAsync() => await DisconnectAsync();
 }

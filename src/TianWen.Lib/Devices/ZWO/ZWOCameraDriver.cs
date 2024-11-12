@@ -951,7 +951,7 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
         }
     }
 
-    protected override void DisposeNative()
+    protected override void DisposeUnmanaged()
     {
         var existingBuffer = Interlocked.Exchange(ref _nativeBuffer, null);
 

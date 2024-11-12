@@ -33,9 +33,8 @@ internal class External(
 
     public void Sleep(TimeSpan duration) => Thread.Sleep(duration);
 
-    public IUtf8TextBasedConnection ConnectGuider(EndPoint address, CommunicationProtocol protocol = CommunicationProtocol.JsonRPC)
-        => textBasedConnectionFactory.Connect(address, protocol);
+    public async ValueTask SleepAsync(TimeSpan duration, CancellationToken cancellationToken) => await Task.Delay(duration, cancellationToken);
 
-    public Task<IUtf8TextBasedConnection> ConnectGuiderAsync(EndPoint address, CommunicationProtocol protocol = CommunicationProtocol.JsonRPC)
-        => textBasedConnectionFactory.ConnectAsync(address, protocol);
+    public Task<IUtf8TextBasedConnection> ConnectGuiderAsync(EndPoint address, CommunicationProtocol protocol = CommunicationProtocol.JsonRPC, CancellationToken cancellationToken = default)
+        => textBasedConnectionFactory.ConnectAsync(address, protocol, cancellationToken);
 }

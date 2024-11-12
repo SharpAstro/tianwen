@@ -1,28 +1,29 @@
-﻿using System.Collections;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace TianWen.Lib.Devices;
 
-internal class DeviceMap<TDevice> : IDeviceManager<TDevice>
+internal class DeviceMap<TDevice>(IDeviceSource<TDevice> source) : IDeviceManager<TDevice>
     where TDevice : DeviceBase
 {
-    private readonly IDeviceSource<TDevice> _source;
     private Dictionary<string, TDevice> _deviceMap = [];
 
-    public DeviceMap(IDeviceSource<TDevice> source) => _source = source;
+    public IEnumerable<DeviceType> RegisteredDeviceTypes => source.RegisteredDeviceTypes;
 
-    public void Refresh()
+    public async ValueTask DiscoverAsync(CancellationToken cancellationToken) => await Task.Run(Discover, cancellationToken);
+
+    private void Discover()
     {
-        var types = _source.RegisteredDeviceTypes;
+        var types = source.RegisteredDeviceTypes;
 
         var deviceMap = new Dictionary<string, TDevice>();
 
         foreach (var type in types)
         {
-            foreach (var device in _source.RegisteredDevices(type))
+            foreach (var device in source.RegisteredDevices(type))
             {
                 deviceMap[device.DeviceId] = device;
             }
@@ -33,9 +34,7 @@ internal class DeviceMap<TDevice> : IDeviceManager<TDevice>
 
     public bool TryFindByDeviceId(string deviceId, [NotNullWhen(true)] out TDevice? device) => _deviceMap.TryGetValue(deviceId, out device);
 
-    public IReadOnlyList<TDevice> FindAllByType(DeviceType type) => _deviceMap.Values.Where(device => device.DeviceType == type).ToList();
+    public IEnumerable<TDevice> RegisteredDevices(DeviceType deviceType) => _deviceMap.Values.Where(d => d.DeviceType == deviceType);
 
-    public IEnumerator<TDevice> GetEnumerator() => _deviceMap.Values.GetEnumerator();
-
-    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    public ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken = default) => source.CheckSupportAsync(cancellationToken);
 }

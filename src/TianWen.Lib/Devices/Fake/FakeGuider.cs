@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
+using System.Threading;
+using System.Threading.Tasks;
 using TianWen.Lib.Devices.Guider;
 
 namespace TianWen.Lib.Devices.Fake;
@@ -12,96 +13,102 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
     public event EventHandler<GuidingErrorEventArgs>? GuidingErrorEvent;
     public event EventHandler<GuiderStateChangedEventArgs>? GuiderStateChangedEvent;
 
-    public (int width, int height)? CameraFrameSize() => new(640, 480);
-
-    public void ConnectEquipment()
+    public ValueTask<(int Width, int Height)?> CameraFrameSizeAsync(CancellationToken cancellationToken = default)
     {
         throw new NotImplementedException();
     }
 
-    public void DisconnectEquipment()
+    public ValueTask ConnectEquipmentAsync(CancellationToken cancellationToken = default)
     {
         throw new NotImplementedException();
     }
 
-    public void Dither(double ditherPixels, double settlePixels, double settleTime, double settleTimeout, bool raOnly = false)
+    public ValueTask DisconnectEquipmentAsync(CancellationToken cancellationToken = default)
     {
         throw new NotImplementedException();
     }
 
-    public TimeSpan ExposureTime()
+    public ValueTask DitherAsync(double ditherPixels, double settlePixels, double settleTime, double settleTimeout, bool raOnly = false, CancellationToken cancellationToken = default)
     {
         throw new NotImplementedException();
     }
 
-    public IReadOnlyList<string> GetEquipmentProfiles() => ["Fake Profile"];
-
-    public GuideStats? GetStats()
+    public ValueTask<TimeSpan> ExposureTimeAsync(CancellationToken cancellationToken = default)
     {
         throw new NotImplementedException();
     }
 
-    public void GetStatus(out string? appState, out double avgDist)
+    public ValueTask<string?> GetActiveProfileNameAsync(CancellationToken cancellationToken = default)
     {
         throw new NotImplementedException();
     }
 
-    public void Guide(double settlePixels, double settleTime, double settleTimeout)
+    public ValueTask<IReadOnlyList<string>> GetEquipmentProfilesAsync(CancellationToken cancellationToken = default)
     {
         throw new NotImplementedException();
     }
 
-    public bool IsGuiding()
+    public ValueTask<SettleProgress?> GetSettleProgressAsync(CancellationToken cancellationToken = default)
     {
         throw new NotImplementedException();
     }
 
-    public bool IsLooping()
+    public ValueTask<GuideStats?> GetStatsAsync(CancellationToken cancellationToken = default)
     {
         throw new NotImplementedException();
     }
 
-    public bool IsSettling()
+    public ValueTask<(string? AppState, double AvgDist)> GetStatusAsync(CancellationToken cancellationToken = default)
     {
         throw new NotImplementedException();
     }
 
-    public bool Loop(TimeSpan timeout, Action<TimeSpan>? sleep = null)
+    public ValueTask GuideAsync(double settlePixels, double settleTime, double settleTimeout, CancellationToken cancellationToken)
     {
         throw new NotImplementedException();
     }
 
-    public void Pause()
+    public ValueTask<bool> IsGuidingAsync(CancellationToken cancellationToken = default)
     {
         throw new NotImplementedException();
     }
 
-    public double PixelScale()
+    public ValueTask<bool> IsLoopingAsync(CancellationToken cancellationToken = default)
     {
         throw new NotImplementedException();
     }
 
-    public string? SaveImage(string outputFolder)
+    public ValueTask<bool> IsSettlingAsync(CancellationToken cancellationToken = default)
     {
         throw new NotImplementedException();
     }
 
-    public void StopCapture(TimeSpan timeout, Action<TimeSpan>? sleep = null)
+    public ValueTask<bool> LoopAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
     {
         throw new NotImplementedException();
     }
 
-    public bool TryGetActiveProfileName([NotNullWhen(true)] out string? activeProfileName)
+    public ValueTask PauseAsync(CancellationToken cancellationToken = default)
     {
         throw new NotImplementedException();
     }
 
-    public bool TryGetSettleProgress([NotNullWhen(true)] out SettleProgress? settleProgress)
+    public ValueTask<double> PixelScaleAsync(CancellationToken cancellationToken = default)
     {
         throw new NotImplementedException();
     }
 
-    public void Unpause()
+    public ValueTask<string?> SaveImageAsync(string outputFolder, CancellationToken cancellationToken = default)
+    {
+        throw new NotImplementedException();
+    }
+
+    public ValueTask StopCaptureAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
+    {
+        throw new NotImplementedException();
+    }
+
+    public ValueTask UnpauseAsync(CancellationToken cancellationToken = default)
     {
         throw new NotImplementedException();
     }

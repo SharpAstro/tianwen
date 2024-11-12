@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Connections;
 using TianWen.Lib.Imaging;
@@ -15,7 +16,7 @@ public interface IExternal
 {
     protected const string ApplicationName = "TianWen";
 
-    public TimeSpan SleepWithOvertime(TimeSpan sleep, TimeSpan extra)
+    public async ValueTask<TimeSpan> SleepWithOvertimeAsync(TimeSpan sleep, TimeSpan extra, CancellationToken cancellationToken = default)
     {
         var adjustedTime = sleep - extra;
 
@@ -23,7 +24,7 @@ public interface IExternal
         if (adjustedTime >= TimeSpan.Zero)
         {
             overslept = TimeSpan.Zero;
-            Sleep(adjustedTime);
+            await SleepAsync(adjustedTime, cancellationToken);
         }
         else
         {
@@ -52,6 +53,50 @@ public interface IExternal
             AppLogger.LogError(ex, "Exception {Message} while executing: {Method}", ex.Message, action.Method.Name);
             return false;
         }
+    }    
+    
+    /// <summary>
+    /// Asynchronously awaits <paramref name="asyncFunc"/>, returning default <paramref name="default"/> if an exception occured.
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <param name="asyncFunc"></param>
+    /// <param name="cancellationToken"></param>
+    /// <param name="default"></param>
+    /// <returns></returns>
+    public async ValueTask<bool> CatchAsync(Func<CancellationToken, ValueTask> asyncFunc, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await asyncFunc(cancellationToken);
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppLogger.LogError(ex, "Exception {Message} while executing: {Method}", ex.Message, asyncFunc.Method.Name);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Asynchronously awaits <paramref name="asyncFunc"/>, returning default <paramref name="default"/> if an exception occured.
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <param name="asyncFunc"></param>
+    /// <param name="cancellationToken"></param>
+    /// <param name="default"></param>
+    /// <returns></returns>
+    public async ValueTask<T> CatchAsync<T>(Func<CancellationToken, ValueTask<T>> asyncFunc, CancellationToken cancellationToken, T @default = default) where T : struct
+    {
+        try
+        {
+            return await asyncFunc(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            AppLogger.LogError(ex, "Exception {Message} while executing: {Method}", ex.Message, asyncFunc.Method.Name);
+            return @default;
+        }
     }
 
     /// <summary>
@@ -79,6 +124,8 @@ public interface IExternal
     ILogger AppLogger { get; }
 
     void Sleep(TimeSpan duration);
+
+    ValueTask SleepAsync(TimeSpan duration, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Folder root where images/flats/logs/... are stored
@@ -129,7 +176,13 @@ public interface IExternal
         return new string(name.Select(c => invalids.Contains(c) ? ReplacementChar : c).ToArray());
     }
 
-    public void WriteFitsFile(Image image, string fileName) => image.WriteToFitsFile(fileName);
+    /// <summary>
+    /// TODO: Actually ensure that FITS library writes async
+    /// </summary>
+    /// <param name="image"></param>
+    /// <param name="fileName"></param>
+    /// <returns></returns>
+    public async ValueTask WriteFitsFileAsync(Image image, string fileName) => await Task.Run(() => image.WriteToFitsFile(fileName)).ConfigureAwait(false);
 
     /// <summary>
     /// Returns all available serial ports on the system, prefixed with serial: <see cref="ISerialConnection.SerialProto"/>.
@@ -142,18 +195,10 @@ public interface IExternal
     IPEndPoint DefaultGuiderAddress => new IPEndPoint(IPAddress.Loopback, 4400);
 
     /// <summary>
-    /// Connect to an external dedicated guider software at <paramref name="address"/>, using <paramref name="protocol"/>.
-    /// </summary>
-    /// <param name="address"></param>
-    /// <param name="protocol"></param>
-    /// <returns></returns>
-    IUtf8TextBasedConnection ConnectGuider(EndPoint address, CommunicationProtocol protocol = CommunicationProtocol.JsonRPC);
-
-    /// <summary>
     /// Connect to an external dedicated guider software at <paramref name="address"/>, using <paramref name="protocol"/> asynchronously.
     /// </summary>
     /// <param name="address"></param>
     /// <param name="protocol"></param>
     /// <returns></returns>
-    Task<IUtf8TextBasedConnection> ConnectGuiderAsync(EndPoint address, CommunicationProtocol protocol = CommunicationProtocol.JsonRPC);
+    Task<IUtf8TextBasedConnection> ConnectGuiderAsync(EndPoint address, CommunicationProtocol protocol = CommunicationProtocol.JsonRPC, CancellationToken cancellationToken = default);
 }

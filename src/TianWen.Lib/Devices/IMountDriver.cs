@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
+using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.SOFA;
 using static TianWen.Lib.Astrometry.CoordinateUtils;
@@ -406,7 +407,7 @@ public interface IMountDriver : IDeviceDriver
         return new SlewResult(SlewPostCondition.Slewing, hourAngle);
     }
 
-    public bool WaitForSlewComplete(CancellationToken cancellationToken)
+    public async ValueTask<bool> WaitForSlewCompleteAsync(CancellationToken cancellationToken)
     {
         var period = TimeSpan.FromMilliseconds(250);
         var maxSlewTime = TimeSpan.FromSeconds(MAX_FAILSAFE);
@@ -422,7 +423,7 @@ public interface IMountDriver : IDeviceDriver
             && now - slewStartTime < maxSlewTime
         )
         {
-            External.Sleep(period);
+            await External.SleepAsync(period, cancellationToken);
         }
 
         var isStillSlewing = IsSlewing;

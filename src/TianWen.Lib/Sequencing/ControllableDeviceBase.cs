@@ -1,13 +1,12 @@
 ﻿using System;
+using System.Threading.Tasks;
 using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Sequencing;
 
-public abstract record ControllableDeviceBase<TDriver> : IDisposable
+public abstract record ControllableDeviceBase<TDriver> : IAsyncDisposable
     where TDriver : IDeviceDriver
 {
-    private bool disposedValue;
-
     public ControllableDeviceBase(DeviceBase device, IExternal external)
     {
         Device = device;
@@ -27,35 +26,15 @@ public abstract record ControllableDeviceBase<TDriver> : IDisposable
 
     public TDriver Driver { get; }
 
-    protected virtual void Dispose(bool disposing)
+    public override string ToString() => Device.DisplayName;
+
+    public async ValueTask DisposeAsync()
     {
-        if (!disposedValue)
+        if (Driver.Connected)
         {
-            if (disposing)
-            {
-                Driver.Disconnect();
-                Driver.DeviceConnectedEvent -= Driver_DeviceConnectedEvent;
-                Driver.Dispose();
-            }
-
-            // TODO: free unmanaged resources (unmanaged objects) and override finalizer
-            disposedValue = true;
+            await Driver.DisconnectAsync();
         }
-    }
 
-    // // TODO: override finalizer only if 'Dispose(bool disposing)' has code to free unmanaged resources
-    // ~ControllableDeviceBase()
-    // {
-    //     // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
-    //     Dispose(disposing: false);
-    // }
-
-    public void Dispose()
-    {
-        // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
-        Dispose(disposing: true);
         GC.SuppressFinalize(this);
     }
-
-    public override string ToString() => Device.DisplayName;
 }
