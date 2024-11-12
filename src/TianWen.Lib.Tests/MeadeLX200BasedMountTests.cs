@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Specialized;
 using System.Threading;
+using System.Threading.Tasks;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
 using Xunit;
@@ -14,15 +15,15 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
     [Theory]
     [InlineData(-37.8743502, 145.1668205)]
     [InlineData(25.28022, 110.29639)]
-    public void GivenMountWhenConnectingItOpensSerialPort(double siteLat, double siteLong)
+    public async Task GivenMountWhenConnectingItOpensSerialPort(double siteLat, double siteLong)
     {
         // given
         var device = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection { ["latitude"] = Convert.ToString(siteLat), ["longitude"] = Convert.ToString(siteLong) });
         var fakeExternal = new FakeExternal(outputHelper, null, null, null);
-        var mount = new FakeMeadeLX200ProtocolMountDriver(device, fakeExternal);
+        await using var mount = new FakeMeadeLX200ProtocolMountDriver(device, fakeExternal);
 
         // when
-        mount.Connect();
+        await mount.ConnectAsync();
 
         // then
         mount.Connected.ShouldBe(true);
@@ -33,7 +34,7 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
     [Theory]
     [InlineData(-37.8743502, 145.1668205)]
     [InlineData(25.28022, 110.29639)]
-    public void GivenMountWhenConnectingAndDisconnectingThenSerialPortIsClosed(double siteLat, double siteLong)
+    public async Task GivenMountWhenConnectingAndDisconnectingThenSerialPortIsClosed(double siteLat, double siteLong)
     {
         // given
         var device = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection { ["latitude"] = Convert.ToString(siteLat), ["longitude"] = Convert.ToString(siteLong) });
@@ -56,7 +57,7 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
         };
 
         // when
-        mount.Connect();
+        await mount.ConnectAsync();
 
         // then
         mount.Connected.ShouldBe(true);
@@ -65,7 +66,7 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
         Should.NotThrow(() => mount.SiderealTime);
 
         // after
-        mount.Disconnect();
+        await mount.DisconnectAsync();
 
         // then
         mount.Connected.ShouldBe(false);
@@ -79,18 +80,18 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
     [InlineData(-37.8743502, 145.1668205, 11.11d, -45.125d, null)]
     [InlineData(25.28022, 110.29639, 15.58d, 0.15d, null)]
     [InlineData(51.38333333d, 8.08333333d, 8.85d, 11.8d, "2024-10-29T06:58:00Z")]
-    public void GivenTargetWhenSlewingItSlewsToTarget(double siteLat, double siteLong, double targetRa, double targetDec, string? utc)
+    public async Task GivenTargetWhenSlewingItSlewsToTarget(double siteLat, double siteLong, double targetRa, double targetDec, string? utc)
     {
         // given
         var device = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection { ["latitude"] = Convert.ToString(siteLat), ["longitude"] = Convert.ToString(siteLong) });
         var fakeExternal = new FakeExternal(outputHelper, null, utc is not null ? DateTimeOffset.Parse(utc) : null, null);
 
-        var mount = new FakeMeadeLX200ProtocolMountDriver(device, fakeExternal);
+        await using var mount = new FakeMeadeLX200ProtocolMountDriver(device, fakeExternal);
 
         var timeStamp = fakeExternal.TimeProvider.GetTimestamp();
 
         // when
-        mount.Connect();
+        await mount.ConnectAsync();
         mount.Tracking = true;
         mount.SlewRaDecAsync(targetRa, targetDec);
         mount.IsSlewing.ShouldBe(true);

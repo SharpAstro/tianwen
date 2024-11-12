@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Ascom;
 using Xunit;
@@ -14,12 +15,12 @@ namespace TianWen.Lib.Tests;
 public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
 {
     [Fact]
-    public void TestWhenPlatformIsWindowsThatDeviceTypesAreReturned()
+    public async Task TestWhenPlatformIsWindowsThatDeviceTypesAreReturned()
     {
         using var profile = new AscomProfile();
         var types = profile.RegisteredDeviceTypes;
 
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && profile.IsSupported)
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && await profile.CheckSupportAsync())
         {
             types.ShouldNotBeEmpty();
         }
@@ -34,7 +35,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
     [InlineData(DeviceType.CoverCalibrator)]
     [InlineData(DeviceType.Focuser)]
     [InlineData(DeviceType.Switch)]
-    public void GivenSimulatorDeviceTypeVersionAndNameAreReturned(DeviceType type)
+    public async Task GivenSimulatorDeviceTypeVersionAndNameAreReturned(DeviceType type)
     {
         Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached);
 
@@ -51,7 +52,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
 
         device.TryInstantiateDriver<IDeviceDriver>(external, out var driver).ShouldBeTrue();
 
-        using (driver)
+        await using (driver)
         {
             driver.DriverType.ShouldBe(type);
             driver.Connected.ShouldBeFalse();
@@ -59,7 +60,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
     }
 
     [SkippableFact]
-    public void GivenAConnectedAscomSimulatorTelescopeWhenConnectedThenTrackingRatesArePopulated()
+    public async Task GivenAConnectedAscomSimulatorTelescopeWhenConnectedThenTrackingRatesArePopulated()
     {
         Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached, "Skipped as this test is only run when on Windows and debugger is attached");
 
@@ -72,15 +73,15 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         // when
         if (simTelescopeDevice?.TryInstantiateDriver(external, out IMountDriver? driver) is true)
         {
-            using (driver)
+            await using (driver)
             {
-                driver.Disconnect();
+                await driver.DisconnectAsync();
             }
         }
     }
 
     [SkippableFact]
-    public void GivenAConnectedAscomSimulatorCameraWhenImageReadyThenItCanBeDownloaded()
+    public async Task GivenAConnectedAscomSimulatorCameraWhenImageReadyThenItCanBeDownloaded()
     {
         Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached, "Skipped as this test is only run when on Windows and debugger is attached");
 
@@ -93,9 +94,9 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         // when / then
         if (simCameraDevice?.TryInstantiateDriver(external, out ICameraDriver? driver) is true)
         {
-            using (driver)
+            await using (driver)
             {
-                driver.Connect();
+                await driver.ConnectAsync();
                 var startExposure = driver.StartExposure(TimeSpan.FromSeconds(0.1));
 
                 Thread.Sleep((int)TimeSpan.FromSeconds(0.5).TotalMilliseconds);

@@ -28,18 +28,25 @@ builder.Services
 
 using IHost host = builder.Build();
 
+await host.StartAsync();
+
 var services = host.Services;
+var lifetime = services.GetRequiredService<IHostApplicationLifetime>();
 
 var external = services.GetRequiredService<IExternal>();
-var deviceManager = services.GetRequiredService<IDeviceManager<DeviceBase>>();
+var deviceManager = services.GetRequiredService<ICombinedDeviceManager>();
 var sessionFactory = services.GetRequiredService<ISessionFactory>();
 
-foreach (var device in deviceManager)
+await deviceManager.DiscoverAsync();
+foreach (var deviceType in deviceManager.RegisteredDeviceTypes)
 {
-    external.AppLogger.LogInformation("{DeviceType}: {Device}", device.DeviceType, device.DisplayName);
+    foreach (var device in deviceManager.RegisteredDevices(deviceType))
+    {
+        external.AppLogger.LogInformation("{DeviceType}: {Device}", device.DeviceType, device.DisplayName);
+    }
 }
 
-await host.RunAsync();
+await host.WaitForShutdownAsync();
 
 /*
 var argIdx = 0;

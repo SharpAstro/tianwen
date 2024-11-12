@@ -27,7 +27,6 @@ SOFTWARE.
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.PlateSolve;
@@ -45,7 +44,7 @@ public interface IGuider : IDeviceDriver
     /// <param name="settlePixels">settle threshold in pixels</param>
     /// <param name="settleTime">settle time in seconds</param>
     /// <param name="settleTimeout">settle timeout in seconds</param>
-    void Guide(double settlePixels, double settleTime, double settleTimeout);
+    ValueTask GuideAsync(double settlePixels, double settleTime, double settleTimeout, CancellationToken cancellationToken);
 
     /// <summary>
     /// Dither guiding with the given dither amount and settling parameters. Call <see cref="TryGetSettleProgress(out SettleProgress?)"/> or <see cref="IsSettling()"/>
@@ -55,29 +54,30 @@ public interface IGuider : IDeviceDriver
     /// <param name="settlePixels"></param>
     /// <param name="settleTime"></param>
     /// <param name="settleTimeout"></param>
-    void Dither(double ditherPixels, double settlePixels, double settleTime, double settleTimeout, bool raOnly = false);
+    ValueTask DitherAsync(double ditherPixels, double settlePixels, double settleTime, double settleTimeout, bool raOnly = false, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// CHecks if phd2 is currently looping exposures
     /// </summary>
     /// <returns></returns>
-    bool IsLooping();
+    ValueTask<bool> IsLoopingAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Check if guider is currently in the process of settling after a Guide or Dither.
-    /// A simplified version of <see cref="TryGetSettleProgress(out SettleProgress?)"/>
+    /// A simplified version of <see cref="GetSettleProgressAsync(CancellationToken)"/>
     /// </summary>
+    /// <param name="cancellationToken">optional cancellation token</param>
     /// <returns>true if settling is in progress.</returns>
     /// <exception cref="GuiderException">Throws if not connected or command</exception>
-    bool IsSettling();
+    ValueTask<bool> IsSettlingAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns true if settling is in progress and additional information in <paramref name="settleProgress"/>
     /// </summary>
-    /// <param name="settleProgress"></param>
+    /// <param name="cancellationToken">optional cancellation token</param>
     /// <returns>true if still settling</returns>
     /// <exception cref="GuiderException">Throws if not connected or command</exception>
-    public bool TryGetSettleProgress([NotNullWhen(true)] out SettleProgress? settleProgress);
+    ValueTask<SettleProgress?> GetSettleProgressAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Get the guider statistics since guiding started. Frames captured while settling is in progress
@@ -85,114 +85,123 @@ public interface IGuider : IDeviceDriver
     /// </summary>
     /// <returns></returns>
     /// <exception cref="GuiderException">Throws if not connected</exception>
-    GuideStats? GetStats();
+    ValueTask<GuideStats?> GetStatsAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// stop looping and guiding
     /// </summary>
     /// <param name="timeout">timeout after throwing exception</param>
-    /// <param name="sleep">custom sleep function if any.</param>
+    /// <param name="cancellationToken">optional cancellation token</param>
     /// <exception cref="GuiderException">Throws if not connected or command could not be issued (see timeout)</exception>
-    void StopCapture(TimeSpan timeout, Action<TimeSpan>? sleep = null);
+    ValueTask StopCaptureAsync(TimeSpan timeout, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// start looping exposures
     /// </summary>
-    /// <param name="timeoutSeconds">timeout after looping attempt is cancelled</param>
+    /// <param name="timeout">timeout after looping attempt is cancelled</param>
+    /// <param name="cancellationToken">optional cancellation token</param>
     /// <returns>true if looping.</returns>
     /// <exception cref="GuiderException">Throws if not connected or command could not be issued</exception>
-    bool Loop(TimeSpan timeout, Action<TimeSpan>? sleep = null);
+    ValueTask<bool> LoopAsync(TimeSpan timeout, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// get the guider pixel scale in arc-seconds per pixel
     /// </summary>
+    /// <param name="cancellationToken">optional cancellation token</param>
     /// <returns>pixel scale of the guiding camera in arc-seconds per pixel</returns>
     /// <exception cref="GuiderException">Throws if not connected or command could not be issued</exception>
-    double PixelScale();
+    ValueTask<double> PixelScaleAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// returns camera size in width, heiight (pixels)
     /// </summary>
+    /// <param name="cancellationToken">optional cancellation token</param>
     /// <returns>camera dimensions in pixel</returns>
     /// <exception cref="GuiderException">Throws if not connected or command could not be issued</exception>
-    public (int width, int height)? CameraFrameSize();
+    ValueTask<(int Width, int Height)?> CameraFrameSizeAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// When true, <paramref name="dim"/> contains the image dimensions of the guiding exposure,
-    /// <see cref="PixelScale()"/> and <see cref="CameraFrameSize()"/>.
-    /// Might still throw exceptions when not connected.
+    /// On completion returns the image dimensions of the guiding exposure (if available),
+    /// <see cref="PixelScaleAsync(CancellationToken)"/> and <see cref="CameraFrameSizeAsync(CancellationToken)"/>.
     /// </summary>
-    /// <param name="dim"></param>
+    /// <param name="cancellationToken">optional cancellation token</param>
     /// <returns>true if image dimensions could be obtained.</returns>
     /// <exception cref="GuiderException">Throws if not connected or command could not be issued</exception>
-    public bool TryGetImageDim([NotNullWhen(true)] out ImageDim? dim)
-        => (dim = CameraFrameSize() is var (width, height) && PixelScale() is var pixelScale and > 0
-            ? new ImageDim(pixelScale, width, height)
-            : default
-        ) is not null;
+    public async ValueTask<ImageDim?> GetImageDimAsync(CancellationToken cancellationToken)
+    {
+        if (await CameraFrameSizeAsync(cancellationToken) is var (width, height)
+            && await PixelScaleAsync(cancellationToken) is var pixelScale and > 0)
+        {
+            return new ImageDim(pixelScale, width, height);
+        }
+
+        return default;
+    }
 
     /// <summary>
     /// get the exposure time of each looping exposure.
     /// </summary>
     /// <returns>exposure time</returns>
     /// <exception cref="GuiderException">Throws if not connected or command could not be issued</exception>
-    TimeSpan ExposureTime();
+    ValueTask<TimeSpan> ExposureTimeAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Get a list of the equipment profile names
     /// </summary>
+    /// <param name="cancellationToken">optional cancellation token</param>
     /// <returns>List of profile names</returns>
     /// <exception cref="GuiderException">Throws if not connected or command could not be issued</exception>
-    IReadOnlyList<string> GetEquipmentProfiles();
+    ValueTask<IReadOnlyList<string>> GetEquipmentProfilesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Tries to obtain the active profile, useful for quick self-discovery.
-    ///
-    /// Assumes an active connection.
     /// </summary>
-    /// <param name="activeProfileName"></param>
-    /// <returns>true if <paramref name="activeProfileName"/> is the active profile (and not null)</returns>
-    bool TryGetActiveProfileName([NotNullWhen(true)] out string? activeProfileName);
+    /// <param name="cancellationToken">optional cancellation token</param>
+    /// <returns>active profile name (if any)</returns>
+    ValueTask<string?> GetActiveProfileNameAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// connect the the specified profile as constructed.
     /// </summary>
+    /// <param name="cancellationToken">optional cancellation token</param>
     /// <exception cref="GuiderException">Throws if not connected or command could not be issued</exception>
-    void ConnectEquipment();
+    ValueTask ConnectEquipmentAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// disconnect equipment
     /// </summary>
+    /// <param name="cancellationToken">optional cancellation token</param>
     /// <exception cref="GuiderException">Throws if not connected or command could not be issued</exception>
-    void DisconnectEquipment();
+    ValueTask DisconnectEquipmentAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// get the AppState (https://github.com/OpenPHDGuiding/phd2/wiki/EventMonitoring#appstate)
     /// and current guide error
     /// </summary>
-    /// <param name="appState">application runtime state</param>
-    /// <param name="avgDist">a smoothed average of the guide distance in pixels</param>
+    /// <param name="cancellationToken">optional cancellation token</param>
     /// <exception cref="GuiderException">Throws if not connected or command could not be issued</exception>
-    void GetStatus(out string? appState, out double avgDist);
+    ValueTask<(string? AppState, double AvgDist)> GetStatusAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// check if currently guiding
     /// </summary>
+    /// <param name="cancellationToken">optional cancellation token</param>
     /// <returns></returns>
     /// <exception cref="GuiderException">Throws if not connected</exception>
-    bool IsGuiding();
+    ValueTask<bool> IsGuidingAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// pause guiding (looping exposures continues)
     /// </summary>
     /// <exception cref="GuiderException">Throws if not connected or command could not be issued</exception>
-    void Pause();
+    ValueTask PauseAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// un-pause guiding.
     /// </summary>
+    /// <param name="cancellationToken">optional cancellation token</param>
     /// <exception cref="GuiderException">Throws if not connected or command could not be issued</exception>
-    void Unpause();
+    ValueTask UnpauseAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Save the current guide camera frame (FITS format), returning the name of the file.
@@ -203,14 +212,15 @@ public interface IGuider : IDeviceDriver
     /// </summary>
     /// <returns>the full path of the output file if successfully captured.</returns>
     /// <exception cref="GuiderException">Throws if not connected or command could not be issued</exception>
-    string? SaveImage(string outputFolder);
+    ValueTask<string?> SaveImageAsync(string outputFolder, CancellationToken cancellationToken = default);
 
     const int SETTLE_TIMEOUT_FACTOR = 5;
-    public bool StartGuidingLoop(int maxTries, CancellationToken cancellationToken)
+    public async ValueTask<bool> StartGuidingLoopAsync(int maxTries, CancellationToken cancellationToken = default)
     {
         bool guidingSuccess = false;
         int startGuidingTries = 0;
 
+        var activeProfile = await GetActiveProfileNameAsync(cancellationToken).ConfigureAwait(false) ?? Name;
         while (!guidingSuccess && ++startGuidingTries <= maxTries && !cancellationToken.IsCancellationRequested)
         {
             try
@@ -220,35 +230,32 @@ public interface IGuider : IDeviceDriver
                 var settleTimeout = settleTime * SETTLE_TIMEOUT_FACTOR;
 
                 External.AppLogger.LogInformation("Start guiding using \"{ProfileName}\", settle pixels: {SettlePix}, settle time: {SettleTime}s, timeout: {SettleTimeout}s.",
-                    TryGetActiveProfileName(out var profile) ? profile : Name,
+                    activeProfile,
                     settlePix,
                     settleTime,
                     settleTimeout
                 );
-                Guide(settlePix, settleTime, settleTimeout);
+                await GuideAsync(settlePix, settleTime, settleTimeout, cancellationToken).ConfigureAwait(false);
 
                 var failsafeCounter = 0;
-                while (IsSettling() && failsafeCounter++ < MAX_FAILSAFE && !cancellationToken.IsCancellationRequested)
+                while (await IsSettlingAsync(cancellationToken).ConfigureAwait(false) && failsafeCounter++ < MAX_FAILSAFE && !cancellationToken.IsCancellationRequested)
                 {
                     External.Sleep(TimeSpan.FromSeconds(10));
                 }
 
-                guidingSuccess = failsafeCounter < MAX_FAILSAFE && IsGuiding();
+                guidingSuccess = failsafeCounter < MAX_FAILSAFE && await IsGuidingAsync(cancellationToken).ConfigureAwait(false);
                 if (cancellationToken.IsCancellationRequested)
                 {
                     break;
                 }
                 else if (!guidingSuccess)
                 {
-                    External.Sleep(TimeSpan.FromMinutes(startGuidingTries));
+                    await External.SleepAsync(TimeSpan.FromMinutes(startGuidingTries), cancellationToken).ConfigureAwait(false);
                 }
             }
             catch (Exception e)
             {
-                External.AppLogger.LogError(e, "Exception while on try #{StartGuidingTries} checking if \"{ProfileName}\" is guiding.",
-                    startGuidingTries,
-                    TryGetActiveProfileName(out var profile) ? profile : Name
-                );
+                External.AppLogger.LogError(e, "Exception while on try #{StartGuidingTries} checking if \"{ProfileName}\" is guiding.", startGuidingTries, activeProfile);
                 guidingSuccess = false;
             }
         }
@@ -257,18 +264,17 @@ public interface IGuider : IDeviceDriver
     }
 
 
-    public bool DitherWait(double ditherPixel, double settlePixel, TimeSpan settleTime, Func<TimeSpan> processQueuedWork, CancellationToken cancellationToken)
+    public async ValueTask<bool> DitherWaitAsync(double ditherPixel, double settlePixel, TimeSpan settleTime, Func<ValueTask<TimeSpan>> processQueuedWork, CancellationToken cancellationToken = default)
     {
-
         var settleTimeout = settleTime * SETTLE_TIMEOUT_FACTOR;
 
         External.AppLogger.LogInformation("Start dithering pixel={DitherPixel} settlePixel={SettlePixel} settleTime={SettleTime}, timeout={SettleTimeout}",
             ditherPixel, settlePixel, settlePixel, settleTimeout);
 
-        Dither(ditherPixel, settlePixel, settleTime.TotalSeconds, settleTimeout.TotalSeconds);
+        await DitherAsync(ditherPixel, settlePixel, settleTime.TotalSeconds, settleTimeout.TotalSeconds, cancellationToken: cancellationToken);
 
         var overslept = TimeSpan.Zero;
-        var elapsed = processQueuedWork();
+        var elapsed = await processQueuedWork().ConfigureAwait(false);
 
         for (var i = 0; i < SETTLE_TIMEOUT_FACTOR; i++)
         {
@@ -279,39 +285,43 @@ public interface IGuider : IDeviceDriver
             }
             else
             {
-                overslept = External.SleepWithOvertime(settleTime, elapsed + overslept);
+                overslept = await External.SleepWithOvertimeAsync(settleTime, elapsed + overslept, cancellationToken);
             }
 
-            if (TryGetSettleProgress(out var settleProgress) && settleProgress is { Done: false })
+            if (await GetSettleProgressAsync(cancellationToken).ConfigureAwait(false) is { } settleProgress)
             {
-                if (settleProgress.Error is { Length: > 0 } error)
+                if (settleProgress.Done)
+                {
+                    if (settleProgress?.Error is { Length: > 0 } error)
+                    {
+                        External.AppLogger.LogError("Settling after dithering failed with: {ErrorMessage} pixel={SettlePx} dist={SettleDistance}",
+                            error, settleProgress.SettlePx, settleProgress.Distance);
+                        return false;
+                    }
+                    else if (settleProgress is not null)
+                    {
+                        External.AppLogger.LogInformation("Settling finished: settle pixel={SettlePx} dist={SettleDistance}", settleProgress.SettlePx, settleProgress.Distance);
+                        return true;
+                    }
+                    else
+                    {
+                        External.AppLogger.LogError("Settling failed with no specific error message, assume dithering failed.");
+                        return false;
+                    }
+                }
+                else if (settleProgress.Error is { Length: > 0 } error)
                 {
                     External.AppLogger.LogError("Settling after dithering failed with: {ErrorMessage}", error);
                     return false;
                 }
                 else
                 {
-                    External.AppLogger.LogError("Settle still in progress: settle pixel={SettlePx} dist={SettleDistance}", settleProgress.SettlePx, settleProgress.Distance);
+                    External.AppLogger.LogInformation("Settle still in progress: settle pixel={SettlePx} dist={SettleDistance}", settleProgress.SettlePx, settleProgress.Distance);
                 }
             }
             else
             {
-                if (settleProgress?.Error is { Length: > 0 } error)
-                {
-                    External.AppLogger.LogError("Settling after dithering failed with: {ErrorMessage} pixel={SettlePx} dist={SettleDistance}",
-                        error, settleProgress.SettlePx, settleProgress.Distance);
-                    return false;
-                }
-                else if (settleProgress is not null)
-                {
-                    External.AppLogger.LogInformation("Settling finished: settle pixel={SettlePx} dist={SettleDistance}", settleProgress.SettlePx, settleProgress.Distance);
-                    return true;
-                }
-                else
-                {
-                    External.AppLogger.LogError("Settling failed with no specific error message, assume dithering failed.");
-                    return false;
-                }
+                External.AppLogger.LogError("Failed to retrieve settling progress");
             }
         }
 
@@ -319,45 +329,32 @@ public interface IGuider : IDeviceDriver
         return false;
     }
 
-    public Task<WCS?> PlateSolveGuiderImageAsync(
+    public async ValueTask<WCS?> PlateSolveGuiderImageAsync(
         IPlateSolver plateSolver,
         double raJ2000,
         double decJ2000,
         TimeSpan timeout,
         double? searchRadius,
-        CancellationToken cancellationToken
+        CancellationToken cancellationToken = default
     )
     {
-        if (External.Catch(() => Loop(timeout, External.Sleep)))
+        await LoopAsync(timeout, cancellationToken).ConfigureAwait(false);
+        var outputFolder = External.CreateSubDirectoryInOutputFolder("Guider").FullName;
+        if (await SaveImageAsync(outputFolder, cancellationToken) is { Length: > 0 } file)
         {
-            if (SaveImage(External.CreateSubDirectoryInOutputFolder("Guider").FullName) is { Length: > 0 } file)
-            {
-                if (!TryGetImageDim(out var dim))
-                {
-                    External.AppLogger.LogWarning("Failed to obtain image dimensions of \"{ProfileName}\" camera, will use blind search.",
-                        TryGetActiveProfileName(out var profile) ? profile : Name);
-                }
+            var dim = await GetImageDimAsync(cancellationToken).ConfigureAwait(false);
 
-                return plateSolver.SolveFileAsync(
-                    file,
-                    dim,
-                    searchOrigin: new WCS(raJ2000, decJ2000),
-                    searchRadius: searchRadius ?? 7,
-                    cancellationToken: cancellationToken
-                );
-            }
-            else
-            {
-                External.AppLogger.LogWarning("Failed to obtain image from guider \"{ProfileName}\"",
-                    TryGetActiveProfileName(out var profile) ? profile : Name);
-                return Task.FromResult(null as WCS?);
-            }
+            return await plateSolver.SolveFileAsync(
+                file,
+                dim,
+                searchOrigin: new WCS(raJ2000, decJ2000),
+                searchRadius: searchRadius ?? 7,
+                cancellationToken: cancellationToken
+            );
         }
         else
         {
-            External.AppLogger.LogWarning("Failed to start guider \"{ProfileName}\" capture loop after {TimeoutSeconds} s",
-                TryGetActiveProfileName(out var profile) ? profile : Name, (int)timeout.TotalSeconds);
-            return Task.FromResult(null as WCS?);
+            throw new GuiderException("Could not obtain guider image");
         }
     }
 

@@ -2,12 +2,21 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace TianWen.Lib.Devices.Meade;
 
 internal class MeadeDeviceSource(IExternal external) : IDeviceSource<MeadeDevice>
 {
-    public bool IsSupported => true;
+    public ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken) => ValueTask.FromResult(true);
+
+    /// <summary>
+    /// TODO: Move code from RegisteredDevices and await async on serial port.
+    /// </summary>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
+    public ValueTask DiscoverAsync(CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
 
     public IEnumerable<DeviceType> RegisteredDeviceTypes => [DeviceType.Mount];
 

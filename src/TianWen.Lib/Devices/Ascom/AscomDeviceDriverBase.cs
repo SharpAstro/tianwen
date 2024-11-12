@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Diagnostics;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace TianWen.Lib.Devices.Ascom;
 
@@ -52,10 +53,6 @@ public abstract class AscomDeviceDriverBase(AscomDevice device, IExternal extern
         }
     }
 
-    public virtual void Connect() => Connect(true);
-
-    public virtual void Disconnect() => Connect(false);
-
     protected void Connect(bool connect)
     {
         if (_comObject is { } obj)
@@ -81,6 +78,35 @@ public abstract class AscomDeviceDriverBase(AscomDevice device, IExternal extern
         {
             Volatile.Write(ref _connectionState, STATE_UNKNOWN);
         }
+    }
+
+    /// <summary>
+    /// Connects device asynchronously.
+    /// TODO: Support async interface in ASCOM 7
+    /// </summary>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
+    public async ValueTask ConnectAsync(CancellationToken cancellationToken = default)
+    {
+        await Task.Run(() => Connect(true), cancellationToken);
+    }
+
+    /// <summary>
+    /// Disconnects device asynchronously.
+    /// TODO: Support async interface in ASCOM 7
+    /// </summary>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
+    public async ValueTask DisconnectAsync(CancellationToken cancellationToken = default)
+    {
+        await Task.Run(() => Connect(false), cancellationToken);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await DisconnectAsync();
+
+        GC.SuppressFinalize(this);
     }
 
     public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;

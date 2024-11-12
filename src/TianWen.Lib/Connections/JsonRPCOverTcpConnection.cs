@@ -28,6 +28,7 @@ using System;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace TianWen.Lib.Connections;
@@ -37,28 +38,22 @@ internal class JsonRPCOverTcpConnection() : IUtf8TextBasedConnection
     private TcpClient? _tcpClient;
     private StreamReader? _streamReader;
 
-    public void Connect(EndPoint endPoint)
+    public async ValueTask ConnectAsync(EndPoint endPoint, CancellationToken cancellationToken = default)
     {
         _tcpClient = new TcpClient();
-        switch (endPoint)
+        if (endPoint is IPEndPoint ip)
         {
-            case IPEndPoint ip: _tcpClient.Connect(ip); break;
-            case DnsEndPoint dns: _tcpClient.Connect(dns.Host, dns.Port); break;
-            default:
-                throw new ArgumentException($"{endPoint} address familiy {endPoint.AddressFamily} is not supported", nameof(endPoint));
+            await _tcpClient.ConnectAsync(ip, cancellationToken).ConfigureAwait(false);
         }
-        _streamReader = new StreamReader(_tcpClient.GetStream());
-    }
-
-    public async Task ConnectAsync(EndPoint endPoint)
-    {
-        _tcpClient = new TcpClient();
-        await (endPoint switch
+        else if (endPoint is DnsEndPoint dns)
         {
-            IPEndPoint ip => _tcpClient.ConnectAsync(ip),
-            DnsEndPoint dns => _tcpClient.ConnectAsync(dns.Host, dns.Port),
-            _ => throw new ArgumentException($"{endPoint} address familiy {endPoint.AddressFamily} is not supported", nameof(endPoint))
-        });
+            await _tcpClient.ConnectAsync(dns.Host, dns.Port, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            throw new ArgumentException($"{endPoint} address familiy {endPoint.AddressFamily} is not supported", nameof(endPoint));
+        }
+
         _streamReader = new StreamReader(_tcpClient.GetStream());
     }
 
@@ -85,17 +80,18 @@ internal class JsonRPCOverTcpConnection() : IUtf8TextBasedConnection
 
     public CommunicationProtocol HighLevelProtocol => CommunicationProtocol.JsonRPC;
 
-    public string? ReadLine() => _streamReader?.ReadLine();
+    public ValueTask<string?> ReadLineAsync(CancellationToken cancellationToken = default)
+        => _streamReader is { } sr ? sr.ReadLineAsync(cancellationToken) : ValueTask.FromResult(null as string);
 
-    public bool WriteLine(ReadOnlyMemory<byte> jsonlUtf8Bytes)
+    static readonly ReadOnlyMemory<byte> CRLF = "\r\n"u8.ToArray();
+
+    public async ValueTask<bool> WriteLineAsync(ReadOnlyMemory<byte> jsonlUtf8Bytes, CancellationToken cancellationToken = default)
     {
-        Span<byte> CRLF = [(byte)'\r', (byte)'\n'];
-
-        if (_tcpClient?.GetStream() is NetworkStream stream && stream.CanWrite)
+        if (_tcpClient?.GetStream() is { CanWrite: true } stream)
         {
-            stream.Write(jsonlUtf8Bytes.Span);
-            stream.Write(CRLF);
-            stream.Flush();
+            await stream.WriteAsync(jsonlUtf8Bytes, cancellationToken);
+            await stream.WriteAsync(CRLF, cancellationToken);
+            await stream.FlushAsync(cancellationToken);
             return true;
         }
 

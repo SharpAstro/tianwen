@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
+using System.Threading;
 using ZWOptical.SDK;
 using static ZWOptical.SDK.ASICamera2;
 using static ZWOptical.SDK.EAFFocuser1_6;
@@ -34,7 +36,9 @@ internal class ZWODeviceSource : IDeviceSource<ZWODevice>
         _supportedDeviceTypes[deviceType] = isSupported;
     }
 
-    public bool IsSupported => _supportedDeviceTypes.Count > 0;
+    public ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(_supportedDeviceTypes.Count > 0);
+
+    public ValueTask DiscoverAsync(CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
 
     public IEnumerable<DeviceType> RegisteredDeviceTypes { get; } = _supportedDeviceTypes
         .Where(p => p.Value)

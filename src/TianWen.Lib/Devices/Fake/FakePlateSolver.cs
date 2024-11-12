@@ -11,7 +11,7 @@ internal class FakePlateSolver : IPlateSolver
 
     public float Priority => 0.01f; // small but non-zero priority
 
-    public Task<bool> CheckSupportAsync(CancellationToken cancellationToken = default) => Task.FromResult(true);
+    public ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(true);
 
     public Task<WCS?> SolveFileAsync(string fitsFile, ImageDim? imageDim = null, float range = 0.03F, WCS? searchOrigin = null, double? searchRadius = null, CancellationToken cancellationToken = default)
     {

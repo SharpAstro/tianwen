@@ -1,9 +1,11 @@
 ﻿using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 namespace TianWen.Lib.Devices;
 
-public interface IDeviceSource<out TDevice> where TDevice : DeviceBase
+public interface IDeviceSource<out TDevice> : IAsyncSupportedCheck where TDevice : DeviceBase
 {
-    bool IsSupported { get; }
+    ValueTask DiscoverAsync(CancellationToken cancellationToken = default);
 
     IEnumerable<DeviceType> RegisteredDeviceTypes { get; }
 

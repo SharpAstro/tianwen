@@ -8,9 +8,9 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using TianWen.Lib.Astrometry;
-using static TianWen.Lib.Astrometry.CoordinateUtils;
-using static TianWen.Lib.Astrometry.Constants;
 using TianWen.Lib.Connections;
+using static TianWen.Lib.Astrometry.Constants;
+using static TianWen.Lib.Astrometry.CoordinateUtils;
 
 namespace TianWen.Lib.Devices;
 

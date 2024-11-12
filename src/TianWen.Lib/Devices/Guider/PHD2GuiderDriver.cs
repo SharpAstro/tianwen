@@ -24,14 +24,13 @@ SOFTWARE.
 
 */
 
-using Microsoft.Extensions.Logging;
 using System;
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Text.Json;
 using System.Threading;
@@ -42,13 +41,15 @@ namespace TianWen.Lib.Devices.Guider;
 
 internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 {
-    Thread? m_worker;
-    volatile bool m_terminate;
-    readonly object m_sync = new object(); // TOOD: Change to Lock when upgrading to C# 13
-    readonly ConcurrentDictionary<int, JsonDocument> _responses = [];
+    readonly ConcurrentDictionary<long, JsonDocument> _responses = [];
     readonly GuiderDevice _guiderDevice;
+    readonly SemaphoreSlim _sync = new SemaphoreSlim(1, 1);
+    readonly SemaphoreSlim _receiveEvent = new SemaphoreSlim(0, 1);
     IUtf8TextBasedConnection? _connection;
     string? _selectedProfileName;
+    List<GuiderDevice> _equipmentProfiles = [];
+    CancellationTokenSource _cts = new CancellationTokenSource();
+    Task? _receiveTask;
 
     Accum AccumRA { get; } = new Accum();
     Accum AccumDEC { get; } = new Accum();
@@ -60,11 +61,6 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     string? Version { get; set; }
     string? PHDSubvVersion { get; set; }
     SettleProgress? Settle { get; set; }
-
-    /// <summary>
-    /// PHD2 is in principle always supported on any platform.
-    /// </summary>
-    public bool IsSupported { get; } = true;
 
     public PHD2GuiderDriver(IExternal external) : this(MakeDefaultRootDevice(external), external)
     {
@@ -95,16 +91,42 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         return new GuiderDevice(DeviceType.PHD2, string.Join('/', ip.Address, instanceId), $"PHD2 instance {instanceId} on {ip}");
     }
 
-    private void Worker()
+    /// <summary>
+    /// PHD2 is in principle always supported on any platform.
+    /// </summary>
+    public ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken) => ValueTask.FromResult(true);
+
+    public async ValueTask DiscoverAsync(CancellationToken cancellationToken)
+    {
+        if (!Connected)
+        {
+            await ConnectAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        var profileNames = await GetEquipmentProfilesAsync(cancellationToken);
+
+        var equipmentProfiles = profileNames.Select(profile => new GuiderDevice(DeviceType.PHD2, string.Join('/', _guiderDevice.DeviceId, profile), profile)).ToList();
+
+        Interlocked.Exchange(ref _equipmentProfiles, _equipmentProfiles);
+    }
+
+    /// <summary>
+    /// Caller should ensure that device is connected
+    /// </summary>
+    /// <param name="deviceType"></param>
+    /// <returns></returns>
+    public IEnumerable<GuiderDevice> RegisteredDevices(DeviceType deviceType) => deviceType is DeviceType.PHD2 ? _equipmentProfiles : [];
+
+    private async Task ReceiveMessagesAsync(CancellationToken cancellationToken)
     {
         string? line = null;
         try
         {
-            while (!m_terminate)
+            while (_connection is { } connection && !cancellationToken.IsCancellationRequested)
             {
                 try
                 {
-                    line = _connection?.ReadLine();
+                    line = await connection.ReadLineAsync(cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -116,7 +138,6 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
                 {
                     // phd2 disconnected
                     // todo: re-connect (?)
-                    m_terminate = true;
                     break;
                 }
 
@@ -138,20 +159,25 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
                 if (j.RootElement.TryGetProperty("jsonrpc", out var _) && j.RootElement.TryGetProperty("id", out var idProp) && idProp.TryGetInt32(out var id))
                 {
-                    lock (m_sync)
+                    await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    try
                     {
-                        if (_responses.Remove(id, out var old))
+                        if (_responses.TryRemove(id, out var old))
                         {
                             old.Dispose();
                         }
 
                         _responses[id] = j;
-                        Monitor.Pulse(m_sync);
+                        _receiveEvent.Release(1);
+                    }
+                    finally
+                    {
+                        _sync.Release();
                     }
                 }
                 else
                 {
-                    HandleEvent(j);
+                    await HandleEventAsync(j, cancellationToken);
                 }
             }
         }
@@ -165,22 +191,15 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         }
     }
 
-    private static void Worker(object? obj)
-    {
-        if (obj is PHD2GuiderDriver phd2)
-        {
-            phd2.Worker();
-        }
-    }
-
-    private void HandleEvent(JsonDocument @event)
+    private async ValueTask HandleEventAsync(JsonDocument @event, CancellationToken cancellationToken = default)
     {
         string? eventName = @event.RootElement.GetProperty("Event").GetString();
         string? newAppState = null;
 
-        if (eventName == "AppState")
+        if (eventName is "AppState")
         {
-            lock (m_sync)
+            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
                 newAppState = AppState = @event.RootElement.GetProperty("State").GetString();
                 if (IsGuidingAppState(AppState))
@@ -188,27 +207,41 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
                     AverageDistance = 0.0;   // until we get a GuideStep event
                 }
             }
+            finally
+            {
+                _sync.Release();
+            }
         }
-        else if (eventName == "Version")
+        else if (eventName is "Version")
         {
-            lock (m_sync)
+            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
                 Version = @event.RootElement.GetProperty("PHDVersion").GetString();
                 PHDSubvVersion = @event.RootElement.GetProperty("PHDSubver").GetString();
             }
+            finally
+            {
+                _sync.Release();
+            }
         }
-        else if (eventName == "StartGuiding")
+        else if (eventName is "StartGuiding")
         {
             IsAccumActive = true;
             AccumRA.Reset();
             AccumDEC.Reset();
 
-            lock (m_sync)
+            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
                 Stats = new GuideStats();
             }
+            finally
+            {
+                _sync.Release();
+            }
         }
-        else if (eventName == "GuideStep")
+        else if (eventName is "GuideStep")
         {
             GuideStats? stats = null;
             if (IsAccumActive)
@@ -218,7 +251,8 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
                 stats = AccumulateGuidingStats(AccumRA, AccumDEC);
             }
 
-            lock (m_sync)
+            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
                 newAppState = AppState = "Guiding";
                 AverageDistance = @event.RootElement.GetProperty("AvgDist").GetDouble();
@@ -227,12 +261,16 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
                     Stats = stats;
                 }
             }
+            finally
+            {
+                _sync.Release();
+            }
         }
-        else if (eventName == "SettleBegin")
+        else if (eventName is "SettleBegin")
         {
             IsAccumActive = false;  // exclude GuideStep messages from stats while settling
         }
-        else if (eventName == "Settling")
+        else if (eventName is "Settling")
         {
             var settingProgress = new SettleProgress
             {
@@ -244,12 +282,17 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
                 Status = 0,
                 StarLocked = @event.RootElement.GetProperty("StarLocked").GetBoolean(),
             };
-            lock (m_sync)
+            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
                 Settle = settingProgress;
             }
+            finally
+            {
+                _sync.Release();
+            }
         }
-        else if (eventName == "SettleDone")
+        else if (eventName is "SettleDone")
         {
             IsAccumActive = true;
             AccumRA.Reset();
@@ -264,61 +307,96 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
                 Error = @event.RootElement.TryGetProperty("Error", out var error) ? error.GetString() : null
             };
 
-            lock (m_sync)
+            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
                 Settle = settleProgress;
                 Stats = stats;
             }
+            finally
+            {
+                _sync.Release();
+            }
         }
-        else if (eventName == "Paused")
+        else if (eventName is "Paused")
         {
-            lock (m_sync)
+            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
                 newAppState = AppState = "Paused";
             }
+            finally
+            {
+                _sync.Release();
+            }
         }
-        else if (eventName == "StartCalibration")
+        else if (eventName is "StartCalibration")
         {
-            lock (m_sync)
+            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
                 newAppState = AppState = "Calibrating";
             }
+            finally
+            {
+                _sync.Release();
+            }
         }
-        else if (eventName == "StarSelected")
+        else if (eventName is "StarSelected")
         {
-            lock (m_sync)
+            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
                 newAppState = AppState = "Selected";
             }
+            finally
+            {
+                _sync.Release();
+            }
         }
-        else if (eventName == "LoopingExposures")
+        else if (eventName is "LoopingExposures")
         {
-            lock (m_sync)
+            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
                 newAppState = AppState = "Looping";
             }
+            finally
+            {
+                _sync.Release();
+            }
         }
-        else if (eventName == "LoopingExposuresStopped" || eventName == "GuidingStopped")
+        else if (eventName is "LoopingExposuresStopped" or "GuidingStopped")
         {
-            lock (m_sync)
+            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
                 newAppState = AppState = "Stopped";
             }
+            finally
+            {
+                _sync.Release();
+            }
         }
-        else if (eventName == "StarLost")
+        else if (eventName is "StarLost")
         {
-            lock (m_sync)
+            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
                 newAppState = AppState = "LostLock";
                 AverageDistance = @event.RootElement.GetProperty("AvgDist").GetDouble();
+            }
+            finally
+            {
+                _sync.Release();
             }
         }
 
         OnGuiderStateChangedEvent(new GuiderStateChangedEventArgs(_guiderDevice, _selectedProfileName, eventName ?? "Unknown", newAppState ?? "Unknown"));
     }
 
-    static int MessageId = 1;
-    static (Utf8JsonWriter jsonWriter, ArrayBufferWriter<byte> buffer, int id) StartJsonRPCCall(string method)
+    static long MessageId = 1;
+    static (Utf8JsonWriter JsonWriter, ArrayBufferWriter<byte> Buffer, long Id) StartJsonRPCCall(string method)
     {
         var buffer = new ArrayBufferWriter<byte>();
         var req = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = false });
@@ -338,7 +416,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         return buffer.WrittenMemory;
     }
 
-    static (ReadOnlyMemory<byte> buffer, int id) MakeJsonRPCCall(string method, params object[] @params)
+    static (ReadOnlyMemory<byte> Buffer, long Id) MakeJsonRPCCall(string method, params object[] @params)
     {
         var (req, buffer, id) = StartJsonRPCCall(method);
 
@@ -415,59 +493,64 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     {
         if (disposing)
         {
-            if (Interlocked.Exchange(ref m_worker, null) is Thread prev)
-            {
-                m_terminate = true;
-                prev.Join();
-            }
-
             Interlocked.Exchange(ref _connection, null)?.Dispose();
         }
     }
 
+    protected virtual async ValueTask DisposeAsyncCore()
+    {
+        await DisconnectAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        // Perform async cleanup.
+        await DisposeAsyncCore();
+
+        // Dispose of unmanaged resources.
+        Dispose(false);
+
+        // Suppress finalization.
+        GC.SuppressFinalize(this);
+    }
+
     public bool Connected => _connection?.IsConnected ?? false;
 
-    public void Connect() => SetConnected(true, false).GetAwaiter().GetResult();
+    public ValueTask ConnectAsync(CancellationToken cancellationToken = default) => SetConnectedAsync(true, cancellationToken);
+    public ValueTask DisconnectAsync(CancellationToken cancellationToken = default) => SetConnectedAsync(false, cancellationToken);
 
-    public void Disconnect() => SetConnected(false, false).GetAwaiter().GetResult();
-
-    private async Task SetConnected(bool connect, bool async)
+    private async ValueTask SetConnectedAsync(bool connect, CancellationToken cancellationToken = default)
     {
-        if (Connected)
+        if (Connected == connect)
         {
-            Dispose(true);
+            return;
         }
 
-        if (!connect)
+        if (connect)
         {
-            DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(connect));
-        }
+            var instanceId = _guiderDevice.InstanceId;
+            var host = _guiderDevice.Host;
+            var port = (ushort)(4400 + instanceId - 1);
+            try
+            {
+                EndPoint endPoint = IPAddress.TryParse(host, out var ipAddress)
+                    ? new IPEndPoint(ipAddress, port)
+                    : new DnsEndPoint(host, port);
 
-        var instanceId = _guiderDevice.InstanceId;
-        var host = _guiderDevice.Host;
-        var port = (ushort)(4400 + instanceId - 1);
-        try
+                var connection = await External.ConnectGuiderAsync(endPoint, CommunicationProtocol.JsonRPC, cancellationToken);
+                Interlocked.Exchange(ref _connection, connection)?.Dispose();
+            }
+            catch (Exception e)
+            {
+                string errorMsg = $"Could not connect to PHD2 instance {instanceId} on {host}:{port}";
+                OnGuidingErrorEvent(new GuidingErrorEventArgs(_guiderDevice, _selectedProfileName, errorMsg, e));
+                throw new GuiderException(errorMsg);
+            }
+        }
+        else
         {
-            EndPoint endPoint = IPAddress.TryParse(host, out var ipAddress)
-                ? new IPEndPoint(ipAddress, port)
-                : new DnsEndPoint(host, port);
-
-            var connection = async ? await External.ConnectGuiderAsync(endPoint) : External.ConnectGuider(endPoint);
-            Interlocked.Exchange(ref _connection, connection)?.Dispose();
+            Interlocked.Exchange(ref _connection, null)?.Dispose();
         }
-        catch (Exception e)
-        {
-            string errorMsg = $"Could not connect to PHD2 instance {instanceId} on {host}:{port}";
-            OnGuidingErrorEvent(new GuidingErrorEventArgs(_guiderDevice, _selectedProfileName, errorMsg, e));
-            throw new GuiderException(errorMsg);
-        }
-
-        m_terminate = false;
-
-        var thread = new Thread(new ParameterizedThreadStart(Worker));
-        thread.Start(this);
-
-        Interlocked.Exchange(ref m_worker, thread);
 
         DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(connect));
     }
@@ -480,7 +563,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         PeakDec = dec.Peak()
     };
 
-    static bool IsGuidingAppState(string? appState) => appState == "Guiding" || appState == "LostLock";
+    static bool IsGuidingAppState(string? appState) => appState is "Guiding" or "LostLock";
 
     /// <summary>
     /// support raw JSONRPC method invocation. Generally you won't need to
@@ -489,7 +572,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     /// <param name="method"></param>
     /// <param name="params"></param>
     /// <returns></returns>
-    protected JsonDocument Call(string method, params object[] @params)
+    protected async ValueTask<JsonDocument> CallAsync(string method, CancellationToken cancellationToken, params object[] @params)
     {
         if (!Connected)
         {
@@ -499,37 +582,31 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         var (memory, id) = MakeJsonRPCCall(method, @params);
 
         // send request
-        if (!_connection?.WriteLine(memory) ?? false)
+        if (_connection is not { } connection || !await connection.WriteLineAsync(memory))
         {
             throw new GuiderException($"Failed to send message {method} params: {string.Join(", ", @params)}");
         }
 
         // wait for response
-
-        lock (m_sync)
+        JsonDocument? response;
+        while (!_responses.TryRemove(id, out response))
         {
-            JsonDocument? response;
-            while ((response = _responses.TryGetValue(id, out var actualResponse) ? actualResponse : null) == null)
-            {
-                Monitor.Wait(m_sync);
-            }
-
-            _ = _responses.Remove(id, out _);
-
-            if (IsFailedResponse(response))
-            {
-                throw new GuiderException(
-                    (response.RootElement.GetProperty("error").TryGetProperty("message", out var message) ? message.GetString() : null)
-                        ?? "error response did not contain error message");
-            }
-
-            if (!response.RootElement.TryGetProperty("id", out var responseIdElement) || !responseIdElement.TryGetInt32(out int responseId) || responseId != id)
-            {
-                throw new GuiderException($"Response id was not {id}: {response.RootElement}");
-            }
-
-            return response;
+            await _receiveEvent.WaitAsync(cancellationToken);
         }
+
+        if (IsFailedResponse(response))
+        {
+            throw new GuiderException(
+                (response.RootElement.GetProperty("error").TryGetProperty("message", out var message) ? message.GetString() : null)
+                    ?? "error response did not contain error message");
+        }
+
+        if (!response.RootElement.TryGetProperty("id", out var responseIdElement) || !responseIdElement.TryGetInt32(out int responseId) || responseId != id)
+        {
+            throw new GuiderException($"Response id was not {id}: {response.RootElement}");
+        }
+
+        return response;
     }
 
     public IEnumerable<DeviceType> RegisteredDeviceTypes => [DriverType];
@@ -554,7 +631,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         }
     }
 
-    public void Guide(double settlePixels, double settleTime, double settleTimeout)
+    public async ValueTask GuideAsync(double settlePixels, double settleTime, double settleTimeout, CancellationToken cancellationToken = default)
     {
         EnsureConnected();
 
@@ -568,7 +645,8 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
             Status = 0
         };
 
-        lock (m_sync)
+        await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
             if (Settle != null && !Settle.Done)
             {
@@ -576,10 +654,15 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
             }
             Settle = settleProgress;
         }
+        finally
+        {
+            _sync.Release();
+        }
+
 
         try
         {
-            using var response = Call("guide", new SettleRequest(settlePixels, settleTime, settleTimeout), false /* don't force calibration */);
+            using var response = await CallAsync("guide", cancellationToken, new SettleRequest(settlePixels, settleTime, settleTimeout), false /* don't force calibration */);
             SettlePixels = settlePixels;
         }
         catch (Exception ex)
@@ -587,15 +670,20 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
             var guidingErrorEventArgs = new GuidingErrorEventArgs(_guiderDevice, _selectedProfileName, $"while calling guide({settlePixels}, {settleTime}, {settleTimeout}): {ex.Message}", ex);
             OnGuidingErrorEvent(guidingErrorEventArgs);
             // failed - remove the settle state
-            lock (m_sync)
+            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
                 Settle = null;
+            }
+            finally
+            {
+                _sync.Release();
             }
             throw new GuiderException(guidingErrorEventArgs.Message, guidingErrorEventArgs.Exception);
         }
     }
 
-    public void Dither(double ditherPixels, double settlePixels, double settleTime, double settleTimeout, bool raOnly = false)
+    public async ValueTask DitherAsync(double ditherPixels, double settlePixels, double settleTime, double settleTimeout, bool raOnly = false, CancellationToken cancellationToken = default)
     {
         EnsureConnected();
 
@@ -609,17 +697,22 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
             Status = 0
         };
 
-        lock (m_sync)
+        await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
             if (Settle != null && !Settle.Done)
                 throw new GuiderException("cannot dither while settling");
 
             Settle = settleProgress;
         }
+        finally
+        {
+            _sync.Release();
+        }
 
         try
         {
-            using var response = Call("dither", ditherPixels, raOnly, new SettleRequest(settlePixels, settleTime, settleTimeout));
+            using var response = await CallAsync("dither", cancellationToken, ditherPixels, raOnly, new SettleRequest(settlePixels, settleTime, settleTimeout)).ConfigureAwait(false);
             SettlePixels = settlePixels;
         }
         catch (Exception ex)
@@ -633,40 +726,55 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
             );
             OnGuidingErrorEvent(guidingErrorEventArgs);
             // call failed - remove the settle state
-            lock (m_sync)
+            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
                 Settle = null;
+            }
+            finally
+            {
+                _sync.Release();
             }
             throw new GuiderException(guidingErrorEventArgs.Message, guidingErrorEventArgs.Exception);
         }
     }
 
-    public bool IsLooping()
+    public async ValueTask<bool> IsLoopingAsync(CancellationToken cancellationToken = default)
     {
         EnsureConnected();
 
-        lock (m_sync)
+        await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
             return AppState == "Looping";
         }
+        finally
+        {
+            _sync.Release();
+        }
     }
 
-    public bool IsSettling()
+    public async ValueTask<bool> IsSettlingAsync(CancellationToken cancellationToken = default)
     {
         EnsureConnected();
 
-        lock (m_sync)
+        await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
             if (Settle != null)
             {
                 return !Settle.Done;
             }
         }
+        finally
+        {
+            _sync.Release();
+        }
 
         // for app init, initialize the settle state to a consistent value
         // as if Guide had been called
 
-        using var settlingResponse = Call("get_settling");
+        using var settlingResponse = await CallAsync("get_settling", cancellationToken).ConfigureAwait(false);
 
         bool isSettling = settlingResponse.RootElement.GetProperty("result").GetBoolean();
 
@@ -681,30 +789,35 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
                 SettleTime = 0.0,
                 Status = 0
             };
-            lock (m_sync)
+            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
                 Settle ??= settleProgress;
+            }
+            finally
+            {
+                _sync.Release();
             }
         }
 
         return isSettling;
     }
 
-    public bool TryGetSettleProgress([NotNullWhen(true)] out SettleProgress? settleProgress)
+    public async ValueTask<SettleProgress?> GetSettleProgressAsync(CancellationToken cancellationToken = default)
     {
         EnsureConnected();
 
-        lock (m_sync)
+        await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
             if (Settle == null)
             {
-                settleProgress = null;
-                return false;
+                return null;
             }
 
             if (Settle.Done)
             {
-                settleProgress = new SettleProgress
+                var settleProgress = new SettleProgress
                 {
                     Done = true,
                     Status = Settle.Status,
@@ -712,11 +825,11 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
                 };
                 Settle = null;
 
-                return true;
+                return settleProgress;
             }
             else
             {
-                settleProgress = new SettleProgress
+                return new SettleProgress
                 {
                     Done = false,
                     Distance = Settle.Distance,
@@ -724,25 +837,33 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
                     Time = Settle.Time,
                     SettleTime = Settle.SettleTime
                 };
-
-                return true;
             }
+        }
+        finally
+        {
+            _sync?.Release();
         }
     }
 
-    public GuideStats? GetStats()
+    public async ValueTask<GuideStats?> GetStatsAsync(CancellationToken cancellationToken = default)
     {
         EnsureConnected();
 
         GuideStats? stats;
         double? lastRaErr;
         double? lastDecErr;
-        lock (m_sync)
+        await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
             stats = Stats?.Clone();
             lastRaErr = AccumRA.Last;
             lastDecErr = AccumDEC.Last;
         }
+        finally
+        {
+            _sync?.Release();
+        }
+
         if (stats is not null)
         {
             stats.TotalRMS = Math.Sqrt(stats.RaRMS * stats.RaRMS + stats.DecRMS * stats.DecRMS);
@@ -752,77 +873,95 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         return stats;
     }
 
-    public void StopCapture(TimeSpan timeout, Action<TimeSpan>? sleep = null)
+    public async ValueTask StopCaptureAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
     {
-        sleep ??= Thread.Sleep;
-        using var stopCaptureResponse = Call("stop_capture");
+        using var stopCaptureResponse = await CallAsync("stop_capture", cancellationToken).ConfigureAwait(false);
 
         var totalSeconds = (uint)timeout.TotalSeconds;
         for (uint i = 0; i < totalSeconds; i++)
         {
             string? appstate;
-            lock (m_sync)
+            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
                 appstate = AppState;
             }
-            Debug.WriteLine($"StopCapture: AppState = {appstate}");
-            if (appstate == "Stopped")
-                return;
+            finally
+            {
+                _sync.Release();
+            }
 
-            sleep(TimeSpan.FromSeconds(1));
+            if (appstate is "Stopped")
+            {
+                return;
+            }
+
+            await External.SleepAsync(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
             EnsureConnected();
         }
-        Debug.WriteLine("StopCapture: timed-out waiting for stopped");
 
         // hack! workaround bug where PHD2 sends a GuideStep after stop request and fails to send GuidingStopped
-        using var appStateResponse = Call("get_app_state");
+        using var appStateResponse = await CallAsync("get_app_state", cancellationToken).ConfigureAwait(false);
         string? appState = appStateResponse.RootElement.GetProperty("result").GetString();
 
-        lock (m_sync)
+        await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
             AppState = appState;
+        }
+        finally
+        {
+            _sync.Release();
         }
 
         if (appState == "Stopped")
             return;
         // end workaround
 
-        throw new GuiderException($"guider did not stop capture after {totalSeconds} seconds!");
+        throw new GuiderException($"Guider did not stop capture after {totalSeconds} seconds!");
     }
 
-    public bool Loop(TimeSpan timeout, Action<TimeSpan>? sleep = null)
+    public async ValueTask<bool> LoopAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
     {
-        sleep ??= Thread.Sleep;
-
         EnsureConnected();
 
         // already looping?
-        lock (m_sync)
+        await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
             if (AppState == "Looping")
             {
                 return true;
             }
         }
+        finally
+        {
+            _sync.Release();
+        }
 
-        var exposureTime = ExposureTime();
+        var exposureTime = await ExposureTimeAsync(cancellationToken).ConfigureAwait(false);
 
-        using var loopingResponse = Call("loop");
+        using var loopingResponse = await CallAsync("loop", cancellationToken).ConfigureAwait(false);
 
-        sleep(exposureTime);
+        await External.SleepAsync(exposureTime, cancellationToken).ConfigureAwait(false);
 
         var totalSeconds = (uint)timeout.TotalSeconds;
         for (uint i = 0; i < totalSeconds; i++)
         {
-            lock (m_sync)
+            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
                 if (AppState == "Looping")
                 {
                     return true;
                 }
             }
+            finally
+            {
+                _sync.Release();
+            }
 
-            sleep(TimeSpan.FromSeconds(1));
+            await External.SleepAsync(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
 
             EnsureConnected();
         }
@@ -830,19 +969,19 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         return false;
     }
 
-    public double PixelScale()
+    public async ValueTask<double> PixelScaleAsync(CancellationToken cancellationToken = default)
     {
         EnsureConnected();
 
-        using var response = Call("get_pixel_scale");
+        using var response = await CallAsync("get_pixel_scale", cancellationToken).ConfigureAwait(false);
         return response.RootElement.GetProperty("result").GetDouble();
     }
 
-    public (int width, int height)? CameraFrameSize()
+    public async ValueTask<(int Width, int Height)?> CameraFrameSizeAsync(CancellationToken cancellationToken = default)
     {
         EnsureConnected();
 
-        using var response = Call("get_camera_frame_size");
+        using var response = await CallAsync("get_camera_frame_size", cancellationToken).ConfigureAwait(false);
 
         var result = response.RootElement.GetProperty("result");
         if (result.ValueKind is JsonValueKind.Array && result.GetArrayLength() == 2)
@@ -853,17 +992,17 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         return default;
     }
 
-    public TimeSpan ExposureTime()
+    public async ValueTask<TimeSpan> ExposureTimeAsync(CancellationToken cancellationToken = default)
     {
         EnsureConnected();
 
-        using var exposureResponse = Call("get_exposure");
+        using var exposureResponse = await CallAsync("get_exposure", cancellationToken).ConfigureAwait(false);
         return TimeSpan.FromMilliseconds(exposureResponse.RootElement.GetProperty("result").GetInt32());
     }
 
-    public IReadOnlyList<string> GetEquipmentProfiles()
+    public async ValueTask<IReadOnlyList<string>> GetEquipmentProfilesAsync(CancellationToken cancellationToken = default)
     {
-        using var response = Call("get_profiles");
+        using var response = await CallAsync("get_profiles", cancellationToken).ConfigureAwait(false);
 
         var profiles = new List<string>();
         var jsonResultArray = response.RootElement.GetProperty("result");
@@ -890,15 +1029,11 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
     protected virtual void OnGuiderStateChangedEvent(GuiderStateChangedEventArgs eventArgs) => GuiderStateChangedEvent?.Invoke(this, eventArgs);
 
-    public bool TryGetActiveProfileName([NotNullWhen(true)] out string? activeProfileName)
+    public async ValueTask<string?> GetActiveProfileNameAsync(CancellationToken cancellationToken = default)
     {
-        if (!Connected)
-        {
-            activeProfileName = null;
-            return false;
-        }
+        EnsureConnected();
 
-        using var profileResponse = Call("get_profile");
+        using var profileResponse = await CallAsync("get_profile", cancellationToken).ConfigureAwait(false);
 
         if (profileResponse.RootElement.TryGetProperty("result", out var activeProfileProp)
             && activeProfileProp.TryGetProperty("name", out var nameProp)
@@ -906,21 +1041,22 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
             && nameProp.GetString() is string name
         )
         {
-            activeProfileName = name;
-
-            return true;
+            return name;
         }
 
-        activeProfileName = null;
-        return false;
+        return null;
     }
 
-    public void ConnectEquipment()
+    public async ValueTask ConnectEquipmentAsync(CancellationToken cancellationToken = default)
     {
+        EnsureConnected();
+
         // this allows us to reuse the connection if we just want to connect to whatever profile has been selected by the user
-        if (TryGetActiveProfileName(out var activeProfileName) && (_selectedProfileName ??= activeProfileName) !=  _selectedProfileName)
+        if (await GetActiveProfileNameAsync(cancellationToken).ConfigureAwait(false) is { } activeProfileName
+            && (_selectedProfileName ??= activeProfileName) !=  _selectedProfileName
+        )
         {
-            using var profilesResponse = Call("get_profiles");
+            using var profilesResponse = await CallAsync("get_profiles", cancellationToken).ConfigureAwait(false);
             var profiles = profilesResponse.RootElement.GetProperty("result");
             int profileId = -1;
             foreach (var profile in profiles.EnumerateArray())
@@ -940,51 +1076,58 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
                 throw new GuiderException("invalid phd2 profile name: " + _selectedProfileName + " active is: " + activeProfileName);
             }
 
-            StopCapture(DEFAULT_STOPCAPTURE_TIMEOUT);
+            await StopCaptureAsync(DEFAULT_STOPCAPTURE_TIMEOUT, cancellationToken).ConfigureAwait(false);
 
-            using var disconnectResponse = Call("set_connected", false);
-            using var updateProfileResponse = Call("set_profile", profileId);
+            using var disconnectResponse = await CallAsync("set_connected", cancellationToken, false).ConfigureAwait(false);
+            using var updateProfileResponse = await CallAsync("set_profile", cancellationToken, profileId).ConfigureAwait(false);
         }
 
-        using var connectResponse = Call("set_connected", true);
+        using var connectResponse = await CallAsync("set_connected", cancellationToken, true).ConfigureAwait(false);
     }
 
-    public void DisconnectEquipment()
+    public async ValueTask DisconnectEquipmentAsync(CancellationToken cancellationToken = default)
     {
-        StopCapture(DEFAULT_STOPCAPTURE_TIMEOUT);
-        using var disconnectResponse = Call("set_connected", false);
+        await StopCaptureAsync(DEFAULT_STOPCAPTURE_TIMEOUT, cancellationToken).ConfigureAwait(false);
+        using var disconnectResponse = await CallAsync("set_connected", cancellationToken, false).ConfigureAwait(false);
     }
 
-    public void GetStatus(out string? appState, out double avgDist)
+    public async ValueTask<(string? AppState, double AvgDist)> GetStatusAsync(CancellationToken cancellationToken = default)
     {
         EnsureConnected();
 
-        lock (m_sync)
+        await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            appState = AppState;
-            avgDist = AverageDistance;
+            return (AppState, AverageDistance);
+        }
+        finally
+        {
+            _sync.Release();
         }
     }
 
-    public bool IsGuiding()
+    public async ValueTask<bool> IsGuidingAsync(CancellationToken cancellationToken = default)
     {
-        GetStatus(out string? appState, out double _ /* average distance */);
+        EnsureConnected();
+
+        var (appState, _) = await GetStatusAsync(cancellationToken).ConfigureAwait(false);
+
         return IsGuidingAppState(appState);
     }
 
-    public void Pause()
+    public async ValueTask PauseAsync(CancellationToken cancellationToken = default)
     {
-        using var response = Call("set_paused", true);
+        using var response = await CallAsync("set_paused", cancellationToken, true).ConfigureAwait(false);
     }
 
-    public void Unpause()
+    public async ValueTask UnpauseAsync(CancellationToken cancellationToken = default)
     {
-        using var response = Call("set_paused", false);
+        using var response = await CallAsync("set_paused", cancellationToken, false).ConfigureAwait(false);
     }
 
-    public string? SaveImage(string outputFolder)
+    public async ValueTask<string?> SaveImageAsync(string outputFolder, CancellationToken cancellationToken)
     {
-        using var response = Call("save_image");
+        using var response = await CallAsync("save_image", cancellationToken).ConfigureAwait(false);
         if (response.RootElement.GetProperty("result").GetProperty("filename").GetString() is { Length: > 0 } tempFileName
             && File.Exists(tempFileName)
         )
@@ -1002,34 +1145,6 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
     public override string ToString() =>
         Connected
-            ? $"PHD2 {_guiderDevice.DeviceId} {Version}/{PHDSubvVersion}: Looping? {IsLooping()}, Guiding? {IsGuiding()}, settling? {IsSettling()}"
+            ? $"PHD2 {_guiderDevice.DeviceId} {Version}/{PHDSubvVersion}: AppState: {AppState ?? "Unkown"}"
             : $"PHD2 {_guiderDevice.DeviceId} not connected!";
-
-    /// <summary>
-    /// Caller should ensure that device is connected
-    /// </summary>
-    /// <param name="deviceType"></param>
-    /// <returns></returns>
-    public IEnumerable<GuiderDevice> RegisteredDevices(DeviceType deviceType)
-    {
-        if (deviceType != DeviceType.DedicatedGuiderSoftware)
-        {
-            yield break;
-        }
-
-        try
-        {
-            Connect();
-        }
-        catch (Exception e)
-        {
-            External.AppLogger.LogError(e, "Failed to enumerate profiles for guider {Guider} for {DeviceType}", _guiderDevice.DisplayName, deviceType);
-            yield break;
-        }
-
-        foreach (var profile in GetEquipmentProfiles())
-        {
-            yield return new GuiderDevice(deviceType, string.Join('/', _guiderDevice.DeviceId, profile), profile);
-        }
-    }
 }

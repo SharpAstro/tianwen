@@ -1,47 +1,68 @@
-﻿using System.Collections;
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace TianWen.Lib.Devices;
 
-internal class CombinedDeviceManager(IEnumerable<IDeviceSource<DeviceBase>> deviceSources) : IDeviceManager<DeviceBase>
+internal class CombinedDeviceManager(IEnumerable<IDeviceSource<DeviceBase>> deviceSources) : ICombinedDeviceManager
 {
-    private bool _refreshedOnce;
-
-    private readonly List<DeviceMap<DeviceBase>> _deviceMaps = deviceSources
-        .Where(source => source.IsSupported)
-        .Select(source => new DeviceMap<DeviceBase>(source))
-        .ToList();
+    private volatile bool _initialized;
+    private readonly SemaphoreSlim _initSem = new SemaphoreSlim(1, 1);
+    private List<DeviceMap<DeviceBase>> _deviceMaps = [];
     private readonly ConcurrentDictionary<string, DeviceMap<DeviceBase>> deviceIdCache = [];
 
-    public IReadOnlyList<DeviceBase> FindAllByType(DeviceType type) => _deviceMaps.SelectMany(map => FindAllByType(type)).ToList();
-
-    public IEnumerator<DeviceBase> GetEnumerator()
+    public async ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken)
     {
-        if (!_refreshedOnce)
+        if (_initialized)
         {
-            _refreshedOnce = true;
-            Refresh();
+            return _deviceMaps.Count > 0;
         }
 
-        foreach (var map in _deviceMaps)
+        var deviceMaps = new ConcurrentBag<DeviceMap<DeviceBase>>();
+        await _initSem.WaitAsync(cancellationToken);
+        _initialized = true;
+        try
         {
-            foreach (var device in map)
-            {
-                yield return device;
-            }
+            await Parallel.ForEachAsync(
+                deviceSources,
+                cancellationToken,
+                async (deviceSource, cancellationToken) =>
+                {
+                    var map = new DeviceMap<DeviceBase>(deviceSource);
+                    if (await map.CheckSupportAsync(cancellationToken))
+                    {
+                        deviceMaps.Add(map);
+                    }
+                }
+            );
         }
+        finally
+        {
+            _initSem.Release();
+        }
+
+        _ = Interlocked.Exchange(ref _deviceMaps, [.. deviceMaps]);
+
+        return _deviceMaps.Count > 0;
     }
 
-    IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    public IEnumerable<DeviceType> RegisteredDeviceTypes => _deviceMaps.SelectMany(map => map.RegisteredDeviceTypes).ToHashSet();
 
-    public void Refresh()
+    public IEnumerable<DeviceBase> RegisteredDevices(DeviceType type) => _deviceMaps.SelectMany(map => map.RegisteredDevices(type));
+
+    public async ValueTask DiscoverAsync(CancellationToken cancellationToken)
     {
+        if (!await CheckSupportAsync(cancellationToken))
+        {
+            return;
+        }
+
         foreach (var deviceMap in _deviceMaps)
         {
-            deviceMap.Refresh();
+            await deviceMap.DiscoverAsync(cancellationToken);
         }
     }
 

@@ -8,6 +8,7 @@ using System.IO;
 using System.Net;
 using System.Reflection;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Connections;
 using TianWen.Lib.Devices;
@@ -44,10 +45,7 @@ public class FakeExternal : IExternal
 
     public ILogger AppLogger { get; }
 
-    public virtual IUtf8TextBasedConnection ConnectGuider(EndPoint address, CommunicationProtocol protocol = CommunicationProtocol.JsonRPC)
-        => throw new ArgumentException($"No guider connection defined for address {address}", nameof(address));
-
-    public virtual Task<IUtf8TextBasedConnection> ConnectGuiderAsync(EndPoint address, CommunicationProtocol protocol = CommunicationProtocol.JsonRPC)
+    public virtual Task<IUtf8TextBasedConnection> ConnectGuiderAsync(EndPoint address, CommunicationProtocol protocol = CommunicationProtocol.JsonRPC, CancellationToken cancellationToken = default)
         => throw new ArgumentException($"No guider connection defined for address {address}", nameof(address));
 
     public IReadOnlyList<string> EnumerateSerialPorts() => [];
@@ -56,6 +54,13 @@ public class FakeExternal : IExternal
         => throw new ArgumentException($"Failed to instantiate serial device at address={address}", nameof(address));
 
     public void Sleep(TimeSpan duration) => _timeProvider.Advance(duration);
+
+    public ValueTask SleepAsync(TimeSpan duration, CancellationToken cancellationToken = default)
+    {
+        Sleep(duration);
+
+        return ValueTask.CompletedTask;
+    }
 
     /// <summary>
     /// Advance fake time to match time spent writing <paramref name="image"/> to <paramref name="fileName"/>,

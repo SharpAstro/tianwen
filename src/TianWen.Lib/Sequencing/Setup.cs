@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace TianWen.Lib.Sequencing;
 
@@ -8,33 +9,22 @@ public record Setup(
     Guider Guider,
     GuiderSetup GuiderFocuser,
     IReadOnlyList<OTA> Telescopes
-) : IDisposable
+) : IAsyncDisposable
 {
-    private bool disposedValue;
-
-    protected virtual void Dispose(bool disposing)
+    public async ValueTask DisposeAsync()
     {
-        if (!disposedValue)
+        await Mount.DisposeAsync();
+        await Guider.DisposeAsync();
+        if (GuiderFocuser.Focuser is { } focuser)
         {
-            if (disposing)
-            {
-                Mount.Dispose();
-                Guider.Dispose();
-                GuiderFocuser.Focuser?.Dispose();
-                foreach (var telescope in Telescopes)
-                {
-                    telescope.Dispose();
-                }
-            }
-
-            disposedValue = true;
+            await focuser.DisposeAsync();
         }
-    }
 
-    public void Dispose()
-    {
-        // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
-        Dispose(disposing: true);
+        foreach (var telescope in Telescopes)
+        {
+            await telescope.DisposeAsync();
+        }
+
         GC.SuppressFinalize(this);
     }
 }

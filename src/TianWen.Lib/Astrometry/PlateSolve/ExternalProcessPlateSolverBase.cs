@@ -24,7 +24,7 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
 
     public abstract float Priority { get; }
 
-    public virtual async Task<bool> CheckSupportAsync(CancellationToken cancellationToken = default)
+    public virtual async ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken = default)
     {
         try
         {

@@ -25,21 +25,21 @@ public class ProfileTests(ITestOutputHelper outputHelper)
     {
         // given
         var dir = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("D")));
-        var external = new FakeExternal(outputHelper, dir);
-        var profileIterator = new ProfileIterator(external);
-
         try
         {
-            var profile = new Profile(new Guid(guid), name, ProfileData.Empty);
+            var external = new FakeExternal(outputHelper, dir);
+            var profileIterator = new ProfileIterator(external);
 
-            // when
+            var profile = new Profile(new Guid(guid), name, ProfileData.Empty);
             await profile.SaveAsync(external);
 
+            // when
+            await profileIterator.DiscoverAsync();
             var enumeratedProfiles = profileIterator.RegisteredDevices(DeviceType.Profile);
-            
+
             // then
             profileIterator.RegisteredDeviceTypes.ShouldBe([DeviceType.Profile]);
-            profileIterator.IsSupported.ShouldBeTrue();
+            (await profileIterator.CheckSupportAsync()).ShouldBeTrue();
 
             enumeratedProfiles.ShouldHaveSingleItem().ShouldNotBeNull().DeviceUri.ShouldBe(profile.DeviceUri);
         }
