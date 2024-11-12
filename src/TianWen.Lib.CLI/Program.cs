@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Extensions;
 using TianWen.Lib.Sequencing;
@@ -37,7 +38,9 @@ var external = services.GetRequiredService<IExternal>();
 var deviceManager = services.GetRequiredService<ICombinedDeviceManager>();
 var sessionFactory = services.GetRequiredService<ISessionFactory>();
 
-await deviceManager.DiscoverAsync();
+using var cts = new CancellationTokenSource(Debugger.IsAttached ? TimeSpan.FromMinutes(100) : TimeSpan.FromSeconds(10), external.TimeProvider);
+using var linked = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, lifetime.ApplicationStopping);
+await deviceManager.DiscoverAsync(linked.Token);
 foreach (var deviceType in deviceManager.RegisteredDeviceTypes)
 {
     foreach (var device in deviceManager.RegisteredDevices(deviceType))

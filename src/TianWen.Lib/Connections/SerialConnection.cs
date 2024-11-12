@@ -18,7 +18,7 @@ internal sealed class SerialConnection : ISerialConnection
         var prefixedPortNames = new List<string>(portNames.Length);
         for (var i = 0; i < portNames.Length; i++)
         {
-            prefixedPortNames[i] = $"{ISerialConnection.SerialProto}{portNames[i]}";
+            prefixedPortNames.Add($"{ISerialConnection.SerialProto}{portNames[i]}");
         }
 
         return prefixedPortNames;

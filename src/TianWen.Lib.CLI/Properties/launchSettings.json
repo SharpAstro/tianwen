@@ -1,14 +1,11 @@
 {
   "profiles": {
-    "Astap.Lib.TestCli": {
-      "commandName": "Project",
-      "environmentVariables": {
-        "LD_DEBUG": "all"
-      }
-    },
     "WSL": {
       "commandName": "WSL2",
       "distributionName": ""
+    },
+    "Local": {
+      "commandName": "Project"
     }
   }
 }

@@ -103,11 +103,11 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
             await ConnectAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        var profileNames = await GetEquipmentProfilesAsync(cancellationToken);
+        var profileNames = await GetEquipmentProfilesAsync(cancellationToken).ConfigureAwait(false);
 
         var equipmentProfiles = profileNames.Select(profile => new GuiderDevice(DeviceType.PHD2, string.Join('/', _guiderDevice.DeviceId, profile), profile)).ToList();
 
-        Interlocked.Exchange(ref _equipmentProfiles, _equipmentProfiles);
+        Interlocked.Exchange(ref _equipmentProfiles, equipmentProfiles);
     }
 
     /// <summary>
@@ -159,21 +159,15 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
                 if (j.RootElement.TryGetProperty("jsonrpc", out var _) && j.RootElement.TryGetProperty("id", out var idProp) && idProp.TryGetInt32(out var id))
                 {
-                    await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
-                    try
-                    {
-                        if (_responses.TryRemove(id, out var old))
+                    _ = _responses.AddOrUpdate(id, j,
+                        (_, old) =>
                         {
                             old.Dispose();
+                            return j;
                         }
+                    );
 
-                        _responses[id] = j;
-                        _receiveEvent.Release(1);
-                    }
-                    finally
-                    {
-                        _sync.Release();
-                    }
+                    _receiveEvent.Release();
                 }
                 else
                 {
@@ -184,10 +178,6 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         catch (Exception ex)
         {
             OnGuidingErrorEvent(new GuidingErrorEventArgs(_guiderDevice, _selectedProfileName, $"caught exception in worker thread while processing: {line}: {ex.Message}", ex));
-        }
-        finally
-        {
-            Interlocked.Exchange(ref _connection, null)?.Dispose();
         }
     }
 
@@ -395,7 +385,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         OnGuiderStateChangedEvent(new GuiderStateChangedEventArgs(_guiderDevice, _selectedProfileName, eventName ?? "Unknown", newAppState ?? "Unknown"));
     }
 
-    static long MessageId = 1;
+    static long MessageId = 0;
     static (Utf8JsonWriter JsonWriter, ArrayBufferWriter<byte> Buffer, long Id) StartJsonRPCCall(string method)
     {
         var buffer = new ArrayBufferWriter<byte>();
@@ -493,6 +483,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     {
         if (disposing)
         {
+            _cts.Dispose();
             Interlocked.Exchange(ref _connection, null)?.Dispose();
         }
     }
@@ -531,25 +522,56 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
             var instanceId = _guiderDevice.InstanceId;
             var host = _guiderDevice.Host;
             var port = (ushort)(4400 + instanceId - 1);
+            EndPoint endPoint = IPAddress.TryParse(host, out var ipAddress)
+                ? new IPEndPoint(ipAddress, port)
+                : new DnsEndPoint(host, port);
+
+            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                EndPoint endPoint = IPAddress.TryParse(host, out var ipAddress)
-                    ? new IPEndPoint(ipAddress, port)
-                    : new DnsEndPoint(host, port);
-
                 var connection = await External.ConnectGuiderAsync(endPoint, CommunicationProtocol.JsonRPC, cancellationToken);
+
                 Interlocked.Exchange(ref _connection, connection)?.Dispose();
+                var cts = new CancellationTokenSource();
+                var oldCts = Interlocked.Exchange(ref _cts, cts);
+                var oldTask = Interlocked.Exchange(ref _receiveTask, ReceiveMessagesAsync(cts.Token));
+                try
+                {
+                    if (oldTask is { IsCanceled: false })
+                    {
+                        await oldCts.CancelAsync();
+                    }
+                }
+                finally
+                {
+                    oldCts.Dispose();
+                }
             }
-            catch (Exception e)
+            finally
             {
-                string errorMsg = $"Could not connect to PHD2 instance {instanceId} on {host}:{port}";
-                OnGuidingErrorEvent(new GuidingErrorEventArgs(_guiderDevice, _selectedProfileName, errorMsg, e));
-                throw new GuiderException(errorMsg);
+                _sync.Release();
             }
         }
         else
         {
-            Interlocked.Exchange(ref _connection, null)?.Dispose();
+            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var oldCts = Interlocked.Exchange(ref _cts, new CancellationTokenSource());
+                try
+                {
+                    await oldCts.CancelAsync();
+                }
+                finally
+                {
+                    oldCts.Dispose();
+                }
+                Interlocked.Exchange(ref _connection, null)?.Dispose();
+            }
+            finally
+            {
+                _sync.Release();
+            }
         }
 
         DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(connect));
@@ -574,15 +596,12 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     /// <returns></returns>
     protected async ValueTask<JsonDocument> CallAsync(string method, CancellationToken cancellationToken, params object[] @params)
     {
-        if (!Connected)
-        {
-            throw new GuiderException("Guider is not connected");
-        }
+        EnsureConnected();
 
         var (memory, id) = MakeJsonRPCCall(method, @params);
 
         // send request
-        if (_connection is not { } connection || !await connection.WriteLineAsync(memory))
+        if (_connection is not { } connection || !await connection.WriteLineAsync(memory, cancellationToken).ConfigureAwait(false))
         {
             throw new GuiderException($"Failed to send message {method} params: {string.Join(", ", @params)}");
         }
@@ -623,6 +642,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
     public IExternal External { get; }
 
+    [DebuggerStepThrough]
     void EnsureConnected()
     {
         if (!Connected)
