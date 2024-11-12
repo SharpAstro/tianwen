@@ -41,6 +41,7 @@ var sessionFactory = services.GetRequiredService<ISessionFactory>();
 using var cts = new CancellationTokenSource(Debugger.IsAttached ? TimeSpan.FromMinutes(100) : TimeSpan.FromSeconds(10), external.TimeProvider);
 using var linked = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, lifetime.ApplicationStopping);
 await deviceManager.DiscoverAsync(linked.Token);
+
 foreach (var deviceType in deviceManager.RegisteredDeviceTypes)
 {
     foreach (var device in deviceManager.RegisteredDevices(deviceType))
