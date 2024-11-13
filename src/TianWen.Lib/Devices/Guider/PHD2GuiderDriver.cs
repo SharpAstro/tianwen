@@ -179,6 +179,10 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         {
             OnGuidingErrorEvent(new GuidingErrorEventArgs(_guiderDevice, _selectedProfileName, $"caught exception in worker thread while processing: {line}: {ex.Message}", ex));
         }
+        finally
+        {
+            Interlocked.Exchange(ref _connection, null)?.Dispose();
+        }
     }
 
     private async ValueTask HandleEventAsync(JsonDocument @event, CancellationToken cancellationToken = default)
@@ -546,6 +550,10 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
                 {
                     oldCts.Dispose();
                 }
+            }
+            catch (Exception e)
+            {
+                throw new GuiderException($"Failed to connect to {_guiderDevice.DisplayName}: {e.Message}", e);
             }
             finally
             {
