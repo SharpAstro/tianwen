@@ -15,6 +15,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 		..\.github\workflows\dotnet.yml = ..\.github\workflows\dotnet.yml
 	EndProjectSection
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TianWen.Lib.Hosting", "TianWen.Lib.Hosting\TianWen.Lib.Hosting.csproj", "{2F7C5398-AAB4-4D83-ACA3-7C4D273B5B2F}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -47,6 +49,14 @@ Global
 		{1604169D-6A26-43AF-9F9B-6D52589FB5C3}.Release|Any CPU.Build.0 = Release|Any CPU
 		{1604169D-6A26-43AF-9F9B-6D52589FB5C3}.Release|x64.ActiveCfg = Release|x64
 		{1604169D-6A26-43AF-9F9B-6D52589FB5C3}.Release|x64.Build.0 = Release|x64
+		{2F7C5398-AAB4-4D83-ACA3-7C4D273B5B2F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2F7C5398-AAB4-4D83-ACA3-7C4D273B5B2F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2F7C5398-AAB4-4D83-ACA3-7C4D273B5B2F}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{2F7C5398-AAB4-4D83-ACA3-7C4D273B5B2F}.Debug|x64.Build.0 = Debug|Any CPU
+		{2F7C5398-AAB4-4D83-ACA3-7C4D273B5B2F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2F7C5398-AAB4-4D83-ACA3-7C4D273B5B2F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2F7C5398-AAB4-4D83-ACA3-7C4D273B5B2F}.Release|x64.ActiveCfg = Release|Any CPU
+		{2F7C5398-AAB4-4D83-ACA3-7C4D273B5B2F}.Release|x64.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

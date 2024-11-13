@@ -1,4 +1,6 @@
-﻿using System.Collections.Concurrent;
+﻿using Microsoft.Extensions.Logging;
+using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
@@ -7,7 +9,7 @@ using System.Threading.Tasks;
 
 namespace TianWen.Lib.Devices;
 
-internal class CombinedDeviceManager(IEnumerable<IDeviceSource<DeviceBase>> deviceSources) : ICombinedDeviceManager
+internal class CombinedDeviceManager(IExternal external, IEnumerable<IDeviceSource<DeviceBase>> deviceSources) : ICombinedDeviceManager
 {
     private volatile bool _initialized;
     private readonly SemaphoreSlim _initSem = new SemaphoreSlim(1, 1);
@@ -62,7 +64,14 @@ internal class CombinedDeviceManager(IEnumerable<IDeviceSource<DeviceBase>> devi
 
         foreach (var deviceMap in _deviceMaps)
         {
-            await deviceMap.DiscoverAsync(cancellationToken);
+            try
+            {
+                await deviceMap.DiscoverAsync(cancellationToken);
+            }
+            catch (Exception e)
+            {
+                external.AppLogger.LogError(e, "Error while discovering devices");
+            }
         }
     }
 

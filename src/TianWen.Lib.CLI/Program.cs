@@ -1,21 +1,13 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using System.Diagnostics;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Extensions;
 using TianWen.Lib.Sequencing;
 
 var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = args, DisableDefaults = true });
 builder.Services
-    .AddLogging(builder =>
-    {
-        builder.AddSimpleConsole(options =>
-        {
-            options.SingleLine = true;
-            options.IncludeScopes = false;
-        });
-    })
+    .AddLogging(static builder => builder.AddSimpleConsole(static options => options.IncludeScopes = false))
     .AddExternal()
     .AddAstrometry()
     .AddZWO()
@@ -38,7 +30,7 @@ var external = services.GetRequiredService<IExternal>();
 var deviceManager = services.GetRequiredService<ICombinedDeviceManager>();
 var sessionFactory = services.GetRequiredService<ISessionFactory>();
 
-using var cts = new CancellationTokenSource(Debugger.IsAttached ? TimeSpan.FromMinutes(100) : TimeSpan.FromSeconds(10), external.TimeProvider);
+using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10), external.TimeProvider);
 using var linked = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, lifetime.ApplicationStopping);
 await deviceManager.DiscoverAsync(linked.Token);
 
