@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
 
 namespace TianWen.Lib.Devices.Ascom;
@@ -29,7 +31,7 @@ public class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
             CanSync = obj.CanSync is bool canSync && canSync;
             CanPulseGuide = obj.CanPulseGuide is bool canPulseGuide && canPulseGuide;
             CanSetRightAscensionRate = obj.CanSetRightAscensionRate is bool canSetRightAscensionRate && canSetRightAscensionRate;
-            CanSetDeclinationRate = obj.CanSetDeclinationRate is bool canSetDeclinationRate && CanSetDeclinationRate;
+            CanSetDeclinationRate = obj.CanSetDeclinationRate is bool canSetDeclinationRate && canSetDeclinationRate;
             CanSetGuideRates = obj.CanSetGuideRates is bool canSetGuideRates && canSetGuideRates;
         }
     }
@@ -62,11 +64,13 @@ public class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
         };
     }
 
-    public void SlewRaDecAsync(double ra, double dec)
+    public Task BeginSlewRaDecAsync(double ra, double dec, CancellationToken cancellationToken = default)
     {
         if (_comObject?.CanSlewAsync is bool canSlewAsync && canSlewAsync)
         {
             _comObject.SlewToCoordinatesAsync(ra, dec);
+
+            return Task.CompletedTask;
         }
         else
         {

@@ -100,7 +100,7 @@ public record Session(
         External.AppLogger.LogInformation("Slew mount {Mount} near zenith to verify that we have rough focus.", mount);
 
         // coordinates not quite accurate at this point (we have not plate-solved yet) but good enough for this purpose.
-        mount.Driver.SlewToZenithAsync(distMeridian);
+        await mount.Driver.BeginSlewToZenithAsync(distMeridian, cancellationToken).ConfigureAwait(false);
         var slewTime = MountUtcNow;
 
         if (!await mount.Driver.WaitForSlewCompleteAsync(cancellationToken).ConfigureAwait(false))
@@ -174,7 +174,7 @@ public record Session(
             // slew back to start position
             if (MountUtcNow - slewTime > distMeridian)
             {
-                mount.Driver.SlewToZenithAsync(distMeridian);
+                await mount.Driver.BeginSlewToZenithAsync(distMeridian, cancellationToken).ConfigureAwait(false);
                 
                 slewTime = MountUtcNow;
 
@@ -228,7 +228,7 @@ public record Session(
         // TODO: maybe slew slightly above/below 0 declination to avoid trees, etc.
         // slew half an hour to meridian, plate solve and slew closer
         var dec = 0;
-        mount.Driver.SlewHourAngleDecAsync(TimeSpan.FromMinutes(30).TotalHours, dec);
+        await mount.Driver.BeginSlewHourAngleDecAsync(TimeSpan.FromMinutes(30).TotalHours, dec, cancellationToken).ConfigureAwait(false);
 
         if (!await mount.Driver.WaitForSlewCompleteAsync(cancellationToken).ConfigureAwait(false))
         {
@@ -257,7 +257,7 @@ public record Session(
 
         var guiderStopped = await CatchAsync(async cancellationToken =>
         {
-            await guider.Driver.StopCaptureAsync(TimeSpan.FromSeconds(15)).ConfigureAwait(false);
+            await guider.Driver.StopCaptureAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
             return !await guider.Driver.IsGuidingAsync(cancellationToken).ConfigureAwait(false);
         }, CancellationToken.None).ConfigureAwait(false);
 
@@ -349,7 +349,7 @@ public record Session(
         var guider = Setup.Guider;
 
         await mount.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
-        await guider.Driver.ConnectAsync();
+        await guider.Driver.ConnectAsync(cancellationToken);
 
         if (mount.Driver.AtPark && (!mount.Driver.CanUnpark || !Catch(mount.Driver.Unpark)))
         {
@@ -395,7 +395,7 @@ public record Session(
 
         guider.Driver.GuiderStateChangedEvent += (_, e) => _guiderEvents.Enqueue(e);
         guider.Driver.GuidingErrorEvent +=  (_, e) => _guiderEvents.Enqueue(e);
-        await guider.Driver.ConnectEquipmentAsync().ConfigureAwait(false);
+        await guider.Driver.ConnectEquipmentAsync(cancellationToken).ConfigureAwait(false);
 
         if (cancellationToken.IsCancellationRequested)
         {
@@ -430,7 +430,7 @@ public record Session(
             double hourAngleAtSlewTime;
             try
             {
-                (var postCondition, hourAngleAtSlewTime) = mount.Driver.SlewToTargetAsync(Configuration.MinHeightAboveHorizon, observation.Target);
+                (var postCondition, hourAngleAtSlewTime) = await mount.Driver.BeginSlewToTargetAsync(observation.Target, Configuration.MinHeightAboveHorizon, cancellationToken).ConfigureAwait(false);
                 if (postCondition is SlewPostCondition.SkipToNext)
                 {
                     _ = AdvanceObservation();
