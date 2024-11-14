@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using static TianWen.Lib.Base64UrlSafe;
 
@@ -31,11 +32,11 @@ public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
     public ProfileData? Data
         => _data ??= (Query[DataKey] is string encodedValues && JsonSerializer.Deserialize<ProfileData>(Base64UrlDecode(encodedValues)) is { } data ? data : null);
 
-    private static readonly JsonSerializerOptions ValueSerializerOptions = new JsonSerializerOptions { WriteIndented = false };
+    private static readonly ProfileJsonSerializerContext ProfileJsonSerializerContextSingleLine = new ProfileJsonSerializerContext(new JsonSerializerOptions { WriteIndented = false });
 
-    private static readonly JsonSerializerOptions ProfileSerializerOptions = new JsonSerializerOptions { WriteIndented = true };
+    internal static readonly ProfileJsonSerializerContext ProfileJsonSerializerContextIndented = new ProfileJsonSerializerContext(new JsonSerializerOptions { WriteIndented = true });
 
-    static string EncodeValues(ProfileData obj) => Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(obj, ValueSerializerOptions));
+    static string EncodeValues(ProfileData obj) => Base64UrlEncode(JsonSerializer.SerializeToUtf8Bytes(obj, ProfileJsonSerializerContextSingleLine.ProfileData));
 
     const string ProfileExt = ".json";
 
@@ -57,6 +58,12 @@ public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
         var file = new FileInfo(Path.Combine(external.ProfileFolder.FullName, DeviceIdFromUUID(ProfileId) + ProfileExt));
 
         using var stream = file.Open(file.Exists ? FileMode.Truncate : FileMode.CreateNew, FileAccess.Write, FileShare.None);
-        await JsonSerializer.SerializeAsync(stream, new ProfileDto(ProfileId, DisplayName, Data ?? ProfileData.Empty), ProfileSerializerOptions);
+        await JsonSerializer.SerializeAsync(stream, new ProfileDto(ProfileId, DisplayName, Data ?? ProfileData.Empty), ProfileJsonSerializerContextIndented.ProfileDto);
     }
+}
+
+[JsonSerializable(typeof(ProfileDto))]
+[JsonSerializable(typeof(ProfileData))]
+internal partial class ProfileJsonSerializerContext : JsonSerializerContext
+{
 }
