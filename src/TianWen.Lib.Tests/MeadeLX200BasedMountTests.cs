@@ -93,7 +93,7 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
         // when
         await mount.ConnectAsync();
         mount.Tracking = true;
-        mount.SlewRaDecAsync(targetRa, targetDec);
+        mount.BeginSlewRaDecAsync(targetRa, targetDec);
         mount.IsSlewing.ShouldBe(true);
         while (mount.IsSlewing)
         {

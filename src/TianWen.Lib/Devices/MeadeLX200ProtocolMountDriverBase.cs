@@ -7,6 +7,7 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Connections;
 using static TianWen.Lib.Astrometry.Constants;
@@ -825,7 +826,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     /// <param name="ra"></param>
     /// <param name="dec"></param>
     /// <exception cref="InvalidOperationException"></exception>
-    public void SlewRaDecAsync(double ra, double dec)
+    public Task BeginSlewRaDecAsync(double ra, double dec, CancellationToken cancellationToken = default)
     {
         if (IsPulseGuiding)
         {
@@ -854,6 +855,8 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
             External.AppLogger.LogTrace("Slewing to {RA},{Dec}, previous state: {PreviousMovingState}", HoursToHMS(ra), DegreesToDMS(dec), MovingStateDisplayName(previousState));
 #endif
             StartSlewTimer(MOVING_STATE_NORMAL);
+
+            return Task.CompletedTask;
         }
         else if (response.Length is 1 && byte.TryParse(response[0..1], out var reasonCode) && TryReadTerminated(out var reasonMessage))
         {

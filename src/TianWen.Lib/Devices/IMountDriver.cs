@@ -87,7 +87,7 @@ public interface IMountDriver : IDeviceDriver
     void PulseGuide(GuideDirection direction, TimeSpan duration);
 
     /// <summary>
-    /// True if slewing as a result of <see cref="SlewRaDecAsync"/> or <see cref="SlewHourAngleDecAsync"/>.
+    /// True if slewing as a result of <see cref="BeginSlewRaDecAsync"/> or <see cref="BeginSlewHourAngleDecAsync"/>.
     /// </summary>
     bool IsSlewing { get; }
 
@@ -138,17 +138,17 @@ public interface IMountDriver : IDeviceDriver
     /// </summary>
     /// <param name="ra">RA in hours (0..24)</param>
     /// <param name="dec">Declination in degrees (-90..90)</param>
-    void SlewRaDecAsync(double ra, double dec);
+    Task BeginSlewRaDecAsync(double ra, double dec, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Slews to given equatorial coordinates (HA, Dec) in the mounts native epoch, <see cref="EquatorialSystem"/>.
     /// Uses current <see cref="SiderealTime"/> to convert to RA.
-    /// Succeeds if <see cref="Connected"/> and <see cref="SlewRaDecAsync(double, double)"/> succeeds.
+    /// Succeeds if <see cref="Connected"/> and <see cref="BeginSlewRaDecAsync(double, double)"/> succeeds.
     /// </summary>
     /// <param name="ha">HA in hours (-12..12), as returned by <see cref="HourAngle"/></param>
     /// <param name="dec">Declination in degrees (-90..90)</param>
-    /// <returns>True if slewing operation was accepted and mount is slewing</returns>
-    void SlewHourAngleDecAsync(double ha, double dec)
+    /// <returns>Completed task if slewing was started successfully</returns>
+    Task BeginSlewHourAngleDecAsync(double ha, double dec, CancellationToken cancellationToken = default)
     {
         if (!Connected)
         {
@@ -165,7 +165,7 @@ public interface IMountDriver : IDeviceDriver
             throw new ArgumentException("Declination must be in [-90..90]", nameof(dec));
         }
 
-        SlewRaDecAsync(ConditionRA(SiderealTime - ha - 12), dec);
+        return BeginSlewRaDecAsync(ConditionRA(SiderealTime - ha - 12), dec, cancellationToken);
     }
 
     /// <summary>
@@ -181,7 +181,6 @@ public interface IMountDriver : IDeviceDriver
     /// </summary>
     /// <param name="ra">RA in hours (0..24)</param>
     /// <param name="dec">Declination in degrees (-90..90)</param>
-    /// <returns>true if mount is synced to the given coordinates.</returns>
     void SyncRaDecJ2000(double ra, double dec)
     {
         if (!Connected)
@@ -369,7 +368,7 @@ public interface IMountDriver : IDeviceDriver
             && (pierSide != PierSide.Unknown || Math.Sign(hourAngleAtSlewTime) == Math.Sign(currentHourAngle));
     }
 
-    public void SlewToZenithAsync(TimeSpan distMeridian)
+    public Task BeginSlewToZenithAsync(TimeSpan distMeridian, CancellationToken cancellationToken = default)
     {
         if (!Connected)
         {
@@ -381,10 +380,18 @@ public interface IMountDriver : IDeviceDriver
             throw new InvalidOperationException("Device does not support slewing");
         }
 
-        SlewHourAngleDecAsync((TimeSpan.FromHours(12) - distMeridian).TotalHours, SiteLatitude);
+        return BeginSlewHourAngleDecAsync((TimeSpan.FromHours(12) - distMeridian).TotalHours, SiteLatitude, cancellationToken);
     }
 
-    public SlewResult SlewToTargetAsync(int minAboveHorizon, Target target)
+    /// <summary>
+    /// Begins slewing to the specified target asynchronously.
+    /// </summary>
+    /// <param name="target">The target to slew to, containing RA and Dec coordinates.</param>
+    /// <param name="minAboveHorizonDegrees">The minimum altitude above the horizon in degrees. Default is 10 degrees.</param>
+    /// <param name="cancellationToken">A cancellation token to observe while waiting for the task to complete.</param>
+    /// <returns>A task that represents the asynchronous operation. The task result contains a <see cref="SlewResult"/> indicating the post-condition and hour angle at slew time.</returns>
+    /// <exception cref="InvalidOperationException">Thrown if the device is not connected or if the target cannot be transformed to mount native coordinates.</exception>
+    public async Task<SlewResult> BeginSlewToTargetAsync(Target target, int minAboveHorizonDegrees = 10, CancellationToken cancellationToken = default)
     {
         var az = double.NaN;
         var alt = double.NaN;
@@ -392,7 +399,7 @@ public interface IMountDriver : IDeviceDriver
         if (!TryGetTransform(out var transform)
             || !TryTransformJ2000ToMountNative(transform, target.RA, target.Dec, updateTime: false, out var raMount, out var decMount, out az, out alt)
             || double.IsNaN(alt)
-            || alt < minAboveHorizon
+            || alt < minAboveHorizonDegrees
             || (dsop = DestinationSideOfPier(raMount, decMount)) == PierSide.Unknown
         )
         {
@@ -402,7 +409,7 @@ public interface IMountDriver : IDeviceDriver
         }
 
         var hourAngle = HourAngle;
-        SlewRaDecAsync(raMount, decMount);
+        await BeginSlewRaDecAsync(raMount, decMount, cancellationToken);
 
         return new SlewResult(SlewPostCondition.Slewing, hourAngle);
     }
