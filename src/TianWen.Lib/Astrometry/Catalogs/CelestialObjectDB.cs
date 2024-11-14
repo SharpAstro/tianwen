@@ -12,6 +12,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -541,7 +542,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             Catalog.HIP
         };
 
-        await foreach (var record in JsonSerializer.DeserializeAsyncEnumerable<SimbadCatalogDto>(gzipStream))
+        await foreach (var record in JsonSerializer.DeserializeAsyncEnumerable(gzipStream, SimbadCatalogDtoJsonSerializerContext.Default.SimbadCatalogDto))
         {
             if (record is null)
             {

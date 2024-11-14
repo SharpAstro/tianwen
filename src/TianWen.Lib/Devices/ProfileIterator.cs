@@ -28,7 +28,7 @@ internal class ProfileIterator(IExternal external) : IDeviceSource<Profile>
             try
             {
                 using var stream = info.file.Open(FileMode.Open, FileAccess.Read, FileShare.Read);
-                if (await JsonSerializer.DeserializeAsync<ProfileDto>(stream, cancellationToken: cancellationToken) is { } dto)
+                if (await JsonSerializer.DeserializeAsync(stream, Profile.ProfileJsonSerializerContextIndented.ProfileDto, cancellationToken: cancellationToken) is { } dto)
                 {
                     if (string.IsNullOrWhiteSpace(dto.Name))
                     {

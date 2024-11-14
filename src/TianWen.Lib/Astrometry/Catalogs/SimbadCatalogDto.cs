@@ -1,4 +1,6 @@
-﻿namespace TianWen.Lib.Astrometry.Catalogs;
+﻿using System.Text.Json.Serialization;
+
+namespace TianWen.Lib.Astrometry.Catalogs;
 
 internal record SimbadCatalogDto(
     string MainId,
@@ -8,3 +10,8 @@ internal record SimbadCatalogDto(
     double Dec,
     double? VMag
 );
+
+[JsonSerializable(typeof(SimbadCatalogDto))]
+internal partial class SimbadCatalogDtoJsonSerializerContext : JsonSerializerContext
+{
+}
