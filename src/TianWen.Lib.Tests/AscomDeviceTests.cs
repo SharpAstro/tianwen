@@ -17,10 +17,10 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
     [Fact]
     public async Task TestWhenPlatformIsWindowsThatDeviceTypesAreReturned()
     {
-        using var profile = new AscomProfile();
-        var types = profile.RegisteredDeviceTypes;
+        var deviceIterator = new AscomDeviceIterator();
+        var types = deviceIterator.RegisteredDeviceTypes;
 
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && await profile.CheckSupportAsync())
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && await deviceIterator.CheckSupportAsync())
         {
             types.ShouldNotBeEmpty();
         }
@@ -40,8 +40,8 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached);
 
         var external = new FakeExternal(testOutputHelper);
-        using var profile = new AscomProfile();
-        var devices = profile.RegisteredDevices(type);
+        var deviceIterator = new AscomDeviceIterator();
+        var devices = deviceIterator.RegisteredDevices(type);
         var device = devices.FirstOrDefault(e => e.DeviceId == $"ASCOM.Simulator.{type}");
 
         device.ShouldNotBeNull();
@@ -66,8 +66,8 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
 
         // given
         var external = new FakeExternal(testOutputHelper);
-        using var profile = new AscomProfile();
-        var allTelescopes = profile.RegisteredDevices(DeviceType.Telescope);
+        var deviceIterator = new AscomDeviceIterator();
+        var allTelescopes = deviceIterator.RegisteredDevices(DeviceType.Telescope);
         var simTelescopeDevice = allTelescopes.FirstOrDefault(e => e.DeviceId == "ASCOM.Simulator." + DeviceType.Telescope);
 
         // when
@@ -87,8 +87,8 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
 
         // given
         var external = new FakeExternal(testOutputHelper);
-        using var profile = new AscomProfile();
-        var allCameras = profile.RegisteredDevices(DeviceType.Camera);
+        var deviceIterator = new AscomDeviceIterator();
+        var allCameras = deviceIterator.RegisteredDevices(DeviceType.Camera);
         var simCameraDevice = allCameras.FirstOrDefault(e => e.DeviceId == "ASCOM.Simulator." + DeviceType.Camera);
 
         // when / then
