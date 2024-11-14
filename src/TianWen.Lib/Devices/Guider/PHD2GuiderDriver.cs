@@ -390,31 +390,19 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     }
 
     static long MessageId = 0;
-    static (Utf8JsonWriter JsonWriter, ArrayBufferWriter<byte> Buffer, long Id) StartJsonRPCCall(string method)
+
+    static (ReadOnlyMemory<byte> Buffer, long Id) MakeJsonRPCCall(string method, params object[] @params)
     {
-        var buffer = new ArrayBufferWriter<byte>();
-        var req = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = false });
+        var buffer = new ArrayBufferWriter<byte>(128);
+        using var req = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = false });
         var id = Interlocked.Increment(ref MessageId);
 
         req.WriteStartObject();
         req.WriteString("method", method);
         req.WriteNumber("id", id);
 
-        return (req, buffer, id);
-    }
-
-    static ReadOnlyMemory<byte> EndJsonRPCCall(Utf8JsonWriter jsonWriter, ArrayBufferWriter<byte> buffer)
-    {
-        jsonWriter.WriteEndObject();
-        jsonWriter.Dispose();
-        return buffer.WrittenMemory;
-    }
-
-    static (ReadOnlyMemory<byte> Buffer, long Id) MakeJsonRPCCall(string method, params object[] @params)
-    {
-        var (req, buffer, id) = StartJsonRPCCall(method);
-
-        if (@params != null && @params.Length > 0) {
+        if (@params is { Length: > 0 })
+        {
             req.WritePropertyName("params");
 
             req.WriteStartArray();
@@ -472,7 +460,8 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
             req.WriteEndArray();
         }
 
-        return (EndJsonRPCCall(req, buffer), id);
+        req.WriteEndObject();
+        return (buffer.WrittenMemory, id);
     }
 
     static bool IsFailedResponse(JsonDocument response) => response.RootElement.TryGetProperty("error", out _);
