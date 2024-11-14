@@ -9,7 +9,7 @@ on:
 env:
   VERSION_PREFIX: 1.5.${{ github.run_number }}
   VERSION_REV: ${{ github.run_attempt }}
-  VERSION_SUFFIX: +${{ github.sha }}
+  VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release
 
 jobs:
@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Install astrometry.net
-      run: sudo apt-get install -y astrometry.net astrometry-data-2mass-08-19
+      run: sudo apt-get update && sudo apt-get install -y astrometry.net astrometry-data-2mass-08-19
     - uses: actions/checkout@v4
       with:
         submodules: recursive
@@ -29,7 +29,7 @@ jobs:
       run: dotnet restore
       working-directory: src
     - name: Build
-      run: dotnet build -c $BUILD_CONF --no-restore --version-suffix $VERSION_SUFFIX -p:VersionPrefix=${VERSION_PREFIX}${VERSION_REV} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true
+      run: dotnet build -c $BUILD_CONF --no-restore -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true
       working-directory: src
     - name: Test
       run: dotnet test -c $BUILD_CONF --no-build
