@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Globalization;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
 
@@ -9,11 +11,11 @@ namespace TianWen.Lib;
 /// </summary>
 public readonly struct BitMatrix
 {
-    const int VECTOR_SIZE = 32;
-    const int VECTOR_SIZE_SHIFT = 5;
+    const int VECTOR_SIZE = 64;
+    const int VECTOR_SIZE_SHIFT = 6;
     const int VECTOR_SIZE_MASK = VECTOR_SIZE - 1;
 
-    private readonly uint[,] _data;
+    private readonly ulong[,] _data;
     private readonly int _d1;
 
     /// <summary>
@@ -24,7 +26,7 @@ public readonly struct BitMatrix
     public BitMatrix(int d0, int d1)
     {
         var div = DivRem(_d1 = d1, out var rem);
-        _data = new uint[d0, div + (rem > 0 ? 1 : 0)];
+        _data = new ulong[d0, div + (rem > 0 ? 1 : 0)];
     }
 
     /// <summary>
@@ -45,7 +47,7 @@ public readonly struct BitMatrix
             }
 
             var d1div = DivRem(d1, out var rem);
-            var shift = 1u << rem;
+            var shift = 1ul << rem;
             return (_data[d0, d1div] & shift) == shift;
         }
 
@@ -58,7 +60,7 @@ public readonly struct BitMatrix
             }
 
             var d1div = DivRem(d1, out var rem);
-            var shift = 1u << rem;
+            var shift = 1ul << rem;
             if (value)
             {
                 _data[d0, d1div] |= shift;
@@ -103,7 +105,7 @@ public readonly struct BitMatrix
 
             unchecked
             {
-                const uint setMask = (uint)-1;
+                const ulong setMask = (ulong)-1;
 
                 var d1StartDiv = DivRem(start, out var d1StartRem);
                 var d1EndDiv = DivRem(end, out var d1EndRem);
@@ -121,7 +123,7 @@ public readonly struct BitMatrix
                     var d1Div = d1StartDiv;
                     _data[d0, d1Div++] = value ? startData | shiftedStartMask : startData & ~shiftedStartMask;
 
-                    var midData = value ? setMask : 0u;
+                    var midData = value ? setMask : 0ul;
                     for (; d1Div < d1EndDiv; d1Div++)
                     {
                         _data[d0, d1Div] = midData;
@@ -186,7 +188,7 @@ public readonly struct BitMatrix
             {
                 for (var j = 0; j < _data.GetLength(1); j++)
                 {
-                    _data[i, j] = (uint)-1;
+                    _data[i, j] = (ulong)-1;
                 }
             }
         }
@@ -225,7 +227,11 @@ public readonly struct BitMatrix
                     sb.Append(", ");
                 }
 
-                var vectorBits = Convert.ToString(_data[i, j], 2).PadLeft(VECTOR_SIZE, '0');
+                var bytes = BitConverter.GetBytes(_data[i, j]);
+                if (BitConverter.IsLittleEndian)
+                {
+                    Array.Reverse(bytes);
+                }
 
                 for (var k = 0; k < VECTOR_SIZE / 8; k++)
                 {
@@ -233,7 +239,7 @@ public readonly struct BitMatrix
                     {
                         sb.Append(' ');
                     }
-                    sb.Append(vectorBits.AsSpan(k * 8, 8));
+                    sb.Append(Convert.ToString(bytes[k], 2).PadLeft(8, '0'));
                 }
             }
             sb.AppendLine();
