@@ -43,12 +43,12 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 {
     readonly ConcurrentDictionary<long, JsonDocument> _responses = [];
     readonly GuiderDevice _guiderDevice;
-    readonly SemaphoreSlim _sync = new SemaphoreSlim(1, 1);
-    readonly SemaphoreSlim _receiveEvent = new SemaphoreSlim(0, 1);
+    readonly SemaphoreSlim _sync = new(1, 1);
+    readonly SemaphoreSlim _receiveEvent = new(0, 1);
     IUtf8TextBasedConnection? _connection;
     string? _selectedProfileName;
     List<GuiderDevice> _equipmentProfiles = [];
-    CancellationTokenSource _cts = new CancellationTokenSource();
+    CancellationTokenSource _cts = new();
     Task? _receiveTask;
 
     Accum AccumRA { get; } = new Accum();

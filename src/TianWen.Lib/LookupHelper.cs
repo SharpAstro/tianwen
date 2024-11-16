@@ -41,7 +41,7 @@ public static class LookupHelper
     public static void AddLookupEntry<TKey, TVal>(this Dictionary<TKey, TVal[]> lookupTable, TKey master, TVal toAdd)
         where TKey : notnull
     {
-        if (!lookupTable.TryAdd(master, new[] { toAdd }))
+        if (!lookupTable.TryAdd(master, [toAdd]))
         {
             lookupTable[master] = AddElementIfNotExist(lookupTable[master], toAdd);
         }

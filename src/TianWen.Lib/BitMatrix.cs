@@ -1,6 +1,4 @@
 ﻿using System;
-using System.Globalization;
-using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
 
@@ -194,18 +192,60 @@ public readonly struct BitMatrix
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     public readonly void SetRegionClipped(int d0, int d1, in BitMatrix other)
     {
-        for (var i = 0; i < other.GetLength(0); i++)
+        if (ReferenceEquals(other._data, _data))
         {
-            for (var j = 0; j < other.GetLength(1); j++)
-            {
-                var m = i + d0;
-                var n = j + d1;
+            throw new ArgumentException("Cannot set clip region from the same matrix", nameof(other));
+        }
 
-                if (m >= 0 && m < GetLength(0) && n >= 0 && n < GetLength(1))
+        var otherD0 = other.GetLength(0);
+        var otherD1 = other.GetLength(1);
+
+        int d1Offset;
+        int d1Skip;
+        int d1Rem;
+        if (d1 >= 0)
+        {
+            d1Offset = DivRem(d1, out d1Rem);
+            d1Skip = 0;
+        }
+        else
+        {
+            d1Skip = DivRem(-d1, out d1Rem);
+            d1Offset = 0;
+        }
+
+        var d0Skip = d0 < 0 ? -d0 : 0;
+
+        var d1SkipTotal = d1Skip * VECTOR_SIZE;
+        if (d1SkipTotal >= otherD1 || d0Skip >= otherD0)
+        {
+            return;
+        }
+
+        // fast path for when the other matrix is a vector (after skipping invisible cells)
+        if (d1Rem + otherD1 - d1SkipTotal <= VECTOR_SIZE)
+        {
+            for (var i = d0Skip; i < otherD0; i++)
+            {
+                _data[d0 + i, d1Offset] |= other._data[i, d1Skip] << d1Rem;
+            }
+        }
+        else
+        {
+            for (var i = 0; i < other.GetLength(0); i++)
+            {
+                for (var j = 0; j < other.GetLength(1); j++)
                 {
-                    this[m, n] = other[i, j];
+                    var m = i + d0;
+                    var n = j + d1;
+
+                    if (m >= 0 && m < GetLength(0) && n >= 0 && n < GetLength(1))
+                    {
+                        this[m, n] = other[i, j];
+                    }
                 }
             }
         }

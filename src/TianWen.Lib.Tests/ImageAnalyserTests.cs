@@ -1,15 +1,15 @@
-﻿using TianWen.Lib.Astrometry.Focus;
+﻿using Shouldly;
+using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.IO;
+using System.Threading.Tasks;
+using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Stat;
-using Shouldly;
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Threading.Tasks;
 using Xunit;
 using Xunit.Abstractions;
-using System.Collections.Immutable;
 
 namespace TianWen.Lib.Tests;
 
@@ -20,7 +20,6 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
 
     private readonly ITestOutputHelper _testOutputHelper = testOutputHelper;
     private readonly IImageAnalyser _imageAnalyser = new ImageAnalyser();
-
     private static readonly ImmutableDictionary<string, Image> _imageCache;
 
     static ImageAnalyserTests()
