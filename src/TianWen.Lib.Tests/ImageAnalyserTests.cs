@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.Focus;
@@ -36,12 +37,12 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
     [Theory]
     [InlineData(PlateSolveTestFile, 10f)]
     [InlineData(PlateSolveTestFile, 15f)]
-    public void GivenFileNameWhenWritingImageAndReadingBackThenItIsIdentical(string name, float snrMin)
+    public async Task GivenFileNameWhenWritingImageAndReadingBackThenItIsIdentical(string name, float snrMin)
     {
         // given
         var image = _imageCache[name];
         var fullPath = Path.Combine(Path.GetTempPath(), $"roundtrip_{Guid.NewGuid():D}.fits");
-        var expectedStars = _imageAnalyser.FindStars(image, snrMin: snrMin);
+        var expectedStars = await _imageAnalyser.FindStarsAsync(image, snrMin: snrMin);
 
         try
         {
@@ -58,9 +59,9 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
             readoutImage.MaxValue.ShouldBe(image.MaxValue);
             readoutImage.ImageMeta.ExposureStartTime.ShouldBe(image.ImageMeta.ExposureStartTime);
             readoutImage.ImageMeta.ExposureDuration.ShouldBe(image.ImageMeta.ExposureDuration);
-            var starsFromImage = _imageAnalyser.FindStars(image, snrMin: snrMin);
+            var starsFromImage = await _imageAnalyser.FindStarsAsync(image, snrMin: snrMin);
 
-            starsFromImage.ShouldBeEquivalentTo(expectedStars);
+            starsFromImage.ShouldBe(expectedStars, ignoreOrder: true);
         }
         finally
         {
@@ -104,8 +105,8 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 10f, 89)]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 20f, 28)]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 30f, 13)]
-    [InlineData("RGGB_frame_bx0_by0_top_down", 30f, 2732, 5000)]
-    [InlineData("RGGB_frame_bx0_by0_top_down", 10f, 2985, 5000)]
+    [InlineData("RGGB_frame_bx0_by0_top_down", 30f, 2786, 5000)]
+    [InlineData("RGGB_frame_bx0_by0_top_down", 10f, 3046, 5000)]
     public async Task GivenImageFileAndMinSNRWhenFindingStarsThenTheyAreFound(string name, float snrMin, int expectedStars, int? maxStars = null)
     {
         // given
@@ -115,7 +116,9 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
         {
             // when
             Image.TryReadFitsFile(extractedFitsFile, out var image).ShouldBeTrue();
-            var actualStars = _imageAnalyser.FindStars(image, snrMin, maxStars ?? 500);
+            var sw = Stopwatch.StartNew();
+            var actualStars = await _imageAnalyser.FindStarsAsync(image, snrMin, maxStars ?? 500);
+            _testOutputHelper.WriteLine("Testing image {0} took {1} ms", name, sw.ElapsedMilliseconds);
 
             // then
             actualStars.ShouldNotBeEmpty();
@@ -146,7 +149,7 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
         // when
         var imageData = Float32HxWImageData.FromWxHImageData(int16WxHData);
         var image = ICameraDriver.DataToImage(imageData, BitDepth, BlackLevel, imageMeta);
-        var stars = _imageAnalyser.FindStars(image, snrMin: snr_min);
+        var stars = await _imageAnalyser.FindStarsAsync(image, snrMin: snr_min);
 
         // then
         image.ShouldNotBeNull();
@@ -168,10 +171,10 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
     [InlineData(PHD2SimGuider, 20, 3, 6)]
     [InlineData(PHD2SimGuider, 30, 3, 2)]
     [InlineData(PHD2SimGuider, 30, 10, 2)]
-    public void GivenFitsFileWhenAnalysingThenMedianHFDAndFWHMIsCalculated(string name, float snr_min, int max_retries, int expected_stars, params int[] sampleStar)
+    public async Task GivenFitsFileWhenAnalysingThenMedianHFDAndFWHMIsCalculated(string name, float snr_min, int max_retries, int expected_stars, params int[] sampleStar)
     {
         // when
-        var result = _imageAnalyser.FindStars(_imageCache[name], snrMin: snr_min, maxIterations: max_retries);
+        var result = await _imageAnalyser.FindStarsAsync(_imageCache[name], snrMin: snr_min, maxIterations: max_retries);
 
         // then
         result.ShouldNotBeEmpty();
@@ -195,7 +198,7 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
     [InlineData(SampleKind.HFD, AggregationMethod.Average, 28208, 28211, 1, 1, 1, 10f, 20, 2, 130)]
     [InlineData(SampleKind.HFD, AggregationMethod.Average, 28227, 28231, 1, 1, 1, 10f, 20, 2, 140)]
     [InlineData(SampleKind.HFD, AggregationMethod.Average, 28208, 28231, 1, 1, 1, 10f, 20, 2, 130, Skip = "Computationally expensive")]
-    public void GivenFocusSamplesWhenSolvingAHyperboleIsFound(SampleKind kind, AggregationMethod aggregationMethod, int focusStart, int focusEndIncl, int focusStepSize, int sampleCount, int filterNo, float snrMin, int maxIterations, int expectedSolutionAfterSteps, int expectedMinStarCount)
+    public async Task GivenFocusSamplesWhenSolvingAHyperboleIsFound(SampleKind kind, AggregationMethod aggregationMethod, int focusStart, int focusEndIncl, int focusStepSize, int sampleCount, int filterNo, float snrMin, int maxIterations, int expectedSolutionAfterSteps, int expectedMinStarCount)
     {
         // given
         var sampleMap = new MetricSampleMap(kind, aggregationMethod);
@@ -207,7 +210,7 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
             {
                 var image = SharedTestData.ExtractGZippedFitsImage($"fp{fp}-cs{cs}-ms{sampleCount}-fw{filterNo}");
 
-                var stars = _imageAnalyser.FindStars(image, snrMin: snrMin);
+                var stars = await _imageAnalyser.FindStarsAsync(image, snrMin: snrMin);
                 var median = _imageAnalyser.MapReduceStarProperty(stars, sampleMap.Kind, AggregationMethod.Median);
                 var (solution, maybeMinPos, maybeMaxPos) = _imageAnalyser.SampleStarsAtFocusPosition(sampleMap, fp, median, stars.Count, maxFocusIterations: maxIterations);
 

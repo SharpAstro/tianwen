@@ -1,7 +1,9 @@
-﻿using TianWen.Lib.Imaging;
-using TianWen.Lib.Stat;
-using System;
+﻿using System;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using TianWen.Lib.Imaging;
+using TianWen.Lib.Stat;
 using static TianWen.Lib.Stat.StatisticsHelper;
 
 namespace TianWen.Lib.Astrometry.Focus;
@@ -63,5 +65,5 @@ public interface IImageAnalyser
         };
     }
 
-    IReadOnlyList<ImagedStar> FindStars(Image image, float snrMin = 20f, int maxStars = 500, int maxIterations = 2);
+    Task<IReadOnlyList<ImagedStar>> FindStarsAsync(Image image, float snrMin = 20f, int maxStars = 500, int maxIterations = 2, CancellationToken cancellationToken = default);
 }

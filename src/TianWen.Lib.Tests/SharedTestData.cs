@@ -1,12 +1,13 @@
-﻿using TianWen.Lib.Imaging;
-using CommunityToolkit.HighPerformance;
+﻿using CommunityToolkit.HighPerformance;
 using nom.tam.fits;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Tests;
 
@@ -43,26 +44,50 @@ public static class SharedTestData
             ["image_file-snr-20_stars-28_1280x960x16"] = (new ImageDim(5.6f, 1280, 960), new WCS(337.264d / 15.0d, -22.918d))
         };
 
+    static readonly SemaphoreSlim _testDirAccess = new(1,1);
     internal static async Task<string> ExtractGZippedFitsFileAsync(string name)
     {
         var assembly = typeof(SharedTestData).Assembly;
         var gzippedTestFile = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith($".{name}.fits.gz"));
 
-        if (gzippedTestFile is not null
-            && assembly.GetManifestResourceStream(gzippedTestFile) is Stream inStream)
+        assembly.GetHashCode();
+        if (gzippedTestFile is not null && assembly.GetManifestResourceStream(gzippedTestFile) is Stream inStream)
         {
-            var fileName = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("D") + ".fits");
-            using var outStream = new FileStream(fileName, new FileStreamOptions
-            {
-                Options = FileOptions.Asynchronous,
-                Access = FileAccess.Write,
-                Mode = FileMode.Create,
-                Share = FileShare.None
-            });
-            using var gzipStream = new GZipStream(inStream, CompressionMode.Decompress, false);
-            await gzipStream.CopyToAsync(outStream, 1024 * 10);
+            var dir = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), nameof(SharedTestData), $"{DateTimeOffset.Now.Date:yyyyMMdd}"));
+            var fileName = $"{name}_{inStream.Length}.fits";
 
-            return fileName;
+            var fullPath = Path.Combine(dir.FullName, fileName);
+            if (File.Exists(fullPath))
+            {
+                return fullPath;
+            }
+            else
+            {
+                await _testDirAccess.WaitAsync();
+                try
+                {
+                    if (File.Exists(fullPath))
+                    {
+                        return fullPath;
+                    }
+                    using var outStream = new FileStream(fullPath, new FileStreamOptions
+                    {
+                        Options = FileOptions.Asynchronous,
+                        Access = FileAccess.Write,
+                        Mode = FileMode.Create,
+                        Share = FileShare.None
+                    });
+                    using var gzipStream = new GZipStream(inStream, CompressionMode.Decompress, false);
+                    var length = inStream.Length;
+                    await gzipStream.CopyToAsync(outStream, 1024 * 10);
+                }
+                finally
+                {
+                    _testDirAccess.Release();
+                }
+
+                return fullPath;
+            }
         }
 
         throw new ArgumentException($"Missing test data {name}", nameof(name));
