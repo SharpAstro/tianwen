@@ -1,17 +1,19 @@
-﻿using TianWen.Lib.Devices;
-using CommunityToolkit.HighPerformance;
+﻿using CommunityToolkit.HighPerformance;
 using nom.tam.fits;
 using nom.tam.util;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Threading;
+using System.Threading.Tasks;
+using TianWen.Lib.Devices;
 using static TianWen.Lib.Stat.StatisticsHelper;
-using System.Drawing;
-using System.Collections.Immutable;
 
 namespace TianWen.Lib.Imaging;
 
@@ -33,7 +35,7 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
     public static bool TryReadFitsFile(string fileName, [NotNullWhen(true)] out Image? image)
     {
         using var bufferedReader = new BufferedFile(fileName, FileAccess.ReadWrite, FileShare.Read, 1000 * 2088);
-        return TryReadFitsFile(new Fits(bufferedReader), out image);
+        return TryReadFitsFile(new Fits(bufferedReader, fileName.EndsWith(".gz")), out image);
     }
 
     public static bool TryReadFitsFile(Fits fitsFile, [NotNullWhen(true)] out Image? image)
@@ -441,11 +443,14 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
     /// <param name="max_retries"></param>
     /// <returns></returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    public IReadOnlyList<ImagedStar> FindStars(float snr_min = 20f, int max_stars = 500, int max_retries = 2)
+    public async Task<IReadOnlyList<ImagedStar>> FindStarsAsync(float snr_min = 20f, int max_stars = 500, int max_retries = 2, CancellationToken cancellationToken = default)
     {
+        // we use interleaved processing of rows 
+        const float ThreadSafeStarBoxDiv = 1.0f / (3.0f * MaxScaledRadius);
+
         if (imageMeta.SensorType is not SensorType.Monochrome)
         {
-            return DebayerOSCToSyntheticLuminance().FindStars(snr_min, max_stars, max_retries);
+            return await DebayerOSCToSyntheticLuminance().FindStarsAsync(snr_min, max_stars, max_retries, cancellationToken);
         }
 
         var (background, star_level, noise_level, hist_threshold) = Background();
@@ -455,44 +460,50 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
 
         if (background >= hist_threshold || background <= 0)  /* abnormal file */
         {
-            return Array.Empty<ImagedStar>();
+            return [];
         }
 
-        var starList = new List<ImagedStar>(max_stars / 2);
+        var starList = new ConcurrentBag<ImagedStar>();
         var img_star_area = new BitMatrix(height, width);
+
+        var chunkSize = (int)Math.Ceiling(height * ThreadSafeStarBoxDiv);
+        var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount, CancellationToken = cancellationToken };
 
         do
         {
-            if (retries < max_retries && retries > 0)
+            var chunks = Enumerable.Range(0, height).Chunk(chunkSize).ToList();
+            for (var i = 0; i <= 1; i++)
             {
-                // clear from last iteration to avoid spurious data
-                starList.Clear();
-                img_star_area.ClearAll();
-            }
-
-            for (var fitsY = 0; fitsY < height; fitsY++)
-            {
-                for (var fitsX = 0; fitsX < width; fitsX++)
+                await Parallel.ForEachAsync(chunks.Where((x, index) => index % 2 == i), parallelOptions, async (chunk, cancellationToken) =>
                 {
-                    // new star. For analyse used sigma is 5, so not too low.
-                    if (data[fitsY, fitsX] - background > detection_level
-                        && !img_star_area[fitsY, fitsX]
-                        && AnalyseStar(fitsX, fitsY, BoxRadius, out var star)
-                        && star.HFD is > 0.8f and <= BoxRadius * 2 /* at least 2 pixels in size */
-                        && star.SNR >= snr_min
-                    )
+                    await Task.Run(() =>
                     {
-                        starList.Add(star);
-                        var scaledHfd = HfdFactor * star.HFD;
-                        var r = (int)MathF.Round(scaledHfd); /* radius for marking star area, factor 1.5 is chosen emperiacally. */
-                        var xc_offset = (int)MathF.Round(star.XCentroid - scaledHfd); /* star center as integer */
-                        var yc_offset = (int)MathF.Round(star.YCentroid - scaledHfd);
+                        foreach (var fitsY in chunk)
+                        {
+                            for (var fitsX = 0; fitsX < width; fitsX++)
+                            {
+                                // new star. For analyse used sigma is 5, so not too low.
+                                if (data[fitsY, fitsX] - background > detection_level
+                                    && !img_star_area[fitsY, fitsX]
+                                    && AnalyseStar(fitsX, fitsY, BoxRadius, out var star)
+                                    && star.HFD is > 0.8f and <= BoxRadius * 2 /* at least 2 pixels in size */
+                                    && star.SNR >= snr_min
+                                )
+                                {
+                                    starList.Add(star);
+                                    var scaledHfd = HfdFactor * star.HFD;
+                                    var r = (int)MathF.Round(scaledHfd); /* radius for marking star area, factor 1.5 is chosen emperiacally. */
+                                    var xc_offset = (int)MathF.Round(star.XCentroid - scaledHfd); /* star center as integer */
+                                    var yc_offset = (int)MathF.Round(star.YCentroid - scaledHfd);
 
-                        var mask = StarMasks[Math.Max(r - 1, 0)];
+                                    var mask = StarMasks[Math.Max(r - 1, 0)];
 
-                        img_star_area.SetRegionClipped(yc_offset, xc_offset, mask);
-                    }
-                }
+                                    img_star_area.SetRegionClipped(yc_offset, xc_offset, mask);
+                                }
+                            }
+                        }
+                    }, cancellationToken);
+                });
             }
 
             /* In principle not required. Try again with lower detection level */
@@ -507,7 +518,7 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
             }
         } while (starList.Count < max_stars && retries > 0);/* reduce detection level till enough stars are found. Note that faint stars have less positional accuracy */
 
-        return starList;
+        return [..starList];
     }
 
     /// <summary>
