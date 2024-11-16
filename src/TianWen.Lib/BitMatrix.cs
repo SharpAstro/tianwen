@@ -4,6 +4,9 @@ using System.Text;
 
 namespace TianWen.Lib;
 
+/// <summary>
+/// Represents a matrix of bits.
+/// </summary>
 public readonly struct BitMatrix
 {
     const int VECTOR_SIZE = 32;
@@ -13,13 +16,24 @@ public readonly struct BitMatrix
     private readonly uint[,] _data;
     private readonly int _d1;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="BitMatrix"/> struct.
+    /// </summary>
+    /// <param name="d0">The number of rows.</param>
+    /// <param name="d1">The number of columns.</param>
     public BitMatrix(int d0, int d1)
     {
         var div = DivRem(_d1 = d1, out var rem);
-
         _data = new uint[d0, div + (rem > 0 ? 1 : 0)];
     }
 
+    /// <summary>
+    /// Gets or sets the bit at the specified position.
+    /// </summary>
+    /// <param name="d0">The row index.</param>
+    /// <param name="d1">The column index.</param>
+    /// <returns>The bit value at the specified position.</returns>
+    /// <exception cref="IndexOutOfRangeException">Thrown when the column index is out of range.</exception>
     public readonly bool this[int d0, int d1]
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
@@ -36,7 +50,7 @@ public readonly struct BitMatrix
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-set
+        set
         {
             if (d1 < 0 || d1 >= _d1)
             {
@@ -56,12 +70,25 @@ set
         }
     }
 
+    /// <summary>
+    /// Gets or sets the bit at the specified position using an <see cref="Index"/>.
+    /// </summary>
+    /// <param name="d0">The row index.</param>
+    /// <param name="d1">The column index as an <see cref="Index"/>.</param>
+    /// <returns>The bit value at the specified position.</returns>
     public readonly bool this[int d0, Index d1]
     {
         get => this[d0, d1.IsFromEnd ? _d1 - d1.Value : d1.Value];
         set => this[d0, d1.IsFromEnd ? _d1 - d1.Value : d1.Value] = value;
     }
 
+    /// <summary>
+    /// Sets the bits in the specified range to the specified value.
+    /// </summary>
+    /// <param name="d0">The row index.</param>
+    /// <param name="d1">The range of columns.</param>
+    /// <param name="value">The value to set the bits to.</param>
+    /// <exception cref="IndexOutOfRangeException">Thrown when the range is out of bounds.</exception>
     public readonly bool this[int d0, Range d1]
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
@@ -107,6 +134,12 @@ set
         }
     }
 
+    /// <summary>
+    /// Divides the specified value by the vector size and returns the quotient and remainder.
+    /// </summary>
+    /// <param name="d1">The value to divide.</param>
+    /// <param name="rem">The remainder of the division.</param>
+    /// <returns>The quotient of the division.</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     private static int DivRem(int d1, out int rem)
     {
@@ -114,6 +147,12 @@ set
         return d1 >> VECTOR_SIZE_SHIFT;
     }
 
+    /// <summary>
+    /// Gets the length of the specified dimension.
+    /// </summary>
+    /// <param name="dim">The dimension (0 for rows, 1 for columns).</param>
+    /// <returns>The length of the specified dimension.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the dimension is not 0 or 1.</exception>
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     public readonly int GetLength(int dim) => dim switch
     {
@@ -122,6 +161,9 @@ set
         _ => throw new ArgumentOutOfRangeException(nameof(dim), dim, "Must be 0 or 1"),
     };
 
+    /// <summary>
+    /// Clears all bits in the matrix.
+    /// </summary>
     public readonly void ClearAll()
     {
         for (var i = 0; i < _data.GetLength(0); i++)
@@ -133,6 +175,9 @@ set
         }
     }
 
+    /// <summary>
+    /// Sets all bits in the matrix.
+    /// </summary>
     public readonly void SetAll()
     {
         unchecked
@@ -147,6 +192,27 @@ set
         }
     }
 
+    public readonly void SetRegionClipped(int d0, int d1, in BitMatrix other)
+    {
+        for (var i = 0; i < other.GetLength(0); i++)
+        {
+            for (var j = 0; j < other.GetLength(1); j++)
+            {
+                var m = i + d0;
+                var n = j + d1;
+
+                if (m >= 0 && m < GetLength(0) && n >= 0 && n < GetLength(1))
+                {
+                    this[m, n] = other[i, j];
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Returns a string representation of the matrix.
+    /// </summary>
+    /// <returns>A string representation of the matrix.</returns>
     public override readonly string ToString()
     {
         var sb = new StringBuilder();

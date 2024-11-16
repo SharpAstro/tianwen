@@ -10,6 +10,8 @@ using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using static TianWen.Lib.Stat.StatisticsHelper;
+using System.Drawing;
+using System.Collections.Immutable;
 
 namespace TianWen.Lib.Imaging;
 
@@ -392,6 +394,45 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
         }
     }
 
+    const int BoxRadius = 14;
+    const float HfdFactor = 1.5f;
+    const int MaxScaledRadius = (int)(HfdFactor * BoxRadius) + 1;
+    static readonly ImmutableArray<BitMatrix> StarMasks;
+    static Image()
+    {
+        var starMasksBuilder = ImmutableArray.CreateBuilder<BitMatrix>(MaxScaledRadius);
+        for (var radius = 1; radius < MaxScaledRadius; radius++)
+        {
+            MakeStarMask(radius, out var mask);
+            starMasksBuilder.Add(mask);
+        }
+
+        StarMasks = starMasksBuilder.ToImmutable();
+    }
+
+    static void MakeStarMask(int radius, out BitMatrix starMask)
+    {
+        var diameter = radius << 1;
+        var radius_squared = radius * radius;
+        starMask = new BitMatrix(diameter + 1, diameter + 1);
+
+        for (int y = -radius; y <= radius; y++)
+        {
+            for (int x = -radius; x <= radius; x++)
+            {
+                if (x * x + y * y <= radius_squared)
+                {
+                    int pixelX = radius + x;
+                    int pixelY = radius + y;
+                    if (pixelX >= 0 && pixelX <= diameter && pixelY >= 0 && pixelY <= diameter)
+                    {
+                        starMask[pixelY, pixelX] = true;
+                    }
+                }
+            }
+        }
+    }
+
     /// <summary>
     /// Find background, noise level, number of stars and their HFD, FWHM, SNR, flux and centroid.
     /// </summary>
@@ -436,45 +477,20 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
                     // new star. For analyse used sigma is 5, so not too low.
                     if (data[fitsY, fitsX] - background > detection_level
                         && !img_star_area[fitsY, fitsX]
-                        && AnalyseStar(fitsX, fitsY, boxRadius: 14, out var star)
-                        && star.HFD is > 0.8f and <= 30 /* at least 2 pixels in size */
+                        && AnalyseStar(fitsX, fitsY, BoxRadius, out var star)
+                        && star.HFD is > 0.8f and <= BoxRadius * 2 /* at least 2 pixels in size */
                         && star.SNR >= snr_min
                     )
                     {
                         starList.Add(star);
+                        var scaledHfd = HfdFactor * star.HFD;
+                        var r = (int)MathF.Round(scaledHfd); /* radius for marking star area, factor 1.5 is chosen emperiacally. */
+                        var xc_offset = (int)MathF.Round(star.XCentroid - scaledHfd); /* star center as integer */
+                        var yc_offset = (int)MathF.Round(star.YCentroid - scaledHfd);
 
-                        var diam = (int)MathF.Round(3.0f * star.HFD); /* for marking star area. Emperical a value between 2.5*hfd and 3.5*hfd gives same performance. Note in practise a star PSF has larger wings  predicted by a Gaussian function */
-                        var sqr_diam = diam * diam;
-                        var xci = (int)MathF.Round(star.XCentroid); /* star center as integer */
-                        var yci = (int)MathF.Round(star.YCentroid);
+                        var mask = StarMasks[Math.Max(r - 1, 0)];
 
-                        for (var n = -diam; n <= +diam; n++)  /* mark the whole circular star area width diameter "diam" as occupied to prevent double detections */
-                        {
-                            var j = n + yci;
-                            int? start = null;
-                            int? end = null;
-                            for (var m = -diam; m <= +diam; m++)
-                            {
-                                var i = m + xci;
-                                if (j >= 0 && i >= 0 && j < height && i < width && m * m + n * n <= sqr_diam)
-                                {
-                                    start ??= i;
-                                    end = i;
-                                }
-                            }
-
-                            if (start.HasValue && end.HasValue)
-                            {
-                                if (start == end)
-                                {
-                                    img_star_area[j, start.Value] = true;
-                                }
-                                else if (start < end)
-                                {
-                                    img_star_area[j, new Range(start.Value, end.Value + 1)] = true;
-                                }
-                            }
-                        }
+                        img_star_area.SetRegionClipped(yc_offset, xc_offset, mask);
                     }
                 }
             }

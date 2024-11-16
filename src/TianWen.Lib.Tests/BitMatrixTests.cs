@@ -244,6 +244,6 @@ namespace TianWen.Lib.Tests
         }
 
         private static string[] BitMatrixOutputAsRows(string stringOutput) =>
-            stringOutput.Split(new char[] { '\n', '\r' }, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            stringOutput.Split(['\n', '\r'], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
     }
 }
