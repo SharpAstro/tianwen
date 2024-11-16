@@ -9,6 +9,7 @@ using System.IO;
 using System.Threading.Tasks;
 using Xunit;
 using Xunit.Abstractions;
+using System.Collections.Immutable;
 
 namespace TianWen.Lib.Tests;
 
@@ -20,7 +21,7 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
     private readonly ITestOutputHelper _testOutputHelper = testOutputHelper;
     private readonly IImageAnalyser _imageAnalyser = new ImageAnalyser();
 
-    private static readonly IReadOnlyDictionary<string, Image> _imageCache;
+    private static readonly ImmutableDictionary<string, Image> _imageCache;
 
     static ImageAnalyserTests()
     {
@@ -30,7 +31,7 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
             imageCache[name] = SharedTestData.ExtractGZippedFitsImage(name);
         }
 
-        _imageCache = imageCache;
+        _imageCache = imageCache.ToImmutableDictionary();
     }
 
     [Theory]
