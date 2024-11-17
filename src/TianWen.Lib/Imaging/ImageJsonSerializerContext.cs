@@ -1,5 +1,4 @@
 ﻿using System.Text.Json.Serialization;
-using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Imaging;
 
@@ -16,5 +15,4 @@ namespace TianWen.Lib.Imaging;
 [JsonSerializable(typeof(ImageMeta))]
 internal partial class ImageJsonSerializerContext : JsonSerializerContext
 {
-
 }
