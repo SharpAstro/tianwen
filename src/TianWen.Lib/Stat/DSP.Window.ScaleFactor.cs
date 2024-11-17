@@ -20,7 +20,7 @@ public partial class DSP
                     s1 += coeff;
                 }
 
-                s1 = s1 / windowCoefficients.Length;
+                s1 /= windowCoefficients.Length;
 
                 return 1.0 / s1;
             }
@@ -39,7 +39,7 @@ public partial class DSP
                 double s2 = 0;
                 foreach (double coeff in windowCoefficients)
                 {
-                    s2 = s2 + coeff * coeff;
+                    s2 += coeff * coeff;
                 }
 
                 double n = windowCoefficients.Length;
@@ -62,12 +62,12 @@ public partial class DSP
                 double s2 = 0;
                 foreach (double coeff in windowCoefficients)
                 {
-                    s1 = s1 + coeff;
-                    s2 = s2 + coeff * coeff;
+                    s1 += coeff;
+                    s2 += coeff * coeff;
                 }
 
                 double n = windowCoefficients.Length;
-                s1 = s1 / n;
+                s1 /= n;
 
                 double nenbw = s2 / (s1 * s1) / n;
 

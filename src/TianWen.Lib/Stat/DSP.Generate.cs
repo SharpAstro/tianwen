@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Numerics;
 
 namespace TianWen.Lib.Stat;
 
@@ -62,14 +63,14 @@ public partial class DSP
         /// <returns>double[] array</returns>
         public static double[] ToneSampling(double amplitudeVrms, double frequencyHz, double samplingFrequencyHz, uint points, double dcV = 0.0, double phaseDeg = 0)
         {
-            double ph_r = phaseDeg * System.Math.PI / 180.0;
-            double ampPeak = System.Math.Sqrt(2) * amplitudeVrms;
+            double ph_r = phaseDeg * Math.PI / 180.0;
+            double ampPeak = Math.Sqrt(2) * amplitudeVrms;
 
             double[] rval = new double[points];
             for (uint i = 0; i < points; i++)
             {
                 double time = i / samplingFrequencyHz;
-                rval[i] = System.Math.Sqrt(2) * amplitudeVrms * System.Math.Sin(2.0 * System.Math.PI * time * frequencyHz + ph_r) + dcV;
+                rval[i] = ampPeak * Math.Sin(2.0 * Math.PI * time * frequencyHz + ph_r) + dcV;
             }
             return rval;
         }
@@ -86,13 +87,13 @@ public partial class DSP
         /// <returns>double[] array</returns>
         public static double[] ToneCycles(double amplitudeVrms, double cycles, uint points, double dcV = 0.0, double phaseDeg = 0)
         {
-            double ph_r = phaseDeg * System.Math.PI / 180.0;
-            double ampPeak = System.Math.Sqrt(2) * amplitudeVrms;
+            double ph_r = phaseDeg * Math.PI / 180.0;
+            double ampPeak = Math.Sqrt(2) * amplitudeVrms;
 
             double[] rval = new double[points];
             for (uint i = 0; i < points; i++)
             {
-                rval[i] = ampPeak * System.Math.Sin(2.0 * System.Math.PI * i / points * cycles + ph_r) + dcV;
+                rval[i] = ampPeak * Math.Sin(2.0 * Math.PI * i / points * cycles + ph_r) + dcV;
             }
             return rval;
         }
@@ -108,12 +109,10 @@ public partial class DSP
         public static double[] NoisePsd(double amplitudePsd, double samplingFrequencyHz, uint points)
         {
             // Calculate what the noise amplitude needs to be in Vrms/rt_Hz
-            double arms = amplitudePsd * System.Math.Sqrt(samplingFrequencyHz / 2.0);
+            double arms = amplitudePsd * Math.Sqrt(samplingFrequencyHz / 2.0);
 
             // Make an n length noise vector
-            double[] rval = NoiseRms(arms, points);
-
-            return rval;
+            return NoiseRms(arms, points);
         }
 
 
@@ -127,14 +126,10 @@ public partial class DSP
         /// <returns>double[] array</returns>
         public static double[] NoiseRms(double amplitudeVrms, uint points, double dcV = 0.0)
         {
-            double[] rval = new double[points];
-
             // Make an n length noise vector
-            rval = Noise(_randomFactory.Value, points, amplitudeVrms);
+            var noiseVector = Noise(_randomFactory.Value, points, amplitudeVrms);
 
-            rval = VectorMath.Add(rval, dcV);
-
-            return rval;
+            return VectorMath.Add(noiseVector, dcV);
         }
 
 
@@ -176,7 +171,7 @@ public partial class DSP
                 if (s == 0.0)
                     data[n] = 0.0;
                 else
-                    data[n] = v1 * System.Math.Sqrt(-2.0 * System.Math.Log(s) / s) * output_scale;
+                    data[n] = v1 * Math.Sqrt(-2.0 * Math.Log(s) / s) * output_scale;
 
                 sum += data[n];
             }
