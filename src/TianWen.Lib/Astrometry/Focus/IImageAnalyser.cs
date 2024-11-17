@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
@@ -32,6 +33,7 @@ public interface IImageAnalyser
         return default;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     float MapReduceStarProperty(IReadOnlyList<ImagedStar> stars, SampleKind kind, AggregationMethod aggregationMethod)
     {
         var count = stars.Count;

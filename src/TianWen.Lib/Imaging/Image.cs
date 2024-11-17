@@ -34,7 +34,7 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
     public ImageMeta ImageMeta => imageMeta;
 
     const int HeaderIntSize = 6;
-    public static async ValueTask<Image?> FromJsonAsync(Stream stream, CancellationToken cancellationToken = default)
+    public static async ValueTask<Image?> FromStreamAsync(Stream stream, CancellationToken cancellationToken = default)
     {
         var buffer = new byte[HeaderIntSize * sizeof(int)];
         await stream.ReadExactlyAsync(buffer, cancellationToken);
@@ -85,7 +85,7 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
         return new Image(data, width, height, bitDepth, maxVal, blackLevel, imageMeta);
     }
 
-    public async Task WriteJsonAsync(Stream stream, CancellationToken cancellationToken = default)
+    public async Task WriteStreamAsync(Stream stream, CancellationToken cancellationToken = default)
     {
         var magic = (BitConverter.IsLittleEndian ? "ImL1"u8 : "ImB1"u8).ToArray();
         await stream.WriteAsync(magic, cancellationToken);
@@ -756,7 +756,7 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
         Debug.Assert(boxRadius <= 50, nameof(boxRadius) + " should be <= 50 to prevent runtime errors");
 
         var r1_square = boxRadius * boxRadius; /*square radius*/
-        var r2 = boxRadius + 1; /*annulus width us 1*/
+        var r2 = boxRadius + 1; /*annulus width plus 1*/
         var r2_square = r2 * r2;
 
         var valMax = 0.0f;
@@ -886,7 +886,7 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
                         var val = SubpixelValue(xc + i, yc + j) - bg;
                         if (val > 3.0 * sd_bg) /* 3 * sd should be signal */
                         {
-                            distance_histogram[distance]++; /* build distance histogram up to circel with diameter rs */
+                            distance_histogram[distance]++; /* build distance histogram up to circle with diameter rs */
 
                             if (val > valMax)
                             {

@@ -240,8 +240,7 @@ public interface ICameraDriver : IDeviceDriver
         && ImageData is ({ Length: > 0 }, >= 0) imageData
         && BitDepth is { } bitDepth && bitDepth.IsIntegral()
         && LastExposureStartTime is { } startTime
-        ? DataToImage(
-            imageData,
+        ? imageData.ToImage(
             bitDepth,
             Offset,
             new ImageMeta(
@@ -267,17 +266,6 @@ public interface ICameraDriver : IDeviceDriver
             )
         )
         : null;
-
-    /// <summary>
-    /// Returns an immutable <see cref="Image"/> from source data in height x width format.
-    /// </summary>
-    /// <param name="imageData">2d image array</param>
-    /// <param name="bitDepth">bit depth</param>
-    /// <param name="blackLevel">black level or offset</param>
-    /// <param name="imageMeta">image meta data</param>
-    /// <returns>image from data, transposed and transformed to 32-bit floats</returns>
-    public static Image DataToImage(in Float32HxWImageData imageData, BitDepth bitDepth, float blackLevel, in ImageMeta imageMeta)
-        => new Image(imageData.Data, imageData.Data.GetLength(1), imageData.Data.GetLength(0), bitDepth, imageData.MaxValue, blackLevel, imageMeta);
 
     #region Image metadata
     string? Telescope { get; set; }

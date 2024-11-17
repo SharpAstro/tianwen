@@ -6,7 +6,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
 
@@ -35,13 +34,13 @@ public static class SharedTestData
             {
                 image = ReadImageFromEmbeddedResourceStream(name);
                 using var outStream = File.OpenWrite(tempFile);
-                await image.WriteJsonAsync(outStream);
+                await image.WriteStreamAsync(outStream);
             });
 
             if (image is null)
             {
                 using var inStream = File.OpenRead(imageFile);
-                image = await Image.FromJsonAsync(inStream);
+                image = await Image.FromStreamAsync(inStream);
 
                 if (image is not null)
                 {
@@ -91,18 +90,16 @@ public static class SharedTestData
             var fileName = $"{name}_{inStream.Length}.fits";
             return await WriteEphemeralUseTempFileAsync(fileName, async (tempFile) =>
             {
-                using (var outStream = new FileStream(tempFile, new FileStreamOptions
+                using var outStream = new FileStream(tempFile, new FileStreamOptions
                 {
                     Options = FileOptions.Asynchronous,
                     Access = FileAccess.Write,
                     Mode = FileMode.Create,
                     Share = FileShare.None
-                }))
-                using (var gzipStream = new GZipStream(inStream, CompressionMode.Decompress, false))
-                {
-                    var length = inStream.Length;
-                    await gzipStream.CopyToAsync(outStream, 1024 * 10);
-                }
+                });
+                using var gzipStream = new GZipStream(inStream, CompressionMode.Decompress, false);
+                var length = inStream.Length;
+                await gzipStream.CopyToAsync(outStream, 1024 * 10);
             });
         }
 

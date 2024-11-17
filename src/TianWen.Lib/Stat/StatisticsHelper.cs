@@ -1,5 +1,4 @@
-﻿using CommunityToolkit.HighPerformance;
-using System;
+﻿using System;
 using System.Runtime.CompilerServices;
 
 namespace TianWen.Lib.Stat;
@@ -23,7 +22,7 @@ public static class StatisticsHelper
         {
             return values[0];
         }
-
+        
         values.Sort();
 
         int mid = values.Length / 2;

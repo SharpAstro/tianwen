@@ -1,7 +1,5 @@
 ﻿using Shouldly;
 using System;
-using System.Collections.Generic;
-using System.Collections.Immutable;
 using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
@@ -121,7 +119,7 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
 
         // when
         var imageData = Float32HxWImageData.FromWxHImageData(int16WxHData);
-        var image = ICameraDriver.DataToImage(imageData, BitDepth, BlackLevel, imageMeta);
+        var image = imageData.ToImage(BitDepth, BlackLevel, imageMeta);
         var stars = await _imageAnalyser.FindStarsAsync(image, snrMin: snr_min);
 
         // then
