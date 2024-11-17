@@ -9,14 +9,8 @@
 //                  Added UnwrapPhaseDegrees() and UnwrapPhaseRadians() to Analysis Class.
 // 04Jul17 - 1.03 - Added zero or negative check to all Log10 operations.
 // 15Oct17 - 1.03.1 - Slight interoperability correction to V1.03, same results, different design pattern.
-//
-
 
 namespace TianWen.Lib.Stat;
-
-
-
-
 
 public partial class DSP
 {

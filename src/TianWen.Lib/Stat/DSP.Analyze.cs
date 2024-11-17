@@ -10,10 +10,6 @@
 
 namespace TianWen.Lib.Stat;
 
-
-
-
-
 public partial class DSP
 {
     /// <summary>
@@ -70,7 +66,7 @@ public partial class DSP
                 if (i > n - 1 - stopBin)
                     continue;
 
-                sum = sum + inData[i];
+                sum += inData[i];
                 actualSumCount++;
             }
             return sum / actualSumCount;

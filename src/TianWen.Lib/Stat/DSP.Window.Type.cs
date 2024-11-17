@@ -10,18 +10,8 @@
 
 namespace TianWen.Lib.Stat;
 
-
-
-
-
 public partial class DSP
 {
-
-
-
-
-
-
     public static partial class Window
     {
         /// <summary>
