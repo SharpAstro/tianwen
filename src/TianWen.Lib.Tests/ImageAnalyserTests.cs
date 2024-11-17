@@ -21,18 +21,6 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
 
     private readonly ITestOutputHelper _testOutputHelper = testOutputHelper;
     private readonly IImageAnalyser _imageAnalyser = new ImageAnalyser();
-    private static readonly ImmutableDictionary<string, Image> _imageCache;
-
-    static ImageAnalyserTests()
-    {
-        var imageCache = new Dictionary<string, Image>();
-        foreach (var name in new[] {PlateSolveTestFile, PHD2SimGuider})
-        {
-            imageCache[name] = SharedTestData.ExtractGZippedFitsImage(name);
-        }
-
-        _imageCache = imageCache.ToImmutableDictionary();
-    }
 
     [Theory]
     [InlineData(PlateSolveTestFile, 10f)]
@@ -40,7 +28,7 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
     public async Task GivenFileNameWhenWritingImageAndReadingBackThenItIsIdentical(string name, float snrMin)
     {
         // given
-        var image = _imageCache[name];
+        var image = await SharedTestData.ExtractGZippedFitsImageAsync(name);
         var fullPath = Path.Combine(Path.GetTempPath(), $"roundtrip_{Guid.NewGuid():D}.fits");
         var expectedStars = await _imageAnalyser.FindStarsAsync(image, snrMin: snrMin);
 
@@ -77,28 +65,21 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
     public async Task GivenOnDiskFitsFileWithImageWhenTryingReadImageItSucceeds(string name)
     {
         // given
-        var extractedFitsFile = await SharedTestData.ExtractGZippedFitsFileAsync(name);
+       
 
-        try
-        {
-            ImageDim dim;
-            SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords).ShouldBeTrue();
+        ImageDim dim;
+        SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords).ShouldBeTrue();
 
-            (dim, _) = dimAndCoords;
+        (dim, _) = dimAndCoords;
 
-            // when
-            var actualSuccess = Image.TryReadFitsFile(extractedFitsFile, out var image);
+        // when
+        Image? image = null;
+        await Should.NotThrowAsync(async () => image = await SharedTestData.ExtractGZippedFitsImageAsync(name));
 
-            // then
-            image.ShouldNotBeNull();
-            image.Width.ShouldBe(dim.Width);
-            image.Height.ShouldBe(dim.Height);
-            actualSuccess.ShouldBeTrue();
-        }
-        finally
-        {
-            File.Delete(extractedFitsFile);
-        }
+        // then
+        image.ShouldNotBeNull();
+        image.Width.ShouldBe(dim.Width);
+        image.Height.ShouldBe(dim.Height);
     }
 
     [Theory]
@@ -110,24 +91,16 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
     public async Task GivenImageFileAndMinSNRWhenFindingStarsThenTheyAreFound(string name, float snrMin, int expectedStars, int? maxStars = null)
     {
         // given
-        var extractedFitsFile = await SharedTestData.ExtractGZippedFitsFileAsync(name);
+        var image = await SharedTestData.ExtractGZippedFitsImageAsync(name);
 
-        try
-        {
-            // when
-            Image.TryReadFitsFile(extractedFitsFile, out var image).ShouldBeTrue();
-            var sw = Stopwatch.StartNew();
-            var actualStars = await _imageAnalyser.FindStarsAsync(image, snrMin, maxStars ?? 500);
-            _testOutputHelper.WriteLine("Testing image {0} took {1} ms", name, sw.ElapsedMilliseconds);
+        // when
+        var sw = Stopwatch.StartNew();
+        var actualStars = await _imageAnalyser.FindStarsAsync(image, snrMin, maxStars ?? 500);
+        _testOutputHelper.WriteLine("Testing image {0} took {1} ms", name, sw.ElapsedMilliseconds);
 
-            // then
-            actualStars.ShouldNotBeEmpty();
-            actualStars.Count.ShouldBe(expectedStars);
-        }
-        finally
-        {
-            File.Delete(extractedFitsFile);
-        }
+        // then
+        actualStars.ShouldNotBeEmpty();
+        actualStars.Count.ShouldBe(expectedStars);
     }
 
     [Theory]
@@ -174,7 +147,8 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
     public async Task GivenFitsFileWhenAnalysingThenMedianHFDAndFWHMIsCalculated(string name, float snr_min, int max_retries, int expected_stars, params int[] sampleStar)
     {
         // when
-        var result = await _imageAnalyser.FindStarsAsync(_imageCache[name], snrMin: snr_min, maxIterations: max_retries);
+        var image = await SharedTestData.ExtractGZippedFitsImageAsync(name);
+        var result = await _imageAnalyser.FindStarsAsync(image, snrMin: snr_min, maxIterations: max_retries);
 
         // then
         result.ShouldNotBeEmpty();
@@ -197,7 +171,7 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
     [Theory]
     [InlineData(SampleKind.HFD, AggregationMethod.Average, 28208, 28211, 1, 1, 1, 10f, 20, 2, 130)]
     [InlineData(SampleKind.HFD, AggregationMethod.Average, 28227, 28231, 1, 1, 1, 10f, 20, 2, 140)]
-    [InlineData(SampleKind.HFD, AggregationMethod.Average, 28208, 28231, 1, 1, 1, 10f, 20, 2, 130, Skip = "Computationally expensive")]
+    [InlineData(SampleKind.HFD, AggregationMethod.Average, 28208, 28231, 1, 1, 1, 10f, 20, 2, 130)]
     public async Task GivenFocusSamplesWhenSolvingAHyperboleIsFound(SampleKind kind, AggregationMethod aggregationMethod, int focusStart, int focusEndIncl, int focusStepSize, int sampleCount, int filterNo, float snrMin, int maxIterations, int expectedSolutionAfterSteps, int expectedMinStarCount)
     {
         // given
@@ -208,13 +182,17 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
         {
             for (int cs = 1; cs <= sampleCount; cs++)
             {
-                var image = SharedTestData.ExtractGZippedFitsImage($"fp{fp}-cs{cs}-ms{sampleCount}-fw{filterNo}");
-
+                var sw = Stopwatch.StartNew();
+                var image = await SharedTestData.ExtractGZippedFitsImageAsync($"fp{fp}-cs{cs}-ms{sampleCount}-fw{filterNo}");
+                var extractImageElapsed = sw.ElapsedMilliseconds;
                 var stars = await _imageAnalyser.FindStarsAsync(image, snrMin: snrMin);
+                var findStarsElapsed = sw.ElapsedMilliseconds - extractImageElapsed;
                 var median = _imageAnalyser.MapReduceStarProperty(stars, sampleMap.Kind, AggregationMethod.Median);
+                var calcMedianElapsed = sw.ElapsedMilliseconds - findStarsElapsed;
                 var (solution, maybeMinPos, maybeMaxPos) = _imageAnalyser.SampleStarsAtFocusPosition(sampleMap, fp, median, stars.Count, maxFocusIterations: maxIterations);
+                var addSampleElapsed = sw.ElapsedMilliseconds - calcMedianElapsed;
 
-                _testOutputHelper.WriteLine($"focuspos={fp} stars={stars.Count} median={median} solution={solution} minPos={maybeMinPos} maxPos={maybeMaxPos}");
+                _testOutputHelper.WriteLine($"focuspos={fp} stars={stars.Count} median={median} solution={solution} minPos={maybeMinPos} maxPos={maybeMaxPos} time (ms): image={extractImageElapsed} find stars={findStarsElapsed} median={calcMedianElapsed} sample={addSampleElapsed}");
 
                 median.ShouldBeGreaterThan(1f);
                 stars.Count.ShouldBeGreaterThan(expectedMinStarCount);

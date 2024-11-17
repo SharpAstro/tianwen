@@ -22,37 +22,30 @@ public class PlateSolverTests
         var extractedFitsFile = await SharedTestData.ExtractGZippedFitsFileAsync(name);
         var cts = new CancellationTokenSource(Debugger.IsAttached ? TimeSpan.FromHours(10) : TimeSpan.FromSeconds(10));
 
-        try
+        var solver = (Activator.CreateInstance(solverType) as IPlateSolver).ShouldNotBeNull();
+        var platform = Environment.OSVersion.Platform;
+
+        Skip.If(solverType.IsAssignableTo(typeof(AstrometryNetPlateSolver))
+            && platform == PlatformID.Win32NT
+            && !Debugger.IsAttached,
+            $"Is multi-platform and running on Windows without debugger (Windows is skipped by default as WSL has a long cold start time)");
+
+        Skip.IfNot(await solver.CheckSupportAsync(), $"Platform {platform} is not supported!");
+
+        if (SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords))
         {
-            var solver = (Activator.CreateInstance(solverType) as IPlateSolver).ShouldNotBeNull();
-            var platform = Environment.OSVersion.Platform;
+            // when
+            var solution = await solver.SolveFileAsync(extractedFitsFile, dimAndCoords.ImageDim, cancellationToken: cts.Token);
 
-            Skip.If(solverType.IsAssignableTo(typeof(AstrometryNetPlateSolver))
-                && platform == PlatformID.Win32NT
-                && !Debugger.IsAttached,
-                $"Is multi-platform and running on Windows without debugger (Windows is skipped by default as WSL has a long cold start time)");
-
-            Skip.IfNot(await solver.CheckSupportAsync(), $"Platform {platform} is not supported!");
-
-            if (SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords))
-            {
-                // when
-                var solution = await solver.SolveFileAsync(extractedFitsFile, dimAndCoords.ImageDim, cancellationToken: cts.Token);
-
-                // then
-                solution.HasValue.ShouldBe(true);
-                var (ra, dec) = solution.Value;
-                ra.ShouldBeInRange(dimAndCoords.WCS.CenterRA - accuracy, dimAndCoords.WCS.CenterRA + accuracy);
-                dec.ShouldBeInRange(dimAndCoords.WCS.CenterDec - accuracy, dimAndCoords.WCS.CenterDec + accuracy);
-            }
-            else
-            {
-                Assert.Fail($"Could not extract test image dimensions for {name}");
-            }
+            // then
+            solution.HasValue.ShouldBe(true);
+            var (ra, dec) = solution.Value;
+            ra.ShouldBeInRange(dimAndCoords.WCS.CenterRA - accuracy, dimAndCoords.WCS.CenterRA + accuracy);
+            dec.ShouldBeInRange(dimAndCoords.WCS.CenterDec - accuracy, dimAndCoords.WCS.CenterDec + accuracy);
         }
-        finally
+        else
         {
-            File.Delete(extractedFitsFile);
+            Assert.Fail($"Could not extract test image dimensions for {name}");
         }
     }
 
@@ -67,36 +60,29 @@ public class PlateSolverTests
         var extractedFitsFile = await SharedTestData.ExtractGZippedFitsFileAsync(name);
         var cts = new CancellationTokenSource(Debugger.IsAttached ? TimeSpan.FromHours(10) : TimeSpan.FromSeconds(10));
 
-        try
+        var solver = (Activator.CreateInstance(solverType) as IPlateSolver).ShouldNotBeNull();
+        var platform = Environment.OSVersion.Platform;
+
+        Skip.If(solverType.IsAssignableTo(typeof(AstrometryNetPlateSolver))
+            && platform == PlatformID.Win32NT
+            && !Debugger.IsAttached,
+            $"Is multi-platform and running on Windows without debugger (Windows is skipped by default as WSL has a long cold start time)");
+        Skip.IfNot(await solver.CheckSupportAsync(), $"Platform {platform} is not supported!");
+
+        if (SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords))
         {
-            var solver = (Activator.CreateInstance(solverType) as IPlateSolver).ShouldNotBeNull();
-            var platform = Environment.OSVersion.Platform;
+            // when
+            var solution = await solver.SolveFileAsync(extractedFitsFile, dimAndCoords.ImageDim, searchOrigin: dimAndCoords.WCS, searchRadius: 1d, cancellationToken: cts.Token);
 
-            Skip.If(solverType.IsAssignableTo(typeof(AstrometryNetPlateSolver))
-                && platform == PlatformID.Win32NT
-                && !Debugger.IsAttached,
-                $"Is multi-platform and running on Windows without debugger (Windows is skipped by default as WSL has a long cold start time)");
-            Skip.IfNot(await solver.CheckSupportAsync(), $"Platform {platform} is not supported!");
-
-            if (SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords))
-            {
-                // when
-                var solution = await solver.SolveFileAsync(extractedFitsFile, dimAndCoords.ImageDim, searchOrigin: dimAndCoords.WCS, searchRadius: 1d, cancellationToken: cts.Token);
-
-                // then
-                solution.HasValue.ShouldBe(true);
-                var (ra, dec) = solution.Value;
-                ra.ShouldBeInRange(dimAndCoords.WCS.CenterRA - accuracy, dimAndCoords.WCS.CenterRA + accuracy);
-                dec.ShouldBeInRange(dimAndCoords.WCS.CenterDec - accuracy, dimAndCoords.WCS.CenterDec + accuracy);
-            }
-            else
-            {
-                Assert.Fail($"Could not extract test image dimensions for {name}");
-            }
+            // then
+            solution.HasValue.ShouldBe(true);
+            var (ra, dec) = solution.Value;
+            ra.ShouldBeInRange(dimAndCoords.WCS.CenterRA - accuracy, dimAndCoords.WCS.CenterRA + accuracy);
+            dec.ShouldBeInRange(dimAndCoords.WCS.CenterDec - accuracy, dimAndCoords.WCS.CenterDec + accuracy);
         }
-        finally
+        else
         {
-            File.Delete(extractedFitsFile);
+            Assert.Fail($"Could not extract test image dimensions for {name}");
         }
     }
 }
