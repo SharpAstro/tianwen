@@ -10,6 +10,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
@@ -31,6 +32,80 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
     /// Image metadata such as instrument, exposure time, focal length, pixel size, ...
     /// </summary>
     public ImageMeta ImageMeta => imageMeta;
+
+    const int HeaderIntSize = 6;
+    public static async ValueTask<Image?> FromJsonAsync(Stream stream, CancellationToken cancellationToken = default)
+    {
+        var buffer = new byte[HeaderIntSize * sizeof(int)];
+        await stream.ReadExactlyAsync(buffer, cancellationToken);
+
+        if (buffer[0] != (byte)'I' || buffer[1] != (byte)'m')
+        {
+            throw new InvalidDataException("Stream does not have a valid file magic");
+        }
+        var dataIsLittleEndian = buffer[2] == 'L';
+
+        if (dataIsLittleEndian != BitConverter.IsLittleEndian)
+        {
+            for (var i = 1; i < HeaderIntSize; i++)
+            {
+                Array.Reverse(buffer, i * sizeof(int), sizeof(int));
+            }
+        }
+
+        if (buffer[3] != (byte)'1')
+        {
+            throw new InvalidDataException($"Unsupported image version {(char)buffer[3]}");
+        }
+
+        var ints = buffer.AsMemory().Cast<byte, int>().ToArray();
+        var width = ints[1];
+        var height = ints[2];
+        var bitDepth = (BitDepth)ints[3];
+        var maxVal = BitConverter.Int32BitsToSingle(ints[4]);
+        var blackLevel = BitConverter.Int32BitsToSingle(ints[5]);
+
+        var imageSize = width * height;
+        var dataSize = imageSize * sizeof(float);
+
+        var byteData = new byte[dataSize];
+        await stream.ReadExactlyAsync(byteData, cancellationToken);
+
+        if (dataIsLittleEndian != BitConverter.IsLittleEndian)
+        {
+            for (var i = 0; i < imageSize; i++)
+            {
+                Array.Reverse(byteData, i * sizeof(float), sizeof(float));
+            }
+        }
+        var data = byteData.AsMemory().Cast<byte, float>().AsMemory2D(height, width).ToArray();
+
+        var imageMeta = await JsonSerializer.DeserializeAsync(stream, ImageJsonSerializerContext.Default.ImageMeta, cancellationToken);
+
+        return new Image(data, width, height, bitDepth, maxVal, blackLevel, imageMeta);
+    }
+
+    public async Task WriteJsonAsync(Stream stream, CancellationToken cancellationToken = default)
+    {
+        var magic = (BitConverter.IsLittleEndian ? "ImL1"u8 : "ImB1"u8).ToArray();
+        await stream.WriteAsync(magic, cancellationToken);
+
+        var header = new int[HeaderIntSize - 1]; // substract one for the file magic
+        header[0] = Width;
+        header[1] = Height;
+        header[2] = (int)BitDepth;
+        header[3] = BitConverter.SingleToInt32Bits(MaxValue);
+        header[4] = BitConverter.SingleToInt32Bits(BlackLevel);
+
+        for (var i = 0; i < header.Length; i++)
+        {
+            await stream.WriteAsync(BitConverter.GetBytes(header[i]), cancellationToken);
+        }
+
+        await stream.WriteAsync(data.AsMemory().Cast<float, byte>(), cancellationToken);
+
+        await JsonSerializer.SerializeAsync(stream, ImageMeta, ImageJsonSerializerContext.Default.ImageMeta, cancellationToken);
+    }
 
     public static bool TryReadFitsFile(string fileName, [NotNullWhen(true)] out Image? image)
     {
