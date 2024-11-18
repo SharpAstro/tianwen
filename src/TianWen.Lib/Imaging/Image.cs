@@ -520,8 +520,8 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     public async Task<IReadOnlyList<ImagedStar>> FindStarsAsync(float snr_min = 20f, int max_stars = 500, int max_retries = 2, CancellationToken cancellationToken = default)
     {
-        // we use interleaved processing of rows 
-        const float ThreadSafeStarBoxDiv = 1.0f / (3.0f * MaxScaledRadius);
+        const int ChunkSize = 3 * MaxScaledRadius;
+        const float HalfChunkSizeInv = 1.0f / 2.0f * ChunkSize;
 
         if (imageMeta.SensorType is not SensorType.Monochrome)
         {
@@ -541,19 +541,21 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
         var starList = new ConcurrentBag<ImagedStar>();
         var img_star_area = new BitMatrix(height, width);
 
-        var chunkSize = (int)Math.Ceiling(height * ThreadSafeStarBoxDiv);
+        // we use interleaved processing of rows (so that we do not have to lock to protect the bitmatrix
+        var halfChunkCount = (int)Math.Ceiling(height * HalfChunkSizeInv);
         var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount, CancellationToken = cancellationToken };
 
         do
         {
-            var chunks = Enumerable.Range(0, height).Chunk(chunkSize).ToList();
             for (var i = 0; i <= 1; i++)
             {
-                await Parallel.ForEachAsync(chunks.Where((x, index) => index % 2 == i), parallelOptions, async (chunk, cancellationToken) =>
+                await Parallel.ForAsync(0, halfChunkCount, parallelOptions, async (halfChunk, cancellationToken) =>
                 {
                     await Task.Run(() =>
                     {
-                        foreach (var fitsY in chunk)
+                        var chunk = 2 * halfChunk + i;
+                        var chunkEnd = Math.Min(height, (chunk + 1) * ChunkSize);
+                        for (var fitsY = chunk * ChunkSize; fitsY < chunkEnd; fitsY++)
                         {
                             for (var fitsX = 0; fitsX < width; fitsX++)
                             {
