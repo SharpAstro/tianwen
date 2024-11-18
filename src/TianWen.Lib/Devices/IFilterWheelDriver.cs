@@ -1,4 +1,6 @@
 ﻿using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace TianWen.Lib.Devices;
 
@@ -6,7 +8,9 @@ public interface IFilterWheelDriver : IDeviceDriver
 {
     IReadOnlyList<Filter> Filters { get; }
 
-    int Position { get; set; }
+    int Position { get; }
+
+    bool IsMoving => Position == -1;
 
     Filter CurrentFilter
     {
@@ -26,4 +30,6 @@ public interface IFilterWheelDriver : IDeviceDriver
             return Filter.Unknown;
         }
     }
+
+    Task BeginMoveAsync(int position, CancellationToken cancellationToken = default);
 }

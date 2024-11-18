@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Microsoft.Extensions.Logging;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -47,23 +48,13 @@ internal abstract class DeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, I
 
     public bool Connected => Interlocked.CompareExchange(ref _connectionState, CONNECTED, CONNECTED) == CONNECTED;
 
-    public ValueTask ConnectAsync(CancellationToken cancellationToken = default)
+    public ValueTask ConnectAsync(CancellationToken cancellationToken = default) => SetConnectionStateAsync(CONNECTED, cancellationToken);
+
+    public ValueTask DisconnectAsync(CancellationToken cancellationToken = default) => SetConnectionStateAsync(DISCONNECTED, cancellationToken);
+
+    private async ValueTask SetConnectionStateAsync(int desiredState, CancellationToken cancellationToken)
     {
-        SetConnectionState(CONNECTED);
-
-        return ValueTask.CompletedTask;
-    }
-
-    public ValueTask DisconnectAsync(CancellationToken cancellationToken = default)
-    {
-        SetConnectionState(DISCONNECTED);
-
-        return ValueTask.CompletedTask;
-    }
-
-    private void SetConnectionState(int desiredState)
-    {
-        if (!TrySetConnectionState(desiredState))
+        if (!await TrySetConnectionStateAsync(desiredState, cancellationToken))
         {
             var desiredStateStr = desiredState switch { CONNECTED => "connect", DISCONNECTED => "disconnect", _ => $"reach unknown state {desiredState}" };
 
@@ -73,12 +64,12 @@ internal abstract class DeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, I
 
     /// <summary>
     /// Tries to transition device into <paramref name="desiredState"/> (either <see cref="CONNECTED"/> or <see cref="DISCONNECTED"/>) via intermediate states (<see cref="CONNECTING"/>, <see cref="DISCONNECTING"/>).
-    /// Will trigger <see cref="OnConnectDevice(out int, out TDeviceInfo)"/> and <see cref="OnDisconnectDevice(int)"/> <em>once</em> respectively.
+    /// Will trigger <see cref="DoConnectDeviceAsync(CancellationToken)"/> and <see cref="DoDisconnectDeviceAsync(int, CancellationToken)"/> <em>once</em> respectively.
     /// </summary>
     /// <param name="desiredState"></param>
     /// <returns><see langword="true"/> if desired state has been reached</returns>
     /// <exception cref="InvalidOperationException"></exception>
-    private bool TrySetConnectionState(int desiredState)
+    private async ValueTask<bool> TrySetConnectionStateAsync(int desiredState, CancellationToken cancellationToken)
     {
         var wantsConnect = desiredState is CONNECTED;
         var intermediateState = wantsConnect ? CONNECTING : DISCONNECTING;
@@ -92,15 +83,37 @@ internal abstract class DeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, I
 
         if (desiredState == CONNECTED)
         {
-            if (OnConnectDevice(out var connectionId, out _deviceInfo))
+            (var connectSuccess, var connectionId, _deviceInfo) = await DoConnectDeviceAsync(cancellationToken);
+            if (connectSuccess)
             {
                 // only trigger connected event once
                 if (Interlocked.CompareExchange(ref _connectionState, desiredState, intermediateState) == intermediateState)
                 {
-                    Volatile.Write(ref _connectionId, connectionId);
-                    DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(wantsConnect));
+                    bool initSuccess; 
+                    try
+                    {
+                        initSuccess = await InitDeviceAsync(cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        initSuccess = false;
+                        // revert to failed state as initization failed.
+                        Interlocked.CompareExchange(ref _connectionState, CONNECTION_FAILURE, desiredState);
 
-                    return true;
+                        External.AppLogger.LogError(ex, "Failed to initialize device {DeviceId} ({DisplayName}): {ErrorMessage}", _device.DeviceId, _device.DisplayName, ex.Message);
+                    }
+
+                    if (initSuccess)
+                    {
+                        Volatile.Write(ref _connectionId, connectionId);
+                        DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(wantsConnect));
+
+                        return true;
+                    }
+                    else
+                    {
+                        return false;
+                    }
                 }
             }
             else if (Interlocked.CompareExchange(ref _connectionState, CONNECTION_FAILURE, intermediateState) == intermediateState)
@@ -110,7 +123,7 @@ internal abstract class DeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, I
         }
         else if (desiredState == DISCONNECTED)
         {
-            if (OnDisconnectDevice(Volatile.Read(ref _connectionId)))
+            if (await DoDisconnectDeviceAsync(Volatile.Read(ref _connectionId), cancellationToken))
             {
                 // only trigger disconnect event once
                 if (Interlocked.CompareExchange(ref _connectionState, desiredState, intermediateState) == intermediateState)
@@ -130,6 +143,13 @@ internal abstract class DeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, I
         return Interlocked.CompareExchange(ref _connectionState, desiredState, desiredState) != desiredState;
     }
 
+    /// <summary>
+    /// Called after a connect is successful, but before the events are issued. Only called once
+    /// </summary>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
+    protected virtual ValueTask<bool> InitDeviceAsync(CancellationToken cancellationToken) => ValueTask.FromResult(true);
+
     static string StateToString(int state) => state switch
     {
         CONNECTED => "connected",
@@ -140,14 +160,11 @@ internal abstract class DeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, I
         _ => $"unknown state {state}"
     };
 
-    protected abstract bool OnConnectDevice(out int connectionId, out TDeviceInfo connectedDeviceInfo);
+    protected abstract Task<(bool Success, int ConnectionId, TDeviceInfo DeviceInfo)> DoConnectDeviceAsync(CancellationToken cancellationToken);
 
-    protected abstract bool OnDisconnectDevice(int connectionId);
+    protected abstract Task<bool> DoDisconnectDeviceAsync(int connectionId, CancellationToken cancellationToken);
 
-    protected virtual async ValueTask DisposeAsyncCore()
-    {
-        await DisconnectAsync();
-    }
+    protected virtual ValueTask DisposeAsyncCore() => DisconnectAsync();
 
     protected virtual void DisposeUnmanaged()
     {

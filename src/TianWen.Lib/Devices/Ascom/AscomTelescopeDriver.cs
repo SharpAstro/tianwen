@@ -3,70 +3,52 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
+using AscomTelescope = ASCOM.Com.DriverAccess.Telescope;
+using AscomGuideDirection = ASCOM.Common.DeviceInterfaces.GuideDirection;
+using AscomTrackingSpeed = ASCOM.Common.DeviceInterfaces.DriveRate;
+using AscomTelescopeAxis = ASCOM.Common.DeviceInterfaces.TelescopeAxis;
 
 namespace TianWen.Lib.Devices.Ascom;
 
-public class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
+internal class AscomTelescopeDriver(AscomDevice device, IExternal external)
+    : AscomDeviceDriverBase<AscomTelescope>(device, external, (progId, logger) => new AscomTelescope(progId, new AscomLoggerWrapper(logger))), IMountDriver
 {
-    private Dictionary<TrackingSpeed, DriveRate> _trackingSpeedMapping = [];
-
-    public AscomTelescopeDriver(AscomDevice device, IExternal external) : base(device, external)
-    {
-        DeviceConnectedEvent += AscomTelescopeDriver_DeviceConnectedEvent;
-    }
+    private List<TrackingSpeed> _trackingSpeeds = [];
 
     private void AscomTelescopeDriver_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
     {
-        if (e.Connected && _comObject is { } obj)
+        if (e.Connected )
         {
-            _trackingSpeedMapping = DriveRatesToTrackingSpeeds(EnumerateProperty<DriveRate>(obj.TrackingRates));
+            var trackingRates = _comObject.TrackingRates;
 
-            CanSetTracking = obj.CanSetTracking is bool canSetTracking && canSetTracking;
-            CanSetSideOfPier = obj.CanSetPierSide is bool canSetSideOfPier && canSetSideOfPier;
-            CanPark = obj.CanPark is bool canPark && canPark;
-            CanUnpark = obj.CanUnpark is bool canUnpark && canUnpark;
-            CanSetPark = obj.CanSetPark is bool canSetPark && canSetPark;
-            CanSlew = obj.CanSlew is bool canSlew && canSlew;
-            CanSlewAsync = obj.CanSlewAsync is bool canSlewAsync && canSlewAsync;
-            CanSync = obj.CanSync is bool canSync && canSync;
-            CanPulseGuide = obj.CanPulseGuide is bool canPulseGuide && canPulseGuide;
-            CanSetRightAscensionRate = obj.CanSetRightAscensionRate is bool canSetRightAscensionRate && canSetRightAscensionRate;
-            CanSetDeclinationRate = obj.CanSetDeclinationRate is bool canSetDeclinationRate && canSetDeclinationRate;
-            CanSetGuideRates = obj.CanSetGuideRates is bool canSetGuideRates && canSetGuideRates;
-        }
-    }
-
-    internal static Dictionary<TrackingSpeed, DriveRate> DriveRatesToTrackingSpeeds(IEnumerable<DriveRate> driveRates)
-    {
-        var trackingSpeedMapping = new Dictionary<TrackingSpeed, DriveRate>();
-
-        foreach (var driveRate in driveRates)
-        {
-            var trackingSpeed = DriveRateToTrackingSpeed(driveRate);
-
-            if (trackingSpeed != TrackingSpeed.None)
+            var trackingSpeeds = new List<TrackingSpeed>(trackingRates.Count);
+            foreach (var trackingRate in trackingRates)
             {
-                trackingSpeedMapping[trackingSpeed] = driveRate;
+                if (trackingRate is AscomTrackingSpeed ascomValue)
+                {
+                    trackingSpeeds.Add((TrackingSpeed)ascomValue);
+                }
             }
+            Interlocked.Exchange(ref _trackingSpeeds, trackingSpeeds);
+
+            CanSetTracking = _comObject.CanSetTracking is bool canSetTracking && canSetTracking;
+            CanSetSideOfPier = _comObject.CanSetPierSide is bool canSetSideOfPier && canSetSideOfPier;
+            CanPark = _comObject.CanPark is bool canPark && canPark;
+            CanUnpark = _comObject.CanUnpark is bool canUnpark && canUnpark;
+            CanSetPark = _comObject.CanSetPark is bool canSetPark && canSetPark;
+            CanSlew = _comObject.CanSlew is bool canSlew && canSlew;
+            CanSlewAsync = _comObject.CanSlewAsync is bool canSlewAsync && canSlewAsync;
+            CanSync = _comObject.CanSync is bool canSync && canSync;
+            CanPulseGuide = _comObject.CanPulseGuide is bool canPulseGuide && canPulseGuide;
+            CanSetRightAscensionRate = _comObject.CanSetRightAscensionRate is bool canSetRightAscensionRate && canSetRightAscensionRate;
+            CanSetDeclinationRate = _comObject.CanSetDeclinationRate is bool canSetDeclinationRate && canSetDeclinationRate;
+            CanSetGuideRates = _comObject.CanSetGuideRates is bool canSetGuideRates && canSetGuideRates;
         }
-
-        return trackingSpeedMapping;
-    }
-
-    private static TrackingSpeed DriveRateToTrackingSpeed(DriveRate driveRate)
-    {
-        return driveRate switch
-        {
-            DriveRate.Sidereal => TrackingSpeed.Sidereal,
-            DriveRate.Solar => TrackingSpeed.Solar,
-            DriveRate.Lunar => TrackingSpeed.Lunar,
-            _ => TrackingSpeed.None
-        };
     }
 
     public Task BeginSlewRaDecAsync(double ra, double dec, CancellationToken cancellationToken = default)
     {
-        if (_comObject?.CanSlewAsync is bool canSlewAsync && canSlewAsync)
+        if (_comObject.CanSlewAsync is bool canSlewAsync && canSlewAsync)
         {
             _comObject.SlewToCoordinatesAsync(ra, dec);
 
@@ -78,27 +60,21 @@ public class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
         }
     }
 
-    public IReadOnlyCollection<TrackingSpeed> TrackingSpeeds => _trackingSpeedMapping.Keys;
+    public IReadOnlyList<TrackingSpeed> TrackingSpeeds => _trackingSpeeds;
 
     public TrackingSpeed TrackingSpeed
     {
-        get => _comObject?.TrackingRate is DriveRate driveRate ? DriveRateToTrackingSpeed(driveRate) : TrackingSpeed.None;
-        set
-        {
-            if (_trackingSpeedMapping.TryGetValue(value, out var driveRate) && _comObject is { } obj)
-            {
-                obj.TrackingRate = driveRate;
-            }
-        }
+        get => (TrackingSpeed)_comObject.TrackingRate;
+        set => _comObject.TrackingRate = (AscomTrackingSpeed)value;
     }
 
-    public bool AtHome => _comObject?.AtHome is bool atHome && atHome;
+    public bool AtHome => _comObject.AtHome is bool atHome && atHome;
 
-    public bool AtPark => _comObject?.AtPark is bool atPark && atPark;
+    public bool AtPark => _comObject.AtPark is bool atPark && atPark;
 
-    public bool IsSlewing => _comObject?.Slewing is bool slewing && slewing;
+    public bool IsSlewing => _comObject.Slewing is bool slewing && slewing;
 
-    public double SiderealTime => _comObject?.SiderealTime is double siderealTime ? siderealTime : throw new InvalidOperationException($"Failed to retrieve {nameof(SiderealTime)} from device connected={Connected} initialized={_comObject is not null}");
+    public double SiderealTime => _comObject.SiderealTime is double siderealTime ? siderealTime : throw new InvalidOperationException($"Failed to retrieve {nameof(SiderealTime)} from device connected={Connected} initialized={_comObject is not null}");
 
     public bool TimeIsSetByUs { get; private set; }
 
@@ -108,7 +84,7 @@ public class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
         {
             try
             {
-                return Connected && _comObject?.UTCDate is DateTime utcDate ? utcDate : default;
+                return Connected && _comObject.UTCDate is DateTime utcDate ? utcDate : default;
             }
             catch
             {
@@ -118,11 +94,15 @@ public class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
 
         set
         {
-            if (_comObject is { } obj && value is { } utcDate)
+            if (!Connected)
+            {
+                throw new InvalidOperationException("Mount is not connected");
+            }
+            else if (value is { } utcDate)
             {
                 try
                 {
-                    obj.UTCDate = utcDate;
+                    _comObject.UTCDate = utcDate;
                     TimeIsSetByUs = true;
                 }
                 catch
@@ -139,16 +119,16 @@ public class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
 
     public bool Tracking
     {
-        get => _comObject?.Tracking is bool tracking && tracking;
+        get => _comObject.Tracking is bool tracking && tracking;
         set
         {
-            if (Connected && _comObject is { } obj)
+            if (Connected )
             {
-                if (obj.CanSetTracking is false)
+                if (_comObject.CanSetTracking is false)
                 {
                     throw new InvalidOperationException("Driver does not support setting tracking");
                 }
-                obj.Tracking = value;
+                _comObject.Tracking = value;
             }
             else
             {
@@ -181,14 +161,14 @@ public class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
 
     public bool CanSetGuideRates { get; private set; }
 
-    public PierSide SideOfPier
+    public PointingState SideOfPier
     {
-        get => _comObject?.SideOfPier is int sop ? (PierSide)sop : PierSide.Unknown;
+        get => (PointingState)_comObject.SideOfPier;
         set
         {
-            if (CanSetSideOfPier && _comObject is { } obj)
+            if (CanSetSideOfPier)
             {
-                obj.SideOfPier = value;
+                _comObject.SideOfPier = (ASCOM.Common.DeviceInterfaces.PointingState)value;
             }
             else
             {
@@ -197,108 +177,65 @@ public class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
         }
     }
 
-    public PierSide DestinationSideOfPier(double ra, double dec)
-        => _comObject?.DestinationSideOfPier(ra, dec) is int dsop && Enum.IsDefined(typeof(PierSide), dsop) ? (PierSide)dsop : throw new InvalidOperationException($"Failed to calculate {nameof(DestinationSideOfPier)} connected={Connected} initialized={_comObject is not null}");
+    public PointingState DestinationSideOfPier(double ra, double dec) => (PointingState)_comObject.DestinationSideOfPier(ra, dec);
 
-    public EquatorialCoordinateType EquatorialSystem => Connected && _comObject?.EquatorialSystem is int es ? (EquatorialCoordinateType)es : EquatorialCoordinateType.Other;
+    public EquatorialCoordinateType EquatorialSystem => (EquatorialCoordinateType)_comObject.EquatorialSystem;
 
-    public AlignmentMode Alignment => Connected && _comObject?.AlignmentMode is int mode && Enum.IsDefined(typeof(AlignmentMode), mode) ? (AlignmentMode)mode : throw new InvalidOperationException($"Failed to retrieve {nameof(AlignmentMode)} from device connected={Connected} initialized={_comObject is not null}");
+    public AlignmentMode Alignment => (AlignmentMode)_comObject.AlignmentMode;
 
-    public double RightAscension => _comObject?.RightAscension is double ra ? ra : throw new InvalidOperationException($"Failed to retrieve {nameof(RightAscension)} from device connected={Connected} initialized={_comObject is not null}");
+    public double RightAscension => _comObject.RightAscension;
 
-    public double Declination => _comObject?.Declination is double dec ? dec : throw new InvalidOperationException($"Failed to retrieve {nameof(Declination)} from device connected={Connected} initialized={_comObject is not null}");
+    public double Declination => _comObject.Declination;
 
     public double SiteElevation
     {
-        get => _comObject?.SiteElevation is double siteElevation ? siteElevation : throw new InvalidOperationException($"Failed to retrieve {nameof(SiteElevation)} from device connected={Connected} initialized={_comObject is not null}");
-        set
-        {
-            if (_comObject is { } obj)
-            {
-                obj.SiteElevation = value;
-            }
-        }
+        get => _comObject.SiteElevation;
+        set => _comObject.SiteElevation = value;
     }
 
     public double SiteLatitude
     {
-        get => _comObject?.SiteLatitude is double siteLatitude ? siteLatitude : throw new InvalidOperationException($"Failed to retrieve {nameof(SiteLatitude)} from device connected={Connected} initialized={_comObject is not null}");
-        set
-        {
-            if (_comObject is { } obj)
-            {
-                obj.SiteLatitude = value;
-            }
-        }
+        get => _comObject.SiteLatitude;
+        set => _comObject.SiteLatitude = value;
     }
 
     public double SiteLongitude
     {
-        get => _comObject?.SiteLongitude is double siteLongitude ? siteLongitude : throw new InvalidOperationException($"Failed to retrieve {nameof(SiteLongitude)} from device connected={Connected} initialized={_comObject is not null}");
-        set
-        {
-            if (_comObject is { } obj)
-            {
-                obj.SiteLongitude = value;
-            }
-        }
+        get => _comObject.SiteLongitude;
+        set => _comObject.SiteLongitude = value;
     }
 
-    public bool IsPulseGuiding => _comObject?.IsPulseGuiding is bool isPulseGuiding ? isPulseGuiding : throw new InvalidOperationException($"Failed to retrieve {nameof(IsPulseGuiding)} from device connected={Connected} initialized={_comObject is not null}");
+    public bool IsPulseGuiding => _comObject.IsPulseGuiding;
 
     public double RightAscensionRate
     {
-        get => _comObject?.RightAscensionRate is double rightAscensionRate ? rightAscensionRate : throw new InvalidOperationException($"Failed to retrieve {nameof(RightAscensionRate)} from device connected={Connected} initialized={_comObject is not null}");
-        set
-        {
-            if (_comObject is { } obj)
-            {
-                obj.RightAscensionRate = value;
-            }
-        }
+        get => _comObject.RightAscensionRate;
+        set => RightAscensionRate = value;
     }
 
     public double DeclinationRate
     {
-        get => _comObject?.DeclinationRate is double declinationRate ? declinationRate : throw new InvalidOperationException($"Failed to retrieve {nameof(DeclinationRate)} from device connected={Connected} initialized={_comObject is not null}");
-        set
-        {
-            if (_comObject is { } obj)
-            {
-                obj.DeclinationRate = value;
-            }
-        }
+        get => _comObject.DeclinationRate;
+        set => DeclinationRate = value;
     }
 
     public double GuideRateRightAscension
     {
-        get => _comObject?.GuideRateRightAscension is double guideRateRightAscension ? guideRateRightAscension : throw new InvalidOperationException($"Failed to retrieve {nameof(GuideRateRightAscension)} from device connected={Connected} initialized={_comObject is not null}");
-        set
-        {
-            if (_comObject is { } obj)
-            {
-                obj.GuideRateRightAscension = value;
-            }
-        }
+        get => _comObject.GuideRateRightAscension;
+        set => GuideRateRightAscension = value;
     }
 
     public double GuideRateDeclination
     {
-        get => _comObject?.GuideRateDeclination is double guideRateDeclination ? guideRateDeclination : throw new InvalidOperationException($"Failed to retrieve {nameof(GuideRateDeclination)} from device connected={Connected} initialized={_comObject is not null}");
-        set
-        {
-            if (_comObject is { } obj)
-            {
-                obj.GuideRateDeclination = value;
-            }
-        }
+        get => _comObject.GuideRateDeclination;
+        set => GuideRateDeclination = value;
     }
 
     public void Park()
     {
-        if (Connected && CanPark && _comObject is { } obj)
+        if (Connected && CanPark )
         {
-            obj.Park();
+            _comObject.Park();
         }
         else
         {
@@ -307,9 +244,9 @@ public class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
     }
     public void Unpark()
     {
-        if (Connected && CanUnpark && _comObject is { } obj)
+        if (Connected && CanUnpark )
         {
-            obj.Unpark();
+            _comObject.Unpark();
         }
         else
         {
@@ -319,9 +256,9 @@ public class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
 
     public void PulseGuide(GuideDirection direction, TimeSpan duration)
     {
-        if (Connected && CanPulseGuide && _comObject is { } obj)
+        if (Connected && CanPulseGuide )
         {
-            obj.PulseGuide(direction, (int)duration.TotalMilliseconds);
+            _comObject.PulseGuide((AscomGuideDirection)direction, (int)duration.TotalMilliseconds);
         }
         else
         {
@@ -332,9 +269,9 @@ public class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
     public void SyncRaDec(double ra, double dec)
     {
         // prevent syncs on other side of meridian (most mounts do not support that).
-        if (Connected && CanSync && Tracking && !AtPark && DestinationSideOfPier(ra, dec) == SideOfPier && _comObject is { } obj)
+        if (Connected && CanSync && Tracking && !AtPark && DestinationSideOfPier(ra, dec) == SideOfPier )
         {
-            obj.SyncToCoordinates(ra, dec);
+            _comObject.SyncToCoordinates(ra, dec);
         }
         else
         {
@@ -344,9 +281,9 @@ public class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
 
     public void AbortSlew()
     {
-        if (Connected && _comObject is { } obj)
+        if (Connected )
         {
-            obj.AbortSlew();
+            _comObject.AbortSlew();
         }
         else
         {
@@ -354,10 +291,7 @@ public class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
         }
     }
 
-    public bool CanMoveAxis(TelescopeAxis axis)
-    {
-        throw new NotImplementedException();
-    }
+    public bool CanMoveAxis(TelescopeAxis axis) => _comObject.CanMoveAxis((AscomTelescopeAxis)axis);
 
     public IReadOnlyList<AxisRate> AxisRates(TelescopeAxis axis)
     {

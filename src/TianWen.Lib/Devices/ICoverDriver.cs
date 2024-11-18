@@ -1,5 +1,6 @@
 ﻿using System.Threading;
 using System;
+using System.Threading.Tasks;
 
 namespace TianWen.Lib.Devices;
 
@@ -10,20 +11,24 @@ public interface ICoverDriver : IDeviceDriver
         && CalibratorState is not CalibratorStatus.NotReady and not CalibratorStatus.NotPresent and not CalibratorStatus.Error;
 
     /// <summary>
-    /// Returns true if cover started opening.
+    /// Asyncronously opens the cover.
     /// </summary>
-    /// <returns></returns>
-    bool Open();
+    Task BeginOpen(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns true if cover started closing.
+    /// Asyncronously closes the cover.
     /// </summary>
+    Task BeginClose(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Turns on calibrator (if present) and sets <see cref="Brightness"/> to t<paramref name="brightness"/>.
+    /// </summary>
+    /// <param name="brightness"></param>
+    /// <param name="cancellationToken"></param>
     /// <returns></returns>
-    bool Close();
+    Task BeginCalibratorOn(int brightness, CancellationToken cancellationToken = default);
 
-    bool CalibratorOn(int brightness);
-
-    bool CalibratorOff();
+    Task BeginCalibratorOff(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Returns the current calibrator brightness in the range 0 (completely off) to <see cref="MaxBrightness"/> (fully on).
@@ -47,7 +52,7 @@ public interface ICoverDriver : IDeviceDriver
     /// </summary>
     /// <param name="cancellationToken"></param>
     /// <returns></returns>
-    bool TurnOffCalibratorAndWait(CancellationToken cancellationToken)
+    async ValueTask<bool> TurnOffCalibratorAndWaitAsync(CancellationToken cancellationToken = default)
     {
         var calState = CalibratorState;
 
@@ -59,21 +64,17 @@ public interface ICoverDriver : IDeviceDriver
         {
             return false;
         }
-        else if (CalibratorOff())
-        {
-            var tries = 0;
-            while ((calState = CalibratorState) == CalibratorStatus.NotReady
-                && !cancellationToken.IsCancellationRequested
-                && ++tries < MAX_FAILSAFE)
-            {
-                External.Sleep(TimeSpan.FromSeconds(3));
-            }
 
-            return calState is CalibratorStatus.Off;
-        }
-        else
+        await BeginCalibratorOff(cancellationToken);
+
+        var tries = 0;
+        while ((calState = CalibratorState) == CalibratorStatus.NotReady
+            && !cancellationToken.IsCancellationRequested
+            && ++tries < MAX_FAILSAFE)
         {
-            return false;
+            await External.SleepAsync(TimeSpan.FromSeconds(3), cancellationToken);
         }
+
+        return calState is CalibratorStatus.Off;
     }
 }

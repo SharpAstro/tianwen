@@ -54,7 +54,7 @@ public interface IMountDriver : IDeviceDriver
 
     TrackingSpeed TrackingSpeed { get; set; }
 
-    IReadOnlyCollection<TrackingSpeed> TrackingSpeeds { get; }
+    IReadOnlyList<TrackingSpeed> TrackingSpeeds { get; }
 
     EquatorialCoordinateType EquatorialSystem { get; }
 
@@ -242,7 +242,7 @@ public interface IMountDriver : IDeviceDriver
     /// <summary>
     /// Side of pier as an indicator of pointing state/meridian flip indicator.
     /// </summary>
-    PierSide SideOfPier { get; set; }
+    PointingState SideOfPier { get; set; }
 
     /// <summary>
     /// Predict side of pier for German equatorial mounts.
@@ -250,13 +250,13 @@ public interface IMountDriver : IDeviceDriver
     /// <param name="ra">The destination right ascension(hours)</param>
     /// <param name="dec">The destination declination (degrees, positive North)</param>
     /// <returns></returns>
-    PierSide DestinationSideOfPier(double ra, double dec);
+    PointingState DestinationSideOfPier(double ra, double dec);
 
     /// <summary>
     /// Uses <see cref="DestinationSideOfPier"/> and equatorial coordinates as of now (<see cref="RightAscension"/>, <see cref="Declination"/>)
     /// To calculate the <see cref="SideOfPier"/> that the telescope should be on if one where to slew there now.
     /// </summary>
-    PierSide ExpectedSideOfPier => Connected ? DestinationSideOfPier(RightAscension, Declination) : PierSide.Unknown;
+    PointingState ExpectedSideOfPier => Connected ? DestinationSideOfPier(RightAscension, Declination) : PointingState.Unknown;
 
     /// <summary>
     /// The current hour angle, using <see cref="RightAscension"/> and <see cref="SiderealTime"/>, (-12,12).
@@ -361,11 +361,11 @@ public interface IMountDriver : IDeviceDriver
 
     public bool IsOnSamePierSide(double hourAngleAtSlewTime)
     {
-        var pierSide = External.Catch(() => SideOfPier, PierSide.Unknown);
+        var pierSide = External.Catch(() => SideOfPier, PointingState.Unknown);
         var currentHourAngle = External.Catch(() => HourAngle, double.NaN);
         return pierSide == ExpectedSideOfPier
             && !double.IsNaN(currentHourAngle)
-            && (pierSide != PierSide.Unknown || Math.Sign(hourAngleAtSlewTime) == Math.Sign(currentHourAngle));
+            && (pierSide != PointingState.Unknown || Math.Sign(hourAngleAtSlewTime) == Math.Sign(currentHourAngle));
     }
 
     public Task BeginSlewToZenithAsync(TimeSpan distMeridian, CancellationToken cancellationToken = default)
@@ -395,12 +395,12 @@ public interface IMountDriver : IDeviceDriver
     {
         var az = double.NaN;
         var alt = double.NaN;
-        var dsop = PierSide.Unknown;
+        var dsop = PointingState.Unknown;
         if (!TryGetTransform(out var transform)
             || !TryTransformJ2000ToMountNative(transform, target.RA, target.Dec, updateTime: false, out var raMount, out var decMount, out az, out alt)
             || double.IsNaN(alt)
             || alt < minAboveHorizonDegrees
-            || (dsop = DestinationSideOfPier(raMount, decMount)) == PierSide.Unknown
+            || (dsop = DestinationSideOfPier(raMount, decMount)) == PointingState.Unknown
         )
         {
             External.AppLogger.LogError("Failed to slew {MountName} to target {TargetName} az={AZ:0.00} alt={Alt:0.00} dsop={DestinationSoP}, skipping.",

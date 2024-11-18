@@ -1,29 +1,31 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using AscomFilterWheel = ASCOM.Com.DriverAccess.FilterWheel;
 
 namespace TianWen.Lib.Devices.Ascom;
 
-public class AscomFilterWheelDriver(AscomDevice device, IExternal external) : AscomDeviceDriverBase(device, external), IFilterWheelDriver
+internal class AscomFilterWheelDriver(AscomDevice device, IExternal external)
+    : AscomDeviceDriverBase<AscomFilterWheel>(device, external, (progId, logger) => new AscomFilterWheel(progId, new AscomLoggerWrapper(logger))), IFilterWheelDriver
 {
     string[] Names => _comObject?.Names is string[] names ? names : [];
 
     int[] FocusOffsets => _comObject?.FocusOffsets is int[] focusOffsets ? focusOffsets : [];
 
-    public int Position
+    public int Position => _comObject.Position;
+
+    public Task BeginMoveAsync(int position, CancellationToken cancellationToken = default)
     {
-        get => _comObject?.Position is int pos ? pos : -1;
-        set
+        if (Filters is { Count: > 0 } filters && position is >= 0 and <= short.MaxValue && position < filters.Count)
         {
-            if (_comObject is { } obj && Filters is { Count: > 0 } filters && value is >= 0 && value < filters.Count)
-            {
-                obj.Position = value;
-            }
-            else
-            {
-                throw new InvalidOperationException($"Cannot change filter wheel position to {value}");
-            }
+            _comObject.Position = (short)position;
         }
+        else
+        {
+            throw new InvalidOperationException($"Cannot change filter wheel position to {position}");
+        }
+        return Task.CompletedTask;
     }
 
     public IReadOnlyList<Filter> Filters

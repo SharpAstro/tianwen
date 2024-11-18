@@ -5,7 +5,7 @@ using System.Text.RegularExpressions;
 
 namespace TianWen.Lib;
 
-public static class EnumHelper
+public static partial class EnumHelper
 {
     internal const uint ASCIIMask = 0x7f;
     internal const uint ByteMask = 0xff;
@@ -138,8 +138,9 @@ public static class EnumHelper
         return false;
     }
 
-    const RegexOptions CommonOptions = RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnorePatternWhitespace;
-    static readonly Regex PascalSplitter = new(@"([A-Z][(?:)a-z])|([0-9]+)", CommonOptions);
+    static readonly Regex PascalSplitter = PascalSplitterPattern();
 
     public static string PascalCaseStringToName<T>(this T @enum) where T : struct, Enum => PascalSplitter.Replace(@enum.ToString(), " $1$2").TrimStart();
+    [GeneratedRegex(@"([A-Z][(?:)a-z])|([0-9]+)", RegexOptions.Compiled | RegexOptions.IgnorePatternWhitespace | RegexOptions.CultureInvariant)]
+    internal static partial Regex PascalSplitterPattern();
 }

@@ -1,113 +1,68 @@
-﻿using System;
-using System.Diagnostics;
+﻿using ASCOM.Common;
+using Microsoft.Extensions.Logging;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
+using ASCOMDriverAccessDevice = ASCOM.Com.DriverAccess.ASCOMDevice;
 
 namespace TianWen.Lib.Devices.Ascom;
 
-public abstract class AscomDeviceDriverBase(AscomDevice device, IExternal external) : DynamicComObject(device.DeviceId), IDeviceDriver
+internal abstract class AscomDeviceDriverBase<TAscomDriverAccessDevice>(AscomDevice device, IExternal external, Func<string, ILogger, TAscomDriverAccessDevice> func)
+    : DeviceDriverBase<AscomDevice,AscomDeviceInfo>(device, external), IDeviceDriver
+    where TAscomDriverAccessDevice : ASCOMDriverAccessDevice
 {
-    private readonly AscomDevice _device = device;
+    protected readonly TAscomDriverAccessDevice _comObject = func(device.DeviceId, external.AppLogger);
 
-    public string Name => _comObject?.Name as string ?? _device.DisplayName;
+    public override string Name => _comObject.Name;
 
-    public string? Description => _comObject?.Description as string;
+    public override string? Description => _comObject.Description;
 
-    public string? DriverInfo => _comObject?.DriverInfo as string;
+    public override string? DriverInfo => _comObject.DriverInfo;
 
-    public string? DriverVersion => _comObject?.DriverVersion as string;
+    public override string? DriverVersion => _comObject.DriverVersion;
 
-    public DeviceType DriverType => _device.DeviceType;
-
-    public IExternal External { get; } = external;
-
-    [DebuggerHidden]
-    public void SetupDialog() => _comObject?.SetupDialog();
-
-    const int STATE_UNKNOWN = 0;
-    const int CONNECTED = 1;
-    const int DISCONNECTED = 2;
-    private int _connectionState = STATE_UNKNOWN;
-    public bool Connected
+    protected override async Task<(bool Success, int ConnectionId, AscomDeviceInfo DeviceInfo)> DoConnectDeviceAsync(CancellationToken cancellationToken)
     {
-        get
+        bool success;
+        try
         {
-            var state = Volatile.Read(ref _connectionState);
-            switch (state)
+            _comObject.Connect();
+
+            while (!cancellationToken.IsCancellationRequested && _comObject.Connecting)
             {
-                case STATE_UNKNOWN:
-                    if (_comObject?.Connected is bool connected)
-                    {
-                        Volatile.Write(ref _connectionState, connected ? CONNECTED : DISCONNECTED);
-                        return connected;
-                    }
-                    return false;
-
-                case CONNECTED:
-                    return true;
-
-                case DISCONNECTED:
-                default:
-                    return false;
+                await External.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
             }
+
+            success = _comObject.Connected;
+        }
+        catch (Exception e)
+        {
+            success = false;
+            External.AppLogger.LogError(e, "Failed to connect to ASCOM device {DeviceId} ({DisplayName}): {ErrorMessage}", _device.DeviceId, _device.DisplayName, e.Message);
+        }
+
+        return (success, success ? CONNECTION_ID_EXCLUSIVE : CONNECTION_ID_UNKNOWN, new AscomDeviceInfo());
+    }
+
+    protected override async Task<bool> DoDisconnectDeviceAsync(int connectionId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            _comObject.Disconnect();
+
+            while (!cancellationToken.IsCancellationRequested && _comObject.Connecting)
+            {
+                await External.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
+            }
+
+            return !_comObject.Connected;
+        }
+        catch (Exception e)
+        {
+            External.AppLogger.LogError(e, "Failed to disconnect from ASCOM device {DeviceId} ({DisplayName}): {ErrorMessage}", _device.DeviceId, _device.DisplayName, e.Message);
+            return false;
         }
     }
-
-    protected void Connect(bool connect)
-    {
-        if (_comObject is { } obj)
-        {
-            if (obj.Connected is bool currentConnected)
-            {
-                var actualState = currentConnected ? CONNECTED : DISCONNECTED;
-                var desiredState = connect ? CONNECTED : DISCONNECTED;
-                var prevState = Volatile.Read(ref _connectionState);
-                if (prevState != actualState || actualState != desiredState)
-                {
-                    Volatile.Write(ref _connectionState, desiredState);
-
-                    DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(obj.Connected = connect));
-                }
-            }
-            else
-            {
-                Volatile.Write(ref _connectionState, STATE_UNKNOWN);
-            }
-        }
-        else
-        {
-            Volatile.Write(ref _connectionState, STATE_UNKNOWN);
-        }
-    }
-
-    /// <summary>
-    /// Connects device asynchronously.
-    /// TODO: Support async interface in ASCOM 7
-    /// </summary>
-    /// <param name="cancellationToken"></param>
-    /// <returns></returns>
-    public async ValueTask ConnectAsync(CancellationToken cancellationToken = default)
-    {
-        await Task.Run(() => Connect(true), cancellationToken);
-    }
-
-    /// <summary>
-    /// Disconnects device asynchronously.
-    /// TODO: Support async interface in ASCOM 7
-    /// </summary>
-    /// <param name="cancellationToken"></param>
-    /// <returns></returns>
-    public async ValueTask DisconnectAsync(CancellationToken cancellationToken = default)
-    {
-        await Task.Run(() => Connect(false), cancellationToken);
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        await DisconnectAsync();
-
-        GC.SuppressFinalize(this);
-    }
-
-    public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
 }
+
+internal record struct AscomDeviceInfo();
