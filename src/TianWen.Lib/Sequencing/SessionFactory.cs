@@ -9,6 +9,7 @@ using TianWen.Lib.Devices;
 namespace TianWen.Lib.Sequencing;
 
 internal class SessionFactory(
+    IDeviceUriRegistry deviceUriRegistry,
     ICombinedDeviceManager deviceManager,
     IExternal external,
     IImageAnalyser imageAnalyser,
@@ -72,7 +73,7 @@ internal class SessionFactory(
 
         DeviceBase DeviceFromUri(Uri deviceUri, int? otaIdx = null)
         {
-            if (DeviceBase.TryFromUri(deviceUri, out var device))
+            if (deviceUriRegistry.TryGetDeviceFromUri(deviceUri, out var device))
             {
                 return device;
             }

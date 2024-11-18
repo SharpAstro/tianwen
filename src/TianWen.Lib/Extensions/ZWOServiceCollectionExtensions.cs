@@ -6,5 +6,5 @@ namespace TianWen.Lib.Extensions;
 
 public static class ZWOServiceCollectionExtensions
 {
-    public static IServiceCollection AddZWO(this IServiceCollection services) => services.AddSingleton<IDeviceSource<DeviceBase>, ZWODeviceSource>();
+    public static IServiceCollection AddZWO(this IServiceCollection services) => services.AddDevicSource<ZWODevice, ZWODeviceSource>(uri => new ZWODevice(uri));
 }

@@ -1,8 +1,11 @@
-﻿using TianWen.Lib.Devices;
-using TianWen.Lib.Devices.Ascom;
-using TianWen.Lib.Devices.Fake;
+﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Shouldly;
 using System;
+using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Ascom;
+using TianWen.Lib.Devices.Fake;
+using TianWen.Lib.Extensions;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
@@ -17,9 +20,18 @@ public class DeviceTests
     [InlineData(@"none://NoneDevice/None", typeof(NoneDevice), DeviceType.None, "None", "")]
     public void GivenAnUriDisplayNameDeviceTypeAndClassAreReturned(string uriString, Type containerType, DeviceType expectedDeviceType, string expectedId, string expectedDisplayName)
     {
-        var uri = new Uri(uriString);
-        DeviceBase.TryFromUri(uri, out var device).ShouldBeTrue();
+        var serviceCollection = new ServiceCollection();
+        serviceCollection.AddAscom();
+        serviceCollection.AddFake();
+        serviceCollection.AddDevices();
 
+        var provider = serviceCollection.BuildServiceProvider();
+        var registry = provider.GetRequiredService<IDeviceUriRegistry>();
+
+        var uri = new Uri(uriString);
+        registry.TryGetDeviceFromUri(uri, out var device).ShouldBeTrue();
+
+        device.ShouldNotBeNull();
         device.GetType().ShouldBe(containerType);
         device.DeviceClass.ShouldBe(device.GetType().Name, StringCompareShould.IgnoreCase);
 

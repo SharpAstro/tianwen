@@ -6,5 +6,5 @@ namespace TianWen.Lib.Extensions;
 
 public static class MeadeServiceCollectionExtensions
 {
-    public static IServiceCollection AddMeade(this IServiceCollection services) => services.AddSingleton<IDeviceSource<DeviceBase>, MeadeDeviceSource>();
+    public static IServiceCollection AddMeade(this IServiceCollection services) => services.AddDevicSource<MeadeDevice, MeadeDeviceSource>(uri => new MeadeDevice(uri));
 }
