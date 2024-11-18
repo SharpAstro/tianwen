@@ -1,10 +1,7 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
-using System.Linq;
-using System.Reflection;
 using System.Text;
 using System.Text.Json.Serialization;
 using System.Web;
@@ -37,37 +34,6 @@ public abstract record class DeviceBase(Uri DeviceUri)
     public string DeviceClass => DeviceUri.Host;
 
     public override string ToString() => string.Create(CultureInfo.InvariantCulture, stackalloc char[64], $"{DeviceType} {(string.IsNullOrWhiteSpace(DisplayName) ? DeviceId : DisplayName)}");
-
-    public static bool TryFromUri(Uri deviceUri, [NotNullWhen(true)] out DeviceBase? device)
-    {
-        device = EnumerateDeviceBase(deviceUri, typeof(DeviceBase).Assembly, Assembly.GetCallingAssembly(), Assembly.GetEntryAssembly()).FirstOrDefault();
-        return device is not null;
-    }
-
-    /// <summary>
-    /// TODO <see cref="Type.GetConstructor(Type[])"/> considered harmful.
-    /// </summary>
-    /// <param name="deviceUri"></param>
-    /// <param name="assemblies"></param>
-    /// <returns></returns>
-    internal static IEnumerable<DeviceBase> EnumerateDeviceBase(Uri deviceUri, params Assembly?[] assemblies)
-    {
-        foreach (var assembly in assemblies)
-        {
-            foreach (var exported in assembly?.GetExportedTypes() ?? [])
-            {
-                if (exported.Name.Equals(deviceUri.Host, StringComparison.OrdinalIgnoreCase) && exported.IsSubclassOf(typeof(DeviceBase)))
-                {
-                    var constructor = exported.GetConstructor([typeof(Uri)]);
-                    var obj = constructor?.Invoke(new[] { deviceUri }) as DeviceBase;
-                    if (obj is not null)
-                    {
-                        yield return obj;
-                    }
-                }
-            }
-        }
-    }
 
     public virtual bool TryInstantiateDriver<TDeviceDriver>(IExternal external, [NotNullWhen(true)] out TDeviceDriver? driver)
         where TDeviceDriver : IDeviceDriver

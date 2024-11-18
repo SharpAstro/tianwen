@@ -10,6 +10,5 @@ public record class NoneDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 {
     public NoneDevice() : this(new Uri($"none://{typeof(NoneDevice).Name}/None"))
     {
-
     }
 }

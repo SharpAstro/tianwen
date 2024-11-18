@@ -16,7 +16,7 @@ builder.Services
     .AddProfiles()
     .AddFake()
     .AddPHD2()
-    .AddDeviceManager()
+    .AddDevices()
     .AddSessionFactory();
 
 using IHost host = builder.Build();

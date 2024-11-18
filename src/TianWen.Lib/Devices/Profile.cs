@@ -30,7 +30,7 @@ public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
         => new UriBuilder(nameof(Profile), nameof(Profile), -1, $"/{DeviceIdFromUUID(profileId)}", $"?{DataKey}={EncodeValues(data)}#{name}").Uri;
 
     public ProfileData? Data
-        => _data ??= (Query[DataKey] is string encodedValues && JsonSerializer.Deserialize<ProfileData>(Base64UrlDecode(encodedValues)) is { } data ? data : null);
+        => _data ??= (Query[DataKey] is string encodedValues && JsonSerializer.Deserialize(Base64UrlDecode(encodedValues), ProfileJsonSerializerContextSingleLine.ProfileData) is { } data ? data : null);
 
     private static readonly ProfileJsonSerializerContext ProfileJsonSerializerContextSingleLine = new ProfileJsonSerializerContext(new JsonSerializerOptions { WriteIndented = false });
 

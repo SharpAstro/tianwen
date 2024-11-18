@@ -1,16 +1,39 @@
-﻿using ASCOM.Com;
+﻿using Microsoft.Win32;
+using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
-using AscomProfile = ASCOM.Com.Profile;
 using AscomDeviceType = ASCOM.Common.DeviceTypes;
+using AscomProfile = ASCOM.Com.Profile;
 
 namespace TianWen.Lib.Devices.Ascom;
 
 internal class AscomDeviceIterator : IDeviceSource<AscomDevice>
 {
-    private static readonly bool IsSupported = PlatformUtilities.IsPlatformInstalled();
+    private static readonly bool IsSupported;
+
+    static AscomDeviceIterator()
+    {
+        IsSupported = OperatingSystem.IsWindows() && CheckMininumAscomPlatformVersion(new Version(6, 5, 0, 0));
+    }
+
+    [SupportedOSPlatform("windows")]
+    internal static bool CheckMininumAscomPlatformVersion(Version minVersion)
+    {
+        using var hklm32 = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry32);
+
+        if (hklm32.OpenSubKey(Path.Combine("SOFTWARE", "ASCOM", "Platform"), false) is { } platformKey
+            && platformKey.GetValue("PlatformVersion") is string versionString and { Length: > 0 }
+            && Version.TryParse(versionString, out var version)
+        )
+        {
+            return version >= minVersion;
+        }
+        return false;
+    }
 
     /// <summary>
     /// Returns true if COM object was initalised successfully.
