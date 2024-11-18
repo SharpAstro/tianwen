@@ -1,4 +1,8 @@
-﻿namespace TianWen.Lib.Devices.Fake;
+﻿using System;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace TianWen.Lib.Devices.Fake;
 
 internal class FakeFocuserDriver(FakeDevice fakeDevice, IExternal external) : FakePositionBasedDriver(fakeDevice, external), IFocuserDriver
 {
@@ -24,20 +28,19 @@ internal class FakeFocuserDriver(FakeDevice fakeDevice, IExternal external) : Fa
 
     public double Temperature => double.NaN;
 
-    public bool Halt() => StopMoving();
+    public Task BeginHaltAsync(CancellationToken cancellationToken = default) => BeginStopMovingAsync(cancellationToken);
 
-    public bool Move(int position)
+    public Task BeginMoveAsync(int position, CancellationToken cancellationToken = default)
     {
-        if (position < 0)
+        if (!Connected)
         {
-            return false;
+            throw new InvalidOperationException("Focuser is not connected");
+        }
+        else if (position < 0 || position > MaxStep)
+        {
+            throw new ArgumentOutOfRangeException(nameof(position), position, $"Position out of range (0..{MaxStep})");
         }
 
-        if (position > MaxStep)
-        {
-            return false;
-        }
-
-        return SetPosition(position);
+        return BeginSetPositionAsync(position, cancellationToken);
     }
 }

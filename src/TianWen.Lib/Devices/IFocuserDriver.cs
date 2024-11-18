@@ -1,4 +1,7 @@
-﻿namespace TianWen.Lib.Devices;
+﻿using System.Threading;
+using System.Threading.Tasks;
+
+namespace TianWen.Lib.Devices;
 
 public interface IFocuserDriver : IDeviceDriver
 {
@@ -62,7 +65,7 @@ public interface IFocuserDriver : IDeviceDriver
     /// </summary>
     /// <param name="position">Relative or absolute position to move to.</param>
     /// <returns>true if focuser started moving.</returns>
-    public bool Move(int position);
+    public Task BeginMoveAsync(int position, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Immediately stop any focuser motion due to a previous <see cref="Move(int)"/> method call.
@@ -70,5 +73,5 @@ public interface IFocuserDriver : IDeviceDriver
     /// Will return true if focuser is already halted.
     /// </summary>
     /// <returns>true if focuser started halting.</returns>
-    public bool Halt();
+    public Task BeginHaltAsync(CancellationToken cancellationToken = default);
 }

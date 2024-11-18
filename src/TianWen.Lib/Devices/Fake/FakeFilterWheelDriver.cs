@@ -1,4 +1,6 @@
 ﻿using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace TianWen.Lib.Devices.Fake;
 
@@ -15,22 +17,9 @@ internal sealed class FakeFilterWheelDriver(FakeDevice fakeDevice, IExternal ext
         new Filter("OIII", -3)
     ];
 
-    public int Position
-    {
-        get => _isMoving ? -1 : _position;
-        set
-        {
-            if (Position < 0 || Position >= Filters.Count)
-            {
-                throw new FakeDeviceException($"Invalid position {value}");
-            }
+    public int Position => _isMoving ? -1 : _position;
 
-            if (!SetPosition(value))
-            {
-                throw new FakeDeviceException($"Failed to move to position {value}");
-            }
-        }
-    }
+    public Task BeginMoveAsync(int position, CancellationToken cancellationToken = default) => BeginSetPositionAsync(position, cancellationToken);
 
     public override DeviceType DriverType => DeviceType.FilterWheel;
 }

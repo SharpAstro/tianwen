@@ -145,7 +145,7 @@ public interface ICameraDriver : IDeviceDriver
 
     short GainMax { get; }
 
-    IEnumerable<string> Gains { get; }
+    IReadOnlyList<string> Gains { get; }
 
     string? GainMode
     {
@@ -183,7 +183,7 @@ public interface ICameraDriver : IDeviceDriver
         }
     }
 
-    IEnumerable<string> Offsets { get; }
+    IReadOnlyList<string> Offsets { get; }
 
     double ExposureResolution { get; }
 

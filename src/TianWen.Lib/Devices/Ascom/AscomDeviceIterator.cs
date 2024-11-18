@@ -1,7 +1,6 @@
 ﻿using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Runtime.Versioning;
 using System.Threading;
@@ -25,7 +24,7 @@ internal class AscomDeviceIterator : IDeviceSource<AscomDevice>
     {
         using var hklm32 = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry32);
 
-        if (hklm32.OpenSubKey(Path.Combine("SOFTWARE", "ASCOM", "Platform"), false) is { } platformKey
+        if (hklm32.OpenSubKey(string.Join('\\', "SOFTWARE", "ASCOM", "Platform"), false) is { } platformKey
             && platformKey.GetValue("PlatformVersion") is string versionString and { Length: > 0 }
             && Version.TryParse(versionString, out var version)
         )

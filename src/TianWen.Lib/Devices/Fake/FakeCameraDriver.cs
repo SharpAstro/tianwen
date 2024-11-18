@@ -283,7 +283,7 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
 
     public short GainMax { get; } = 256;
 
-    public IEnumerable<string> Gains { get; } = [];
+    public IReadOnlyList<string> Gains { get; } = [];
 
     public int Offset
     {
@@ -308,7 +308,7 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
 
     public int OffsetMax { get; } = 100;
 
-    public IEnumerable<string> Offsets { get; } = [];
+    public IReadOnlyList<string> Offsets { get; } = [];
 
     public double ExposureResolution { get; } = 0.01d;
 

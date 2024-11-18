@@ -73,6 +73,4 @@ public static class CollectionHelper
             return -1;
         }
     }
-
-    public static TValue GetOrAdd<TKey, TValue>(this IDictionary<TKey, TValue> @this, TKey key, TValue @new) => @this.TryGetValue(key, out var value) ? value : (@this[key] = @new);
 }

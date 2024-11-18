@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace TianWen.Lib.Devices.Fake;
 
@@ -21,7 +22,7 @@ internal abstract class FakePositionBasedDriver(FakeDevice fakeDevice, IExternal
     /// <param name="position"></param>
     /// <returns>true iff position is accepted and moving started</returns>
     /// <remarks>Does not validate inputs (subclass responsibility)</remarks>
-    protected virtual bool SetPosition(int position)
+    protected virtual Task BeginSetPositionAsync(int position, CancellationToken cancellationToken = default)
     {
         var currentPosition = position;
 
@@ -37,17 +38,16 @@ internal abstract class FakePositionBasedDriver(FakeDevice fakeDevice, IExternal
 
             movingTimer.Change(TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(100));
 
-            return true;
         }
 
-        return false;
+        return Task.CompletedTask;
     }
 
-    protected virtual bool StopMoving()
+    protected virtual Task BeginStopMovingAsync(CancellationToken cancellationToken = default)
     {
         Interlocked.Exchange(ref _movingTimer, null)?.Dispose();
         _isMoving = false;
-        return true;
+        return Task.CompletedTask;
     }
 
     private void MovingTimerCallback(object? state)

@@ -1,4 +1,6 @@
-﻿using static ZWOptical.SDK.EAFFocuser1_6;
+﻿using System.Threading;
+using System.Threading.Tasks;
+using static ZWOptical.SDK.EAFFocuser1_6;
 using static ZWOptical.SDK.EAFFocuser1_6.EAF_ERROR_CODE;
 
 namespace TianWen.Lib.Devices.ZWO;
@@ -33,7 +35,23 @@ internal class ZWOFocuserDriver(ZWODevice device, IExternal external) : ZWODevic
 
     public override string? Description { get; } = $"ZWO EAF driver using C# SDK wrapper v{EAFGetSDKVersion()}";
 
-    public bool Halt() => EAFStop(ConnectionId) is EAF_SUCCESS;
+    public Task BeginHaltAsync(CancellationToken cancellationToken = default)
+    {
+        if (EAFStop(ConnectionId) is var code && code is EAF_SUCCESS)
+        {
+            return Task.CompletedTask;
+        }
 
-    public bool Move(int position) => EAFMove(ConnectionId, position) is EAF_SUCCESS;
+        throw new ZWODriverException(code, $"Failed to halt focuser");
+    }
+
+    public Task BeginMoveAsync(int position, CancellationToken cancellationToken = default)
+    {
+        if (EAFMove(ConnectionId, position) is var code && code is EAF_SUCCESS)
+        {
+            return Task.CompletedTask;
+        }
+
+        throw new ZWODriverException(code, $"Failed to move focuser to {position}");
+    }
 }

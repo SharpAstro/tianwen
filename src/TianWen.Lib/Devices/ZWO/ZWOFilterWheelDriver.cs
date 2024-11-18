@@ -1,4 +1,6 @@
 ﻿using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using static ZWOptical.SDK.EFW1_7;
 using static ZWOptical.SDK.EFW1_7.EFW_ERROR_CODE;
 
@@ -29,30 +31,35 @@ internal class ZWOFilterWheelDriver(ZWODevice device, IExternal external) : ZWOD
         }
     }
 
-    protected override bool OnConnectDevice(out int connectionId, out EFW_INFO connectedDeviceInfo)
+    protected override ValueTask<bool> InitDeviceAsync(CancellationToken cancellationToken)
     {
-        if (base.OnConnectDevice(out connectionId, out connectedDeviceInfo))
+        _filterCount = _deviceInfo.slotNum;
+        if (_filterCount > 0)
         {
-            _filterCount = connectedDeviceInfo.slotNum;
-            return true;
+            return ValueTask.FromResult(true);
         }
+        else
+        {
+            // close this device again as we failed to initalize it
+            _deviceInfo.Close();
 
-        _filterCount = null;
-        return false;
+            return ValueTask.FromResult(false);
+        }
     }
 
-    public int Position
-    {
-        get => EFWGetPosition(ConnectionId, out var position) is var code && code is EFW_SUCCESS
-            ? position
-            : throw new ZWODriverException(code, "Failed to get filter wheel position");
+    public int Position  => EFWGetPosition(ConnectionId, out var position) is var code && code is EFW_SUCCESS
+        ? position
+        : throw new ZWODriverException(code, "Failed to get filter wheel position");
 
-        set
+    public Task BeginMoveAsync(int position, CancellationToken cancellationToken = default)
+    {
+        if (EFWSetPosition(ConnectionId, position) is var code && code is EFW_SUCCESS)
         {
-            if (EFWSetPosition(ConnectionId, value) is var code && code is not EFW_SUCCESS)
-            {
-                throw new ZWODriverException(code, $"Failed to set filter wheel position to {value}");
-            }
+            return Task.CompletedTask;
+        }
+        else
+        {
+            throw new ZWODriverException(code, $"Failed to set filter wheel position to {position}");
         }
     }
 

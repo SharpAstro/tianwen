@@ -37,7 +37,6 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     const double DEFAULT_GUIDE_RATE = SIDEREAL_RATE * 2d / 3d / 3600d;
 
     private ITimer? _slewTimer;
-    private volatile PierSide _sideOfPierAfterLastGoto;
     private int _movingState = MOVING_STATE_NORMAL;
     private bool? _isSouthernHemisphere;
     private string _telescopeName = "Unknown";
@@ -112,7 +111,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         }
     }
 
-    public IReadOnlyCollection<TrackingSpeed> TrackingSpeeds => [TrackingSpeed.Sidereal, TrackingSpeed.Lunar];
+    public IReadOnlyList<TrackingSpeed> TrackingSpeeds => [TrackingSpeed.Sidereal, TrackingSpeed.Lunar];
 
     public EquatorialCoordinateType EquatorialSystem => EquatorialCoordinateType.Topocentric;
 
@@ -325,44 +324,35 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     ///   <description>The actual slewing state from the mount (not our local value)</description>
     /// </item>
     /// <item>
-    ///   <term>SideOfPier</term>
+    ///   <term>PointingState</term>
     ///   <description>is the calculated side of pier from the mount position (if slewing),
     /// or the last known value after slewing (as the mount auto-flips)</description>
-    /// </item>
-    /// <item>
-    ///   <term>HasFlipped</term>
-    ///   <description>Indicates if a meridian flip occured during the active slew</description>
     /// </item>
     /// </list>
     /// </summary>
     /// <param name="ra">current RA</param>
     /// <returns>Side of pier calculation result</returns>
-    private (bool IsSlewing, PierSide SideOfPier, bool HasFlipped, double LST) SideOfPierCheck(double ra)
+    private (bool IsSlewing, PointingState PointingState, double LST) CheckPointingState(double ra)
     {
         if (!Connected)
         {
-            return (false, PierSide.Unknown, false, double.NaN);
+            return (false, PointingState.Unknown, double.NaN);
         }
 
         var isSlewing = IsSlewingFromMount;
 
         var (raSideOfPier, lst) = CalculateSideOfPier(ra);
 
-        if (_sideOfPierAfterLastGoto is PierSide.Unknown)
-        {
-            _sideOfPierAfterLastGoto = IsSouthernHemisphere ? PierSide.East : PierSide.West;
-        }
-
-        return (isSlewing, isSlewing ? raSideOfPier : _sideOfPierAfterLastGoto, raSideOfPier != _sideOfPierAfterLastGoto && _sideOfPierAfterLastGoto is not PierSide.Unknown, lst);
+        return (isSlewing, isSlewing ? raSideOfPier : PointingState.Normal, lst);
     }
 
-    public PierSide SideOfPier
+    public PointingState SideOfPier
     {
         get
         {
-            var (_, sop, _, _) = SideOfPierCheck(RightAscension);
+            var (_, pointingState, _) = CheckPointingState(RightAscension);
 
-            return sop;
+            return pointingState;
         }
 
         set => throw new InvalidOperationException("Setting side of pier is not supported");
@@ -746,7 +736,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
     public override string? Description => $"{_telescopeName} driver based on the LX200 serial protocol v2010.10, firmware: {_telescopeFW}";
 
-    public PierSide DestinationSideOfPier(double ra, double dec)
+    public PointingState DestinationSideOfPier(double ra, double dec)
     {
         var (sideOfPier, _) = CalculateSideOfPier(ra);
         return sideOfPier;
@@ -754,18 +744,17 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
     private bool IsSouthernHemisphere => _isSouthernHemisphere ??= SiteLatitude < 0;
 
-    private (PierSide SideOfPier, double SiderealTime) CalculateSideOfPier(double ra)
+    private (PointingState PointingState, double SiderealTime) CalculateSideOfPier(double ra)
     {
         var lst = SiderealTime;
-        var sideOfPier = ConditionHA(lst - ra) switch
+        var pointingState = ConditionHA(lst - ra) switch
         {
-            0 => IsSouthernHemisphere ? PierSide.East : PierSide.West,
-            > 0 => PierSide.East,
-            < 0 => PierSide.West,
-            _ => PierSide.Unknown
+            >= 0 => PointingState.Normal,
+            < 0 => PointingState.ThroughThePole,
+            _ => PointingState.Unknown
         };
 
-        return (sideOfPier, lst);
+        return (pointingState, lst);
     }
 
     public void Park()
@@ -891,21 +880,16 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         var ra = RightAscension;
         var dec = Declination;
         double lst;
-        PierSide sideOfPier;
+        PointingState sideOfPier;
         if (!double.IsNaN(ra) && !AtPark)
         {
-            (continueRunning, sideOfPier, var hasFlipped, lst) = SideOfPierCheck(ra);
-
-            if (hasFlipped)
-            {
-                _sideOfPierAfterLastGoto = sideOfPier;
-            }
+            (continueRunning, sideOfPier, lst) = CheckPointingState(ra);
         }
         else
         {
             continueRunning = false;
             lst = SiderealTime;
-            sideOfPier = PierSide.Unknown;
+            sideOfPier = PointingState.Unknown;
         }
 
         if (continueRunning)
@@ -977,11 +961,10 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     /// <returns></returns>
     public void SyncRaDec(double ra, double dec)
     {
-        var sideOfPier = SideOfPier;
-        var (expectedSideOfPier, _) = CalculateSideOfPier(ra);
-        if (sideOfPier is not PierSide.Unknown && sideOfPier != expectedSideOfPier)
+        var pointingState = SideOfPier;
+        if (pointingState is PointingState.Unknown or PointingState.ThroughThePole)
         {
-            throw new InvalidOperationException($"Cannot sync across meridian (current side of pier: {sideOfPier}) given {HoursToHMS(ra)},{DegreesToDMS(dec)}");
+            throw new InvalidOperationException($"Cannot sync across meridian (current side of pier: {pointingState}) given {HoursToHMS(ra)},{DegreesToDMS(dec)}");
         }
 
         SendAndReceive("CM"u8, out var response);
@@ -994,40 +977,59 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
     public void Unpark() => throw new InvalidOperationException("Unparking is not supported");
 
-    protected override bool OnConnectDevice(out int connectionId, out MountDeviceInfo connectedDeviceInfo)
+    protected override Task<(bool Success, int ConnectionId, MountDeviceInfo DeviceInfo)> DoConnectDeviceAsync(CancellationToken cancellationToken)
     {
+        ISerialConnection? serialDevice;
         try
         {
-            connectionId = CONNECTION_ID_EXCLUSIVE;
-
-            if (_device.ConnectSerialDevice(External, encoding: _encoding, ioTimeout: TimeSpan.FromMilliseconds(500)) is { IsOpen: true } serialDevice)
+            if (_device.ConnectSerialDevice(External, encoding: _encoding, ioTimeout: TimeSpan.FromMilliseconds(500)) is { IsOpen: true } openedConnection)
             {
-                connectedDeviceInfo = new MountDeviceInfo(serialDevice);
-
-                DeviceConnectedEvent += Mount_DeviceConnectedEvent;
-
-                return true;
+                serialDevice = openedConnection;
             }
             else
             {
-                connectedDeviceInfo = default;
-                return false;
+                serialDevice = null;
             }
         }
         catch (Exception ex)
         {
+            serialDevice = null;
             External.AppLogger.LogError(ex, "Error when connecting to serial port {DeviceUri}", _device.DeviceUri);
+        }
 
-            connectedDeviceInfo = default;
-            connectionId = CONNECTION_ID_UNKNOWN;
-
-            return false;
+        if (serialDevice is not null)
+        {
+            return Task.FromResult((true, CONNECTION_ID_EXCLUSIVE, new MountDeviceInfo(serialDevice)));
+        }
+        else
+        {
+            return Task.FromResult((false, CONNECTION_ID_UNKNOWN, default(MountDeviceInfo)));
         }
     }
 
-    private void Mount_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
+    protected override Task<bool> DoDisconnectDeviceAsync(int connectionId, CancellationToken cancellationToken)
     {
-        if (e.Connected)
+        if (connectionId == CONNECTION_ID_EXCLUSIVE)
+        {
+            if (_deviceInfo.SerialDevice is { IsOpen: true } port)
+            {
+                return Task.FromResult(port.TryClose());
+            }
+            else if (_deviceInfo.SerialDevice is { })
+            {
+                return Task.FromResult(true);
+            }
+            else
+            {
+                return Task.FromResult(false);
+            }
+        }
+        return Task.FromResult(false);
+    }
+
+    protected override ValueTask<bool> InitDeviceAsync(CancellationToken cancellationToken)
+    {
+        try
         {
             SendAndReceive("GVP"u8, out var gvpBytes);
             _telescopeName = _encoding.GetString(gvpBytes);
@@ -1039,6 +1041,14 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
             {
                 External.AppLogger.LogWarning("Failed to set high precision via :U#");
             }
+
+            return ValueTask.FromResult(true);
+        }
+        catch (Exception e)
+        {
+            External.AppLogger.LogError(e, "Failed to initialize mount");
+
+            return ValueTask.FromResult(false);
         }
     }
 
@@ -1060,28 +1070,6 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
             }
         } while (!highPrecision && ++tries < 3);
 
-        return false;
-    }
-
-    protected override bool OnDisconnectDevice(int connectionId)
-    {
-        if (connectionId == CONNECTION_ID_EXCLUSIVE)
-        {
-            DeviceConnectedEvent -= Mount_DeviceConnectedEvent;
-
-            if (_deviceInfo.SerialDevice is { IsOpen: true } port)
-            {
-                return port.TryClose();
-            }
-            else if (_deviceInfo.SerialDevice is { })
-            {
-                return true;
-            }
-            else
-            {
-                return false;
-            }
-        }
         return false;
     }
 

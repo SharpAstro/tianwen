@@ -698,7 +698,7 @@ public record Session(
                 }
                 else if (finalCoverState is CoverStatus.Open)
                 {
-                    calibratorActionCompleted = cover.Driver.TurnOffCalibratorAndWait(cancellationToken);
+                    calibratorActionCompleted = await cover.Driver.TurnOffCalibratorAndWaitAsync(cancellationToken).ConfigureAwait(false);
                 }
                 else if (finalCoverState is CoverStatus.Closed)
                 {
@@ -711,16 +711,16 @@ public record Session(
 
                 if (calibratorActionCompleted && !finalCoverStateReached[i])
                 {
-                    Func<bool> action = shouldOpen ? cover.Driver.Open : cover.Driver.Close;
-
-                    if (action())
+                    if (shouldOpen)
                     {
-                        coversToWait.Add(i);
+                        await cover.Driver.BeginOpen(cancellationToken).ConfigureAwait(false);
                     }
                     else
                     {
-                        External.AppLogger.LogError("Failed to {FinalCoverState} cover of telescope {TelescopeNumber}.", shouldOpen ? "open" : "close", i + 1);
+                        await cover.Driver.BeginClose(cancellationToken).ConfigureAwait(false);
                     }
+
+                    coversToWait.Add(i);
                 }
                 else if (!calibratorActionCompleted)
                 {

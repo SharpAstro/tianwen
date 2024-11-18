@@ -1,126 +1,124 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
+using AscomCamera = ASCOM.Com.DriverAccess.Camera;
+using AscomGuideDirection = ASCOM.Common.DeviceInterfaces.GuideDirection;
 
 namespace TianWen.Lib.Devices.Ascom;
 
-public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
+internal class AscomCameraDriver(AscomDevice device, IExternal external)
+    : AscomDeviceDriverBase<AscomCamera>(device, external, (progId, logger) => new AscomCamera(progId, new AscomLoggerWrapper(logger))), ICameraDriver
 {
-    public AscomCameraDriver(AscomDevice device, IExternal external) : base(device, external)
+    protected override ValueTask<bool> InitDeviceAsync(CancellationToken cancellationToken)
     {
-        DeviceConnectedEvent += AscomCameraDriver_DeviceConnectedEvent;
-    }
+        CanGetCoolerPower = _comObject.CanGetCoolerPower;
+        CanSetCCDTemperature = _comObject.CanSetCCDTemperature;
+        CanStopExposure = _comObject.CanStopExposure;
+        CanAbortExposure = _comObject.CanAbortExposure;
+        CanFastReadout = _comObject.CanFastReadout;
+        CanPulseGuide = _comObject.CanPulseGuide;
 
-    private void AscomCameraDriver_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
-    {
-        if (e.Connected && _comObject is { } obj)
+        try
         {
-            CanGetCoolerPower = obj.CanGetCoolerPower is bool canGetCoolerPower && canGetCoolerPower;
-            CanSetCCDTemperature = obj.CanSetCCDTemperature is bool canSetCCDTemperature && canSetCCDTemperature;
-            CanStopExposure = obj.CanStopExposure is bool canStopExposure && canStopExposure;
-            CanAbortExposure = obj.CanAbortExposure is bool canAbortExposure && canAbortExposure;
-            CanFastReadout = obj.CanFastReadout is bool canFastReadout && canFastReadout;
-            CanPulseGuide = obj.CanPulseGuide is bool canPulseGuide && canPulseGuide;
+            _ = _comObject.CoolerOn;
+            CanGetCoolerOn = true;
+            CanSetCoolerOn = true;
+        }
+        catch
+        {
+            CanGetCoolerOn = false;
+            CanSetCoolerOn = false;
+        }
 
+        try
+        {
+            CanGetHeatsinkTemperature = !double.IsNaN(HeatSinkTemperature);
+        }
+        catch
+        {
+            CanGetHeatsinkTemperature = false;
+        }
+
+        try
+        {
+            CanGetCCDTemperature = !double.IsNaN(CCDTemperature);
+        }
+        catch
+        {
+            CanGetCCDTemperature = false;
+        }
+
+        if (_comObject.InterfaceVersion is >= 3)
+        {
             try
             {
-                _ = obj.CoolerOn;
-                CanGetCoolerOn = true;
-                CanSetCoolerOn = true;
+                _ = _comObject.Offset;
+                var min = _comObject.OffsetMin;
+                var max = _comObject.OffsetMax;
+                UsesOffsetValue = true;
+                OffsetMin = min;
+                OffsetMax = max;
             }
             catch
-            {
-                CanGetCoolerOn = false;
-                CanSetCoolerOn = false;
-            }
-
-            try
-            {
-                CanGetHeatsinkTemperature = !double.IsNaN(HeatSinkTemperature);
-            }
-            catch
-            {
-                CanGetHeatsinkTemperature = false;
-            }
-
-            try
-            {
-                CanGetCCDTemperature = !double.IsNaN(CCDTemperature);
-            }
-            catch
-            {
-                CanGetCCDTemperature = false;
-            }
-
-            if (obj.InterfaceVersion is int and >= 3)
-            {
-                try
-                {
-                    _ = obj.Offset;
-                    var min = obj.OffsetMin;
-                    var max = obj.OffsetMax;
-                    UsesOffsetValue = true;
-                    OffsetMin = min;
-                    OffsetMax = max;
-                }
-                catch
-                {
-                    UsesOffsetValue = false;
-                    OffsetMin = int.MinValue;
-                    OffsetMax = int.MinValue;
-                }
-
-                if (!UsesOffsetValue)
-                {
-                    try
-                    {
-                        _ = obj.Offset;
-                        _ = obj.Offsets;
-                        UsesOffsetMode = true;
-                    }
-                    catch
-                    {
-                        UsesOffsetMode = false;
-                    }
-                }
-            }
-            else
             {
                 UsesOffsetValue = false;
-                UsesOffsetMode = false;
+                OffsetMin = int.MinValue;
+                OffsetMax = int.MinValue;
             }
 
-            try
-            {
-                _ = obj.Gain;
-                var min = obj.GainMin;
-                var max = obj.GainMax;
-                UsesGainValue = true;
-                GainMin = min;
-                GainMax = max;
-            }
-            catch
-            {
-                UsesGainValue = false;
-                GainMin = short.MinValue;
-                GainMax = short.MinValue;
-            }
-
-            if (!UsesGainValue)
+            if (!UsesOffsetValue)
             {
                 try
                 {
-                    _ = obj.Gain;
-                    _ = obj.Gains;
-                    UsesGainMode = true;
+                    _ = _comObject.Offset;
+                    _ = _comObject.Offsets;
+                    UsesOffsetMode = true;
                 }
                 catch
                 {
-                    UsesGainMode = false;
+                    UsesOffsetMode = false;
                 }
             }
         }
+        else
+        {
+            UsesOffsetValue = false;
+            UsesOffsetMode = false;
+        }
+
+        try
+        {
+            _ = _comObject.Gain;
+            var min = _comObject.GainMin;
+            var max = _comObject.GainMax;
+            UsesGainValue = true;
+            GainMin = min;
+            GainMax = max;
+        }
+        catch
+        {
+            UsesGainValue = false;
+            GainMin = short.MinValue;
+            GainMax = short.MinValue;
+        }
+
+        if (!UsesGainValue)
+        {
+            try
+            {
+                _ = _comObject.Gain;
+                _ = _comObject.Gains;
+                UsesGainMode = true;
+            }
+            catch
+            {
+                UsesGainMode = false;
+            }
+        }
+
+        return ValueTask.FromResult(true);
     }
 
     public bool CanGetCoolerPower { get; private set; }
@@ -154,204 +152,52 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
     public double CoolerPower => Connected && _comObject?.CoolerPower is double coolerPower ? coolerPower :throw new InvalidOperationException("Camera is not connected");
 
-    public double HeatSinkTemperature => Connected && _comObject?.HeatSinkTemperature is double heatSinkTemperature ? heatSinkTemperature :throw new InvalidOperationException("Camera is not connected");
+    public double HeatSinkTemperature => _comObject.HeatSinkTemperature;
 
-    public double CCDTemperature => Connected && _comObject?.CCDTemperature is double ccdTemperature ? ccdTemperature :throw new InvalidOperationException("Camera is not connected");
+    public double CCDTemperature => _comObject.CCDTemperature;
 
-    public double PixelSizeX => Connected && _comObject?.PixelSizeX is double pixelSizeX ? pixelSizeX :throw new InvalidOperationException("Camera is not connected");
+    public double PixelSizeX => _comObject.PixelSizeX;
 
-    public double PixelSizeY => Connected && _comObject?.PixelSizeY is double pixelSizeY ? pixelSizeY :throw new InvalidOperationException("Camera is not connected");
+    public double PixelSizeY => _comObject.PixelSizeY;
 
     public int StartX
     {
-        get
-        {
-            if (Connected && _comObject is { } obj)
-            {
-                return obj.StartX;
-            }
-            else
-            {
-                throw new InvalidOperationException("Camera is not connected");
-            }
-        }
-
-        set
-        {
-            if (Connected && _comObject is { } obj)
-            {
-                obj.StartX = value;
-            }
-            else
-            {
-                throw new InvalidOperationException("Camera is not connected");
-            }
-        }
+        get => _comObject.StartX;
+        set => _comObject.StartX = value;
     }
 
     public int StartY
     {
-        get
-        {
-            if (Connected && _comObject is { } obj)
-            {
-                return obj.StartY;
-            }
-            else
-            {
-                throw new InvalidOperationException("Camera is not connected");
-            }
-        }
-
-        set
-        {
-            if (Connected && _comObject is { } obj)
-            {
-                obj.StartY = value;
-            }
-            else
-            {
-                throw new InvalidOperationException("Camera is not connected");
-            }
-        }
+        get => _comObject.StartY;
+        set => _comObject.StartY = value;
     }
 
     public int BinX
     {
-        get
-        {
-            if (Connected && _comObject is { } obj)
-            {
-                return obj.BinX;
-            }
-            else
-            {
-                throw new InvalidOperationException("Camera is not connected");
-            }
-        }
-
-        set
-        {
-            if (Connected && _comObject is { } obj)
-            {
-                obj.BinX = value;
-            }
-            else
-            {
-                throw new InvalidOperationException("Camera is not connected");
-            }
-        }
+        get => _comObject.BinX;
+        set => _comObject.BinX = (short)value;
     }
 
     public int BinY
     {
-        get
-        {
-            if (Connected && _comObject is { } obj)
-            {
-                return obj.BinY;
-            }
-            else
-            {
-                throw new InvalidOperationException("Camera is not connected");
-            }
-        }
-
-        set
-        {
-            if (Connected && _comObject is { } obj)
-            {
-                obj.BinY = value;
-            }
-            else
-            {
-                throw new InvalidOperationException("Camera is not connected");
-            }
-        }
+        get => _comObject.BinY;
+        set => _comObject.BinY = (short)value;
     }
 
-    public short MaxBinX
-    {
-        get
-        {
-            if (Connected && _comObject is { } obj)
-            {
-                return obj.MaxBinX;
-            }
-            else
-            {
-                throw new InvalidOperationException("Camera is not connected");
-            }
-        }
-    }
+    public short MaxBinX => _comObject.MaxBinX;
 
-    public short MaxBinY
-    {
-        get
-        {
-            if (Connected && _comObject is { } obj)
-            {
-                return obj.MaxBinY;
-            }
-            else
-            {
-                throw new InvalidOperationException("Camera is not connected");
-            }
-        }
-    }
+    public short MaxBinY => _comObject.MaxBinY;
 
     public int NumX
     {
-        get
-        {
-            if (Connected && _comObject is { } obj)
-            {
-                return obj.NumX;
-            }
-            else
-            {
-                throw new InvalidOperationException("Camera is not connected");
-            }
-        }
-
-        set
-        {
-            if (Connected && _comObject is { } obj)
-            {
-                obj.NumX = value;
-            }
-            else
-            {
-                throw new InvalidOperationException("Camera is not connected");
-            }
-        }
+        get => _comObject.NumX;
+        set => _comObject.NumX = value;
     }
 
     public int NumY
     {
-        get
-        {
-            if (Connected && _comObject is { } obj)
-            {
-                return obj.NumY;
-            }
-            else
-            {
-                throw new InvalidOperationException("Camera is not connected");
-            }
-        }
-
-        set
-        {
-            if (Connected && _comObject is { } obj)
-            {
-                obj.NumY = value;
-            }
-            else
-            {
-                throw new InvalidOperationException("Camera is not connected");
-            }
-        }
+        get => _comObject.NumY;
+        set => _comObject.NumY = value;
     }
 
     public int CameraXSize => Connected && _comObject?.CameraXSize is int xSize ? xSize : throw new InvalidOperationException("Camera is not connected");
@@ -360,63 +206,28 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
     public int Offset
     {
-        get
-        {
-            if (!Connected)
-            {
-                throw new InvalidOperationException("Camera is not connected");
-            }
-            else if (_comObject?.InterfaceVersion is >= 3 && _comObject?.Offset is int offset)
-            {
-                return offset;
-            }
-            else
-            {
-                throw new InvalidOperationException("Offset property is not supported");
-            }
-        }
-
-        set
-        {
-            if (!Connected)
-            {
-                throw new InvalidOperationException("Camera is not connected");
-            }
-            else if (_comObject is { } obj && obj.InterfaceVersion is >= 3)
-            {
-                obj.Offset = value;
-            }
-            else
-            {
-                throw new InvalidOperationException("Offset property is not supported");
-            }
-        }
+        get => _comObject.Offset;
+        set => _comObject.Offset = value;
     }
 
     public int OffsetMin { get; private set; }
 
     public int OffsetMax { get; private set; }
 
-    public IEnumerable<string> Offsets => Connected && UsesOffsetMode && _comObject is { } obj ? EnumerateProperty<string>(obj.Offsets) : Enumerable.Empty<string>();
+    public IReadOnlyList<string> Offsets => Connected && UsesOffsetMode && _comObject.Offsets is { } offsets ? offsets.AsReadOnly() : [];
 
     public short Gain
     {
-        get => Connected && _comObject?.Gain is short gain ? gain : throw new InvalidOperationException("Camera is not connected");
+        get => _comObject.Gain;
 
-        set
-        {
-            if (Connected && _comObject is { } obj)
-            {
-               obj.Gain = value;
-            }
-        }
+        set => _comObject.Gain = value;
     }
 
     public short GainMin { get; private set; }
 
     public short GainMax { get; private set; }
 
-    public IEnumerable<string> Gains => Connected && UsesGainMode && _comObject is { } obj ? EnumerateProperty<string>(obj.Gains) : Enumerable.Empty<string>();
+    public IReadOnlyList<string> Gains => Connected && UsesGainMode ? _comObject.Gains.AsReadOnly() : [];
 
     public bool FastReadout
     {
@@ -427,9 +238,9 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
             {
                 throw new InvalidOperationException("Camera is not connected");
             }
-            else if (CanFastReadout && _comObject is { } obj)
+            else if (CanFastReadout)
             {
-                obj.FastReadout = value;
+                _comObject.FastReadout = value;
             }
             else
             {
@@ -439,17 +250,17 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
     }
 
     private IReadOnlyList<string> ReadoutModes
-        => Connected && _comObject is { } obj && EnumerateProperty<string>(obj.ReadoutModes) is IEnumerable<string> modes ? modes.ToList() : throw new InvalidOperationException("Camera is not connected");
+        => Connected && _comObject.ReadoutModes is { } modes ? modes.AsReadOnly() : throw new InvalidOperationException("Camera is not connected");
 
     public string? ReadoutMode
     {
-        get => _comObject?.ReadoutMode is int readoutMode && readoutMode >= 0 && ReadoutModes is { Count: > 0 } modes && readoutMode < modes.Count ? modes[readoutMode] : null;
+        get => _comObject.ReadoutMode is { } readoutMode && readoutMode >= 0 && ReadoutModes is { Count: > 0 } modes && readoutMode < modes.Count ? modes[readoutMode] : null;
         set
         {
             int idx;
-            if (Connected && _comObject is { } obj && value is { Length: > 0 } && (idx = ReadoutModes.IndexOf(value)) >= 0)
+            if (Connected && value is { Length: > 0 } && (idx = ReadoutModes.IndexOf(value)) is >= 0 and <= short.MaxValue)
             {
-                obj.ReadoutMode = idx;
+                _comObject.ReadoutMode = (short)idx;
             }
         }
     }
@@ -462,7 +273,7 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
     public int MaxADU => Connected && _comObject is { } obj ? (int)obj.MaxADU : throw new InvalidOperationException("Camera is not connected");
 
-    public double FullWellCapacity => Connected && _comObject?.FullWellCapacity is double fullWellCapacity ? fullWellCapacity :throw new InvalidOperationException("Camera is not connected");
+    public double FullWellCapacity => _comObject.FullWellCapacity;
 
     public double ElectronsPerADU => Connected && _comObject?.ElectronsPerADU is { } elecPerADU ? elecPerADU :throw new InvalidOperationException("Camera is not connected");
 
@@ -541,7 +352,7 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
         if (Connected && _comObject is { } obj)
         {
-            obj.PulseGuide(direction, durationMs);
+            obj.PulseGuide((AscomGuideDirection)direction, durationMs);
         }
         else
         {
@@ -573,13 +384,13 @@ public class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
         }
     }
 
-    public CameraState CameraState => Connected && _comObject?.CameraState is int cs ? (CameraState)cs : CameraState.NotConnected;
+    public CameraState CameraState => Connected ? (CameraState)(int)_comObject.CameraState : CameraState.NotConnected;
 
-    public SensorType SensorType => Connected && _comObject?.SensorType is int st ? (SensorType)st : SensorType.Unknown;
+    public SensorType SensorType => Connected ? (SensorType)(int)_comObject.SensorType : SensorType.Unknown;
 
-    public int BayerOffsetX => Connected && _comObject?.BayerOffsetX is int bayerOffsetX ? bayerOffsetX : 0;
+    public int BayerOffsetX => _comObject.BayerOffsetX;
 
-    public int BayerOffsetY => Connected && _comObject?.BayerOffsetY is int bayerOffsetY ? bayerOffsetY : 0;
+    public int BayerOffsetY => _comObject.BayerOffsetX;
 
     #region Denormalised properties
     public string? Telescope { get; set; }

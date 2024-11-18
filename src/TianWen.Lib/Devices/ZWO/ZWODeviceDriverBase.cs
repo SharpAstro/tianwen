@@ -1,4 +1,6 @@
-﻿using ZWOptical.SDK;
+﻿using System.Threading;
+using System.Threading.Tasks;
+using ZWOptical.SDK;
 
 namespace TianWen.Lib.Devices.ZWO;
 
@@ -7,38 +9,42 @@ internal abstract class ZWODeviceDriverBase<TDeviceInfo>(ZWODevice device, IExte
 {
     public override string? DriverInfo => $"ZWO Driver v{DriverVersion}";
 
-    protected override bool OnConnectDevice(out int connectionId, out TDeviceInfo connectedDeviceInfo)
+    protected override Task<(bool Success, int ConnectionId, TDeviceInfo DeviceInfo)> DoConnectDeviceAsync(CancellationToken cancellationToken)
     {
         var deviceIterator = new DeviceIterator<TDeviceInfo>();
         var searchId = _device.DeviceId;
 
         foreach (var (deviceId, deviceInfo) in deviceIterator)
         {
-            bool hasOpened = false;
+            if (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+
+            bool needsClosing = false;
             try
             {
-                hasOpened = deviceInfo.Open();
-                if (hasOpened && (IsSameSerialNumber(deviceInfo) || IsSameCustomId(deviceInfo) || IsSameName(deviceInfo)))
+                var isOpen = deviceInfo.Open();
+                if (isOpen && (IsSameSerialNumber(deviceInfo) || IsSameCustomId(deviceInfo) || IsSameName(deviceInfo)))
                 {
-                    connectionId = deviceId;
-                    connectedDeviceInfo = deviceInfo;
-
-                    return true;
+                    needsClosing = false;
+                    return Task.FromResult((true, deviceId, deviceInfo));
+                }
+                else if (isOpen)
+                {
+                    needsClosing = true;
                 }
             }
             finally
             {
-                if (hasOpened)
+                if (needsClosing)
                 {
                     deviceInfo.Close();
                 }
             }
         }
 
-        connectionId = int.MinValue;
-        connectedDeviceInfo = default;
-
-        return false;
+        return Task.FromResult((false, CONNECTION_ID_UNKNOWN, default(TDeviceInfo)));
 
         bool IsSameSerialNumber(in TDeviceInfo deviceInfo) => deviceInfo.SerialNumber?.ToString() is { Length: > 0 } serialNumber && serialNumber == searchId;
 
@@ -47,5 +53,5 @@ internal abstract class ZWODeviceDriverBase<TDeviceInfo>(ZWODevice device, IExte
         bool IsSameName(in TDeviceInfo deviceInfo) => deviceInfo.Name is { Length: > 0 } name && name == searchId;
     }
 
-    protected override bool OnDisconnectDevice(int connectionId) => _deviceInfo.Close();
+    protected override Task<bool> DoDisconnectDeviceAsync(int connectionId, CancellationToken cancellationToken) => Task.FromResult(_deviceInfo.Close());
 }

@@ -1,8 +1,22 @@
 ﻿namespace TianWen.Lib.Devices;
 
-public enum PierSide
+/// <summary>
+/// The pointing state of the mount.
+/// </summary>
+public enum PointingState
 {
-    East = 0,
-    West = 1,
-    Unknown = -1
+    /// <summary>
+    /// Normal pointing state
+    /// </summary>
+    Normal = 0,
+
+    /// <summary>
+    /// Unknown or indeterminate.
+    /// </summary>
+    Unknown = -1,
+
+    /// <summary>
+    /// Through the pole pointing state
+    /// </summary>
+    ThroughThePole = 1
 }

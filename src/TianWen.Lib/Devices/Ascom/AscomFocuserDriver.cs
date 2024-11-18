@@ -1,61 +1,42 @@
 ﻿namespace TianWen.Lib.Devices.Ascom;
 
-public class AscomFocuserDriver : AscomDeviceDriverBase, IFocuserDriver
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using AscomFocuser = ASCOM.Com.DriverAccess.Focuser;
+
+internal class AscomFocuserDriver(AscomDevice device, IExternal external)
+    : AscomDeviceDriverBase<AscomFocuser>(device, external, (progId, logger) => new AscomFocuser(progId, new AscomLoggerWrapper(logger))), IFocuserDriver
 {
-    public AscomFocuserDriver(AscomDevice device, IExternal external) : base(device, external)
+    protected override ValueTask<bool> InitDeviceAsync(CancellationToken cancellationToken)
     {
-        DeviceConnectedEvent += AscomFocuserDriver_DeviceConnectedEvent;
-    }
+        TempCompAvailable = _comObject.TempCompAvailable;
 
-    private void AscomFocuserDriver_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
-    {
-        if (e.Connected && _comObject is { } obj)
+        try
         {
-            Absolute = obj.Absolute is bool absolute && absolute;
-            TempCompAvailable = obj.TempCompAvailable is bool tempCompAvailable && tempCompAvailable;
-
-            try
-            {
-                MaxIncrement = obj.MaxIncrement is int maxIncrement ? maxIncrement : int.MinValue;
-            }
-            catch
-            {
-                MaxIncrement = int.MinValue;
-            }
-            
-            try
-            {
-                MaxStep = obj.MaxStep is int maxStep ? maxStep : int.MinValue;
-            }
-            catch
-            {
-                MaxStep = int.MinValue;
-            }
-
-            try
-            {
-                StepSize = obj.StepSize is double stepSize && !double.IsNaN(stepSize) ? stepSize : double.NaN;
-                CanGetStepSize = !double.IsNaN(StepSize);
-            }
-            catch
-            {
-                StepSize = double.NaN;
-                CanGetStepSize = false;
-            }
+            StepSize = _comObject.StepSize is double stepSize && !double.IsNaN(stepSize) ? stepSize : double.NaN;
+            CanGetStepSize = !double.IsNaN(StepSize);
         }
+        catch
+        {
+            StepSize = double.NaN;
+            CanGetStepSize = false;
+        }
+
+        return ValueTask.FromResult(true);
     }
 
     public int Position => Connected && Absolute && _comObject?.Position is int pos ? pos : int.MinValue;
 
-    public bool Absolute { get; private set; }
+    public bool Absolute => _comObject.Absolute;
 
     public bool IsMoving => Connected && _comObject?.IsMoving is bool moving && moving;
 
-    public int MaxIncrement { get; private set; }
+    public int MaxIncrement => _comObject.MaxIncrement;
 
-    public int MaxStep { get; private set; }
+    public int MaxStep => _comObject.MaxStep;
 
-    public double StepSize { get; private set; }
+    public double StepSize { get; private set; } = double.NaN;
 
     public bool CanGetStepSize { get; private set; }
 
@@ -67,7 +48,7 @@ public class AscomFocuserDriver : AscomDeviceDriverBase, IFocuserDriver
         {
             if (Connected && TempCompAvailable && _comObject is { } obj)
             {
-                obj.TempComp = value;
+                _comObject.TempComp = value;
             }
         }
     }
@@ -76,33 +57,39 @@ public class AscomFocuserDriver : AscomDeviceDriverBase, IFocuserDriver
 
     public double Temperature => Connected && _comObject?.Temperature is double temperature ? temperature : double.NaN;
 
-    public bool Move(int position)
+    public Task BeginMoveAsync(int position, CancellationToken cancellationToken = default)
     {
-        if (Connected
-            && (Absolute ? position is >= 0 && position <= MaxStep : position >= -MaxIncrement && position <= MaxIncrement)
-            && _comObject is { } obj
-        )
+        if (!Connected)
         {
-            obj.Move(position);
-
-            return true;
+            throw new InvalidOperationException("Focuser not connected");
+        }
+        else if (Absolute && (position is < 0 || position > MaxStep))
+        {
+            throw new ArgumentOutOfRangeException(nameof(position), position, $"Absolute position must be between 0 and {MaxStep}");
+        }
+        else if (!Absolute && (position < -MaxIncrement || position > MaxIncrement))
+        {
+            throw new ArgumentOutOfRangeException(nameof(position), position, $"Relative position must be between -{MaxIncrement} and {MaxIncrement}");
+        }
+        else
+        {
+            _comObject.Move(position);
         }
 
-        return false;
+        return Task.CompletedTask;
     }
 
-    public bool Halt()
+    public Task BeginHaltAsync(CancellationToken cancellationToken = default)
     {
-        if (Connected && _comObject is { } obj)
+        if (!Connected)
         {
-            if (IsMoving)
-            {
-                obj.Halt();
-            }
-
-            return true;
+            throw new InvalidOperationException("Focuser not connected");
+        }
+        else if (IsMoving)
+        {
+            _comObject.Halt();
         }
 
-        return false;
+        return Task.CompletedTask;
     }
 }

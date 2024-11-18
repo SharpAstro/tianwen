@@ -2,9 +2,11 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Dynamic;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
 using static ZWOptical.SDK.ASICamera2;
 using static ZWOptical.SDK.ASICamera2.ASI_BOOL;
@@ -171,14 +173,19 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
 
     public override string? Description { get; } = $"ZWO Camera driver using C# SDK wrapper v{ASIGetSDKVersion}";
 
-    protected override bool OnConnectDevice(out int connectionId, out ASI_CAMERA_INFO camInfo)
+    protected override ValueTask<bool> InitDeviceAsync(CancellationToken cancellationToken)
     {
-        if (base.OnConnectDevice(out connectionId, out camInfo))
+        if (ASIInitCamera(_deviceInfo.ID) is ASI_SUCCESS)
         {
-            return ASIInitCamera(camInfo.ID) is ASI_SUCCESS;
+            return ValueTask.FromResult(true);
         }
+        else
+        {
+            // close this device again as we failed to initalize it
+            _deviceInfo.Close();
 
-        return false;
+            return ValueTask.FromResult(false);
+        }
     }
 
     public bool CanGetCoolerPower { get; private set; }
@@ -634,7 +641,7 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
 
     public short GainMax { get; private set; } = short.MinValue;
 
-    public IEnumerable<string> Gains => throw new InvalidOperationException($"{nameof(Gains)} is not supported");
+    public IReadOnlyList<string> Gains => throw new InvalidOperationException($"{nameof(Gains)} is not supported");
 
     public int Offset
     {
@@ -665,7 +672,7 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
 
     public int OffsetMax { get; private set; }
 
-    public IEnumerable<string> Offsets => throw new InvalidOperationException($"{nameof(Offsets)} is not supported");
+    public IReadOnlyList<string> Offsets => throw new InvalidOperationException($"{nameof(Offsets)} is not supported");
 
     public DateTimeOffset? LastExposureStartTime => _exposureData?.StartTime;
 
