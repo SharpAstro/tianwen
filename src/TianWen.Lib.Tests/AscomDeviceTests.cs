@@ -112,8 +112,8 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
                 image.BitDepth.ShouldBe(driver.BitDepth.ShouldNotBeNull());
                 image.MaxValue.ShouldBeGreaterThan(0f);
                 image.MaxValue.ShouldBe(expectedMax);
-                var stars = await image.FindStarsAsync(snr_min: 10);
-                stars.ShouldNotBeEmpty();
+                var stars = await image.FindStarsAsync(snrMin: 10);
+                stars.Count.ShouldBeGreaterThan(0);
             }
         }
         else

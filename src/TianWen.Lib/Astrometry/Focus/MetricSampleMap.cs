@@ -17,6 +17,22 @@ public class MetricSampleMap(SampleKind kind, AggregationMethod aggregationMetho
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public ConcurrentBag<float> Samples(int focusPos) => _samples.GetOrAdd(focusPos, pFocusPos => []);
 
+    public (FocusSolution? solution, int? minPos, int? maxPos) AddSampleAtFocusPosition(int currentPos, float sample, int maxFocusIterations = 20)
+    {
+        if (!float.IsNaN(sample) && sample > 0)
+        {
+            // add the sample
+            Samples(currentPos).Add(sample);
+
+            if (TryGetBestFocusSolution(out var solution, out var minPos, out var maxPos, maxIterations: maxFocusIterations))
+            {
+                return (solution.Value, minPos, maxPos);
+            }
+        }
+
+        return default;
+    }
+
     public bool TryGetBestFocusSolution([NotNullWhen(true)] out FocusSolution? solution, out int min, out int max, int maxIterations = 20)
     {
         var keys = _samples.Keys.ToArray();

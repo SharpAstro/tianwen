@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Web;
 
@@ -73,4 +74,7 @@ public static class CollectionHelper
             return -1;
         }
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public static IEnumerable<T> GetEnumerable<T>(this T[] arr) => arr;
 }

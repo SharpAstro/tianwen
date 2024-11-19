@@ -18,6 +18,5 @@ public static class AstrometryServiceCollectionExtensions
         .AddSingleton<IPlateSolver, AstrometryNetPlateSolverMultiPlatform>()
         .AddSingleton<IPlateSolver, AstrometryNetPlateSolverUnix>()
         .AddSingleton<IPlateSolverFactory, PlateSolverFactory>()
-        .AddScoped<IImageAnalyser, ImageAnalyser>()
         .AddSingleton<ICelestialObjectDB, CelestialObjectDB>();
 }

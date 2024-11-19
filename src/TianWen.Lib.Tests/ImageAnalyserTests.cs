@@ -18,7 +18,6 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
     const string PHD2SimGuider = nameof(PHD2SimGuider);
 
     private readonly ITestOutputHelper _testOutputHelper = testOutputHelper;
-    private readonly IImageAnalyser _imageAnalyser = new ImageAnalyser();
 
     [Theory]
     [InlineData(PlateSolveTestFile, 10f)]
@@ -28,7 +27,7 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
         // given
         var image = await SharedTestData.ExtractGZippedFitsImageAsync(name);
         var fullPath = Path.Combine(Path.GetTempPath(), $"roundtrip_{Guid.NewGuid():D}.fits");
-        var expectedStars = await _imageAnalyser.FindStarsAsync(image, snrMin: snrMin);
+        var expectedStars = await image.FindStarsAsync(snrMin: snrMin);
 
         try
         {
@@ -45,7 +44,7 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
             readoutImage.MaxValue.ShouldBe(image.MaxValue);
             readoutImage.ImageMeta.ExposureStartTime.ShouldBe(image.ImageMeta.ExposureStartTime);
             readoutImage.ImageMeta.ExposureDuration.ShouldBe(image.ImageMeta.ExposureDuration);
-            var starsFromImage = await _imageAnalyser.FindStarsAsync(image, snrMin: snrMin);
+            var starsFromImage = await image.FindStarsAsync(snrMin: snrMin);
 
             starsFromImage.ShouldBe(expectedStars, ignoreOrder: true);
         }
@@ -93,7 +92,7 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
 
         // when
         var sw = Stopwatch.StartNew();
-        var actualStars = await _imageAnalyser.FindStarsAsync(image, snrMin, maxStars ?? 500);
+        var actualStars = await image.FindStarsAsync(snrMin, maxStars ?? 500);
         _testOutputHelper.WriteLine("Testing image {0} took {1} ms", name, sw.ElapsedMilliseconds);
 
         // then
@@ -120,7 +119,7 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
         // when
         var imageData = Float32HxWImageData.FromWxHImageData(int16WxHData);
         var image = imageData.ToImage(BitDepth, BlackLevel, imageMeta);
-        var stars = await _imageAnalyser.FindStarsAsync(image, snrMin: snr_min);
+        var stars = await image.FindStarsAsync(snrMin: snr_min);
 
         // then
         image.ShouldNotBeNull();
@@ -142,16 +141,16 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
     [InlineData(PHD2SimGuider, 20, 3, 6)]
     [InlineData(PHD2SimGuider, 30, 3, 2)]
     [InlineData(PHD2SimGuider, 30, 10, 2)]
-    public async Task GivenFitsFileWhenAnalysingThenMedianHFDAndFWHMIsCalculated(string name, float snr_min, int max_retries, int expected_stars, params int[] sampleStar)
+    public async Task GivenFitsFileWhenAnalysingThenMedianHFDAndFWHMIsCalculated(string name, float snrMin, int maxRetries, int expectedStars, params int[] sampleStar)
     {
         // when
         var image = await SharedTestData.ExtractGZippedFitsImageAsync(name);
-        var result = await _imageAnalyser.FindStarsAsync(image, snrMin: snr_min, maxIterations: max_retries);
+        var result = await image.FindStarsAsync(snrMin: snrMin, maxRetries: maxRetries);
 
         // then
         result.ShouldNotBeEmpty();
-        result.Count.ShouldBe(expected_stars);
-        result.ShouldAllBe(p => p.SNR >= snr_min);
+        result.Count.ShouldBe(expectedStars);
+        result.ShouldAllBe(p => p.SNR >= snrMin);
 
         if (sampleStar is { Length: 3 })
         {
@@ -183,11 +182,11 @@ public class ImageAnalyserTests(ITestOutputHelper testOutputHelper)
                 var sw = Stopwatch.StartNew();
                 var image = await SharedTestData.ExtractGZippedFitsImageAsync($"fp{fp}-cs{cs}-ms{sampleCount}-fw{filterNo}");
                 var extractImageElapsed = sw.ElapsedMilliseconds;
-                var stars = await _imageAnalyser.FindStarsAsync(image, snrMin: snrMin);
+                var stars = await image.FindStarsAsync(snrMin: snrMin);
                 var findStarsElapsed = sw.ElapsedMilliseconds - extractImageElapsed;
-                var median = _imageAnalyser.MapReduceStarProperty(stars, sampleMap.Kind, AggregationMethod.Median);
+                var median = stars.MapReduceStarProperty(sampleMap.Kind, AggregationMethod.Median);
                 var calcMedianElapsed = sw.ElapsedMilliseconds - findStarsElapsed;
-                var (solution, maybeMinPos, maybeMaxPos) = _imageAnalyser.SampleStarsAtFocusPosition(sampleMap, fp, median, stars.Count, maxFocusIterations: maxIterations);
+                var (solution, maybeMinPos, maybeMaxPos) = sampleMap.AddSampleAtFocusPosition(fp, median, maxFocusIterations: maxIterations);
                 var addSampleElapsed = sw.ElapsedMilliseconds - calcMedianElapsed;
 
                 _testOutputHelper.WriteLine($"focuspos={fp} stars={stars.Count} median={median} solution={solution} minPos={maybeMinPos} maxPos={maybeMaxPos} time (ms): image={extractImageElapsed} find stars={findStarsElapsed} median={calcMedianElapsed} sample={addSampleElapsed}");
