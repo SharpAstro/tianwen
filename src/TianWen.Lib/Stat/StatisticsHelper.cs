@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 
 namespace TianWen.Lib.Stat;
@@ -12,7 +13,7 @@ public static class StatisticsHelper
     /// <param name="values">values</param>
     /// <returns>median value if any or NaN</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    public static float Median(in Span<float> values)
+    public static float Median(Span<float> values)
     {
         if (values.Length == 0)
         {
@@ -30,13 +31,13 @@ public static class StatisticsHelper
     }
 
     /// <summary>
-    /// Calculates the average of <paramref name="values"/>, using <see cref="SumD(in Span{float})"/> for summation.
+    /// Calculates the average of <paramref name="values"/>, using <see cref="SumD(Span{float})"/> for summation.
     /// returns <see cref="float.NaN" /> if array is empty or null.
     /// </summary>
     /// <param name="values">values</param>
     /// <returns>average value if any or NaN</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    public static float Average(in Span<float> values) => (float)(SumD(values) / values.Length);
+    public static float Average(ReadOnlySpan<float> values) => (float)(SumD(values) / values.Length);
 
     /// <summary>
     /// Calculates the sum of <paramref name="values"/>, using <see langword="double"/> to preserve precision.
@@ -45,7 +46,7 @@ public static class StatisticsHelper
     /// <param name="values">values</param>
     /// <returns>average value if any or NaN</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    public static double SumD(in Span<float> values)
+    public static double SumD(ReadOnlySpan<float> values)
     {
         if (values.Length == 0)
         {
@@ -56,8 +57,26 @@ public static class StatisticsHelper
             return values[0];
         }
 
+        int i = 0;
         var sum = 0d;
-        for (var i = 0; i < values.Length; i++)
+
+        if (Vector<float>.IsSupported)
+        {
+            int vectorSize = Vector<float>.Count;
+
+            // Sum using Vector<float>
+            if (values.Length >= vectorSize)
+            {
+                for (; i <= values.Length - vectorSize; i += vectorSize)
+                {
+                    var vector = new Vector<float>(values.Slice(i, vectorSize));
+                    sum += Vector.Sum(vector);
+                }
+            }
+        }
+
+        // Sum remaining elements
+        for (; i < values.Length; i++)
         {
             sum += values[i];
         }
@@ -94,7 +113,7 @@ public static class StatisticsHelper
     /// <param name="values">Values to calculate GCD from.</param>
     /// <returns>GCD</returns>
     /// <exception cref="ArgumentException">if <paramref name="values"/> span is empty</exception>
-    internal static uint GCDNoCopy(in Span<int> values)
+    internal static uint GCDNoCopy(Span<int> values)
     {
         if (values.Length > 1)
         {
@@ -125,7 +144,7 @@ public static class StatisticsHelper
 
     public static ulong LCM(int first, params int[] rest) => LCM([first, .. rest]);
 
-    public static ulong LCM(in Span<int> values) => LCM(GCD(values), values);
+    public static ulong LCM(Span<int> values) => LCM(GCD(values), values);
 
     internal static ulong LCM(uint gcd, in Span<int> values)
     {

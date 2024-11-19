@@ -3,7 +3,6 @@ using nom.tam.fits;
 using nom.tam.util;
 using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
@@ -513,29 +512,29 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
     /// <summary>
     /// Find background, noise level, number of stars and their HFD, FWHM, SNR, flux and centroid.
     /// </summary>
-    /// <param name="snr_min">S/N ratio threshold for star detection</param>
-    /// <param name="max_stars"></param>
-    /// <param name="max_retries"></param>
+    /// <param name="snrMin">S/N ratio threshold for star detection</param>
+    /// <param name="maxStars"></param>
+    /// <param name="maxRetries"></param>
     /// <returns></returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    public async Task<IReadOnlyList<ImagedStar>> FindStarsAsync(float snr_min = 20f, int max_stars = 500, int max_retries = 2, CancellationToken cancellationToken = default)
+    public async Task<StarList> FindStarsAsync(float snrMin = 20f, int maxStars = 500, int maxRetries = 2, CancellationToken cancellationToken = default)
     {
-        const int ChunkSize = 3 * MaxScaledRadius;
+        const int ChunkSize = 2 * MaxScaledRadius;
         const float HalfChunkSizeInv = 1.0f / 2.0f * ChunkSize;
 
         if (imageMeta.SensorType is not SensorType.Monochrome)
         {
-            return await DebayerOSCToSyntheticLuminance().FindStarsAsync(snr_min, max_stars, max_retries, cancellationToken);
+            return await DebayerOSCToSyntheticLuminance().FindStarsAsync(snrMin, maxStars, maxRetries, cancellationToken);
         }
 
         var (background, star_level, noise_level, hist_threshold) = Background();
 
         var detection_level = MathF.Max(3.5f * noise_level, star_level); /* level above background. Start with a high value */
-        var retries = max_retries;
+        var retries = maxRetries;
 
         if (background >= hist_threshold || background <= 0)  /* abnormal file */
         {
-            return [];
+            return new StarList([]);
         }
 
         var starList = new ConcurrentBag<ImagedStar>();
@@ -564,7 +563,7 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
                                     && !img_star_area[fitsY, fitsX]
                                     && AnalyseStar(fitsX, fitsY, BoxRadius, out var star)
                                     && star.HFD is > 0.8f and <= BoxRadius * 2 /* at least 2 pixels in size */
-                                    && star.SNR >= snr_min
+                                    && star.SNR >= snrMin
                                 )
                                 {
                                     starList.Add(star);
@@ -593,9 +592,9 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
                 retries--;
                 detection_level = MathF.Max(6.999f * noise_level, MathF.Min(30 * noise_level, detection_level * 6.999f / 30)); /* very high -> 30 -> 7 -> stop.  Or  60 -> 14 -> 7.0. Or for very short exposures 3.5 -> stop */
             }
-        } while (starList.Count < max_stars && retries > 0);/* reduce detection level till enough stars are found. Note that faint stars have less positional accuracy */
+        } while (starList.Count < maxStars && retries > 0);/* reduce detection level till enough stars are found. Note that faint stars have less positional accuracy */
 
-        return [..starList];
+        return new StarList(starList);
     }
 
     /// <summary>

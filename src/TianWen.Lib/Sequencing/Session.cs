@@ -7,7 +7,6 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Guider;
@@ -20,7 +19,6 @@ namespace TianWen.Lib.Sequencing;
 public record Session(
     Setup Setup,
     in SessionConfiguration Configuration,
-    IImageAnalyser Analyser,
     IPlateSolver PlateSolver,
     IExternal External,
     IReadOnlyList<Observation> Observations
@@ -148,7 +146,7 @@ public record Session(
 
                 if (camDriver.ImageReady is true && camDriver.Image is { Width: > 0, Height: > 0 } image)
                 {
-                    var stars = await Analyser.FindStarsAsync(image, snrMin: 15, cancellationToken: cancellationToken);
+                    var stars = await image.FindStarsAsync(snrMin: 15, cancellationToken: cancellationToken);
 
                     if (stars.Count < 15)
                     {
