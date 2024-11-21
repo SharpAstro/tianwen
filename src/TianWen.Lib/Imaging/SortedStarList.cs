@@ -2,6 +2,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
+using System.Threading;
 
 namespace TianWen.Lib.Imaging;
 
@@ -15,6 +16,8 @@ public class SortedStarList(StarList stars) : IReadOnlyList<ImagedStar>
     static readonly XCentroidComparer xCentroidComparer = new XCentroidComparer();
 
     private readonly ImagedStar[] _stars = SortStarList(stars, xCentroidComparer);
+    private List<StarQuad>? _quads;
+    private readonly object _lock = new(); // TODO: Change to Lock object when updading to C# 13
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     private static ImagedStar[] SortStarList(StarList stars, IComparer<ImagedStar> comparer)
@@ -24,12 +27,28 @@ public class SortedStarList(StarList stars) : IReadOnlyList<ImagedStar>
         return sortedStars;
     }
 
+
     /// <summary>
     /// 
     /// </summary>
     /// <returns></returns>
     /// <remarks>From unit_star_align.pas:find_quads</remarks>
+
     public IReadOnlyList<StarQuad> FindQuads()
+    {
+        var quads = Interlocked.CompareExchange(ref _quads, null, null);
+        if (quads is not null)
+        {
+            return quads;
+        }
+
+        lock (_lock)
+        {
+            return _quads = DoFindQuads();
+        }
+    }
+
+    private List<StarQuad> DoFindQuads()
     {
         var tolerance = (int)MathF.Round(0.5f * MathF.Sqrt(_stars.Length));
         var quadStarDistances = new List<StarQuad>(_stars.Length);
@@ -127,6 +146,9 @@ public class SortedStarList(StarList stars) : IReadOnlyList<ImagedStar>
 
         return quadStarDistances;
     }
+
+    public StarReferenceTable? FindFit(SortedStarList other, int minimumCount = 6, float quadTolerance = 0.008f)
+        => StarReferenceTable.FindFit(FindQuads(), other.FindQuads(), minimumCount, quadTolerance);
 
     public int Count => _stars.Length;
 
