@@ -150,6 +150,15 @@ public class SortedStarList(StarList stars) : IReadOnlyList<ImagedStar>
     public StarReferenceTable? FindFit(SortedStarList other, int minimumCount = 6, float quadTolerance = 0.008f)
         => StarReferenceTable.FindFit(FindQuads(), other.FindQuads(), minimumCount, quadTolerance);
 
+    public void FindOffsetAndRotation(SortedStarList other, int minimumCount = 6, float quadTolerance = 0.008f)
+    {
+        var starRefTable = FindFit(other, minimumCount, quadTolerance);
+        if (starRefTable is { } && starRefTable.FindOffsetAndRotation())
+        {
+
+        }
+    }
+
     public int Count => _stars.Length;
 
     public ImagedStar this[int index] => _stars[index];
