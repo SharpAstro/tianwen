@@ -1113,4 +1113,17 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
             Filter = new Filter("LUM")
         });
     }
+
+    public async Task FindOffsetAndRotationAsync(Image other, float snrMin = 20f, int maxStars = 500, int maxRetries = 2, int minStars = 24, float quadTolerance = 0.008f, CancellationToken cancellationToken = default)
+    {
+        var starList1Task = FindStarsAsync(snrMin, maxStars, maxRetries, cancellationToken);
+        var starList2Task = other.FindStarsAsync(snrMin, maxStars, maxRetries, cancellationToken);
+
+        var starLists = await Task.WhenAll(starList1Task, starList2Task);
+
+        if (starLists[0].Count >= minStars || starLists[1].Count >= minStars)
+        {
+            new SortedStarList(starLists[0]).FindOffsetAndRotation(new SortedStarList(starLists[1]), minStars/ 4, quadTolerance);
+        }
+    }
 }
