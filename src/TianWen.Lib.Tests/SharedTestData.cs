@@ -132,7 +132,7 @@ public static class SharedTestData
                 {
                     File.Move(tempFile, fullPath);
                 }
-                catch (IOException) when (!File.Exists(fullPath))
+                catch (IOException io) when (io.HResult != 0x80) // ERROR_FILE_EXISTS
                 {
                     throw;
                 }
