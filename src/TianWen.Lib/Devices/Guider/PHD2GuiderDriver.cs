@@ -576,10 +576,10 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
     static GuideStats AccumulateGuidingStats(Accum ra, Accum dec) => new()
     {
-        RaRMS = ra.Stdev(),
-        DecRMS = dec.Stdev(),
-        PeakRa = ra.Peak(),
-        PeakDec = dec.Peak()
+        RaRMS = ra.Stdev,
+        DecRMS = dec.Stdev,
+        PeakRa = ra.Peak,
+        PeakDec = dec.Peak
     };
 
     static bool IsGuidingAppState(string? appState) => appState is "Guiding" or "LostLock";

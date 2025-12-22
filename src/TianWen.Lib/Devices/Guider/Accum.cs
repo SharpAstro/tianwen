@@ -28,47 +28,37 @@ using System;
 
 namespace TianWen.Lib.Devices.Guider;
 
-class Accum
+record Accum()
 {
-    uint n;
-    double a;
-    double q;
-    double peak;
+    double SumOfSquaredDifference;
 
-    public Accum()
-    {
-        Reset();
-    }
-
+    public double Mean { get; private set; }
+    public uint Count { get; private set; }
+    public double Peak { get; private set; }
     public double? Last { get; private set; }
 
     public void Reset()
     {
-        n = 0;
-        a = q = peak = 0;
+        Count = 0;
+        Mean = SumOfSquaredDifference = Peak = 0;
         Last = null;
     }
 
     public void Add(double x)
     {
         Last = x;
-        double ax = Math.Abs(x);
-        if (ax > peak) peak = ax;
-        ++n;
-        double d = x - a;
-        a += d / n;
-        q += (x - a) * d;
+        var absX = Math.Abs(x);
+        if (absX > Peak)
+        {
+            Peak = absX;
+        }
+        
+        ++Count;
+        var diff = x - Mean;
+        Mean += diff / Count;
+        SumOfSquaredDifference += (x - Mean) * diff;
     }
-    public double Mean()
-    {
-        return a;
-    }
-    public double Stdev()
-    {
-        return n >= 1 ? Math.Sqrt(q / n) : 0.0;
-    }
-    public double Peak()
-    {
-        return peak;
-    }
+
+    public double Stdev => Count >= 1 ? Math.Sqrt(SumOfSquaredDifference / Count) : 0.0;
+
 }
