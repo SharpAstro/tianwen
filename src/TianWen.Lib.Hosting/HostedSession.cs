@@ -17,7 +17,7 @@ internal class HostedSession(ISessionFactory sessionFactory) : IHostedSession
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        var oldCts = Interlocked.CompareExchange(ref _cts, CancellationTokenSource.CreateLinkedTokenSource(cancellationToken), null);
+        var oldCts = Interlocked.Exchange(ref _cts, CancellationTokenSource.CreateLinkedTokenSource(cancellationToken));
         if (oldCts is { IsCancellationRequested: false })
         {
             await oldCts.CancelAsync();
