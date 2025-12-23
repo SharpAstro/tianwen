@@ -108,7 +108,12 @@ public static class SharedTestData
 
     private static async Task<string> WriteEphemeralUseTempFileAsync(string fileName, Func<string, ValueTask> fileOperation)
     {
-        var dir = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), nameof(SharedTestData), $"{DateTimeOffset.Now.Date:yyyyMMdd}"));
+        var dir = Directory.CreateDirectory(Path.Combine(
+            Path.GetTempPath(),
+            AssemblyName(typeof(SharedTestData)),
+            nameof(SharedTestData),
+            $"{DateTimeOffset.Now.Date:yyyyMMdd}"
+        ));
 
         var fullPath = Path.Combine(dir.FullName, fileName);
         if (File.Exists(fullPath))
@@ -132,13 +137,40 @@ public static class SharedTestData
                 {
                     File.Move(tempFile, fullPath);
                 }
-                catch (Exception) when (!File.Exists(fullPath))
+                // see https://learn.microsoft.com/en-us/dotnet/standard/io/handling-io-errors
+                catch (IOException iox) when ((iox.HResult & 0x0000FFFF) is 0x80 or 0xB7)
                 {
-                    throw;
+                    return fullPath;
+                }
+                catch (IOException) when (File.Exists(fullPath))
+                {
+                    return fullPath;
+                }
+                catch (IOException iox)
+                {
+                    throw new Exception($"Failed to move file {tempFile} to {fullPath}, code: {(iox.HResult & 0x0000FFFF):X}: {iox.Message}", iox);
                 }
             }
 
             return fullPath;
+        }
+    }
+
+    internal static string AssemblyName(Type type)
+    {
+        var name = type.Assembly.GetName();
+
+        if (!string.IsNullOrEmpty(name.Name))
+        {
+            return name.Name;
+        }
+        else if (name.FullName.IndexOf(',') is { } comma and > 0)
+        {
+            return name.FullName[..comma];
+        }
+        else
+        {
+            return type.Name;
         }
     }
 
