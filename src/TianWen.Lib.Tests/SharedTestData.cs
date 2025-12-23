@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Reflection;
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
 
@@ -19,6 +20,7 @@ public static class SharedTestData
     internal const string PSR_J0002_6216n_Enc = "\u00C1AXL@Q3uC";
 
     private static readonly ConcurrentDictionary<string, Image> _imageCache = [];
+    private static readonly Assembly _assembly = typeof(SharedTestData).Assembly;
 
     internal static async Task<Image> ExtractGZippedFitsImageAsync(string name, bool isReadOnly = true)
     {
@@ -110,8 +112,7 @@ public static class SharedTestData
     {
         var dir = Directory.CreateDirectory(Path.Combine(
             Path.GetTempPath(),
-            AssemblyName(typeof(SharedTestData)),
-            nameof(SharedTestData),
+            TestDataRoot,
             $"{DateTimeOffset.Now.Date:yyyyMMdd}"
         ));
 
@@ -156,37 +157,39 @@ public static class SharedTestData
         }
     }
 
-    internal static string AssemblyName(Type type)
+    internal static string TestDataRoot
     {
-        var name = type.Assembly.GetName();
+        get
+        {
+            var name = _assembly.GetName();
+            var typeName = nameof(SharedTestData);
 
-        if (!string.IsNullOrEmpty(name.Name))
-        {
-            return name.Name;
-        }
-        else if (name.FullName.IndexOf(',') is { } comma and > 0)
-        {
-            return name.FullName[..comma];
-        }
-        else
-        {
-            return type.Name;
+            if (!string.IsNullOrEmpty(name.Name))
+            {
+                return Path.Combine(name.Name, typeName);
+            }
+            else if (name.FullName.IndexOf(',') is { } comma and > 0)
+            {
+                return Path.Combine(name.FullName[..comma],typeName);
+            }
+            else
+            {
+                return typeName;
+            }
         }
     }
 
     private static Stream? OpenGZippedFitsFileStream(string name)
     {
-        var assembly = typeof(SharedTestData).Assembly;
-        var gzippedTestFile = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith($".{name}.fits.gz"));
-        return gzippedTestFile is not null ? assembly.GetManifestResourceStream(gzippedTestFile) : null;
+        var gzippedTestFile = _assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith($".{name}.fits.gz"));
+        return gzippedTestFile is not null ? _assembly.GetManifestResourceStream(gzippedTestFile) : null;
     }
 
     internal static async Task<int[,]> ExtractGZippedImageData(string name, int width, int height)
     {
-        var assembly = typeof(SharedTestData).Assembly;
-        var gzippedImageData = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith($".{name}_{width}x{height}.raw.gz"));
+        var gzippedImageData = _assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith($".{name}_{width}x{height}.raw.gz"));
 
-        if (gzippedImageData is not null && assembly.GetManifestResourceStream(gzippedImageData) is Stream inStream)
+        if (gzippedImageData is not null && _assembly.GetManifestResourceStream(gzippedImageData) is Stream inStream)
         {
             var output = new int[width, height];
             using var gzipStream = new GZipStream(inStream, CompressionMode.Decompress, false);
