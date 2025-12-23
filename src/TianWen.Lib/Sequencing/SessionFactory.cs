@@ -23,7 +23,7 @@ internal class SessionFactory(
         await deviceManager.DiscoverAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    public Session Create(Guid profileId, in SessionConfiguration configuration, IReadOnlyList<Observation> observations)
+    public ISession Create(Guid profileId, in SessionConfiguration configuration, IReadOnlyList<Observation> observations)
     {
         if (!deviceManager.TryFindByDeviceId(Profile.DeviceIdFromUUID(profileId), out var profileDevice))
         {

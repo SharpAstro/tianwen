@@ -9,5 +9,5 @@ public interface ISessionFactory
 {
     ValueTask InitializeAsync(CancellationToken cancellationToken = default);
 
-    Session Create(Guid profileId, in SessionConfiguration configuration, IReadOnlyList<Observation> observations);
+    ISession Create(Guid profileId, in SessionConfiguration configuration, IReadOnlyList<Observation> observations);
 }

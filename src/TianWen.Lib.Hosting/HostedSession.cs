@@ -5,15 +5,15 @@ namespace TianWen.Lib.Hosting;
 
 public interface IHostedSession : IHostedService
 {
-    bool IsRunning { get; }
+    ISession? CurrentSession { get; }
 }
 
 internal class HostedSession(ISessionFactory sessionFactory) : IHostedSession
 {
-    private Session? _session;
+    private ISession? _session;
     private CancellationTokenSource? _cts;
 
-    public bool IsRunning => Interlocked.CompareExchange(ref _session, null, null) != null;
+    public ISession? CurrentSession => Interlocked.CompareExchange(ref _session, null, null);
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -34,9 +34,10 @@ internal class HostedSession(ISessionFactory sessionFactory) : IHostedSession
             cts.Dispose();
         }
 
-        if (Interlocked.Exchange(ref _session, null) is { })
+        if (Interlocked.Exchange(ref _session, null) is { } session)
         {
-            // TODO ensure session is finalized
+            // TODO: there's more to do here to gracefully stop a session
+            await session.DisposeAsync();
         }
     }
 }

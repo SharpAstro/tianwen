@@ -16,18 +16,29 @@ using static TianWen.Lib.Stat.StatisticsHelper;
 
 namespace TianWen.Lib.Sequencing;
 
-public record Session(
+public interface ISession : IAsyncDisposable
+{
+    Observation? ActiveObservation { get; }
+
+    IReadOnlyList<Observation> PlannedObservations { get; }
+
+    Task RunAsync(CancellationToken cancellationToken);
+}
+
+internal record Session(
     Setup Setup,
     in SessionConfiguration Configuration,
     IPlateSolver PlateSolver,
     IExternal External,
-    IReadOnlyList<Observation> Observations
-)
+    IReadOnlyList<Observation> PlannedObservations
+) : ISession
 {
-    private readonly ConcurrentQueue<GuiderEventArgs> _guiderEvents = [];
-    private int _activeObservation = -1;
+    const int UNINITIALIZED_OBSERVATION_INDEX = -1;
 
-    public Observation? CurrentObservation => _activeObservation is int active and >= 0 && active < Observations.Count ? Observations[active] : null;
+    private readonly ConcurrentQueue<GuiderEventArgs> _guiderEvents = [];
+    private int _activeObservation = UNINITIALIZED_OBSERVATION_INDEX;
+
+    public Observation? ActiveObservation => _activeObservation is int active and >= 0 && active < PlannedObservations.Count ? PlannedObservations[active] : null;
 
     private int AdvanceObservation() => Interlocked.Increment(ref _activeObservation);
 
@@ -45,7 +56,7 @@ public record Session(
                     return;
                 }
             }
-            else if (CurrentObservation is null)
+            else if (ActiveObservation is null)
             {
                 External.AppLogger.LogInformation("Session complete, finished {ObservationCount} observations, finalizing.", _activeObservation);
                 return;
@@ -411,7 +422,7 @@ public record Session(
         var sessionEndTime = SessionEndTime(sessionStartTime);
 
         Observation? observation;
-        while ((observation = CurrentObservation) is not null
+        while ((observation = ActiveObservation) is not null
             && MountUtcNow < sessionEndTime
             && !cancellationToken.IsCancellationRequested
         )
@@ -603,7 +614,7 @@ public record Session(
                 }
             }
 
-            var allimageFetchSuccess = imageFetchSuccess.All(x => x);
+            var fetchImagesSuccessAll = imageFetchSuccess.All(x => x);
             if (!mount.Driver.IsOnSamePierSide(hourAngleAtSlewTime))
             {
                 // write all images as the loop is ending here
@@ -622,7 +633,7 @@ public record Session(
                     return true;
                 }
             }
-            else if (allimageFetchSuccess)
+            else if (fetchImagesSuccessAll)
             {
                 var shouldDither = (++ditherRound % Configuration.DitherEveryNthFrame) == 0;
                 if (shouldDither)
@@ -915,5 +926,12 @@ public record Session(
         {
             throw new InvalidOperationException($"Failed to retrieve astro event time for {transform.DateTime}");
         }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await Setup.DisposeAsync();
+
+        GC.SuppressFinalize(this);
     }
 }
