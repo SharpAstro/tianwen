@@ -179,10 +179,13 @@ public static class SharedTestData
         }
     }
 
-    private static Stream? OpenGZippedFitsFileStream(string name)
+    private static Stream? OpenGZippedFitsFileStream(string name) => OpenEmbeddedFileStream(name + ".fits.gz");
+
+    internal static Stream? OpenEmbeddedFileStream(string nameWithExt)
     {
-        var gzippedTestFile = _assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith($".{name}.fits.gz"));
-        return gzippedTestFile is not null ? _assembly.GetManifestResourceStream(gzippedTestFile) : null;
+        var embeddedFiles = _assembly.GetManifestResourceNames();
+        var embeddedTestFile = embeddedFiles.FirstOrDefault(p => p.EndsWith($".{nameWithExt}"));
+        return embeddedTestFile is not null ? _assembly.GetManifestResourceStream(embeddedTestFile) : null;
     }
 
     internal static async Task<int[,]> ExtractGZippedImageData(string name, int width, int height)

@@ -1,0 +1,138 @@
+{
+    "Version": 2,
+    "Filter": "",
+    "AutoFocuserName": "NINA",
+    "StarDetectorName": "NINA",
+    "Timestamp": "2025-12-18T02:26:57.7264571+11:00",
+    "Temperature": 17.3,
+    "Method": "STARHFR",
+    "Fitting": "HYPERBOLIC",
+    "InitialFocusPoint": {
+        "Position": 24188.0,
+        "Value": "NaN",
+        "Error": 0.0
+    },
+    "CalculatedFocusPoint": {
+        "Position": 24175.0,
+        "Value": 1.5102258589728905,
+        "Error": 0.0
+    },
+    "PreviousFocusPoint": {
+        "Position": 24175.0,
+        "Value": 1.5102258589728905,
+        "Error": 0.0
+    },
+    "MeasurePoints": [
+        {
+            "Position": 23880.0,
+            "Value": 4.668774199434692,
+            "Error": 0.435025051683262
+        },
+        {
+            "Position": 23924.0,
+            "Value": 3.8993717599171758,
+            "Error": 0.4355880882262543
+        },
+        {
+            "Position": 23968.0,
+            "Value": 3.173095406424967,
+            "Error": 0.40082923403052134
+        },
+        {
+            "Position": 24012.0,
+            "Value": 2.576043863847091,
+            "Error": 0.3671574822755567
+        },
+        {
+            "Position": 24056.0,
+            "Value": 2.1066865896511544,
+            "Error": 0.3019862831755068
+        },
+        {
+            "Position": 24100.0,
+            "Value": 1.7834870796225144,
+            "Error": 0.3240555491239716
+        },
+        {
+            "Position": 24144.0,
+            "Value": 1.5930493430914971,
+            "Error": 0.3611520722333917
+        },
+        {
+            "Position": 24188.0,
+            "Value": 1.5793211597102113,
+            "Error": 0.3351345838376761
+        },
+        {
+            "Position": 24232.0,
+            "Value": 1.76217926944952,
+            "Error": 0.32189739763818176
+        },
+        {
+            "Position": 24276.0,
+            "Value": 2.0837153097639955,
+            "Error": 0.32056492988059393
+        },
+        {
+            "Position": 24320.0,
+            "Value": 2.5075581198648966,
+            "Error": 0.3570078848189682
+        },
+        {
+            "Position": 24364.0,
+            "Value": 3.023765820397556,
+            "Error": 0.3689183766026298
+        },
+        {
+            "Position": 24408.0,
+            "Value": 3.6266983573249805,
+            "Error": 0.34421297791056366
+        },
+        {
+            "Position": 24452.0,
+            "Value": 3.8602206973301145,
+            "Error": 0.34873615766919547
+        }
+    ],
+    "Intersections": {
+        "TrendLineIntersection": {
+            "Position": 24154.0,
+            "Value": 0.9055509614369157,
+            "Error": 0.0
+        },
+        "HyperbolicMinimum": {
+            "Position": 24175.0,
+            "Value": 1.5102258589728905,
+            "Error": 0.0
+        },
+        "QuadraticMinimum": {
+            "Position": 24177.0,
+            "Value": 1.6683932935993653,
+            "Error": 0.0
+        },
+        "GaussianMaximum": {
+            "Position": 23869.0,
+            "Value": 4.686151848363716,
+            "Error": 0.0
+        }
+    },
+    "Fittings": {
+        "Quadratic": "y = 3.344773073588506E-05 * x^2 + -1.6173376103090153 * x + 19552.927089576566",
+        "Hyperbolic": "y = 1.5102258589728905 * cosh(asinh((24175.487500000017 - x) / 109.67706770697826))",
+        "Gaussian": "y = 2.290188681484967 * exp(-1 * (x - 23869.017253808208) * (x - 23869.017253808208) / (2 * 63.12574756434465 * 63.12574756434465)) + 2.3959631668787496",
+        "LeftTrend": "y = -0.012955584827095669 * x + 313.8349336640067",
+        "RightTrend": "y = 0.010142795882425252 * x + -244.08368701779779"
+    },
+    "RSquares": {
+        "Quadratic": 0.9778562694297122,
+        "Hyperbolic": 0.981600714229697,
+        "LeftTrend": 0.9772991449215958,
+        "RightTrend": 0.9890322350514124
+    },
+    "BacklashCompensation": {
+        "BacklashCompensationModel": "OVERSHOOT",
+        "BacklashIN": 0,
+        "BacklashOUT": 0
+    },
+    "Duration": "00:04:38.5334316"
+}
