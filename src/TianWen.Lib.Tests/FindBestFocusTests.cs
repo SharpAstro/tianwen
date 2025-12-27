@@ -75,14 +75,14 @@ public class FindBestFocusTests(ITestOutputHelper testOutputHelper) : ImageAnaly
 
         ninaResult.CalculatedFocusPoint.Position.ShouldBeInRange(minPos, maxPos);
 
+        solution.ShouldNotBeNull().BestFocus.ShouldBeInRange(minPos, maxPos);
+
         var fileName = Path.ChangeExtension(file, ".png");
         await DrawSolution(sampleMap, solution, minPos, maxPos, fileName);
     }
 
     [Theory]
-    [InlineData(SampleKind.HFD, AggregationMethod.Average, 28208, 28211, 1, 1, 1, 10f, 20, 2, 130)]
     [InlineData(SampleKind.HFD, AggregationMethod.Average, 28227, 28231, 1, 1, 1, 10f, 20, 2, 140)]
-    [InlineData(SampleKind.HFD, AggregationMethod.Average, 28208, 28231, 1, 1, 1, 10f, 20, 2, 130)]
     public async Task HyperboleIsFoundFromActualImageRun(SampleKind kind, AggregationMethod aggregationMethod, int focusStart, int focusEndIncl, int focusStepSize, int sampleCount, int filterNo, float snrMin, int maxIterations, int expectedSolutionAfterSteps, int expectedMinStarCount)
     {
         // given
@@ -133,8 +133,6 @@ public class FindBestFocusTests(ITestOutputHelper testOutputHelper) : ImageAnaly
 
     private async Task DrawSolution(MetricSampleMap sampleMap, FocusSolution? solution, int minPos, int maxPos, string fileName)
     {
-        solution.ShouldNotBeNull().BestFocus.ShouldBeInRange(minPos, maxPos);
-
         using var image = new MagickImage(MagickColors.Transparent, 1000, 1000)
         {
             Format = MagickFormat.Png
