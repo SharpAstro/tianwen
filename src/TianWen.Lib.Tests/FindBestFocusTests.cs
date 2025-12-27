@@ -1,7 +1,10 @@
-﻿using Shouldly;
+﻿using ImageMagick;
+using Shouldly;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
@@ -12,7 +15,7 @@ using Xunit.Abstractions;
 
 namespace TianWen.Lib.Tests;
 
-public class FindVCurveFromFitsFileTests(ITestOutputHelper testOutputHelper) : ImageAnalyserTests(testOutputHelper)
+public class FindBestFocusTests(ITestOutputHelper testOutputHelper) : ImageAnalyserTests(testOutputHelper)
 {
     record NinaTestResult(
         int Version,
@@ -54,6 +57,7 @@ public class FindVCurveFromFitsFileTests(ITestOutputHelper testOutputHelper) : I
         ninaResult.MeasurePoints.ShouldNotBeEmpty();
 
         var ninaFitting = ninaResult.Fittings[ninaResult.Fitting.ToString()];
+        _testOutputHelper.WriteLine("NINA fitting formula: " + ninaFitting);
 
         var sampleKind = ninaResult.Method switch
         {
@@ -68,9 +72,11 @@ public class FindVCurveFromFitsFileTests(ITestOutputHelper testOutputHelper) : I
             sampleMap.AddSampleAtFocusPosition((int)Math.Round(point.Position), (float)point.Value);
         }
         sampleMap.TryGetBestFocusSolution(out var solution, out var minPos, out var maxPos).ShouldBeTrue();
-    
+
         ninaResult.CalculatedFocusPoint.Position.ShouldBeInRange(minPos, maxPos);
-        solution.ShouldNotBeNull().P.ShouldBeInRange(minPos, maxPos);
+
+        var fileName = Path.ChangeExtension(file, ".png");
+        await DrawSolution(sampleMap, solution, minPos, maxPos, fileName);
     }
 
     [Theory]
@@ -87,37 +93,64 @@ public class FindVCurveFromFitsFileTests(ITestOutputHelper testOutputHelper) : I
         {
             for (int cs = 1; cs <= sampleCount; cs++)
             {
+                var sampleName = $"fp{fp}-cs{cs}-ms{sampleCount}-fw{filterNo}";
                 var sw = Stopwatch.StartNew();
-                var image = await SharedTestData.ExtractGZippedFitsImageAsync($"fp{fp}-cs{cs}-ms{sampleCount}-fw{filterNo}");
+                var image = await SharedTestData.ExtractGZippedFitsImageAsync(sampleName);
                 var extractImageElapsed = sw.ElapsedMilliseconds;
                 var stars = await image.FindStarsAsync(snrMin: snrMin);
                 var findStarsElapsed = sw.ElapsedMilliseconds - extractImageElapsed;
                 var median = stars.MapReduceStarProperty(sampleMap.Kind, AggregationMethod.Median);
                 var calcMedianElapsed = sw.ElapsedMilliseconds - findStarsElapsed;
-                var (solution, maybeMinPos, maybeMaxPos) = sampleMap.AddSampleAtFocusPosition(fp, median, maxFocusIterations: maxIterations);
+                sampleMap.AddSampleAtFocusPosition(fp, median).ShouldBeTrue();
                 var addSampleElapsed = sw.ElapsedMilliseconds - calcMedianElapsed;
 
-                _testOutputHelper.WriteLine($"focuspos={fp} stars={stars.Count} median={median} solution={solution} minPos={maybeMinPos} maxPos={maybeMaxPos} time (ms): image={extractImageElapsed} find stars={findStarsElapsed} median={calcMedianElapsed} sample={addSampleElapsed}");
+                _testOutputHelper.WriteLine($"focuspos={fp} stars={stars.Count} median={median} time (ms): image={extractImageElapsed} find stars={findStarsElapsed} median={calcMedianElapsed} sample={addSampleElapsed}");
 
                 median.ShouldBeGreaterThan(1f);
                 stars.Count.ShouldBeGreaterThan(expectedMinStarCount);
 
+                var hasSolution = sampleMap.TryGetBestFocusSolution(out var solution, out var minPos, out var maxPos, maxIterations);
                 if (fp - focusStart >= expectedSolutionAfterSteps)
                 {
-                    (_, _, _, double error, int iterations) = solution.ShouldNotBeNull();
-                    var minPos = maybeMinPos.ShouldNotBeNull();
-                    var maxPos = maybeMaxPos.ShouldNotBeNull();
+                    hasSolution.ShouldBeTrue();
+                    solution.HasValue.ShouldBeTrue();
 
                     maxPos.ShouldBeGreaterThan(minPos);
                     minPos.ShouldBe(focusStart);
-                    iterations.ShouldBeLessThanOrEqualTo(maxIterations);
-                    error.ShouldBeLessThan(1);
+                    solution.Value.Iterations.ShouldBeLessThanOrEqualTo(maxIterations);
+                    solution.Value.Error.ShouldBeInRange(0, 1);
+
+                    await DrawSolution(sampleMap, solution, minPos, maxPos, sampleName + ".png");
                 }
                 else
                 {
+                    hasSolution.ShouldBeFalse();
                     solution.ShouldBeNull();
                 }
             }
         }
+    }
+
+    private async Task DrawSolution(MetricSampleMap sampleMap, FocusSolution? solution, int minPos, int maxPos, string fileName)
+    {
+        solution.ShouldNotBeNull().BestFocus.ShouldBeInRange(minPos, maxPos);
+
+        using var image = new MagickImage(MagickColors.Transparent, 1000, 1000)
+        {
+            Format = MagickFormat.Png
+        };
+        var xMargin = (int)Math.Ceiling(image.Width * 0.1);
+        var yMargin = (int)Math.Ceiling(image.Height * 0.1);
+
+        sampleMap.Draw(solution.Value, minPos, maxPos, image, xMargin, yMargin);
+
+        var outputDir = SharedTestData.CreateTempTestOutputDir();
+        var fullPath = Path.Combine(outputDir, fileName);
+
+        await image.WriteAsync(fullPath);
+
+        _testOutputHelper.WriteLine("Result: " + solution);
+        _testOutputHelper.WriteLine("Wrote hyperbola plot to: " + fileName + " in");
+        _testOutputHelper.WriteLine(outputDir);
     }
 }

@@ -108,7 +108,7 @@ public static class SharedTestData
         throw new ArgumentException($"Missing test data {name}", nameof(name));
     }
 
-    private static async Task<string> WriteEphemeralUseTempFileAsync(string fileName, Func<string, ValueTask> fileOperation)
+    internal static string CreateTempTestOutputDir()
     {
         var dir = Directory.CreateDirectory(Path.Combine(
             Path.GetTempPath(),
@@ -116,7 +116,15 @@ public static class SharedTestData
             $"{DateTimeOffset.Now.Date:yyyyMMdd}"
         ));
 
-        var fullPath = Path.Combine(dir.FullName, fileName);
+        return dir.FullName;
+    }
+
+    private static async Task<string> WriteEphemeralUseTempFileAsync(string fileName, Func<string, ValueTask> fileOperation)
+    {
+        var tempOutputDir = CreateTempTestOutputDir();
+
+        var fullPath = Path.Combine(tempOutputDir, fileName);
+
         if (File.Exists(fullPath))
         {
             return fullPath;

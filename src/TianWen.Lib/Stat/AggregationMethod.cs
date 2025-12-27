@@ -3,7 +3,7 @@
 public enum AggregationMethod : byte
 {
     Median,
-    Mininum,
+    Minimum,
     Maximum,
     Average
 }

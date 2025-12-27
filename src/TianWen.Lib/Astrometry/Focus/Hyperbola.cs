@@ -2,12 +2,10 @@ using System;
 
 namespace TianWen.Lib.Astrometry.Focus;
 
-public readonly record struct FocusSolution(double P, double A, double B, double Error, int Iterations);
-
 public static class Hyperbola
 {
     /// <summary>
-    /// calculate metric from <paramref name="position"/> and <paramref name="perfectfocusposition"/>
+    /// calculate metric from <paramref name="position"/> and <paramref name="perfectFocusPosition"/>
     /// using hyperbola parameters <paramref name="a"/> and  <paramref name="b"/>
     /// Example:
     /// The HFD (half flux diameter) of the imaged star disk as function of the focuser position can be described as hyperbola
@@ -18,13 +16,13 @@ public static class Hyperbola
     /// Using the arccosh and arsinh functions it is possible to inverse
     /// above calculations and convert x=>t and t->y or y->t and t->x
     /// <param name="position">relative position on the hyperbola to the perfect position</param>
-    /// <param name="perfectfocusposition">position where best focus is assumed, focus point of hyperbola lies on this line</param>
+    /// <param name="perfectFocusPosition">position where best focus is assumed, focus point of hyperbola lies on this line</param>
     /// <param name="a">a of hyperbola</param>
     /// <param name="b">b of hyperbola</param>
     /// </summary>
-    public static double CalculateValueAtPosition(double position, double perfectfocusposition, double a, double b)
+    public static double CalculateValueAtPosition(double position, double perfectFocusPosition, double a, double b)
     {
-        var x = perfectfocusposition - position;
+        var x = perfectFocusPosition - position;
         var t = Math.Asinh(x / b); // calculate t-position in hyperbola
         return a * Math.Cosh(t); // convert t-position to y/value
     }

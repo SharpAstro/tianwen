@@ -33,7 +33,7 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
     public ImageMeta ImageMeta => imageMeta;
 
     const int HeaderIntSize = 6;
-    public static async ValueTask<Image?> FromStreamAsync(Stream stream, CancellationToken cancellationToken = default)
+    internal static async ValueTask<Image?> FromStreamAsync(Stream stream, CancellationToken cancellationToken = default)
     {
         var buffer = new byte[HeaderIntSize * sizeof(int)];
         await stream.ReadExactlyAsync(buffer, cancellationToken);
@@ -84,7 +84,7 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
         return new Image(data, width, height, bitDepth, maxVal, blackLevel, imageMeta);
     }
 
-    public async Task WriteStreamAsync(Stream stream, CancellationToken cancellationToken = default)
+    internal async Task WriteStreamAsync(Stream stream, CancellationToken cancellationToken = default)
     {
         var magic = (BitConverter.IsLittleEndian ? "ImL1"u8 : "ImB1"u8).ToArray();
         await stream.WriteAsync(magic, cancellationToken);
