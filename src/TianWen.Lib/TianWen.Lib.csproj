@@ -56,6 +56,7 @@
     <PackageReference Include="CsvHelper" Version="33.1.0" />
     <PackageReference Include="FITS.Lib" Version="1.1.7" />
     <PackageReference Include="GeoTimeZone" Version="6.1.0" />
+    <PackageReference Include="Magick.NET-Q16-HDRI-AnyCPU" Version="14.10.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.11" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.11" />
     <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0">
