@@ -7,6 +7,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Connections;
+using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Devices;
 
@@ -37,4 +38,9 @@ internal class External(
 
     public Task<IUtf8TextBasedConnection> ConnectGuiderAsync(EndPoint address, CommunicationProtocol protocol = CommunicationProtocol.JsonRPC, CancellationToken cancellationToken = default)
         => textBasedConnectionFactory.ConnectAsync(address, protocol, cancellationToken);
+
+    public async ValueTask WriteFitsFileAsync(Image image, string fileName)
+    {
+        await Task.Run(() => image.WriteToFitsFile(fileName)).ConfigureAwait(false);
+    }
 }

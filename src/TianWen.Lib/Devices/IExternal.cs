@@ -182,7 +182,7 @@ public interface IExternal
     /// <param name="image"></param>
     /// <param name="fileName"></param>
     /// <returns></returns>
-    public async ValueTask WriteFitsFileAsync(Image image, string fileName) => await Task.Run(() => image.WriteToFitsFile(fileName)).ConfigureAwait(false);
+    ValueTask WriteFitsFileAsync(Image image, string fileName);
 
     /// <summary>
     /// Returns all available serial ports on the system, prefixed with serial: <see cref="ISerialConnection.SerialProto"/>.
