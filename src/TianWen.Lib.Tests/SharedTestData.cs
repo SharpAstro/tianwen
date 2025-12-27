@@ -44,14 +44,7 @@ public static class SharedTestData
                 using var inStream = File.OpenRead(imageFile);
                 image = await Image.FromStreamAsync(inStream);
 
-                if (image is not null)
-                {
-                    _imageCache.TryAdd(name, image);
-                }
-                else
-                {
-                    throw new ArgumentException($"Failed to read image from {imageFile}", nameof(name));
-                }
+                _imageCache.TryAdd(name, image);
             }
 
             return image;
