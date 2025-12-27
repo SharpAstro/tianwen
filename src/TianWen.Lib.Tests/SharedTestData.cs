@@ -31,7 +31,6 @@ public static class SharedTestData
                 return image;
             }
 
-
             var imageFile = await WriteEphemeralUseTempFileAsync($"{name}.tianwen-image", async tempFile =>
             {
                 image = ReadImageFromEmbeddedResourceStream(name);
@@ -80,25 +79,25 @@ public static class SharedTestData
 
     internal static async Task<string> ExtractGZippedFitsFileAsync(string name)
     {
-        if (OpenGZippedFitsFileStream(name) is { } inStream)
+        if (OpenGZippedFitsFileStream(name) is not { } inStream)
         {
-            var fileName = $"{name}_{inStream.Length}.fits";
-            return await WriteEphemeralUseTempFileAsync(fileName, async (tempFile) =>
-            {
-                using var outStream = new FileStream(tempFile, new FileStreamOptions
-                {
-                    Options = FileOptions.Asynchronous,
-                    Access = FileAccess.Write,
-                    Mode = FileMode.Create,
-                    Share = FileShare.None
-                });
-                using var gzipStream = new GZipStream(inStream, CompressionMode.Decompress, false);
-                var length = inStream.Length;
-                await gzipStream.CopyToAsync(outStream, 1024 * 10);
-            });
+            throw new ArgumentException($"Missing test data {name}", nameof(name));
         }
 
-        throw new ArgumentException($"Missing test data {name}", nameof(name));
+        var fileName = $"{name}_{inStream.Length}.fits";
+        return await WriteEphemeralUseTempFileAsync(fileName, async (tempFile) =>
+        {
+            using var outStream = new FileStream(tempFile, new FileStreamOptions
+            {
+                Options = FileOptions.Asynchronous,
+                Access = FileAccess.Write,
+                Mode = FileMode.Create,
+                Share = FileShare.None
+            });
+            using var gzipStream = new GZipStream(inStream, CompressionMode.Decompress, false);
+            var length = inStream.Length;
+            await gzipStream.CopyToAsync(outStream, 1024 * 10);
+        });
     }
 
     internal static string CreateTempTestOutputDir()
@@ -124,11 +123,6 @@ public static class SharedTestData
         }
         else
         {
-            if (File.Exists(fullPath))
-            {
-                return fullPath;
-            }
-
             var tempFile = $"{fullPath}_{Guid.NewGuid():D}.tmp";
 
             await fileOperation(tempFile);

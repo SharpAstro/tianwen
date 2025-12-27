@@ -31,6 +31,7 @@ public class FakeExternal : IExternal
 
         _profileRoot = root ?? new DirectoryInfo(Path.GetTempPath())
             .CreateSubdirectory(Assembly.GetExecutingAssembly().GetName().Name ?? nameof(FakeExternal))
+            .CreateSubdirectory(DateTimeOffset.Now.ToString("yyyyMMdd"))
             .CreateSubdirectory(Guid.NewGuid().ToString("D"));
 
         _outputFolder = _profileRoot.CreateSubdirectory("output");
@@ -46,7 +47,7 @@ public class FakeExternal : IExternal
     public ILogger AppLogger { get; }
 
     public virtual Task<IUtf8TextBasedConnection> ConnectGuiderAsync(EndPoint address, CommunicationProtocol protocol = CommunicationProtocol.JsonRPC, CancellationToken cancellationToken = default)
-        => throw new ArgumentException($"No guider connection defined for address {address}", nameof(address));
+        => throw new ArgumentException($"No guider connection defined for address={address}", nameof(address));
 
     public IReadOnlyList<string> EnumerateSerialPorts() => [];
 
@@ -68,11 +69,11 @@ public class FakeExternal : IExternal
     /// </summary>
     /// <param name="image"></param>
     /// <param name="fileName"></param>
-    public void WriteFitsFile(Image image, string fileName)
+    public async ValueTask WriteFitsFileAsync(Image image, string fileName)
     {
         // use wall clock time
         var sw = Stopwatch.StartNew();
-        image.WriteToFitsFile(fileName);
+        await Task.Run(() => image.WriteToFitsFile(fileName)).ConfigureAwait(false);
         sw.Stop();
 
         _timeProvider.Advance(sw.Elapsed);

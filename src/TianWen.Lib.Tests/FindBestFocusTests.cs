@@ -78,7 +78,7 @@ public class FindBestFocusTests(ITestOutputHelper testOutputHelper) : ImageAnaly
         solution.ShouldNotBeNull().BestFocus.ShouldBeInRange(minPos, maxPos);
 
         var fileName = Path.ChangeExtension(file, ".png");
-        await DrawSolution(sampleMap, solution, minPos, maxPos, fileName);
+        await DrawSolution(sampleMap, solution.Value, minPos, maxPos, fileName);
     }
 
     [Theory]
@@ -120,7 +120,7 @@ public class FindBestFocusTests(ITestOutputHelper testOutputHelper) : ImageAnaly
                     solution.Value.Iterations.ShouldBeLessThanOrEqualTo(maxIterations);
                     solution.Value.Error.ShouldBeInRange(0, 1);
 
-                    await DrawSolution(sampleMap, solution, minPos, maxPos, sampleName + ".png");
+                    await DrawSolution(sampleMap, solution.Value, minPos, maxPos, sampleName + ".png");
                 }
                 else
                 {
@@ -131,7 +131,7 @@ public class FindBestFocusTests(ITestOutputHelper testOutputHelper) : ImageAnaly
         }
     }
 
-    private async Task DrawSolution(MetricSampleMap sampleMap, FocusSolution? solution, int minPos, int maxPos, string fileName)
+    private async Task DrawSolution(MetricSampleMap sampleMap, FocusSolution solution, int minPos, int maxPos, string fileName)
     {
         using var image = new MagickImage(MagickColors.Transparent, 1000, 1000)
         {
@@ -140,7 +140,7 @@ public class FindBestFocusTests(ITestOutputHelper testOutputHelper) : ImageAnaly
         var xMargin = (int)Math.Ceiling(image.Width * 0.1);
         var yMargin = (int)Math.Ceiling(image.Height * 0.1);
 
-        sampleMap.Draw(solution.Value, minPos, maxPos, image, xMargin, yMargin);
+        sampleMap.Draw(solution, minPos, maxPos, image, xMargin, yMargin);
 
         var outputDir = SharedTestData.CreateTempTestOutputDir();
         var fullPath = Path.Combine(outputDir, fileName);
