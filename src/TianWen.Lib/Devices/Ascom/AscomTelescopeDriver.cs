@@ -210,25 +210,25 @@ internal class AscomTelescopeDriver(AscomDevice device, IExternal external)
     public double RightAscensionRate
     {
         get => _comObject.RightAscensionRate;
-        set => RightAscensionRate = value;
+        set => _comObject.RightAscensionRate = value;
     }
 
     public double DeclinationRate
     {
         get => _comObject.DeclinationRate;
-        set => DeclinationRate = value;
+        set => _comObject.DeclinationRate = value;
     }
 
     public double GuideRateRightAscension
     {
         get => _comObject.GuideRateRightAscension;
-        set => GuideRateRightAscension = value;
+        set => _comObject.GuideRateRightAscension = value;
     }
 
     public double GuideRateDeclination
     {
         get => _comObject.GuideRateDeclination;
-        set => GuideRateDeclination = value;
+        set => _comObject.GuideRateDeclination = value;
     }
 
     public void Park()

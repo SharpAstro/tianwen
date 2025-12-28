@@ -1,13 +1,18 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using TianWen.Lib.Devices;
+using TianWen.Lib.CLI;
 using TianWen.Lib.Extensions;
-using TianWen.Lib.Sequencing;
 
 var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = args, DisableDefaults = true });
 builder.Services
-    .AddLogging(static builder => builder.AddSimpleConsole(static options => options.IncludeScopes = false))
+    .AddLogging(static builder => builder.AddSimpleConsole(
+        static options =>
+        {
+            options.IncludeScopes = false;
+            options.SingleLine = false;
+        })
+    )
     .AddExternal()
     .AddAstrometry()
     .AddZWO()
@@ -17,29 +22,26 @@ builder.Services
     .AddFake()
     .AddPHD2()
     .AddDevices()
-    .AddSessionFactory();
+    .AddSessionFactory()
+    .AddSingleton<IConsoleHost, ConsoleHost>();
+
+#if DEBUG
+builder.Logging.SetMinimumLevel(LogLevel.Debug);
+#else
+builder.Logging.SetMinimumLevel(LogLevel.Warning);
+#endif
 
 using IHost host = builder.Build();
 
 await host.StartAsync();
 
 var services = host.Services;
-var lifetime = services.GetRequiredService<IHostApplicationLifetime>();
+var consoleHost = services.GetRequiredService<IConsoleHost>();
 
-var external = services.GetRequiredService<IExternal>();
-var deviceManager = services.GetRequiredService<ICombinedDeviceManager>();
-var sessionFactory = services.GetRequiredService<ISessionFactory>();
-
-using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10), external.TimeProvider);
-using var linked = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, lifetime.ApplicationStopping);
-await deviceManager.DiscoverAsync(linked.Token);
-
-foreach (var deviceType in deviceManager.RegisteredDeviceTypes)
+var profiles = await consoleHost.ListProfilesAsync();
+foreach (var profile in profiles)
 {
-    foreach (var device in deviceManager.RegisteredDevices(deviceType))
-    {
-        external.AppLogger.LogInformation("{DeviceType}: {Device}", device.DeviceType, device.DisplayName);
-    }
+    Console.WriteLine("Profile: " + profile);
 }
 
 await host.WaitForShutdownAsync();

@@ -40,6 +40,11 @@ public class FindBestFocusTests(ITestOutputHelper testOutputHelper) : ImageAnaly
     }
     record FocusPoint(double Position, double Value, double Error);
 
+    private static readonly JsonSerializerOptions _stringEnums = new JsonSerializerOptions
+    {
+        Converters = { new JsonStringEnumConverter() }
+    };
+
     [Theory]
     [InlineData("2025-12-17--23-06-56--9d0e769c-5847-470c-a25e-0e1de367e31e.json")]
     [InlineData("2025-12-17--23-27-02--9d0e769c-5847-470c-a25e-0e1de367e31e.json")]
@@ -47,10 +52,7 @@ public class FindBestFocusTests(ITestOutputHelper testOutputHelper) : ImageAnaly
     [InlineData("2025-12-18--02-26-57--9d0e769c-5847-470c-a25e-0e1de367e31e.json")]
     public async Task ReachSameResultFromSuccessfulNINARun(string file)
     {
-        var ninaResult = await JsonSerializer.DeserializeAsync<NinaTestResult>(SharedTestData.OpenEmbeddedFileStream(file).ShouldNotBeNull(), new JsonSerializerOptions
-        {
-            Converters = { new JsonStringEnumConverter() }
-        });
+        var ninaResult = await JsonSerializer.DeserializeAsync<NinaTestResult>(SharedTestData.OpenEmbeddedFileStream(file).ShouldNotBeNull(), _stringEnums);
         ninaResult.ShouldNotBeNull();
         ninaResult.Fitting.ShouldBe(NinaFittingMethod.Hyperbolic);
         ninaResult.CalculatedFocusPoint.ShouldNotBeNull();

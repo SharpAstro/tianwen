@@ -28,16 +28,10 @@ using System;
 
 namespace TianWen.Lib.Devices.Guider;
 
-public abstract class GuiderEventArgs : EventArgs
+public abstract class GuiderEventArgs(GuiderDevice device, string? profile) : EventArgs
 {
-    public GuiderEventArgs(GuiderDevice device, string? profile)
-    {
-        Device = device;
-        Profile = profile;
-    }
+    public GuiderDevice Device { get; } = device;
 
-    public GuiderDevice Device { get; }
-
-    public string? Profile { get; }
+    public string? Profile { get; } = profile;
 
 }
