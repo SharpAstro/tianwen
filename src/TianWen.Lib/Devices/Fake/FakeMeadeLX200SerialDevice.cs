@@ -29,7 +29,7 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
     // I/O properties
     private readonly StringBuilder _responseBuffer = new StringBuilder();
     private int _responsePointer = 0;
-    private readonly object _lockObj = new(); // FIXME: Change to lock when using C# 13
+    private readonly Lock _lockObj = new();
 
     public FakeMeadeLX200SerialDevice(bool isOpen, Encoding encoding, TimeProvider timeProvider, double siteLatitude, double siteLongitude)
     {

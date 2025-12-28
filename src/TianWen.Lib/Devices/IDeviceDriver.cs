@@ -25,6 +25,7 @@ public interface IDeviceDriver : IAsyncDisposable, IDisposable
     /// <summary>
     /// Connects to the device asynchronously.
     /// Will throw if <see cref="CanAsyncConnect"/> is <see langword="false"/>.
+    /// Should return immidiately if already <see cref="Connected"/>.
     /// </summary>
     /// <returns>Awaitable task, if completed, device is connected</returns>
     /// <exception cref="InvalidOperationException">Thrown if async connection is not supported</exception>

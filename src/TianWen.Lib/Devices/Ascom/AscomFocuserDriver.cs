@@ -48,7 +48,7 @@ internal class AscomFocuserDriver(AscomDevice device, IExternal external)
         {
             if (Connected && TempCompAvailable && _comObject is { } obj)
             {
-                _comObject.TempComp = value;
+                obj.TempComp = value;
             }
         }
     }

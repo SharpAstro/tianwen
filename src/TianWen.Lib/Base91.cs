@@ -80,30 +80,6 @@ public static class Base91
     private static bool IsSkippable(int value, params int[] additional) =>
         value is '\0' or '\t' or '\n' or '\r' or ' ' || additional?.Any(i => value == i) == true;
 
-    /// <summary>Write the specified sequence of bytes into the stream and add a line separator depending on the specified line length.</summary>
-    /// <param name="stream">The stream in which to write the single byte.</param>
-    /// <param name="bytes">A sequence of bytes.</param>
-    /// <param name="count">The number of bytes to be written to the current stream.</param>
-    /// <param name="lineLength">The length of lines.</param>
-    /// <param name="linePos">The current position in the line.</param>
-    /// <exception cref="ArgumentNullException">stream is null.</exception>
-    private static void WriteLine(Stream stream, Span<byte> bytes, int count, int lineLength, ref int linePos)
-    {
-        ArgumentNullException.ThrowIfNull(stream);
-        
-        if (count < 1 || count > bytes.Length)
-            throw new ArgumentOutOfRangeException(nameof(count), count, null);
-
-        for (var i = 0; i < count; i++)
-        {
-            WriteLine(stream, bytes[i], lineLength, ref linePos);
-        }
-    }
-
-    /// <inheritdoc cref="WriteLine(Stream, Span{byte}, int, int, ref int)"/>
-    private static void WriteLine(Stream stream, Span<byte> bytes, int lineLength, ref int linePos) =>
-        WriteLine(stream, bytes, bytes.Length, lineLength, ref linePos);
-
     /// <summary>Write the specified byte into the stream and add a line separator depending on the specified line length.</summary>
     /// <param name="stream">The stream in which to write the single byte.</param>
     /// <param name="value">The byte to write to the stream.</param>
@@ -183,10 +159,8 @@ public static class Base91
     /// <exception cref="ObjectDisposedException">Methods were called after the inputStream or outputStream was closed.</exception>
     public static void EncodeStream(Stream inputStream, Stream outputStream, int lineLength = 0, bool dispose = false)
     {
-        if (inputStream == null)
-            throw new ArgumentNullException(nameof(inputStream));
-        if (outputStream == null)
-            throw new ArgumentNullException(nameof(outputStream));
+        ArgumentNullException.ThrowIfNull(inputStream);
+        ArgumentNullException.ThrowIfNull(outputStream);
         var bsi = GetBufferedStream(inputStream);
         var bso = GetBufferedStream(outputStream, bsi.BufferSize);
         try

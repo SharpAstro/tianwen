@@ -403,9 +403,20 @@ public interface IMountDriver : IDeviceDriver
             || (dsop = DestinationSideOfPier(raMount, decMount)) == PointingState.Unknown
         )
         {
-            External.AppLogger.LogError("Failed to slew {MountName} to target {TargetName} az={AZ:0.00} alt={Alt:0.00} dsop={DestinationSoP}, skipping.",
-                Name, target.Name, az, alt, dsop);
-            return new SlewResult(SlewPostCondition.SkipToNext, double.NaN);
+
+            if (!double.IsNaN(alt) && alt < minAboveHorizonDegrees)
+            {
+                External.AppLogger.LogWarning("Target {TargetName} is below minimum altitude of {MinAlt} degrees.", target.Name, minAboveHorizonDegrees);
+            
+                return new SlewResult(SlewPostCondition.TargetBelowHorizonLimit, double.NaN);
+            }
+            else
+            {
+                External.AppLogger.LogError("Failed to slew {MountName} to target {TargetName} az={AZ:0.00} alt={Alt:0.00} dsop={DestinationSoP}, skipping.",
+                    Name, target.Name, az, alt, dsop);
+
+                return new SlewResult(SlewPostCondition.SlewNotPossible, double.NaN);
+            }
         }
 
         var hourAngle = HourAngle;
@@ -463,8 +474,9 @@ public interface IMountDriver : IDeviceDriver
 
 public enum SlewPostCondition
 {
-    SkipToNext = 1,
-    Slewing = 2
+    Slewing = 1,
+    SlewNotPossible = 2,
+    TargetBelowHorizonLimit = 3
 }
 
 public record struct SlewResult(SlewPostCondition PostCondition, double HourAngleAtSlewTime);

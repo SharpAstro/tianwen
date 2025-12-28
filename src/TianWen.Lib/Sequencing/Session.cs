@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.Specialized;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -10,20 +11,10 @@ using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Guider;
-using TianWen.Lib.Imaging;
 using static TianWen.Lib.Astrometry.CoordinateUtils;
 using static TianWen.Lib.Stat.StatisticsHelper;
 
 namespace TianWen.Lib.Sequencing;
-
-public interface ISession : IAsyncDisposable
-{
-    Observation? ActiveObservation { get; }
-
-    IReadOnlyList<Observation> PlannedObservations { get; }
-
-    Task RunAsync(CancellationToken cancellationToken);
-}
 
 internal record Session(
     Setup Setup,
@@ -440,9 +431,14 @@ internal record Session(
             try
             {
                 (var postCondition, hourAngleAtSlewTime) = await mount.Driver.BeginSlewToTargetAsync(observation.Target, Configuration.MinHeightAboveHorizon, cancellationToken).ConfigureAwait(false);
-                if (postCondition is SlewPostCondition.SkipToNext)
+                if (postCondition is SlewPostCondition.SlewNotPossible)
                 {
                     _ = AdvanceObservation();
+                    continue;
+                }
+                else if (postCondition is SlewPostCondition.TargetBelowHorizonLimit)
+                {
+                    // TODO: wait until target rises again instead of skipping
                     continue;
                 }
                 else if (postCondition is SlewPostCondition.Slewing)
@@ -463,8 +459,9 @@ internal record Session(
             }
             catch (Exception ex)
             {
-                External.AppLogger.LogError(ex, "Error while slewing to {Observation}, advance to next target", observation);
-                _ = AdvanceObservation();
+                External.AppLogger.LogError(ex, "Error while slewing to {Observation}, retrying", observation);
+
+                // todo: if next observation is not yet risen, we need to wait and retry
                 continue;
             }
 
@@ -472,33 +469,47 @@ internal record Session(
 
             if (cancellationToken.IsCancellationRequested)
             {
-                External.AppLogger.LogWarning("Cancellation requested, abort setting up guider \"{GuiderName}\" and quit imaging loop.", guider.Driver);
+                External.AppLogger.LogWarning("Cancellation requested, abort setting up guider \"{GuiderName}\" and quit observation loop.", guider.Driver);
                 break;
             }
             else if (!guidingSuccess)
             {
-                External.AppLogger.LogError("Skipping target {Observation} as starting guider \"{GuiderName}\" failed after trying twice.", observation, guider.Driver);
+                External.AppLogger.LogError("Skipping target {Observation} as starting guider \"{GuiderName}\" failed after trying {GuiderTries} times.", observation, guider.Driver, Configuration.GuidingTries);
+                
+                // todo: if next observation is not yet risen, we need to wait and retry
                 _ = AdvanceObservation();
                 continue;
             }
 
             var imageLoopStart = MountUtcNow;
-            if (!await ImagingLoopAsync(observation, hourAngleAtSlewTime, cancellationToken).ConfigureAwait(false))
+            var imageLoopResult = await ImagingLoopAsync(observation, hourAngleAtSlewTime, cancellationToken).ConfigureAwait(false);
+            if (imageLoopResult is ImageLoopNextAction.AdvanceToNextObservation)
+            {
+                _ = AdvanceObservation();
+                continue;
+            }
+            else if (imageLoopResult is ImageLoopNextAction.RepeatCurrentObservation)
+            {
+                // todo maybe wait a bit for better weather/tree out of the way, etc.
+                continue;
+            }
+            else
             {
                 External.AppLogger.LogError("Imaging loop for {Observation} did not complete successfully, total runtime: {TotalRuntime:c}", observation, MountUtcNow - imageLoopStart);
+                break;
             }
         } // end observation loop
     }
 
     /// <summary>
-    /// TODO: Updating to .NET 9 or later: Use <see langword="in"/> for <paramref name="observation"/>.
+    /// Imaging loop for one observation, handles exposing frames + dithering, handles meridian flip.
     /// </summary>
-    /// <param name="observation"></param>
-    /// <param name="hourAngleAtSlewTime"></param>
+    /// <param name="observation">Observation to image.</param>
+    /// <param name="hourAngleAtSlewTime">provide hour angle current as of start of session, used to calculate meridian flip.</param>
     /// <param name="cancellationToken"></param>
-    /// <returns></returns>
+    /// <returns>loop result</returns>
     /// <exception cref="InvalidOperationException"></exception>
-    internal async ValueTask<bool> ImagingLoopAsync(Observation observation, double hourAngleAtSlewTime, CancellationToken cancellationToken)
+    internal async ValueTask<ImageLoopNextAction> ImagingLoopAsync(Observation observation, double hourAngleAtSlewTime, CancellationToken cancellationToken)
     {
         var guider = Setup.Guider;
         var mount = Setup.Mount;
@@ -512,7 +523,7 @@ internal record Session(
 
             camera.Driver.Target = observation.Target;
 
-            // TODO per camera exposure calculation, i.e. via f/ratio
+            // TODO per camera exposure calculation, e.g. via f/ratio
             var subExposure = observation.SubExposure;
             subExposuresSec[i] = (int)Math.Ceiling(subExposure.TotalSeconds);
         }
@@ -527,22 +538,41 @@ internal record Session(
         var ditherRound = 0;
 
         var overslept = TimeSpan.Zero;
-        var imageWriteQueue = new Queue<(Image image, Observation observation, DateTimeOffset expStartTime, int frameNumber)>();
+        var imageWriteQueue = new Queue<QueuedImageWrite>();
+        ImageLoopNextAction? next = null;
 
         while (!cancellationToken.IsCancellationRequested
             && mount.Driver.Connected
             && Catch(() => mount.Driver.Tracking)
-            && guider.Driver.Connected
-            && await CatchAsync(guider.Driver.IsGuidingAsync, cancellationToken).ConfigureAwait(false)
-            && mount.Driver.IsOnSamePierSide(hourAngleAtSlewTime)
         )
         {
+            if (!await CatchAsync(guider.Driver.IsGuidingAsync, cancellationToken).ConfigureAwait(false))
+            {
+                var guiderRestartedSuccess =
+                    await CatchAsync(guider.Driver.ConnectAsync, cancellationToken) &&
+                    await guider.Driver.StartGuidingLoopAsync(Configuration.GuidingTries, cancellationToken);
+
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    External.AppLogger.LogWarning("Cancellation requested, abort setting up guider \"{GuiderName}\" and quit imaging loop for observation {Observation}.", guider.Driver, observation);
+                    next = ImageLoopNextAction.BreakObservationLoop;
+                    break;
+                }
+                else if (!guiderRestartedSuccess)
+                {
+                    External.AppLogger.LogError("Reschedule target {Observation} as starting guider \"{GuiderName}\" failed after trying {GuiderTries} times.", observation, guider.Driver, Configuration.GuidingTries);
+                    next = ImageLoopNextAction.RepeatCurrentObservation;
+                    break;
+                }
+            }
+
             for (var i = 0; i < scopes; i++)
             {
                 var telescope = Setup.Telescopes[i];
                 var camerDriver = telescope.Camera.Driver;
                 if (camerDriver.CameraState is CameraState.Idle)
                 {
+                    // set denormalized parameters so that the image driver can write proper headers in the image file
                     camerDriver.FocusPosition = telescope.Focuser?.Driver is { Connected: true } focuserDriver ? focuserDriver.Position : -1;
                     camerDriver.Filter = telescope.FilterWheel?.Driver?.CurrentFilter ?? Filter.None;
 
@@ -563,15 +593,16 @@ internal record Session(
             overslept = TimeSpan.Zero;
             if (cancellationToken.IsCancellationRequested)
             {
-                External.AppLogger.LogWarning("Cancellation rquested, all images in queue written to disk, abort image acquisition and quit imaging loop");
-                return false;
+                External.AppLogger.LogWarning("Cancellation requested, all images in queue written to disk, abort image acquisition and quit imaging loop");
+                next = ImageLoopNextAction.BreakObservationLoop;
+                break;
             }
             else if (tickMinusElapsed > TimeSpan.Zero)
             {
                 External.Sleep(tickMinusElapsed);
             }
 
-            var imageFetchSuccess = new bool[scopes];
+            var imageFetchSuccess = new BitVector32(scopes);
             for (var i = 0; i < scopes && !cancellationToken.IsCancellationRequested; i++)
             {
                 var tick = --expTicks[i];
@@ -590,7 +621,7 @@ internal record Session(
                             External.AppLogger.LogInformation("Camera #{CameraNumber} {CameraName} finished {ExposureStartTime} exposure of frame #{FrameNo}",
                                 i + 1, camDriver.Name, frameExpTime, frameNo);
 
-                            imageWriteQueue.Enqueue((image, observation, expStartTimes[i], frameNo));
+                            imageWriteQueue.Enqueue(new QueuedImageWrite(image, observation, expStartTimes[i], frameNo));
                             break;
                         }
                         else
@@ -614,7 +645,7 @@ internal record Session(
                 }
             }
 
-            var fetchImagesSuccessAll = imageFetchSuccess.All(x => x);
+            var fetchImagesSuccessAll = imageFetchSuccess.AllSet(scopes);
             if (!mount.Driver.IsOnSamePierSide(hourAngleAtSlewTime))
             {
                 // write all images as the loop is ending here
@@ -630,7 +661,7 @@ internal record Session(
                 else
                 {
                     // finished this target
-                    return true;
+                    break;
                 }
             }
             else if (fetchImagesSuccessAll)
@@ -644,19 +675,24 @@ internal record Session(
                     }
                     else
                     {
-                        External.AppLogger.LogError("Dithering using \"{GuiderName}\" failed, aborting.", guider.Driver);
-                        return false;
+                        External.AppLogger.LogWarning("Dithering using \"{GuiderName}\" failed.", guider.Driver);
                     }
                 }
                 else
                 {
-                    External.AppLogger.LogInformation("Skipping dithering ({DitheringRound}/{DitherEveryNthFrame} frame)",
+                    External.AppLogger.LogDebug("Skipping dithering ({DitheringRound}/{DitherEveryNthFrame} frame)",
                         ditherRound % Configuration.DitherEveryNthFrame, Configuration.DitherEveryNthFrame);
                 }
             }
         } // end imaging loop
 
-        return !cancellationToken.IsCancellationRequested && !imageWriteQueue.TryPeek(out _);
+        if (imageWriteQueue.TryPeek(out _))
+        {
+            // write all images as the loop is ending here
+            _ = await WriteQueuedImagesToFitsFilesAsync();
+        }
+
+        return next ?? ImageLoopNextAction.AdvanceToNextObservation;
 
         async ValueTask<TimeSpan> WriteQueuedImagesToFitsFilesAsync()
         {
@@ -665,12 +701,12 @@ internal record Session(
             {
                 try
                 {
-                    await WriteImageToFitsFileAsync(imageWrite.image, imageWrite.observation, imageWrite.expStartTime, imageWrite.frameNumber);
+                    await WriteImageToFitsFileAsync(imageWrite);
                 }
                 catch (Exception ex)
                 {
                     External.AppLogger.LogError(ex, "Exception while saving frame #{FrameNumber} taken at {ExposureStartTime:o} by {Instrument}",
-                        imageWrite.frameNumber, imageWrite.expStartTime, imageWrite.image.ImageMeta.Instrument);
+                        imageWrite.FrameNumber, imageWrite.ExpStartTime, imageWrite.Image.ImageMeta.Instrument);
                 }
             }
             
@@ -792,7 +828,7 @@ internal record Session(
         => CoolCamerasToSetpointAsync(new SetpointTemp(sbyte.MinValue, SetpointTempKind.Ambient), rampTime, 0.1, SetupointDirection.Up, CancellationToken.None);
 
     /// <summary>
-    /// Assumes that power is on (c.f. <see cref="CoolCamerasToSensorTemp"/>).
+    /// Assumes that power is on (c.f. <see cref="CoolCamerasToSensorTempAsync(TimeSpan, CancellationToken)"/>).
     /// </summary>
     /// <param name="desiredSetpointTemp">Desired degrees Celcius setpoint temperature,
     /// if <paramref name="desiredSetpointTemp"/>'s <see cref="SetpointTemp.Kind"/> is <see cref="SetpointTempKind.CCD" /> then sensor temperature is chosen,
@@ -823,7 +859,7 @@ internal record Session(
             accSleep += rampInterval;
             if (cancellationToken.IsCancellationRequested)
             {
-                External.AppLogger.LogWarning("Cancellation requested, quiting cooldown loop");
+                External.AppLogger.LogWarning("Cancellation requested, quitting cooldown loop");
                 break;
             }
             else
@@ -835,18 +871,24 @@ internal record Session(
         return coolingStates.All(state => !(state.IsCoolable ?? false) || (state.TargetSetpointReached ?? false));
     }
 
-    internal ValueTask WriteImageToFitsFileAsync(Image image, in Observation observation, DateTimeOffset subExpStartTime, int frameNumber)
+    internal ValueTask WriteImageToFitsFileAsync(QueuedImageWrite imageWrite)
     {
-        var targetName = observation.Target.Name;
-        var dateFolderUtc = subExpStartTime.UtcDateTime.ToString("yyyy-MM-dd", DateTimeFormatInfo.InvariantInfo);
+        var targetName = imageWrite.Observation.Target.Name;
+        var dateFolderUtc = imageWrite.ExpStartTime.ToString("yyyy-MM-dd", DateTimeFormatInfo.InvariantInfo);
 
         // TODO: make configurable, add frame type
-        var frameFolder = External.CreateSubDirectoryInOutputFolder(targetName, dateFolderUtc, image.ImageMeta.Filter.Name).FullName;
-        var fitsFileName = External.GetSafeFileName($"frame_{subExpStartTime:o}_{frameNumber}.fits");
-        var fitsFllFilePath = Path.Combine(frameFolder, fitsFileName);
+        var meta = imageWrite.Image.ImageMeta;
+        var frameFolder = External.CreateSubDirectoryInOutputFolder(
+            targetName,
+            dateFolderUtc,
+            meta.Filter.Name,
+            meta.FrameType.ToString()
+        ).FullName;
+        var fitsFileName = External.GetSafeFileName($"frame_{imageWrite.ExpStartTime:o}_{imageWrite.FrameNumber:000000}.fits");
+        var fitsFilePath = Path.Combine(frameFolder, fitsFileName);
 
-        External.AppLogger.LogInformation("Writing FITS file {FitsFilePath}", fitsFllFilePath);
-        return External.WriteFitsFileAsync(image, fitsFllFilePath);
+        External.AppLogger.LogInformation("Writing FITS file {FitsFilePath}", fitsFilePath);
+        return External.WriteFitsFileAsync(imageWrite.Image, fitsFilePath);
     }
 
     internal bool Catch(Action action) => External.Catch(action);

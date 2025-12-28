@@ -28,16 +28,10 @@ using System;
 
 namespace TianWen.Lib.Devices.Guider;
 
-public class GuidingErrorEventArgs : GuiderEventArgs
+public class GuidingErrorEventArgs(GuiderDevice device, string? profile, string msg, Exception? ex = null)
+    : GuiderEventArgs(device, profile)
 {
-    public GuidingErrorEventArgs(GuiderDevice device, string? profile, string msg, Exception? ex = null)
-        : base(device, profile)
-    {
-        Message = msg;
-        Exception = ex;
-    }
+    public string Message { get; } = msg;
 
-    public string Message { get; }
-
-    public Exception? Exception { get; }
+    public Exception? Exception { get; } = ex;
 }

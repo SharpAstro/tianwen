@@ -17,7 +17,7 @@ public class SortedStarList(StarList stars) : IReadOnlyList<ImagedStar>
 
     private readonly ImagedStar[] _stars = SortStarList(stars, xCentroidComparer);
     private List<StarQuad>? _quads;
-    private readonly object _lock = new(); // TODO: Change to Lock object when updading to C# 13
+    private readonly Lock _lock = new();
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     private static ImagedStar[] SortStarList(StarList stars, IComparer<ImagedStar> comparer)

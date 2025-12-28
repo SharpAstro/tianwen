@@ -67,7 +67,7 @@ public interface IExternal
     {
         try
         {
-            await asyncFunc(cancellationToken);
+            await asyncFunc(cancellationToken).ConfigureAwait(false);
 
             return true;
         }
@@ -158,7 +158,7 @@ public interface IExternal
             throw new ArgumentException("No subfolder path segment should be empty", nameof(subFolders));
         }
 
-        var subFolderPath = Path.Combine(subFolders.Select(GetSafeFileName).ToArray());
+        var subFolderPath = Path.Combine([.. subFolders.Select(GetSafeFileName)]);
 
         return Directory.CreateDirectory(Path.Combine(OutputFolder.FullName, subFolderPath));
     }
@@ -173,7 +173,7 @@ public interface IExternal
         }
 
         char[] invalids = Path.GetInvalidFileNameChars();
-        return new string(name.Select(c => invalids.Contains(c) ? ReplacementChar : c).ToArray());
+        return new string([.. name.Select(c => invalids.Contains(c) ? ReplacementChar : c)]);
     }
 
     /// <summary>
