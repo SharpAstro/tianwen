@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
@@ -59,6 +60,75 @@ public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
 
         using var stream = file.Open(file.Exists ? FileMode.Truncate : FileMode.CreateNew, FileAccess.Write, FileShare.None);
         await JsonSerializer.SerializeAsync(stream, new ProfileDto(ProfileId, DisplayName, Data ?? ProfileData.Empty), ProfileJsonSerializerContextIndented.ProfileDto);
+    }
+
+    protected override bool PrintMembers(StringBuilder stringBuilder)
+    {
+        _ = base.PrintMembers(stringBuilder);
+
+        stringBuilder.Append($", #OTAs: {(Data is { } data ? data.OTAs.Length : 0)}");
+
+        return true;
+    }
+
+    public string Detailed(IDeviceUriRegistry deviceUriRegistry)
+    {
+        var sb = new StringBuilder()
+            .Append($"Profile: {DisplayName} ({ProfileId})");
+
+        if (Data is { } data)
+        {
+            var otaCount = data.OTAs.Length;
+
+            if (data.Guider is { } guider)
+            {
+                sb.AppendLine($"\n  Guider: {DeviceInfo(guider)}");
+            }
+            else
+            {
+                sb.AppendLine("\n  Guider: <None>");
+            }
+
+            if (otaCount == 0)
+            {
+                sb.AppendLine("\n  <No Telescopes>");
+            }
+            else
+            {
+                for (var i = 0; i < otaCount; i++)
+                {
+                    var ota = data.OTAs[i];
+                    sb.AppendFormat($"\n  Telescope #{i + 1}:\n");
+                    sb.AppendFormat($"    Name: {ota.Name}\n");
+                    sb.AppendFormat($"    Focal Length: {ota.FocalLength} mm\n");
+                    sb.AppendFormat($"    Camera: {ota.Camera}\n");
+                    sb.AppendFormat($"    Cover: {(ota.Cover is { } cover ? DeviceInfo(cover) : "<None>")}\n");
+                    sb.AppendFormat($"    Focuser: {(ota.Focuser is { } focuser ? DeviceInfo(focuser) : "<None>")}\n");
+                    sb.AppendFormat($"    Filter Wheel: {(ota.FilterWheel is { } filterWheel ? DeviceInfo(filterWheel) : "<None>")}\n");
+                    sb.AppendFormat($"    Prefer Outward Focus: {(ota.PreferOutwardFocus.HasValue ? ota.PreferOutwardFocus.Value.ToString() : "<Default>")}\n");
+                    sb.AppendFormat($"    Outward Is Positive: {(ota.OutwardIsPositive.HasValue ? ota.OutwardIsPositive.Value.ToString() : "<Default>")}\n");
+                }
+            }
+        }
+        else
+        {
+            sb.AppendLine("\n  <No Data>");
+        }
+
+        return sb.ToString();
+
+        string DeviceInfo(Uri deviceUri)
+        {
+            if (deviceUriRegistry.TryGetDeviceFromUri(deviceUri, out var device))
+            {
+                return $"{device.DisplayName} [{device.DeviceType}]";
+            }
+            else
+            {
+                // TODO try to parse URI manually
+                return $"{deviceUri} [Unknown Device]";
+            }
+        }
     }
 }
 

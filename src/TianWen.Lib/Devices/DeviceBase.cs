@@ -33,7 +33,16 @@ public abstract record class DeviceBase(Uri DeviceUri)
     [JsonIgnore]
     public string DeviceClass => DeviceUri.Host;
 
-    public override string ToString() => string.Create(CultureInfo.InvariantCulture, stackalloc char[64], $"{DeviceType} {(string.IsNullOrWhiteSpace(DisplayName) ? DeviceId : DisplayName)}");
+    protected virtual bool PrintMembers(StringBuilder stringBuilder)
+    {
+        stringBuilder.Append(DeviceId);
+        if (!string.IsNullOrWhiteSpace(DisplayName))
+        {
+            stringBuilder.Append($" ({DisplayName})");
+        }
+
+        return true;
+    }
 
     public virtual bool TryInstantiateDriver<TDeviceDriver>(IExternal external, [NotNullWhen(true)] out TDeviceDriver? driver)
         where TDeviceDriver : IDeviceDriver

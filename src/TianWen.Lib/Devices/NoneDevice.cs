@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Text;
 
 namespace TianWen.Lib.Devices;
 
@@ -6,11 +7,16 @@ namespace TianWen.Lib.Devices;
 /// Build-in device type: <see cref="DeviceType.None"/>.
 /// </summary>
 /// <param name="DeviceUri"></param>
-public record class NoneDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
+public sealed record class NoneDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 {
     public NoneDevice() : this(new Uri($"none://{typeof(NoneDevice).Name}/None"))
     {
     }
 
     public static readonly NoneDevice Instance = new NoneDevice();
+
+    protected override bool PrintMembers(StringBuilder stringBuilder)
+    {
+        return false;
+    }
 }

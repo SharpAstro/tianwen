@@ -24,6 +24,7 @@ SOFTWARE.
 
 */
 
+using DotNext.Threading;
 using System;
 using System.Buffers;
 using System.Collections.Concurrent;
@@ -44,7 +45,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     readonly ConcurrentDictionary<long, JsonDocument> _responses = [];
     readonly GuiderDevice _guiderDevice;
     readonly SemaphoreSlim _sync = new(1, 1);
-    readonly SemaphoreSlim _receiveEvent = new(0, 1);
+    readonly AsyncManualResetEvent _receiveResponseSignal = new(false);
     IUtf8TextBasedConnection? _connection;
     string? _selectedProfileName;
     List<GuiderDevice> _equipmentProfiles = [];
@@ -128,6 +129,11 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
                 {
                     line = await connection.ReadLineAsync(cancellationToken).ConfigureAwait(false);
                 }
+                catch (OperationCanceledException oce) when (oce.CancellationToken.IsCancellationRequested)
+                {
+                    // cancellation requested
+                    break;
+                }
                 catch (Exception ex)
                 {
                     OnGuidingErrorEvent(new GuidingErrorEventArgs(_guiderDevice, _selectedProfileName, $"Error {ex.Message} while reading from input stream", ex));
@@ -157,7 +163,11 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
                     continue;
                 }
 
-                if (j.RootElement.TryGetProperty("jsonrpc", out var _) && j.RootElement.TryGetProperty("id", out var idProp) && idProp.TryGetInt32(out var id))
+                if (j.RootElement.TryGetProperty("jsonrpc", out var _)
+                    && j.RootElement.TryGetProperty("id", out var idProp)
+                    && idProp.ValueKind is JsonValueKind.Number
+                    && idProp.TryGetInt32(out var id)
+                )
                 {
                     _ = _responses.AddOrUpdate(id, j,
                         (_, old) =>
@@ -167,7 +177,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
                         }
                     );
 
-                    _receiveEvent.Release();
+                    _receiveResponseSignal.Set(true);
                 }
                 else
                 {
@@ -391,9 +401,8 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
     static long MessageId = 0;
 
-    static (ReadOnlyMemory<byte> Buffer, long Id) MakeJsonRPCCall(string method, params object[] @params)
+    static long MakeJsonRPCCall(IBufferWriter<byte> buffer, string method, params object[] @params)
     {
-        var buffer = new ArrayBufferWriter<byte>(128);
         using var req = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = false });
         var id = Interlocked.Increment(ref MessageId);
 
@@ -461,7 +470,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         }
 
         req.WriteEndObject();
-        return (buffer.WrittenMemory, id);
+        return id;
     }
 
     static bool IsFailedResponse(JsonDocument response) => response.RootElement.TryGetProperty("error", out _);
@@ -595,10 +604,11 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     {
         EnsureConnected();
 
-        var (memory, id) = MakeJsonRPCCall(method, @params);
+        var buffer = new ArrayBufferWriter<byte>(128);
+        var id = MakeJsonRPCCall(buffer, method, @params);
 
         // send request
-        if (_connection is not { } connection || !await connection.WriteLineAsync(memory, cancellationToken).ConfigureAwait(false))
+        if (_connection is not { } connection || !await connection.WriteLineAsync(buffer.WrittenMemory, cancellationToken).ConfigureAwait(false))
         {
             throw new GuiderException($"Failed to send message {method} params: {string.Join(", ", @params)}");
         }
@@ -607,7 +617,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         JsonDocument? response;
         while (!_responses.TryRemove(id, out response))
         {
-            await _receiveEvent.WaitAsync(cancellationToken);
+            await _receiveResponseSignal.WaitAsync(cancellationToken);
         }
 
         if (IsFailedResponse(response))

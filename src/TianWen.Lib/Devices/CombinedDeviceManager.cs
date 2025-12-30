@@ -20,6 +20,7 @@ internal class CombinedDeviceManager(IExternal external, IEnumerable<IDeviceSour
     {
         if (_initialized)
         {
+            // will be true if we have at least one support device source
             return _deviceMaps.Count > 0;
         }
 

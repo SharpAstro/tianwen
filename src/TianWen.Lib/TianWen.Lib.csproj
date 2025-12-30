@@ -54,6 +54,7 @@
     <PackageReference Include="ASCOM.Com.Components" Version="2.2.1" />
     <PackageReference Include="CommunityToolkit.HighPerformance" Version="8.4.0" />
     <PackageReference Include="CsvHelper" Version="33.1.0" />
+    <PackageReference Include="DotNext.Threading" Version="5.26.1" />
     <PackageReference Include="FITS.Lib" Version="1.1.7" />
     <PackageReference Include="GeoTimeZone" Version="6.1.0" />
     <PackageReference Include="Magick.NET-Q16-HDRI-AnyCPU" Version="14.10.0" />
