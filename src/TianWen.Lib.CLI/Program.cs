@@ -41,7 +41,7 @@ var consoleHost = services.GetRequiredService<IConsoleHost>();
 var profiles = await consoleHost.ListProfilesAsync();
 foreach (var profile in profiles)
 {
-    Console.WriteLine("Profile: " + profile);
+    Console.WriteLine("Profile: " + profile.Detailed(consoleHost.DeviceUriRegistry));
 }
 
 await host.WaitForShutdownAsync();

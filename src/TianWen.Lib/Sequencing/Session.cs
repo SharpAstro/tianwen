@@ -573,8 +573,8 @@ internal record Session(
                 if (camerDriver.CameraState is CameraState.Idle)
                 {
                     // set denormalized parameters so that the image driver can write proper headers in the image file
-                    camerDriver.FocusPosition = telescope.Focuser?.Driver is { Connected: true } focuserDriver ? focuserDriver.Position : -1;
-                    camerDriver.Filter = telescope.FilterWheel?.Driver?.CurrentFilter ?? Filter.None;
+                    camerDriver.FocusPosition = Catch(() => telescope.Focuser?.Driver is { Connected: true } focuserDriver ? focuserDriver.Position : -1, -1);
+                    camerDriver.Filter = Catch(() => telescope.FilterWheel?.Driver is { Connected: true } filterWheelDriver ? filterWheelDriver.CurrentFilter : Filter.Unknown, Filter.Unknown);
 
                     var subExposureSec = subExposuresSec[i];
                     var frameExpTime = TimeSpan.FromSeconds(subExposureSec);
@@ -656,7 +656,7 @@ internal record Session(
                 if (observation.AcrossMeridian)
                 {
                     // TODO, stop guiding flip, resync, verify and restart guiding
-                    throw new InvalidOperationException("Observing across meridian is not yet supported");
+                    throw new NotSupportedException("Observing across meridian is not yet supported");
                 }
                 else
                 {
