@@ -56,6 +56,29 @@ internal class CombinedDeviceManager(IExternal external, IEnumerable<IDeviceSour
 
     public IEnumerable<DeviceBase> RegisteredDevices(DeviceType type) => _deviceMaps.SelectMany(map => map.RegisteredDevices(type));
 
+    public async ValueTask DiscoverOnlyDeviceType(DeviceType type, CancellationToken cancellationToken)
+    {
+        if (!await CheckSupportAsync(cancellationToken))
+        {
+            return;
+        }
+
+        foreach (var deviceMap in _deviceMaps)
+        {
+            if (deviceMap.RegisteredDeviceTypes.Contains(type))
+            {
+                try
+                {
+                    await deviceMap.DiscoverAsync(cancellationToken);
+                }
+                catch (Exception e)
+                {
+                    external.AppLogger.LogError(e, "Error while discovering devices of type {DeviceType}", type);
+                }
+            }
+        }
+    }
+
     public async ValueTask DiscoverAsync(CancellationToken cancellationToken)
     {
         if (!await CheckSupportAsync(cancellationToken))
