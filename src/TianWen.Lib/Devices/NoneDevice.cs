@@ -9,14 +9,11 @@ namespace TianWen.Lib.Devices;
 /// <param name="DeviceUri"></param>
 public sealed record class NoneDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 {
-    public NoneDevice() : this(new Uri($"none://{typeof(NoneDevice).Name}/None"))
+    public NoneDevice() : this(new Uri($"none://{typeof(NoneDevice).Name}/None#None"))
     {
     }
 
     public static readonly NoneDevice Instance = new NoneDevice();
 
-    protected override bool PrintMembers(StringBuilder stringBuilder)
-    {
-        return false;
-    }
+    public override string ToString() => "<None>";
 }

@@ -82,16 +82,16 @@ public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
 
             if (data.Guider is { } guider)
             {
-                sb.AppendLine($"\n  Guider: {DeviceInfo(guider)}");
+                sb.Append($"\n  Guider: {DeviceInfo(guider)}");
             }
             else
             {
-                sb.AppendLine("\n  Guider: <None>");
+                sb.Append("\n  Guider: <None>");
             }
 
             if (otaCount == 0)
             {
-                sb.AppendLine("\n  <No Telescopes>");
+                sb.Append("\n  <No Telescopes>");
             }
             else
             {
@@ -121,7 +121,7 @@ public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
         {
             if (deviceUriRegistry.TryGetDeviceFromUri(deviceUri, out var device))
             {
-                return $"{device.DisplayName} [{device.DeviceType}]";
+                return device.ToString();
             }
             else
             {

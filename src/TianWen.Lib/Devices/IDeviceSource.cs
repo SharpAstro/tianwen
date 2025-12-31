@@ -23,7 +23,7 @@ public interface IDeviceSource<out TDevice> : IAsyncSupportedCheck where TDevice
     IEnumerable<DeviceType> RegisteredDeviceTypes { get; }
 
     /// <summary>
-    /// Gets the registered devices of a specified type. Should only be called after <see cref="DiscoverAsync(CancellationToken)"/> has been called.
+    /// Gets the registered devices of a specified type. Should only be called after <see cref="DiscoverAsync(CancellationToken)"/>.
     /// </summary>
     /// <param name="deviceType">The type of device.</param>
     /// <returns>A collection of registered devices of the specified type.</returns>
