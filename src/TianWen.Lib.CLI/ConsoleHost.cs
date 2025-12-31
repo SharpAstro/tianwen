@@ -95,10 +95,12 @@ internal class ConsoleHost(
     {
         IConsoleImageRenderer renderer;
         Percentage? widthScale;
-        if (HasSixelSupport && TryGetConsolePixelSize(out var widthPx, out _))
+        if (HasSixelSupport)
         {
             renderer = new SixelRenderer();
-            widthScale = image.Width > widthPx ? new Percentage(100d * ((double)image.Width / widthPx)) : null;
+            widthScale = TryGetConsolePixelSize(out var widthPx, out _) && image.Width > widthPx
+                ? new Percentage(100d * ((double)image.Width / widthPx))
+                : null;
         }
         else
         {
