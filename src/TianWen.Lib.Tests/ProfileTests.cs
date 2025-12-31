@@ -11,7 +11,7 @@ namespace TianWen.Lib.Tests;
 public class ProfileTests(ITestOutputHelper outputHelper)
 {
     [Theory]
-    [InlineData("00000000-0000-0000-0000-000000000000", "Empty profile", "profile://profile/00000000-0000-0000-0000-000000000000?data=eyJNb3VudCI6Im5vbmU6Ly9Ob25lRGV2aWNlL05vbmUiLCJHdWlkZXIiOiJub25lOi8vTm9uZURldmljZS9Ob25lIiwiT1RBcyI6W10sIkd1aWRlckZvY3VzZXIiOm51bGwsIk9BR19PVEFfSW5kZXgiOm51bGx9#Empty profile")]
+    [InlineData("00000000-0000-0000-0000-000000000000", "Empty profile", "profile://profile/00000000-0000-0000-0000-000000000000?data=eyJNb3VudCI6Im5vbmU6Ly9Ob25lRGV2aWNlL05vbmUjTm9uZSIsIkd1aWRlciI6Im5vbmU6Ly9Ob25lRGV2aWNlL05vbmUjTm9uZSIsIk9UQXMiOltdLCJHdWlkZXJGb2N1c2VyIjpudWxsLCJPQUdfT1RBX0luZGV4IjpudWxsfQ#Empty profile")]
     public void GivenGuidAndProfileNameAProfileUriIsCreated(string guid, string name, string expectedUriStr)
     {
         var actualUri = Profile.CreateProfileUri(new Guid(guid), name, ProfileData.Empty);
