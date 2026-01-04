@@ -1,12 +1,15 @@
 ﻿using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.DAL;
+using TianWen.Lib.Devices.DAL;
+using ZWOptical.SDK;
 using static ZWOptical.SDK.EFW1_7;
 using static ZWOptical.SDK.EFW1_7.EFW_ERROR_CODE;
 
 namespace TianWen.Lib.Devices.ZWO;
 
-internal class ZWOFilterWheelDriver(ZWODevice device, IExternal external) : ZWODeviceDriverBase<EFW_INFO>(device, external), IFilterWheelDriver
+internal class ZWOFilterWheelDriver(ZWODevice device, IExternal external) : DALDeviceDriverBase<ZWODevice, EFW_INFO>(device, external), IFilterWheelDriver
 {
     private int? _filterCount = null;
 
@@ -30,6 +33,10 @@ internal class ZWOFilterWheelDriver(ZWODevice device, IExternal external) : ZWOD
             return [];
         }
     }
+
+    public override string? DriverInfo => $"ZWO Electronic Filter Wheel Driver v{DriverVersion}";
+
+    protected override INativeDeviceIterator<EFW_INFO> NewIterator() => new DeviceIterator<EFW_INFO>();
 
     protected override ValueTask<bool> InitDeviceAsync(CancellationToken cancellationToken)
     {

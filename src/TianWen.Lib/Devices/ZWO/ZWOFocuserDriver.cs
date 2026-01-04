@@ -1,12 +1,19 @@
 ﻿using System.Threading;
 using System.Threading.Tasks;
+using TianWen.DAL;
+using TianWen.Lib.Devices.DAL;
+using ZWOptical.SDK;
 using static ZWOptical.SDK.EAFFocuser1_6;
 using static ZWOptical.SDK.EAFFocuser1_6.EAF_ERROR_CODE;
 
 namespace TianWen.Lib.Devices.ZWO;
 
-internal class ZWOFocuserDriver(ZWODevice device, IExternal external) : ZWODeviceDriverBase<EAF_INFO>(device, external), IFocuserDriver
+internal class ZWOFocuserDriver(ZWODevice device, IExternal external) : DALDeviceDriverBase<ZWODevice, EAF_INFO>(device, external), IFocuserDriver
 {
+    public override string? DriverInfo => $"ZWO Electronic Focuser Driver v{DriverVersion}";
+
+    protected override INativeDeviceIterator<EAF_INFO> NewIterator() => new DeviceIterator<EAF_INFO>();
+
     public bool Absolute => true;
 
     public bool IsMoving => EAFIsMoving(ConnectionId, out var isMoving, out _) is var code && code is EAF_SUCCESS

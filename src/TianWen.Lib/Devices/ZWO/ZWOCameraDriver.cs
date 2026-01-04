@@ -6,14 +6,17 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.DAL;
+using TianWen.Lib.Devices.DAL;
 using TianWen.Lib.Imaging;
+using ZWOptical.SDK;
 using static ZWOptical.SDK.ASICamera2;
 using static ZWOptical.SDK.ASICamera2.ASI_BOOL;
 using static ZWOptical.SDK.ASICamera2.ASI_ERROR_CODE;
 
 namespace TianWen.Lib.Devices.ZWO;
 
-internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDriver
+internal class ZWOCameraDriver : DALDeviceDriverBase<ZWODevice, ASI_CAMERA_INFO>, ICameraDriver
 {
     record class NativeBuffer(IntPtr Pointer, int Size);
 
@@ -47,6 +50,10 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
     {
         DeviceConnectedEvent += ZWOCameraDriver_DeviceConnectedEvent;
     }
+
+    public override string? DriverInfo => $"ZWO Camera Driver v{DriverVersion}";
+
+    protected override INativeDeviceIterator<ASI_CAMERA_INFO> NewIterator() => new DeviceIterator<ASI_CAMERA_INFO>();
 
     private void ZWOCameraDriver_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
     {

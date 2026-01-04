@@ -1,18 +1,18 @@
 ﻿using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
-using ZWOptical.SDK;
 
-namespace TianWen.Lib.Devices.ZWO;
+namespace TianWen.Lib.Devices.DAL;
 
-internal abstract class ZWODeviceDriverBase<TDeviceInfo>(ZWODevice device, IExternal external) : DeviceDriverBase<ZWODevice, TDeviceInfo>(device, external)
+internal abstract class DALDeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, IExternal external) : DeviceDriverBase<TDevice, TDeviceInfo>(device, external)
+    where TDevice : DeviceBase
     where TDeviceInfo : struct, INativeDeviceInfo
 {
-    public override string? DriverInfo => $"ZWO Driver v{DriverVersion}";
+    protected abstract INativeDeviceIterator<TDeviceInfo> NewIterator();
 
     protected override Task<(bool Success, int ConnectionId, TDeviceInfo DeviceInfo)> DoConnectDeviceAsync(CancellationToken cancellationToken)
     {
-        var deviceIterator = new DeviceIterator<TDeviceInfo>();
+        var deviceIterator = NewIterator();
         var searchId = _device.DeviceId;
 
         foreach (var (deviceId, deviceInfo) in deviceIterator)
