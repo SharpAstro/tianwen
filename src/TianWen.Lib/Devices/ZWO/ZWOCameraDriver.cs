@@ -2,7 +2,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Dynamic;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -78,10 +77,15 @@ internal class ZWOCameraDriver : ZWODeviceDriverBase<ASI_CAMERA_INFO>, ICameraDr
         }
 
         // Bayer pattern
-        if (camInfo.IsCoolerCam is ASI_TRUE)
+        if (camInfo.IsColorCam is ASI_TRUE)
         {
             BayerOffsetX = camInfo.BayerPattern.BayerXOffset();
             BayerOffsetY = camInfo.BayerPattern.BayerYOffset();
+            SensorType = SensorType.RGGB;
+        }
+        else
+        {
+            SensorType = SensorType.Monochrome;
         }
 
         // update supported bidepth set

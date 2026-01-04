@@ -1,10 +1,10 @@
-﻿using ImageMagick;
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.Text;
 using TianWen.Lib.CLI;
 using TianWen.Lib.Extensions;
+using System.CommandLine;
 
 Console.InputEncoding = Encoding.UTF8;
 Console.OutputEncoding = Encoding.UTF8;
@@ -45,14 +45,7 @@ await host.StartAsync();
 var services = host.Services;
 var consoleHost = services.GetRequiredService<IConsoleHost>();
 
-consoleHost.Logger.LogDebug("Console has sixel: {SixelSupport}, ImageMagick colour depth: {IMColourDepth}",
-    consoleHost.HasSixelSupport,
-    Quantum.Depth
-);
 
-using var logoImage = new MagickImage();
-await logoImage.ReadAsync("logo.png");
-consoleHost.RenderImage(logoImage);
 
 var profiles = await consoleHost.ListProfilesAsync();
 foreach (var profile in profiles)

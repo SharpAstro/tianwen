@@ -31,7 +31,7 @@ public record Float32HxWImageData(float[,] Data, float MaxValue)
             }
         }
 
-        return new(targetData, maxVal);
+        return new Float32HxWImageData(targetData, maxVal);
     }
 
 
@@ -43,5 +43,6 @@ public record Float32HxWImageData(float[,] Data, float MaxValue)
     /// <param name="blackLevel">black level or offset</param>
     /// <param name="imageMeta">image meta data</param>
     /// <returns>image from data, transposed and transformed to 32-bit floats</returns>
-    public Image ToImage(BitDepth bitDepth, float blackLevel, in ImageMeta imageMeta) => new(Data, Data.GetLength(1), Data.GetLength(0), bitDepth, MaxValue, blackLevel, imageMeta);
+    public Image ToImage(BitDepth bitDepth, float blackLevel, in ImageMeta imageMeta) =>
+        new Image(Data, Data.GetLength(1), Data.GetLength(0), bitDepth, MaxValue, blackLevel, imageMeta);
 }

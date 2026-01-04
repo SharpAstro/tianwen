@@ -57,7 +57,7 @@
     <PackageReference Include="DotNext.Threading" Version="5.26.1" />
     <PackageReference Include="FITS.Lib" Version="1.1.7" />
     <PackageReference Include="GeoTimeZone" Version="6.1.0" />
-    <PackageReference Include="Magick.NET-Q16-HDRI-AnyCPU" Version="14.10.0" />
+    <PackageReference Include="Magick.NET-Q16-HDRI-AnyCPU" Version="14.10.1" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.11" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.11" />
     <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0">
@@ -66,7 +66,7 @@
     </PackageReference>
     <PackageReference Include="System.IO.Ports" Version="9.0.11" />
     <PackageReference Include="WWA.Core" Version="1.2.0" />
-    <PackageReference Include="ZWOptical.SDK" Version="2.0.451" />
+    <PackageReference Include="ZWOptical.SDK" Version="3.1.481" />
   </ItemGroup>
 
 </Project>

@@ -17,7 +17,7 @@ using static TianWen.Lib.Stat.StatisticsHelper;
 
 namespace TianWen.Lib.Imaging;
 
-public sealed class Image(float[,] data, int width, int height, BitDepth bitDepth, float maxVal, float blackLevel, ImageMeta imageMeta)
+public class Image(float[,] data, int width, int height, BitDepth bitDepth, float maxVal, float blackLevel, ImageMeta imageMeta)
 {
     public int Width => width;
     public int Height => height;
@@ -530,15 +530,15 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
     /// <param name="maxStars"></param>
     /// <param name="maxRetries"></param>
     /// <returns></returns>
-    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    public async Task<StarList> FindStarsAsync(float snrMin = 20f, int maxStars = 500, int maxRetries = 2, CancellationToken cancellationToken = default)
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    public virtual async Task<StarList> FindStarsAsync(float snrMin = 20f, int maxStars = 500, int maxRetries = 2, CancellationToken cancellationToken = default)
     {
         const int ChunkSize = 2 * MaxScaledRadius;
         const float HalfChunkSizeInv = 1.0f / 2.0f * ChunkSize;
 
         if (imageMeta.SensorType is not SensorType.Monochrome)
         {
-            return await DebayerOSCToSyntheticLuminance().FindStarsAsync(snrMin, maxStars, maxRetries, cancellationToken);
+            return await DebayerOSC2x2MonoBin().FindStarsAsync(snrMin, maxStars, maxRetries, cancellationToken);
         }
 
         var (background, star_level, noise_level, hist_threshold) = Background();
@@ -980,7 +980,7 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
         var star_fwhm = 2 * MathF.Sqrt(pixel_counter / MathF.PI);/*calculate from surface (by counting pixels above half max) the diameter equals FWHM */
         var snr = flux / MathF.Sqrt(flux + r_aperture * r_aperture * MathF.PI * sd_bg * sd_bg);
 
-        star = new(hfd, star_fwhm, snr, flux, xc, yc);
+        star = new ImagedStar(hfd, star_fwhm, snr, flux, xc, yc);
         return true;
         /*For both bright stars (shot-noise limited) or skybackground limited situations
         snr := signal/noise
@@ -1086,7 +1086,7 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
     /// Is a no-op for monochrome fames.
     /// </summary>
     /// <returns>Debayered monochrome image</returns>
-    public Image DebayerOSCToSyntheticLuminance()
+    public Image DebayerOSC2x2MonoBin()
     {
         // NO-OP for monochrome images
         if (imageMeta.SensorType is SensorType.Monochrome)
@@ -1135,7 +1135,7 @@ public sealed class Image(float[,] data, int width, int height, BitDepth bitDept
 
         var starLists = await Task.WhenAll(starList1Task, starList2Task);
 
-        if (starLists[0].Count >= minStars || starLists[1].Count >= minStars)
+        if (starLists[0].Count >= minStars && starLists[1].Count >= minStars)
         {
             new SortedStarList(starLists[0]).FindOffsetAndRotation(new SortedStarList(starLists[1]), minStars/ 4, quadTolerance);
         }

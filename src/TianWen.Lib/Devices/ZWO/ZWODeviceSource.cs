@@ -7,6 +7,7 @@ using ZWOptical.SDK;
 using static ZWOptical.SDK.ASICamera2;
 using static ZWOptical.SDK.EAFFocuser1_6;
 using static ZWOptical.SDK.EFW1_7;
+using TianWen.DAL;
 
 namespace TianWen.Lib.Devices.ZWO;
 
@@ -69,7 +70,7 @@ internal class ZWODeviceSource : IDeviceSource<ZWODevice>
 
     static IEnumerable<ZWODevice> ListEFWs() => ListDevice<EFW_INFO>(DeviceType.FilterWheel);
 
-    static IEnumerable<ZWODevice> ListDevice<TDeviceInfo>(DeviceType deviceType) where TDeviceInfo : struct, IZWODeviceInfo
+    static IEnumerable<ZWODevice> ListDevice<TDeviceInfo>(DeviceType deviceType) where TDeviceInfo : struct, INativeDeviceInfo
     {
         var ids = new HashSet<int>();
 
@@ -81,7 +82,7 @@ internal class ZWODeviceSource : IDeviceSource<ZWODevice>
             {
                 try
                 {
-                    if (deviceInfo.SerialNumber?.ToString() is { Length: > 0 } serialNumber)
+                    if (deviceInfo.SerialNumber is { Length: > 0 } serialNumber)
                     {
                         yield return new ZWODevice(deviceType, serialNumber, deviceInfo.Name);
                     }

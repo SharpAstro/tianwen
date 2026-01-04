@@ -27,10 +27,4 @@
     <ProjectReference Include="..\TianWen.Lib\TianWen.Lib.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <None Update="logo.png">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
-
 </Project>

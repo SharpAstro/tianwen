@@ -16,7 +16,7 @@ public enum SensorType
     Color,
 
     /// <summary>
-    /// Camera produces RGGB encoded Bayer array images.
+    /// Camera produces RGGB encoded Bayer array images, needs to be used together with BayerX,Y offset to determine the actual pattern.
     /// </summary>
     RGGB,
 
@@ -36,9 +36,10 @@ public static class SensorTypeEx
             return SensorType.Monochrome;
         }
 
-        // TODO this is a bit simplified, support stuff like GRGB etc and support inferring via BayerOffsetY
-        return string.Equals(firstNonNull, "RGGB", StringComparison.OrdinalIgnoreCase)
-            ? SensorType.RGGB
-            : SensorType.Unknown;
+        return firstNonNull.ToUpperInvariant() switch
+        {
+            "RGGB" or "GRBG" or "GBRG" or "BGGR" => SensorType.RGGB,
+            _ => SensorType.Unknown
+        };
     }
 }

@@ -6,7 +6,7 @@ namespace TianWen.Lib.CLI;
 
 public interface IConsoleHost
 {
-    bool HasSixelSupport { get; }
+    Task<bool> HasSixelSupportAsync();
 
     ILogger Logger { get; }
 
@@ -14,5 +14,5 @@ public interface IConsoleHost
 
     IDeviceUriRegistry DeviceUriRegistry { get; }
 
-    void RenderImage(IMagickImage<float> image);
+    ValueTask RenderImageAsync(IMagickImage<float> image);
 }
