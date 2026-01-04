@@ -1,11 +1,12 @@
 ﻿using System.Threading;
 using System.Threading.Tasks;
+using TianWen.DAL;
 using ZWOptical.SDK;
 
 namespace TianWen.Lib.Devices.ZWO;
 
 internal abstract class ZWODeviceDriverBase<TDeviceInfo>(ZWODevice device, IExternal external) : DeviceDriverBase<ZWODevice, TDeviceInfo>(device, external)
-    where TDeviceInfo : struct, IZWODeviceInfo
+    where TDeviceInfo : struct, INativeDeviceInfo
 {
     public override string? DriverInfo => $"ZWO Driver v{DriverVersion}";
 
@@ -46,7 +47,7 @@ internal abstract class ZWODeviceDriverBase<TDeviceInfo>(ZWODevice device, IExte
 
         return Task.FromResult((false, CONNECTION_ID_UNKNOWN, default(TDeviceInfo)));
 
-        bool IsSameSerialNumber(in TDeviceInfo deviceInfo) => deviceInfo.SerialNumber?.ToString() is { Length: > 0 } serialNumber && serialNumber == searchId;
+        bool IsSameSerialNumber(in TDeviceInfo deviceInfo) => deviceInfo.SerialNumber is { Length: > 0 } serialNumber && serialNumber == searchId;
 
         bool IsSameCustomId(in TDeviceInfo deviceInfo) => deviceInfo.IsUSB3Device && deviceInfo.CustomId is { Length: > 0 } customId && customId == searchId;
 

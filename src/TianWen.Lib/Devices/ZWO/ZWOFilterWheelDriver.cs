@@ -33,7 +33,7 @@ internal class ZWOFilterWheelDriver(ZWODevice device, IExternal external) : ZWOD
 
     protected override ValueTask<bool> InitDeviceAsync(CancellationToken cancellationToken)
     {
-        _filterCount = _deviceInfo.slotNum;
+        _filterCount = _deviceInfo.NumberOfSlots;
         if (_filterCount > 0)
         {
             return ValueTask.FromResult(true);

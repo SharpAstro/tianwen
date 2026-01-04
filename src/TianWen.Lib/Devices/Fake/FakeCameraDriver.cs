@@ -7,7 +7,7 @@ namespace TianWen.Lib.Devices.Fake;
 
 internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external) : FakeDeviceDriverBase(fakeDevice, external), ICameraDriver
 {
-    private readonly object _lock = new object(); // TODO: change to Lock when upgrading to C# 13
+    private readonly Lock _lock = new Lock();
 
     private Float32HxWImageData? _lastImageData;
     private CameraSettings _cameraSettings;

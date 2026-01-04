@@ -13,93 +13,100 @@ internal class ConsoleHost(
     IDeviceUriRegistry deviceUriRegistry
 ) : IConsoleHost
 {
-    private HashSet<int>? _deviceCapabilities;
+    private HashSet<TerminalCapability>? _deviceCapabilities;
     private int? _consoleWidthPx;
     private int? _consoleHeightPx;
     private int? _consoleWidthChars;
 
     public IDeviceUriRegistry DeviceUriRegistry => deviceUriRegistry;
 
-    public bool HasSixelSupport
+    public async Task<bool> HasSixelSupportAsync()
     {
-        get
+        if (_deviceCapabilities is null)
         {
-            if (_deviceCapabilities is null)
-            {
-                var response = new StringBuilder();
-                Console.WriteLine("\e[0c");
-                while (Console.KeyAvailable)
-                {
-                    var key = Console.ReadKey(true);
-                    response.Append(key.KeyChar);
-                }
+            var response = await GetControlSequenceResponse("\e[0c");
 
-                _deviceCapabilities = [.. response.ToString()
+            _deviceCapabilities = [.. response
                     .TrimStart('\e', '[', '?')
                     .TrimEnd('c')
                     .Split(';')
-                    .Select(int.Parse)
-                ];
-            }
-
-            return _deviceCapabilities.Contains(4);
+                    .Select((s) => (TerminalCapability) int.Parse(s))
+            ];
         }
+
+        return _deviceCapabilities.Contains(TerminalCapability.Sixel);
     }
 
-    private bool TryGetConsolePixelSize(out int widthPx, out int heightPx)
+    private async ValueTask<string> GetControlSequenceResponse(string sequence)
     {
-        if (!HasSixelSupport)
+        const int maxTries = 10;
+
+        var response = new StringBuilder();
+        Console.WriteLine(sequence);
+
+        int tries = 0;
+        while (!Console.KeyAvailable && tries < maxTries)
         {
-            widthPx = -1;
-            heightPx = -1;
-            return false;
+            await Task.Delay(TimeSpan.FromMilliseconds(10));
+        }
+
+        if (!Console.KeyAvailable)
+        {
+            Logger.LogDebug("Failed to read control sequence response for {Sequence} after {MaxTries}", sequence, maxTries);
+        }
+
+        while (Console.KeyAvailable)
+        {
+            var key = Console.ReadKey(true);
+            response.Append(key.KeyChar);
+        }
+
+        return response.ToString();
+    }
+
+    private async Task<(int WidthPx, int HeightPx)?> TryGetConsolePixelSizeAsync()
+    {
+        if (!await HasSixelSupportAsync())
+        {
+            return null;
         }
 
         if (!_consoleWidthPx.HasValue || !_consoleHeightPx.HasValue || !_consoleWidthChars.HasValue || _consoleWidthPx != Console.WindowWidth)
         {
-            var response = new StringBuilder();
-            Console.WriteLine("\e[14t");
-            while (Console.KeyAvailable)
-            {
-                var key = Console.ReadKey(true);
-                response.Append(key.KeyChar);
-            }
-            var respStr = response.ToString();
+            var response = await GetControlSequenceResponse("\e[14t");
             // Response is of the form ESC [ 4 ; height ; width t
-            var parts = respStr.TrimStart('\e', '[').TrimEnd('t').Split(';');
+            var parts = response.TrimStart('\e', '[').TrimEnd('t').Split(';');
             if (parts.Length == 3 && parts[0] == "4" &&
-                int.TryParse(parts[1], out heightPx) &&
-                int.TryParse(parts[2], out widthPx))
+                int.TryParse(parts[1], out var heightPx) &&
+                int.TryParse(parts[2], out var widthPx))
             {
                 _consoleWidthPx = widthPx;
                 _consoleHeightPx = heightPx;
                 _consoleWidthChars = Console.WindowWidth;
-                return true;
+                return (widthPx, heightPx);
             }
             else
             {
-                widthPx = -1;
-                heightPx = -1;
-                return false;
+                return null;
             }
         }
         else
         {
-            widthPx = _consoleWidthPx.Value;
-            heightPx = _consoleHeightPx.Value;
-            return true;
+            return null;
         }
     }
 
-    public void RenderImage(IMagickImage<float> image)
+    public async ValueTask RenderImageAsync(IMagickImage<float> image)
     {
         IConsoleImageRenderer renderer;
         Percentage? widthScale;
-        if (HasSixelSupport)
+        if (await HasSixelSupportAsync())
         {
             renderer = new SixelRenderer();
-            widthScale = TryGetConsolePixelSize(out var widthPx, out _) && image.Width > widthPx
-                ? new Percentage(100d * ((double)image.Width / widthPx))
+
+            var pixelSize = await TryGetConsolePixelSizeAsync();
+            widthScale = pixelSize.HasValue && image.Width > pixelSize.Value.WidthPx
+                ? new Percentage(100d * ((double)image.Width / pixelSize.Value.WidthPx))
                 : null;
         }
         else
