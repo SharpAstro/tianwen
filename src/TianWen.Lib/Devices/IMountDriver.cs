@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.DAL;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.SOFA;
 using static TianWen.Lib.Astrometry.CoordinateUtils;

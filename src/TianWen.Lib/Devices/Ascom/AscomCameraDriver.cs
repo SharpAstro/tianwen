@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.DAL;
 using TianWen.Lib.Imaging;
 using AscomCamera = ASCOM.Com.DriverAccess.Camera;
 using AscomGuideDirection = ASCOM.Common.DeviceInterfaces.GuideDirection;

@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using TianWen.DAL;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Devices;

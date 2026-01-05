@@ -9,8 +9,6 @@ internal abstract class DeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, I
     where TDevice : DeviceBase
     where TDeviceInfo : struct
 {
-    public delegate void ProcessDeviceInfoDelegate(in TDeviceInfo deviceInfo);
-
     protected readonly TDevice _device = device;
     protected TDeviceInfo _deviceInfo;
 
@@ -31,8 +29,6 @@ internal abstract class DeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, I
     private int _connectionId;
 
     protected int ConnectionId => _connectionId;
-
-    protected void ProcessDeviceInfo(ProcessDeviceInfoDelegate processor) => processor(_deviceInfo);
 
     internal const int CONNECTION_ID_EXCLUSIVE = -100;
     internal const int CONNECTION_ID_UNKNOWN   = -200;
@@ -89,7 +85,7 @@ internal abstract class DeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, I
                 // only trigger connected event once
                 if (Interlocked.CompareExchange(ref _connectionState, desiredState, intermediateState) == intermediateState)
                 {
-                    bool initSuccess; 
+                    bool initSuccess;
                     try
                     {
                         initSuccess = await InitDeviceAsync(cancellationToken);

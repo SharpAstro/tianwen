@@ -8,6 +8,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.DAL;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Connections;
 using static TianWen.Lib.Astrometry.Constants;

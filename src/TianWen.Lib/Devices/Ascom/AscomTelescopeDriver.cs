@@ -2,11 +2,12 @@
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.DAL;
 using TianWen.Lib.Astrometry;
-using AscomTelescope = ASCOM.Com.DriverAccess.Telescope;
 using AscomGuideDirection = ASCOM.Common.DeviceInterfaces.GuideDirection;
-using AscomTrackingSpeed = ASCOM.Common.DeviceInterfaces.DriveRate;
+using AscomTelescope = ASCOM.Com.DriverAccess.Telescope;
 using AscomTelescopeAxis = ASCOM.Common.DeviceInterfaces.TelescopeAxis;
+using AscomTrackingSpeed = ASCOM.Common.DeviceInterfaces.DriveRate;
 
 namespace TianWen.Lib.Devices.Ascom;
 
