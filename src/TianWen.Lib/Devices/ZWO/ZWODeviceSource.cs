@@ -76,9 +76,9 @@ internal class ZWODeviceSource : IDeviceSource<ZWODevice>
 
         var cameraIterator = new DeviceIterator<TDeviceInfo>();
 
-        foreach (var (camId, deviceInfo) in cameraIterator)
+        foreach (var deviceInfo in cameraIterator)
         {
-            if (!ids.Contains(camId) && deviceInfo.Open())
+            if (!ids.Contains(deviceInfo.ID) && deviceInfo.Open())
             {
                 try
                 {
@@ -95,7 +95,7 @@ internal class ZWODeviceSource : IDeviceSource<ZWODevice>
                         yield return new ZWODevice(deviceType, deviceInfo.Name, deviceInfo.Name);
                     }
 
-                    ids.Add(camId);
+                    ids.Add(deviceInfo.ID);
                 }
                 finally
                 {

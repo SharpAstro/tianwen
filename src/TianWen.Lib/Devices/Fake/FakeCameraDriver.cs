@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Threading;
+using TianWen.DAL;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Devices.Fake;

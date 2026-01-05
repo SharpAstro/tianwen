@@ -15,7 +15,7 @@ internal abstract class DALDeviceDriverBase<TDevice, TDeviceInfo>(TDevice device
         var deviceIterator = NewIterator();
         var searchId = _device.DeviceId;
 
-        foreach (var (deviceId, deviceInfo) in deviceIterator)
+        foreach (var deviceInfo in deviceIterator)
         {
             if (cancellationToken.IsCancellationRequested)
             {
@@ -29,7 +29,7 @@ internal abstract class DALDeviceDriverBase<TDevice, TDeviceInfo>(TDevice device
                 if (isOpen && (IsSameSerialNumber(deviceInfo) || IsSameCustomId(deviceInfo) || IsSameName(deviceInfo)))
                 {
                     needsClosing = false;
-                    return Task.FromResult((true, deviceId, deviceInfo));
+                    return Task.FromResult((true, deviceInfo.ID, deviceInfo));
                 }
                 else if (isOpen)
                 {
