@@ -18,7 +18,11 @@ internal class ConsoleHost(
     private int? _consoleHeightPx;
     private int? _consoleWidthChars;
 
-    public IDeviceUriRegistry DeviceUriRegistry => deviceUriRegistry;
+    public IDeviceUriRegistry DeviceUriRegistry { get; } = deviceUriRegistry;
+
+    public IHostApplicationLifetime ApplicationLifetime { get; } = applicationLifetime;
+
+    public IExternal External { get; } = external;
 
     public async Task<bool> HasSixelSupportAsync()
     {
@@ -52,7 +56,7 @@ internal class ConsoleHost(
 
         if (!Console.KeyAvailable)
         {
-            Logger.LogDebug("Failed to read control sequence response for {Sequence} after {MaxTries}", sequence, maxTries);
+            External.AppLogger.LogDebug("Failed to read control sequence response for {Sequence} after {MaxTries}", sequence, maxTries);
         }
 
         while (Console.KeyAvailable)
@@ -118,9 +122,7 @@ internal class ConsoleHost(
         Console.Write(renderer.Render(image, widthScale));
     }
 
-    public ILogger Logger => external.AppLogger;
-
-    public async Task<IReadOnlyCollection<Profile>> ListProfilesAsync()
+    public async Task<IReadOnlyCollection<Profile>> ListProfilesAsync(CancellationToken cancellationToken)
     {
         TimeSpan discoveryTimeout;
 #if DEBUG
@@ -128,9 +130,8 @@ internal class ConsoleHost(
 #else
         discoveryTimeout = TimeSpan.FromSeconds(25);
 #endif
-
-        using var cts = new CancellationTokenSource(discoveryTimeout, external.TimeProvider);
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, applicationLifetime.ApplicationStopping);
+        using var cts = new CancellationTokenSource(discoveryTimeout, External.TimeProvider);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken);
 
         if (await deviceManager.CheckSupportAsync(linked.Token))
         {

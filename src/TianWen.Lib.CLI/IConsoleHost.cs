@@ -1,4 +1,5 @@
 ﻿using ImageMagick;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using TianWen.Lib.Devices;
 
@@ -8,11 +9,13 @@ public interface IConsoleHost
 {
     Task<bool> HasSixelSupportAsync();
 
-    ILogger Logger { get; }
-
-    Task<IReadOnlyCollection<Profile>> ListProfilesAsync();
+    Task<IReadOnlyCollection<Profile>> ListProfilesAsync(CancellationToken cancellationToken);
 
     IDeviceUriRegistry DeviceUriRegistry { get; }
+    
+    IHostApplicationLifetime ApplicationLifetime { get; }
+
+    IExternal External { get; }
 
     ValueTask RenderImageAsync(IMagickImage<float> image);
 }
