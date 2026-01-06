@@ -1,10 +1,12 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Pastel;
+using System.CommandLine;
 using System.Text;
 using TianWen.Lib.CLI;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Extensions;
-using System.CommandLine;
 
 Console.InputEncoding = Encoding.UTF8;
 Console.OutputEncoding = Encoding.UTF8;
@@ -45,19 +47,140 @@ await host.StartAsync();
 var services = host.Services;
 var consoleHost = services.GetRequiredService<IConsoleHost>();
 
-
-
-var profiles = await consoleHost.ListProfilesAsync();
-foreach (var profile in profiles)
+var selectedProfileOption = new Option<string?>(
+    "--active",
+    "-a"
+)
 {
-    Console.WriteLine();
-    Console.WriteLine("Profile: " + profile.Detailed(consoleHost.DeviceUriRegistry));
-}
+    Description = "Profile name or ID to use",
+    Recursive = true
+};
+
+var rootCommand = new RootCommand
+{
+    Options = { selectedProfileOption }
+};
+var profileSubCommand = new Command("profile", "Manage profiles");
+
+var listProfilesCommand = new Command("list", "List all profiles");
+listProfilesCommand.SetAction(async (parseResult, cancellationToken) =>
+{
+    var selectedOptionValue = parseResult.GetValue(selectedProfileOption);
+    var profiles = await consoleHost.ListProfilesAsync(cancellationToken);
+
+    var selectedProfile = GetSelected(profiles, selectedOptionValue);
+
+    foreach (var profile in profiles)
+    {
+        Console.WriteLine();
+        if (profile.ProfileId == selectedProfile?.ProfileId)
+        {
+            Console.Write("* ".Pastel(ConsoleColor.White));
+        }
+        else
+        {
+            Console.Write("  ");
+        }
+        Console.WriteLine(profile.Detailed(consoleHost.DeviceUriRegistry));
+    }
+});
+
+var profileNameOrIdArg = new Argument<string>("profileNameOrId") { Description = "Name or ID of the profile" };
+var deleteProfileCommand = new Command("delete", "Delete a profile")
+{
+    Arguments = { profileNameOrIdArg }
+};
+deleteProfileCommand.SetAction(async (parseResult, cancellationToken) =>
+{
+    var profileNameOrId = parseResult.GetRequiredValue(profileNameOrIdArg);
+    
+    var profiles = await consoleHost.ListProfilesAsync(cancellationToken);
+    Profile profileToDelete;
+    if (Guid.TryParse(profileNameOrId, out var profileId))
+    {
+        if (profiles.FirstOrDefault(p => p.ProfileId == profileId) is { } profile)
+        {
+            profileToDelete = profile;
+        }
+        else
+        {
+            Console.Error.WriteLine($"No profile found with ID '{profileId}'");
+            return;
+        }
+    }
+    else
+    {
+        var matchingProfiles = profiles.Where(p => string.Equals(p.DisplayName, profileNameOrId, StringComparison.CurrentCultureIgnoreCase)).ToList();
+        if (matchingProfiles.Count is 1)
+        {
+            profileToDelete = matchingProfiles[0];
+        }
+        else if (matchingProfiles.Count > 1)
+        {
+            Console.Error.WriteLine($"Multiple profiles found with name '{profileNameOrId}':");
+            foreach (var profile in matchingProfiles)
+            {
+                Console.Error.WriteLine($"- {profile.ProfileId}");
+            }
+            return;
+        }
+        else
+        {
+            Console.Error.WriteLine($"No profiles found with name '{profileNameOrId}'");
+            return;
+        }
+    }
+
+    profileToDelete.Delete(consoleHost.External);
+
+    Console.WriteLine($"Deleted profile '{profileToDelete.DisplayName}' ({profileToDelete.ProfileId})");
+
+    // refresh cache
+    var profilesAfterDelete = await consoleHost.ListProfilesAsync(cancellationToken);
+});
+
+var profileNameArg = new Argument<string>("profileName") { Description = "Name of the new profile" };
+var createProfileCommand = new Command("create", "Create a new empty profile")
+{
+    Arguments = { profileNameArg }
+};
+createProfileCommand.SetAction(async (parseResult, cancellationToken) =>
+{
+    var profileName = parseResult.GetRequiredValue<string>(profileNameArg);
+    var newProfile = new Profile(Guid.NewGuid(), profileName, ProfileData.Empty);
+    await newProfile.SaveAsync(consoleHost.External);
+    Console.WriteLine($"Created new profile '{newProfile.DisplayName}' with ID {newProfile.ProfileId}");
+});
+
+profileSubCommand.Subcommands.Add(listProfilesCommand);
+profileSubCommand.Subcommands.Add(deleteProfileCommand);
+profileSubCommand.Subcommands.Add(createProfileCommand);
+
+rootCommand.Subcommands.Add(profileSubCommand);
+
+await rootCommand.Parse(args).InvokeAsync(cancellationToken: consoleHost.ApplicationLifetime.ApplicationStopped);
 
 await host.StopAsync();
 
 await host.WaitForShutdownAsync();
 
+static Profile? GetSelected(IReadOnlyCollection<Profile> allProfiles, string? selected)
+{
+    if (Guid.TryParse(selected, out var selectedId))
+    {
+        return allProfiles.SingleOrDefault(p => p.ProfileId == selectedId);
+    }
+    else if (allProfiles.Count is 1 && string.IsNullOrEmpty(selected))
+    {
+        return allProfiles.Single();
+    }
+    else
+    {
+        var possibleProfiles = allProfiles.Where(p => string.Equals(p.DisplayName, selected, StringComparison.CurrentCultureIgnoreCase)).ToList();
+
+        return possibleProfiles.Count is 1 ? possibleProfiles.Single() : null;
+    }
+}
 /*
 var argIdx = 0;
 var mountDeviceId = args.Length > argIdx ? args[argIdx++] : "ASCOM.DeviceHub.Telescope";
