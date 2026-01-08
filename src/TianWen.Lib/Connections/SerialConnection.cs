@@ -35,6 +35,7 @@ internal sealed class SerialConnection : ISerialConnection
     }
 
     private readonly SerialPort _port;
+    private readonly SemaphoreSlim _semaphore;
     private readonly Stream _stream;
     private readonly ILogger _logger;
 
@@ -42,6 +43,7 @@ internal sealed class SerialConnection : ISerialConnection
     {
         _port = new SerialPort(CleanupPortName(portName), baud);
         _port.Open();
+        _semaphore = new SemaphoreSlim(1, 1);
 
         var timeoutMs = (int)Math.Round((ioTimeout ?? TimeSpan.FromMilliseconds(500)).TotalMilliseconds);
         _stream = _port.BaseStream;
@@ -59,6 +61,10 @@ internal sealed class SerialConnection : ISerialConnection
     /// </summary>
     public Encoding Encoding { get; }
 
+    public Task WaitAsync(CancellationToken cancellationToken) => _semaphore.WaitAsync(cancellationToken);
+
+    public int Release() => _semaphore.Release();
+
     /// <summary>
     /// Closes the serial port if it is open
     /// </summary>
@@ -68,6 +74,7 @@ internal sealed class SerialConnection : ISerialConnection
         if (_port.IsOpen)
         {
             _port.Close();
+            _semaphore.Dispose();
         }
         return !_port.IsOpen;
     }
@@ -78,7 +85,7 @@ internal sealed class SerialConnection : ISerialConnection
         {
             await _stream.WriteAsync(message, cancellationToken);
 #if DEBUG
-            _logger.LogDebug("--> {Message}", Encoding.GetString(message.Span));
+            _logger.LogTrace("--> {Message}", Encoding.GetString(message.Span));
 #endif
         }
         catch (Exception ex)
@@ -163,7 +170,7 @@ internal sealed class SerialConnection : ISerialConnection
         var buffer = ArrayPool<byte>.Shared.Rent(count);
         try
         {
-            if (await TryReadExactlyRawAsync(buffer, cancellationToken))
+            if (await TryReadExactlyRawAsync(buffer.AsMemory(0,count), cancellationToken))
             {
 
                 var message = Encoding.GetString(buffer);

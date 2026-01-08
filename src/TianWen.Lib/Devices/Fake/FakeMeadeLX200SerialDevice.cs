@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Microsoft.Extensions.Logging;
+using System;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -17,20 +18,23 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
     private readonly Transform _transform;
     private readonly int _alignmentStars = 0;
     private double _slewRate = 1.5d; // degrees per second
-    private bool _isTracking = false;
-    private bool _isSlewing = false;
-    private bool _highPrecision = false;
-    private int _trackingFrequency = 601; // TODO simulate tracking and tracking rate
+    private volatile bool _isTracking = false;
+    private volatile bool _isSlewing = false;
+    private volatile bool _highPrecision = false;
+    private volatile int _trackingFrequency = 601; // TODO simulate tracking and tracking rate
     private double _raAngle;
     private double _targetRa;
     private double _targetDec;
     private ITimer? _slewTimer;
+    private readonly ILogger _logger;
 
     // I/O properties
     private readonly StringBuilder _responseBuffer = new StringBuilder();
     private int _responsePointer = 0;
+    private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
+    private readonly Lock _lockObj = new Lock();
 
-    public FakeMeadeLX200SerialDevice(bool isOpen, Encoding encoding, TimeProvider timeProvider, double siteLatitude, double siteLongitude)
+    public FakeMeadeLX200SerialDevice(ILogger logger, Encoding encoding, TimeProvider timeProvider, double siteLatitude, double siteLongitude, bool isOpen)
     {
         _transform = new Transform(timeProvider)
         {
@@ -45,6 +49,7 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
         // should be 0
         _raAngle = CalcAngle24h(_transform.RATopocentric);
 
+        _logger = logger;
         IsOpen = isOpen;
         Encoding = encoding;
     }
@@ -52,6 +57,10 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
     public bool IsOpen { get; private set; }
 
     public Encoding Encoding { get; private set; }
+
+    public Task WaitAsync(CancellationToken cancellationToken) => _semaphore.WaitAsync(cancellationToken);
+
+    public int Release() => _semaphore.Release();
 
     public void Dispose() => TryClose();
 
@@ -84,7 +93,13 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
             _responsePointer += count;
             ClearBufferIfEmpty();
 
-            return ValueTask.FromResult<string?>(new string(chars));
+            var message = new string(chars);
+
+#if DEBUG
+            _logger.LogTrace("<-- (exactly {Count}): {Response}", message.Length, message);
+#endif
+
+            return ValueTask.FromResult<string?>(message);
         }
 
         return ValueTask.FromResult<string?>(null);
@@ -114,6 +129,12 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
             if (terminatorChars.Contains(@char))
             {
                 ClearBufferIfEmpty();
+
+                var message = new string(chars, 0, i);
+
+#if DEBUG
+                _logger.LogTrace("<-- (terminated by any of {Terminators}): {Response}", terminatorChars, message);
+#endif
                 return ValueTask.FromResult<string?>(new string(chars, 0, i));
             }
             else
@@ -138,6 +159,9 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
     {
         var dataStr = Encoding.GetString(data.Span);
 
+#if DEBUG
+        _logger.LogTrace("--> {Message}", dataStr);
+#endif
         switch (dataStr)
         {
             case ":GVP#":
@@ -165,27 +189,45 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
                 break;
 
             case ":GR#":
-                RespondHMS(_transform.RATopocentric);
+                lock (_lockObj)
+                {
+                    RespondHMS(_transform.RATopocentric);
+                }
                 break;
 
             case ":Gr#":
-                RespondHMS(_targetRa);
+                lock (_lockObj)
+                {
+                    RespondHMS(_targetRa);
+                }
                 break;
 
             case ":GD#":
-                RespondDMS(_transform.DECTopocentric);
+                lock (_lockObj)
+                {
+                    RespondDMS(_transform.DECTopocentric);
+                }
                 break;
 
             case ":Gd#":
-                RespondDMS(_targetDec);
+                lock (_lockObj)
+                {
+                    RespondDMS(_targetDec);
+                }
                 break;
 
             case ":GS#":
-                _responseBuffer.AppendFormat("{0}#", HoursToHMS(SiderealTime, withFrac: false));
+                lock (_lockObj)
+                {
+                    _responseBuffer.AppendFormat("{0}#", HoursToHMS(SiderealTime, withFrac: false));
+                }
                 break;
 
             case ":Gt#":
-                _responseBuffer.AppendFormat("{0}#", DegreesToDM(_transform.SiteLatitude));
+                lock (_lockObj)
+                {
+                    _responseBuffer.AppendFormat("{0}#", DegreesToDM(_transform.SiteLatitude));
+                }
                 break;
 
             case ":GT#":
@@ -202,7 +244,10 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
                 break;
 
             case ":D#":
-                _responseBuffer.Append(_isSlewing ? "\x7f#" : "#");
+                lock (_lockObj)
+                {
+                    _responseBuffer.Append(_isSlewing ? "\x7f#" : "#");
+                }
                 break;
 
             default:
@@ -364,6 +409,7 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
 
         var hourAngleAtSlewTime = ConditionRA(_raAngle);
         var period = TimeSpan.FromMilliseconds(100);
+
         var state = new SlewSate(_transform.RATopocentric, _transform.DECTopocentric, _slewRate, hourAngleAtSlewTime, period);
 
         var slewTimer = timeProvider.CreateTimer(SlewTimerCallback, state, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
@@ -371,7 +417,7 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
         Interlocked.Exchange(ref _slewTimer, slewTimer)?.Dispose();
 
         slewTimer.Change(period, period);
-        
+
         return '0';
     }
 
@@ -381,58 +427,69 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
     /// <param name="state">state is of type <see cref="SlewSate"/></param>
     private void SlewTimerCallback(object? state)
     {
-        if (state is SlewSate slewState)
+        if (state is SlewSate slewState && IsOpen && _isSlewing)
         {
             var slewRatePerPeriod = slewState.SlewRate * slewState.Period.TotalSeconds;
+            bool isRaReached;
+            bool isDecReached;
 
-            _transform.RefreshDateTimeFromTimeProvider();
-            // this is too simplistic, i.e. it does not respect the meridian
-
-            var targetHourAngle = CalcAngle24h(_targetRa);
-            var raDirPositive = targetHourAngle > slewState.HourAngleAtSlewTime;
-            var decDirPositive = _targetDec > slewState.DecAtSlewTime;
-            var raSlewRate = (raDirPositive ? DEG2HOURS : -DEG2HOURS) * slewRatePerPeriod;
-            var decSlewRate = (decDirPositive ? 1 : -1) * slewRatePerPeriod;
-            var ha24h = ConditionRA(_raAngle);
-            var haNext = ha24h + raSlewRate;
-            var decNext = _transform.DECTopocentric + decSlewRate;
-
-            double haDiff = haNext - targetHourAngle;
-            bool isRaReached = raDirPositive switch
+            lock (_lockObj)
             {
-                true => haNext >= targetHourAngle,
-                false => haNext <= targetHourAngle
-            };
+                _transform.RefreshDateTimeFromTimeProvider();
+                var targetDec = _targetDec;
+                var targetRa = _targetRa;
+                var decTopo = _transform.DECTopocentric;
+                var ha24h = ConditionRA(_raAngle);
+                // this is too simplistic, i.e. it does not respect the meridian
+                var targetHourAngle = CalcAngle24h(targetRa);
+                var raDirPositive = targetHourAngle > slewState.HourAngleAtSlewTime;
+                var decDirPositive = targetDec > slewState.DecAtSlewTime;
+                var raSlewRate = (raDirPositive ? DEG2HOURS : -DEG2HOURS) * slewRatePerPeriod;
+                var decSlewRate = (decDirPositive ? 1 : -1) * slewRatePerPeriod;
+                var haNext = ha24h + raSlewRate;
+                var decNext = decTopo + decSlewRate;
 
-            var isDecReached = decDirPositive switch
-            {
-                true => decNext >= _targetDec,
-                false => decNext <= _targetDec
-            };
+                double haDiff = haNext - targetHourAngle;
+                isRaReached = raDirPositive switch
+                {
+                    true => haNext >= targetHourAngle,
+                    false => haNext <= targetHourAngle
+                };
 
-            var ra = CalcAngle24h(ConditionRA(haNext));
-            var dec = Math.Min(90, Math.Max(decNext, -90));
+                isDecReached = decDirPositive switch
+                {
+                    true => decNext >= targetDec,
+                    false => decNext <= targetDec
+                };
+
+                var ra = CalcAngle24h(ConditionRA(haNext));
+                var dec = Math.Min(90, Math.Max(decNext, -90));
+                if (isRaReached && isDecReached)
+                {
+                    _transform.SetTopocentric(targetRa, targetDec);
+                    _isSlewing = false;
+
+                }
+                else if (isRaReached)
+                {
+                    _transform.SetTopocentric(_targetRa, decNext);
+                }
+                else if (isDecReached)
+                {
+                    _transform.SetTopocentric(ra, _targetDec);
+                }
+                else
+                {
+                    _transform.SetTopocentric(ra, decNext);
+                }
+
+                _raAngle += raSlewRate - (isRaReached ? haDiff : 0);
+            }
+
             if (isRaReached && isDecReached)
             {
-                _transform.SetTopocentric(_targetRa, _targetDec);
-                _isSlewing = false;
-
                 Interlocked.Exchange(ref _slewTimer, null)?.Dispose();
             }
-            else if (isRaReached)
-            {
-                _transform.SetTopocentric(_targetRa, decNext);
-            }
-            else if (isDecReached)
-            {
-                _transform.SetTopocentric(ra, _targetDec);
-            }
-            else
-            {
-                _transform.SetTopocentric(ra, decNext);
-            }
-
-            _raAngle += raSlewRate - (isRaReached ? haDiff : 0);
         }
     }
 

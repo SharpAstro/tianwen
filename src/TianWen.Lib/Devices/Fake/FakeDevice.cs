@@ -31,7 +31,7 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 
     public override ISerialConnection? ConnectSerialDevice(IExternal external, int baud = 9600, Encoding? encoding = null, TimeSpan? ioTimeout = null) => DeviceType switch
     {
-        DeviceType.Mount => new FakeMeadeLX200SerialDevice(true, encoding ?? Encoding.Latin1, external.TimeProvider, SiteLatitude, SiteLongitude),
+        DeviceType.Mount => new FakeMeadeLX200SerialDevice(external.AppLogger, encoding ?? Encoding.Latin1, external.TimeProvider, SiteLatitude, SiteLongitude, true),
         _ => null
     };
 

@@ -1,5 +1,4 @@
-﻿using DotNext.Collections.Generic;
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Buffers;
 using System.Buffers.Text;
@@ -38,7 +37,6 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
     const double DEFAULT_GUIDE_RATE = SIDEREAL_RATE * 2d / 3d / 3600d;
 
-    private SemaphoreSlim? _serialLock;
     private ITimer? _slewTimer;
     private int _movingState = MOVING_STATE_NORMAL;
     private bool? _isSouthernHemisphere;
@@ -224,9 +222,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     public async ValueTask SetUTCDateAsync(DateTime value, CancellationToken cancellationToken)
     {
         var utcOffset = await GetUtcCorrectionAsync(cancellationToken);
-        if (!(value is { Kind: DateTimeKind.Utc } utcDate)
-            || _deviceInfo.SerialDevice is not { IsOpen: true } port
-            || _serialLock is not { } serialLock)
+        if (!(value is { Kind: DateTimeKind.Utc } utcDate) || _deviceInfo.SerialDevice is not { IsOpen: true } port)
         {
             return;
         }
@@ -237,7 +233,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
             var adjustedDateTime = utcDate - utcOffset;
 
             // acquire lock in this method directly as we might potentially send out two read commands
-            await serialLock.WaitAsync(cancellationToken);
+            await port.WaitAsync(cancellationToken);
             try
             {
                 "SL"u8.CopyTo(buffer);
@@ -278,7 +274,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
             }
             finally
             {
-                serialLock.Release();
+                port.Release();
             }
         }
         finally
@@ -917,9 +913,9 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         await SetTargetDeclinationAsync(dec, cancellationToken);
 
         // acquire lock in this method directly as we might potentially send out two read commands
-        if (_deviceInfo.SerialDevice is { IsOpen: true } port && _serialLock is { } serialLock)
+        if (_deviceInfo.SerialDevice is { IsOpen: true } port)
         {
-            await serialLock.WaitAsync(cancellationToken);
+            await port.WaitAsync(cancellationToken);
             try
             {
                 await SendAsync(port, SlewCommand, cancellationToken);
@@ -954,7 +950,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
             }
             finally
             { 
-                serialLock.Release();
+                port.Release();
             }
         }
         else
@@ -985,14 +981,25 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         var dec = await GetDeclinationAsync(cancellationToken);
         double lst;
         PointingState sideOfPier;
-        if (!double.IsNaN(ra) && !await AtParkAsync(cancellationToken))
+
+        try
         {
-            (continueRunning, sideOfPier, lst) = await CheckPointingStateAsync(ra, cancellationToken);
+            if (!double.IsNaN(ra) && Connected && !await AtParkAsync(cancellationToken))
+            {
+                (continueRunning, sideOfPier, lst) = await CheckPointingStateAsync(ra, cancellationToken);
+            }
+            else
+            {
+                continueRunning = false;
+                lst = double.NaN;
+                sideOfPier = PointingState.Unknown;
+            }
         }
-        else
+        catch (Exception ex)
         {
+            External.AppLogger.LogWarning(ex, "Failed to retrieve pointing state due to: {Message}", ex.Message);
             continueRunning = false;
-            lst = await GetSiderealTimeAsync(cancellationToken);
+            lst = double.NaN;
             sideOfPier = PointingState.Unknown;
         }
 
@@ -1090,7 +1097,6 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         {
             if (_device.ConnectSerialDevice(External, encoding: _encoding, ioTimeout: TimeSpan.FromMilliseconds(500)) is { IsOpen: true } openedConnection)
             {
-                Interlocked.CompareExchange(ref _serialLock, new SemaphoreSlim(1, 1), null)?.Dispose();
                 serialDevice = openedConnection;
             }
             else
@@ -1114,26 +1120,25 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         }
     }
 
-    protected override Task<bool> DoDisconnectDeviceAsync(int connectionId, CancellationToken cancellationToken)
+    protected override async Task<bool> DoDisconnectDeviceAsync(int connectionId, CancellationToken cancellationToken)
     {
         if (connectionId == CONNECTION_ID_EXCLUSIVE)
         {
-            Interlocked.CompareExchange(ref _serialLock, null, null)?.Dispose();
-
             if (_deviceInfo.SerialDevice is { IsOpen: true } port)
             {
-                return Task.FromResult(port.TryClose());
+                await port.WaitAsync(cancellationToken);
+                return port.TryClose();
             }
             else if (_deviceInfo.SerialDevice is { })
             {
-                return Task.FromResult(true);
+                return true;
             }
             else
             {
-                return Task.FromResult(false);
+                return false;
             }
         }
-        return Task.FromResult(false);
+        return false;
     }
 
     private static readonly ReadOnlyMemory<byte> GVPCommand = "GVP"u8.ToArray();
@@ -1197,9 +1202,9 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     private async ValueTask<string?> SendAndReceiveAsync(ReadOnlyMemory<byte> command, CancellationToken cancellationToken)
     {
-        if (_deviceInfo.SerialDevice is { IsOpen: true } port && _serialLock is { } serialLock)
+        if (_deviceInfo.SerialDevice is { IsOpen: true } port)
         {
-            await serialLock.WaitAsync(cancellationToken);
+            await port.WaitAsync(cancellationToken);
             try
             {
                 await SendAsync(port, command, cancellationToken);
@@ -1208,7 +1213,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
             }
             finally
             {
-                serialLock.Release();
+                port.Release();
             }
         }
 
@@ -1218,9 +1223,9 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     private async ValueTask<int> SendAndReceiveRawAsync(ReadOnlyMemory<byte> command, Memory<byte> response, CancellationToken cancellationToken)
     {
-        if (_deviceInfo.SerialDevice is { IsOpen: true } port && _serialLock is { } serialLock)
+        if (_deviceInfo.SerialDevice is { IsOpen: true } port)
         {
-            await serialLock.WaitAsync(cancellationToken);
+            await port.WaitAsync(cancellationToken);
             try
             {
                 await SendAsync(port, command, cancellationToken);
@@ -1229,7 +1234,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
             }
             finally
             {
-                serialLock.Release();
+                port.Release();
             }
         }
 
@@ -1239,9 +1244,9 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     private async ValueTask<string?> SendAndReceiveExactlyAsync(ReadOnlyMemory<byte> command, int count, CancellationToken cancellationToken)
     {
-        if (_deviceInfo.SerialDevice is { IsOpen: true } port && _serialLock is { } serialLock)
+        if (_deviceInfo.SerialDevice is { IsOpen: true } port)
         {
-            await serialLock.WaitAsync(cancellationToken);
+            await port.WaitAsync(cancellationToken);
             try
             {
                 await SendAsync(port, command, cancellationToken);
@@ -1250,7 +1255,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
             }
             finally
             {
-                serialLock.Release();
+                port.Release();
             }
         }
 
@@ -1260,16 +1265,16 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     private async ValueTask SendWithoutResponseAsync(ReadOnlyMemory<byte> command, CancellationToken cancellationToken)
     {
-        if (_deviceInfo.SerialDevice is { IsOpen: true } port && _serialLock is { } serialLock)
+        if (_deviceInfo.SerialDevice is { IsOpen: true } port)
         {
-            await serialLock.WaitAsync(cancellationToken);
+            await port.WaitAsync(cancellationToken);
             try
             {
                 await SendAsync(port, command, cancellationToken);
             }
             finally
             {
-                serialLock.Release();
+                port.Release();
             }
         }
         else

@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,6 +14,10 @@ public interface ISerialConnection : IDisposable
     Encoding Encoding { get; }
 
     bool TryClose();
+
+    Task WaitAsync(CancellationToken cancellationToken);
+
+    int Release();
 
     ValueTask<bool> TryWriteAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken);
 

@@ -10,7 +10,7 @@ using TianWen.Lib.Extensions;
 Console.InputEncoding = Encoding.UTF8;
 Console.OutputEncoding = Encoding.UTF8;
 
-Pastel.ConsoleExtensions.Enable();
+ConsoleExtensions.Enable();
 
 var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = args, DisableDefaults = true });
 builder.Services
