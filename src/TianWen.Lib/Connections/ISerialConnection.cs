@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace TianWen.Lib.Connections;
 
@@ -14,9 +16,22 @@ public interface ISerialConnection : IDisposable
 
     bool TryClose();
 
-    bool TryWrite(ReadOnlySpan<byte> data);
+    ValueTask<bool> TryWriteAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken);
 
-    bool TryReadTerminated([NotNullWhen(true)] out ReadOnlySpan<byte> message, ReadOnlySpan<byte> terminators);
+    ValueTask<bool> TryWriteAsync(string data, CancellationToken cancellationToken) => TryWriteAsync(Encoding.GetBytes(data), cancellationToken);
 
-    bool TryReadExactly(int count, [NotNullWhen(true)] out ReadOnlySpan<byte> message);
+    ValueTask<string?> TryReadTerminatedAsync(ReadOnlyMemory<byte> terminators, CancellationToken cancellationToken);
+
+    ValueTask<string?> TryReadExactlyAsync(int count, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="message"></param>
+    /// <param name="terminators"></param>
+    /// <param name="cancellationToken"></param>
+    /// <returns>bytes read</returns>
+    ValueTask<int> TryReadTerminatedRawAsync(Memory<byte> message, ReadOnlyMemory<byte> terminators, CancellationToken cancellationToken);
+
+    ValueTask<bool> TryReadExactlyRawAsync(Memory<byte> message, CancellationToken cancellationToken);
 }

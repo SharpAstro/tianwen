@@ -100,6 +100,50 @@ public interface IExternal
     }
 
     /// <summary>
+    /// Asynchronously awaits <paramref name="asyncFunc"/>, returning default <paramref name="default"/> if an exception occured.
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <param name="asyncFunc"></param>
+    /// <param name="cancellationToken"></param>
+    /// <param name="default"></param>
+    /// <returns></returns>
+    public async Task<bool> CatchAsync(Func<CancellationToken, Task> asyncFunc, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await asyncFunc(cancellationToken).ConfigureAwait(false);
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AppLogger.LogError(ex, "Exception {Message} while executing: {Method}", ex.Message, asyncFunc.Method.Name);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Asynchronously awaits <paramref name="asyncFunc"/>, returning default <paramref name="default"/> if an exception occured.
+    /// </summary>
+    /// <typeparam name="T"></typeparam>
+    /// <param name="asyncFunc"></param>
+    /// <param name="cancellationToken"></param>
+    /// <param name="default"></param>
+    /// <returns></returns>
+    public async Task<T> CatchAsync<T>(Func<CancellationToken, Task<T>> asyncFunc, CancellationToken cancellationToken, T @default = default) where T : struct
+    {
+        try
+        {
+            return await asyncFunc(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            AppLogger.LogError(ex, "Exception {Message} while executing: {Method}", ex.Message, asyncFunc.Method.Name);
+            return @default;
+        }
+    }
+
+    /// <summary>
     /// Uses <see langword="try"/> <see langword="catch"/> to safely execute <paramref name="func"/>.
     /// Returns result or <paramref name="default"/> on failure, and logs errors using <see cref="AppLogger"/>.
     /// </summary>

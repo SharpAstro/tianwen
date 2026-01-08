@@ -1,13 +1,13 @@
 ﻿using System;
-using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.SOFA;
-using static TianWen.Lib.Astrometry.CoordinateUtils;
-using static TianWen.Lib.Astrometry.Constants;
 using TianWen.Lib.Connections;
+using static TianWen.Lib.Astrometry.Constants;
+using static TianWen.Lib.Astrometry.CoordinateUtils;
 
 namespace TianWen.Lib.Devices.Fake;
 
@@ -29,7 +29,6 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
     // I/O properties
     private readonly StringBuilder _responseBuffer = new StringBuilder();
     private int _responsePointer = 0;
-    private readonly Lock _lockObj = new();
 
     public FakeMeadeLX200SerialDevice(bool isOpen, Encoding encoding, TimeProvider timeProvider, double siteLatitude, double siteLongitude)
     {
@@ -58,65 +57,72 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
 
     public bool TryClose()
     {
-        lock (_lockObj)
-        {
-            IsOpen = false;
-            _responseBuffer.Clear();
-            _responsePointer = 0;
+        IsOpen = false;
+        _responseBuffer.Clear();
+        _responsePointer = 0;
 
-            return true;
-        }
+        return true;
     }
 
-    public bool TryReadExactly(int count, [NotNullWhen(true)] out ReadOnlySpan<byte> message)
+    public async ValueTask<bool> TryReadExactlyRawAsync(Memory<byte> message, CancellationToken cancellationToken)
     {
-        lock (_lockObj)
+        var messageStr = await TryReadExactlyAsync(message.Length, cancellationToken);
+        if (messageStr is null)
         {
-            if (_responsePointer + count <= _responseBuffer.Length)
-            {
-                var chars = new char[count];
-                _responseBuffer.CopyTo(_responsePointer, chars, count);
-                _responsePointer += count;
+            return false;
+        }
 
+        return Encoding.GetBytes(messageStr, message.Span) == message.Length;
+    }
+
+    public ValueTask<string?> TryReadExactlyAsync(int count, CancellationToken cancellationToken)
+    {
+        if (_responsePointer + count <= _responseBuffer.Length)
+        {
+            var chars = new char[count];
+            _responseBuffer.CopyTo(_responsePointer, chars, count);
+            _responsePointer += count;
+            ClearBufferIfEmpty();
+
+            return ValueTask.FromResult<string?>(new string(chars));
+        }
+
+        return ValueTask.FromResult<string?>(null);
+    }
+
+    public async ValueTask<int> TryReadTerminatedRawAsync(Memory<byte> message, ReadOnlyMemory<byte> terminators, CancellationToken cancellationToken)
+    {
+        var messageStr = await TryReadTerminatedAsync(terminators, cancellationToken);
+        if (messageStr is null)
+        {
+            return -1;
+        }
+
+        return Encoding.GetBytes(messageStr, message.Span);
+    }
+
+    public ValueTask<string?> TryReadTerminatedAsync(ReadOnlyMemory<byte> terminators, CancellationToken cancellationToken)
+    {
+        var chars = new char[_responseBuffer.Length - _responsePointer];
+        var terminatorChars = Encoding.GetString(terminators.Span);
+
+        int i = 0;
+        while (_responsePointer < _responseBuffer.Length)
+        {
+            var @char = _responseBuffer[_responsePointer++];
+
+            if (terminatorChars.Contains(@char))
+            {
                 ClearBufferIfEmpty();
-
-                message = Encoding.GetBytes(chars);
-                return true;
+                return ValueTask.FromResult<string?>(new string(chars, 0, i));
             }
-
-            message = null;
-            return false;
-        }
-    }
-
-    public bool TryReadTerminated([NotNullWhen(true)] out ReadOnlySpan<byte> message, ReadOnlySpan<byte> terminators)
-    {
-        lock (_lockObj)
-        {
-            var chars = new char[_responseBuffer.Length - _responsePointer];
-            var terminatorChars = Encoding.GetString(terminators);
-
-            int i = 0;
-            while (_responsePointer < _responseBuffer.Length)
+            else
             {
-                var @char = _responseBuffer[_responsePointer++];
-
-                if (terminatorChars.Contains(@char))
-                {
-                    ClearBufferIfEmpty();
-
-                    message = Encoding.GetBytes(chars[0..i]);
-                    return true;
-                }
-                else
-                {
-                    chars[i++] = @char;
-                }
+                chars[i++] = @char;
             }
-
-            message = null;
-            return false;
         }
+
+        return ValueTask.FromResult<string?>(null);
     }
 
     private void ClearBufferIfEmpty()
@@ -128,93 +134,93 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
         }
     }
 
-    public bool TryWrite(ReadOnlySpan<byte> data)
+    public ValueTask<bool> TryWriteAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken)
     {
-        var dataStr = Encoding.GetString(data);
+        var dataStr = Encoding.GetString(data.Span);
 
-        lock (_lockObj)
+        switch (dataStr)
         {
-            switch (dataStr)
-            {
-                case ":GVP#":
-                    _responseBuffer.Append("Fake LX200 Mount#");
-                    return true;
+            case ":GVP#":
+                _responseBuffer.Append("Fake LX200 Mount#");
+                break;
 
-                case ":GW#":
-                    _responseBuffer.AppendFormat("{0}{1}{2:0}",
-                        _alignmentMode switch { AlignmentMode.GermanPolar => 'G', _ => '?' },
-                        _isTracking ? 'T' : 'N',
-                        _alignmentStars
-                    );
-                    return true;
+            case ":GW#":
+                _responseBuffer.AppendFormat("{0}{1}{2:0}",
+                    _alignmentMode switch { AlignmentMode.GermanPolar => 'G', _ => '?' },
+                    _isTracking ? 'T' : 'N',
+                    _alignmentStars
+                );
+                break;
 
-                case ":AL#":
-                    _isTracking = false;
-                    return true;
+            case ":AL#":
+                _isTracking = false;
+                break;
 
-                case ":AP#":
-                    _isTracking = true;
-                    return true;
+            case ":AP#":
+                _isTracking = true;
+                break;
 
-                case ":GVN#":
-                    _responseBuffer.Append("A4s4#");
-                    return true;
+            case ":GVN#":
+                _responseBuffer.Append("A4s4#");
+                break;
 
-                case ":GR#":
-                    RespondHMS(_transform.RATopocentric);
-                    return true;
+            case ":GR#":
+                RespondHMS(_transform.RATopocentric);
+                break;
 
-                case ":Gr#":
-                    RespondHMS(_targetRa);
-                    return true;
+            case ":Gr#":
+                RespondHMS(_targetRa);
+                break;
 
-                case ":GD#":
-                    RespondDMS(_transform.DECTopocentric);
-                    return true;
+            case ":GD#":
+                RespondDMS(_transform.DECTopocentric);
+                break;
 
-                case ":Gd#":
-                    RespondDMS(_targetDec);
-                    return true;
+            case ":Gd#":
+                RespondDMS(_targetDec);
+                break;
 
-                case ":GS#":
-                    _responseBuffer.AppendFormat("{0}#", HoursToHMS(SiderealTime, withFrac: false));
-                    return true;
+            case ":GS#":
+                _responseBuffer.AppendFormat("{0}#", HoursToHMS(SiderealTime, withFrac: false));
+                break;
 
-                case ":Gt#":
-                    _responseBuffer.AppendFormat("{0}#", DegreesToDM(_transform.SiteLatitude));
-                    return true;
+            case ":Gt#":
+                _responseBuffer.AppendFormat("{0}#", DegreesToDM(_transform.SiteLatitude));
+                break;
 
-                case ":GT#":
-                    var (trackingHz, tracking10thHz) = Math.DivRem(_trackingFrequency, 10);
-                    _responseBuffer.AppendFormat("{0:00}.{1:0}#", trackingHz, tracking10thHz);
-                    return true;
+            case ":GT#":
+                var (trackingHz, tracking10thHz) = Math.DivRem(_trackingFrequency, 10);
+                _responseBuffer.AppendFormat("{0:00}.{1:0}#", trackingHz, tracking10thHz);
+                break;
 
-                case ":U#":
-                    _highPrecision = !_highPrecision;
-                    return true;
+            case ":U#":
+                _highPrecision = !_highPrecision;
+                break;
 
-                case ":MS#":
-                    _responseBuffer.Append(SlewToTarget());
-                    return true;
+            case ":MS#":
+                _responseBuffer.Append(SlewToTarget());
+                break;
 
-                case ":D#":
-                    _responseBuffer.Append(_isSlewing ? "\x7f#" : "#");
-                    return true;
+            case ":D#":
+                _responseBuffer.Append(_isSlewing ? "\x7f#" : "#");
+                break;
 
-                default:
-                    if (dataStr.StartsWith(":Sr", StringComparison.Ordinal))
-                    {
-                        _responseBuffer.Append(ParseTargetRa(dataStr) ? '1' : '0');
-                        return true;
-                    }
-                    else if (dataStr.StartsWith(":Sd", StringComparison.Ordinal))
-                    {
-                        _responseBuffer.Append(ParseTargetDec(dataStr) ? '1' : '0');
-                        return true;
-                    }
-                    return false;
-            }
+            default:
+                if (dataStr.StartsWith(":Sr", StringComparison.Ordinal))
+                {
+                    _responseBuffer.Append(ParseTargetRa(dataStr) ? '1' : '0');
+                }
+                else if (dataStr.StartsWith(":Sd", StringComparison.Ordinal))
+                {
+                    _responseBuffer.Append(ParseTargetDec(dataStr) ? '1' : '0');
+                }
+                else
+                {
+                    return ValueTask.FromResult(false);
+                }
+                break;
         }
+        return ValueTask.FromResult(true);
 
         void RespondHMS(double ra) => _responseBuffer.AppendFormat("{0}#",
             _highPrecision ? HoursToHMS(ra, withFrac: false) : HoursToHMT(ra));
@@ -379,57 +385,54 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
         {
             var slewRatePerPeriod = slewState.SlewRate * slewState.Period.TotalSeconds;
 
-            lock (_lockObj)
+            _transform.RefreshDateTimeFromTimeProvider();
+            // this is too simplistic, i.e. it does not respect the meridian
+
+            var targetHourAngle = CalcAngle24h(_targetRa);
+            var raDirPositive = targetHourAngle > slewState.HourAngleAtSlewTime;
+            var decDirPositive = _targetDec > slewState.DecAtSlewTime;
+            var raSlewRate = (raDirPositive ? DEG2HOURS : -DEG2HOURS) * slewRatePerPeriod;
+            var decSlewRate = (decDirPositive ? 1 : -1) * slewRatePerPeriod;
+            var ha24h = ConditionRA(_raAngle);
+            var haNext = ha24h + raSlewRate;
+            var decNext = _transform.DECTopocentric + decSlewRate;
+
+            double haDiff = haNext - targetHourAngle;
+            bool isRaReached = raDirPositive switch
             {
-                _transform.RefreshDateTimeFromTimeProvider();
-                // this is too simplistic, i.e. it does not respect the meridian
+                true => haNext >= targetHourAngle,
+                false => haNext <= targetHourAngle
+            };
 
-                var targetHourAngle = CalcAngle24h(_targetRa);
-                var raDirPositive = targetHourAngle > slewState.HourAngleAtSlewTime;
-                var decDirPositive = _targetDec > slewState.DecAtSlewTime;
-                var raSlewRate = (raDirPositive ? DEG2HOURS : -DEG2HOURS) * slewRatePerPeriod;
-                var decSlewRate = (decDirPositive ? 1 : -1) * slewRatePerPeriod;
-                var ha24h = ConditionRA(_raAngle);
-                var haNext = ha24h + raSlewRate;
-                var decNext = _transform.DECTopocentric + decSlewRate;
+            var isDecReached = decDirPositive switch
+            {
+                true => decNext >= _targetDec,
+                false => decNext <= _targetDec
+            };
 
-                double haDiff = haNext - targetHourAngle;
-                bool isRaReached = raDirPositive switch
-                {
-                    true => haNext >= targetHourAngle,
-                    false => haNext <= targetHourAngle
-                };
+            var ra = CalcAngle24h(ConditionRA(haNext));
+            var dec = Math.Min(90, Math.Max(decNext, -90));
+            if (isRaReached && isDecReached)
+            {
+                _transform.SetTopocentric(_targetRa, _targetDec);
+                _isSlewing = false;
 
-                var isDecReached = decDirPositive switch
-                {
-                    true => decNext >= _targetDec,
-                    false => decNext <= _targetDec
-                };
-
-                var ra = CalcAngle24h(ConditionRA(haNext));
-                var dec = Math.Min(90, Math.Max(decNext, -90));
-                if (isRaReached && isDecReached)
-                {
-                    _transform.SetTopocentric(_targetRa, _targetDec);
-                    _isSlewing = false;
-
-                    Interlocked.Exchange(ref _slewTimer, null)?.Dispose();
-                }
-                else if (isRaReached)
-                {
-                    _transform.SetTopocentric(_targetRa, decNext);
-                }
-                else if (isDecReached)
-                {
-                    _transform.SetTopocentric(ra, _targetDec);
-                }
-                else
-                {
-                    _transform.SetTopocentric(ra, decNext);
-                }
-
-                _raAngle += raSlewRate - (isRaReached ? haDiff : 0);
+                Interlocked.Exchange(ref _slewTimer, null)?.Dispose();
             }
+            else if (isRaReached)
+            {
+                _transform.SetTopocentric(_targetRa, decNext);
+            }
+            else if (isDecReached)
+            {
+                _transform.SetTopocentric(ra, _targetDec);
+            }
+            else
+            {
+                _transform.SetTopocentric(ra, decNext);
+            }
+
+            _raAngle += raSlewRate - (isRaReached ? haDiff : 0);
         }
     }
 

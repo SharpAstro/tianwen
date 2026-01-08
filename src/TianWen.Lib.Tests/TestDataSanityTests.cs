@@ -2,7 +2,6 @@
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace TianWen.Lib.Tests;
 

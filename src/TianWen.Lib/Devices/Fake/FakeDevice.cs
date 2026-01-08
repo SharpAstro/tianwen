@@ -14,7 +14,7 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
     /// <param name="deviceType"></param>
     /// <param name="deviceId">Fake device id (starting from 1)</param>
     public FakeDevice(DeviceType deviceType, int deviceId, NameValueCollection? values = null)
-        : this(new Uri($"{deviceType}://{typeof(FakeDevice).Name}/{deviceType}{deviceId}{(values is { Count: > 0 } ? "?" + values.ToQueryString() : "")}#Fake {deviceType.PascalCaseStringToName()} {deviceId}"))
+        : this(new Uri($"{deviceType}://{typeof(FakeDevice).Name}/Fake{deviceType}{deviceId}{(values is { Count: > 0 } ? "?" + values.ToQueryString() : "")}#Fake {deviceType.PascalCaseStringToName()} {deviceId}"))
     {
         // calls primary constructor
     }

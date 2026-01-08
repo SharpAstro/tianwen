@@ -1,11 +1,14 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using CommunityToolkit.HighPerformance;
+using Microsoft.Extensions.Logging;
 using System;
+using System.Buffers;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.IO.Ports;
 using System.Linq;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace TianWen.Lib.Connections;
 
@@ -69,19 +72,19 @@ internal sealed class SerialConnection : ISerialConnection
         return !_port.IsOpen;
     }
 
-    public bool TryWrite(ReadOnlySpan<byte> message)
+    public async ValueTask<bool> TryWriteAsync(ReadOnlyMemory<byte> message, CancellationToken cancellationToken)
     {
         try
         {
-            _stream.Write(message);
+            await _stream.WriteAsync(message, cancellationToken);
 #if DEBUG
-            _logger.LogDebug("--> {Message}", Encoding.GetString(message));
+            _logger.LogDebug("--> {Message}", Encoding.GetString(message.Span));
 #endif
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error while sending message {Message} to serial device on port {Port}",
-                Encoding.GetString(message), _port.PortName);
+                Encoding.GetString(message.Span), _port.PortName);
 
             return false;
         }
@@ -89,44 +92,102 @@ internal sealed class SerialConnection : ISerialConnection
         return true;
     }
 
-    public bool TryReadTerminated([NotNullWhen(true)] out ReadOnlySpan<byte> message, ReadOnlySpan<byte> terminators)
+    public async ValueTask<string?> TryReadTerminatedAsync(ReadOnlyMemory<byte> terminators, CancellationToken cancellationToken)
     {
-        Span<byte> buffer = stackalloc byte[100];
+        var buffer = ArrayPool<byte>.Shared.Rent(100);
         try
         {
-            int bytesRead = 0;
+            var bytesRead = await TryReadTerminatedRawAsync(buffer, terminators, cancellationToken);
+            if (bytesRead >= 0)
+            {
+                var message = Encoding.GetString(buffer.AsSpan(0, bytesRead));
+
+                return message;
+            }
+            else
+            {
+                return null;
+            }
+        }   
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    public async ValueTask<int> TryReadTerminatedRawAsync(Memory<byte> message, ReadOnlyMemory<byte> terminators, CancellationToken cancellationToken)
+    {
+        int bytesRead = 0;
+        try
+        {
             int bytesReadLast;
             do
             {
-                bytesReadLast = _stream.ReadAtLeast(buffer[bytesRead..], 1, true);
+                bytesReadLast = await _stream.ReadAtLeastAsync(message[bytesRead..], 1, true, cancellationToken);
                 bytesRead += bytesReadLast;
-            } while (!terminators.Contains(buffer[bytesRead - bytesReadLast]));
+            } while (!ContainsTerminator(message.Slice(bytesRead - bytesReadLast, bytesRead).Span));
 
-            message = buffer[0..(bytesRead - bytesReadLast - 1)].ToArray();
 #if DEBUG
-            _logger.LogDebug("<-- (terminated by any of {Terminators}): {Response}", Encoding.GetString(terminators), Encoding.GetString(message));
+            _logger.LogTrace("<-- (terminated by any of {Terminators}): {Response}", Encoding.GetString(terminators.Span), message);
 #endif
-            return true;
+            // return length without the terminator
+            return bytesRead - bytesReadLast - 1;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error while reading response from serial device on port {Port}", _port.PortName);
 
-            message = null;
+            return -1;
+        }
+
+        bool ContainsTerminator(ReadOnlySpan<byte> haystack)
+        {
+            if (terminators.Span.Length is 1)
+            {
+                return haystack.Contains(terminators.Span[0]);
+            }
+
+            foreach (var terminator in terminators.Span)
+            {
+                if (haystack.Contains(terminator))
+                {
+                    return true;
+                }
+            }
             return false;
         }
     }
 
-    public bool TryReadExactly(int count, [NotNullWhen(true)] out ReadOnlySpan<byte> message)
+    public async ValueTask<string?> TryReadExactlyAsync(int count, CancellationToken cancellationToken)
     {
-        Span<byte> buffer = count > 100 ? new byte[count] : stackalloc byte[count];
+        var buffer = ArrayPool<byte>.Shared.Rent(count);
         try
         {
-            _stream.ReadExactly(buffer);
+            if (await TryReadExactlyRawAsync(buffer, cancellationToken))
+            {
 
-            message = buffer.ToArray();
+                var message = Encoding.GetString(buffer);
+
+                return message;
+            }
+            else
+            {
+                return null;
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    public async ValueTask<bool> TryReadExactlyRawAsync(Memory<byte> message, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _stream.ReadExactlyAsync(message, cancellationToken);
 #if DEBUG
-            _logger.LogDebug("<-- (exactly {Count}): {Response}", count, Encoding.GetString(message));
+            _logger.LogTrace("<-- (exactly {Count}): {Response}", message.Length, Encoding.GetString(message.Span));
 #endif
             return true;
         }
@@ -134,7 +195,6 @@ internal sealed class SerialConnection : ISerialConnection
         {
             _logger.LogError(ex, "Error while reading response from serial device on port {Port}", _port.PortName);
 
-            message = null;
             return false;
         }
     }

@@ -1,4 +1,4 @@
-﻿using Meziantou.Extensions.Logging.Xunit;
+﻿using Meziantou.Extensions.Logging.Xunit.v3;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using System;
@@ -13,7 +13,7 @@ using System.Threading.Tasks;
 using TianWen.Lib.Connections;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
-using Xunit.Abstractions;
+using Xunit;
 
 namespace TianWen.Lib.Tests;
 
@@ -35,6 +35,8 @@ public class FakeExternal : IExternal
             .CreateSubdirectory(Guid.NewGuid().ToString("D"));
 
         _outputFolder = _profileRoot.CreateSubdirectory("output");
+
+
         AppLogger = new XUnitLoggerProvider(testOutputHelper, false).CreateLogger("Test");
     }
 

@@ -1,7 +1,6 @@
 ﻿using Shouldly;
 using System.Threading.Tasks;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace TianWen.Lib.Tests;
 
@@ -20,9 +19,12 @@ public class StarStatisticsTests(ITestOutputHelper testOutputHelper) : ImageAnal
     [InlineData(PHD2SimGuider, 30, 10, 2)]
     public async Task GivenFitsFileWhenAnalysingThenMedianHFDAndFWHMIsCalculated(string name, float snrMin, int maxRetries, int expectedStars, params int[] sampleStar)
     {
+        // given
+        var cancellationToken = TestContext.Current.CancellationToken;
+
         // when
-        var image = await SharedTestData.ExtractGZippedFitsImageAsync(name);
-        var result = await image.FindStarsAsync(snrMin: snrMin, maxRetries: maxRetries);
+        var image = await SharedTestData.ExtractGZippedFitsImageAsync(name, cancellationToken: cancellationToken);
+        var result = await image.FindStarsAsync(snrMin: snrMin, maxRetries: maxRetries, cancellationToken: cancellationToken);
 
         // then
         result.ShouldNotBeEmpty();

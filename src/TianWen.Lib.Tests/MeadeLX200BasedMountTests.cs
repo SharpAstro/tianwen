@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace TianWen.Lib.Tests;
 
@@ -18,17 +17,18 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
     public async Task GivenMountWhenConnectingItOpensSerialPort(double siteLat, double siteLong)
     {
         // given
+        var cancellationToken = TestContext.Current.CancellationToken;
         var device = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection { ["latitude"] = Convert.ToString(siteLat), ["longitude"] = Convert.ToString(siteLong) });
         var fakeExternal = new FakeExternal(outputHelper, null, null, null);
         await using var mount = new FakeMeadeLX200ProtocolMountDriver(device, fakeExternal);
 
         // when
-        await mount.ConnectAsync();
+        await mount.ConnectAsync(cancellationToken);
 
         // then
         mount.Connected.ShouldBe(true);
-        mount.Alignment.ShouldBe(AlignmentMode.GermanPolar);
-        mount.Tracking.ShouldBe(false);
+        (await mount.GetAlignmentAsync(cancellationToken)).ShouldBe(AlignmentMode.GermanPolar);
+        (await mount.IsTrackingAsync(cancellationToken)).ShouldBe(false);
     }
 
     [Theory]
@@ -37,6 +37,7 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
     public async Task GivenMountWhenConnectingAndDisconnectingThenSerialPortIsClosed(double siteLat, double siteLong)
     {
         // given
+        var cancellationToken = TestContext.Current.CancellationToken;
         var device = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection { ["latitude"] = Convert.ToString(siteLat), ["longitude"] = Convert.ToString(siteLong) });
         var fakeExternal = new FakeExternal(outputHelper, null, null, null);
 
@@ -57,23 +58,23 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
         };
 
         // when
-        await mount.ConnectAsync();
+        await mount.ConnectAsync(cancellationToken);
 
         // then
         mount.Connected.ShouldBe(true);
         receivedConnect.ShouldBe(1);
         receivedDisconnect.ShouldBe(0);
-        Should.NotThrow(() => mount.SiderealTime);
+        await Should.NotThrowAsync(async () => await mount.GetSiderealTimeAsync(cancellationToken));
 
         // after
-        await mount.DisconnectAsync();
+        await mount.DisconnectAsync(cancellationToken);
 
         // then
         mount.Connected.ShouldBe(false);
         receivedConnect.ShouldBe(1);
         receivedDisconnect.ShouldBe(1);
 
-        Should.Throw(() => mount.SiderealTime, typeof(InvalidOperationException));
+        await Should.ThrowAsync(async () => await mount.GetSiderealTimeAsync(cancellationToken), typeof(InvalidOperationException));
     }
 
     [Theory]
@@ -83,6 +84,7 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
     public async Task GivenTargetWhenSlewingItSlewsToTarget(double siteLat, double siteLong, double targetRa, double targetDec, string? utc)
     {
         // given
+        var cancellationToken = TestContext.Current.CancellationToken;
         var device = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection { ["latitude"] = Convert.ToString(siteLat), ["longitude"] = Convert.ToString(siteLong) });
         var fakeExternal = new FakeExternal(outputHelper, null, utc is not null ? DateTimeOffset.Parse(utc) : null, null);
 
@@ -91,11 +93,11 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
         var timeStamp = fakeExternal.TimeProvider.GetTimestamp();
 
         // when
-        await mount.ConnectAsync();
-        mount.Tracking = true;
-        await mount.BeginSlewRaDecAsync(targetRa, targetDec);
-        mount.IsSlewing.ShouldBe(true);
-        while (mount.IsSlewing)
+        await mount.ConnectAsync(cancellationToken);
+        await mount.SetTrackingAsync(true, cancellationToken);
+        await mount.BeginSlewRaDecAsync(targetRa, targetDec, cancellationToken);
+        (await mount.IsSlewingAsync(cancellationToken)).ShouldBe(true);
+        while (await mount.IsSlewingAsync(cancellationToken))
         {
             // this will advance the fake timer and not actually sleep
             fakeExternal.Sleep(TimeSpan.FromSeconds(1));
@@ -104,9 +106,9 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
         // then
         var timePassed = fakeExternal.TimeProvider.GetElapsedTime(timeStamp);
         timePassed.ShouldBeGreaterThan(TimeSpan.FromSeconds(2));
-        mount.IsSlewing.ShouldBe(false);
-        mount.Tracking.ShouldBe(true);
+        (await mount.IsSlewingAsync(cancellationToken)).ShouldBe(false);
+        (await mount.IsTrackingAsync(cancellationToken)).ShouldBe(true);
         mount.Connected.ShouldBe(true);
-        mount.Alignment.ShouldBe(AlignmentMode.GermanPolar);
+        (await mount.GetAlignmentAsync(cancellationToken)).ShouldBe(AlignmentMode.GermanPolar);
     }
 }

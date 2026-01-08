@@ -2,7 +2,6 @@
 using System.Diagnostics;
 using System.Threading.Tasks;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace TianWen.Lib.Tests;
 
@@ -17,11 +16,11 @@ public class FindStarsFromFitsFileTests(ITestOutputHelper testOutputHelper) : Im
     public async Task GivenImageFileAndMinSNRWhenFindingStarsThenTheyAreFound(string name, float snrMin, int expectedStars, int? maxStars = null)
     {
         // given
-        var image = await SharedTestData.ExtractGZippedFitsImageAsync(name);
+        var image = await SharedTestData.ExtractGZippedFitsImageAsync(name, cancellationToken: TestContext.Current.CancellationToken);
 
         // when
         var sw = Stopwatch.StartNew();
-        var actualStars = await image.FindStarsAsync(snrMin, maxStars ?? 500);
+        var actualStars = await image.FindStarsAsync(snrMin, maxStars ?? 500, cancellationToken: TestContext.Current.CancellationToken);
         _testOutputHelper.WriteLine("Testing image {0} took {1} ms", name, sw.ElapsedMilliseconds);
 
         // then
