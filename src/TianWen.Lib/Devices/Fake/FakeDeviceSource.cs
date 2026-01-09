@@ -8,11 +8,10 @@ internal class FakeDeviceSource : IDeviceSource<FakeDevice>
 {
     public IEnumerable<DeviceType> RegisteredDeviceTypes => [DeviceType.Mount, DeviceType.Camera, DeviceType.Focuser, DeviceType.FilterWheel];
 
-    const int FakeDeviceCount = 9;
-
     public IEnumerable<FakeDevice> RegisteredDevices(DeviceType deviceType)
     {
-        for (var i = 1; i <= FakeDeviceCount; i++)
+        var count = deviceType is DeviceType.Mount ? 1 : 2;
+        for (var i = 1; i <= count; i++)
         {
             yield return new FakeDevice(deviceType, i);
         }

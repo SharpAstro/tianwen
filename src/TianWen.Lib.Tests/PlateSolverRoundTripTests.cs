@@ -4,7 +4,6 @@ using System.IO;
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace TianWen.Lib.Tests;
 
@@ -16,9 +15,10 @@ public class PlateSolverRoundTripTests(ITestOutputHelper testOutputHelper) : Ima
     public async Task GivenFileNameWhenWritingImageAndReadingBackThenItIsIdentical(string name, float snrMin)
     {
         // given
-        var image = await SharedTestData.ExtractGZippedFitsImageAsync(name);
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var image = await SharedTestData.ExtractGZippedFitsImageAsync(name, cancellationToken: cancellationToken);
         var fullPath = Path.Combine(Path.GetTempPath(), $"roundtrip_{Guid.NewGuid():D}.fits");
-        var expectedStars = await image.FindStarsAsync(snrMin: snrMin);
+        var expectedStars = await image.FindStarsAsync(snrMin: snrMin, cancellationToken: cancellationToken);
 
         try
         {
@@ -35,7 +35,7 @@ public class PlateSolverRoundTripTests(ITestOutputHelper testOutputHelper) : Ima
             readoutImage.MaxValue.ShouldBe(image.MaxValue);
             readoutImage.ImageMeta.ExposureStartTime.ShouldBe(image.ImageMeta.ExposureStartTime);
             readoutImage.ImageMeta.ExposureDuration.ShouldBe(image.ImageMeta.ExposureDuration);
-            var starsFromImage = await image.FindStarsAsync(snrMin: snrMin);
+            var starsFromImage = await image.FindStarsAsync(snrMin: snrMin, cancellationToken: cancellationToken);
 
             starsFromImage.ShouldBe(expectedStars, ignoreOrder: true);
         }

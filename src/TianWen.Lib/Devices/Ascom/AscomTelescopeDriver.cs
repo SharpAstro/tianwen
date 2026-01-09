@@ -47,94 +47,100 @@ internal class AscomTelescopeDriver(AscomDevice device, IExternal external)
         }
     }
 
-    public Task BeginSlewRaDecAsync(double ra, double dec, CancellationToken cancellationToken = default)
+    public ValueTask BeginSlewRaDecAsync(double ra, double dec, CancellationToken cancellationToken = default)
     {
         if (_comObject.CanSlewAsync is bool canSlewAsync && canSlewAsync)
         {
             _comObject.SlewToCoordinatesAsync(ra, dec);
 
-            return Task.CompletedTask;
+            return ValueTask.CompletedTask;
         }
         else
         {
-            throw new InvalidOperationException($"Failed to execute {nameof(AbortSlew)} connected={Connected} initialized={_comObject is not null}");
+            throw new InvalidOperationException($"Failed to execute {nameof(AbortSlewAsync)} connected={Connected} initialized={_comObject is not null}");
         }
     }
 
     public IReadOnlyList<TrackingSpeed> TrackingSpeeds => _trackingSpeeds;
 
-    public TrackingSpeed TrackingSpeed
+    public ValueTask<TrackingSpeed> GetTrackingSpeedAsync(CancellationToken cancellationToken)
     {
-        get => (TrackingSpeed)_comObject.TrackingRate;
-        set => _comObject.TrackingRate = (AscomTrackingSpeed)value;
+        if (Connected)
+        {
+            return ValueTask.FromResult((TrackingSpeed)_comObject.TrackingRate);
+        }
+        else
+        {
+            throw new InvalidOperationException($"Failed to execute {nameof(GetTrackingSpeedAsync)} connected={Connected} initialized={_comObject is not null}");
+        }
+    } 
+    
+    public ValueTask SetTrackingSpeedAsync(TrackingSpeed value, CancellationToken cancellationToken)
+    {
+        _comObject.TrackingRate = (AscomTrackingSpeed)value;
+
+        return ValueTask.CompletedTask;
     }
 
-    public bool AtHome => _comObject.AtHome is bool atHome && atHome;
+    public ValueTask<bool> AtHomeAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_comObject.AtHome is bool atHome && atHome);
 
-    public bool AtPark => _comObject.AtPark is bool atPark && atPark;
+    public ValueTask<bool> AtParkAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_comObject.AtPark is bool atPark && atPark);
 
-    public bool IsSlewing => _comObject.Slewing is bool slewing && slewing;
-
-    public double SiderealTime => _comObject.SiderealTime is double siderealTime ? siderealTime : throw new InvalidOperationException($"Failed to retrieve {nameof(SiderealTime)} from device connected={Connected} initialized={_comObject is not null}");
+    public ValueTask<bool> IsSlewingAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_comObject.Slewing is bool slewing && slewing);
+    
+    public ValueTask<double> GetSiderealTimeAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_comObject.SiderealTime is double siderealTime ? siderealTime : throw new InvalidOperationException($"Failed to retrieve sidereal time from device connected={Connected} initialized={_comObject is not null}"));
 
     public bool TimeIsSetByUs { get; private set; }
 
-    public DateTime? UTCDate
+    public ValueTask<DateTime?> TryGetUTCDateFromMountAsync(CancellationToken cancellationToken)
     {
-        get
+        try
         {
-            try
-            {
-                return Connected && _comObject.UTCDate is DateTime utcDate ? utcDate : default;
-            }
-            catch
-            {
-                return default;
-            }
+            return ValueTask.FromResult(Connected && _comObject.UTCDate is DateTime utcDate ? utcDate : null as DateTime?);
         }
-
-        set
+        catch
         {
-            if (!Connected)
-            {
-                throw new InvalidOperationException("Mount is not connected");
-            }
-            else if (value is { } utcDate)
-            {
-                try
-                {
-                    _comObject.UTCDate = utcDate;
-                    TimeIsSetByUs = true;
-                }
-                catch
-                {
-                    TimeIsSetByUs = false;
-                }
-            }
-            else
-            {
-                TimeIsSetByUs = false;
-            }
+            return default;
         }
     }
 
-    public bool Tracking
+    public ValueTask SetUTCDateAsync(DateTime value, CancellationToken cancellationToken)
     {
-        get => _comObject.Tracking is bool tracking && tracking;
-        set
+        if (!Connected)
         {
-            if (Connected )
+            throw new InvalidOperationException("Mount is not connected");
+        }
+        try
+        {
+            _comObject.UTCDate = value;
+            TimeIsSetByUs = true;
+        }
+        catch
+        {
+            TimeIsSetByUs = false;
+        }
+
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask<bool> IsTrackingAsync(CancellationToken cancellationToken)
+        => ValueTask.FromResult(_comObject.Tracking is bool tracking && tracking);
+
+    public ValueTask SetTrackingAsync(bool value, CancellationToken cancellationToken)
+    {
+        if (Connected)
+        {
+            if (_comObject.CanSetTracking is false)
             {
-                if (_comObject.CanSetTracking is false)
-                {
-                    throw new InvalidOperationException("Driver does not support setting tracking");
-                }
-                _comObject.Tracking = value;
+                throw new InvalidOperationException("Driver does not support setting tracking");
             }
-            else
-            {
-                throw new InvalidOperationException($"Failed to set {nameof(Tracking)} to {value} connected={Connected} initialized={_comObject is not null}");
-            }
+            _comObject.Tracking = value;
+
+            return ValueTask.CompletedTask;
+        }
+        else
+        {
+            throw new InvalidOperationException($"Failed to set tracking to {value} connected={Connected} initialized={_comObject is not null}");
         }
     }
 
@@ -162,51 +168,62 @@ internal class AscomTelescopeDriver(AscomDevice device, IExternal external)
 
     public bool CanSetGuideRates { get; private set; }
 
-    public PointingState SideOfPier
+    public ValueTask<PointingState> GetSideOfPierAsync(CancellationToken cancellationToken)
+        => ValueTask.FromResult((PointingState)_comObject.SideOfPier);
+
+
+    public ValueTask SetSideOfPierAsync(PointingState value, CancellationToken cancellationToken)
     {
-        get => (PointingState)_comObject.SideOfPier;
-        set
+        if (CanSetSideOfPier)
         {
-            if (CanSetSideOfPier)
-            {
-                _comObject.SideOfPier = (ASCOM.Common.DeviceInterfaces.PointingState)value;
-            }
-            else
-            {
-                throw new InvalidOperationException("Cannot set side of pier to: " + value);
-            }
+            _comObject.SideOfPier = (ASCOM.Common.DeviceInterfaces.PointingState)value;
+
+            return ValueTask.CompletedTask;
+        }
+        else
+        {
+            throw new InvalidOperationException("Cannot set side of pier to: " + value);
         }
     }
 
-    public PointingState DestinationSideOfPier(double ra, double dec) => (PointingState)_comObject.DestinationSideOfPier(ra, dec);
+    public ValueTask<PointingState> DestinationSideOfPierAsync(double ra, double dec, CancellationToken cancellationToken)
+        => ValueTask.FromResult((PointingState)_comObject.DestinationSideOfPier(ra, dec));
 
     public EquatorialCoordinateType EquatorialSystem => (EquatorialCoordinateType)_comObject.EquatorialSystem;
 
-    public AlignmentMode Alignment => (AlignmentMode)_comObject.AlignmentMode;
+    public ValueTask<AlignmentMode> GetAlignmentAsync(CancellationToken cancellationToken) => ValueTask.FromResult((AlignmentMode)_comObject.AlignmentMode);
 
-    public double RightAscension => _comObject.RightAscension;
+    public ValueTask<double> GetRightAscensionAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_comObject.RightAscension);
 
-    public double Declination => _comObject.Declination;
+    public ValueTask<double> GetDeclinationAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_comObject.Declination);
 
-    public double SiteElevation
+    public ValueTask<double> GetSiteElevationAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_comObject.SiteElevation);
+    
+    public ValueTask SetSiteElevationAsync(double value, CancellationToken cancellationToken)
     {
-        get => _comObject.SiteElevation;
-        set => _comObject.SiteElevation = value;
+        _comObject.SiteElevation = value;
+        return ValueTask.CompletedTask;
     }
 
-    public double SiteLatitude
+    public ValueTask<double> GetSiteLatitudeAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_comObject.SiteLatitude);
+
+    public ValueTask SetSiteLatitudeAsync(double value, CancellationToken cancellationToken)
     {
-        get => _comObject.SiteLatitude;
-        set => _comObject.SiteLatitude = value;
+        _comObject.SiteLatitude = value;
+        return ValueTask.CompletedTask;
     }
 
-    public double SiteLongitude
+    public ValueTask<double> GetSiteLongitudeAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_comObject.SiteLongitude);
+
+    public ValueTask SetSiteLongitudeAsync(double value, CancellationToken cancellationToken)
     {
-        get => _comObject.SiteLongitude;
-        set => _comObject.SiteLongitude = value;
+        _comObject.SiteLongitude = value;
+        return ValueTask.CompletedTask;
     }
 
-    public bool IsPulseGuiding => _comObject.IsPulseGuiding;
+    public ValueTask<bool> IsPulseGuidingAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_comObject.IsPulseGuiding);
+
+
 
     public double RightAscensionRate
     {
@@ -232,74 +249,97 @@ internal class AscomTelescopeDriver(AscomDevice device, IExternal external)
         set => _comObject.GuideRateDeclination = value;
     }
 
-    public void Park()
+    public ValueTask ParkAsync(CancellationToken cancellationToken)
     {
         if (Connected && CanPark )
         {
             _comObject.Park();
+
+            return ValueTask.CompletedTask;
         }
         else
         {
-            throw new InvalidOperationException($"Failed to execute {nameof(Park)} connected={Connected} initialized={_comObject is not null}");
+            throw new InvalidOperationException($"Failed to execute {nameof(ParkAsync)} connected={Connected} initialized={_comObject is not null}");
         }
     }
-    public void Unpark()
+    public ValueTask UnparkAsync(CancellationToken cancellationToken)
     {
         if (Connected && CanUnpark )
         {
             _comObject.Unpark();
+
+            return ValueTask.CompletedTask;
         }
         else
         {
-            throw new InvalidOperationException($"Failed to execute {nameof(Unpark)} connected={Connected} initialized={_comObject is not null}");
+            throw new InvalidOperationException($"Failed to execute {nameof(UnparkAsync)} connected={Connected} initialized={_comObject is not null}");
         }
     }
 
-    public void PulseGuide(GuideDirection direction, TimeSpan duration)
+    public ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
     {
         if (Connected && CanPulseGuide )
         {
             _comObject.PulseGuide((AscomGuideDirection)direction, (int)duration.TotalMilliseconds);
+
+            return ValueTask.CompletedTask;
         }
         else
         {
-            throw new InvalidOperationException($"Failed to execute {nameof(PulseGuide)} connected={Connected} initialized={_comObject is not null}");
+            throw new InvalidOperationException($"Failed to execute {nameof(PulseGuideAsync)} connected={Connected} initialized={_comObject is not null}");
         }
     }
 
-    public void SyncRaDec(double ra, double dec)
+    public async ValueTask SyncRaDecAsync(double ra, double dec, CancellationToken cancellationToken)
     {
         // prevent syncs on other side of meridian (most mounts do not support that).
-        if (Connected && CanSync && Tracking && !AtPark && DestinationSideOfPier(ra, dec) == SideOfPier )
+        if (Connected
+            && CanSync
+            && await IsTrackingAsync(cancellationToken)
+            && !await AtParkAsync(cancellationToken)
+            && await DestinationSideOfPierAsync(ra, dec, cancellationToken) == await GetSideOfPierAsync(cancellationToken))
         {
             _comObject.SyncToCoordinates(ra, dec);
         }
         else
         {
-            throw new InvalidOperationException($"Failed to execute {nameof(SyncRaDec)} connected={Connected} initialized={_comObject is not null}");
+            throw new InvalidOperationException($"Failed to execute {nameof(SyncRaDecAsync)} connected={Connected} initialized={_comObject is not null}");
         }
     }
 
-    public void AbortSlew()
+    public ValueTask AbortSlewAsync(CancellationToken cancellationToken)
     {
         if (Connected )
         {
             _comObject.AbortSlew();
+
+            return ValueTask.CompletedTask;
         }
         else
         {
-            throw new InvalidOperationException($"Failed to execute {nameof(AbortSlew)} connected={Connected} initialized={_comObject is not null}");
+            throw new InvalidOperationException($"Failed to execute {nameof(AbortSlewAsync)} connected={Connected} initialized={_comObject is not null}");
         }
     }
 
     public bool CanMoveAxis(TelescopeAxis axis) => _comObject.CanMoveAxis((AscomTelescopeAxis)axis);
 
+    // TODO: implement axis rates
     public IReadOnlyList<AxisRate> AxisRates(TelescopeAxis axis)
     {
         throw new NotImplementedException();
     }
 
-    public void MoveAxis(TelescopeAxis axis, double rate)
+    public ValueTask MoveAxisAsync(TelescopeAxis axis, double rate, CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
+
+    public ValueTask<double> GetTargetRightAscensionAsync(CancellationToken cancellationToken)
+    {
+        throw new NotImplementedException();
+    }
+
+    public ValueTask<double> GetTargetDeclinationAsync(CancellationToken cancellationToken)
     {
         throw new NotImplementedException();
     }

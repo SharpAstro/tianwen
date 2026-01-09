@@ -4,14 +4,12 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Stat;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace TianWen.Lib.Tests;
 
@@ -52,7 +50,9 @@ public class FindBestFocusTests(ITestOutputHelper testOutputHelper) : ImageAnaly
     [InlineData("2025-12-18--02-26-57--9d0e769c-5847-470c-a25e-0e1de367e31e.json")]
     public async Task ReachSameResultFromSuccessfulNINARun(string file)
     {
-        var ninaResult = await JsonSerializer.DeserializeAsync<NinaTestResult>(SharedTestData.OpenEmbeddedFileStream(file).ShouldNotBeNull(), _stringEnums);
+        var cancellationToken = TestContext.Current.CancellationToken;
+
+        var ninaResult = await JsonSerializer.DeserializeAsync<NinaTestResult>(SharedTestData.OpenEmbeddedFileStream(file).ShouldNotBeNull(), _stringEnums, cancellationToken);
         ninaResult.ShouldNotBeNull();
         ninaResult.Fitting.ShouldBe(NinaFittingMethod.Hyperbolic);
         ninaResult.CalculatedFocusPoint.ShouldNotBeNull();
@@ -88,6 +88,7 @@ public class FindBestFocusTests(ITestOutputHelper testOutputHelper) : ImageAnaly
     public async Task HyperboleIsFoundFromActualImageRun(SampleKind kind, AggregationMethod aggregationMethod, int focusStart, int focusEndIncl, int focusStepSize, int sampleCount, int filterNo, float snrMin, int maxIterations, int expectedSolutionAfterSteps, int expectedMinStarCount)
     {
         // given
+        var cancellationToken = TestContext.Current.CancellationToken;
         var sampleMap = new MetricSampleMap(kind, aggregationMethod);
 
         // when
@@ -97,9 +98,9 @@ public class FindBestFocusTests(ITestOutputHelper testOutputHelper) : ImageAnaly
             {
                 var sampleName = $"fp{fp}-cs{cs}-ms{sampleCount}-fw{filterNo}";
                 var sw = Stopwatch.StartNew();
-                var image = await SharedTestData.ExtractGZippedFitsImageAsync(sampleName);
+                var image = await SharedTestData.ExtractGZippedFitsImageAsync(sampleName, cancellationToken: cancellationToken);
                 var extractImageElapsed = sw.ElapsedMilliseconds;
-                var stars = await image.FindStarsAsync(snrMin: snrMin);
+                var stars = await image.FindStarsAsync(snrMin: snrMin, cancellationToken: cancellationToken);
                 var findStarsElapsed = sw.ElapsedMilliseconds - extractImageElapsed;
                 var median = stars.MapReduceStarProperty(sampleMap.Kind, AggregationMethod.Median);
                 var calcMedianElapsed = sw.ElapsedMilliseconds - findStarsElapsed;

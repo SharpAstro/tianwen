@@ -46,7 +46,7 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
 
     internal async Task ListProfilesAsync(ParseResult parseResult, CancellationToken cancellationToken)
     {
-        var allProfiles = await consoleHost.ListProfilesAsync(cancellationToken);
+        var allProfiles = await ListProfilesAsync(cancellationToken);
 
         var selectedProfile = parseResult.GetSelected(allProfiles, selectedProfileOption);
 
@@ -69,7 +69,7 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
     {
         var profileNameOrId = parseResult.GetRequiredValue(profileNameOrIdArg);
 
-        var profiles = await consoleHost.ListProfilesAsync(cancellationToken);
+        var profiles = await ListProfilesAsync(cancellationToken);
         Profile profileToDelete;
         if (Guid.TryParse(profileNameOrId, out var profileId))
         {
@@ -111,6 +111,9 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
         Console.WriteLine($"Deleted profile '{profileToDelete.DisplayName}' ({profileToDelete.ProfileId})");
 
         // refresh cache
-        var profilesAfterDelete = await consoleHost.ListProfilesAsync(cancellationToken);
+        var profilesAfterDelete = await ListProfilesAsync(cancellationToken);
     }
+
+    private Task<IReadOnlyCollection<Profile>> ListProfilesAsync(CancellationToken cancellationToken) =>
+        consoleHost.ListDevicesAsync<Profile>(DeviceType.Profile, true, cancellationToken);
 }

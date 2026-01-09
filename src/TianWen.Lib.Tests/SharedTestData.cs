@@ -7,6 +7,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
 
@@ -22,7 +23,7 @@ public static class SharedTestData
     private static readonly ConcurrentDictionary<string, Image> _imageCache = [];
     private static readonly Assembly _assembly = typeof(SharedTestData).Assembly;
 
-    internal static async Task<Image> ExtractGZippedFitsImageAsync(string name, bool isReadOnly = true)
+    internal static async Task<Image> ExtractGZippedFitsImageAsync(string name, bool isReadOnly = true, CancellationToken cancellationToken = default)
     {
         if (isReadOnly)
         {
@@ -31,12 +32,15 @@ public static class SharedTestData
                 return image;
             }
 
-            var imageFile = await WriteEphemeralUseTempFileAsync($"{name}.tianwen-image", async tempFile =>
-            {
-                image = ReadImageFromEmbeddedResourceStream(name);
-                using var outStream = File.OpenWrite(tempFile);
-                await image.WriteStreamAsync(outStream);
-            });
+            var imageFile = await WriteEphemeralUseTempFileAsync($"{name}.tianwen-image", 
+                async (tempFile, cancellationToken) =>
+                {
+                    image = ReadImageFromEmbeddedResourceStream(name);
+                    using var outStream = File.OpenWrite(tempFile);
+                    await image.WriteStreamAsync(outStream, cancellationToken);
+                },
+                cancellationToken
+            );
 
             if (image is null)
             {
@@ -77,7 +81,7 @@ public static class SharedTestData
             ["image_file-snr-20_stars-28_1280x960x16"] = (new ImageDim(5.6f, 1280, 960), new WCS(337.264d / 15.0d, -22.918d))
         };
 
-    internal static async Task<string> ExtractGZippedFitsFileAsync(string name)
+    internal static async Task<string> ExtractGZippedFitsFileAsync(string name, CancellationToken cancellationToken = default)
     {
         if (OpenGZippedFitsFileStream(name) is not { } inStream)
         {
@@ -85,19 +89,22 @@ public static class SharedTestData
         }
 
         var fileName = $"{name}_{inStream.Length}.fits";
-        return await WriteEphemeralUseTempFileAsync(fileName, async (tempFile) =>
-        {
-            using var outStream = new FileStream(tempFile, new FileStreamOptions
+        return await WriteEphemeralUseTempFileAsync(fileName, 
+            async (tempFile, cancellationToken) =>
             {
-                Options = FileOptions.Asynchronous,
-                Access = FileAccess.Write,
-                Mode = FileMode.Create,
-                Share = FileShare.None
-            });
-            using var gzipStream = new GZipStream(inStream, CompressionMode.Decompress, false);
-            var length = inStream.Length;
-            await gzipStream.CopyToAsync(outStream, 1024 * 10);
-        });
+                using var outStream = new FileStream(tempFile, new FileStreamOptions
+                {
+                    Options = FileOptions.Asynchronous,
+                    Access = FileAccess.Write,
+                    Mode = FileMode.Create,
+                    Share = FileShare.None
+                });
+                using var gzipStream = new GZipStream(inStream, CompressionMode.Decompress, false);
+                var length = inStream.Length;
+                await gzipStream.CopyToAsync(outStream, 1024 * 10, cancellationToken);
+            },
+            cancellationToken
+        );
     }
 
     internal static string CreateTempTestOutputDir()
@@ -111,7 +118,7 @@ public static class SharedTestData
         return dir.FullName;
     }
 
-    private static async Task<string> WriteEphemeralUseTempFileAsync(string fileName, Func<string, ValueTask> fileOperation)
+    private static async Task<string> WriteEphemeralUseTempFileAsync(string fileName, Func<string, CancellationToken, ValueTask> fileOperation, CancellationToken cancellationToken = default)
     {
         var tempOutputDir = CreateTempTestOutputDir();
 
@@ -125,7 +132,7 @@ public static class SharedTestData
         {
             var tempFile = $"{fullPath}_{Guid.NewGuid():D}.tmp";
 
-            await fileOperation(tempFile);
+            await fileOperation(tempFile, cancellationToken);
 
             if (!File.Exists(fullPath))
             {

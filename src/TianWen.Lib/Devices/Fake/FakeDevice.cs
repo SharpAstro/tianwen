@@ -14,7 +14,7 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
     /// <param name="deviceType"></param>
     /// <param name="deviceId">Fake device id (starting from 1)</param>
     public FakeDevice(DeviceType deviceType, int deviceId, NameValueCollection? values = null)
-        : this(new Uri($"{deviceType}://{typeof(FakeDevice).Name}/{deviceType}{deviceId}{(values is { Count: > 0 } ? "?" + values.ToQueryString() : "")}#Fake {deviceType.PascalCaseStringToName()} {deviceId}"))
+        : this(new Uri($"{deviceType}://{typeof(FakeDevice).Name}/Fake{deviceType}{deviceId}{(values is { Count: > 0 } ? "?" + values.ToQueryString() : "")}#Fake {deviceType.PascalCaseStringToName()} {deviceId}"))
     {
         // calls primary constructor
     }
@@ -31,7 +31,7 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 
     public override ISerialConnection? ConnectSerialDevice(IExternal external, int baud = 9600, Encoding? encoding = null, TimeSpan? ioTimeout = null) => DeviceType switch
     {
-        DeviceType.Mount => new FakeMeadeLX200SerialDevice(true, encoding ?? Encoding.Latin1, external.TimeProvider, SiteLatitude, SiteLongitude),
+        DeviceType.Mount => new FakeMeadeLX200SerialDevice(external.AppLogger, encoding ?? Encoding.Latin1, external.TimeProvider, SiteLatitude, SiteLongitude, true),
         _ => null
     };
 

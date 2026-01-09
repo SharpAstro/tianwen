@@ -75,7 +75,7 @@ internal record Session(
         }
         finally
         {
-            await Finalise();
+            await Finalise(cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -90,7 +90,7 @@ internal record Session(
         var mount = Setup.Mount;
         var distMeridian = TimeSpan.FromMinutes(15);
 
-        if (!mount.Driver.EnsureTracking())
+        if (!await mount.Driver.EnsureTrackingAsync(cancellationToken: cancellationToken))
         {
             External.AppLogger.LogError("Failed to enable tracking of {Mount}.", mount);
 
@@ -101,7 +101,7 @@ internal record Session(
 
         // coordinates not quite accurate at this point (we have not plate-solved yet) but good enough for this purpose.
         await mount.Driver.BeginSlewToZenithAsync(distMeridian, cancellationToken).ConfigureAwait(false);
-        var slewTime = MountUtcNow;
+        var slewTime = await GetMountUtcNowAsync(cancellationToken);
 
         if (!await mount.Driver.WaitForSlewCompleteAsync(cancellationToken).ConfigureAwait(false))
         {
@@ -154,7 +154,7 @@ internal record Session(
                     {
                         expTimesSec[i]++;
 
-                        if (MountUtcNow - slewTime + TimeSpan.FromSeconds(count * 5 + expTimesSec[i]) < distMeridian)
+                        if (await GetMountUtcNowAsync(cancellationToken) - slewTime + TimeSpan.FromSeconds(count * 5 + expTimesSec[i]) < distMeridian)
                         {
                             camDriver.StartExposure(TimeSpan.FromSeconds(expTimesSec[i]));
                         }
@@ -172,11 +172,11 @@ internal record Session(
             }
 
             // slew back to start position
-            if (MountUtcNow - slewTime > distMeridian)
+            if (await GetMountUtcNowAsync(cancellationToken) - slewTime > distMeridian)
             {
                 await mount.Driver.BeginSlewToZenithAsync(distMeridian, cancellationToken).ConfigureAwait(false);
                 
-                slewTime = MountUtcNow;
+                slewTime = await GetMountUtcNowAsync(cancellationToken);
 
                 if (!await mount.Driver.WaitForSlewCompleteAsync(cancellationToken).ConfigureAwait(false))
                 {
@@ -204,7 +204,13 @@ internal record Session(
 
         var plateSolveTimeout = timeoutAfter > TimeSpan.FromSeconds(5) ? timeoutAfter - TimeSpan.FromSeconds(3) : timeoutAfter;
 
-        var wcs = await guider.Driver.PlateSolveGuiderImageAsync(PlateSolver, mount.Driver.RightAscension, mount.Driver.Declination, plateSolveTimeout, 10, cancellationToken);
+        var wcs = await guider.Driver.PlateSolveGuiderImageAsync(PlateSolver, 
+            await mount.Driver.GetRightAscensionAsync(cancellationToken),
+            await mount.Driver.GetDeclinationAsync(cancellationToken),
+            plateSolveTimeout,
+            10d,
+            cancellationToken
+        );
 
         if (wcs is var (solvedRa, solvedDec))
         {
@@ -245,7 +251,7 @@ internal record Session(
         }
     }
 
-    internal async ValueTask Finalise()
+    internal async ValueTask Finalise(CancellationToken cancellationToken)
     {
         External.AppLogger.LogInformation("Executing session run finaliser: Stop guiding, stop tracking, disconnect guider, close covers, cool to ambient temp, turn off cooler, park scope.");
 
@@ -259,41 +265,40 @@ internal record Session(
         {
             await guider.Driver.StopCaptureAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
             return !await guider.Driver.IsGuidingAsync(cancellationToken).ConfigureAwait(false);
-        }, CancellationToken.None).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
 
-        var trackingStopped = Catch(() => mount.Driver.CanSetTracking && !(mount.Driver.Tracking = false));
+        var trackingStopped = await CatchAsync(async cancellationToken => mount.Driver.CanSetTracking && !await mount.Driver.IsTrackingAsync(cancellationToken), cancellationToken).ConfigureAwait(false);
 
         if (trackingStopped)
         {
-            maybeCoversClosed ??= await CatchAsync(CloseCoversAsync, CancellationToken.None).ConfigureAwait(false);
-            maybeCooledCamerasToAmbient ??= await CatchAsync(TurnOffCameraCoolingAsync, CancellationToken.None).ConfigureAwait(false);
+            maybeCoversClosed ??= await CatchAsync(CloseCoversAsync, cancellationToken).ConfigureAwait(false);
+            maybeCooledCamerasToAmbient ??= await CatchAsync(TurnOffCameraCoolingAsync, cancellationToken).ConfigureAwait(false);
         }
 
-        var guiderDisconnected = await CatchAsync(guider.Driver.DisconnectAsync, CancellationToken.None).ConfigureAwait(false);
+        var guiderDisconnected = await CatchAsync(guider.Driver.DisconnectAsync, cancellationToken).ConfigureAwait(false);
+        bool parkInitiated = Catch(() => mount.Driver.CanPark) && await CatchAsync(mount.Driver.ParkAsync, cancellationToken).ConfigureAwait(false);
 
-        bool parkInitiated = Catch(() => mount.Driver.CanPark) && Catch(mount.Driver.Park);
-
-        var parkCompleted = parkInitiated && Catch(() =>
+        var parkCompleted = parkInitiated && await CatchAsync(async cancellationToken =>
         {
             int i = 0;
-            while (!mount.Driver.AtPark && i++ < IDeviceDriver.MAX_FAILSAFE)
+            while (!await mount.Driver.AtParkAsync(cancellationToken) && i++ < IDeviceDriver.MAX_FAILSAFE)
             {
-                External.Sleep(TimeSpan.FromMilliseconds(100));
+                await External.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
             }
 
-            return mount.Driver.AtPark;
-        });
+            return await mount.Driver.AtParkAsync(cancellationToken);
+        }, cancellationToken);
 
         if (parkCompleted)
         {
-            maybeCoversClosed ??= await CatchAsync(CloseCoversAsync, CancellationToken.None).ConfigureAwait(false);
-            maybeCooledCamerasToAmbient ??= await CatchAsync(TurnOffCameraCoolingAsync, CancellationToken.None).ConfigureAwait(false);
+            maybeCoversClosed ??= await CatchAsync(CloseCoversAsync, cancellationToken).ConfigureAwait(false);
+            maybeCooledCamerasToAmbient ??= await CatchAsync(TurnOffCameraCoolingAsync, cancellationToken).ConfigureAwait(false);
         }
 
-        var coversClosed = maybeCoversClosed ??= await CatchAsync(CloseCoversAsync, CancellationToken.None).ConfigureAwait(false);
-        var cooledCamerasToAmbient = maybeCooledCamerasToAmbient ??= await CatchAsync(TurnOffCameraCoolingAsync, CancellationToken.None).ConfigureAwait(false);
+        var coversClosed = maybeCoversClosed ??= await CatchAsync(CloseCoversAsync, cancellationToken).ConfigureAwait(false);
+        var cooledCamerasToAmbient = maybeCooledCamerasToAmbient ??= await CatchAsync(TurnOffCameraCoolingAsync, cancellationToken).ConfigureAwait(false);
 
-        var mountDisconnected = await CatchAsync(mount.Driver.DisconnectAsync, CancellationToken.None).ConfigureAwait(false);
+        var mountDisconnected = await CatchAsync(mount.Driver.DisconnectAsync, cancellationToken).ConfigureAwait(false);
 
         var shutdownReport = new Dictionary<string, bool>
         {
@@ -349,9 +354,10 @@ internal record Session(
         var guider = Setup.Guider;
 
         await mount.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
-        await guider.Driver.ConnectAsync(cancellationToken);
+        await guider.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
 
-        if (mount.Driver.AtPark && (!mount.Driver.CanUnpark || !Catch(mount.Driver.Unpark)))
+        if (await mount.Driver.AtParkAsync(cancellationToken)
+            && (!mount.Driver.CanUnpark || !await CatchAsync(mount.Driver.UnparkAsync, cancellationToken).ConfigureAwait(false)))
         {
             External.AppLogger.LogError("Mount {Mount} is parked but cannot be unparked. Aborting.", mount);
 
@@ -359,7 +365,7 @@ internal record Session(
         }
 
         // try set the time to our time if supported
-        mount.Driver.UTCDate = External.TimeProvider.GetUtcNow().UtcDateTime;
+        await mount.Driver.SetUTCDateAsync(External.TimeProvider.GetUtcNow().UtcDateTime, cancellationToken);
 
         for (var i = 0; i < Setup.Telescopes.Count; i++)
         {
@@ -373,8 +379,8 @@ internal record Session(
             {
                 camera.Driver.FocalLength = telescope.FocalLength;
             }
-            camera.Driver.Latitude ??= mount.Driver.SiteLatitude;
-            camera.Driver.Longitude ??= mount.Driver.SiteLongitude;
+            camera.Driver.Latitude ??= await mount.Driver.GetSiteLatitudeAsync(cancellationToken);
+            camera.Driver.Longitude ??= await mount.Driver.GetSiteLongitudeAsync(cancellationToken);
         }
 
         if (!await CoolCamerasToSensorTempAsync(TimeSpan.FromSeconds(10), cancellationToken).ConfigureAwait(false))
@@ -409,16 +415,16 @@ internal record Session(
     {
         var guider = Setup.Guider;
         var mount = Setup.Mount;
-        var sessionStartTime = MountUtcNow;
-        var sessionEndTime = SessionEndTime(sessionStartTime);
+        var sessionStartTime = await GetMountUtcNowAsync(cancellationToken);
+        var sessionEndTime = await SessionEndTimeAsync(sessionStartTime, cancellationToken);
 
         Observation? observation;
         while ((observation = ActiveObservation) is not null
-            && MountUtcNow < sessionEndTime
+            && await GetMountUtcNowAsync(cancellationToken) < sessionEndTime
             && !cancellationToken.IsCancellationRequested
         )
         {
-            if (!mount.Driver.EnsureTracking())
+            if (!await mount.Driver.EnsureTrackingAsync(cancellationToken: cancellationToken))
             {
                 External.AppLogger.LogError("Failed to enable tracking of {Mount}.", mount);
                 return;
@@ -481,7 +487,7 @@ internal record Session(
                 continue;
             }
 
-            var imageLoopStart = MountUtcNow;
+            var imageLoopStart = await GetMountUtcNowAsync(cancellationToken);
             var imageLoopResult = await ImagingLoopAsync(observation, hourAngleAtSlewTime, cancellationToken).ConfigureAwait(false);
             if (imageLoopResult is ImageLoopNextAction.AdvanceToNextObservation)
             {
@@ -495,7 +501,7 @@ internal record Session(
             }
             else
             {
-                External.AppLogger.LogError("Imaging loop for {Observation} did not complete successfully, total runtime: {TotalRuntime:c}", observation, MountUtcNow - imageLoopStart);
+                External.AppLogger.LogError("Imaging loop for {Observation} did not complete successfully, total runtime: {TotalRuntime:c}", observation, await GetMountUtcNowAsync(cancellationToken) - imageLoopStart);
                 break;
             }
         } // end observation loop
@@ -543,7 +549,7 @@ internal record Session(
 
         while (!cancellationToken.IsCancellationRequested
             && mount.Driver.Connected
-            && Catch(() => mount.Driver.Tracking)
+            && await CatchAsync(mount.Driver.IsTrackingAsync, cancellationToken)
         )
         {
             if (!await CatchAsync(guider.Driver.IsGuidingAsync, cancellationToken).ConfigureAwait(false))
@@ -646,7 +652,7 @@ internal record Session(
             }
 
             var fetchImagesSuccessAll = imageFetchSuccess.AllSet(scopes);
-            if (!mount.Driver.IsOnSamePierSide(hourAngleAtSlewTime))
+            if (!await mount.Driver.IsOnSamePierSideAsync(hourAngleAtSlewTime, cancellationToken))
             {
                 // write all images as the loop is ending here
                 _ = await WriteQueuedImagesToFitsFilesAsync();
@@ -696,7 +702,7 @@ internal record Session(
 
         async ValueTask<TimeSpan> WriteQueuedImagesToFitsFilesAsync()
         {
-            var writeQueueStart = MountUtcNow;
+            var writeQueueStart = await GetMountUtcNowAsync(cancellationToken);
             while (imageWriteQueue.TryDequeue(out var imageWrite))
             {
                 try
@@ -710,7 +716,7 @@ internal record Session(
                 }
             }
             
-            return MountUtcNow - writeQueueStart;
+            return await GetMountUtcNowAsync(cancellationToken) - writeQueueStart;
         }
     }
 
@@ -896,26 +902,19 @@ internal record Session(
     internal T Catch<T>(Func<T> func, T @default = default) where T : struct => External.Catch(func, @default);
     internal ValueTask<bool> CatchAsync(Func<CancellationToken, ValueTask> asyncFunc, CancellationToken cancellationToken)
         => External.CatchAsync(asyncFunc, cancellationToken);
+    internal Task<bool> CatchAsync(Func<CancellationToken, Task> asyncFunc, CancellationToken cancellationToken)
+        => External.CatchAsync(asyncFunc, cancellationToken);
+
 
     internal ValueTask<T> CatchAsync<T>(Func<CancellationToken, ValueTask<T>> asyncFunc, CancellationToken cancellationToken, T @default = default) where T : struct
         => External.CatchAsync(asyncFunc, cancellationToken, @default);
-        
-    internal DateTime MountUtcNow
-    {
-        get
-        {
-            if (Setup.Mount.Driver.TryGetUTCDate(out var dateTime))
-            {
-                return dateTime;
-            }
 
-            return External.TimeProvider.GetUtcNow().UtcDateTime;
-        }
-    }
+    internal async ValueTask<DateTime> GetMountUtcNowAsync(CancellationToken cancellationToken)
+        => await Setup.Mount.Driver.TryGetUTCDateFromMountAsync(cancellationToken) ?? External.TimeProvider.GetUtcNow().UtcDateTime;
 
     internal async ValueTask WaitUntilTenMinutesBeforeAmateurAstroTwilightEndsAsync(CancellationToken cancellationToken)
     {
-        if (!Setup.Mount.Driver.TryGetTransform(out var transform))
+        if (await Setup.Mount.Driver.TryGetTransformAsync(cancellationToken) is not { } transform)
         {
             throw new InvalidOperationException("Failed to retrieve time transformation from mount");
         }
@@ -948,9 +947,9 @@ internal record Session(
         }
     }
 
-    internal DateTime SessionEndTime(DateTime startTime)
+    internal async ValueTask<DateTime> SessionEndTimeAsync(DateTime startTime, CancellationToken cancellationToken)
     {
-        if (!Setup.Mount.Driver.TryGetTransform(out var transform))
+        if (await Setup.Mount.Driver.TryGetTransformAsync(cancellationToken) is not { } transform)
         {
             throw new InvalidOperationException("Failed to retrieve time transformation from mount");
         }

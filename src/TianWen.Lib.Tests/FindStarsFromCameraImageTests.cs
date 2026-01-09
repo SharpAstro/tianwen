@@ -4,7 +4,6 @@ using System.Threading.Tasks;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace TianWen.Lib.Tests;
 
@@ -21,6 +20,8 @@ public class FindStarsFromCameraImageTests(ITestOutputHelper testOutputHelper) :
         const int Height = 960;
         const BitDepth BitDepth = BitDepth.Int16;
         const int BlackLevel = 1;
+
+        var cancellationToken = TestContext.Current.CancellationToken;
         var expTime = TimeSpan.FromSeconds(42);
         var fileName = $"image_data_snr-{snr_min}_stars-{expectedStars}";
         var int16WxHData = await SharedTestData.ExtractGZippedImageData(fileName, Width, Height);
@@ -29,7 +30,7 @@ public class FindStarsFromCameraImageTests(ITestOutputHelper testOutputHelper) :
         // when
         var imageData = Float32HxWImageData.FromWxHImageData(int16WxHData);
         var image = imageData.ToImage(BitDepth, BlackLevel, imageMeta);
-        var stars = await image.FindStarsAsync(snrMin: snr_min);
+        var stars = await image.FindStarsAsync(snrMin: snr_min, cancellationToken: cancellationToken);
 
         // then
         image.ShouldNotBeNull();

@@ -8,7 +8,6 @@ using System.Threading.Tasks;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Ascom;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace TianWen.Lib.Tests;
 
@@ -20,7 +19,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         var deviceIterator = new AscomDeviceIterator();
         var types = deviceIterator.RegisteredDeviceTypes;
 
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && await deviceIterator.CheckSupportAsync())
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && await deviceIterator.CheckSupportAsync(TestContext.Current.CancellationToken))
         {
             types.ShouldNotBeEmpty();
         }
@@ -30,14 +29,14 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         }
     }
 
-    [SkippableTheory]
+    [Theory]
     [InlineData(DeviceType.Camera)]
     [InlineData(DeviceType.CoverCalibrator)]
     [InlineData(DeviceType.Focuser)]
     [InlineData(DeviceType.Switch)]
     public async Task GivenSimulatorDeviceTypeVersionAndNameAreReturned(DeviceType type)
     {
-        Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached);
+        Assert.SkipUnless(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached, "Skipped as this test is only run when on Windows and debugger is attached");
 
         var external = new FakeExternal(testOutputHelper);
         var deviceIterator = new AscomDeviceIterator();
@@ -59,12 +58,13 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         }
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task GivenAConnectedAscomSimulatorTelescopeWhenConnectedThenTrackingRatesArePopulated()
     {
-        Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached, "Skipped as this test is only run when on Windows and debugger is attached");
+        Assert.SkipUnless(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached, "Skipped as this test is only run when on Windows and debugger is attached");
 
         // given
+        var cancellationToken = TestContext.Current.CancellationToken;
         var external = new FakeExternal(testOutputHelper);
         var deviceIterator = new AscomDeviceIterator();
         var allTelescopes = deviceIterator.RegisteredDevices(DeviceType.Telescope);
@@ -75,17 +75,18 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         {
             await using (driver)
             {
-                await driver.DisconnectAsync();
+                await driver.DisconnectAsync(cancellationToken);
             }
         }
     }
 
-    [SkippableFact]
+    [Fact]
     public async Task GivenAConnectedAscomSimulatorCameraWhenImageReadyThenItCanBeDownloaded()
     {
-        Skip.IfNot(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached, "Skipped as this test is only run when on Windows and debugger is attached");
+        Assert.SkipUnless(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached, "Skipped as this test is only run when on Windows and debugger is attached");
 
         // given
+        var cancellationToken = TestContext.Current.CancellationToken;
         var external = new FakeExternal(testOutputHelper);
         var deviceIterator = new AscomDeviceIterator();
         var allCameras = deviceIterator.RegisteredDevices(DeviceType.Camera);
@@ -96,7 +97,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         {
             await using (driver)
             {
-                await driver.ConnectAsync();
+                await driver.ConnectAsync(cancellationToken);
                 var startExposure = driver.StartExposure(TimeSpan.FromSeconds(0.1));
 
                 Thread.Sleep((int)TimeSpan.FromSeconds(0.5).TotalMilliseconds);
@@ -112,7 +113,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
                 image.BitDepth.ShouldBe(driver.BitDepth.ShouldNotBeNull());
                 image.MaxValue.ShouldBeGreaterThan(0f);
                 image.MaxValue.ShouldBe(expectedMax);
-                var stars = await image.FindStarsAsync(snrMin: 10);
+                var stars = await image.FindStarsAsync(snrMin: 10, cancellationToken: cancellationToken);
                 stars.Count.ShouldBeGreaterThan(0);
             }
         }

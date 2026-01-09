@@ -30,7 +30,7 @@ internal class External(
     public IReadOnlyList<string> EnumerateSerialPorts() => SerialConnection.EnumerateSerialPorts();
 
     public ISerialConnection OpenSerialDevice(string address, int baud, Encoding encoding, TimeSpan? ioTimeout = null)
-        => new SerialConnection(address, baud, AppLogger, encoding, ioTimeout);
+        => new SerialConnection(address, baud, encoding, AppLogger, ioTimeout);
 
     public void Sleep(TimeSpan duration) => Thread.Sleep(duration);
 

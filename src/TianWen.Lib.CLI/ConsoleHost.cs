@@ -122,22 +122,44 @@ internal class ConsoleHost(
         Console.Write(renderer.Render(image, widthScale));
     }
 
-    public async Task<IReadOnlyCollection<Profile>> ListProfilesAsync(CancellationToken cancellationToken)
+    public async Task<IReadOnlyCollection<DeviceBase>> ListAllDevicesAsync(bool forceDiscovery, CancellationToken cancellationToken)
     {
         TimeSpan discoveryTimeout;
 #if DEBUG
-        discoveryTimeout = TimeSpan.FromHours(1);
+        discoveryTimeout = TimeSpan.FromMinutes(15);
 #else
         discoveryTimeout = TimeSpan.FromSeconds(25);
 #endif
         using var cts = new CancellationTokenSource(discoveryTimeout, External.TimeProvider);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken);
 
-        if (await deviceManager.CheckSupportAsync(linked.Token))
+        await deviceManager.CheckSupportAsync(linked.Token);
+
+        if (forceDiscovery)
         {
-            await deviceManager.DiscoverOnlyDeviceType(DeviceType.Profile, linked.Token);
+            await deviceManager.DiscoverAsync(linked.Token);
         }
 
-        return [..deviceManager.RegisteredDevices(DeviceType.Profile).OfType<Profile>()];
+        return [.. deviceManager.RegisteredDeviceTypes.SelectMany(deviceManager.RegisteredDevices)];
+    }
+
+    public async Task<IReadOnlyCollection<TDevice>> ListDevicesAsync<TDevice>(DeviceType deviceType, bool forceDiscovery, CancellationToken cancellationToken)
+        where TDevice : DeviceBase
+    {
+        TimeSpan discoveryTimeout;
+#if DEBUG
+        discoveryTimeout = TimeSpan.FromMinutes(15);
+#else
+        discoveryTimeout = TimeSpan.FromSeconds(25);
+#endif
+        using var cts = new CancellationTokenSource(discoveryTimeout, External.TimeProvider);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken);
+
+        if (await deviceManager.CheckSupportAsync(linked.Token) && forceDiscovery)
+        {
+            await deviceManager.DiscoverOnlyDeviceType(deviceType, linked.Token);
+        }
+
+        return [.. deviceManager.RegisteredDevices(deviceType).OfType<TDevice>()];
     }
 }

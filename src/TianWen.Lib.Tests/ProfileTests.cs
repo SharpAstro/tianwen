@@ -4,7 +4,6 @@ using System.IO;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace TianWen.Lib.Tests;
 
@@ -24,6 +23,7 @@ public class ProfileTests(ITestOutputHelper outputHelper)
     public async Task GivenProfileWhenSavedAndLoadedThenItIsIdentical(string guid, string name)
     {
         // given
+        var cancellationToken = TestContext.Current.CancellationToken;
         var dir = Directory.CreateDirectory(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("D")));
         try
         {
@@ -34,12 +34,12 @@ public class ProfileTests(ITestOutputHelper outputHelper)
             await profile.SaveAsync(external);
 
             // when
-            await profileIterator.DiscoverAsync();
+            await profileIterator.DiscoverAsync(cancellationToken);
             var enumeratedProfiles = profileIterator.RegisteredDevices(DeviceType.Profile);
 
             // then
             profileIterator.RegisteredDeviceTypes.ShouldBe([DeviceType.Profile]);
-            (await profileIterator.CheckSupportAsync()).ShouldBeTrue();
+            (await profileIterator.CheckSupportAsync(cancellationToken)).ShouldBeTrue();
 
             enumeratedProfiles.ShouldHaveSingleItem().ShouldNotBeNull().DeviceUri.ShouldBe(profile.DeviceUri);
         }
