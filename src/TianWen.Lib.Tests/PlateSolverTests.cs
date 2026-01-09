@@ -1,17 +1,16 @@
-﻿using TianWen.Lib.Astrometry.PlateSolve;
-using Shouldly;
+﻿using Shouldly;
 using System;
 using System.Diagnostics;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Astrometry.PlateSolve;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
 
 public class PlateSolverTests
 {
-    [SkippableTheory]
+    [Theory]
     [InlineData("PlateSolveTestFile", typeof(AstrometryNetPlateSolverUnix))]
     [InlineData("PlateSolveTestFile", typeof(AstrometryNetPlateSolverMultiPlatform))]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", typeof(AstrometryNetPlateSolverMultiPlatform))]
@@ -19,23 +18,23 @@ public class PlateSolverTests
     public async Task GivenStarFieldTestFileWhenBlindPlateSolvingThenItIsSolved(string name, Type solverType, double accuracy = 0.01)
     {
         // given
-        var extractedFitsFile = await SharedTestData.ExtractGZippedFitsFileAsync(name);
-        var cts = new CancellationTokenSource(Debugger.IsAttached ? TimeSpan.FromHours(10) : TimeSpan.FromSeconds(10));
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var extractedFitsFile = await SharedTestData.ExtractGZippedFitsFileAsync(name, cancellationToken);
 
         var solver = (Activator.CreateInstance(solverType) as IPlateSolver).ShouldNotBeNull();
         var platform = Environment.OSVersion.Platform;
 
-        Skip.If(solverType.IsAssignableTo(typeof(AstrometryNetPlateSolver))
+        Assert.SkipWhen(solverType.IsAssignableTo(typeof(AstrometryNetPlateSolver))
             && platform == PlatformID.Win32NT
             && !Debugger.IsAttached,
             $"Is multi-platform and running on Windows without debugger (Windows is skipped by default as WSL has a long cold start time)");
 
-        Skip.IfNot(await solver.CheckSupportAsync(), $"Platform {platform} is not supported!");
+        Assert.SkipUnless(await solver.CheckSupportAsync(TestContext.Current.CancellationToken), $"Platform {platform} is not supported!");
 
         if (SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords))
         {
             // when
-            var solution = await solver.SolveFileAsync(extractedFitsFile, dimAndCoords.ImageDim, cancellationToken: cts.Token);
+            var solution = await solver.SolveFileAsync(extractedFitsFile, dimAndCoords.ImageDim, cancellationToken: cancellationToken);
 
             // then
             solution.HasValue.ShouldBe(true);
@@ -49,7 +48,7 @@ public class PlateSolverTests
         }
     }
 
-    [SkippableTheory]
+    [Theory]
     [InlineData("PlateSolveTestFile", typeof(AstrometryNetPlateSolverMultiPlatform))]
     [InlineData("PlateSolveTestFile", typeof(AstrometryNetPlateSolverUnix))]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", typeof(AstrometryNetPlateSolverMultiPlatform))]
@@ -57,17 +56,18 @@ public class PlateSolverTests
     public async Task GivenStarFieldTestFileAndSearchOriginWhenPlateSolvingThenItIsSolved(string name, Type solverType, double accuracy = 0.01)
     {
         // given
-        var extractedFitsFile = await SharedTestData.ExtractGZippedFitsFileAsync(name);
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var extractedFitsFile = await SharedTestData.ExtractGZippedFitsFileAsync(name, cancellationToken);
         var cts = new CancellationTokenSource(Debugger.IsAttached ? TimeSpan.FromHours(10) : TimeSpan.FromSeconds(10));
 
         var solver = (Activator.CreateInstance(solverType) as IPlateSolver).ShouldNotBeNull();
         var platform = Environment.OSVersion.Platform;
 
-        Skip.If(solverType.IsAssignableTo(typeof(AstrometryNetPlateSolver))
+        Assert.SkipWhen(solverType.IsAssignableTo(typeof(AstrometryNetPlateSolver))
             && platform == PlatformID.Win32NT
             && !Debugger.IsAttached,
             $"Is multi-platform and running on Windows without debugger (Windows is skipped by default as WSL has a long cold start time)");
-        Skip.IfNot(await solver.CheckSupportAsync(), $"Platform {platform} is not supported!");
+        Assert.SkipUnless(await solver.CheckSupportAsync(cancellationToken), $"Platform {platform} is not supported!");
 
         if (SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords))
         {

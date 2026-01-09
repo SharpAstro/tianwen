@@ -1,9 +1,9 @@
 ﻿using Microsoft.Extensions.Logging;
 using System;
+using System.Buffers;
 using System.Buffers.Text;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
@@ -30,15 +30,8 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 {
     private static readonly Encoding _encoding = Encoding.Latin1;
 
-    const int MOVING_STATE_NORMAL = 0;
-    const int MOVING_STATE_PARKED = 1;
-    const int MOVING_STATE_PULSE_GUIDING = 2;
-    const int MOVING_STATE_SLEWING = 3;
-
     const double DEFAULT_GUIDE_RATE = SIDEREAL_RATE * 2d / 3d / 3600d;
 
-    private ITimer? _slewTimer;
-    private int _movingState = MOVING_STATE_NORMAL;
     private bool? _isSouthernHemisphere;
     private string _telescopeName = "Unknown";
     private string _telescopeFW = "Unknown";
@@ -74,238 +67,242 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
     public IReadOnlyList<AxisRate> AxisRates(TelescopeAxis axis) => [];
 
-    public void MoveAxis(TelescopeAxis axis, double rate)
+    public ValueTask MoveAxisAsync(TelescopeAxis axis, double rate, CancellationToken cancellationToken)
     {
         throw new InvalidOperationException("Moving axis directly is not supported");
     }
 
-    public TrackingSpeed TrackingSpeed
+    private static readonly ReadOnlyMemory<byte> GTCommand = "GT"u8.ToArray();
+    public async ValueTask<TrackingSpeed> GetTrackingSpeedAsync(CancellationToken cancellationToken)
     {
-        get
+        var response = await SendAndReceiveAsync(GTCommand, cancellationToken);
+        if (double.TryParse(response, CultureInfo.InvariantCulture, out var trackingHz))
         {
-            SendAndReceive("GT"u8, out var response);
-            if (double.TryParse(response, CultureInfo.InvariantCulture, out var trackingHz))
+            return trackingHz switch
             {
-                return trackingHz switch
-                {
-                    >= 59.9 and <= 60.1 => TrackingSpeed.Sidereal,
-                    >= 57.3 and <= 58.9 => TrackingSpeed.Lunar,
-                    _ => TrackingSpeed.None
-                };
-            }
-            else
-            {
-                throw new InvalidOperationException($"Failed to convert GT response {_encoding.GetString(response)} to a tracking frequency");
-            }
-        }
-
-        set
-        {
-            var speed = value switch
-            {
-                TrackingSpeed.Sidereal or TrackingSpeed.Solar => "TQ"u8,
-                TrackingSpeed.Lunar => "TL"u8,
-                _ => throw new ArgumentException($"Tracking speed {value} is not yet supported!", nameof(value))
+                >= 59.9 and <= 60.1 => TrackingSpeed.Sidereal,
+                >= 57.3 and <= 58.9 => TrackingSpeed.Lunar,
+                _ => TrackingSpeed.None
             };
-
-            Send(speed);
         }
+        else
+        {
+            throw new InvalidOperationException($"Failed to convert GT response {response} to a tracking frequency");
+        }
+    }
+
+    private readonly ReadOnlyMemory<byte> TQCommand = "TQ"u8.ToArray();
+    private readonly ReadOnlyMemory<byte> TLCommand = "TL"u8.ToArray();
+    public ValueTask SetTrackingSpeedAsync(TrackingSpeed value, CancellationToken cancellationToken)
+    {
+        var speed = value switch
+        {
+            TrackingSpeed.Sidereal or TrackingSpeed.Solar => TQCommand,
+            TrackingSpeed.Lunar => TLCommand,
+            _ => throw new ArgumentException($"Tracking speed {value} is not yet supported!", nameof(value))
+        };
+
+        return SendWithoutResponseAsync(speed, cancellationToken);
     }
 
     public IReadOnlyList<TrackingSpeed> TrackingSpeeds => [TrackingSpeed.Sidereal, TrackingSpeed.Lunar];
 
     public EquatorialCoordinateType EquatorialSystem => EquatorialCoordinateType.Topocentric;
 
-    public bool Tracking
+    public async ValueTask<bool> IsTrackingAsync(CancellationToken cancellationToken)
     {
-        get
+        var (_, tracking, _) = await AlignmentDetailsAsync(cancellationToken);
+        return tracking;
+    }
+
+    private readonly ReadOnlyMemory<byte> APCommand = "AP"u8.ToArray();
+    private readonly ReadOnlyMemory<byte> ALCommand = "AL"u8.ToArray();
+    public async ValueTask SetTrackingAsync(bool tracking, CancellationToken cancellationToken)
+    {
+        if (await IsPulseGuidingAsync(cancellationToken))
         {
-            var (_, tracking, _) = AlignmentDetails;
-            return tracking;
+            throw new InvalidOperationException($"Cannot set tracking={tracking} while pulse guiding");
         }
 
-        set
+        if (await IsSlewingAsync(cancellationToken))
         {
-            if (IsPulseGuiding)
-            {
-                throw new InvalidOperationException($"Cannot set tracking={value} while pulse guiding");
-            }
+            throw new InvalidOperationException($"Cannot set tracking={tracking} while slewing");
+        }
 
-            if (IsSlewing)
-            {
-                throw new InvalidOperationException($"Cannot set tracking={value} while slewing");
-            }
+        await SendWithoutResponseAsync(tracking ? APCommand : ALCommand, cancellationToken);
+    }
 
-            Send(value ? "AP"u8 : "AL"u8);
+    public async ValueTask<AlignmentMode> GetAlignmentAsync(CancellationToken cancellationToken)
+    {
+        var (mode, _, _) = await AlignmentDetailsAsync(cancellationToken);
+        return mode;
+    }
+
+    private static readonly ReadOnlyMemory<byte> GWCommand = "GW"u8.ToArray();
+    private async ValueTask<(AlignmentMode Mode, bool Tracking, int AlignmentStars)> AlignmentDetailsAsync(CancellationToken cancellationToken)
+    {
+        // TODO LX800 fixed GW response not being terminated, account for that
+        var response = await SendAndReceiveExactlyAsync(GWCommand, 3, cancellationToken);
+        if (response is { Length: 3 })
+        {
+            var mode = response[0] switch
+            {
+                'A' => AlignmentMode.AltAz,
+                'P' => AlignmentMode.Polar,
+                'G' => AlignmentMode.GermanPolar,
+                var invalid => throw new InvalidOperationException($"Invalid alginment mode {invalid} returned")
+            };
+
+            var tracking = response[1] == 'T';
+
+            var alignmentStars = response[2] switch
+            {
+                '1' => 1,
+                '2' => 2,
+                _ => 0
+            };
+
+            return (mode, tracking, alignmentStars);
+        }
+        else
+        {
+            throw new InvalidOperationException($"Failed to parse :GW# response {response}");
         }
     }
 
-    public AlignmentMode Alignment
-    {
-        get
-        {
-            var (mode, _, _) = AlignmentDetails;
-            return mode;
-        }
-    }
+    public ValueTask<bool> AtHomeAsync(CancellationToken cancellationToken) => ValueTask.FromResult(false);
 
-    private (AlignmentMode Mode, bool Tracking, int AlignmentStars) AlignmentDetails
-    {
-        get
-        {
-            // TODO LX800 fixed GW response not being terminated, account for that
-            SendAndReceive("GW"u8, out var response, count: 3);
-            if (response is { Length: 3 })
-            {
-                var mode = response[0] switch
-                {
-                    (byte)'A' => AlignmentMode.AltAz,
-                    (byte)'P' => AlignmentMode.Polar,
-                    (byte)'G' => AlignmentMode.GermanPolar,
-                    var invalid => throw new InvalidOperationException($"Invalid alginment mode {invalid} returned")
-                };
+    public ValueTask<bool> AtParkAsync(CancellationToken cancellationToken) => ValueTask.FromResult(false);
 
-                var tracking = response[1] == (byte)'T';
+    public ValueTask<bool> IsPulseGuidingAsync(CancellationToken cancellationToken) => ValueTask.FromResult(false);
 
-                var alignmentStars = response[2] switch
-                {
-                    (byte)'1' => 1,
-                    (byte)'2' => 2,
-                    _ => 0
-                };
-
-                return (mode, tracking, alignmentStars);
-            }
-            else
-            {
-                throw new InvalidOperationException($"Failed to parse :GW# response {_encoding.GetString(response)}");
-            }
-        }
-    }
-
-    public bool AtHome => false;
-
-    public bool AtPark => CheckMovingState(MOVING_STATE_PARKED);
-
-    public bool IsPulseGuiding => CheckMovingState(MOVING_STATE_PULSE_GUIDING);
-
-    public bool IsSlewing => CheckMovingState(MOVING_STATE_SLEWING);
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private bool CheckMovingState(int movingState) => Connected && Interlocked.CompareExchange(ref _movingState, movingState, movingState) == movingState;
-
+    private static readonly ReadOnlyMemory<byte> DCommand = "D"u8.ToArray();
     /// <summary>
     /// Uses :D# to check if mount is slewing (use this to update slewing state)
     /// </summary>
-    private bool IsSlewingFromMount
+    public async ValueTask<bool> IsSlewingAsync(CancellationToken cancellationToken)
     {
-        get
-        {
-            Send("D"u8);
+        using var response = ArrayPoolHelper.Rent<byte>(10);
 
-            if (TryReadTerminated(out var response))
+        var bytesRead = await SendAndReceiveRawAsync(DCommand, response, cancellationToken);
+        var isSlewing = bytesRead is >= 1 && response[0] is (byte)'|' or 0x7f;
+
+        return isSlewing;
+    }
+
+    public async ValueTask<DateTime?> TryGetUTCDateFromMountAsync(CancellationToken cancellationToken)
+    {
+        if (!Connected)
+        {
+            return null;
+        }
+
+        var localDate = await GetLocalDateAsync(cancellationToken);
+        var localTime = await GetLocalTimeAsync(cancellationToken);
+        var utcOffset = await GetUtcCorrectionAsync(cancellationToken);
+        return DateTime.SpecifyKind(localDate.Add(localTime).Add(utcOffset), DateTimeKind.Utc);
+    }
+
+    public async ValueTask SetUTCDateAsync(DateTime value, CancellationToken cancellationToken)
+    {
+        var utcOffset = await GetUtcCorrectionAsync(cancellationToken);
+        if (!(value is { Kind: DateTimeKind.Utc } utcDate) || _deviceInfo.SerialDevice is not { IsOpen: true } port)
+        {
+            return;
+        }
+
+        using var buffer = ArrayPoolHelper.Rent<byte>(2 + 8);
+        try
+        {
+            var adjustedDateTime = utcDate - utcOffset;
+
+            // acquire lock in this method directly as we might potentially send out two read commands
+            await port.WaitAsync(cancellationToken);
+
+            "SL"u8.CopyTo(buffer);
+
+            if (!adjustedDateTime.TryFormat(buffer.AsSpan(2), out _, "HH:mm:ss", CultureInfo.InvariantCulture))
             {
-                return response is { Length: >= 1 } && response[0] is (byte)'|' or 0x7f;
+                throw new InvalidOperationException($"Failed to convert {value} to HH:mm:ss");
             }
-            else
+
+            await SendAsync(port, buffer, cancellationToken);
+
+            var slResponse = await port.TryReadTerminatedAsync(Terminators, cancellationToken);
+            if (slResponse is "1")
             {
-                return false;
+                throw new ArgumentException($"Failed to set date to {value}, command was {_encoding.GetString(buffer)} with response {slResponse}", nameof(value));
             }
+
+            "SC"u8.CopyTo(buffer);
+
+            if (!adjustedDateTime.TryFormat(buffer.AsSpan(2), out _, "MM/dd/yy", CultureInfo.InvariantCulture))
+            {
+                throw new InvalidOperationException($"Failed to convert {value} to MM/dd/yy");
+            }
+
+            await SendAsync(port, buffer, cancellationToken);
+
+            var scResponse = await port.TryReadTerminatedAsync(Terminators, cancellationToken);
+            if (scResponse is "1")
+            {
+                throw new ArgumentException($"Failed to set date to {value}, command was {_encoding.GetString(buffer)} with response {scResponse}", nameof(value));
+            }
+
+            //throwing away these two strings which represent
+            //Updating Planetary Data#
+            //                       #
+            TimeIsSetByUs = await port.TryReadTerminatedAsync(Terminators, cancellationToken) is not null
+                && await port.TryReadTerminatedAsync(Terminators, cancellationToken) is not null;
+        }
+        finally
+        {
+            port.Release();
         }
     }
 
-    public DateTime? UTCDate
+    private static readonly ReadOnlyMemory<byte> GCCommand = "GC"u8.ToArray();
+    private async ValueTask<DateTime> GetLocalDateAsync(CancellationToken cancellationToken)
     {
-        get => DateTime.SpecifyKind(LocalDate.Add(LocalTime).Add(UtcCorrection), DateTimeKind.Utc);
+        var response = await SendAndReceiveAsync(GCCommand, cancellationToken);
 
-        set
+        if (DateTime.TryParseExact(response, "MM/dd/yy", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime date))
         {
-            var offset = UtcCorrection;
-            if (value is { Kind: DateTimeKind.Utc } utcDate)
-            {
-                Span<byte> buffer = stackalloc byte[2 + 8];
-                var adjustedDateTime = utcDate - offset;
-
-                "SL"u8.CopyTo(buffer);
-
-                if (!adjustedDateTime.TryFormat(buffer[2..], out _, "HH:mm:ss", CultureInfo.InvariantCulture))
-                {
-                    throw new InvalidOperationException($"Failed to convert {value} to HH:mm:ss");
-                }
-
-                SendAndReceive(buffer, out var slResponse);
-                if (slResponse.SequenceEqual("1"u8))
-                {
-                    throw new ArgumentException($"Failed to set date to {value}, command was {_encoding.GetString(buffer)} with response {_encoding.GetString(slResponse)}", nameof(value));
-                }
-
-                "SC"u8.CopyTo(buffer);
-
-                if (!adjustedDateTime.TryFormat(buffer[2..], out _, "MM/dd/yy", CultureInfo.InvariantCulture))
-                {
-                    throw new InvalidOperationException($"Failed to convert {value} to MM/dd/yy");
-                }
-
-                SendAndReceive(buffer, out var scResponse);
-                if (scResponse.SequenceEqual("1"u8))
-                {
-                    throw new ArgumentException($"Failed to set date to {value}, command was {_encoding.GetString(buffer)} with response {_encoding.GetString(scResponse)}", nameof(value));
-                }
-
-                //throwing away these two strings which represent
-                //Updating Planetary Data#
-                //                       #
-                TimeIsSetByUs = TryReadTerminated(out _) && TryReadTerminated(out _);
-            }
+            return date;
         }
+
+        throw new InvalidOperationException($"Could not parse response {response} of GC (get local date)");
     }
 
-    private DateTime LocalDate
+    private static readonly ReadOnlyMemory<byte> GLCommand = "GL"u8.ToArray();
+    private async ValueTask<TimeSpan> GetLocalTimeAsync(CancellationToken cancellationToken)
     {
-        get
+        using var response = ArrayPoolHelper.Rent<byte>(10);
+
+        var bytesRead = await SendAndReceiveRawAsync(GLCommand, response, cancellationToken);
+
+        if (bytesRead > 0 && Utf8Parser.TryParse(response.AsSpan(0, bytesRead), out TimeSpan time, out _))
         {
-            SendAndReceive("GC"u8, out var response);
-
-            if (DateTime.TryParseExact(_encoding.GetString(response), "MM/dd/yy", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime date))
-            {
-                return date;
-            }
-
-            throw new InvalidOperationException($"Could not parse response {_encoding.GetString(response)} of GC (get local date)");
+            return time.Modulo24h();
         }
+
+        throw new InvalidOperationException($"Could not parse response {_encoding.GetString(response)} of GL (get local time)");
     }
 
-    private TimeSpan LocalTime
+    private static readonly ReadOnlyMemory<byte> GGCommand = "GG"u8.ToArray();
+    private async ValueTask<TimeSpan> GetUtcCorrectionAsync(CancellationToken cancellationToken)
     {
-        get
+        // :GG# Get UTC offset time
+        // Returns: sHH# or sHH.H#
+        // The number of decimal hours to add to local time to convert it to UTC. If the number is a whole number the
+        // sHH# form is returned, otherwise the longer form is returned.
+        var response = await SendAndReceiveAsync(GGCommand, cancellationToken);
+        if (double.TryParse(response, out var offsetHours))
         {
-            SendAndReceive("GL"u8, out var response);
-
-            if (Utf8Parser.TryParse(response, out TimeSpan time, out _))
-            {
-                return time.Modulo24h();
-            }
-
-            throw new InvalidOperationException($"Could not parse response {_encoding.GetString(response)} of GL (get local time)");
+            return TimeSpan.FromHours(offsetHours);
         }
-    }
 
-    private TimeSpan UtcCorrection
-    {
-        get
-        {
-            // :GG# Get UTC offset time
-            // Returns: sHH# or sHH.H#
-            // The number of decimal hours to add to local time to convert it to UTC. If the number is a whole number the
-            // sHH# form is returned, otherwise the longer form is returned.
-            SendAndReceive("GG"u8, out var response);
-            if (double.TryParse(response, out var offsetHours))
-            {
-                return TimeSpan.FromHours(offsetHours);
-            }
-
-            throw new InvalidOperationException($"Could not parse response {_encoding.GetString(response)} of GG (get UTC offset)");
-        }
+        throw new InvalidOperationException($"Could not parse response {response} of GG (get UTC offset)");
     }
 
     public bool TimeIsSetByUs { get; private set; }
@@ -321,10 +318,6 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     ///   <description>Description</description>
     /// </listheader>
     /// <item>
-    ///   <term>IsSlewing</term>
-    ///   <description>The actual slewing state from the mount (not our local value)</description>
-    /// </item>
-    /// <item>
     ///   <term>PointingState</term>
     ///   <description>is the calculated side of pier from the mount position (if slewing),
     /// or the last known value after slewing (as the mount auto-flips)</description>
@@ -333,228 +326,229 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     /// </summary>
     /// <param name="ra">current RA</param>
     /// <returns>Side of pier calculation result</returns>
-    private (bool IsSlewing, PointingState PointingState, double LST) CheckPointingState(double ra)
+    private async ValueTask<(PointingState PointingState, double LST)> CheckPointingStateAsync(double ra, CancellationToken cancellationToken)
     {
         if (!Connected)
         {
-            return (false, PointingState.Unknown, double.NaN);
+            return (PointingState.Unknown, double.NaN);
         }
 
-        var isSlewing = IsSlewingFromMount;
+        var isSlewing = await IsSlewingAsync(cancellationToken);
 
-        var (raSideOfPier, lst) = CalculateSideOfPier(ra);
+        var (raSideOfPier, lst) = await CalculateSideOfPierAsync(ra, cancellationToken);
 
-        return (isSlewing, isSlewing ? raSideOfPier : PointingState.Normal, lst);
+        return (isSlewing ? raSideOfPier : PointingState.Normal, lst);
     }
 
-    public PointingState SideOfPier
+    public async ValueTask<PointingState> GetSideOfPierAsync(CancellationToken cancellationToken)
     {
-        get
-        {
-            var (_, pointingState, _) = CheckPointingState(RightAscension);
+        var (pointingState, _) = await CheckPointingStateAsync(await GetRightAscensionAsync(cancellationToken), cancellationToken);
 
-            return pointingState;
-        }
-
-        set => throw new InvalidOperationException("Setting side of pier is not supported");
+        return pointingState;
     }
 
-    public double SiderealTime
+    public ValueTask SetSideOfPierAsync(PointingState pointingState, CancellationToken cancellationToken)
+        => throw new InvalidOperationException("Setting side of pier is not supported");
+
+    private static readonly ReadOnlyMemory<byte> GSCommand = "GS"u8.ToArray();
+    public async ValueTask<double> GetSiderealTimeAsync(CancellationToken cancellationToken)
     {
-        get
+        using var response = ArrayPoolHelper.Rent<byte>(10);
+
+        var bytesRead = await SendAndReceiveRawAsync(GSCommand, response, cancellationToken);
+
+        if (bytesRead > 0 && Utf8Parser.TryParse(response.AsSpan(0, bytesRead), out TimeSpan time, out _))
         {
-            SendAndReceive("GS"u8, out var response);
-
-            if (Utf8Parser.TryParse(response, out TimeSpan time, out _))
-            {
-                return time.Modulo24h().TotalHours;
-            }
-
-            throw new InvalidOperationException($"Could not parse response {_encoding.GetString(response)} of GS (get sidereal time)");
+            return time.Modulo24h().TotalHours;
         }
+
+        throw new InvalidOperationException($"Could not parse response {_encoding.GetString(response)} of GS (get sidereal time)");
     }
 
-    public double RightAscension
+    public async ValueTask<double> GetRightAscensionAsync(CancellationToken cancellationToken)
     {
-        get
-        {
-            var (ra, _) = GetRightAscensionWithPrecision(target: false);
-            return ra;
-        }
+        var (ra, _) = await GetRightAscensionWithPrecisionAsync(target: false, cancellationToken);
+        return ra;
     }
 
-    public double Declination
+    public async ValueTask<double> GetDeclinationAsync(CancellationToken cancellationToken)
     {
-        get
-        {
-            var (dec, _) = GetDeclinationWithPrecision(target: false);
-            return dec;
-        }
+        var (dec, _) = await GetDeclinationWithPrecisionAsync(target: false, cancellationToken);
+        return dec;
     }
 
-    public double TargetRightAscension
+    public async ValueTask<double> GetTargetRightAscensionAsync(CancellationToken cancellationToken)
     {
-        get
+        var (ra, _) = await GetRightAscensionWithPrecisionAsync(target: true, cancellationToken);
+        return ra;
+    }
+
+    private async ValueTask SetTargetRightAscensionAsync(double value, CancellationToken cancellationToken)
+    {
+        if (value >= 24)
         {
-            var (ra, _) = GetRightAscensionWithPrecision(target: true);
-            return ra;
+            throw new ArgumentException("Target right ascension cannot greater or equal 24h", nameof(value));
         }
 
-        set
+        if (value < 0)
         {
-            if (value >= 24)
+            throw new ArgumentException("Target right ascension cannot be less than 0h", nameof(value));
+        }
+
+        // :SrHH:MM.T#   for low precision  (24h)
+        // :SrHH:MM:SS#  for high precision (24h)
+        var (ra, highPrecision) = await GetRightAscensionWithPrecisionAsync(target: false, cancellationToken);
+
+        // convert decimal hours to HH:MM.T (classic LX200 RA Notation) if low precision. T is the decimal part of minutes which is converted into seconds
+        var targetHms = TimeSpan.FromHours(Math.Abs(value)).Round(highPrecision ? TimeSpanRoundingType.Second : TimeSpanRoundingType.TenthMinute).Modulo24h();
+
+        const int offset = 2;
+        using var buffer = ArrayPoolHelper.Rent<byte>(2 + 2 + 2 + 2 + 1 + (highPrecision ? 1 : 0));
+
+        "Sr"u8.CopyTo(buffer);
+
+        if (targetHms.Hours.TryFormat(buffer.AsSpan(offset), out int hoursWritten, "00", CultureInfo.InvariantCulture)
+            && offset + hoursWritten + 1 is int minOffset && minOffset < buffer.Length
+            && targetHms.Minutes.TryFormat(buffer.AsSpan(minOffset), out int minutesWritten, "00", CultureInfo.InvariantCulture)
+        )
+        {
+            buffer[offset + hoursWritten] = (byte)':';
+        }
+        else
+        {
+            throw new ArgumentException($"Failed to convert value {value} to HM", nameof(value));
+        }
+
+        var secOffset = minOffset + minutesWritten + 1;
+        if (highPrecision)
+        {
+            buffer[secOffset - 1] = (byte)':';
+            if (!targetHms.Seconds.TryFormat(buffer.AsSpan(secOffset), out _, "00", CultureInfo.InvariantCulture))
             {
-                throw new ArgumentException("Target right ascension cannot greater or equal 24h", nameof(value));
+                throw new ArgumentException($"Failed to convert {value} to high precision seconds", nameof(value));
             }
-
-            if (value < 0)
+        }
+        else
+        {
+            buffer[secOffset - 1] = (byte)'.';
+            if (!(targetHms.Seconds / 6).TryFormat(buffer.AsSpan(secOffset), out _, "0", CultureInfo.InvariantCulture))
             {
-                throw new ArgumentException("Target right ascension cannot be less than 0h", nameof(value));
+                throw new ArgumentException($"Failed to convert {value} to low precision tenth of minute", nameof(value));
             }
+        }
 
-            // :SrHH:MM.T#   for low precision  (24h)
-            // :SrHH:MM:SS#  for high precision (24h)
-            var (ra, highPrecision) = GetRightAscensionWithPrecision(target: false);
+        var response = await SendAndReceiveExactlyAsync(buffer, 1, cancellationToken);
 
-            // convert decimal hours to HH:MM.T (classic LX200 RA Notation) if low precision. T is the decimal part of minutes which is converted into seconds
-            var targetHms = TimeSpan.FromHours(Math.Abs(value)).Round(highPrecision ? TimeSpanRoundingType.Second : TimeSpanRoundingType.TenthMinute).Modulo24h();
+        if (response != "1")
+        {
+            throw new InvalidOperationException($"Failed to set target right ascension to {HoursToHMS(value)}, using command {_encoding.GetString(buffer)}, response={response}");
+        }
+#if TRACE
+        External.AppLogger.LogTrace("Set target right ascension to {TargetRightAscension}, current right ascension is {RightAscension}, high precision={HighPrecision}",
+            HoursToHMS(value), HoursToHMS(ra), highPrecision);
+#endif
+    }
 
-            const int offset = 2;
-            Span<byte> buffer = stackalloc byte[2 + 2 + 2 + 2 + 1 + (highPrecision ? 1 : 0)];
-            "Sr"u8.CopyTo(buffer);
+    public async ValueTask<double> GetTargetDeclinationAsync(CancellationToken cancellationToken)
+    {
+        var (dec, _) = await GetDeclinationWithPrecisionAsync(target: true, cancellationToken);
+        return dec;
+    }
 
-            if (targetHms.Hours.TryFormat(buffer[offset..], out int hoursWritten, "00", CultureInfo.InvariantCulture)
-                && offset + hoursWritten + 1 is int minOffset && minOffset < buffer.Length
-                && targetHms.Minutes.TryFormat(buffer[minOffset..], out int minutesWritten, "00", CultureInfo.InvariantCulture)
-            )
-            {
-                buffer[offset + hoursWritten] = (byte)':';
-            }
-            else
-            {
-                throw new ArgumentException($"Failed to convert value {value} to HM", nameof(value));
-            }
+    private async ValueTask SetTargetDeclinationAsync(double targetDec, CancellationToken cancellationToken)
+    {
+        if (targetDec > 90)
+        {
+            throw new ArgumentException("Target declination cannot be greater than 90 degrees.", nameof(targetDec));
+        }
 
-            var secOffset = minOffset + minutesWritten + 1;
+        if (targetDec < -90)
+        {
+            throw new ArgumentException("Target declination cannot be lower than -90 degrees.", nameof(targetDec));
+        }
+
+        // :SdsDD*MM#    for low precision
+        // :SdsDD*MM:SS# for high precision
+        var (dec, highPrecision) = await GetDeclinationWithPrecisionAsync(target: false, cancellationToken);
+
+        var sign = Math.Sign(targetDec);
+        var signLength = sign is -1 ? 1 : 0;
+        var degOffset = 2 + signLength;
+        var minOffset = degOffset + 2 + 1;
+        var targetDms = TimeSpan.FromHours(Math.Abs(targetDec))
+            .Round(highPrecision ? TimeSpanRoundingType.Second : TimeSpanRoundingType.Minute)
+            .EnsureMax(TimeSpan.FromHours(90));
+
+        using var buffer = ArrayPoolHelper.Rent<byte>(minOffset + 2 +(highPrecision ? 3 : 0));
+
+        "Sd"u8.CopyTo(buffer);
+
+        if (sign is -1)
+        {
+            buffer[degOffset - 1] = (byte)'-';
+        }
+
+        buffer[minOffset - 1] = (byte)'*';
+
+        if (targetDms.Hours.TryFormat(buffer.AsSpan(degOffset), out _, "00", CultureInfo.InvariantCulture)
+            && targetDms.Minutes.TryFormat(buffer.AsSpan(minOffset), out _, "00", CultureInfo.InvariantCulture)
+        )
+        {
             if (highPrecision)
             {
+                var secOffset = minOffset + 2 + 1;
                 buffer[secOffset - 1] = (byte)':';
-                if (!targetHms.Seconds.TryFormat(buffer[secOffset..], out _, "00", CultureInfo.InvariantCulture))
+
+                if (!targetDms.Seconds.TryFormat(buffer.AsSpan(secOffset), out _, "00", CultureInfo.InvariantCulture))
                 {
-                    throw new ArgumentException($"Failed to convert {value} to high precision seconds", nameof(value));
+                    throw new ArgumentException($"Failed to convert value {targetDec} to DMS (high precision)", nameof(targetDec));
                 }
             }
-            else
-            {
-                buffer[secOffset - 1] = (byte)'.';
-                if (!(targetHms.Seconds / 6).TryFormat(buffer[secOffset..], out _, "0", CultureInfo.InvariantCulture))
-                {
-                    throw new ArgumentException($"Failed to convert {value} to low precision tenth of minute", nameof(value));
-                }
-            }
+        }
+        else
+        {
+            throw new ArgumentException($"Failed to convert value {targetDec} to DM", nameof(targetDec));
+        }
 
-            SendAndReceive(buffer, out var response, count: 1);
+        var response = await SendAndReceiveExactlyAsync(buffer, 1, cancellationToken);
 
-            if (!response.SequenceEqual("1"u8))
-            {
-                throw new InvalidOperationException($"Failed to set target right ascension to {HoursToHMS(value)}, using command {_encoding.GetString(buffer)}, response={_encoding.GetString(response)}");
-            }
+        if (response is not "1")
+        {
+            throw new InvalidOperationException($"Failed to set target declination to {DegreesToDMS(targetDec)}, using command {_encoding.GetString(buffer)}, response={response}");
+        }
 
 #if TRACE
-            External.AppLogger.LogTrace("Set target right ascension to {TargetRightAscension}, current right ascension is {RightAscension}, high precision={HighPrecision}",
-                HoursToHMS(value), HoursToHMS(ra), highPrecision);
+        External.AppLogger.LogTrace("Set target declination to {TargetDeclination}, current declination is {Declination}, high precision={HighPrecision}",
+            DegreesToDMS(targetDec), DegreesToDMS(dec), highPrecision);
 #endif
-        }
     }
 
-    public double TargetDeclination
+    private readonly ReadOnlyMemory<byte> GrCommand = "Gr"u8.ToArray();
+    private readonly ReadOnlyMemory<byte> GRCommand = "GR"u8.ToArray();
+    private async ValueTask<(double RightAscension, bool HighPrecision)> GetRightAscensionWithPrecisionAsync(bool target, CancellationToken cancellationToken)
     {
-        get
+        var response = await SendAndReceiveAsync(target ? GrCommand : GRCommand, cancellationToken);
+
+        if (response is not { })
         {
-            var (dec, _) = GetDeclinationWithPrecision(target: true);
-            return dec;
+            throw new InvalidOperationException($"No response received for right ascension query target={target}");
         }
-
-        set
-        {
-            if (value > 90)
-            {
-                throw new ArgumentException("Target declination cannot be greater than 90 degrees.", nameof(value));
-            }
-
-            if (value < -90)
-            {
-                throw new ArgumentException("Target declination cannot be lower than -90 degrees.", nameof(value));
-            }
-
-            // :SdsDD*MM#    for low precision
-            // :SdsDD*MM:SS# for high precision
-            var (dec, highPrecision) = GetDeclinationWithPrecision(target: false);
-
-            var sign = Math.Sign(value);
-            var signLength = sign is -1 ? 1 : 0;
-            var degOffset = 2 + signLength;
-            var minOffset = degOffset + 2 + 1;
-            var targetDms = TimeSpan.FromHours(Math.Abs(value))
-                .Round(highPrecision ? TimeSpanRoundingType.Second : TimeSpanRoundingType.Minute)
-                .EnsureMax(TimeSpan.FromHours(90));
-
-            Span<byte> buffer = stackalloc byte[minOffset + 2 + (highPrecision ? 3 : 0)];
-            "Sd"u8.CopyTo(buffer);
-
-            if (sign is -1)
-            {
-                buffer[degOffset - 1] = (byte)'-';
-            }
-
-            buffer[minOffset - 1] = (byte)'*';
-
-            if (targetDms.Hours.TryFormat(buffer[degOffset..], out _, "00", CultureInfo.InvariantCulture)
-                && targetDms.Minutes.TryFormat(buffer[minOffset..], out _, "00", CultureInfo.InvariantCulture)
-            )
-            {
-                if (highPrecision)
-                {
-                    var secOffset = minOffset + 2 + 1;
-                    buffer[secOffset - 1] = (byte)':';
-
-                    if (!targetDms.Seconds.TryFormat(buffer[secOffset..], out _, "00", CultureInfo.InvariantCulture))
-                    {
-                        throw new ArgumentException($"Failed to convert value {value} to DMS (high precision)", nameof(value));
-                    }
-                }
-            }
-            else
-            {
-                throw new ArgumentException($"Failed to convert value {value} to DM", nameof(value));
-            }
-
-            SendAndReceive(buffer, out var response, count: 1);
-
-            if (!response.SequenceEqual("1"u8))
-            {
-                throw new InvalidOperationException($"Failed to set target declination to {DegreesToDMS(value)}, using command {_encoding.GetString(buffer)}, response={_encoding.GetString(response)}");
-            }
-
-#if TRACE
-            External.AppLogger.LogTrace("Set target declination to {TargetDeclination}, current declination is {Declination}, high precision={HighPrecision}",
-                DegreesToDMS(value), DegreesToDMS(dec), highPrecision);
-#endif
-        }
-    }
-
-    private (double RightAscension, bool HighPrecision) GetRightAscensionWithPrecision(bool target)
-    {
-        SendAndReceive(target ? "Gr"u8 : "GR"u8, out var response);
         var ra = HmsOrHmTToHours(response, out var highPrecision);
 
         return (ra, highPrecision);
     }
 
-    private (double Declination, bool HighPrecision) GetDeclinationWithPrecision(bool target)
+    private readonly ReadOnlyMemory<byte> GdCommand = "Gd"u8.ToArray();
+    private readonly ReadOnlyMemory<byte> GDCommand = "GD"u8.ToArray();
+    private async ValueTask<(double Declination, bool HighPrecision)> GetDeclinationWithPrecisionAsync(bool target, CancellationToken cancellationToken)
     {
-        SendAndReceive(target ? "Gd"u8 : "GD"u8, out var response);
-        var dec = DMSToDegree(_encoding.GetString(response).Replace('\xdf', ':'));
+        var response = await SendAndReceiveAsync(target ? GdCommand : GDCommand, cancellationToken);
+
+        if (response is not { })
+        {
+            throw new InvalidOperationException($"No response received for declination query target={target}");
+        }
+        var dec = DMSToDegree(response.Replace('\xdf', ':'));
 
         return (dec, response.Length >= 7);
     }
@@ -563,9 +557,8 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     /// <summary>
     /// convert a HH:MM.T (classic LX200 RA Notation) string to a double hours. T is the decimal part of minutes which is converted into seconds
     /// </summary>
-    private static double HmsOrHmTToHours(ReadOnlySpan<byte> hmValue, out bool highPrecision)
+    private static double HmsOrHmTToHours(string hm, out bool highPrecision)
     {
-        var hm = _encoding.GetString(hmValue);
         var token = hm.Split('.');
 
         // is high precision
@@ -604,124 +597,134 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         set => throw new InvalidOperationException("Setting declination guide rate is not apported");
     }
 
-    public double SiteElevation { get; set; } = double.NaN;
+    public ValueTask<double> GetSiteElevationAsync(CancellationToken cancellationToken) => ValueTask.FromResult(double.NaN);
 
-    public double SiteLatitude
+    public ValueTask SetSiteElevationAsync(double elevation, CancellationToken cancellationToken)
     {
-        get => GetLatOrLong("Gt"u8);
+        // todo: store this somewhere
 
-        set
+        return ValueTask.CompletedTask;
+    }
+
+    private readonly ReadOnlyMemory<byte> GtCommand = "Gt"u8.ToArray();
+    public ValueTask<double> GetSiteLatitudeAsync(CancellationToken cancellationToken)
+    {
+        return GetLatOrLongAsync(GtCommand, cancellationToken);
+    }
+
+    public async ValueTask SetSiteLatitudeAsync(double latitude, CancellationToken cancellationToken)
+    {
+        if (latitude > 90)
         {
-            if (value > 90)
+            throw new ArgumentException("Site latitude cannot be greater than 90 degrees.", nameof(latitude));
+        }
+
+        if (latitude < -90)
+        {
+            throw new ArgumentException("Site latitude cannot be lower than -90 degrees.", nameof(latitude));
+        }
+
+        var abs = Math.Abs(latitude);
+        var dms = TimeSpan.FromHours(abs).Round(TimeSpanRoundingType.Minute).EnsureMax(TimeSpan.FromHours(90));
+
+        var needsSign = latitude < 0;
+        const int cmdLength = 2;
+        var offset = cmdLength + (needsSign ? 1 : 0);
+
+        using var buffer = ArrayPoolHelper.Rent<byte>(offset + 1 + 2);
+
+        "St"u8.CopyTo(buffer);
+
+        if (needsSign)
+        {
+            buffer[cmdLength] = (byte)'-';
+        }
+
+        if (dms.Hours.TryFormat(buffer.AsSpan(offset), out var degWritten, format: "00", provider: CultureInfo.InvariantCulture)
+            && dms.Minutes.TryFormat(buffer.AsSpan(offset + degWritten + 1), out _, format: "00", provider: CultureInfo.InvariantCulture)
+        )
+        {
+            buffer[offset + degWritten] = (byte)'*';
+
+            var response = await SendAndReceiveAsync(buffer, cancellationToken);
+
+            if (response is "1")
             {
-                throw new ArgumentException("Site latitude cannot be greater than 90 degrees.", nameof(value));
-            }
-
-            if (value < -90)
-            {
-                throw new ArgumentException("Site latitude cannot be lower than -90 degrees.", nameof(value));
-            }
-
-            var abs = Math.Abs(value);
-            var dms = TimeSpan.FromHours(abs).Round(TimeSpanRoundingType.Minute).EnsureMax(TimeSpan.FromHours(90));
-
-            var needsSign = value < 0;
-            const int cmdLength = 2;
-            var offset = cmdLength + (needsSign ? 1 : 0);
-
-            Span<byte> buffer = stackalloc byte[offset + 1 + 2];
-            "St"u8.CopyTo(buffer);
-
-            if (needsSign)
-            {
-                buffer[cmdLength] = (byte)'-';
-            }
-
-            if (dms.Hours.TryFormat(buffer[offset..], out var degWritten, format: "00", provider: CultureInfo.InvariantCulture)
-                && dms.Minutes.TryFormat(buffer[(offset + degWritten + 1)..], out _, format: "00", provider: CultureInfo.InvariantCulture)
-            )
-            {
-                buffer[offset + degWritten] = (byte)'*';
-
-                SendAndReceive(buffer, out var response);
-
-                if (response.SequenceEqual("1"u8))
-                {
-                    External.AppLogger.LogInformation("Updated site latitude to {Degrees}", value);
-                }
-                else
-                {
-                    throw new InvalidOperationException($"Cannot update site latitude to {value} due to connectivity issue/command invalid: {_encoding.GetString(response)}");
-                }
+                External.AppLogger.LogInformation("Updated site latitude to {Degrees}", latitude);
             }
             else
             {
-                throw new InvalidOperationException($"Cannot update site latitude to {value} due to formatting error");
+                throw new InvalidOperationException($"Cannot update site latitude to {latitude} due to connectivity issue/command invalid: {response}");
             }
+        }
+        else
+        {
+            throw new InvalidOperationException($"Cannot update site latitude to {latitude} due to formatting error");
         }
     }
 
-    public double SiteLongitude
+    private static readonly ReadOnlyMemory<byte> GgCommand = "Gg"u8.ToArray();
+    public async ValueTask<double> GetSiteLongitudeAsync(CancellationToken cancellationToken)
     {
-        get => -1 * GetLatOrLong("Gg"u8);
+        return -1 * await GetLatOrLongAsync(GgCommand, cancellationToken);
+    }
 
-        set
+    public async ValueTask SetSiteLongitudeAsync(double value, CancellationToken cancellationToken)
+    {
+        if (value > 180)
         {
-            if (value > 180)
+            throw new ArgumentException("Site longitude cannot be greater than 180 degrees.", nameof(value));
+        }
+
+        if (value < -180)
+        {
+            throw new ArgumentException("Site longitude cannot be lower than -180 degrees.", nameof(value));
+        }
+
+        var abs = Math.Abs(value);
+        var dms = TimeSpan.FromHours(abs)
+            .Round(TimeSpanRoundingType.Minute)
+            .EnsureRange(TimeSpan.FromHours(-180), TimeSpan.FromHours(+180));
+
+        var adjustedDegrees = value > 0 ? 360 - dms.Hours : dms.Hours;
+
+        const int offset = 2;
+        using var buffer = ArrayPoolHelper.Rent<byte>(offset + 3 + 1 + 2);
+        "Sg"u8.CopyTo(buffer);
+
+        if (adjustedDegrees.TryFormat(buffer.AsSpan(offset), out var degWritten, format: "000", provider: CultureInfo.InvariantCulture)
+            && dms.Minutes.TryFormat(buffer.AsSpan(offset + degWritten + 1), out _, format: "00", provider: CultureInfo.InvariantCulture)
+        )
+        {
+            buffer[offset + degWritten] = (byte)'*';
+
+            var response = await SendAndReceiveAsync(buffer, cancellationToken);
+
+            if (response is "1")
             {
-                throw new ArgumentException("Site longitude cannot be greater than 180 degrees.", nameof(value));
-            }
-
-            if (value < -180)
-            {
-                throw new ArgumentException("Site longitude cannot be lower than -180 degrees.", nameof(value));
-            }
-
-            var abs = Math.Abs(value);
-            var dms = TimeSpan.FromHours(abs)
-                .Round(TimeSpanRoundingType.Minute)
-                .EnsureRange(TimeSpan.FromHours(-180), TimeSpan.FromHours(+180));
-
-            var adjustedDegrees = value > 0 ? 360 - dms.Hours : dms.Hours;
-
-            const int offset = 2;
-            Span<byte> buffer = stackalloc byte[offset + 3 + 1 + 2];
-            "Sg"u8.CopyTo(buffer);
-
-            if (adjustedDegrees.TryFormat(buffer[offset..], out var degWritten, format: "000", provider: CultureInfo.InvariantCulture)
-                && dms.Minutes.TryFormat(buffer[(offset + degWritten + 1)..], out _, format: "00", provider: CultureInfo.InvariantCulture)
-            )
-            {
-                buffer[offset + degWritten] = (byte)'*';
-
-                SendAndReceive(buffer, out var response);
-
-                if (response.SequenceEqual("1"u8))
-                {
-                    External.AppLogger.LogInformation("Updated site longitude to {Degrees}", value);
-                }
-                else
-                {
-                    throw new InvalidOperationException($"Cannot update site longitude to {value} due to connectivity issue/command invalid: {_encoding.GetString(response)}");
-                }
+                External.AppLogger.LogInformation("Updated site longitude to {Degrees}", value);
             }
             else
             {
-                throw new InvalidOperationException($"Cannot update site longitude to {value} due to formatting error");
+                throw new InvalidOperationException($"Cannot update site longitude to {value} due to connectivity issue/command invalid: {response}");
             }
+        }
+        else
+        {
+            throw new InvalidOperationException($"Cannot update site longitude to {value} due to formatting error");
         }
     }
 
-    private double GetLatOrLong(ReadOnlySpan<byte> command)
+    private async ValueTask<double> GetLatOrLongAsync(ReadOnlyMemory<byte> command, CancellationToken cancellationToken)
     {
-        SendAndReceive(command, out var response);
-        if (response is { Length: >= 5 })
+        using var response = ArrayPoolHelper.Rent<byte>(10);
+        if (await SendAndReceiveRawAsync(command, response, cancellationToken) >= 5)
         {
             var isNegative = response[0] is (byte)'-';
             var offset = isNegative ? 1 : 0;
 
-            if (Utf8Parser.TryParse(response[offset..], out int degrees, out var consumed)
-                && Utf8Parser.TryParse(response[(offset + consumed + 1)..], out int minutes, out _)
+            if (Utf8Parser.TryParse(response.AsSpan(offset), out int degrees, out var consumed)
+                && Utf8Parser.TryParse(response.AsSpan(offset + consumed + 1), out int minutes, out _)
             )
             {
                 var latOrLongNotAdjusted = (isNegative ? -1 : 1) * (degrees + minutes / 60d);
@@ -730,24 +733,25 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
             }
         }
 
-        throw new InvalidOperationException($"Failed to parse response {_encoding.GetString(response)} of {_encoding.GetString(command)}");
+        throw new InvalidOperationException($"Failed to parse response of {_encoding.GetString(command.Span)}");
     }
 
     public override string? DriverInfo => $"{_telescopeName} ({_telescopeFW})";
 
     public override string? Description => $"{_telescopeName} driver based on the LX200 serial protocol v2010.10, firmware: {_telescopeFW}";
 
-    public PointingState DestinationSideOfPier(double ra, double dec)
+    public async ValueTask<PointingState> DestinationSideOfPierAsync(double ra, double dec, CancellationToken cancellationToken)
     {
-        var (sideOfPier, _) = CalculateSideOfPier(ra);
+        var (sideOfPier, _) = await CalculateSideOfPierAsync(ra, cancellationToken);
         return sideOfPier;
     }
 
-    private bool IsSouthernHemisphere => _isSouthernHemisphere ??= SiteLatitude < 0;
+    private async ValueTask<bool> IsSouthernHemisphereAsync(CancellationToken cancellationToken)
+        => _isSouthernHemisphere ??= await GetSiteLatitudeAsync(cancellationToken) < 0;
 
-    private (PointingState PointingState, double SiderealTime) CalculateSideOfPier(double ra)
+    private async ValueTask<(PointingState PointingState, double SiderealTime)> CalculateSideOfPierAsync(double ra, CancellationToken cancellationToken)
     {
-        var lst = SiderealTime;
+        var lst = await GetSiderealTimeAsync(cancellationToken);
         var pointingState = ConditionHA(lst - ra) switch
         {
             >= 0 => PointingState.Normal,
@@ -758,25 +762,21 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         return (pointingState, lst);
     }
 
-    public void Park()
+    private readonly ReadOnlyMemory<byte> ParkCommand = "hP"u8.ToArray();
+    public async ValueTask ParkAsync(CancellationToken cancellationToken = default)
     {
-        Send("hP"u8);
-
-        var previousState = Interlocked.Exchange(ref _movingState, MOVING_STATE_SLEWING);
-#if TRACE
-        External.AppLogger.LogTrace("Parking mount, previous state: {PreviousMovingState}", MovingStateDisplayName(previousState));
-#endif
-        StartSlewTimer(MOVING_STATE_PARKED);
+        await SendWithoutResponseAsync(ParkCommand, cancellationToken);
     }
 
-    public void PulseGuide(GuideDirection direction, TimeSpan duration)
+    public async ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken = default)
     {
         if (duration <= TimeSpan.Zero)
         {
             throw new ArgumentException("Timespan must be greater than 0", nameof(duration));
         }
 
-        Span<byte> buffer = stackalloc byte[7];
+        using var buffer = ArrayPoolHelper.Rent<byte>(2 + 1 + 4);
+
         "Mg"u8.CopyTo(buffer);
         buffer[2] = direction switch
         {
@@ -788,21 +788,14 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         };
         var ms = (int)Math.Round(duration.TotalMilliseconds);
 
-        if (!Tracking)
+        if (!await IsTrackingAsync(cancellationToken))
         {
             throw new InvalidOperationException("Cannot pulse guide when tracking is off");
         }
 
-        if (ms.TryFormat(buffer, out _, "0000", CultureInfo.InvariantCulture))
+        if (ms.TryFormat(buffer.AsSpan(3), out _, "0000", CultureInfo.InvariantCulture))
         {
-            Send(buffer);
-
-            External.TimeProvider.CreateTimer(
-                _ => _ = Interlocked.CompareExchange(ref _movingState, MOVING_STATE_NORMAL, MOVING_STATE_PULSE_GUIDING),
-                null,
-                duration,
-                Timeout.InfiniteTimeSpan
-            );
+            await SendWithoutResponseAsync(buffer, cancellationToken);
         }
         else
         {
@@ -810,165 +803,115 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         }
     }
 
+    private static readonly ReadOnlyMemory<byte> SlewCommand = "MS"u8.ToArray();
     /// <summary>
     /// Sets target coordinates to (<paramref name="ra"/>,<paramref name="dec"/>), using <see cref="EquatorialSystem"/>.
     /// </summary>
     /// <param name="ra"></param>
     /// <param name="dec"></param>
     /// <exception cref="InvalidOperationException"></exception>
-    public Task BeginSlewRaDecAsync(double ra, double dec, CancellationToken cancellationToken = default)
+    public async ValueTask BeginSlewRaDecAsync(double ra, double dec, CancellationToken cancellationToken)
     {
-        if (IsPulseGuiding)
+        if (await IsPulseGuidingAsync(cancellationToken))
         {
             throw new InvalidOperationException("Cannot slew while pulse-guiding");
         }
 
-        if (IsSlewing)
+        if (await IsSlewingAsync(cancellationToken))
         {
             throw new InvalidOperationException("Cannot slew while a slew is still ongoing");
         }
 
-        if (AtPark)
+        if (await AtParkAsync(cancellationToken))
         {
             throw new InvalidOperationException("Mount is parked");
         }
 
-        TargetRightAscension = ra;
-        TargetDeclination = dec;
+        await SetTargetRightAscensionAsync(ra, cancellationToken);
+        await SetTargetDeclinationAsync(dec, cancellationToken);
 
-        SendAndReceive("MS"u8, out var response, count: 1);
-
-        if (response.SequenceEqual("0"u8))
+        // acquire lock in this method directly as we might potentially send out two read commands
+        if (_deviceInfo.SerialDevice is { IsOpen: true } port)
         {
-            var previousState = Interlocked.Exchange(ref _movingState, MOVING_STATE_SLEWING);
-#if TRACE
-            External.AppLogger.LogTrace("Slewing to {RA},{Dec}, previous state: {PreviousMovingState}", HoursToHMS(ra), DegreesToDMS(dec), MovingStateDisplayName(previousState));
-#endif
-            StartSlewTimer(MOVING_STATE_NORMAL);
-
-            return Task.CompletedTask;
-        }
-        else if (response.Length is 1 && byte.TryParse(response[0..1], out var reasonCode) && TryReadTerminated(out var reasonMessage))
-        {
-            var reason = reasonCode switch
+            await port.WaitAsync(cancellationToken);
+            try
             {
-                1 => "below horizon limit",
-                2 => "above hight limit",
-                _ => $"unknown reason {reasonCode}: {_encoding.GetString(reasonMessage)}"
-            };
+                await SendAsync(port, SlewCommand, cancellationToken);
+                var response = await port.TryReadExactlyAsync(1, cancellationToken);
 
-            throw new InvalidOperationException($"Failed to slew to {HoursToHMS(ra)},{DegreesToDMS(dec)} due to {reason} message={reasonCode}{_encoding.GetString(reasonMessage)}");
-        }
-        else
-        {
-            throw new InvalidOperationException($"Failed to slew to {HoursToHMS(ra)},{DegreesToDMS(dec)} due to an unrecognized response: {_encoding.GetString(response)}");
-        }
-    }
-
-    private void StartSlewTimer(int finalState)
-    {
-        // start timer deactivated to capture itself
-        var timer = External.TimeProvider.CreateTimer(SlewTimerCallback, finalState, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
-        Interlocked.Exchange(ref _slewTimer, timer)?.Dispose();
-
-        // activate timer
-        timer.Change(TimeSpan.Zero, TimeSpan.FromMilliseconds(250));
-    }
-
-    private void SlewTimerCallback(object? state)
-    {
-        bool continueRunning;
-        var ra = RightAscension;
-        var dec = Declination;
-        double lst;
-        PointingState sideOfPier;
-        if (!double.IsNaN(ra) && !AtPark)
-        {
-            (continueRunning, sideOfPier, lst) = CheckPointingState(ra);
-        }
-        else
-        {
-            continueRunning = false;
-            lst = SiderealTime;
-            sideOfPier = PointingState.Unknown;
-        }
-
-        if (continueRunning)
-        {
-#if TRACE
-            External.AppLogger.LogTrace("Still slewing hour angle={HourAngle} lst={LST} ra={Ra} dec={Dec} sop={SideOfPier}",
-                HoursToHMS(ConditionHA(lst - ra)), HoursToHMS(lst), HoursToHMS(ra), DegreesToDMS(dec), sideOfPier);
-#endif
-        }
-        else
-        {
-            if (_slewTimer?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan) is var changeResult and not true)
-            {
-                External.AppLogger.LogWarning("Failed to stop slewing timer has instance: {HasInstance}", changeResult is not null);
-            }
-
-            if (state is int finalMovingState)
-            {
-                var previousState = Interlocked.CompareExchange(ref _movingState, finalMovingState, MOVING_STATE_SLEWING);
-
-                if (previousState != MOVING_STATE_SLEWING && previousState != finalMovingState)
+                if (response is "0")
                 {
-                    External.AppLogger.LogWarning("Expected moving state to be slewing, but was: {PreviousMovingState}", MovingStateDisplayName(previousState));
+#if TRACE
+                    External.AppLogger.LogTrace("Slewing to {RA},{Dec}", HoursToHMS(ra), DegreesToDMS(dec));
+#endif
+                }
+                else if (response is { Length: 1 }
+                    && byte.TryParse(response[0..1], out var reasonCode)
+                    && (await port.TryReadTerminatedAsync(Terminators, cancellationToken) is { } reasonMessage)
+                )
+                {
+                    var reason = reasonCode switch
+                    {
+                        1 => "below horizon limit",
+                        2 => "above hight limit",
+                        _ => $"unknown reason {reasonCode}: {reasonMessage}"
+                    };
+
+                    throw new InvalidOperationException($"Failed to slew to {HoursToHMS(ra)},{DegreesToDMS(dec)} due to {reason} message={reasonCode}{reasonMessage}");
                 }
                 else
                 {
-#if TRACE
-                    External.AppLogger.LogTrace("Slew complete hour angle={HourAngle} lst={LST} ra={Ra} dec={Dec} sop={SideOfPier}",
-                        HoursToHMS(ConditionHA(lst - ra)), HoursToHMS(lst), HoursToHMS(ra), DegreesToDMS(dec), sideOfPier);
-#endif
+                    throw new InvalidOperationException($"Failed to slew to {HoursToHMS(ra)},{DegreesToDMS(dec)} due to an unrecognized response: {response}");
                 }
             }
+            finally
+            { 
+                port.Release();
+            }
+        }
+        else
+        {
+            throw new InvalidOperationException("Serial port is not connected");
         }
     }
 
-    private static string MovingStateDisplayName(int previousState) => previousState switch
-    {
-        MOVING_STATE_NORMAL => "normal",
-        MOVING_STATE_PULSE_GUIDING => "pulse guiding (abnormal)",
-        MOVING_STATE_SLEWING => "slewing (abnormal)",
-        _ => $"unknown ({previousState})"
-    };
-
+    private readonly ReadOnlyMemory<byte> QCommand = "Q"u8.ToArray();
     /// <summary>
     /// Returns true if mount is not slewing or an ongoing slew was aborted successfully.
     /// Does not disable pulse guiding
     /// TODO: Verify :Q# stops pulse guiding as well
     /// </summary>
     /// <returns></returns>
-    public void AbortSlew()
+    public async ValueTask AbortSlewAsync(CancellationToken cancellationToken)
     {
-        if (IsPulseGuiding)
+        if (await IsPulseGuidingAsync(cancellationToken))
         {
             throw new InvalidOperationException("Cannot abort slewing while pulse guiding");
         }
 
-        if (IsSlewing)
+        if (await IsSlewingAsync(cancellationToken))
         {
-            Send("Q"u8);
-            StartSlewTimer(MOVING_STATE_NORMAL);
+            await SendWithoutResponseAsync(QCommand, cancellationToken);
+            // StartSlewTimer(MOVING_STATE_NORMAL);
         }
     }
 
+    private static readonly ReadOnlyMemory<byte> CMCommand = "CM"u8.ToArray();
     /// <summary>
     /// Does not allow sync across the meridian
     /// </summary>
     /// <param name="ra"></param>
     /// <param name="dec"></param>
     /// <returns></returns>
-    public void SyncRaDec(double ra, double dec)
+    public async ValueTask SyncRaDecAsync(double ra, double dec, CancellationToken cancellationToken)
     {
-        var pointingState = SideOfPier;
+        var pointingState = await GetSideOfPierAsync(cancellationToken);
         if (pointingState is PointingState.Unknown or PointingState.ThroughThePole)
         {
             throw new InvalidOperationException($"Cannot sync across meridian (current side of pier: {pointingState}) given {HoursToHMS(ra)},{DegreesToDMS(dec)}");
         }
 
-        SendAndReceive("CM"u8, out var response);
+        var response = await SendAndReceiveAsync(CMCommand, cancellationToken);
 
         if (response is not { Length: > 0 })
         {
@@ -976,7 +919,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         }
     }
 
-    public void Unpark() => throw new InvalidOperationException("Unparking is not supported");
+    public ValueTask UnparkAsync(CancellationToken cancellationToken) => throw new InvalidOperationException("Unparking is not supported");
 
     protected override Task<(bool Success, int ConnectionId, MountDeviceInfo DeviceInfo)> DoConnectDeviceAsync(CancellationToken cancellationToken)
     {
@@ -1008,58 +951,68 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         }
     }
 
-    protected override Task<bool> DoDisconnectDeviceAsync(int connectionId, CancellationToken cancellationToken)
+    protected override async Task<bool> DoDisconnectDeviceAsync(int connectionId, CancellationToken cancellationToken)
     {
         if (connectionId == CONNECTION_ID_EXCLUSIVE)
         {
             if (_deviceInfo.SerialDevice is { IsOpen: true } port)
             {
-                return Task.FromResult(port.TryClose());
+                await port.WaitAsync(cancellationToken);
+                return port.TryClose();
             }
             else if (_deviceInfo.SerialDevice is { })
             {
-                return Task.FromResult(true);
+                return true;
             }
             else
             {
-                return Task.FromResult(false);
+                return false;
             }
         }
-        return Task.FromResult(false);
+        return false;
     }
 
-    protected override ValueTask<bool> InitDeviceAsync(CancellationToken cancellationToken)
+    private static readonly ReadOnlyMemory<byte> GVPCommand = "GVP"u8.ToArray();
+    private static readonly ReadOnlyMemory<byte> GVNCommand = "GVN"u8.ToArray();
+    protected override async ValueTask<bool> InitDeviceAsync(CancellationToken cancellationToken)
     {
         try
         {
-            SendAndReceive("GVP"u8, out var gvpBytes);
-            _telescopeName = _encoding.GetString(gvpBytes);
+            var name = await SendAndReceiveAsync(GVPCommand, cancellationToken);
 
-            SendAndReceive("GVN"u8, out var gvnBytes);
-            _telescopeFW = _encoding.GetString(gvnBytes);
+            var fw = await SendAndReceiveAsync(GVNCommand, cancellationToken);
 
-            if (!TrySetHighPrecision())
+            if (name is not { } || fw is not { })
+            {
+                return false;
+            }
+
+            _telescopeName = name;
+            _telescopeFW = fw;
+
+            if (!await TrySetHighPrecisionAsync(cancellationToken))
             {
                 External.AppLogger.LogWarning("Failed to set high precision via :U#");
             }
 
-            return ValueTask.FromResult(true);
+            return true;
         }
         catch (Exception e)
         {
             External.AppLogger.LogError(e, "Failed to initialize mount");
 
-            return ValueTask.FromResult(false);
+            return false;
         }
     }
 
-    private bool TrySetHighPrecision()
+    private static readonly ReadOnlyMemory<byte> UCommand = "U"u8.ToArray();
+    private async ValueTask<bool> TrySetHighPrecisionAsync(CancellationToken cancellationToken)
     {
         bool highPrecision;
         int tries = 0;
         do
         {
-            (_, highPrecision) = GetRightAscensionWithPrecision(target: false);
+            (_, highPrecision) = await GetRightAscensionWithPrecisionAsync(target: false, cancellationToken);
 
             if (highPrecision)
             {
@@ -1067,7 +1020,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
             }
             else
             {
-                Send("U"u8);
+               await SendWithoutResponseAsync(UCommand, cancellationToken);
             }
         } while (!highPrecision && ++tries < 3);
 
@@ -1075,65 +1028,122 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     }
 
     #region Serial I/O
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private void Send(ReadOnlySpan<byte> command)
+    private static readonly ReadOnlyMemory<byte> Terminators = "#\0"u8.ToArray();
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private async ValueTask<string?> SendAndReceiveAsync(ReadOnlyMemory<byte> command, CancellationToken cancellationToken)
+    {
+        if (_deviceInfo.SerialDevice is { IsOpen: true } port)
+        {
+            await port.WaitAsync(cancellationToken);
+            try
+            {
+                await SendAsync(port, command, cancellationToken);
+
+                return await port.TryReadTerminatedAsync(Terminators, cancellationToken);
+            }
+            finally
+            {
+                port.Release();
+            }
+        }
+
+        return null;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private async ValueTask<int> SendAndReceiveRawAsync(ReadOnlyMemory<byte> command, Memory<byte> response, CancellationToken cancellationToken)
+    {
+        if (_deviceInfo.SerialDevice is { IsOpen: true } port)
+        {
+            await port.WaitAsync(cancellationToken);
+            try
+            {
+                await SendAsync(port, command, cancellationToken);
+
+                return await port.TryReadTerminatedRawAsync(response, Terminators, cancellationToken);
+            }
+            finally
+            {
+                port.Release();
+            }
+        }
+
+        return -1;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private async ValueTask<string?> SendAndReceiveExactlyAsync(ReadOnlyMemory<byte> command, int count, CancellationToken cancellationToken)
+    {
+        if (_deviceInfo.SerialDevice is { IsOpen: true } port)
+        {
+            await port.WaitAsync(cancellationToken);
+            try
+            {
+                await SendAsync(port, command, cancellationToken);
+
+                return await port.TryReadExactlyAsync(count, cancellationToken);
+            }
+            finally
+            {
+                port.Release();
+            }
+        }
+
+        return null;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private async ValueTask SendWithoutResponseAsync(ReadOnlyMemory<byte> command, CancellationToken cancellationToken)
+    {
+        if (_deviceInfo.SerialDevice is { IsOpen: true } port)
+        {
+            await port.WaitAsync(cancellationToken);
+            try
+            {
+                await SendAsync(port, command, cancellationToken);
+            }
+            finally
+            {
+                port.Release();
+            }
+        }
+        else
+        {
+            throw new InvalidOperationException("Mount is not connected");
+        }
+    }
+
+    /// <summary>
+    /// Assumes that port is checked for open state, and a lock is acquired.
+    /// </summary>
+    /// <param name="port"></param>
+    /// <param name="command"></param>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
+    /// <exception cref="InvalidOperationException"></exception>
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private async ValueTask SendAsync(ISerialConnection port, ReadOnlyMemory<byte> command, CancellationToken cancellationToken)
     {
         if (!Connected)
         {
             throw new InvalidOperationException("Mount is not connected");
         }
 
-        if (!CanUnpark && !CanSetPark && AtPark)
+        if (!CanUnpark && !CanSetPark && await AtParkAsync(cancellationToken))
         {
             throw new InvalidOperationException("Mount is parked, but it is not possible to unpark it");
         }
 
-        if (_deviceInfo.SerialDevice is not { } port || !port.IsOpen)
-        {
-            throw new InvalidOperationException("Serial port is closed");
-        }
+        using var raw = ArrayPoolHelper.Rent<byte>(command.Length + 2);
 
-        Span<byte> raw = stackalloc byte[command.Length + 2];
         raw[0] = (byte)':';
-        command.CopyTo(raw[1..]);
+        command.Span.CopyTo(raw.AsSpan(1));
         raw[^1] = (byte)'#';
 
-        if (!port.TryWrite(raw))
+        if (!await port.TryWriteAsync(raw, cancellationToken))
         {
             throw new InvalidOperationException($"Failed to send raw message {_encoding.GetString(raw)}");
-        }
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private bool TryReadTerminated(out ReadOnlySpan<byte> response)
-    {
-        if (_deviceInfo.SerialDevice is { } port)
-        {
-            return port.TryReadTerminated(out response, "#\0"u8);
-        }
-
-        response = default;
-        return false;
-    }
-
-    private bool TryReadExactly(int count, out ReadOnlySpan<byte> response)
-    {
-        if (_deviceInfo.SerialDevice is { } port && port.TryReadExactly(count, out response))
-        {
-            return true;
-        }
-
-        response = default;
-        return false;
-    }
-
-    private void SendAndReceive(ReadOnlySpan<byte> command, out ReadOnlySpan<byte> response, int? count = null)
-    {
-        Send(command);
-
-        if (!(count is { } ? TryReadExactly(count.Value, out response) : TryReadTerminated(out response)))
-        {
-            throw new InvalidOperationException($"Failed to get response for message {_encoding.GetString(command)}");
         }
     }
     #endregion
