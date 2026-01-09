@@ -36,9 +36,10 @@ public class FakeExternal : IExternal
 
         _outputFolder = _profileRoot.CreateSubdirectory("output");
 
-
-        AppLogger = new XUnitLoggerProvider(testOutputHelper, false).CreateLogger("Test");
+        AppLogger = CreateLogger(testOutputHelper);
     }
+
+    public static ILogger CreateLogger(ITestOutputHelper testOutputHelper) => new XUnitLoggerProvider(testOutputHelper, false).CreateLogger("Test");
 
     public DirectoryInfo ProfileFolder => _profileRoot;
 

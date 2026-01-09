@@ -96,7 +96,7 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
             var message = new string(chars);
 
 #if DEBUG
-            _logger.LogTrace("<-- (exactly {Count}): {Response}", message.Length, message);
+            _logger.LogTrace("<-- {Response} ({Length})", message.ReplaceNonPrintableWithHex(), message.Length);
 #endif
 
             return ValueTask.FromResult<string?>(message);
@@ -133,7 +133,7 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
                 var message = new string(chars, 0, i);
 
 #if DEBUG
-                _logger.LogTrace("<-- (terminated by any of {Terminators}): {Response}", terminatorChars, message);
+                _logger.LogTrace("<-- {Response}", (message + @char).ReplaceNonPrintableWithHex());
 #endif
                 return ValueTask.FromResult<string?>(new string(chars, 0, i));
             }
@@ -160,7 +160,7 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
         var dataStr = Encoding.GetString(data.Span);
 
 #if DEBUG
-        _logger.LogTrace("--> {Message}", dataStr);
+        _logger.LogTrace("--> {Message}", dataStr.ReplaceNonPrintableWithHex());
 #endif
         switch (dataStr)
         {

@@ -30,15 +30,8 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 {
     private static readonly Encoding _encoding = Encoding.Latin1;
 
-    const int MOVING_STATE_NORMAL = 0;
-    const int MOVING_STATE_PARKED = 1;
-    const int MOVING_STATE_PULSE_GUIDING = 2;
-    const int MOVING_STATE_SLEWING = 3;
-
     const double DEFAULT_GUIDE_RATE = SIDEREAL_RATE * 2d / 3d / 3600d;
 
-    private ITimer? _slewTimer;
-    private int _movingState = MOVING_STATE_NORMAL;
     private bool? _isSouthernHemisphere;
     private string _telescopeName = "Unknown";
     private string _telescopeFW = "Unknown";
@@ -179,31 +172,22 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
     public ValueTask<bool> AtHomeAsync(CancellationToken cancellationToken) => ValueTask.FromResult(false);
 
-    public ValueTask<bool> AtParkAsync(CancellationToken cancellationToken) => ValueTask.FromResult(CheckMovingState(MOVING_STATE_PARKED));
+    public ValueTask<bool> AtParkAsync(CancellationToken cancellationToken) => ValueTask.FromResult(false);
 
-    public ValueTask<bool> IsPulseGuidingAsync(CancellationToken cancellationToken) => ValueTask.FromResult(CheckMovingState(MOVING_STATE_PULSE_GUIDING));
-
-    public ValueTask<bool> IsSlewingAsync(CancellationToken cancellationToken) => ValueTask.FromResult(CheckMovingState(MOVING_STATE_SLEWING));
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private bool CheckMovingState(int movingState) => Connected && Interlocked.CompareExchange(ref _movingState, movingState, movingState) == movingState;
+    public ValueTask<bool> IsPulseGuidingAsync(CancellationToken cancellationToken) => ValueTask.FromResult(false);
 
     private static readonly ReadOnlyMemory<byte> DCommand = "D"u8.ToArray();
     /// <summary>
     /// Uses :D# to check if mount is slewing (use this to update slewing state)
     /// </summary>
-    private async ValueTask<bool> IsSlewingFromMountAsync(CancellationToken cancellationToken)
+    public async ValueTask<bool> IsSlewingAsync(CancellationToken cancellationToken)
     {
-        var (response, _) = RentArray(10);
-        try
-        {
-            return await SendAndReceiveRawAsync(DCommand, response, cancellationToken) is >= 1
-                && response[0] is (byte)'|' or 0x7f;
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(response);
-        }
+        using var response = ArrayPoolHelper.Rent<byte>(10);
+
+        var bytesRead = await SendAndReceiveRawAsync(DCommand, response, cancellationToken);
+        var isSlewing = bytesRead is >= 1 && response[0] is (byte)'|' or 0x7f;
+
+        return isSlewing;
     }
 
     public async ValueTask<DateTime?> TryGetUTCDateFromMountAsync(CancellationToken cancellationToken)
@@ -227,59 +211,53 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
             return;
         }
 
-        var (buffer, length) = RentArray(2 + 8);
+        using var buffer = ArrayPoolHelper.Rent<byte>(2 + 8);
         try
         {
             var adjustedDateTime = utcDate - utcOffset;
 
             // acquire lock in this method directly as we might potentially send out two read commands
             await port.WaitAsync(cancellationToken);
-            try
+
+            "SL"u8.CopyTo(buffer);
+
+            if (!adjustedDateTime.TryFormat(buffer.AsSpan(2), out _, "HH:mm:ss", CultureInfo.InvariantCulture))
             {
-                "SL"u8.CopyTo(buffer);
-
-                if (!adjustedDateTime.TryFormat(buffer.AsSpan(2), out _, "HH:mm:ss", CultureInfo.InvariantCulture))
-                {
-                    throw new InvalidOperationException($"Failed to convert {value} to HH:mm:ss");
-                }
-
-                await SendAsync(port, buffer.AsMemory(0,length), cancellationToken);
-
-                var slResponse = await port.TryReadTerminatedAsync(Terminators, cancellationToken);
-                if (slResponse is "1")
-                {
-                    throw new ArgumentException($"Failed to set date to {value}, command was {_encoding.GetString(buffer)} with response {slResponse}", nameof(value));
-                }
-
-                "SC"u8.CopyTo(buffer);
-
-                if (!adjustedDateTime.TryFormat(buffer.AsSpan(2), out _, "MM/dd/yy", CultureInfo.InvariantCulture))
-                {
-                    throw new InvalidOperationException($"Failed to convert {value} to MM/dd/yy");
-                }
-
-                await SendAsync(port, buffer.AsMemory(0, length), cancellationToken);
-
-                var scResponse = await port.TryReadTerminatedAsync(Terminators, cancellationToken);
-                if (scResponse is "1")
-                {
-                    throw new ArgumentException($"Failed to set date to {value}, command was {_encoding.GetString(buffer)} with response {scResponse}", nameof(value));
-                }
-
-                //throwing away these two strings which represent
-                //Updating Planetary Data#
-                //                       #
-                TimeIsSetByUs = await port.TryReadTerminatedAsync(Terminators, cancellationToken) is not null
-                    && await port.TryReadTerminatedAsync(Terminators, cancellationToken) is not null;
+                throw new InvalidOperationException($"Failed to convert {value} to HH:mm:ss");
             }
-            finally
+
+            await SendAsync(port, buffer, cancellationToken);
+
+            var slResponse = await port.TryReadTerminatedAsync(Terminators, cancellationToken);
+            if (slResponse is "1")
             {
-                port.Release();
+                throw new ArgumentException($"Failed to set date to {value}, command was {_encoding.GetString(buffer)} with response {slResponse}", nameof(value));
             }
+
+            "SC"u8.CopyTo(buffer);
+
+            if (!adjustedDateTime.TryFormat(buffer.AsSpan(2), out _, "MM/dd/yy", CultureInfo.InvariantCulture))
+            {
+                throw new InvalidOperationException($"Failed to convert {value} to MM/dd/yy");
+            }
+
+            await SendAsync(port, buffer, cancellationToken);
+
+            var scResponse = await port.TryReadTerminatedAsync(Terminators, cancellationToken);
+            if (scResponse is "1")
+            {
+                throw new ArgumentException($"Failed to set date to {value}, command was {_encoding.GetString(buffer)} with response {scResponse}", nameof(value));
+            }
+
+            //throwing away these two strings which represent
+            //Updating Planetary Data#
+            //                       #
+            TimeIsSetByUs = await port.TryReadTerminatedAsync(Terminators, cancellationToken) is not null
+                && await port.TryReadTerminatedAsync(Terminators, cancellationToken) is not null;
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(buffer);
+            port.Release();
         }
     }
 
@@ -299,19 +277,13 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     private static readonly ReadOnlyMemory<byte> GLCommand = "GL"u8.ToArray();
     private async ValueTask<TimeSpan> GetLocalTimeAsync(CancellationToken cancellationToken)
     {
-        var (response, _) = RentArray(10);
-        try
-        {
-            var bytesRead = await SendAndReceiveRawAsync(GLCommand, response, cancellationToken);
+        using var response = ArrayPoolHelper.Rent<byte>(10);
 
-            if (bytesRead > 0 && Utf8Parser.TryParse(response.AsSpan(0, bytesRead), out TimeSpan time, out _))
-            {
-                return time.Modulo24h();
-            }
-        }
-        finally
+        var bytesRead = await SendAndReceiveRawAsync(GLCommand, response, cancellationToken);
+
+        if (bytesRead > 0 && Utf8Parser.TryParse(response.AsSpan(0, bytesRead), out TimeSpan time, out _))
         {
-            ArrayPool<byte>.Shared.Return(response);
+            return time.Modulo24h();
         }
 
         throw new InvalidOperationException($"Could not parse response {_encoding.GetString(response)} of GL (get local time)");
@@ -346,10 +318,6 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     ///   <description>Description</description>
     /// </listheader>
     /// <item>
-    ///   <term>IsSlewing</term>
-    ///   <description>The actual slewing state from the mount (not our local value)</description>
-    /// </item>
-    /// <item>
     ///   <term>PointingState</term>
     ///   <description>is the calculated side of pier from the mount position (if slewing),
     /// or the last known value after slewing (as the mount auto-flips)</description>
@@ -358,23 +326,23 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     /// </summary>
     /// <param name="ra">current RA</param>
     /// <returns>Side of pier calculation result</returns>
-    private async ValueTask<(bool IsSlewing, PointingState PointingState, double LST)> CheckPointingStateAsync(double ra, CancellationToken cancellationToken)
+    private async ValueTask<(PointingState PointingState, double LST)> CheckPointingStateAsync(double ra, CancellationToken cancellationToken)
     {
         if (!Connected)
         {
-            return (false, PointingState.Unknown, double.NaN);
+            return (PointingState.Unknown, double.NaN);
         }
 
-        var isSlewing = await IsSlewingFromMountAsync(cancellationToken);
+        var isSlewing = await IsSlewingAsync(cancellationToken);
 
         var (raSideOfPier, lst) = await CalculateSideOfPierAsync(ra, cancellationToken);
 
-        return (isSlewing, isSlewing ? raSideOfPier : PointingState.Normal, lst);
+        return (isSlewing ? raSideOfPier : PointingState.Normal, lst);
     }
 
     public async ValueTask<PointingState> GetSideOfPierAsync(CancellationToken cancellationToken)
     {
-        var (_, pointingState, _) = await CheckPointingStateAsync(await GetRightAscensionAsync(cancellationToken), cancellationToken);
+        var (pointingState, _) = await CheckPointingStateAsync(await GetRightAscensionAsync(cancellationToken), cancellationToken);
 
         return pointingState;
     }
@@ -385,19 +353,13 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     private static readonly ReadOnlyMemory<byte> GSCommand = "GS"u8.ToArray();
     public async ValueTask<double> GetSiderealTimeAsync(CancellationToken cancellationToken)
     {
-        var (response, _) = RentArray(10);
-        try
-        {
-            var bytesRead = await SendAndReceiveRawAsync(GSCommand, response, cancellationToken);
+        using var response = ArrayPoolHelper.Rent<byte>(10);
 
-            if (bytesRead > 0 && Utf8Parser.TryParse(response.AsSpan(0, bytesRead), out TimeSpan time, out _))
-            {
-                return time.Modulo24h().TotalHours;
-            }
-        }
-        finally
+        var bytesRead = await SendAndReceiveRawAsync(GSCommand, response, cancellationToken);
+
+        if (bytesRead > 0 && Utf8Parser.TryParse(response.AsSpan(0, bytesRead), out TimeSpan time, out _))
         {
-            ArrayPool<byte>.Shared.Return(response);
+            return time.Modulo24h().TotalHours;
         }
 
         throw new InvalidOperationException($"Could not parse response {_encoding.GetString(response)} of GS (get sidereal time)");
@@ -441,51 +403,45 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         var targetHms = TimeSpan.FromHours(Math.Abs(value)).Round(highPrecision ? TimeSpanRoundingType.Second : TimeSpanRoundingType.TenthMinute).Modulo24h();
 
         const int offset = 2;
-        var (buffer, length) = RentArray(2 + 2 + 2 + 2 + 1 + (highPrecision ? 1 : 0));
-        try
+        using var buffer = ArrayPoolHelper.Rent<byte>(2 + 2 + 2 + 2 + 1 + (highPrecision ? 1 : 0));
+
+        "Sr"u8.CopyTo(buffer);
+
+        if (targetHms.Hours.TryFormat(buffer.AsSpan(offset), out int hoursWritten, "00", CultureInfo.InvariantCulture)
+            && offset + hoursWritten + 1 is int minOffset && minOffset < buffer.Length
+            && targetHms.Minutes.TryFormat(buffer.AsSpan(minOffset), out int minutesWritten, "00", CultureInfo.InvariantCulture)
+        )
         {
-            "Sr"u8.CopyTo(buffer);
+            buffer[offset + hoursWritten] = (byte)':';
+        }
+        else
+        {
+            throw new ArgumentException($"Failed to convert value {value} to HM", nameof(value));
+        }
 
-            if (targetHms.Hours.TryFormat(buffer.AsSpan(offset), out int hoursWritten, "00", CultureInfo.InvariantCulture)
-                && offset + hoursWritten + 1 is int minOffset && minOffset < buffer.Length
-                && targetHms.Minutes.TryFormat(buffer.AsSpan(minOffset), out int minutesWritten, "00", CultureInfo.InvariantCulture)
-            )
+        var secOffset = minOffset + minutesWritten + 1;
+        if (highPrecision)
+        {
+            buffer[secOffset - 1] = (byte)':';
+            if (!targetHms.Seconds.TryFormat(buffer.AsSpan(secOffset), out _, "00", CultureInfo.InvariantCulture))
             {
-                buffer[offset + hoursWritten] = (byte)':';
-            }
-            else
-            {
-                throw new ArgumentException($"Failed to convert value {value} to HM", nameof(value));
-            }
-
-            var secOffset = minOffset + minutesWritten + 1;
-            if (highPrecision)
-            {
-                buffer[secOffset - 1] = (byte)':';
-                if (!targetHms.Seconds.TryFormat(buffer.AsSpan(secOffset), out _, "00", CultureInfo.InvariantCulture))
-                {
-                    throw new ArgumentException($"Failed to convert {value} to high precision seconds", nameof(value));
-                }
-            }
-            else
-            {
-                buffer[secOffset - 1] = (byte)'.';
-                if (!(targetHms.Seconds / 6).TryFormat(buffer.AsSpan(secOffset), out _, "0", CultureInfo.InvariantCulture))
-                {
-                    throw new ArgumentException($"Failed to convert {value} to low precision tenth of minute", nameof(value));
-                }
-            }
-
-            var response = await SendAndReceiveExactlyAsync(buffer.AsMemory(0, length), 1, cancellationToken);
-
-            if (response != "1")
-            {
-                throw new InvalidOperationException($"Failed to set target right ascension to {HoursToHMS(value)}, using command {_encoding.GetString(buffer)}, response={response}");
+                throw new ArgumentException($"Failed to convert {value} to high precision seconds", nameof(value));
             }
         }
-        finally
+        else
         {
-            ArrayPool<byte>.Shared.Return(buffer);
+            buffer[secOffset - 1] = (byte)'.';
+            if (!(targetHms.Seconds / 6).TryFormat(buffer.AsSpan(secOffset), out _, "0", CultureInfo.InvariantCulture))
+            {
+                throw new ArgumentException($"Failed to convert {value} to low precision tenth of minute", nameof(value));
+            }
+        }
+
+        var response = await SendAndReceiveExactlyAsync(buffer, 1, cancellationToken);
+
+        if (response != "1")
+        {
+            throw new InvalidOperationException($"Failed to set target right ascension to {HoursToHMS(value)}, using command {_encoding.GetString(buffer)}, response={response}");
         }
 #if TRACE
         External.AppLogger.LogTrace("Set target right ascension to {TargetRightAscension}, current right ascension is {RightAscension}, high precision={HighPrecision}",
@@ -523,48 +479,42 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
             .Round(highPrecision ? TimeSpanRoundingType.Second : TimeSpanRoundingType.Minute)
             .EnsureMax(TimeSpan.FromHours(90));
 
-        var (buffer, length) = RentArray(minOffset + 2 + (highPrecision ? 3 : 0));
-        try
+        using var buffer = ArrayPoolHelper.Rent<byte>(minOffset + 2 +(highPrecision ? 3 : 0));
+
+        "Sd"u8.CopyTo(buffer);
+
+        if (sign is -1)
         {
-            "Sd"u8.CopyTo(buffer);
+            buffer[degOffset - 1] = (byte)'-';
+        }
 
-            if (sign is -1)
+        buffer[minOffset - 1] = (byte)'*';
+
+        if (targetDms.Hours.TryFormat(buffer.AsSpan(degOffset), out _, "00", CultureInfo.InvariantCulture)
+            && targetDms.Minutes.TryFormat(buffer.AsSpan(minOffset), out _, "00", CultureInfo.InvariantCulture)
+        )
+        {
+            if (highPrecision)
             {
-                buffer[degOffset - 1] = (byte)'-';
-            }
+                var secOffset = minOffset + 2 + 1;
+                buffer[secOffset - 1] = (byte)':';
 
-            buffer[minOffset - 1] = (byte)'*';
-
-            if (targetDms.Hours.TryFormat(buffer.AsSpan(degOffset), out _, "00", CultureInfo.InvariantCulture)
-                && targetDms.Minutes.TryFormat(buffer.AsSpan(minOffset), out _, "00", CultureInfo.InvariantCulture)
-            )
-            {
-                if (highPrecision)
+                if (!targetDms.Seconds.TryFormat(buffer.AsSpan(secOffset), out _, "00", CultureInfo.InvariantCulture))
                 {
-                    var secOffset = minOffset + 2 + 1;
-                    buffer[secOffset - 1] = (byte)':';
-
-                    if (!targetDms.Seconds.TryFormat(buffer.AsSpan(secOffset), out _, "00", CultureInfo.InvariantCulture))
-                    {
-                        throw new ArgumentException($"Failed to convert value {targetDec} to DMS (high precision)", nameof(targetDec));
-                    }
+                    throw new ArgumentException($"Failed to convert value {targetDec} to DMS (high precision)", nameof(targetDec));
                 }
             }
-            else
-            {
-                throw new ArgumentException($"Failed to convert value {targetDec} to DM", nameof(targetDec));
-            }
-
-            var response = await SendAndReceiveExactlyAsync(buffer.AsMemory(0, length), 1, cancellationToken);
-
-            if (response is not "1")
-            {
-                throw new InvalidOperationException($"Failed to set target declination to {DegreesToDMS(targetDec)}, using command {_encoding.GetString(buffer)}, response={response}");
-            }
         }
-        finally
+        else
         {
-            ArrayPool<byte>.Shared.Return(buffer);
+            throw new ArgumentException($"Failed to convert value {targetDec} to DM", nameof(targetDec));
+        }
+
+        var response = await SendAndReceiveExactlyAsync(buffer, 1, cancellationToken);
+
+        if (response is not "1")
+        {
+            throw new InvalidOperationException($"Failed to set target declination to {DegreesToDMS(targetDec)}, using command {_encoding.GetString(buffer)}, response={response}");
         }
 
 #if TRACE
@@ -681,41 +631,35 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         const int cmdLength = 2;
         var offset = cmdLength + (needsSign ? 1 : 0);
 
-        var (buffer, length) = RentArray(offset + 1 + 2);
-        try
+        using var buffer = ArrayPoolHelper.Rent<byte>(offset + 1 + 2);
+
+        "St"u8.CopyTo(buffer);
+
+        if (needsSign)
         {
-            "St"u8.CopyTo(buffer);
+            buffer[cmdLength] = (byte)'-';
+        }
 
-            if (needsSign)
+        if (dms.Hours.TryFormat(buffer.AsSpan(offset), out var degWritten, format: "00", provider: CultureInfo.InvariantCulture)
+            && dms.Minutes.TryFormat(buffer.AsSpan(offset + degWritten + 1), out _, format: "00", provider: CultureInfo.InvariantCulture)
+        )
+        {
+            buffer[offset + degWritten] = (byte)'*';
+
+            var response = await SendAndReceiveAsync(buffer, cancellationToken);
+
+            if (response is "1")
             {
-                buffer[cmdLength] = (byte)'-';
-            }
-
-            if (dms.Hours.TryFormat(buffer.AsSpan(offset), out var degWritten, format: "00", provider: CultureInfo.InvariantCulture)
-                && dms.Minutes.TryFormat(buffer.AsSpan(offset + degWritten + 1), out _, format: "00", provider: CultureInfo.InvariantCulture)
-            )
-            {
-                buffer[offset + degWritten] = (byte)'*';
-
-                var response = await SendAndReceiveAsync(buffer.AsMemory(0, length), cancellationToken);
-
-                if (response is "1")
-                {
-                    External.AppLogger.LogInformation("Updated site latitude to {Degrees}", latitude);
-                }
-                else
-                {
-                    throw new InvalidOperationException($"Cannot update site latitude to {latitude} due to connectivity issue/command invalid: {response}");
-                }
+                External.AppLogger.LogInformation("Updated site latitude to {Degrees}", latitude);
             }
             else
             {
-                throw new InvalidOperationException($"Cannot update site latitude to {latitude} due to formatting error");
+                throw new InvalidOperationException($"Cannot update site latitude to {latitude} due to connectivity issue/command invalid: {response}");
             }
         }
-        finally
+        else
         {
-            ArrayPool<byte>.Shared.Return(buffer);
+            throw new InvalidOperationException($"Cannot update site latitude to {latitude} due to formatting error");
         }
     }
 
@@ -745,7 +689,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         var adjustedDegrees = value > 0 ? 360 - dms.Hours : dms.Hours;
 
         const int offset = 2;
-        var (buffer, length) = RentArray(offset + 3 + 1 + 2);
+        using var buffer = ArrayPoolHelper.Rent<byte>(offset + 3 + 1 + 2);
         "Sg"u8.CopyTo(buffer);
 
         if (adjustedDegrees.TryFormat(buffer.AsSpan(offset), out var degWritten, format: "000", provider: CultureInfo.InvariantCulture)
@@ -754,7 +698,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         {
             buffer[offset + degWritten] = (byte)'*';
 
-            var response = await SendAndReceiveAsync(buffer.AsMemory(0, length), cancellationToken);
+            var response = await SendAndReceiveAsync(buffer, cancellationToken);
 
             if (response is "1")
             {
@@ -773,27 +717,20 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
     private async ValueTask<double> GetLatOrLongAsync(ReadOnlyMemory<byte> command, CancellationToken cancellationToken)
     {
-        var (response, _) = RentArray(10);
-        try
+        using var response = ArrayPoolHelper.Rent<byte>(10);
+        if (await SendAndReceiveRawAsync(command, response, cancellationToken) >= 5)
         {
-            if (await SendAndReceiveRawAsync(command, response, cancellationToken) >= 5)
-            {
-                var isNegative = response[0] is (byte)'-';
-                var offset = isNegative ? 1 : 0;
+            var isNegative = response[0] is (byte)'-';
+            var offset = isNegative ? 1 : 0;
 
-                if (Utf8Parser.TryParse(response.AsSpan(offset), out int degrees, out var consumed)
-                    && Utf8Parser.TryParse(response.AsSpan(offset + consumed + 1), out int minutes, out _)
-                )
-                {
-                    var latOrLongNotAdjusted = (isNegative ? -1 : 1) * (degrees + minutes / 60d);
-                    // adjust s.th. 214 from mount becomes -214 and then becomes 146
-                    return latOrLongNotAdjusted >= -180 ? latOrLongNotAdjusted : latOrLongNotAdjusted + 360;
-                }
+            if (Utf8Parser.TryParse(response.AsSpan(offset), out int degrees, out var consumed)
+                && Utf8Parser.TryParse(response.AsSpan(offset + consumed + 1), out int minutes, out _)
+            )
+            {
+                var latOrLongNotAdjusted = (isNegative ? -1 : 1) * (degrees + minutes / 60d);
+                // adjust s.th. 214 from mount becomes -214 and then becomes 146
+                return latOrLongNotAdjusted >= -180 ? latOrLongNotAdjusted : latOrLongNotAdjusted + 360;
             }
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(response);
         }
 
         throw new InvalidOperationException($"Failed to parse response of {_encoding.GetString(command.Span)}");
@@ -829,12 +766,6 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     public async ValueTask ParkAsync(CancellationToken cancellationToken = default)
     {
         await SendWithoutResponseAsync(ParkCommand, cancellationToken);
-
-        var previousState = Interlocked.Exchange(ref _movingState, MOVING_STATE_SLEWING);
-#if TRACE
-        External.AppLogger.LogTrace("Parking mount, previous state: {PreviousMovingState}", MovingStateDisplayName(previousState));
-#endif
-        StartSlewTimer(MOVING_STATE_PARKED);
     }
 
     public async ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken = default)
@@ -844,44 +775,31 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
             throw new ArgumentException("Timespan must be greater than 0", nameof(duration));
         }
 
-        var (buffer, length) = RentArray(2 + 1 + 4);
-        try
+        using var buffer = ArrayPoolHelper.Rent<byte>(2 + 1 + 4);
+
+        "Mg"u8.CopyTo(buffer);
+        buffer[2] = direction switch
         {
-            "Mg"u8.CopyTo(buffer);
-            buffer[2] = direction switch
-            {
-                GuideDirection.North => (byte)'n',
-                GuideDirection.South => (byte)'s',
-                GuideDirection.West => (byte)'w',
-                GuideDirection.East => (byte)'e',
-                _ => throw new ArgumentException($"Invalid guide direction {direction}", nameof(direction))
-            };
-            var ms = (int)Math.Round(duration.TotalMilliseconds);
+            GuideDirection.North => (byte)'n',
+            GuideDirection.South => (byte)'s',
+            GuideDirection.West => (byte)'w',
+            GuideDirection.East => (byte)'e',
+            _ => throw new ArgumentException($"Invalid guide direction {direction}", nameof(direction))
+        };
+        var ms = (int)Math.Round(duration.TotalMilliseconds);
 
-            if (!await IsTrackingAsync(cancellationToken))
-            {
-                throw new InvalidOperationException("Cannot pulse guide when tracking is off");
-            }
-
-            if (ms.TryFormat(buffer.AsSpan(3), out _, "0000", CultureInfo.InvariantCulture))
-            {
-                await SendWithoutResponseAsync(buffer.AsMemory(0, length), cancellationToken);
-
-                External.TimeProvider.CreateTimer(
-                    _ => _ = Interlocked.CompareExchange(ref _movingState, MOVING_STATE_NORMAL, MOVING_STATE_PULSE_GUIDING),
-                    null,
-                    duration,
-                    Timeout.InfiniteTimeSpan
-                );
-            }
-            else
-            {
-                throw new ArgumentException($"Failed to create request for given duration={duration} message={_encoding.GetString(buffer)}", nameof(duration));
-            }
+        if (!await IsTrackingAsync(cancellationToken))
+        {
+            throw new InvalidOperationException("Cannot pulse guide when tracking is off");
         }
-        finally
+
+        if (ms.TryFormat(buffer.AsSpan(3), out _, "0000", CultureInfo.InvariantCulture))
         {
-            ArrayPool<byte>.Shared.Return(buffer);
+            await SendWithoutResponseAsync(buffer, cancellationToken);
+        }
+        else
+        {
+            throw new ArgumentException($"Failed to create request for given duration={duration} message={_encoding.GetString(buffer)}", nameof(duration));
         }
     }
 
@@ -923,11 +841,9 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
                 if (response is "0")
                 {
-                    var previousState = Interlocked.Exchange(ref _movingState, MOVING_STATE_SLEWING);
 #if TRACE
-                    External.AppLogger.LogTrace("Slewing to {RA},{Dec}, previous state: {PreviousMovingState}", HoursToHMS(ra), DegreesToDMS(dec), MovingStateDisplayName(previousState));
+                    External.AppLogger.LogTrace("Slewing to {RA},{Dec}", HoursToHMS(ra), DegreesToDMS(dec));
 #endif
-                    StartSlewTimer(MOVING_STATE_NORMAL);
                 }
                 else if (response is { Length: 1 }
                     && byte.TryParse(response[0..1], out var reasonCode)
@@ -959,91 +875,6 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         }
     }
 
-    private void StartSlewTimer(int finalState)
-    {
-        // start timer deactivated to capture itself
-        var timer = External.TimeProvider.CreateTimer(SlewTimerCallback, finalState, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
-        Interlocked.Exchange(ref _slewTimer, timer)?.Dispose();
-
-        // activate timer
-        timer.Change(TimeSpan.Zero, TimeSpan.FromMilliseconds(250));
-    }
-
-    /// <summary>
-    /// TODO: Needs to use <see cref="PeriodicTimer"/>
-    /// </summary>
-    /// <param name="state"></param>
-    private async void SlewTimerCallback(object? state)
-    {
-        var cancellationToken = CancellationToken.None;
-        bool continueRunning;
-        var ra = await GetRightAscensionAsync(cancellationToken);
-        var dec = await GetDeclinationAsync(cancellationToken);
-        double lst;
-        PointingState sideOfPier;
-
-        try
-        {
-            if (!double.IsNaN(ra) && Connected && !await AtParkAsync(cancellationToken))
-            {
-                (continueRunning, sideOfPier, lst) = await CheckPointingStateAsync(ra, cancellationToken);
-            }
-            else
-            {
-                continueRunning = false;
-                lst = double.NaN;
-                sideOfPier = PointingState.Unknown;
-            }
-        }
-        catch (Exception ex)
-        {
-            External.AppLogger.LogWarning(ex, "Failed to retrieve pointing state due to: {Message}", ex.Message);
-            continueRunning = false;
-            lst = double.NaN;
-            sideOfPier = PointingState.Unknown;
-        }
-
-        if (continueRunning)
-        {
-#if DEBUG
-            External.AppLogger.LogTrace("Still slewing hour angle={HourAngle} lst={LST} ra={Ra} dec={Dec} sop={SideOfPier}",
-                HoursToHMS(ConditionHA(lst - ra)), HoursToHMS(lst), HoursToHMS(ra), DegreesToDMS(dec), sideOfPier);
-#endif
-        }
-        else
-        {
-            if (_slewTimer?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan) is var changeResult and not true)
-            {
-                External.AppLogger.LogWarning("Failed to stop slewing timer has instance: {HasInstance}", changeResult is not null);
-            }
-
-            if (state is int finalMovingState)
-            {
-                var previousState = Interlocked.CompareExchange(ref _movingState, finalMovingState, MOVING_STATE_SLEWING);
-
-                if (previousState != MOVING_STATE_SLEWING && previousState != finalMovingState)
-                {
-                    External.AppLogger.LogWarning("Expected moving state to be slewing, but was: {PreviousMovingState}", MovingStateDisplayName(previousState));
-                }
-                else
-                {
-#if DEBUG
-                    External.AppLogger.LogTrace("Slew complete hour angle={HourAngle} lst={LST} ra={Ra} dec={Dec} sop={SideOfPier}",
-                        HoursToHMS(ConditionHA(lst - ra)), HoursToHMS(lst), HoursToHMS(ra), DegreesToDMS(dec), sideOfPier);
-#endif
-                }
-            }
-        }
-    }
-
-    private static string MovingStateDisplayName(int previousState) => previousState switch
-    {
-        MOVING_STATE_NORMAL => "normal",
-        MOVING_STATE_PULSE_GUIDING => "pulse guiding (abnormal)",
-        MOVING_STATE_SLEWING => "slewing (abnormal)",
-        _ => $"unknown ({previousState})"
-    };
-
     private readonly ReadOnlyMemory<byte> QCommand = "Q"u8.ToArray();
     /// <summary>
     /// Returns true if mount is not slewing or an ongoing slew was aborted successfully.
@@ -1061,7 +892,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         if (await IsSlewingAsync(cancellationToken))
         {
             await SendWithoutResponseAsync(QCommand, cancellationToken);
-            StartSlewTimer(MOVING_STATE_NORMAL);
+            // StartSlewTimer(MOVING_STATE_NORMAL);
         }
     }
 
@@ -1304,30 +1135,16 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
             throw new InvalidOperationException("Mount is parked, but it is not possible to unpark it");
         }
 
-        var (raw, length) = RentArray(command.Length + 2);
-        try
+        using var raw = ArrayPoolHelper.Rent<byte>(command.Length + 2);
+
+        raw[0] = (byte)':';
+        command.Span.CopyTo(raw.AsSpan(1));
+        raw[^1] = (byte)'#';
+
+        if (!await port.TryWriteAsync(raw, cancellationToken))
         {
-            raw[0] = (byte)':';
-            command.Span.CopyTo(raw.AsSpan(1));
-            raw[length - 1] = (byte)'#';
-
-            if (!await port.TryWriteAsync(raw.AsMemory(0, length), cancellationToken))
-            {
-                throw new InvalidOperationException($"Failed to send raw message {_encoding.GetString(raw)}");
-            }
+            throw new InvalidOperationException($"Failed to send raw message {_encoding.GetString(raw)}");
         }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(raw);
-        }
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private static (byte[] Array, int Length) RentArray(int length)
-    {
-        var array = ArrayPool<byte>.Shared.Rent(length);
-
-        return (array, length);
     }
     #endregion
 }
