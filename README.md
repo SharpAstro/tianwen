@@ -22,7 +22,7 @@ The TianWen library is a comprehensive .NET library designed for astronomical de
   - Debayer OSC images to synthetic luminance.
 
 - **External Integration**:
-  - Interfaces for external operations such as logging, sleeping, and file management.
+  - Interfaces for external operations such as logging, `TimeProvider` based time management, and file management.
   - Connect to external guider software using JSON-RPC over TCP.
 
 ## Installation
