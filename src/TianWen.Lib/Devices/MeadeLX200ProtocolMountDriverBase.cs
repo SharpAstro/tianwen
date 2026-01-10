@@ -1,6 +1,5 @@
 ﻿using Microsoft.Extensions.Logging;
 using System;
-using System.Buffers;
 using System.Buffers.Text;
 using System.Collections.Generic;
 using System.Globalization;
@@ -748,6 +747,13 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
     private async ValueTask<bool> IsSouthernHemisphereAsync(CancellationToken cancellationToken)
         => _isSouthernHemisphere ??= await GetSiteLatitudeAsync(cancellationToken) < 0;
+
+    public async ValueTask<double> GetHourAngleAsync(CancellationToken cancellationToken)
+    {
+        var lst = await GetSiderealTimeAsync(cancellationToken);
+        var ra = await GetRightAscensionAsync(cancellationToken);
+        return ConditionHA(lst - ra);
+    }
 
     private async ValueTask<(PointingState PointingState, double SiderealTime)> CalculateSideOfPierAsync(double ra, CancellationToken cancellationToken)
     {

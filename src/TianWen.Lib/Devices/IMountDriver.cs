@@ -270,17 +270,7 @@ public interface IMountDriver : IDeviceDriver
     /// <summary>
     /// The current hour angle, using <see cref="GetRightAscensionAsync(CancellationToken)"/> and <see cref="GetSiderealTimeAsync(CancellationToken)"/>, (-12,12).
     /// </summary>
-    async ValueTask<double> GetHourAngleAsync(CancellationToken cancellationToken)
-    {
-        if (Connected)
-        {
-            return ConditionHA(await GetSiderealTimeAsync(cancellationToken) - await GetRightAscensionAsync(cancellationToken));
-        }
-        else
-        {
-            return double.NaN;
-        }
-    }
+    ValueTask<double> GetHourAngleAsync(CancellationToken cancellationToken);
 
     /// <summary>
     /// The local apparent sidereal time from the telescope's internal clock (hours, sidereal).

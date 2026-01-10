@@ -110,7 +110,7 @@ public static class CoordinateUtils
     }
 
     /// <summary>
-    /// COndition hour angle (from -12 to +12), inclusive
+    /// Condition hour angle (from -12 to +12), inclusive
     /// </summary>
     /// <param name="ha">hour angle in decimal hours</param>
     /// <returns>conditioned hour angle</returns>

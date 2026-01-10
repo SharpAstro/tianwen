@@ -8,6 +8,7 @@ using AscomGuideDirection = ASCOM.Common.DeviceInterfaces.GuideDirection;
 using AscomTelescope = ASCOM.Com.DriverAccess.Telescope;
 using AscomTelescopeAxis = ASCOM.Common.DeviceInterfaces.TelescopeAxis;
 using AscomTrackingSpeed = ASCOM.Common.DeviceInterfaces.DriveRate;
+using static TianWen.Lib.Astrometry.CoordinateUtils;
 
 namespace TianWen.Lib.Devices.Ascom;
 
@@ -89,6 +90,13 @@ internal class AscomTelescopeDriver(AscomDevice device, IExternal external)
     public ValueTask<bool> IsSlewingAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_comObject.Slewing is bool slewing && slewing);
     
     public ValueTask<double> GetSiderealTimeAsync(CancellationToken cancellationToken) => ValueTask.FromResult(_comObject.SiderealTime is double siderealTime ? siderealTime : throw new InvalidOperationException($"Failed to retrieve sidereal time from device connected={Connected} initialized={_comObject is not null}"));
+
+    public async ValueTask<double> GetHourAngleAsync(CancellationToken cancellationToken)
+    {
+        var lst = await GetSiderealTimeAsync(cancellationToken);
+        var ra = await GetRightAscensionAsync(cancellationToken);
+        return ConditionHA(lst - ra);
+    }
 
     public bool TimeIsSetByUs { get; private set; }
 

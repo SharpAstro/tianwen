@@ -162,108 +162,90 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
 #if DEBUG
         _logger.LogTrace("--> {Message}", dataStr.ReplaceNonPrintableWithHex());
 #endif
-        switch (dataStr)
+        lock (_lockObj)
         {
-            case ":GVP#":
-                _responseBuffer.Append("Fake LX200 Mount#");
-                break;
+            switch (dataStr)
+            {
+                case ":GVP#":
+                    _responseBuffer.Append("Fake LX200 Mount#");
+                    break;
 
-            case ":GW#":
-                _responseBuffer.AppendFormat("{0}{1}{2:0}",
-                    _alignmentMode switch { AlignmentMode.GermanPolar => 'G', _ => '?' },
-                    _isTracking ? 'T' : 'N',
-                    _alignmentStars
-                );
-                break;
+                case ":GW#":
+                    _responseBuffer.AppendFormat("{0}{1}{2:0}",
+                        _alignmentMode switch { AlignmentMode.GermanPolar => 'G', _ => '?' },
+                        _isTracking ? 'T' : 'N',
+                        _alignmentStars
+                    );
+                    break;
 
-            case ":AL#":
-                _isTracking = false;
-                break;
+                case ":AL#":
+                    _isTracking = false;
+                    break;
 
-            case ":AP#":
-                _isTracking = true;
-                break;
+                case ":AP#":
+                    _isTracking = true;
+                    break;
 
-            case ":GVN#":
-                _responseBuffer.Append("A4s4#");
-                break;
+                case ":GVN#":
+                    _responseBuffer.Append("A4s4#");
+                    break;
 
-            case ":GR#":
-                lock (_lockObj)
-                {
+                case ":GR#":
                     RespondHMS(_transform.RATopocentric);
-                }
-                break;
+                    break;
 
-            case ":Gr#":
-                lock (_lockObj)
-                {
+                case ":Gr#":
                     RespondHMS(_targetRa);
-                }
-                break;
+                    break;
 
-            case ":GD#":
-                lock (_lockObj)
-                {
+                case ":GD#":
                     RespondDMS(_transform.DECTopocentric);
-                }
-                break;
+                    break;
 
-            case ":Gd#":
-                lock (_lockObj)
-                {
+                case ":Gd#":
                     RespondDMS(_targetDec);
-                }
-                break;
+                    break;
 
-            case ":GS#":
-                lock (_lockObj)
-                {
+                case ":GS#":
                     _responseBuffer.AppendFormat("{0}#", HoursToHMS(SiderealTime, withFrac: false));
-                }
-                break;
+                    break;
 
-            case ":Gt#":
-                lock (_lockObj)
-                {
+                case ":Gt#":
                     _responseBuffer.AppendFormat("{0}#", DegreesToDM(_transform.SiteLatitude));
-                }
-                break;
+                    break;
 
-            case ":GT#":
-                var (trackingHz, tracking10thHz) = Math.DivRem(_trackingFrequency, 10);
-                _responseBuffer.AppendFormat("{0:00}.{1:0}#", trackingHz, tracking10thHz);
-                break;
+                case ":GT#":
+                    var (trackingHz, tracking10thHz) = Math.DivRem(_trackingFrequency, 10);
+                    _responseBuffer.AppendFormat("{0:00}.{1:0}#", trackingHz, tracking10thHz);
+                    break;
 
-            case ":U#":
-                _highPrecision = !_highPrecision;
-                break;
+                case ":U#":
+                    _highPrecision = !_highPrecision;
+                    break;
 
-            case ":MS#":
-                _responseBuffer.Append(SlewToTarget());
-                break;
+                case ":MS#":
+                    _responseBuffer.Append(SlewToTarget());
+                    break;
 
-            case ":D#":
-                lock (_lockObj)
-                {
+                case ":D#":
                     _responseBuffer.Append(_isSlewing ? "\x7f#" : "#");
-                }
-                break;
+                    break;
 
-            default:
-                if (dataStr.StartsWith(":Sr", StringComparison.Ordinal))
-                {
-                    _responseBuffer.Append(ParseTargetRa(dataStr) ? '1' : '0');
-                }
-                else if (dataStr.StartsWith(":Sd", StringComparison.Ordinal))
-                {
-                    _responseBuffer.Append(ParseTargetDec(dataStr) ? '1' : '0');
-                }
-                else
-                {
-                    return ValueTask.FromResult(false);
-                }
-                break;
+                default:
+                    if (dataStr.StartsWith(":Sr", StringComparison.Ordinal))
+                    {
+                        _responseBuffer.Append(ParseTargetRa(dataStr) ? '1' : '0');
+                    }
+                    else if (dataStr.StartsWith(":Sd", StringComparison.Ordinal))
+                    {
+                        _responseBuffer.Append(ParseTargetDec(dataStr) ? '1' : '0');
+                    }
+                    else
+                    {
+                        return ValueTask.FromResult(false);
+                    }
+                    break;
+            }
         }
         return ValueTask.FromResult(true);
 

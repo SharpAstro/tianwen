@@ -125,6 +125,7 @@ internal class AscomCameraDriver(AscomDevice device, IExternal external)
     public bool CanGetCoolerPower { get; private set; }
 
     public bool CanGetCoolerOn { get; private set; }
+
     public bool CanSetCoolerOn { get; private set; }
 
     public bool CanGetHeatsinkTemperature { get; private set; }
