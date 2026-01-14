@@ -9,6 +9,23 @@ public interface ISerialConnection : IDisposable
 {
     internal const string SerialProto = "serial:";
 
+    public static string RemoveProtoPrrefix(string portName)
+    {
+        if (portName.StartsWith(SerialProto, StringComparison.Ordinal))
+        {
+            return portName[SerialProto.Length..];
+        }
+
+        return portName;
+    }
+
+    public static string CleanupPortName(string portName)
+    {
+        var portNameWithoutPrefix = RemoveProtoPrrefix(portName);
+
+        return portNameWithoutPrefix.StartsWith("tty", StringComparison.Ordinal) ? $"/dev/{portNameWithoutPrefix}" : portNameWithoutPrefix;
+    }
+
     bool IsOpen { get; }
 
     Encoding Encoding { get; }

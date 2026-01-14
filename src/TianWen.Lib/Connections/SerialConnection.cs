@@ -23,14 +23,7 @@ internal sealed class SerialConnection(string portName, int baud, Encoding encod
         return prefixedPortNames;
     }
 
-    public static string CleanupPortName(string portName)
-    {
-        var portNameWithoutPrefix = portName.StartsWith(ISerialConnection.SerialProto, StringComparison.Ordinal) ? portName[ISerialConnection.SerialProto.Length..] : portName;
-
-        return portNameWithoutPrefix.StartsWith("tty", StringComparison.Ordinal) ? $"/dev/{portNameWithoutPrefix}" : portNameWithoutPrefix;
-    }
-
-    private readonly SerialPort _port =  new SerialPort(CleanupPortName(portName), baud);
+    private readonly SerialPort _port =  new SerialPort(ISerialConnection.CleanupPortName(portName), baud);
 
     protected override Stream OpenStream()
     {
@@ -44,7 +37,7 @@ internal sealed class SerialConnection(string portName, int baud, Encoding encod
 
     public override bool IsOpen => _port.IsOpen;
 
-    public override string DisplayName => throw new NotImplementedException();
+    public override string DisplayName => _port.PortName;
 
     /// <summary>
     /// Closes the serial port if it is open

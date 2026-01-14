@@ -2,17 +2,20 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Connections;
 
 namespace TianWen.Lib.Devices.Meade;
 
-internal class MeadeDeviceSource(IExternal external) : IDeviceSource<MeadeDevice>
+internal partial class MeadeDeviceSource(IExternal external) : IDeviceSource<MeadeDevice>
 {
     private Dictionary<DeviceType, List<MeadeDevice>>? _cachedDevices;
 
     public ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken) => ValueTask.FromResult(true);
 
+    private static readonly Regex SupportedProductsRegex = GenSupportedProductsRegex();
     private static readonly ReadOnlyMemory<byte> HashTerminator = "#"u8.ToArray();
     public async ValueTask DiscoverAsync(CancellationToken cancellationToken = default)
     {
@@ -24,27 +27,29 @@ internal class MeadeDeviceSource(IExternal external) : IDeviceSource<MeadeDevice
             {
                 using var serialDevice = external.OpenSerialDevice(portName, 9600, Encoding.ASCII, TimeSpan.FromMilliseconds(100));
 
-                string? productName;
-                string? productNumber;
-                if (await serialDevice.TryWriteAsync(":GVP#", cancellationToken)
-                    && (productName = await serialDevice.TryReadTerminatedAsync(HashTerminator, cancellationToken)) is { }
-                    && (productName.StartsWith("LX") || productName.StartsWith("Autostar") || productName.StartsWith("Audiostar"))
-                    && await serialDevice.TryWriteAsync(":GVN#", cancellationToken)
-                    && (productNumber = await serialDevice.TryReadTerminatedAsync(HashTerminator, cancellationToken)) is { }
-                )
+                var (productName, productNumber, siteNames) = await TryGetMountInfo(serialDevice, cancellationToken);
+                if (productName is { } && productNumber is { } && SupportedProductsRegex.IsMatch(productName) && siteNames is { })
                 {
-                    var deviceId = $"{productName}_{productNumber}";
-
-                    var device = new MeadeDevice(DeviceType.Mount, deviceId, $"{productName} ({productNumber})", portName);
-
-                    if (devices.TryGetValue(DeviceType.Mount, out var deviceList))
+                    List<MeadeDevice> deviceList;
+                    if (devices.TryGetValue(DeviceType.Mount, out var existingMounts))
                     {
-                        deviceList.Add(device);
+                        deviceList = existingMounts;
                     }
                     else
                     {
-                        devices[DeviceType.Mount] = new List<MeadeDevice> { device };
+                        devices[DeviceType.Mount] = deviceList = [];
                     }
+
+                    var deviceId = string.Join('_',
+                        SafeName(productName),
+                        SafeName(productNumber),
+                        SafeName(siteNames),
+                        deviceList.Count + 1,
+                        SafeName(ISerialConnection.RemoveProtoPrrefix(portName))
+                    );
+
+                    var device = new MeadeDevice(DeviceType.Mount, deviceId, $"{productName} ({productNumber}): {siteNames}", portName);
+                    deviceList.Add(device);
                 }
             }
             catch (Exception ex)
@@ -54,6 +59,58 @@ internal class MeadeDeviceSource(IExternal external) : IDeviceSource<MeadeDevice
         }
 
         Interlocked.Exchange(ref _cachedDevices, devices);
+
+        static string SafeName(string name) => name.Replace('_', '-').Replace('/', '-').Replace(':', '-');
+    }
+
+    private static async Task<(string? ProductName, string? ProductNumber, string? SiteString)> TryGetMountInfo(Connections.ISerialConnection serialDevice, CancellationToken cancellationToken)
+    {
+        const string UnusedSiteName = "<AN UNUSED SITE>";
+
+        await serialDevice.WaitAsync(cancellationToken);
+
+        try
+        {
+            var productName = await TryReadTerminatedAsync(":GVP#");
+            var productNumber = await TryReadTerminatedAsync(":GVN#");
+            var site1Name = await TryReadTerminatedAsync(":GM#");
+            var site2Name = await TryReadTerminatedAsync(":GN#");
+            var site3Name = await TryReadTerminatedAsync(":GO#");
+            var site4Name = await TryReadTerminatedAsync(":GP#");
+
+            var sites = new StringBuilder(site1Name?.Length ?? 0 + site2Name?.Length ?? 0 + site3Name?.Length ?? 0 + site4Name?.Length ?? 0);
+
+            foreach (var site in new string?[] { site1Name, site2Name, site3Name, site4Name })
+            {
+                var trimmed = site?.TrimEnd();
+                if (trimmed is not { } || trimmed.Length is 0 || trimmed is UnusedSiteName)
+                {
+                    continue;
+                }
+
+                if (sites.Length > 0)
+                {
+                    sites.Append(',');
+                }
+                sites.Append(trimmed);
+            }
+
+            return (productName, productNumber, sites.ToString());
+        }
+        finally
+        {
+            serialDevice.Release();
+        }
+
+        async Task<string?> TryReadTerminatedAsync(string command)
+        {
+            if (await serialDevice.TryWriteAsync(command, cancellationToken))
+            {
+                return await serialDevice.TryReadTerminatedAsync(HashTerminator, cancellationToken);
+            }
+
+            return null;
+        }
     }
 
     public IEnumerable<DeviceType> RegisteredDeviceTypes => [DeviceType.Mount];
@@ -66,4 +123,7 @@ internal class MeadeDeviceSource(IExternal external) : IDeviceSource<MeadeDevice
         }
         return [];
     }
+
+    [GeneratedRegex("^(?:LX|Autostar|Audiostar)", RegexOptions.Compiled | RegexOptions.CultureInvariant)]
+    private static partial Regex GenSupportedProductsRegex();
 }
