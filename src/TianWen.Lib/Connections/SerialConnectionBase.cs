@@ -102,7 +102,8 @@ internal abstract class SerialConnectionBase : ISerialConnection
             do
             {
                 bytesReadLast = await _stream.ReadAtLeastAsync(message[bytesRead..], 1, true, cancellationToken);
-                terminatorIndex = message.Span[bytesRead..bytesReadLast].IndexOfAny(terminators.Span);
+                terminatorIndex = message.Slice(bytesRead, bytesReadLast).Span.IndexOfAny(terminators.Span);
+
                 if (terminatorIndex < 0)
                 {
                     bytesRead += bytesReadLast;
@@ -116,7 +117,8 @@ internal abstract class SerialConnectionBase : ISerialConnection
 
 #if DEBUG
             // output log including the terminator
-            _logger.LogTrace("<-- {Response}", Encoding.GetString(message.Span[0..(bytesRead+1)]));
+            var decodedResponseMsg = Encoding.GetString(message.Span[..(bytesRead+1)]);
+            _logger.LogTrace("<-- {Response}", decodedResponseMsg);
 #endif
             if (terminatorIndex < 0)
             {
