@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Threading;
 using System.Threading.Tasks;
 using static TianWen.Lib.Astrometry.Catalogs.CatalogUtils;
 
@@ -15,7 +16,7 @@ public interface ICelestialObjectDB
 
     IReadOnlySet<Catalog> Catalogs { get; }
 
-    Task<(int Processed, int Failed)> InitDBAsync();
+    Task<(int Processed, int Failed)> InitDBAsync(CancellationToken cancellationToken = default);
 
     IReadOnlyCollection<string> CommonNames { get; }
 
