@@ -40,15 +40,16 @@ internal partial class MeadeDeviceSource(IExternal external) : IDeviceSource<Mea
                         devices[DeviceType.Mount] = deviceList = [];
                     }
 
+                    var portNameWithoutProtoPrefix = ISerialConnection.RemoveProtoPrrefix(portName);
                     var deviceId = string.Join('_',
                         SafeName(productName),
                         SafeName(productNumber),
                         SafeName(siteNames),
                         deviceList.Count + 1,
-                        SafeName(ISerialConnection.RemoveProtoPrrefix(portName))
+                        SafeName(portNameWithoutProtoPrefix)
                     );
 
-                    var device = new MeadeDevice(DeviceType.Mount, deviceId, $"{productName} ({productNumber}): {siteNames}", portName);
+                    var device = new MeadeDevice(DeviceType.Mount, deviceId, $"{productName} ({productNumber}) on {portNameWithoutProtoPrefix}", portName);
                     deviceList.Add(device);
                 }
             }

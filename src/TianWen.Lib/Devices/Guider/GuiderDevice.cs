@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Text;
 using System.Text.Json.Serialization;
 
 namespace TianWen.Lib.Devices.Guider;
@@ -37,6 +38,8 @@ public record class GuiderDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
             return (host, instanceId, null);
         }
     }
+
+    protected override bool PrintMembers(StringBuilder stringBuilder) => base.PrintMembers(stringBuilder);
 
     [JsonIgnore]
     public string Host => (_parsedDeviceId ??= ParseDeviceId(DeviceId)).Host;
