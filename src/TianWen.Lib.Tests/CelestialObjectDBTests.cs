@@ -26,7 +26,8 @@ public class CelestialObjectDBTests
         await _sem.WaitAsync();
         try
         {
-            (_processed, _failed) = await (_cachedDB = new CelestialObjectDB()).InitDBAsync();
+            (_processed, _failed) = await (_cachedDB = new CelestialObjectDB()).InitDBAsync(
+cancellationToken: TestContext.Current.CancellationToken);
 
             _processed.ShouldBeGreaterThan(13000);
             _failed.ShouldBe(0);

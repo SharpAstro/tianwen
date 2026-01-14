@@ -244,7 +244,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     }
 
     /// <inheritdoc/>
-    public async Task<(int Processed, int Failed)> InitDBAsync()
+    public async Task<(int Processed, int Failed)> InitDBAsync(CancellationToken cancellationToken)
     {
         if (_isInitialized)
         {
@@ -270,7 +270,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
         foreach (var csvName in new[] { "NGC", "NGC.addendum" })
         {
-            var (processed, failed) = await ReadEmbeddedGzippedCsvDataFileAsync(assembly, csvName);
+            var (processed, failed) = await ReadEmbeddedGzippedCsvDataFileAsync(assembly, csvName, cancellationToken);
             totalProcessed += processed;
             totalFailed += failed;
         }
@@ -297,7 +297,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         };
         foreach (var (fileName, catToAdd) in simbadCatalogs)
         {
-            var (processed, failed) = await ReadEmbeddedGzippedJsonDataFileAsync(assembly, fileName, catToAdd);
+            var (processed, failed) = await ReadEmbeddedGzippedJsonDataFileAsync(assembly, fileName, catToAdd, cancellationToken);
             totalProcessed += processed;
             totalFailed += failed;
         }
@@ -374,7 +374,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         });
     */
 
-    private async Task<(int Processed, int Failed)> ReadEmbeddedGzippedCsvDataFileAsync(Assembly assembly, string csvName)
+    private async Task<(int Processed, int Failed)> ReadEmbeddedGzippedCsvDataFileAsync(Assembly assembly, string csvName, CancellationToken cancellationToken)
     {
         const string NGC = nameof(NGC);
         const string IC = nameof(IC);
@@ -393,12 +393,12 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         using var csvParser = new CsvParser(streamReader, new CsvConfiguration(CultureInfo.InvariantCulture) { Delimiter = ";" }, leaveOpen: true);
         using var csvReader = new CsvReader(csvParser);
 
-        if (!await csvReader.ReadAsync() || !csvReader.ReadHeader())
+        if (!cancellationToken.IsCancellationRequested && !await csvReader.ReadAsync() || !csvReader.ReadHeader())
         {
             return (processed, failed);
         }
 
-        while (await csvReader.ReadAsync())
+        while (!cancellationToken.IsCancellationRequested && await csvReader.ReadAsync())
         {
             if (csvReader.TryGetField<string>("Name", out var entryName)
                 && csvReader.TryGetField<string>("Type", out var objectTypeAbbr)
@@ -519,7 +519,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
     static readonly Regex ClusterMemberPattern = ClusterMemberPatternGen();
 
-    private async Task<(int Processed, int Failed)> ReadEmbeddedGzippedJsonDataFileAsync(Assembly assembly, string jsonName, Catalog catToAdd)
+    private async Task<(int Processed, int Failed)> ReadEmbeddedGzippedJsonDataFileAsync(Assembly assembly, string jsonName, Catalog catToAdd, CancellationToken cancellationToken)
     {
         const string NAME_CAT_PREFIX = "NAME ";
         const string STAR_CAT_PREFIX = "* ";
@@ -542,7 +542,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             Catalog.HIP
         };
 
-        await foreach (var record in JsonSerializer.DeserializeAsyncEnumerable(gzipStream, SimbadCatalogDtoJsonSerializerContext.Default.SimbadCatalogDto))
+        await foreach (var record in JsonSerializer.DeserializeAsyncEnumerable(gzipStream, SimbadCatalogDtoJsonSerializerContext.Default.SimbadCatalogDto, cancellationToken))
         {
             if (record is null)
             {

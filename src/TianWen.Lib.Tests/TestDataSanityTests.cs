@@ -21,7 +21,7 @@ public class TestDataSanityTests(ITestOutputHelper testOutputHelper) : ImageAnal
 
         // when
         Image? image = null;
-        await Should.NotThrowAsync(async () => image = await SharedTestData.ExtractGZippedFitsImageAsync(name));
+        await Should.NotThrowAsync(async () => image = await SharedTestData.ExtractGZippedFitsImageAsync(name, cancellationToken: TestContext.Current.CancellationToken));
 
         // then
         image.ShouldNotBeNull();
