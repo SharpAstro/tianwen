@@ -6,7 +6,7 @@ namespace TianWen.Lib.Devices.Meade;
 public record MeadeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 {
     public MeadeDevice(DeviceType deviceType, string deviceId, string displayName, string port)
-        : this(new Uri($"{deviceType}://{typeof(MeadeDevice).Name}/{deviceId}#{displayName}?{new NameValueCollection { ["port"] = port }.ToQueryString()}"))
+        : this(new Uri($"{deviceType}://{typeof(MeadeDevice).Name}/{deviceId}?{new NameValueCollection { ["port"] = port }.ToQueryString()}#{displayName}"))
     {
         // calls primary constructor
     }
