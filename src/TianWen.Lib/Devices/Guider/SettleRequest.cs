@@ -26,16 +26,4 @@ SOFTWARE.
 
 namespace TianWen.Lib.Devices.Guider;
 
-public class SettleRequest
-{
-    public SettleRequest(double pixels, double time, double timeout)
-    {
-        Pixels = pixels;
-        Time = time;
-        Timeout = timeout;
-    }
-
-    public double Pixels { get; set; }
-    public double Time { get; set; }
-    public double Timeout { get; set; }
-}
+public record SettleRequest(double Pixels, double Time, double Timeout);

@@ -37,18 +37,21 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Connections;
+using TianWen.Lib.Devices.Guider;
 
-namespace TianWen.Lib.Devices.Guider;
+namespace TianWen.Lib.Devices.OpenPHD2;
 
-internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
+internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevice>
 {
     readonly ConcurrentDictionary<long, JsonDocument> _responses = [];
-    readonly GuiderDevice _guiderDevice;
+    readonly OpenPHD2GuiderDevice _guiderDevice;
     readonly SemaphoreSlim _sync = new(1, 1);
     readonly AsyncManualResetEvent _receiveResponseSignal = new(false);
     IUtf8TextBasedConnection? _connection;
     string? _selectedProfileName;
-    List<GuiderDevice> _equipmentProfiles = [];
+#pragma warning disable IDE0044 // Add readonly modifier used by Interlocked.Exchange
+    List<OpenPHD2GuiderDevice> _equipmentProfiles = [];
+#pragma warning restore IDE0044 // Add readonly modifier
     CancellationTokenSource _cts = new();
     Task? _receiveTask;
 
@@ -63,14 +66,14 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     string? PHDSubvVersion { get; set; }
     SettleProgress? Settle { get; set; }
 
-    public PHD2GuiderDriver(IExternal external) : this(MakeDefaultRootDevice(external), external)
+    public OpenPHD2GuiderDriver(IExternal external) : this(MakeDefaultRootDevice(external), external)
     {
         // calls below
     }
 
-    public PHD2GuiderDriver(GuiderDevice guiderDevice, IExternal external)
+    public OpenPHD2GuiderDriver(OpenPHD2GuiderDevice guiderDevice, IExternal external)
     {
-        if (guiderDevice.DeviceType != DeviceType.PHD2)
+        if (guiderDevice.DeviceType != DeviceType.Guider)
         {
             throw new ArgumentException($"{guiderDevice} is not of type PHD2, but of type: {guiderDevice.DeviceType}", nameof(guiderDevice));
         }
@@ -84,12 +87,14 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         }
     }
 
-    private static GuiderDevice MakeDefaultRootDevice(IExternal external)
+    private OpenPHD2GuiderDevice ActiveGuiderDevice => _selectedProfileName is { } ? _guiderDevice.WithProfile(_selectedProfileName) : _guiderDevice;
+
+    private static OpenPHD2GuiderDevice MakeDefaultRootDevice(IExternal external)
     {
         var ip = external.DefaultGuiderAddress;
         var instanceId = ip.Port - 4400 + 1;
 
-        return new GuiderDevice(DeviceType.PHD2, string.Join('/', ip.Address, instanceId), $"PHD2 instance {instanceId} on {ip}");
+        return new OpenPHD2GuiderDevice(DeviceType.Guider, string.Join('/', ip.Address, instanceId), $"PHD2 instance {instanceId} on {ip}");
     }
 
     /// <summary>
@@ -106,7 +111,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
         var profileNames = await GetEquipmentProfilesAsync(cancellationToken).ConfigureAwait(false);
 
-        var equipmentProfiles = profileNames.Select(profile => new GuiderDevice(DeviceType.PHD2, string.Join('/', _guiderDevice.DeviceId, profile), profile)).ToList();
+        var equipmentProfiles = profileNames.Select(_guiderDevice.WithProfile).ToList();
 
         Interlocked.Exchange(ref _equipmentProfiles, equipmentProfiles);
     }
@@ -116,7 +121,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
     /// </summary>
     /// <param name="deviceType"></param>
     /// <returns></returns>
-    public IEnumerable<GuiderDevice> RegisteredDevices(DeviceType deviceType) => deviceType is DeviceType.PHD2 ? _equipmentProfiles : [];
+    public IEnumerable<OpenPHD2GuiderDevice> RegisteredDevices(DeviceType deviceType) => deviceType is DeviceType.Guider ? _equipmentProfiles : [];
 
     private async Task ReceiveMessagesAsync(CancellationToken cancellationToken)
     {
@@ -136,7 +141,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
                 }
                 catch (Exception ex)
                 {
-                    OnGuidingErrorEvent(new GuidingErrorEventArgs(_guiderDevice, _selectedProfileName, $"Error {ex.Message} while reading from input stream", ex));
+                    OnGuidingErrorEvent(new GuidingErrorEventArgs(ActiveGuiderDevice, $"Error {ex.Message} while reading from input stream", ex));
                     // use recovery logic
                 }
 
@@ -155,8 +160,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
                 catch (JsonException ex)
                 {
                     OnGuidingErrorEvent(new GuidingErrorEventArgs(
-                        _guiderDevice,
-                        _selectedProfileName,
+                        ActiveGuiderDevice,
                         $"ignoring invalid json from server: {ex.Message}: {line}",
                         ex
                     ));
@@ -187,7 +191,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         }
         catch (Exception ex)
         {
-            OnGuidingErrorEvent(new GuidingErrorEventArgs(_guiderDevice, _selectedProfileName, $"caught exception in worker thread while processing: {line}: {ex.Message}", ex));
+            OnGuidingErrorEvent(new GuidingErrorEventArgs(ActiveGuiderDevice, $"caught exception in worker thread while processing: {line}: {ex.Message}", ex));
         }
         finally
         {
@@ -396,7 +400,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
             }
         }
 
-        OnGuiderStateChangedEvent(new GuiderStateChangedEventArgs(_guiderDevice, _selectedProfileName, eventName ?? "Unknown", newAppState ?? "Unknown"));
+        OnGuiderStateChangedEvent(new GuiderStateChangedEventArgs(ActiveGuiderDevice, eventName ?? "Unknown", newAppState ?? "Unknown"));
     }
 
     static long MessageId = 0;
@@ -645,7 +649,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
 
     public string? DriverVersion => Version;
 
-    public DeviceType DriverType { get; } = DeviceType.PHD2;
+    public DeviceType DriverType { get; } = DeviceType.Guider;
 
     public IExternal External { get; }
 
@@ -694,7 +698,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         }
         catch (Exception ex)
         {
-            var guidingErrorEventArgs = new GuidingErrorEventArgs(_guiderDevice, _selectedProfileName, $"while calling guide({settlePixels}, {settleTime}, {settleTimeout}): {ex.Message}", ex);
+            var guidingErrorEventArgs = new GuidingErrorEventArgs(ActiveGuiderDevice, $"while calling guide({settlePixels}, {settleTime}, {settleTimeout}): {ex.Message}", ex);
             OnGuidingErrorEvent(guidingErrorEventArgs);
             // failed - remove the settle state
             await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -745,8 +749,7 @@ internal class PHD2GuiderDriver : IGuider, IDeviceSource<GuiderDevice>
         catch (Exception ex)
         {
             var guidingErrorEventArgs = new GuidingErrorEventArgs(
-                _guiderDevice,
-                _selectedProfileName,
+                ActiveGuiderDevice,
                 $"while calling dither(ditherPixels: {ditherPixels}, raOnly: {raOnly}, " +
                 $"(settlePixels: {settlePixels}, settleTime: {settleTime}, settleTimeout: {settleTimeout}): {ex.Message}",
                 ex

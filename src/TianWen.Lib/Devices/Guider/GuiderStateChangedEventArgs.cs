@@ -26,7 +26,13 @@ SOFTWARE.
 
 namespace TianWen.Lib.Devices.Guider;
 
-public class GuiderStateChangedEventArgs(GuiderDevice device, string? profile, string @event, string appState) : GuiderEventArgs(device, profile)
+/// <summary>
+/// An event that is raised when guiding state change occures, (i.e. start guiding, dithering, etc.)
+/// </summary>
+/// <param name="device"></param>
+/// <param name="event"></param>
+/// <param name="appState">TODO: this should probably be an enum</param>
+public class GuiderStateChangedEventArgs(GuiderDeviceBase device, string @event, string appState) : GuiderEventArgs(device)
 {
     public string Event { get; init; } = @event;
 

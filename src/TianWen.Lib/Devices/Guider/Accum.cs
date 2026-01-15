@@ -28,7 +28,7 @@ using System;
 
 namespace TianWen.Lib.Devices.Guider;
 
-record Accum()
+public record Accum()
 {
     double SumOfSquaredDifference;
 
@@ -60,5 +60,4 @@ record Accum()
     }
 
     public double Stdev => Count >= 1 ? Math.Sqrt(SumOfSquaredDifference / Count) : 0.0;
-
 }

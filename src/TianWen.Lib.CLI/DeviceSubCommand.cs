@@ -5,14 +5,12 @@ namespace TianWen.Lib.CLI;
 
 internal class DeviceSubCommand(IConsoleHost consoleHost)
 {
-    private bool _discoveryRan;
-
     public Command Build()
     {
-        var discoverCommand = new Command("discover", "Discover all connected devices");
+        var discoverCommand = new Command("discover", "Discover all available devices");
         discoverCommand.SetAction(DiscoverDevicesAsync);
 
-        var listCommand = new Command("list", "List all connected devices");
+        var listCommand = new Command("list", "List all available devices");
         listCommand.SetAction(ListDevicesAsync);
 
         return new Command("device", "Manage connected devices")
@@ -44,10 +42,11 @@ internal class DeviceSubCommand(IConsoleHost consoleHost)
 
     private async Task<IEnumerable<DeviceBase>> DoListDevicesExceptProfiles(bool forceDiscovery, CancellationToken cancellationToken)
     {
-        var result = (await consoleHost.ListAllDevicesAsync(forceDiscovery || !_discoveryRan, cancellationToken))
-            .Where(d => d.DeviceType is not DeviceType.Profile);
+        var options = DeviceDiscoveryOption.None
+            | (forceDiscovery ? DeviceDiscoveryOption.Force : DeviceDiscoveryOption.None);
 
-        _discoveryRan = true;
+        var result = (await consoleHost.ListAllDevicesAsync(options, cancellationToken))
+            .Where(d => d.DeviceType is not DeviceType.Profile);
 
         return result;
     }

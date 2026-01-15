@@ -8,10 +8,10 @@ public interface IConsoleHost
 {
     Task<bool> HasSixelSupportAsync();
 
-    Task<IReadOnlyCollection<TDevice>> ListDevicesAsync<TDevice>(DeviceType deviceType, bool forceDiscovery, CancellationToken cancellationToken)
+    Task<IReadOnlyCollection<TDevice>> ListDevicesAsync<TDevice>(DeviceType deviceType, DeviceDiscoveryOption options, CancellationToken cancellationToken)
         where TDevice : DeviceBase;
 
-    Task<IReadOnlyCollection<DeviceBase>> ListAllDevicesAsync(bool forceDiscovery, CancellationToken cancellationToken);
+    Task<IReadOnlyCollection<DeviceBase>> ListAllDevicesAsync(DeviceDiscoveryOption options, CancellationToken cancellationToken);
 
     IDeviceUriRegistry DeviceUriRegistry { get; }
 
@@ -20,4 +20,12 @@ public interface IConsoleHost
     IExternal External { get; }
 
     ValueTask RenderImageAsync(IMagickImage<float> image);
+}
+
+[Flags]
+public enum DeviceDiscoveryOption
+{
+    None = 0,
+    Force       = 0b0001,
+    IncludeFake = 0b0010 
 }

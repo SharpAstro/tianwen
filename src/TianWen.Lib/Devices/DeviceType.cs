@@ -57,14 +57,9 @@ public enum DeviceType
     Switch,
 
     /// <summary>
-    /// A software device that supports the <see cref="Guider.IGuider"/> interface, e.g. Open PHD2 Guiding via JSON-RPC over TCP.
+    /// A software/hardware device that supports the <see cref="Guider.IGuider"/> interface, e.g. OpenPHD2
     /// </summary>
-    DedicatedGuiderSoftware,
-
-    /// <summary>
-    /// Short-hand for the most-commonly used (and so far only supported guider)
-    /// </summary>
-    PHD2 = DedicatedGuiderSoftware
+    Guider
 }
 
 public static class DeviceTypeHelper

@@ -35,10 +35,10 @@ public abstract record class DeviceBase(Uri DeviceUri)
 
     protected virtual bool PrintMembers(StringBuilder stringBuilder)
     {
-        stringBuilder.Append(DeviceId);
+        stringBuilder.AppendFormat("[{0}] {1}", DeviceType.PascalCaseStringToName(), DeviceId);
         if (!string.IsNullOrWhiteSpace(DisplayName))
         {
-            stringBuilder.Append($" ({DisplayName})");
+            stringBuilder.AppendFormat(" ({0})", DisplayName);
         }
 
         return true;
