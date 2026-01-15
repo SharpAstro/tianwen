@@ -78,15 +78,6 @@ public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
         }
     }
 
-    protected override bool PrintMembers(StringBuilder stringBuilder)
-    {
-        _ = base.PrintMembers(stringBuilder);
-
-        stringBuilder.Append($", #OTAs: {(Data is { } data ? data.OTAs.Length : 0)}");
-
-        return true;
-    }
-
     public string Detailed(IDeviceUriRegistry deviceUriRegistry)
     {
         var sb = new StringBuilder()
@@ -94,16 +85,11 @@ public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
 
         if (Data is { } data)
         {
+            var none = NoneDevice.Instance.DisplayName;
             var otaCount = data.OTAs.Length;
 
-            if (data.Guider is { } guider)
-            {
-                sb.Append($"\n  Guider: {DeviceInfo(guider)}");
-            }
-            else
-            {
-                sb.Append("\n  Guider: <None>");
-            }
+            sb.Append($"\n  Mount: {(data.Mount is { } mount ? DeviceInfo(mount) : none)}");
+            sb.Append($"\n  Guider: {(data.Guider is { } guider ? DeviceInfo(guider) : none)}");
 
             if (otaCount == 0)
             {
@@ -118,9 +104,9 @@ public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
                     sb.AppendFormat($"    Name: {ota.Name}\n");
                     sb.AppendFormat($"    Focal Length: {ota.FocalLength} mm\n");
                     sb.AppendFormat($"    Camera: {ota.Camera}\n");
-                    sb.AppendFormat($"    Cover: {(ota.Cover is { } cover ? DeviceInfo(cover) : "<None>")}\n");
-                    sb.AppendFormat($"    Focuser: {(ota.Focuser is { } focuser ? DeviceInfo(focuser) : "<None>")}\n");
-                    sb.AppendFormat($"    Filter Wheel: {(ota.FilterWheel is { } filterWheel ? DeviceInfo(filterWheel) : "<None>")}\n");
+                    sb.AppendFormat($"    Cover: {(ota.Cover is { } cover ? DeviceInfo(cover) : none)}\n");
+                    sb.AppendFormat($"    Focuser: {(ota.Focuser is { } focuser ? DeviceInfo(focuser) : none)}\n");
+                    sb.AppendFormat($"    Filter Wheel: {(ota.FilterWheel is { } filterWheel ? DeviceInfo(filterWheel) : none)}\n");
                     sb.AppendFormat($"    Prefer Outward Focus: {(ota.PreferOutwardFocus.HasValue ? ota.PreferOutwardFocus.Value.ToString() : "<Default>")}\n");
                     sb.AppendFormat($"    Outward Is Positive: {(ota.OutwardIsPositive.HasValue ? ota.OutwardIsPositive.Value.ToString() : "<Default>")}\n");
                 }
@@ -137,7 +123,7 @@ public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
         {
             if (deviceUriRegistry.TryGetDeviceFromUri(deviceUri, out var device))
             {
-                return device.ToString();
+                return device.DisplayName is { Length: > 0 } ? $"{device.DisplayName} ({device.DeviceId})" : device.DeviceId;
             }
             else
             {

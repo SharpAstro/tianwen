@@ -33,15 +33,31 @@ public abstract record class DeviceBase(Uri DeviceUri)
     [JsonIgnore]
     public string DeviceClass => DeviceUri.Host;
 
-    protected virtual bool PrintMembers(StringBuilder stringBuilder)
+    protected virtual string? CustomToString() => null;
+
+    public sealed override string ToString()
     {
-        stringBuilder.AppendFormat("[{0}] {1}", DeviceType.PascalCaseStringToName(), DeviceId);
-        if (!string.IsNullOrWhiteSpace(DisplayName))
+        if (CustomToString() is { } custom)
         {
-            stringBuilder.AppendFormat(" ({0})", DisplayName);
+            return custom;
         }
 
-        return true;
+        var stringBuilder = new StringBuilder();
+        var deviceTypeName = DeviceType.PascalCaseStringToName();
+
+        stringBuilder.AppendFormat("[{0} {1}]", 
+            GetType().Name.Replace(deviceTypeName, "").PascalCaseStringToName().Replace(" Device", ""),
+            deviceTypeName
+        );
+
+        if (!string.IsNullOrWhiteSpace(DisplayName))
+        {
+            stringBuilder.AppendFormat(" {0}", DisplayName);
+        }
+
+        stringBuilder.AppendFormat(" ({0})", DeviceId);
+
+        return stringBuilder.ToString();
     }
 
     public virtual bool TryInstantiateDriver<TDeviceDriver>(IExternal external, [NotNullWhen(true)] out TDeviceDriver? driver)
