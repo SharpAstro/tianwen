@@ -8,8 +8,6 @@ namespace TianWen.Lib.Devices.Fake;
 
 internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDeviceDriverBase(fakeDevice, external), IGuider
 {
-    public override DeviceType DriverType => DeviceType.Guider;
-
     public event EventHandler<GuidingErrorEventArgs>? GuidingErrorEvent;
     public event EventHandler<GuiderStateChangedEventArgs>? GuiderStateChangedEvent;
 

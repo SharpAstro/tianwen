@@ -368,8 +368,6 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
     public int FocusPosition { get; set; }
     public Target? Target { get; set; }
 
-    public override DeviceType DriverType => DeviceType.Camera;
-
     public void AbortExposure()
     {
         var previousState = (CameraState)Interlocked.CompareExchange(ref _cameraState, (int)CameraState.Idle, (int)CameraState.Exposing);

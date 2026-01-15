@@ -6,11 +6,11 @@ namespace TianWen.Lib.Devices.Fake;
 
 internal class FakeDeviceSource : IDeviceSource<FakeDevice>
 {
-    public IEnumerable<DeviceType> RegisteredDeviceTypes => [DeviceType.Mount, DeviceType.Camera, DeviceType.Focuser, DeviceType.FilterWheel];
+    public IEnumerable<DeviceType> RegisteredDeviceTypes => [DeviceType.Mount, DeviceType.Camera, DeviceType.Focuser, DeviceType.FilterWheel, DeviceType.Guider];
 
     public IEnumerable<FakeDevice> RegisteredDevices(DeviceType deviceType)
     {
-        var count = deviceType is DeviceType.Mount ? 1 : 2;
+        var count = deviceType is DeviceType.Mount or DeviceType.Guider ? 1 : 2;
         for (var i = 1; i <= count; i++)
         {
             yield return new FakeDevice(deviceType, i);

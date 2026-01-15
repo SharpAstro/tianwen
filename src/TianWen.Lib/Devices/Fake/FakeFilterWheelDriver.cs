@@ -20,6 +20,4 @@ internal sealed class FakeFilterWheelDriver(FakeDevice fakeDevice, IExternal ext
     public int Position => _isMoving ? -1 : _position;
 
     public Task BeginMoveAsync(int position, CancellationToken cancellationToken = default) => BeginSetPositionAsync(position, cancellationToken);
-
-    public override DeviceType DriverType => DeviceType.FilterWheel;
 }
