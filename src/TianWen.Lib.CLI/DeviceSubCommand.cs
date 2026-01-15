@@ -8,10 +8,10 @@ internal class DeviceSubCommand(IConsoleHost consoleHost)
     public Command Build()
     {
         var discoverCommand = new Command("discover", "Discover all available devices");
-        discoverCommand.SetAction(DiscoverDevicesAsync);
+        discoverCommand.SetAction(DiscoverDevicesActionAsync);
 
         var listCommand = new Command("list", "List all available devices");
-        listCommand.SetAction(ListDevicesAsync);
+        listCommand.SetAction(ListDevicesActionAsync);
 
         return new Command("device", "Manage connected devices")
         {
@@ -22,7 +22,7 @@ internal class DeviceSubCommand(IConsoleHost consoleHost)
         };
     }
 
-    internal async Task DiscoverDevicesAsync(ParseResult parseResult, CancellationToken cancellationToken)
+    internal async Task DiscoverDevicesActionAsync(ParseResult parseResult, CancellationToken cancellationToken)
     {
         foreach (var device in await DoListDevicesExceptProfiles(true, cancellationToken))
         {
@@ -31,7 +31,7 @@ internal class DeviceSubCommand(IConsoleHost consoleHost)
         }
     }
 
-    internal async Task ListDevicesAsync(ParseResult parseResult, CancellationToken cancellationToken)
+    internal async Task ListDevicesActionAsync(ParseResult parseResult, CancellationToken cancellationToken)
     {
         foreach (var device in await DoListDevicesExceptProfiles(false, cancellationToken))
         {
