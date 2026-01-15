@@ -33,6 +33,9 @@ public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
     public ProfileData? Data
         => _data ??= (Query[DataKey] is string encodedValues && JsonSerializer.Deserialize(Base64UrlDecode(encodedValues), ProfileJsonSerializerContextSingleLine.ProfileData) is { } data ? data : null);
 
+    public Profile WithData(ProfileData data)
+        => new Profile(ProfileId, DisplayName, data);
+
     private static readonly ProfileJsonSerializerContext ProfileJsonSerializerContextSingleLine = new ProfileJsonSerializerContext(new JsonSerializerOptions { WriteIndented = false });
 
     internal static readonly ProfileJsonSerializerContext ProfileJsonSerializerContextIndented = new ProfileJsonSerializerContext(new JsonSerializerOptions { WriteIndented = true });
