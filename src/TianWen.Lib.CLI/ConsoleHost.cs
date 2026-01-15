@@ -1,8 +1,11 @@
 ﻿using ImageMagick;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using System.Collections.Concurrent;
+using System.Collections.Specialized;
 using System.Text;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Fake;
 
 namespace TianWen.Lib.CLI;
 
@@ -17,6 +20,7 @@ internal class ConsoleHost(
     private int? _consoleWidthPx;
     private int? _consoleHeightPx;
     private int? _consoleWidthChars;
+    private readonly ConcurrentDictionary<DeviceType, bool> _discoveryRanForDevice = [];
 
     public IDeviceUriRegistry DeviceUriRegistry { get; } = deviceUriRegistry;
 
@@ -122,7 +126,7 @@ internal class ConsoleHost(
         Console.Write(renderer.Render(image, widthScale));
     }
 
-    public async Task<IReadOnlyCollection<DeviceBase>> ListAllDevicesAsync(bool forceDiscovery, CancellationToken cancellationToken)
+    public async Task<IReadOnlyCollection<DeviceBase>> ListAllDevicesAsync(DeviceDiscoveryOption options, CancellationToken cancellationToken)
     {
         TimeSpan discoveryTimeout;
 #if DEBUG
@@ -135,15 +139,27 @@ internal class ConsoleHost(
 
         await deviceManager.CheckSupportAsync(linked.Token);
 
-        if (forceDiscovery)
+        if (options.HasFlag(DeviceDiscoveryOption.Force) || deviceManager.RegisteredDeviceTypes.Any(t => !_discoveryRanForDevice.TryGetValue(t, out var ran) || !ran))
         {
             await deviceManager.DiscoverAsync(linked.Token);
+
+            foreach (var type in deviceManager.RegisteredDeviceTypes)
+            {
+                _discoveryRanForDevice[type] = true;
+            }
         }
 
-        return [.. deviceManager.RegisteredDeviceTypes.SelectMany(deviceManager.RegisteredDevices)];
+        var includeFake = options.HasFlag(DeviceDiscoveryOption.IncludeFake);
+
+        return [.. deviceManager
+            .RegisteredDeviceTypes
+            .SelectMany(deviceManager.RegisteredDevices)
+            .Where(d => includeFake || d is not FakeDevice)
+            .OrderBy(d => d.DeviceType).ThenBy(d => d.DisplayName)
+        ];
     }
 
-    public async Task<IReadOnlyCollection<TDevice>> ListDevicesAsync<TDevice>(DeviceType deviceType, bool forceDiscovery, CancellationToken cancellationToken)
+    public async Task<IReadOnlyCollection<TDevice>> ListDevicesAsync<TDevice>(DeviceType deviceType, DeviceDiscoveryOption options, CancellationToken cancellationToken)
         where TDevice : DeviceBase
     {
         TimeSpan discoveryTimeout;
@@ -155,11 +171,20 @@ internal class ConsoleHost(
         using var cts = new CancellationTokenSource(discoveryTimeout, External.TimeProvider);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken);
 
-        if (await deviceManager.CheckSupportAsync(linked.Token) && forceDiscovery)
+        if (await deviceManager.CheckSupportAsync(linked.Token) && (
+            options.HasFlag(DeviceDiscoveryOption.Force) || !_discoveryRanForDevice.TryGetValue(deviceType, out var ran) || !ran)
+        )
         {
             await deviceManager.DiscoverOnlyDeviceType(deviceType, linked.Token);
         }
 
-        return [.. deviceManager.RegisteredDevices(deviceType).OfType<TDevice>()];
+        var includeFake = options.HasFlag(DeviceDiscoveryOption.IncludeFake);
+
+        return [.. deviceManager
+            .RegisteredDevices(deviceType)
+            .OfType<TDevice>()
+            .Where(d => includeFake || d is not FakeDevice)
+            .OrderBy(d => d.DisplayName)
+        ];
     }
 }

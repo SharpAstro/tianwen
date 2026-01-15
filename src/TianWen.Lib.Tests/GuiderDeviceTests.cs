@@ -10,8 +10,8 @@ namespace TianWen.Lib.Tests
     public class GuiderDeviceTests
     {
         [Theory]
-        [InlineData("phd2://guiderdevice/localhost/1#Profile", DeviceType.DedicatedGuiderSoftware, "localhost/1", "Profile")]
-        [InlineData("phd2://guiderdevice/localhost/1/Profile#Display", DeviceType.DedicatedGuiderSoftware, "localhost/1/Profile", "Display")]
+        [InlineData("guider://openphd2guiderdevice/localhost/1#Profile", DeviceType.Guider, "localhost/1", "Profile")]
+        [InlineData("guider://openphd2guiderdevice/localhost/1/Profile#Display", DeviceType.Guider, "localhost/1/Profile", "Display")]
         public void GivenAnUriDisplayNameDeviceTypeAndClassAreReturned(string uriString, DeviceType expectedType, string expectedId, string expectedDisplayName)
         {
             var serviceCollection = new ServiceCollection();

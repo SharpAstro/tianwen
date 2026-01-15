@@ -24,7 +24,7 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         DeviceType.Camera => new FakeCameraDriver(this, external),
         DeviceType.FilterWheel => new FakeFilterWheelDriver(this, external),
         DeviceType.Focuser => new FakeFocuserDriver(this, external),
-        DeviceType.DedicatedGuiderSoftware => new FakeGuider(this, external),
+        DeviceType.Guider => new FakeGuider(this, external),
         DeviceType.Mount => new FakeMeadeLX200ProtocolMountDriver(this, external),
         _ => null
     };

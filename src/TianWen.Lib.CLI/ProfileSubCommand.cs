@@ -26,6 +26,11 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
         };
         createProfileCommand.SetAction(CreateProfileAsync);
 
+        var addDeviceCommand = new Command("add", "Add a device to a profile")
+        {
+            Arguments = { profileNameArg }
+        };
+
         return new Command("profile", "Manage profiles")
         {
             Subcommands = {
@@ -39,6 +44,7 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
     internal async Task CreateProfileAsync(ParseResult parseResult, CancellationToken cancellationToken)
     {
         var profileName = parseResult.GetRequiredValue(profileNameArg);
+
         var newProfile = new Profile(Guid.NewGuid(), profileName, ProfileData.Empty);
         await newProfile.SaveAsync(consoleHost.External);
         Console.WriteLine($"Created new profile '{newProfile.DisplayName}' with ID {newProfile.ProfileId}");
@@ -63,6 +69,11 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
             }
             Console.WriteLine(profile.Detailed(consoleHost.DeviceUriRegistry));
         }
+    }
+
+    internal async Task AddDeviceAsync(ParseResult parseResult, CancellationToken cancellationToken)
+    {
+
     }
 
     internal async Task DeleteProfileAsync(ParseResult parseResult, CancellationToken cancellationToken)
@@ -115,5 +126,5 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
     }
 
     private Task<IReadOnlyCollection<Profile>> ListProfilesAsync(CancellationToken cancellationToken) =>
-        consoleHost.ListDevicesAsync<Profile>(DeviceType.Profile, true, cancellationToken);
+        consoleHost.ListDevicesAsync<Profile>(DeviceType.Profile, DeviceDiscoveryOption.Force, cancellationToken);
 }
