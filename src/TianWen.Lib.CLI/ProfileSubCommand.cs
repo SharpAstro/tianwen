@@ -1,7 +1,6 @@
 ﻿using Pastel;
 using System.CommandLine;
 using TianWen.Lib.Devices;
-using TianWen.Lib.Sequencing;
 
 namespace TianWen.Lib.CLI;
 
@@ -14,24 +13,25 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
     public Command Build()
     {
         var listProfilesCommand = new Command("list", "List all profiles");
-        listProfilesCommand.SetAction(ListProfilesAsync);
+        listProfilesCommand.SetAction(ListProfilesActionAsync);
 
         var deleteProfileCommand = new Command("delete", "Delete a profile")
         {
             Arguments = { profileNameOrIdArg }
         };
-        deleteProfileCommand.SetAction(DeleteProfileAsync);
+        deleteProfileCommand.SetAction(DeleteProfileActionAsync);
 
         var createProfileCommand = new Command("create", "Create a new empty profile")
         {
             Arguments = { profileNameArg }
         };
-        createProfileCommand.SetAction(CreateProfileAsync);
+        createProfileCommand.SetAction(CreateProfileActionAsync);
 
         var addDeviceCommand = new Command("add", "Add a device to a profile")
         {
             Arguments = { deviceIdArg }
         };
+        addDeviceCommand.SetAction(AddDeviceActionAsync);
 
         return new Command("profile", "Manage profiles")
         {
@@ -44,16 +44,16 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
         };
     }
 
-    internal async Task CreateProfileAsync(ParseResult parseResult, CancellationToken cancellationToken)
+    internal async Task CreateProfileActionAsync(ParseResult parseResult, CancellationToken cancellationToken)
     {
         var profileName = parseResult.GetRequiredValue(profileNameArg);
 
         var newProfile = new Profile(Guid.NewGuid(), profileName, ProfileData.Empty);
-        await newProfile.SaveAsync(consoleHost.External);
+        await newProfile.SaveAsync(consoleHost.External, cancellationToken);
         Console.WriteLine($"Created new profile '{newProfile.DisplayName}' with ID {newProfile.ProfileId}");
     }
 
-    internal async Task ListProfilesAsync(ParseResult parseResult, CancellationToken cancellationToken)
+    internal async Task ListProfilesActionAsync(ParseResult parseResult, CancellationToken cancellationToken)
     {
         var allProfiles = await ListProfilesAsync(cancellationToken);
 
@@ -74,7 +74,7 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
         }
     }
 
-    internal async Task AddDeviceAsync(ParseResult parseResult, CancellationToken cancellationToken)
+    internal async Task AddDeviceActionAsync(ParseResult parseResult, CancellationToken cancellationToken)
     {
         var allProfiles = await ListProfilesAsync(cancellationToken);
 
@@ -90,18 +90,42 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
             if (matchingDevices.Count is 1)
             {
                 var device = matchingDevices[0];
+                var uri = device.DeviceUri;
 
                 var data = selectedProfile.Data ?? new ProfileData();
-                
-                if (device.DeviceType is DeviceType.Mount)
+
+                var newData = device.DeviceType switch
                 {
-                    selectedProfile.Data = data with { Mount }
+                    DeviceType.Mount => data with { Mount = uri },
+                    DeviceType.Guider => data with { Guider = uri },
+                    DeviceType.Camera when data.OTAs.Length is 1 => data with { OTAs = [data.OTAs[0] with { Camera = uri }] },
+                    DeviceType.CoverCalibrator when data.OTAs.Length is 1 => data with { OTAs = [data.OTAs[0] with { Cover = uri }] },
+                    DeviceType.Focuser when data.OTAs.Length is 1 => data with { OTAs = [data.OTAs[0] with { Focuser = uri }] },
+                    DeviceType.FilterWheel when data.OTAs.Length is 1 => data with { OTAs = [data.OTAs[0] with { FilterWheel = uri }] },
+                    _ => data
+                };
+
+                var updatedProfile = selectedProfile.WithData(newData);
+                await updatedProfile.SaveAsync(consoleHost.External, cancellationToken);
+
+                await ListProfilesActionAsync(parseResult, cancellationToken);
+            }
+            else if (matchingDevices.Count is 0)
+            {
+                Console.Error.WriteLine($"No device found with ID '{deviceId}'");
+            }
+            else
+            {
+                Console.Error.WriteLine($"Multiple devices found with ID '{deviceId}':");
+                foreach (var device in matchingDevices)
+                {
+                    Console.Error.WriteLine($"- {device}");
                 }
             }
         }
     }
 
-    internal async Task DeleteProfileAsync(ParseResult parseResult, CancellationToken cancellationToken)
+    internal async Task DeleteProfileActionAsync(ParseResult parseResult, CancellationToken cancellationToken)
     {
         var profileNameOrId = parseResult.GetRequiredValue(profileNameOrIdArg);
 

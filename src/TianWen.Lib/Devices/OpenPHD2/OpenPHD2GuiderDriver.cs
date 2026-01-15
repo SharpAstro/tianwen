@@ -89,10 +89,9 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
 
     private static OpenPHD2GuiderDevice MakeDefaultRootDevice(IExternal external)
     {
-        var ip = external.DefaultGuiderAddress;
-        var instanceId = ip.Port - 4400 + 1;
-
-        return new OpenPHD2GuiderDevice(DeviceType.Guider, string.Join('/', ip.Address, instanceId), $"PHD2 instance {instanceId} on {ip}");
+        var (host, instanceId) = OpenPHD2GuiderDevice.ParseEndpoint(external.DefaultGuiderAddress);
+        var deviceId = OpenPHD2GuiderDevice.MakeDeviceId(host, instanceId);
+        return new OpenPHD2GuiderDevice(DeviceType.Guider, deviceId, $"PHD2 instance {instanceId} on {host}");
     }
 
     /// <summary>

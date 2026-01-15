@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Net;
 using System.Text;
 using System.Text.Json.Serialization;
 using TianWen.Lib.Devices.Guider;
@@ -12,8 +13,17 @@ public record class OpenPHD2GuiderDevice(Uri DeviceUri) : GuiderDeviceBase(Devic
     public OpenPHD2GuiderDevice(DeviceType deviceType, string deviceId, string displayName)
         : this(new Uri($"{deviceType}://{typeof(OpenPHD2GuiderDevice).Name}/{deviceId}#{displayName}"))
     {
-
     }
+
+    internal static (string Host, uint InstanceId) ParseEndpoint(IPEndPoint host)
+    {
+        var instanceId = host.Port - 4400 + 1;
+        return (host.Address.ToString(), instanceId > 0 ? (uint)instanceId : 1);
+    }
+
+    internal static string MakeDeviceId(string host, uint instance, string? profileName = null) => profileName is { Length: > 0 }
+        ? $"{host}/{instance}/{profileName.Trim()}"
+        : $"{host}/{instance}";
 
     internal static (string Host, uint InstanceId, string? ProfileName) ParseDeviceId(string deviceId)
     {
@@ -44,7 +54,7 @@ public record class OpenPHD2GuiderDevice(Uri DeviceUri) : GuiderDeviceBase(Devic
     {
         var (host, instance, _) = _parsedDeviceId ??= ParseDeviceId(DeviceId);
 
-        return new OpenPHD2GuiderDevice(DeviceType, $"{host}/{instance}/{profileName}", profileName);
+        return new OpenPHD2GuiderDevice(DeviceType, MakeDeviceId(host, instance, profileName), profileName);
     }
 
     protected override bool PrintMembers(StringBuilder stringBuilder) => base.PrintMembers(stringBuilder);

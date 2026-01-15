@@ -31,7 +31,7 @@ public class ProfileTests(ITestOutputHelper outputHelper)
             var profileIterator = new ProfileIterator(external);
 
             var profile = new Profile(new Guid(guid), name, ProfileData.Empty);
-            await profile.SaveAsync(external);
+            await profile.SaveAsync(external, cancellationToken);
 
             // when
             await profileIterator.DiscoverAsync(cancellationToken);
