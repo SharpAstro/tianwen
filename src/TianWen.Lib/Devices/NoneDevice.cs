@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Text;
 
 namespace TianWen.Lib.Devices;
 
@@ -9,11 +8,9 @@ namespace TianWen.Lib.Devices;
 /// <param name="DeviceUri"></param>
 public sealed record class NoneDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 {
-    public NoneDevice() : this(new Uri($"none://{typeof(NoneDevice).Name}/None#None"))
-    {
-    }
+    public NoneDevice() : this(new Uri($"none://{typeof(NoneDevice).Name}/None#None")) { }
 
     public static readonly NoneDevice Instance = new NoneDevice();
 
-    public override string ToString() => "<None>";
+    protected override string? CustomToString() => "<None>";
 }

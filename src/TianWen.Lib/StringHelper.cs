@@ -1,8 +1,9 @@
 ﻿using System.Text;
+using System.Text.RegularExpressions;
 
 namespace TianWen.Lib;
 
-public static class StringHelper
+public static partial class StringHelper
 {
     public static string? ReplaceNonPrintableWithHex(this string str)
     {
@@ -20,4 +21,11 @@ public static class StringHelper
         }
         return sb.ToString();
     }
+
+    static readonly Regex PascalSplitter = PascalSplitterPattern();
+
+    public static string PascalCaseStringToName(this string str) => PascalSplitter.Replace(str, " $1$2").TrimStart();
+
+    [GeneratedRegex(@"([A-Z][(?:)a-z])|([0-9]+)", RegexOptions.Compiled | RegexOptions.IgnorePatternWhitespace | RegexOptions.CultureInvariant)]
+    internal static partial Regex PascalSplitterPattern();
 }
