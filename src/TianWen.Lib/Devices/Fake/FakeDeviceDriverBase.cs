@@ -22,7 +22,7 @@ internal abstract class FakeDeviceDriverBase(FakeDevice fakeDevice, IExternal ex
 
     public bool Connected => Volatile.Read(ref _connected);
 
-    public abstract DeviceType DriverType { get; }
+    public DeviceType DriverType => _fakeDevice.DeviceType;
 
     public IExternal External { get; } = external;
 

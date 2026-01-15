@@ -8,8 +8,6 @@ internal class FakeFocuserDriver(FakeDevice fakeDevice, IExternal external) : Fa
 {
     public int Position => _position;
 
-    public override DeviceType DriverType => DeviceType.Focuser;
-
     public bool Absolute => true;
 
     public bool IsMoving => _isMoving;

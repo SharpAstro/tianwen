@@ -43,28 +43,26 @@ namespace TianWen.Lib.Devices.OpenPHD2;
 
 internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevice>
 {
-    readonly ConcurrentDictionary<long, JsonDocument> _responses = [];
-    readonly OpenPHD2GuiderDevice _guiderDevice;
-    readonly SemaphoreSlim _sync = new(1, 1);
-    readonly AsyncManualResetEvent _receiveResponseSignal = new(false);
-    IUtf8TextBasedConnection? _connection;
-    string? _selectedProfileName;
-#pragma warning disable IDE0044 // Add readonly modifier used by Interlocked.Exchange
-    List<OpenPHD2GuiderDevice> _equipmentProfiles = [];
-#pragma warning restore IDE0044 // Add readonly modifier
-    CancellationTokenSource _cts = new();
-    Task? _receiveTask;
+    private readonly ConcurrentDictionary<long, JsonDocument> _responses = [];
+    private readonly OpenPHD2GuiderDevice _guiderDevice;
+    private readonly SemaphoreSlim _sync = new(1, 1);
+    private readonly AsyncManualResetEvent _receiveResponseSignal = new(false);
+    private IUtf8TextBasedConnection? _connection;
+    private string? _selectedProfileName;
+    private List<OpenPHD2GuiderDevice> _equipmentProfiles = [];
+    private CancellationTokenSource _cts = new();
+    private Task? _receiveTask;
 
-    Accum AccumRA { get; } = new Accum();
-    Accum AccumDEC { get; } = new Accum();
-    bool IsAccumActive { get; set; }
-    double SettlePixels { get; set; }
-    string? AppState { get; set; }
-    double AverageDistance { get; set; }
-    GuideStats? Stats { get; set; }
-    string? Version { get; set; }
-    string? PHDSubvVersion { get; set; }
-    SettleProgress? Settle { get; set; }
+    private Accum AccumRA { get; } = new Accum();
+    private Accum AccumDEC { get; } = new Accum();
+    private bool IsAccumActive { get; set; }
+    private double SettlePixels { get; set; }
+    private string? AppState { get; set; }
+    private double AverageDistance { get; set; }
+    private GuideStats? Stats { get; set; }
+    private string? Version { get; set; }
+    private string? PHDSubvVersion { get; set; }
+    private SettleProgress? Settle { get; set; }
 
     public OpenPHD2GuiderDriver(IExternal external) : this(MakeDefaultRootDevice(external), external)
     {
@@ -75,7 +73,7 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
     {
         if (guiderDevice.DeviceType != DeviceType.Guider)
         {
-            throw new ArgumentException($"{guiderDevice} is not of type PHD2, but of type: {guiderDevice.DeviceType}", nameof(guiderDevice));
+            throw new ArgumentException($"{guiderDevice} is a guider, but of type: {guiderDevice.DeviceType}", nameof(guiderDevice));
         }
 
         External = external;

@@ -1,6 +1,7 @@
 ﻿using Pastel;
 using System.CommandLine;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Sequencing;
 
 namespace TianWen.Lib.CLI;
 
@@ -8,6 +9,7 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
 {
     private readonly Argument<string> profileNameOrIdArg = new Argument<string>("profileNameOrId") { Description = "Name or ID of the profile" };
     private readonly Argument<string> profileNameArg = new Argument<string>("profileName") { Description = "Name of the new profile" };
+    private readonly Argument<string> deviceIdArg = new Argument<string>("deviceId") { Description = "Device ID" };
 
     public Command Build()
     {
@@ -28,7 +30,7 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
 
         var addDeviceCommand = new Command("add", "Add a device to a profile")
         {
-            Arguments = { profileNameArg }
+            Arguments = { deviceIdArg }
         };
 
         return new Command("profile", "Manage profiles")
@@ -36,7 +38,8 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
             Subcommands = {
                 listProfilesCommand,
                 deleteProfileCommand,
-                createProfileCommand
+                createProfileCommand,
+                addDeviceCommand
             }
         };
     }
@@ -73,7 +76,29 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
 
     internal async Task AddDeviceAsync(ParseResult parseResult, CancellationToken cancellationToken)
     {
+        var allProfiles = await ListProfilesAsync(cancellationToken);
 
+        var devices = await consoleHost.ListAllDevicesAsync(DeviceDiscoveryOption.None, cancellationToken);
+
+        var selectedProfile = parseResult.GetSelected(allProfiles, selectedProfileOption);
+        var deviceId = parseResult.GetRequiredValue(deviceIdArg);
+
+        if (selectedProfile is { })
+        {
+            var matchingDevices = devices.Where(d => d.DeviceId == deviceId).ToList();
+
+            if (matchingDevices.Count is 1)
+            {
+                var device = matchingDevices[0];
+
+                var data = selectedProfile.Data ?? new ProfileData();
+                
+                if (device.DeviceType is DeviceType.Mount)
+                {
+                    selectedProfile.Data = data with { Mount }
+                }
+            }
+        }
     }
 
     internal async Task DeleteProfileAsync(ParseResult parseResult, CancellationToken cancellationToken)
