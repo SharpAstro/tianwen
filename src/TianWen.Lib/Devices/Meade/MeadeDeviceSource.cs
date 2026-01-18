@@ -102,8 +102,7 @@ internal partial class MeadeDeviceSource(IExternal external) : IDeviceSource<Mea
             {
                 continue;
             }
-
-            if (trimmed.Length is MaxSiteLength && trimmed.StartsWith(UUIDPrefix))
+            else if (trimmed.Length is MaxSiteLength && trimmed.StartsWith(UUIDPrefix))
             {
                 uuid = trimmed[UUIDPrefix.Length..];
             }
@@ -126,8 +125,10 @@ internal partial class MeadeDeviceSource(IExternal external) : IDeviceSource<Mea
                     continue;
                 }
             }
-
-            sites.Add(trimmed);
+            else
+            {
+                sites.Add(trimmed);
+            }
         }
 
         sites.Reverse();
