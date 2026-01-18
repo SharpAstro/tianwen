@@ -1,11 +1,10 @@
 ﻿using System;
 using System.Globalization;
 using System.Runtime.CompilerServices;
-using System.Text.RegularExpressions;
 
 namespace TianWen.Lib;
 
-public static partial class EnumHelper
+public static class EnumHelper
 {
     internal const uint ASCIIMask = 0x7f;
     internal const uint ByteMask = 0xff;
@@ -138,9 +137,5 @@ public static partial class EnumHelper
         return false;
     }
 
-    static readonly Regex PascalSplitter = PascalSplitterPattern();
-
-    public static string PascalCaseStringToName<T>(this T @enum) where T : struct, Enum => PascalSplitter.Replace(@enum.ToString(), " $1$2").TrimStart();
-    [GeneratedRegex(@"([A-Z][(?:)a-z])|([0-9]+)", RegexOptions.Compiled | RegexOptions.IgnorePatternWhitespace | RegexOptions.CultureInvariant)]
-    internal static partial Regex PascalSplitterPattern();
+    public static string PascalCaseStringToName<T>(this T @enum) where T : struct, Enum => @enum.ToString().PascalCaseStringToName();
 }
