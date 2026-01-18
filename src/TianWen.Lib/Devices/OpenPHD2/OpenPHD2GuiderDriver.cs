@@ -203,32 +203,20 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
 
         if (eventName is "AppState")
         {
-            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
+            using var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false);
+
+            newAppState = AppState = @event.RootElement.GetProperty("State").GetString();
+            if (IsGuidingAppState(AppState))
             {
-                newAppState = AppState = @event.RootElement.GetProperty("State").GetString();
-                if (IsGuidingAppState(AppState))
-                {
-                    AverageDistance = 0.0;   // until we get a GuideStep event
-                }
-            }
-            finally
-            {
-                _sync.Release();
+                AverageDistance = 0.0;   // until we get a GuideStep event
             }
         }
         else if (eventName is "Version")
         {
-            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                Version = @event.RootElement.GetProperty("PHDVersion").GetString();
-                PHDSubvVersion = @event.RootElement.GetProperty("PHDSubver").GetString();
-            }
-            finally
-            {
-                _sync.Release();
-            }
+            using var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false);
+
+            Version = @event.RootElement.GetProperty("PHDVersion").GetString();
+            PHDSubvVersion = @event.RootElement.GetProperty("PHDSubver").GetString();
         }
         else if (eventName is "StartGuiding")
         {
@@ -236,15 +224,9 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
             AccumRA.Reset();
             AccumDEC.Reset();
 
-            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                Stats = new GuideStats();
-            }
-            finally
-            {
-                _sync.Release();
-            }
+            using var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false);
+
+            Stats = new GuideStats();
         }
         else if (eventName is "GuideStep")
         {
@@ -256,19 +238,13 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
                 stats = AccumulateGuidingStats(AccumRA, AccumDEC);
             }
 
-            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
+            using var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false);
+
+            newAppState = AppState = "Guiding";
+            AverageDistance = @event.RootElement.GetProperty("AvgDist").GetDouble();
+            if (IsAccumActive)
             {
-                newAppState = AppState = "Guiding";
-                AverageDistance = @event.RootElement.GetProperty("AvgDist").GetDouble();
-                if (IsAccumActive)
-                {
-                    Stats = stats;
-                }
-            }
-            finally
-            {
-                _sync.Release();
+                Stats = stats;
             }
         }
         else if (eventName is "SettleBegin")
@@ -287,15 +263,9 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
                 Status = 0,
                 StarLocked = @event.RootElement.GetProperty("StarLocked").GetBoolean(),
             };
-            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                Settle = settingProgress;
-            }
-            finally
-            {
-                _sync.Release();
-            }
+            using var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false);
+
+            Settle = settingProgress;
         }
         else if (eventName is "SettleDone")
         {
@@ -312,89 +282,46 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
                 Error = @event.RootElement.TryGetProperty("Error", out var error) ? error.GetString() : null
             };
 
-            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                Settle = settleProgress;
-                Stats = stats;
-            }
-            finally
-            {
-                _sync.Release();
-            }
+            using var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false);
+            Settle = settleProgress;
+            Stats = stats;
         }
         else if (eventName is "Paused")
         {
-            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                newAppState = AppState = "Paused";
-            }
-            finally
-            {
-                _sync.Release();
-            }
+            using var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false);
+
+            newAppState = AppState = "Paused";
         }
         else if (eventName is "StartCalibration")
         {
-            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                newAppState = AppState = "Calibrating";
-            }
-            finally
-            {
-                _sync.Release();
-            }
+            using var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false);
+
+            newAppState = AppState = "Calibrating";
         }
         else if (eventName is "StarSelected")
         {
-            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                newAppState = AppState = "Selected";
-            }
-            finally
-            {
-                _sync.Release();
-            }
+            using var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false);
+
+            newAppState = AppState = "Selected";
         }
         else if (eventName is "LoopingExposures")
         {
-            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                newAppState = AppState = "Looping";
-            }
-            finally
-            {
-                _sync.Release();
-            }
+            using var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false);
+
+            newAppState = AppState = "Looping";
         }
         else if (eventName is "LoopingExposuresStopped" or "GuidingStopped")
         {
-            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                newAppState = AppState = "Stopped";
-            }
-            finally
-            {
-                _sync.Release();
-            }
+            using var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false);
+
+            newAppState = AppState = "Stopped";
         }
         else if (eventName is "StarLost")
         {
-            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                newAppState = AppState = "LostLock";
-                AverageDistance = @event.RootElement.GetProperty("AvgDist").GetDouble();
-            }
-            finally
-            {
-                _sync.Release();
-            }
+            using var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false);
+
+            newAppState = AppState = "LostLock";
+            AverageDistance = @event.RootElement.GetProperty("AvgDist").GetDouble();
         }
 
         OnGuiderStateChangedEvent(new GuiderStateChangedEventArgs(ActiveGuiderDevice, eventName ?? "Unknown", newAppState ?? "Unknown"));
@@ -529,11 +456,10 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
                 ? new IPEndPoint(ipAddress, port)
                 : new DnsEndPoint(host, port);
 
-            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+            var connection = await External.ConnectGuiderAsync(endPoint, CommunicationProtocol.JsonRPC, cancellationToken);
+            using var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                var connection = await External.ConnectGuiderAsync(endPoint, CommunicationProtocol.JsonRPC, cancellationToken);
-
                 Interlocked.Exchange(ref _connection, connection)?.Dispose();
                 var cts = new CancellationTokenSource();
                 var oldCts = Interlocked.Exchange(ref _cts, cts);
@@ -554,31 +480,21 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
             {
                 throw new GuiderException($"Failed to connect to {_guiderDevice.DisplayName}: {e.Message}", e);
             }
-            finally
-            {
-                _sync.Release();
-            }
         }
         else
         {
-            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+            using var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false);
+
+            var oldCts = Interlocked.Exchange(ref _cts, new CancellationTokenSource());
             try
             {
-                var oldCts = Interlocked.Exchange(ref _cts, new CancellationTokenSource());
-                try
-                {
-                    await oldCts.CancelAsync();
-                }
-                finally
-                {
-                    oldCts.Dispose();
-                }
-                Interlocked.Exchange(ref _connection, null)?.Dispose();
+                await oldCts.CancelAsync();
             }
             finally
             {
-                _sync.Release();
+                oldCts.Dispose();
             }
+            Interlocked.Exchange(ref _connection, null)?.Dispose();
         }
 
         DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(connect));
@@ -673,20 +589,13 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
             Status = 0
         };
 
-        await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            if (Settle != null && !Settle.Done)
-            {
-                throw new GuiderException("cannot guide while settling");
-            }
-            Settle = settleProgress;
-        }
-        finally
-        {
-            _sync.Release();
-        }
+        using var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false);
 
+        if (Settle != null && !Settle.Done)
+        {
+            throw new GuiderException("cannot guide while settling");
+        }
+        Settle = settleProgress;
 
         try
         {
@@ -698,15 +607,8 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
             var guidingErrorEventArgs = new GuidingErrorEventArgs(ActiveGuiderDevice, $"while calling guide({settlePixels}, {settleTime}, {settleTimeout}): {ex.Message}", ex);
             OnGuidingErrorEvent(guidingErrorEventArgs);
             // failed - remove the settle state
-            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                Settle = null;
-            }
-            finally
-            {
-                _sync.Release();
-            }
+
+            Settle = null;
             throw new GuiderException(guidingErrorEventArgs.Message, guidingErrorEventArgs.Exception);
         }
     }
@@ -725,17 +627,12 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
             Status = 0
         };
 
-        await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        using (var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false))
         {
             if (Settle != null && !Settle.Done)
                 throw new GuiderException("cannot dither while settling");
 
             Settle = settleProgress;
-        }
-        finally
-        {
-            _sync.Release();
         }
 
         try
@@ -753,14 +650,9 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
             );
             OnGuidingErrorEvent(guidingErrorEventArgs);
             // call failed - remove the settle state
-            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
+            using (var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false))
             {
                 Settle = null;
-            }
-            finally
-            {
-                _sync.Release();
             }
             throw new GuiderException(guidingErrorEventArgs.Message, guidingErrorEventArgs.Exception);
         }
@@ -770,32 +662,21 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
     {
         EnsureConnected();
 
-        await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            return AppState == "Looping";
-        }
-        finally
-        {
-            _sync.Release();
-        }
+        using var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false);
+
+        return AppState == "Looping";
     }
 
     public async ValueTask<bool> IsSettlingAsync(CancellationToken cancellationToken = default)
     {
         EnsureConnected();
 
-        await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        using (var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false))
         {
             if (Settle != null)
             {
                 return !Settle.Done;
             }
-        }
-        finally
-        {
-            _sync.Release();
         }
 
         // for app init, initialize the settle state to a consistent value
@@ -816,15 +697,9 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
                 SettleTime = 0.0,
                 Status = 0
             };
-            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                Settle ??= settleProgress;
-            }
-            finally
-            {
-                _sync.Release();
-            }
+
+            using var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false);
+            Settle ??= settleProgress;
         }
 
         return isSettling;
@@ -908,14 +783,9 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
         for (uint i = 0; i < totalSeconds; i++)
         {
             string? appstate;
-            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
+            using (var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false))
             {
                 appstate = AppState;
-            }
-            finally
-            {
-                _sync.Release();
             }
 
             if (appstate is "Stopped")
@@ -931,14 +801,9 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
         using var appStateResponse = await CallAsync("get_app_state", cancellationToken).ConfigureAwait(false);
         string? appState = appStateResponse.RootElement.GetProperty("result").GetString();
 
-        await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        using (var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false))
         {
             AppState = appState;
-        }
-        finally
-        {
-            _sync.Release();
         }
 
         if (appState == "Stopped")
@@ -953,17 +818,12 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
         EnsureConnected();
 
         // already looping?
-        await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        using (var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false))
         {
             if (AppState == "Looping")
             {
                 return true;
             }
-        }
-        finally
-        {
-            _sync.Release();
         }
 
         var exposureTime = await ExposureTimeAsync(cancellationToken).ConfigureAwait(false);
@@ -975,17 +835,12 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
         var totalSeconds = (uint)timeout.TotalSeconds;
         for (uint i = 0; i < totalSeconds; i++)
         {
-            await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
+            using (var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false))
             {
                 if (AppState == "Looping")
                 {
                     return true;
                 }
-            }
-            finally
-            {
-                _sync.Release();
             }
 
             await External.SleepAsync(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
@@ -1122,15 +977,9 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
     {
         EnsureConnected();
 
-        await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            return (AppState, AverageDistance);
-        }
-        finally
-        {
-            _sync.Release();
-        }
+        using var @lock = await _sync.AcquireLockAsync(cancellationToken).ConfigureAwait(false);
+
+        return (AppState, AverageDistance);
     }
 
     public async ValueTask<bool> IsGuidingAsync(CancellationToken cancellationToken = default)

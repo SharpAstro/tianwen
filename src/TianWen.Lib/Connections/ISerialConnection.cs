@@ -32,9 +32,7 @@ public interface ISerialConnection : IDisposable
 
     bool TryClose();
 
-    Task WaitAsync(CancellationToken cancellationToken);
-
-    int Release();
+    ValueTask<ResourceLock> WaitAsync(CancellationToken cancellationToken);
 
     ValueTask<bool> TryWriteAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken);
 

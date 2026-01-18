@@ -210,54 +210,46 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
             return;
         }
 
+        // acquire lock in this method directly as we might potentially send out two read commands
         using var buffer = ArrayPoolHelper.Rent<byte>(2 + 8);
-        try
+        using var @lock = await port.WaitAsync(cancellationToken);
+        var adjustedDateTime = utcDate - utcOffset;
+
+        "SL"u8.CopyTo(buffer);
+
+        if (!adjustedDateTime.TryFormat(buffer.AsSpan(2), out _, "HH:mm:ss", CultureInfo.InvariantCulture))
         {
-            var adjustedDateTime = utcDate - utcOffset;
-
-            // acquire lock in this method directly as we might potentially send out two read commands
-            await port.WaitAsync(cancellationToken);
-
-            "SL"u8.CopyTo(buffer);
-
-            if (!adjustedDateTime.TryFormat(buffer.AsSpan(2), out _, "HH:mm:ss", CultureInfo.InvariantCulture))
-            {
-                throw new InvalidOperationException($"Failed to convert {value} to HH:mm:ss");
-            }
-
-            await SendAsync(port, buffer, cancellationToken);
-
-            var slResponse = await port.TryReadTerminatedAsync(Terminators, cancellationToken);
-            if (slResponse is "1")
-            {
-                throw new ArgumentException($"Failed to set date to {value}, command was {_encoding.GetString(buffer)} with response {slResponse}", nameof(value));
-            }
-
-            "SC"u8.CopyTo(buffer);
-
-            if (!adjustedDateTime.TryFormat(buffer.AsSpan(2), out _, "MM/dd/yy", CultureInfo.InvariantCulture))
-            {
-                throw new InvalidOperationException($"Failed to convert {value} to MM/dd/yy");
-            }
-
-            await SendAsync(port, buffer, cancellationToken);
-
-            var scResponse = await port.TryReadTerminatedAsync(Terminators, cancellationToken);
-            if (scResponse is "1")
-            {
-                throw new ArgumentException($"Failed to set date to {value}, command was {_encoding.GetString(buffer)} with response {scResponse}", nameof(value));
-            }
-
-            //throwing away these two strings which represent
-            //Updating Planetary Data#
-            //                       #
-            TimeIsSetByUs = await port.TryReadTerminatedAsync(Terminators, cancellationToken) is not null
-                && await port.TryReadTerminatedAsync(Terminators, cancellationToken) is not null;
+            throw new InvalidOperationException($"Failed to convert {value} to HH:mm:ss");
         }
-        finally
+
+        await SendAsync(port, buffer, cancellationToken);
+
+        var slResponse = await port.TryReadTerminatedAsync(Terminators, cancellationToken);
+        if (slResponse is "1")
         {
-            port.Release();
+            throw new ArgumentException($"Failed to set date to {value}, command was {_encoding.GetString(buffer)} with response {slResponse}", nameof(value));
         }
+
+        "SC"u8.CopyTo(buffer);
+
+        if (!adjustedDateTime.TryFormat(buffer.AsSpan(2), out _, "MM/dd/yy", CultureInfo.InvariantCulture))
+        {
+            throw new InvalidOperationException($"Failed to convert {value} to MM/dd/yy");
+        }
+
+        await SendAsync(port, buffer, cancellationToken);
+
+        var scResponse = await port.TryReadTerminatedAsync(Terminators, cancellationToken);
+        if (scResponse is "1")
+        {
+            throw new ArgumentException($"Failed to set date to {value}, command was {_encoding.GetString(buffer)} with response {scResponse}", nameof(value));
+        }
+
+        //throwing away these two strings which represent
+        //Updating Planetary Data#
+        //                       #
+        TimeIsSetByUs = await port.TryReadTerminatedAsync(Terminators, cancellationToken) is not null
+            && await port.TryReadTerminatedAsync(Terminators, cancellationToken) is not null;
     }
 
     private static readonly ReadOnlyMemory<byte> GCCommand = "GC"u8.ToArray();
@@ -839,40 +831,33 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         // acquire lock in this method directly as we might potentially send out two read commands
         if (_deviceInfo.SerialDevice is { IsOpen: true } port)
         {
-            await port.WaitAsync(cancellationToken);
-            try
+            using var @lock = await port.WaitAsync(cancellationToken);
+            await SendAsync(port, SlewCommand, cancellationToken);
+            var response = await port.TryReadExactlyAsync(1, cancellationToken);
+
+            if (response is "0")
             {
-                await SendAsync(port, SlewCommand, cancellationToken);
-                var response = await port.TryReadExactlyAsync(1, cancellationToken);
-
-                if (response is "0")
-                {
 #if TRACE
-                    External.AppLogger.LogTrace("Slewing to {RA},{Dec}", HoursToHMS(ra), DegreesToDMS(dec));
+                External.AppLogger.LogTrace("Slewing to {RA},{Dec}", HoursToHMS(ra), DegreesToDMS(dec));
 #endif
-                }
-                else if (response is { Length: 1 }
-                    && byte.TryParse(response[0..1], out var reasonCode)
-                    && (await port.TryReadTerminatedAsync(Terminators, cancellationToken) is { } reasonMessage)
-                )
-                {
-                    var reason = reasonCode switch
-                    {
-                        1 => "below horizon limit",
-                        2 => "above hight limit",
-                        _ => $"unknown reason {reasonCode}: {reasonMessage}"
-                    };
-
-                    throw new InvalidOperationException($"Failed to slew to {HoursToHMS(ra)},{DegreesToDMS(dec)} due to {reason} message={reasonCode}{reasonMessage}");
-                }
-                else
-                {
-                    throw new InvalidOperationException($"Failed to slew to {HoursToHMS(ra)},{DegreesToDMS(dec)} due to an unrecognized response: {response}");
-                }
             }
-            finally
-            { 
-                port.Release();
+            else if (response is { Length: 1 }
+                && byte.TryParse(response[0..1], out var reasonCode)
+                && (await port.TryReadTerminatedAsync(Terminators, cancellationToken) is { } reasonMessage)
+            )
+            {
+                var reason = reasonCode switch
+                {
+                    1 => "below horizon limit",
+                    2 => "above hight limit",
+                    _ => $"unknown reason {reasonCode}: {reasonMessage}"
+                };
+
+                throw new InvalidOperationException($"Failed to slew to {HoursToHMS(ra)},{DegreesToDMS(dec)} due to {reason} message={reasonCode}{reasonMessage}");
+            }
+            else
+            {
+                throw new InvalidOperationException($"Failed to slew to {HoursToHMS(ra)},{DegreesToDMS(dec)} due to an unrecognized response: {response}");
             }
         }
         else
@@ -1041,17 +1026,11 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     {
         if (_deviceInfo.SerialDevice is { IsOpen: true } port)
         {
-            await port.WaitAsync(cancellationToken);
-            try
-            {
-                await SendAsync(port, command, cancellationToken);
+            using var @lock = await port.WaitAsync(cancellationToken);
 
-                return await port.TryReadTerminatedAsync(Terminators, cancellationToken);
-            }
-            finally
-            {
-                port.Release();
-            }
+            await SendAsync(port, command, cancellationToken);
+
+            return await port.TryReadTerminatedAsync(Terminators, cancellationToken);
         }
 
         return null;
@@ -1062,17 +1041,11 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     {
         if (_deviceInfo.SerialDevice is { IsOpen: true } port)
         {
-            await port.WaitAsync(cancellationToken);
-            try
-            {
-                await SendAsync(port, command, cancellationToken);
+            using var @lock = await port.WaitAsync(cancellationToken);
 
-                return await port.TryReadTerminatedRawAsync(response, Terminators, cancellationToken);
-            }
-            finally
-            {
-                port.Release();
-            }
+            await SendAsync(port, command, cancellationToken);
+
+            return await port.TryReadTerminatedRawAsync(response, Terminators, cancellationToken);
         }
 
         return -1;
@@ -1083,17 +1056,11 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     {
         if (_deviceInfo.SerialDevice is { IsOpen: true } port)
         {
-            await port.WaitAsync(cancellationToken);
-            try
-            {
-                await SendAsync(port, command, cancellationToken);
+            using var @lock = await port.WaitAsync(cancellationToken);
 
-                return await port.TryReadExactlyAsync(count, cancellationToken);
-            }
-            finally
-            {
-                port.Release();
-            }
+            await SendAsync(port, command, cancellationToken);
+
+            return await port.TryReadExactlyAsync(count, cancellationToken);
         }
 
         return null;
@@ -1104,15 +1071,9 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     {
         if (_deviceInfo.SerialDevice is { IsOpen: true } port)
         {
-            await port.WaitAsync(cancellationToken);
-            try
-            {
-                await SendAsync(port, command, cancellationToken);
-            }
-            finally
-            {
-                port.Release();
-            }
+            using var @lock = await port.WaitAsync(cancellationToken);
+
+            await SendAsync(port, command, cancellationToken);
         }
         else
         {

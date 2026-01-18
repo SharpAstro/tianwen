@@ -21,37 +21,13 @@ internal partial class MeadeDeviceSource(IExternal external) : IDeviceSource<Mea
     {
         var devices = new Dictionary<DeviceType, List<MeadeDevice>>();
 
-        foreach (var portName in external.EnumerateSerialPorts())
+        using var resourceLock = await external.WaitForSerialPortEnumerationAsync(cancellationToken);
+
+        foreach (var portName in external.EnumerateAvailableSerialPorts(resourceLock))
         {
             try
             {
-                using var serialDevice = external.OpenSerialDevice(portName, 9600, Encoding.ASCII, TimeSpan.FromMilliseconds(100));
-
-                var (productName, productNumber, siteNames) = await TryGetMountInfo(serialDevice, cancellationToken);
-                if (productName is { } && productNumber is { } && SupportedProductsRegex.IsMatch(productName) && siteNames is { })
-                {
-                    List<MeadeDevice> deviceList;
-                    if (devices.TryGetValue(DeviceType.Mount, out var existingMounts))
-                    {
-                        deviceList = existingMounts;
-                    }
-                    else
-                    {
-                        devices[DeviceType.Mount] = deviceList = [];
-                    }
-
-                    var portNameWithoutProtoPrefix = ISerialConnection.RemoveProtoPrrefix(portName);
-                    var deviceId = string.Join('_',
-                        SafeName(productName),
-                        SafeName(productNumber),
-                        SafeName(siteNames),
-                        deviceList.Count + 1,
-                        SafeName(portNameWithoutProtoPrefix)
-                    );
-
-                    var device = new MeadeDevice(DeviceType.Mount, deviceId, $"{productName} ({productNumber}) on {portNameWithoutProtoPrefix}", portName);
-                    deviceList.Add(device);
-                }
+                await QueryPortAsync(devices, portName, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -60,6 +36,37 @@ internal partial class MeadeDeviceSource(IExternal external) : IDeviceSource<Mea
         }
 
         Interlocked.Exchange(ref _cachedDevices, devices);
+    }
+
+    private async Task QueryPortAsync(Dictionary<DeviceType, List<MeadeDevice>> devices, string portName, CancellationToken cancellationToken)
+    {
+        using var serialDevice = external.OpenSerialDevice(portName, 9600, Encoding.ASCII, TimeSpan.FromMilliseconds(100));
+
+        var (productName, productNumber, siteNames) = await TryGetMountInfo(serialDevice, cancellationToken);
+        if (productName is { } && productNumber is { } && SupportedProductsRegex.IsMatch(productName) && siteNames is { })
+        {
+            List<MeadeDevice> deviceList;
+            if (devices.TryGetValue(DeviceType.Mount, out var existingMounts))
+            {
+                deviceList = existingMounts;
+            }
+            else
+            {
+                devices[DeviceType.Mount] = deviceList = [];
+            }
+
+            var portNameWithoutProtoPrefix = ISerialConnection.RemoveProtoPrrefix(portName);
+            var deviceId = string.Join('_',
+                SafeName(productName),
+                SafeName(productNumber),
+                SafeName(siteNames),
+                deviceList.Count + 1,
+                SafeName(portNameWithoutProtoPrefix)
+            );
+
+            var device = new MeadeDevice(DeviceType.Mount, deviceId, $"{productName} ({productNumber}) on {portNameWithoutProtoPrefix}", portName);
+            deviceList.Add(device);
+        }
 
         static string SafeName(string name) => name.Replace('_', '-').Replace('/', '-').Replace(':', '-');
     }
@@ -68,40 +75,33 @@ internal partial class MeadeDeviceSource(IExternal external) : IDeviceSource<Mea
     {
         const string UnusedSiteName = "<AN UNUSED SITE>";
 
-        await serialDevice.WaitAsync(cancellationToken);
+        using var @lock = await serialDevice.WaitAsync(cancellationToken);
 
-        try
+        var productName = await TryReadTerminatedAsync(":GVP#");
+        var productNumber = await TryReadTerminatedAsync(":GVN#");
+        var site1Name = await TryReadTerminatedAsync(":GM#");
+        var site2Name = await TryReadTerminatedAsync(":GN#");
+        var site3Name = await TryReadTerminatedAsync(":GO#");
+        var site4Name = await TryReadTerminatedAsync(":GP#");
+
+        var sites = new StringBuilder(site1Name?.Length ?? 0 + site2Name?.Length ?? 0 + site3Name?.Length ?? 0 + site4Name?.Length ?? 0);
+
+        foreach (var site in new string?[] { site1Name, site2Name, site3Name, site4Name })
         {
-            var productName = await TryReadTerminatedAsync(":GVP#");
-            var productNumber = await TryReadTerminatedAsync(":GVN#");
-            var site1Name = await TryReadTerminatedAsync(":GM#");
-            var site2Name = await TryReadTerminatedAsync(":GN#");
-            var site3Name = await TryReadTerminatedAsync(":GO#");
-            var site4Name = await TryReadTerminatedAsync(":GP#");
-
-            var sites = new StringBuilder(site1Name?.Length ?? 0 + site2Name?.Length ?? 0 + site3Name?.Length ?? 0 + site4Name?.Length ?? 0);
-
-            foreach (var site in new string?[] { site1Name, site2Name, site3Name, site4Name })
+            var trimmed = site?.TrimEnd();
+            if (trimmed is not { } || trimmed.Length is 0 || trimmed is UnusedSiteName)
             {
-                var trimmed = site?.TrimEnd();
-                if (trimmed is not { } || trimmed.Length is 0 || trimmed is UnusedSiteName)
-                {
-                    continue;
-                }
-
-                if (sites.Length > 0)
-                {
-                    sites.Append(',');
-                }
-                sites.Append(trimmed);
+                continue;
             }
 
-            return (productName, productNumber, sites.ToString());
+            if (sites.Length > 0)
+            {
+                sites.Append(',');
+            }
+            sites.Append(trimmed);
         }
-        finally
-        {
-            serialDevice.Release();
-        }
+
+        return (productName, productNumber, sites.ToString());
 
         async Task<string?> TryReadTerminatedAsync(string command)
         {

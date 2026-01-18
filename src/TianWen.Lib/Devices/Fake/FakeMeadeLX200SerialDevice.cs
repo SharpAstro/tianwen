@@ -58,9 +58,7 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
 
     public Encoding Encoding { get; private set; }
 
-    public Task WaitAsync(CancellationToken cancellationToken) => _semaphore.WaitAsync(cancellationToken);
-
-    public int Release() => _semaphore.Release();
+    public ValueTask<ResourceLock> WaitAsync(CancellationToken cancellationToken) => _semaphore.AcquireLockAsync(cancellationToken);
 
     public void Dispose() => TryClose();
 

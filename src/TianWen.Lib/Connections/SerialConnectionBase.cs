@@ -35,9 +35,7 @@ internal abstract class SerialConnectionBase : ISerialConnection
     /// </summary>
     public Encoding Encoding { get; }
 
-    public Task WaitAsync(CancellationToken cancellationToken) => _semaphore.WaitAsync(cancellationToken);
-
-    public int Release() => _semaphore.Release();
+    public ValueTask<ResourceLock> WaitAsync(CancellationToken cancellationToken) => _semaphore.AcquireLockAsync(cancellationToken);
 
     /// <summary>
     /// Closes the serial port if it is open

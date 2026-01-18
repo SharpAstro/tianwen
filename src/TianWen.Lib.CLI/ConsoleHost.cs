@@ -2,7 +2,6 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
-using System.Collections.Specialized;
 using System.Text;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
