@@ -41,7 +41,7 @@ internal record Session(
             // run initialisation code
             if (active == 0)
             {
-                if (!await Initialisation(cancellationToken))
+                if (!await InitialisationAsync(cancellationToken))
                 {
                     External.AppLogger.LogError("Initialization failed, aborting session.");
                     return;
@@ -348,7 +348,7 @@ internal record Session(
     /// </summary>
     /// <param name="cancellationToken"></param>
     /// <returns>True if initialisation was successful.</returns>
-    internal async ValueTask<bool> Initialisation(CancellationToken cancellationToken)
+    internal async ValueTask<bool> InitialisationAsync(CancellationToken cancellationToken)
     {
         var mount = Setup.Mount;
         var guider = Setup.Guider;

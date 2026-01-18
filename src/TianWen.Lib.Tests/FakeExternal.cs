@@ -52,8 +52,6 @@ public class FakeExternal : IExternal
     public virtual Task<IUtf8TextBasedConnection> ConnectGuiderAsync(EndPoint address, CommunicationProtocol protocol = CommunicationProtocol.JsonRPC, CancellationToken cancellationToken = default)
         => throw new ArgumentException($"No guider connection defined for address={address}", nameof(address));
 
-    public IReadOnlyList<string> EnumerateSerialPorts() => [];
-
     public virtual ISerialConnection OpenSerialDevice(string address, int baud, Encoding encoding, TimeSpan? ioTimeout = null)
         => throw new ArgumentException($"Failed to instantiate serial device at address={address}", nameof(address));
 
@@ -81,4 +79,8 @@ public class FakeExternal : IExternal
 
         _timeProvider.Advance(sw.Elapsed);
     }
+
+    public IReadOnlyList<string> EnumerateAvailableSerialPorts(ResourceLock resourceLock) => [];
+
+    public ValueTask<ResourceLock> WaitForSerialPortEnumerationAsync(CancellationToken cancellationToken) => ValueTask.FromResult(ResourceLock.AlwaysUnlocked);
 }

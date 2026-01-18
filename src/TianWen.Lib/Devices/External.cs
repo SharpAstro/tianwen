@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Logging;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
@@ -14,8 +15,12 @@ namespace TianWen.Lib.Devices;
 internal class External(
     IUtf8TextBasedConnectionFactory textBasedConnectionFactory,
     ILoggerFactory loggerFactory
-) : IExternal
+) : IExternal, IDisposable
 {
+    private readonly SemaphoreSlim _serialPortEnumerationSemaphore = new SemaphoreSlim(1, 1);
+    private readonly ConcurrentDictionary<string, ISerialConnection> _serialConnections = [];
+    private bool disposedValue;
+
     public TimeProvider TimeProvider => TimeProvider.System;
 
     public DirectoryInfo OutputFolder { get; } = CreateSpecialSubFolder(Environment.SpecialFolder.MyPictures);
@@ -27,10 +32,34 @@ internal class External(
 
     public ILogger AppLogger => loggerFactory.CreateLogger("App");
 
-    public IReadOnlyList<string> EnumerateSerialPorts() => SerialConnection.EnumerateSerialPorts();
+    public IReadOnlyList<string> EnumerateAvailableSerialPorts(ResourceLock resourceLock)
+    {
+        var existingPorts = SerialConnection.EnumerateSerialPorts();
+
+        var availablePorts = new List<string>(existingPorts.Count);
+
+        foreach (var port in existingPorts)
+        {
+            if (!_serialConnections.TryGetValue(port, out var connection) || !connection.IsOpen)
+            {
+                availablePorts.Add(port);
+            }
+        }
+
+        return availablePorts;
+    }
+
+    public ValueTask<ResourceLock> WaitForSerialPortEnumerationAsync(CancellationToken cancellationToken) => _serialPortEnumerationSemaphore.AcquireLockAsync(cancellationToken);
 
     public ISerialConnection OpenSerialDevice(string address, int baud, Encoding encoding, TimeSpan? ioTimeout = null)
-        => new SerialConnection(address, baud, encoding, AppLogger, ioTimeout);
+    {
+        return _serialConnections.AddOrUpdate(address,
+            OpenSerialConnection,
+            (portName, existing) => existing.IsOpen ? existing : OpenSerialConnection(portName)
+        );
+
+        ISerialConnection OpenSerialConnection(string portName) => new SerialConnection(portName, baud, encoding, AppLogger, ioTimeout);
+    }
 
     public void Sleep(TimeSpan duration) => Thread.Sleep(duration);
 
@@ -42,5 +71,39 @@ internal class External(
     public async ValueTask WriteFitsFileAsync(Image image, string fileName)
     {
         await Task.Run(() => image.WriteToFitsFile(fileName)).ConfigureAwait(false);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (!disposedValue)
+        {
+            if (disposing)
+            {
+                _serialPortEnumerationSemaphore.Dispose();
+
+                foreach (var serialConnection in _serialConnections.Values)
+                {
+                    serialConnection.Dispose();
+                }
+            }
+
+            // TODO: free unmanaged resources (unmanaged objects) and override finalizer
+            // TODO: set large fields to null
+            disposedValue=true;
+        }
+    }
+
+    // // TODO: override finalizer only if 'Dispose(bool disposing)' has code to free unmanaged resources
+    // ~External()
+    // {
+    //     // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
+    //     Dispose(disposing: false);
+    // }
+
+    public void Dispose()
+    {
+        // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
+        Dispose(disposing: true);
+        GC.SuppressFinalize(this);
     }
 }

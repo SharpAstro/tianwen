@@ -25,29 +25,29 @@ internal class CombinedDeviceManager(IExternal external, IEnumerable<IDeviceSour
         }
 
         var deviceMaps = new ConcurrentBag<DeviceMap<DeviceBase>>();
-        await _initSem.WaitAsync(cancellationToken);
-        _initialized = true;
-        try
+        using var @lock = await _initSem.AcquireLockAsync(cancellationToken);
+
+        // double check after lock acquisition
+        if (_initialized)
         {
-            await Parallel.ForEachAsync(
-                deviceSources,
-                cancellationToken,
-                async (deviceSource, cancellationToken) =>
-                {
-                    var map = new DeviceMap<DeviceBase>(deviceSource);
-                    if (await map.CheckSupportAsync(cancellationToken))
-                    {
-                        deviceMaps.Add(map);
-                    }
-                }
-            );
-        }
-        finally
-        {
-            _initSem.Release();
+            return _deviceMaps.Count > 0;
         }
 
+        await Parallel.ForEachAsync(
+            deviceSources,
+            cancellationToken,
+            async (deviceSource, cancellationToken) =>
+            {
+                var map = new DeviceMap<DeviceBase>(deviceSource);
+                if (await map.CheckSupportAsync(cancellationToken))
+                {
+                    deviceMaps.Add(map);
+                }
+            }
+        );
         _ = Interlocked.Exchange(ref _deviceMaps, [.. deviceMaps]);
+
+        _initialized = true;
 
         return _deviceMaps.Count > 0;
     }

@@ -34,36 +34,31 @@ internal sealed class PlateSolverFactory(IEnumerable<IPlateSolver> solvers) : IP
             return true;
         }
 
-        await _initSem.WaitAsync(cancellationToken);
-        try
+        using var @lock = await _initSem.AcquireLockAsync(cancellationToken);
+
+        // double check after lock acquisition
+        if (SelectedPlateSolver is not null)
         {
-            if (SelectedPlateSolver is not null)
+            return true;
+        }
+
+        var supportedSolvers = new ConcurrentBag<IPlateSolver>();
+
+        await Parallel.ForEachAsync(solvers, cancellationToken, async (solver, cancellationToken) =>
+        {
+            if (solver.GetType() is { IsSealed: true } type && type == typeof(PlateSolverFactory))
             {
-                return true;
+                return;
             }
 
-            var supportedSolvers = new ConcurrentBag<IPlateSolver>();
-
-            await Parallel.ForEachAsync(solvers, cancellationToken, async (solver, cancellationToken) =>
+            if (await solver.CheckSupportAsync(cancellationToken))
             {
-                if (solver.GetType() is { IsSealed: true } type && type == typeof(PlateSolverFactory))
-                {
-                    return;
-                }
+                supportedSolvers.Add(solver);
+            }
+        });
 
-                if (await solver.CheckSupportAsync(cancellationToken))
-                {
-                    supportedSolvers.Add(solver);
-                }
-            });
-
-            // TODO? consider making IPlateSolver disposable
-            _ = Interlocked.Exchange(ref _selected, supportedSolvers.OrderByDescending(solver => solver.Priority).FirstOrDefault());
-        }
-        finally
-        {
-            _initSem.Release();
-        }
+        // TODO? consider making IPlateSolver disposable
+        _ = Interlocked.Exchange(ref _selected, supportedSolvers.OrderByDescending(solver => solver.Priority).FirstOrDefault());
 
         return SelectedPlateSolver is not null;
     }

@@ -229,10 +229,19 @@ public interface IExternal
     ValueTask WriteFitsFileAsync(Image image, string fileName);
 
     /// <summary>
-    /// Returns all available serial ports on the system, prefixed with serial: <see cref="ISerialConnection.SerialProto"/>.
+    /// Acquires a lock for serial port enumeration.
     /// </summary>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
+    ValueTask<ResourceLock> WaitForSerialPortEnumerationAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Returns all available serial ports on the system, prefixed with serial: <see cref="ISerialConnection.SerialProto"/>.
+    /// Assumes that <see cref="WaitForSerialPortEnumerationAsync(CancellationToken)"/> has been called.
+    /// </summary>
+    /// <param name="resourceLock">the resource lock obtained from <see cref="WaitForSerialPortEnumerationAsync(CancellationToken)"/></param>
     /// <returns>list of available serial devices, or empty.</returns>
-    IReadOnlyList<string> EnumerateSerialPorts();
+    IReadOnlyList<string> EnumerateAvailableSerialPorts(ResourceLock resourceLock);
 
     ISerialConnection OpenSerialDevice(string address, int baud, Encoding encoding, TimeSpan? ioTimeout = null);
 
