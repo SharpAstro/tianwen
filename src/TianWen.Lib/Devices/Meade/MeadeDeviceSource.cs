@@ -90,7 +90,6 @@ internal partial class MeadeDeviceSource(IExternal external) : IDeviceSource<Mea
         var productName = await TryReadTerminatedAsync(":GVP#");
         var productNumber = await TryReadTerminatedAsync(":GVN#");
 
-        Span<byte> random = stackalloc byte[(MaxSiteLength - UUIDPrefix.Length) * 3 / 4];
         string? uuid = null;
         var sites = new List<string>();
         for (var siteNo = 4; siteNo >= 1; siteNo--)
@@ -112,12 +111,12 @@ internal partial class MeadeDeviceSource(IExternal external) : IDeviceSource<Mea
             {
                 if (uuid is null)
                 {
+                    using var random = ArrayPoolHelper.Rent<byte>((MaxSiteLength - UUIDPrefix.Length) * 3 / 4);
                     Random.Shared.NextBytes(random);
                     var newUUID = Base64UrlSafe.Base64UrlEncode(random);
 
-                    await serialDevice.TryWriteAsync($":S{siteChar}TW@{newUUID}#", cancellationToken);
-
-                    if (await serialDevice.TryReadExactlyAsync(1, cancellationToken) is "1")
+                    if (await serialDevice.TryWriteAsync($":S{siteChar}TW@{newUUID}#", cancellationToken) &&
+                        await serialDevice.TryReadExactlyAsync(1, cancellationToken) is "1")
                     {
                         uuid = newUUID;
                     }
