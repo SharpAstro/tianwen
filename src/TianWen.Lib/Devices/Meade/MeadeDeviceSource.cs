@@ -42,8 +42,8 @@ internal partial class MeadeDeviceSource(IExternal external) : IDeviceSource<Mea
     {
         using var serialDevice = external.OpenSerialDevice(portName, 9600, Encoding.ASCII, TimeSpan.FromMilliseconds(100));
 
-        var (productName, productNumber, siteNames) = await TryGetMountInfo(serialDevice, cancellationToken);
-        if (productName is { } && productNumber is { } && SupportedProductsRegex.IsMatch(productName) && siteNames is { })
+        var (productName, productNumber, siteNames, uuid) = await TryGetMountInfo(serialDevice, cancellationToken);
+        if (productName is { } && productNumber is { } && SupportedProductsRegex.IsMatch(productName))
         {
             List<MeadeDevice> deviceList;
             if (devices.TryGetValue(DeviceType.Mount, out var existingMounts))
@@ -56,13 +56,21 @@ internal partial class MeadeDeviceSource(IExternal external) : IDeviceSource<Mea
             }
 
             var portNameWithoutProtoPrefix = ISerialConnection.RemoveProtoPrrefix(portName);
-            var deviceId = string.Join('_',
-                SafeName(productName),
-                SafeName(productNumber),
-                SafeName(siteNames),
-                deviceList.Count + 1,
-                SafeName(portNameWithoutProtoPrefix)
-            );
+            string deviceId;
+            if (uuid is { })
+            {
+                deviceId = string.Join('_', SafeName(productName), SafeName(productNumber), uuid);
+            }
+            else
+            {
+                deviceId = string.Join('_',
+                    SafeName(productName),
+                    SafeName(productNumber),
+                    SafeName(string.Join(',', siteNames)),
+                    deviceList.Count + 1,
+                    SafeName(portNameWithoutProtoPrefix)
+                );
+            }
 
             var device = new MeadeDevice(DeviceType.Mount, deviceId, $"{productName} ({productNumber}) on {portNameWithoutProtoPrefix}", portName);
             deviceList.Add(device);
@@ -71,37 +79,61 @@ internal partial class MeadeDeviceSource(IExternal external) : IDeviceSource<Mea
         static string SafeName(string name) => name.Replace('_', '-').Replace('/', '-').Replace(':', '-');
     }
 
-    private static async Task<(string? ProductName, string? ProductNumber, string? SiteString)> TryGetMountInfo(Connections.ISerialConnection serialDevice, CancellationToken cancellationToken)
+    private static async Task<(string? ProductName, string? ProductNumber, List<string> Sites, string UUID)> TryGetMountInfo(ISerialConnection serialDevice, CancellationToken cancellationToken)
     {
+        const string UUIDPrefix = "TW@";
         const string UnusedSiteName = "<AN UNUSED SITE>";
+        const int MaxSiteLength = 15;
 
         using var @lock = await serialDevice.WaitAsync(cancellationToken);
 
         var productName = await TryReadTerminatedAsync(":GVP#");
         var productNumber = await TryReadTerminatedAsync(":GVN#");
-        var site1Name = await TryReadTerminatedAsync(":GM#");
-        var site2Name = await TryReadTerminatedAsync(":GN#");
-        var site3Name = await TryReadTerminatedAsync(":GO#");
-        var site4Name = await TryReadTerminatedAsync(":GP#");
 
-        var sites = new StringBuilder(site1Name?.Length ?? 0 + site2Name?.Length ?? 0 + site3Name?.Length ?? 0 + site4Name?.Length ?? 0);
-
-        foreach (var site in new string?[] { site1Name, site2Name, site3Name, site4Name })
+        Span<byte> random = stackalloc byte[(MaxSiteLength - UUIDPrefix.Length) * 3 / 4];
+        string? uuid = null;
+        var sites = new List<string>();
+        for (var siteNo = 4; siteNo >= 1; siteNo--)
         {
-            var trimmed = site?.TrimEnd();
-            if (trimmed is not { } || trimmed.Length is 0 || trimmed is UnusedSiteName)
+            var siteChar = 'M' + siteNo - 1;
+            var siteName = await TryReadTerminatedAsync($":G{siteChar}#");
+
+            var trimmed = siteName?.TrimEnd();
+            if (trimmed is not { } || trimmed.Length is 0)
             {
                 continue;
             }
 
-            if (sites.Length > 0)
+            if (trimmed.Length is MaxSiteLength && trimmed.StartsWith(UUIDPrefix))
             {
-                sites.Append(',');
+                uuid = trimmed[UUIDPrefix.Length..];
             }
-            sites.Append(trimmed);
+            else if (trimmed is UnusedSiteName)
+            {
+                if (uuid is null)
+                {
+                    Random.Shared.NextBytes(random);
+                    var newUUID = Base64UrlSafe.Base64UrlEncode(random);
+
+                    await serialDevice.TryWriteAsync($":S{siteChar}TW@{newUUID}#", cancellationToken);
+
+                    if (await serialDevice.TryReadExactlyAsync(1, cancellationToken) is "1")
+                    {
+                        uuid = newUUID;
+                    }
+                }
+                else
+                {
+                    continue;
+                }
+            }
+
+            sites.Add(trimmed);
         }
 
-        return (productName, productNumber, sites.ToString());
+        sites.Reverse();
+
+        return (productName, productNumber, sites, uuid);
 
         async Task<string?> TryReadTerminatedAsync(string command)
         {
