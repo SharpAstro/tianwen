@@ -52,7 +52,7 @@ public class FakeExternal : IExternal
     public virtual Task<IUtf8TextBasedConnection> ConnectGuiderAsync(EndPoint address, CommunicationProtocol protocol = CommunicationProtocol.JsonRPC, CancellationToken cancellationToken = default)
         => throw new ArgumentException($"No guider connection defined for address={address}", nameof(address));
 
-    public virtual ISerialConnection OpenSerialDevice(string address, int baud, Encoding encoding, TimeSpan? ioTimeout = null)
+    public virtual ISerialConnection OpenSerialDevice(string address, int baud, Encoding encoding)
         => throw new ArgumentException($"Failed to instantiate serial device at address={address}", nameof(address));
 
     public void Sleep(TimeSpan duration) => _timeProvider.Advance(duration);

@@ -51,7 +51,7 @@ internal abstract class SerialConnectionBase : ISerialConnection
     {
         try
         {
-            await _stream.WriteAsync(message, cancellationToken);
+            await _stream.WriteAsync(message, cancellationToken).ConfigureAwait(false);
 #if DEBUG
             _logger.LogTrace("--> {Message}", Encoding.GetString(message.Span).ReplaceNonPrintableWithHex());
 #endif

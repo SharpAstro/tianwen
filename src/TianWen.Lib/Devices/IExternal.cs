@@ -243,7 +243,7 @@ public interface IExternal
     /// <returns>list of available serial devices, or empty.</returns>
     IReadOnlyList<string> EnumerateAvailableSerialPorts(ResourceLock resourceLock);
 
-    ISerialConnection OpenSerialDevice(string address, int baud, Encoding encoding, TimeSpan? ioTimeout = null);
+    ISerialConnection OpenSerialDevice(string address, int baud, Encoding encoding);
 
     IPEndPoint DefaultGuiderAddress => new IPEndPoint(IPAddress.Loopback, 4400);
 
