@@ -57,7 +57,6 @@ public record class OpenPHD2GuiderDevice(Uri DeviceUri) : GuiderDeviceBase(Devic
         return new OpenPHD2GuiderDevice(DeviceType, MakeDeviceId(host, instance, profileName), profileName);
     }
 
-    protected override bool PrintMembers(StringBuilder stringBuilder) => base.PrintMembers(stringBuilder);
 
     [JsonIgnore]
     public string Host => (_parsedDeviceId ??= ParseDeviceId(DeviceId)).Host;
