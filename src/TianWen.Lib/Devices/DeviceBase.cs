@@ -77,7 +77,7 @@ public abstract record class DeviceBase(Uri DeviceUri)
 
     protected virtual IDeviceDriver? NewInstanceFromDevice(IExternal external) => null;
 
-    public virtual ISerialConnection? ConnectSerialDevice(IExternal external, int baud = 9600, Encoding? encoding = null, TimeSpan? ioTimeout = null)
+    public virtual ISerialConnection? ConnectSerialDevice(IExternal external, int baud = 9600, Encoding? encoding = null)
     {
         if (Query["port"] is { Length: > 0 } port)
         {
@@ -88,7 +88,7 @@ public abstract record class DeviceBase(Uri DeviceUri)
                 || port.Split('/', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)[^1].StartsWith("tty", StringComparison.Ordinal)
             )
             {
-                return external.OpenSerialDevice(port, selectedBaud, encoding ?? Encoding.ASCII, ioTimeout);
+                return external.OpenSerialDevice(port, selectedBaud, encoding ?? Encoding.ASCII);
             }
         }
 

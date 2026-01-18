@@ -1,5 +1,4 @@
 ﻿using Microsoft.Extensions.Logging;
-using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Ports;
@@ -7,7 +6,7 @@ using System.Text;
 
 namespace TianWen.Lib.Connections;
 
-internal sealed class SerialConnection(string portName, int baud, Encoding encoding, ILogger logger, TimeSpan? ioTimeout = null)
+internal sealed class SerialConnection(string portName, int baud, Encoding encoding, ILogger logger)
     : SerialConnectionBase(encoding, logger)
 {
     public static IReadOnlyList<string> EnumerateSerialPorts()
@@ -28,11 +27,7 @@ internal sealed class SerialConnection(string portName, int baud, Encoding encod
     protected override Stream OpenStream()
     {
         _port.Open();
-        var stream = _port.BaseStream;
-        var timeoutMs = (int)Math.Round((ioTimeout ?? TimeSpan.FromMilliseconds(500)).TotalMilliseconds);
-        stream.ReadTimeout = timeoutMs;
-        stream.WriteTimeout = timeoutMs;
-        return stream;
+        return _port.BaseStream;
     }
 
     public override bool IsOpen => _port.IsOpen;

@@ -51,14 +51,14 @@ internal class External(
 
     public ValueTask<ResourceLock> WaitForSerialPortEnumerationAsync(CancellationToken cancellationToken) => _serialPortEnumerationSemaphore.AcquireLockAsync(cancellationToken);
 
-    public ISerialConnection OpenSerialDevice(string address, int baud, Encoding encoding, TimeSpan? ioTimeout = null)
+    public ISerialConnection OpenSerialDevice(string address, int baud, Encoding encoding)
     {
         return _serialConnections.AddOrUpdate(address,
             OpenSerialConnection,
             (portName, existing) => existing.IsOpen ? existing : OpenSerialConnection(portName)
         );
 
-        ISerialConnection OpenSerialConnection(string portName) => new SerialConnection(portName, baud, encoding, AppLogger, ioTimeout);
+        ISerialConnection OpenSerialConnection(string portName) => new SerialConnection(portName, baud, encoding, AppLogger);
     }
 
     public void Sleep(TimeSpan duration) => Thread.Sleep(duration);

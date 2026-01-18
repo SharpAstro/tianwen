@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using DotNext.Threading;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -40,9 +41,19 @@ internal partial class MeadeDeviceSource(IExternal external) : IDeviceSource<Mea
 
     private async Task QueryPortAsync(Dictionary<DeviceType, List<MeadeDevice>> devices, string portName, CancellationToken cancellationToken)
     {
-        using var serialDevice = external.OpenSerialDevice(portName, 9600, Encoding.ASCII, TimeSpan.FromMilliseconds(100));
+        TimeSpan ioTimeout;
+#if DEBUG
+        ioTimeout = TimeSpan.FromMinutes(1);
+#else
+        ioTimeout = TimeSpan.FromMilliseconds(250);
+#endif
+        using var cts = new CancellationTokenSource(ioTimeout, external.TimeProvider);
+        var linkedToken = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken).Token;
 
-        var (productName, productNumber, siteNames, uuid) = await TryGetMountInfo(serialDevice, cancellationToken);
+        using var serialDevice = external.OpenSerialDevice(portName, 9600, Encoding.ASCII);
+
+        var (productName, productNumber, siteNames, uuid) = await TryGetMountInfo(serialDevice, linkedToken)
+            .WaitAsync(ioTimeout, external.TimeProvider, cancellationToken);
         if (productName is { } && productNumber is { } && SupportedProductsRegex.IsMatch(productName))
         {
             List<MeadeDevice> deviceList;
@@ -79,7 +90,7 @@ internal partial class MeadeDeviceSource(IExternal external) : IDeviceSource<Mea
         static string SafeName(string name) => name.Replace('_', '-').Replace('/', '-').Replace(':', '-');
     }
 
-    private static async Task<(string? ProductName, string? ProductNumber, List<string> Sites, string UUID)> TryGetMountInfo(ISerialConnection serialDevice, CancellationToken cancellationToken)
+    private static async Task<(string? ProductName, string? ProductNumber, List<string> Sites, string? UUID)> TryGetMountInfo(ISerialConnection serialDevice, CancellationToken cancellationToken)
     {
         const string UUIDPrefix = "TW@";
         const string UnusedSiteName = "<AN UNUSED SITE>";
@@ -94,7 +105,7 @@ internal partial class MeadeDeviceSource(IExternal external) : IDeviceSource<Mea
         var sites = new List<string>();
         for (var siteNo = 4; siteNo >= 1; siteNo--)
         {
-            var siteChar = 'M' + siteNo - 1;
+            var siteChar = (char)('M' + siteNo - 1);
             var siteName = await TryReadTerminatedAsync($":G{siteChar}#");
 
             var trimmed = siteName?.TrimEnd();
