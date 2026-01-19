@@ -913,8 +913,6 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
 
     public async ValueTask<string?> GetActiveProfileNameAsync(CancellationToken cancellationToken = default)
     {
-        EnsureConnected();
-
         using var profileResponse = await CallAsync("get_profile", cancellationToken).ConfigureAwait(false);
 
         if (profileResponse.RootElement.TryGetProperty("result", out var activeProfileProp)
@@ -931,8 +929,6 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
 
     public async ValueTask ConnectEquipmentAsync(CancellationToken cancellationToken = default)
     {
-        EnsureConnected();
-
         // this allows us to reuse the connection if we just want to connect to whatever profile has been selected by the user
         if (await GetActiveProfileNameAsync(cancellationToken).ConfigureAwait(false) is { } activeProfileName
             && (_selectedProfileName ??= activeProfileName) !=  _selectedProfileName
@@ -984,8 +980,6 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
 
     public async ValueTask<bool> IsGuidingAsync(CancellationToken cancellationToken = default)
     {
-        EnsureConnected();
-
         var (appState, _) = await GetStatusAsync(cancellationToken).ConfigureAwait(false);
 
         return IsGuidingAppState(appState);

@@ -1,5 +1,4 @@
-﻿using DotNext.Threading;
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -99,6 +98,12 @@ internal partial class MeadeDeviceSource(IExternal external) : IDeviceSource<Mea
         using var @lock = await serialDevice.WaitAsync(cancellationToken);
 
         var productName = await TryReadTerminatedAsync(":GVP#");
+
+        if (productName?.TrimEnd() is not { Length: > 1})
+        {
+            return (null, null, [], null);
+        }
+
         var productNumber = await TryReadTerminatedAsync(":GVN#");
 
         string? uuid = null;
