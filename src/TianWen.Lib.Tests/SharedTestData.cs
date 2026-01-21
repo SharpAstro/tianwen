@@ -20,58 +20,56 @@ public static class SharedTestData
     internal const string PSR_B0633_17n_Enc = "\u00C1AFtItjtC";
     internal const string PSR_J0002_6216n_Enc = "\u00C1AXL@Q3uC";
 
-    private static readonly ConcurrentDictionary<string, Image> _imageCache = [];
-    private static readonly Assembly _assembly = typeof(SharedTestData).Assembly;
+    private static readonly ConcurrentDictionary<string, Image> ImageCache = [];
+    private static readonly Assembly SharedTestDataAssembly = typeof(SharedTestData).Assembly;
 
     internal static async Task<Image> ExtractGZippedFitsImageAsync(string name, bool isReadOnly = true, CancellationToken cancellationToken = default)
     {
-        if (isReadOnly)
-        {
-            if (_imageCache.TryGetValue(name, out var image))
-            {
-                return image;
-            }
-
-            var imageFile = await WriteEphemeralUseTempFileAsync($"{name}.tianwen-image", 
-                async (tempFile, cancellationToken) =>
-                {
-                    image = ReadImageFromEmbeddedResourceStream(name);
-                    using var outStream = File.OpenWrite(tempFile);
-                    await image.WriteStreamAsync(outStream, cancellationToken);
-                },
-                cancellationToken
-            );
-
-            if (image is null)
-            {
-                using var inStream = File.OpenRead(imageFile);
-                image = await Image.FromStreamAsync(inStream);
-
-                _imageCache.TryAdd(name, image);
-            }
-
-            return image;
-        }
-        else
+        if (!isReadOnly)
         {
             return ReadImageFromEmbeddedResourceStream(name);
         }
+
+        if (ImageCache.TryGetValue(name, out var image))
+        {
+            return image;
+        }
+        
+        var imageFile = await WriteEphemeralUseTempFileAsync($"{name}.tianwen-image", 
+            async (tempFile, ct) =>
+            {
+                image = ReadImageFromEmbeddedResourceStream(name);
+                await using var outStream = File.OpenWrite(tempFile);
+                await image.WriteStreamAsync(outStream, ct);
+            },
+            cancellationToken
+        );
+
+        if (image is null)
+        {
+            await using var inStream = File.OpenRead(imageFile);
+            image = await Image.FromStreamAsync(inStream, cancellationToken);
+
+            ImageCache.TryAdd(name, image);
+        }
+
+        return image;
+
     }
 
     private static Image ReadImageFromEmbeddedResourceStream(string name)
     {
-        if (OpenGZippedFitsFileStream(name) is { } inStream)
+        if (OpenGZippedFitsFileStream(name) is not { } inStream)
         {
-            using (inStream)
-            {
-                if (Image.TryReadFitsFile(new Fits(inStream, true), out var image))
-                {
-                    return image;
-                }
-            }
+            throw new ArgumentException($"Missing test data {name}", nameof(name));
         }
 
-        throw new ArgumentException($"Missing test data {name}", nameof(name));
+        using (inStream)
+        {
+            return Image.TryReadFitsFile(new Fits(inStream, true), out var image)
+                ? image
+                : throw new InvalidDataException($"Failed to read FITS image from test data {name}");
+        }
     }
 
     internal static readonly IReadOnlyDictionary<string, (ImageDim ImageDim, WCS WCS)> TestFileImageDimAndCoords =
@@ -90,18 +88,17 @@ public static class SharedTestData
 
         var fileName = $"{name}_{inStream.Length}.fits";
         return await WriteEphemeralUseTempFileAsync(fileName, 
-            async (tempFile, cancellationToken) =>
+            async (tempFile, ct) =>
             {
-                using var outStream = new FileStream(tempFile, new FileStreamOptions
+                await using var outStream = new FileStream(tempFile, new FileStreamOptions
                 {
                     Options = FileOptions.Asynchronous,
                     Access = FileAccess.Write,
                     Mode = FileMode.Create,
                     Share = FileShare.None
                 });
-                using var gzipStream = new GZipStream(inStream, CompressionMode.Decompress, false);
-                var length = inStream.Length;
-                await gzipStream.CopyToAsync(outStream, 1024 * 10, cancellationToken);
+                await using var gzipStream = new GZipStream(inStream, CompressionMode.Decompress, false);
+                await gzipStream.CopyToAsync(outStream, 1024 * 10, ct);
             },
             cancellationToken
         );
@@ -111,12 +108,13 @@ public static class SharedTestData
     {
         var dir = Directory.CreateDirectory(Path.Combine(
             Path.GetTempPath(),
-            TestDataRoot,
-            $"{DateTimeOffset.Now.Date:yyyyMMdd}"
+            TestDataRoot
         ));
 
         return dir.FullName;
     }
+    
+    private static readonly ConcurrentDictionary<string, SemaphoreSlim> FileLocks = new(StringComparer.OrdinalIgnoreCase);
 
     private static async Task<string> WriteEphemeralUseTempFileAsync(string fileName, Func<string, CancellationToken, ValueTask> fileOperation, CancellationToken cancellationToken = default)
     {
@@ -128,55 +126,60 @@ public static class SharedTestData
         {
             return fullPath;
         }
-        else
+
+        using var @lock = await FileLocks.GetOrAdd(fileName, _ => new SemaphoreSlim(1, 1)).AcquireLockAsync(cancellationToken);
+        
+        // Double-check after acquiring the lock
+        if (File.Exists(fullPath))
         {
-            var tempFile = $"{fullPath}_{Guid.NewGuid():D}.tmp";
-
-            await fileOperation(tempFile, cancellationToken);
-
-            if (!File.Exists(fullPath))
-            {
-                try
-                {
-                    File.Move(tempFile, fullPath);
-                }
-                // see https://learn.microsoft.com/en-us/dotnet/standard/io/handling-io-errors
-                catch (IOException iox) when ((iox.HResult & 0x0000FFFF) is 0x80 or 0xB7)
-                {
-                    return fullPath;
-                }
-                catch (IOException) when (File.Exists(fullPath))
-                {
-                    return fullPath;
-                }
-                catch (IOException iox)
-                {
-                    throw new Exception($"Failed to move file {tempFile} to {fullPath}, code: {(iox.HResult & 0x0000FFFF):X}: {iox.Message}", iox);
-                }
-            }
-
             return fullPath;
         }
+        
+        var tempFile = $"{fullPath}_{Guid.NewGuid():D}.tmp";
+
+        await fileOperation(tempFile, cancellationToken);
+        
+        try
+        {
+            File.Move(tempFile, fullPath);
+        }
+        // see https://learn.microsoft.com/en-us/dotnet/standard/io/handling-io-errors
+        catch (IOException iox) when ((iox.HResult & 0x0000FFFF) is 0x80 or 0xB7)
+        {
+            return fullPath;
+        }
+        catch (IOException) when (File.Exists(fullPath))
+        {
+            return fullPath;
+        }
+        catch (IOException iox)
+        {
+            throw new Exception($"Failed to move file {tempFile} to {fullPath}, code: {(iox.HResult & 0x0000FFFF):X}: {iox.Message}", iox);
+        }
+
+        return fullPath;
     }
 
-    internal static string TestDataRoot
+    private static string TestDataRoot
     {
         get
         {
-            var name = _assembly.GetName();
-            var typeName = nameof(SharedTestData);
+            var name = SharedTestDataAssembly.GetName();
+            const string typeName = nameof(SharedTestData);
 
+            var date = $"{DateTimeOffset.Now.Date:yyyyMMdd}";
+                
             if (!string.IsNullOrEmpty(name.Name))
             {
-                return Path.Combine(name.Name, typeName);
+                return Path.Combine(name.Name, date, typeName);
             }
-            else if (name.FullName.IndexOf(',') is { } comma and > 0)
+            else if (name.FullName.IndexOf(',') is var comma and > 0)
             {
-                return Path.Combine(name.FullName[..comma],typeName);
+                return Path.Combine(name.FullName[..comma], date, typeName);
             }
             else
             {
-                return typeName;
+                return Path.Combine(date, typeName);
             }
         }
     }
@@ -185,19 +188,19 @@ public static class SharedTestData
 
     internal static Stream? OpenEmbeddedFileStream(string nameWithExt)
     {
-        var embeddedFiles = _assembly.GetManifestResourceNames();
+        var embeddedFiles = SharedTestDataAssembly.GetManifestResourceNames();
         var embeddedTestFile = embeddedFiles.FirstOrDefault(p => p.EndsWith($".{nameWithExt}"));
-        return embeddedTestFile is not null ? _assembly.GetManifestResourceStream(embeddedTestFile) : null;
+        return embeddedTestFile is not null ? SharedTestDataAssembly.GetManifestResourceStream(embeddedTestFile) : null;
     }
 
     internal static async Task<int[,]> ExtractGZippedImageData(string name, int width, int height)
     {
-        var gzippedImageData = _assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith($".{name}_{width}x{height}.raw.gz"));
+        var gzippedImageData = SharedTestDataAssembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith($".{name}_{width}x{height}.raw.gz"));
 
-        if (gzippedImageData is not null && _assembly.GetManifestResourceStream(gzippedImageData) is Stream inStream)
+        if (gzippedImageData is not null && SharedTestDataAssembly.GetManifestResourceStream(gzippedImageData) is { } inStream)
         {
             var output = new int[width, height];
-            using var gzipStream = new GZipStream(inStream, CompressionMode.Decompress, false);
+            await using var gzipStream = new GZipStream(inStream, CompressionMode.Decompress, false);
             await gzipStream.CopyToAsync(output.AsMemory().Cast<int, byte>().AsStream());
 
             return output;

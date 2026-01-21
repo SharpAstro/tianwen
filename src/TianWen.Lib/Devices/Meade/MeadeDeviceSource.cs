@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -40,12 +41,7 @@ internal partial class MeadeDeviceSource(IExternal external) : IDeviceSource<Mea
 
     private async Task QueryPortAsync(Dictionary<DeviceType, List<MeadeDevice>> devices, string portName, CancellationToken cancellationToken)
     {
-        TimeSpan ioTimeout;
-#if DEBUG
-        ioTimeout = TimeSpan.FromMinutes(1);
-#else
-        ioTimeout = TimeSpan.FromMilliseconds(250);
-#endif
+        var ioTimeout = Debugger.IsAttached ? TimeSpan.FromMinutes(1) : TimeSpan.FromMilliseconds(250);
         using var cts = new CancellationTokenSource(ioTimeout, external.TimeProvider);
         var linkedToken = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken).Token;
 
@@ -53,7 +49,7 @@ internal partial class MeadeDeviceSource(IExternal external) : IDeviceSource<Mea
 
         var (productName, productNumber, siteNames, uuid) = await TryGetMountInfo(serialDevice, linkedToken)
             .WaitAsync(ioTimeout, external.TimeProvider, cancellationToken);
-        if (productName is { } && productNumber is { } && SupportedProductsRegex.IsMatch(productName))
+        if (productName is not null && productNumber is not null && SupportedProductsRegex.IsMatch(productName))
         {
             List<MeadeDevice> deviceList;
             if (devices.TryGetValue(DeviceType.Mount, out var existingMounts))
@@ -85,15 +81,15 @@ internal partial class MeadeDeviceSource(IExternal external) : IDeviceSource<Mea
             var device = new MeadeDevice(DeviceType.Mount, deviceId, $"{productName} ({productNumber}) on {portNameWithoutProtoPrefix}", portName);
             deviceList.Add(device);
         }
-
-        static string SafeName(string name) => name.Replace('_', '-').Replace('/', '-').Replace(':', '-');
     }
+
+    private static string SafeName(string name) => name.Replace('_', '-').Replace('/', '-').Replace(':', '-');
 
     private static async Task<(string? ProductName, string? ProductNumber, List<string> Sites, string? UUID)> TryGetMountInfo(ISerialConnection serialDevice, CancellationToken cancellationToken)
     {
-        const string UUIDPrefix = "TW@";
-        const string UnusedSiteName = "<AN UNUSED SITE>";
-        const int MaxSiteLength = 15;
+        const string uuidPrefix = "TW@";
+        const string unusedSiteName = "<AN UNUSED SITE>";
+        const int maxSiteLength = 15;
 
         using var @lock = await serialDevice.WaitAsync(cancellationToken);
 
@@ -114,31 +110,25 @@ internal partial class MeadeDeviceSource(IExternal external) : IDeviceSource<Mea
             var siteName = await TryReadTerminatedAsync($":G{siteChar}#");
 
             var trimmed = siteName?.TrimEnd();
-            if (trimmed is not { } || trimmed.Length is 0)
+            if (trimmed is null || trimmed.Length is 0)
             {
                 continue;
             }
-            else if (trimmed.Length is MaxSiteLength && trimmed.StartsWith(UUIDPrefix))
+            
+            if (trimmed.Length is maxSiteLength && trimmed.StartsWith(uuidPrefix))
             {
-                uuid = trimmed[UUIDPrefix.Length..];
+                uuid ??= trimmed[uuidPrefix.Length..];
             }
-            else if (trimmed is UnusedSiteName)
+            else if (trimmed is unusedSiteName && uuid is null)
             {
-                if (uuid is null)
-                {
-                    using var random = ArrayPoolHelper.Rent<byte>((MaxSiteLength - UUIDPrefix.Length) * 3 / 4);
-                    Random.Shared.NextBytes(random);
-                    var newUUID = Base64UrlSafe.Base64UrlEncode(random);
+                using var random = ArrayPoolHelper.Rent<byte>((maxSiteLength - uuidPrefix.Length) * 3 / 4);
+                Random.Shared.NextBytes(random);
+                var newUuid = Base64UrlSafe.Base64UrlEncode(random);
 
-                    if (await serialDevice.TryWriteAsync($":S{siteChar}TW@{newUUID}#", cancellationToken) &&
-                        await serialDevice.TryReadExactlyAsync(1, cancellationToken) is "1")
-                    {
-                        uuid = newUUID;
-                    }
-                }
-                else
+                if (await serialDevice.TryWriteAsync($":S{siteChar}TW@{newUuid}#", cancellationToken) &&
+                    await serialDevice.TryReadExactlyAsync(1, cancellationToken) is "1")
                 {
-                    continue;
+                    uuid = newUuid;
                 }
             }
             else

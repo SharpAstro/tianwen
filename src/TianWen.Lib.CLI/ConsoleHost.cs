@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Text;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
@@ -51,8 +52,8 @@ internal class ConsoleHost(
         var response = new StringBuilder();
         Console.WriteLine(sequence);
 
-        int tries = 0;
-        while (!Console.KeyAvailable && tries < maxTries)
+        var tries = 0;
+        while (!Console.KeyAvailable && tries++ < maxTries)
         {
             await Task.Delay(TimeSpan.FromMilliseconds(10));
         }
@@ -78,29 +79,26 @@ internal class ConsoleHost(
             return null;
         }
 
-        if (!_consoleWidthPx.HasValue || !_consoleHeightPx.HasValue || !_consoleWidthChars.HasValue || _consoleWidthPx != Console.WindowWidth)
-        {
-            var response = await GetControlSequenceResponse("\e[14t");
-            // Response is of the form ESC [ 4 ; height ; width t
-            var parts = response.TrimStart('\e', '[').TrimEnd('t').Split(';');
-            if (parts.Length == 3 && parts[0] == "4" &&
-                int.TryParse(parts[1], out var heightPx) &&
-                int.TryParse(parts[2], out var widthPx))
-            {
-                _consoleWidthPx = widthPx;
-                _consoleHeightPx = heightPx;
-                _consoleWidthChars = Console.WindowWidth;
-                return (widthPx, heightPx);
-            }
-            else
-            {
-                return null;
-            }
-        }
-        else
+        if (_consoleWidthPx.HasValue && _consoleHeightPx.HasValue && _consoleWidthChars.HasValue &&
+            _consoleWidthPx == Console.WindowWidth)
         {
             return null;
         }
+
+        var response = await GetControlSequenceResponse("\e[14t");
+        // Response is of the form ESC [ 4 ; height ; width t
+        var parts = response.TrimStart('\e', '[').TrimEnd('t').Split(';');
+        if (parts is ["4", _, _] &&
+            int.TryParse(parts[1], out var heightPx) &&
+            int.TryParse(parts[2], out var widthPx))
+        {
+            _consoleWidthPx = widthPx;
+            _consoleHeightPx = heightPx;
+            _consoleWidthChars = Console.WindowWidth;
+            return (widthPx, heightPx);
+        }
+
+        return null;
     }
 
     public async ValueTask RenderImageAsync(IMagickImage<float> image)
@@ -127,12 +125,7 @@ internal class ConsoleHost(
 
     public async Task<IReadOnlyCollection<DeviceBase>> ListAllDevicesAsync(DeviceDiscoveryOption options, CancellationToken cancellationToken)
     {
-        TimeSpan discoveryTimeout;
-#if DEBUG
-        discoveryTimeout = TimeSpan.FromMinutes(15);
-#else
-        discoveryTimeout = TimeSpan.FromSeconds(25);
-#endif
+        var discoveryTimeout = Debugger.IsAttached ? TimeSpan.FromMinutes(15) : TimeSpan.FromSeconds(25);
         using var cts = new CancellationTokenSource(discoveryTimeout, External.TimeProvider);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken);
 
@@ -161,12 +154,8 @@ internal class ConsoleHost(
     public async Task<IReadOnlyCollection<TDevice>> ListDevicesAsync<TDevice>(DeviceType deviceType, DeviceDiscoveryOption options, CancellationToken cancellationToken)
         where TDevice : DeviceBase
     {
-        TimeSpan discoveryTimeout;
-#if DEBUG
-        discoveryTimeout = TimeSpan.FromMinutes(15);
-#else
-        discoveryTimeout = TimeSpan.FromSeconds(25);
-#endif
+        var discoveryTimeout = Debugger.IsAttached ? TimeSpan.FromMinutes(15) : TimeSpan.FromSeconds(25);
+
         using var cts = new CancellationTokenSource(discoveryTimeout, External.TimeProvider);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken);
 

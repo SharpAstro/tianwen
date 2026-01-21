@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace TianWen.Lib.Connections;
 
-internal class JsonRPCOverTCPConnectionFactory : IUtf8TextBasedConnectionFactory
+internal class JsonRPCOverTcpConnectionFactory : IUtf8TextBasedConnectionFactory
 {
     public IReadOnlyList<CommunicationProtocol> SupportedHighLevelProtocols { get; } = [CommunicationProtocol.JsonRPC];
 
@@ -17,7 +17,7 @@ internal class JsonRPCOverTCPConnectionFactory : IUtf8TextBasedConnectionFactory
             throw new InvalidOperationException($"Protocol {highLevelProtocol} is not supported");
         }
 
-        var connection = new JsonRPCOverTcpConnection();
+        var connection = new JsonRpcOverTcpConnection();
         await connection.ConnectAsync(endPoint, cancellationToken);
         return connection;
     }
