@@ -33,7 +33,7 @@ using System.Threading.Tasks;
 
 namespace TianWen.Lib.Connections;
 
-internal class JsonRPCOverTcpConnection() : IUtf8TextBasedConnection
+internal class JsonRpcOverTcpConnection : IUtf8TextBasedConnection
 {
     private TcpClient? _tcpClient;
     private StreamReader? _streamReader;
@@ -51,7 +51,7 @@ internal class JsonRPCOverTcpConnection() : IUtf8TextBasedConnection
         }
         else
         {
-            throw new ArgumentException($"{endPoint} address familiy {endPoint.AddressFamily} is not supported", nameof(endPoint));
+            throw new ArgumentException($"{endPoint} address family {endPoint.AddressFamily} is not supported", nameof(endPoint));
         }
 
         _streamReader = new StreamReader(_tcpClient.GetStream());

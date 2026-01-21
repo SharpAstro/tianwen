@@ -3,6 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Pastel;
 using System.CommandLine;
+using System.Diagnostics;
 using System.Text;
 using TianWen.Lib.CLI;
 using TianWen.Lib.Extensions;
@@ -33,13 +34,9 @@ builder.Services
     .AddSessionFactory()
     .AddSingleton<IConsoleHost, ConsoleHost>();
 
-#if DEBUG
-builder.Logging.SetMinimumLevel(LogLevel.Debug);
-#else
-builder.Logging.SetMinimumLevel(LogLevel.Warning);
-#endif
+builder.Logging.SetMinimumLevel(Debugger.IsAttached ? LogLevel.Debug : LogLevel.Warning);
 
-using IHost host = builder.Build();
+using var host = builder.Build();
 
 await host.StartAsync();
 

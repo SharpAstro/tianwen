@@ -12,12 +12,14 @@ public record struct ConstellationBoundary(double LowerRA, double UpperRA, doubl
     /// in the 1875 equinox coordinate system.
     ///
     /// Each line of the table consists of
-    /// (1) lower right ascension boundary (hours)
-    /// (2) upper right ascension boundary (hours)
-    /// (3) lower (southern) declination boundary (degrees)
-    /// (4) constellation abbreviation (3 letters)
+    /// <list type="number">
+    /// <item>lower right ascension boundary (hours)</item>
+    /// <item>upper right ascension boundary (hours)</item>
+    /// <item>lower (southern) declination boundary (degrees)</item>
+    /// <item>constellation abbreviation (3 letters)</item>
+    /// </list>
     /// </summary>
-    static readonly ConstellationBoundary[] _table = [
+    private static readonly ConstellationBoundary[] Table = [
         new ConstellationBoundary(0.0000, 24.0000, 88.0000, Constellation.UrsaMinor),
         new ConstellationBoundary(8.0000, 14.5000, 86.5000, Constellation.UrsaMinor),
         new ConstellationBoundary(21.0000, 23.0000, 86.1667, Constellation.UrsaMinor),
@@ -382,9 +384,9 @@ public record struct ConstellationBoundary(double LowerRA, double UpperRA, doubl
     static ConstellationBoundary()
     {
         Array.Fill(_decLookupTable, -1);
-        for (var index = 0; index < _table.Length; index++)
+        for (var index = 0; index < Table.Length; index++)
         {
-            var entry = _table[index];
+            var entry = Table[index];
             var lookupIndex = DecToLookupIndex(entry.LowerDec);
             var tableIndex = _decLookupTable[lookupIndex];
             if (tableIndex < 0)
@@ -446,9 +448,9 @@ public record struct ConstellationBoundary(double LowerRA, double UpperRA, doubl
     private static bool TryFindConstellationInEpoch1875Boundaries(double ra, double dec, out Constellation constellation)
     {
         var startIdx = DecToTableIndex(dec);
-        for (var i = startIdx; i < _table.Length; i++)
+        for (var i = startIdx; i < Table.Length; i++)
         {
-            var entry = _table[i];
+            var entry = Table[i];
             if (dec < entry.LowerDec || ra < entry.LowerRA || ra >= entry.UpperRA)
             {
                 continue;

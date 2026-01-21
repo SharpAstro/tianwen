@@ -100,7 +100,7 @@ public enum Constellation : ulong
 
 public static class ConstellationEx
 {
-    static CatalogIndex Cat(string name)
+    private static CatalogIndex Cat(string name)
         => CatalogUtils.TryGetCleanedUpCatalogName(name, out var cat)
         ? cat
         : throw new ArgumentException($"Cannot convert {name} to catalog index", nameof(name));

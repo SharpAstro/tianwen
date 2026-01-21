@@ -7,6 +7,6 @@ namespace TianWen.Lib.Extensions;
 public static class ExternalServiceCollectionExtensions
 {
     public static IServiceCollection AddExternal(this IServiceCollection services) => services
-        .AddSingleton<IUtf8TextBasedConnectionFactory, JsonRPCOverTCPConnectionFactory>()
+        .AddSingleton<IUtf8TextBasedConnectionFactory, JsonRPCOverTcpConnectionFactory>()
         .AddSingleton<IExternal, External>();
 }
