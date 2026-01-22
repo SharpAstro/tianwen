@@ -15,4 +15,4 @@
 /httpRequests/
 
 # copliot
-copilot.data.migration.agent.xml
+copilot.data.migration.*.xml
