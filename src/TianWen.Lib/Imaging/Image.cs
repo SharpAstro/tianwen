@@ -8,6 +8,7 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading;
@@ -1128,7 +1129,20 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
         });
     }
 
-    public async Task FindOffsetAndRotationAsync(Image other, float snrMin = 20f, int maxStars = 500, int maxRetries = 2, int minStars = 24, float quadTolerance = 0.008f, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Finds the offset and rotation between this image and another image by matching stars.
+    /// Returns null if not enough stars are found or no match is found.
+    /// Note that the returned offset is in the coordinate system of this image, so it can be used to align this image to the other image.
+    /// </summary>
+    /// <param name="other"></param>
+    /// <param name="snrMin"></param>
+    /// <param name="maxStars"></param>
+    /// <param name="maxRetries"></param>
+    /// <param name="minStars"></param>
+    /// <param name="quadTolerance"></param>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
+    public async Task<Matrix3x2?> FindOffsetAndRotationAsync(Image other, float snrMin = 20f, int maxStars = 500, int maxRetries = 2, int minStars = 24, float quadTolerance = 0.008f, CancellationToken cancellationToken = default)
     {
         var starList1Task = FindStarsAsync(snrMin, maxStars, maxRetries, cancellationToken);
         var starList2Task = other.FindStarsAsync(snrMin, maxStars, maxRetries, cancellationToken);
@@ -1137,7 +1151,9 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
 
         if (starLists[0].Count >= minStars && starLists[1].Count >= minStars)
         {
-            new SortedStarList(starLists[0]).FindOffsetAndRotation(new SortedStarList(starLists[1]), minStars/ 4, quadTolerance);
+            return await new SortedStarList(starLists[0]).FindOffsetAndRotationAsync(starLists[1], minStars / 4, quadTolerance);
         }
+
+        return null;
     }
 }
