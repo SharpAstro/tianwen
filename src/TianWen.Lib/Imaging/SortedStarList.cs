@@ -1,12 +1,14 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace TianWen.Lib.Imaging;
 
-public class SortedStarList(StarList stars) : IReadOnlyList<ImagedStar>
+public class SortedStarList(StarList stars) : IReadOnlyList<ImagedStar>, IDisposable
 {
     sealed class XCentroidComparer : IComparer<ImagedStar>
     {
@@ -17,7 +19,7 @@ public class SortedStarList(StarList stars) : IReadOnlyList<ImagedStar>
 
     private readonly ImagedStar[] _stars = SortStarList(stars, xCentroidComparer);
     private List<StarQuad>? _quads;
-    private readonly Lock _lock = new();
+    private readonly SemaphoreSlim _lock = new SemaphoreSlim(1, 1);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     private static ImagedStar[] SortStarList(StarList stars, IComparer<ImagedStar> comparer)
@@ -33,8 +35,7 @@ public class SortedStarList(StarList stars) : IReadOnlyList<ImagedStar>
     /// </summary>
     /// <returns></returns>
     /// <remarks>From unit_star_align.pas:find_quads</remarks>
-
-    public IReadOnlyList<StarQuad> FindQuads()
+    public async Task<IReadOnlyList<StarQuad>> FindQuadsAsync(CancellationToken cancellationToken = default)
     {
         var quads = Interlocked.CompareExchange(ref _quads, null, null);
         if (quads is not null)
@@ -42,10 +43,14 @@ public class SortedStarList(StarList stars) : IReadOnlyList<ImagedStar>
             return quads;
         }
 
-        lock (_lock)
+        using var @lock = await _lock.AcquireLockAsync(cancellationToken);
+
+        if (quads is not null)
         {
-            return _quads = DoFindQuads();
+            return quads;
         }
+
+        return _quads = DoFindQuads();
     }
 
     private List<StarQuad> DoFindQuads()
@@ -110,7 +115,7 @@ public class SortedStarList(StarList stars) : IReadOnlyList<ImagedStar>
             bool identical_quad = false;
             for (int k = 0; k < quadStarDistances.Count; k++)
             {
-                if (Math.Abs(xt - quadStarDistances[k].X) < 1 && Math.Abs(yt - quadStarDistances[k].Y) < 1)
+                if (MathF.Abs(xt - quadStarDistances[k].X) < 1 && MathF.Abs(yt - quadStarDistances[k].Y) < 1)
                 {
                     identical_quad = true;
                     break;
@@ -147,16 +152,13 @@ public class SortedStarList(StarList stars) : IReadOnlyList<ImagedStar>
         return quadStarDistances;
     }
 
-    public StarReferenceTable? FindFit(SortedStarList other, int minimumCount = 6, float quadTolerance = 0.008f)
-        => StarReferenceTable.FindFit(FindQuads(), other.FindQuads(), minimumCount, quadTolerance);
+    public async Task<StarReferenceTable?> FindFitAsync(SortedStarList other, int minimumCount = 6, float quadTolerance = 0.008f)
+        => StarReferenceTable.FindFit(await FindQuadsAsync(), await other.FindQuadsAsync(), minimumCount, quadTolerance);
 
-    public void FindOffsetAndRotation(SortedStarList other, int minimumCount = 6, float quadTolerance = 0.008f)
+    public async Task<Matrix3x2?> FindOffsetAndRotationAsync(SortedStarList other, int minimumCount = 6, float quadTolerance = 0.008f)
     {
-        var starRefTable = FindFit(other, minimumCount, quadTolerance);
-        if (starRefTable is { } && starRefTable.FindOffsetAndRotation())
-        {
-
-        }
+        var starRefTable = await FindFitAsync(other, minimumCount, quadTolerance);
+        return starRefTable is { } ? await starRefTable.FindOffsetAndRotationAsync() : null;
     }
 
     public int Count => _stars.Length;
@@ -166,4 +168,13 @@ public class SortedStarList(StarList stars) : IReadOnlyList<ImagedStar>
     public IEnumerator<ImagedStar> GetEnumerator() => _stars.GetEnumerable().GetEnumerator();
 
     IEnumerator IEnumerable.GetEnumerator() => _stars.GetEnumerator();
+
+    public void Dispose()
+    {
+        _lock.Dispose();
+        
+        GC.SuppressFinalize(this);
+    }
+
+    public static implicit operator SortedStarList(StarList stars) => new SortedStarList(stars);
 }
