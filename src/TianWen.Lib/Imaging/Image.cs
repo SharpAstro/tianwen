@@ -574,7 +574,12 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
                             for (var fitsX = 0; fitsX < width; fitsX++)
                             {
                                 // new star. For analyse used sigma is 5, so not too low.
-                                if (data[fitsY, fitsX] - background > detection_level
+                                var value = data[fitsY, fitsX];
+                                if (float.IsNaN(value))
+                                {
+                                    img_star_area[fitsY, fitsX] = true; /* ignore NaN values */
+                                }
+                                else if (value - background > detection_level
                                     && !img_star_area[fitsY, fitsX]
                                     && AnalyseStar(fitsX, fitsY, BoxRadius, out var star)
                                     && star.HFD is > 0.8f and <= BoxRadius * 2 /* at least 2 pixels in size */
@@ -631,15 +636,18 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
             for (var w = 0; w <= width - 1; w++)
             {
                 var value = data[h, w];
-                var valueAsInt = (int)MathF.Round(value);
-
-                // ignore black overlap areas and bright stars
-                if (value >= 1 && value < threshold)
+                if (!float.IsNaN(value))
                 {
-                    histogram[valueAsInt]++; // calculate histogram
-                    hist_total++;
-                    total_value += value;
-                    count++;
+                    var valueAsInt = (int)MathF.Round(value);
+
+                    // ignore black overlap areas and bright stars
+                    if (value >= 1 && value < threshold)
+                    {
+                        histogram[valueAsInt]++; // calculate histogram
+                        hist_total++;
+                        total_value += value;
+                        count++;
+                    }
                 }
             }
         }
@@ -736,7 +744,7 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
                 {
                     var value = data[fitsY, fitsX];
                     // not an outlier, noise should be symmetrical so should be less then twice background
-                    if (value < background * 2 && value != 0)
+                    if (!float.IsNaN(value) && value < background * 2 && value != 0)
                     {
                         // ignore outliers after first run
                         if (iterations == 0 || (value - background) <= 3 * sd_old)
@@ -803,7 +811,11 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
                     /*annulus, circular area outside rs, typical one pixel wide*/
                     if (distance > r1_square && distance <= r2_square)
                     {
-                        backgroundScratch[backgroundIndex++] = data[y1 + i, x1 + j];
+                        var value = data[y1 + i, x1 + j];
+                        if (!float.IsNaN(value))
+                        {
+                            backgroundScratch[backgroundIndex++] = value;
+                        }
                     }
                 }
             }
@@ -834,13 +846,17 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
                 {
                     for (var j = -boxRadius; j <= boxRadius; j++)
                     {
-                        var val = data[y1 + i, x1 + j] - bg;
-                        if (val > 3.0f * sd_bg)
+                        var value = data[y1 + i, x1 + j];
+                        if (!float.IsNaN(value))
                         {
-                            sumVal += val;
-                            sumValX += val * j;
-                            sumValY += val * i;
-                            signal_counter++; /* how many pixels are illuminated */
+                            var bg_sub_value = value - bg;
+                            if (bg_sub_value > 3.0f * sd_bg)
+                            {
+                                sumVal += bg_sub_value;
+                                sumValX += bg_sub_value * j;
+                                sumValY += bg_sub_value * i;
+                                signal_counter++; /* how many pixels are illuminated */
+                            }
                         }
                     }
                 }
@@ -1051,25 +1067,75 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
     /// <param name="y1"></param>
     /// <returns></returns>
     [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.AggressiveInlining)]
-    float SubpixelValue(float x1, float y1)
+    private float SubpixelValue(float x1, float y1)
     {
         var x_trunc = (int)MathF.Truncate(x1);
         var y_trunc = (int)MathF.Truncate(y1);
 
-        if (x_trunc <= 0 || x_trunc >= width - 2 || y_trunc <= 0 || y_trunc >= height - 2)
+        if (x_trunc < 0 || x_trunc >= width || y_trunc < 0 || y_trunc >= height)
         {
-            return 0;
+            return float.NaN;
+        }
+        else if (x_trunc == x1 && y_trunc == y1)
+        {
+            return data[y_trunc, x_trunc];
         }
 
         var x_frac = x1 - x_trunc;
         var y_frac = y1 - y_trunc;
         try
         {
-            var result = (double)data[y_trunc, x_trunc]      * (1 - x_frac) * (1 - y_frac); // pixel left top, 1
-            result += (double)data[y_trunc, x_trunc + 1]     * x_frac * (1 - y_frac);       // pixel right top, 2
-            result += (double)data[y_trunc + 1, x_trunc]     * (1 - x_frac) * y_frac;       // pixel left bottom, 3
-            result += (double)data[y_trunc + 1, x_trunc + 1] * x_frac * y_frac;             // pixel right bottom, 4
-            return (float)result;
+            var result = double.NaN;
+
+            // pixel left top, 1
+            if (data[y_trunc, x_trunc] is { } tl && !float.IsNaN(tl))
+            {
+                result = (double)tl * (1 - x_frac) * (1 - y_frac);
+            }
+
+            // pixel right top, 2
+            if (x_trunc < width - 1 && data[y_trunc, x_trunc + 1] is { } tr && !float.IsNaN(tr))
+            {
+                var scaled = (double)tr * x_frac * (1 - y_frac);
+                if (double.IsNaN(result))
+                {
+                    result = scaled;
+                }
+                else
+                {
+                    result += scaled;
+                }
+            }
+
+            // pixel left bottom, 3
+            if (y_trunc < height - 1 && data[y_trunc + 1, x_trunc] is { } bl && !float.IsNaN(bl))
+            {
+                var scaled = (double)bl * (1 - x_frac) * y_frac;
+                if (double.IsNaN(result))
+                {
+                    result = scaled;
+                }
+                else
+                {
+                    result += scaled;
+                }
+            }
+
+            // pixel right bottom, 4
+            if (x_trunc < width - 1 && y_trunc < height - 1 && data[y_trunc + 1, x_trunc + 1] is { } br && !float.IsNaN(br))
+            {
+                var scaled = (double)br * x_frac * y_frac;
+                if (double.IsNaN(result))
+                {
+                    result = scaled;
+                }
+                else
+                {
+                    result += scaled;
+                }
+            }
+
+            return double.IsNaN(result) ? float.NaN : (float)result;
         }
         catch (Exception ex) when (Environment.UserInteractive)
         {
@@ -1078,7 +1144,7 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
         }
         catch
         {
-            return 0;
+            return float.NaN;
         }
     }
 
@@ -1155,5 +1221,56 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Transforms the image using the given 3x2 affine transformation matrix. The output image will be large enough to contain the entire transformed image. The pixel values are calculated using bilinear interpolation. Note that the transformation is applied in reverse order, so the inverse of the given matrix is used to calculate the source pixel for each destination pixel. This allows for correct handling of rotations and scaling. If the transformation is not invertible, an exception is thrown. Note that this method can be computationally expensive for large images or complex transformations, so it should be used with caution. Also note that this method does not perform any cropping or padding.
+    /// </summary>
+    /// <param name="transform"></param>
+    /// <returns></returns>
+    /// <exception cref="ArgumentException"></exception>
+    public Image Transform(Matrix3x2 transform)
+    {
+        var tl_p = Vector2.Transform(Vector2.Zero, transform);
+        var tr_p = Vector2.Transform(new Vector2(width, 0), transform);
+        var bl_p = Vector2.Transform(new Vector2(0, height), transform);
+        var br_p = Vector2.Transform(new Vector2(width, height), transform);
+
+        var top = MathF.Min(MathF.Min(tl_p.Y, tr_p.Y), MathF.Min(bl_p.Y, br_p.Y));
+        var left = MathF.Min(MathF.Min(tl_p.X, tr_p.X), MathF.Min(bl_p.X, br_p.X));
+        var bottom = MathF.Max(MathF.Max(tl_p.Y, tr_p.Y), MathF.Max(bl_p.Y, br_p.Y));
+        var right = MathF.Max(MathF.Max(tl_p.X, tr_p.X), MathF.Max(bl_p.X, br_p.X));
+
+        return DoTransformation(transform, new Vector2(left, top), new Vector2(right, bottom));
+    }
+
+    private Image DoTransformation(Matrix3x2 transform, Vector2 tl, Vector2 br)
+    {
+        var translated = transform * Matrix3x2.CreateTranslation(-tl);
+        if (!Matrix3x2.Invert(translated, out var inverseTransform))
+        {
+            throw new ArgumentException("Transform is not invertible", nameof(transform));
+        }
+
+        var newWidth = (int)MathF.Ceiling(br.X - tl.X);
+        var newHeight = (int)MathF.Ceiling(br.Y - tl.Y);
+
+        var transformedData = new float[newHeight, newWidth];
+        // fill transformedData with float.NaN
+        transformedData.AsSpan2D().Fill(float.NaN);
+
+        for (var y = 0; y < newHeight; y++)
+        {
+            for (var x = 0; x < newWidth; x++)
+            {
+                var sourcePos = Vector2.Transform(new Vector2(x, y), inverseTransform);
+                if (sourcePos.X >= 0 && sourcePos.X < width - 1 && sourcePos.Y >= 0 && sourcePos.Y < height - 1)
+                {
+                    var value = SubpixelValue(sourcePos.X, sourcePos.Y);
+                    transformedData[y, x] = value;
+                }
+            }
+        }
+        return new Image(transformedData, newWidth, newHeight, BitDepth.Float32, maxVal, blackLevel, imageMeta);
     }
 }

@@ -12,8 +12,6 @@ public class TestDataSanityTests(ITestOutputHelper testOutputHelper) : ImageAnal
     public async Task GivenOnDiskFitsFileWithImageWhenTryingReadImageItSucceeds(string name)
     {
         // given
-
-
         ImageDim dim;
         SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords).ShouldBeTrue();
 
