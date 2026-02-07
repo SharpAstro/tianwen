@@ -17,6 +17,7 @@ public class ImageTransformTests(ITestOutputHelper testOutputHelper) : ImageAnal
         var cancellationToken = TestContext.Current.CancellationToken;
         var image = await SharedTestData.ExtractGZippedFitsImageAsync(name, cancellationToken: cancellationToken);
         var matrix = Matrix3x2.CreateRotation(float.DegreesToRadians(rotationDegrees)) * Matrix3x2.CreateTranslation(x_off, y_off);
+        var starsBefore = await image.FindStarsAsync(snrMin: 20, cancellationToken: cancellationToken);
 
         // when
         var transformed = image.Transform(matrix);
@@ -25,6 +26,8 @@ public class ImageTransformTests(ITestOutputHelper testOutputHelper) : ImageAnal
         transformed.WriteToFitsFile(outFile);
 
         // then
+        var starsAfter = await transformed.FindStarsAsync(snrMin: 20, cancellationToken: cancellationToken);
+        starsAfter.Count.ShouldBeGreaterThanOrEqualTo(starsBefore.Count);
         transformed.ShouldNotBeNull();
 
         _testOutputHelper.WriteLine($"Transformed image written to: {outFile}");

@@ -915,14 +915,18 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
                     var distance = (int)MathF.Round(MathF.Sqrt(i * i + j * j)); /* distance from gravity center */
                     if (distance <= boxRadius) /* build histogram for circle with radius boxRadius */
                     {
-                        var val = SubpixelValue(xc + i, yc + j) - bg;
-                        if (val > 3.0 * sd_bg) /* 3 * sd should be signal */
+                        var value = SubpixelValue(xc + i, yc + j);
+                        if (!float.IsNaN(value))
                         {
-                            distance_histogram[distance]++; /* build distance histogram up to circle with diameter rs */
-
-                            if (val > valMax)
+                            var bg_sub_value = value - bg;
+                            if (bg_sub_value > 3.0 * sd_bg) /* 3 * sd should be signal */
                             {
-                                valMax = val; /* record the peak value of the star */
+                                distance_histogram[distance]++; /* build distance histogram up to circle with diameter rs */
+
+                                if (bg_sub_value > valMax)
+                                {
+                                    valMax = bg_sub_value; /* record the peak value of the star */
+                                }
                             }
                         }
                     }
