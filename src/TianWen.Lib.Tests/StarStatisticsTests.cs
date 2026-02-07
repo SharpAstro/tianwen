@@ -21,9 +21,9 @@ public class StarStatisticsTests(ITestOutputHelper testOutputHelper) : ImageAnal
     {
         // given
         var cancellationToken = TestContext.Current.CancellationToken;
+        var image = await SharedTestData.ExtractGZippedFitsImageAsync(name, cancellationToken: cancellationToken);
 
         // when
-        var image = await SharedTestData.ExtractGZippedFitsImageAsync(name, cancellationToken: cancellationToken);
         var result = await image.FindStarsAsync(snrMin: snrMin, maxRetries: maxRetries, cancellationToken: cancellationToken);
 
         // then
