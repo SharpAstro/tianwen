@@ -1073,8 +1073,9 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
     [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.AggressiveInlining)]
     private float SubpixelValue(float x1, float y1)
     {
-        var x_trunc = (int)MathF.Truncate(x1);
-        var y_trunc = (int)MathF.Truncate(y1);
+        // assumes that maxVal < long.MaxValue
+        var x_trunc = (long)MathF.Truncate(x1);
+        var y_trunc = (long)MathF.Truncate(y1);
 
         if (x_trunc < 0 || x_trunc >= width || y_trunc < 0 || y_trunc >= height)
         {
@@ -1089,57 +1090,77 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
         var y_frac = y1 - y_trunc;
         try
         {
-            var result = double.NaN;
+            const int tl = 0;
+            const int tr = 1;
+            const int bl = 2;
+            const int br = 3;
 
-            // pixel left top, 1
-            if (data[y_trunc, x_trunc] is { } tl && !float.IsNaN(tl))
+            byte mask = 0;
+            Span<float> pixels = stackalloc float[4];
+            pixels.Fill(float.NaN);
+
+            pixels[tl] = data[y_trunc, x_trunc];
+            if (x_trunc < width - 1)
             {
-                result = (double)tl * (1 - x_frac) * (1 - y_frac);
+                pixels[tr] = data[y_trunc, x_trunc + 1];
             }
 
-            // pixel right top, 2
-            if (x_trunc < width - 1 && data[y_trunc, x_trunc + 1] is { } tr && !float.IsNaN(tr))
+            if (y_trunc < height - 1)
             {
-                var scaled = (double)tr * x_frac * (1 - y_frac);
-                if (double.IsNaN(result))
+                pixels[bl] = data[y_trunc + 1, x_trunc];
+            }
+
+            if (x_trunc < width - 1 && y_trunc < height - 1)
+            {
+                pixels[br] = data[y_trunc + 1, x_trunc + 1];
+            }
+
+            for (var i = 0; i < 4; i++)
+            {
+                if (!float.IsNaN(pixels[i]))
                 {
-                    result = scaled;
+                    mask |= (byte)(1 << i);
+                }
+            }
+
+            if ((mask & 0b1111) == 0b1111)
+            {
+                return pixels[tl] * (1 - x_frac) * (1 - y_frac)
+                    + pixels[tr] * x_frac * (1 - y_frac)
+                    + pixels[bl] * (1 - x_frac) * y_frac
+                    + pixels[br] * x_frac * y_frac;
+            }
+            else
+            {
+                int main;
+                if (x_frac <= 0.5f && y_frac <= 0.5f)
+                {
+                    main = tl;
+                }
+                else if (x_frac > 0.5f && y_frac <= 0.5f)
+                {
+                    main = tr;
+                }
+                else if (x_frac <= 0.5f && y_frac > 0.5f)
+                {
+                    main = bl;
                 }
                 else
                 {
-                    result += scaled;
+                    main = br;
                 }
-            }
 
-            // pixel left bottom, 3
-            if (y_trunc < height - 1 && data[y_trunc + 1, x_trunc] is { } bl && !float.IsNaN(bl))
-            {
-                var scaled = (double)bl * (1 - x_frac) * y_frac;
-                if (double.IsNaN(result))
+                // if the main pixel is not lit, return NaN
+                if ((mask & (1 << main)) == (1 << main))
                 {
-                    result = scaled;
+                    return pixels[main];
                 }
+                // for now, return NaN if any non-main pixel is NaN, a better approach would be to interpolate using only the available pixels
                 else
                 {
-                    result += scaled;
+                    return float.NaN;
                 }
             }
-
-            // pixel right bottom, 4
-            if (x_trunc < width - 1 && y_trunc < height - 1 && data[y_trunc + 1, x_trunc + 1] is { } br && !float.IsNaN(br))
-            {
-                var scaled = (double)br * x_frac * y_frac;
-                if (double.IsNaN(result))
-                {
-                    result = scaled;
-                }
-                else
-                {
-                    result += scaled;
-                }
-            }
-
-            return double.IsNaN(result) ? float.NaN : (float)result;
         }
         catch (Exception ex) when (Environment.UserInteractive)
         {
@@ -1235,6 +1256,11 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
     /// <exception cref="ArgumentException"></exception>
     public Image Transform(Matrix3x2 transform)
     {
+        if (transform.IsIdentity)
+        {
+            return this;
+        }
+
         var tl_p = Vector2.Transform(Vector2.Zero, transform);
         var tr_p = Vector2.Transform(new Vector2(width, 0), transform);
         var bl_p = Vector2.Transform(new Vector2(0, height), transform);
@@ -1268,7 +1294,7 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
             for (var x = 0; x < newWidth; x++)
             {
                 var sourcePos = Vector2.Transform(new Vector2(x, y), inverseTransform);
-                if (sourcePos.X >= 0 && sourcePos.X < width - 1 && sourcePos.Y >= 0 && sourcePos.Y < height - 1)
+                if (sourcePos.X >= 0 && sourcePos.X < width && sourcePos.Y >= 0 && sourcePos.Y < height)
                 {
                     var value = SubpixelValue(sourcePos.X, sourcePos.Y);
                     transformedData[y, x] = value;

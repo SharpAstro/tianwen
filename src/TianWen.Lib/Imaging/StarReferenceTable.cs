@@ -12,15 +12,17 @@ public class StarReferenceTable
     private readonly float[,] _aXYs;
     private readonly float[] _bXs;
     private readonly float[] _bYs;
+    private readonly float[] _errors;
 
-    private StarReferenceTable(float[,] aXYs, float[] bXs, float[] bYs)
+    private StarReferenceTable(float[,] aXYs, float[] bXs, float[] bYs, float[] errors)
     {
         _aXYs = aXYs;
         _bXs = bXs;
         _bYs = bYs;
+        _errors = errors;
     }
 
-    public static StarReferenceTable? FindFit(IReadOnlyList<StarQuad> quadStarDistances1, IReadOnlyList<StarQuad> quadStarDistances2, int minimumCount = 6, float quadTolerance = 0.008f)
+    public static StarReferenceTable? FindFit(StarQuadList quadStarDistances1, StarQuadList quadStarDistances2, int minimumCount = 6, float quadTolerance = 0.008f)
     {
         // minimum_count required, 6 for stacking, 3 for plate solving
         if (quadStarDistances1.Count < minimumCount || quadStarDistances2.Count < minimumCount)
@@ -30,18 +32,23 @@ public class StarReferenceTable
 
         // find a tolerance resulting in 6 or more of the best matching quads
         var matchList2 = new List<(int Idx1, int Idx2)>();
+
         for (int i = 0; i < quadStarDistances1.Count; i++)
         {
-            for (int j = 0; j < quadStarDistances2.Count; j++)
+            for (var j = 0; j < quadStarDistances2.Count; j++)
             {
-                if (MathF.Abs(quadStarDistances1[i].Dist1 - quadStarDistances2[j].Dist1) <= quadTolerance &&
-                    MathF.Abs(quadStarDistances1[i].Dist2 - quadStarDistances2[j].Dist2) <= quadTolerance &&
-                    MathF.Abs(quadStarDistances1[i].Dist3 - quadStarDistances2[j].Dist3) <= quadTolerance &&
-                    MathF.Abs(quadStarDistances1[i].Dist4 - quadStarDistances2[j].Dist4) <= quadTolerance &&
-                    MathF.Abs(quadStarDistances1[i].Dist5 - quadStarDistances2[j].Dist5) <= quadTolerance
-                )
+                var left = quadStarDistances1[i];
+                var other = quadStarDistances2[j];
+                if (left.WithinTolerance(other, quadTolerance))
                 {
                     matchList2.Add((i, j));
+                }
+                else if (left.Dist1 < other.Dist1 + quadTolerance)
+                {
+                    // since the list is sorted by distance,
+                    // if the current left is smaller than the current other by more than the tolerance,
+                    // then it won't match with any of the following others
+                    break;
                 }
             }
         }
@@ -52,13 +59,15 @@ public class StarReferenceTable
         }
 
         var ratios = new float[matchList2.Count];
+        var ratiosCopy = new float[matchList2.Count];
         for (int k = 0; k < matchList2.Count; k++)
         {
             // ratio between largest length of found and reference quad
-            ratios[k] = quadStarDistances1[matchList2[k].Idx1].Dist1 / quadStarDistances2[matchList2[k].Idx2].Dist1;
+            ratiosCopy[k] = ratios[k] = quadStarDistances1[matchList2[k].Idx1].Dist1 / quadStarDistances2[matchList2[k].Idx2].Dist1;
         }
 
-        var medianRatio = Median(ratios);
+        // median is in place
+        var medianRatio = Median(ratiosCopy);
 
         // remove outliers
         var matchList1 = new List<(int Idx1, int Idx2)>(matchList2.Count);
@@ -76,36 +85,41 @@ public class StarReferenceTable
             var aXYPositions = new float[3, matchList1.Count];
             var bXRefPositions = new float[matchList1.Count];
             var bYRefPositions = new float[matchList1.Count];
+            var errors = new float[matchList1.Count];
 
             for (int k = 0; k < matchList1.Count; k++)
             {
-                aXYPositions[0, k] = quadStarDistances2[matchList1[k].Idx2].X;
-                aXYPositions[1, k] = quadStarDistances2[matchList1[k].Idx2].Y;
+                var a = quadStarDistances2[matchList1[k].Idx2];
+                aXYPositions[0, k] = a.X;
+                aXYPositions[1, k] = a.Y;
                 aXYPositions[2, k] = 1;
 
-                bXRefPositions[k] = quadStarDistances1[matchList1[k].Idx1].X;
-                bYRefPositions[k] = quadStarDistances1[matchList1[k].Idx1].Y;
+                var b = quadStarDistances1[matchList1[k].Idx1];
+                bXRefPositions[k] = b.X;
+                bYRefPositions[k] = b.Y;
+
+                errors[k] = a.Error(b);
             }
 
-            return new StarReferenceTable(aXYPositions, bXRefPositions, bYRefPositions);
+            return new StarReferenceTable(aXYPositions, bXRefPositions, bYRefPositions, errors);
         }
 
         return null;
     }
 
-    public async Task<Matrix3x2?> FindOffsetAndRotationAsync()
+    public async Task<Matrix3x2?> FindOffsetAndRotationAsync(float solutionTolerance = 1e-3f)
     {
         if (await LsqFitAsync() is { } solution)
         {
-            var xy_sqr_ratio = (MathF.Pow(solution.M11, 2) + MathF.Pow(solution.M12, 2)) / (MathF.Pow(solution.M21, 2) + MathF.Pow(solution.M22, 2));
+            var (scale, skew, _, _) = solution.Decompose();
 
-            // if dimensions x, y are not the same, something wrong.
-            if (xy_sqr_ratio is >= 0.9f and <= 1.1f)
+            if (scale.X > 0f && scale.Y > 0f &&
+                MathF.Abs(scale.X / scale.Y - 1.0f) <= solutionTolerance &&
+                MathF.Abs(skew.X) <= solutionTolerance && MathF.Abs(skew.Y) <= solutionTolerance)
             {
                 return solution;
             }
         }
-
         return null;
     }
 
