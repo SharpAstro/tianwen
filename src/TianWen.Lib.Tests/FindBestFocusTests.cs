@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
@@ -134,7 +135,7 @@ public class FindBestFocusTests(ITestOutputHelper testOutputHelper) : ImageAnaly
         }
     }
 
-    private async Task DrawSolution(MetricSampleMap sampleMap, FocusSolution solution, int minPos, int maxPos, string fileName)
+    private async Task DrawSolution(MetricSampleMap sampleMap, FocusSolution solution, int minPos, int maxPos, string fileName, [CallerMemberName] string? callerName = null)
     {
         using var image = new MagickImage(MagickColors.Transparent, 1000, 1000)
         {
@@ -145,7 +146,7 @@ public class FindBestFocusTests(ITestOutputHelper testOutputHelper) : ImageAnaly
 
         sampleMap.Draw(solution, minPos, maxPos, image, xMargin, yMargin);
 
-        var outputDir = SharedTestData.CreateTempTestOutputDir();
+        var outputDir = SharedTestData.CreateTempTestOutputDir(callerName);
         var fullPath = Path.Combine(outputDir, fileName);
 
         await image.WriteAsync(fullPath);

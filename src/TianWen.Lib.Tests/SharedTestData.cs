@@ -104,16 +104,16 @@ public static class SharedTestData
         );
     }
 
-    internal static string CreateTempTestOutputDir()
+    internal static string CreateTempTestOutputDir(string? subdir = null)
     {
         var dir = Directory.CreateDirectory(Path.Combine(
             Path.GetTempPath(),
-            TestDataRoot
+            SubfolderWithDate(subdir ?? nameof(SharedTestData))
         ));
 
         return dir.FullName;
     }
-    
+
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> FileLocks = new(StringComparer.OrdinalIgnoreCase);
 
     private static async Task<string> WriteEphemeralUseTempFileAsync(string fileName, Func<string, CancellationToken, ValueTask> fileOperation, CancellationToken cancellationToken = default)
@@ -160,27 +160,23 @@ public static class SharedTestData
         return fullPath;
     }
 
-    private static string TestDataRoot
+    private static string SubfolderWithDate(string subDir)
     {
-        get
-        {
-            var name = SharedTestDataAssembly.GetName();
-            const string typeName = nameof(SharedTestData);
+        var name = SharedTestDataAssembly.GetName();
 
-            var date = $"{DateTimeOffset.Now.Date:yyyyMMdd}";
-                
-            if (!string.IsNullOrEmpty(name.Name))
-            {
-                return Path.Combine(name.Name, date, typeName);
-            }
-            else if (name.FullName.IndexOf(',') is var comma and > 0)
-            {
-                return Path.Combine(name.FullName[..comma], date, typeName);
-            }
-            else
-            {
-                return Path.Combine(date, typeName);
-            }
+        var date = $"{DateTimeOffset.Now.Date:yyyyMMdd}";
+
+        if (!string.IsNullOrEmpty(name.Name))
+        {
+            return Path.Combine(name.Name, date, subDir);
+        }
+        else if (name.FullName.IndexOf(',') is var comma and > 0)
+        {
+            return Path.Combine(name.FullName[..comma], date, subDir);
+        }
+        else
+        {
+            return Path.Combine(date, subDir);
         }
     }
 
