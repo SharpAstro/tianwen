@@ -44,10 +44,13 @@ public static class ArrayPoolHelper
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-        public Span<T> AsSpan(int start) => _value.AsSpan(start);
+        public Span<T> AsSpan(int start = 0) => _value.AsSpan(start, _length - start);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         public Span<T> AsSpan(int start, int length) => _value.AsSpan(start, length);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+        public Memory<T> AsMemory(int start = 0) => _value.AsMemory(start, _length - start);
 
         public void Dispose() => ArrayPool<T>.Shared.Return(_value);
 

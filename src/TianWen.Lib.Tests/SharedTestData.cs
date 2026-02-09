@@ -59,17 +59,11 @@ public static class SharedTestData
 
     private static Image ReadImageFromEmbeddedResourceStream(string name)
     {
-        if (OpenGZippedFitsFileStream(name) is not { } inStream)
-        {
-            throw new ArgumentException($"Missing test data {name}", nameof(name));
-        }
+        using var inStream = OpenGZippedFitsFileStream(name) ?? throw new ArgumentException($"Missing test data {name}", nameof(name));
 
-        using (inStream)
-        {
-            return Image.TryReadFitsFile(new Fits(inStream, true), out var image)
-                ? image
-                : throw new InvalidDataException($"Failed to read FITS image from test data {name}");
-        }
+        return Image.TryReadFitsFile(new Fits(inStream, true), out var image)
+            ? image
+            : throw new InvalidDataException($"Failed to read FITS image from test data {name}");
     }
 
     internal static readonly IReadOnlyDictionary<string, (ImageDim ImageDim, WCS WCS)> TestFileImageDimAndCoords =
