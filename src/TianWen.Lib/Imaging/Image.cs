@@ -14,16 +14,17 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Stat;
 using static TianWen.Lib.Stat.StatisticsHelper;
 
 namespace TianWen.Lib.Imaging;
 
-public class Image(float[,] data, int width, int height, BitDepth bitDepth, float maxVal, float blackLevel, ImageMeta imageMeta)
+public class Image(float[,] data, int width, int height, BitDepth bitDepth, float maxValue, float blackLevel, ImageMeta imageMeta)
 {
     public int Width => width;
     public int Height => height;
     public BitDepth BitDepth => bitDepth;
-    public float MaxValue => maxVal;
+    public float MaxValue => maxValue;
     /// <summary>
     /// Black level or offset value, defaults to 0 if unknown
     /// </summary>
@@ -33,7 +34,15 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
     /// </summary>
     public ImageMeta ImageMeta => imageMeta;
 
-    const int HeaderIntSize = 6;
+    /// <summary>
+    /// Read-only indexer to get a pixel value.
+    /// </summary>
+    /// <param name="h"></param>
+    /// <param name="w"></param>
+    /// <returns></returns>
+    public float this[int h, int w] => data[h, w];
+
+    const int DenormalizationMaxValue = ushort.MaxValue;
     /// <summary>
     /// Support reading image from disk (used for testing).
     /// </summary>
@@ -43,35 +52,55 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
     /// <exception cref="InvalidDataException">if not a valid image stream</exception>
     internal static async ValueTask<Image> FromStreamAsync(Stream stream, CancellationToken cancellationToken = default)
     {
-        var buffer = new byte[HeaderIntSize * sizeof(int)];
-        await stream.ReadExactlyAsync(buffer, cancellationToken);
+        using var magic = ArrayPoolHelper.Rent<byte>(sizeof(int));
+        await stream.ReadExactlyAsync(magic, cancellationToken);
 
-        if (buffer[0] != (byte)'I' || buffer[1] != (byte)'m')
+        if (magic[0] != (byte)'I' || magic[1] != (byte)'m')
         {
             throw new InvalidDataException("Stream does not have a valid file magic");
         }
-        var dataIsLittleEndian = buffer[2] == 'L';
+        var dataIsLittleEndian = magic[2] == 'L';
+
+        int headerIntSize;
+        var ver = magic[3] - '0';
+        if (ver is 1)
+        {
+            headerIntSize = 5;
+        }
+        else if (ver is 2)
+        {
+            await stream.ReadExactlyAsync(magic, cancellationToken);
+            if (dataIsLittleEndian != BitConverter.IsLittleEndian)
+            {
+                magic.AsSpan(0).Reverse();
+            }
+
+            headerIntSize = BitConverter.ToInt32(magic);
+        }
+        else
+        {
+            throw new InvalidDataException($"Unsupported image version {ver}");
+        }
+        
+        using var headers = ArrayPoolHelper.Rent<byte>(headerIntSize * sizeof(int));
+
+        await stream.ReadExactlyAsync(headers, cancellationToken);
 
         if (dataIsLittleEndian != BitConverter.IsLittleEndian)
         {
-            for (var i = 1; i < HeaderIntSize; i++)
+            for (var i = 0; i < headerIntSize; i++)
             {
-                Array.Reverse(buffer, i * sizeof(int), sizeof(int));
+                headers.AsSpan(i * sizeof(int), sizeof(int)).Reverse();
             }
         }
 
-        if (buffer[3] != (byte)'1')
-        {
-            throw new InvalidDataException($"Unsupported image version {(char)buffer[3]}");
-        }
-
-        var ints = buffer.AsMemory().Cast<byte, int>().ToArray();
-        var width = ints[1];
-        var height = ints[2];
-        var bitDepth = (BitDepth)ints[3];
-        var maxVal = BitConverter.Int32BitsToSingle(ints[4]);
-        var blackLevel = BitConverter.Int32BitsToSingle(ints[5]);
-
+        var ints = headers.AsMemory().Cast<byte, int>().ToArray();
+        var width = ints[0];
+        var height = ints[1];
+        var bitDepth = (BitDepth)ints[2];
+        var maxValue = BitConverter.Int32BitsToSingle(ints[3]);
+        var blackLevel = BitConverter.Int32BitsToSingle(ints[4]);
+        
         var imageSize = width * height;
         var dataSize = imageSize * sizeof(float);
 
@@ -89,7 +118,7 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
 
         var imageMeta = await JsonSerializer.DeserializeAsync(stream, ImageJsonSerializerContext.Default.ImageMeta, cancellationToken);
 
-        return new Image(data, width, height, bitDepth, maxVal, blackLevel, imageMeta);
+        return new Image(data, width, height, bitDepth, maxValue, blackLevel, imageMeta);
     }
 
     /// <summary>
@@ -101,16 +130,18 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
     /// <returns></returns>
     internal async Task WriteStreamAsync(Stream stream, CancellationToken cancellationToken = default)
     {
-        var magic = (BitConverter.IsLittleEndian ? "ImL1"u8 : "ImB1"u8).ToArray();
+        var magic = (BitConverter.IsLittleEndian ? "ImL2"u8 : "ImB2"u8).ToArray();
         await stream.WriteAsync(magic, cancellationToken);
 
-        var header = new int[HeaderIntSize - 1]; // substract one for the file magic
-        header[0] = Width;
-        header[1] = Height;
-        header[2] = (int)BitDepth;
-        header[3] = BitConverter.SingleToInt32Bits(MaxValue);
-        header[4] = BitConverter.SingleToInt32Bits(BlackLevel);
+        int[] header = [
+            width,
+            height,
+            (int)bitDepth,
+            BitConverter.SingleToInt32Bits(maxValue),
+            BitConverter.SingleToInt32Bits(blackLevel)
+        ];
 
+        await stream.WriteAsync(BitConverter.GetBytes(header.Length), cancellationToken);
         for (var i = 0; i < header.Length; i++)
         {
             await stream.WriteAsync(BitConverter.GetBytes(header[i]), cancellationToken);
@@ -429,7 +460,6 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
         basicHdu.Header.Bitpix = (int)bitDepth;
         AddHeaderValueIfHasValue("BZERO", bzero, "offset data range to that of unsigned short");
         AddHeaderValueIfHasValue("BSCALE", 1, "default scaling factor");
-        AddHeaderValueIfHasValue("BSCALE", 1, "default scaling factor");
         AddHeaderValueIfHasValue("BLKLEVEL", BlackLevel, "", isDataValue: true);
         AddHeaderValueIfHasValue("XBINNING", imageMeta.BinX, "");
         AddHeaderValueIfHasValue("YBINNING", imageMeta.BinY, "");
@@ -439,7 +469,7 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
         AddHeaderValueIfHasValue("EXPTIME", imageMeta.ExposureDuration.TotalSeconds, "seconds");
         AddHeaderValueIfHasValue("IMAGETYP", imageMeta.FrameType, "");
         AddHeaderValueIfHasValue("FRAMETYP", imageMeta.FrameType, "");
-        AddHeaderValueIfHasValue("DATAMAX", maxVal, "");
+        AddHeaderValueIfHasValue("DATAMAX", MaxValue, "");
         AddHeaderValueIfHasValue("INSTRUME", imageMeta.Instrument, "");
         AddHeaderValueIfHasValue("TELESCOP", imageMeta.Telescope, "");
         AddHeaderValueIfHasValue("ROWORDER", imageMeta.RowOrder, "");
@@ -618,24 +648,43 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
     }
 
     /// <summary>
-    /// This function assumes that data has discrete integer values.
-    /// TODO: support normalized floating point data.
+    /// Generates a historgram of the image with values from 0 to 90% of the maximum value.
+    /// This is used to find the background level and star level.
+    /// Values above 90% of the maximum value are ignored as they are likely to be saturated stars or artifacts.
+    /// NaN values are also ignored.
+    /// The histogram is returned as an array of uint where the index represents the pixel value and the value at that index represents the number of pixels with that value.
+    /// Additionally, the mean pixel value  and total number of pixels in the histogram are also returned.
     /// </summary>
-    /// <returns></returns>
+    /// <returns>historgram values</returns>
     public ImageHistogram Histogram()
     {
-        var threshold = (uint)(maxVal * 0.91);
+        bool denormalized;
+        Image image;
+        if (BitDepth is BitDepth.Float32 && MaxValue <= 1.0f)
+        {
+            denormalized = true;
+            image = Denormalize();
+        }
+        else
+        {
+            denormalized = false;
+            image = this;
+        }
+
+        var threshold = (uint)(image.MaxValue * 0.91);
         var histogram = new uint[threshold];
 
         var hist_total = 0u;
         var count = 1; /* prevent divide by zero */
         var total_value = 0f;
 
+        var height = image.Height;
+        var width = image.Width;
         for (var h = 0; h <= height - 1; h++)
         {
             for (var w = 0; w <= width - 1; w++)
             {
-                var value = data[h, w];
+                var value = image[h, w];
                 if (!float.IsNaN(value))
                 {
                     var valueAsInt = (int)MathF.Round(value);
@@ -654,18 +703,20 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
 
         var hist_mean = 1.0f / count * total_value;
 
-        return new ImageHistogram(histogram, hist_mean, hist_total, threshold);
+        return new ImageHistogram(histogram, hist_mean, hist_total, threshold, denormalized);
     }
 
     /// <summary>
     /// get background and star level from peek histogram
     /// </summary>
     /// <returns>background and star level</returns>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public (float background, float starLevel, float noise_level, float threshold) Background()
     {
         // get histogram of img_loaded and his_total
         var histogram = Histogram();
-        var background = data[0, 0]; // define something for images containing 0 or 65535 only
+        var isDenormalized = histogram.Denormalized;
+        var background = float.NaN; // define something for images containing 0 or 65535 only
 
         // find peak in histogram which should be the average background
         var pixels = 0u;
@@ -684,12 +735,12 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
         }
 
         // check alternative mean value
-        if (histogram.Mean > 1.5f * background) // 1.5 * most common
+        if (float.IsNaN(background) || histogram.Mean > 1.5f * background) // 1.5 * most common
         {
             background = histogram.Mean; // strange peak at low value, ignore histogram and use mean
         }
 
-        i = (uint)MathF.Ceiling(maxVal);
+        i = (uint)MathF.Ceiling(histogram.Denormalized ? MaxValue * DenormalizationMaxValue : MaxValue);
 
         var starLevel = 0.0f;
         var above = 0u;
@@ -744,12 +795,14 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
                 {
                     var value = data[fitsY, fitsX];
                     // not an outlier, noise should be symmetrical so should be less then twice background
-                    if (!float.IsNaN(value) && value < background * 2 && value != 0)
+                    if (!float.IsNaN(value))
                     {
+                        var denorm = isDenormalized ? value * DenormalizationMaxValue : value;
+                        
                         // ignore outliers after first run
-                        if (iterations == 0 || (value - background) <= 3 * sd_old)
+                        if (denorm < background * 2 && denorm != 0 && (iterations == 0 || (denorm - background) <= 3 * sd_old))
                         {
-                            var bgSub = value - background;
+                            var bgSub = denorm - background;
                             sd += bgSub * bgSub;
                             // keep record of number of pixels processed
                             counter++;
@@ -763,7 +816,17 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
             iterations++;
         } while (sd_old - sd >= 0.05f * sd && iterations < 7); // repeat until sd is stable or 7 iterations
 
-        return (background, starLevel, MathF.Round(sd), histogram.Threshold);
+        // renormalize
+        if (isDenormalized)
+        {
+            var values = VectorMath.Divide([background, starLevel, sd, histogram.Threshold], DenormalizationMaxValue);
+
+            return ((float)values[0], (float)values[1], (float)values[2], (float)values[3]);
+        }
+        else
+        {
+            return (background, starLevel, sd, histogram.Threshold);
+        }
     }
 
     /// <summary>
@@ -823,18 +886,32 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
             var background = backgroundScratch[..backgroundIndex];
             bg = Median(background);
 
+            float minNonZeroBgValue = 0;
             /* fill background with offsets */
             for (var i = 0; i < background.Length; i++)
             {
-                background[i] = MathF.Abs(background[i] - bg);
+                var bg_i = background[i];
+                // assumes that median sorts ascending
+                if (minNonZeroBgValue == 0)
+                {
+                    minNonZeroBgValue = bg_i;
+                }
+                background[i] = MathF.Abs(bg_i - bg);
             }
 
             var mad_bg = Median(background); //median absolute deviation (MAD)
             sd_bg = mad_bg * 1.4826f; /* Conversion from mad to sd for a normal distribution. See https://en.wikipedia.org/wiki/Median_absolute_deviation */
-            sd_bg = MathF.Max(sd_bg, 1); /* add some value for images with zero noise background. This will prevent that background is seen as a star. E.g. some jpg processed by nova.astrometry.net*/
 
+            // add some value for images with zero noise background.
+            // This will prevent that background is seen as a star. E.g. some jpg processed by nova.astrometry.net
+            if (sd_bg == 0)
+            {
+                sd_bg = BlackLevel > 0 ? BlackLevel : minNonZeroBgValue;
+            }
+
+            // reduce square annulus radius until it is symmetric to remove stars
             bool boxed;
-            do /* reduce square annulus radius till symmetry to remove stars */
+            do
             {
                 // Get center of gravity whithin star detection box and count signal pixels, repeat reduce annulus radius till symmetry to remove stars
                 sumVal = 0.0f;
@@ -1211,13 +1288,72 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
         // last pixel
         debayered[h1, w1] = (float)(0.25d * ((double)data[h1, w1] + data[h1 - 1, w1 - 1] + data[h1, w1 - 1] + data[h1 - 1, w1]));
 
-        return new Image(debayered, width, height, BitDepth.Float32, maxVal, blackLevel, imageMeta with
+        return new Image(debayered, width, height, BitDepth.Float32, maxValue, blackLevel, imageMeta with
         {
             SensorType = SensorType.Monochrome,
             BayerOffsetX = 0,
             BayerOffsetY = 0,
             Filter = new Filter("LUM")
         });
+    }
+
+    public Image Denormalize()
+    {
+        // NO-OP for already denormalized images
+        if (BitDepth is not BitDepth.Float32 || MaxValue > 1.0f)
+        {
+            return this;
+        }
+
+        var newMaxValue = DenormalizationMaxValue;
+        var denormalized = new float[height, width];
+
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                var value = data[y, x];
+                if (!float.IsNaN(value))
+                {
+                    denormalized[y, x] = value * newMaxValue;
+                }
+                else
+                {
+                    denormalized[y, x] = float.NaN;
+                }
+            }
+        }
+
+        return new Image(denormalized, width, height, BitDepth.Float32, newMaxValue, blackLevel * newMaxValue, imageMeta);
+    }
+
+    public Image Normalize()
+    {
+        // NO-OP for already normalized images
+        if (MaxValue <= 1.0f)
+        {
+            return this;
+        }
+
+        var normalized = new float[height, width];
+
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                var value = data[y, x];
+                if (!float.IsNaN(value))
+                {
+                    normalized[y, x] = value / MaxValue;
+                }
+                else
+                {
+                    normalized[y, x] = float.NaN;
+                }
+            }
+        }
+
+        return new Image(normalized, width, height, BitDepth.Float32, 1.0f, blackLevel / maxValue , imageMeta);
     }
 
     /// <summary>
@@ -1294,13 +1430,13 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
             for (var x = 0; x < newWidth; x++)
             {
                 var sourcePos = Vector2.Transform(new Vector2(x, y), inverseTransform);
-                if (sourcePos.X >= 0 && sourcePos.X < width && sourcePos.Y >= 0 && sourcePos.Y < height)
+                if (sourcePos.X >= 0 && sourcePos.X < Width && sourcePos.Y >= 0 && sourcePos.Y < Height)
                 {
                     var value = SubpixelValue(sourcePos.X, sourcePos.Y);
                     transformedData[y, x] = value;
                 }
             }
         }
-        return new Image(transformedData, newWidth, newHeight, BitDepth.Float32, maxVal, blackLevel, imageMeta);
+        return new Image(transformedData, newWidth, newHeight, BitDepth.Float32, MaxValue, BlackLevel, ImageMeta);
     }
 }
