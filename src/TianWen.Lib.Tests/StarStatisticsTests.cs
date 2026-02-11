@@ -20,11 +20,12 @@ public class StarStatisticsTests(ITestOutputHelper testOutputHelper) : ImageAnal
     public async Task GivenFitsFileWhenAnalysingThenMedianHFDAndFWHMIsCalculated(string name, float snrMin, int maxRetries, int expectedStars, params int[] sampleStar)
     {
         // given
+        const int channel = 0;
         var cancellationToken = TestContext.Current.CancellationToken;
         var image = await SharedTestData.ExtractGZippedFitsImageAsync(name, cancellationToken: cancellationToken);
 
         // when
-        var result = await image.FindStarsAsync(snrMin: snrMin, maxRetries: maxRetries, cancellationToken: cancellationToken);
+        var result = await image.FindStarsAsync(channel, snrMin: snrMin, maxRetries: maxRetries, cancellationToken: cancellationToken);
 
         // then
         result.ShouldNotBeEmpty();

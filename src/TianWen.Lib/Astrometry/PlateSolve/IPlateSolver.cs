@@ -21,7 +21,7 @@ public interface IPlateSolver : IAsyncSupportedCheck
     /// <paramref name="searchOrigin"/> with a search radius <paramref name="searchRadius"/>.
     /// </summary>
     /// <param name="fitsFile">An absolute path to a FITS file without a lock. Path should be in system native format.</param>
-    /// <param name="imageDim"></param>
+    /// <param name="imageDim">Image dimensions, used if FITS file does not provide enough information</param>
     /// <param name="range"></param>
     /// <param name="searchOrigin">Prefilled WCS if known</param>
     /// <param name="searchRadius">radius in degrees</param>

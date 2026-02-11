@@ -89,6 +89,7 @@ public class FindBestFocusTests(ITestOutputHelper testOutputHelper) : ImageAnaly
     public async Task HyperboleIsFoundFromActualImageRun(SampleKind kind, AggregationMethod aggregationMethod, int focusStart, int focusEndIncl, int focusStepSize, int sampleCount, int filterNo, float snrMin, int maxIterations, int expectedSolutionAfterSteps, int expectedMinStarCount)
     {
         // given
+        const int channel = 0;
         var cancellationToken = TestContext.Current.CancellationToken;
         var sampleMap = new MetricSampleMap(kind, aggregationMethod);
 
@@ -101,7 +102,7 @@ public class FindBestFocusTests(ITestOutputHelper testOutputHelper) : ImageAnaly
                 var sw = Stopwatch.StartNew();
                 var image = await SharedTestData.ExtractGZippedFitsImageAsync(sampleName, cancellationToken: cancellationToken);
                 var extractImageElapsed = sw.ElapsedMilliseconds;
-                var stars = await image.FindStarsAsync(snrMin: snrMin, cancellationToken: cancellationToken);
+                var stars = await image.FindStarsAsync(channel, snrMin: snrMin, cancellationToken: cancellationToken);
                 var findStarsElapsed = sw.ElapsedMilliseconds - extractImageElapsed;
                 var median = stars.MapReduceStarProperty(sampleMap.Kind, AggregationMethod.Median);
                 var calcMedianElapsed = sw.ElapsedMilliseconds - findStarsElapsed;

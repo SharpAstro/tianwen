@@ -433,6 +433,7 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
                 if (imageReady)
                 {
                     var array = new float[
+                        1,
                         lastExposureSettings.Height - lastExposureSettings.StartY, 
                         lastExposureSettings.Width - lastExposureSettings.StartX
                     ];
