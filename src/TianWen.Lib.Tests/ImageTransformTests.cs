@@ -20,10 +20,11 @@ public class ImageTransformTests(ITestOutputHelper testOutputHelper) : ImageAnal
     public async Task GivenFitsFileWhenTransformingThenTheyCanStillBeAligned(string name, float rotationDegrees, float x_off, float y_off, int snrMin, string quadToleranceStr, int solutionToleranceE10)
     {
         // given
+        const int channel = 0;
         var cancellationToken = TestContext.Current.CancellationToken;
         var image = await SharedTestData.ExtractGZippedFitsImageAsync(name, cancellationToken: cancellationToken);
         var matrix = Matrix3x2.CreateRotation(float.DegreesToRadians(rotationDegrees)) * Matrix3x2.CreateTranslation(x_off, y_off);
-        var starsBefore = await image.FindStarsAsync(snrMin: snrMin, cancellationToken: cancellationToken);
+        var starsBefore = await image.FindStarsAsync(channel, snrMin: snrMin, cancellationToken: cancellationToken);
         var outFolder = SharedTestData.CreateTempTestOutputDir(nameof(GivenFitsFileWhenTransformingThenTheyCanStillBeAligned));
         var varFileNamePart = $"r{rotationDegrees}_x{x_off}_y{y_off}_snr{snrMin}_qt{quadToleranceStr}";
 
@@ -36,7 +37,7 @@ public class ImageTransformTests(ITestOutputHelper testOutputHelper) : ImageAnal
         _testOutputHelper.WriteLine($"Transformed image written to: {transformedFile}");
 
         // then
-        var starsAfter = await transformed.FindStarsAsync(snrMin: snrMin, cancellationToken: cancellationToken);
+        var starsAfter = await transformed.FindStarsAsync(channel, snrMin: snrMin, cancellationToken: cancellationToken);
         starsAfter.Count.ShouldBeGreaterThanOrEqualTo(starsBefore.Count);
         transformed.ShouldNotBeNull();
 

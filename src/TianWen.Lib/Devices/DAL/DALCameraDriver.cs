@@ -711,7 +711,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
 
         var cachedArray = Interlocked.Exchange(ref _camImageArray, null);
         var (data, maxValue) = cachedArray?.Data is null || cachedArray.Data.GetLength(0) != h || cachedArray.Data.GetLength(1) != w
-            ? new Float32HxWImageData(new float[h, w], 0f)
+            ? new Float32HxWImageData(new float[1, h, w], 0f)
             : cachedArray;
 
         switch (exposureSettings.BitDepth.BitSize())
@@ -723,7 +723,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
                 {
                     for (var j = 0; j < w; j++)
                     {
-                        maxValue = MathF.Max(data[i, j] = bytes[(w * i) + j], maxValue);
+                        maxValue = MathF.Max(data[0, i, j] = bytes[(w * i) + j], maxValue);
                     }
                 }
                 break;
@@ -735,7 +735,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
                 {
                     for (var j = 0; j < w; j++)
                     {
-                        maxValue = MathF.Max(data[i, j] = shorts[(w * i) + j], maxValue);
+                        maxValue = MathF.Max(data[0, i, j] = shorts[(w * i) + j], maxValue);
                     }
                 }
                 break;

@@ -1,4 +1,5 @@
 ﻿using CommunityToolkit.HighPerformance;
+using ImageMagick;
 using nom.tam.fits;
 using nom.tam.util;
 using System;
@@ -19,10 +20,28 @@ using static TianWen.Lib.Stat.StatisticsHelper;
 
 namespace TianWen.Lib.Imaging;
 
-public class Image(float[,] data, int width, int height, BitDepth bitDepth, float maxValue, float blackLevel, ImageMeta imageMeta)
+public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blackLevel, ImageMeta imageMeta)
 {
-    public int Width => width;
-    public int Height => height;
+    public int Width
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+        get;
+    } = data.GetLength(2);
+
+    public int Height
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+        get;
+    } = data.GetLength(1);
+
+    public int ChannelCount
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+        get;
+    } = data.GetLength(0);
+
+    public (int ChannelCount, int Width, int Height) Shape => (ChannelCount, Width, Height);
+
     public BitDepth BitDepth => bitDepth;
     public float MaxValue => maxValue;
     /// <summary>
@@ -40,7 +59,7 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
     /// <param name="h"></param>
     /// <param name="w"></param>
     /// <returns></returns>
-    public float this[int h, int w] => data[h, w];
+    public float this[int c, int h, int w] => data[c, h, w];
 
     const int DenormalizationMaxValue = ushort.MaxValue;
     /// <summary>
@@ -81,7 +100,7 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
         {
             throw new InvalidDataException($"Unsupported image version {ver}");
         }
-        
+
         using var headers = ArrayPoolHelper.Rent<byte>(headerIntSize * sizeof(int));
 
         await stream.ReadExactlyAsync(headers, cancellationToken);
@@ -100,8 +119,9 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
         var bitDepth = (BitDepth)ints[2];
         var maxValue = BitConverter.Int32BitsToSingle(ints[3]);
         var blackLevel = BitConverter.Int32BitsToSingle(ints[4]);
-        
-        var imageSize = width * height;
+        var channelCount = headerIntSize > 5 ? ints[5] : 1;
+
+        var imageSize = channelCount * width * height;
         var dataSize = imageSize * sizeof(float);
 
         var byteData = new byte[dataSize];
@@ -114,11 +134,13 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
                 Array.Reverse(byteData, i * sizeof(float), sizeof(float));
             }
         }
-        var data = byteData.AsMemory().Cast<byte, float>().AsMemory2D(height, width).ToArray();
+
+        var data = new float[channelCount, height, width];
+        Buffer.BlockCopy(byteData, 0, data, 0, byteData.Length);
 
         var imageMeta = await JsonSerializer.DeserializeAsync(stream, ImageJsonSerializerContext.Default.ImageMeta, cancellationToken);
 
-        return new Image(data, width, height, bitDepth, maxValue, blackLevel, imageMeta);
+        return new Image(data, bitDepth, maxValue, blackLevel, imageMeta);
     }
 
     /// <summary>
@@ -130,6 +152,7 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
     /// <returns></returns>
     internal async Task WriteStreamAsync(Stream stream, CancellationToken cancellationToken = default)
     {
+        var (channelCount, width, height) = Shape;
         var magic = (BitConverter.IsLittleEndian ? "ImL2"u8 : "ImB2"u8).ToArray();
         await stream.WriteAsync(magic, cancellationToken);
 
@@ -138,7 +161,8 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
             height,
             (int)bitDepth,
             BitConverter.SingleToInt32Bits(maxValue),
-            BitConverter.SingleToInt32Bits(blackLevel)
+            BitConverter.SingleToInt32Bits(blackLevel),
+            channelCount
         ];
 
         await stream.WriteAsync(BitConverter.GetBytes(header.Length), cancellationToken);
@@ -161,10 +185,10 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
     public static bool TryReadFitsFile(Fits fitsFile, [NotNullWhen(true)] out Image? image)
     {
         var hdu = fitsFile.ReadHDU();
-        if ((hdu?.Axes?.Length) != 2
+        if (hdu?.Axes?.Length is not { } axisLength
             || hdu.Data is not ImageData imageData
-            || imageData.DataArray is not object[] heightArray
-            || heightArray.Length == 0
+            || imageData.DataArray is not object[] channelOrHeightArray
+            || channelOrHeightArray.Length == 0
             || !(BitDepthEx.FromValue(hdu.BitPix) is { } bitDepth)
         )
         {
@@ -172,8 +196,30 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
             return false;
         }
 
-        var height = hdu.Axes[0];
-        var width = hdu.Axes[1];
+        int height, width, channelCount;
+        TypeCode elementType;
+
+        switch (axisLength)
+        {
+            case 2:
+                height = hdu.Axes[0];
+                width = hdu.Axes[1];
+                channelCount = 1;
+                elementType = Type.GetTypeCode(channelOrHeightArray[0].GetType().GetElementType());
+                break;
+
+            case 3:
+                channelCount = hdu.Axes[0];
+                height = hdu.Axes[1];
+                width = hdu.Axes[2];
+                elementType = Type.GetTypeCode(((object[])channelOrHeightArray[0])[0].GetType().GetElementType());
+                break;
+
+            default:
+                image = null;
+                return false;
+        }
+
         var exposureStartTime = new DateTime(hdu.ObservationDate.Ticks, DateTimeKind.Utc);
         var maybeExpTime = hdu.Header.GetDoubleValue("EXPTIME", double.NaN);
         var maybeExposure = hdu.Header.GetDoubleValue("EXPOSURE", double.NaN);
@@ -204,170 +250,190 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
         var latitude = hdu.Header.GetFloatValue("LATITUDE", float.NaN);
         var longitude = hdu.Header.GetFloatValue("LONGITUDE", float.NaN);
 
-        var elementType = Type.GetTypeCode(heightArray[0].GetType().GetElementType());
-
-        var imgArray = new float[height, width];
-        Span2D<float> imgArray2d = imgArray.AsSpan2D();
+        var imgArray = new float[channelCount, height, width];
         Span<float> scratchRow = stackalloc float[Math.Min(256, width)];
 
         var quot = Math.DivRem(width, scratchRow.Length, out var rem);
-        var maxVal = (float)hdu.MaximumValue;
-        bool needsMaxValRecalc = double.IsNaN(maxVal) || maxVal is <= 0;
+        var maxValue = (float)hdu.MaximumValue;
+        bool needsMaxValRecalc = float.IsNaN(maxValue) || maxValue is <= 0;
         if (needsMaxValRecalc)
         {
-            maxVal = float.MinValue;
+            maxValue = float.MinValue;
         }
+
+        var rowSize = sizeof(float) * width;
+        var channelSize = rowSize * height;
 
         switch (elementType)
         {
             case TypeCode.Byte:
-                for (int h = 0; h < height; h++)
+                for (int c = 0; c < channelCount; c++)
                 {
-                    var byteWidthArray = (byte[])heightArray[h];
-                    var row = imgArray2d.GetRowSpan(h);
-                    var sourceIndex = 0;
-                    for (int i = 0; i < quot; i++)
+                    var heightArray = (object[])(axisLength is 2 ? channelOrHeightArray : channelOrHeightArray[c]);
+                    var imgArray2d = imgArray.AsSpan2D(c);
+                    for (int h = 0; h < height; h++)
                     {
-                        for (int w = 0; w < scratchRow.Length; w++)
+                        var byteWidthArray = (byte[])heightArray[h];
+                        var row = imgArray2d.GetRowSpan(h);
+                        var sourceIndex = 0;
+                        for (int i = 0; i < quot; i++)
                         {
-                            var val = bscale * byteWidthArray[sourceIndex + w] + bzero;
-                            scratchRow[w] = val;
-                            if (needsMaxValRecalc)
+                            for (int w = 0; w < scratchRow.Length; w++)
                             {
-                                maxVal = MathF.Max(maxVal, val);
+                                var val = bscale * byteWidthArray[sourceIndex + w] + bzero;
+                                scratchRow[w] = val;
+                                if (needsMaxValRecalc)
+                                {
+                                    maxValue = MathF.Max(maxValue, val);
+                                }
                             }
+                            sourceIndex += scratchRow.Length;
+                            scratchRow.CopyTo(row);
+                            row = row[scratchRow.Length..];
                         }
-                        sourceIndex += scratchRow.Length;
-                        scratchRow.CopyTo(row);
-                        row = row[scratchRow.Length..];
-                    }
-                    if (rem > 0)
-                    {
-                        // copy rest
-                        for (int w = 0; w < rem; w++)
+                        if (rem > 0)
                         {
-                            var val = bscale * byteWidthArray[sourceIndex + w] + bzero;
-                            scratchRow[w] = val;
-                            if (needsMaxValRecalc)
+                            // copy rest
+                            for (int w = 0; w < rem; w++)
                             {
-                                maxVal = MathF.Max(maxVal, val);
+                                var val = bscale * byteWidthArray[sourceIndex + w] + bzero;
+                                scratchRow[w] = val;
+                                if (needsMaxValRecalc)
+                                {
+                                    maxValue = MathF.Max(maxValue, val);
+                                }
                             }
+                            scratchRow[..rem].CopyTo(row);
                         }
-                        scratchRow[..rem].CopyTo(row);
                     }
                 }
                 break;
 
             case TypeCode.Int16:
-                for (int h = 0; h < height; h++)
+                for (int c = 0; c < channelCount; c++)
                 {
-                    var shortWidthArray = (short[])heightArray[h];
-                    var row = imgArray2d.GetRowSpan(h);
-                    var sourceIndex = 0;
-                    for (int i = 0; i < quot; i++)
+                    var heightArray = (object[])(axisLength is 2 ? channelOrHeightArray : channelOrHeightArray[c]);
+                    var imgArray2d = imgArray.AsSpan2D(c);
+                    for (int h = 0; h < height; h++)
                     {
-                        for (int w = 0; w < scratchRow.Length; w++)
+                        var shortWidthArray = (short[])heightArray[h];
+                        var row = imgArray2d.GetRowSpan(h);
+                        var sourceIndex = 0;
+                        for (int i = 0; i < quot; i++)
                         {
-                            var val = bscale * shortWidthArray[sourceIndex + w] + bzero;
-                            scratchRow[w] = val;
-                            if (needsMaxValRecalc)
+                            for (int w = 0; w < scratchRow.Length; w++)
                             {
-                                maxVal = MathF.Max(maxVal, val);
+                                var val = bscale * shortWidthArray[sourceIndex + w] + bzero;
+                                scratchRow[w] = val;
+                                if (needsMaxValRecalc)
+                                {
+                                    maxValue = MathF.Max(maxValue, val);
+                                }
                             }
+                            sourceIndex += scratchRow.Length;
+                            scratchRow.CopyTo(row);
+                            row = row[scratchRow.Length..];
                         }
-                        sourceIndex += scratchRow.Length;
-                        scratchRow.CopyTo(row);
-                        row = row[scratchRow.Length..];
-                    }
-                    if (rem > 0)
-                    {
-                        // copy rest
-                        for (int w = 0; w < rem; w++)
+                        if (rem > 0)
                         {
-                            var val = bscale * shortWidthArray[sourceIndex + w] + bzero;
-                            scratchRow[w] = val;
-                            if (needsMaxValRecalc)
+                            // copy rest
+                            for (int w = 0; w < rem; w++)
                             {
-                                maxVal = MathF.Max(maxVal, val);
+                                var val = bscale * shortWidthArray[sourceIndex + w] + bzero;
+                                scratchRow[w] = val;
+                                if (needsMaxValRecalc)
+                                {
+                                    maxValue = MathF.Max(maxValue, val);
+                                }
                             }
+                            scratchRow[..rem].CopyTo(row);
                         }
-                        scratchRow[..rem].CopyTo(row);
                     }
                 }
                 break;
 
             case TypeCode.Int32:
-                for (int h = 0; h < height; h++)
+                for (int c = 0; c < channelCount; c++)
                 {
-                    var intWidthArray = (int[])heightArray[h];
-                    var row = imgArray2d.GetRowSpan(h);
-                    var sourceIndex = 0;
-                    for (int i = 0; i < quot; i++)
+                    var heightArray = (object[])(axisLength is 2 ? channelOrHeightArray : channelOrHeightArray[c]);
+                    var imgArray2d = imgArray.AsSpan2D(c);
+                    for (int h = 0; h < height; h++)
                     {
-                        for (int w = 0; w < scratchRow.Length; w++)
+                        var intWidthArray = (int[])heightArray[h];
+                        var row = imgArray2d.GetRowSpan(h);
+                        var sourceIndex = 0;
+                        for (int i = 0; i < quot; i++)
                         {
-                            var val = bscale * intWidthArray[sourceIndex + w] + bzero;
-                            scratchRow[w] = val;
-                            if (needsMaxValRecalc)
+                            for (int w = 0; w < scratchRow.Length; w++)
                             {
-                                maxVal = MathF.Max(maxVal, val);
+                                var val = bscale * intWidthArray[sourceIndex + w] + bzero;
+                                scratchRow[w] = val;
+                                if (needsMaxValRecalc)
+                                {
+                                    maxValue = MathF.Max(maxValue, val);
+                                }
                             }
+                            sourceIndex += scratchRow.Length;
+                            scratchRow.CopyTo(row);
+                            row = row[scratchRow.Length..];
                         }
-                        sourceIndex += scratchRow.Length;
-                        scratchRow.CopyTo(row);
-                        row = row[scratchRow.Length..];
-                    }
-                    if (rem > 0)
-                    {
-                        // copy rest
-                        for (int w = 0; w < rem; w++)
+                        if (rem > 0)
                         {
-                            var val = bscale * intWidthArray[sourceIndex + w] + bzero;
-                            scratchRow[w] = val;
-                            if (needsMaxValRecalc)
+                            // copy rest
+                            for (int w = 0; w < rem; w++)
                             {
-                                maxVal = MathF.Max(maxVal, val);
+                                var val = bscale * intWidthArray[sourceIndex + w] + bzero;
+                                scratchRow[w] = val;
+                                if (needsMaxValRecalc)
+                                {
+                                    maxValue = MathF.Max(maxValue, val);
+                                }
                             }
+                            scratchRow[..rem].CopyTo(row);
                         }
-                        scratchRow[..rem].CopyTo(row);
                     }
                 }
                 break;
 
             case TypeCode.Single:
-                for (int h = 0; h < height; h++)
+                for (int c = 0; c < channelCount; c++)
                 {
-                    var floatWidthArray = (float[])heightArray[h];
-                    var row = imgArray2d.GetRowSpan(h);
-                    var sourceIndex = 0;
-                    for (int i = 0; i < quot; i++)
+                    var heightArray = (object[])(axisLength is 2 ? channelOrHeightArray : channelOrHeightArray[c]);
+                    var imgArray2d = imgArray.AsSpan2D(c);
+                    for (int h = 0; h < height; h++)
                     {
-                        for (int w = 0; w < scratchRow.Length; w++)
+                        var floatWidthArray = (float[])heightArray[h];
+                        var row = imgArray2d.GetRowSpan(h);
+                        var sourceIndex = 0;
+                        for (int i = 0; i < quot; i++)
                         {
-                            var val = bscale * floatWidthArray[sourceIndex + w] + bzero;
-                            scratchRow[w] = val;
-                            if (needsMaxValRecalc)
+                            for (int w = 0; w < scratchRow.Length; w++)
                             {
-                                maxVal = MathF.Max(maxVal, val);
+                                var val = bscale * floatWidthArray[sourceIndex + w] + bzero;
+                                scratchRow[w] = val;
+                                if (needsMaxValRecalc)
+                                {
+                                    maxValue = MathF.Max(maxValue, val);
+                                }
                             }
+                            sourceIndex += scratchRow.Length;
+                            scratchRow.CopyTo(row);
+                            row = row[scratchRow.Length..];
                         }
-                        sourceIndex += scratchRow.Length;
-                        scratchRow.CopyTo(row);
-                        row = row[scratchRow.Length..];
-                    }
-                    if (rem > 0)
-                    {
-                        // copy rest
-                        for (int w = 0; w < rem; w++)
+                        if (rem > 0)
                         {
-                            var val = bscale * floatWidthArray[sourceIndex + w] + bzero;
-                            scratchRow[w] = val;
-                            if (needsMaxValRecalc)
+                            // copy rest
+                            for (int w = 0; w < rem; w++)
                             {
-                                maxVal = MathF.Max(maxVal, val);
+                                var val = bscale * floatWidthArray[sourceIndex + w] + bzero;
+                                scratchRow[w] = val;
+                                if (needsMaxValRecalc)
+                                {
+                                    maxValue = MathF.Max(maxValue, val);
+                                }
                             }
+                            scratchRow[..rem].CopyTo(row);
                         }
-                        scratchRow[..rem].CopyTo(row);
                     }
                 }
                 break;
@@ -398,12 +464,13 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
             latitude,
             longitude
         );
-        image = new Image(imgArray, width, height, bitDepth, maxVal, blackLevel, imageMeta);
+        image = new Image(imgArray, bitDepth, maxValue, blackLevel, imageMeta);
         return true;
     }
 
     public void WriteToFitsFile(string fileName)
     {
+        var (channelCount, width, height) = Shape;
         var fits = new Fits();
         object[] jaggedArray;
         int bzero;
@@ -411,44 +478,59 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
         switch (bitDepth)
         {
             case BitDepth.Int8:
-                var jaggedByteArray = new byte[height][];
+                var jaggedByteArray = new byte[channelCount][][];
                 bzero = 0;
                 dataIsInt = true;
-                for (var h = 0; h < height; h++)
+                for (var c = 0; c < channelCount; c++)
                 {
-                    var row = new byte[width];
-                    for (var w = 0; w < width; w++)
+                    var channel = jaggedByteArray[c] = new byte[height][];
+                    for (var h = 0; h < height; h++)
                     {
-                        row[w] = (byte)data[h, w];
+                        var row = new byte[width];
+                        for (var w = 0; w < width; w++)
+                        {
+                            row[w] = (byte)data[c, h, w];
+                        }
+                        channel[h] = row;
                     }
-                    jaggedByteArray[h] = row;
                 }
                 jaggedArray = jaggedByteArray;
                 break;
 
             case BitDepth.Int16:
-                var jaggedShortArray = new short[height][];
+                var jaggedShortArray = new short[channelCount][][];
                 bzero = 32768;
                 dataIsInt = true;
-                for (var h = 0; h < height; h++)
+                for (var c = 0; c < channelCount; c++)
                 {
-                    var row = new short[width];
-                    for (var w = 0; w < width; w++)
+                    var channel = jaggedShortArray[c] = new short[height][];
+                    for (var h = 0; h < height; h++)
                     {
-                        row[w] = (short)(data[h, w] - bzero);
+                        var row = new short[width];
+                        for (var w = 0; w < width; w++)
+                        {
+                            row[w] = (short)(data[c, h, w] - bzero);
+                        }
+                        channel[h] = row;
                     }
-                    jaggedShortArray[h] = row;
                 }
                 jaggedArray = jaggedShortArray;
                 break;
 
             case BitDepth.Float32:
-                var jaggedFloatArray = new float[height][];
+                var jaggedFloatArray = new float[channelCount][][];
                 bzero = 0;
                 dataIsInt = false;
-                for (var h = 0; h < height; h++)
+                var rowSize = sizeof(float) * width;
+                var channelSize = rowSize * height;
+                for (var c = 0; c < channelCount; c++)
                 {
-                    jaggedFloatArray[h] = data.GetRowSpan(h).ToArray();
+                    var channel = jaggedFloatArray[c] = new float[height][];
+                    for (var h = 0; h < height; h++)
+                    {
+                        channel[h] = new float[width];
+                        Buffer.BlockCopy(data, (c * channelSize) + (h * rowSize), channel[h], 0, rowSize);
+                    }
                 }
                 jaggedArray = jaggedFloatArray;
                 break;
@@ -502,7 +584,7 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
                 int i => new HeaderCard(key, i, comment),
                 long l => new HeaderCard(key, l, comment),
                 string s => new HeaderCard(key, s, comment),
-                bool b =>  new HeaderCard(key, b, comment),
+                bool b => new HeaderCard(key, b, comment),
                 FrameType ft => new HeaderCard(key, ft.ToFITSValue(), comment),
                 RowOrder ro => new HeaderCard(key, ro.ToFITSValue(), comment),
                 _ => null
@@ -557,22 +639,29 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
     /// <summary>
     /// Find background, noise level, number of stars and their HFD, FWHM, SNR, flux and centroid.
     /// </summary>
+    /// <param name="channel">Channel</param>
     /// <param name="snrMin">S/N ratio threshold for star detection</param>
     /// <param name="maxStars"></param>
     /// <param name="maxRetries"></param>
     /// <returns></returns>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public virtual async Task<StarList> FindStarsAsync(float snrMin = 20f, int maxStars = 500, int maxRetries = 2, CancellationToken cancellationToken = default)
+    public virtual async Task<StarList> FindStarsAsync(int channel, float snrMin = 20f, int maxStars = 500, int maxRetries = 2, CancellationToken cancellationToken = default)
     {
         const int ChunkSize = 2 * MaxScaledRadius;
         const float HalfChunkSizeInv = 1.0f / 2.0f * ChunkSize;
+        var (channelCount, width, height) = Shape;
 
-        if (imageMeta.SensorType is not SensorType.Monochrome)
+        if (channel >= channelCount)
         {
-            return await DebayerOSC2x2MonoBin().FindStarsAsync(snrMin, maxStars, maxRetries, cancellationToken);
+            throw new ArgumentOutOfRangeException(nameof(channel), channel, $"Channel index {channel} is out of range for image with {ChannelCount} channels");
+        }
+        if (imageMeta.SensorType is not SensorType.Monochrome && ChannelCount is 1)
+        {
+            // use the fastest debay algorithm
+            return await Debayer(DebayerAlgorithm.Bilinear).FindStarsAsync(channel, snrMin, maxStars, maxRetries, cancellationToken);
         }
 
-        var (background, star_level, noise_level, hist_threshold) = Background();
+        var (background, star_level, noise_level, hist_threshold) = Background(channel);
 
         var detection_level = MathF.Max(3.5f * noise_level, star_level); /* level above background. Start with a high value */
         var retries = maxRetries;
@@ -604,14 +693,14 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
                             for (var fitsX = 0; fitsX < width; fitsX++)
                             {
                                 // new star. For analyse used sigma is 5, so not too low.
-                                var value = data[fitsY, fitsX];
+                                var value = data[channel, fitsY, fitsX];
                                 if (float.IsNaN(value))
                                 {
                                     img_star_area[fitsY, fitsX] = true; /* ignore NaN values */
                                 }
                                 else if (value - background > detection_level
                                     && !img_star_area[fitsY, fitsX]
-                                    && AnalyseStar(fitsX, fitsY, BoxRadius, out var star)
+                                    && AnalyseStar(channel, fitsX, fitsY, BoxRadius, out var star)
                                     && star.HFD is > 0.8f and <= BoxRadius * 2 /* at least 2 pixels in size */
                                     && star.SNR >= snrMin
                                 )
@@ -656,8 +745,15 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
     /// Additionally, the mean pixel value  and total number of pixels in the histogram are also returned.
     /// </summary>
     /// <returns>historgram values</returns>
-    public ImageHistogram Histogram()
+    public ImageHistogram Histogram(int channel)
     {
+        var (channelCount, width, height) = Shape;
+
+        if (channel >= channelCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(channel), channel, $"Channel index {channel} is out of range for image with {ChannelCount} channels");
+        }
+
         bool denormalized;
         Image image;
         if (BitDepth is BitDepth.Float32 && MaxValue <= 1.0f)
@@ -678,13 +774,11 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
         var count = 1; /* prevent divide by zero */
         var total_value = 0f;
 
-        var height = image.Height;
-        var width = image.Width;
         for (var h = 0; h <= height - 1; h++)
         {
             for (var w = 0; w <= width - 1; w++)
             {
-                var value = image[h, w];
+                var value = image[channel, h, w];
                 if (!float.IsNaN(value))
                 {
                     var valueAsInt = (int)MathF.Round(value);
@@ -711,10 +805,17 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
     /// </summary>
     /// <returns>background and star level</returns>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public (float background, float starLevel, float noise_level, float threshold) Background()
+    public (float background, float starLevel, float noise_level, float threshold) Background(int channel)
     {
+        var (channelCount, width, height) = Shape;
+
+        if (channel >= channelCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(channel), channel, $"Channel index {channel} is out of range for image with {ChannelCount} channels");
+        }
+
         // get histogram of img_loaded and his_total
-        var histogram = Histogram();
+        var histogram = Histogram(channel);
         var isDenormalized = histogram.Denormalized;
         var background = float.NaN; // define something for images containing 0 or 65535 only
 
@@ -793,12 +894,12 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
                 var fitsX = 15;
                 while (fitsX <= width - 1 - 15)
                 {
-                    var value = data[fitsY, fitsX];
+                    var value = data[channel, fitsY, fitsX];
                     // not an outlier, noise should be symmetrical so should be less then twice background
                     if (!float.IsNaN(value))
                     {
                         var denorm = isDenormalized ? value * DenormalizationMaxValue : value;
-                        
+
                         // ignore outliers after first run
                         if (denorm < background * 2 && denorm != 0 && (iterations == 0 || (denorm - background) <= 3 * sd_old))
                         {
@@ -837,10 +938,17 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
     /// <param name="boxRadius">box radius</param>
     /// <returns>true if a star was detected</returns>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public bool AnalyseStar(int x1, int y1, int boxRadius, out ImagedStar star)
+    public bool AnalyseStar(int channel, int x1, int y1, int boxRadius, out ImagedStar star)
     {
         const int maxAnnulusBg = 328; // depends on boxSize <= 50
         Debug.Assert(boxRadius <= 50, nameof(boxRadius) + " should be <= 50 to prevent runtime errors");
+
+        var (channelCount, width, height) = Shape;
+
+        if (channel >= channelCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(channel), channel, $"Channel index {channel} is out of range for image with {ChannelCount} channels");
+        }
 
         var r1_square = boxRadius * boxRadius; /*square radius*/
         var r2 = boxRadius + 1; /*annulus width plus 1*/
@@ -874,7 +982,7 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
                     /*annulus, circular area outside rs, typical one pixel wide*/
                     if (distance > r1_square && distance <= r2_square)
                     {
-                        var value = data[y1 + i, x1 + j];
+                        var value = data[channel, y1 + i, x1 + j];
                         if (!float.IsNaN(value))
                         {
                             backgroundScratch[backgroundIndex++] = value;
@@ -923,7 +1031,7 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
                 {
                     for (var j = -boxRadius; j <= boxRadius; j++)
                     {
-                        var value = data[y1 + i, x1 + j];
+                        var value = data[channel, y1 + i, x1 + j];
                         if (!float.IsNaN(value))
                         {
                             var bg_sub_value = value - bg;
@@ -992,7 +1100,7 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
                     var distance = (int)MathF.Round(MathF.Sqrt(i * i + j * j)); /* distance from gravity center */
                     if (distance <= boxRadius) /* build histogram for circle with radius boxRadius */
                     {
-                        var value = SubpixelValue(xc + i, yc + j);
+                        var value = SubpixelValue(channel, xc + i, yc + j);
                         if (!float.IsNaN(value))
                         {
                             var bg_sub_value = value - bg;
@@ -1062,13 +1170,14 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
         {
             for (var j = -r_aperture; j <= r_aperture; j++)
             {
-                var val = SubpixelValue(xc + i, yc + j) - bg; /* the calculated center of gravity is a floating point position and can be anywhere, so calculate pixel values on sub-pixel level */
+                var val = SubpixelValue(channel, xc + i, yc + j) - bg; /* the calculated center of gravity is a floating point position and can be anywhere, so calculate pixel values on sub-pixel level */
                 var r = MathF.Sqrt(i * i + j * j); /* distance from star gravity center */
                 sumVal += val;/* sumVal will be star total star flux*/
                 sumValR += val * r; /* method Kazuhisa Miyashita, see notes of HFD calculation method, note calculate HFD over square area. Works more accurate then for round area */
                 if (val >= valMax * 0.5)
                 {
-                    pixel_counter++; /* How many pixels are above half maximum */
+                    // How many pixels are above half maximum
+                    pixel_counter++;
                 }
             }
         }
@@ -1148,8 +1257,11 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
     /// <param name="y1"></param>
     /// <returns></returns>
     [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.AggressiveInlining)]
-    private float SubpixelValue(float x1, float y1)
+    private float SubpixelValue(int channel, float x1, float y1)
     {
+        var width = Width;
+        var height = Height;
+
         // assumes that maxVal < long.MaxValue
         var x_trunc = (long)MathF.Truncate(x1);
         var y_trunc = (long)MathF.Truncate(y1);
@@ -1160,7 +1272,7 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
         }
         else if (x_trunc == x1 && y_trunc == y1)
         {
-            return data[y_trunc, x_trunc];
+            return data[channel, y_trunc, x_trunc];
         }
 
         var x_frac = x1 - x_trunc;
@@ -1176,20 +1288,20 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
             Span<float> pixels = stackalloc float[4];
             pixels.Fill(float.NaN);
 
-            pixels[tl] = data[y_trunc, x_trunc];
+            pixels[tl] = data[channel, y_trunc, x_trunc];
             if (x_trunc < width - 1)
             {
-                pixels[tr] = data[y_trunc, x_trunc + 1];
+                pixels[tr] = data[channel, y_trunc, x_trunc + 1];
             }
 
             if (y_trunc < height - 1)
             {
-                pixels[bl] = data[y_trunc + 1, x_trunc];
+                pixels[bl] = data[channel, y_trunc + 1, x_trunc];
             }
 
             if (x_trunc < width - 1 && y_trunc < height - 1)
             {
-                pixels[br] = data[y_trunc + 1, x_trunc + 1];
+                pixels[br] = data[channel, y_trunc + 1, x_trunc + 1];
             }
 
             for (var i = 0; i < 4; i++)
@@ -1250,20 +1362,32 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
         }
     }
 
+    public Image Debayer(DebayerAlgorithm debayerAlgorithm)
+    {
+        // NO-OP for monochrome images
+        if (imageMeta.SensorType is SensorType.Monochrome || ChannelCount > 1)
+        {
+            return this;
+        }
+
+        return debayerAlgorithm switch
+        {
+            DebayerAlgorithm.Bilinear => DebayerBilinear(),
+            DebayerAlgorithm.None => throw new ArgumentException("Must specify an algorithm", nameof(debayerAlgorithm)),
+            _ => throw new NotSupportedException($"Debayer algorithm {debayerAlgorithm} is not supported"),
+        };
+    }
+
     /// <summary>
     /// Uses a simple 2x2 sliding window to calculate the average of 4 pixels, assumes simple 2x2 Bayer matrix.
     /// Is a no-op for monochrome fames.
     /// </summary>
     /// <returns>Debayered monochrome image</returns>
-    public Image DebayerOSC2x2MonoBin()
+    private Image DebayerBilinear()
     {
-        // NO-OP for monochrome images
-        if (imageMeta.SensorType is SensorType.Monochrome)
-        {
-            return this;
-        }
-
-        var debayered = new float[height,width];
+        var width = Width;
+        var height = Height;
+        var debayered = new float[1, height, width];
         // Loop through each pixel in the raw image
         var w1 = width - 1;
         var h1 = height - 1;
@@ -1272,23 +1396,22 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
         {
             for (int x = 0; x < w1; x++)
             {
-                debayered[y, x] = (float)(0.25d * ((double)data[y, x] + data[y+1, x+1] + data[y, x+1] + data[y + 1, x]));
+                debayered[0, y, x] = (float)(0.25d * ((double)data[0, y, x] + data[0, y+1, x+1] + data[0, y, x+1] + data[0, y + 1, x]));
             }
 
             // last column
-            debayered[y, w1] = (float)(0.25d * ((double)data[y, w1] + data[y+1, w1 - 1] + data[y, w1 - 1] + data[y + 1, w1]));
+            debayered[0, y, w1] = (float)(0.25d * ((double)data[0, y, w1] + data[0, y+1, w1 - 1] + data[0, y, w1 - 1] + data[0, y + 1, w1]));
         }
 
         // last row
         for (int x = 0; x < w1; x++)
         {
-            debayered[h1, x] = (float)(0.25d * ((double)data[h1, x] + data[h1 - 1, x+1] + data[h1, x+1] + data[h1 - 1, x]));
+            debayered[0, h1, x] = (float)(0.25d * ((double)data[0, h1, x] + data[0, h1 - 1, x+1] + data[0, h1, x+1] + data[0, h1 - 1, x]));
         }
 
         // last pixel
-        debayered[h1, w1] = (float)(0.25d * ((double)data[h1, w1] + data[h1 - 1, w1 - 1] + data[h1, w1 - 1] + data[h1 - 1, w1]));
-
-        return new Image(debayered, width, height, BitDepth.Float32, maxValue, blackLevel, imageMeta with
+        debayered[0, h1, w1] = (float)(0.25d * ((double)data[0, h1, w1] + data[0, h1 - 1, w1 - 1] + data[0, h1, w1 - 1] + data[0, h1 - 1, w1]));
+        return new Image(debayered, BitDepth.Float32, maxValue, blackLevel, imageMeta with
         {
             SensorType = SensorType.Monochrome,
             BayerOffsetX = 0,
@@ -1305,26 +1428,30 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
             return this;
         }
 
+        var (channelCount, width, height) = Shape;
         var newMaxValue = DenormalizationMaxValue;
-        var denormalized = new float[height, width];
+        var denormalized = new float[channelCount, height, width];
 
-        for (int y = 0; y < height; y++)
+        for (var c = 0; c < channelCount; c++)
         {
-            for (int x = 0; x < width; x++)
+            for (int y = 0; y < height; y++)
             {
-                var value = data[y, x];
-                if (!float.IsNaN(value))
+                for (int x = 0; x < width; x++)
                 {
-                    denormalized[y, x] = value * newMaxValue;
-                }
-                else
-                {
-                    denormalized[y, x] = float.NaN;
+                    var value = data[c, y, x];
+                    if (!float.IsNaN(value))
+                    {
+                        denormalized[c, y, x] = value * newMaxValue;
+                    }
+                    else
+                    {
+                        denormalized[c, y, x] = float.NaN;
+                    }
                 }
             }
         }
 
-        return new Image(denormalized, width, height, BitDepth.Float32, newMaxValue, blackLevel * newMaxValue, imageMeta);
+        return new Image(denormalized, BitDepth.Float32, newMaxValue, blackLevel * newMaxValue, imageMeta);
     }
 
     public Image Normalize()
@@ -1335,25 +1462,29 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
             return this;
         }
 
-        var normalized = new float[height, width];
+        var (channelCount, width, height) = Shape;
+        var normalized = new float[channelCount, height, width];
 
-        for (int y = 0; y < height; y++)
+        for (var c = 0; c < channelCount; c++)
         {
-            for (int x = 0; x < width; x++)
+            for (int y = 0; y < height; y++)
             {
-                var value = data[y, x];
-                if (!float.IsNaN(value))
+                for (int x = 0; x < width; x++)
                 {
-                    normalized[y, x] = value / MaxValue;
-                }
-                else
-                {
-                    normalized[y, x] = float.NaN;
+                    var value = data[c, y, x];
+                    if (!float.IsNaN(value))
+                    {
+                        normalized[c, y, x] = value / MaxValue;
+                    }
+                    else
+                    {
+                        normalized[c, y, x] = float.NaN;
+                    }
                 }
             }
         }
 
-        return new Image(normalized, width, height, BitDepth.Float32, 1.0f, blackLevel / maxValue , imageMeta);
+        return new Image(normalized, BitDepth.Float32, 1.0f, blackLevel / maxValue, imageMeta);
     }
 
     /// <summary>
@@ -1369,10 +1500,10 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
     /// <param name="quadTolerance"></param>
     /// <param name="cancellationToken"></param>
     /// <returns></returns>
-    public async Task<Matrix3x2?> FindOffsetAndRotationAsync(Image other, float snrMin = 20f, int maxStars = 500, int maxRetries = 2, int minStars = 24, float quadTolerance = 0.008f, CancellationToken cancellationToken = default)
+    public async Task<Matrix3x2?> FindOffsetAndRotationAsync(Image other, int channel, int otherChannel, float snrMin = 20f, int maxStars = 500, int maxRetries = 2, int minStars = 24, float quadTolerance = 0.008f, CancellationToken cancellationToken = default)
     {
-        var starList1Task = FindStarsAsync(snrMin, maxStars, maxRetries, cancellationToken);
-        var starList2Task = other.FindStarsAsync(snrMin, maxStars, maxRetries, cancellationToken);
+        var starList1Task = FindStarsAsync(channel, snrMin, maxStars, maxRetries, cancellationToken);
+        var starList2Task = other.FindStarsAsync(otherChannel, snrMin, maxStars, maxRetries, cancellationToken);
 
         var starLists = await Task.WhenAll(starList1Task, starList2Task);
 
@@ -1397,6 +1528,7 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
             return this;
         }
 
+        var (_, width, height) = Shape;
         var tl_p = Vector2.Transform(Vector2.Zero, transform);
         var tr_p = Vector2.Transform(new Vector2(width, 0), transform);
         var bl_p = Vector2.Transform(new Vector2(0, height), transform);
@@ -1421,22 +1553,35 @@ public class Image(float[,] data, int width, int height, BitDepth bitDepth, floa
         var newWidth = (int)MathF.Ceiling(br.X - tl.X);
         var newHeight = (int)MathF.Ceiling(br.Y - tl.Y);
 
-        var transformedData = new float[newHeight, newWidth];
-        // fill transformedData with float.NaN
-        transformedData.AsSpan2D().Fill(float.NaN);
+        var channelCount = ChannelCount;
+        var transformedData = new float[channelCount, newHeight, newWidth];
 
-        for (var y = 0; y < newHeight; y++)
+        for (var c = 0; c < channelCount; c++)
         {
-            for (var x = 0; x < newWidth; x++)
+            for (var y = 0; y < newHeight; y++)
             {
-                var sourcePos = Vector2.Transform(new Vector2(x, y), inverseTransform);
-                if (sourcePos.X >= 0 && sourcePos.X < Width && sourcePos.Y >= 0 && sourcePos.Y < Height)
+                for (var x = 0; x < newWidth; x++)
                 {
-                    var value = SubpixelValue(sourcePos.X, sourcePos.Y);
-                    transformedData[y, x] = value;
+                    var sourcePos = Vector2.Transform(new Vector2(x, y), inverseTransform);
+                    transformedData[c, y, x] = sourcePos.X >= 0 && sourcePos.X < Width && sourcePos.Y >= 0 && sourcePos.Y < Height
+                        ? SubpixelValue(c, sourcePos.X, sourcePos.Y)
+                        : float.NaN;
                 }
             }
         }
-        return new Image(transformedData, newWidth, newHeight, BitDepth.Float32, MaxValue, BlackLevel, ImageMeta);
+        return new Image(transformedData, BitDepth.Float32, MaxValue, BlackLevel, ImageMeta);
+    }
+
+    public IMagickImage<float> ToMagickImage(IMagickColor<float>? fillColor = null)
+    {
+        var norm = Normalize();
+
+        var image = new MagickImage(fillColor ?? MagickColors.Black, (uint)norm.Width, (uint)norm.Height)
+        {
+            Format = MagickFormat.Tiff,
+            Depth = 32,
+        };
+
+        return image;
     }
 }

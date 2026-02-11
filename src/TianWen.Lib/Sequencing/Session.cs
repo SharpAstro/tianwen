@@ -148,7 +148,7 @@ internal record Session(
 
                 if (camDriver.ImageReady is true && camDriver.Image is { Width: > 0, Height: > 0 } image)
                 {
-                    var stars = await image.FindStarsAsync(snrMin: 15, cancellationToken: cancellationToken);
+                    var stars = await image.FindStarsAsync(0, snrMin: 15, cancellationToken: cancellationToken);
 
                     if (stars.Count < 15)
                     {

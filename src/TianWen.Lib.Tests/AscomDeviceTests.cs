@@ -86,6 +86,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         Assert.SkipUnless(RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && Debugger.IsAttached, "Skipped as this test is only run when on Windows and debugger is attached");
 
         // given
+        const int channel = 0;
         var cancellationToken = TestContext.Current.CancellationToken;
         var external = new FakeExternal(testOutputHelper);
         var deviceIterator = new AscomDeviceIterator();
@@ -113,7 +114,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
                 image.BitDepth.ShouldBe(driver.BitDepth.ShouldNotBeNull());
                 image.MaxValue.ShouldBeGreaterThan(0f);
                 image.MaxValue.ShouldBe(expectedMax);
-                var stars = await image.FindStarsAsync(snrMin: 10, cancellationToken: cancellationToken);
+                var stars = await image.FindStarsAsync(channel, snrMin: 10, cancellationToken: cancellationToken);
                 stars.Count.ShouldBeGreaterThan(0);
             }
         }

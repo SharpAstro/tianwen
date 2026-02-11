@@ -17,6 +17,7 @@ public class FindStarsFromCameraImageTests(ITestOutputHelper testOutputHelper) :
     public async Task GivenCameraImageDataWhenConvertingToImageThenStarsCanBeFound(int snr_min, int expectedStars)
     {
         // given
+        const int channel = 0;
         const int Width = 1280;
         const int Height = 960;
         const BitDepth BitDepth = BitDepth.Int16;
@@ -31,7 +32,7 @@ public class FindStarsFromCameraImageTests(ITestOutputHelper testOutputHelper) :
         // when
         var imageData = Float32HxWImageData.FromWxHImageData(int16WxHData);
         var image = imageData.ToImage(BitDepth, BlackLevel, imageMeta);
-        var stars = await image.FindStarsAsync(snrMin: snr_min, cancellationToken: cancellationToken);
+        var stars = await image.FindStarsAsync(channel, snrMin: snr_min, cancellationToken: cancellationToken);
 
         // then
         image.ShouldNotBeNull();
@@ -48,6 +49,7 @@ public class FindStarsFromCameraImageTests(ITestOutputHelper testOutputHelper) :
     public async Task GivenCameraImageDataWhenConvertingToImageAndNormalizingThenStarsCanBeFound(int denorm_snr_min, int expectedStars, string norm_snr_min_str)
     {
         // given
+        const int channel = 0;
         const int Width = 1280;
         const int Height = 960;
         const int BlackLevel = 1;
@@ -61,10 +63,10 @@ public class FindStarsFromCameraImageTests(ITestOutputHelper testOutputHelper) :
         // when
         var imageData = Float32HxWImageData.FromWxHImageData(int16WxHData);
         var denormalized = imageData.ToImage(BitDepth.Int16, BlackLevel, imageMeta);
-        var denormalizedStars = await denormalized.FindStarsAsync(snrMin: denorm_snr_min, cancellationToken: cancellationToken);
+        var denormalizedStars = await denormalized.FindStarsAsync(channel, snrMin: denorm_snr_min, cancellationToken: cancellationToken);
 
         var normalized = denormalized.Normalize();
-        var normalizedStars = await normalized.FindStarsAsync(snrMin: float.Parse(norm_snr_min_str), cancellationToken: cancellationToken);
+        var normalizedStars = await normalized.FindStarsAsync(channel, snrMin: float.Parse(norm_snr_min_str), cancellationToken: cancellationToken);
 
         // then
         denormalized.ShouldNotBeNull();
