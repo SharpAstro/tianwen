@@ -1,12 +1,14 @@
 ﻿using ASCOM.Common;
 using Microsoft.Extensions.Logging;
 using System;
+using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
 using ASCOMDriverAccessDevice = ASCOM.Com.DriverAccess.ASCOMDevice;
 
 namespace TianWen.Lib.Devices.Ascom;
 
+[SupportedOSPlatform("windows")]
 internal abstract class AscomDeviceDriverBase<TAscomDriverAccessDevice>(AscomDevice device, IExternal external, Func<string, ILogger, TAscomDriverAccessDevice> func)
     : DeviceDriverBase<AscomDevice,AscomDeviceInfo>(device, external), IDeviceDriver
     where TAscomDriverAccessDevice : ASCOMDriverAccessDevice

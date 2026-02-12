@@ -1,10 +1,12 @@
 ﻿namespace TianWen.Lib.Devices.Ascom;
 
 using System;
+using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
 using AscomFocuser = ASCOM.Com.DriverAccess.Focuser;
 
+[SupportedOSPlatform("windows")]
 internal class AscomFocuserDriver(AscomDevice device, IExternal external)
     : AscomDeviceDriverBase<AscomFocuser>(device, external, (progId, logger) => new AscomFocuser(progId, new AscomLoggerWrapper(logger))), IFocuserDriver
 {

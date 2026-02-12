@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
@@ -9,6 +10,7 @@ using AscomGuideDirection = ASCOM.Common.DeviceInterfaces.GuideDirection;
 
 namespace TianWen.Lib.Devices.Ascom;
 
+[SupportedOSPlatform("windows")]
 internal class AscomCameraDriver(AscomDevice device, IExternal external)
     : AscomDeviceDriverBase<AscomCamera>(device, external, (progId, logger) => new AscomCamera(progId, new AscomLoggerWrapper(logger))), ICameraDriver
 {

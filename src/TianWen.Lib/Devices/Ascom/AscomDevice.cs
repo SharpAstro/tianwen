@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Runtime.Versioning;
 
 namespace TianWen.Lib.Devices.Ascom;
 
@@ -10,14 +11,19 @@ public record class AscomDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         // calls primary constructor
     }
 
-    protected override IDeviceDriver? NewInstanceFromDevice(IExternal external) => DeviceType switch
-    {
-        DeviceType.Camera => new AscomCameraDriver(this, external),
-        DeviceType.CoverCalibrator => new AscomCoverCalibratorDriver(this, external),
-        DeviceType.FilterWheel => new AscomFilterWheelDriver(this, external),
-        DeviceType.Focuser => new AscomFocuserDriver(this, external),
-        DeviceType.Switch => new AscomSwitchDriver(this, external),
-        DeviceType.Telescope => new AscomTelescopeDriver(this, external),
-        _ => null
-    };
+    protected override IDeviceDriver? NewInstanceFromDevice(IExternal external) =>
+        OperatingSystem.IsWindows() ? InstantiateAscomDriver(external) : null;
+
+    [SupportedOSPlatform("Windows")]
+    private IDeviceDriver? InstantiateAscomDriver(IExternal external) =>
+        DeviceType switch
+        {
+            DeviceType.Camera => new AscomCameraDriver(this, external),
+            DeviceType.CoverCalibrator => new AscomCoverCalibratorDriver(this, external),
+            DeviceType.FilterWheel => new AscomFilterWheelDriver(this, external),
+            DeviceType.Focuser => new AscomFocuserDriver(this, external),
+            DeviceType.Switch => new AscomSwitchDriver(this, external),
+            DeviceType.Telescope => new AscomTelescopeDriver(this, external),
+            _ => null
+        };
 }

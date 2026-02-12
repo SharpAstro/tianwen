@@ -2,9 +2,9 @@
 
   <PropertyGroup>
     <OutputType>Library</OutputType>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <AssemblyVersion>1.6.0.0</AssemblyVersion>
+    <AssemblyVersion>2.0.0.0</AssemblyVersion>
     <PackageID>TianWen.Lib</PackageID>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
@@ -50,23 +50,23 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="ASCOM.AstrometryTools" Version="2.2.1" />
-    <PackageReference Include="ASCOM.Com.Components" Version="2.2.1" />
-    <PackageReference Include="CommunityToolkit.HighPerformance" Version="8.4.0" />
-    <PackageReference Include="CsvHelper" Version="33.1.0" />
-    <PackageReference Include="DotNext.Threading" Version="5.26.3" />
-    <PackageReference Include="FITS.Lib" Version="1.1.7" />
-    <PackageReference Include="GeoTimeZone" Version="6.1.0" />
-    <PackageReference Include="Magick.NET-Q16-HDRI-AnyCPU" Version="14.10.2" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.12" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.12" />
-    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0">
+    <PackageReference Include="ASCOM.AstrometryTools" />
+    <PackageReference Include="ASCOM.Com.Components" />
+    <PackageReference Include="CommunityToolkit.HighPerformance" />
+    <PackageReference Include="CsvHelper" />
+    <PackageReference Include="DotNext.Threading" />
+    <PackageReference Include="FITS.Lib" />
+    <PackageReference Include="GeoTimeZone" />
+    <PackageReference Include="Magick.NET-Q16-HDRI-AnyCPU" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="System.IO.Ports" Version="9.0.12" />
-    <PackageReference Include="WWA.Core" Version="1.2.0" />
-    <PackageReference Include="ZWOptical.SDK" Version="3.4.531" />
+    <PackageReference Include="System.IO.Ports" />
+    <PackageReference Include="WWA.Core" />
+    <PackageReference Include="ZWOptical.SDK" />
   </ItemGroup>
 
 </Project>

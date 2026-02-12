@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
@@ -12,6 +13,7 @@ using static TianWen.Lib.Astrometry.CoordinateUtils;
 
 namespace TianWen.Lib.Devices.Ascom;
 
+[SupportedOSPlatform("windows")]
 internal class AscomTelescopeDriver(AscomDevice device, IExternal external)
     : AscomDeviceDriverBase<AscomTelescope>(device, external, (progId, logger) => new AscomTelescope(progId, new AscomLoggerWrapper(logger))), IMountDriver
 {

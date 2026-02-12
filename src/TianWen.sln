@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.1.32421.90
+# Visual Studio Version 18
+VisualStudioVersion = 18.3.11505.172
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TianWen.Lib", "TianWen.Lib\TianWen.Lib.csproj", "{1C2936DE-3E78-485A-BEC1-23BB27D61326}"
 EndProject
@@ -12,7 +12,9 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{2C52B130-30B2-4A18-A907-A7C901EEC395}"
 	ProjectSection(SolutionItems) = preProject
 		.editorconfig = .editorconfig
+		Directory.Packages.props = Directory.Packages.props
 		..\.github\workflows\dotnet.yml = ..\.github\workflows\dotnet.yml
+		NuGet.config = NuGet.config
 	EndProjectSection
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TianWen.Lib.Hosting", "TianWen.Lib.Hosting\TianWen.Lib.Hosting.csproj", "{2F7C5398-AAB4-4D83-ACA3-7C4D273B5B2F}"
