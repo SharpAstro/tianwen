@@ -1,11 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
 using AscomFilterWheel = ASCOM.Com.DriverAccess.FilterWheel;
 
 namespace TianWen.Lib.Devices.Ascom;
 
+[SupportedOSPlatform("windows")]
 internal class AscomFilterWheelDriver(AscomDevice device, IExternal external)
     : AscomDeviceDriverBase<AscomFilterWheel>(device, external, (progId, logger) => new AscomFilterWheel(progId, new AscomLoggerWrapper(logger))), IFilterWheelDriver
 {

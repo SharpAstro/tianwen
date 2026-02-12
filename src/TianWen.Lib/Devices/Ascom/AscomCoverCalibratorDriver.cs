@@ -1,10 +1,12 @@
 ﻿namespace TianWen.Lib.Devices.Ascom;
 
 using System;
+using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
 using AscomCoverCalibrator = ASCOM.Com.DriverAccess.CoverCalibrator;
 
+[SupportedOSPlatform("windows")]
 internal class AscomCoverCalibratorDriver(AscomDevice device, IExternal external)
     : AscomDeviceDriverBase<AscomCoverCalibrator>(device, external, (progId, logger) => new AscomCoverCalibrator(progId, new AscomLoggerWrapper(logger))), ICoverDriver
 {

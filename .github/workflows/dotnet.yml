@@ -7,7 +7,7 @@ on:
     branches: [ main ]
     
 env:
-  VERSION_PREFIX: 1.8.${{ github.run_number }}
+  VERSION_PREFIX: 2.0.${{ github.run_number }}
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release
@@ -24,7 +24,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v3
       with:
-        dotnet-version: 9.0.x
+        dotnet-version: 10.0.x
     - name: Restore dependencies
       run: dotnet restore
       working-directory: src

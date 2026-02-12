@@ -47,7 +47,7 @@ internal class AscomDeviceIterator : IDeviceSource<AscomDevice>
 
     public async ValueTask DiscoverAsync(CancellationToken cancellationToken = default)
     {
-        if (await CheckSupportAsync(cancellationToken))
+        if (OperatingSystem.IsWindows() && await CheckSupportAsync(cancellationToken))
         {
             var devices = new Dictionary<DeviceType, List<AscomDevice>>();
             foreach (var ascomDeviceType in _allSupportedDeviceTypes)
