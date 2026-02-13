@@ -1814,11 +1814,11 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
     /// <param name="transform"></param>
     /// <returns></returns>
     /// <exception cref="ArgumentException"></exception>
-    public Image Transform(Matrix3x2 transform)
+    public Task<Image> TransformAsync(in Matrix3x2 transform, CancellationToken cancellationToken = default)
     {
         if (transform.IsIdentity)
         {
-            return this;
+            return Task.FromResult(this);
         }
 
         var (_, width, height) = Shape;
@@ -1832,10 +1832,10 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
         var bottom = MathF.Max(MathF.Max(tl_p.Y, tr_p.Y), MathF.Max(bl_p.Y, br_p.Y));
         var right = MathF.Max(MathF.Max(tl_p.X, tr_p.X), MathF.Max(bl_p.X, br_p.X));
 
-        return DoTransformation(transform, new Vector2(left, top), new Vector2(right, bottom));
+        return DoTransformationAsync(transform, new Vector2(left, top), new Vector2(right, bottom), cancellationToken);
     }
 
-    private Image DoTransformation(Matrix3x2 transform, Vector2 tl, Vector2 br)
+    private async Task<Image> DoTransformationAsync(Matrix3x2 transform, Vector2 tl, Vector2 br, CancellationToken cancellationToken = default)
     {
         var translated = transform * Matrix3x2.CreateTranslation(-tl);
         if (!Matrix3x2.Invert(translated, out var inverseTransform))
@@ -1847,21 +1847,33 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
         var newHeight = (int)MathF.Ceiling(br.Y - tl.Y);
 
         var channelCount = ChannelCount;
+        var width = Width;
+        var height = Height;
         var transformedData = new float[channelCount, newHeight, newWidth];
+
+        var parallelOptions = new ParallelOptions
+        {
+            CancellationToken = cancellationToken,
+            MaxDegreeOfParallelism = Environment.ProcessorCount * 4
+        };
 
         for (var c = 0; c < channelCount; c++)
         {
-            for (var y = 0; y < newHeight; y++)
+            var channel = c;
+            await Parallel.ForAsync(0, newHeight, parallelOptions, async (y, ct) => await Task.Run(() =>
             {
                 for (var x = 0; x < newWidth; x++)
                 {
                     var sourcePos = Vector2.Transform(new Vector2(x, y), inverseTransform);
-                    transformedData[c, y, x] = sourcePos.X >= 0 && sourcePos.X < Width && sourcePos.Y >= 0 && sourcePos.Y < Height
-                        ? SubpixelValue(c, sourcePos.X, sourcePos.Y)
+                    transformedData[channel, y, x] = sourcePos.X >= 0 && sourcePos.X < width && sourcePos.Y >= 0 && sourcePos.Y < height
+                        ? SubpixelValue(channel, sourcePos.X, sourcePos.Y)
                         : float.NaN;
                 }
-            }
+
+                return ValueTask.CompletedTask;
+            }, ct));
         }
+
         return new Image(transformedData, BitDepth.Float32, MaxValue, BlackLevel, ImageMeta);
     }
 

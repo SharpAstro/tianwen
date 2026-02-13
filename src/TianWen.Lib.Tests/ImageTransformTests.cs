@@ -29,7 +29,7 @@ public class ImageTransformTests(ITestOutputHelper testOutputHelper)
         var varFileNamePart = $"r{rotationDegrees}_x{x_off}_y{y_off}_snr{snrMin}_qt{quadToleranceStr}";
 
         // when
-        var transformed = image.Transform(matrix);
+        var transformed = await image.TransformAsync(matrix, cancellationToken);
 
         var transformedFile = Path.Combine(outFolder, $"{Path.GetFileNameWithoutExtension(name)}_transformed_{varFileNamePart}.fits");
         transformed.WriteToFitsFile(transformedFile);
@@ -58,7 +58,7 @@ public class ImageTransformTests(ITestOutputHelper testOutputHelper)
         testOutputHelper.WriteLine($"Found solution with retry ({retriedQuadTolerance}) {solutionWithRetry} in {ms} ms");
         solutionWithRetry.Value.Decompose().Rotation.ShouldBe(float.DegreesToRadians(rotationDegrees), tolerance: solutionTolerance);
 
-        var realigned = image.Transform(solutionSpecQuad.Value);
+        var realigned = await image.TransformAsync(solutionSpecQuad.Value, cancellationToken);
         var realignedFile = Path.Combine(outFolder, $"{Path.GetFileNameWithoutExtension(name)}_realigned_{varFileNamePart}.fits");
         realigned.WriteToFitsFile(realignedFile);
 

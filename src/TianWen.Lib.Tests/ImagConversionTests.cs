@@ -58,7 +58,7 @@ public class ImagConversionTests(ITestOutputHelper testOutputHelper)
         testOutputHelper.WriteLine($"Debayering using VNG took: {sw.Elapsed}");
         
         sw.Restart();
-        var rotated = debayered.Transform(Matrix3x2.CreateRotation(MathF.PI / 4));
+        var rotated = await debayered.TransformAsync(Matrix3x2.CreateRotation(MathF.PI / 4), cancellationToken);
         testOutputHelper.WriteLine($"Rotation took: {sw.Elapsed}");
 
         sw.Restart();
