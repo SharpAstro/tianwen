@@ -1,5 +1,4 @@
-﻿using TianWen.Lib.Devices;
-using System;
+﻿using System;
 
 namespace TianWen.Lib.Imaging;
 

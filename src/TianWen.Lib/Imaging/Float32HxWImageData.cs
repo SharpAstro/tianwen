@@ -1,6 +1,5 @@
 ﻿using CommunityToolkit.HighPerformance;
 using System;
-using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Imaging;
 

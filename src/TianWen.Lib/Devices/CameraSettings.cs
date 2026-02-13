@@ -1,4 +1,6 @@
-﻿namespace TianWen.Lib.Devices;
+﻿using TianWen.Lib.Imaging;
+
+namespace TianWen.Lib.Devices;
 
 /// <summary>
 /// Stores settings usually unchanged during Deep-Sky exposures.

@@ -1,5 +1,6 @@
 ﻿using System;
 using TianWen.DAL;
+using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Devices.DAL;
 

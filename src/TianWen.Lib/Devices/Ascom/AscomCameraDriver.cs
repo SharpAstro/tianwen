@@ -319,7 +319,7 @@ internal class AscomCameraDriver(AscomDevice device, IExternal external)
 
     public DateTimeOffset StartExposure(TimeSpan duration, FrameType frameType)
     {
-        _comObject?.StartExposure(duration.TotalSeconds, frameType.NeedsOpenShutter());
+        _comObject?.StartExposure(duration.TotalSeconds, frameType.NeedsOpenShutter);
         var startTime = External.TimeProvider.GetLocalNow();
         LastExposureStartTime = startTime;
         LastExposureFrameType = frameType;

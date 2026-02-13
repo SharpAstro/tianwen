@@ -14,13 +14,19 @@ public enum FrameType
 
 public static class FrameTypeEx
 {
-    public static bool NeedsOpenShutter(this FrameType @this) => @this switch
+    extension(FrameType frameType)
     {
-        FrameType.Light or FrameType.Flat => true,
-        _ => false
-    };
+        public bool NeedsOpenShutter => frameType switch
+        {
+            FrameType.Light or FrameType.Flat => true,
+            _ => false
+        };
 
-    public static string ToFITSValue(this FrameType @this) => @this.ToString();
+        public string ToFITSValue() => frameType.ToString();
+    }
 
-    public static FrameType? FromFITSValue(string value) => Enum.TryParse(value?.Replace("-", ""), true, out FrameType frameType) ? frameType : null;
+    extension(FrameType)
+    {
+        public static FrameType? FromFITSValue(string value) => Enum.TryParse(value?.Replace("-", ""), true, out FrameType frameType) ? frameType : null;
+    }
 }

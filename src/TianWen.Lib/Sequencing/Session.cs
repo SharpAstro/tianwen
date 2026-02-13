@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Guider;
+using TianWen.Lib.Imaging;
 using static TianWen.Lib.Astrometry.CoordinateUtils;
 using static TianWen.Lib.Stat.StatisticsHelper;
 

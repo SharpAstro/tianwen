@@ -10,13 +10,19 @@ public enum RowOrder
 
 public static class RowOrderEx
 {
-    public static string ToFITSValue(this RowOrder @this) => @this switch
+    extension(RowOrder rowOrder)
     {
-        RowOrder.TopDown => "TOP-DOWN",
-        RowOrder.BottomUp => "BOTTOM-UP",
-        _ => throw new ArgumentException($"Value {@this} is not handled", nameof(@this))
-    };
+        public string ToFITSValue() => rowOrder switch
+        {
+            RowOrder.TopDown => "TOP-DOWN",
+            RowOrder.BottomUp => "BOTTOM-UP",
+            _ => throw new ArgumentException($"Value {rowOrder} is not handled", nameof(rowOrder))
+        };
+    }
 
-    public static RowOrder? FromFITSValue(string? value)
-        => Enum.TryParse(value?.Replace("-", ""), true, out RowOrder ro) ? ro : null;
+    extension(RowOrder)
+    {
+        public static RowOrder? FromFITSValue(string? value)
+            => Enum.TryParse(value?.Replace("-", ""), true, out RowOrder ro) ? ro : null;
+    }
 }

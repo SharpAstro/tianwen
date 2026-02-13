@@ -259,7 +259,7 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
 
     public double CCDTemperature => throw new NotImplementedException();
 
-    public BitDepth? BitDepth { get => Devices.BitDepth.Int16; set => throw new InvalidOperationException("Cannot change bit depth"); }
+    public BitDepth? BitDepth { get => Imaging.BitDepth.Int16; set => throw new InvalidOperationException("Cannot change bit depth"); }
 
     public short Gain
     {

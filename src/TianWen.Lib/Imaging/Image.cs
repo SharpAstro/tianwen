@@ -1,6 +1,5 @@
 ﻿using CommunityToolkit.HighPerformance;
 using ImageMagick;
-using ImageMagick.Formats;
 using nom.tam.fits;
 using nom.tam.util;
 using System;
@@ -15,7 +14,6 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using TianWen.Lib.Devices;
 using TianWen.Lib.Stat;
 using static TianWen.Lib.Stat.StatisticsHelper;
 
@@ -189,7 +187,7 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
             || hdu.Data is not ImageData imageData
             || imageData.DataArray is not object[] channelOrHeightArray
             || channelOrHeightArray.Length == 0
-            || !(BitDepthEx.FromValue(hdu.BitPix) is { } bitDepth)
+            || !(BitDepth.FromValue(hdu.BitPix) is { } bitDepth)
         )
         {
             image = default;
@@ -237,12 +235,12 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
         var focusPos = hdu.Header.GetIntValue("FOCUSPOS", -1);
         var filterName = hdu.Header.GetStringValue("FILTER");
         var ccdTemp = hdu.Header.GetFloatValue("CCD-TEMP", float.NaN);
-        var rowOrder = RowOrderEx.FromFITSValue(hdu.Header.GetStringValue("ROWORDER")) ?? RowOrder.TopDown;
-        var frameType = FrameTypeEx.FromFITSValue(hdu.Header.GetStringValue("FRAMETYP") ?? hdu.Header.GetStringValue("IMAGETYP")) ?? FrameType.None;
+        var rowOrder = RowOrder.FromFITSValue(hdu.Header.GetStringValue("ROWORDER")) ?? RowOrder.TopDown;
+        var frameType = FrameType.FromFITSValue(hdu.Header.GetStringValue("FRAMETYP") ?? hdu.Header.GetStringValue("IMAGETYP")) ?? FrameType.None;
         var filter = string.IsNullOrWhiteSpace(filterName) ? Filter.None : new Filter(filterName);
         var bzero = (float)hdu.BZero;
         var bscale = (float)hdu.BScale;
-        var (sensorType, bayerOffsetX, bayerOffsetY) = SensorTypeEx.FromFITSValue(
+        var (sensorType, bayerOffsetX, bayerOffsetY) = SensorType.FromFITSValue(
             hdu.Header.GetIntValue("BAYOFFX", 0), hdu.Header.GetIntValue("BAYOFFY", 0),
             hdu.Header.GetStringValue("BAYERPAT"), hdu.Header.GetStringValue("COLORTYP")
         );
