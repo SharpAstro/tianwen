@@ -1,5 +1,6 @@
 ﻿using Shouldly;
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Numerics;
 using System.Threading.Tasks;
@@ -7,7 +8,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
-public class ImagConversionTests
+public class ImagConversionTests(ITestOutputHelper testOutputHelper)
 {
     [Theory]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 1)]
@@ -17,10 +18,13 @@ public class ImagConversionTests
         // given
         var cancellationToken = TestContext.Current.CancellationToken;
         var image = await SharedTestData.ExtractGZippedFitsImageAsync(name, cancellationToken: cancellationToken);
-        
+
         // when
-        var magick = image.ToMagickImage();
-        
+        var sw = Stopwatch.StartNew();
+        var magick = await image.ToMagickImageAsync(cancellationToken);
+        sw.Stop();
+        testOutputHelper.WriteLine($"Conversion to MagickImage took: {sw.Elapsed}");
+
         // then
         magick.ShouldNotBeNull();
         magick.Width.ShouldBe((uint)image.Width);
@@ -49,8 +53,18 @@ public class ImagConversionTests
         var image = await SharedTestData.ExtractGZippedFitsImageAsync(name, cancellationToken: cancellationToken);
 
         // when
-        var rotated = image.Transform(Matrix3x2.CreateRotation(MathF.PI / 4));
-        var magick = rotated.ToMagickImage();
+        var sw = Stopwatch.StartNew();
+        var debayered = await image.DebayerAsync(Imaging.DebayerAlgorithm.VNG, cancellationToken);
+        testOutputHelper.WriteLine($"Debayering using VNG took: {sw.Elapsed}");
+        
+        sw.Restart();
+        var rotated = debayered.Transform(Matrix3x2.CreateRotation(MathF.PI / 4));
+        testOutputHelper.WriteLine($"Rotation took: {sw.Elapsed}");
+
+        sw.Restart();
+        var magick = await rotated.ToMagickImageAsync(cancellationToken);
+        testOutputHelper.WriteLine($"Conversion to MagickImage took: {sw.Elapsed}");
+        sw.Stop();
 
         // then
         magick.ShouldNotBeNull();
