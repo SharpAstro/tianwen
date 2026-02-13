@@ -19,7 +19,7 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
         // given
         var cancellationToken = TestContext.Current.CancellationToken;
         var device = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection { ["latitude"] = Convert.ToString(siteLat), ["longitude"] = Convert.ToString(siteLong) });
-        var fakeExternal = new FakeExternal(outputHelper, null, null, null);
+        var fakeExternal = new FakeExternal(outputHelper);
         await using var mount = new FakeMeadeLX200ProtocolMountDriver(device, fakeExternal);
 
         // when
@@ -39,7 +39,7 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
         // given
         var cancellationToken = TestContext.Current.CancellationToken;
         var device = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection { ["latitude"] = Convert.ToString(siteLat), ["longitude"] = Convert.ToString(siteLong) });
-        var fakeExternal = new FakeExternal(outputHelper, null, null, null);
+        var fakeExternal = new FakeExternal(outputHelper);
 
         int receivedConnect = 0;
         int receivedDisconnect = 0;

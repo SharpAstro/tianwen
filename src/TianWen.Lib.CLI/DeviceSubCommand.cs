@@ -26,8 +26,7 @@ internal class DeviceSubCommand(IConsoleHost consoleHost)
     {
         foreach (var device in await DoListDevicesExceptProfiles(true, cancellationToken))
         {
-            Console.WriteLine();
-            Console.WriteLine(device.ToString());
+            consoleHost.WriteScrollable($"\n{device}");
         }
     }
 
@@ -35,8 +34,7 @@ internal class DeviceSubCommand(IConsoleHost consoleHost)
     {
         foreach (var device in await DoListDevicesExceptProfiles(false, cancellationToken))
         {
-            Console.WriteLine();
-            Console.WriteLine(device.ToString());
+            consoleHost.WriteScrollable($"\n{device}");
         }
     }
 

@@ -4,10 +4,11 @@ using System.IO;
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
 using Xunit;
+using static TianWen.Lib.Tests.SharedTestData;
 
 namespace TianWen.Lib.Tests;
 
-public class PlateSolverRoundTripTests(ITestOutputHelper testOutputHelper) : ImageAnalyserTests(testOutputHelper)
+public class PlateSolverRoundTripTests
 {
     [Theory]
     [InlineData(PlateSolveTestFile, 10f)]
@@ -17,7 +18,7 @@ public class PlateSolverRoundTripTests(ITestOutputHelper testOutputHelper) : Ima
         // given
         const int channel = 0;
         var cancellationToken = TestContext.Current.CancellationToken;
-        var image = await SharedTestData.ExtractGZippedFitsImageAsync(name, cancellationToken: cancellationToken);
+        var image = await ExtractGZippedFitsImageAsync(name, cancellationToken: cancellationToken);
         var fullPath = Path.Combine(Path.GetTempPath(), $"roundtrip_{Guid.NewGuid():D}.fits");
         var expectedStars = await image.FindStarsAsync(channel, snrMin: snrMin, cancellationToken: cancellationToken);
 

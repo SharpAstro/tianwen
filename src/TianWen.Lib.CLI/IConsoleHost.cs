@@ -20,6 +20,12 @@ public interface IConsoleHost
     IExternal External { get; }
 
     ValueTask RenderImageAsync(IMagickImage<float> image);
+
+    void WriteScrollable(string content);
+
+    void WriteError(string error);
+
+    void WriteError(Exception exception);
 }
 
 [Flags]

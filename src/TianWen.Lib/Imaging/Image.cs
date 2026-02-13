@@ -1,5 +1,6 @@
 ﻿using CommunityToolkit.HighPerformance;
 using ImageMagick;
+using ImageMagick.Formats;
 using nom.tam.fits;
 using nom.tam.util;
 using System;
@@ -61,7 +62,6 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
     /// <returns></returns>
     public float this[int c, int h, int w] => data[c, h, w];
 
-    const int DenormalizationMaxValue = ushort.MaxValue;
     /// <summary>
     /// Support reading image from disk (used for testing).
     /// </summary>
@@ -657,8 +657,8 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
         }
         if (imageMeta.SensorType is not SensorType.Monochrome && ChannelCount is 1)
         {
-            // use the fastest debay algorithm
-            return await Debayer(DebayerAlgorithm.Bilinear).FindStarsAsync(channel, snrMin, maxStars, maxRetries, cancellationToken);
+            // debayer to mono
+            return await Debayer(DebayerAlgorithm.BilinearMono).FindStarsAsync(channel, snrMin, maxStars, maxRetries, cancellationToken);
         }
 
         var (background, star_level, noise_level, hist_threshold) = Background(channel);
@@ -754,16 +754,16 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
             throw new ArgumentOutOfRangeException(nameof(channel), channel, $"Channel index {channel} is out of range for image with {ChannelCount} channels");
         }
 
-        bool denormalized;
+        float? rescaledMaxValue;
         Image image;
         if (BitDepth is BitDepth.Float32 && MaxValue <= 1.0f)
         {
-            denormalized = true;
-            image = Denormalize();
+            rescaledMaxValue = ushort.MaxValue;
+            image = ScaleFloatValues(rescaledMaxValue.Value);
         }
         else
         {
-            denormalized = false;
+            rescaledMaxValue = null;
             image = this;
         }
 
@@ -797,7 +797,7 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
 
         var hist_mean = 1.0f / count * total_value;
 
-        return new ImageHistogram(histogram, hist_mean, hist_total, threshold, denormalized);
+        return new ImageHistogram(histogram, hist_mean, hist_total, threshold, rescaledMaxValue);
     }
 
     /// <summary>
@@ -816,7 +816,6 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
 
         // get histogram of img_loaded and his_total
         var histogram = Histogram(channel);
-        var isDenormalized = histogram.Denormalized;
         var background = float.NaN; // define something for images containing 0 or 65535 only
 
         // find peak in histogram which should be the average background
@@ -841,7 +840,7 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
             background = histogram.Mean; // strange peak at low value, ignore histogram and use mean
         }
 
-        i = (uint)MathF.Ceiling(histogram.Denormalized ? MaxValue * DenormalizationMaxValue : MaxValue);
+        i = (uint)MathF.Ceiling(histogram.RescaledMaxValue ?? MaxValue);
 
         var starLevel = 0.0f;
         var above = 0u;
@@ -882,6 +881,7 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
         float sd_old;
         var iterations = 0;
 
+        var rescaledFactor = histogram.RescaledMaxValue ?? 1.0f;
         // repeat until sd is stable or 7 iterations
         do
         {
@@ -898,7 +898,7 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
                     // not an outlier, noise should be symmetrical so should be less then twice background
                     if (!float.IsNaN(value))
                     {
-                        var denorm = isDenormalized ? value * DenormalizationMaxValue : value;
+                        var denorm = rescaledFactor * value;
 
                         // ignore outliers after first run
                         if (denorm < background * 2 && denorm != 0 && (iterations == 0 || (denorm - background) <= 3 * sd_old))
@@ -918,9 +918,9 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
         } while (sd_old - sd >= 0.05f * sd && iterations < 7); // repeat until sd is stable or 7 iterations
 
         // renormalize
-        if (isDenormalized)
+        if (histogram.RescaledMaxValue is { } rescaledMaxValue)
         {
-            var values = VectorMath.Divide([background, starLevel, sd, histogram.Threshold], DenormalizationMaxValue);
+            var values = VectorMath.Divide([background, starLevel, sd, histogram.Threshold], rescaledMaxValue);
 
             return ((float)values[0], (float)values[1], (float)values[2], (float)values[3]);
         }
@@ -1372,7 +1372,8 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
 
         return debayerAlgorithm switch
         {
-            DebayerAlgorithm.Bilinear => DebayerBilinear(),
+            DebayerAlgorithm.BilinearMono => DebayerBilinearMono(),
+            DebayerAlgorithm.VNG => DebayerVNG(),
             DebayerAlgorithm.None => throw new ArgumentException("Must specify an algorithm", nameof(debayerAlgorithm)),
             _ => throw new NotSupportedException($"Debayer algorithm {debayerAlgorithm} is not supported"),
         };
@@ -1383,7 +1384,7 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
     /// Is a no-op for monochrome fames.
     /// </summary>
     /// <returns>Debayered monochrome image</returns>
-    private Image DebayerBilinear()
+    private Image DebayerBilinearMono()
     {
         var width = Width;
         var height = Height;
@@ -1420,16 +1421,39 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
         });
     }
 
-    public Image Denormalize()
+    private Image DebayerVNG()
     {
-        // NO-OP for already denormalized images
-        if (BitDepth is not BitDepth.Float32 || MaxValue > 1.0f)
+        var width = Width;
+        var height = Height;
+        var debayered = new float[1, height, width];
+
+        // TODO: VNG algoirthm here
+
+        return new Image(debayered, BitDepth.Float32, maxValue, blackLevel, imageMeta with
         {
-            return this;
+            SensorType = SensorType.Color,
+            BayerOffsetX = 0,
+            BayerOffsetY = 0
+        });
+    }
+
+    /// <summary>
+    /// Scales the floating-point values of the image data to a specified maximum value.
+    /// </summary>
+    /// <remarks>This method is intended for images that have been obtained via <see cref="ScaleFloatValuesToUnit"/> floating-point data (i.e., Float32 bit
+    /// depth and a maximum value of 1.0). If the image is already denormalized or uses a different bit depth, no
+    /// scaling is performed.</remarks>
+    /// <param name="newMaxValue">The new maximum value to which the floating-point values will be scaled. Must be greater than zero.</param>
+    /// <returns>An Image instance containing the denormalized data, with values scaled to the specified maximum value. If the
+    /// image is already denormalized or not in Float32 bit depth, the original image is returned unchanged.</returns>
+    public Image ScaleFloatValues(float newMaxValue)
+    {
+        if (newMaxValue != MaxValue && MaxValue > 1.0f + float.Epsilon)
+        {
+            return ScaleFloatValuesToUnit().ScaleFloatValues(newMaxValue);
         }
 
         var (channelCount, width, height) = Shape;
-        var newMaxValue = DenormalizationMaxValue;
         var denormalized = new float[channelCount, height, width];
 
         for (var c = 0; c < channelCount; c++)
@@ -1454,7 +1478,11 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
         return new Image(denormalized, BitDepth.Float32, newMaxValue, blackLevel * newMaxValue, imageMeta);
     }
 
-    public Image Normalize()
+    /// <summary>
+    /// Divides image by <see cref="MaxValue"/>, thus scaling the floating-point values to a maximum of 1.0.
+    /// </summary>
+    /// <returns></returns>
+    public Image ScaleFloatValuesToUnit()
     {
         // NO-OP for already normalized images
         if (MaxValue <= 1.0f)
@@ -1489,17 +1517,20 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
 
     /// <summary>
     /// Finds the offset and rotation between this image and another image by matching stars.
-    /// Returns null if not enough stars are found or no match is found.
-    /// Note that the returned offset is in the coordinate system of this image, so it can be used to align this image to the other image.
     /// </summary>
-    /// <param name="other"></param>
-    /// <param name="snrMin"></param>
-    /// <param name="maxStars"></param>
+    /// <param name="other">Image to base rotation and offset on (i.e. reference image)</param>
+    /// <param name="snrMin">Mininum signal to noise ratio to consider for stars</param>
+    /// <param name="maxStars">Maximum number of stars to consider</param>
     /// <param name="maxRetries"></param>
-    /// <param name="minStars"></param>
-    /// <param name="quadTolerance"></param>
+    /// <param name="minStars">Mininum of stars required to find matching quads</param>
+    /// <param name="quadTolerance">factor of how difference to consider quads matching.</param>
     /// <param name="cancellationToken"></param>
     /// <returns></returns>
+    /// <remarks>
+    /// Returns null if not enough stars are found or no match is found.
+    /// Note that the returned offset is in the coordinate system of this image, so it can be used to align this image to the other image.
+    /// Currently only images of same pixel scale are supported.
+    /// </remarks>
     public async Task<Matrix3x2?> FindOffsetAndRotationAsync(Image other, int channel, int otherChannel, float snrMin = 20f, int maxStars = 500, int maxRetries = 2, int minStars = 24, float quadTolerance = 0.008f, CancellationToken cancellationToken = default)
     {
         var starList1Task = FindStarsAsync(channel, snrMin, maxStars, maxRetries, cancellationToken);
@@ -1572,15 +1603,55 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
         return new Image(transformedData, BitDepth.Float32, MaxValue, BlackLevel, ImageMeta);
     }
 
+
+    private static readonly MagickColor DefaultBackgroundColour = MagickColors.White;
     public IMagickImage<float> ToMagickImage(IMagickColor<float>? fillColor = null)
     {
-        var norm = Normalize();
+        var image = BitDepth != BitDepth.Float32 ? ScaleFloatValues(MaxValue) : this;
+        return image.DoToMagickImage(fillColor ?? DefaultBackgroundColour);
+    }
 
-        var image = new MagickImage(fillColor ?? MagickColors.Black, (uint)norm.Width, (uint)norm.Height)
+    /// <summary>
+    /// Assumes that imge has been converted to floats and debayered.
+    /// </summary>
+    /// <param name="fillColor"></param>
+    /// <returns></returns>
+    private IMagickImage<float> DoToMagickImage(IMagickColor<float> fillColor)
+    {
+        var (channelCount, width, height) = Shape;
+        var firstChannel = ChannelToImage(fillColor, width, height, 0); // mono or red
+
+        if (channelCount is 3)
+        {
+            var blue = ChannelToImage(fillColor, width, height, 1);
+            var green = ChannelToImage(fillColor, width, height, 2);
+
+            using var coll = new MagickImageCollection
+            {
+                firstChannel,
+                blue,
+                green
+            };
+            return coll.Combine(ColorSpace.sRGB);
+        }
+        else
+        {
+            return firstChannel;
+        }
+    }
+
+    private MagickImage ChannelToImage(IMagickColor<float> fillColor, int width, int height, int channel)
+    {
+        var image = new MagickImage(fillColor, (uint)width, (uint)height)
         {
             Format = MagickFormat.Tiff,
             Depth = 32,
+            Endian = BitConverter.IsLittleEndian ? Endian.LSB : Endian.MSB,
+            ColorType = ColorType.Grayscale
         };
+
+        using var pix = image.GetPixelsUnsafe();
+        pix.SetPixels(data.AsSpan(channel));
 
         return image;
     }

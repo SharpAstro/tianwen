@@ -7,6 +7,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -23,18 +24,20 @@ public class FakeExternal : IExternal
     private readonly DirectoryInfo _profileRoot;
     private readonly DirectoryInfo _outputFolder;
 
-    public FakeExternal(ITestOutputHelper testOutputHelper, DirectoryInfo? root = null, DateTimeOffset? now = null, TimeSpan? autoAdvanceAmount = null)
+    public FakeExternal(ITestOutputHelper testOutputHelper, DirectoryInfo? root = null, DateTimeOffset? now = null, TimeSpan? autoAdvanceAmount = null, [CallerMemberName] string? callerName = null)
     {
         _timeProvider = now is { }
             ? new FakeTimeProvider(now.Value) { AutoAdvanceAmount = autoAdvanceAmount ?? TimeSpan.Zero }
             : new FakeTimeProvider() { AutoAdvanceAmount = autoAdvanceAmount ?? TimeSpan.Zero };
 
-        _profileRoot = root ?? new DirectoryInfo(Path.GetTempPath())
-            .CreateSubdirectory(Assembly.GetExecutingAssembly().GetName().Name ?? nameof(FakeExternal))
-            .CreateSubdirectory(DateTimeOffset.Now.ToString("yyyyMMdd"))
-            .CreateSubdirectory(Guid.NewGuid().ToString("D"));
+        if (string.IsNullOrWhiteSpace(callerName))
+        {
+            throw new ArgumentNullException(nameof(callerName));
+        }
 
-        _outputFolder = _profileRoot.CreateSubdirectory("output");
+        var testRoot = root ?? new DirectoryInfo(SharedTestData.CreateTempTestOutputDir(callerName));
+        _profileRoot = testRoot.CreateSubdirectory("profiles");
+        _outputFolder = testRoot.CreateSubdirectory("output");
 
         AppLogger = CreateLogger(testOutputHelper);
     }

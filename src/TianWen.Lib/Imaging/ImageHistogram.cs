@@ -9,5 +9,5 @@ namespace TianWen.Lib.Imaging;
 /// <param name="Mean"></param>
 /// <param name="Total"></param>
 /// <param name="Threshold"></param>
-/// <param name="Denormalized">when true, image was denormalized to 16-bit</param>
-public record class ImageHistogram(uint[] Histogram, float Mean, float Total, float Threshold, bool Denormalized);
+/// <param name="RescaledMaxValue">when not null, specifies the max pixel value the image was rescaled to</param>
+public record class ImageHistogram(uint[] Histogram, float Mean, float Total, float Threshold, float? RescaledMaxValue);

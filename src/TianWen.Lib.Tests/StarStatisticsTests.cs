@@ -1,10 +1,11 @@
 ﻿using Shouldly;
 using System.Threading.Tasks;
 using Xunit;
+using static TianWen.Lib.Tests.SharedTestData;
 
 namespace TianWen.Lib.Tests;
 
-public class StarStatisticsTests(ITestOutputHelper testOutputHelper) : ImageAnalyserTests(testOutputHelper)
+public class StarStatisticsTests
 {
     [Theory]
     [InlineData(PlateSolveTestFile, 5, 3, 11, 1242, 220, 38)]
@@ -22,7 +23,7 @@ public class StarStatisticsTests(ITestOutputHelper testOutputHelper) : ImageAnal
         // given
         const int channel = 0;
         var cancellationToken = TestContext.Current.CancellationToken;
-        var image = await SharedTestData.ExtractGZippedFitsImageAsync(name, cancellationToken: cancellationToken);
+        var image = await ExtractGZippedFitsImageAsync(name, cancellationToken: cancellationToken);
 
         // when
         var result = await image.FindStarsAsync(channel, snrMin: snrMin, maxRetries: maxRetries, cancellationToken: cancellationToken);

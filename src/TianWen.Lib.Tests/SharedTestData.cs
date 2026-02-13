@@ -7,6 +7,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
@@ -19,6 +20,9 @@ public static class SharedTestData
     internal const string PSR_J2144_3933s_Enc = "\u00C1AQAdywXD";
     internal const string PSR_B0633_17n_Enc = "\u00C1AFtItjtC";
     internal const string PSR_J0002_6216n_Enc = "\u00C1AXL@Q3uC";
+
+    internal const string PlateSolveTestFile = nameof(PlateSolveTestFile);
+    internal const string PHD2SimGuider = nameof(PHD2SimGuider);
 
     private static readonly ConcurrentDictionary<string, Image> ImageCache = [];
     private static readonly Assembly SharedTestDataAssembly = typeof(SharedTestData).Assembly;
@@ -98,7 +102,7 @@ public static class SharedTestData
         );
     }
 
-    internal static string CreateTempTestOutputDir(string? subdir = null)
+    internal static string CreateTempTestOutputDir([CallerMemberName] string? subdir = null)
     {
         var dir = Directory.CreateDirectory(Path.Combine(
             Path.GetTempPath(),
@@ -108,11 +112,13 @@ public static class SharedTestData
         return dir.FullName;
     }
 
+    private static string CreateSharedTestOutputDir() => CreateTempTestOutputDir(nameof(SharedTestData));
+
     private static readonly ConcurrentDictionary<string, SemaphoreSlim> FileLocks = new(StringComparer.OrdinalIgnoreCase);
 
     private static async Task<string> WriteEphemeralUseTempFileAsync(string fileName, Func<string, CancellationToken, ValueTask> fileOperation, CancellationToken cancellationToken = default)
     {
-        var tempOutputDir = CreateTempTestOutputDir();
+        var tempOutputDir = CreateSharedTestOutputDir();
 
         var fullPath = Path.Combine(tempOutputDir, fileName);
 

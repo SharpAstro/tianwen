@@ -68,7 +68,7 @@ else
 {
     foreach (var error in parsedResult.Errors)
     {
-        Console.Error.WriteLine(error.Message.Pastel(ConsoleColor.Red));
+        consoleHost.WriteError(error.Message);
     }
 }
 

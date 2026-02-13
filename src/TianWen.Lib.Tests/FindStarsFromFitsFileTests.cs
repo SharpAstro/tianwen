@@ -5,7 +5,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
-public class FindStarsFromFitsFileTests(ITestOutputHelper testOutputHelper) : ImageAnalyserTests(testOutputHelper)
+public class FindStarsFromFitsFileTests(ITestOutputHelper testOutputHelper)
 {
     [Theory]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 10f, 89)]
@@ -22,7 +22,7 @@ public class FindStarsFromFitsFileTests(ITestOutputHelper testOutputHelper) : Im
         // when
         var sw = Stopwatch.StartNew();
         var actualStars = await image.FindStarsAsync(channel, snrMin, maxStars ?? 500, cancellationToken: TestContext.Current.CancellationToken);
-        _testOutputHelper.WriteLine("Testing image {0} took {1} ms", name, sw.ElapsedMilliseconds);
+        testOutputHelper.WriteLine("Testing image {0} took {1} ms", name, sw.ElapsedMilliseconds);
 
         // then
         actualStars.ShouldNotBeEmpty();

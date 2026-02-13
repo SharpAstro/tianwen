@@ -8,7 +8,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
-public class FindStarsFromCameraImageTests(ITestOutputHelper testOutputHelper) : ImageAnalyserTests(testOutputHelper)
+public class FindStarsFromCameraImageTests
 {
     [Theory]
     [InlineData(10, 22)]
@@ -65,7 +65,7 @@ public class FindStarsFromCameraImageTests(ITestOutputHelper testOutputHelper) :
         var denormalized = imageData.ToImage(BitDepth.Int16, BlackLevel, imageMeta);
         var denormalizedStars = await denormalized.FindStarsAsync(channel, snrMin: denorm_snr_min, cancellationToken: cancellationToken);
 
-        var normalized = denormalized.Normalize();
+        var normalized = denormalized.ScaleFloatValuesToUnit();
         var normalizedStars = await normalized.FindStarsAsync(channel, snrMin: float.Parse(norm_snr_min_str), cancellationToken: cancellationToken);
 
         // then

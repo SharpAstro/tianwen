@@ -3,5 +3,6 @@
 public enum DebayerAlgorithm
 {
     None,
-    Bilinear,
+    BilinearMono,
+    VNG
 }

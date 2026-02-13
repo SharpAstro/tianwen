@@ -14,7 +14,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
-public class FindBestFocusTests(ITestOutputHelper testOutputHelper) : ImageAnalyserTests(testOutputHelper)
+public class FindBestFocusTests(ITestOutputHelper testOutputHelper)
 {
     record NinaTestResult(
         int Version,
@@ -60,7 +60,7 @@ public class FindBestFocusTests(ITestOutputHelper testOutputHelper) : ImageAnaly
         ninaResult.MeasurePoints.ShouldNotBeEmpty();
 
         var ninaFitting = ninaResult.Fittings[ninaResult.Fitting.ToString()];
-        _testOutputHelper.WriteLine("NINA fitting formula: " + ninaFitting);
+        testOutputHelper.WriteLine("NINA fitting formula: " + ninaFitting);
 
         var sampleKind = ninaResult.Method switch
         {
@@ -109,7 +109,7 @@ public class FindBestFocusTests(ITestOutputHelper testOutputHelper) : ImageAnaly
                 sampleMap.AddSampleAtFocusPosition(fp, median).ShouldBeTrue();
                 var addSampleElapsed = sw.ElapsedMilliseconds - calcMedianElapsed;
 
-                _testOutputHelper.WriteLine($"focuspos={fp} stars={stars.Count} median={median} time (ms): image={extractImageElapsed} find stars={findStarsElapsed} median={calcMedianElapsed} sample={addSampleElapsed}");
+                testOutputHelper.WriteLine($"focuspos={fp} stars={stars.Count} median={median} time (ms): image={extractImageElapsed} find stars={findStarsElapsed} median={calcMedianElapsed} sample={addSampleElapsed}");
 
                 median.ShouldBeGreaterThan(1f);
                 stars.Count.ShouldBeGreaterThan(expectedMinStarCount);
@@ -152,8 +152,8 @@ public class FindBestFocusTests(ITestOutputHelper testOutputHelper) : ImageAnaly
 
         await image.WriteAsync(fullPath);
 
-        _testOutputHelper.WriteLine("Result: " + solution);
-        _testOutputHelper.WriteLine("Wrote hyperbola plot to: " + fileName + " in");
-        _testOutputHelper.WriteLine(outputDir);
+        testOutputHelper.WriteLine("Result: " + solution);
+        testOutputHelper.WriteLine("Wrote hyperbola plot to: " + fileName + " in");
+        testOutputHelper.WriteLine(outputDir);
     }
 }
