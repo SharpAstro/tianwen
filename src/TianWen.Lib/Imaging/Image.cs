@@ -237,16 +237,15 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
         var focusPos = hdu.Header.GetIntValue("FOCUSPOS", -1);
         var filterName = hdu.Header.GetStringValue("FILTER");
         var ccdTemp = hdu.Header.GetFloatValue("CCD-TEMP", float.NaN);
-        var colorType = hdu.Header.GetStringValue("COLORTYP");
-        var bayerPattern = hdu.Header.GetStringValue("BAYERPAT");
-        var bayerOffsetX = hdu.Header.GetIntValue("BAYOFFX", 0);
-        var bayerOffsetY = hdu.Header.GetIntValue("BAYOFFY", 0);
         var rowOrder = RowOrderEx.FromFITSValue(hdu.Header.GetStringValue("ROWORDER")) ?? RowOrder.TopDown;
         var frameType = FrameTypeEx.FromFITSValue(hdu.Header.GetStringValue("FRAMETYP") ?? hdu.Header.GetStringValue("IMAGETYP")) ?? FrameType.None;
         var filter = string.IsNullOrWhiteSpace(filterName) ? Filter.None : new Filter(filterName);
         var bzero = (float)hdu.BZero;
         var bscale = (float)hdu.BScale;
-        var sensorType = SensorTypeEx.FromFITSValue(bayerPattern, colorType);
+        var (sensorType, bayerOffsetX, bayerOffsetY) = SensorTypeEx.FromFITSValue(
+            hdu.Header.GetIntValue("BAYOFFX", 0), hdu.Header.GetIntValue("BAYOFFY", 0),
+            hdu.Header.GetStringValue("BAYERPAT"), hdu.Header.GetStringValue("COLORTYP")
+        );
         var latitude = hdu.Header.GetFloatValue("LATITUDE", float.NaN);
         var longitude = hdu.Header.GetFloatValue("LONGITUDE", float.NaN);
 
@@ -562,7 +561,6 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
         AddHeaderValueIfHasValue("LONGITUDE", imageMeta.Longitude, "degrees");
         if (imageMeta.SensorType is SensorType.RGGB)
         {
-            // TODO support other Bayer patterns
             AddHeaderValueIfHasValue("BAYERPAT", "RGGB", "");
             AddHeaderValueIfHasValue("COLORTYP", "RGGB", "");
         }
@@ -655,7 +653,7 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
         {
             throw new ArgumentOutOfRangeException(nameof(channel), channel, $"Channel index {channel} is out of range for image with {ChannelCount} channels");
         }
-        if (imageMeta.SensorType is not SensorType.Monochrome && ChannelCount is 1)
+        if (imageMeta.SensorType is SensorType.RGGB && ChannelCount is 1)
         {
             // debayer to mono
             return await Debayer(DebayerAlgorithm.BilinearMono).FindStarsAsync(channel, snrMin, maxStars, maxRetries, cancellationToken);
@@ -1365,7 +1363,7 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
     public Image Debayer(DebayerAlgorithm debayerAlgorithm)
     {
         // NO-OP for monochrome images
-        if (imageMeta.SensorType is SensorType.Monochrome || ChannelCount > 1)
+        if (imageMeta.SensorType is SensorType.Monochrome or SensorType.Color)
         {
             return this;
         }
@@ -1425,9 +1423,40 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
     {
         var width = Width;
         var height = Height;
-        var debayered = new float[1, height, width];
+        var debayered = new float[3, height, width]; // RGB output
 
-        // TODO: VNG algoirthm here
+        var bayerOffsetX = imageMeta.BayerOffsetX;
+        var bayerOffsetY = imageMeta.BayerOffsetY;
+
+        var bayerPattern = imageMeta.SensorType.GetBayerPatternMatrix(bayerOffsetX, bayerOffsetY);
+
+        // First pass: copy known Bayer values to appropriate color channels
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int colorChannel = bayerPattern[y % 2, x % 2];
+                debayered[colorChannel, y, x] = data[0, y, x];
+            }
+        }
+
+        // Second pass: interpolate missing color values using VNG
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int knownColor = bayerPattern[y % 2, x % 2];
+
+                // Interpolate the two missing colors at this pixel
+                for (int c = 0; c < 3; c++)
+                {
+                    if (c != knownColor)
+                    {
+                        debayered[c, y, x] = InterpolateColorVNG(x, y, c, knownColor, bayerPattern);
+                    }
+                }
+            }
+        }
 
         return new Image(debayered, BitDepth.Float32, maxValue, blackLevel, imageMeta with
         {
@@ -1437,18 +1466,286 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
         });
     }
 
+    private float InterpolateColorVNG(int x, int y, int targetColor, int knownColor, int[,] bayerPattern)
+    {
+        var width = Width;
+        var height = Height;
+
+        const int green = 1;
+        const int radius = 2;
+
+        // For edge pixels, use simpler bilinear interpolation
+        if (x < radius || y < radius || x >= width - radius || y >= height - radius)
+        {
+            return BilinearInterpolateColor(x, y, targetColor, bayerPattern);
+        }
+
+        bool isGreenTarget = targetColor == green;
+        bool isGreenKnown = knownColor == green;
+
+        // VNG calculates gradients in multiple directions and uses the directions with lowest gradients
+        if (isGreenTarget)
+        {
+            // Interpolating green at R or B position
+            return InterpolateGreenVNG(x, y);
+        }
+        else if (isGreenKnown)
+        {
+            // Interpolating R or B at green position
+            return InterpolateRBatGreenVNG(x, y, targetColor, bayerPattern);
+        }
+        else
+        {
+            // Interpolating R at B or B at R position (diagonal neighbors)
+            return InterpolateDiagonalVNG(x, y, targetColor, bayerPattern);
+        }
+    }
+
+    private float InterpolateGreenVNG(int x, int y)
+    {
+        // For green interpolation, use gradients in 4 cardinal directions
+        Span<(float gradient, float value)> directions = stackalloc (float, float)[4];
+
+        // North
+        float gN = data[0, y - 1, x];
+        float vN = data[0, y - 2, x];
+        float vS = data[0, y, x];
+        directions[0] = (MathF.Abs(2 * gN - vN - vS), gN + (vS - vN) * 0.5f);
+
+        // South
+        float gS = data[0, y + 1, x];
+        vN = data[0, y, x];
+        vS = data[0, y + 2, x];
+        directions[1] = (MathF.Abs(2 * gS - vN - vS), gS + (vN - vS) * 0.5f);
+
+        // West
+        float gW = data[0, y, x - 1];
+        float vW = data[0, y, x - 2];
+        float vE = data[0, y, x];
+        directions[2] = (MathF.Abs(2 * gW - vW - vE), gW + (vE - vW) * 0.5f);
+
+        // East
+        float gE = data[0, y, x + 1];
+        vW = data[0, y, x];
+        vE = data[0, y, x + 2];
+        directions[3] = (MathF.Abs(2 * gE - vW - vE), gE + (vW - vE) * 0.5f);
+
+        // Find minimum gradient
+        float minGradient = float.MaxValue;
+        foreach (var (gradient, value) in directions)
+        {
+            if (gradient < minGradient)
+            {
+                minGradient = gradient;
+            }
+        }
+
+        // Average values from directions within threshold of minimum
+        float threshold = minGradient * 1.5f;
+        float sum = 0;
+        int count = 0;
+
+        foreach (var (gradient, value) in directions)
+        {
+            if (gradient <= threshold)
+            {
+                sum += value;
+                count++;
+            }
+        }
+
+        return count > 0 ? sum / count : directions[0].value;
+    }
+
+    private float InterpolateRBatGreenVNG(int x, int y, int targetColor, int[,] bayerPattern)
+    {
+        // For R/B at green position, check 4 cardinal and 4 diagonal directions
+        var width = Width;
+        var height = Height;
+
+        float sum = 0;
+        int count = 0;
+        float minGradient = float.MaxValue;
+
+        // Check all 8 neighbors for target color
+        Span<(int dx, int dy)> offsets =
+        [
+            (0, -1), (0, 1), (-1, 0), (1, 0),  // cardinal
+            (-1, -1), (1, -1), (-1, 1), (1, 1)  // diagonal
+        ];
+
+        Span<float> values = stackalloc float[8];
+        Span<float> gradients = stackalloc float[8];
+        int validCount = 0;
+
+        float centerGreen = data[0, y, x];
+
+        foreach (var (dx, dy) in offsets)
+        {
+            int nx = x + dx;
+            int ny = y + dy;
+
+            if (nx >= 0 && nx < width && ny >= 0 && ny < height)
+            {
+                int neighborColor = bayerPattern[ny % 2, nx % 2];
+                if (neighborColor == targetColor)
+                {
+                    float neighborValue = data[0, ny, nx];
+
+                    // Get green neighbor in same direction if available
+                    int gx = x + dx / 2;
+                    int gy = y + dy / 2;
+                    float gradient;
+
+                    if (gx == x && gy == y)
+                    {
+                        // Direct neighbor, use simple difference
+                        gradient = MathF.Abs(neighborValue - centerGreen);
+                    }
+                    else
+                    {
+                        // Has intermediate green
+                        float greenNeighbor = data[0, gy, gx];
+                        gradient = MathF.Abs(neighborValue - 2 * greenNeighbor + centerGreen);
+                    }
+
+                    values[validCount] = neighborValue;
+                    gradients[validCount] = gradient;
+                    validCount++;
+
+                    if (gradient < minGradient)
+                    {
+                        minGradient = gradient;
+                    }
+                }
+            }
+        }
+
+        // Average values from directions within threshold of minimum gradient
+        float threshold = minGradient * 1.5f + 0.01f;
+
+        for (int i = 0; i < validCount; i++)
+        {
+            if (gradients[i] <= threshold)
+            {
+                sum += values[i];
+                count++;
+            }
+        }
+
+        return count > 0 ? sum / count : (validCount > 0 ? values[0] : centerGreen);
+    }
+
+    private float InterpolateDiagonalVNG(int x, int y, int targetColor, int[,] bayerPattern)
+    {
+        // For R at B or B at R, check 4 diagonal neighbors
+        var width = Width;
+        var height = Height;
+
+        Span<(int dx, int dy)> diagonals =
+        [
+            (-1, -1), (1, -1), (-1, 1), (1, 1)
+        ];
+
+        float sum = 0;
+        int count = 0;
+        float minGradient = float.MaxValue;
+
+        Span<float> values = stackalloc float[4];
+        Span<float> gradients = stackalloc float[4];
+        int validCount = 0;
+
+        float centerValue = data[0, y, x];
+
+        foreach (var (dx, dy) in diagonals)
+        {
+            int nx = x + dx;
+            int ny = y + dy;
+
+            if (nx >= 0 && nx < width && ny >= 0 && ny < height)
+            {
+                int neighborColor = bayerPattern[ny % 2, nx % 2];
+                if (neighborColor == targetColor)
+                {
+                    float neighborValue = data[0, ny, nx];
+
+                    // Get the two green values between center and neighbor
+                    float g1 = data[0, y, nx];
+                    float g2 = data[0, ny, x];
+
+                    float gradient = MathF.Abs(neighborValue - centerValue) + MathF.Abs(g1 - g2);
+
+                    values[validCount] = neighborValue;
+                    gradients[validCount] = gradient;
+                    validCount++;
+
+                    if (gradient < minGradient)
+                    {
+                        minGradient = gradient;
+                    }
+                }
+            }
+        }
+
+        // Average values from directions with lowest gradients
+        float threshold = minGradient * 1.5f + 0.01f;
+
+        for (int i = 0; i < validCount; i++)
+        {
+            if (gradients[i] <= threshold)
+            {
+                sum += values[i];
+                count++;
+            }
+        }
+
+        return count > 0 ? sum / count : (validCount > 0 ? values[0] : centerValue);
+    }
+
+    private float BilinearInterpolateColor(int x, int y, int targetColor, int[,] bayerPattern)
+    {
+        // Simple bilinear interpolation fallback for edge pixels
+        var width = Width;
+        var height = Height;
+
+        float sum = 0;
+        int count = 0;
+
+        for (int dy = -2; dy <= 2; dy++)
+        {
+            for (int dx = -2; dx <= 2; dx++)
+            {
+                int nx = x + dx;
+                int ny = y + dy;
+
+                if (nx >= 0 && nx < width && ny >= 0 && ny < height)
+                {
+                    int neighborColor = bayerPattern[ny % 2, nx % 2];
+                    if (neighborColor == targetColor)
+                    {
+                        sum += data[0, ny, nx];
+                        count++;
+                    }
+                }
+            }
+        }
+
+        return count > 0 ? sum / count : 0;
+    }
+
     /// <summary>
     /// Scales the floating-point values of the image data to a specified maximum value.
     /// </summary>
+    /// <param name="missingValue">Use this value for missing pixels</param>
     /// <remarks>This method is intended for images that have been obtained via <see cref="ScaleFloatValuesToUnit"/> floating-point data (i.e., Float32 bit
     /// depth and a maximum value of 1.0). If the image is already denormalized or uses a different bit depth, no
     /// scaling is performed.</remarks>
     /// <param name="newMaxValue">The new maximum value to which the floating-point values will be scaled. Must be greater than zero.</param>
     /// <returns>An Image instance containing the denormalized data, with values scaled to the specified maximum value. If the
     /// image is already denormalized or not in Float32 bit depth, the original image is returned unchanged.</returns>
-    public Image ScaleFloatValues(float newMaxValue)
+    public Image ScaleFloatValues(float newMaxValue, float missingValue = float.NaN)
     {
-        if (newMaxValue != MaxValue && MaxValue > 1.0f + float.Epsilon)
+        if (BitDepth != BitDepth.Float32 || (newMaxValue != MaxValue && MaxValue > 1.0f + float.Epsilon))
         {
             return ScaleFloatValuesToUnit().ScaleFloatValues(newMaxValue);
         }
@@ -1469,7 +1766,7 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
                     }
                     else
                     {
-                        denormalized[c, y, x] = float.NaN;
+                        denormalized[c, y, x] = missingValue;
                     }
                 }
             }
@@ -1481,8 +1778,9 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
     /// <summary>
     /// Divides image by <see cref="MaxValue"/>, thus scaling the floating-point values to a maximum of 1.0.
     /// </summary>
+    /// <param name="missingValue">Use this value for missing pixels</param>
     /// <returns></returns>
-    public Image ScaleFloatValuesToUnit()
+    public Image ScaleFloatValuesToUnit(float missingValue = float.NaN)
     {
         // NO-OP for already normalized images
         if (MaxValue <= 1.0f)
@@ -1506,7 +1804,7 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
                     }
                     else
                     {
-                        normalized[c, y, x] = float.NaN;
+                        normalized[c, y, x] = missingValue;
                     }
                 }
             }
@@ -1603,28 +1901,26 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
         return new Image(transformedData, BitDepth.Float32, MaxValue, BlackLevel, ImageMeta);
     }
 
-
-    private static readonly MagickColor DefaultBackgroundColour = MagickColors.White;
-    public IMagickImage<float> ToMagickImage(IMagickColor<float>? fillColor = null)
+    public IMagickImage<float> ToMagickImage()
     {
-        var image = BitDepth != BitDepth.Float32 ? ScaleFloatValues(MaxValue) : this;
-        return image.DoToMagickImage(fillColor ?? DefaultBackgroundColour);
+        var scaled = BitDepth != BitDepth.Float32 ? ScaleFloatValues(MaxValue, missingValue: 0f) : this;
+        var debayered = scaled.ImageMeta.SensorType is SensorType.RGGB ? scaled.Debayer(DebayerAlgorithm.VNG) : scaled;
+        return debayered.DoToMagickImage();
     }
 
     /// <summary>
     /// Assumes that imge has been converted to floats and debayered.
     /// </summary>
-    /// <param name="fillColor"></param>
     /// <returns></returns>
-    private IMagickImage<float> DoToMagickImage(IMagickColor<float> fillColor)
+    private IMagickImage<float> DoToMagickImage()
     {
         var (channelCount, width, height) = Shape;
-        var firstChannel = ChannelToImage(fillColor, width, height, 0); // mono or red
+        var firstChannel = ChannelToImage(width, height, 0); // mono or red
 
         if (channelCount is 3)
         {
-            var blue = ChannelToImage(fillColor, width, height, 1);
-            var green = ChannelToImage(fillColor, width, height, 2);
+            var blue = ChannelToImage(width, height, 1);
+            var green = ChannelToImage(width, height, 2);
 
             using var coll = new MagickImageCollection
             {
@@ -1640,9 +1936,9 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
         }
     }
 
-    private MagickImage ChannelToImage(IMagickColor<float> fillColor, int width, int height, int channel)
+    private MagickImage ChannelToImage(int width, int height, int channel)
     {
-        var image = new MagickImage(fillColor, (uint)width, (uint)height)
+        var image = new MagickImage(MagickColors.Black, (uint)width, (uint)height)
         {
             Format = MagickFormat.Tiff,
             Depth = 32,
