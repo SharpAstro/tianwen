@@ -1419,6 +1419,7 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
         });
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private Image DebayerVNG()
     {
         var width = Width;
@@ -1430,33 +1431,56 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
 
         var bayerPattern = imageMeta.SensorType.GetBayerPatternMatrix(bayerOffsetX, bayerOffsetY);
 
-        // First pass: copy known Bayer values to appropriate color channels
-        for (int y = 0; y < height; y++)
-        {
-            for (int x = 0; x < width; x++)
-            {
-                int colorChannel = bayerPattern[y % 2, x % 2];
-                debayered[colorChannel, y, x] = data[0, y, x];
-            }
-        }
+        // Pre-compute pattern for rows (avoids modulo in inner loop)
+        var pattern00 = bayerPattern[0, 0];
+        var pattern01 = bayerPattern[0, 1];
+        var pattern10 = bayerPattern[1, 0];
+        var pattern11 = bayerPattern[1, 1];
 
-        // Second pass: interpolate missing color values using VNG
-        for (int y = 0; y < height; y++)
-        {
-            for (int x = 0; x < width; x++)
-            {
-                int knownColor = bayerPattern[y % 2, x % 2];
+        const int R = 0, G = 1, B = 2;
+        const int radius = 2;
 
-                // Interpolate the two missing colors at this pixel
-                for (int c = 0; c < 3; c++)
+        // Process interior pixels in parallel (where full VNG can be applied)
+        Parallel.For(radius, height - radius, y =>
+        {
+            // Pre-select pattern row based on y % 2
+            int patternEven = (y & 1) == 0 ? pattern00 : pattern10;
+            int patternOdd = (y & 1) == 0 ? pattern01 : pattern11;
+
+            for (int x = radius; x < width - radius; x++)
+            {
+                int knownColor = (x & 1) == 0 ? patternEven : patternOdd;
+
+                // Copy known value
+                float rawValue = data[0, y, x];
+                debayered[knownColor, y, x] = rawValue;
+
+                // Interpolate missing colors based on which color we have
+                if (knownColor == G)
                 {
-                    if (c != knownColor)
-                    {
-                        debayered[c, y, x] = InterpolateColorVNG(x, y, c, knownColor, bayerPattern);
-                    }
+                    // At green pixel: interpolate R and B
+                    // Check if R is on horizontal or vertical neighbors
+                    int neighborColor = (x & 1) == 0 ? patternOdd : patternEven;
+                    bool rOnHorizontal = neighborColor == R;
+
+                    debayered[R, y, x] = rOnHorizontal
+                        ? InterpolateHorizontalVNG(x, y)
+                        : InterpolateVerticalVNG(x, y);
+                    debayered[B, y, x] = rOnHorizontal
+                        ? InterpolateVerticalVNG(x, y)
+                        : InterpolateHorizontalVNG(x, y);
+                }
+                else
+                {
+                    // At R or B pixel: interpolate G and the opposite color
+                    debayered[G, y, x] = InterpolateGreenAtRBVNG(x, y);
+                    debayered[knownColor == R ? B : R, y, x] = InterpolateDiagonalVNGInlined(x, y);
                 }
             }
-        }
+        });
+
+        // Process edge pixels with simpler bilinear interpolation (not parallelized - small portion)
+        ProcessEdgePixels(debayered, width, height, radius, bayerPattern);
 
         return new Image(debayered, BitDepth.Float32, maxValue, blackLevel, imageMeta with
         {
@@ -1466,266 +1490,197 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
         });
     }
 
-    private float InterpolateColorVNG(int x, int y, int targetColor, int knownColor, int[,] bayerPattern)
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private float InterpolateGreenAtRBVNG(int x, int y)
     {
-        var width = Width;
-        var height = Height;
+        // Interpolate green at R or B position using 4 cardinal directions
+        float center = data[0, y, x];
 
-        const int green = 1;
-        const int radius = 2;
-
-        // For edge pixels, use simpler bilinear interpolation
-        if (x < radius || y < radius || x >= width - radius || y >= height - radius)
-        {
-            return BilinearInterpolateColor(x, y, targetColor, bayerPattern);
-        }
-
-        bool isGreenTarget = targetColor == green;
-        bool isGreenKnown = knownColor == green;
-
-        // VNG calculates gradients in multiple directions and uses the directions with lowest gradients
-        if (isGreenTarget)
-        {
-            // Interpolating green at R or B position
-            return InterpolateGreenVNG(x, y);
-        }
-        else if (isGreenKnown)
-        {
-            // Interpolating R or B at green position
-            return InterpolateRBatGreenVNG(x, y, targetColor, bayerPattern);
-        }
-        else
-        {
-            // Interpolating R at B or B at R position (diagonal neighbors)
-            return InterpolateDiagonalVNG(x, y, targetColor, bayerPattern);
-        }
-    }
-
-    private float InterpolateGreenVNG(int x, int y)
-    {
-        // For green interpolation, use gradients in 4 cardinal directions
-        Span<(float gradient, float value)> directions = stackalloc (float, float)[4];
-
-        // North
+        // North: green at y-1, same color at y-2
         float gN = data[0, y - 1, x];
         float vN = data[0, y - 2, x];
-        float vS = data[0, y, x];
-        directions[0] = (MathF.Abs(2 * gN - vN - vS), gN + (vS - vN) * 0.5f);
+        float gradN = MathF.Abs(MathF.FusedMultiplyAdd(2, gN, - vN - center));
+        float valN = gN + (center - vN) * 0.5f;
 
         // South
         float gS = data[0, y + 1, x];
-        vN = data[0, y, x];
-        vS = data[0, y + 2, x];
-        directions[1] = (MathF.Abs(2 * gS - vN - vS), gS + (vN - vS) * 0.5f);
+        float vS = data[0, y + 2, x];
+        float gradS = MathF.Abs(MathF.FusedMultiplyAdd(2, gS, - center - vS));
+        float valS = MathF.FusedMultiplyAdd(center - vS, 0.5f, gS);
 
         // West
         float gW = data[0, y, x - 1];
         float vW = data[0, y, x - 2];
-        float vE = data[0, y, x];
-        directions[2] = (MathF.Abs(2 * gW - vW - vE), gW + (vE - vW) * 0.5f);
+        float gradW = MathF.Abs(2 * gW - vW - center);
+        float valW = MathF.FusedMultiplyAdd(center - vW, 0.5f, gW);
 
         // East
         float gE = data[0, y, x + 1];
-        vW = data[0, y, x];
-        vE = data[0, y, x + 2];
-        directions[3] = (MathF.Abs(2 * gE - vW - vE), gE + (vW - vE) * 0.5f);
+        float vE = data[0, y, x + 2];
+        float gradE = MathF.Abs(2 * gE - center - vE);
+        float valE = gE + (center - vE) * 0.5f;
 
-        // Find minimum gradient
-        float minGradient = float.MaxValue;
-        foreach (var (gradient, value) in directions)
-        {
-            if (gradient < minGradient)
-            {
-                minGradient = gradient;
-            }
-        }
+        // Find minimum gradient and threshold
+        float minGrad = MathF.Min(MathF.Min(gradN, gradS), MathF.Min(gradW, gradE));
+        float threshold = minGrad * 1.5f;
 
-        // Average values from directions within threshold of minimum
-        float threshold = minGradient * 1.5f;
+        // Average values within threshold
         float sum = 0;
         int count = 0;
 
-        foreach (var (gradient, value) in directions)
-        {
-            if (gradient <= threshold)
-            {
-                sum += value;
-                count++;
-            }
-        }
+        if (gradN <= threshold) { sum += valN; count++; }
+        if (gradS <= threshold) { sum += valS; count++; }
+        if (gradW <= threshold) { sum += valW; count++; }
+        if (gradE <= threshold) { sum += valE; count++; }
 
-        return count > 0 ? sum / count : directions[0].value;
+        return count > 0 ? sum / count : valN;
     }
 
-    private float InterpolateRBatGreenVNG(int x, int y, int targetColor, int[,] bayerPattern)
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private float InterpolateHorizontalVNG(int x, int y)
     {
-        // For R/B at green position, check 4 cardinal and 4 diagonal directions
-        var width = Width;
-        var height = Height;
+        // Interpolate R or B at green position from horizontal neighbors
+        float center = data[0, y, x];
+        float left = data[0, y, x - 1];
+        float right = data[0, y, x + 1];
+
+        float gradL = MathF.Abs(left - center);
+        float gradR = MathF.Abs(right - center);
+
+        float minGrad = MathF.Min(gradL, gradR);
+        float threshold = MathF.FusedMultiplyAdd(minGrad, 1.5f, 0.01f);
 
         float sum = 0;
         int count = 0;
-        float minGradient = float.MaxValue;
 
-        // Check all 8 neighbors for target color
-        Span<(int dx, int dy)> offsets =
-        [
-            (0, -1), (0, 1), (-1, 0), (1, 0),  // cardinal
-            (-1, -1), (1, -1), (-1, 1), (1, 1)  // diagonal
-        ];
+        if (gradL <= threshold) { sum += left; count++; }
+        if (gradR <= threshold) { sum += right; count++; }
 
-        Span<float> values = stackalloc float[8];
-        Span<float> gradients = stackalloc float[8];
-        int validCount = 0;
-
-        float centerGreen = data[0, y, x];
-
-        foreach (var (dx, dy) in offsets)
-        {
-            int nx = x + dx;
-            int ny = y + dy;
-
-            if (nx >= 0 && nx < width && ny >= 0 && ny < height)
-            {
-                int neighborColor = bayerPattern[ny % 2, nx % 2];
-                if (neighborColor == targetColor)
-                {
-                    float neighborValue = data[0, ny, nx];
-
-                    // Get green neighbor in same direction if available
-                    int gx = x + dx / 2;
-                    int gy = y + dy / 2;
-                    float gradient;
-
-                    if (gx == x && gy == y)
-                    {
-                        // Direct neighbor, use simple difference
-                        gradient = MathF.Abs(neighborValue - centerGreen);
-                    }
-                    else
-                    {
-                        // Has intermediate green
-                        float greenNeighbor = data[0, gy, gx];
-                        gradient = MathF.Abs(neighborValue - 2 * greenNeighbor + centerGreen);
-                    }
-
-                    values[validCount] = neighborValue;
-                    gradients[validCount] = gradient;
-                    validCount++;
-
-                    if (gradient < minGradient)
-                    {
-                        minGradient = gradient;
-                    }
-                }
-            }
-        }
-
-        // Average values from directions within threshold of minimum gradient
-        float threshold = minGradient * 1.5f + 0.01f;
-
-        for (int i = 0; i < validCount; i++)
-        {
-            if (gradients[i] <= threshold)
-            {
-                sum += values[i];
-                count++;
-            }
-        }
-
-        return count > 0 ? sum / count : (validCount > 0 ? values[0] : centerGreen);
+        return count > 0 ? sum / count : (left + right) * 0.5f;
     }
 
-    private float InterpolateDiagonalVNG(int x, int y, int targetColor, int[,] bayerPattern)
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private float InterpolateVerticalVNG(int x, int y)
     {
-        // For R at B or B at R, check 4 diagonal neighbors
-        var width = Width;
-        var height = Height;
+        // Interpolate R or B at green position from vertical neighbors
+        float center = data[0, y, x];
+        float top = data[0, y - 1, x];
+        float bottom = data[0, y + 1, x];
 
-        Span<(int dx, int dy)> diagonals =
-        [
-            (-1, -1), (1, -1), (-1, 1), (1, 1)
-        ];
+        float gradT = MathF.Abs(top - center);
+        float gradB = MathF.Abs(bottom - center);
+
+        float minGrad = MathF.Min(gradT, gradB);
+        float threshold = MathF.FusedMultiplyAdd(minGrad, 1.5f, 0.01f);
 
         float sum = 0;
         int count = 0;
-        float minGradient = float.MaxValue;
 
-        Span<float> values = stackalloc float[4];
-        Span<float> gradients = stackalloc float[4];
-        int validCount = 0;
+        if (gradT <= threshold) { sum += top; count++; }
+        if (gradB <= threshold) { sum += bottom; count++; }
 
-        float centerValue = data[0, y, x];
-
-        foreach (var (dx, dy) in diagonals)
-        {
-            int nx = x + dx;
-            int ny = y + dy;
-
-            if (nx >= 0 && nx < width && ny >= 0 && ny < height)
-            {
-                int neighborColor = bayerPattern[ny % 2, nx % 2];
-                if (neighborColor == targetColor)
-                {
-                    float neighborValue = data[0, ny, nx];
-
-                    // Get the two green values between center and neighbor
-                    float g1 = data[0, y, nx];
-                    float g2 = data[0, ny, x];
-
-                    float gradient = MathF.Abs(neighborValue - centerValue) + MathF.Abs(g1 - g2);
-
-                    values[validCount] = neighborValue;
-                    gradients[validCount] = gradient;
-                    validCount++;
-
-                    if (gradient < minGradient)
-                    {
-                        minGradient = gradient;
-                    }
-                }
-            }
-        }
-
-        // Average values from directions with lowest gradients
-        float threshold = minGradient * 1.5f + 0.01f;
-
-        for (int i = 0; i < validCount; i++)
-        {
-            if (gradients[i] <= threshold)
-            {
-                sum += values[i];
-                count++;
-            }
-        }
-
-        return count > 0 ? sum / count : (validCount > 0 ? values[0] : centerValue);
+        return count > 0 ? sum / count : (top + bottom) * 0.5f;
     }
 
-    private float BilinearInterpolateColor(int x, int y, int targetColor, int[,] bayerPattern)
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private float InterpolateDiagonalVNGInlined(int x, int y)
     {
-        // Simple bilinear interpolation fallback for edge pixels
-        var width = Width;
-        var height = Height;
+        // Interpolate R at B or B at R from 4 diagonal neighbors
+        float center = data[0, y, x];
+
+        float nw = data[0, y - 1, x - 1];
+        float ne = data[0, y - 1, x + 1];
+        float sw = data[0, y + 1, x - 1];
+        float se = data[0, y + 1, x + 1];
+
+        // Green values at cardinal neighbors
+        float gN = data[0, y - 1, x];
+        float gS = data[0, y + 1, x];
+        float gW = data[0, y, x - 1];
+        float gE = data[0, y, x + 1];
+
+        // Calculate gradients including green channel differences
+        float gradNW = MathF.Abs(nw - center) + MathF.Abs(gN - gW);
+        float gradNE = MathF.Abs(ne - center) + MathF.Abs(gN - gE);
+        float gradSW = MathF.Abs(sw - center) + MathF.Abs(gS - gW);
+        float gradSE = MathF.Abs(se - center) + MathF.Abs(gS - gE);
+
+        float minGrad = MathF.Min(MathF.Min(gradNW, gradNE), MathF.Min(gradSW, gradSE));
+        float threshold = MathF.FusedMultiplyAdd(minGrad, 1.5f, 0.01f);
 
         float sum = 0;
         int count = 0;
 
-        for (int dy = -2; dy <= 2; dy++)
-        {
-            for (int dx = -2; dx <= 2; dx++)
-            {
-                int nx = x + dx;
-                int ny = y + dy;
+        if (gradNW <= threshold) { sum += nw; count++; }
+        if (gradNE <= threshold) { sum += ne; count++; }
+        if (gradSW <= threshold) { sum += sw; count++; }
+        if (gradSE <= threshold) { sum += se; count++; }
 
-                if (nx >= 0 && nx < width && ny >= 0 && ny < height)
+        return count > 0 ? sum / count : (nw + ne + sw + se) * 0.25f;
+    }
+
+    private void ProcessEdgePixels(float[,,] debayered, int width, int height, int radius, int[,] bayerPattern)
+    {
+        // Top and bottom edges
+        for (int y = 0; y < height; y++)
+        {
+            if (y >= radius && y < height - radius) continue; // Skip interior rows
+
+            for (int x = 0; x < width; x++)
+            {
+                ProcessEdgePixel(debayered, x, y, width, height, bayerPattern);
+            }
+        }
+
+        // Left and right edges (excluding corners already processed)
+        for (int y = radius; y < height - radius; y++)
+        {
+            for (int x = 0; x < radius; x++)
+            {
+                ProcessEdgePixel(debayered, x, y, width, height, bayerPattern);
+            }
+            for (int x = width - radius; x < width; x++)
+            {
+                ProcessEdgePixel(debayered, x, y, width, height, bayerPattern);
+            }
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void ProcessEdgePixel(float[,,] debayered, int x, int y, int width, int height, int[,] bayerPattern)
+    {
+        int knownColor = bayerPattern[y & 1, x & 1];
+        debayered[knownColor, y, x] = data[0, y, x];
+
+        for (int c = 0; c < 3; c++)
+        {
+            if (c != knownColor)
+            {
+                debayered[c, y, x] = BilinearInterpolateColorFast(x, y, c, width, height, bayerPattern);
+            }
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private float BilinearInterpolateColorFast(int x, int y, int targetColor, int width, int height, int[,] bayerPattern)
+    {
+        float sum = 0;
+        int count = 0;
+
+        int yMin = Math.Max(0, y - 2);
+        int yMax = Math.Min(height - 1, y + 2);
+        int xMin = Math.Max(0, x - 2);
+        int xMax = Math.Min(width - 1, x + 2);
+
+        for (int ny = yMin; ny <= yMax; ny++)
+        {
+            int patternY = ny & 1;
+            for (int nx = xMin; nx <= xMax; nx++)
+            {
+                if (bayerPattern[patternY, nx & 1] == targetColor)
                 {
-                    int neighborColor = bayerPattern[ny % 2, nx % 2];
-                    if (neighborColor == targetColor)
-                    {
-                        sum += data[0, ny, nx];
-                        count++;
-                    }
+                    sum += data[0, ny, nx];
+                    count++;
                 }
             }
         }
