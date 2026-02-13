@@ -31,16 +31,16 @@ internal class AscomFilterWheelDriver(AscomDevice device, IExternal external)
         return Task.CompletedTask;
     }
 
-    public IReadOnlyList<Filter> Filters
+    public IReadOnlyList<InstalledFilter> Filters
     {
         get
         {
             var names = Names;
             var offsets = FocusOffsets;
-            var filters = new List<Filter>(names.Length);
+            var filters = new List<InstalledFilter>(names.Length);
             for (var i = 0; i < names.Length; i++)
             {
-                filters[i] = new Filter(names[i], i < offsets.Length ? offsets[i] : 0);
+                filters[i] = new InstalledFilter(names[i], i < offsets.Length ? offsets[i] : 0);
             }
 
             return filters;

@@ -7,13 +7,13 @@ namespace TianWen.Lib.Devices;
 
 public interface IFilterWheelDriver : IDeviceDriver
 {
-    IReadOnlyList<Filter> Filters { get; }
+    IReadOnlyList<InstalledFilter> Filters { get; }
 
     int Position { get; }
 
     bool IsMoving => Position == -1;
 
-    Filter CurrentFilter
+    InstalledFilter CurrentFilter
     {
         get
         {
@@ -28,7 +28,7 @@ public interface IFilterWheelDriver : IDeviceDriver
                 }
             }
 
-            return Filter.Unknown;
+            return new InstalledFilter(Filter.Unknown);
         }
     }
 

@@ -581,7 +581,7 @@ internal record Session(
                 {
                     // set denormalized parameters so that the image driver can write proper headers in the image file
                     camerDriver.FocusPosition = Catch(() => telescope.Focuser?.Driver is { Connected: true } focuserDriver ? focuserDriver.Position : -1, -1);
-                    camerDriver.Filter = Catch(() => telescope.FilterWheel?.Driver is { Connected: true } filterWheelDriver ? filterWheelDriver.CurrentFilter : Filter.Unknown, Filter.Unknown);
+                    camerDriver.Filter = Catch(() => telescope.FilterWheel?.Driver is { Connected: true } filterWheelDriver ? filterWheelDriver.CurrentFilter.Filter : Filter.Unknown, Filter.Unknown);
 
                     var subExposureSec = subExposuresSec[i];
                     var frameExpTime = TimeSpan.FromSeconds(subExposureSec);
