@@ -1,4 +1,4 @@
-﻿namespace TianWen.Lib.Devices;
+﻿namespace TianWen.Lib.Imaging;
 
 public readonly record struct Filter(string Name, int Offset = 0)
 {

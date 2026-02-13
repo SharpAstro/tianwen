@@ -312,13 +312,13 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
     {
         get
         {
-            if (Connected && _cameraSettings.BitDepth.IsIntegral() && _cameraSettings.BitDepth.BitSize() is { } bitSize and > 0)
+            if (Connected && _cameraSettings.BitDepth.IsIntegral && _cameraSettings.BitDepth.BitSize is { } bitSize and > 0)
             {
                 return bitSize switch
                 {
                     8 => byte.MaxValue,
                     // return true ADC size if available
-                    16 => BitDepthEx.FromValue(ADCBitDepth) is { } adcBitDepth && adcBitDepth.MaxIntValue() is { } maxADCBitDepth ? maxADCBitDepth : ushort.MaxValue,
+                    16 => BitDepthEx.FromValue(ADCBitDepth) is { } adcBitDepth && adcBitDepth.MaxIntValue is { } maxADCBitDepth ? maxADCBitDepth : ushort.MaxValue,
                     _ => int.MinValue
                 };
             }
@@ -601,7 +601,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
             CanGetCCDTemperature = false;
         }
 
-        var highestPossibleBitDepth = _supportedBitDepth.Where(x => x.IsIntegral()).OrderByDescending(x => x.BitSize()).First();
+        var highestPossibleBitDepth = _supportedBitDepth.Where(x => x.IsIntegral).OrderByDescending(x => x.BitSize).First();
         _cameraSettings = new CameraSettings(0, 0, CameraXSize  = _deviceInfo.MaxWidth, CameraYSize = _deviceInfo.MaxHeight, 1, 1, highestPossibleBitDepth, false);
         PixelSizeX = PixelSizeY = _deviceInfo.PixelSize;
         ElectronsPerADU = _deviceInfo.ElectronPerADU is var elecPerADU and > 0f ? elecPerADU : double.NaN;
@@ -714,7 +714,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
             ? new Float32HxWImageData(new float[1, h, w], 0f)
             : cachedArray;
 
-        switch (exposureSettings.BitDepth.BitSize())
+        switch (exposureSettings.BitDepth.BitSize)
         {
             case 8:
                 var bytes = new byte[w * h];
@@ -849,7 +849,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
             throw OperationalException(getExposureErrorCode, "Failed to retrieve current exposure settings");
         }
 
-        var startExposureErrorCode = frameType.NeedsOpenShutter()
+        var startExposureErrorCode = frameType.NeedsOpenShutter
             ? _deviceInfo.StartLightExposure()
             : _deviceInfo.StartDarkExposure();
         if (startExposureErrorCode is CMOSErrorCode.Success)
@@ -978,7 +978,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         }
     }
 
-    static int CalculateBufferSize(in CameraSettings settings) => settings.BitDepth.BitSize() / 8 * settings.Width * settings.Height;
+    static int CalculateBufferSize(in CameraSettings settings) => settings.BitDepth.BitSize / 8 * settings.Width * settings.Height;
 
     #region Denormalised properties
     public string? Telescope { get; set; }

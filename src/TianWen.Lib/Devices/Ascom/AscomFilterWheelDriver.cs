@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Imaging;
 using AscomFilterWheel = ASCOM.Com.DriverAccess.FilterWheel;
 
 namespace TianWen.Lib.Devices.Ascom;

@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
 using TianWen.Lib.Devices.DAL;
+using TianWen.Lib.Imaging;
 using ZWOptical.SDK;
 using static ZWOptical.SDK.EFW1_7;
 using static ZWOptical.SDK.EFW1_7.EFW_ERROR_CODE;
