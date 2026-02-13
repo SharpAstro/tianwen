@@ -2,7 +2,7 @@
 
 namespace TianWen.Lib.Devices;
 
-public record InstalledFilter(Filter Filter, int Position = 0)
+public readonly record struct InstalledFilter(Filter Filter, int Position = 0)
 {
     public InstalledFilter(string Name, int Position = 0) : this(Filter.FromName(Name), Position) { }
 
