@@ -14,17 +14,17 @@ internal class ZWOFilterWheelDriver(ZWODevice device, IExternal external) : DALD
 {
     private int? _filterCount = null;
 
-    public IReadOnlyList<Filter> Filters
+    public IReadOnlyList<InstalledFilter> Filters
     {
         get
         {
             if (_filterCount is { } filterCount && filterCount > 0)
             {
-                var filters = new List<Filter>(filterCount);
+                var filters = new List<InstalledFilter>(filterCount);
 
                 for (var i = 0; i < filterCount; i++)
                 {
-                    filters.Add(new Filter(_device.Query[$"filter{i + 1}"] ?? $"Filter {i + 1}",
+                    filters.Add(new InstalledFilter(_device.Query[$"filter{i + 1}"] ?? $"Filter {i + 1}",
                         int.TryParse(_device.Query[$"offset{i + 1}"], out int focusOffset) ? focusOffset : 0));
                 }
 
