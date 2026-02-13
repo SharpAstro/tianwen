@@ -5,26 +5,29 @@ namespace TianWen.Lib;
 
 public static partial class StringHelper
 {
-    public static string? ReplaceNonPrintableWithHex(this string str)
+    extension(string str)
     {
-        var sb = new StringBuilder(str.Length + 4);
-        foreach (var c in str)
+        public string? ReplaceNonPrintableWithHex()
         {
-            if (char.IsControl(c))
+            var sb = new StringBuilder(str.Length + 4);
+            foreach (var c in str)
             {
-                sb.AppendFormat("<{0:X2}>", (int)c);
+                if (char.IsControl(c))
+                {
+                    sb.AppendFormat("<{0:X2}>", (int)c);
+                }
+                else
+                {
+                    sb.Append(c);
+                }
             }
-            else
-            {
-                sb.Append(c);
-            }
+            return sb.ToString();
         }
-        return sb.ToString();
+
+        public string PascalCaseStringToName() => PascalSplitter.Replace(str, " $1$2").TrimStart();
     }
 
-    static readonly Regex PascalSplitter = PascalSplitterPattern();
-
-    public static string PascalCaseStringToName(this string str) => PascalSplitter.Replace(str, " $1$2").TrimStart();
+    private static readonly Regex PascalSplitter = PascalSplitterPattern();
 
     [GeneratedRegex(@"([A-Z][(?:)a-z])|([0-9]+)", RegexOptions.Compiled | RegexOptions.IgnorePatternWhitespace | RegexOptions.CultureInvariant)]
     internal static partial Regex PascalSplitterPattern();
