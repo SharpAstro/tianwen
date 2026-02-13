@@ -1,5 +1,4 @@
-﻿using Pastel;
-using System.CommandLine;
+﻿using System.CommandLine;
 using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.CLI;
@@ -50,7 +49,8 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
 
         var newProfile = new Profile(Guid.NewGuid(), profileName, ProfileData.Empty);
         await newProfile.SaveAsync(consoleHost.External, cancellationToken);
-        Console.WriteLine($"Created new profile '{newProfile.DisplayName}' with ID {newProfile.ProfileId}");
+
+        consoleHost.WriteScrollable($"Created new profile '{newProfile.DisplayName}' with ID {newProfile.ProfileId}");
     }
 
     internal async Task ListProfilesActionAsync(ParseResult parseResult, CancellationToken cancellationToken)
@@ -61,16 +61,11 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
 
         foreach (var profile in allProfiles)
         {
-            Console.WriteLine();
-            if (profile.ProfileId == selectedProfile?.ProfileId)
-            {
-                Console.Write("* ".Pastel(ConsoleColor.White));
-            }
-            else
-            {
-                Console.Write("  ");
-            }
-            Console.WriteLine(profile.Detailed(consoleHost.DeviceUriRegistry));
+            var isSelected = profile.ProfileId == selectedProfile?.ProfileId;
+
+            var selectedChar = isSelected ? ">" : " ";
+
+            consoleHost.WriteScrollable($"\n{selectedChar} {profile.Detailed(consoleHost.DeviceUriRegistry)}");
         }
     }
 
@@ -112,14 +107,14 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
             }
             else if (matchingDevices.Count is 0)
             {
-                Console.Error.WriteLine($"No device found with ID '{deviceId}'");
+                consoleHost.WriteError($"No device found with ID '{deviceId}'");
             }
             else
             {
-                Console.Error.WriteLine($"Multiple devices found with ID '{deviceId}':");
+                consoleHost.WriteError($"Multiple devices found with ID '{deviceId}':");
                 foreach (var device in matchingDevices)
                 {
-                    Console.Error.WriteLine($"- {device}");
+                    consoleHost.WriteError($"- {device}");
                 }
             }
         }
@@ -139,7 +134,7 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
             }
             else
             {
-                Console.Error.WriteLine($"No profile found with ID '{profileId}'");
+                consoleHost.WriteError($"No profile found with ID '{profileId}'");
                 return;
             }
         }
@@ -152,23 +147,23 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
             }
             else if (matchingProfiles.Count > 1)
             {
-                Console.Error.WriteLine($"Multiple profiles found with name '{profileNameOrId}':");
+                consoleHost.WriteError($"Multiple profiles found with name '{profileNameOrId}':");
                 foreach (var profile in matchingProfiles)
                 {
-                    Console.Error.WriteLine($"- {profile.ProfileId}");
+                    consoleHost.WriteError($"- {profile.ProfileId}");
                 }
                 return;
             }
             else
             {
-                Console.Error.WriteLine($"No profiles found with name '{profileNameOrId}'");
+                consoleHost.WriteError($"No profiles found with name '{profileNameOrId}'");
                 return;
             }
         }
 
         profileToDelete.Delete(consoleHost.External);
 
-        Console.WriteLine($"Deleted profile '{profileToDelete.DisplayName}' ({profileToDelete.ProfileId})");
+        consoleHost.WriteScrollable($"Deleted profile '{profileToDelete.DisplayName}' ({profileToDelete.ProfileId})");
 
         // refresh cache
         var profilesAfterDelete = await ListProfilesAsync(cancellationToken);

@@ -1,6 +1,7 @@
 ﻿using ImageMagick;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Pastel;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
@@ -99,6 +100,21 @@ internal class ConsoleHost(
         }
 
         return null;
+    }
+
+    public void WriteScrollable(string content)
+    {
+        Console.WriteLine(content);
+    }
+
+    public void WriteError(string error)
+    {
+        Console.Error.WriteLine(error);
+    }
+
+    public void WriteError(Exception exception)
+    {
+        Console.Error.WriteLine(exception.Message.Pastel(ConsoleColor.Red));
     }
 
     public async ValueTask RenderImageAsync(IMagickImage<float> image)
