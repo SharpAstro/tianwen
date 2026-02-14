@@ -1369,7 +1369,7 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
 
         return debayerAlgorithm switch
         {
-            DebayerAlgorithm.BilinearMono => Task.FromResult(DebayerBilinearMono()),
+            DebayerAlgorithm.BilinearMono => DebayerBilinearMonoAsync(cancellationToken),
             DebayerAlgorithm.VNG => DebayerVNGAsync(cancellationToken),
             DebayerAlgorithm.None => throw new ArgumentException("Must specify an algorithm", nameof(debayerAlgorithm)),
             _ => throw new NotSupportedException($"Debayer algorithm {debayerAlgorithm} is not supported"),
@@ -1381,34 +1381,44 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
     /// Is a no-op for monochrome fames.
     /// </summary>
     /// <returns>Debayered monochrome image</returns>
-    private Image DebayerBilinearMono()
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    private async Task<Image> DebayerBilinearMonoAsync(CancellationToken cancellationToken = default)
     {
         var width = Width;
         var height = Height;
         var debayered = new float[1, height, width];
-        // Loop through each pixel in the raw image
         var w1 = width - 1;
         var h1 = height - 1;
 
-        for (int y = 0; y < h1; y++)
+        var parallelOptions = new ParallelOptions
+        {
+            CancellationToken = cancellationToken,
+            MaxDegreeOfParallelism = Environment.ProcessorCount * 4
+        };
+
+        // Process all rows except the last one in parallel
+        await Parallel.ForAsync(0, h1, parallelOptions, async (y, ct) => await Task.Run(() =>
         {
             for (int x = 0; x < w1; x++)
             {
-                debayered[0, y, x] = (float)(0.25d * ((double)data[0, y, x] + data[0, y+1, x+1] + data[0, y, x+1] + data[0, y + 1, x]));
+                debayered[0, y, x] = (float)(0.25d * ((double)data[0, y, x] + data[0, y + 1, x + 1] + data[0, y, x + 1] + data[0, y + 1, x]));
             }
 
             // last column
-            debayered[0, y, w1] = (float)(0.25d * ((double)data[0, y, w1] + data[0, y+1, w1 - 1] + data[0, y, w1 - 1] + data[0, y + 1, w1]));
-        }
+            debayered[0, y, w1] = (float)(0.25d * ((double)data[0, y, w1] + data[0, y + 1, w1 - 1] + data[0, y, w1 - 1] + data[0, y + 1, w1]));
 
-        // last row
+            return ValueTask.CompletedTask;
+        }, ct));
+
+        // last row (processed sequentially as it's a single row)
         for (int x = 0; x < w1; x++)
         {
-            debayered[0, h1, x] = (float)(0.25d * ((double)data[0, h1, x] + data[0, h1 - 1, x+1] + data[0, h1, x+1] + data[0, h1 - 1, x]));
+            debayered[0, h1, x] = (float)(0.25d * ((double)data[0, h1, x] + data[0, h1 - 1, x + 1] + data[0, h1, x + 1] + data[0, h1 - 1, x]));
         }
 
         // last pixel
         debayered[0, h1, w1] = (float)(0.25d * ((double)data[0, h1, w1] + data[0, h1 - 1, w1 - 1] + data[0, h1, w1 - 1] + data[0, h1 - 1, w1]));
+
         return new Image(debayered, BitDepth.Float32, maxValue, blackLevel, imageMeta with
         {
             SensorType = SensorType.Monochrome,
@@ -1523,7 +1533,7 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
         float gE = data[0, y, x + 1];
         float vE = data[0, y, x + 2];
         float gradE = MathF.Abs(2 * gE - center - vE);
-        float valE = gE + (center - vE) * 0.5f;
+        float valE = MathF.FusedMultiplyAdd(center - vE, 0.5f, gE);
 
         // Find minimum gradient and threshold
         float minGrad = MathF.Min(MathF.Min(gradN, gradS), MathF.Min(gradW, gradE));
@@ -1875,12 +1885,24 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
         return new Image(transformedData, BitDepth.Float32, MaxValue, BlackLevel, ImageMeta);
     }
 
-    public async Task<IMagickImage<float>> ToMagickImageAsync(CancellationToken cancellationToken = default)
+    public async Task<IMagickImage<float>> ToMagickImageAsync(DebayerAlgorithm debayerAlgorithm = DebayerAlgorithm.VNG, CancellationToken cancellationToken = default)
     {
         var scaled = BitDepth != BitDepth.Float32 ? ScaleFloatValues(MaxValue, missingValue: 0f) : this;
-        var debayered = scaled.ImageMeta.SensorType is SensorType.RGGB
-            ? await scaled.DebayerAsync(DebayerAlgorithm.VNG, cancellationToken)
-            : scaled;
+
+        Image debayered;
+        if (scaled.ImageMeta.SensorType is SensorType.RGGB)
+        {
+            if (debayerAlgorithm is DebayerAlgorithm.None)
+            {
+                throw new ArgumentException("Must specify an algorithm for debayering", nameof(debayerAlgorithm));
+            }
+            debayered = await scaled.DebayerAsync(debayerAlgorithm, cancellationToken);
+        }
+        else
+        {
+            debayered = scaled;
+        }
+
         return debayered.DoToMagickImage();
     }
 
