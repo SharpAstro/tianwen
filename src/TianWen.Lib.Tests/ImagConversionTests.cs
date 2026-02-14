@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Numerics;
 using System.Threading.Tasks;
+using TianWen.Lib.Imaging;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
@@ -11,9 +12,10 @@ namespace TianWen.Lib.Tests;
 public class ImagConversionTests(ITestOutputHelper testOutputHelper)
 {
     [Theory]
-    [InlineData("image_file-snr-20_stars-28_1280x960x16", 1)]
-    [InlineData("RGGB_frame_bx0_by0_top_down", 3)]
-    public async Task GivenFitsFileWhenConvertingToMagickImageThenItShouldSucceed(string name, uint expectedChannelCount)
+    [InlineData("image_file-snr-20_stars-28_1280x960x16", DebayerAlgorithm.None, 1)]
+    [InlineData("RGGB_frame_bx0_by0_top_down", DebayerAlgorithm.VNG, 3)]
+    [InlineData("RGGB_frame_bx0_by0_top_down", DebayerAlgorithm.BilinearMono, 1)]
+    public async Task GivenFitsFileWhenConvertingToMagickImageThenItShouldSucceed(string name, DebayerAlgorithm algorithm, uint expectedChannelCount)
     {
         // given
         var cancellationToken = TestContext.Current.CancellationToken;
@@ -21,9 +23,9 @@ public class ImagConversionTests(ITestOutputHelper testOutputHelper)
 
         // when
         var sw = Stopwatch.StartNew();
-        var magick = await image.ToMagickImageAsync(cancellationToken);
+        var magick = await image.ToMagickImageAsync(algorithm, cancellationToken);
         sw.Stop();
-        testOutputHelper.WriteLine($"Conversion to MagickImage took: {sw.Elapsed}");
+        testOutputHelper.WriteLine($"Debayering using {algorithm} and conversion to MagickImage took: {sw.Elapsed}");
 
         // then
         magick.ShouldNotBeNull();
@@ -32,7 +34,7 @@ public class ImagConversionTests(ITestOutputHelper testOutputHelper)
         magick.ChannelCount.ShouldBe(expectedChannelCount);
         var scaledBytes = magick.ToByteArray(ImageMagick.MagickFormat.Tiff);
 
-        await File.WriteAllBytesAsync(Path.Combine(SharedTestData.CreateTempTestOutputDir(), $"{name}_scaled.tiff"), scaledBytes, cancellationToken);
+        await File.WriteAllBytesAsync(Path.Combine(SharedTestData.CreateTempTestOutputDir(), $"{name}_{algorithm}_scaled.tiff"), scaledBytes, cancellationToken);
 
         // when further
         magick.AutoLevel();
@@ -40,13 +42,14 @@ public class ImagConversionTests(ITestOutputHelper testOutputHelper)
         // then
         var autoLevelBytes = magick.ToByteArray(ImageMagick.MagickFormat.Tiff);
 
-        await File.WriteAllBytesAsync(Path.Combine(SharedTestData.CreateTempTestOutputDir(), $"{name}_autoLevel.tiff"), autoLevelBytes, cancellationToken);
+        await File.WriteAllBytesAsync(Path.Combine(SharedTestData.CreateTempTestOutputDir(), $"{name}_{algorithm}_autoLevel.tiff"), autoLevelBytes, cancellationToken);
     }
 
     [Theory]
-    [InlineData("image_file-snr-20_stars-28_1280x960x16", 1)]
-    [InlineData("RGGB_frame_bx0_by0_top_down", 3)]
-    public async Task GivenFitsFileWhenRotatingAndConvertingToMagickImageThenItShouldSucceed(string name, uint expectedChannelCount)
+    [InlineData("image_file-snr-20_stars-28_1280x960x16", DebayerAlgorithm.None, 1)]
+    [InlineData("RGGB_frame_bx0_by0_top_down", DebayerAlgorithm.VNG, 3)]
+    [InlineData("RGGB_frame_bx0_by0_top_down", DebayerAlgorithm.BilinearMono, 1)]
+    public async Task GivenFitsFileWhenRotatingAndConvertingToMagickImageThenItShouldSucceed(string name, DebayerAlgorithm algorithm, uint expectedChannelCount)
     {
         // given
         var cancellationToken = TestContext.Current.CancellationToken;
@@ -54,15 +57,15 @@ public class ImagConversionTests(ITestOutputHelper testOutputHelper)
 
         // when
         var sw = Stopwatch.StartNew();
-        var debayered = await image.DebayerAsync(Imaging.DebayerAlgorithm.VNG, cancellationToken);
-        testOutputHelper.WriteLine($"Debayering using VNG took: {sw.Elapsed}");
+        var debayered = await image.DebayerAsync(algorithm, cancellationToken);
+        testOutputHelper.WriteLine($"Debayering using {algorithm} took: {sw.Elapsed}");
         
         sw.Restart();
         var rotated = await debayered.TransformAsync(Matrix3x2.CreateRotation(MathF.PI / 4), cancellationToken);
         testOutputHelper.WriteLine($"Rotation took: {sw.Elapsed}");
 
         sw.Restart();
-        var magick = await rotated.ToMagickImageAsync(cancellationToken);
+        var magick = await rotated.ToMagickImageAsync(DebayerAlgorithm.None, cancellationToken);
         testOutputHelper.WriteLine($"Conversion to MagickImage took: {sw.Elapsed}");
         sw.Stop();
 
@@ -73,7 +76,7 @@ public class ImagConversionTests(ITestOutputHelper testOutputHelper)
         magick.ChannelCount.ShouldBe(expectedChannelCount);
         var scaledBytes = magick.ToByteArray(ImageMagick.MagickFormat.Tiff);
 
-        await File.WriteAllBytesAsync(Path.Combine(SharedTestData.CreateTempTestOutputDir(), $"{name}_scaled.tiff"), scaledBytes, cancellationToken);
+        await File.WriteAllBytesAsync(Path.Combine(SharedTestData.CreateTempTestOutputDir(), $"{name}_{algorithm}_scaled.tiff"), scaledBytes, cancellationToken);
 
         // when further
         magick.AutoLevel();
@@ -81,6 +84,6 @@ public class ImagConversionTests(ITestOutputHelper testOutputHelper)
         // then
         var autoLevelBytes = magick.ToByteArray(ImageMagick.MagickFormat.Tiff);
 
-        await File.WriteAllBytesAsync(Path.Combine(SharedTestData.CreateTempTestOutputDir(), $"{name}_autoLevel.tiff"), autoLevelBytes, cancellationToken);
+        await File.WriteAllBytesAsync(Path.Combine(SharedTestData.CreateTempTestOutputDir(), $"{name}_{algorithm}_autoLevel.tiff"), autoLevelBytes, cancellationToken);
     }
 }
