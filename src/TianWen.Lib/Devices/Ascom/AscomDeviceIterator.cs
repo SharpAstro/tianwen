@@ -67,5 +67,5 @@ internal class AscomDeviceIterator : IDeviceSource<AscomDevice>
         }
     }
 
-    public IEnumerable<AscomDevice> RegisteredDevices(DeviceType deviceType) => _devices[deviceType];
+    public IEnumerable<AscomDevice> RegisteredDevices(DeviceType deviceType) => _devices.TryGetValue(deviceType, out var devices) ? devices : [];
 }

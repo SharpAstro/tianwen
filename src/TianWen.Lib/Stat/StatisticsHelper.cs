@@ -6,6 +6,9 @@ namespace TianWen.Lib.Stat;
 
 public static class StatisticsHelper
 {
+    // Conversion from MAD to SD for a normal distribution. See https://en.wikipedia.org/wiki/Median_absolute_deviation */
+    internal const float MAD_TO_SD = 1.4826f;
+
     /// <summary>
     /// Sorts the array in place and returns the median value.
     /// returns <see cref="float.NaN" /> if array is empty or null.
