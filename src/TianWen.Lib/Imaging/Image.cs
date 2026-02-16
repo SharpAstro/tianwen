@@ -237,7 +237,7 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
         var ccdTemp = hdu.Header.GetFloatValue("CCD-TEMP", float.NaN);
         var rowOrder = RowOrder.FromFITSValue(hdu.Header.GetStringValue("ROWORDER")) ?? RowOrder.TopDown;
         var frameType = FrameType.FromFITSValue(hdu.Header.GetStringValue("FRAMETYP") ?? hdu.Header.GetStringValue("IMAGETYP")) ?? FrameType.None;
-        var filter = string.IsNullOrWhiteSpace(filterName) ? Filter.None : new Filter(filterName);
+        var filter = Filter.FromName(filterName);
         var bzero = (float)hdu.BZero;
         var bscale = (float)hdu.BScale;
         var (sensorType, bayerOffsetX, bayerOffsetY) = SensorType.FromFITSValue(
@@ -597,6 +597,7 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
     const float HfdFactor = 1.5f;
     const int MaxScaledRadius = (int)(HfdFactor * BoxRadius) + 1;
     static readonly ImmutableArray<BitMatrix> StarMasks;
+
     static Image()
     {
         var starMasksBuilder = ImmutableArray.CreateBuilder<BitMatrix>(MaxScaledRadius);
@@ -741,14 +742,22 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
     /// The histogram is returned as an array of uint where the index represents the pixel value and the value at that index represents the number of pixels with that value.
     /// Additionally, the mean pixel value  and total number of pixels in the histogram are also returned.
     /// </summary>
+    /// <param name="channel">Channel index for which to calculate the histogram</param>
+    /// <param name="ignoreBlack">Whether to ignore black pixels (value 0) in the histogram. This is useful for images with black borders or vignetting. Default is true.</param>
+    /// <param name="thresholdPct">The percentage of the maximum pixel value to use as the upper limit for the histogram. Default is 91%.</param>
+    /// <param name="calcStats">If true calculate further statistics like median and MAD</param>
     /// <returns>historgram values</returns>
-    public ImageHistogram Histogram(int channel)
+    public ImageHistogram Histogram(int channel, byte thresholdPct = 91, bool ignoreBlack = true, bool calcStats = false)
     {
         var (channelCount, width, height) = Shape;
 
         if (channel >= channelCount)
         {
             throw new ArgumentOutOfRangeException(nameof(channel), channel, $"Channel index {channel} is out of range for image with {ChannelCount} channels");
+        }
+        if (thresholdPct > 100)
+        {
+            throw new ArgumentOutOfRangeException(nameof(thresholdPct), thresholdPct, "Threshold percentage must be between 0 and 100");
         }
 
         float? rescaledMaxValue;
@@ -764,8 +773,24 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
             image = this;
         }
 
-        var threshold = (uint)(image.MaxValue * 0.91);
-        var histogram = new uint[threshold];
+        var threshold = (uint)Math.Round(image.MaxValue * (0.01d * thresholdPct), MidpointRounding.ToPositiveInfinity) + 1;
+        var histogram = ImmutableArray.CreateBuilder<uint>((int)threshold);
+
+        const int size = 1024;
+        Span<uint> zeros = stackalloc uint[size];
+        zeros.Clear();
+
+        for (var i = 0; i < threshold; i += size)
+        {
+            if (i + size > threshold)
+            {
+                histogram.AddRange(zeros[..(int)(threshold - i)]);
+            }
+            else
+            {
+                histogram.AddRange(zeros);
+            }
+        }
 
         var hist_total = 0u;
         var count = 1; /* prevent divide by zero */
@@ -780,8 +805,8 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
                 {
                     var valueAsInt = (int)MathF.Round(value);
 
-                    // ignore black overlap areas and bright stars
-                    if (value >= 1 && value < threshold)
+                    // ignore black overlap areas and bright stars (if threshold percentage is below 100%)
+                    if ((!ignoreBlack || value >= 1) && value < threshold)
                     {
                         histogram[valueAsInt]++; // calculate histogram
                         hist_total++;
@@ -794,7 +819,103 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
 
         var hist_mean = 1.0f / count * total_value;
 
-        return new ImageHistogram(histogram, hist_mean, hist_total, threshold, rescaledMaxValue);
+        var pedestral = null as int?;
+        float? median, mad;
+        if (calcStats)
+        {
+            var medianlength = histogram.Count / 2.0;
+            uint occurances = 0;
+            int median1 = 0, median2 = 0;
+
+            /* Determine median out of histogram array */
+            for (int i = 0; i < threshold; i++)
+            {
+                var histValue = histogram[i];
+                if (!pedestral.HasValue && histValue > 0)
+                {
+                    pedestral = i;
+                }
+
+                occurances += histValue;
+                if (occurances > medianlength)
+                {
+                    median1 = i;
+                    median2 = i;
+                    break;
+                }
+                else if (occurances == medianlength)
+                {
+                    median1 = i;
+                    for (int j = i + 1; j < threshold; j++)
+                    {
+                        if (histValue > 0)
+                        {
+                            median2 = j;
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+            median = median1 * 0.5f + median2 * 0.5f;
+
+            /* Determine median Absolute Deviation out of histogram array and previously determined median
+             * As the histogram already has the values sorted and we know the median,
+             * we can determine the mad by beginning from the median and step up and down
+             * By doing so we will gain a sorted list automatically, because MAD = DetermineMedian(|xn - median|)
+             * So starting from the median will be 0 (as median - median = 0), going up and down will increment by the steps
+             */
+            occurances = 0;
+            var idxDown = median1;
+            var idxUp = median2;
+            mad = null;
+            while (true)
+            {
+                if (idxDown >= 0 && idxDown != idxUp)
+                {
+                    occurances += histogram[idxDown] + histogram[idxUp];
+                }
+                else
+                {
+                    occurances += histogram[idxUp];
+                }
+
+                if (occurances > medianlength)
+                {
+                    mad = MathF.Abs(idxUp - median.Value);
+                    break;
+                }
+
+                idxUp++;
+                idxDown--;
+                if (idxUp >= threshold)
+                {
+                    break;
+                }
+            }
+        }
+        else
+        {
+            median = null;
+            mad = float.NaN;
+        }
+
+        return new ImageHistogram(channel, histogram.ToImmutableArray(), hist_mean, hist_total, threshold, thresholdPct, rescaledMaxValue, pedestral, median, mad, ignoreBlack);
+    }
+
+    public ImageHistogram Statistics(int channel) => Histogram(channel, thresholdPct: 100, ignoreBlack: false, calcStats: true);
+
+    private (float Median, float MAD) GetMedianAndMADScaledToUnit(int channel)
+    {
+        var stats = Statistics(channel);
+        if (stats.Median is not { } median || stats.MAD is not { } mad)
+        {
+            throw new InvalidOperationException("Median and MAD should have been calculated");
+        }
+
+        var maxValue = stats.RescaledMaxValue ?? MaxValue;
+
+        return (median / maxValue, mad / maxValue);
     }
 
     /// <summary>
@@ -1004,8 +1125,9 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
                 background[i] = MathF.Abs(bg_i - bg);
             }
 
-            var mad_bg = Median(background); //median absolute deviation (MAD)
-            sd_bg = mad_bg * 1.4826f; /* Conversion from mad to sd for a normal distribution. See https://en.wikipedia.org/wiki/Median_absolute_deviation */
+            //median absolute deviation (MAD)
+            var mad_bg = Median(background);
+            sd_bg = mad_bg * MAD_TO_SD;
 
             // add some value for images with zero noise background.
             // This will prevent that background is seen as a star. E.g. some jpg processed by nova.astrometry.net
@@ -1361,7 +1483,7 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
 
     public Task<Image> DebayerAsync(DebayerAlgorithm debayerAlgorithm, CancellationToken cancellationToken = default)
     {
-        // NO-OP for monochrome images
+        // NO-OP for monochrome or full colour images
         if (imageMeta.SensorType is SensorType.Monochrome or SensorType.Color)
         {
             return Task.FromResult(this);
@@ -1424,7 +1546,7 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
             SensorType = SensorType.Monochrome,
             BayerOffsetX = 0,
             BayerOffsetY = 0,
-            Filter = new Filter("LUM")
+            Filter = Filter.Luminance
         });
     }
 
@@ -1913,12 +2035,12 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
     private IMagickImage<float> DoToMagickImage()
     {
         var (channelCount, width, height) = Shape;
-        var firstChannel = ChannelToImage(width, height, 0); // mono or red
+        var firstChannel = ChannelToImage(0); // mono or red
 
         if (channelCount is 3)
         {
-            var blue = ChannelToImage(width, height, 1);
-            var green = ChannelToImage(width, height, 2);
+            var blue = ChannelToImage(1);
+            var green = ChannelToImage(2);
 
             using var coll = new MagickImageCollection
             {
@@ -1932,21 +2054,112 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
         {
             return firstChannel;
         }
+
+        MagickImage ChannelToImage(int channel)
+        {
+            var image = new MagickImage(MagickColors.Black, (uint)width, (uint)height)
+            {
+                Format = MagickFormat.Tiff,
+                Depth = 32,
+                Endian = BitConverter.IsLittleEndian ? Endian.LSB : Endian.MSB,
+                ColorType = ColorType.Grayscale
+            };
+
+            using var pix = image.GetPixelsUnsafe();
+            pix.SetPixels(data.AsSpan(channel));
+
+            return image;
+        }
     }
 
-    private MagickImage ChannelToImage(int width, int height, int channel)
+    public async Task<Image> StretchUnlinkedAsync(double stretchFactor = 0.2d, double shadowsClipping = -2.8d, DebayerAlgorithm debayerAlgorithm = DebayerAlgorithm.VNG, CancellationToken cancellationToken = default)
     {
-        var image = new MagickImage(MagickColors.Black, (uint)width, (uint)height)
+        if (imageMeta.SensorType is SensorType.RGGB)
         {
-            Format = MagickFormat.Tiff,
-            Depth = 32,
-            Endian = BitConverter.IsLittleEndian ? Endian.LSB : Endian.MSB,
-            ColorType = ColorType.Grayscale
-        };
+            var debayered = await DebayerAsync(debayerAlgorithm, cancellationToken);
+            return await debayered.StretchUnlinkedAsync(stretchFactor, shadowsClipping, DebayerAlgorithm.None, cancellationToken);
+        }
+        
+        var (channelCount, width, height) = Shape;
 
-        using var pix = image.GetPixelsUnsafe();
-        pix.SetPixels(data.AsSpan(channel));
+        var stretchedData = new float[channelCount, height, width];
 
-        return image;
+        for (var c = 0; c < channelCount; c++)
+        {
+            var (median, mad) = GetMedianAndMADScaledToUnit(c);
+            await StretchChannelAsync(stretchedData, c, stretchFactor, shadowsClipping, median, mad, cancellationToken);
+        }
+
+        // stretched images are always normalized to unit, so max value is 1.0f
+        var stretchedImage = new Image(stretchedData, BitDepth.Float32, 1.0f, BlackLevel, imageMeta);
+
+        // rescale if required
+        return MaxValue > stretchedImage.MaxValue ? stretchedImage.ScaleFloatValues(MaxValue) : stretchedImage;
+    }
+
+    private async Task StretchChannelAsync(float[,,] stretched, int channel, double stretchFactor, double shadowsClipping, float median, float mad, CancellationToken cancellationToken = default)
+    {
+        var (channelCount, width, height) = Shape;
+
+        if (channel < 0 || channel >= channelCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(channel));
+        }
+
+        var needsNorm = MaxValue > 1.0f + float.Epsilon;
+        var normFactor = 1.0 / MaxValue;
+
+        double shadows, midtones, highlights;
+
+        // assume the image is inverted or overexposed when median is higher than half of the possible value
+        if (median > 0.5)
+        {
+            shadows = 0f;
+            highlights = median - shadowsClipping * mad * MAD_TO_SD;
+            midtones = MidtonesTransferFunction(stretchFactor, 1f - (highlights - median));
+        }
+        else
+        {
+            shadows = median + shadowsClipping * mad * MAD_TO_SD;
+            midtones = MidtonesTransferFunction(stretchFactor, median - shadows);
+            highlights = 1;
+        }
+
+        await Parallel.ForAsync(0, height, new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = Environment.ProcessorCount * 4 }, async (y, ct) => await Task.Run(() =>
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var value = data[channel, y, x];
+                if (!float.IsNaN(value))
+                {
+                    var normValue = needsNorm ? value * normFactor : value;
+                    stretched[channel, y, x] = (float)MidtonesTransferFunction(midtones, 1 - highlights + normValue - shadows);
+                }
+                else
+                {
+                    stretched[channel, y, x] = float.NaN;
+                }
+            }
+            return ValueTask.CompletedTask;
+        }, ct));
+    }
+
+    /// <summary>
+    /// Adjusts x for a given midToneBalance
+    /// </summary>
+    /// <param name="midToneBalance"></param>
+    /// <param name="value"></param>
+    /// <returns></returns>
+    private static double MidtonesTransferFunction(double midToneBalance, double value)
+    {
+        var clamped = Math.Clamp(value, 0, 1d);
+        if (value == clamped)
+        {
+            return (midToneBalance - 1) * value / Math.FusedMultiplyAdd(Math.FusedMultiplyAdd(2, midToneBalance, - 1), value, - midToneBalance);
+        }
+        else
+        {
+            return clamped;
+        }
     }
 }
