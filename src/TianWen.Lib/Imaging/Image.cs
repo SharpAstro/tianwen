@@ -229,7 +229,7 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
         var pixelSizeY = hdu.Header.GetFloatValue("YPIXSZ", float.NaN);
         var xbinning = hdu.Header.GetIntValue("XBINNING", 1);
         var ybinning = hdu.Header.GetIntValue("YBINNING", 1);
-        var blackLevel = hdu.Header.GetFloatValue("BLKLEVEL", 0f);
+        var blackLevel = hdu.Header.GetFloatValue("BLKLEVEL", float.NaN);
         var pixelScale = hdu.Header.GetFloatValue("PIXSCALE", float.NaN);
         var focalLength = hdu.Header.GetIntValue("FOCALLEN", -1);
         var focusPos = hdu.Header.GetIntValue("FOCUSPOS", -1);
@@ -240,7 +240,10 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
         var filter = Filter.FromName(filterName);
         var bzero = (float)hdu.BZero;
         var bscale = (float)hdu.BScale;
+        var isCFA = hdu.Header.ContainsKey("CFAIMAGE") ? hdu.Header.GetBooleanValue("CFAIMAGE", false) : null as bool?;
         var (sensorType, bayerOffsetX, bayerOffsetY) = SensorType.FromFITSValue(
+            isCFA,
+            channelCount,
             hdu.Header.GetIntValue("BAYOFFX", 0), hdu.Header.GetIntValue("BAYOFFY", 0),
             hdu.Header.GetStringValue("BAYERPAT"), hdu.Header.GetStringValue("COLORTYP")
         );
@@ -252,10 +255,11 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
 
         var quot = Math.DivRem(width, scratchRow.Length, out var rem);
         var maxValue = (float)hdu.MaximumValue;
-        bool needsMaxValRecalc = float.IsNaN(maxValue) || maxValue is <= 0;
-        if (needsMaxValRecalc)
+        bool needsMinMaxValRecalc = float.IsNaN(blackLevel) || blackLevel < 0 || float.IsNaN(maxValue) || maxValue is <= 0 || maxValue <= blackLevel;
+        if (needsMinMaxValRecalc)
         {
             maxValue = float.MinValue;
+            blackLevel = float.MaxValue;
         }
 
         var rowSize = sizeof(float) * width;
@@ -279,9 +283,10 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
                             {
                                 var val = bscale * byteWidthArray[sourceIndex + w] + bzero;
                                 scratchRow[w] = val;
-                                if (needsMaxValRecalc)
+                                if (needsMinMaxValRecalc && !float.IsNaN(val))
                                 {
                                     maxValue = MathF.Max(maxValue, val);
+                                    blackLevel = MathF.Min(blackLevel, val);
                                 }
                             }
                             sourceIndex += scratchRow.Length;
@@ -295,9 +300,10 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
                             {
                                 var val = bscale * byteWidthArray[sourceIndex + w] + bzero;
                                 scratchRow[w] = val;
-                                if (needsMaxValRecalc)
+                                if (needsMinMaxValRecalc && !float.IsNaN(val))
                                 {
                                     maxValue = MathF.Max(maxValue, val);
+                                    blackLevel = MathF.Min(blackLevel, val);
                                 }
                             }
                             scratchRow[..rem].CopyTo(row);
@@ -322,9 +328,10 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
                             {
                                 var val = bscale * shortWidthArray[sourceIndex + w] + bzero;
                                 scratchRow[w] = val;
-                                if (needsMaxValRecalc)
+                                if (needsMinMaxValRecalc && !float.IsNaN(val))
                                 {
                                     maxValue = MathF.Max(maxValue, val);
+                                    blackLevel = MathF.Min(blackLevel, val);
                                 }
                             }
                             sourceIndex += scratchRow.Length;
@@ -338,9 +345,10 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
                             {
                                 var val = bscale * shortWidthArray[sourceIndex + w] + bzero;
                                 scratchRow[w] = val;
-                                if (needsMaxValRecalc)
+                                if (needsMinMaxValRecalc && !float.IsNaN(val))
                                 {
                                     maxValue = MathF.Max(maxValue, val);
+                                    blackLevel = MathF.Min(blackLevel, val);
                                 }
                             }
                             scratchRow[..rem].CopyTo(row);
@@ -365,9 +373,10 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
                             {
                                 var val = bscale * intWidthArray[sourceIndex + w] + bzero;
                                 scratchRow[w] = val;
-                                if (needsMaxValRecalc)
+                                if (needsMinMaxValRecalc && !float.IsNaN(val))
                                 {
                                     maxValue = MathF.Max(maxValue, val);
+                                    blackLevel = MathF.Min(blackLevel, val);
                                 }
                             }
                             sourceIndex += scratchRow.Length;
@@ -381,9 +390,10 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
                             {
                                 var val = bscale * intWidthArray[sourceIndex + w] + bzero;
                                 scratchRow[w] = val;
-                                if (needsMaxValRecalc)
+                                if (needsMinMaxValRecalc && !float.IsNaN(val))
                                 {
                                     maxValue = MathF.Max(maxValue, val);
+                                    blackLevel = MathF.Min(blackLevel, val);
                                 }
                             }
                             scratchRow[..rem].CopyTo(row);
@@ -408,9 +418,10 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
                             {
                                 var val = bscale * floatWidthArray[sourceIndex + w] + bzero;
                                 scratchRow[w] = val;
-                                if (needsMaxValRecalc)
+                                if (needsMinMaxValRecalc && !float.IsNaN(val))
                                 {
                                     maxValue = MathF.Max(maxValue, val);
+                                    blackLevel = MathF.Min(blackLevel, val);
                                 }
                             }
                             sourceIndex += scratchRow.Length;
@@ -424,9 +435,10 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
                             {
                                 var val = bscale * floatWidthArray[sourceIndex + w] + bzero;
                                 scratchRow[w] = val;
-                                if (needsMaxValRecalc)
+                                if (needsMinMaxValRecalc && !float.IsNaN(val))
                                 {
                                     maxValue = MathF.Max(maxValue, val);
+                                    blackLevel = MathF.Min(blackLevel, val);
                                 }
                             }
                             scratchRow[..rem].CopyTo(row);
@@ -747,7 +759,7 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
     /// <param name="thresholdPct">The percentage of the maximum pixel value to use as the upper limit for the histogram. Default is 91%.</param>
     /// <param name="calcStats">If true calculate further statistics like median and MAD</param>
     /// <returns>historgram values</returns>
-    public ImageHistogram Histogram(int channel, byte thresholdPct = 91, bool ignoreBlack = true, bool calcStats = false)
+    public ImageHistogram Histogram(int channel, byte thresholdPct = 91, bool ignoreBlack = true, bool calcStats = false, bool removePedestral = false)
     {
         var (channelCount, width, height) = Shape;
 
@@ -795,6 +807,7 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
         var hist_total = 0u;
         var count = 1; /* prevent divide by zero */
         var total_value = 0f;
+        var pedestralAdjustValue = removePedestral ? blackLevel : 0f;
 
         for (var h = 0; h <= height - 1; h++)
         {
@@ -803,14 +816,15 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
                 var value = image[channel, h, w];
                 if (!float.IsNaN(value))
                 {
-                    var valueAsInt = (int)MathF.Round(value);
+                    var valueMinusPedestral = value - pedestralAdjustValue;
 
                     // ignore black overlap areas and bright stars (if threshold percentage is below 100%)
-                    if ((!ignoreBlack || value >= 1) && value < threshold)
+                    if ((!ignoreBlack || valueMinusPedestral >= 1) && valueMinusPedestral < threshold)
                     {
+                        var valueAsInt = (int)Math.Clamp(MathF.Round(valueMinusPedestral), 0, threshold - 1);
                         histogram[valueAsInt]++; // calculate histogram
                         hist_total++;
-                        total_value += value;
+                        total_value += valueMinusPedestral;
                         count++;
                     }
                 }
@@ -819,7 +833,6 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
 
         var hist_mean = 1.0f / count * total_value;
 
-        var pedestral = null as int?;
         float? median, mad;
         if (calcStats)
         {
@@ -831,10 +844,6 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
             for (int i = 0; i < threshold; i++)
             {
                 var histValue = histogram[i];
-                if (!pedestral.HasValue && histValue > 0)
-                {
-                    pedestral = i;
-                }
 
                 occurances += histValue;
                 if (occurances > medianlength)
@@ -900,22 +909,23 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
             mad = float.NaN;
         }
 
-        return new ImageHistogram(channel, histogram.ToImmutableArray(), hist_mean, hist_total, threshold, thresholdPct, rescaledMaxValue, pedestral, median, mad, ignoreBlack);
+        return new ImageHistogram(channel, histogram.ToImmutableArray(), hist_mean, hist_total, threshold, thresholdPct, rescaledMaxValue, median, mad, ignoreBlack);
     }
 
-    public ImageHistogram Statistics(int channel) => Histogram(channel, thresholdPct: 100, ignoreBlack: false, calcStats: true);
+    public ImageHistogram Statistics(int channel, bool removePedestral = false)
+        => Histogram(channel, thresholdPct: 100, ignoreBlack: false, calcStats: true, removePedestral);
 
-    private (float Median, float MAD) GetMedianAndMADScaledToUnit(int channel)
+    private (float Pedestral, float Median, float MAD) GetPedestralMedianAndMADScaledToUnit(int channel)
     {
-        var stats = Statistics(channel);
+        var stats = Statistics(channel, removePedestral: true);
         if (stats.Median is not { } median || stats.MAD is not { } mad)
         {
             throw new InvalidOperationException("Median and MAD should have been calculated");
         }
 
-        var maxValue = stats.RescaledMaxValue ?? MaxValue;
+        var maxValueFactor = 1f / (stats.RescaledMaxValue ?? MaxValue);
 
-        return (median / maxValue, mad / maxValue);
+        return (blackLevel * maxValueFactor, median * maxValueFactor, mad * maxValueFactor);
     }
 
     /// <summary>
@@ -2072,7 +2082,37 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
         }
     }
 
-    public async Task<Image> StretchUnlinkedAsync(double stretchFactor = 0.2d, double shadowsClipping = -2.8d, DebayerAlgorithm debayerAlgorithm = DebayerAlgorithm.VNG, CancellationToken cancellationToken = default)
+    public async Task<Image> StretchLinkedAsync(double stretchFactor = 0.2d, double shadowsClipping = -3d, DebayerAlgorithm debayerAlgorithm = DebayerAlgorithm.VNG, CancellationToken cancellationToken = default)
+    {
+
+        if (imageMeta.SensorType is SensorType.RGGB)
+        {
+            var debayered = await DebayerAsync(debayerAlgorithm, cancellationToken);
+            return await debayered.StretchLinkedAsync(stretchFactor, shadowsClipping, DebayerAlgorithm.None, cancellationToken);
+        }
+        else if (imageMeta.SensorType is SensorType.Monochrome)
+        {
+            return await StretchUnlinkedAsync(stretchFactor, shadowsClipping, DebayerAlgorithm.None, cancellationToken);
+        }
+        else
+        {
+            var (channelCount, width, height) = Shape;
+
+            var (pedestral, median, mad) = GetPedestralMedianAndMADScaledToUnit(0);
+
+            var stretchedData = new float[channelCount, height, width];
+            for (var c = 0; c < channelCount; c++)
+            {
+                await StretchChannelAsync(stretchedData, c, stretchFactor, shadowsClipping, pedestral, median, mad, cancellationToken);
+            }
+            // stretched images are always normalized to unit, so max value is 1.0f
+            var stretchedImage = new Image(stretchedData, BitDepth.Float32, 1.0f, 0, imageMeta);
+            // rescale if required
+            return MaxValue > stretchedImage.MaxValue ? stretchedImage.ScaleFloatValues(MaxValue) : stretchedImage;
+        }
+    }
+
+    public async Task<Image> StretchUnlinkedAsync(double stretchFactor = 0.2d, double shadowsClipping = -3d, DebayerAlgorithm debayerAlgorithm = DebayerAlgorithm.VNG, CancellationToken cancellationToken = default)
     {
         if (imageMeta.SensorType is SensorType.RGGB)
         {
@@ -2086,18 +2126,18 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
 
         for (var c = 0; c < channelCount; c++)
         {
-            var (median, mad) = GetMedianAndMADScaledToUnit(c);
-            await StretchChannelAsync(stretchedData, c, stretchFactor, shadowsClipping, median, mad, cancellationToken);
+            var (pedestral, median, mad) = GetPedestralMedianAndMADScaledToUnit(c);
+            await StretchChannelAsync(stretchedData, c, stretchFactor, shadowsClipping, pedestral, median, mad, cancellationToken);
         }
 
         // stretched images are always normalized to unit, so max value is 1.0f
-        var stretchedImage = new Image(stretchedData, BitDepth.Float32, 1.0f, BlackLevel, imageMeta);
+        var stretchedImage = new Image(stretchedData, BitDepth.Float32, 1.0f, 0, imageMeta);
 
         // rescale if required
         return MaxValue > stretchedImage.MaxValue ? stretchedImage.ScaleFloatValues(MaxValue) : stretchedImage;
     }
 
-    private async Task StretchChannelAsync(float[,,] stretched, int channel, double stretchFactor, double shadowsClipping, float median, float mad, CancellationToken cancellationToken = default)
+    private async Task StretchChannelAsync(float[,,] stretched, int channel, double stretchFactor, double shadowsClipping, float pedestral, float median, float mad, CancellationToken cancellationToken = default)
     {
         var (channelCount, width, height) = Shape;
 
@@ -2132,7 +2172,7 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
                 var value = data[channel, y, x];
                 if (!float.IsNaN(value))
                 {
-                    var normValue = needsNorm ? value * normFactor : value;
+                    var normValue = (needsNorm ? value * normFactor : value) - pedestral;
                     stretched[channel, y, x] = (float)MidtonesTransferFunction(midtones, 1 - highlights + normValue - shadows);
                 }
                 else
@@ -2155,7 +2195,7 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
         var clamped = Math.Clamp(value, 0, 1d);
         if (value == clamped)
         {
-            return (midToneBalance - 1) * value / Math.FusedMultiplyAdd(Math.FusedMultiplyAdd(2, midToneBalance, - 1), value, - midToneBalance);
+            return (midToneBalance - 1) * value / Math.FusedMultiplyAdd(Math.FusedMultiplyAdd(2, midToneBalance, -1), value, - midToneBalance);
         }
         else
         {

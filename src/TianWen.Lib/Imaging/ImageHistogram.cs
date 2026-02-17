@@ -25,7 +25,6 @@ public record ImageHistogram(
     float Threshold,
     byte ThresholdPct,
     float? RescaledMaxValue,
-    int? Pedestral,
     float? Median,
     float? MAD,
     bool IgnoreBlack
