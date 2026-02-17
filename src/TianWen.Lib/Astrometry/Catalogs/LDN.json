@@ -5070,8 +5070,8 @@
     "MainId": "IRAS 18148-0440",
     "Ids": [
       "LDN  483MM",
-      "NAME LDN 483 FIR",
-      "NAME LDN 483-mm"
+      "NAME LDN 483-mm",
+      "NAME LDN 483 FIR"
     ],
     "ObjType": "Y*O",
     "Ra": 274.37475,
@@ -16691,7 +16691,7 @@
     "Ids": [
       "LDN 1536S"
     ],
-    "ObjType": "Y*O",
+    "ObjType": "Or*",
     "Ra": 68.32949122198,
     "Dec": 22.77614723567,
     "VMag": null
@@ -18635,9 +18635,9 @@
   {
     "MainId": "NAME Ophiuchus D",
     "Ids": [
-      "NAME rho Ophiuchus D Cloud",
-      "LDN 1696A",
       "NAME rho Ophiuchi D Cloud",
+      "LDN 1696A",
+      "NAME rho Ophiuchus D Cloud",
       "NAME Ophiuchus D",
       "NAME rho Oph Cloud D",
       "NAME rho Oph D",
