@@ -1,4 +1,6 @@
-﻿namespace TianWen.Lib.Imaging;
+﻿using System.Text.RegularExpressions;
+
+namespace TianWen.Lib.Imaging;
 
 public readonly record struct Filter(string Name, string ShortName, Bandpass Bandpass)
 {
@@ -12,11 +14,14 @@ public readonly record struct Filter(string Name, string ShortName, Bandpass Ban
     public static readonly Filter HydrogenBeta = new(nameof(HydrogenBeta), "H\u03B2", Bandpass.Hb);
     public static readonly Filter OxygenIII = new(nameof(OxygenIII), "OIII", Bandpass.OIII);
     public static readonly Filter SulphurII = new(nameof(SulphurII), "SII", Bandpass.SII);
+    // dual band filters
+    public static readonly Filter HydrogenAlphaOxygenIII = new(nameof(HydrogenAlphaOxygenIII), "H\u03B1+OIII", Bandpass.Ha | Bandpass.OIII);
+    public static readonly Filter SulphurIIOxygenIII = new(nameof(HydrogenAlphaOxygenIII), "SII+OIII", Bandpass.SII | Bandpass.OIII);
 
     /// <summary>Parses a known set of filters or <see cref="Unknown"/> if none match</summary>
     /// <param name="name"></param>
     /// <returns></returns>
-    public static Filter FromName(string name) => name?.Trim().Replace(" ", "").Replace("-", "").ToUpperInvariant() switch
+    public static Filter FromName(string name) => name?.Trim().ToUpperInvariant().Replace("-", "").Replace("+", "") switch
     {
         "NONE" => None,
         "L" or "LUM" or "LUMINANCE" => Luminance,
@@ -27,6 +32,7 @@ public readonly record struct Filter(string Name, string ShortName, Bandpass Ban
         "HBETA" or "HB" or "HYDROGENBETA" => HydrogenBeta,
         "OIII" or "O3" or "OIII" or "OXYIII" or "OXYGENIII" => OxygenIII,
         "SII" or "S2" or "SULPHURII" => SulphurII,
+        "HYDROGENALPHAOXYGENIII" or "HALPHA" => HydrogenAlphaOxygenIII,
         null => None,
         _ => Unknown
     };

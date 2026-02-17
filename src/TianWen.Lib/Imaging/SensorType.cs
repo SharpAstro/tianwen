@@ -31,12 +31,12 @@ public static class SensorTypeEx
 {
     extension(SensorType)
     {
-        public static (SensorType SensorType, int X, int Y) FromFITSValue(int fileOffsetX, int fileOffsetY, params string[] patterns)
+        public static (SensorType SensorType, int X, int Y) FromFITSValue(bool? hasCFA, int channelCount, int fileOffsetX, int fileOffsetY, params string[] patterns)
         {
             var firstNonNull = patterns.FirstOrDefault(pattern => !string.IsNullOrWhiteSpace(pattern));
-            if (firstNonNull is null)
+            if (hasCFA is false || firstNonNull is null)
             {
-                return (SensorType.Monochrome, 0, 0);
+                return (channelCount is 3 ? SensorType.Color : SensorType.Monochrome, 0, 0);
             }
 
             var (sensorType, sensorOffsetX, sensorOffsetY) = firstNonNull.ToUpperInvariant() switch
