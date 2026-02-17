@@ -2283,6 +2283,7 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
         var (channelCount, width, height) = Shape;
         var firstChannel = ChannelToImage(0); // mono or red
 
+        IMagickImage<float> result;
         if (channelCount is 3)
         {
             var blue = ChannelToImage(1);
@@ -2294,12 +2295,16 @@ public class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blac
                 blue,
                 green
             };
-            return coll.Combine(ColorSpace.sRGB);
+
+            result = coll.Combine(ColorSpace.sRGB);
+            result.SetProfile(ColorProfiles.SRGB);
         }
         else
         {
-            return firstChannel;
+            result = firstChannel;
         }
+
+        return result;
 
         MagickImage ChannelToImage(int channel)
         {

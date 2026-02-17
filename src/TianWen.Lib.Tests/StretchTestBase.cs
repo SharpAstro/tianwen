@@ -1,4 +1,5 @@
-﻿using Shouldly;
+﻿using ImageMagick;
+using Shouldly;
 using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
@@ -18,7 +19,7 @@ public abstract class StretchTestBase(ITestOutputHelper testOutputHelper)
         var linkedStr = linked ? "linked" : "unlinked"; 
         var namePrefix = $"{fileName}_{algorithm}_{stretchPct}s_{linkedStr}";
         var testDir = SharedTestData.CreateTempTestOutputDir(TestContext.Current.TestClass?.TestClassSimpleName ?? nameof(StretchTest));
- 
+
         // when
         var sw = Stopwatch.StartNew();
         var stretched = linked
@@ -41,18 +42,15 @@ public abstract class StretchTestBase(ITestOutputHelper testOutputHelper)
         // when creating an auto-leveled image for comparision
         sw.Restart();
         magick.AutoLevel();
+        sw.Stop();
+        testOutputHelper.WriteLine($"Auto-levelling took: {sw.Elapsed}");
 
         // then
-        var autoLevelTiffBytes = magick.ToByteArray(ImageMagick.MagickFormat.Tiff);
-        sw.Stop();
-        testOutputHelper.WriteLine($"Auto-levelling and converting magick image to TIFF bytes took: {sw.Elapsed}");
-
         sw.Restart();
-        var autoLevelJpegBytes = magick.ToByteArray(ImageMagick.MagickFormat.Jpeg);
+        var autoLevelTiffBytes = magick.ToByteArray(MagickFormat.Tiff);
         sw.Stop();
-        testOutputHelper.WriteLine($"Auto-levelling and converting magick image to JPEG bytes took: {sw.Elapsed}");
+        testOutputHelper.WriteLine($"Converting magick image to TIFF bytes took: {sw.Elapsed}");
 
         await File.WriteAllBytesAsync(Path.Combine(testDir, $"{namePrefix}_autoLevel.tiff"), autoLevelTiffBytes, cancellationToken);
-        await File.WriteAllBytesAsync(Path.Combine(testDir, $"{namePrefix}_autoLevel.jpeg"), autoLevelJpegBytes, cancellationToken);
     }
 }
