@@ -522,6 +522,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     private async Task<(int Processed, int Failed)> ReadEmbeddedGzippedJsonDataFileAsync(Assembly assembly, string jsonName, Catalog catToAdd, CancellationToken cancellationToken)
     {
         const string NAME_CAT_PREFIX = "NAME ";
+        const string NAME_IAU_CAT_PREFIX = "NAME-IAU ";
         const string STAR_CAT_PREFIX = "* ";
         const string CLUSTER_PREFIX = "Cl ";
 
@@ -559,6 +560,10 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                 if (id.StartsWith(NAME_CAT_PREFIX, StringComparison.Ordinal))
                 {
                     commonNames.Add(id[NAME_CAT_PREFIX.Length..].TrimStart());
+                }
+                else if (id.StartsWith(NAME_IAU_CAT_PREFIX, StringComparison.Ordinal))
+                {
+                    commonNames.Add(id[NAME_IAU_CAT_PREFIX.Length..].TrimStart());
                 }
                 else if (id.StartsWith(STAR_CAT_PREFIX, StringComparison.Ordinal))
                 {

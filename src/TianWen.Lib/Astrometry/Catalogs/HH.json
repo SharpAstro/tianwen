@@ -1,35 +1,5 @@
 [
   {
-    "MainId": "HH   24NE",
-    "Ids": [
-      "HH   24NE"
-    ],
-    "ObjType": "Y*O",
-    "Ra": 86.53717,
-    "Dec": -0.16556,
-    "VMag": null
-  },
-  {
-    "MainId": "HH  136",
-    "Ids": [
-      "HH  136"
-    ],
-    "ObjType": "HH",
-    "Ra": 168.0817,
-    "Dec": -58.7678,
-    "VMag": null
-  },
-  {
-    "MainId": "V* V1400 Ori",
-    "Ids": [
-      "HH  525"
-    ],
-    "ObjType": "Or*",
-    "Ra": 83.85290091499,
-    "Dec": -5.40992632034,
-    "VMag": 15.847
-  },
-  {
     "MainId": "HH 1094",
     "Ids": [
       "HH 1094"
@@ -154,10 +124,40 @@
     "Ids": [
       "HH 1200"
     ],
-    "ObjType": "Y*O",
+    "ObjType": "Or*",
     "Ra": 86.54734993744,
     "Dec": -0.13202190598,
     "VMag": null
+  },
+  {
+    "MainId": "HH  136",
+    "Ids": [
+      "HH  136"
+    ],
+    "ObjType": "HH",
+    "Ra": 168.0817,
+    "Dec": -58.7678,
+    "VMag": null
+  },
+  {
+    "MainId": "HH   24NE",
+    "Ids": [
+      "HH   24NE"
+    ],
+    "ObjType": "Y*O",
+    "Ra": 86.53717,
+    "Dec": -0.16556,
+    "VMag": null
+  },
+  {
+    "MainId": "V* V1400 Ori",
+    "Ids": [
+      "HH  525"
+    ],
+    "ObjType": "Or*",
+    "Ra": 83.85290091499,
+    "Dec": -5.40992632034,
+    "VMag": 15.847
   },
   {
     "MainId": "HH   1",
@@ -1426,7 +1426,7 @@
       "HH   31",
       "NAME HH 31 IRS 2"
     ],
-    "ObjType": "Y*O",
+    "ObjType": "Or*",
     "Ra": 66.98884980331,
     "Dec": 26.32167590686,
     "VMag": null
@@ -6558,7 +6558,7 @@
       "DG  32",
       "HH  158"
     ],
-    "ObjType": "Or*",
+    "ObjType": "TT*",
     "Ra": 66.76955053162,
     "Dec": 26.10446115813,
     "VMag": 10.5
@@ -6967,8 +6967,8 @@
       "NAME Haro 6-10 IRC"
     ],
     "ObjType": "TT*",
-    "Ra": 67.3488811496788,
-    "Dec": 24.5500600045256,
+    "Ra": 67.348881149295,
+    "Dec": 24.5500600032544,
     "VMag": null
   },
   {
@@ -7708,8 +7708,8 @@
     "MainId": "HH  211",
     "Ids": [
       "HH  211",
-      "NAME HH 211 IR",
-      "NAME HH 211 FIR"
+      "NAME HH 211 FIR",
+      "NAME HH 211 IR"
     ],
     "ObjType": "Y*O",
     "Ra": 55.9855,
@@ -11119,7 +11119,7 @@
     "Ids": [
       "HH  390"
     ],
-    "ObjType": "Y*O",
+    "ObjType": "Or*",
     "Ra": 64.92302145591,
     "Dec": 27.26851646565,
     "VMag": null
@@ -12692,7 +12692,7 @@
     "Ids": [
       "HH  449"
     ],
-    "ObjType": "Y*O",
+    "ObjType": "Or*",
     "Ra": 84.67828806559,
     "Dec": -7.21217623325,
     "VMag": 17.025
@@ -14137,7 +14137,7 @@
     "Ids": [
       "HH  521"
     ],
-    "ObjType": "Y*O",
+    "ObjType": "Or*",
     "Ra": 83.8359444933,
     "Dec": -5.41290265332,
     "VMag": 17.368
@@ -14707,7 +14707,7 @@
     "Ids": [
       "HH  562"
     ],
-    "ObjType": "BY*",
+    "ObjType": "Or*",
     "Ra": 83.8767590888,
     "Dec": -5.4274096185,
     "VMag": 15.43
@@ -20239,236 +20239,6 @@
     "VMag": null
   },
   {
-    "MainId": "HH  194D",
-    "Ids": [
-      "HH  194D"
-    ],
-    "ObjType": "HH",
-    "Ra": 51.2125,
-    "Dec": 30.8056,
-    "VMag": null
-  },
-  {
-    "MainId": "HH  195F",
-    "Ids": [
-      "HH  195F"
-    ],
-    "ObjType": "HH",
-    "Ra": 51.2987,
-    "Dec": 30.7936,
-    "VMag": null
-  },
-  {
-    "MainId": "HH  196A1",
-    "Ids": [
-      "HH  196A1"
-    ],
-    "ObjType": "HH",
-    "Ra": 51.3113,
-    "Dec": 30.8181,
-    "VMag": null
-  },
-  {
-    "MainId": "HH  196A2",
-    "Ids": [
-      "HH  196A2"
-    ],
-    "ObjType": "HH",
-    "Ra": 51.3108,
-    "Dec": 30.8186,
-    "VMag": null
-  },
-  {
-    "MainId": "HH  196A3",
-    "Ids": [
-      "HH  196A3"
-    ],
-    "ObjType": "HH",
-    "Ra": 51.31,
-    "Dec": 30.8194,
-    "VMag": null
-  },
-  {
-    "MainId": "HH  196B1",
-    "Ids": [
-      "HH  196B1"
-    ],
-    "ObjType": "HH",
-    "Ra": 51.305,
-    "Dec": 30.8208,
-    "VMag": null
-  },
-  {
-    "MainId": "HH  196B2",
-    "Ids": [
-      "HH  196B2"
-    ],
-    "ObjType": "HH",
-    "Ra": 51.3037,
-    "Dec": 30.8222,
-    "VMag": null
-  },
-  {
-    "MainId": "HH  196B3",
-    "Ids": [
-      "HH  196B3"
-    ],
-    "ObjType": "HH",
-    "Ra": 51.3029,
-    "Dec": 30.8233,
-    "VMag": null
-  },
-  {
-    "MainId": "HH  463X1",
-    "Ids": [
-      "HH  463X1"
-    ],
-    "ObjType": "HH",
-    "Ra": 62.6571,
-    "Dec": 38.1167,
-    "VMag": null
-  },
-  {
-    "MainId": "HH  463X2",
-    "Ids": [
-      "HH  463X2"
-    ],
-    "ObjType": "HH",
-    "Ra": 62.6554,
-    "Dec": 38.1164,
-    "VMag": null
-  },
-  {
-    "MainId": "HH  463Y",
-    "Ids": [
-      "HH  463Y"
-    ],
-    "ObjType": "HH",
-    "Ra": 62.6521,
-    "Dec": 38.1128,
-    "VMag": null
-  },
-  {
-    "MainId": "HH  464F",
-    "Ids": [
-      "HH  464F"
-    ],
-    "ObjType": "HH",
-    "Ra": 62.6696,
-    "Dec": 38.1161,
-    "VMag": null
-  },
-  {
-    "MainId": "HH  464N1",
-    "Ids": [
-      "HH  464N1"
-    ],
-    "ObjType": "HH",
-    "Ra": 62.67371,
-    "Dec": 38.13519,
-    "VMag": null
-  },
-  {
-    "MainId": "HH  464N2",
-    "Ids": [
-      "HH  464N2"
-    ],
-    "ObjType": "HH",
-    "Ra": 62.67346,
-    "Dec": 38.13483,
-    "VMag": null
-  },
-  {
-    "MainId": "HH  464N3",
-    "Ids": [
-      "HH  464N3"
-    ],
-    "ObjType": "HH",
-    "Ra": 62.67321,
-    "Dec": 38.13447,
-    "VMag": null
-  },
-  {
-    "MainId": "HH  464S1",
-    "Ids": [
-      "HH  464S1"
-    ],
-    "ObjType": "HH",
-    "Ra": 62.67092,
-    "Dec": 38.13144,
-    "VMag": null
-  },
-  {
-    "MainId": "HH  464S2",
-    "Ids": [
-      "HH  464S2"
-    ],
-    "ObjType": "HH",
-    "Ra": 62.6705,
-    "Dec": 38.13094,
-    "VMag": null
-  },
-  {
-    "MainId": "HH  464S3",
-    "Ids": [
-      "HH  464S3"
-    ],
-    "ObjType": "HH",
-    "Ra": 62.67013,
-    "Dec": 38.13064,
-    "VMag": null
-  },
-  {
-    "MainId": "HH  465A",
-    "Ids": [
-      "HH  465A"
-    ],
-    "ObjType": "HH",
-    "Ra": 62.6771,
-    "Dec": 38.1428,
-    "VMag": null
-  },
-  {
-    "MainId": "HH  488F",
-    "Ids": [
-      "HH  488F"
-    ],
-    "ObjType": "HH",
-    "Ra": 37.235,
-    "Dec": 72.56767,
-    "VMag": null
-  },
-  {
-    "MainId": "HH  488G",
-    "Ids": [
-      "HH  488G"
-    ],
-    "ObjType": "HH",
-    "Ra": 37.27713,
-    "Dec": 72.56892,
-    "VMag": null
-  },
-  {
-    "MainId": "HH  900A",
-    "Ids": [
-      "HH  900A"
-    ],
-    "ObjType": "HH",
-    "Ra": 161.330421,
-    "Dec": -59.739592,
-    "VMag": null
-  },
-  {
-    "MainId": "HH  900B",
-    "Ids": [
-      "HH  900B"
-    ],
-    "ObjType": "HH",
-    "Ra": 161.328321,
-    "Dec": -59.739942,
-    "VMag": null
-  },
-  {
     "MainId": "HH 1004A",
     "Ids": [
       "HH 1004A"
@@ -20826,6 +20596,236 @@
     "ObjType": "HH",
     "Ra": 312.2187,
     "Dec": 43.8325,
+    "VMag": null
+  },
+  {
+    "MainId": "HH  194D",
+    "Ids": [
+      "HH  194D"
+    ],
+    "ObjType": "HH",
+    "Ra": 51.2125,
+    "Dec": 30.8056,
+    "VMag": null
+  },
+  {
+    "MainId": "HH  195F",
+    "Ids": [
+      "HH  195F"
+    ],
+    "ObjType": "HH",
+    "Ra": 51.2987,
+    "Dec": 30.7936,
+    "VMag": null
+  },
+  {
+    "MainId": "HH  196A1",
+    "Ids": [
+      "HH  196A1"
+    ],
+    "ObjType": "HH",
+    "Ra": 51.3113,
+    "Dec": 30.8181,
+    "VMag": null
+  },
+  {
+    "MainId": "HH  196A2",
+    "Ids": [
+      "HH  196A2"
+    ],
+    "ObjType": "HH",
+    "Ra": 51.3108,
+    "Dec": 30.8186,
+    "VMag": null
+  },
+  {
+    "MainId": "HH  196A3",
+    "Ids": [
+      "HH  196A3"
+    ],
+    "ObjType": "HH",
+    "Ra": 51.31,
+    "Dec": 30.8194,
+    "VMag": null
+  },
+  {
+    "MainId": "HH  196B1",
+    "Ids": [
+      "HH  196B1"
+    ],
+    "ObjType": "HH",
+    "Ra": 51.305,
+    "Dec": 30.8208,
+    "VMag": null
+  },
+  {
+    "MainId": "HH  196B2",
+    "Ids": [
+      "HH  196B2"
+    ],
+    "ObjType": "HH",
+    "Ra": 51.3037,
+    "Dec": 30.8222,
+    "VMag": null
+  },
+  {
+    "MainId": "HH  196B3",
+    "Ids": [
+      "HH  196B3"
+    ],
+    "ObjType": "HH",
+    "Ra": 51.3029,
+    "Dec": 30.8233,
+    "VMag": null
+  },
+  {
+    "MainId": "HH  463X1",
+    "Ids": [
+      "HH  463X1"
+    ],
+    "ObjType": "HH",
+    "Ra": 62.6571,
+    "Dec": 38.1167,
+    "VMag": null
+  },
+  {
+    "MainId": "HH  463X2",
+    "Ids": [
+      "HH  463X2"
+    ],
+    "ObjType": "HH",
+    "Ra": 62.6554,
+    "Dec": 38.1164,
+    "VMag": null
+  },
+  {
+    "MainId": "HH  463Y",
+    "Ids": [
+      "HH  463Y"
+    ],
+    "ObjType": "HH",
+    "Ra": 62.6521,
+    "Dec": 38.1128,
+    "VMag": null
+  },
+  {
+    "MainId": "HH  464F",
+    "Ids": [
+      "HH  464F"
+    ],
+    "ObjType": "HH",
+    "Ra": 62.6696,
+    "Dec": 38.1161,
+    "VMag": null
+  },
+  {
+    "MainId": "HH  464N1",
+    "Ids": [
+      "HH  464N1"
+    ],
+    "ObjType": "HH",
+    "Ra": 62.67371,
+    "Dec": 38.13519,
+    "VMag": null
+  },
+  {
+    "MainId": "HH  464N2",
+    "Ids": [
+      "HH  464N2"
+    ],
+    "ObjType": "HH",
+    "Ra": 62.67346,
+    "Dec": 38.13483,
+    "VMag": null
+  },
+  {
+    "MainId": "HH  464N3",
+    "Ids": [
+      "HH  464N3"
+    ],
+    "ObjType": "HH",
+    "Ra": 62.67321,
+    "Dec": 38.13447,
+    "VMag": null
+  },
+  {
+    "MainId": "HH  464S1",
+    "Ids": [
+      "HH  464S1"
+    ],
+    "ObjType": "HH",
+    "Ra": 62.67092,
+    "Dec": 38.13144,
+    "VMag": null
+  },
+  {
+    "MainId": "HH  464S2",
+    "Ids": [
+      "HH  464S2"
+    ],
+    "ObjType": "HH",
+    "Ra": 62.6705,
+    "Dec": 38.13094,
+    "VMag": null
+  },
+  {
+    "MainId": "HH  464S3",
+    "Ids": [
+      "HH  464S3"
+    ],
+    "ObjType": "HH",
+    "Ra": 62.67013,
+    "Dec": 38.13064,
+    "VMag": null
+  },
+  {
+    "MainId": "HH  465A",
+    "Ids": [
+      "HH  465A"
+    ],
+    "ObjType": "HH",
+    "Ra": 62.6771,
+    "Dec": 38.1428,
+    "VMag": null
+  },
+  {
+    "MainId": "HH  488F",
+    "Ids": [
+      "HH  488F"
+    ],
+    "ObjType": "HH",
+    "Ra": 37.235,
+    "Dec": 72.56767,
+    "VMag": null
+  },
+  {
+    "MainId": "HH  488G",
+    "Ids": [
+      "HH  488G"
+    ],
+    "ObjType": "HH",
+    "Ra": 37.27713,
+    "Dec": 72.56892,
+    "VMag": null
+  },
+  {
+    "MainId": "HH  900A",
+    "Ids": [
+      "HH  900A"
+    ],
+    "ObjType": "HH",
+    "Ra": 161.330421,
+    "Dec": -59.739592,
+    "VMag": null
+  },
+  {
+    "MainId": "HH  900B",
+    "Ids": [
+      "HH  900B"
+    ],
+    "ObjType": "HH",
+    "Ra": 161.328321,
+    "Dec": -59.739942,
     "VMag": null
   },
   {
