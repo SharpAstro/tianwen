@@ -14,6 +14,7 @@ public class ImagConversionTests(ITestOutputHelper testOutputHelper)
     [Theory]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", DebayerAlgorithm.None, 1)]
     [InlineData("RGGB_frame_bx0_by0_top_down", DebayerAlgorithm.VNG, 3)]
+    [InlineData("RGGB_frame_bx0_by0_top_down", DebayerAlgorithm.AHD, 3)]
     [InlineData("RGGB_frame_bx0_by0_top_down", DebayerAlgorithm.BilinearMono, 1)]
     public async Task GivenFitsFileWhenConvertingToMagickImageThenItShouldBeAValidImage(string name, DebayerAlgorithm algorithm, uint expectedChannelCount)
     {
