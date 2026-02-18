@@ -1,44 +1,7 @@
 param(
-    [switch] $ForceDownload
+    [switch] $ForceDownload,
+    [switch] $ForceProcessing
 )
-
-function Import-AstapClass
-{
-    [CmdletBinding()]
-    param (
-        [Parameter()]
-        [string]
-        $ClassName,
-
-        [Parameter(Mandatory = $false)]
-        [string]
-        $Path = '.',
-
-        [Parameter(Mandatory = $false)]
-        [string[]]
-        $ReferencedAssemblies = @()
-    )
-
-    if (-not ("TianWen.Lib.$ClassName" -as [type])) {
-        $assy = "tmp-data/$($ClassName).dll"
-        if (Test-Path -PathType Leaf $assy) {
-            Remove-Item -Force $assy
-        }
-        Add-Type -OutputAssembly $assy -Path $Path/$($ClassName).cs -ReferencedAssemblies $ReferencedAssemblies
-
-        $assy
-    }
-}
-
-Push-Location $PSScriptRoot
-
-if (-not (Test-Path -PathType Container -Path 'tmp-data')) {
-    New-Item -ItemType Directory 'tmp-data'
-}
-
-$base91Assy = Import-AstapClass -ClassName Base91 -Path '../..'
-$enumHelperAssy = Import-AstapClass -ClassName EnumHelper -Path '../..'
-$catalogAssy = Import-AstapClass -ClassName Catalog -ReferencedAssemblies $enumHelperAssy
 
 # HIPS main
 $cats = [ordered]@{
@@ -49,30 +12,6 @@ $cats = [ordered]@{
     tyc2_hd = [PSCustomObject]@{ Cat = 'J/A+A/386/709';  File = 'tyc2_hd.dat.gz'; Data = @{ } }
     tyc2    = [PSCustomObject]@{ Cat = 'I/259';  File = 'tyc2.dat.{0}.gz'; FileCount = 20; StreamCount = 9537 }
     leda    = [PSCustomObject]@{ Cat = 'VII/237'; File = 'pgc.dat.gz'; }
-}
-
-function ConvertTo-Tycho2CatalogIndex
-{
-    [CmdletBinding()]
-    param(
-        [Parameter()] [ushort] $TycId1,
-        [Parameter()] [ushort] $TycId2,
-        [Parameter()] [byte] $TycId3
-    )
-
-    $idAsLongH = [ulong]$TycId1 -band 0xffff
-    $idAsLongH = $idAsLongH -shl 16
-    $idAsLongH = $idAsLongH -bor ($TycId2 -band 0xffff)
-    $idAsLongH = $idAsLongH -shl 2
-    $idAsLongH = $idAsLongH -bor ($TycId3 -band 0b11)
-    $idAsLongH = $idAsLongH -shl 7
-    $idAsLongH = $idAsLongH -bor ([byte][char]'y' -band 0x7f)
-
-    $bytesN = [byte[]]::new(8)
-    [System.Buffers.Binary.BinaryPrimitives]::WriteUInt64BigEndian($bytesN, $idAsLongH)
-    $bytesN7 = [byte[]]::new(7)
-    [System.Array]::Copy($bytesN, 1, $bytesN7, 0, 7)
-    [Astap.Lib.Base91]::EncodeBytes($bytesN7)
 }
 
 function ConvertFrom-EpochRADec
@@ -230,29 +169,44 @@ function ConvertTo-Tycho2_BinTable
 
         $hd1 = if ($null -ne $InputObject.HD -and $InputObject.HD.Length -ge 1) { $InputObject.HD[0] } else { 0 }
         $hd2 = if ($null -ne $InputObject.HD -and $InputObject.HD.Length -eq 2) { $InputObject.HD[1] } else { 0 }
+
+        # always store in little endian as it is more common
+        $isLittleEndian = [BitConverter]::IsLittleEndian
         
         # first part of ID can be inferred from file name
-        # $tycId1 = [BitConverter]::GetBytes([ipaddress]::HostToNetworkOrder($tycIdShort[0]))
-        $tycId2 = [BitConverter]::GetBytes([ipaddress]::HostToNetworkOrder($tycIdShort[1]))
+        # $tycId1N = $tycIdShort[0]
+        $tycId2 = [BitConverter]::GetBytes($tycIdShort[1])
+        if (-not $isLittleEndian) {
+            [array]::Reverse($tycId2)
+        }
         [byte]$tycId3 = $tycIdShort[2]
 
-        $hipBytes = [BitConverter]::GetBytes([ipaddress]::HostToNetworkOrder($InputObject.HIP))
-        $hd1Bytes = [BitConverter]::GetBytes([ipaddress]::HostToNetworkOrder($hd1))
-        $hd2Bytes = [BitConverter]::GetBytes([ipaddress]::HostToNetworkOrder($hd2))
+        $hipBytes = [BitConverter]::GetBytes($InputObject.HIP)
+        $hd1Bytes = [BitConverter]::GetBytes($hd1)
+        $hd2Bytes = [BitConverter]::GetBytes($hd2)
 
-        $raHBytes = [BitConverter]::GetBytes([ipaddress]::HostToNetworkOrder([BitConverter]::SingleToInt32Bits($InputObject.RA)))
-        $decBytes = [BitConverter]::GetBytes([ipaddress]::HostToNetworkOrder([BitConverter]::SingleToInt32Bits($InputObject.Dec)))
+        $raHBytes = [BitConverter]::GetBytes([BitConverter]::SingleToInt32Bits($InputObject.RA))
+        $decBytes = [BitConverter]::GetBytes([BitConverter]::SingleToInt32Bits($InputObject.Dec))
 
-        $entry = [byte[]]::new(11)
+        if (-not $isLittleEndian) {
+            [array]::Reverse($hipBytesN)
+            [array]::Reverse($hd1BytesN)
+            [array]::Reverse($hd2BytesN)
+
+            [array]::Reverse($raHBytesN)
+            [array]::Reverse($decBytesN)
+        }
+
+        $entry = [byte[]]::new(14)
         # [array]::Copy($tycId1, 0, $entry, 0, 2)
         [array]::Copy($tycId2, 0, $entry, 0, 2)
         $entry[2] = $tycId3
         
         [array]::Copy($raHBytes, 0, $entry, 3, 4)
         [array]::Copy($decBytes, 0, $entry, 7, 4)
-        #[array]::Copy($hipBytes, 1, $entry, 5, 3)
-        #[array]::Copy($hd1Bytes, 1, $entry, 8, 3)
-        #[array]::Copy($hd2Bytes, 1, $entry, 11, 3)
+        [array]::Copy($hipBytes, 0, $entry, 5, 3)
+        [array]::Copy($hd1Bytes, 0, $entry, 8, 3)
+        [array]::Copy($hd2Bytes, 0, $entry, 11, 3)
         
         $stream.Write($entry)
     }
@@ -288,6 +242,8 @@ function ConvertFrom-Tycho2_HD_ASCIIDat
         }
     }
 }
+
+Push-Location $PSScriptRoot
 
 Push-Location 'tmp-data'
 
@@ -338,6 +294,7 @@ $cats.GetEnumerator() | ForEach-Object {
         $location = Get-Location
         $outputData = [PSCustomObject] @{ Streams = [System.IO.FileStream[]]::new($cat.StreamCount) }
 
+        $needsProcessing = $false
         for ($i = 0; $i -lt $cat.StreamCount; $i++) {
             $formattedStreamId = $($i + 1).ToString('D4')
             $tmpBinFolder = [System.IO.Path]::Combine($location, 'out', $formattedStreamId[0])
@@ -345,7 +302,11 @@ $cats.GetEnumerator() | ForEach-Object {
                 $null = New-Item -ItemType Directory $tmpBinFolder
             }
             $tmpBinFile = [System.IO.Path]::Combine($tmpBinFolder, "$($folder)_$($($i + 1).ToString('D4')).bin")
-            $outputData.Streams[$i] = [System.IO.File]::Open($tmpBinFile, [System.IO.FileMode]::Create, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::Read)
+            
+            if (-not (Test-Path $tmpBinFile) -or $ForceProcessing) {
+                $needsProcessing = $true
+                $outputData.Streams[$i] = [System.IO.File]::Open($tmpBinFile, [System.IO.FileMode]::Create, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::Read)
+            }
         }
     
         for ($i = 0; $i -lt $dataFileCount; $i++) {
@@ -353,38 +314,57 @@ $cats.GetEnumerator() | ForEach-Object {
             $zippedDataFileName = [string]::Format($cat.File, $formattedDigit)
             $unzippedDataFileName = [string]::Format($unzippedFilePattern, $formattedDigit)
 
-            & 7z e -y $zippedDataFileName
+            if (-not (Test-Path $unzippedDataFileName) -or $ForceDownload) {
+                Write-Host "Extracting $($zippedDataFileName)"
+                if (Test-Path $unzippedDataFileName) {
+                    Remove-Item $unzippedDataFileName
+                }
+                & 7z e -y $zippedDataFileName
+            } else {
+                Write-Host "Skip extracting $($zippedDataFileName) as $($unzippedDataFileName) already exists"
+            }
 
-            if ($folder -eq 'tyc2') {
+            if ($folder -eq 'tyc2' -and $needsProcessing) {
                 ConvertFrom-Tycho2_ASCIIDat -UnzippedDataFileName $unzippedDataFileName -HDCrossTable $cats['tyc2_hd'].Data
                     | ConvertTo-Tycho2_BinTable -OutputData $outputData
             }
-
-            Remove-Item $unzippedDataFileName
         }
 
-        for ($i = 0; $i -lt $cat.StreamCount; $i++) {
-            $formattedStreamId = $($i + 1).ToString('D4')
+        if ($needsProcessing) {
+            for ($i = 0; $i -lt $cat.StreamCount; $i++) {
+                $formattedStreamId = $($i + 1).ToString('D4')
 
-            $outputData.Streams[$i].Close()
+                $outputData.Streams[$i].Close()
+            }
         }
 
-        $gzippedOutputFile = [System.IO.Path]::Combine($location, "$($folder).bin.zip")
-        $tmpBinOutFolder =  [System.IO.Path]::Combine($location, "out", '*')
+        $outTar = [System.IO.Path]::Combine($location, "$($folder).bin.tar.lzma")
+        Write-Host "Writing output to $($outTar)"
+        if (Test-Path $outTar) {
+            Remove-Item $outTar
+        }
 
-        & 7z -mx9 -scsUTF-8 a "$gzippedOutputFile" "$($tmpBinOutFolder)"
+        $tmpBinOutFolder =  [System.IO.Path]::Combine($location, "out")
 
-        Move-Item -Force $gzippedOutputFile $PSScriptRoot
+        & tar --lzma -c -f "$outTar" -C "$($tmpBinOutFolder)" *
+
+        Move-Item -Force $outTar $PSScriptRoot
     } elseif ($null -ne $catalogTable) {
         $unzippedDataFileName = [System.IO.Path]::GetFileNameWithoutExtension($cat.File)
-        & 7z e -y $cat.File
 
-        if ($folder -eq 'tyc2_hd') {
-
-            ConvertFrom-Tycho2_HD_ASCIIDat -UnzippedDataFileName $unzippedDataFileName -CatalogTable $catalogTable
+        if (-not (Test-Path $unzippedDataFileName) -or $ForceDownload) {
+            Write-Host "Extracting $($cat.File)"
+            if (Test-Path $unzippedDataFileName) {
+                Remove-Item $unzippedDataFileName
+            }
+            & 7z e -y $cat.File
+        } else {
+            Write-Host "Skip extracting $($cat.File) as $($unzippedDataFileName) already exists"
         }
 
-        Remove-Item $unzippedDataFileName
+        if ($folder -eq 'tyc2_hd') {
+            ConvertFrom-Tycho2_HD_ASCIIDat -UnzippedDataFileName $unzippedDataFileName -CatalogTable $catalogTable
+        }
     }
 
     Pop-Location # folder

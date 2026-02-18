@@ -14,8 +14,6 @@ namespace TianWen.Lib.Devices;
 
 public interface IExternal
 {
-    protected const string ApplicationName = "TianWen";
-
     public async ValueTask<TimeSpan> SleepWithOvertimeAsync(TimeSpan sleep, TimeSpan extra, CancellationToken cancellationToken = default)
     {
         var adjustedTime = sleep - extra;

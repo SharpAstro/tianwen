@@ -1,5 +1,6 @@
 ﻿using CsvHelper;
 using CsvHelper.Configuration;
+using SharpCompress.Readers.Tar;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -12,7 +13,6 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -44,7 +44,6 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     private static readonly IReadOnlySet<CatalogIndex> EmptyCatalogIndexSet = ImmutableHashSet.Create<CatalogIndex>();
 
     private readonly CelestialObject[] _hip2000 = new CelestialObject[120404];
-    private byte[] _tycho2 = []; 
     private readonly Dictionary<CatalogIndex, CelestialObject> _objectsByIndex = new(32000);
     private readonly Dictionary<CatalogIndex, (CatalogIndex i1, CatalogIndex[]? ext)> _crossIndexLookuptable = new(39000);
     private readonly Dictionary<string, (CatalogIndex i1, CatalogIndex[]? ext)> _objectsByCommonName = new(5700);
@@ -308,28 +307,76 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
     private async Task<(int Processed, int Failed)> ReadEmbeddedGzippedTycho2BinaryFileAsync(Assembly assembly)
     {
-        var manifestFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith(".tyc2.bin.gz"));
+        var manifestFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith(".tyc2.bin.tar.bz2"));
         if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
         {
             return (0, 0);
         }
 
-        const int entrySize = 22; // update in Get-Tycho2Catalogs.ps1 as well
+        const int entrySize = 14; // update in Get-Tycho2Catalogs.ps1 as well
 
-        // Span<byte> entry = stackalloc byte[entrySize];
+        await using var tar = await TarReader.OpenAsyncReader(stream, new SharpCompress.Readers.ReaderOptions { LeaveStreamOpen = false });
 
-        // var digits = Catalog.HIP.GetNumericalIndexSize();
+        if (!Environment.SpecialFolder.LocalApplicationData.TryGetOrCreateAppSubFolder(out var tempDir))
+        {
+            tempDir = new DirectoryInfo(Path.GetTempFileName()).CreateSubdirectory(SpecialFolderHelper.ApplicationName);
+        }
 
-        var buffer = new byte[(int)Math.Ceiling(stream.Length * 2.3f)];
+        var tycho2DataDir = tempDir.CreateSubdirectory("tycho2-data");
 
-        using var gzipStream = new GZipStream(stream, CompressionMode.Decompress, false);
-        using var memStream = new MemoryStream(buffer);
+        bool? upToDate = null;
+        while (await tar.MoveToNextEntryAsync())
+        {
+            var entry = tar.Entry;
+            if (entry.Key is { Length: > 0 } name)
+            {
+                if (entry.IsDirectory)
+                {
+                    var subDir = tycho2DataDir.CreateSubdirectory(name);
+                    if (subDir.CreationTimeUtc > entry.LastModifiedTime)
+                    {
+                        upToDate ??= true;
+                    }
+                    else
+                    {
+                        upToDate = false;
+                    }
+                }
+                else if (entry.Size % entrySize == 0)
+                {
+                    if (upToDate is true)
+                    {
+                        break;
+                    }
+                    var outPath = Path.Combine(tycho2DataDir.FullName, name);
+                    await using var outStream = File.Create(outPath, entrySize * 400);
+                    await using var entryStream = await tar.OpenEntryStreamAsync();
+                    await entryStream.CopyToAsync(outStream);
+                }
+            }
+        }
+        return (0, 0);
+    }
+        /*
+        var buffer = new byte[entrySize * 1000];
+        int totalEntriesProcessed = 0;
 
-        await gzipStream.CopyToAsync(memStream);
+        while (await reader.MoveToNextEntryAsync())
+        {
+            var entry = reader.Entry;
+            if (!entry.IsDirectory && entry.Size > 0 && entry.Size % entrySize == 0)
+            {
+                await using var entryStream = await reader.OpenEntryStreamAsync();
+                int bytesRead;
 
-        _ = Interlocked.Exchange(ref _tycho2, buffer);
+                while ((bytesRead = await entryStream.ReadAsync(buffer)) > 0)
+                {
+                    totalEntriesProcessed += bytesRead / entrySize;
+                }
+            }
+        }
 
-        return ((int)(memStream.Position / entrySize), 0);
+        return (totalEntriesProcessed, 0);
     }
 
     /*
@@ -663,7 +710,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     private void UpdateObjectCommonNames(CatalogIndex catIdx, HashSet<string> commonNames)
     {
         if (TryLookupByIndexDirect(catIdx, out var obj, out var cat, out var arrayIndex)
-            && !obj.CommonNames.SetEquals(commonNames))
+            && !commonNames.SetEquals(obj.CommonNames))
         {
             var modObj = new CelestialObject(
                 catIdx,
