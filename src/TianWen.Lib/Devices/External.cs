@@ -23,12 +23,9 @@ internal class External(
 
     public TimeProvider TimeProvider => TimeProvider.System;
 
-    public DirectoryInfo OutputFolder { get; } = CreateSpecialSubFolder(Environment.SpecialFolder.MyPictures);
+    public DirectoryInfo OutputFolder { get; } = Environment.SpecialFolder.MyPictures.CreateAppSubFolder();
 
-    public DirectoryInfo ProfileFolder { get; } = CreateSpecialSubFolder(Environment.SpecialFolder.ApplicationData);
-
-    private static DirectoryInfo CreateSpecialSubFolder(Environment.SpecialFolder specialFolder) =>
-        new DirectoryInfo(Environment.GetFolderPath(specialFolder, Environment.SpecialFolderOption.Create)).CreateSubdirectory(IExternal.ApplicationName);
+    public DirectoryInfo ProfileFolder { get; } = Environment.SpecialFolder.ApplicationData.CreateAppSubFolder();
 
     public ILogger AppLogger => loggerFactory.CreateLogger("App");
 

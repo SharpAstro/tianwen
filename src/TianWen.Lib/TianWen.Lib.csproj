@@ -44,6 +44,7 @@
     <EmbeddedResource Remove="Astrometry/Catalogs/*.json" />
     <EmbeddedResource Include="Astrometry/Catalogs/*.gz" WithCulture="false" />
     <EmbeddedResource Include="Astrometry/Catalogs/*.zip" WithCulture="false" />
+    <EmbeddedResource Include="Astrometry/Catalogs/*.bz2" WithCulture="false" />
     <None Include="../../README.md" Pack="true" PackagePath="/" />
     <None Include="../../LICENSE" Pack="True" PackagePath="/" />
     <None Include="../.editorconfig" Link=".editorconfig" />
@@ -64,6 +65,7 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <PackageReference Include="SharpCompress" />
     <PackageReference Include="System.IO.Ports" />
     <PackageReference Include="WWA.Core" />
     <PackageReference Include="ZWOptical.SDK" />
