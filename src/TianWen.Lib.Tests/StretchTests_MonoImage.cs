@@ -4,7 +4,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
-public class MonoImageStretchTests(ITestOutputHelper testOutputHelper) : StretchTestBase(testOutputHelper)
+public class StretchTests_MonoImage(ITestOutputHelper testOutputHelper) : StretchTestBase(testOutputHelper)
 {
     [Theory]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 20, -5, 1)]

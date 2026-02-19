@@ -3,7 +3,7 @@ using System;
 
 namespace TianWen.Lib.Imaging;
 
-public record Float32HxWImageData(float[,,] Data, float MaxValue)
+public record Float32HxWImageData(float[,,] Data, float MaxValue, float MinValue)
 {
     /// <summary>
     /// Transposes and converts image source data if required to Height X Width X 32-bit floats, single channel.
@@ -17,6 +17,7 @@ public record Float32HxWImageData(float[,,] Data, float MaxValue)
         var span2d = sourceData.AsSpan2D();
 
         var maxValue = 0f;
+        var minValue = float.MaxValue;
         var targetData = new float[1, height, width];
 
         for (var h = 0; h < height; h++)
@@ -27,10 +28,11 @@ public record Float32HxWImageData(float[,,] Data, float MaxValue)
                 float valF = val;
                 targetData[0, h, w++] = valF;
                 maxValue = MathF.Max(valF, maxValue);
+                minValue = MathF.Min(val, minValue);
             }
         }
 
-        return new Float32HxWImageData(targetData, maxValue);
+        return new Float32HxWImageData(targetData, maxValue, minValue);
     }
 
 
@@ -43,5 +45,5 @@ public record Float32HxWImageData(float[,,] Data, float MaxValue)
     /// <param name="imageMeta">image meta data</param>
     /// <returns>image from data, transposed and transformed to 32-bit floats</returns>
     public Image ToImage(BitDepth bitDepth, float blackLevel, in ImageMeta imageMeta) =>
-        new Image(Data, bitDepth, MaxValue, blackLevel, imageMeta);
+        new Image(Data, bitDepth, MaxValue, MinValue, blackLevel, imageMeta);
 }

@@ -227,15 +227,22 @@ function ConvertFrom-Tycho2_HD_ASCIIDat
         $tycIdComp = $_.Substring(0, 12).Split(' ')
         $tycId = "TYC $([string]::Join('-', $tycIdComp))"
 
-        $maybeHD = $_.Substring(14, 6)
+        $maybeHD = $_.Substring(14, 7)
         $hd = 0
         if ([int]::TryParse($maybeHD, [cultureinfo]::InvariantCulture, [ref] $hd)) {
-            
-            $existing = $CatalogTable[$tycId]
-            if ($null -eq $existing) {
+            $hdStr = "HD $hd"
+            $existingTycho2hd = $CatalogTable[$tycId]
+            if ($null -eq $existingTycho2hd) {
                 $CatalogTable[$tycId] = @($hd)
             } else {
                 $CatalogTable[$tycId] += $hd
+            }
+
+            $existingHD2Tycho = $CatalogTable[$hdStr]
+            if ($null -eq $existingHD2Tycho) {
+                $CatalogTable[$hdStr] = @($tycId)
+            } else {
+                $CatalogTable[$hdStr] += $tycId
             }
         } else {
             Write-Warning "$tycId : Invalid HD: $maybeHD"
@@ -338,7 +345,7 @@ $cats.GetEnumerator() | ForEach-Object {
             }
         }
 
-        $outTar = [System.IO.Path]::Combine($location, "$($folder).bin.tar.lzma")
+        $outTar = [System.IO.Path]::Combine($location, "$($folder).bin.tar.bz2")
         Write-Host "Writing output to $($outTar)"
         if (Test-Path $outTar) {
             Remove-Item $outTar
@@ -346,7 +353,7 @@ $cats.GetEnumerator() | ForEach-Object {
 
         $tmpBinOutFolder =  [System.IO.Path]::Combine($location, "out")
 
-        & tar --lzma -c -f "$outTar" -C "$($tmpBinOutFolder)" *
+        & tar cjf "$outTar" -C "$($tmpBinOutFolder)" *
 
         Move-Item -Force $outTar $PSScriptRoot
     } elseif ($null -ne $catalogTable) {

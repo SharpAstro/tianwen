@@ -9,7 +9,6 @@ public partial class Image
 {
     public async Task<Image> StretchLinkedAsync(double stretchFactor = 0.2d, double shadowsClipping = -3d, DebayerAlgorithm debayerAlgorithm = DebayerAlgorithm.VNG, CancellationToken cancellationToken = default)
     {
-
         if (imageMeta.SensorType is SensorType.RGGB)
         {
             var debayered = await DebayerAsync(debayerAlgorithm, cancellationToken);
@@ -31,7 +30,7 @@ public partial class Image
                 await StretchChannelAsync(stretchedData, c, stretchFactor, shadowsClipping, pedestral, median, mad, cancellationToken);
             }
             // stretched images are always normalized to unit, so max value is 1.0f
-            var stretchedImage = new Image(stretchedData, BitDepth.Float32, 1.0f, 0, imageMeta);
+            var stretchedImage = new Image(stretchedData, BitDepth.Float32, 1.0f, 0f, 0f, imageMeta);
             // rescale if required
             return MaxValue > stretchedImage.MaxValue ? stretchedImage.ScaleFloatValues(MaxValue) : stretchedImage;
         }
@@ -56,7 +55,7 @@ public partial class Image
         }
 
         // stretched images are always normalized to unit, so max value is 1.0f
-        var stretchedImage = new Image(stretchedData, BitDepth.Float32, 1.0f, 0, imageMeta);
+        var stretchedImage = new Image(stretchedData, BitDepth.Float32, 1.0f, 0f, 0f, imageMeta);
 
         // rescale if required
         return MaxValue > stretchedImage.MaxValue ? stretchedImage.ScaleFloatValues(MaxValue) : stretchedImage;

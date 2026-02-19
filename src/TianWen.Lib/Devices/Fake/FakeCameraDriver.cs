@@ -437,7 +437,7 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
                         lastExposureSettings.Height - lastExposureSettings.StartY, 
                         lastExposureSettings.Width - lastExposureSettings.StartX
                     ];
-                    _lastImageData = new Float32HxWImageData(array, current.Offset);
+                    _lastImageData = new Float32HxWImageData(array, current.Offset, current.Offset);
                 }
             }
 

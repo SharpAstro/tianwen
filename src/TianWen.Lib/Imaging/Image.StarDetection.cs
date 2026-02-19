@@ -5,7 +5,6 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using TianWen.Lib.Stat;
 using static TianWen.Lib.Stat.StatisticsHelper;
 
 namespace TianWen.Lib.Imaging;
@@ -238,7 +237,7 @@ public partial class Image
             // This will prevent that background is seen as a star. E.g. some jpg processed by nova.astrometry.net
             if (sd_bg == 0)
             {
-                sd_bg = BlackLevel > 0 ? BlackLevel : minNonZeroBgValue;
+                sd_bg = blackLevel > 0 ? blackLevel : minNonZeroBgValue > 0 ? minNonZeroBgValue : minValue;
             }
 
             // reduce square annulus radius until it is symmetric to remove stars

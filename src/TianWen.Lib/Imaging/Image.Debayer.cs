@@ -69,7 +69,7 @@ public partial class Image
         // last pixel
         debayered[0, h1, w1] = (float)(0.25d * ((double)data[0, h1, w1] + data[0, h1 - 1, w1 - 1] + data[0, h1, w1 - 1] + data[0, h1 - 1, w1]));
 
-        return new Image(debayered, BitDepth.Float32, maxValue, blackLevel, imageMeta with
+        return new Image(debayered, BitDepth.Float32, maxValue, minValue, blackLevel, imageMeta with
         {
             SensorType = SensorType.Monochrome,
             BayerOffsetX = 0,
@@ -147,7 +147,7 @@ public partial class Image
         // Process edge pixels with simpler bilinear interpolation (not parallelized - small portion)
         ProcessEdgePixels(debayered, width, height, radius, bayerPattern);
 
-        return new Image(debayered, BitDepth.Float32, maxValue, blackLevel, imageMeta with
+        return new Image(debayered, BitDepth.Float32, maxValue, minValue, blackLevel, imageMeta with
         {
             SensorType = SensorType.Color,
             BayerOffsetX = 0,
@@ -578,7 +578,7 @@ public partial class Image
             return ValueTask.CompletedTask;
         }, ct));
 
-        return new Image(filtered, BitDepth.Float32, maxValue, blackLevel, imageMeta with
+        return new Image(filtered, BitDepth.Float32, maxValue, minValue, blackLevel, imageMeta with
         {
             SensorType = SensorType.Color,
             BayerOffsetX = 0,

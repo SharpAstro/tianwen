@@ -4,7 +4,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
-public class ColorImageLinkedStretchTests(ITestOutputHelper testOutputHelper) : StretchTestBase(testOutputHelper)
+public class StretchTests_ColorImagelinked(ITestOutputHelper testOutputHelper) : StretchTestBase(testOutputHelper)
 {
     [Theory]
     [InlineData("Vela_SNR_Panel_10-Multi-NB-color-Hydrogen-alpha-Oxygen_III-crop", 15, -5, 3)]

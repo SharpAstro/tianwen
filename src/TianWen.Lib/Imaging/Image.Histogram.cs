@@ -68,7 +68,7 @@ public partial class Image
         var hist_total = 0u;
         var count = 1; /* prevent divide by zero */
         var total_value = 0f;
-        var pedestralAdjustValue = removePedestral ? blackLevel : 0f;
+        var pedestralAdjustValue = removePedestral ? image.MinValue : 0f;
 
         for (var h = 0; h <= height - 1; h++)
         {

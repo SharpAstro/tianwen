@@ -65,7 +65,7 @@ public partial class Image
         var pixelSizeY = hdu.Header.GetFloatValue("YPIXSZ", float.NaN);
         var xbinning = hdu.Header.GetIntValue("XBINNING", 1);
         var ybinning = hdu.Header.GetIntValue("YBINNING", 1);
-        var blackLevel = hdu.Header.GetFloatValue("BLKLEVEL", float.NaN);
+        var blackLevel = hdu.Header.GetFloatValue("BLKLEVEL", hdu.Header.GetFloatValue("OFFSET", float.NaN));
         var pixelScale = hdu.Header.GetFloatValue("PIXSCALE", float.NaN);
         var focalLength = hdu.Header.GetIntValue("FOCALLEN", -1);
         var focusPos = hdu.Header.GetIntValue("FOCUSPOS", -1);
@@ -90,12 +90,13 @@ public partial class Image
         Span<float> scratchRow = stackalloc float[Math.Min(256, width)];
 
         var quot = Math.DivRem(width, scratchRow.Length, out var rem);
+        var minValue = (float)hdu.MinimumValue;
         var maxValue = (float)hdu.MaximumValue;
-        bool needsMinMaxValRecalc = float.IsNaN(blackLevel) || blackLevel < 0 || float.IsNaN(maxValue) || maxValue is <= 0 || maxValue <= blackLevel;
+        bool needsMinMaxValRecalc = float.IsNaN(minValue) || minValue < 0 || float.IsNaN(maxValue) || maxValue is <= 0 || maxValue <= minValue;
         if (needsMinMaxValRecalc)
         {
             maxValue = float.MinValue;
-            blackLevel = float.MaxValue;
+            minValue = float.MaxValue;
         }
 
         var rowSize = sizeof(float) * width;
@@ -122,7 +123,7 @@ public partial class Image
                                 if (needsMinMaxValRecalc && !float.IsNaN(val))
                                 {
                                     maxValue = MathF.Max(maxValue, val);
-                                    blackLevel = MathF.Min(blackLevel, val);
+                                    minValue = MathF.Min(minValue, val);
                                 }
                             }
                             sourceIndex += scratchRow.Length;
@@ -139,7 +140,7 @@ public partial class Image
                                 if (needsMinMaxValRecalc && !float.IsNaN(val))
                                 {
                                     maxValue = MathF.Max(maxValue, val);
-                                    blackLevel = MathF.Min(blackLevel, val);
+                                    minValue = MathF.Min(minValue, val);
                                 }
                             }
                             scratchRow[..rem].CopyTo(row);
@@ -167,7 +168,7 @@ public partial class Image
                                 if (needsMinMaxValRecalc && !float.IsNaN(val))
                                 {
                                     maxValue = MathF.Max(maxValue, val);
-                                    blackLevel = MathF.Min(blackLevel, val);
+                                    minValue = MathF.Min(minValue, val);
                                 }
                             }
                             sourceIndex += scratchRow.Length;
@@ -184,7 +185,7 @@ public partial class Image
                                 if (needsMinMaxValRecalc && !float.IsNaN(val))
                                 {
                                     maxValue = MathF.Max(maxValue, val);
-                                    blackLevel = MathF.Min(blackLevel, val);
+                                    minValue = MathF.Min(minValue, val);
                                 }
                             }
                             scratchRow[..rem].CopyTo(row);
@@ -212,7 +213,7 @@ public partial class Image
                                 if (needsMinMaxValRecalc && !float.IsNaN(val))
                                 {
                                     maxValue = MathF.Max(maxValue, val);
-                                    blackLevel = MathF.Min(blackLevel, val);
+                                    minValue = MathF.Min(minValue, val);
                                 }
                             }
                             sourceIndex += scratchRow.Length;
@@ -229,7 +230,7 @@ public partial class Image
                                 if (needsMinMaxValRecalc && !float.IsNaN(val))
                                 {
                                     maxValue = MathF.Max(maxValue, val);
-                                    blackLevel = MathF.Min(blackLevel, val);
+                                    minValue = MathF.Min(minValue, val);
                                 }
                             }
                             scratchRow[..rem].CopyTo(row);
@@ -257,7 +258,7 @@ public partial class Image
                                 if (needsMinMaxValRecalc && !float.IsNaN(val))
                                 {
                                     maxValue = MathF.Max(maxValue, val);
-                                    blackLevel = MathF.Min(blackLevel, val);
+                                    minValue = MathF.Min(minValue, val);
                                 }
                             }
                             sourceIndex += scratchRow.Length;
@@ -274,7 +275,7 @@ public partial class Image
                                 if (needsMinMaxValRecalc && !float.IsNaN(val))
                                 {
                                     maxValue = MathF.Max(maxValue, val);
-                                    blackLevel = MathF.Min(blackLevel, val);
+                                    minValue = MathF.Min(minValue, val);
                                 }
                             }
                             scratchRow[..rem].CopyTo(row);
@@ -309,7 +310,7 @@ public partial class Image
             latitude,
             longitude
         );
-        image = new Image(imgArray, bitDepth, maxValue, blackLevel, imageMeta);
+        image = new Image(imgArray, bitDepth, maxValue, minValue, blackLevel, imageMeta);
         return true;
     }
 
@@ -387,7 +388,8 @@ public partial class Image
         basicHdu.Header.Bitpix = (int)bitDepth;
         AddHeaderValueIfHasValue("BZERO", bzero, "offset data range to that of unsigned short");
         AddHeaderValueIfHasValue("BSCALE", 1, "default scaling factor");
-        AddHeaderValueIfHasValue("BLKLEVEL", BlackLevel, "", isDataValue: true);
+        AddHeaderValueIfHasValue("BLKLEVEL", blackLevel, "", isDataValue: true);
+        AddHeaderValueIfHasValue("OFFSET", blackLevel, "", isDataValue: true);
         AddHeaderValueIfHasValue("XBINNING", imageMeta.BinX, "");
         AddHeaderValueIfHasValue("YBINNING", imageMeta.BinY, "");
         AddHeaderValueIfHasValue("XPIXSZ", imageMeta.PixelSizeX, "");
