@@ -710,8 +710,8 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         }
 
         var cachedArray = Interlocked.Exchange(ref _camImageArray, null);
-        var (data, maxValue) = cachedArray?.Data is null || cachedArray.Data.GetLength(0) != h || cachedArray.Data.GetLength(1) != w
-            ? new Float32HxWImageData(new float[1, h, w], 0f)
+        var (data, maxValue, minValue) = cachedArray?.Data is null || cachedArray.Data.GetLength(0) != h || cachedArray.Data.GetLength(1) != w
+            ? new Float32HxWImageData(new float[1, h, w], 0f, float.MaxValue)
             : cachedArray;
 
         switch (exposureSettings.BitDepth.BitSize)
@@ -723,7 +723,9 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
                 {
                     for (var j = 0; j < w; j++)
                     {
-                        maxValue = MathF.Max(data[0, i, j] = bytes[(w * i) + j], maxValue);
+                        var @byte = data[0, i, j] = bytes[(w * i) + j];
+                        maxValue = MathF.Max(@byte, maxValue);
+                        minValue = MathF.Min(@byte, minValue);
                     }
                 }
                 break;
@@ -735,7 +737,9 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
                 {
                     for (var j = 0; j < w; j++)
                     {
-                        maxValue = MathF.Max(data[0, i, j] = shorts[(w * i) + j], maxValue);
+                        var @short = data[0, i, j] = shorts[(w * i) + j];
+                        maxValue = MathF.Max(@short, maxValue);
+                        minValue = MathF.Min(@short, minValue);
                     }
                 }
                 break;
@@ -745,7 +749,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         }
 
         // put the new array back
-        var array = new Float32HxWImageData(data, maxValue);
+        var array = new Float32HxWImageData(data, maxValue, minValue);
         _ = Interlocked.CompareExchange(ref _camImageArray, array, null);
         // finished downloading
         _camState = CameraState.Idle;

@@ -103,7 +103,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
 
                 Thread.Sleep((int)TimeSpan.FromSeconds(0.5).TotalMilliseconds);
                 driver.ImageReady.ShouldBeTrue();
-                var (data, expectedMax) = driver.ImageData.ShouldNotBeNull();
+                var (data, expectedMax, expectedMin) = driver.ImageData.ShouldNotBeNull();
 
                 var image = driver.Image.ShouldNotBeNull();
 
@@ -114,6 +114,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
                 image.BitDepth.ShouldBe(driver.BitDepth.ShouldNotBeNull());
                 image.MaxValue.ShouldBeGreaterThan(0f);
                 image.MaxValue.ShouldBe(expectedMax);
+                image.MinValue.ShouldBe(expectedMin);
                 var stars = await image.FindStarsAsync(channel, snrMin: 10, cancellationToken: cancellationToken);
                 stars.Count.ShouldBeGreaterThan(0);
             }

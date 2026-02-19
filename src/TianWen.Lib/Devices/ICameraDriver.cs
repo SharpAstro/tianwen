@@ -238,7 +238,7 @@ public interface ICameraDriver : IDeviceDriver
 
     Image? Image => Connected
         && ImageReady
-        && ImageData is ({ Length: > 0 }, >= 0) imageData
+        && ImageData is ({ Length: > 0 }, >= 0, >= 0) imageData
         && BitDepth is { } bitDepth && bitDepth.IsIntegral
         && LastExposureStartTime is { } startTime
         ? imageData.ToImage(

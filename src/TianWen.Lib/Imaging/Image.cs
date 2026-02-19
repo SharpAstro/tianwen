@@ -3,7 +3,8 @@ using System.Runtime.CompilerServices;
 
 namespace TianWen.Lib.Imaging;
 
-public partial class Image(float[,,] data, BitDepth bitDepth, float maxValue, float blackLevel, ImageMeta imageMeta)
+// track minValue and blackLevel (offset) independently
+public partial class Image(float[,,] data, BitDepth bitDepth, float maxValue, float minValue, float blackLevel, ImageMeta imageMeta)
 {
     public int Width
     {
@@ -27,10 +28,7 @@ public partial class Image(float[,,] data, BitDepth bitDepth, float maxValue, fl
 
     public BitDepth BitDepth => bitDepth;
     public float MaxValue => maxValue;
-    /// <summary>
-    /// Black level or offset value, defaults to 0 if unknown
-    /// </summary>
-    public float BlackLevel => blackLevel;
+    public float MinValue => minValue;
     /// <summary>
     /// Image metadata such as instrument, exposure time, focal length, pixel size, ...
     /// </summary>
@@ -195,7 +193,7 @@ public partial class Image(float[,,] data, BitDepth bitDepth, float maxValue, fl
             }
         }
 
-        return new Image(denormalized, BitDepth.Float32, newMaxValue, blackLevel * newMaxValue, imageMeta);
+        return new Image(denormalized, BitDepth.Float32, newMaxValue, minValue * newMaxValue, blackLevel * newMaxValue, imageMeta);
     }
 
     /// <summary>
@@ -233,6 +231,6 @@ public partial class Image(float[,,] data, BitDepth bitDepth, float maxValue, fl
             }
         }
 
-        return new Image(normalized, BitDepth.Float32, 1.0f, blackLevel / maxValue, imageMeta);
+        return new Image(normalized, BitDepth.Float32, 1.0f, blackLevel / maxValue, blackLevel / maxValue, imageMeta);
     }
 }
