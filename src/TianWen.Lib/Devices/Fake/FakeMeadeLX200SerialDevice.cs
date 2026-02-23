@@ -16,16 +16,25 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
 {
     private readonly AlignmentMode _alignmentMode = AlignmentMode.GermanPolar;
     private readonly Transform _transform;
+    private readonly TimeProvider _timeProvider;
     private readonly int _alignmentStars = 0;
     private double _slewRate = 1.5d; // degrees per second
     private volatile bool _isTracking = false;
     private volatile bool _isSlewing = false;
     private volatile bool _highPrecision = false;
-    private volatile int _trackingFrequency = 601; // TODO simulate tracking and tracking rate
-    private double _raAngle;
+    private volatile int _trackingFrequency = 601; // 60.1 Hz * 10, sidereal tracking rate
+
+    // Mount axis angles (German Equatorial Mount)
+    // HA axis: 0 = pointing at meridian (home position), positive = west of meridian
+    // DEC axis: angle from equator, at home position = site latitude (pointing at pole)
+    private double _haAxisAngle;  // Hour angle axis position in hours
+    private double _decAxisAngle; // Declination axis position in degrees
+
     private double _targetRa;
     private double _targetDec;
     private ITimer? _slewTimer;
+    private ITimer? _trackingTimer;
+    private long _lastTrackingTicks;
     private readonly ILogger _logger;
 
     // I/O properties
@@ -36,27 +45,142 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
 
     public FakeMeadeLX200SerialDevice(ILogger logger, Encoding encoding, TimeProvider timeProvider, double siteLatitude, double siteLongitude, bool isOpen)
     {
+        _timeProvider = timeProvider;
         _transform = new Transform(timeProvider)
         {
             SiteElevation = 100,
             SiteLatitude = siteLatitude,
             SiteLongitude = siteLongitude
         };
-        _transform.SetTopocentric(SiderealTime, _transform.SiteLatitude is < 0 ? -90 : 90);
 
-        _targetRa = _transform.RATopocentric;
-        _targetDec = _transform.DECTopocentric;
-        // should be 0
-        _raAngle = CalcAngle24h(_transform.RATopocentric);
+        // Home position: mount pointing at celestial pole
+        // HA axis at 0 (meridian), DEC axis at pole (90 or -90 depending on hemisphere)
+        _haAxisAngle = 0;
+        _decAxisAngle = siteLatitude >= 0 ? 90 : -90;
+
+        // Initialize target to current position (pole)
+        UpdateTransformFromAxisAngles();
+        _targetRa = CurrentRA;
+        _targetDec = CurrentDec;
+
+        _lastTrackingTicks = timeProvider.GetTimestamp();
 
         _logger = logger;
         IsOpen = isOpen;
         Encoding = encoding;
+
+        // Start tracking timer (updates position based on sidereal rate)
+        StartTrackingTimer();
     }
 
     public bool IsOpen { get; private set; }
 
     public Encoding Encoding { get; private set; }
+
+    /// <summary>
+    /// Current Right Ascension calculated from hour angle axis and local sidereal time.
+    /// RA = LST - HA (accounting for GEM pier side)
+    /// </summary>
+    private double CurrentRA
+    {
+        get
+        {
+            // For GEM, when DEC > 90 or < -90, we're on the "other side" of the pier
+            var effectiveHA = _haAxisAngle;
+            var effectiveDec = _decAxisAngle;
+
+            // Normalize DEC axis to actual declination (handle pole crossing)
+            if (_transform.SiteLatitude >= 0)
+            {
+                // Northern hemisphere
+                if (_decAxisAngle > 90)
+                {
+                    effectiveDec = 180 - _decAxisAngle;
+                    effectiveHA = _haAxisAngle + 12; // Flip HA by 12 hours
+                }
+            }
+            else
+            {
+                // Southern hemisphere
+                if (_decAxisAngle < -90)
+                {
+                    effectiveDec = -180 - _decAxisAngle;
+                    effectiveHA = _haAxisAngle + 12;
+                }
+            }
+
+            return ConditionRA(SiderealTime - effectiveHA);
+        }
+    }
+
+    /// <summary>
+    /// Current Declination from the DEC axis angle.
+    /// </summary>
+    private double CurrentDec
+    {
+        get
+        {
+            // Normalize DEC axis to actual declination
+            if (_transform.SiteLatitude >= 0)
+            {
+                if (_decAxisAngle > 90)
+                    return 180 - _decAxisAngle;
+            }
+            else
+            {
+                if (_decAxisAngle < -90)
+                    return -180 - _decAxisAngle;
+            }
+            return _decAxisAngle;
+        }
+    }
+
+    /// <summary>
+    /// Updates the transform with current RA/DEC calculated from axis angles.
+    /// </summary>
+    private void UpdateTransformFromAxisAngles()
+    {
+        _transform.RefreshDateTimeFromTimeProvider();
+        _transform.SetTopocentric(CurrentRA, CurrentDec);
+    }
+
+    private void StartTrackingTimer()
+    {
+        var period = TimeSpan.FromMilliseconds(50);
+        _trackingTimer = _timeProvider.CreateTimer(TrackingTimerCallback, null, period, period);
+    }
+
+    /// <summary>
+    /// Tracking timer callback - advances HA axis at sidereal rate when tracking is enabled.
+    /// </summary>
+    private void TrackingTimerCallback(object? state)
+    {
+        if (!IsOpen) return;
+
+        var currentTicks = _timeProvider.GetTimestamp();
+        var elapsedTicks = currentTicks - _lastTrackingTicks;
+        _lastTrackingTicks = currentTicks;
+
+        if (_isTracking && !_isSlewing)
+        {
+            var elapsedSeconds = (double)elapsedTicks / _timeProvider.TimestampFrequency;
+            // Sidereal rate: Earth rotates 360° in ~23h56m = 15.041°/hour = 0.004178°/s
+            // Tracking frequency 60.1 Hz is the standard sidereal rate
+            // 1 sidereal day = 86164.0905 seconds, so rate = 24h / 86164.0905s = 0.0002778 h/s
+            var siderealRateHoursPerSecond = 24.0 / 86164.0905;
+
+            lock (_lockObj)
+            {
+                // Advance HA axis to compensate for Earth's rotation (track the object)
+                // Note: HA increases as Earth rotates, so we add to keep pointing at same RA
+                _haAxisAngle += siderealRateHoursPerSecond * elapsedSeconds;
+
+                // Keep HA in reasonable range (-12 to +12 hours)
+                if (_haAxisAngle > 12) _haAxisAngle -= 24;
+                if (_haAxisAngle < -12) _haAxisAngle += 24;
+            }
+        }
+    }
 
     public ValueTask<ResourceLock> WaitAsync(CancellationToken cancellationToken) => _semaphore.AcquireLockAsync(cancellationToken);
 
@@ -65,6 +189,8 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
     public bool TryClose()
     {
         IsOpen = false;
+        Interlocked.Exchange(ref _trackingTimer, null)?.Dispose();
+        Interlocked.Exchange(ref _slewTimer, null)?.Dispose();
         _responseBuffer.Clear();
         _responsePointer = 0;
 
@@ -189,7 +315,7 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
                     break;
 
                 case ":GR#":
-                    RespondHMS(_transform.RATopocentric);
+                    RespondHMS(CurrentRA);
                     break;
 
                 case ":Gr#":
@@ -197,7 +323,7 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
                     break;
 
                 case ":GD#":
-                    RespondDMS(_transform.DECTopocentric);
+                    RespondDMS(CurrentDec);
                     break;
 
                 case ":Gd#":
@@ -262,13 +388,6 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
             return _transform.LocalSiderealTime;
         }
     }
-
-    /// <summary>
-    /// Calculates hour angle (24h format) given RA, or vice-versa.
-    /// </summary>
-    /// <param name="angle24h"></param>
-    /// <returns></returns>
-    private double CalcAngle24h(double angle24h) => ConditionRA(SiderealTime - angle24h);
 
     private static readonly Regex HMTParser = new Regex(@"^(\d{2}):(\d{2})[.](\d)$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex HMSParser = new Regex(@"^(\d{2}):(\d{2}):(\d{2})$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
@@ -368,9 +487,8 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
     private char SlewToTarget()
     {
         _transform.RefreshDateTimeFromTimeProvider();
-        var timeProvider = _transform.TimeProvider;
 
-        var targetTransform = new Transform(timeProvider)
+        var targetTransform = new Transform(_timeProvider)
         {
             DateTime = _transform.DateTime,
             SiteElevation = _transform.SiteElevation,
@@ -387,12 +505,32 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
         _isTracking = true; // LX85 seems to start tracking on first slew, replicate this here
         _isSlewing = true;
 
-        var hourAngleAtSlewTime = ConditionRA(_raAngle);
+        // Calculate target axis positions
+        // Target HA = LST - Target RA
+        var targetHA = ConditionHA(SiderealTime - _targetRa);
+        var targetDecAxis = _targetDec;
+
+        // For GEM, determine pier side and adjust DEC axis if needed
+        // If target is west of meridian (HA > 0), mount points normally
+        // If target is east of meridian (HA < 0), may need to flip
+        var isNorthernHemisphere = _transform.SiteLatitude >= 0;
+        if (isNorthernHemisphere && _targetDec > 0 && targetHA < -6)
+        {
+            // Flip: DEC axis goes past pole
+            targetDecAxis = 180 - _targetDec;
+            targetHA += 12;
+        }
+        else if (!isNorthernHemisphere && _targetDec < 0 && targetHA < -6)
+        {
+            targetDecAxis = -180 - _targetDec;
+            targetHA += 12;
+        }
+
         var period = TimeSpan.FromMilliseconds(100);
 
-        var state = new SlewSate(_transform.RATopocentric, _transform.DECTopocentric, _slewRate, hourAngleAtSlewTime, period);
+        var state = new SlewState(targetHA, targetDecAxis, _slewRate, period);
 
-        var slewTimer = timeProvider.CreateTimer(SlewTimerCallback, state, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        var slewTimer = _timeProvider.CreateTimer(SlewTimerCallback, state, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
 
         Interlocked.Exchange(ref _slewTimer, slewTimer)?.Dispose();
 
@@ -402,71 +540,74 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
     }
 
     /// <summary>
-    /// Callback from slew timer.
+    /// Conditions hour angle to range -12 to +12 hours.
     /// </summary>
-    /// <param name="state">state is of type <see cref="SlewSate"/></param>
+    private static double ConditionHA(double ha)
+    {
+        while (ha > 12) ha -= 24;
+        while (ha < -12) ha += 24;
+        return ha;
+    }
+
+    /// <summary>
+    /// Callback from slew timer. Moves axis angles toward target positions.
+    /// </summary>
+    /// <param name="state">state is of type <see cref="SlewState"/></param>
     private void SlewTimerCallback(object? state)
     {
-        if (state is SlewSate slewState && IsOpen && _isSlewing)
+        if (state is SlewState slewState && IsOpen && _isSlewing)
         {
-            var slewRatePerPeriod = slewState.SlewRate * slewState.Period.TotalSeconds;
-            bool isRaReached;
+            var slewRateHoursPerPeriod = slewState.SlewRate * DEG2HOURS * slewState.Period.TotalSeconds;
+            var slewRateDegreesPerPeriod = slewState.SlewRate * slewState.Period.TotalSeconds;
+            bool isHAReached;
             bool isDecReached;
 
             lock (_lockObj)
             {
-                _transform.RefreshDateTimeFromTimeProvider();
-                var targetDec = _targetDec;
-                var targetRa = _targetRa;
-                var decTopo = _transform.DECTopocentric;
-                var ha24h = ConditionRA(_raAngle);
-                // this is too simplistic, i.e. it does not respect the meridian
-                var targetHourAngle = CalcAngle24h(targetRa);
-                var raDirPositive = targetHourAngle > slewState.HourAngleAtSlewTime;
-                var decDirPositive = targetDec > slewState.DecAtSlewTime;
-                var raSlewRate = (raDirPositive ? DEG2HOURS : -DEG2HOURS) * slewRatePerPeriod;
-                var decSlewRate = (decDirPositive ? 1 : -1) * slewRatePerPeriod;
-                var haNext = ha24h + raSlewRate;
-                var decNext = decTopo + decSlewRate;
+                var targetHA = slewState.TargetHAAxis;
+                var targetDec = slewState.TargetDecAxis;
 
-                double haDiff = haNext - targetHourAngle;
-                isRaReached = raDirPositive switch
-                {
-                    true => haNext >= targetHourAngle,
-                    false => haNext <= targetHourAngle
-                };
+                // Determine slew direction
+                var haDiff = targetHA - _haAxisAngle;
+                var decDiff = targetDec - _decAxisAngle;
 
-                isDecReached = decDirPositive switch
-                {
-                    true => decNext >= targetDec,
-                    false => decNext <= targetDec
-                };
+                // Take shortest path for HA (accounting for wrap-around)
+                if (haDiff > 12) haDiff -= 24;
+                if (haDiff < -12) haDiff += 24;
 
-                var ra = CalcAngle24h(ConditionRA(haNext));
-                var dec = Math.Min(90, Math.Max(decNext, -90));
-                if (isRaReached && isDecReached)
+                var haStep = Math.Sign(haDiff) * Math.Min(Math.Abs(haDiff), slewRateHoursPerPeriod);
+                var decStep = Math.Sign(decDiff) * Math.Min(Math.Abs(decDiff), slewRateDegreesPerPeriod);
+
+                _haAxisAngle += haStep;
+                _decAxisAngle += decStep;
+
+                // Normalize HA axis
+                if (_haAxisAngle > 12) _haAxisAngle -= 24;
+                if (_haAxisAngle < -12) _haAxisAngle += 24;
+
+                // Check if we've reached target
+                isHAReached = Math.Abs(_haAxisAngle - targetHA) < 0.0001;
+                isDecReached = Math.Abs(_decAxisAngle - targetDec) < 0.0001;
+
+                if (isHAReached)
                 {
-                    _transform.SetTopocentric(targetRa, targetDec);
+                    _haAxisAngle = targetHA;
+                }
+                if (isDecReached)
+                {
+                    _decAxisAngle = targetDec;
+                }
+
+                if (isHAReached && isDecReached)
+                {
                     _isSlewing = false;
-
-                }
-                else if (isRaReached)
-                {
-                    _transform.SetTopocentric(_targetRa, decNext);
-                }
-                else if (isDecReached)
-                {
-                    _transform.SetTopocentric(ra, _targetDec);
-                }
-                else
-                {
-                    _transform.SetTopocentric(ra, decNext);
                 }
 
-                _raAngle += raSlewRate - (isRaReached ? haDiff : 0);
+                // Update transform with new position
+                UpdateTransformFromAxisAngles();
             }
 
-            if (isRaReached && isDecReached)
+            if (isHAReached && isDecReached)
             {
                 Interlocked.Exchange(ref _slewTimer, null)?.Dispose();
             }
@@ -480,5 +621,5 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
         return dms[..dms.LastIndexOf(':')];
     }
 
-    private record SlewSate(double RaAtSlewTime, double DecAtSlewTime, double SlewRate, double HourAngleAtSlewTime, TimeSpan Period);
+    private record SlewState(double TargetHAAxis, double TargetDecAxis, double SlewRate, TimeSpan Period);
 }
