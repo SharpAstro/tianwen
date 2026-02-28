@@ -318,73 +318,55 @@ public partial class Image
     {
         var (channelCount, width, height) = Shape;
         var fits = new Fits();
-        object[] jaggedArray;
+        Array arrayToWrite;
         int bzero;
         bool dataIsInt;
         switch (bitDepth)
         {
             case BitDepth.Int8:
-                var jaggedByteArray = new byte[channelCount][][];
+                var byteArray = new byte[channelCount, height, width];
                 bzero = 0;
                 dataIsInt = true;
                 for (var c = 0; c < channelCount; c++)
                 {
-                    var channel = jaggedByteArray[c] = new byte[height][];
                     for (var h = 0; h < height; h++)
                     {
-                        var row = new byte[width];
                         for (var w = 0; w < width; w++)
                         {
-                            row[w] = (byte)data[c, h, w];
+                            byteArray[c, h, w] = (byte)data[c, h, w];
                         }
-                        channel[h] = row;
                     }
                 }
-                jaggedArray = jaggedByteArray;
+                arrayToWrite = byteArray;
                 break;
 
             case BitDepth.Int16:
-                var jaggedShortArray = new short[channelCount][][];
+                var shortArray = new short[channelCount, height, width];
                 bzero = 32768;
                 dataIsInt = true;
                 for (var c = 0; c < channelCount; c++)
                 {
-                    var channel = jaggedShortArray[c] = new short[height][];
                     for (var h = 0; h < height; h++)
                     {
-                        var row = new short[width];
                         for (var w = 0; w < width; w++)
                         {
-                            row[w] = (short)(data[c, h, w] - bzero);
+                            shortArray[c, h, w] = (short)(data[c, h, w] - bzero);
                         }
-                        channel[h] = row;
                     }
                 }
-                jaggedArray = jaggedShortArray;
+                arrayToWrite = shortArray;
                 break;
 
             case BitDepth.Float32:
-                var jaggedFloatArray = new float[channelCount][][];
                 bzero = 0;
                 dataIsInt = false;
-                var rowSize = sizeof(float) * width;
-                var channelSize = rowSize * height;
-                for (var c = 0; c < channelCount; c++)
-                {
-                    var channel = jaggedFloatArray[c] = new float[height][];
-                    for (var h = 0; h < height; h++)
-                    {
-                        channel[h] = new float[width];
-                        Buffer.BlockCopy(data, (c * channelSize) + (h * rowSize), channel[h], 0, rowSize);
-                    }
-                }
-                jaggedArray = jaggedFloatArray;
+                arrayToWrite = data;
                 break;
 
             default:
                 throw new NotSupportedException($"Bits per pixel {bitDepth} is not supported");
         }
-        var basicHdu = FitsFactory.HDUFactory(jaggedArray);
+        var basicHdu = FitsFactory.HDUFactory(arrayToWrite);
         basicHdu.Header.Bitpix = (int)bitDepth;
         AddHeaderValueIfHasValue("BZERO", bzero, "offset data range to that of unsigned short");
         AddHeaderValueIfHasValue("BSCALE", 1, "default scaling factor");
