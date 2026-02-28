@@ -87,7 +87,6 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
         {
             // For GEM, when DEC > 90 or < -90, we're on the "other side" of the pier
             var effectiveHA = _haAxisAngle;
-            var effectiveDec = _decAxisAngle;
 
             // Normalize DEC axis to actual declination (handle pole crossing)
             if (_transform.SiteLatitude >= 0)
@@ -95,7 +94,6 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
                 // Northern hemisphere
                 if (_decAxisAngle > 90)
                 {
-                    effectiveDec = 180 - _decAxisAngle;
                     effectiveHA = _haAxisAngle + 12; // Flip HA by 12 hours
                 }
             }
@@ -104,7 +102,6 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
                 // Southern hemisphere
                 if (_decAxisAngle < -90)
                 {
-                    effectiveDec = -180 - _decAxisAngle;
                     effectiveHA = _haAxisAngle + 12;
                 }
             }
