@@ -401,6 +401,43 @@ cancellationToken: TestContext.Current.CancellationToken);
         }
     }
 
+    [Theory]
+    // HD→TYC multi-match (collision) entries
+    [InlineData(CatalogIndex.HD023068, CatalogIndex.Tyc_6447_45_1, CatalogIndex.Tyc_6447_45_2)]
+    [InlineData(CatalogIndex.HD037703, CatalogIndex.Tyc_5929_1314_1, CatalogIndex.Tyc_5929_1314_2)]
+    [InlineData(CatalogIndex.HD045900, CatalogIndex.Tyc_1340_1326_1, CatalogIndex.Tyc_1340_2546_1)]
+    [InlineData(CatalogIndex.HD063846, CatalogIndex.Tyc_5993_1105_1, CatalogIndex.Tyc_5993_1105_2)]
+    [InlineData(CatalogIndex.HD086269, CatalogIndex.Tyc_8606_795_1, CatalogIndex.Tyc_8606_795_2)]
+    // HIP→TYC multi-match (collision) entries
+    [InlineData(CatalogIndex.HIP000040, CatalogIndex.Tyc_4026_566_1, CatalogIndex.Tyc_4026_566_2)]
+    [InlineData(CatalogIndex.HIP000096, CatalogIndex.Tyc_600_1507_1, CatalogIndex.Tyc_600_1507_2)]
+    [InlineData(CatalogIndex.HIP000110, CatalogIndex.Tyc_2785_116_1, CatalogIndex.Tyc_2785_116_2)]
+    [InlineData(CatalogIndex.HIP000114, CatalogIndex.Tyc_2259_1286_1, CatalogIndex.Tyc_2259_1286_2)]
+    [InlineData(CatalogIndex.HIP000178, CatalogIndex.Tyc_6415_65_1, CatalogIndex.Tyc_6415_65_2)]
+    public async Task GivenStarWithMultipleTycMatchesWhenLookingUpThenAllResolveNearby(CatalogIndex sourceIndex, params CatalogIndex[] expectedTycIndices)
+    {
+        // given
+        var db = await InitDBAsync();
+
+        // when — source star resolves (position from first TYC match)
+        var sourceFound = db.TryLookupByIndex(sourceIndex, out var sourceObj);
+
+        // then
+        sourceFound.ShouldBeTrue($"{sourceIndex.ToCanonical()} should be found");
+        sourceObj.ObjectType.ShouldBe(ObjectType.Star);
+
+        foreach (var tycIndex in expectedTycIndices)
+        {
+            var tycFound = db.TryLookupByIndex(tycIndex, out var tycObj);
+            tycFound.ShouldBeTrue($"{tycIndex.ToCanonical()} should be found");
+            tycObj.ObjectType.ShouldBe(ObjectType.Star);
+
+            // Double star components should be within ~0.1° of each other
+            tycObj.RA.ShouldBeInRange(sourceObj.RA - 0.1d, sourceObj.RA + 0.1d, $"{tycIndex.ToCanonical()} RA");
+            tycObj.Dec.ShouldBeInRange(sourceObj.Dec - 0.1d, sourceObj.Dec + 0.1d, $"{tycIndex.ToCanonical()} Dec");
+        }
+    }
+
     [Fact]
     public async Task GivenDBWhenCreateAutoCompleteListThenItContainsAllCommonNamesAndDesignations()
     {

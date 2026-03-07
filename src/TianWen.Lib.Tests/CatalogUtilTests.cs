@@ -102,6 +102,18 @@ public class CatalogUtilTests
     [InlineData("TYC 8911-3389-1", "\u00C1Ay+gJ9,H", Catalog.Tycho2)]
     [InlineData("TYC 8911-1128-1", "\u00C1Ay+CD4-H", Catalog.Tycho2)]
     [InlineData("TYC 8911-3390-1", "\u00C1Ay+gJ#,H", Catalog.Tycho2)]
+    // HIP→TYC collision entries (first 5 HIP collisions, pair A)
+    [InlineData("TYC 4026-566-1", "\u00C1AiuzBv,H", Catalog.Tycho2)]
+    [InlineData("TYC 600-1507-1", "\u00C1AQAFCY[D", Catalog.Tycho2)]
+    [InlineData("TYC 2785-116-1", "\u00C1AnXYAp[D", Catalog.Tycho2)]
+    [InlineData("TYC 2259-1286-1", "\u00C1AY)(Dq+H", Catalog.Tycho2)]
+    [InlineData("TYC 6415-65-1", "\u00C1A%*DA[@D", Catalog.Tycho2)]
+    // HIP→TYC collision entries (first 5 HIP collisions, pair B)
+    [InlineData("TYC 4026-566-2", "\u00C1AiuzBw,D", Catalog.Tycho2)]
+    [InlineData("TYC 600-1507-2", "\u00C1AQAGvY[B", Catalog.Tycho2)]
+    [InlineData("TYC 2785-116-2", "\u00C1AnXa\"p[B", Catalog.Tycho2)]
+    [InlineData("TYC 2259-1286-2", "\u00C1AY)(Dr+D", Catalog.Tycho2)]
+    [InlineData("TYC 6415-65-2", "\u00C1A%*F\"[@B", Catalog.Tycho2)]
     [InlineData("WASP-11", "WASP011", Catalog.WASP)]
     [InlineData("WDS J02583-4018", "\u00C1Ag4}-8&G", Catalog.WDS)]
     [InlineData("WDS J23599-3112", "\u00C1A+i),N%G", Catalog.WDS)]
