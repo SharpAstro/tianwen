@@ -413,12 +413,16 @@ public record struct ConstellationBoundary(double LowerRA, double UpperRA, doubl
 
     public static bool IsBordering(Constellation borderingConstellation, double ra, double dec, double epoch = 2000.0)
     {
-        var ra_s = CoordinateUtils.ConditionRA(ra - 0.001);
-        var ra_l = CoordinateUtils.ConditionRA(ra + 0.001);
+        const double offset = 0.01;
+        var ra_s = CoordinateUtils.ConditionRA(ra - offset);
+        var ra_l = CoordinateUtils.ConditionRA(ra + offset);
+        var dec_s = Math.Max(dec - offset, -90.0);
+        var dec_l = Math.Min(dec + offset, 90.0);
 
-        return TryFindConstellation(ra_s, dec, epoch, out var const_s)
-            && TryFindConstellation(ra_l, dec, epoch, out var const_l)
-            && (borderingConstellation.IsContainedWithin(const_s) || borderingConstellation.IsContainedWithin(const_l));
+        return (TryFindConstellation(ra_s, dec, epoch, out var c1) && borderingConstellation.IsContainedWithin(c1))
+            || (TryFindConstellation(ra_l, dec, epoch, out var c2) && borderingConstellation.IsContainedWithin(c2))
+            || (TryFindConstellation(ra, dec_s, epoch, out var c3) && borderingConstellation.IsContainedWithin(c3))
+            || (TryFindConstellation(ra, dec_l, epoch, out var c4) && borderingConstellation.IsContainedWithin(c4));
     }
 
     public static Constellation FindConstellation(double ra, double dec, double epoch = 2000.0)

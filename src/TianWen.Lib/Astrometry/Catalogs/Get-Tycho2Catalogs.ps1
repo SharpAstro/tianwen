@@ -21,7 +21,7 @@ function ConvertFrom-EpochRADec
     $ConvH = [Math]::PI / 12.0
     $ConvD = [Math]::PI / 180.0
 
-    $precessedRadians = ConvertFrom-EpochRadians -RA1Rad $Ra1 * $ConvH -Dec1Rad $Dec1 * $ConvD -Epoch1 $Epoch1 -Epoch2 $Epoch2
+    $precessedRadians = ConvertFrom-EpochRadians -RA1Rad ($Ra1 * $ConvH) -Dec1Rad ($Dec1 * $ConvD) -Epoch1 $Epoch1 -Epoch2 $Epoch2
 
     return [PSCustomObject]@{
         RA = $precessedRadians.RA / $ConvH
@@ -76,64 +76,47 @@ function ConvertFrom-EpochRadians
     return [PSCustomObject]@{ RA = $ra2; Dec = $dec2 }
 }
 
-function ConvertFrom-Tycho2_ASCIIDat
+function ConvertAndWrite-Tycho2Data
 {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)] [string] $UnzippedDataFileName,
-        [Parameter(Mandatory = $true)] [hashtable] $HDCrossTable
+        [Parameter(Mandatory = $true)] [hashtable] $HDCrossTable,
+        [Parameter(Mandatory = $true)] [PSCustomObject] $OutputData
     )
 
-    $data = Get-Content -Encoding ASCII $unzippedDataFileName
+    $resolvedPath = (Resolve-Path $UnzippedDataFileName).Path
+    $lines = [System.IO.File]::ReadAllLines($resolvedPath, [System.Text.Encoding]::ASCII)
+    $isLittleEndian = [BitConverter]::IsLittleEndian
+    $entry = [byte[]]::new(11)
+    $inv = [cultureinfo]::InvariantCulture
 
-    $data | ForEach-Object {
-        $values = $_.Split('|')
-        
+    foreach ($line in $lines) {
+        $values = $line.Split('|')
+
         $tycIdComp = $values[0].Split(' ')
-        $tycId = "TYC $([string]::Join('-', $tycIdComp))"
-        $tycIdShort = [short[]]::new(3)
-
-        for ($i = 0; $i -lt $tycIdShort.Length; $i++) {
-            [short]$s = 0
-            if (-not [short]::TryParse($tycIdComp[$i], [cultureinfo]::InvariantCulture, [ref] $s)) {
-                Write-Warning "$tycId : Failed to convert $($tycIdComp[$i]) to short"                
-            }
-
-            $tycIdShort[$i] = $s
-        }
+        [short]$tyc1 = 0; [short]$tyc2 = 0; [short]$tyc3 = 0
+        [void][short]::TryParse($tycIdComp[0], $inv, [ref] $tyc1)
+        [void][short]::TryParse($tycIdComp[1], $inv, [ref] $tyc2)
+        [void][short]::TryParse($tycIdComp[2], $inv, [ref] $tyc3)
+        $tycIdShort = [short[]]@($tyc1, $tyc2, $tyc3)
 
         $posType = $values[1]
 
-        $maybeHip = $values[23]
         $hip = 0
-        if (-not [string]::IsNullOrWhiteSpace($maybeHip)) {
-            $hipNumber = $maybeHip.Substring(0, 6).Trim()
-            $hipCCDM = $maybeHip.Substring(6)
-            if ($hipNumber -contains ' ' -or -not [int]::TryParse($hipNumber, [cultureinfo]::InvariantCulture, [ref] $hip)) {
-                Write-Warning "$tycId : Invalid HIP: $maybeHip"
-            }
-        } else {
-            $hipCCDM = ''
+        $maybeHip = $values[23]
+        if ($maybeHip.Length -ge 6) {
+            [void][int]::TryParse($maybeHip.Substring(0, 6).Trim(), $inv, [ref] $hip)
         }
 
-        $raIdx = 2
-        $decIdx = 3
-        if ($posType -eq 'X') {
-            $raIdx = 24
-            $decIdx = 25
-        }
+        $raIdx = 2; $decIdx = 3
+        if ($posType -eq 'X') { $raIdx = 24; $decIdx = 25 }
 
-        [float]$ra = -999
-        if ([float]::TryParse($values[$raIdx], [cultureinfo]::InvariantCulture, [ref] $ra)) {
-            $ra /= 24.0
-        } else {
-            Write-Warning "$tycId : Invalid RA: $($values[$raIdx])"
+        [float]$ra = -999; [float]$dec = -999
+        if ([float]::TryParse($values[$raIdx], $inv, [ref] $ra)) {
+            $ra /= 15.0
         }
-        
-        [float]$dec = -999
-        if (-not [float]::TryParse($values[$decIdx], [cultureinfo]::InvariantCulture, [ref] $dec)) {
-            Write-Warning "$tycId : Invalid DEC: $($values[$raIdx])"
-        }
+        [void][float]::TryParse($values[$decIdx], $inv, [ref] $dec)
 
         if ($posType -eq 'X') {
             $raDecJ2000 = ConvertFrom-EpochRADec -RA1 $ra -Dec1 $dec -Epoch1 1991.5 -Epoch2 2000.0
@@ -141,60 +124,34 @@ function ConvertFrom-Tycho2_ASCIIDat
             $dec = $raDecJ2000.Dec
         }
 
-        [PSCustomObject]@{
-            ID = $tycId
-            IDComp = $tycIdShort
-            HIP = $hip
-            HD = $HDCrossTable[$tycId]
-            HIPCCDM = $hipCCDM
-            RA = $ra
-            Dec = $dec
-        }
-    }
-}
-
-function ConvertTo-Tycho2_BinTable
-{
-    [CmdletBinding()]
-    param (
-        [Parameter(Mandatory = $true, ValueFromPipeline = $true)] [PSCustomObject] $InputObject,
-        [Parameter(Mandatory = $true)] [PSCustomObject] $OutputData
-    )
-
-    process {
-        $tycIdShort = $InputObject.IDComp
-
-        $gscIdx = $tycIdShort[0] - 1
+        # Write binary entry directly
+        $gscIdx = $tyc1 - 1
         $stream = $OutputData.Streams[$gscIdx]
 
-        # always store in little endian as it is more common
-        $isLittleEndian = [BitConverter]::IsLittleEndian
+        $id2Bytes = [BitConverter]::GetBytes([int16]$tyc2)
+        if (-not $isLittleEndian) { [array]::Reverse($id2Bytes) }
 
-        # first part of ID can be inferred from file name
-        # $tycId1N = $tycIdShort[0]
-        $tycId2 = [BitConverter]::GetBytes([int16]$tycIdShort[1])
-        if (-not $isLittleEndian) { [array]::Reverse($tycId2) }
-        [byte]$tycId3 = $tycIdShort[2]
-
-        $raHBytes = [BitConverter]::GetBytes([BitConverter]::SingleToInt32Bits($InputObject.RA))
-        $decBytes = [BitConverter]::GetBytes([BitConverter]::SingleToInt32Bits($InputObject.Dec))
-
+        $raHBytes = [BitConverter]::GetBytes([BitConverter]::SingleToInt32Bits([float]$ra))
+        $decBytes = [BitConverter]::GetBytes([BitConverter]::SingleToInt32Bits([float]$dec))
         if (-not $isLittleEndian) {
             [array]::Reverse($raHBytes)
             [array]::Reverse($decBytes)
         }
 
-        # entry: tycId2(2) + tycId3(1) + RA(4) + Dec(4) = 11 bytes
-        $entry = [byte[]]::new(11)
-        [array]::Copy($tycId2, 0, $entry, 0, 2)
-        $entry[2] = $tycId3
-        [array]::Copy($raHBytes, 0, $entry, 3, 4)
-        [array]::Copy($decBytes, 0, $entry, 7, 4)
-        $stream.Write($entry)
+        $entry[0] = $id2Bytes[0]; $entry[1] = $id2Bytes[1]
+        $entry[2] = [byte]$tyc3
+        $entry[3] = $raHBytes[0]; $entry[4] = $raHBytes[1]; $entry[5] = $raHBytes[2]; $entry[6] = $raHBytes[3]
+        $entry[7] = $decBytes[0]; $entry[8] = $decBytes[1]; $entry[9] = $decBytes[2]; $entry[10] = $decBytes[3]
+        $stream.Write($entry, 0, 11)
+
+        # track GSC region bounding box
+        if ($ra -lt $OutputData.GscMinRA[$gscIdx])  { $OutputData.GscMinRA[$gscIdx]  = $ra }
+        if ($ra -gt $OutputData.GscMaxRA[$gscIdx])  { $OutputData.GscMaxRA[$gscIdx]  = $ra }
+        if ($dec -lt $OutputData.GscMinDec[$gscIdx]) { $OutputData.GscMinDec[$gscIdx] = $dec }
+        if ($dec -gt $OutputData.GscMaxDec[$gscIdx]) { $OutputData.GscMaxDec[$gscIdx] = $dec }
 
         # accumulate HIP -> TYC mapping
-        if ($InputObject.HIP -ne 0) {
-            $hip = $InputObject.HIP
+        if ($hip -ne 0) {
             if (-not $OutputData.HIPMap.ContainsKey($hip)) {
                 $OutputData.HIPMap[$hip] = [System.Collections.Generic.List[short[]]]::new()
             }
@@ -202,8 +159,10 @@ function ConvertTo-Tycho2_BinTable
         }
 
         # accumulate HD -> TYC mapping
-        if ($null -ne $InputObject.HD) {
-            foreach ($hd in $InputObject.HD) {
+        $tycId = "TYC $($tyc1)-$($tyc2)-$($tyc3)"
+        $hdList = $HDCrossTable[$tycId]
+        if ($null -ne $hdList) {
+            foreach ($hd in $hdList) {
                 if ($hd -ne 0) {
                     if (-not $OutputData.HDMap.ContainsKey($hd)) {
                         $OutputData.HDMap[$hd] = [System.Collections.Generic.List[short[]]]::new()
@@ -261,13 +220,12 @@ function Write-CrossRefFiles
     }
 
     [System.IO.File]::WriteAllBytes($BinFile, $buffer)
-    & 7z a -txz "$BinFile.xz" $BinFile
-    Remove-Item $BinFile
+    & lzip -9 $BinFile
 
     if ($collisions.Count -gt 0) {
         $collisions | ConvertTo-Json | Set-Content -Encoding UTF8 $JsonFile
-        & 7z a -txz "$JsonFile.xz" $JsonFile
-        Write-Host "  $($collisions.Count) collision(s) written to $JsonFile.xz"
+        & lzip -9 $JsonFile
+        Write-Host "  $($collisions.Count) collision(s) written to $JsonFile.jz"
     }
 }
 
@@ -279,17 +237,17 @@ function ConvertFrom-Tycho2_HD_ASCIIDat
         [Parameter(Mandatory = $true)] [hashtable] $CatalogTable
     )
 
-    $data = Get-Content -Encoding ASCII $unzippedDataFileName
+    $resolvedPath = (Resolve-Path $UnzippedDataFileName).Path
+    $lines = [System.IO.File]::ReadAllLines($resolvedPath, [System.Text.Encoding]::ASCII)
+    $inv = [cultureinfo]::InvariantCulture
 
-    $data | ForEach-Object {
+    foreach ($line in $lines) {
+        $tycIdComp = $line.Substring(0, 12).Split(' ')
+        $tycId = "TYC $($tycIdComp[0])-$($tycIdComp[1])-$($tycIdComp[2])"
 
-        $tycIdComp = $_.Substring(0, 12).Split(' ')
-        $tycId = "TYC $([string]::Join('-', $tycIdComp))"
-
-        $maybeHD = $_.Substring(14, 7)
+        $maybeHD = $line.Substring(14, 7)
         $hd = 0
-        if ([int]::TryParse($maybeHD, [cultureinfo]::InvariantCulture, [ref] $hd)) {
-            $hdStr = "HD $hd"
+        if ([int]::TryParse($maybeHD, $inv, [ref] $hd)) {
             $existingTycho2hd = $CatalogTable[$tycId]
             if ($null -eq $existingTycho2hd) {
                 $CatalogTable[$tycId] = @($hd)
@@ -297,14 +255,13 @@ function ConvertFrom-Tycho2_HD_ASCIIDat
                 $CatalogTable[$tycId] += $hd
             }
 
+            $hdStr = "HD $hd"
             $existingHD2Tycho = $CatalogTable[$hdStr]
             if ($null -eq $existingHD2Tycho) {
                 $CatalogTable[$hdStr] = @($tycId)
             } else {
                 $CatalogTable[$hdStr] += $tycId
             }
-        } else {
-            Write-Warning "$tycId : Invalid HD: $maybeHD"
         }
     }
 }
@@ -358,10 +315,26 @@ $cats.GetEnumerator() | ForEach-Object {
     if ($isSplitFile) {
         $unzippedFilePattern = [System.IO.Path]::GetFileNameWithoutExtension($cat.File)
         $location = Get-Location
+        # Per-GSC-region bounding boxes: [gscIdx] -> (minRA, maxRA, minDec, maxDec)
+        $gscMinRA  = [float[]]::new($cat.StreamCount)
+        $gscMaxRA  = [float[]]::new($cat.StreamCount)
+        $gscMinDec = [float[]]::new($cat.StreamCount)
+        $gscMaxDec = [float[]]::new($cat.StreamCount)
+        for ($j = 0; $j -lt $cat.StreamCount; $j++) {
+            $gscMinRA[$j]  = [float]::MaxValue
+            $gscMaxRA[$j]  = [float]::MinValue
+            $gscMinDec[$j] = [float]::MaxValue
+            $gscMaxDec[$j] = [float]::MinValue
+        }
+
         $outputData = [PSCustomObject] @{
-            Streams = [System.IO.FileStream[]]::new($cat.StreamCount)
-            HIPMap  = @{}
-            HDMap   = @{}
+            Streams   = [System.IO.FileStream[]]::new($cat.StreamCount)
+            HIPMap    = @{}
+            HDMap     = @{}
+            GscMinRA  = $gscMinRA
+            GscMaxRA  = $gscMaxRA
+            GscMinDec = $gscMinDec
+            GscMaxDec = $gscMaxDec
         }
 
         $needsProcessing = $false
@@ -395,8 +368,7 @@ $cats.GetEnumerator() | ForEach-Object {
             }
 
             if ($folder -eq 'tyc2' -and $needsProcessing) {
-                ConvertFrom-Tycho2_ASCIIDat -UnzippedDataFileName $unzippedDataFileName -HDCrossTable $cats['tyc2_hd'].Data
-                    | ConvertTo-Tycho2_BinTable -OutputData $outputData
+                ConvertAndWrite-Tycho2Data -UnzippedDataFileName $unzippedDataFileName -HDCrossTable $cats['tyc2_hd'].Data -OutputData $outputData
             }
         }
 
@@ -418,6 +390,29 @@ $cats.GetEnumerator() | ForEach-Object {
                 -Map      $outputData.HDMap `
                 -BinFile  ([System.IO.Path]::Combine($PSScriptRoot, 'hd_to_tyc.bin')) `
                 -JsonFile ([System.IO.Path]::Combine($PSScriptRoot, 'hd_to_tyc_multi.json'))
+
+            # Write GSC region bounding boxes: 9537 × (minRA, maxRA, minDec, maxDec) as float32
+            $boundsFile = [System.IO.Path]::Combine($PSScriptRoot, 'tyc2_gsc_bounds.bin')
+            Write-Host "Writing GSC bounds to $boundsFile ($($cat.StreamCount) regions)"
+            $boundsIsLE = [BitConverter]::IsLittleEndian
+            $boundsBuffer = [byte[]]::new($cat.StreamCount * 16)
+            for ($j = 0; $j -lt $cat.StreamCount; $j++) {
+                $off = $j * 16
+                $b1 = [BitConverter]::GetBytes([float]$outputData.GscMinRA[$j])
+                $b2 = [BitConverter]::GetBytes([float]$outputData.GscMaxRA[$j])
+                $b3 = [BitConverter]::GetBytes([float]$outputData.GscMinDec[$j])
+                $b4 = [BitConverter]::GetBytes([float]$outputData.GscMaxDec[$j])
+                if (-not $boundsIsLE) {
+                    [array]::Reverse($b1); [array]::Reverse($b2)
+                    [array]::Reverse($b3); [array]::Reverse($b4)
+                }
+                [array]::Copy($b1, 0, $boundsBuffer, $off,      4)
+                [array]::Copy($b2, 0, $boundsBuffer, $off + 4,  4)
+                [array]::Copy($b3, 0, $boundsBuffer, $off + 8,  4)
+                [array]::Copy($b4, 0, $boundsBuffer, $off + 12, 4)
+            }
+            [System.IO.File]::WriteAllBytes($boundsFile, $boundsBuffer)
+            & lzip -9 $boundsFile
         }
 
         # Simple binary archive: int32 streamCount, then streamCount × int32 byte-offsets, then concatenated stream data.
@@ -471,7 +466,7 @@ $cats.GetEnumerator() | ForEach-Object {
             $outStream.Close()
         }
 
-        & 7z a -txz "$outBin.xz" $outBin
+        & lzip -9 $outBin
         # Remove-Item $outBin
     } elseif ($null -ne $catalogTable) {
         $unzippedDataFileName = [System.IO.Path]::GetFileNameWithoutExtension($cat.File)

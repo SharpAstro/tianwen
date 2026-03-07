@@ -1,8 +1,8 @@
 ﻿using CsvHelper;
 using CsvHelper.Configuration;
 using SharpCompress.Compressors.LZMA;
-using SharpCompress.Readers.Tar;
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
@@ -44,17 +44,20 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     private static readonly IReadOnlySet<string> EmptyNameSet = ImmutableHashSet.Create<string>();
     private static readonly IReadOnlySet<CatalogIndex> EmptyCatalogIndexSet = ImmutableHashSet.Create<CatalogIndex>();
 
-    private readonly CelestialObject[] _hip2000 = new CelestialObject[120404];
     private readonly Dictionary<CatalogIndex, CelestialObject> _objectsByIndex = new(32000);
     private readonly Dictionary<CatalogIndex, (CatalogIndex i1, CatalogIndex[]? ext)> _crossIndexLookuptable = new(39000);
     private readonly Dictionary<string, (CatalogIndex i1, CatalogIndex[]? ext)> _objectsByCommonName = new(5700);
     private readonly RaDecIndex _raDecIndex = new();
-    
+
+    private byte[]? _tycho2Data;
+    private int _tycho2StreamCount;
+    private Tycho2RaDecIndex? _tycho2RaDecIndex;
+    private CatalogIndex[]? _hipToTyc;
+    private CatalogIndex[]? _hdToTyc;
+
     private HashSet<CatalogIndex>? _catalogIndicesCache;
     private HashSet<Catalog>? _completeCatalogCache;
-    private volatile int _tycho2DataProcessed;
     private volatile bool _isInitialized;
-    private volatile int _hipCacheItemCount;
 
     public CelestialObjectDB() { }
 
@@ -64,7 +67,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
     public IReadOnlySet<CatalogIndex> AllObjectIndices => GetOrRebuildIndex(ref _catalogIndicesCache, RebuildObjectIndices);
 
-    public IRaDecIndex CoordinateGrid => _raDecIndex;
+    public IRaDecIndex CoordinateGrid => new CompositeRaDecIndex(_raDecIndex, _tycho2RaDecIndex);
 
     /// <inheritdoc/>
     public bool TryResolveCommonName(string name, out IReadOnlyList<CatalogIndex> matches) => _objectsByCommonName.TryGetLookupEntries(name, out matches);
@@ -89,8 +92,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         Catalog.Sharpless,
         Catalog.RCW,
         Catalog.UGC,
-        Catalog.vdB,
-        Catalog.Tycho2
+        Catalog.vdB
     ];
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
@@ -100,36 +102,21 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     private bool TryLookupByIndexDirect(CatalogIndex index, [NotNullWhen(true)] out CelestialObject celestialObject, out Catalog cat, out int? arrayIndex)
     {
         (cat, var value, var msbSet) = index.ToCatalogAndValue();
+        arrayIndex = null;
 
-        if (cat is Catalog.HIP && !msbSet)
+        if (_objectsByIndex.TryGetValue(index, out celestialObject))
         {
-            var number = EnumValueToNumeric(value);
-            if (number <= (ulong)_hip2000.Length)
-            {
-                var idx = (int)number - 1;
-                celestialObject = _hip2000[idx];
-
-                if (celestialObject.Index != 0)
-                {
-                    arrayIndex = idx;
-
-                    return true;
-                }
-                else
-                {
-                    arrayIndex = null;
-
-                    return false;
-                }
-            }
+            return true;
         }
-        else if (_objectsByIndex.TryGetValue(index, out celestialObject))
+        else if (cat is Catalog.HIP && !msbSet && TryLookupHIPFromTycho2(index, value, out celestialObject))
         {
-            arrayIndex = null;
+            return true;
+        }
+        else if (cat is Catalog.Tycho2 && msbSet && TryLookupTycho2StarFromBinaryData(index, value, out celestialObject))
+        {
             return true;
         }
 
-        arrayIndex = null;
         celestialObject = default;
         return false;
     }
@@ -255,7 +242,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         var totalProcessed = 0;
         var totalFailed = 0;
 
-        var initTycho2DataTask = ReadEmbeddedGzippedTycho2BinaryFileAsync(assembly);
+        var initTycho2DataTask = ReadEmbeddedTycho2DataAsync(assembly);
 
         foreach (var predefined in _predefinedObjects)
         {
@@ -275,9 +262,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             totalFailed += failed;
         }
 
-        (_tycho2DataProcessed, var hipFailed) = await initTycho2DataTask;
-        totalProcessed += _tycho2DataProcessed;
-        totalFailed += hipFailed;
+        await initTycho2DataTask;
 
         var simbadCatalogs = new[] {
             ("HR", Catalog.HR),
@@ -306,121 +291,206 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         return (totalProcessed, totalFailed);
     }
 
-    private async Task<(int Processed, int Failed)> ReadEmbeddedGzippedTycho2BinaryFileAsync(Assembly assembly)
+    private async Task ReadEmbeddedTycho2DataAsync(Assembly assembly)
     {
-        var manifestFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith(".tyc2.bin.tar.bz2"));
+        // 1. Load tyc2.bin.lz binary data
+        var tyc2Manifest = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith(".tyc2.bin.lz"));
+        if (tyc2Manifest is null || assembly.GetManifestResourceStream(tyc2Manifest) is not Stream tyc2Stream)
+        {
+            return;
+        }
+
+        using (var lzipStream = new LZipStream(tyc2Stream, SharpCompress.Compressors.CompressionMode.Decompress))
+        {
+            var tycMs = new MemoryStream();
+            await lzipStream.CopyToAsync(tycMs);
+            _tycho2Data = tycMs.ToArray();
+        }
+
+        _tycho2StreamCount = BinaryPrimitives.ReadInt32LittleEndian(_tycho2Data);
+
+        // 2. Load GSC region bounding boxes and build spatial index
+        var boundsManifest = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith(".tyc2_gsc_bounds.bin.lz"));
+        if (boundsManifest is not null && assembly.GetManifestResourceStream(boundsManifest) is Stream boundsStream)
+        {
+            using var boundsLzip = new LZipStream(boundsStream, SharpCompress.Compressors.CompressionMode.Decompress);
+            var boundsMs = new MemoryStream();
+            await boundsLzip.CopyToAsync(boundsMs);
+            _tycho2RaDecIndex = new Tycho2RaDecIndex(_tycho2Data, _tycho2StreamCount, boundsMs.ToArray());
+        }
+
+        // 3. Load HIP → TYC cross-reference
+        _hipToTyc = LoadCrossRefBinFile(assembly, "hip_to_tyc");
+        LoadCrossRefMultiJson(assembly, "hip_to_tyc_multi", Catalog.HIP, Catalog.HIP.GetNumericalIndexSize(), _hipToTyc);
+
+        // 4. Load HD → TYC cross-reference
+        _hdToTyc = LoadCrossRefBinFile(assembly, "hd_to_tyc");
+        LoadCrossRefMultiJson(assembly, "hd_to_tyc_multi", Catalog.HD, Catalog.HD.GetNumericalIndexSize(), _hdToTyc);
+    }
+
+    private static CatalogIndex[]? LoadCrossRefBinFile(Assembly assembly, string name)
+    {
+        var manifestFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith("." + name + ".bin.lz"));
         if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
         {
-            return (0, 0);
+            return null;
         }
 
-        const int entrySize = 14; // update in Get-Tycho2Catalogs.ps1 as well
+        using var lzipStream = new LZipStream(stream, SharpCompress.Compressors.CompressionMode.Decompress);
+        var ms = new MemoryStream();
+        lzipStream.CopyTo(ms);
+        var data = ms.ToArray();
 
-        await using var tar = await TarReader.OpenAsyncReader(stream, new SharpCompress.Readers.ReaderOptions { LeaveStreamOpen = false });
+        const int recordSize = 5;
+        var count = data.Length / recordSize;
+        var result = new CatalogIndex[count];
 
-        if (!Environment.SpecialFolder.LocalApplicationData.TryGetOrCreateAppSubFolder(out var tempDir))
+        for (int i = 0; i < count; i++)
         {
-            tempDir = new DirectoryInfo(Path.GetTempFileName()).CreateSubdirectory(SpecialFolderHelper.ApplicationName);
-        }
+            var offset = i * recordSize;
+            var tyc1 = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(offset));
+            var tyc2 = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(offset + 2));
+            var tyc3 = data[offset + 4];
 
-        var tycho2DataDir = tempDir.CreateSubdirectory("tycho2-data");
-
-        bool? upToDate = null;
-        while (await tar.MoveToNextEntryAsync())
-        {
-            var entry = tar.Entry;
-            if (entry.Key is { Length: > 0 } name)
+            if (tyc1 != 0 || tyc2 != 0 || tyc3 != 0)
             {
-                if (entry.IsDirectory)
-                {
-                    var subDir = tycho2DataDir.CreateSubdirectory(name);
-                    if (subDir.CreationTimeUtc > entry.LastModifiedTime)
-                    {
-                        upToDate ??= true;
-                    }
-                    else
-                    {
-                        upToDate = false;
-                    }
-                }
-                else if (entry.Size % entrySize == 0)
-                {
-                    if (upToDate is true)
-                    {
-                        break;
-                    }
-                    var outPath = Path.Combine(tycho2DataDir.FullName, name);
-                    await using var outStream = File.Create(outPath, entrySize * 400);
-                    await using var entryStream = await tar.OpenEntryStreamAsync();
-                    await entryStream.CopyToAsync(outStream);
-                }
-            }
-        }
-        return (0, 0);
-    }
-        /*
-        var buffer = new byte[entrySize * 1000];
-        int totalEntriesProcessed = 0;
-
-        while (await reader.MoveToNextEntryAsync())
-        {
-            var entry = reader.Entry;
-            if (!entry.IsDirectory && entry.Size > 0 && entry.Size % entrySize == 0)
-            {
-                await using var entryStream = await reader.OpenEntryStreamAsync();
-                int bytesRead;
-
-                while ((bytesRead = await entryStream.ReadAsync(buffer)) > 0)
-                {
-                    totalEntriesProcessed += bytesRead / entrySize;
-                }
+                var encoded = EncodeTyc2CatalogIndex(Catalog.Tycho2, tyc1, tyc2, tyc3);
+                result[i] = AbbreviationToCatalogIndex(encoded, isBase91Encoded: true);
             }
         }
 
-        return (totalEntriesProcessed, 0);
+        return result;
     }
 
-    /*
-        var chunks = Environment.ProcessorCount;
-        await Parallel.ForAsync(0, chunks, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount }, (chunk, cancellationToken) =>
+    private static void LoadCrossRefMultiJson(Assembly assembly, string name, Catalog catalog, int digits, CatalogIndex[]? crossRefArray)
+    {
+        var manifestFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith("." + name + ".json.lz"));
+        if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
         {
-            Span<byte> int32Buffer = stackalloc byte[sizeof(int)];
-            int32Buffer[0] = 0;
+            return;
+        }
 
-            var firstIdx = (int)Math.Floor(copiedItems * ((float)chunk / chunks));
-            var lastIdx = (int)Math.Min(copiedItems, Math.Ceiling(copiedItems *  ((float)(chunk + 1) / chunks)));
-
-            var entry = buffer.AsSpan()[(firstIdx * entrySize)..];
-
-            for (var idx = firstIdx; idx < lastIdx; idx++, entry = entry[entrySize..])
+        using (stream)
+        using (var lzipStream = new LZipStream(stream, SharpCompress.Compressors.CompressionMode.Decompress))
+        using (var doc = JsonDocument.Parse(lzipStream))
+        {
+            foreach (var property in doc.RootElement.EnumerateObject())
             {
-                var tycId1 = BinaryPrimitives.ReadUInt16BigEndian(entry);
-                var tycId2 = BinaryPrimitives.ReadUInt16BigEndian(entry[2..]);
-                var tycId3 = entry[4];
+                if (!int.TryParse(property.Name, NumberStyles.None, CultureInfo.InvariantCulture, out var number) || number <= 0)
+                {
+                    continue;
+                }
 
-                entry[5..8].CopyTo(int32Buffer[1..]);
-                var hip = BinaryPrimitives.ReadUInt32BigEndian(int32Buffer);
+                var catalogIndex = PrefixedNumericToASCIIPackedInt<CatalogIndex>((ulong)catalog, number, digits);
 
-                entry[8..11].CopyTo(int32Buffer[1..]);
-                var hd1 = BinaryPrimitives.ReadUInt32BigEndian(int32Buffer);
+                foreach (var tycStr in property.Value.EnumerateArray())
+                {
+                    var parts = tycStr.GetString()?.Split('-');
+                    if (parts is { Length: 3 }
+                        && ushort.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out var tyc1)
+                        && ushort.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out var tyc2)
+                        && byte.TryParse(parts[2], NumberStyles.None, CultureInfo.InvariantCulture, out var tyc3))
+                    {
+                        var encoded = EncodeTyc2CatalogIndex(Catalog.Tycho2, tyc1, tyc2, tyc3);
+                        var tycIndex = AbbreviationToCatalogIndex(encoded, isBase91Encoded: true);
 
-                entry[11..14].CopyTo(int32Buffer[1..]);
-                var hd2 = BinaryPrimitives.ReadUInt32BigEndian(int32Buffer);
-
-                var ra = BinaryPrimitives.ReadSingleBigEndian(entry[14..]);
-                var dec = BinaryPrimitives.ReadSingleBigEndian(entry[18..]);
-                // TODO: calc visual mag for Tycho2 entries var vmag = BinaryPrimitives.ReadHalfBigEndian(entry[22..]);
-                var catIndex = AbbreviationToCatalogIndex(EncodeTyc2CatalogIndex(Catalog.Tycho2, tycId1, tycId2, tycId3), isBase91Encoded: true);
-
-                var vmag = HalfUndefined;
-
-                // var catIndex = PrefixedNumericToASCIIPackedInt<CatalogIndex>((uint)Catalog.HIP, itemIdx + 1, digits);
-                var constellation = ConstellationBoundary.FindConstellation(ra, dec);
+                        if (crossRefArray is not null && number <= crossRefArray.Length && crossRefArray[number - 1] == 0)
+                        {
+                            crossRefArray[number - 1] = tycIndex;
+                        }
+                    }
+                }
             }
+        }
+    }
 
-            return ValueTask.CompletedTask;
-        });
-    */
+    private bool TryGetTycho2RaDec(CatalogIndex tycIndex, out double ra, out double dec)
+    {
+        ra = dec = 0;
+        if (_tycho2Data is null)
+        {
+            return false;
+        }
+
+        var (cat, value, _) = tycIndex.ToCatalogAndValue();
+        if (cat != Catalog.Tycho2)
+        {
+            return false;
+        }
+
+        var (tyc1, tyc2, tyc3) = DecodeTyc2CatalogIndex(value);
+        return TryGetTycho2RaDec(tyc1, (ushort)tyc2, tyc3, out ra, out dec);
+    }
+
+    private bool TryGetTycho2RaDec(ushort tyc1, ushort tyc2, byte tyc3, out double ra, out double dec)
+    {
+        ra = dec = 0;
+        if (_tycho2Data is null || tyc1 == 0 || tyc1 > _tycho2StreamCount)
+        {
+            return false;
+        }
+
+        const int entrySize = 11;
+        var data = _tycho2Data.AsSpan();
+
+        var gscIdx = tyc1 - 1;
+        var startOffset = BinaryPrimitives.ReadInt32LittleEndian(data[((gscIdx + 1) * 4)..]);
+        var endOffset = gscIdx + 1 < _tycho2StreamCount
+            ? BinaryPrimitives.ReadInt32LittleEndian(data[((gscIdx + 2) * 4)..])
+            : _tycho2Data.Length;
+
+        var entryCount = (endOffset - startOffset) / entrySize;
+
+        for (int i = 0; i < entryCount; i++)
+        {
+            var entry = data[(startOffset + i * entrySize)..];
+            var entryTyc2 = BinaryPrimitives.ReadUInt16LittleEndian(entry);
+            var entryTyc3 = entry[2];
+
+            if (entryTyc2 == tyc2 && entryTyc3 == tyc3)
+            {
+                ra = BinaryPrimitives.ReadSingleLittleEndian(entry[3..]);
+                dec = BinaryPrimitives.ReadSingleLittleEndian(entry[7..]);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool TryLookupHIPFromTycho2(CatalogIndex hipIndex, ulong hipValue, out CelestialObject celestialObject)
+    {
+        celestialObject = default;
+        var hipNumber = (int)EnumValueToNumeric(hipValue);
+
+        if (_hipToTyc is not null && hipNumber > 0 && hipNumber <= _hipToTyc.Length)
+        {
+            var tycIndex = _hipToTyc[hipNumber - 1];
+            if (tycIndex != 0 && TryGetTycho2RaDec(tycIndex, out var ra, out var dec)
+                && ConstellationBoundary.TryFindConstellation(ra, dec, out var constellation))
+            {
+                celestialObject = new CelestialObject(hipIndex, ObjectType.Star, ra, dec, constellation, HalfUndefined, HalfUndefined, EmptyNameSet);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool TryLookupTycho2StarFromBinaryData(CatalogIndex tycIndex, ulong decodedValue, out CelestialObject celestialObject)
+    {
+        celestialObject = default;
+        var (tyc1, tyc2, tyc3) = DecodeTyc2CatalogIndex(decodedValue);
+
+        if (TryGetTycho2RaDec(tyc1, (ushort)tyc2, (byte)tyc3, out var ra, out var dec)
+            && ConstellationBoundary.TryFindConstellation(ra, dec, out var constellation))
+        {
+            celestialObject = new CelestialObject(tycIndex, ObjectType.Star, ra, dec, constellation, HalfUndefined, HalfUndefined, EmptyNameSet);
+            return true;
+        }
+
+        return false;
+    }
 
     private async Task<(int Processed, int Failed)> ReadEmbeddedGzippedCsvDataFileAsync(Assembly assembly, string csvName, CancellationToken cancellationToken)
     {
@@ -636,10 +706,25 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
             if (catToAddIdxs.Count > 0)
             {
+                // Populate HIP entries from Simbad data with authoritative coordinates
+                if (relevantIds.TryGetValue(Catalog.HIP, out var hipIds))
+                {
+                    var raInH = record.Ra / 15;
+                    foreach (var hipId in hipIds)
+                    {
+                        if (!_objectsByIndex.ContainsKey(hipId)
+                            && ConstellationBoundary.TryFindConstellation(raInH, record.Dec, out var hipConst))
+                        {
+                            var hipObj = new CelestialObject(hipId, ObjectType.Star, raInH, record.Dec, hipConst, HalfUndefined, HalfUndefined, EmptyNameSet);
+                            _objectsByIndex[hipId] = hipObj;
+                            AddCommonNameAndPosIndices(hipObj);
+                        }
+                    }
+                }
+
                 var bestMatches = (
                     from relevantIdPerCat in relevantIds
                     from relevantId in relevantIdPerCat.Value
-                    // TODO: Fixup missing HIP entries for which we have a HR/HD entry
                     where TryLookupByIndexDirect(relevantId, out _, out _, out _)
                     let sortKey = relevantIdPerCat.Key switch
                     {
@@ -710,7 +795,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// <param name="commonNames"></param>
     private void UpdateObjectCommonNames(CatalogIndex catIdx, HashSet<string> commonNames)
     {
-        if (TryLookupByIndexDirect(catIdx, out var obj, out var cat, out var arrayIndex)
+        if (TryLookupByIndexDirect(catIdx, out var obj, out _, out _)
             && !commonNames.SetEquals(obj.CommonNames))
         {
             var modObj = new CelestialObject(
@@ -724,17 +809,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                 commonNames.UnionWithAsReadOnlyCopy(obj.CommonNames)
             );
 
-            if (arrayIndex is { } idx)
-            {
-                if (cat == Catalog.HIP)
-                {
-                    _hip2000[idx] = modObj;
-                }
-            }
-            else
-            {
-                _objectsByIndex[catIdx] = modObj;
-            }
+            _objectsByIndex[catIdx] = modObj;
 
             commonNames.ExceptWith(obj.CommonNames);
             AddCommonNameIndex(catIdx, commonNames);
@@ -801,36 +876,16 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
     private HashSet<CatalogIndex> RebuildObjectIndices()
     {
-        var objCount = _objectsByIndex.Count + _crossIndexLookuptable.Count + _tycho2DataProcessed;
-        if (objCount > 0 && _tycho2DataProcessed > 0)
+        var objCount = _objectsByIndex.Count + _crossIndexLookuptable.Count;
+        if (objCount > 0)
         {
-            // allow for a changing HIP array (recovered items etc.)
-            var index = _catalogIndicesCache is { } cache && _hipCacheItemCount == _tycho2DataProcessed ? cache : HIPIndex();
-
-            index.EnsureCapacity(objCount);
+            var index = new HashSet<CatalogIndex>(objCount);
             index.UnionWith(_objectsByIndex.Keys);
             index.UnionWith(_crossIndexLookuptable.Keys);
-
             return index;
         }
 
         return [];
-
-        HashSet<CatalogIndex> HIPIndex()
-        {
-            var hipIndex = new HashSet<CatalogIndex>(_tycho2DataProcessed);
-            for (var i = 0; i < _hip2000.Length; i++)
-            {
-                if (_hip2000[i].Index is { } idx and not 0)
-                {
-                    _ = hipIndex.Add(idx);
-                }
-            }
-            // keep track of how many items we used to create the HIP index cache with
-            // this works as we dont remove items but only potentially add items
-            _hipCacheItemCount = hipIndex.Count;
-            return hipIndex;
-        }
     }
 
     [GeneratedRegex(@"^[A-Za-z]+\s+\d+\s+\d+$", RegexOptions.Compiled | RegexOptions.IgnorePatternWhitespace | RegexOptions.CultureInvariant)]
