@@ -81,7 +81,7 @@ public partial class Image
             isCFA,
             channelCount,
             hdu.Header.GetIntValue("BAYOFFX", 0), hdu.Header.GetIntValue("BAYOFFY", 0),
-            hdu.Header.GetStringValue("BAYERPAT"), hdu.Header.GetStringValue("COLORTYP")
+            [hdu.Header.GetStringValue("BAYERPAT"), hdu.Header.GetStringValue("COLORTYP")]
         );
         var latitude = hdu.Header.GetFloatValue("LATITUDE", float.NaN);
         var longitude = hdu.Header.GetFloatValue("LONGITUDE", float.NaN);

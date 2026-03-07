@@ -112,6 +112,10 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         {
             return true;
         }
+        else if (cat is Catalog.HD && !msbSet && TryLookupHDFromTycho2(index, value, out celestialObject))
+        {
+            return true;
+        }
         else if (cat is Catalog.Tycho2 && msbSet && TryLookupTycho2StarFromBinaryData(index, value, out celestialObject))
         {
             return true;
@@ -302,18 +306,9 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
         using (var lzipStream = new LZipStream(tyc2Stream, SharpCompress.Compressors.CompressionMode.Decompress))
         {
-            var sizeInfo = ReadLzSizeInfo(assembly, tyc2Manifest);
-            if (sizeInfo is var (uncompressedSize, _))
-            {
-                _tycho2Data = new byte[uncompressedSize];
-                await lzipStream.ReadExactlyAsync(_tycho2Data);
-            }
-            else
-            {
-                var tycMs = new MemoryStream(capacity: (int)tyc2Stream.Length * 4);
-                await lzipStream.CopyToAsync(tycMs);
-                _tycho2Data = tycMs.ToArray();
-            }
+            var (uncompressedSize, _) = ReadLzSizeInfo(assembly, tyc2Manifest);
+            _tycho2Data = new byte[uncompressedSize];
+            await lzipStream.ReadExactlyAsync(_tycho2Data);
         }
 
         _tycho2StreamCount = BinaryPrimitives.ReadInt32LittleEndian(_tycho2Data);
@@ -347,19 +342,9 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
 
         using var lzipStream = new LZipStream(stream, SharpCompress.Compressors.CompressionMode.Decompress);
-        byte[] data;
-        var sizeInfo = ReadLzSizeInfo(assembly, manifestFileName);
-        if (sizeInfo is var (uncompressedSize, _))
-        {
-            data = new byte[uncompressedSize];
-            lzipStream.ReadExactly(data);
-        }
-        else
-        {
-            var ms = new MemoryStream(capacity: (int)stream.Length * 4);
-            lzipStream.CopyTo(ms);
-            data = ms.ToArray();
-        }
+        var (uncompressedSize, _) = ReadLzSizeInfo(assembly, manifestFileName);
+        var data = new byte[uncompressedSize];
+        lzipStream.ReadExactly(data);
 
         const int recordSize = 5;
         var count = data.Length / recordSize;
@@ -382,22 +367,14 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         return result;
     }
 
-    private static (int UncompressedSize, int EntryCount)? ReadLzSizeInfo(Assembly assembly, string lzManifestName)
+    private static (int UncompressedSize, int EntryCount) ReadLzSizeInfo(Assembly assembly, string lzManifestName)
     {
         var sizeManifest = lzManifestName + ".size";
-        if (assembly.GetManifestResourceStream(sizeManifest) is not Stream sizeStream)
-        {
-            return null;
-        }
-
-        using (sizeStream)
-        {
-            Span<byte> buf = stackalloc byte[8];
-            sizeStream.ReadExactly(buf);
-            var uncompressedSize = BinaryPrimitives.ReadInt32LittleEndian(buf);
-            var entryCount = BinaryPrimitives.ReadInt32LittleEndian(buf[4..]);
-            return (uncompressedSize, entryCount);
-        }
+        using var sizeStream = assembly.GetManifestResourceStream(sizeManifest)
+            ?? throw new InvalidOperationException($"Missing sidecar resource: {sizeManifest}");
+        Span<byte> buf = stackalloc byte[8];
+        sizeStream.ReadExactly(buf);
+        return (BinaryPrimitives.ReadInt32LittleEndian(buf), BinaryPrimitives.ReadInt32LittleEndian(buf[4..]));
     }
 
     private static void LoadCrossRefMultiJson(Assembly assembly, string name, Catalog catalog, int digits, CatalogIndex[]? crossRefArray)
@@ -508,6 +485,25 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                 && ConstellationBoundary.TryFindConstellation(ra, dec, out var constellation))
             {
                 celestialObject = new CelestialObject(hipIndex, ObjectType.Star, ra, dec, constellation, HalfUndefined, HalfUndefined, EmptyNameSet);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool TryLookupHDFromTycho2(CatalogIndex hdIndex, ulong hdValue, out CelestialObject celestialObject)
+    {
+        celestialObject = default;
+        var hdNumber = (int)EnumValueToNumeric(hdValue);
+
+        if (_hdToTyc is not null && hdNumber > 0 && hdNumber <= _hdToTyc.Length)
+        {
+            var tycIndex = _hdToTyc[hdNumber - 1];
+            if (tycIndex != 0 && TryGetTycho2RaDec(tycIndex, out var ra, out var dec)
+                && ConstellationBoundary.TryFindConstellation(ra, dec, out var constellation))
+            {
+                celestialObject = new CelestialObject(hdIndex, ObjectType.Star, ra, dec, constellation, HalfUndefined, HalfUndefined, EmptyNameSet);
                 return true;
             }
         }
