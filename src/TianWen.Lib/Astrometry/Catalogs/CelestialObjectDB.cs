@@ -1,5 +1,6 @@
 ﻿using CsvHelper;
 using CsvHelper.Configuration;
+using SharpCompress.Compressors.LZMA;
 using SharpCompress.Readers.Tar;
 using System;
 using System.Collections.Generic;
@@ -296,7 +297,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         };
         foreach (var (fileName, catToAdd) in simbadCatalogs)
         {
-            var (processed, failed) = await ReadEmbeddedGzippedJsonDataFileAsync(assembly, fileName, catToAdd, cancellationToken);
+            var (processed, failed) = await ReadEmbeddedLzippedJsonDataFileAsync(assembly, fileName, catToAdd, cancellationToken);
             totalProcessed += processed;
             totalFailed += failed;
         }
@@ -566,7 +567,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
     static readonly Regex ClusterMemberPattern = ClusterMemberPatternGen();
 
-    private async Task<(int Processed, int Failed)> ReadEmbeddedGzippedJsonDataFileAsync(Assembly assembly, string jsonName, Catalog catToAdd, CancellationToken cancellationToken)
+    private async Task<(int Processed, int Failed)> ReadEmbeddedLzippedJsonDataFileAsync(Assembly assembly, string jsonName, Catalog catToAdd, CancellationToken cancellationToken)
     {
         const string NAME_CAT_PREFIX = "NAME ";
         const string NAME_IAU_CAT_PREFIX = "NAME-IAU ";
@@ -576,13 +577,13 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         var processed = 0;
         var failed = 0;
 
-        var manifestFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith("." + jsonName + ".json.gz"));
+        var manifestFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith("." + jsonName + ".json.lz"));
         if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
         {
             return (processed, failed);
         }
 
-        using var gzipStream = new GZipStream(stream, CompressionMode.Decompress, false);
+        using var lzipStream = new LZipStream(stream, SharpCompress.Compressors.CompressionMode.Decompress);
 
         // will not be using cache as initialization is not complete
         var mainCatalogs = new HashSet<Catalog>(new HashSet<CatalogIndex>(_objectsByIndex.Keys).Select(idx => idx.ToCatalog()))
@@ -590,7 +591,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             Catalog.HIP
         };
 
-        await foreach (var record in JsonSerializer.DeserializeAsyncEnumerable(gzipStream, SimbadCatalogDtoJsonSerializerContext.Default.SimbadCatalogDto, cancellationToken))
+        await foreach (var record in JsonSerializer.DeserializeAsyncEnumerable(lzipStream, SimbadCatalogDtoJsonSerializerContext.Default.SimbadCatalogDto, cancellationToken))
         {
             if (record is null)
             {
