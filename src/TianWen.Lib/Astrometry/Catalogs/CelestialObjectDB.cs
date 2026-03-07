@@ -8,7 +8,6 @@ using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
-using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -261,7 +260,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
         foreach (var csvName in new[] { "NGC", "NGC.addendum" })
         {
-            var (processed, failed) = await ReadEmbeddedGzippedCsvDataFileAsync(assembly, csvName, cancellationToken);
+            var (processed, failed) = await ReadEmbeddedLzCsvDataFileAsync(assembly, csvName, cancellationToken);
             totalProcessed += processed;
             totalFailed += failed;
         }
@@ -526,7 +525,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         return false;
     }
 
-    private async Task<(int Processed, int Failed)> ReadEmbeddedGzippedCsvDataFileAsync(Assembly assembly, string csvName, CancellationToken cancellationToken)
+    private async Task<(int Processed, int Failed)> ReadEmbeddedLzCsvDataFileAsync(Assembly assembly, string csvName, CancellationToken cancellationToken)
     {
         const string NGC = nameof(NGC);
         const string IC = nameof(IC);
@@ -534,14 +533,14 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
         int processed = 0;
         int failed = 0;
-        var manifestFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith("." + csvName + ".csv.gz"));
+        var manifestFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith("." + csvName + ".csv.lz"));
         if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
         {
             return (processed, failed);
         }
 
-        using var gzipStream = new GZipStream(stream, CompressionMode.Decompress);
-        using var streamReader = new StreamReader(gzipStream, new UTF8Encoding(false), detectEncodingFromByteOrderMarks: false, leaveOpen: true);
+        using var lzipStream = new LZipStream(stream, SharpCompress.Compressors.CompressionMode.Decompress);
+        using var streamReader = new StreamReader(lzipStream, new UTF8Encoding(false), detectEncodingFromByteOrderMarks: false, leaveOpen: true);
         using var csvParser = new CsvParser(streamReader, new CsvConfiguration(CultureInfo.InvariantCulture) { Delimiter = ";" }, leaveOpen: true);
         using var csvReader = new CsvReader(csvParser);
 

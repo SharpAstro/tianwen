@@ -29,7 +29,6 @@
   <ItemGroup>
     <Compile Remove="MAttiaverga.OpenNGC/**" />
     <Compile Remove="OpenNGC/**" />
-    <Compile Remove="hip2000/**" />
     <Compile Remove="Astrometry/Catalogs/*.json" />
     <Compile Remove="Astrometry/Catalogs/tmp-data/**" />
     <EmbeddedResource Remove="MAttiaverga.OpenNGC/**" />
@@ -39,10 +38,7 @@
     <None Remove="MAttiaverga.OpenNGC/**" />
     <None Remove=".git*." />
     <None Remove="Astrometry/Catalogs/tmp-data/**" />
-    <None Remove="hip2000/**" />
-    <EmbeddedResource Remove="hip2000/**" />
     <EmbeddedResource Remove="Astrometry/Catalogs/*.json" />
-    <EmbeddedResource Include="Astrometry/Catalogs/*.gz" WithCulture="false" />
     <EmbeddedResource Include="Astrometry/Catalogs/*.lz" WithCulture="false" />
     <EmbeddedResource Include="Astrometry/Catalogs/*.lz.size" WithCulture="false" />
     <None Include="../../README.md" Pack="true" PackagePath="/" />
