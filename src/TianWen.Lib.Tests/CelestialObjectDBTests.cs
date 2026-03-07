@@ -438,6 +438,44 @@ cancellationToken: TestContext.Current.CancellationToken);
         }
     }
 
+    [Theory]
+    // HD→TYC: each TYC in a collision pair should cross-ref back to its HD source
+    [InlineData(CatalogIndex.Tyc_6447_45_1, CatalogIndex.HD023068)]
+    [InlineData(CatalogIndex.Tyc_6447_45_2, CatalogIndex.HD023068)]
+    [InlineData(CatalogIndex.Tyc_5929_1314_1, CatalogIndex.HD037703)]
+    [InlineData(CatalogIndex.Tyc_5929_1314_2, CatalogIndex.HD037703)]
+    [InlineData(CatalogIndex.Tyc_1340_1326_1, CatalogIndex.HD045900)]
+    [InlineData(CatalogIndex.Tyc_1340_2546_1, CatalogIndex.HD045900)]
+    [InlineData(CatalogIndex.Tyc_5993_1105_1, CatalogIndex.HD063846)]
+    [InlineData(CatalogIndex.Tyc_5993_1105_2, CatalogIndex.HD063846)]
+    [InlineData(CatalogIndex.Tyc_8606_795_1, CatalogIndex.HD086269)]
+    [InlineData(CatalogIndex.Tyc_8606_795_2, CatalogIndex.HD086269)]
+    // HIP→TYC: each TYC in a collision pair should cross-ref back to its HIP source
+    [InlineData(CatalogIndex.Tyc_4026_566_1, CatalogIndex.HIP000040)]
+    [InlineData(CatalogIndex.Tyc_4026_566_2, CatalogIndex.HIP000040)]
+    [InlineData(CatalogIndex.Tyc_600_1507_1, CatalogIndex.HIP000096)]
+    [InlineData(CatalogIndex.Tyc_600_1507_2, CatalogIndex.HIP000096)]
+    [InlineData(CatalogIndex.Tyc_2785_116_1, CatalogIndex.HIP000110)]
+    [InlineData(CatalogIndex.Tyc_2785_116_2, CatalogIndex.HIP000110)]
+    [InlineData(CatalogIndex.Tyc_2259_1286_1, CatalogIndex.HIP000114)]
+    [InlineData(CatalogIndex.Tyc_2259_1286_2, CatalogIndex.HIP000114)]
+    [InlineData(CatalogIndex.Tyc_6415_65_1, CatalogIndex.HIP000178)]
+    [InlineData(CatalogIndex.Tyc_6415_65_2, CatalogIndex.HIP000178)]
+    public async Task GivenTycStarFromCollisionWhenLookingUpCrossIndicesThenSourceIsFound(CatalogIndex tycIndex, CatalogIndex expectedSourceIndex)
+    {
+        // given
+        var db = await InitDBAsync();
+
+        // when
+        var tycFound = db.TryLookupByIndex(tycIndex, out var tycObj);
+        var hasCrossIndices = db.TryGetCrossIndices(tycIndex, out var crossIndices);
+
+        // then
+        tycFound.ShouldBeTrue($"{tycIndex.ToCanonical()} should be found");
+        hasCrossIndices.ShouldBeTrue($"{tycIndex.ToCanonical()} should have cross-indices");
+        crossIndices.ShouldContain(expectedSourceIndex, $"{tycIndex.ToCanonical()} should cross-ref to {expectedSourceIndex.ToCanonical()}");
+    }
+
     [Fact]
     public async Task GivenDBWhenCreateAutoCompleteListThenItContainsAllCommonNamesAndDesignations()
     {

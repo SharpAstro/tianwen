@@ -376,7 +376,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         return (BinaryPrimitives.ReadInt32LittleEndian(buf), BinaryPrimitives.ReadInt32LittleEndian(buf[4..]));
     }
 
-    private static void LoadCrossRefMultiJson(Assembly assembly, string name, Catalog catalog, int digits, CatalogIndex[]? crossRefArray)
+    private void LoadCrossRefMultiJson(Assembly assembly, string name, Catalog catalog, int digits, CatalogIndex[]? crossRefArray)
     {
         var manifestFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith("." + name + ".json.lz"));
         if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
@@ -412,6 +412,9 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                         {
                             crossRefArray[number - 1] = tycIndex;
                         }
+
+                        _crossIndexLookuptable.AddLookupEntry(tycIndex, catalogIndex);
+                        _crossIndexLookuptable.AddLookupEntry(catalogIndex, tycIndex);
                     }
                 }
             }
