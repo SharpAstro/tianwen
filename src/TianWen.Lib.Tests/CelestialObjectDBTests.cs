@@ -1,6 +1,5 @@
 ﻿using TianWen.Lib.Astrometry.Catalogs;
 using Shouldly;
-using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -75,6 +74,34 @@ cancellationToken: TestContext.Current.CancellationToken);
     [InlineData("vdB0005", ObjectType.Star, CatalogIndex.HIP004427, Constellation.Cassiopeia, 0.9451477026666667d, 60.71674038d)]
     [InlineData("vdB0020", ObjectType.Star, CatalogIndex.HIP017499, Constellation.Taurus, 3.747927033333333d, 24.11333922d)]
     [InlineData("HIP120404", ObjectType.Star, CatalogIndex.HIP120404, Constellation.Carina, 7.967475347333333d, -60.61478539d)]
+    // HD cross-reference first 10
+    [InlineData("HD000001", ObjectType.Star, CatalogIndex.HD000001, Constellation.Cepheus, 0.0857878625d, 67.8400115967d)]
+    [InlineData("HD000002", ObjectType.Star, CatalogIndex.HD000002, Constellation.Cassiopeia, 0.0849866346d, 57.7703285217d)]
+    [InlineData("HD000003", ObjectType.Star, CatalogIndex.HD000003, Constellation.Andromeda, 0.0860434994d, 45.2290306091d)]
+    [InlineData("HD000004", ObjectType.Star, CatalogIndex.HD000004, Constellation.Pegasus, 0.0858989134d, 30.3290309906d)]
+    [InlineData("HD000005", ObjectType.Star, CatalogIndex.HD000005, Constellation.Pisces, 0.0861614272d, 2.3972029686d)]
+    [InlineData("HD000006", ObjectType.Star, CatalogIndex.HD000006, Constellation.Pisces, 0.0843953714d, -0.5030353069d)]
+    [InlineData("HD000007", ObjectType.Star, CatalogIndex.HD000007, Constellation.Pisces, 0.0862675384d, -1.8536438942d)]
+    [InlineData("HD000008", ObjectType.Star, CatalogIndex.HD000008, Constellation.Pisces, 0.0860361978d, -4.0346636772d)]
+    [InlineData("HD000009", ObjectType.Star, CatalogIndex.HD000009, Constellation.Cetus, 0.0854400545d, -20.6129074097d)]
+    [InlineData("HD000010", ObjectType.Star, CatalogIndex.HD000010, Constellation.Phoenix, 0.0852333978d, -42.5678710938d)]
+    // HD cross-reference multi-TYC entries (collisions resolved via JSON sidecar)
+    [InlineData("HD023068", ObjectType.Star, CatalogIndex.HD023068, Constellation.Eridanus, 3.6885507107d, -22.9102020264d)]
+    [InlineData("HD037703", ObjectType.Star, CatalogIndex.HD037703, Constellation.Lepus, 5.6608538628d, -21.6159019470d)]
+    [InlineData("HD045900", ObjectType.Star, CatalogIndex.HD045900, Constellation.Gemini, 6.5192265511d, 21.7192802429d)]
+    [InlineData("HD063846", ObjectType.Star, CatalogIndex.HD063846, Constellation.Puppis, 7.8356800079d, -20.8451938629d)]
+    [InlineData("HD086269", ObjectType.Star, CatalogIndex.HD086269, Constellation.Carina, 9.9250593185d, -57.9546508789d)]
+    // HD cross-reference last 10
+    [InlineData("HD359074", ObjectType.Star, CatalogIndex.HD359074, Constellation.Capricornus, 21.4737014771d, -16.6873950958d)]
+    [InlineData("HD359075", ObjectType.Star, CatalogIndex.HD359075, Constellation.Capricornus, 21.4681739807d, -17.0429763794d)]
+    [InlineData("HD359076", ObjectType.Star, CatalogIndex.HD359076, Constellation.Capricornus, 21.4684009552d, -17.1383743286d)]
+    [InlineData("HD359077", ObjectType.Star, CatalogIndex.HD359077, Constellation.Capricornus, 21.4480381012d, -17.4419612885d)]
+    [InlineData("HD359078", ObjectType.Star, CatalogIndex.HD359078, Constellation.Capricornus, 21.4434127808d, -17.3815097809d)]
+    [InlineData("HD359079", ObjectType.Star, CatalogIndex.HD359079, Constellation.Capricornus, 21.4300880432d, -17.3793792725d)]
+    [InlineData("HD359080", ObjectType.Star, CatalogIndex.HD359080, Constellation.Capricornus, 21.4426498413d, -17.4391345978d)]
+    [InlineData("HD359081", ObjectType.Star, CatalogIndex.HD359081, Constellation.Capricornus, 21.4565372467d, -19.3454189301d)]
+    [InlineData("HD359082", ObjectType.Star, CatalogIndex.HD359082, Constellation.Capricornus, 21.4612331390d, -19.5093517303d)]
+    [InlineData("HD359083", ObjectType.Star, CatalogIndex.HD359083, Constellation.Capricornus, 21.4717769623d, -20.2923583984d)]
     public async Task GivenObjectIdWhenLookingItUpThenAnObjIsReturned(
         string indexEntry,
         ObjectType expectedObjType,
@@ -208,7 +235,7 @@ cancellationToken: TestContext.Current.CancellationToken);
     [InlineData(CatalogIndex.HIP000424, CatalogIndex.HR0001)] // TODO: CatalogIndex.HD000003
     [InlineData(CatalogIndex.HR0264, CatalogIndex.vdB0005, CatalogIndex.HIP004427)] // TODO: CatalogIndex.HD005394
     [InlineData(CatalogIndex.HR1142, CatalogIndex.vdB0020, CatalogIndex.HIP017499)]
-    [InlineData(CatalogIndex.vdB0005, CatalogIndex.HR0264, CatalogIndex.HIP004427)] // TODO:  CatalogIndex.HD005394
+    [InlineData(CatalogIndex.vdB0005, CatalogIndex.HR0264, CatalogIndex.HIP004427)] // TODO: CatalogIndex.HD005394
     [InlineData(CatalogIndex.vdB0020, CatalogIndex.HR1142, CatalogIndex.HIP017499)]
     [InlineData(CatalogIndex.vdB0094, CatalogIndex.GUM003, CatalogIndex.HIP034178)]
     [InlineData(CatalogIndex.NGC6514, CatalogIndex.M020, CatalogIndex.Cr360)]
@@ -389,4 +416,5 @@ cancellationToken: TestContext.Current.CancellationToken);
         db.CommonNames.ShouldBeSubsetOf(list);
         db.AllObjectIndices.Select(p => p.ToCanonical()).ShouldBeSubsetOf(list);
     }
+
 }
