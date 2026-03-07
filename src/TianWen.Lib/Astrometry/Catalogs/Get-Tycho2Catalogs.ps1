@@ -14,6 +14,52 @@ $cats = [ordered]@{
     leda    = [PSCustomObject]@{ Cat = 'VII/237'; File = 'pgc.dat.gz'; }
 }
 
+function Compress-WithLzip
+{
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [int] $EntryCount = -1
+    )
+
+    $lzFile = "$Path.lz"
+    if ($ForceProcessing -and (Test-Path $lzFile)) {
+        Remove-Item $lzFile
+        $sizeFile = "$lzFile.size"
+        if (Test-Path $sizeFile) { Remove-Item $sizeFile }
+    }
+
+    $uncompressedSize = [int](Get-Item $Path).Length
+    & lzip -9 $Path
+    if (Test-Path $lzFile) {
+        $compressedSize = (Get-Item $lzFile).Length
+        $ratio = if ($uncompressedSize -gt 0) { $compressedSize / $uncompressedSize * 100 } else { 0 }
+        $entryInfo = if ($EntryCount -ge 0) { ", $EntryCount entries" } else { '' }
+        Write-Host ("  {0}: {1:N0} -> {2:N0} bytes ({3:N1}%{4})" -f (Split-Path $lzFile -Leaf), $uncompressedSize, $compressedSize, $ratio, $entryInfo)
+
+        # Write sidecar: LE int32 uncompressed size + LE int32 entry count (-1 if N/A)
+        $isLE = [BitConverter]::IsLittleEndian
+        $sizeBytes = [BitConverter]::GetBytes([int32]$uncompressedSize)
+        $countBytes = [BitConverter]::GetBytes([int32]$EntryCount)
+        if (-not $isLE) { [array]::Reverse($sizeBytes); [array]::Reverse($countBytes) }
+        $sizeFile = "$lzFile.size"
+        $sidecar = [byte[]]::new(8)
+        [array]::Copy($sizeBytes, 0, $sidecar, 0, 4)
+        [array]::Copy($countBytes, 0, $sidecar, 4, 4)
+        [System.IO.File]::WriteAllBytes($sizeFile, $sidecar)
+    }
+}
+
+function ConvertFrom-TycIdComponents
+{
+    param([string[]] $Components)
+    $inv = [cultureinfo]::InvariantCulture
+    [short]$t1 = 0; [short]$t2 = 0; [short]$t3 = 0
+    [void][short]::TryParse($Components[0], $inv, [ref] $t1)
+    [void][short]::TryParse($Components[1], $inv, [ref] $t2)
+    [void][short]::TryParse($Components[2], $inv, [ref] $t3)
+    return [PSCustomObject]@{ Tyc1 = $t1; Tyc2 = $t2; Tyc3 = $t3; Key = "TYC $($t1)-$($t2)-$($t3)" }
+}
+
 function ConvertFrom-EpochRADec
 {
     param([double] $RA1, [double] $Dec1, [double] $Epoch1, [double] $Epoch2)
@@ -94,11 +140,8 @@ function ConvertAndWrite-Tycho2Data
     foreach ($line in $lines) {
         $values = $line.Split('|')
 
-        $tycIdComp = $values[0].Split(' ')
-        [short]$tyc1 = 0; [short]$tyc2 = 0; [short]$tyc3 = 0
-        [void][short]::TryParse($tycIdComp[0], $inv, [ref] $tyc1)
-        [void][short]::TryParse($tycIdComp[1], $inv, [ref] $tyc2)
-        [void][short]::TryParse($tycIdComp[2], $inv, [ref] $tyc3)
+        $tyc = ConvertFrom-TycIdComponents $values[0].Split(' ')
+        $tyc1 = $tyc.Tyc1; $tyc2 = $tyc.Tyc2; $tyc3 = $tyc.Tyc3
         $tycIdShort = [short[]]@($tyc1, $tyc2, $tyc3)
 
         $posType = $values[1]
@@ -159,8 +202,7 @@ function ConvertAndWrite-Tycho2Data
         }
 
         # accumulate HD -> TYC mapping
-        $tycId = "TYC $($tyc1)-$($tyc2)-$($tyc3)"
-        $hdList = $HDCrossTable[$tycId]
+        $hdList = $HDCrossTable[$tyc.Key]
         if ($null -ne $hdList) {
             foreach ($hd in $hdList) {
                 if ($hd -ne 0) {
@@ -220,11 +262,11 @@ function Write-CrossRefFiles
     }
 
     [System.IO.File]::WriteAllBytes($BinFile, $buffer)
-    & lzip -9 $BinFile
+    Compress-WithLzip $BinFile -EntryCount $maxKey
 
     if ($collisions.Count -gt 0) {
         $collisions | ConvertTo-Json | Set-Content -Encoding UTF8 $JsonFile
-        & lzip -9 $JsonFile
+        Compress-WithLzip $JsonFile -EntryCount $collisions.Count
         Write-Host "  $($collisions.Count) collision(s) written to $JsonFile.jz"
     }
 }
@@ -242,8 +284,7 @@ function ConvertFrom-Tycho2_HD_ASCIIDat
     $inv = [cultureinfo]::InvariantCulture
 
     foreach ($line in $lines) {
-        $tycIdComp = $line.Substring(0, 12).Split(' ')
-        $tycId = "TYC $($tycIdComp[0])-$($tycIdComp[1])-$($tycIdComp[2])"
+        $tycId = (ConvertFrom-TycIdComponents $line.Substring(0, 12).Split(' ')).Key
 
         $maybeHD = $line.Substring(14, 7)
         $hd = 0
@@ -412,7 +453,7 @@ $cats.GetEnumerator() | ForEach-Object {
                 [array]::Copy($b4, 0, $boundsBuffer, $off + 12, 4)
             }
             [System.IO.File]::WriteAllBytes($boundsFile, $boundsBuffer)
-            & lzip -9 $boundsFile
+            Compress-WithLzip $boundsFile -EntryCount $cat.StreamCount
         }
 
         # Simple binary archive: int32 streamCount, then streamCount × int32 byte-offsets, then concatenated stream data.
@@ -466,7 +507,7 @@ $cats.GetEnumerator() | ForEach-Object {
             $outStream.Close()
         }
 
-        & lzip -9 $outBin
+        Compress-WithLzip $outBin -EntryCount $streamCount
         # Remove-Item $outBin
     } elseif ($null -ne $catalogTable) {
         $unzippedDataFileName = [System.IO.Path]::GetFileNameWithoutExtension($cat.File)

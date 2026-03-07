@@ -302,9 +302,18 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
         using (var lzipStream = new LZipStream(tyc2Stream, SharpCompress.Compressors.CompressionMode.Decompress))
         {
-            var tycMs = new MemoryStream();
-            await lzipStream.CopyToAsync(tycMs);
-            _tycho2Data = tycMs.ToArray();
+            var sizeInfo = ReadLzSizeInfo(assembly, tyc2Manifest);
+            if (sizeInfo is var (uncompressedSize, _))
+            {
+                _tycho2Data = new byte[uncompressedSize];
+                await lzipStream.ReadExactlyAsync(_tycho2Data);
+            }
+            else
+            {
+                var tycMs = new MemoryStream(capacity: (int)tyc2Stream.Length * 4);
+                await lzipStream.CopyToAsync(tycMs);
+                _tycho2Data = tycMs.ToArray();
+            }
         }
 
         _tycho2StreamCount = BinaryPrimitives.ReadInt32LittleEndian(_tycho2Data);
@@ -314,9 +323,10 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         if (boundsManifest is not null && assembly.GetManifestResourceStream(boundsManifest) is Stream boundsStream)
         {
             using var boundsLzip = new LZipStream(boundsStream, SharpCompress.Compressors.CompressionMode.Decompress);
-            var boundsMs = new MemoryStream();
-            await boundsLzip.CopyToAsync(boundsMs);
-            _tycho2RaDecIndex = new Tycho2RaDecIndex(_tycho2Data, _tycho2StreamCount, boundsMs.ToArray());
+            var boundsSize = _tycho2StreamCount * 16; // 4 × float32 per GSC region
+            var boundsData = new byte[boundsSize];
+            await boundsLzip.ReadExactlyAsync(boundsData);
+            _tycho2RaDecIndex = new Tycho2RaDecIndex(_tycho2Data, _tycho2StreamCount, boundsData);
         }
 
         // 3. Load HIP → TYC cross-reference
@@ -337,9 +347,19 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
 
         using var lzipStream = new LZipStream(stream, SharpCompress.Compressors.CompressionMode.Decompress);
-        var ms = new MemoryStream();
-        lzipStream.CopyTo(ms);
-        var data = ms.ToArray();
+        byte[] data;
+        var sizeInfo = ReadLzSizeInfo(assembly, manifestFileName);
+        if (sizeInfo is var (uncompressedSize, _))
+        {
+            data = new byte[uncompressedSize];
+            lzipStream.ReadExactly(data);
+        }
+        else
+        {
+            var ms = new MemoryStream(capacity: (int)stream.Length * 4);
+            lzipStream.CopyTo(ms);
+            data = ms.ToArray();
+        }
 
         const int recordSize = 5;
         var count = data.Length / recordSize;
@@ -360,6 +380,24 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
 
         return result;
+    }
+
+    private static (int UncompressedSize, int EntryCount)? ReadLzSizeInfo(Assembly assembly, string lzManifestName)
+    {
+        var sizeManifest = lzManifestName + ".size";
+        if (assembly.GetManifestResourceStream(sizeManifest) is not Stream sizeStream)
+        {
+            return null;
+        }
+
+        using (sizeStream)
+        {
+            Span<byte> buf = stackalloc byte[8];
+            sizeStream.ReadExactly(buf);
+            var uncompressedSize = BinaryPrimitives.ReadInt32LittleEndian(buf);
+            var entryCount = BinaryPrimitives.ReadInt32LittleEndian(buf[4..]);
+            return (uncompressedSize, entryCount);
+        }
     }
 
     private static void LoadCrossRefMultiJson(Assembly assembly, string name, Catalog catalog, int digits, CatalogIndex[]? crossRefArray)
