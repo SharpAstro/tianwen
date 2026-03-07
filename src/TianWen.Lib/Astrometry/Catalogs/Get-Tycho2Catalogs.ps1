@@ -107,9 +107,9 @@ function ConvertFrom-Tycho2_ASCIIDat
         $maybeHip = $values[23]
         $hip = 0
         if (-not [string]::IsNullOrWhiteSpace($maybeHip)) {
-            $hipNumber = $maybeHip.Substring(0, 6)
+            $hipNumber = $maybeHip.Substring(0, 6).Trim()
             $hipCCDM = $maybeHip.Substring(6)
-            if (-not [int]::TryParse($hipNumber, [cultureinfo]::InvariantCulture, [ref] $hip)) {
+            if ($hipNumber -contains ' ' -or -not [int]::TryParse($hipNumber, [cultureinfo]::InvariantCulture, [ref] $hip)) {
                 Write-Warning "$tycId : Invalid HIP: $maybeHip"
             }
         } else {
@@ -167,48 +167,107 @@ function ConvertTo-Tycho2_BinTable
         $gscIdx = $tycIdShort[0] - 1
         $stream = $OutputData.Streams[$gscIdx]
 
-        $hd1 = if ($null -ne $InputObject.HD -and $InputObject.HD.Length -ge 1) { $InputObject.HD[0] } else { 0 }
-        $hd2 = if ($null -ne $InputObject.HD -and $InputObject.HD.Length -eq 2) { $InputObject.HD[1] } else { 0 }
-
         # always store in little endian as it is more common
         $isLittleEndian = [BitConverter]::IsLittleEndian
-        
+
         # first part of ID can be inferred from file name
         # $tycId1N = $tycIdShort[0]
-        $tycId2 = [BitConverter]::GetBytes($tycIdShort[1])
-        if (-not $isLittleEndian) {
-            [array]::Reverse($tycId2)
-        }
+        $tycId2 = [BitConverter]::GetBytes([int16]$tycIdShort[1])
+        if (-not $isLittleEndian) { [array]::Reverse($tycId2) }
         [byte]$tycId3 = $tycIdShort[2]
-
-        $hipBytes = [BitConverter]::GetBytes($InputObject.HIP)
-        $hd1Bytes = [BitConverter]::GetBytes($hd1)
-        $hd2Bytes = [BitConverter]::GetBytes($hd2)
 
         $raHBytes = [BitConverter]::GetBytes([BitConverter]::SingleToInt32Bits($InputObject.RA))
         $decBytes = [BitConverter]::GetBytes([BitConverter]::SingleToInt32Bits($InputObject.Dec))
 
         if (-not $isLittleEndian) {
-            [array]::Reverse($hipBytesN)
-            [array]::Reverse($hd1BytesN)
-            [array]::Reverse($hd2BytesN)
-
-            [array]::Reverse($raHBytesN)
-            [array]::Reverse($decBytesN)
+            [array]::Reverse($raHBytes)
+            [array]::Reverse($decBytes)
         }
 
-        $entry = [byte[]]::new(14)
-        # [array]::Copy($tycId1, 0, $entry, 0, 2)
+        # entry: tycId2(2) + tycId3(1) + RA(4) + Dec(4) = 11 bytes
+        $entry = [byte[]]::new(11)
         [array]::Copy($tycId2, 0, $entry, 0, 2)
         $entry[2] = $tycId3
-        
         [array]::Copy($raHBytes, 0, $entry, 3, 4)
         [array]::Copy($decBytes, 0, $entry, 7, 4)
-        [array]::Copy($hipBytes, 0, $entry, 5, 3)
-        [array]::Copy($hd1Bytes, 0, $entry, 8, 3)
-        [array]::Copy($hd2Bytes, 0, $entry, 11, 3)
-        
         $stream.Write($entry)
+
+        # accumulate HIP -> TYC mapping
+        if ($InputObject.HIP -ne 0) {
+            $hip = $InputObject.HIP
+            if (-not $OutputData.HIPMap.ContainsKey($hip)) {
+                $OutputData.HIPMap[$hip] = [System.Collections.Generic.List[short[]]]::new()
+            }
+            [void]$OutputData.HIPMap[$hip].Add($tycIdShort)
+        }
+
+        # accumulate HD -> TYC mapping
+        if ($null -ne $InputObject.HD) {
+            foreach ($hd in $InputObject.HD) {
+                if ($hd -ne 0) {
+                    if (-not $OutputData.HDMap.ContainsKey($hd)) {
+                        $OutputData.HDMap[$hd] = [System.Collections.Generic.List[short[]]]::new()
+                    }
+                    [void]$OutputData.HDMap[$hd].Add($tycIdShort)
+                }
+            }
+        }
+    }
+}
+
+# Writes a flat fixed-size cross-reference binary file where each entry's position determines the key:
+# entry at offset (key-1)*5 holds the matching TYC star as GSC_int16(2) + Num_int16(2) + Comp_byte(1).
+# Empty slots (no match) are all zeros. Keys are NOT stored in the file.
+# When multiple TYC stars share the same key, those are written to a JSON sidecar file instead.
+function Write-CrossRefFiles
+{
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)] [hashtable] $Map,
+        [Parameter(Mandatory = $true)] [string] $BinFile,
+        [Parameter(Mandatory = $true)] [string] $JsonFile
+    )
+
+    if ($Map.Count -eq 0) { return }
+
+    $isLittleEndian = [BitConverter]::IsLittleEndian
+    $collisions = [ordered]@{}
+
+    $sortedMap = $Map.GetEnumerator() | Sort-Object Key
+    $maxKey    = $sortedMap | Select-Object -Last 1 | ForEach-Object { $_.Key }
+    $RecordSize = 5
+    $buffer    = [byte[]]::new($maxKey * $RecordSize)  # all zeros = empty slots
+
+    foreach ($kvp in $sortedMap) {
+        $key     = $kvp.Key
+        $tycList = $kvp.Value
+
+        if ($tycList.Count -eq 1) {
+            $tycId  = $tycList[0]
+            $offset = ($key - 1) * $RecordSize
+
+            $gscBytes = [BitConverter]::GetBytes([int16]$tycId[0])
+            $numBytes = [BitConverter]::GetBytes([int16]$tycId[1])
+            if (-not $isLittleEndian) {
+                [array]::Reverse($gscBytes)
+                [array]::Reverse($numBytes)
+            }
+            [array]::Copy($gscBytes, 0, $buffer, $offset,     2)
+            [array]::Copy($numBytes, 0, $buffer, $offset + 2, 2)
+            $buffer[$offset + 4] = [byte]$tycId[2]
+        } else {
+            $collisions["$key"] = @($($tycList) | ForEach-Object { "$($_[0])-$($_[1])-$($_[2])" })
+        }
+    }
+
+    [System.IO.File]::WriteAllBytes($BinFile, $buffer)
+    & 7z a -txz "$BinFile.xz" $BinFile
+    Remove-Item $BinFile
+
+    if ($collisions.Count -gt 0) {
+        $collisions | ConvertTo-Json | Set-Content -Encoding UTF8 $JsonFile
+        & 7z a -txz "$JsonFile.xz" $JsonFile
+        Write-Host "  $($collisions.Count) collision(s) written to $JsonFile.xz"
     }
 }
 
@@ -299,7 +358,11 @@ $cats.GetEnumerator() | ForEach-Object {
     if ($isSplitFile) {
         $unzippedFilePattern = [System.IO.Path]::GetFileNameWithoutExtension($cat.File)
         $location = Get-Location
-        $outputData = [PSCustomObject] @{ Streams = [System.IO.FileStream[]]::new($cat.StreamCount) }
+        $outputData = [PSCustomObject] @{
+            Streams = [System.IO.FileStream[]]::new($cat.StreamCount)
+            HIPMap  = @{}
+            HDMap   = @{}
+        }
 
         $needsProcessing = $false
         for ($i = 0; $i -lt $cat.StreamCount; $i++) {
@@ -339,23 +402,77 @@ $cats.GetEnumerator() | ForEach-Object {
 
         if ($needsProcessing) {
             for ($i = 0; $i -lt $cat.StreamCount; $i++) {
-                $formattedStreamId = $($i + 1).ToString('D4')
-
                 $outputData.Streams[$i].Close()
             }
         }
 
-        $outTar = [System.IO.Path]::Combine($location, "$($folder).bin.tar.bz2")
-        Write-Host "Writing output to $($outTar)"
-        if (Test-Path $outTar) {
-            Remove-Item $outTar
+        if ($folder -eq 'tyc2' -and $needsProcessing) {
+            Write-Host "Writing HIP cross-reference..."
+            Write-CrossRefFiles `
+                -Map      $outputData.HIPMap `
+                -BinFile  ([System.IO.Path]::Combine($PSScriptRoot, 'hip_to_tyc.bin')) `
+                -JsonFile ([System.IO.Path]::Combine($PSScriptRoot, 'hip_to_tyc_multi.json'))
+
+            Write-Host "Writing HD cross-reference..."
+            Write-CrossRefFiles `
+                -Map      $outputData.HDMap `
+                -BinFile  ([System.IO.Path]::Combine($PSScriptRoot, 'hd_to_tyc.bin')) `
+                -JsonFile ([System.IO.Path]::Combine($PSScriptRoot, 'hd_to_tyc_multi.json'))
         }
 
-        $tmpBinOutFolder =  [System.IO.Path]::Combine($location, "out")
+        # Simple binary archive: int32 streamCount, then streamCount × int32 byte-offsets, then concatenated stream data.
+        # Stream N's offset entry is at byte position N*4 (1-indexed), i.e. file 1 offset is at byte 4.
+        $outBin = [System.IO.Path]::Combine($PSScriptRoot, "$($folder).bin")
+        Write-Host "Writing binary catalog to $($outBin)"
+        if (Test-Path $outBin) {
+            Remove-Item $outBin
+        }
 
-        & tar cjf "$outTar" -C "$($tmpBinOutFolder)" *
+        $streamCount = $cat.StreamCount
+        $headerSize = ($streamCount + 1) * 4
+        $isLittleEndian = [BitConverter]::IsLittleEndian
 
-        Move-Item -Force $outTar $PSScriptRoot
+        # Collect stream file paths and sizes to precompute offsets
+        $streamFiles = [string[]]::new($streamCount)
+        $streamSizes = [int[]]::new($streamCount)
+        for ($i = 0; $i -lt $streamCount; $i++) {
+            $formattedStreamId = $($i + 1).ToString('D4')
+            $tmpBinFolder = [System.IO.Path]::Combine($location, 'out', $formattedStreamId[0])
+            $streamFiles[$i] = [System.IO.Path]::Combine($tmpBinFolder, "$($folder)_$($formattedStreamId).bin")
+            if (Test-Path $streamFiles[$i]) {
+                $streamSizes[$i] = [int](Get-Item $streamFiles[$i]).Length
+            }
+        }
+
+        $outStream = [System.IO.File]::Open($outBin, [System.IO.FileMode]::Create, [System.IO.FileAccess]::Write)
+        try {
+            # Write header: stream count + precomputed offsets
+            $countBytes = [BitConverter]::GetBytes([int32]$streamCount)
+            if (-not $isLittleEndian) { [array]::Reverse($countBytes) }
+            $outStream.Write($countBytes, 0, 4)
+
+            $offset = $headerSize
+            for ($i = 0; $i -lt $streamCount; $i++) {
+                $offsetBytes = [BitConverter]::GetBytes([int32]$offset)
+                if (-not $isLittleEndian) { [array]::Reverse($offsetBytes) }
+                $outStream.Write($offsetBytes, 0, 4)
+                $offset += $streamSizes[$i]
+            }
+
+            # Write concatenated stream data
+            for ($i = 0; $i -lt $streamCount; $i++) {
+                if ($streamSizes[$i] -gt 0) {
+                    $streamData = [System.IO.File]::ReadAllBytes($streamFiles[$i])
+                    $outStream.Write($streamData, 0, $streamData.Length)
+                }
+            }
+        }
+        finally {
+            $outStream.Close()
+        }
+
+        & 7z a -txz "$outBin.xz" $outBin
+        # Remove-Item $outBin
     } elseif ($null -ne $catalogTable) {
         $unzippedDataFileName = [System.IO.Path]::GetFileNameWithoutExtension($cat.File)
 
