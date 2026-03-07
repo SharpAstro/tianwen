@@ -33,7 +33,7 @@ internal class ConsoleHost(
     {
         if (_deviceCapabilities is null)
         {
-            var response = await GetControlSequenceResponse("\e[0c");
+            var response = await GetControlSequenceResponseAsync("\e[0c");
 
             _deviceCapabilities = [.. response
                     .TrimStart('\e', '[', '?')
@@ -46,7 +46,7 @@ internal class ConsoleHost(
         return _deviceCapabilities.Contains(TerminalCapability.Sixel);
     }
 
-    private async ValueTask<string> GetControlSequenceResponse(string sequence)
+    private async ValueTask<string> GetControlSequenceResponseAsync(string sequence)
     {
         const int maxTries = 10;
 
@@ -86,7 +86,7 @@ internal class ConsoleHost(
             return null;
         }
 
-        var response = await GetControlSequenceResponse("\e[14t");
+        var response = await GetControlSequenceResponseAsync("\e[14t");
         // Response is of the form ESC [ 4 ; height ; width t
         var parts = response.TrimStart('\e', '[').TrimEnd('t').Split(';');
         if (parts is ["4", _, _] &&
