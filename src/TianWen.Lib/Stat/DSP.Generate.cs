@@ -63,7 +63,7 @@ public partial class DSP
         /// <returns>double[] array</returns>
         public static double[] ToneSampling(double amplitudeVrms, double frequencyHz, double samplingFrequencyHz, uint points, double dcV = 0.0, double phaseDeg = 0)
         {
-            double ph_r = phaseDeg * Math.PI / 180.0;
+            double ph_r = double.DegreesToRadians(phaseDeg);
             double ampPeak = Math.Sqrt(2) * amplitudeVrms;
 
             double[] rval = new double[points];
@@ -87,7 +87,7 @@ public partial class DSP
         /// <returns>double[] array</returns>
         public static double[] ToneCycles(double amplitudeVrms, double cycles, uint points, double dcV = 0.0, double phaseDeg = 0)
         {
-            double ph_r = phaseDeg * Math.PI / 180.0;
+            double ph_r = double.DegreesToRadians(phaseDeg);
             double ampPeak = Math.Sqrt(2) * amplitudeVrms;
 
             double[] rval = new double[points];

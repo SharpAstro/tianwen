@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
+using static TianWen.Lib.Astrometry.Constants;
 using static TianWen.Lib.Astrometry.CoordinateUtils;
 
 namespace TianWen.Lib.Astrometry.PlateSolve;
@@ -130,7 +131,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
         // are most likely to correspond to detected stars.
         catalogCoords.Sort((a, b) => a.VMag.CompareTo(b.VMag));
 
-        var pixelScaleRad = dim.PixelScale * Math.PI / (3600.0 * 180.0);
+        var pixelScaleRad = double.DegreesToRadians(dim.PixelScale / 3600.0);
         var cx = image.Width / 2.0;
         var cy = image.Height / 2.0;
 
@@ -223,7 +224,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
             }
 
             // Compute offset using Matrix3x2 affine fit (handles translation + rotation)
-            var M = FitAffineTransform(matchedProjected, matchedDetected);
+            var M = Matrix3x2.FitAffineTransform(matchedProjected, matchedDetected);
             if (M is null || !Matrix3x2.Invert(M.Value, out var Minv))
             {
                 return iteration > 0 ? currentOrigin : null;
@@ -256,89 +257,6 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
         return currentOrigin;
     }
 
-    /// <summary>
-    /// Fits a Matrix3x2 affine transform that maps source points to destination points
-    /// using least squares (normal equations).
-    /// </summary>
-    private static Matrix3x2? FitAffineTransform(List<Vector2> source, List<Vector2> dest)
-    {
-        int n = source.Count;
-        if (n < 3)
-        {
-            return null;
-        }
-
-        // Solve two independent systems:
-        //   dest.X = m11*src.X + m21*src.Y + m31
-        //   dest.Y = m12*src.X + m22*src.Y + m32
-        // via normal equations: A^T A x = A^T b
-
-        // Build A^T A (3x3) and A^T b (3x1) for each component
-        double sXX = 0, sYY = 0, sXY = 0, sX = 0, sY = 0;
-        double sDxX = 0, sDxY = 0, sDx = 0;
-        double sDyX = 0, sDyY = 0, sDy = 0;
-
-        for (int i = 0; i < n; i++)
-        {
-            double sx = source[i].X, sy = source[i].Y;
-            double dx = dest[i].X, dy = dest[i].Y;
-
-            sXX += sx * sx;
-            sYY += sy * sy;
-            sXY += sx * sy;
-            sX += sx;
-            sY += sy;
-
-            sDxX += dx * sx;
-            sDxY += dx * sy;
-            sDx += dx;
-
-            sDyX += dy * sx;
-            sDyY += dy * sy;
-            sDy += dy;
-        }
-
-        // A^T A = [[sXX, sXY, sX], [sXY, sYY, sY], [sX, sY, n]]
-        // Solve via Cramer's rule
-        double det = sXX * (sYY * n - sY * sY)
-                   - sXY * (sXY * n - sY * sX)
-                   + sX * (sXY * sY - sYY * sX);
-
-        if (Math.Abs(det) < 1e-12)
-        {
-            return null;
-        }
-
-        double invDet = 1.0 / det;
-
-        // Cofactor matrix for inversion
-        double c00 = sYY * n - sY * sY;
-        double c01 = -(sXY * n - sY * sX);
-        double c02 = sXY * sY - sYY * sX;
-        double c10 = -(sXY * n - sX * sY);
-        double c11 = sXX * n - sX * sX;
-        double c12 = -(sXX * sY - sXY * sX);
-        double c20 = sXY * sY - sYY * sX;
-        double c21 = -(sXX * sY - sX * sXY);
-        double c22 = sXX * sYY - sXY * sXY;
-
-        // Solve for X component: [m11, m21, m31]
-        double m11 = (c00 * sDxX + c01 * sDxY + c02 * sDx) * invDet;
-        double m21 = (c10 * sDxX + c11 * sDxY + c12 * sDx) * invDet;
-        double m31 = (c20 * sDxX + c21 * sDxY + c22 * sDx) * invDet;
-
-        // Solve for Y component: [m12, m22, m32]
-        double m12 = (c00 * sDyX + c01 * sDyY + c02 * sDy) * invDet;
-        double m22 = (c10 * sDyX + c11 * sDyY + c12 * sDy) * invDet;
-        double m32 = (c20 * sDyX + c21 * sDyY + c22 * sDy) * invDet;
-
-        return new Matrix3x2(
-            (float)m11, (float)m12,
-            (float)m21, (float)m22,
-            (float)m31, (float)m32
-        );
-    }
-
     private List<(double RA, double Dec, double VMag)> QueryCatalogStarsInRegion(WCS origin, double radiusDeg)
     {
         var result = new List<(double RA, double Dec, double VMag)>();
@@ -347,7 +265,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
         var centerDec = origin.CenterDec;   // degrees
 
         // RA search radius in hours, adjusted for cos(dec)
-        var cosDecl = Math.Cos(centerDec * Math.PI / 180.0);
+        var cosDecl = Math.Cos(double.DegreesToRadians(centerDec));
         var radiusRA = cosDecl > 0.01 ? radiusDeg / (15.0 * cosDecl) : 24.0;
 
         var minRA = centerRA - radiusRA;
@@ -392,8 +310,8 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
     {
         var projected = new List<ImagedStar>();
 
-        var alpha0 = origin.CenterRA * Math.PI / 12.0;
-        var delta0 = origin.CenterDec * Math.PI / 180.0;
+        var alpha0 = origin.CenterRA * HOURS2RADIANS;
+        var delta0 = double.DegreesToRadians(origin.CenterDec);
         var sinDelta0 = Math.Sin(delta0);
         var cosDelta0 = Math.Cos(delta0);
 
@@ -402,8 +320,8 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
 
         foreach (var (ra, dec, _) in catalogCoords)
         {
-            var alpha = ra * Math.PI / 12.0;
-            var delta = dec * Math.PI / 180.0;
+            var alpha = ra * HOURS2RADIANS;
+            var delta = double.DegreesToRadians(dec);
             var deltaAlpha = alpha - alpha0;
 
             var sinDelta = Math.Sin(delta);
@@ -441,8 +359,8 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
         double xSign
     )
     {
-        var alpha0 = origin.CenterRA * Math.PI / 12.0;
-        var delta0 = origin.CenterDec * Math.PI / 180.0;
+        var alpha0 = origin.CenterRA * HOURS2RADIANS;
+        var delta0 = double.DegreesToRadians(origin.CenterDec);
         var sinDelta0 = Math.Sin(delta0);
         var cosDelta0 = Math.Cos(delta0);
 
@@ -460,8 +378,8 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
         var sinC = Math.Sin(c);
         var cosC = Math.Cos(c);
 
-        var centerDec = Math.Asin(cosC * sinDelta0 + eta * sinC * cosDelta0 / rho) * 180.0 / Math.PI;
-        var centerRA = (alpha0 + Math.Atan2(xi * sinC, rho * cosDelta0 * cosC - eta * sinDelta0 * sinC)) * 12.0 / Math.PI;
+        var centerDec = double.RadiansToDegrees(Math.Asin(cosC * sinDelta0 + eta * sinC * cosDelta0 / rho));
+        var centerRA = (alpha0 + Math.Atan2(xi * sinC, rho * cosDelta0 * cosC - eta * sinDelta0 * sinC)) * RADIANS2HOURS;
 
         return new WCS(ConditionRA(centerRA), centerDec);
     }

@@ -991,7 +991,7 @@ namespace TianWen.Lib.Astrometry.SOFA
             var ut = dt.TimeOfDay.TotalHours;
 
             var lst_0 = 100.46 + MEAN_SOLAR_DAY_DEG * d + siteLongitude + HOURS2DEG * ut;
-            var lst_360 = CoordinateUtils.ConnditionDegrees(lst_0);
+            var lst_360 = CoordinateUtils.ConditionDegrees(lst_0);
             return lst_360 * DEG2HOURS;
         }
 

@@ -314,7 +314,7 @@ public partial class Image
         return true;
     }
 
-    public void WriteToFitsFile(string fileName)
+    public void WriteToFitsFile(string fileName, WCS? wcs = null)
     {
         var (channelCount, width, height) = Shape;
         var fits = new Fits();
@@ -394,6 +394,11 @@ public partial class Image
             AddHeaderValueIfHasValue("BAYERPAT", "RGGB", "");
             AddHeaderValueIfHasValue("COLORTYP", "RGGB", "");
         }
+        if (wcs is { } wcsValue)
+        {
+            wcsValue.WriteToHeader(basicHdu.Header);
+        }
+
         fits.AddHDU(basicHdu);
 
         using var bufferedWriter = new BufferedFile(fileName, FileAccess.ReadWrite, FileShare.Read, 1000 * 2088);
