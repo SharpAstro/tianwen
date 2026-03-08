@@ -1,28 +1,34 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Devices.Ascom.ComInterop;
 using TianWen.Lib.Imaging;
-using AscomFilterWheel = ASCOM.Com.DriverAccess.FilterWheel;
 
 namespace TianWen.Lib.Devices.Ascom;
 
 [SupportedOSPlatform("windows")]
-internal class AscomFilterWheelDriver(AscomDevice device, IExternal external)
-    : AscomDeviceDriverBase<AscomFilterWheel>(device, external, (progId, logger) => new AscomFilterWheel(progId, new AscomLoggerWrapper(logger))), IFilterWheelDriver
+internal class AscomFilterWheelDriver : AscomDeviceDriverBase, IFilterWheelDriver
 {
-    string[] Names => _comObject?.Names is string[] names ? names : [];
+    private readonly AscomDispatchFilterWheel _filterWheel;
 
-    int[] FocusOffsets => _comObject?.FocusOffsets is int[] focusOffsets ? focusOffsets : [];
+    internal AscomFilterWheelDriver(AscomDevice device, IExternal external) : base(device, external)
+    {
+        _filterWheel = new AscomDispatchFilterWheel(_dispatchDevice.Dispatch);
+    }
 
-    public int Position => _comObject.Position;
+    string[] Names => _filterWheel.Names;
+
+    int[] FocusOffsets => _filterWheel.FocusOffsets;
+
+    public ValueTask<int> GetPositionAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult((int)_filterWheel.Position);
 
     public Task BeginMoveAsync(int position, CancellationToken cancellationToken = default)
     {
         if (Filters is { Count: > 0 } filters && position is >= 0 and <= short.MaxValue && position < filters.Count)
         {
-            _comObject.Position = (short)position;
+            _filterWheel.Position = (short)position;
         }
         else
         {
@@ -40,7 +46,7 @@ internal class AscomFilterWheelDriver(AscomDevice device, IExternal external)
             var filters = new List<InstalledFilter>(names.Length);
             for (var i = 0; i < names.Length; i++)
             {
-                filters[i] = new InstalledFilter(names[i], i < offsets.Length ? offsets[i] : 0);
+                filters.Add(new InstalledFilter(names[i], i < offsets.Length ? offsets[i] : 0));
             }
 
             return filters;

@@ -1,31 +1,36 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
+using TianWen.Lib.Devices.Ascom.ComInterop;
 using TianWen.Lib.Imaging;
-using AscomCamera = ASCOM.Com.DriverAccess.Camera;
-using AscomGuideDirection = ASCOM.Common.DeviceInterfaces.GuideDirection;
 
 namespace TianWen.Lib.Devices.Ascom;
 
 [SupportedOSPlatform("windows")]
-internal class AscomCameraDriver(AscomDevice device, IExternal external)
-    : AscomDeviceDriverBase<AscomCamera>(device, external, (progId, logger) => new AscomCamera(progId, new AscomLoggerWrapper(logger))), ICameraDriver
+internal class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 {
+    private readonly AscomDispatchCamera _camera;
+
+    internal AscomCameraDriver(AscomDevice device, IExternal external) : base(device, external)
+    {
+        _camera = new AscomDispatchCamera(_dispatchDevice.Dispatch);
+    }
+
     protected override ValueTask<bool> InitDeviceAsync(CancellationToken cancellationToken)
     {
-        CanGetCoolerPower = _comObject.CanGetCoolerPower;
-        CanSetCCDTemperature = _comObject.CanSetCCDTemperature;
-        CanStopExposure = _comObject.CanStopExposure;
-        CanAbortExposure = _comObject.CanAbortExposure;
-        CanFastReadout = _comObject.CanFastReadout;
-        CanPulseGuide = _comObject.CanPulseGuide;
+        CanGetCoolerPower = _camera.CanGetCoolerPower;
+        CanSetCCDTemperature = _camera.CanSetCCDTemperature;
+        CanStopExposure = _camera.CanStopExposure;
+        CanAbortExposure = _camera.CanAbortExposure;
+        CanFastReadout = _camera.CanFastReadout;
+        CanPulseGuide = _camera.CanPulseGuide;
 
         try
         {
-            _ = _comObject.CoolerOn;
+            _ = _camera.CoolerOn;
             CanGetCoolerOn = true;
             CanSetCoolerOn = true;
         }
@@ -37,7 +42,7 @@ internal class AscomCameraDriver(AscomDevice device, IExternal external)
 
         try
         {
-            CanGetHeatsinkTemperature = !double.IsNaN(HeatSinkTemperature);
+            CanGetHeatsinkTemperature = !double.IsNaN(_camera.HeatSinkTemperature);
         }
         catch
         {
@@ -46,20 +51,20 @@ internal class AscomCameraDriver(AscomDevice device, IExternal external)
 
         try
         {
-            CanGetCCDTemperature = !double.IsNaN(CCDTemperature);
+            CanGetCCDTemperature = !double.IsNaN(_camera.CCDTemperature);
         }
         catch
         {
             CanGetCCDTemperature = false;
         }
 
-        if (_comObject.InterfaceVersion is >= 3)
+        if (_camera.InterfaceVersion >= 3)
         {
             try
             {
-                _ = _comObject.Offset;
-                var min = _comObject.OffsetMin;
-                var max = _comObject.OffsetMax;
+                _ = _camera.Offset;
+                var min = _camera.OffsetMin;
+                var max = _camera.OffsetMax;
                 UsesOffsetValue = true;
                 OffsetMin = min;
                 OffsetMax = max;
@@ -75,8 +80,8 @@ internal class AscomCameraDriver(AscomDevice device, IExternal external)
             {
                 try
                 {
-                    _ = _comObject.Offset;
-                    _ = _comObject.Offsets;
+                    _ = _camera.Offset;
+                    _ = _camera.Offsets;
                     UsesOffsetMode = true;
                 }
                 catch
@@ -93,9 +98,9 @@ internal class AscomCameraDriver(AscomDevice device, IExternal external)
 
         try
         {
-            _ = _comObject.Gain;
-            var min = _comObject.GainMin;
-            var max = _comObject.GainMax;
+            _ = _camera.Gain;
+            var min = _camera.GainMin;
+            var max = _camera.GainMax;
             UsesGainValue = true;
             GainMin = min;
             GainMax = max;
@@ -111,8 +116,8 @@ internal class AscomCameraDriver(AscomDevice device, IExternal external)
         {
             try
             {
-                _ = _comObject.Gain;
-                _ = _comObject.Gains;
+                _ = _camera.Gain;
+                _ = _camera.Gains;
                 UsesGainMode = true;
             }
             catch
@@ -154,247 +159,258 @@ internal class AscomCameraDriver(AscomDevice device, IExternal external)
 
     public bool UsesOffsetMode { get; private set; }
 
-    public double CoolerPower => Connected && _comObject?.CoolerPower is double coolerPower ? coolerPower :throw new InvalidOperationException("Camera is not connected");
+    public double PixelSizeX => _camera.PixelSizeX;
 
-    public double HeatSinkTemperature => _comObject.HeatSinkTemperature;
-
-    public double CCDTemperature => _comObject.CCDTemperature;
-
-    public double PixelSizeX => _comObject.PixelSizeX;
-
-    public double PixelSizeY => _comObject.PixelSizeY;
+    public double PixelSizeY => _camera.PixelSizeY;
 
     public int StartX
     {
-        get => _comObject.StartX;
-        set => _comObject.StartX = value;
+        get => _camera.StartX;
+        set => _camera.StartX = value;
     }
 
     public int StartY
     {
-        get => _comObject.StartY;
-        set => _comObject.StartY = value;
+        get => _camera.StartY;
+        set => _camera.StartY = value;
     }
 
     public int BinX
     {
-        get => _comObject.BinX;
-        set => _comObject.BinX = (short)value;
+        get => _camera.BinX;
+        set => _camera.BinX = (short)value;
     }
 
     public int BinY
     {
-        get => _comObject.BinY;
-        set => _comObject.BinY = (short)value;
+        get => _camera.BinY;
+        set => _camera.BinY = (short)value;
     }
 
-    public short MaxBinX => _comObject.MaxBinX;
+    public short MaxBinX => _camera.MaxBinX;
 
-    public short MaxBinY => _comObject.MaxBinY;
+    public short MaxBinY => _camera.MaxBinY;
 
     public int NumX
     {
-        get => _comObject.NumX;
-        set => _comObject.NumX = value;
+        get => _camera.NumX;
+        set => _camera.NumX = value;
     }
 
     public int NumY
     {
-        get => _comObject.NumY;
-        set => _comObject.NumY = value;
+        get => _camera.NumY;
+        set => _camera.NumY = value;
     }
 
-    public int CameraXSize => Connected && _comObject?.CameraXSize is int xSize ? xSize : throw new InvalidOperationException("Camera is not connected");
+    public int CameraXSize => Connected ? _camera.CameraXSize : throw new InvalidOperationException("Camera is not connected");
 
-    public int CameraYSize => Connected && _comObject?.CameraYSize is int ySize ? ySize : throw new InvalidOperationException("Camera is not connected");
+    public int CameraYSize => Connected ? _camera.CameraYSize : throw new InvalidOperationException("Camera is not connected");
 
-    public int Offset
+    public ValueTask<int> GetOffsetAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(_camera.Offset);
+
+    public ValueTask SetOffsetAsync(int value, CancellationToken cancellationToken = default)
     {
-        get => _comObject.Offset;
-        set => _comObject.Offset = value;
+        _camera.Offset = value;
+        return ValueTask.CompletedTask;
     }
 
     public int OffsetMin { get; private set; }
 
     public int OffsetMax { get; private set; }
 
-    public IReadOnlyList<string> Offsets => Connected && UsesOffsetMode && _comObject.Offsets is { } offsets ? offsets.AsReadOnly() : [];
+    public IReadOnlyList<string> Offsets => Connected && UsesOffsetMode ? _camera.Offsets.AsReadOnly() : [];
 
-    public short Gain
+    public ValueTask<short> GetGainAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(_camera.Gain);
+
+    public ValueTask SetGainAsync(short value, CancellationToken cancellationToken = default)
     {
-        get => _comObject.Gain;
-
-        set => _comObject.Gain = value;
+        _camera.Gain = value;
+        return ValueTask.CompletedTask;
     }
 
     public short GainMin { get; private set; }
 
     public short GainMax { get; private set; }
 
-    public IReadOnlyList<string> Gains => Connected && UsesGainMode ? _comObject.Gains.AsReadOnly() : [];
+    public IReadOnlyList<string> Gains => Connected && UsesGainMode ? _camera.Gains.AsReadOnly() : [];
 
-    public bool FastReadout
+    public ValueTask<bool> GetFastReadoutAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(Connected && CanFastReadout ? _camera.FastReadout : throw new InvalidOperationException("Camera is not connected"));
+
+    public ValueTask SetFastReadoutAsync(bool value, CancellationToken cancellationToken = default)
     {
-        get => Connected && CanFastReadout && _comObject?.FastReadout is bool fastReadout ? fastReadout : throw new InvalidOperationException("Camera is not connected");
-        set
+        if (!Connected)
         {
-            if (!Connected)
-            {
-                throw new InvalidOperationException("Camera is not connected");
-            }
-            else if (CanFastReadout)
-            {
-                _comObject.FastReadout = value;
-            }
-            else
-            {
-                throw new InvalidOperationException("Fast readout is not supported");
-            }
+            throw new InvalidOperationException("Camera is not connected");
         }
+        else if (CanFastReadout)
+        {
+            _camera.FastReadout = value;
+        }
+        else
+        {
+            throw new InvalidOperationException("Fast readout is not supported");
+        }
+        return ValueTask.CompletedTask;
     }
 
     private IReadOnlyList<string> ReadoutModes
-        => Connected && _comObject.ReadoutModes is { } modes ? modes.AsReadOnly() : throw new InvalidOperationException("Camera is not connected");
+        => Connected ? _camera.ReadoutModes.AsReadOnly() : throw new InvalidOperationException("Camera is not connected");
 
-    public string? ReadoutMode
+    public ValueTask<string?> GetReadoutModeAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(_camera.ReadoutMode is var readoutMode && readoutMode >= 0 && ReadoutModes is { Count: > 0 } modes && readoutMode < modes.Count ? modes[readoutMode] : (string?)null);
+
+    public ValueTask SetReadoutModeAsync(string? value, CancellationToken cancellationToken = default)
     {
-        get => _comObject.ReadoutMode is { } readoutMode && readoutMode >= 0 && ReadoutModes is { Count: > 0 } modes && readoutMode < modes.Count ? modes[readoutMode] : null;
-        set
+        int idx;
+        if (Connected && value is { Length: > 0 } && (idx = ReadoutModes.IndexOf(value)) is >= 0 and <= short.MaxValue)
         {
-            int idx;
-            if (Connected && value is { Length: > 0 } && (idx = ReadoutModes.IndexOf(value)) is >= 0 and <= short.MaxValue)
-            {
-                _comObject.ReadoutMode = (short)idx;
-            }
+            _camera.ReadoutMode = (short)idx;
         }
+        return ValueTask.CompletedTask;
     }
 
-    public Float32HxWImageData? ImageData => Connected && _comObject?.ImageArray is int[,] intArray ? Float32HxWImageData.FromWxHImageData(intArray) : null;
+    public Float32HxWImageData? ImageData => Connected ? Float32HxWImageData.FromWxHImageData(_camera.ImageArray) : null;
 
-    public bool ImageReady => Connected && _comObject is { } obj ? (bool)obj.ImageReady : throw new InvalidOperationException("Camera is not connected");
+    public int MaxADU => Connected ? _camera.MaxADU : throw new InvalidOperationException("Camera is not connected");
 
-    public bool IsPulseGuiding => Connected && _comObject is { } obj ? (bool)obj.IsPulseGuiding : throw new InvalidOperationException("Camera is not connected");
+    public double FullWellCapacity => _camera.FullWellCapacity;
 
-    public int MaxADU => Connected && _comObject is { } obj ? (int)obj.MaxADU : throw new InvalidOperationException("Camera is not connected");
-
-    public double FullWellCapacity => _comObject.FullWellCapacity;
-
-    public double ElectronsPerADU => Connected && _comObject?.ElectronsPerADU is { } elecPerADU ? elecPerADU :throw new InvalidOperationException("Camera is not connected");
+    public double ElectronsPerADU => Connected ? _camera.ElectronsPerADU : throw new InvalidOperationException("Camera is not connected");
 
     public DateTimeOffset? LastExposureStartTime { get; private set; }
 
     public TimeSpan? LastExposureDuration
-        => Connected && _comObject?.LastExposureDuration is double lastExposureDuration
-            ? TimeSpan.FromSeconds(lastExposureDuration)
-            : default;
+        => Connected ? TimeSpan.FromSeconds(_camera.LastExposureDuration) : default;
 
     public FrameType LastExposureFrameType { get; internal set; }
 
-    public BitDepth? BitDepth
+    public ValueTask<BitDepth?> GetBitDepthAsync(CancellationToken cancellationToken = default)
     {
-        get
+        var maxADU = MaxADU;
+        if (maxADU is <= 0 || double.IsNaN(FullWellCapacity))
         {
-            var maxADU = MaxADU;
-            if (maxADU is <= 0 || double.IsNaN(FullWellCapacity))
-            {
-                return null;
-            }
-
-            if (maxADU == byte.MaxValue && MaxADU < FullWellCapacity && Name.Contains("QHYCCD", StringComparison.OrdinalIgnoreCase))
-            {
-                maxADU = (int)FullWellCapacity;
-            }
-
-            int log2 = (int)MathF.Ceiling(MathF.Log(maxADU) / MathF.Log(2.0f));
-            var bytesPerPixel = (log2 + 7) / 8;
-            int bitDepth = bytesPerPixel * 8;
-
-            return BitDepthEx.FromValue(bitDepth);
+            return ValueTask.FromResult<BitDepth?>(null);
         }
 
-        set => throw new InvalidOperationException("Setting bit depth is not supported!");
+        if (maxADU == byte.MaxValue && MaxADU < FullWellCapacity && Name.Contains("QHYCCD", StringComparison.OrdinalIgnoreCase))
+        {
+            maxADU = (int)FullWellCapacity;
+        }
+
+        int log2 = (int)MathF.Ceiling(MathF.Log(maxADU) / MathF.Log(2.0f));
+        var bytesPerPixel = (log2 + 7) / 8;
+        int bitDepth = bytesPerPixel * 8;
+
+        return ValueTask.FromResult(BitDepthEx.FromValue(bitDepth));
     }
 
-    public double ExposureResolution => Connected && _comObject?.ExposureResolution is double expResolution ? expResolution :throw new InvalidOperationException("Camera is not connected");
+    public ValueTask SetBitDepthAsync(BitDepth? value, CancellationToken cancellationToken = default)
+        => throw new InvalidOperationException("Setting bit depth is not supported!");
 
-    public DateTimeOffset StartExposure(TimeSpan duration, FrameType frameType)
+    public double ExposureResolution => Connected ? _camera.ExposureResolution : throw new InvalidOperationException("Camera is not connected");
+
+    public SensorType SensorType => Connected ? (SensorType)_camera.SensorType : SensorType.Unknown;
+
+    public int BayerOffsetX => _camera.BayerOffsetX;
+
+    public int BayerOffsetY => _camera.BayerOffsetX;
+
+    // Async-primary members
+    public ValueTask<bool> GetImageReadyAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(Connected ? _camera.ImageReady : throw new InvalidOperationException("Camera is not connected"));
+
+    public ValueTask<CameraState> GetCameraStateAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(Connected ? (CameraState)_camera.CameraState : CameraState.NotConnected);
+
+    public ValueTask<double> GetCCDTemperatureAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(_camera.CCDTemperature);
+
+    public ValueTask<double> GetHeatSinkTemperatureAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(_camera.HeatSinkTemperature);
+
+    public ValueTask<double> GetCoolerPowerAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(Connected ? _camera.CoolerPower : throw new InvalidOperationException("Camera is not connected"));
+
+    public ValueTask<bool> GetCoolerOnAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(Connected && _camera.CoolerOn);
+
+    public ValueTask SetCoolerOnAsync(bool value, CancellationToken cancellationToken = default)
     {
-        _comObject?.StartExposure(duration.TotalSeconds, frameType.NeedsOpenShutter);
+        if (Connected)
+        {
+            _camera.CoolerOn = value;
+        }
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask<double> GetSetCCDTemperatureAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(Connected && CanSetCCDTemperature ? _camera.SetCCDTemperature : throw new InvalidOperationException("Camera is not connected"));
+
+    public ValueTask SetSetCCDTemperatureAsync(double value, CancellationToken cancellationToken = default)
+    {
+        if (Connected && CanSetCCDTemperature)
+        {
+            _camera.SetCCDTemperature = value;
+        }
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask<bool> GetIsPulseGuidingAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(Connected ? _camera.IsPulseGuiding : throw new InvalidOperationException("Camera is not connected"));
+
+    public ValueTask<DateTimeOffset> StartExposureAsync(TimeSpan duration, FrameType frameType = FrameType.Light, CancellationToken cancellationToken = default)
+    {
+        _camera.StartExposure(duration.TotalSeconds, frameType.NeedsOpenShutter);
         var startTime = External.TimeProvider.GetLocalNow();
         LastExposureStartTime = startTime;
         LastExposureFrameType = frameType;
-        return startTime;
+        return ValueTask.FromResult(startTime);
     }
 
-    public void StopExposure()
+    public ValueTask StopExposureAsync(CancellationToken cancellationToken = default)
     {
-        if (CanStopExposure && Connected && _comObject is { } obj)
+        if (CanStopExposure && Connected)
         {
-            obj.StopExposure();
+            _camera.StopExposure();
         }
         else
         {
             throw new InvalidOperationException("Failed to stop exposure");
         }
+        return ValueTask.CompletedTask;
     }
 
-    public void AbortExposure()
+    public ValueTask AbortExposureAsync(CancellationToken cancellationToken = default)
     {
-        if (CanAbortExposure && Connected && _comObject is { } obj)
+        if (CanAbortExposure && Connected)
         {
-            obj.AbortExposure();
+            _camera.AbortExposure();
         }
         else
         {
             throw new InvalidOperationException("Failed to abort exposure");
         }
+        return ValueTask.CompletedTask;
     }
 
-    public void PulseGuide(GuideDirection direction, TimeSpan duration)
+    public ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken = default)
     {
         var durationMs = (int)duration.Round(TimeSpanRoundingType.Millisecond).TotalMilliseconds;
 
-        if (Connected && _comObject is { } obj)
+        if (Connected)
         {
-            obj.PulseGuide((AscomGuideDirection)direction, durationMs);
+            _camera.PulseGuide((int)direction, durationMs);
         }
         else
         {
             throw new InvalidOperationException("Camera is not connected, cannot pulse guide");
         }
+        return ValueTask.CompletedTask;
     }
-
-    public bool CoolerOn
-    {
-        get => Connected && _comObject?.CoolerOn is bool coolerOn && coolerOn;
-        set
-        {
-            if (Connected && _comObject is { } obj)
-            {
-                obj.CoolerOn = value;
-            }
-        }
-    }
-
-    public double SetCCDTemperature
-    {
-        get => Connected && CanSetCCDTemperature && _comObject?.SetCCDTemperature is double setCCDTemperature ? setCCDTemperature :throw new InvalidOperationException("Camera is not connected");
-        set
-        {
-            if (Connected && CanSetCCDTemperature && _comObject is { } obj)
-            {
-                obj.SetCCDTemperature = value;
-            }
-        }
-    }
-
-    public CameraState CameraState => Connected ? (CameraState)(int)_comObject.CameraState : CameraState.NotConnected;
-
-    public SensorType SensorType => Connected ? (SensorType)(int)_comObject.SensorType : SensorType.Unknown;
-
-    public int BayerOffsetX => _comObject.BayerOffsetX;
-
-    public int BayerOffsetY => _comObject.BayerOffsetX;
 
     #region Denormalised properties
     public string? Telescope { get; set; }

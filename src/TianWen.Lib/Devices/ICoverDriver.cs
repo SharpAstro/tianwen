@@ -1,4 +1,4 @@
-﻿using System.Threading;
+using System.Threading;
 using System;
 using System.Threading.Tasks;
 
@@ -6,19 +6,19 @@ namespace TianWen.Lib.Devices;
 
 public interface ICoverDriver : IDeviceDriver
 {
-    /// <summary>
-    /// Async alternative to <see cref="CoverState"/>. Default delegates to the sync property.
-    /// </summary>
-    ValueTask<CoverStatus> GetCoverStateAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(CoverState);
+    ValueTask<CoverStatus> GetCoverStateAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Async alternative to <see cref="CalibratorState"/>. Default delegates to the sync property.
-    /// </summary>
-    ValueTask<CalibratorStatus> GetCalibratorStateAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(CalibratorState);
+    ValueTask<CalibratorStatus> GetCalibratorStateAsync(CancellationToken cancellationToken = default);
 
-    bool IsCalibrationReady
-        => CoverState is not CoverStatus.Error and not CoverStatus.Moving
-        && CalibratorState is not CalibratorStatus.NotReady and not CalibratorStatus.NotPresent and not CalibratorStatus.Error;
+    ValueTask<int> GetBrightnessAsync(CancellationToken cancellationToken = default);
+
+    async ValueTask<bool> IsCalibrationReadyAsync(CancellationToken cancellationToken = default)
+    {
+        var coverState = await GetCoverStateAsync(cancellationToken);
+        var calState = await GetCalibratorStateAsync(cancellationToken);
+        return coverState is not CoverStatus.Error and not CoverStatus.Moving
+            && calState is not CalibratorStatus.NotReady and not CalibratorStatus.NotPresent and not CalibratorStatus.Error;
+    }
 
     /// <summary>
     /// Asyncronously opens the cover.
@@ -31,42 +31,20 @@ public interface ICoverDriver : IDeviceDriver
     Task BeginClose(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Turns on calibrator (if present) and sets <see cref="Brightness"/> to t<paramref name="brightness"/>.
+    /// Turns on calibrator (if present) and sets brightness.
     /// </summary>
-    /// <param name="brightness"></param>
-    /// <param name="cancellationToken"></param>
-    /// <returns></returns>
     Task BeginCalibratorOn(int brightness, CancellationToken cancellationToken = default);
 
     Task BeginCalibratorOff(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Returns the current calibrator brightness in the range 0 (completely off) to <see cref="MaxBrightness"/> (fully on).
-    /// </summary>
-    int Brightness { get; }
-
-    /// <summary>
-    /// Maximum brightness value for <see cref="CalibratorOn(int)"/>, will be -1 if unknown.
+    /// Maximum brightness value, will be -1 if unknown.
     /// </summary>
     int MaxBrightness { get; }
 
-    CoverStatus CoverState { get; }
-
     /// <summary>
-    /// Returns the state of the calibration device, if present, otherwise returns <see cref="CalibratorStatus.NotPresent"/>.
+    /// Higher-level function to turn off the calibrator (if present)
     /// </summary>
-    CalibratorStatus CalibratorState { get; }
-
-    /// <summary>
-    /// Async alternative to <see cref="Brightness"/>. Default delegates to the sync property.
-    /// </summary>
-    ValueTask<int> GetBrightnessAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(Brightness);
-
-    /// <summary>
-    /// Higher-level function to turn of the calibrator (if present)
-    /// </summary>
-    /// <param name="cancellationToken"></param>
-    /// <returns></returns>
     async ValueTask<bool> TurnOffCalibratorAndWaitAsync(CancellationToken cancellationToken = default)
     {
         var calState = await GetCalibratorStateAsync(cancellationToken);

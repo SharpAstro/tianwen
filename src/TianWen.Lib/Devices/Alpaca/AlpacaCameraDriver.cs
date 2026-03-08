@@ -227,55 +227,72 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IExternal external)
         set { _numY = value; _ = PutPropertyAsync("numy", "NumY", value); }
     }
 
-    public int Offset
+    public ValueTask<int> GetOffsetAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(_offset);
+
+    public async ValueTask SetOffsetAsync(int value, CancellationToken cancellationToken = default)
     {
-        get => _offset;
-        set { _offset = value; _ = PutPropertyAsync("offset", "Offset", value); }
+        await PutPropertyAsync("offset", "Offset", value);
+        _offset = value;
     }
 
     public int OffsetMin { get; private set; }
     public int OffsetMax { get; private set; }
     public IReadOnlyList<string> Offsets => []; // TODO: parse string[] from Alpaca
 
-    public short Gain
+    public ValueTask<short> GetGainAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(_gain);
+
+    public async ValueTask SetGainAsync(short value, CancellationToken cancellationToken = default)
     {
-        get => _gain;
-        set { _gain = value; _ = PutPropertyAsync("gain", "Gain", (int)value); }
+        await PutPropertyAsync("gain", "Gain", (int)value);
+        _gain = value;
     }
 
     public short GainMin { get; private set; }
     public short GainMax { get; private set; }
     public IReadOnlyList<string> Gains => []; // TODO: parse string[] from Alpaca
 
-    public bool FastReadout
+    private string? _readoutMode;
+
+    public ValueTask<bool> GetFastReadoutAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(_fastReadout);
+
+    public async ValueTask SetFastReadoutAsync(bool value, CancellationToken cancellationToken = default)
     {
-        get => _fastReadout;
-        set { _fastReadout = value; _ = PutBoolPropertyAsync("fastreadout", "FastReadout", value); }
+        await PutBoolPropertyAsync("fastreadout", "FastReadout", value);
+        _fastReadout = value;
     }
 
-    public string? ReadoutMode { get; set; } // Cached locally — ReadoutMode is index-based, local is sufficient
+    public ValueTask<string?> GetReadoutModeAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(_readoutMode);
 
-    public bool CoolerOn
+    public ValueTask SetReadoutModeAsync(string? value, CancellationToken cancellationToken = default)
     {
-        get => _coolerOn;
-        set { _coolerOn = value; _ = PutBoolPropertyAsync("cooleron", "CoolerOn", value); }
+        _readoutMode = value;
+        return ValueTask.CompletedTask;
     }
 
-    public double SetCCDTemperature
+    public Float32HxWImageData? ImageData => null; // TODO: Alpaca imagearray endpoint requires special binary handling
+
+    public DateTimeOffset? LastExposureStartTime { get; private set; }
+
+    public TimeSpan? LastExposureDuration => null; // TODO: requires async call to lastexposureduration
+
+    public FrameType LastExposureFrameType { get; internal set; }
+
+    public ValueTask<BitDepth?> GetBitDepthAsync(CancellationToken cancellationToken = default)
     {
-        get => _setCCDTemperature;
-        set { _setCCDTemperature = value; _ = PutDoublePropertyAsync("setccdtemperature", "SetCCDTemperature", value); }
+        if (_maxADU <= 0) return ValueTask.FromResult<BitDepth?>(null);
+        int log2 = (int)MathF.Ceiling(MathF.Log(_maxADU) / MathF.Log(2.0f));
+        int bitDepth = ((log2 + 7) / 8) * 8;
+        return ValueTask.FromResult(BitDepthEx.FromValue(bitDepth));
     }
 
-    // Dynamic properties — sync versions throw, callers should use async alternatives
-    public double CoolerPower => throw new NotSupportedException("Use GetCoolerPowerAsync instead");
-    public double HeatSinkTemperature => throw new NotSupportedException("Use GetHeatSinkTemperatureAsync instead");
-    public double CCDTemperature => throw new NotSupportedException("Use GetCCDTemperatureAsync instead");
-    public bool ImageReady => throw new NotSupportedException("Use GetImageReadyAsync instead");
-    public bool IsPulseGuiding => throw new NotSupportedException("Use GetIsPulseGuidingAsync instead");
-    public CameraState CameraState => throw new NotSupportedException("Use GetCameraStateAsync instead");
+    public ValueTask SetBitDepthAsync(BitDepth? value, CancellationToken cancellationToken = default)
+        => throw new InvalidOperationException("Setting bit depth is not supported!");
 
-    // Async alternatives — native async HTTP calls
+    // Async-primary members — native async HTTP calls
     public async ValueTask<bool> GetImageReadyAsync(CancellationToken cancellationToken = default)
         => await Client.GetBoolAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "imageready", cancellationToken);
 
@@ -302,6 +319,9 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IExternal external)
         await PutBoolPropertyAsync("cooleron", "CoolerOn", value);
         _coolerOn = value;
     }
+
+    public ValueTask<double> GetSetCCDTemperatureAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(_setCCDTemperature);
 
     public async ValueTask SetSetCCDTemperatureAsync(double value, CancellationToken cancellationToken = default)
     {
@@ -340,39 +360,6 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IExternal external)
             new("Direction", ((int)direction).ToString(CultureInfo.InvariantCulture)),
             new("Duration", durationMs.ToString(CultureInfo.InvariantCulture))
         ], cancellationToken);
-    }
-
-    // Sync methods delegate to async — these are called from async contexts anyway
-    public DateTimeOffset StartExposure(TimeSpan duration, FrameType frameType)
-        => throw new NotSupportedException("Use StartExposureAsync instead");
-
-    public void StopExposure()
-        => throw new NotSupportedException("Use StopExposureAsync instead");
-
-    public void AbortExposure()
-        => throw new NotSupportedException("Use AbortExposureAsync instead");
-
-    public void PulseGuide(GuideDirection direction, TimeSpan duration)
-        => throw new NotSupportedException("Use PulseGuideAsync instead");
-
-    public Float32HxWImageData? ImageData => null; // TODO: Alpaca imagearray endpoint requires special binary handling
-
-    public DateTimeOffset? LastExposureStartTime { get; private set; }
-
-    public TimeSpan? LastExposureDuration => null; // TODO: requires async call to lastexposureduration
-
-    public FrameType LastExposureFrameType { get; internal set; }
-
-    public BitDepth? BitDepth
-    {
-        get
-        {
-            if (_maxADU <= 0) return null;
-            int log2 = (int)MathF.Ceiling(MathF.Log(_maxADU) / MathF.Log(2.0f));
-            int bitDepth = ((log2 + 7) / 8) * 8;
-            return BitDepthEx.FromValue(bitDepth);
-        }
-        set => throw new InvalidOperationException("Setting bit depth is not supported!");
     }
 
     #region Write-through helpers

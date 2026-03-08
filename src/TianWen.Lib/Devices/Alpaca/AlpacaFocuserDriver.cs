@@ -41,12 +41,7 @@ internal class AlpacaFocuserDriver(AlpacaDevice device, IExternal external)
     public bool CanGetStepSize { get; private set; }
     public bool TempCompAvailable { get; private set; }
 
-    // Dynamic properties — sync versions throw, callers should use async alternatives
-    public int Position => throw new NotSupportedException("Use GetPositionAsync instead");
-    public bool IsMoving => throw new NotSupportedException("Use GetIsMovingAsync instead");
-    public double Temperature => throw new NotSupportedException("Use GetTemperatureAsync instead");
-
-    // Async alternatives — native async HTTP calls
+    // Async properties
     public async ValueTask<int> GetPositionAsync(CancellationToken cancellationToken = default)
         => Connected && _absolute
             ? await Client.GetIntAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "position", cancellationToken)
@@ -61,11 +56,11 @@ internal class AlpacaFocuserDriver(AlpacaDevice device, IExternal external)
         catch { return double.NaN; }
     }
 
-    public bool TempComp
-    {
-        get => throw new NotSupportedException("Use async polling for TempComp on Alpaca");
-        set => _ = Client.PutAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "tempcomp", [new("TempComp", value.ToString())]);
-    }
+    public async ValueTask<bool> GetTempCompAsync(CancellationToken cancellationToken = default)
+        => await Client.GetBoolAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "tempcomp", cancellationToken);
+
+    public async ValueTask SetTempCompAsync(bool value, CancellationToken cancellationToken = default)
+        => await Client.PutAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "tempcomp", [new("TempComp", value.ToString())], cancellationToken);
 
     public async Task BeginMoveAsync(int position, CancellationToken cancellationToken = default)
     {

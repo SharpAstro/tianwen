@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -107,42 +107,27 @@ public interface ICameraDriver : IDeviceDriver
     /// </summary>
     int CameraYSize { get; }
 
-    string? ReadoutMode { get; set; }
+    ValueTask<string?> GetReadoutModeAsync(CancellationToken cancellationToken = default);
 
-    bool FastReadout { get; set; }
+    ValueTask SetReadoutModeAsync(string? value, CancellationToken cancellationToken = default);
+
+    ValueTask<bool> GetFastReadoutAsync(CancellationToken cancellationToken = default);
+
+    ValueTask SetFastReadoutAsync(bool value, CancellationToken cancellationToken = default);
 
     Float32HxWImageData? ImageData { get; }
-
-    bool ImageReady { get; }
-
-    bool IsPulseGuiding { get; }
-
-    bool CoolerOn { get; set; }
-
-    double CoolerPower { get; }
-
-    /// <summary>
-    /// Sets the camera cooler setpoint in degrees Celsius, and returns the current setpoint.
-    /// </summary>
-    double SetCCDTemperature { get; set; }
-
-    /// <summary>
-    /// Returns the current heat sink temperature (called "ambient temperature" by some manufacturers) in degrees Celsius.
-    /// </summary>
-    double HeatSinkTemperature { get; }
-
-    /// <summary>
-    /// Returns the current CCD temperature in degrees Celsius.
-    /// </summary>
-    double CCDTemperature { get; }
 
     /// <summary>
     /// Returns bit depth, usually <see cref="BitDepth.Int8"/> or <see cref="BitDepth.Int16"/> or <see langword="null"/> if camera is not initialised.
     /// Will throw if <see cref="CanSetBitDepth"/> is <see langword="false" /> and an attempt to set value is made.
     /// </summary>
-    BitDepth? BitDepth { get; set; }
+    ValueTask<BitDepth?> GetBitDepthAsync(CancellationToken cancellationToken = default);
 
-    short Gain { get; set; }
+    ValueTask SetBitDepthAsync(BitDepth? value, CancellationToken cancellationToken = default);
+
+    ValueTask<short> GetGainAsync(CancellationToken cancellationToken = default);
+
+    ValueTask SetGainAsync(short value, CancellationToken cancellationToken = default);
 
     short GainMin { get; }
 
@@ -150,64 +135,51 @@ public interface ICameraDriver : IDeviceDriver
 
     IReadOnlyList<string> Gains { get; }
 
-    string? GainMode
+    async ValueTask<string?> GetGainModeAsync(CancellationToken cancellationToken = default)
     {
-        get => Connected && UsesGainMode && Gains.ToList() is { Count: > 0 } gains && Gain is short idx && idx >= 0 && idx < gains.Count
-            ? gains[idx]
-            : null;
-
-        set
+        if (Connected && UsesGainMode && Gains.ToList() is { Count: > 0 } gains && await GetGainAsync(cancellationToken) is short idx && idx >= 0 && idx < gains.Count)
         {
-            if (Connected && UsesGainMode && Gains.ToList() is { Count: > 0} gains && value is not null && gains.IndexOf(value) is var idx and <= short.MaxValue)
-            {
-                Gain = (short)idx;
-            }
+            return gains[idx];
+        }
+        return null;
+    }
+
+    async ValueTask SetGainModeAsync(string? value, CancellationToken cancellationToken = default)
+    {
+        if (Connected && UsesGainMode && Gains.ToList() is { Count: > 0 } gains && value is not null && gains.IndexOf(value) is var idx and <= short.MaxValue)
+        {
+            await SetGainAsync((short)idx, cancellationToken);
         }
     }
 
-    int Offset { get; set; }
+    ValueTask<int> GetOffsetAsync(CancellationToken cancellationToken = default);
+
+    ValueTask SetOffsetAsync(int value, CancellationToken cancellationToken = default);
 
     int OffsetMin { get; }
 
     int OffsetMax { get; }
 
-    string? OffsetMode
+    async ValueTask<string?> GetOffsetModeAsync(CancellationToken cancellationToken = default)
     {
-        get => Connected && UsesOffsetMode && Offsets.ToList() is { Count: > 0 } offsets && Offset is int idx && idx >= 0 && idx < offsets.Count
-            ? offsets[idx]
-            : null;
-
-        set
+        if (Connected && UsesOffsetMode && Offsets.ToList() is { Count: > 0 } offsets && await GetOffsetAsync(cancellationToken) is int idx && idx >= 0 && idx < offsets.Count)
         {
-            if (Connected && UsesOffsetMode && Offsets.ToList() is { Count: > 0 } offsets && value is not null && offsets.IndexOf(value) is var idx)
-            {
-                Offset = idx;
-            }
+            return offsets[idx];
+        }
+        return null;
+    }
+
+    async ValueTask SetOffsetModeAsync(string? value, CancellationToken cancellationToken = default)
+    {
+        if (Connected && UsesOffsetMode && Offsets.ToList() is { Count: > 0 } offsets && value is not null && offsets.IndexOf(value) is var idx)
+        {
+            await SetOffsetAsync(idx, cancellationToken);
         }
     }
 
     IReadOnlyList<string> Offsets { get; }
 
     double ExposureResolution { get; }
-
-    DateTimeOffset StartExposure(TimeSpan duration, FrameType frameType = FrameType.Light);
-
-    /// <summary>
-    /// Should only be called when <see cref="CanStopExposure"/> is <see langword="true"/>.
-    /// </summary>
-    void StopExposure();
-
-    /// <summary>
-    /// Should only be called when <see cref="CanAbortExposure"/> is <see langword="true"/>.
-    /// </summary>
-    void AbortExposure();
-
-    /// <summary>
-    /// Should only be called when <see cref="CanPulseGuide"/> is <see langword="true"/>.
-    /// </summary>
-    /// <param name="direction"></param>
-    /// <param name="duration"></param>
-    void PulseGuide(GuideDirection direction, TimeSpan duration);
 
     /// <summary>
     /// Reports the maximum ADU value the camera can produce.
@@ -236,104 +208,57 @@ public interface ICameraDriver : IDeviceDriver
 
     int BayerOffsetY { get; }
 
-    CameraState CameraState { get; }
+    ValueTask<bool> GetImageReadyAsync(CancellationToken cancellationToken = default);
 
-    #region Async alternatives for network-backed drivers (Alpaca)
-    /// <summary>
-    /// Async alternative to <see cref="ImageReady"/>. Default delegates to the sync property.
-    /// </summary>
-    ValueTask<bool> GetImageReadyAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(ImageReady);
+    ValueTask<CameraState> GetCameraStateAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Async alternative to <see cref="CameraState"/>. Default delegates to the sync property.
-    /// </summary>
-    ValueTask<CameraState> GetCameraStateAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(CameraState);
+    ValueTask<double> GetCCDTemperatureAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Async alternative to <see cref="CCDTemperature"/>. Default delegates to the sync property.
-    /// </summary>
-    ValueTask<double> GetCCDTemperatureAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(CCDTemperature);
+    ValueTask<double> GetHeatSinkTemperatureAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Async alternative to <see cref="HeatSinkTemperature"/>. Default delegates to the sync property.
-    /// </summary>
-    ValueTask<double> GetHeatSinkTemperatureAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(HeatSinkTemperature);
+    ValueTask<double> GetCoolerPowerAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Async alternative to <see cref="CoolerPower"/>. Default delegates to the sync property.
-    /// </summary>
-    ValueTask<double> GetCoolerPowerAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(CoolerPower);
+    ValueTask<bool> GetCoolerOnAsync(CancellationToken cancellationToken = default);
+
+    ValueTask SetCoolerOnAsync(bool value, CancellationToken cancellationToken = default);
+
+    ValueTask<double> GetSetCCDTemperatureAsync(CancellationToken cancellationToken = default);
+
+    ValueTask SetSetCCDTemperatureAsync(double value, CancellationToken cancellationToken = default);
+
+    ValueTask<bool> GetIsPulseGuidingAsync(CancellationToken cancellationToken = default);
+
+    ValueTask<DateTimeOffset> StartExposureAsync(TimeSpan duration, FrameType frameType = FrameType.Light, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Async alternative to <see cref="CoolerOn"/> getter. Default delegates to the sync property.
+    /// Should only be called when <see cref="CanStopExposure"/> is <see langword="true"/>.
     /// </summary>
-    ValueTask<bool> GetCoolerOnAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(CoolerOn);
+    ValueTask StopExposureAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Async alternative to <see cref="CoolerOn"/> setter. Default delegates to the sync property.
+    /// Should only be called when <see cref="CanAbortExposure"/> is <see langword="true"/>.
     /// </summary>
-    ValueTask SetCoolerOnAsync(bool value, CancellationToken cancellationToken = default)
+    ValueTask AbortExposureAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Should only be called when <see cref="CanPulseGuide"/> is <see langword="true"/>.
+    /// </summary>
+    ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken = default);
+
+    async ValueTask<Image?> GetImageAsync(CancellationToken cancellationToken = default)
     {
-        CoolerOn = value;
-        return ValueTask.CompletedTask;
-    }
+        if (!Connected) return null;
+        if (!await GetImageReadyAsync(cancellationToken)) return null;
+        if (ImageData is not ({ Length: > 0 }, >= 0, >= 0) imageData) return null;
+        if (await GetBitDepthAsync(cancellationToken) is not { } bitDepth || !bitDepth.IsIntegral) return null;
+        if (LastExposureStartTime is not { } startTime) return null;
 
-    /// <summary>
-    /// Async alternative to <see cref="SetCCDTemperature"/> setter. Default delegates to the sync property.
-    /// </summary>
-    ValueTask SetSetCCDTemperatureAsync(double value, CancellationToken cancellationToken = default)
-    {
-        SetCCDTemperature = value;
-        return ValueTask.CompletedTask;
-    }
+        var ccdTemp = await GetCCDTemperatureAsync(cancellationToken);
+        var offset = await GetOffsetAsync(cancellationToken);
 
-    /// <summary>
-    /// Async alternative to <see cref="IsPulseGuiding"/>. Default delegates to the sync property.
-    /// </summary>
-    ValueTask<bool> GetIsPulseGuidingAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(IsPulseGuiding);
-
-    /// <summary>
-    /// Async alternative to <see cref="StartExposure"/>. Default delegates to the sync method.
-    /// </summary>
-    ValueTask<DateTimeOffset> StartExposureAsync(TimeSpan duration, FrameType frameType = FrameType.Light, CancellationToken cancellationToken = default)
-        => ValueTask.FromResult(StartExposure(duration, frameType));
-
-    /// <summary>
-    /// Async alternative to <see cref="StopExposure"/>. Default delegates to the sync method.
-    /// </summary>
-    ValueTask StopExposureAsync(CancellationToken cancellationToken = default)
-    {
-        StopExposure();
-        return ValueTask.CompletedTask;
-    }
-
-    /// <summary>
-    /// Async alternative to <see cref="AbortExposure"/>. Default delegates to the sync method.
-    /// </summary>
-    ValueTask AbortExposureAsync(CancellationToken cancellationToken = default)
-    {
-        AbortExposure();
-        return ValueTask.CompletedTask;
-    }
-
-    /// <summary>
-    /// Async alternative to <see cref="PulseGuide"/>. Default delegates to the sync method.
-    /// </summary>
-    ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken = default)
-    {
-        PulseGuide(direction, duration);
-        return ValueTask.CompletedTask;
-    }
-    #endregion
-
-    Image? Image => Connected
-        && ImageReady
-        && ImageData is ({ Length: > 0 }, >= 0, >= 0) imageData
-        && BitDepth is { } bitDepth && bitDepth.IsIntegral
-        && LastExposureStartTime is { } startTime
-        ? imageData.ToImage(
+        return imageData.ToImage(
             bitDepth,
-            Offset,
+            offset,
             new ImageMeta(
                 Name,
                 startTime,
@@ -347,7 +272,7 @@ public interface ICameraDriver : IDeviceDriver
                 Filter,
                 BinX,
                 BinY,
-                (float)CCDTemperature,
+                (float)ccdTemp,
                 SensorType,
                 SensorType == SensorType.RGGB ? BayerOffsetX : 0,
                 SensorType == SensorType.RGGB ? BayerOffsetY : 0,
@@ -355,8 +280,8 @@ public interface ICameraDriver : IDeviceDriver
                 (float)(Latitude ?? double.NaN),
                 (float)(Longitude ?? double.NaN)
             )
-        )
-        : null;
+        );
+    }
 
     #region Image metadata
     string? Telescope { get; set; }
@@ -391,16 +316,16 @@ public interface ICameraDriver : IDeviceDriver
         && CanSetCoolerOn
         && (CanGetHeatsinkTemperature || CanGetCCDTemperature);
 
-    CameraCoolingState CoolToSetpoint(SetpointTemp desiredSetpointTemp, double thresPower, SetupointDirection direction, CameraCoolingState coolingState)
+    async ValueTask<CameraCoolingState> CoolToSetpointAsync(SetpointTemp desiredSetpointTemp, double thresPower, SetupointDirection direction, CameraCoolingState coolingState, CancellationToken cancellationToken = default)
     {
         if (IsCoolable)
         {
-            var ccdTemp = CCDTemperature;
+            var ccdTemp = await GetCCDTemperatureAsync(cancellationToken);
             var hasCCDTemp = !double.IsNaN(ccdTemp) && ccdTemp is >= -40 and <= 50;
-            var heatSinkTemp = HeatSinkTemperature;
+            var heatSinkTemp = await GetHeatSinkTemperatureAsync(cancellationToken);
             var hasHeatSinkTemp = !double.IsNaN(heatSinkTemp) && heatSinkTemp is >= -40 and <= 50;
 
-            var coolerPower = CoolerPowerSafe();
+            var coolerPower = await External.CatchAsyncIf(CanGetCoolerPower, GetCoolerPowerAsync, cancellationToken, double.NaN);
             // TODO: Consider using external temp sensor if no heatsink temp is available
             var heatSinkOrCCDTemp = hasHeatSinkTemp ? heatSinkTemp : ccdTemp;
             var setpointTemp = desiredSetpointTemp.Kind switch
@@ -421,21 +346,22 @@ public interface ICameraDriver : IDeviceDriver
             var needsFurtherRamping = direction.NeedsFurtherRamping(ccdTemp, setpointTemp);
 
             if (needsFurtherRamping
-                && (double.IsNaN(coolerPower) || !IsCoolerOnSafe() || !direction.ThresholdPowerReached(coolerPower, thresPower))
+                && (double.IsNaN(coolerPower) || !await External.CatchAsyncIf(CanGetCoolerOn, GetCoolerOnAsync, cancellationToken) || !direction.ThresholdPowerReached(coolerPower, thresPower))
             )
             {
-                var actualSetpointTemp = SetCCDTemperature = direction.SetpointTemp(ccdTemp, setpointTemp);
+                var actualSetpointTemp = direction.SetpointTemp(ccdTemp, setpointTemp);
+                await SetSetCCDTemperatureAsync(actualSetpointTemp, cancellationToken);
 
                 // turn cooler on if required
                 string coolerPrev;
-                if (IsCoolerOnSafe())
+                if (await External.CatchAsyncIf(CanGetCoolerOn, GetCoolerOnAsync, cancellationToken))
                 {
                     coolerPrev = "";
                 }
                 else
                 {
                     coolerPrev = "off -> ";
-                    CoolerOn = true;
+                    await SetCoolerOnAsync(true, cancellationToken);
                 }
 
                 newState = coolingState with
@@ -449,7 +375,7 @@ public interface ICameraDriver : IDeviceDriver
                 External.AppLogger.LogInformation("Camera {Name} setpoint temperature {SetpointTemp:0.00} °C not yet reached, " +
                     "cooling {Direction} stepwise, currently at {ActualSetpointTemp:0.00} °C. " +
                     "Heatsink={HeatSinkTemp:0.00} °C, CCD={CCDTemp:0.00} °C, Power={CoolerPower:0.00}%, Cooler={CoolerStateChange}.",
-                    Name, setpointTemp, direction.ToString().ToLowerInvariant(), actualSetpointTemp, heatSinkTemp, ccdTemp, CoolerPowerSafe(), coolerPrev + (IsCoolerOnSafe() ? "on" : "off")
+                    Name, setpointTemp, direction.ToString().ToLowerInvariant(), actualSetpointTemp, heatSinkTemp, ccdTemp, await External.CatchAsyncIf(CanGetCoolerPower, GetCoolerPowerAsync, cancellationToken, double.NaN), coolerPrev + (await External.CatchAsyncIf(CanGetCoolerOn, GetCoolerOnAsync, cancellationToken) ? "on" : "off")
 
                 );
             }
@@ -464,7 +390,7 @@ public interface ICameraDriver : IDeviceDriver
                 };
 
                 External.AppLogger.LogInformation("Camera {Name} setpoint temperature {SetpointTemp:0.00} °C or {ThresPower:0.00} % power reached. Heatsink={HeatSinkTemp:0.00} °C, CCD={CCDTemp:0.00} °C, Power={CoolerPower:0.00}%, Cooler={CoolerState}.",
-                    Name, setpointTemp, thresPower, heatSinkTemp, ccdTemp, CoolerPowerSafe(), IsCoolerOnSafe() ? "on" : "off");
+                    Name, setpointTemp, thresPower, heatSinkTemp, ccdTemp, await External.CatchAsyncIf(CanGetCoolerPower, GetCoolerPowerAsync, cancellationToken, double.NaN), await External.CatchAsyncIf(CanGetCoolerOn, GetCoolerOnAsync, cancellationToken) ? "on" : "off");
             }
             else
             {
@@ -476,7 +402,7 @@ public interface ICameraDriver : IDeviceDriver
                 };
 
                 External.AppLogger.LogInformation("Camera {Name} setpoint temperature {SetpointTemp:0.00} °C or {ThresPower:0.00} % power reached twice in a row. Heatsink={HeatSinkTemp:0.00} °C, CCD={CCDTemp:0.00} °C, Power={CoolerPower:0.00}%, Cooler={CoolerState}.",
-                    Name, setpointTemp, thresPower, heatSinkTemp, ccdTemp, CoolerPowerSafe(), IsCoolerOnSafe() ? "on" : "off");
+                    Name, setpointTemp, thresPower, heatSinkTemp, ccdTemp, await External.CatchAsyncIf(CanGetCoolerPower, GetCoolerPowerAsync, cancellationToken, double.NaN), await External.CatchAsyncIf(CanGetCoolerOn, GetCoolerOnAsync, cancellationToken) ? "on" : "off");
             }
 
             return newState;
@@ -490,14 +416,11 @@ public interface ICameraDriver : IDeviceDriver
                 _ => $"{desiredSetpointTemp.TempC:0.00} °C"
             };
             External.AppLogger.LogWarning("Skipping camera {Name} setpoint temperature {setpointTemp} as we cannot get the current CCD temperature or cooling is not supported. Power={CoolerPower:0.00}%, Cooler={CoolerState}.",
-                Name, setpointTemp, CoolerPowerSafe(), IsCoolerOnSafe() ? "on" : "off");
+                Name, setpointTemp, await External.CatchAsyncIf(CanGetCoolerPower, GetCoolerPowerAsync, cancellationToken, double.NaN), await External.CatchAsyncIf(CanGetCoolerOn, GetCoolerOnAsync, cancellationToken) ? "on" : "off");
 
             return new CameraCoolingState(false, 0, false, false);
         }
 
-        bool IsCoolerOnSafe() => External.Catch(() => CanGetCoolerOn && CoolerOn);
-
-        double CoolerPowerSafe() => External.Catch(() => CanGetCoolerPower ? CoolerPower : double.NaN, double.NaN);
     }
 }
 public record struct CameraCoolingState(bool IsRamping, int ThresholdReachedConsecutiveCounts, bool? TargetSetpointReached, bool? IsCoolable);

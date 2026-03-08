@@ -1,6 +1,7 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Threading;
+using System.Threading.Tasks;
 using TianWen.DAL;
 using TianWen.Lib.Imaging;
 
@@ -193,27 +194,27 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
 
     public int CameraYSize { get; } = 768;
 
-    public string? ReadoutMode
+    public ValueTask<string?> GetReadoutModeAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult<string?>("Normal");
+
+    public ValueTask SetReadoutModeAsync(string? value, CancellationToken cancellationToken = default)
     {
-        get => "Normal";
-        set
+        if (!Connected)
         {
-            if (!Connected)
-            {
-                throw new InvalidOperationException("Camera is not connected");
-            }
-            else if(value is not "Normal")
-            {
-                throw new ArgumentException("Readout mode must be \"Normal\"", nameof(value));
-            }
+            throw new InvalidOperationException("Camera is not connected");
         }
+        else if(value is not "Normal")
+        {
+            throw new ArgumentException("Readout mode must be \"Normal\"", nameof(value));
+        }
+        return ValueTask.CompletedTask;
     }
 
-    public bool FastReadout
-    { 
-        get => throw new InvalidOperationException("Fast readout not supported");
-        set => throw new InvalidOperationException("Fast readout not supported");
-    }
+    public ValueTask<bool> GetFastReadoutAsync(CancellationToken cancellationToken = default)
+        => throw new InvalidOperationException("Fast readout not supported");
+
+    public ValueTask SetFastReadoutAsync(bool value, CancellationToken cancellationToken = default)
+        => throw new InvalidOperationException("Fast readout not supported");
 
     public Float32HxWImageData? ImageData
     {
@@ -231,53 +232,32 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
         }
     }
 
-    public bool ImageReady
-    {
-        get
-        {
-            if (!Connected)
-            {
-                throw new InvalidOperationException("Camera is not connected");
-            }
+    public ValueTask<BitDepth?> GetBitDepthAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult<BitDepth?>(Imaging.BitDepth.Int16);
 
-            lock (_lock)
-            {
-                return _lastImageData is not null;
-            }
+    public ValueTask SetBitDepthAsync(BitDepth? value, CancellationToken cancellationToken = default)
+        => throw new InvalidOperationException("Cannot change bit depth");
+
+    public ValueTask<short> GetGainAsync(CancellationToken cancellationToken = default)
+    {
+        lock (_lock)
+        {
+            return ValueTask.FromResult(_gain);
         }
     }
 
-    public bool IsPulseGuiding => Connected ? false : throw new InvalidOperationException("Camera is not connected");
-
-    public bool CoolerOn { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-
-    public double CoolerPower => throw new NotImplementedException();
-
-    public double SetCCDTemperature { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
-
-    public double HeatSinkTemperature => throw new NotImplementedException();
-
-    public double CCDTemperature => throw new NotImplementedException();
-
-    public BitDepth? BitDepth { get => Imaging.BitDepth.Int16; set => throw new InvalidOperationException("Cannot change bit depth"); }
-
-    public short Gain
+    public ValueTask SetGainAsync(short value, CancellationToken cancellationToken = default)
     {
-        get
+        if (value < GainMin || value > GainMax)
         {
-            lock (_lock)
-            {
-                return _gain;
-            }
+            throw new ArgumentException($"Gain must be between {GainMin} and {GainMax}", nameof(value));
         }
 
-        set
+        lock (_lock)
         {
-            if (value < GainMin || value > GainMax)
-            {
-                throw new ArgumentException($"Gain must be between {GainMin} and {GainMax}", nameof(value));
-            }
+            _gain = value;
         }
+        return ValueTask.CompletedTask;
     }
 
     public short GainMin { get; } = 0;
@@ -286,23 +266,26 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
 
     public IReadOnlyList<string> Gains { get; } = [];
 
-    public int Offset
+    public ValueTask<int> GetOffsetAsync(CancellationToken cancellationToken = default)
     {
-        get
+        lock (_lock)
         {
-            lock (_lock)
-            {
-                return _offset;
-            }
+            return ValueTask.FromResult(_offset);
+        }
+    }
+
+    public ValueTask SetOffsetAsync(int value, CancellationToken cancellationToken = default)
+    {
+        if (value < OffsetMin || value > OffsetMax)
+        {
+            throw new ArgumentException($"Offset must be between {OffsetMin} and {OffsetMax}", nameof(value));
         }
 
-        set
+        lock (_lock)
         {
-            if (value < OffsetMin || value > OffsetMax)
-            {
-                throw new ArgumentException($"Offset must be between {OffsetMin} and {OffsetMax}", nameof(value));
-            }
+            _offset = value;
         }
+        return ValueTask.CompletedTask;
     }
 
     public int OffsetMin { get; } = 0;
@@ -358,8 +341,6 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
 
     public int BayerOffsetY { get; } = 0;
 
-    public CameraState CameraState => (CameraState)Interlocked.CompareExchange(ref _cameraState, (int)CameraState.Error, (int)CameraState.Error);
-
     public string? Telescope { get; set; }
     public int FocalLength { get; set; }
     public double? Latitude { get; set; }
@@ -368,17 +349,48 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
     public int FocusPosition { get; set; }
     public Target? Target { get; set; }
 
-    public void AbortExposure()
+    // Async-primary members
+    public ValueTask<bool> GetImageReadyAsync(CancellationToken cancellationToken = default)
     {
-        var previousState = (CameraState)Interlocked.CompareExchange(ref _cameraState, (int)CameraState.Idle, (int)CameraState.Exposing);
-
-        if (previousState is not CameraState.Exposing and not CameraState.Idle)
+        if (!Connected)
         {
-            throw new InvalidOperationException("Failed to abort exposure");
+            throw new InvalidOperationException("Camera is not connected");
+        }
+
+        lock (_lock)
+        {
+            return ValueTask.FromResult(_lastImageData is not null);
         }
     }
 
-    public DateTimeOffset StartExposure(TimeSpan duration, FrameType frameType = FrameType.Light)
+    public ValueTask<CameraState> GetCameraStateAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult((CameraState)Interlocked.CompareExchange(ref _cameraState, (int)CameraState.Error, (int)CameraState.Error));
+
+    public ValueTask<double> GetCCDTemperatureAsync(CancellationToken cancellationToken = default)
+        => throw new NotImplementedException();
+
+    public ValueTask<double> GetHeatSinkTemperatureAsync(CancellationToken cancellationToken = default)
+        => throw new NotImplementedException();
+
+    public ValueTask<double> GetCoolerPowerAsync(CancellationToken cancellationToken = default)
+        => throw new NotImplementedException();
+
+    public ValueTask<bool> GetCoolerOnAsync(CancellationToken cancellationToken = default)
+        => throw new NotImplementedException();
+
+    public ValueTask SetCoolerOnAsync(bool value, CancellationToken cancellationToken = default)
+        => throw new NotImplementedException();
+
+    public ValueTask<double> GetSetCCDTemperatureAsync(CancellationToken cancellationToken = default)
+        => throw new NotImplementedException();
+
+    public ValueTask SetSetCCDTemperatureAsync(double value, CancellationToken cancellationToken = default)
+        => throw new NotImplementedException();
+
+    public ValueTask<bool> GetIsPulseGuidingAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(Connected ? false : throw new InvalidOperationException("Camera is not connected"));
+
+    public ValueTask<DateTimeOffset> StartExposureAsync(TimeSpan duration, FrameType frameType = FrameType.Light, CancellationToken cancellationToken = default)
     {
         var minDuration = TimeSpan.FromSeconds(ExposureResolution);
         var intentedDuration = duration < minDuration ? minDuration : duration;
@@ -396,13 +408,13 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
             lock (_lock)
             {
                 _exposureSettings = _cameraSettings;
-                _exposureData = new ExposureData(startTime, intentedDuration, null, frameType, Gain, Offset);
+                _exposureData = new ExposureData(startTime, intentedDuration, null, frameType, _gain, _offset);
 
-                var timer = _exposureTimer ??= External.TimeProvider.CreateTimer(_ => StopExposure(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+                var timer = _exposureTimer ??= External.TimeProvider.CreateTimer(_ => StopExposureCore(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
                 timer.Change(intentedDuration, Timeout.InfiniteTimeSpan);
             }
 
-            return startTime;
+            return ValueTask.FromResult(startTime);
         }
         else
         {
@@ -410,7 +422,7 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
         }
     }
 
-    public void StopExposure()
+    private void StopExposureCore()
     {
         var stopTime = External.TimeProvider.GetUtcNow();
 
@@ -427,14 +439,14 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
                     _exposureTimer?.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
                     lastExposureSettings = _exposureSettings;
                 }
-            
+
                 var imageReady = Interlocked.CompareExchange(ref _cameraState, (int)CameraState.Idle, (int)CameraState.Download) is (int)CameraState.Download;
 
                 if (imageReady)
                 {
                     var array = new float[
                         1,
-                        lastExposureSettings.Height - lastExposureSettings.StartY, 
+                        lastExposureSettings.Height - lastExposureSettings.StartY,
                         lastExposureSettings.Width - lastExposureSettings.StartX
                     ];
                     _lastImageData = new Float32HxWImageData(array, current.Offset, current.Offset);
@@ -444,7 +456,25 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
         }
     }
 
-    public void PulseGuide(GuideDirection direction, TimeSpan duration) => throw new InvalidOperationException("Pulse guiding via camera is not supported");
+    public ValueTask StopExposureAsync(CancellationToken cancellationToken = default)
+    {
+        StopExposureCore();
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask AbortExposureAsync(CancellationToken cancellationToken = default)
+    {
+        var previousState = (CameraState)Interlocked.CompareExchange(ref _cameraState, (int)CameraState.Idle, (int)CameraState.Exposing);
+
+        if (previousState is not CameraState.Exposing and not CameraState.Idle)
+        {
+            throw new InvalidOperationException("Failed to abort exposure");
+        }
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken = default)
+        => throw new InvalidOperationException("Pulse guiding via camera is not supported");
 
     protected override void Dispose(bool disposing)
     {
