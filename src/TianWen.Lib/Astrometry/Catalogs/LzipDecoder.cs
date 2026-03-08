@@ -188,6 +188,7 @@ internal static class LzipDecoder
         return d - (d >> 4) * ((uint)(ds >> 5) & 7);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static void DecodeLzma(ReadOnlySpan<byte> input, byte[] output, int outputOffset, int outputLength)
     {
         // lzip fixed LZMA properties
@@ -415,7 +416,7 @@ internal static class LzipDecoder
         }
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     private static int DecodeBit(ushort[] probs, int index, ref uint range, ref uint code, ReadOnlySpan<byte> input, ref int inPos)
     {
         uint prob = probs[index];
@@ -446,7 +447,7 @@ internal static class LzipDecoder
         }
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     private static uint DecodeLength(ushort[] probs, int choiceOffset, int lowOffset, int midOffset, int highOffset, int posState, ref uint range, ref uint code, ReadOnlySpan<byte> input, ref int inPos)
     {
         if (DecodeBit(probs, choiceOffset, ref range, ref code, input, ref inPos) == 0)
@@ -462,6 +463,7 @@ internal static class LzipDecoder
         return 16 + DecodeBitTree(probs, highOffset, 8, ref range, ref code, input, ref inPos);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static uint DecodeBitTree(ushort[] probs, int baseOffset, int numBits, ref uint range, ref uint code, ReadOnlySpan<byte> input, ref int inPos)
     {
         uint m = 1;
@@ -472,6 +474,7 @@ internal static class LzipDecoder
         return m - (1u << numBits);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static uint DecodeBitTreeReverse(ushort[] probs, int baseOffset, int numBits, ref uint range, ref uint code, ReadOnlySpan<byte> input, ref int inPos)
     {
         uint m = 1;
@@ -485,7 +488,7 @@ internal static class LzipDecoder
         return symbol;
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     private static uint DecodeDirectBits(int numBits, ref uint range, ref uint code, ReadOnlySpan<byte> input, ref int inPos)
     {
         uint result = 0;
