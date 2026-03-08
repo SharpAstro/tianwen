@@ -1,4 +1,5 @@
-﻿using System;
+using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
@@ -38,4 +39,37 @@ public interface IPlateSolver : IAsyncSupportedCheck
         double? searchRadius = default,
         CancellationToken cancellationToken = default
     );
+
+    /// <summary>
+    /// Solves an in-memory <paramref name="image"/> by deriving <see cref="ImageDim"/> from its metadata
+    /// (pixel size, binning, focal length) and optionally using <paramref name="searchOrigin"/> as a hint.
+    /// </summary>
+    /// <param name="image">The image to plate solve.</param>
+    /// <param name="range">Search tolerance.</param>
+    /// <param name="searchOrigin">Prefilled WCS if known.</param>
+    /// <param name="searchRadius">Search radius in degrees.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>WCS if solved, <c>null</c> otherwise.</returns>
+    async Task<WCS?> SolveImageAsync(
+        Image image,
+        float range = DefaultRange,
+        WCS? searchOrigin = default,
+        double? searchRadius = default,
+        CancellationToken cancellationToken = default
+    )
+    {
+        var fitsFile = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".fits");
+        try
+        {
+            image.WriteToFitsFile(fitsFile);
+            return await SolveFileAsync(fitsFile, image.GetImageDim(), range, searchOrigin, searchRadius, cancellationToken);
+        }
+        finally
+        {
+            if (File.Exists(fitsFile))
+            {
+                File.Delete(fitsFile);
+            }
+        }
+    }
 }

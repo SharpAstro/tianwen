@@ -1,4 +1,4 @@
-﻿using TianWen.Lib.Astrometry.PlateSolve;
+using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging;
 using System.Threading;
 using System.Threading.Tasks;
@@ -26,5 +26,10 @@ internal class FakePlateSolver : IPlateSolver
         }
 
         return Task.FromResult(null as WCS?);
+    }
+
+    public Task<WCS?> SolveImageAsync(Image image, float range = 0.03F, WCS? searchOrigin = null, double? searchRadius = null, CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(searchOrigin);
     }
 }

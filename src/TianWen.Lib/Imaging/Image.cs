@@ -35,6 +35,21 @@ public partial class Image(float[,,] data, BitDepth bitDepth, float maxValue, fl
     public ImageMeta ImageMeta => imageMeta;
 
     /// <summary>
+    /// Computes <see cref="ImageDim"/> from image dimensions and metadata (pixel size, binning, focal length).
+    /// </summary>
+    /// <returns>Image dimensions with pixel scale, or <c>null</c> if metadata is insufficient.</returns>
+    public ImageDim? GetImageDim()
+    {
+        var meta = ImageMeta;
+        if (meta.PixelSizeX > 0 && meta.FocalLength > 0 && meta.BinX > 0)
+        {
+            var pixelScale = meta.PixelSizeX * meta.BinX / meta.FocalLength * 206.265;
+            return new ImageDim(pixelScale, Width, Height);
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Read-only indexer to get a pixel value.
     /// </summary>
     /// <param name="h"></param>

@@ -17,7 +17,7 @@ namespace TianWen.Lib.Astrometry.Catalogs;
 /// <param name="V_Mag">Visual magnitude or V-mag (in UVB), NaN if not defined</param>
 /// <param name="SurfaceBrightness">Surface brightness for galaxies in mag/arcsec^2, NaN if not defined</param>
 /// <param name="CommonNames">A set of common names referring to this object</param>
-[DebuggerDisplay("{DebuggerDisplay(),nq}")]
+[DebuggerDisplay($"{{{nameof(DebuggerDisplay)}(),nq}}")]
 public readonly record struct CelestialObject(
     CatalogIndex Index,
     ObjectType ObjectType,
