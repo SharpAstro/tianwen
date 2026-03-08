@@ -65,18 +65,24 @@ internal sealed class PlateSolverFactory(IEnumerable<IPlateSolver> solvers) : IP
 
     public async Task<WCS?> SolveFileAsync(string fitsFile, ImageDim? imageDim = null, float range = 0.03F, WCS? searchOrigin = null, double? searchRadius = null, CancellationToken cancellationToken = default)
     {
+        var selected = await EnsureSelectedAsync(cancellationToken).ConfigureAwait(false);
+        return await selected.SolveFileAsync(fitsFile, imageDim, range, searchOrigin, searchRadius, cancellationToken);
+    }
+
+    public async Task<WCS?> SolveImageAsync(Image image, float range = 0.03F, WCS? searchOrigin = null, double? searchRadius = null, CancellationToken cancellationToken = default)
+    {
+        var selected = await EnsureSelectedAsync(cancellationToken).ConfigureAwait(false);
+        return await selected.SolveImageAsync(image, range, searchOrigin, searchRadius, cancellationToken);
+    }
+
+    private async ValueTask<IPlateSolver> EnsureSelectedAsync(CancellationToken cancellationToken)
+    {
         if (SelectedPlateSolver is null)
         {
             await CheckSupportAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        if (Interlocked.CompareExchange(ref _selected, null, null) is { } selected)
-        {
-            return await selected.SolveFileAsync(fitsFile, imageDim, range, searchOrigin, searchRadius, cancellationToken);
-        }
-        else
-        {
-            throw new InvalidOperationException("No plate solver supported");
-        }
+        return Interlocked.CompareExchange(ref _selected, null, null)
+            ?? throw new InvalidOperationException("No plate solver supported");
     }
 }
