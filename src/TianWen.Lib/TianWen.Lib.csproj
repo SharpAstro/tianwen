@@ -55,6 +55,7 @@
     <PackageReference Include="GeoTimeZone" />
     <PackageReference Include="Magick.NET-Q16-HDRI-AnyCPU" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Http" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Microsoft.SourceLink.GitHub">
       <PrivateAssets>all</PrivateAssets>
