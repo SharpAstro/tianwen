@@ -14,6 +14,7 @@ public static class AstrometryServiceCollectionExtensions
     /// <param name="services"></param>
     /// <returns></returns>
     public static IServiceCollection AddAstrometry(this IServiceCollection services) => services
+        .AddSingleton<IPlateSolver, CatalogPlateSolver>()
         .AddSingleton<IPlateSolver, AstapPlateSolver>()
         .AddSingleton<IPlateSolver, AstrometryNetPlateSolverMultiPlatform>()
         .AddSingleton<IPlateSolver, AstrometryNetPlateSolverUnix>()

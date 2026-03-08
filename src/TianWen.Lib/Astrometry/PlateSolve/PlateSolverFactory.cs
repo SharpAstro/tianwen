@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
@@ -15,21 +15,19 @@ public interface IPlateSolverFactory : IPlateSolver
 
 internal sealed class PlateSolverFactory(IEnumerable<IPlateSolver> solvers) : IPlateSolverFactory
 {
-    // private IReadOnlyList<IPlateSolver> Solvers { get; } = solvers.Where(solver => solver.GetType() != typeof(PlateSolverFactory)).ToList();
-
     private readonly SemaphoreSlim _initSem = new SemaphoreSlim(1, 1);
 
-    private IPlateSolver? _selected;
+    private IPlateSolver[]? _sortedSolvers;
 
-    public IPlateSolver? SelectedPlateSolver => Interlocked.CompareExchange(ref _selected, null, null);
+    public IPlateSolver? SelectedPlateSolver => Interlocked.CompareExchange(ref _sortedSolvers, null, null) is { Length: > 0 } s ? s[0] : null;
 
-    public string Name => _selected?.Name ?? throw new InvalidOperationException("No plate solver selected");
+    public string Name => SelectedPlateSolver?.Name ?? throw new InvalidOperationException("No plate solver selected");
 
-    public float Priority => _selected?.Priority ?? throw new InvalidOperationException("No plate solver selected");
+    public float Priority => SelectedPlateSolver?.Priority ?? throw new InvalidOperationException("No plate solver selected");
 
     public async ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken = default)
     {
-        if (SelectedPlateSolver is not null)
+        if (_sortedSolvers is { Length: > 0 })
         {
             return true;
         }
@@ -37,7 +35,7 @@ internal sealed class PlateSolverFactory(IEnumerable<IPlateSolver> solvers) : IP
         using var @lock = await _initSem.AcquireLockAsync(cancellationToken);
 
         // double check after lock acquisition
-        if (SelectedPlateSolver is not null)
+        if (_sortedSolvers is { Length: > 0 })
         {
             return true;
         }
@@ -57,32 +55,61 @@ internal sealed class PlateSolverFactory(IEnumerable<IPlateSolver> solvers) : IP
             }
         });
 
-        // TODO? consider making IPlateSolver disposable
-        _ = Interlocked.Exchange(ref _selected, supportedSolvers.OrderByDescending(solver => solver.Priority).FirstOrDefault());
+        _ = Interlocked.Exchange(ref _sortedSolvers, supportedSolvers.OrderByDescending(solver => solver.Priority).ToArray());
 
-        return SelectedPlateSolver is not null;
+        return _sortedSolvers.Length > 0;
     }
 
     public async Task<WCS?> SolveFileAsync(string fitsFile, ImageDim? imageDim = null, float range = 0.03F, WCS? searchOrigin = null, double? searchRadius = null, CancellationToken cancellationToken = default)
     {
-        var selected = await EnsureSelectedAsync(cancellationToken).ConfigureAwait(false);
-        return await selected.SolveFileAsync(fitsFile, imageDim, range, searchOrigin, searchRadius, cancellationToken);
+        foreach (var solver in await EnsureSolversAsync(cancellationToken).ConfigureAwait(false))
+        {
+            try
+            {
+                var result = await solver.SolveFileAsync(fitsFile, imageDim, range, searchOrigin, searchRadius, cancellationToken);
+                if (result is not null)
+                {
+                    return result;
+                }
+            }
+            catch (PlateSolverException)
+            {
+                // try next solver
+            }
+        }
+
+        throw new PlateSolverException("No plate solver could solve the image");
     }
 
-    public async Task<WCS?> SolveImageAsync(Image image, float range = 0.03F, WCS? searchOrigin = null, double? searchRadius = null, CancellationToken cancellationToken = default)
+    public async Task<WCS?> SolveImageAsync(Image image, ImageDim? imageDim = null, float range = 0.03F, WCS? searchOrigin = null, double? searchRadius = null, CancellationToken cancellationToken = default)
     {
-        var selected = await EnsureSelectedAsync(cancellationToken).ConfigureAwait(false);
-        return await selected.SolveImageAsync(image, range, searchOrigin, searchRadius, cancellationToken);
+        foreach (var solver in await EnsureSolversAsync(cancellationToken).ConfigureAwait(false))
+        {
+            try
+            {
+                var result = await solver.SolveImageAsync(image, imageDim, range, searchOrigin, searchRadius, cancellationToken);
+                if (result is not null)
+                {
+                    return result;
+                }
+            }
+            catch (PlateSolverException)
+            {
+                // try next solver
+            }
+        }
+
+        throw new PlateSolverException("No plate solver could solve the image");
     }
 
-    private async ValueTask<IPlateSolver> EnsureSelectedAsync(CancellationToken cancellationToken)
+    private async ValueTask<IPlateSolver[]> EnsureSolversAsync(CancellationToken cancellationToken)
     {
-        if (SelectedPlateSolver is null)
+        if (_sortedSolvers is not { Length: > 0 })
         {
             await CheckSupportAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        return Interlocked.CompareExchange(ref _selected, null, null)
+        return Interlocked.CompareExchange(ref _sortedSolvers, null, null)
             ?? throw new InvalidOperationException("No plate solver supported");
     }
 }
