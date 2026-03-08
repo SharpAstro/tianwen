@@ -290,6 +290,10 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             totalFailed += failed;
         }
 
+        // Build cross-indices between HD and HIP via shared TYC stars
+        // (must happen after all catalog loading so HIP cross-refs to HR, vdB etc. are present)
+        BuildHdHipCrossIndicesViaTyc();
+
         _isInitialized = true;
         return (totalProcessed, totalFailed);
     }
@@ -330,6 +334,80 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         // 4. Load HD → TYC cross-reference
         _hdToTyc = LoadCrossRefBinFile(assembly, "hd_to_tyc");
         LoadCrossRefMultiJson(assembly, "hd_to_tyc_multi", Catalog.HD, Catalog.HD.GetNumericalIndexSize(), _hdToTyc);
+
+    }
+
+    private void BuildHdHipCrossIndicesViaTyc()
+    {
+        if (_hipToTyc is not { } hipToTyc || _hdToTyc is not { } hdToTyc)
+        {
+            throw new InvalidOperationException("HIP→TYC and HD→TYC cross-reference data must be loaded before building HD↔HIP cross-indices.");
+        }
+
+        // Build TYC → HIP reverse index
+        var tycToHip = new Dictionary<CatalogIndex, CatalogIndex>(hipToTyc.Length / 2);
+        for (int i = 0; i < hipToTyc.Length; i++)
+        {
+            var tycIndex = hipToTyc[i];
+            if (tycIndex != 0)
+            {
+                var hipIndex = PrefixedNumericToASCIIPackedInt<CatalogIndex>((ulong)Catalog.HIP, i + 1, Catalog.HIP.GetNumericalIndexSize());
+                tycToHip[tycIndex] = hipIndex;
+            }
+        }
+
+        // For each HD → TYC, check if the TYC also maps to a HIP; if so, link HD ↔ HIP
+        // and propagate to all existing cross-indices of both
+        for (int i = 0; i < hdToTyc.Length; i++)
+        {
+            var tycIndex = hdToTyc[i];
+            if (tycIndex != 0 && tycToHip.TryGetValue(tycIndex, out var hipIndex))
+            {
+                var hdIndex = PrefixedNumericToASCIIPackedInt<CatalogIndex>((ulong)Catalog.HD, i + 1, Catalog.HD.GetNumericalIndexSize());
+
+                // Ensure HD entry is in _objectsByIndex with TYC coordinates for spatial indexing
+                if (!_objectsByIndex.ContainsKey(hdIndex) && TryGetTycho2RaDec(tycIndex, out var ra, out var dec)
+                    && ConstellationBoundary.TryFindConstellation(ra, dec, out var constellation))
+                {
+                    var hdObj = new CelestialObject(hdIndex, ObjectType.Star, ra, dec, constellation, HalfUndefined, HalfUndefined, EmptyNameSet);
+                    _objectsByIndex[hdIndex] = hdObj;
+                    AddCommonNameAndPosIndices(hdObj);
+                }
+
+                _crossIndexLookuptable.AddLookupEntry(hdIndex, hipIndex);
+                _crossIndexLookuptable.AddLookupEntry(hipIndex, hdIndex);
+
+                // Propagate HD to all existing cross-refs of HIP (e.g., HR, vdB)
+                if (_crossIndexLookuptable.TryGetLookupEntries(hipIndex, out var hipCross))
+                {
+                    foreach (var ci in hipCross)
+                    {
+                        if (ci != hdIndex)
+                        {
+                            _crossIndexLookuptable.AddLookupEntry(ci, hdIndex);
+                            _crossIndexLookuptable.AddLookupEntry(hdIndex, ci);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private void PopulateSimbadStarEntries(Dictionary<Catalog, CatalogIndex[]> relevantIds, Catalog catalog, double raInH, double dec)
+    {
+        if (relevantIds.TryGetValue(catalog, out var ids))
+        {
+            foreach (var id in ids)
+            {
+                if (!_objectsByIndex.ContainsKey(id)
+                    && ConstellationBoundary.TryFindConstellation(raInH, dec, out var constellation))
+                {
+                    var obj = new CelestialObject(id, ObjectType.Star, raInH, dec, constellation, HalfUndefined, HalfUndefined, EmptyNameSet);
+                    _objectsByIndex[id] = obj;
+                    AddCommonNameAndPosIndices(obj);
+                }
+            }
+        }
     }
 
     private static CatalogIndex[]? LoadCrossRefBinFile(Assembly assembly, string name)
@@ -694,7 +772,8 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         // will not be using cache as initialization is not complete
         var mainCatalogs = new HashSet<Catalog>(new HashSet<CatalogIndex>(_objectsByIndex.Keys).Select(idx => idx.ToCatalog()))
         {
-            Catalog.HIP
+            Catalog.HIP,
+            Catalog.HD
         };
 
         await foreach (var record in JsonSerializer.DeserializeAsyncEnumerable(lzipStream, SimbadCatalogDtoJsonSerializerContext.Default.SimbadCatalogDto, cancellationToken))
@@ -742,21 +821,10 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
             if (catToAddIdxs.Count > 0)
             {
-                // Populate HIP entries from Simbad data with authoritative coordinates
-                if (relevantIds.TryGetValue(Catalog.HIP, out var hipIds))
-                {
-                    var raInH = record.Ra / 15;
-                    foreach (var hipId in hipIds)
-                    {
-                        if (!_objectsByIndex.ContainsKey(hipId)
-                            && ConstellationBoundary.TryFindConstellation(raInH, record.Dec, out var hipConst))
-                        {
-                            var hipObj = new CelestialObject(hipId, ObjectType.Star, raInH, record.Dec, hipConst, HalfUndefined, HalfUndefined, EmptyNameSet);
-                            _objectsByIndex[hipId] = hipObj;
-                            AddCommonNameAndPosIndices(hipObj);
-                        }
-                    }
-                }
+                // Populate HIP/HD entries from Simbad data with authoritative coordinates
+                var raInHForStars = record.Ra / 15;
+                PopulateSimbadStarEntries(relevantIds, Catalog.HIP, raInHForStars, record.Dec);
+                PopulateSimbadStarEntries(relevantIds, Catalog.HD, raInHForStars, record.Dec);
 
                 var bestMatches = (
                     from relevantIdPerCat in relevantIds
@@ -767,7 +835,8 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                         Catalog.NGC => 1u,
                         Catalog.IC => 2u,
                         Catalog.Messier => 3u,
-                        Catalog.HIP => uint.MaxValue,
+                        Catalog.HIP => uint.MaxValue - 1,
+                        Catalog.HD => uint.MaxValue,
                         _ => (ulong)relevantIdPerCat.Key
                     }
                     orderby sortKey, relevantId
@@ -786,6 +855,31 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                             if (commonNames.Count > 0)
                             {
                                 UpdateObjectCommonNames(bestMatch, commonNames);
+                            }
+                        }
+
+                        // Also link non-bestMatch relevantIds (e.g. HD without TYC) to catToAddIdx and bestMatches
+                        // Only cross-link entries from cross-ref catalogs to avoid phantom entries (e.g. NGC 1502A)
+                        foreach (var relevantIdPerCat in relevantIds)
+                        {
+                            if (!IsCrossCat(relevantIdPerCat.Key))
+                            {
+                                continue;
+                            }
+
+                            foreach (var relevantId in relevantIdPerCat.Value)
+                            {
+                                if (!bestMatches.Contains(relevantId))
+                                {
+                                    _crossIndexLookuptable.AddLookupEntry(relevantId, catToAddIdx);
+                                    _crossIndexLookuptable.AddLookupEntry(catToAddIdx, relevantId);
+
+                                    foreach (var bestMatch in bestMatches)
+                                    {
+                                        _crossIndexLookuptable.AddLookupEntry(relevantId, bestMatch);
+                                        _crossIndexLookuptable.AddLookupEntry(bestMatch, relevantId);
+                                    }
+                                }
                             }
                         }
                     }
