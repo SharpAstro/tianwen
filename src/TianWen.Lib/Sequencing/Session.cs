@@ -134,7 +134,7 @@ internal record Session(
                 origGain[i] = short.MinValue;
             }
 
-            camDriver.StartExposure(TimeSpan.FromSeconds(1));
+            await camDriver.StartExposureAsync(TimeSpan.FromSeconds(1), cancellationToken: cancellationToken);
         }
 
         var expTimesSec = new int[count];
@@ -147,7 +147,7 @@ internal record Session(
             {
                 var camDriver = Setup.Telescopes[i].Camera.Driver;
 
-                if (camDriver.ImageReady is true && camDriver.Image is { Width: > 0, Height: > 0 } image)
+                if (await camDriver.GetImageReadyAsync(cancellationToken) is true && camDriver.Image is { Width: > 0, Height: > 0 } image)
                 {
                     var stars = await image.FindStarsAsync(0, snrMin: 15, cancellationToken: cancellationToken);
 
@@ -157,7 +157,7 @@ internal record Session(
 
                         if (await GetMountUtcNowAsync(cancellationToken) - slewTime + TimeSpan.FromSeconds(count * 5 + expTimesSec[i]) < distMeridian)
                         {
-                            camDriver.StartExposure(TimeSpan.FromSeconds(expTimesSec[i]));
+                            await camDriver.StartExposureAsync(TimeSpan.FromSeconds(expTimesSec[i]), cancellationToken: cancellationToken);
                         }
                     }
                     else
@@ -318,15 +318,22 @@ internal record Session(
             var camDriver = Setup.Telescopes[i].Camera.Driver;
             if (Catch(() => camDriver.CanGetCoolerOn))
             {
-                shutdownReport[$"Camera #{(i + 1)} Cooler Off"] = Catch(() => !camDriver.CoolerOn || !(camDriver.CoolerOn = false));
+                shutdownReport[$"Camera #{(i + 1)} Cooler Off"] = await CatchAsync(async ct =>
+                {
+                    if (await camDriver.GetCoolerOnAsync(ct))
+                    {
+                        await camDriver.SetCoolerOnAsync(false, ct);
+                    }
+                    return !await camDriver.GetCoolerOnAsync(ct);
+                }, cancellationToken);
             }
             if (Catch(() => camDriver.CanGetCoolerPower))
             {
-                shutdownReport[$"Camera #{(i + 1)} Cooler Power <= 0.1"] = Catch(() => camDriver.CoolerPower is <= 0.1);
+                shutdownReport[$"Camera #{(i + 1)} Cooler Power <= 0.1"] = await CatchAsync(async ct => await camDriver.GetCoolerPowerAsync(ct) is <= 0.1, cancellationToken);
             }
             if (Catch(() => camDriver.CanGetHeatsinkTemperature))
             {
-                shutdownReport[$"Camera #{(i + 1)} Temp near ambient"] = Catch(() => Math.Abs(camDriver.CCDTemperature - camDriver.HeatSinkTemperature) < 1d);
+                shutdownReport[$"Camera #{(i + 1)} Temp near ambient"] = await CatchAsync(async ct => Math.Abs(await camDriver.GetCCDTemperatureAsync(ct) - await camDriver.GetHeatSinkTemperatureAsync(ct)) < 1d, cancellationToken);
             }
         }
 
@@ -577,15 +584,15 @@ internal record Session(
             {
                 var telescope = Setup.Telescopes[i];
                 var camerDriver = telescope.Camera.Driver;
-                if (camerDriver.CameraState is CameraState.Idle)
+                if (await camerDriver.GetCameraStateAsync(cancellationToken) is CameraState.Idle)
                 {
                     // set denormalized parameters so that the image driver can write proper headers in the image file
-                    camerDriver.FocusPosition = Catch(() => telescope.Focuser?.Driver is { Connected: true } focuserDriver ? focuserDriver.Position : -1, -1);
-                    camerDriver.Filter = Catch(() => telescope.FilterWheel?.Driver is { Connected: true } filterWheelDriver ? filterWheelDriver.CurrentFilter.Filter : Filter.Unknown, Filter.Unknown);
+                    camerDriver.FocusPosition = await CatchAsync(async ct => telescope.Focuser?.Driver is { Connected: true } focuserDriver ? await focuserDriver.GetPositionAsync(ct) : -1, cancellationToken, -1);
+                    camerDriver.Filter = await CatchAsync(async ct => telescope.FilterWheel?.Driver is { Connected: true } filterWheelDriver ? (await filterWheelDriver.GetCurrentFilterAsync(ct)).Filter : Filter.Unknown, cancellationToken, Filter.Unknown);
 
                     var subExposureSec = subExposuresSec[i];
                     var frameExpTime = TimeSpan.FromSeconds(subExposureSec);
-                    expStartTimes[i] = camerDriver.StartExposure(frameExpTime);
+                    expStartTimes[i] = await camerDriver.StartExposureAsync(frameExpTime, cancellationToken: cancellationToken);
                     expTicks[i] = (int)(subExposureSec / tickGCD);
                     var frameNo = ++frameNumbers[i];
 
@@ -622,7 +629,7 @@ internal record Session(
                     var frameNo = frameNumbers[i];
                     do // wait for image loop
                     {
-                        if (camDriver.ImageReady is true && camDriver.Image is { Width: > 0, Height: > 0 } image)
+                        if (await camDriver.GetImageReadyAsync(cancellationToken) is true && camDriver.Image is { Width: > 0, Height: > 0 } image)
                         {
                             imageFetchSuccess[i] = true;
                             External.AppLogger.LogInformation("Camera #{CameraNumber} {CameraName} finished {ExposureStartTime} exposure of frame #{FrameNo}",
@@ -636,18 +643,18 @@ internal record Session(
                             var spinDuration = TimeSpan.FromMilliseconds(100);
                             overslept += spinDuration;
 
-                            External.Sleep(spinDuration);
+                            await External.SleepAsync(spinDuration, cancellationToken);
                         }
                     }
                     while (overslept < (tickDuration / 5)
-                        && camDriver.CameraState is not CameraState.Error and not CameraState.NotConnected
+                        && await camDriver.GetCameraStateAsync(cancellationToken) is not CameraState.Error and not CameraState.NotConnected
                         && !cancellationToken.IsCancellationRequested
                     );
 
                     if (!imageFetchSuccess[i])
                     {
                         External.AppLogger.LogError("Failed fetching camera #{CameraNumber)} {CameraName} {ExposureStartTime} exposure of frame #{FrameNo}, camera state: {CameraState}",
-                            i + 1, camDriver.Name, frameExpTime, frameNo, camDriver.CameraState);
+                            i + 1, camDriver.Name, frameExpTime, frameNo, await camDriver.GetCameraStateAsync(cancellationToken));
                     }
                 }
             }
@@ -743,7 +750,7 @@ internal record Session(
                 await cover.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
 
                 bool calibratorActionCompleted;
-                if (cover.Driver.CoverState is CoverStatus.NotPresent)
+                if (await cover.Driver.GetCoverStateAsync(cancellationToken) is CoverStatus.NotPresent)
                 {
                     calibratorActionCompleted = true;
                     finalCoverStateReached[i] = true;
@@ -776,7 +783,7 @@ internal record Session(
                 }
                 else if (!calibratorActionCompleted)
                 {
-                    External.AppLogger.LogError("Failed to turn off calibrator of telescope {TelescopeNumber}, current state {CalibratorState}", i+1, cover.Driver.CalibratorState);
+                    External.AppLogger.LogError("Failed to turn off calibrator of telescope {TelescopeNumber}, current state {CalibratorState}", i+1, await cover.Driver.GetCalibratorStateAsync(cancellationToken));
                 }
             }
             else
@@ -791,7 +798,7 @@ internal record Session(
             {
                 int failSafe = 0;
                 CoverStatus cs;
-                while ((finalCoverStateReached[i] = (cs = cover.Driver.CoverState) == finalCoverState) is false
+                while ((finalCoverStateReached[i] = (cs = await cover.Driver.GetCoverStateAsync(cancellationToken)) == finalCoverState) is false
                     && cs is CoverStatus.Moving or CoverStatus.Unknown
                     && !cancellationToken.IsCancellationRequested
                     && ++failSafe < IDeviceDriver.MAX_FAILSAFE
@@ -799,10 +806,10 @@ internal record Session(
                 {
                     External.AppLogger.LogInformation("Cover {Cover} of telescope {TelescopeNumber} is still {CurrentState} while reaching {FinalCoverState}, waiting.",
                         cover, i + 1, cs, finalCoverState);
-                    External.Sleep(TimeSpan.FromSeconds(3));
+                    await External.SleepAsync(TimeSpan.FromSeconds(3), cancellationToken);
                 }
 
-                var finalCoverStateAfterMoving = cover.Driver.CoverState;
+                var finalCoverStateAfterMoving = await cover.Driver.GetCoverStateAsync(cancellationToken);
                 finalCoverStateReached[i] |= finalCoverStateAfterMoving == finalCoverState;
 
                 if (!finalCoverStateReached[i])

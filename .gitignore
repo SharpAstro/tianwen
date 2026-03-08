@@ -6,3 +6,4 @@ TestResults/
 *.tmp
 tmp-data/
 *.csproj.user
+*.local.json

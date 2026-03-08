@@ -6,6 +6,16 @@ namespace TianWen.Lib.Devices;
 
 public interface ICoverDriver : IDeviceDriver
 {
+    /// <summary>
+    /// Async alternative to <see cref="CoverState"/>. Default delegates to the sync property.
+    /// </summary>
+    ValueTask<CoverStatus> GetCoverStateAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(CoverState);
+
+    /// <summary>
+    /// Async alternative to <see cref="CalibratorState"/>. Default delegates to the sync property.
+    /// </summary>
+    ValueTask<CalibratorStatus> GetCalibratorStateAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(CalibratorState);
+
     bool IsCalibrationReady
         => CoverState is not CoverStatus.Error and not CoverStatus.Moving
         && CalibratorState is not CalibratorStatus.NotReady and not CalibratorStatus.NotPresent and not CalibratorStatus.Error;
@@ -48,13 +58,18 @@ public interface ICoverDriver : IDeviceDriver
     CalibratorStatus CalibratorState { get; }
 
     /// <summary>
+    /// Async alternative to <see cref="Brightness"/>. Default delegates to the sync property.
+    /// </summary>
+    ValueTask<int> GetBrightnessAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(Brightness);
+
+    /// <summary>
     /// Higher-level function to turn of the calibrator (if present)
     /// </summary>
     /// <param name="cancellationToken"></param>
     /// <returns></returns>
     async ValueTask<bool> TurnOffCalibratorAndWaitAsync(CancellationToken cancellationToken = default)
     {
-        var calState = CalibratorState;
+        var calState = await GetCalibratorStateAsync(cancellationToken);
 
         if (calState is CalibratorStatus.NotPresent or CalibratorStatus.Off)
         {
@@ -68,7 +83,7 @@ public interface ICoverDriver : IDeviceDriver
         await BeginCalibratorOff(cancellationToken);
 
         var tries = 0;
-        while ((calState = CalibratorState) == CalibratorStatus.NotReady
+        while ((calState = await GetCalibratorStateAsync(cancellationToken)) == CalibratorStatus.NotReady
             && !cancellationToken.IsCancellationRequested
             && ++tries < MAX_FAILSAFE)
         {
