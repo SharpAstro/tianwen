@@ -894,8 +894,8 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                         if (ConstellationBoundary.TryFindConstellation(raInH, record.Dec, out var constellation))
                         {
                             var objType = AbbreviationToEnumMember<ObjectType>(record.ObjType);
-                            var trimmedSetOrEmpty = commonNames.Count > 0 ? new HashSet<string>(commonNames) : EmptyNameSet;
-                            var obj = _objectsByIndex[catToAddIdx] = new CelestialObject(catToAddIdx, objType, raInH, record.Dec, constellation, HalfUndefined, HalfUndefined, trimmedSetOrEmpty);
+                            var setOrEmpty = commonNames.Count > 0 ? new HashSet<string>(commonNames) : EmptyNameSet;
+                            var obj = _objectsByIndex[catToAddIdx] = new CelestialObject(catToAddIdx, objType, raInH, record.Dec, constellation, HalfUndefined, HalfUndefined, setOrEmpty);
 
                             AddCommonNameAndPosIndices(obj);
                         }
