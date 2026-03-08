@@ -242,10 +242,11 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
 
         var assembly = typeof(CelestialObjectDB).Assembly;
+        var manifestNames = assembly.GetManifestResourceNames();
         var totalProcessed = 0;
         var totalFailed = 0;
 
-        var initTycho2DataTask = ReadEmbeddedTycho2DataAsync(assembly);
+        var initTycho2DataTask = Task.Run(() => ReadEmbeddedTycho2DataAsync(assembly, manifestNames));
 
         foreach (var predefined in _predefinedObjects)
         {
@@ -260,12 +261,17 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
         foreach (var csvName in new[] { "NGC", "NGC.addendum" })
         {
-            var (processed, failed) = await ReadEmbeddedLzCsvDataFileAsync(assembly, csvName, cancellationToken);
+            var (processed, failed) = await ReadEmbeddedLzCsvDataFileAsync(assembly, manifestNames, csvName, cancellationToken);
             totalProcessed += processed;
             totalFailed += failed;
         }
 
-        await initTycho2DataTask;
+        // Compute mainCatalogs once before SIMBAD processing (avoids re-scanning 13K+ keys per file)
+        var mainCatalogs = new HashSet<Catalog>(new HashSet<CatalogIndex>(_objectsByIndex.Keys).Select(idx => idx.ToCatalog()))
+        {
+            Catalog.HIP,
+            Catalog.HD
+        };
 
         var simbadCatalogs = new[] {
             ("HR", Catalog.HR),
@@ -285,10 +291,14 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         };
         foreach (var (fileName, catToAdd) in simbadCatalogs)
         {
-            var (processed, failed) = await ReadEmbeddedLzippedJsonDataFileAsync(assembly, fileName, catToAdd, cancellationToken);
+            var (processed, failed) = await ReadEmbeddedLzippedJsonDataFileAsync(assembly, manifestNames, fileName, catToAdd, mainCatalogs, cancellationToken);
             totalProcessed += processed;
             totalFailed += failed;
+            mainCatalogs.Add(catToAdd);
         }
+
+        // Wait for Tycho2 data (runs in parallel with CSV + SIMBAD processing)
+        await initTycho2DataTask;
 
         // Build cross-indices between HD and HIP via shared TYC stars
         // (must happen after all catalog loading so HIP cross-refs to HR, vdB etc. are present)
@@ -298,10 +308,10 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         return (totalProcessed, totalFailed);
     }
 
-    private async Task ReadEmbeddedTycho2DataAsync(Assembly assembly)
+    private async Task ReadEmbeddedTycho2DataAsync(Assembly assembly, string[] manifestNames)
     {
         // 1. Load tyc2.bin.lz binary data
-        var tyc2Manifest = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith(".tyc2.bin.lz"));
+        var tyc2Manifest = manifestNames.FirstOrDefault(p => p.EndsWith(".tyc2.bin.lz"));
         if (tyc2Manifest is null || assembly.GetManifestResourceStream(tyc2Manifest) is not Stream tyc2Stream)
         {
             return;
@@ -317,7 +327,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         _tycho2StreamCount = BinaryPrimitives.ReadInt32LittleEndian(_tycho2Data);
 
         // 2. Load GSC region bounding boxes and build spatial index
-        var boundsManifest = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith(".tyc2_gsc_bounds.bin.lz"));
+        var boundsManifest = manifestNames.FirstOrDefault(p => p.EndsWith(".tyc2_gsc_bounds.bin.lz"));
         if (boundsManifest is not null && assembly.GetManifestResourceStream(boundsManifest) is Stream boundsStream)
         {
             using var boundsLzip = new LZipStream(boundsStream, SharpCompress.Compressors.CompressionMode.Decompress);
@@ -328,12 +338,12 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
 
         // 3. Load HIP → TYC cross-reference
-        _hipToTyc = LoadCrossRefBinFile(assembly, "hip_to_tyc");
-        LoadCrossRefMultiJson(assembly, "hip_to_tyc_multi", Catalog.HIP, Catalog.HIP.GetNumericalIndexSize(), _hipToTyc);
+        _hipToTyc = LoadCrossRefBinFile(assembly, manifestNames, "hip_to_tyc");
+        LoadCrossRefMultiJson(assembly, manifestNames, "hip_to_tyc_multi", Catalog.HIP, Catalog.HIP.GetNumericalIndexSize(), _hipToTyc);
 
         // 4. Load HD → TYC cross-reference
-        _hdToTyc = LoadCrossRefBinFile(assembly, "hd_to_tyc");
-        LoadCrossRefMultiJson(assembly, "hd_to_tyc_multi", Catalog.HD, Catalog.HD.GetNumericalIndexSize(), _hdToTyc);
+        _hdToTyc = LoadCrossRefBinFile(assembly, manifestNames, "hd_to_tyc");
+        LoadCrossRefMultiJson(assembly, manifestNames, "hd_to_tyc_multi", Catalog.HD, Catalog.HD.GetNumericalIndexSize(), _hdToTyc);
 
     }
 
@@ -410,9 +420,9 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
     }
 
-    private static CatalogIndex[]? LoadCrossRefBinFile(Assembly assembly, string name)
+    private static CatalogIndex[]? LoadCrossRefBinFile(Assembly assembly, string[] manifestNames, string name)
     {
-        var manifestFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith("." + name + ".bin.lz"));
+        var manifestFileName = manifestNames.FirstOrDefault(p => p.EndsWith("." + name + ".bin.lz"));
         if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
         {
             return null;
@@ -454,9 +464,9 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         return (BinaryPrimitives.ReadInt32LittleEndian(buf), BinaryPrimitives.ReadInt32LittleEndian(buf[4..]));
     }
 
-    private void LoadCrossRefMultiJson(Assembly assembly, string name, Catalog catalog, int digits, CatalogIndex[]? crossRefArray)
+    private void LoadCrossRefMultiJson(Assembly assembly, string[] manifestNames, string name, Catalog catalog, int digits, CatalogIndex[]? crossRefArray)
     {
-        var manifestFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith("." + name + ".json.lz"));
+        var manifestFileName = manifestNames.FirstOrDefault(p => p.EndsWith("." + name + ".json.lz"));
         if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
         {
             return;
@@ -606,7 +616,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         return false;
     }
 
-    private async Task<(int Processed, int Failed)> ReadEmbeddedLzCsvDataFileAsync(Assembly assembly, string csvName, CancellationToken cancellationToken)
+    private async Task<(int Processed, int Failed)> ReadEmbeddedLzCsvDataFileAsync(Assembly assembly, string[] manifestNames, string csvName, CancellationToken cancellationToken)
     {
         const string NGC = nameof(NGC);
         const string IC = nameof(IC);
@@ -614,7 +624,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
         int processed = 0;
         int failed = 0;
-        var manifestFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith("." + csvName + ".csv.lz"));
+        var manifestFileName = manifestNames.FirstOrDefault(p => p.EndsWith("." + csvName + ".csv.lz"));
         if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
         {
             return (processed, failed);
@@ -752,7 +762,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
     static readonly Regex ClusterMemberPattern = ClusterMemberPatternGen();
 
-    private async Task<(int Processed, int Failed)> ReadEmbeddedLzippedJsonDataFileAsync(Assembly assembly, string jsonName, Catalog catToAdd, CancellationToken cancellationToken)
+    private async Task<(int Processed, int Failed)> ReadEmbeddedLzippedJsonDataFileAsync(Assembly assembly, string[] manifestNames, string jsonName, Catalog catToAdd, HashSet<Catalog> mainCatalogs, CancellationToken cancellationToken)
     {
         const string NAME_CAT_PREFIX = "NAME ";
         const string NAME_IAU_CAT_PREFIX = "NAME-IAU ";
@@ -762,7 +772,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         var processed = 0;
         var failed = 0;
 
-        var manifestFileName = assembly.GetManifestResourceNames().FirstOrDefault(p => p.EndsWith("." + jsonName + ".json.lz"));
+        var manifestFileName = manifestNames.FirstOrDefault(p => p.EndsWith("." + jsonName + ".json.lz"));
         if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
         {
             return (processed, failed);
@@ -770,12 +780,10 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
         using var lzipStream = new LZipStream(stream, SharpCompress.Compressors.CompressionMode.Decompress);
 
-        // will not be using cache as initialization is not complete
-        var mainCatalogs = new HashSet<Catalog>(new HashSet<CatalogIndex>(_objectsByIndex.Keys).Select(idx => idx.ToCatalog()))
-        {
-            Catalog.HIP,
-            Catalog.HD
-        };
+        // Reuse collections across records to reduce allocations
+        var catToAddIdxs = new SortedSet<CatalogIndex>();
+        var relevantIds = new Dictionary<Catalog, CatalogIndex[]>();
+        var commonNames = new HashSet<string>(8);
 
         await foreach (var record in JsonSerializer.DeserializeAsyncEnumerable(lzipStream, SimbadCatalogDtoJsonSerializerContext.Default.SimbadCatalogDto, cancellationToken))
         {
@@ -784,9 +792,9 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                 continue;
             }
 
-            var catToAddIdxs = new SortedSet<CatalogIndex>();
-            var relevantIds = new Dictionary<Catalog, CatalogIndex[]>();
-            var commonNames = new HashSet<string>(8);
+            catToAddIdxs.Clear();
+            relevantIds.Clear();
+            commonNames.Clear();
             foreach (var idOrig in record.Ids)
             {
                 var isCluster = idOrig.StartsWith(CLUSTER_PREFIX, StringComparison.Ordinal);
@@ -818,7 +826,6 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                     }
                 }
             }
-            commonNames.TrimExcess();
 
             if (catToAddIdxs.Count > 0)
             {
