@@ -119,7 +119,7 @@ function ConvertAndWrite-Tycho2Data
     $resolvedPath = (Resolve-Path $UnzippedDataFileName).Path
     $lines = [System.IO.File]::ReadAllLines($resolvedPath, [System.Text.Encoding]::ASCII)
     $isLittleEndian = [BitConverter]::IsLittleEndian
-    $entry = [byte[]]::new(11)
+    $entry = [byte[]]::new(13)
     $inv = [cultureinfo]::InvariantCulture
 
     foreach ($line in $lines) {
@@ -152,6 +152,16 @@ function ConvertAndWrite-Tycho2Data
             $dec = $raDecJ2000.Dec
         }
 
+        # Parse VTmag (field 19) and BTmag (field 17), 0-indexed pipe-delimited
+        # Encode as biased decimag: byte = clamp(round(mag * 10) + 20, 0, 254), 0xFF = missing
+        [float]$vtMag = [float]::NaN
+        [float]$btMag = [float]::NaN
+        [void][float]::TryParse($values[19].Trim(), $inv, [ref] $vtMag)
+        [void][float]::TryParse($values[17].Trim(), $inv, [ref] $btMag)
+
+        $vtDecimag = if ([float]::IsNaN($vtMag)) { 255 } else { [Math]::Clamp([int][Math]::Round($vtMag * 10) + 20, 0, 254) }
+        $btDecimag = if ([float]::IsNaN($btMag)) { 255 } else { [Math]::Clamp([int][Math]::Round($btMag * 10) + 20, 0, 254) }
+
         # Write binary entry directly
         $gscIdx = $tyc1 - 1
         $stream = $OutputData.Streams[$gscIdx]
@@ -170,7 +180,9 @@ function ConvertAndWrite-Tycho2Data
         $entry[2] = [byte]$tyc3
         $entry[3] = $raHBytes[0]; $entry[4] = $raHBytes[1]; $entry[5] = $raHBytes[2]; $entry[6] = $raHBytes[3]
         $entry[7] = $decBytes[0]; $entry[8] = $decBytes[1]; $entry[9] = $decBytes[2]; $entry[10] = $decBytes[3]
-        $stream.Write($entry, 0, 11)
+        $entry[11] = [byte]$vtDecimag
+        $entry[12] = [byte]$btDecimag
+        $stream.Write($entry, 0, 13)
 
         # track GSC region bounding box
         if ($ra -lt $OutputData.GscMinRA[$gscIdx])  { $OutputData.GscMinRA[$gscIdx]  = $ra }

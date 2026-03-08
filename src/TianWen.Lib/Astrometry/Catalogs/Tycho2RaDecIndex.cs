@@ -117,7 +117,7 @@ internal sealed class Tycho2RaDecIndex
         float cellMinDec = (float)(Math.Floor(dec + 90) - 90);
         float cellMaxDec = cellMinDec + 1f;
 
-        const int entrySize = 11;
+        const int entrySize = 13;
 
         foreach (var tyc1 in regions)
         {
@@ -155,7 +155,7 @@ internal sealed class Tycho2RaDecIndex
         if (gscIdx < 0 || gscIdx >= _streamCount)
             return false;
 
-        const int entrySize = 11;
+        const int entrySize = 13;
         GetRegionOffsets(gscIdx, out var startOffset, out var endOffset);
         var entryCount = (endOffset - startOffset) / entrySize;
         var data = _tycho2Data.AsSpan();

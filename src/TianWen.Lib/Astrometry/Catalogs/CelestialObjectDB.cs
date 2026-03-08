@@ -368,10 +368,10 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                 var hdIndex = PrefixedNumericToASCIIPackedInt<CatalogIndex>((ulong)Catalog.HD, i + 1, Catalog.HD.GetNumericalIndexSize());
 
                 // Ensure HD entry is in _objectsByIndex with TYC coordinates for spatial indexing
-                if (!_objectsByIndex.ContainsKey(hdIndex) && TryGetTycho2RaDec(tycIndex, out var ra, out var dec)
+                if (!_objectsByIndex.ContainsKey(hdIndex) && TryGetTycho2RaDec(tycIndex, out var ra, out var dec, out var vMag)
                     && ConstellationBoundary.TryFindConstellation(ra, dec, out var constellation))
                 {
-                    var hdObj = new CelestialObject(hdIndex, ObjectType.Star, ra, dec, constellation, HalfUndefined, HalfUndefined, EmptyNameSet);
+                    var hdObj = new CelestialObject(hdIndex, ObjectType.Star, ra, dec, constellation, vMag, HalfUndefined, EmptyNameSet);
                     _objectsByIndex[hdIndex] = hdObj;
                     AddCommonNameAndPosIndices(hdObj);
                 }
@@ -488,9 +488,10 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
     }
 
-    private bool TryGetTycho2RaDec(CatalogIndex tycIndex, out double ra, out double dec)
+    private bool TryGetTycho2RaDec(CatalogIndex tycIndex, out double ra, out double dec, out Half vMag)
     {
         ra = dec = 0;
+        vMag = HalfUndefined;
         if (_tycho2Data is null)
         {
             return false;
@@ -503,18 +504,43 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
 
         var (tyc1, tyc2, tyc3) = DecodeTyc2CatalogIndex(value);
-        return TryGetTycho2RaDec(tyc1, (ushort)tyc2, tyc3, out ra, out dec);
+        return TryGetTycho2RaDec(tyc1, (ushort)tyc2, tyc3, out ra, out dec, out vMag);
     }
 
-    private bool TryGetTycho2RaDec(ushort tyc1, ushort tyc2, byte tyc3, out double ra, out double dec)
+    /// <summary>
+    /// Reads a Tycho-2 star entry from the binary catalog data.
+    /// <para>
+    /// Each entry is 13 bytes, packed as:
+    /// <list type="table">
+    /// <listheader><term>Offset</term><term>Size</term><description>Field</description></listheader>
+    /// <item><term>0</term><term>2</term><description>TYC2 (UInt16 LE) — running number within GSC region</description></item>
+    /// <item><term>2</term><term>1</term><description>TYC3 (byte) — component identifier (normally 1)</description></item>
+    /// <item><term>3</term><term>4</term><description>RA (float LE) — Right Ascension in hours [0, 24), J2000</description></item>
+    /// <item><term>7</term><term>4</term><description>Dec (float LE) — Declination in degrees [-90, +90], J2000</description></item>
+    /// <item><term>11</term><term>1</term><description>VTmag decimag — Tycho-2 VT magnitude encoded as <c>clamp(round(mag × 10) + 20, 0, 254)</c>; 0xFF = missing</description></item>
+    /// <item><term>12</term><term>1</term><description>BTmag decimag — Tycho-2 BT magnitude encoded identically; 0xFF = missing</description></item>
+    /// </list>
+    /// </para>
+    /// <para>
+    /// Johnson photometry can be derived from VT and BT magnitudes:
+    /// <c>V = VT − 0.090 × (BT − VT)</c> and <c>B−V = 0.850 × (BT − VT)</c>.
+    /// </para>
+    /// <para>
+    /// The TYC1 (GSC region number, 1-based) determines which stream partition to search.
+    /// Entries within a partition are stored contiguously and located via the offset table
+    /// at the start of the binary file (int32 LE per stream).
+    /// </para>
+    /// </summary>
+    private bool TryGetTycho2RaDec(ushort tyc1, ushort tyc2, byte tyc3, out double ra, out double dec, out Half vMag)
     {
         ra = dec = 0;
+        vMag = HalfUndefined;
         if (_tycho2Data is null || tyc1 == 0 || tyc1 > _tycho2StreamCount)
         {
             return false;
         }
 
-        const int entrySize = 11;
+        const int entrySize = 13;
         var data = _tycho2Data.AsSpan();
 
         var gscIdx = tyc1 - 1;
@@ -535,11 +561,42 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             {
                 ra = BinaryPrimitives.ReadSingleLittleEndian(entry[3..]);
                 dec = BinaryPrimitives.ReadSingleLittleEndian(entry[7..]);
+                vMag = DecodeJohnsonVFromDecimags(entry[11], entry[12]);
                 return true;
             }
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Decodes Johnson V magnitude from biased decimag-encoded VT and BT bytes.
+    /// <para>
+    /// Decimag encoding: <c>byte = clamp(round(mag × 10) + 20, 0, 254)</c>, 0xFF = missing.
+    /// Decoding: <c>mag = (byte − 20) / 10.0</c>.
+    /// </para>
+    /// <para>
+    /// If both VT and BT are available, computes Johnson V = VT − 0.090 × (BT − VT).
+    /// If only VT is available, returns VT as an approximation.
+    /// If VT is missing, returns <see cref="Half.NaN"/>.
+    /// </para>
+    /// </summary>
+    private static Half DecodeJohnsonVFromDecimags(byte vtDecimag, byte btDecimag)
+    {
+        if (vtDecimag == 0xFF)
+        {
+            return HalfUndefined;
+        }
+
+        var vt = (vtDecimag - 20) / 10.0;
+
+        if (btDecimag != 0xFF)
+        {
+            var bt = (btDecimag - 20) / 10.0;
+            return (Half)(vt - 0.090 * (bt - vt));
+        }
+
+        return (Half)vt;
     }
 
     private bool TryLookupHIPFromTycho2(CatalogIndex hipIndex, ulong hipValue, out CelestialObject celestialObject)
@@ -550,10 +607,10 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         if (_hipToTyc is not null && hipNumber > 0 && hipNumber <= _hipToTyc.Length)
         {
             var tycIndex = _hipToTyc[hipNumber - 1];
-            if (tycIndex != 0 && TryGetTycho2RaDec(tycIndex, out var ra, out var dec)
+            if (tycIndex != 0 && TryGetTycho2RaDec(tycIndex, out var ra, out var dec, out var vMag)
                 && ConstellationBoundary.TryFindConstellation(ra, dec, out var constellation))
             {
-                celestialObject = new CelestialObject(hipIndex, ObjectType.Star, ra, dec, constellation, HalfUndefined, HalfUndefined, EmptyNameSet);
+                celestialObject = new CelestialObject(hipIndex, ObjectType.Star, ra, dec, constellation, vMag, HalfUndefined, EmptyNameSet);
                 return true;
             }
         }
@@ -569,10 +626,10 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         if (_hdToTyc is not null && hdNumber > 0 && hdNumber <= _hdToTyc.Length)
         {
             var tycIndex = _hdToTyc[hdNumber - 1];
-            if (tycIndex != 0 && TryGetTycho2RaDec(tycIndex, out var ra, out var dec)
+            if (tycIndex != 0 && TryGetTycho2RaDec(tycIndex, out var ra, out var dec, out var vMag)
                 && ConstellationBoundary.TryFindConstellation(ra, dec, out var constellation))
             {
-                celestialObject = new CelestialObject(hdIndex, ObjectType.Star, ra, dec, constellation, HalfUndefined, HalfUndefined, EmptyNameSet);
+                celestialObject = new CelestialObject(hdIndex, ObjectType.Star, ra, dec, constellation, vMag, HalfUndefined, EmptyNameSet);
                 return true;
             }
         }
@@ -585,10 +642,10 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         celestialObject = default;
         var (tyc1, tyc2, tyc3) = DecodeTyc2CatalogIndex(decodedValue);
 
-        if (TryGetTycho2RaDec(tyc1, (ushort)tyc2, (byte)tyc3, out var ra, out var dec)
+        if (TryGetTycho2RaDec(tyc1, (ushort)tyc2, (byte)tyc3, out var ra, out var dec, out var vMag)
             && ConstellationBoundary.TryFindConstellation(ra, dec, out var constellation))
         {
-            celestialObject = new CelestialObject(tycIndex, ObjectType.Star, ra, dec, constellation, HalfUndefined, HalfUndefined, EmptyNameSet);
+            celestialObject = new CelestialObject(tycIndex, ObjectType.Star, ra, dec, constellation, vMag, HalfUndefined, EmptyNameSet);
             return true;
         }
 

@@ -78,6 +78,11 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
             return null;
         }
 
+        // Sort catalog stars by brightness (lowest mag = brightest first).
+        // This improves proximity matching since the brightest projected catalog stars
+        // are most likely to correspond to detected stars.
+        catalogCoords.Sort((a, b) => a.VMag.CompareTo(b.VMag));
+
         var pixelScaleRad = dim.PixelScale * Math.PI / (3600.0 * 180.0);
         var cx = image.Width / 2.0;
         var cy = image.Height / 2.0;
@@ -90,7 +95,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
 
     private WCS? TrySolveWithProximityMatching(
         StarList detectedStars,
-        List<(double RA, double Dec)> catalogCoords,
+        List<(double RA, double Dec, double VMag)> catalogCoords,
         WCS origin,
         double pixelScaleRad,
         double cx,
@@ -260,9 +265,9 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
         );
     }
 
-    private List<(double RA, double Dec)> QueryCatalogStarsInRegion(WCS origin, double radiusDeg)
+    private List<(double RA, double Dec, double VMag)> QueryCatalogStarsInRegion(WCS origin, double radiusDeg)
     {
-        var result = new List<(double RA, double Dec)>();
+        var result = new List<(double RA, double Dec, double VMag)>();
 
         var centerRA = origin.CenterRA;     // hours
         var centerDec = origin.CenterDec;   // degrees
@@ -292,7 +297,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
                 {
                     if (seen.Add(idx) && db.TryLookupByIndex(idx, out var obj) && obj.ObjectType is ObjectType.Star)
                     {
-                        result.Add((obj.RA, obj.Dec));
+                        result.Add((obj.RA, obj.Dec, Half.IsNaN(obj.V_Mag) ? 99.0 : (double)obj.V_Mag));
                     }
                 }
             }
@@ -302,7 +307,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
     }
 
     private static List<ImagedStar> ProjectCatalogStars(
-        List<(double RA, double Dec)> catalogCoords,
+        List<(double RA, double Dec, double VMag)> catalogCoords,
         WCS origin,
         double pixelScaleRad,
         double cx,
@@ -321,7 +326,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
         var marginX = dim.Width * 0.1;
         var marginY = dim.Height * 0.1;
 
-        foreach (var (ra, dec) in catalogCoords)
+        foreach (var (ra, dec, _) in catalogCoords)
         {
             var alpha = ra * Math.PI / 12.0;
             var delta = dec * Math.PI / 180.0;
