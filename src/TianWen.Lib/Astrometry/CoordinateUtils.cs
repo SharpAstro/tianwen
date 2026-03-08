@@ -110,28 +110,36 @@ public static class CoordinateUtils
     }
 
     /// <summary>
-    /// Condition hour angle (from -12 to +12), inclusive
+    /// Condition hour angle to [-12, +12] using <see cref="Math.IEEERemainder"/>.
     /// </summary>
     /// <param name="ha">hour angle in decimal hours</param>
     /// <returns>conditioned hour angle</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    public static double ConditionHA(double ha) => Range(ha, -12, true, +12, true);
+    public static double ConditionHA(double ha) => Math.IEEERemainder(ha, 24.0);
 
     /// <summary>
-    /// Condition right ascension, in 24h format (0..24), exclusive.
+    /// Condition right ascension to [0, 24) using <see cref="Math.IEEERemainder"/>.
     /// </summary>
     /// <param name="ra">right ascension in decimal hours</param>
     /// <returns>conditioned right ascension</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    public static double ConditionRA(double ra) => Range(ra, 0, true, 24, false);
+    public static double ConditionRA(double ra)
+    {
+        var r = Math.IEEERemainder(ra, 24.0);
+        return r < 0 ? r + 24.0 : r;
+    }
 
     /// <summary>
-    /// From 0..360 (exclusive).
+    /// Condition degrees to [0, 360) using <see cref="Math.IEEERemainder"/>.
     /// </summary>
     /// <param name="deg">A decimal degree</param>
     /// <returns>Conditioned value</returns>
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    public static double ConnditionDegrees(double deg) => Range(deg, 0, true, 360, false);
+    public static double ConditionDegrees(double deg)
+    {
+        var r = Math.IEEERemainder(deg, 360.0);
+        return r < 0 ? r + 360.0 : r;
+    }
 
     public static double HMSToHours(string? hms)
     {
@@ -288,12 +296,9 @@ public static class CoordinateUtils
     /// <returns>(RA, Dec), in (24h, -90..90 degrees), precessed to <paramref name="epoch2"/>, where the epoch is in years AD.</returns>
     public static (double RA2, double Dec2) Precess(double ra1, double dec1, double epoch1, double epoch2)
     {
-        const double ConvH = Math.PI / 12.0;
-        const double ConvD = Math.PI / 180.0;
+        var (ra2Rad, dec2Rad) = PrecessRadians(ra1 * Constants.HOURS2RADIANS, double.DegreesToRadians(dec1), epoch1, epoch2);
 
-        var (ra2Rad, dec2Dec) = PrecessRadians(ra1 * ConvH, dec1 * ConvD, epoch1, epoch2);
-
-        return (ra2Rad /= ConvH, dec2Dec /= ConvD);
+        return (ra2Rad * Constants.RADIANS2HOURS, double.RadiansToDegrees(dec2Rad));
     }
 
     /// <summary>
@@ -308,8 +313,7 @@ public static class CoordinateUtils
     /// <returns>(RA, Dec), in radians, precessed to <paramref name="epoch2"/>, where the epoch is in years AD.</returns>
     public static (double RA, double Dec) PrecessRadians(double ra1Rad, double dec1Rad, double epoch1, double epoch2)
     {
-        var cdr = Math.PI / 180.0;
-        var csr = cdr / 3600.0;
+        var csr = double.DegreesToRadians(1.0) / 3600.0;
         var a = Math.Cos(dec1Rad);
         var x1 = new double[] { a * Math.Cos(ra1Rad), a * Math.Sin(ra1Rad), Math.Sin(dec1Rad) };
         var t = 0.001 * (epoch2 - epoch1);
