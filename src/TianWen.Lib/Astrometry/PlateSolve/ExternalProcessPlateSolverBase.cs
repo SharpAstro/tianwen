@@ -45,7 +45,7 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
     }
 
     /// <inheritdoc/>
-    public async Task<WCS?> SolveFileAsync(
+    public async Task<PlateSolveResult> SolveFileAsync(
         string fitsFile,
         ImageDim? imageDim = default,
         float range = IPlateSolver.DefaultRange,
@@ -54,6 +54,7 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
         CancellationToken cancellationToken = default
     )
     {
+        var sw = Stopwatch.StartNew();
         if (imageDim is { } dim)
         {
             if (dim.PixelScale <= 0)
@@ -84,7 +85,7 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
         var solveFieldProc = StartRedirectedProcess(CommandFile, solveFieldArgs);
         if (solveFieldProc is null)
         {
-            return default;
+            return new PlateSolveResult(null, sw.Elapsed);
         }
 
         var outputLines = new ConcurrentQueue<string>();
@@ -115,7 +116,7 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
         {
             using (wcs.Stream)
             {
-                return WCS.FromFits(wcs);
+                return new PlateSolveResult(WCS.FromFits(wcs), sw.Elapsed);
             }
         }
         finally

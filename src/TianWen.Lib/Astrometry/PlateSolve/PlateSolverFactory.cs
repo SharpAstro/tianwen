@@ -60,14 +60,14 @@ internal sealed class PlateSolverFactory(IEnumerable<IPlateSolver> solvers) : IP
         return _sortedSolvers.Length > 0;
     }
 
-    public async Task<WCS?> SolveFileAsync(string fitsFile, ImageDim? imageDim = null, float range = 0.03F, WCS? searchOrigin = null, double? searchRadius = null, CancellationToken cancellationToken = default)
+    public async Task<PlateSolveResult> SolveFileAsync(string fitsFile, ImageDim? imageDim = null, float range = 0.03F, WCS? searchOrigin = null, double? searchRadius = null, CancellationToken cancellationToken = default)
     {
         foreach (var solver in await EnsureSolversAsync(cancellationToken).ConfigureAwait(false))
         {
             try
             {
                 var result = await solver.SolveFileAsync(fitsFile, imageDim, range, searchOrigin, searchRadius, cancellationToken);
-                if (result is not null)
+                if (result.Solution is not null)
                 {
                     return result;
                 }
@@ -81,14 +81,14 @@ internal sealed class PlateSolverFactory(IEnumerable<IPlateSolver> solvers) : IP
         throw new PlateSolverException("No plate solver could solve the image");
     }
 
-    public async Task<WCS?> SolveImageAsync(Image image, ImageDim? imageDim = null, float range = 0.03F, WCS? searchOrigin = null, double? searchRadius = null, CancellationToken cancellationToken = default)
+    public async Task<PlateSolveResult> SolveImageAsync(Image image, ImageDim? imageDim = null, float range = 0.03F, WCS? searchOrigin = null, double? searchRadius = null, CancellationToken cancellationToken = default)
     {
         foreach (var solver in await EnsureSolversAsync(cancellationToken).ConfigureAwait(false))
         {
             try
             {
                 var result = await solver.SolveImageAsync(image, imageDim, range, searchOrigin, searchRadius, cancellationToken);
-                if (result is not null)
+                if (result.Solution is not null)
                 {
                     return result;
                 }

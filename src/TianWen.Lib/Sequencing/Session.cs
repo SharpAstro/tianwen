@@ -205,7 +205,7 @@ internal record Session(
 
         var plateSolveTimeout = timeoutAfter > TimeSpan.FromSeconds(5) ? timeoutAfter - TimeSpan.FromSeconds(3) : timeoutAfter;
 
-        var wcs = await guider.Driver.PlateSolveGuiderImageAsync(PlateSolver, 
+        var result = await guider.Driver.PlateSolveGuiderImageAsync(PlateSolver,
             await mount.Driver.GetRightAscensionAsync(cancellationToken),
             await mount.Driver.GetDeclinationAsync(cancellationToken),
             plateSolveTimeout,
@@ -213,7 +213,7 @@ internal record Session(
             cancellationToken
         );
 
-        if (wcs is var (solvedRa, solvedDec))
+        if (result.Solution is var (solvedRa, solvedDec))
         {
             External.AppLogger.LogInformation("Guider \"{GuiderName}\" is in focus and camera image plate solve succeeded with ({SolvedRa}, {SolvedDec})",
                 guider.Driver, solvedRa, solvedDec);

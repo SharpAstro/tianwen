@@ -363,7 +363,7 @@ public interface IGuider : IDeviceDriver
     /// <param name="searchRadius">Search radius.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>World coordinate system (WCS) if successful.</returns>
-    public async ValueTask<WCS?> PlateSolveGuiderImageAsync(
+    public async ValueTask<PlateSolveResult> PlateSolveGuiderImageAsync(
         IPlateSolver plateSolver,
         double raJ2000,
         double decJ2000,
