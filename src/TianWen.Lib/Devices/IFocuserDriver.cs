@@ -5,6 +5,23 @@ namespace TianWen.Lib.Devices;
 
 public interface IFocuserDriver : IDeviceDriver
 {
+    #region Async alternatives for network-backed drivers (Alpaca)
+    /// <summary>
+    /// Async alternative to <see cref="Position"/>. Default delegates to the sync property.
+    /// </summary>
+    ValueTask<int> GetPositionAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(Position);
+
+    /// <summary>
+    /// Async alternative to <see cref="IsMoving"/>. Default delegates to the sync property.
+    /// </summary>
+    ValueTask<bool> GetIsMovingAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(IsMoving);
+
+    /// <summary>
+    /// Async alternative to <see cref="Temperature"/>. Default delegates to the sync property.
+    /// </summary>
+    ValueTask<double> GetTemperatureAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(Temperature);
+    #endregion
+
     /// <summary>
     /// True if the focuser is capable of absolute position; that is, being commanded to a specific step location.
     /// </summary>

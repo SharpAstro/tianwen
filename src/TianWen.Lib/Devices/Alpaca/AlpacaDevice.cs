@@ -64,8 +64,12 @@ public record class AlpacaDevice : DeviceBase
 
         return DeviceType switch
         {
-            // Device-specific drivers will be added later as the Alpaca layer is extended.
-            // For now, return null — the base layer is sufficient to support discovery and connection.
+            Devices.DeviceType.Camera => new AlpacaCameraDriver(this, external),
+            Devices.DeviceType.CoverCalibrator => new AlpacaCoverCalibratorDriver(this, external),
+            Devices.DeviceType.FilterWheel => new AlpacaFilterWheelDriver(this, external),
+            Devices.DeviceType.Focuser => new AlpacaFocuserDriver(this, external),
+            Devices.DeviceType.Switch => new AlpacaSwitchDriver(this, external),
+            Devices.DeviceType.Telescope => new AlpacaTelescopeDriver(this, external),
             _ => null
         };
     }

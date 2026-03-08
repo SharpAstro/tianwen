@@ -2,6 +2,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using TianWen.DAL;
 using TianWen.Lib.Imaging;
 
@@ -235,6 +237,94 @@ public interface ICameraDriver : IDeviceDriver
     int BayerOffsetY { get; }
 
     CameraState CameraState { get; }
+
+    #region Async alternatives for network-backed drivers (Alpaca)
+    /// <summary>
+    /// Async alternative to <see cref="ImageReady"/>. Default delegates to the sync property.
+    /// </summary>
+    ValueTask<bool> GetImageReadyAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(ImageReady);
+
+    /// <summary>
+    /// Async alternative to <see cref="CameraState"/>. Default delegates to the sync property.
+    /// </summary>
+    ValueTask<CameraState> GetCameraStateAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(CameraState);
+
+    /// <summary>
+    /// Async alternative to <see cref="CCDTemperature"/>. Default delegates to the sync property.
+    /// </summary>
+    ValueTask<double> GetCCDTemperatureAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(CCDTemperature);
+
+    /// <summary>
+    /// Async alternative to <see cref="HeatSinkTemperature"/>. Default delegates to the sync property.
+    /// </summary>
+    ValueTask<double> GetHeatSinkTemperatureAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(HeatSinkTemperature);
+
+    /// <summary>
+    /// Async alternative to <see cref="CoolerPower"/>. Default delegates to the sync property.
+    /// </summary>
+    ValueTask<double> GetCoolerPowerAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(CoolerPower);
+
+    /// <summary>
+    /// Async alternative to <see cref="CoolerOn"/> getter. Default delegates to the sync property.
+    /// </summary>
+    ValueTask<bool> GetCoolerOnAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(CoolerOn);
+
+    /// <summary>
+    /// Async alternative to <see cref="CoolerOn"/> setter. Default delegates to the sync property.
+    /// </summary>
+    ValueTask SetCoolerOnAsync(bool value, CancellationToken cancellationToken = default)
+    {
+        CoolerOn = value;
+        return ValueTask.CompletedTask;
+    }
+
+    /// <summary>
+    /// Async alternative to <see cref="SetCCDTemperature"/> setter. Default delegates to the sync property.
+    /// </summary>
+    ValueTask SetSetCCDTemperatureAsync(double value, CancellationToken cancellationToken = default)
+    {
+        SetCCDTemperature = value;
+        return ValueTask.CompletedTask;
+    }
+
+    /// <summary>
+    /// Async alternative to <see cref="IsPulseGuiding"/>. Default delegates to the sync property.
+    /// </summary>
+    ValueTask<bool> GetIsPulseGuidingAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(IsPulseGuiding);
+
+    /// <summary>
+    /// Async alternative to <see cref="StartExposure"/>. Default delegates to the sync method.
+    /// </summary>
+    ValueTask<DateTimeOffset> StartExposureAsync(TimeSpan duration, FrameType frameType = FrameType.Light, CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(StartExposure(duration, frameType));
+
+    /// <summary>
+    /// Async alternative to <see cref="StopExposure"/>. Default delegates to the sync method.
+    /// </summary>
+    ValueTask StopExposureAsync(CancellationToken cancellationToken = default)
+    {
+        StopExposure();
+        return ValueTask.CompletedTask;
+    }
+
+    /// <summary>
+    /// Async alternative to <see cref="AbortExposure"/>. Default delegates to the sync method.
+    /// </summary>
+    ValueTask AbortExposureAsync(CancellationToken cancellationToken = default)
+    {
+        AbortExposure();
+        return ValueTask.CompletedTask;
+    }
+
+    /// <summary>
+    /// Async alternative to <see cref="PulseGuide"/>. Default delegates to the sync method.
+    /// </summary>
+    ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken = default)
+    {
+        PulseGuide(direction, duration);
+        return ValueTask.CompletedTask;
+    }
+    #endregion
 
     Image? Image => Connected
         && ImageReady
