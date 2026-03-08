@@ -71,6 +71,106 @@ public record struct WCS(double CenterRA, double CenterDec)
     }
 
     /// <summary>
+    /// Converts a pixel position (1-based FITS convention) to sky coordinates
+    /// using the CD matrix and inverse gnomonic (TAN) deprojection.
+    /// Returns <c>null</c> if no CD matrix is available.
+    /// </summary>
+    /// <param name="x">Pixel X (1-based).</param>
+    /// <param name="y">Pixel Y (1-based).</param>
+    /// <returns>RA in hours, Dec in degrees; or <c>null</c> if no CD matrix.</returns>
+    public readonly (double RA, double Dec)? PixelToSky(double x, double y)
+    {
+        if (!HasCDMatrix)
+        {
+            return null;
+        }
+
+        // Pixel offset from reference pixel
+        var dx = x - CRPix1;
+        var dy = y - CRPix2;
+
+        // Intermediate world coordinates (degrees) via CD matrix
+        var u = CD1_1 * dx + CD1_2 * dy;
+        var v = CD2_1 * dx + CD2_2 * dy;
+
+        // Convert to radians for gnomonic deprojection
+        var xi = double.DegreesToRadians(u);
+        var eta = double.DegreesToRadians(v);
+
+        // Reference point in radians
+        var ra0 = CenterRA * (Math.PI / 12.0);  // hours → radians
+        var (sinDec0, cosDec0) = Math.SinCos(double.DegreesToRadians(CenterDec));
+
+        var rho = Math.Sqrt(xi * xi + eta * eta);
+        if (rho < 1e-15)
+        {
+            return (CenterRA, CenterDec);
+        }
+
+        var (sinC, cosC) = Math.SinCos(Math.Atan(rho));
+
+        var dec = double.RadiansToDegrees(Math.Asin(cosC * sinDec0 + eta * sinC * cosDec0 / rho));
+        var ra = (ra0 + Math.Atan2(xi * sinC, rho * cosDec0 * cosC - eta * sinDec0 * sinC)) * (12.0 / Math.PI);
+
+        // Normalize RA to [0, 24)
+        if (ra < 0) ra += 24.0;
+        if (ra >= 24.0) ra -= 24.0;
+
+        return (ra, dec);
+    }
+
+    /// <summary>
+    /// Converts sky coordinates to pixel position (1-based FITS convention)
+    /// using the CD matrix inverse and gnomonic (TAN) projection.
+    /// Returns <c>null</c> if no CD matrix is available or the CD matrix is singular.
+    /// </summary>
+    /// <param name="ra">RA in hours (0..24).</param>
+    /// <param name="dec">Dec in degrees (-90..+90).</param>
+    /// <returns>Pixel position (1-based); or <c>null</c> if no CD matrix or behind tangent plane.</returns>
+    public readonly (double X, double Y)? SkyToPixel(double ra, double dec)
+    {
+        if (!HasCDMatrix)
+        {
+            return null;
+        }
+
+        // Reference point in radians
+        var ra0 = CenterRA * (Math.PI / 12.0);
+        var (sinDec0, cosDec0) = Math.SinCos(double.DegreesToRadians(CenterDec));
+
+        // Target in radians
+        var alpha = ra * (Math.PI / 12.0);
+        var (sinDelta, cosDelta) = Math.SinCos(double.DegreesToRadians(dec));
+        var deltaAlpha = alpha - ra0;
+
+        var cosC = sinDec0 * sinDelta + cosDec0 * cosDelta * Math.Cos(deltaAlpha);
+        if (cosC <= 0)
+        {
+            return null; // behind the tangent plane
+        }
+
+        // Gnomonic standard coordinates (radians)
+        var xi = cosDelta * Math.Sin(deltaAlpha) / cosC;
+        var eta = (cosDec0 * sinDelta - sinDec0 * cosDelta * Math.Cos(deltaAlpha)) / cosC;
+
+        // Convert to degrees (intermediate world coordinates)
+        var u = double.RadiansToDegrees(xi);
+        var v = double.RadiansToDegrees(eta);
+
+        // Invert CD matrix: (dx, dy) = CD⁻¹ · (u, v)
+        var det = CD1_1 * CD2_2 - CD1_2 * CD2_1;
+        if (Math.Abs(det) < 1e-20)
+        {
+            return null;
+        }
+
+        var dx = (CD2_2 * u - CD1_2 * v) / det;
+        var dy = (-CD2_1 * u + CD1_1 * v) / det;
+
+        return (CRPix1 + dx, CRPix2 + dy);
+    }
+
+    /// <summary>
     /// Read WCS parameters from a FITS file's primary HDU header.
     /// Reads CRVAL1/2, CRPIX1/2, CD matrix (or falls back to CDELT+CROTA2).
     /// </summary>
@@ -125,9 +225,7 @@ public record struct WCS(double CenterRA, double CenterDec)
                 {
                     crota2 = 0.0;
                 }
-                var rotRad = double.DegreesToRadians(crota2);
-                var cosRot = Math.Cos(rotRad);
-                var sinRot = Math.Sin(rotRad);
+                var (sinRot, cosRot) = Math.SinCos(double.DegreesToRadians(crota2));
 
                 wcs = wcs with
                 {

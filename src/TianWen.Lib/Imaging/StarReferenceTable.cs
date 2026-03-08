@@ -6,6 +6,40 @@ using static TianWen.Lib.Stat.StatisticsHelper;
 
 namespace TianWen.Lib.Imaging;
 
+/// <summary>
+/// A table of matched star position pairs (source → dest) produced by geometric quad matching,
+/// used to compute the affine transform between two star fields.
+///
+/// <para><b>Matching pipeline</b></para>
+/// <list type="number">
+///   <item><see cref="FindFit"/> compares <see cref="StarQuad"/> invariants from two
+///         <see cref="StarQuadList"/> instances, finding quads whose 6 normalised pairwise
+///         distances agree within <c>quadTolerance</c>.</item>
+///   <item>Outlier removal: the Dist1 ratio between matched quads is computed, and pairs
+///         whose ratio deviates from the median by more than <c>quadTolerance × median</c>
+///         are discarded.</item>
+///   <item>The surviving quad centres become the matched point pairs stored in this table.</item>
+/// </list>
+///
+/// <para><b>Affine fitting</b></para>
+/// <list type="bullet">
+///   <item><see cref="FitAffineTransform"/> — raw least-squares affine (dest → source).</item>
+///   <item><see cref="FindOffsetAndRotationAsync"/> — same fit but validated via
+///         <see cref="Matrix3x2Helper.Decompose"/>: rejects non-uniform scale (&gt; <c>solutionTolerance</c>),
+///         significant skew, or negative scale (mirror flip).</item>
+/// </list>
+///
+/// <para><b>Applicability</b></para>
+/// <para>Quad matching requires both star lists to represent similar stellar populations
+/// (same detection characteristics, comparable star counts). This holds for <b>image stacking</b>
+/// where both frames are captured with the same camera and optics. It does <em>not</em> hold for
+/// <b>catalog plate solving</b>, where projected catalog stars and detected image stars have
+/// different populations (faint catalog stars below the detection threshold, detected artefacts
+/// absent from the catalog). The differing nearest-neighbour sets produce incompatible quad
+/// geometries, yielding too few matches for a reliable affine fit. Plate solving therefore uses
+/// proximity-based matching with brightness-rank penalties instead
+/// (see <c>CatalogPlateSolver</c>).</para>
+/// </summary>
 public class StarReferenceTable
 {
     private readonly List<Vector2> _source;
@@ -17,6 +51,20 @@ public class StarReferenceTable
         _dest = dest;
     }
 
+    /// <summary>Number of matched star pairs in this table.</summary>
+    public int Count => _source.Count;
+
+    /// <summary>
+    /// Matches quads from two <see cref="StarQuadList"/> instances and builds a reference table
+    /// of corresponding star positions.
+    /// </summary>
+    /// <param name="quadStarDistances1">Quads from the first star field (positions become <em>dest</em>).</param>
+    /// <param name="quadStarDistances2">Quads from the second star field (positions become <em>source</em>).</param>
+    /// <param name="minimumCount">Minimum number of quad matches required (6 for stacking, 3 for sparse fields).</param>
+    /// <param name="quadTolerance">Maximum absolute difference allowed on each of the 6 quad distances.
+    /// Note: <see cref="StarQuad.Dist1"/> is in absolute pixels while Dist2–Dist6 are normalised ratios,
+    /// so this tolerance has mixed units — it works because stacking images have near-identical Dist1 values.</param>
+    /// <returns>A reference table of matched pairs, or <c>null</c> if too few matches survive outlier removal.</returns>
     public static StarReferenceTable? FindFit(StarQuadList quadStarDistances1, StarQuadList quadStarDistances2, int minimumCount = 6, float quadTolerance = 0.008f)
     {
         // minimum_count required, 6 for stacking, 3 for plate solving
@@ -95,9 +143,24 @@ public class StarReferenceTable
         return null;
     }
 
+    /// <summary>
+    /// Fits a least-squares affine transform from dest to source positions without validation.
+    /// Returns <c>null</c> if fewer than 3 pairs or the system is singular.
+    /// </summary>
+    public Matrix3x2? FitAffineTransform() => Matrix3x2.FitAffineTransform(_dest, _source);
+
+    /// <summary>
+    /// Fits an affine transform and validates it via <see cref="Matrix3x2Helper.Decompose"/>:
+    /// both scale components must be positive (rejects mirror flips), their ratio must be within
+    /// <paramref name="solutionTolerance"/> of 1.0 (uniform scale), and skew must be below the
+    /// same threshold.
+    /// </summary>
+    /// <param name="solutionTolerance">Maximum allowed deviation for scale ratio and skew
+    /// (1e-3 for stacking, higher for noisier matches).</param>
+    /// <returns>The validated affine transform, or <c>null</c> if validation fails.</returns>
     public Task<Matrix3x2?> FindOffsetAndRotationAsync(float solutionTolerance = 1e-3f)
     {
-        if (Matrix3x2.FitAffineTransform(_dest, _source) is { } solution)
+        if (FitAffineTransform() is { } solution)
         {
             var (scale, skew, _, _) = solution.Decompose();
 

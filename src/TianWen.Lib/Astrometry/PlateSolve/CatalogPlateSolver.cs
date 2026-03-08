@@ -153,6 +153,8 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
     )
     {
         var currentOrigin = origin;
+        Matrix3x2 lastMinv = default;
+        var hasMinv = false;
 
         // Iteratively refine: project → match → fit affine → update WCS → repeat
         for (int iteration = 0; iteration < 5; iteration++)
@@ -220,22 +222,25 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
                 _projectedStars = projected.Count;
                 _matchedStars = matchedDetected.Count;
                 _iterations = iteration + 1;
-                return iteration > 0 ? currentOrigin : null;
+                return iteration > 0 ? AttachCDMatrix(currentOrigin, hasMinv ? lastMinv : default(Matrix3x2?), pixelScaleRad, cx, cy, dim, xSign) : null;
             }
 
             // Compute offset using Matrix3x2 affine fit (handles translation + rotation)
             var M = Matrix3x2.FitAffineTransform(matchedProjected, matchedDetected);
             if (M is null || !Matrix3x2.Invert(M.Value, out var Minv))
             {
-                return iteration > 0 ? currentOrigin : null;
+                return iteration > 0 ? AttachCDMatrix(currentOrigin, hasMinv ? lastMinv : default(Matrix3x2?), pixelScaleRad, cx, cy, dim, xSign) : null;
             }
+
+            lastMinv = Minv;
+            hasMinv = true;
 
             var centerInProjected = Vector2.Transform(new Vector2((float)cx, (float)cy), Minv);
             var refined = InverseTanProject(centerInProjected, currentOrigin, pixelScaleRad, cx, cy, xSign);
 
             if (refined is not { } refinedWcs)
             {
-                return iteration > 0 ? currentOrigin : null;
+                return iteration > 0 ? AttachCDMatrix(currentOrigin, lastMinv, pixelScaleRad, cx, cy, dim, xSign) : null;
             }
 
             // Check convergence
@@ -254,7 +259,46 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
             }
         }
 
-        return currentOrigin;
+        return AttachCDMatrix(currentOrigin, hasMinv ? lastMinv : default(Matrix3x2?), pixelScaleRad, cx, cy, dim, xSign);
+    }
+
+    /// <summary>
+    /// Computes the FITS CD matrix from the inverse affine transform and attaches it to the WCS.
+    /// <para>
+    /// The gnomonic projection maps sky offsets (ξ, η) in radians to pixel offsets as:
+    /// <c>Δx = xSign · ξ / pixelScaleRad</c>, <c>Δy = −η / pixelScaleRad</c>.
+    /// The inverse affine <paramref name="minv"/> maps detected pixels back to projected pixels,
+    /// so the combined Jacobian ∂(RA,Dec)/∂(pixel) gives the CD matrix in degrees/pixel.
+    /// </para>
+    /// </summary>
+    private static WCS AttachCDMatrix(WCS wcs, Matrix3x2? minv, double pixelScaleRad, double cx, double cy, ImageDim dim, double xSign)
+    {
+        if (minv is not { } inv)
+        {
+            return wcs;
+        }
+
+        // pixelScaleRad is the gnomonic scale: radians per pixel.
+        // The projection is: xPix = cx + xSign * ξ/pixelScaleRad, yPix = cy - η/pixelScaleRad
+        // So: ξ = xSign * (xPix - cx) * pixelScaleRad, η = -(yPix - cy) * pixelScaleRad
+        // The inverse affine Minv maps from detected pixel to projected pixel via
+        //   Vector2.Transform(det, Minv):
+        //   projX = det.X * M11 + det.Y * M21 + M31
+        //   projY = det.X * M12 + det.Y * M22 + M32
+        // Chain rule gives CD matrix (degrees/pixel):
+        //   CD1_1 = ∂u/∂dx = psd * xSign * M11,  CD1_2 = ∂u/∂dy = psd * xSign * M21
+        //   CD2_1 = ∂v/∂dx = -psd * M12,          CD2_2 = ∂v/∂dy = -psd * M22
+        var pixelScaleDeg = double.RadiansToDegrees(pixelScaleRad);
+
+        return wcs with
+        {
+            CRPix1 = (dim.Width + 1) / 2.0,
+            CRPix2 = (dim.Height + 1) / 2.0,
+            CD1_1 = xSign * pixelScaleDeg * inv.M11,
+            CD1_2 = xSign * pixelScaleDeg * inv.M21,
+            CD2_1 = -pixelScaleDeg * inv.M12,
+            CD2_2 = -pixelScaleDeg * inv.M22,
+        };
     }
 
     private List<(double RA, double Dec, double VMag)> QueryCatalogStarsInRegion(WCS origin, double radiusDeg)
@@ -311,9 +355,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
         var projected = new List<ImagedStar>();
 
         var alpha0 = origin.CenterRA * HOURS2RADIANS;
-        var delta0 = double.DegreesToRadians(origin.CenterDec);
-        var sinDelta0 = Math.Sin(delta0);
-        var cosDelta0 = Math.Cos(delta0);
+        var (sinDelta0, cosDelta0) = Math.SinCos(double.DegreesToRadians(origin.CenterDec));
 
         var marginX = dim.Width * 0.1;
         var marginY = dim.Height * 0.1;
@@ -321,11 +363,9 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
         foreach (var (ra, dec, _) in catalogCoords)
         {
             var alpha = ra * HOURS2RADIANS;
-            var delta = double.DegreesToRadians(dec);
             var deltaAlpha = alpha - alpha0;
 
-            var sinDelta = Math.Sin(delta);
-            var cosDelta = Math.Cos(delta);
+            var (sinDelta, cosDelta) = Math.SinCos(double.DegreesToRadians(dec));
             var cosDeltaAlpha = Math.Cos(deltaAlpha);
 
             var cosC = sinDelta0 * sinDelta + cosDelta0 * cosDelta * cosDeltaAlpha;
@@ -360,9 +400,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
     )
     {
         var alpha0 = origin.CenterRA * HOURS2RADIANS;
-        var delta0 = double.DegreesToRadians(origin.CenterDec);
-        var sinDelta0 = Math.Sin(delta0);
-        var cosDelta0 = Math.Cos(delta0);
+        var (sinDelta0, cosDelta0) = Math.SinCos(double.DegreesToRadians(origin.CenterDec));
 
         var xi = xSign * (pixelPos.X - cx) * pixelScaleRad;
         var eta = -(pixelPos.Y - cy) * pixelScaleRad;
@@ -374,9 +412,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
             return origin;
         }
 
-        var c = Math.Atan(rho);
-        var sinC = Math.Sin(c);
-        var cosC = Math.Cos(c);
+        var (sinC, cosC) = Math.SinCos(Math.Atan(rho));
 
         var centerDec = double.RadiansToDegrees(Math.Asin(cosC * sinDelta0 + eta * sinC * cosDelta0 / rho));
         var centerRA = (alpha0 + Math.Atan2(xi * sinC, rho * cosDelta0 * cosC - eta * sinDelta0 * sinC)) * RADIANS2HOURS;
