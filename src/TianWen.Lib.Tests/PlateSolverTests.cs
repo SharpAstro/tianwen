@@ -1,4 +1,4 @@
-﻿using Shouldly;
+using Shouldly;
 using System;
 using System.Diagnostics;
 using System.Threading;
@@ -9,7 +9,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
-public class PlateSolverTests
+public class PlateSolverTests(ITestOutputHelper output)
 {
     private static ICelestialObjectDB? _cachedDB;
     private static readonly SemaphoreSlim _dbSem = new SemaphoreSlim(1, 1);
@@ -73,11 +73,14 @@ public class PlateSolverTests
         if (SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords))
         {
             // when
-            var solution = await solver.SolveFileAsync(extractedFitsFile, dimAndCoords.ImageDim, cancellationToken: cancellationToken);
+            var result = await solver.SolveFileAsync(extractedFitsFile, dimAndCoords.ImageDim, cancellationToken: cancellationToken);
+
+            output.WriteLine($"[{solver.Name}] {name}: solved in {result.Elapsed.TotalMilliseconds:F0}ms");
 
             // then
-            solution.HasValue.ShouldBe(true);
-            var (ra, dec) = solution.Value;
+            result.Solution.ShouldNotBeNull();
+            var (ra, dec) = result.Solution.Value;
+            output.WriteLine($"  RA={ra:F6}h Dec={dec:F6}° (expected RA={dimAndCoords.WCS.CenterRA:F6}h Dec={dimAndCoords.WCS.CenterDec:F6}°)");
             ra.ShouldBeInRange(dimAndCoords.WCS.CenterRA - accuracy, dimAndCoords.WCS.CenterRA + accuracy);
             dec.ShouldBeInRange(dimAndCoords.WCS.CenterDec - accuracy, dimAndCoords.WCS.CenterDec + accuracy);
         }
@@ -111,11 +114,14 @@ public class PlateSolverTests
         if (SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords))
         {
             // when
-            var solution = await solver.SolveFileAsync(extractedFitsFile, dimAndCoords.ImageDim, searchOrigin: dimAndCoords.WCS, searchRadius: 1d, cancellationToken: cts.Token);
+            var result = await solver.SolveFileAsync(extractedFitsFile, dimAndCoords.ImageDim, searchOrigin: dimAndCoords.WCS, searchRadius: 1d, cancellationToken: cts.Token);
+
+            output.WriteLine($"[{solver.Name}] {name}: solved in {result.Elapsed.TotalMilliseconds:F0}ms");
 
             // then
-            solution.HasValue.ShouldBe(true);
-            var (ra, dec) = solution.Value;
+            result.Solution.ShouldNotBeNull();
+            var (ra, dec) = result.Solution.Value;
+            output.WriteLine($"  RA={ra:F6}h Dec={dec:F6}° (expected RA={dimAndCoords.WCS.CenterRA:F6}h Dec={dimAndCoords.WCS.CenterDec:F6}°)");
             ra.ShouldBeInRange(dimAndCoords.WCS.CenterRA - accuracy, dimAndCoords.WCS.CenterRA + accuracy);
             dec.ShouldBeInRange(dimAndCoords.WCS.CenterDec - accuracy, dimAndCoords.WCS.CenterDec + accuracy);
         }
@@ -126,8 +132,8 @@ public class PlateSolverTests
     }
 
     [Theory]
-    [InlineData("PlateSolveTestFile", 0.03)]
-    [InlineData("image_file-snr-20_stars-28_1280x960x16", 0.03)]
+    [InlineData("PlateSolveTestFile", 0.02)]
+    [InlineData("image_file-snr-20_stars-28_1280x960x16", 0.02)]
     public async Task GivenStarFieldImageAndSearchOriginWhenCatalogPlateSolvingThenItIsSolved(string name, double accuracy)
     {
         // given
@@ -139,18 +145,21 @@ public class PlateSolverTests
         SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords).ShouldBeTrue();
 
         // when
-        var solution = await solver.SolveImageAsync(image, dimAndCoords.ImageDim, searchOrigin: dimAndCoords.WCS, searchRadius: 3d, cancellationToken: cancellationToken);
+        var result = await solver.SolveImageAsync(image, dimAndCoords.ImageDim, searchOrigin: dimAndCoords.WCS, searchRadius: 3d, cancellationToken: cancellationToken);
+
+        output.WriteLine($"[{solver.Name}] {name}: solved in {result.Elapsed.TotalMilliseconds:F0}ms, {result.Iterations} iterations, {result.CatalogStars} catalog, {result.DetectedStars} detected, {result.ProjectedStars} projected, {result.MatchedStars} matched");
 
         // then
-        solution.HasValue.ShouldBeTrue($"CatalogPlateSolver should solve {name}");
-        var (ra, dec) = solution.Value;
+        result.Solution.ShouldNotBeNull($"CatalogPlateSolver should solve {name}");
+        var (ra, dec) = result.Solution.Value;
+        output.WriteLine($"  RA={ra:F6}h Dec={dec:F6}° (expected RA={dimAndCoords.WCS.CenterRA:F6}h Dec={dimAndCoords.WCS.CenterDec:F6}°, error RA={Math.Abs(ra - dimAndCoords.WCS.CenterRA):F6}h Dec={Math.Abs(dec - dimAndCoords.WCS.CenterDec):F6}°)");
         ra.ShouldBeInRange(dimAndCoords.WCS.CenterRA - accuracy, dimAndCoords.WCS.CenterRA + accuracy, $"RA should be within {accuracy}h");
         dec.ShouldBeInRange(dimAndCoords.WCS.CenterDec - accuracy, dimAndCoords.WCS.CenterDec + accuracy, $"Dec should be within {accuracy}°");
     }
 
     [Theory]
-    [InlineData("PlateSolveTestFile", 0.03)]
-    [InlineData("image_file-snr-20_stars-28_1280x960x16", 0.03)]
+    [InlineData("PlateSolveTestFile", 0.02)]
+    [InlineData("image_file-snr-20_stars-28_1280x960x16", 0.02)]
     public async Task GivenStarFieldFileAndSearchOriginWhenCatalogPlateSolvingViaSolveFileThenItIsSolved(string name, double accuracy)
     {
         // given
@@ -162,11 +171,14 @@ public class PlateSolverTests
         SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords).ShouldBeTrue();
 
         // when
-        var solution = await solver.SolveFileAsync(extractedFitsFile, dimAndCoords.ImageDim, searchOrigin: dimAndCoords.WCS, searchRadius: 3d, cancellationToken: cancellationToken);
+        var result = await solver.SolveFileAsync(extractedFitsFile, dimAndCoords.ImageDim, searchOrigin: dimAndCoords.WCS, searchRadius: 3d, cancellationToken: cancellationToken);
+
+        output.WriteLine($"[{solver.Name}] {name}: solved in {result.Elapsed.TotalMilliseconds:F0}ms, {result.Iterations} iterations, {result.CatalogStars} catalog, {result.DetectedStars} detected, {result.ProjectedStars} projected, {result.MatchedStars} matched");
 
         // then
-        solution.HasValue.ShouldBeTrue($"CatalogPlateSolver should solve {name} via SolveFileAsync");
-        var (ra, dec) = solution.Value;
+        result.Solution.ShouldNotBeNull($"CatalogPlateSolver should solve {name} via SolveFileAsync");
+        var (ra, dec) = result.Solution.Value;
+        output.WriteLine($"  RA={ra:F6}h Dec={dec:F6}° (expected RA={dimAndCoords.WCS.CenterRA:F6}h Dec={dimAndCoords.WCS.CenterDec:F6}°, error RA={Math.Abs(ra - dimAndCoords.WCS.CenterRA):F6}h Dec={Math.Abs(dec - dimAndCoords.WCS.CenterDec):F6}°)");
         ra.ShouldBeInRange(dimAndCoords.WCS.CenterRA - accuracy, dimAndCoords.WCS.CenterRA + accuracy);
         dec.ShouldBeInRange(dimAndCoords.WCS.CenterDec - accuracy, dimAndCoords.WCS.CenterDec + accuracy);
     }
@@ -181,9 +193,9 @@ public class PlateSolverTests
         var solver = new CatalogPlateSolver(db);
 
         // when — no searchOrigin provided
-        var solution = await solver.SolveImageAsync(image, cancellationToken: cancellationToken);
+        var result = await solver.SolveImageAsync(image, cancellationToken: cancellationToken);
 
         // then
-        solution.ShouldBeNull();
+        result.Solution.ShouldBeNull();
     }
 }

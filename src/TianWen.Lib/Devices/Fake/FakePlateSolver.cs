@@ -1,3 +1,4 @@
+using System;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging;
 using System.Threading;
@@ -13,11 +14,11 @@ internal class FakePlateSolver : IPlateSolver
 
     public ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(true);
 
-    public Task<WCS?> SolveFileAsync(string fitsFile, ImageDim? imageDim = null, float range = 0.03F, WCS? searchOrigin = null, double? searchRadius = null, CancellationToken cancellationToken = default)
+    public Task<PlateSolveResult> SolveFileAsync(string fitsFile, ImageDim? imageDim = null, float range = 0.03F, WCS? searchOrigin = null, double? searchRadius = null, CancellationToken cancellationToken = default)
     {
         if (searchOrigin is not null)
         {
-            return Task.FromResult(searchOrigin);
+            return Task.FromResult(new PlateSolveResult(searchOrigin, TimeSpan.Zero));
         }
 
         if (Image.TryReadFitsFile(fitsFile, out var image))
@@ -25,11 +26,11 @@ internal class FakePlateSolver : IPlateSolver
             // TODO: Read WCS from FITS file
         }
 
-        return Task.FromResult(null as WCS?);
+        return Task.FromResult(new PlateSolveResult(null, TimeSpan.Zero));
     }
 
-    public Task<WCS?> SolveImageAsync(Image image, ImageDim? imageDim = null, float range = 0.03F, WCS? searchOrigin = null, double? searchRadius = null, CancellationToken cancellationToken = default)
+    public Task<PlateSolveResult> SolveImageAsync(Image image, ImageDim? imageDim = null, float range = 0.03F, WCS? searchOrigin = null, double? searchRadius = null, CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(searchOrigin);
+        return Task.FromResult(new PlateSolveResult(searchOrigin, TimeSpan.Zero));
     }
 }

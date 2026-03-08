@@ -31,7 +31,7 @@ public interface IPlateSolver : IAsyncSupportedCheck
     /// <exception cref="ArgumentOutOfRangeException">Will be thrown if any of the parameters are out of range.</exception>
     /// <exception cref="PlateSolverException">Will be thrown is solving failed to an abnormal error.</exception>
     /// <exception cref="TaskCanceledException">If cancellation was requested via <paramref name="cancellationToken"/> and no solution was found.</exception>
-    Task<WCS?> SolveFileAsync(
+    Task<PlateSolveResult> SolveFileAsync(
         string fitsFile,
         ImageDim? imageDim = default,
         float range = DefaultRange,
@@ -50,8 +50,8 @@ public interface IPlateSolver : IAsyncSupportedCheck
     /// <param name="searchOrigin">Prefilled WCS if known.</param>
     /// <param name="searchRadius">Search radius in degrees.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>WCS if solved, <c>null</c> otherwise.</returns>
-    async Task<WCS?> SolveImageAsync(
+    /// <returns>Plate solve result containing WCS if solved.</returns>
+    async Task<PlateSolveResult> SolveImageAsync(
         Image image,
         ImageDim? imageDim = default,
         float range = DefaultRange,

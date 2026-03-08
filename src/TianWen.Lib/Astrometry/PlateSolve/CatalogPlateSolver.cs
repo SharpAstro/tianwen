@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,6 +10,35 @@ using static TianWen.Lib.Astrometry.CoordinateUtils;
 
 namespace TianWen.Lib.Astrometry.PlateSolve;
 
+/// <summary>
+/// A plate solver that matches detected image stars against a local Tycho-2 star catalog
+/// to determine the World Coordinate System (WCS) centre of an image.
+///
+/// <para><b>Algorithm overview</b></para>
+/// <list type="number">
+///   <item>Query <see cref="ICelestialObjectDB"/> for catalog stars within the search radius
+///         around the supplied <c>searchOrigin</c>. Stars are sorted by Johnson V magnitude
+///         (brightest first) to enable brightness-aware matching.</item>
+///   <item>Detect stars in the image via <see cref="Image.FindStarsAsync"/> (SNR ≥ 5, up to 500 stars).</item>
+///   <item>Project the catalog stars onto the image plane using a gnomonic (tangent-plane) projection
+///         centred on the current WCS estimate, with pixel scale derived from <see cref="ImageDim"/>.</item>
+///   <item>Match projected catalog stars to detected image stars using a proximity search with a
+///         <b>soft brightness-rank penalty</b>: detected stars are ranked by flux (brightest first),
+///         and projected catalog stars inherit rank order from the brightness-sorted catalog.
+///         The matching score is <c>spatialDistance + |detRank − catRank| × scale</c>, which
+///         prefers both spatially close and brightness-similar pairs without hard cutoffs.</item>
+///   <item>Fit a least-squares affine transform (<see cref="System.Numerics.Matrix3x2"/>) from
+///         matched projected positions to detected positions, invert it to find the image centre
+///         in catalog coordinates, then update the WCS estimate via inverse tangent projection.</item>
+///   <item>Repeat steps 3–5 for up to 5 iterations (with shrinking match tolerance) until
+///         convergence (ΔRA &lt; 10⁻⁶° and ΔDec &lt; 10⁻⁶°). Both standard and mirror-flipped
+///         orientations are attempted.</item>
+/// </list>
+///
+/// <para>Requires a pre-initialised <see cref="ICelestialObjectDB"/> with Tycho-2 data and a
+/// valid <c>searchOrigin</c>; blind solving (no search hint) is not supported and returns
+/// <c>null</c>.</para>
+/// </summary>
 internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
 {
     const int MinStarsForMatch = 6;
@@ -17,10 +47,12 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
 
     public float Priority => 0.99f;
 
+    private int _catalogStars, _detectedStars, _projectedStars, _matchedStars, _iterations;
+
     public ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(true);
 
-    public Task<WCS?> SolveFileAsync(
+    public Task<PlateSolveResult> SolveFileAsync(
         string fitsFile,
         ImageDim? imageDim = default,
         float range = IPlateSolver.DefaultRange,
@@ -29,20 +61,22 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
         CancellationToken cancellationToken = default
     )
     {
+        var sw = Stopwatch.StartNew();
+
         if (searchOrigin is null)
         {
-            return Task.FromResult<WCS?>(null);
+            return Task.FromResult(new PlateSolveResult(null, sw.Elapsed));
         }
 
         if (!Image.TryReadFitsFile(fitsFile, out var image))
         {
-            return Task.FromResult<WCS?>(null);
+            return Task.FromResult(new PlateSolveResult(null, sw.Elapsed));
         }
 
         return SolveImageAsync(image, imageDim, range, searchOrigin, searchRadius, cancellationToken);
     }
 
-    public async Task<WCS?> SolveImageAsync(
+    public async Task<PlateSolveResult> SolveImageAsync(
         Image image,
         ImageDim? imageDim = default,
         float range = IPlateSolver.DefaultRange,
@@ -51,14 +85,25 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
         CancellationToken cancellationToken = default
     )
     {
+        var sw = Stopwatch.StartNew();
+
+        PlateSolveResult Result(WCS? wcs) => new PlateSolveResult(wcs, sw.Elapsed)
+        {
+            CatalogStars = _catalogStars,
+            DetectedStars = _detectedStars,
+            ProjectedStars = _projectedStars,
+            MatchedStars = _matchedStars,
+            Iterations = _iterations
+        };
+
         if (searchOrigin is not { } origin)
         {
-            return null;
+            return Result(null);
         }
 
         if ((imageDim ?? image.GetImageDim()) is not { } dim)
         {
-            return null;
+            return Result(null);
         }
 
         var fov = dim.FieldOfView;
@@ -66,16 +111,18 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
 
         // Query catalog stars within search radius
         var catalogCoords = QueryCatalogStarsInRegion(origin, searchRadiusDeg);
+        _catalogStars = catalogCoords.Count;
         if (catalogCoords.Count < MinStarsForMatch)
         {
-            return null;
+            return Result(null);
         }
 
         // Detect stars in image
         var detectedStars = await image.FindStarsAsync(0, snrMin: 5f, maxStars: 500, cancellationToken: cancellationToken);
+        _detectedStars = detectedStars.Count;
         if (detectedStars.Count < MinStarsForMatch)
         {
-            return null;
+            return Result(null);
         }
 
         // Sort catalog stars by brightness (lowest mag = brightest first).
@@ -90,7 +137,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
         // Try standard orientation, then mirror-flipped
         var wcs = TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: 1.0);
 
-        return wcs ?? TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: -1.0);
+        return Result(wcs ?? TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: -1.0));
     }
 
     private WCS? TrySolveWithProximityMatching(
@@ -119,24 +166,44 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
             var diagonal = Math.Sqrt(dim.Width * dim.Width + dim.Height * dim.Height);
             var matchTolerance = (float)(diagonal * (iteration == 0 ? 0.1 : 0.03));
 
+            // Rank detected stars by flux (brightest first) for brightness-aware matching.
+            // Projected catalog stars preserve brightness order from the pre-sorted catalogCoords
+            // (brightest VMag first), so their list index is their brightness rank.
+            var rankedDetected = new List<ImagedStar>(detectedStars);
+            rankedDetected.Sort((a, b) => b.Flux.CompareTo(a.Flux));
+
+            // Use rank difference as a soft penalty added to spatial distance.
+            // This prefers matches that are both spatially close and brightness-similar,
+            // without excluding good spatial matches at different brightness ranks.
+            // The penalty is scaled so a rank mismatch of N stars adds ~(N/total * tolerance * 0.5) pixels.
+            var rankPenaltyScale = projected.Count > 0 ? matchTolerance * 0.25f / projected.Count : 0f;
+
             var matchedDetected = new List<Vector2>();
             var matchedProjected = new List<Vector2>();
 
-            foreach (var det in detectedStars)
+            for (int detRank = 0; detRank < rankedDetected.Count; detRank++)
             {
-                var bestDist = matchTolerance;
+                var det = rankedDetected[detRank];
+                var bestScore = matchTolerance;
                 ImagedStar? bestMatch = null;
 
-                foreach (var cat in projected)
+                for (int catRank = 0; catRank < projected.Count; catRank++)
                 {
+                    var cat = projected[catRank];
                     var dx = det.XCentroid - cat.XCentroid;
                     var dy = det.YCentroid - cat.YCentroid;
                     var dist = MathF.Sqrt(dx * dx + dy * dy);
 
-                    if (dist < bestDist)
+                    if (dist < matchTolerance)
                     {
-                        bestDist = dist;
-                        bestMatch = cat;
+                        var rankPenalty = Math.Abs(detRank - catRank) * rankPenaltyScale;
+                        var score = dist + rankPenalty;
+
+                        if (score < bestScore)
+                        {
+                            bestScore = score;
+                            bestMatch = cat;
+                        }
                     }
                 }
 
@@ -149,6 +216,9 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
 
             if (matchedDetected.Count < MinStarsForMatch)
             {
+                _projectedStars = projected.Count;
+                _matchedStars = matchedDetected.Count;
+                _iterations = iteration + 1;
                 return iteration > 0 ? currentOrigin : null;
             }
 
@@ -172,6 +242,10 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
             var dDec = Math.Abs(refinedWcs.CenterDec - currentOrigin.CenterDec);
 
             currentOrigin = refinedWcs;
+
+            _projectedStars = projected.Count;
+            _matchedStars = matchedDetected.Count;
+            _iterations = iteration + 1;
 
             if (dRA < 1e-6 && dDec < 1e-6)
             {
