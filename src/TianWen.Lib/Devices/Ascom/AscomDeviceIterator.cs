@@ -1,12 +1,10 @@
-﻿using Microsoft.Win32;
+using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
-using AscomDeviceType = ASCOM.Common.DeviceTypes;
-using AscomProfile = ASCOM.Com.Profile;
 
 namespace TianWen.Lib.Devices.Ascom;
 
@@ -39,28 +37,58 @@ internal class AscomDeviceIterator : IDeviceSource<AscomDevice>
     /// </summary>
     public ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(IsSupported);
 
-    private static readonly HashSet<AscomDeviceType> _allSupportedDeviceTypes = [AscomDeviceType.Camera, AscomDeviceType.FilterWheel, AscomDeviceType.Focuser, AscomDeviceType.Telescope];
+    /// <summary>
+    /// Maps <see cref="DeviceType"/> to the ASCOM registry key name suffix (e.g. "Camera Drivers").
+    /// </summary>
+    private static string AscomRegistryKeyName(DeviceType deviceType) => deviceType switch
+    {
+        DeviceType.Camera => "Camera",
+        DeviceType.CoverCalibrator => "CoverCalibrator",
+        DeviceType.FilterWheel => "FilterWheel",
+        DeviceType.Focuser => "Focuser",
+        DeviceType.Switch => "Switch",
+        DeviceType.Telescope => "Telescope",
+        _ => throw new ArgumentOutOfRangeException(nameof(deviceType), deviceType, null)
+    };
+
+    private static readonly DeviceType[] _allSupportedDeviceTypes = [DeviceType.Camera, DeviceType.FilterWheel, DeviceType.Focuser, DeviceType.Telescope];
 
     private Dictionary<DeviceType, List<AscomDevice>> _devices = [];
 
-    public IEnumerable<DeviceType> RegisteredDeviceTypes => IsSupported ? _allSupportedDeviceTypes.Select(d => d.ToDeviceType()) : [];
+    public IEnumerable<DeviceType> RegisteredDeviceTypes => IsSupported ? _allSupportedDeviceTypes : [];
+
+    [SupportedOSPlatform("windows")]
+    private static List<AscomDevice> GetDriversFromRegistry(DeviceType deviceType)
+    {
+        var devices = new List<AscomDevice>();
+        var keyName = AscomRegistryKeyName(deviceType);
+
+        using var hklm32 = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry32);
+        using var driversKey = hklm32.OpenSubKey($@"SOFTWARE\ASCOM\{keyName} Drivers", false);
+
+        if (driversKey is null)
+        {
+            return devices;
+        }
+
+        foreach (var progId in driversKey.GetSubKeyNames())
+        {
+            using var progIdKey = driversKey.OpenSubKey(progId, false);
+            var displayName = progIdKey?.GetValue(null) as string ?? progId;
+            devices.Add(new AscomDevice(deviceType, progId, displayName));
+        }
+
+        return devices;
+    }
 
     public async ValueTask DiscoverAsync(CancellationToken cancellationToken = default)
     {
         if (OperatingSystem.IsWindows() && await CheckSupportAsync(cancellationToken))
         {
             var devices = new Dictionary<DeviceType, List<AscomDevice>>();
-            foreach (var ascomDeviceType in _allSupportedDeviceTypes)
+            foreach (var deviceType in _allSupportedDeviceTypes)
             {
-                var drivers = AscomProfile.GetDrivers(ascomDeviceType);
-                var deviceType = ascomDeviceType.ToDeviceType();
-                var devicesOfType = new List<AscomDevice>();
-                foreach (var driver in drivers)
-                {
-                    devicesOfType.Add(new AscomDevice(deviceType, driver.ProgID, driver.Name));
-                }
-
-                devices[deviceType] = devicesOfType;
+                devices[deviceType] = GetDriversFromRegistry(deviceType);
             }
 
             Interlocked.Exchange(ref _devices, devices);

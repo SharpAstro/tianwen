@@ -83,7 +83,7 @@ public interface IMountDriver : IDeviceDriver
 
     /// <summary>
     /// Moves the mount in the specified angular direction for the specified time (<paramref name="duration"/>).
-    /// The directions are in the Equatorial coordinate system only, regardless of the mount’s <see cref="GetAlignmentAsync(CancellationToken)"/>. The distance moved depends on the <see cref="GuideRateDeclination"/> and <see cref="GuideRateRightAscension"/>,
+    /// The directions are in the Equatorial coordinate system only, regardless of the mount’s <see cref="GetAlignmentAsync(CancellationToken)"/>. The distance moved depends on the <see cref="GetGuideRateDeclinationAsync(CancellationToken)"/> and <see cref="GetGuideRateRightAscensionAsync(CancellationToken)"/>,
     /// as well as <paramref name="duration"/>.
     /// </summary>
     /// <param name="direction">equatorial direction</param>
@@ -101,36 +101,58 @@ public interface IMountDriver : IDeviceDriver
     ValueTask<bool> IsPulseGuidingAsync(CancellationToken cancellationToken);
 
     /// <summary>
-    /// Read or set a secular rate of change to the mount's <see cref="GetRightAscensionAsync(CancellationToken)"/> (seconds of RA per sidereal second).
+    /// Read a secular rate of change to the mount's <see cref="GetRightAscensionAsync(CancellationToken)"/> (seconds of RA per sidereal second).
     /// https://ascom-standards.org/newdocs/trkoffset-faq.html#trkoffset-faq
     /// </summary>
-    double RightAscensionRate { get; set; }
+    ValueTask<double> GetRightAscensionRateAsync(CancellationToken cancellationToken);
 
     /// <summary>
-    /// Read or set a secular rate of change to the mount's <see cref="GetDeclinationAsync(CancellationToken)"/> in arc seconds per UTC (SI) second.
+    /// Set a secular rate of change to the mount's <see cref="GetRightAscensionAsync(CancellationToken)"/> (seconds of RA per sidereal second).
     /// https://ascom-standards.org/newdocs/trkoffset-faq.html#trkoffset-faq
     /// </summary>
-    double DeclinationRate { get; set; }
+    ValueTask SetRightAscensionRateAsync(double value, CancellationToken cancellationToken);
 
     /// <summary>
-    /// The current rate of change of <see cref="GetRightAscensionAsync(CancellationToken)"/> (deg/sec) for guiding, typically via <see cref="PulseGuideAsync(GuideDirection, TimeSpan, CancellationToken)"/>.
+    /// Read a secular rate of change to the mount's <see cref="GetDeclinationAsync(CancellationToken)"/> in arc seconds per UTC (SI) second.
+    /// https://ascom-standards.org/newdocs/trkoffset-faq.html#trkoffset-faq
+    /// </summary>
+    ValueTask<double> GetDeclinationRateAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Set a secular rate of change to the mount's <see cref="GetDeclinationAsync(CancellationToken)"/> in arc seconds per UTC (SI) second.
+    /// https://ascom-standards.org/newdocs/trkoffset-faq.html#trkoffset-faq
+    /// </summary>
+    ValueTask SetDeclinationRateAsync(double value, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Get the current rate of change of <see cref="GetRightAscensionAsync(CancellationToken)"/> (deg/sec) for guiding, typically via <see cref="PulseGuideAsync(GuideDirection, TimeSpan, CancellationToken)"/>.
     /// <list type="bullet">
     /// <item>This is the rate for both hardware/relay guiding and for <see cref="PulseGuideAsync(GuideDirection, TimeSpan, CancellationToken)"/></item>
     /// <item>The mount may not support separate right ascension and declination guide rates. If so, setting either rate must set the other to the same value.</item>
     /// <item>This value must be set to a default upon startup.</item>
     /// </list>
     /// </summary>
-    double GuideRateRightAscension { get; set; }
+    ValueTask<double> GetGuideRateRightAscensionAsync(CancellationToken cancellationToken);
 
     /// <summary>
-    /// The current rate of change of <see cref="GetDeclinationAsync(CancellationToken)"/> (deg/sec) for guiding, typically via <see cref="PulseGuideAsync(GuideDirection, TimeSpan, CancellationToken)"/>.
+    /// Set the current rate of change of <see cref="GetRightAscensionAsync(CancellationToken)"/> (deg/sec) for guiding, typically via <see cref="PulseGuideAsync(GuideDirection, TimeSpan, CancellationToken)"/>.
+    /// </summary>
+    ValueTask SetGuideRateRightAscensionAsync(double value, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Get the current rate of change of <see cref="GetDeclinationAsync(CancellationToken)"/> (deg/sec) for guiding, typically via <see cref="PulseGuideAsync(GuideDirection, TimeSpan, CancellationToken)"/>.
     /// <list type="bullet">
     /// <item>This is the rate for both hardware/relay guiding and for <see cref="PulseGuideAsync(GuideDirection, TimeSpan, CancellationToken)"/></item>
     /// <item>The mount may not support separate right ascension and declination guide rates. If so, setting either rate must set the other to the same value.</item>
     /// <item>This value must be set to a default upon startup.</item>
     /// </list>
     /// </summary>
-    double GuideRateDeclination { get; set; }
+    ValueTask<double> GetGuideRateDeclinationAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Set the current rate of change of <see cref="GetDeclinationAsync(CancellationToken)"/> (deg/sec) for guiding, typically via <see cref="PulseGuideAsync(GuideDirection, TimeSpan, CancellationToken)"/>.
+    /// </summary>
+    ValueTask SetGuideRateDeclinationAsync(double value, CancellationToken cancellationToken);
 
     /// <summary>
     /// Stops all movement due to slew (might revert to previous tracking mode).

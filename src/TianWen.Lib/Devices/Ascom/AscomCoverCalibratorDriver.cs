@@ -1,18 +1,24 @@
-﻿namespace TianWen.Lib.Devices.Ascom;
+namespace TianWen.Lib.Devices.Ascom;
 
 using System;
 using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
-using AscomCoverCalibrator = ASCOM.Com.DriverAccess.CoverCalibrator;
+using TianWen.Lib.Devices.Ascom.ComInterop;
 
 [SupportedOSPlatform("windows")]
-internal class AscomCoverCalibratorDriver(AscomDevice device, IExternal external)
-    : AscomDeviceDriverBase<AscomCoverCalibrator>(device, external, (progId, logger) => new AscomCoverCalibrator(progId, new AscomLoggerWrapper(logger))), ICoverDriver
+internal class AscomCoverCalibratorDriver : AscomDeviceDriverBase, ICoverDriver
 {
-    public int MaxBrightness => _comObject?.MaxBrightness is int maxBrightness ? maxBrightness : -1;
+    private readonly AscomDispatchCoverCalibrator _coverCalibrator;
 
-    public Task BeginCalibratorOn(int brightness, CancellationToken cancellationToken = default)
+    internal AscomCoverCalibratorDriver(AscomDevice device, IExternal external) : base(device, external)
+    {
+        _coverCalibrator = new AscomDispatchCoverCalibrator(_dispatchDevice.Dispatch);
+    }
+
+    public int MaxBrightness => _coverCalibrator.MaxBrightness;
+
+    public async Task BeginCalibratorOn(int brightness, CancellationToken cancellationToken = default)
     {
         if (!Connected)
         {
@@ -22,42 +28,40 @@ internal class AscomCoverCalibratorDriver(AscomDevice device, IExternal external
         {
             throw new ArgumentOutOfRangeException(nameof(brightness), brightness, $"Brightness out of range (0..{MaxBrightness})");
         }
-        else if (!((ICoverDriver)this).IsCalibrationReady)
+        else if (!await ((ICoverDriver)this).IsCalibrationReadyAsync(cancellationToken))
         {
             throw new InvalidOperationException("Cover is not ready");
         }
         else
         {
-            _comObject.CalibratorOn(brightness);
+            _coverCalibrator.CalibratorOn(brightness);
         }
-
-        return Task.CompletedTask;
     }
 
     public Task BeginCalibratorOff(CancellationToken cancellationToken = default)
     {
-        _comObject.CalibratorOff();
-
+        _coverCalibrator.CalibratorOff();
         return Task.CompletedTask;
     }
 
-    public int Brightness => _comObject?.Brightness is int brightness ? brightness : -1;
+    public ValueTask<int> GetBrightnessAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(_coverCalibrator.Brightness);
 
-    public CoverStatus CoverState => Connected ? (CoverStatus)(int)_comObject.CoverState : CoverStatus.Unknown;
+    public ValueTask<CoverStatus> GetCoverStateAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(Connected ? (CoverStatus)_coverCalibrator.CoverState : CoverStatus.Unknown);
 
-    public CalibratorStatus CalibratorState => Connected ? (CalibratorStatus)(int)_comObject.CalibratorState : CalibratorStatus.Unknown;
+    public ValueTask<CalibratorStatus> GetCalibratorStateAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(Connected ? (CalibratorStatus)_coverCalibrator.CalibratorState : CalibratorStatus.Unknown);
 
     public Task BeginClose(CancellationToken cancellationToken = default)
     {
-        _comObject.CloseCover();
-
+        _coverCalibrator.CloseCover();
         return Task.CompletedTask;
     }
 
     public Task BeginOpen(CancellationToken cancellationToken = default)
     {
-        _comObject.OpenCover();
-
+        _coverCalibrator.OpenCover();
         return Task.CompletedTask;
     }
 }

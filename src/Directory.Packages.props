@@ -3,9 +3,9 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup>
-    <!-- ASCOM packages -->
-    <PackageVersion Include="ASCOM.AstrometryTools" Version="3.0.0" />
-    <PackageVersion Include="ASCOM.Com.Components" Version="3.0.0" />
+    <!-- Source generator packages -->
+    <PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="3.11.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.12.0" />
     <!-- Core libraries -->
     <PackageVersion Include="CommunityToolkit.HighPerformance" Version="8.4.0" />
     <PackageVersion Include="CsvHelper" Version="33.1.0" />

@@ -564,29 +564,37 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         return HMSToHours(hms);
     }
 
-    public double RightAscensionRate { get => 0.0d; set => throw new InvalidOperationException("Setting right ascension rate is not supported"); }
+    public ValueTask<double> GetRightAscensionRateAsync(CancellationToken cancellationToken)
+        => ValueTask.FromResult(0.0d);
 
-    public double DeclinationRate { get => 0.0d; set => throw new InvalidOperationException("Setting declination rate is not supported"); }
+    public ValueTask SetRightAscensionRateAsync(double value, CancellationToken cancellationToken)
+        => throw new InvalidOperationException("Setting right ascension rate is not supported");
 
-    /// <summary>
-    /// Defaults to 0.67% of sidereal rate.
-    /// TODO: Support :RgSS.S# to set guide rate on AutoStar II
-    /// </summary>
-    public double GuideRateRightAscension
-    {
-        get => DEFAULT_GUIDE_RATE;
-        set => throw new InvalidOperationException("Setting right ascension guide rate is not apported");
-    }
+    public ValueTask<double> GetDeclinationRateAsync(CancellationToken cancellationToken)
+        => ValueTask.FromResult(0.0d);
+
+    public ValueTask SetDeclinationRateAsync(double value, CancellationToken cancellationToken)
+        => throw new InvalidOperationException("Setting declination rate is not supported");
 
     /// <summary>
     /// Defaults to 0.67% of sidereal rate.
     /// TODO: Support :RgSS.S# to set guide rate on AutoStar II
     /// </summary>
-    public double GuideRateDeclination
-    {
-        get => DEFAULT_GUIDE_RATE;
-        set => throw new InvalidOperationException("Setting declination guide rate is not apported");
-    }
+    public ValueTask<double> GetGuideRateRightAscensionAsync(CancellationToken cancellationToken)
+        => ValueTask.FromResult(DEFAULT_GUIDE_RATE);
+
+    public ValueTask SetGuideRateRightAscensionAsync(double value, CancellationToken cancellationToken)
+        => throw new InvalidOperationException("Setting right ascension guide rate is not supported");
+
+    /// <summary>
+    /// Defaults to 0.67% of sidereal rate.
+    /// TODO: Support :RgSS.S# to set guide rate on AutoStar II
+    /// </summary>
+    public ValueTask<double> GetGuideRateDeclinationAsync(CancellationToken cancellationToken)
+        => ValueTask.FromResult(DEFAULT_GUIDE_RATE);
+
+    public ValueTask SetGuideRateDeclinationAsync(double value, CancellationToken cancellationToken)
+        => throw new InvalidOperationException("Setting declination guide rate is not supported");
 
     public ValueTask<double> GetSiteElevationAsync(CancellationToken cancellationToken) => ValueTask.FromResult(double.NaN);
 

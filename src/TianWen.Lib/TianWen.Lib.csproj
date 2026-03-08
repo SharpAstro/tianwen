@@ -16,6 +16,7 @@
     <Platforms>AnyCPU</Platforms>
     <IsTrimmable>False</IsTrimmable>
     <IsAotCompatible>False</IsAotCompatible>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
@@ -46,8 +47,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="ASCOM.AstrometryTools" />
-    <PackageReference Include="ASCOM.Com.Components" />
+    <ProjectReference Include="..\TianWen.Lib.SourceGenerators\TianWen.Lib.SourceGenerators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <PackageReference Include="CommunityToolkit.HighPerformance" />
     <PackageReference Include="CsvHelper" />
     <PackageReference Include="DotNext.Threading" />

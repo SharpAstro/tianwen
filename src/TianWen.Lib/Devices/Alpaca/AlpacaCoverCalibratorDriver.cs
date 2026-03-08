@@ -22,12 +22,6 @@ internal class AlpacaCoverCalibratorDriver(AlpacaDevice device, IExternal extern
     // Static property — cached at init
     public int MaxBrightness => _maxBrightness;
 
-    // Dynamic properties — sync versions throw, callers should use async alternatives
-    public int Brightness => throw new NotSupportedException("Use GetBrightnessAsync instead");
-    public CoverStatus CoverState => throw new NotSupportedException("Use GetCoverStateAsync instead");
-    public CalibratorStatus CalibratorState => throw new NotSupportedException("Use GetCalibratorStateAsync instead");
-
-    // Async alternatives — native async HTTP calls
     public async ValueTask<int> GetBrightnessAsync(CancellationToken cancellationToken = default)
         => await Client.GetIntAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "brightness", cancellationToken);
 

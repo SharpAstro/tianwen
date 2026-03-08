@@ -98,6 +98,12 @@ public interface IExternal
     }
 
     /// <summary>
+    /// If <paramref name="condition"/> is true, awaits <paramref name="asyncFunc"/>, returning <paramref name="default"/> on exception or when condition is false.
+    /// </summary>
+    public ValueTask<T> CatchAsyncIf<T>(bool condition, Func<CancellationToken, ValueTask<T>> asyncFunc, CancellationToken cancellationToken, T @default = default) where T : struct
+        => condition ? CatchAsync(asyncFunc, cancellationToken, @default) : ValueTask.FromResult(@default);
+
+    /// <summary>
     /// Asynchronously awaits <paramref name="asyncFunc"/>, returning default <paramref name="default"/> if an exception occured.
     /// </summary>
     /// <typeparam name="T"></typeparam>

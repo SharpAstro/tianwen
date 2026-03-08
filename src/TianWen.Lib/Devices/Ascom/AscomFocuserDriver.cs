@@ -1,22 +1,28 @@
-﻿namespace TianWen.Lib.Devices.Ascom;
+namespace TianWen.Lib.Devices.Ascom;
 
 using System;
 using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
-using AscomFocuser = ASCOM.Com.DriverAccess.Focuser;
+using TianWen.Lib.Devices.Ascom.ComInterop;
 
 [SupportedOSPlatform("windows")]
-internal class AscomFocuserDriver(AscomDevice device, IExternal external)
-    : AscomDeviceDriverBase<AscomFocuser>(device, external, (progId, logger) => new AscomFocuser(progId, new AscomLoggerWrapper(logger))), IFocuserDriver
+internal class AscomFocuserDriver : AscomDeviceDriverBase, IFocuserDriver
 {
+    private readonly AscomDispatchFocuser _focuser;
+
+    internal AscomFocuserDriver(AscomDevice device, IExternal external) : base(device, external)
+    {
+        _focuser = new AscomDispatchFocuser(_dispatchDevice.Dispatch);
+    }
+
     protected override ValueTask<bool> InitDeviceAsync(CancellationToken cancellationToken)
     {
-        TempCompAvailable = _comObject.TempCompAvailable;
+        TempCompAvailable = _focuser.TempCompAvailable;
 
         try
         {
-            StepSize = _comObject.StepSize is double stepSize && !double.IsNaN(stepSize) ? stepSize : double.NaN;
+            StepSize = _focuser.StepSize is double stepSize && !double.IsNaN(stepSize) ? stepSize : double.NaN;
             CanGetStepSize = !double.IsNaN(StepSize);
         }
         catch
@@ -28,36 +34,38 @@ internal class AscomFocuserDriver(AscomDevice device, IExternal external)
         return ValueTask.FromResult(true);
     }
 
-    public int Position => Connected && Absolute && _comObject?.Position is int pos ? pos : int.MinValue;
+    public ValueTask<int> GetPositionAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(Connected && Absolute ? _focuser.Position : int.MinValue);
 
-    public bool Absolute => _comObject.Absolute;
+    public bool Absolute => _focuser.Absolute;
 
-    public bool IsMoving => Connected && _comObject?.IsMoving is bool moving && moving;
+    public ValueTask<bool> GetIsMovingAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(Connected && _focuser.IsMoving);
 
-    public int MaxIncrement => _comObject.MaxIncrement;
+    public int MaxIncrement => _focuser.MaxIncrement;
 
-    public int MaxStep => _comObject.MaxStep;
+    public int MaxStep => _focuser.MaxStep;
 
     public double StepSize { get; private set; } = double.NaN;
 
     public bool CanGetStepSize { get; private set; }
 
-    public bool TempComp
-    {
-        get => Connected && TempCompAvailable && _comObject?.TempComp is bool tempComp && tempComp;
+    public ValueTask<bool> GetTempCompAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(Connected && TempCompAvailable && _focuser.TempComp);
 
-        set
+    public ValueTask SetTempCompAsync(bool value, CancellationToken cancellationToken = default)
+    {
+        if (Connected && TempCompAvailable)
         {
-            if (Connected && TempCompAvailable && _comObject is { } obj)
-            {
-                obj.TempComp = value;
-            }
+            _focuser.TempComp = value;
         }
+        return ValueTask.CompletedTask;
     }
 
     public bool TempCompAvailable { get; private set; }
 
-    public double Temperature => Connected && _comObject?.Temperature is double temperature ? temperature : double.NaN;
+    public ValueTask<double> GetTemperatureAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(Connected ? _focuser.Temperature : double.NaN);
 
     public Task BeginMoveAsync(int position, CancellationToken cancellationToken = default)
     {
@@ -75,23 +83,21 @@ internal class AscomFocuserDriver(AscomDevice device, IExternal external)
         }
         else
         {
-            _comObject.Move(position);
+            _focuser.Move(position);
         }
 
         return Task.CompletedTask;
     }
 
-    public Task BeginHaltAsync(CancellationToken cancellationToken = default)
+    public async Task BeginHaltAsync(CancellationToken cancellationToken = default)
     {
         if (!Connected)
         {
             throw new InvalidOperationException("Focuser not connected");
         }
-        else if (IsMoving)
+        else if (await GetIsMovingAsync(cancellationToken))
         {
-            _comObject.Halt();
+            _focuser.Halt();
         }
-
-        return Task.CompletedTask;
     }
 }

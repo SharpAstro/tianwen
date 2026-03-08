@@ -124,10 +124,10 @@ internal record Session(
 
             if (camDriver.UsesGainValue)
             {
-                origGain[i] = camDriver.Gain;
+                origGain[i] = await camDriver.GetGainAsync(cancellationToken);
 
                 // set high gain
-                camDriver.Gain = (short)MathF.Truncate((camDriver.GainMin + camDriver.GainMin) * 0.75f);
+                await camDriver.SetGainAsync((short)MathF.Truncate((camDriver.GainMin + camDriver.GainMin) * 0.75f), cancellationToken);
             }
             else
             {
@@ -147,7 +147,7 @@ internal record Session(
             {
                 var camDriver = Setup.Telescopes[i].Camera.Driver;
 
-                if (await camDriver.GetImageReadyAsync(cancellationToken) is true && camDriver.Image is { Width: > 0, Height: > 0 } image)
+                if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } image)
                 {
                     var stars = await image.FindStarsAsync(0, snrMin: 15, cancellationToken: cancellationToken);
 
@@ -164,7 +164,7 @@ internal record Session(
                     {
                         if (camDriver.UsesGainValue && origGain[i] is >= 0)
                         {
-                            camDriver.Gain = origGain[i];
+                            await camDriver.SetGainAsync(origGain[i], cancellationToken);
                         }
 
                         hasRoughFocus[i] = true;
@@ -629,7 +629,7 @@ internal record Session(
                     var frameNo = frameNumbers[i];
                     do // wait for image loop
                     {
-                        if (await camDriver.GetImageReadyAsync(cancellationToken) is true && camDriver.Image is { Width: > 0, Height: > 0 } image)
+                        if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } image)
                         {
                             imageFetchSuccess[i] = true;
                             External.AppLogger.LogInformation("Camera #{CameraNumber} {CameraName} finished {ExposureStartTime} exposure of frame #{FrameNo}",
@@ -867,7 +867,7 @@ internal record Session(
             for (var i = 0; i < Setup.Telescopes.Count; i++)
             {
                 var camera = Setup.Telescopes[i].Camera;
-                coolingStates[i] = camera.Driver.CoolToSetpoint(desiredSetpointTemp, thresPower, direction, coolingStates[i]);
+                coolingStates[i] = await camera.Driver.CoolToSetpointAsync(desiredSetpointTemp, thresPower, direction, coolingStates[i], cancellationToken);
             }
 
             accSleep += rampInterval;

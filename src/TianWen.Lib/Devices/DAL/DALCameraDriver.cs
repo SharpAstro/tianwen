@@ -1,10 +1,11 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using TianWen.DAL;
 using TianWen.Lib.Imaging;
 
@@ -87,22 +88,20 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
 
     public short MaxBinY { get; private set; }
 
-    public double HeatSinkTemperature { get; } = double.NaN;
-
     public int CameraXSize { get; private set; } = int.MinValue;
 
     public int CameraYSize { get; private set; } = int.MinValue;
 
-    public BitDepth? BitDepth
+    public ValueTask<BitDepth?> GetBitDepthAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(Connected ? (BitDepth?)_cameraSettings.BitDepth : null);
+
+    public ValueTask SetBitDepthAsync(BitDepth? value, CancellationToken cancellationToken = default)
     {
-        get => Connected ? _cameraSettings.BitDepth : null;
-        set
+        if (Connected && value is { } bitDepth && _supportedBitDepth.Contains(bitDepth))
         {
-            if (Connected && value is { } bitDepth && _supportedBitDepth.Contains(bitDepth))
-            {
-                _cameraSettings = _cameraSettings with { BitDepth = bitDepth };
-            }
+            _cameraSettings = _cameraSettings with { BitDepth = bitDepth };
         }
+        return ValueTask.CompletedTask;
     }
 
     public abstract double ExposureResolution { get; }
@@ -290,22 +289,22 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
     /// <summary>
     /// TODO: implement trigger
     /// </summary>
-    public string? ReadoutMode
-    {
-        get => null;
-        set { }
-    }
+    public ValueTask<string?> GetReadoutModeAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult<string?>(null);
 
-    public bool FastReadout
+    public ValueTask SetReadoutModeAsync(string? value, CancellationToken cancellationToken = default)
+        => ValueTask.CompletedTask;
+
+    public ValueTask<bool> GetFastReadoutAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(Connected && CanFastReadout && _cameraSettings.FastReadout);
+
+    public ValueTask SetFastReadoutAsync(bool value, CancellationToken cancellationToken = default)
     {
-        get => Connected && CanFastReadout && _cameraSettings.FastReadout;
-        set
+        if (Connected && CanFastReadout)
         {
-            if (Connected && CanFastReadout)
-            {
-                _cameraSettings = _cameraSettings with { FastReadout = value };
-            }
+            _cameraSettings = _cameraSettings with { FastReadout = value };
         }
+        return ValueTask.CompletedTask;
     }
 
     public int MaxADU
@@ -349,163 +348,50 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         }
     }
 
-    public bool ImageReady
+    public ValueTask<short> GetGainAsync(CancellationToken cancellationToken = default)
     {
-        get
+        if (Connected
+            && _deviceInfo.GetControlValue(CMOSControlType.Gain, out var gain, out _) is CMOSErrorCode.Success
+            && gain >= GainMin
+            && gain <= GainMax
+        )
         {
-            if (!Connected)
-            {
-                throw NotConnectedException();
-            }
-            else if (CameraState is CameraState.Error)
-            {
-                return false;
-            }
-
-            var isReady = IMAGE_STATE_NO_IMG != Interlocked.CompareExchange(ref _camImageReady, IMAGE_STATE_NO_IMG, IMAGE_STATE_NO_IMG);
-
-            return isReady;
+            return ValueTask.FromResult((short)gain);
         }
+        return ValueTask.FromResult(short.MinValue);
     }
 
-    public bool IsPulseGuiding => Interlocked.CompareExchange(ref _pulseGuideDirections, 0, 0) is not 0;
-
-    public bool CoolerOn
+    public ValueTask SetGainAsync(short value, CancellationToken cancellationToken = default)
     {
-        get => Connected
-            && CanGetCoolerOn
-            && _deviceInfo.GetControlValue(CMOSControlType.CoolerOn, out var isOn, out _) is CMOSErrorCode.Success
-            && isOn == Convert.ToInt32(true);
-
-        set
+        if (value < GainMin || value > GainMax || _deviceInfo.SetControlValue(CMOSControlType.Gain, value) is not CMOSErrorCode.Success)
         {
-            if (!Connected)
-            {
-                throw NotConnectedException();
-            }
-            else if (!CanSetCoolerOn)
-            {
-                throw OperationalException(CMOSErrorCode.GeneralError, "Cooler on is not supported");
-            }
-            else if (_deviceInfo.SetControlValue(CMOSControlType.CoolerOn, Convert.ToInt32(value)) is var code and not CMOSErrorCode.Success)
-            {
-                throw OperationalException(code, $"Failed to turn cooler {(value ? "on" : "off")}, with error code {code}");
-            }
+            throw new ArgumentOutOfRangeException(nameof(value), value, $"Gain must be between {GainMin} and {GainMax} inclusive");
         }
+        return ValueTask.CompletedTask;
     }
 
-    public double CoolerPower
+    public IReadOnlyList<string> Gains => throw new InvalidOperationException("Gains is not supported");
+
+    public ValueTask<int> GetOffsetAsync(CancellationToken cancellationToken = default)
     {
-        get
+        if (Connected
+            && _deviceInfo.GetControlValue(CMOSControlType.Brightness, out var offset, out _) is CMOSErrorCode.Success
+            && offset >= OffsetMin
+            && offset <= OffsetMax
+        )
         {
-            if (!Connected)
-            {
-                throw NotConnectedException();
-            }
-            else if (!CanGetCoolerPower)
-            {
-                throw OperationalException(CMOSErrorCode.GeneralError, "Getting cooler power on is not supported");
-            }
-            else if (_deviceInfo.GetControlValue(CMOSControlType.CoolerPowerPercent, out var percentage, out _) is var code and not CMOSErrorCode.Success)
-            {
-                throw OperationalException(code, $"Failed to get cooler power, with error code {code}");
-            }
-            else
-            {
-                return percentage;
-            }
+            return ValueTask.FromResult(offset);
         }
+        return ValueTask.FromResult(int.MinValue);
     }
 
-    public double SetCCDTemperature
+    public ValueTask SetOffsetAsync(int value, CancellationToken cancellationToken = default)
     {
-        get
+        if (value < OffsetMin || value > OffsetMax || _deviceInfo.SetControlValue(CMOSControlType.Brightness, value) is not CMOSErrorCode.Success)
         {
-            if (!Connected)
-            {
-                throw NotConnectedException();
-            }
-            else if (!CanSetCCDTemperature)
-            {
-                throw OperationalException(CMOSErrorCode.GeneralError, "Cooler set CCD temp is not supported");
-            }
-            else if (_deviceInfo.GetControlValue(CMOSControlType.TargetTemperature, out var val, out _) is var code and not CMOSErrorCode.Success)
-            {
-                throw OperationalException(code, "Failed to get CCD temperature");
-            }
-            else
-            {
-                return val;
-            }
+            throw new ArgumentOutOfRangeException(nameof(value), value, $"Offset must be between {OffsetMin} and {OffsetMax} inclusive");
         }
-
-        set
-        {
-            // TODO exception
-            if (Connected
-                && CanSetCCDTemperature
-                && _deviceInfo.TryGetControlRange(CMOSControlType.TargetTemperature, out var min, out var max)
-                && value >= min
-                && value <= max
-            )
-            {
-                _deviceInfo.SetControlValue(CMOSControlType.TargetTemperature, (int)value);
-            }
-        }
-    }
-
-    public double CCDTemperature
-        => _deviceInfo.GetControlValue(CMOSControlType.TemperatureDeci, out var intTemp, out _) is CMOSErrorCode.Success ? intTemp * 0.1d : double.NaN;
-
-    public short Gain
-    {
-        get
-        {
-            if (Connected
-                && _deviceInfo.GetControlValue(CMOSControlType.Gain, out var gain, out _) is CMOSErrorCode.Success
-                && gain >= GainMin
-                && gain <= GainMax
-            )
-            {
-                return (short)gain;
-            }
-            return short.MinValue;
-        }
-
-        set
-        {
-            if (value < GainMin || value > GainMax || _deviceInfo.SetControlValue(CMOSControlType.Gain, value) is not CMOSErrorCode.Success)
-            {
-                throw new ArgumentOutOfRangeException(nameof(value), value, $"{nameof(Gain)} must be between {GainMin} and {GainMax} inclusive");
-            }
-        }
-    }
-
-    public IReadOnlyList<string> Gains => throw new InvalidOperationException($"{nameof(Gains)} is not supported");
-
-    public int Offset
-    {
-        get
-        {
-            // TODO exception
-            if (Connected
-                && _deviceInfo.GetControlValue(CMOSControlType.Brightness, out var offset, out _) is CMOSErrorCode.Success
-                && offset >= OffsetMin
-                && offset <= OffsetMax
-            )
-            {
-                return offset;
-            }
-            return int.MinValue;
-        }
-
-        set
-        {
-            if (value < OffsetMin || value > OffsetMax || _deviceInfo.SetControlValue(CMOSControlType.Brightness, value) is not CMOSErrorCode.Success)
-            {
-                throw new ArgumentOutOfRangeException(nameof(value), value, $"{nameof(Offset)} must be between {OffsetMin} and {OffsetMax} inclusive");
-            }
-        }
+        return ValueTask.CompletedTask;
     }
 
     private void SetImageReadyToDownload(TimeSpan? actualDuration)
@@ -583,18 +469,12 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         CanSetCoolerOn = isCoolerCam;
         CanPulseGuide =  _deviceInfo.HasST4Port;
 
-        try
-        {
-            CanGetHeatsinkTemperature = !double.IsNaN(HeatSinkTemperature);
-        }
-        catch
-        {
-            CanGetHeatsinkTemperature = false;
-        }
+        // HeatSinkTemperature is not available for DAL cameras
+        CanGetHeatsinkTemperature = false;
 
         try
         {
-            CanGetCCDTemperature = !double.IsNaN(CCDTemperature);
+            CanGetCCDTemperature = _deviceInfo.GetControlValue(CMOSControlType.TemperatureDeci, out _, out _) is CMOSErrorCode.Success;
         }
         catch
         {
@@ -627,7 +507,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
             GainMax = gainMax <= short.MaxValue ? (short)gainMax : short.MaxValue;
         }
         else
-        {       
+        {
             GainMin = short.MinValue;
             GainMax = short.MinValue;
         }
@@ -655,35 +535,139 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         }
     }
 
-    public CameraState CameraState
+    private CameraState GetCameraStateInternal()
     {
-        get
+        if (_camState is CameraState.Exposing && _deviceInfo.GetExposureStatus(out var snapStatus) is CMOSErrorCode.Success)
         {
-            if (_camState is CameraState.Exposing && _deviceInfo.GetExposureStatus(out var snapStatus) is CMOSErrorCode.Success)
+            switch (snapStatus)
             {
-                switch (snapStatus)
-                {
-                    case ExposureStatus.Idle:
-                    case ExposureStatus.Failed:
-                        _camState = CameraState.Idle;
-                        Interlocked.Exchange(ref _camImageReady, IMAGE_STATE_NO_IMG);
-                        break;
+                case ExposureStatus.Idle:
+                case ExposureStatus.Failed:
+                    _camState = CameraState.Idle;
+                    Interlocked.Exchange(ref _camImageReady, IMAGE_STATE_NO_IMG);
+                    break;
 
-                    case ExposureStatus.Success:
-                        _camState = CameraState.Idle;
-                        // do not provide the actual time as it is not clear how long ago it finished
-                        SetImageReadyToDownload(null);
-                        break;
+                case ExposureStatus.Success:
+                    _camState = CameraState.Idle;
+                    // do not provide the actual time as it is not clear how long ago it finished
+                    SetImageReadyToDownload(null);
+                    break;
 
-                    case ExposureStatus.Working:
-                        _camState = CameraState.Exposing;
-                        break;
-                }
+                case ExposureStatus.Working:
+                    _camState = CameraState.Exposing;
+                    break;
             }
+        }
 
-            return _camState;
+        return _camState;
+    }
+
+    // Async-primary members
+    public ValueTask<bool> GetImageReadyAsync(CancellationToken cancellationToken = default)
+    {
+        if (!Connected)
+        {
+            throw NotConnectedException();
+        }
+        else if (GetCameraStateInternal() is CameraState.Error)
+        {
+            return ValueTask.FromResult(false);
+        }
+
+        var isReady = IMAGE_STATE_NO_IMG != Interlocked.CompareExchange(ref _camImageReady, IMAGE_STATE_NO_IMG, IMAGE_STATE_NO_IMG);
+
+        return ValueTask.FromResult(isReady);
+    }
+
+    public ValueTask<CameraState> GetCameraStateAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(GetCameraStateInternal());
+
+    public ValueTask<double> GetCCDTemperatureAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(_deviceInfo.GetControlValue(CMOSControlType.TemperatureDeci, out var intTemp, out _) is CMOSErrorCode.Success ? intTemp * 0.1d : double.NaN);
+
+    public ValueTask<double> GetHeatSinkTemperatureAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(double.NaN);
+
+    public ValueTask<double> GetCoolerPowerAsync(CancellationToken cancellationToken = default)
+    {
+        if (!Connected)
+        {
+            throw NotConnectedException();
+        }
+        else if (!CanGetCoolerPower)
+        {
+            throw OperationalException(CMOSErrorCode.GeneralError, "Getting cooler power on is not supported");
+        }
+        else if (_deviceInfo.GetControlValue(CMOSControlType.CoolerPowerPercent, out var percentage, out _) is var code and not CMOSErrorCode.Success)
+        {
+            throw OperationalException(code, $"Failed to get cooler power, with error code {code}");
+        }
+        else
+        {
+            return ValueTask.FromResult((double)percentage);
         }
     }
+
+    public ValueTask<bool> GetCoolerOnAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(Connected
+            && CanGetCoolerOn
+            && _deviceInfo.GetControlValue(CMOSControlType.CoolerOn, out var isOn, out _) is CMOSErrorCode.Success
+            && isOn == Convert.ToInt32(true));
+
+    public ValueTask SetCoolerOnAsync(bool value, CancellationToken cancellationToken = default)
+    {
+        if (!Connected)
+        {
+            throw NotConnectedException();
+        }
+        else if (!CanSetCoolerOn)
+        {
+            throw OperationalException(CMOSErrorCode.GeneralError, "Cooler on is not supported");
+        }
+        else if (_deviceInfo.SetControlValue(CMOSControlType.CoolerOn, Convert.ToInt32(value)) is var code and not CMOSErrorCode.Success)
+        {
+            throw OperationalException(code, $"Failed to turn cooler {(value ? "on" : "off")}, with error code {code}");
+        }
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask<double> GetSetCCDTemperatureAsync(CancellationToken cancellationToken = default)
+    {
+        if (!Connected)
+        {
+            throw NotConnectedException();
+        }
+        else if (!CanSetCCDTemperature)
+        {
+            throw OperationalException(CMOSErrorCode.GeneralError, "Cooler set CCD temp is not supported");
+        }
+        else if (_deviceInfo.GetControlValue(CMOSControlType.TargetTemperature, out var val, out _) is var code and not CMOSErrorCode.Success)
+        {
+            throw OperationalException(code, "Failed to get CCD temperature");
+        }
+        else
+        {
+            return ValueTask.FromResult((double)val);
+        }
+    }
+
+    public ValueTask SetSetCCDTemperatureAsync(double value, CancellationToken cancellationToken = default)
+    {
+        // TODO exception
+        if (Connected
+            && CanSetCCDTemperature
+            && _deviceInfo.TryGetControlRange(CMOSControlType.TargetTemperature, out var min, out var max)
+            && value >= min
+            && value <= max
+        )
+        {
+            _deviceInfo.SetControlValue(CMOSControlType.TargetTemperature, (int)value);
+        }
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask<bool> GetIsPulseGuidingAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(Interlocked.CompareExchange(ref _pulseGuideDirections, 0, 0) is not 0);
 
 
     Float32HxWImageData DownloadImage(in CameraSettings exposureSettings)
@@ -757,10 +741,33 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         return array;
     }
 
-    public void AbortExposure() => StopExposure();
+    private void StopExposureInternal()
+    {
+        if (_camState == CameraState.Idle)
+        {
+            return;
+        }
 
+        if (_deviceInfo.StopExposure() is CMOSErrorCode.Success)
+        {
+            Interlocked.Exchange(ref _camState, CameraState.Idle);
+            SetImageReadyToDownload(_exposureData is { } data ? External.TimeProvider.GetUtcNow() - data.StartTime : null);
+        }
+    }
 
-    public DateTimeOffset StartExposure(TimeSpan duration, FrameType frameType)
+    public ValueTask AbortExposureAsync(CancellationToken cancellationToken = default)
+    {
+        StopExposureInternal();
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask StopExposureAsync(CancellationToken cancellationToken = default)
+    {
+        StopExposureInternal();
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask<DateTimeOffset> StartExposureAsync(TimeSpan duration, FrameType frameType = FrameType.Light, CancellationToken cancellationToken = default)
     {
         var settingsSnapshot = _cameraSettings;
 
@@ -794,7 +801,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
                 || currentStartY != settingsSnapshot.StartY
             )
             {
-                StopExposure();
+                StopExposureInternal();
 
                 var setROIErrorCode = _deviceInfo.SetROIFormat(settingsSnapshot.Width, settingsSnapshot.Height, BinX, settingsSnapshot.BitDepth.ToRawPixelFormat());
                 var setStartXYErrorCode = _deviceInfo.SetStartPosition(settingsSnapshot.StartX, settingsSnapshot.StartY);
@@ -860,12 +867,14 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         {
             _camState = CameraState.Exposing;
             var startTime = External.TimeProvider.GetUtcNow();
-            _exposureData = new ExposureData(startTime, duration, null, frameType, Gain, Offset);
+            _deviceInfo.GetControlValue(CMOSControlType.Gain, out var currentGain, out _);
+            _deviceInfo.GetControlValue(CMOSControlType.Brightness, out var currentOffset, out _);
+            _exposureData = new ExposureData(startTime, duration, null, frameType, currentGain, currentOffset);
             // ensure that on image readout we use the settings that the image was exposed with
             _exposureSettings = settingsSnapshot;
             Interlocked.Exchange(ref _camImageReady, IMAGE_STATE_NO_IMG);
 
-            return startTime;
+            return ValueTask.FromResult(startTime);
         }
         else
         {
@@ -874,7 +883,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         }
     }
 
-    public void PulseGuide(GuideDirection guideDirection, TimeSpan duration)
+    public ValueTask PulseGuideAsync(GuideDirection guideDirection, TimeSpan duration, CancellationToken cancellationToken = default)
     {
         var timer = External.TimeProvider.CreateTimer(StopPulseGuiding, guideDirection, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         if (_deviceInfo.PulseGuideOn(guideDirection) is var code and not CMOSErrorCode.Success)
@@ -888,6 +897,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
             Interlocked.Exchange(ref _pulseGuiderTimers[(int)guideDirection], timer)?.Dispose();
             timer.Change(duration, Timeout.InfiniteTimeSpan);
         }
+        return ValueTask.CompletedTask;
     }
 
     private void UpdateGuideDirections(GuideDirection guideDirection, Func<int, int, int> updateFunc)
@@ -920,20 +930,6 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         else
         {
             External.AppLogger.LogCritical("Invalid state: {obj} in stop pulse guiding callback", obj);
-        }
-    }
-
-    public void StopExposure()
-    {
-        if (_camState == CameraState.Idle)
-        {
-            return;
-        }
-
-        if (_deviceInfo.StopExposure() is CMOSErrorCode.Success)
-        {
-            Interlocked.Exchange(ref _camState, CameraState.Idle);
-            SetImageReadyToDownload(_exposureData is { } data ? External.TimeProvider.GetUtcNow() - data.StartTime : null);
         }
     }
 

@@ -3,7 +3,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
 using TianWen.Lib.Devices.DAL;
-using TianWen.Lib.Imaging;
 using ZWOptical.SDK;
 using static ZWOptical.SDK.EFW1_7;
 using static ZWOptical.SDK.EFW1_7.EFW_ERROR_CODE;
@@ -55,9 +54,10 @@ internal class ZWOFilterWheelDriver(ZWODevice device, IExternal external) : DALD
         }
     }
 
-    public int Position  => EFWGetPosition(ConnectionId, out var position) is var code && code is EFW_SUCCESS
-        ? position
-        : throw new ZWODriverException(code, "Failed to get filter wheel position");
+    public ValueTask<int> GetPositionAsync(CancellationToken cancellationToken = default)
+        => EFWGetPosition(ConnectionId, out var position) is var code && code is EFW_SUCCESS
+            ? ValueTask.FromResult(position)
+            : throw new ZWODriverException(code, "Failed to get filter wheel position");
 
     public Task BeginMoveAsync(int position, CancellationToken cancellationToken = default)
     {

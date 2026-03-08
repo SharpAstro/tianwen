@@ -1,41 +1,39 @@
-﻿using ASCOM.Common;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
-using ASCOMDriverAccessDevice = ASCOM.Com.DriverAccess.ASCOMDevice;
+using TianWen.Lib.Devices.Ascom.ComInterop;
 
 namespace TianWen.Lib.Devices.Ascom;
 
 [SupportedOSPlatform("windows")]
-internal abstract class AscomDeviceDriverBase<TAscomDriverAccessDevice>(AscomDevice device, IExternal external, Func<string, ILogger, TAscomDriverAccessDevice> func)
-    : DeviceDriverBase<AscomDevice,AscomDeviceInfo>(device, external), IDeviceDriver
-    where TAscomDriverAccessDevice : ASCOMDriverAccessDevice
+internal abstract class AscomDeviceDriverBase(AscomDevice device, IExternal external)
+    : DeviceDriverBase<AscomDevice, AscomDeviceInfo>(device, external), IDeviceDriver
 {
-    protected readonly TAscomDriverAccessDevice _comObject = func(device.DeviceId, external.AppLogger);
+    protected readonly AscomDispatchDevice _dispatchDevice = new(device.DeviceId);
 
-    public override string Name => _comObject.Name;
+    public override string Name => _dispatchDevice.Name;
 
-    public override string? Description => _comObject.Description;
+    public override string? Description => _dispatchDevice.Description;
 
-    public override string? DriverInfo => _comObject.DriverInfo;
+    public override string? DriverInfo => _dispatchDevice.DriverInfo;
 
-    public override string? DriverVersion => _comObject.DriverVersion;
+    public override string? DriverVersion => _dispatchDevice.DriverVersion;
 
     protected override async Task<(bool Success, int ConnectionId, AscomDeviceInfo DeviceInfo)> DoConnectDeviceAsync(CancellationToken cancellationToken)
     {
         bool success;
         try
         {
-            _comObject.Connect();
+            _dispatchDevice.Connect();
 
-            while (!cancellationToken.IsCancellationRequested && _comObject.Connecting)
+            while (!cancellationToken.IsCancellationRequested && _dispatchDevice.Connecting)
             {
                 await External.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
             }
 
-            success = _comObject.Connected;
+            success = _dispatchDevice.Connected;
         }
         catch (Exception e)
         {
@@ -50,20 +48,26 @@ internal abstract class AscomDeviceDriverBase<TAscomDriverAccessDevice>(AscomDev
     {
         try
         {
-            _comObject.Disconnect();
+            _dispatchDevice.Disconnect();
 
-            while (!cancellationToken.IsCancellationRequested && _comObject.Connecting)
+            while (!cancellationToken.IsCancellationRequested && _dispatchDevice.Connecting)
             {
                 await External.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
             }
 
-            return !_comObject.Connected;
+            return !_dispatchDevice.Connected;
         }
         catch (Exception e)
         {
             External.AppLogger.LogError(e, "Failed to disconnect from ASCOM device {DeviceId} ({DisplayName}): {ErrorMessage}", _device.DeviceId, _device.DisplayName, e.Message);
             return false;
         }
+    }
+
+    protected override void DisposeUnmanaged()
+    {
+        _dispatchDevice.Dispose();
+        base.DisposeUnmanaged();
     }
 }
 

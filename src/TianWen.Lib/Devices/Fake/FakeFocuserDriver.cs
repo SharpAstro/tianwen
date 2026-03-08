@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -6,11 +6,11 @@ namespace TianWen.Lib.Devices.Fake;
 
 internal class FakeFocuserDriver(FakeDevice fakeDevice, IExternal external) : FakePositionBasedDriver(fakeDevice, external), IFocuserDriver
 {
-    public int Position => _position;
+    public ValueTask<int> GetPositionAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(_position);
 
     public bool Absolute => true;
 
-    public bool IsMoving => _isMoving;
+    public ValueTask<bool> GetIsMovingAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(_isMoving);
 
     public int MaxIncrement => -1;
 
@@ -20,11 +20,14 @@ internal class FakeFocuserDriver(FakeDevice fakeDevice, IExternal external) : Fa
 
     public double StepSize => double.NaN;
 
-    public bool TempComp { get => false; set => throw new FakeDeviceException($"{nameof(TempComp)} is not supported (trying to set to {value})"); }
+    public ValueTask<bool> GetTempCompAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(false);
+
+    public ValueTask SetTempCompAsync(bool value, CancellationToken cancellationToken = default)
+        => throw new FakeDeviceException($"TempComp is not supported (trying to set to {value})");
 
     public bool TempCompAvailable => false;
 
-    public double Temperature => double.NaN;
+    public ValueTask<double> GetTemperatureAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(double.NaN);
 
     public Task BeginHaltAsync(CancellationToken cancellationToken = default) => BeginStopMovingAsync(cancellationToken);
 

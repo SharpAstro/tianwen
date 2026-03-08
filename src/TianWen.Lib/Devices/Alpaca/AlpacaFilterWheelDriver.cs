@@ -10,9 +10,6 @@ namespace TianWen.Lib.Devices.Alpaca;
 internal class AlpacaFilterWheelDriver(AlpacaDevice device, IExternal external)
     : AlpacaDeviceDriverBase(device, external), IFilterWheelDriver
 {
-    // Dynamic property — sync version throws, callers should use async alternative
-    public int Position => throw new NotSupportedException("Use GetPositionAsync instead");
-
     public async ValueTask<int> GetPositionAsync(CancellationToken cancellationToken = default)
         => await Client.GetIntAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "position", cancellationToken);
 

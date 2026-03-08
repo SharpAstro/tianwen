@@ -99,19 +99,19 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
             await using (driver)
             {
                 await driver.ConnectAsync(cancellationToken);
-                var startExposure = driver.StartExposure(TimeSpan.FromSeconds(0.1));
+                var startExposure = await driver.StartExposureAsync(TimeSpan.FromSeconds(0.1), cancellationToken: cancellationToken);
 
                 Thread.Sleep((int)TimeSpan.FromSeconds(0.5).TotalMilliseconds);
-                driver.ImageReady.ShouldBeTrue();
+                (await driver.GetImageReadyAsync(cancellationToken)).ShouldBeTrue();
                 var (data, expectedMax, expectedMin) = driver.ImageData.ShouldNotBeNull();
 
-                var image = driver.Image.ShouldNotBeNull();
+                var image = (await driver.GetImageAsync(cancellationToken)).ShouldNotBeNull();
 
                 driver.DriverType.ShouldBe(DeviceType.Camera);
                 image.ImageMeta.ExposureStartTime.ShouldBe(startExposure);
                 image.Width.ShouldBe(data.GetLength(1));
                 image.Height.ShouldBe(data.GetLength(0));
-                image.BitDepth.ShouldBe(driver.BitDepth.ShouldNotBeNull());
+                image.BitDepth.ShouldBe((await driver.GetBitDepthAsync(cancellationToken)).ShouldNotBeNull());
                 image.MaxValue.ShouldBeGreaterThan(0f);
                 image.MaxValue.ShouldBe(expectedMax);
                 image.MinValue.ShouldBe(expectedMin);

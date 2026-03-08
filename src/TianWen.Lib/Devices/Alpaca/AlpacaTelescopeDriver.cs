@@ -97,28 +97,40 @@ internal class AlpacaTelescopeDriver(AlpacaDevice device, IExternal external)
 
     public bool TimeIsSetByUs { get; private set; }
 
-    public double RightAscensionRate
+    public ValueTask<double> GetRightAscensionRateAsync(CancellationToken cancellationToken)
+        => ValueTask.FromResult(_rightAscensionRate);
+
+    public async ValueTask SetRightAscensionRateAsync(double value, CancellationToken cancellationToken)
     {
-        get => _rightAscensionRate;
-        set { _rightAscensionRate = value; _ = Client.PutAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "rightascensionrate", [new("RightAscensionRate", value.ToString(CultureInfo.InvariantCulture))]); }
+        await Client.PutAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "rightascensionrate", [new("RightAscensionRate", value.ToString(CultureInfo.InvariantCulture))]);
+        _rightAscensionRate = value;
     }
 
-    public double DeclinationRate
+    public ValueTask<double> GetDeclinationRateAsync(CancellationToken cancellationToken)
+        => ValueTask.FromResult(_declinationRate);
+
+    public async ValueTask SetDeclinationRateAsync(double value, CancellationToken cancellationToken)
     {
-        get => _declinationRate;
-        set { _declinationRate = value; _ = Client.PutAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "declinationrate", [new("DeclinationRate", value.ToString(CultureInfo.InvariantCulture))]); }
+        await Client.PutAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "declinationrate", [new("DeclinationRate", value.ToString(CultureInfo.InvariantCulture))]);
+        _declinationRate = value;
     }
 
-    public double GuideRateRightAscension
+    public ValueTask<double> GetGuideRateRightAscensionAsync(CancellationToken cancellationToken)
+        => ValueTask.FromResult(_guideRateRA);
+
+    public async ValueTask SetGuideRateRightAscensionAsync(double value, CancellationToken cancellationToken)
     {
-        get => _guideRateRA;
-        set { _guideRateRA = value; _ = Client.PutAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "guideraterightascension", [new("GuideRateRightAscension", value.ToString(CultureInfo.InvariantCulture))]); }
+        await Client.PutAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "guideraterightascension", [new("GuideRateRightAscension", value.ToString(CultureInfo.InvariantCulture))]);
+        _guideRateRA = value;
     }
 
-    public double GuideRateDeclination
+    public ValueTask<double> GetGuideRateDeclinationAsync(CancellationToken cancellationToken)
+        => ValueTask.FromResult(_guideRateDec);
+
+    public async ValueTask SetGuideRateDeclinationAsync(double value, CancellationToken cancellationToken)
     {
-        get => _guideRateDec;
-        set { _guideRateDec = value; _ = Client.PutAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "guideratedeclination", [new("GuideRateDeclination", value.ToString(CultureInfo.InvariantCulture))]); }
+        await Client.PutAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "guideratedeclination", [new("GuideRateDeclination", value.ToString(CultureInfo.InvariantCulture))]);
+        _guideRateDec = value;
     }
 
     public async ValueTask<TrackingSpeed> GetTrackingSpeedAsync(CancellationToken cancellationToken)
