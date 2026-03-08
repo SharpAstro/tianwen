@@ -128,29 +128,29 @@ cancellationToken: TestContext.Current.CancellationToken);
 
     [Theory]
     [InlineData("Antennae Galaxies", CatalogIndex.NGC4038, CatalogIndex.NGC4039)]
-    [InlineData("Eagle Nebula", CatalogIndex.IC4703, CatalogIndex.NGC6611)]
-    [InlineData("Hercules Globular Cluster", CatalogIndex.NGC6205)]
+    [InlineData("Eagle Nebula", CatalogIndex.IC4703, CatalogIndex.NGC6611, CatalogIndex.M016)]
+    [InlineData("Hercules Globular Cluster", CatalogIndex.NGC6205, CatalogIndex.M013)]
     [InlineData("Large Magellanic Cloud", CatalogIndex.ESO056_115)]
     [InlineData("Tarantula Nebula", CatalogIndex.NGC2070)]
     [InlineData("30 Dor Cluster", CatalogIndex.NGC2070)]
-    [InlineData("Orion Nebula", CatalogIndex.NGC1976)]
-    [InlineData("Great Orion Nebula", CatalogIndex.NGC1976)]
+    [InlineData("Orion Nebula", CatalogIndex.NGC1976, CatalogIndex.M042)]
+    [InlineData("Great Orion Nebula", CatalogIndex.NGC1976, CatalogIndex.M042)]
     [InlineData("Hyades", CatalogIndex.C041)]
-    [InlineData("Pleiades", CatalogIndex.Mel022)]
-    [InlineData("Keyhole", CatalogIndex.NGC3372)]
-    [InlineData("Car Nebula", CatalogIndex.NGC3372)]
-    [InlineData("Carina Nebula", CatalogIndex.NGC3372)]
-    [InlineData("eta Car Nebula", CatalogIndex.NGC3372)]
-    [InlineData("Keyhole Nebula", CatalogIndex.NGC3372)]
-    [InlineData("Cave Nebula", CatalogIndex.C009, CatalogIndex.Ced0201)]
+    [InlineData("Pleiades", CatalogIndex.Mel022, CatalogIndex.M045)]
+    [InlineData("Keyhole", CatalogIndex.NGC3372, CatalogIndex.GUM033, CatalogIndex.RCW_0053)]
+    [InlineData("Car Nebula", CatalogIndex.NGC3372, CatalogIndex.GUM033, CatalogIndex.RCW_0053)]
+    [InlineData("Carina Nebula", CatalogIndex.NGC3372, CatalogIndex.GUM033, CatalogIndex.RCW_0053)]
+    [InlineData("eta Car Nebula", CatalogIndex.NGC3372, CatalogIndex.GUM033, CatalogIndex.RCW_0053)]
+    [InlineData("Keyhole Nebula", CatalogIndex.NGC3372, CatalogIndex.GUM033, CatalogIndex.RCW_0053)]
+    [InlineData("Cave Nebula", CatalogIndex.C009, CatalogIndex.Ced0201, CatalogIndex.DG0179)]
     [InlineData("Coalsack Nebula", CatalogIndex.C099)]
-    [InlineData("tet01 Eri", CatalogIndex.HD018622)]
-    [InlineData("Trifid Nebula", CatalogIndex.NGC6514)]
-    [InlineData("Ran", CatalogIndex.HIP016537, CatalogIndex.HD022049)]
-    [InlineData("18 Eri", CatalogIndex.HIP016537, CatalogIndex.HD022049)]
-    [InlineData("eps Eri", CatalogIndex.HIP016537, CatalogIndex.HD022049)]
-    [InlineData("Electra", CatalogIndex.HIP017499, CatalogIndex.HD023302)]
-    [InlineData("Erakis", CatalogIndex.HIP107259, CatalogIndex.HD206936)]
+    [InlineData("tet01 Eri", CatalogIndex.HD018622, CatalogIndex.HR0897)]
+    [InlineData("Trifid Nebula", CatalogIndex.NGC6514, CatalogIndex.M020, CatalogIndex.Cr360)]
+    [InlineData("Ran", CatalogIndex.HIP016537, CatalogIndex.HD022049, CatalogIndex.HR1084)]
+    [InlineData("18 Eri", CatalogIndex.HIP016537, CatalogIndex.HD022049, CatalogIndex.HR1084)]
+    [InlineData("eps Eri", CatalogIndex.HIP016537, CatalogIndex.HD022049, CatalogIndex.HR1084)]
+    [InlineData("Electra", CatalogIndex.HIP017499, CatalogIndex.HD023302, CatalogIndex.HR1142, CatalogIndex.vdB0020)]
+    [InlineData("Erakis", CatalogIndex.HIP107259, CatalogIndex.HD206936, CatalogIndex.HR8316)]
     public async Task GivenANameWhenLookingItUpThenAnObjIsReturned(string name, params CatalogIndex[] expectedMatches)
     {
         // given
@@ -162,7 +162,7 @@ cancellationToken: TestContext.Current.CancellationToken);
         // then
         found.ShouldBeTrue();
         matches.ShouldNotBeNull();
-        matches.ShouldBeEquivalentTo(expectedMatches);
+        matches.ShouldBe(expectedMatches);
     }
 
     [Theory]

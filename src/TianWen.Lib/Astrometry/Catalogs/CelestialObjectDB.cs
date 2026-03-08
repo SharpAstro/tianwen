@@ -710,6 +710,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                         // Adds Messier to NGC/IC entry lookup, but only if its not a duplicate
                         _crossIndexLookuptable.AddLookupEntry(messierIndexEntry, indexEntry);
                         _crossIndexLookuptable.AddLookupEntry(indexEntry, messierIndexEntry);
+                        AddCommonNameIndex(messierIndexEntry, commonNames);
                     }
 
                     if (csvReader.TryGetField<string>("Identifiers", out var identifiersEntry) && identifiersEntry is { Length: > 0 })
@@ -854,8 +855,16 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
                             if (commonNames.Count > 0)
                             {
+                                // Register bestMatch common names first so main catalog entries (NGC, etc.) are v1
                                 UpdateObjectCommonNames(bestMatch, commonNames);
                             }
+                        }
+
+                        // Associate catToAddIdx with common names (appended after bestMatches)
+                        // Use the bestMatch object's names since UpdateObjectCommonNames may have consumed commonNames
+                        if (_objectsByIndex[bestMatches[0]].CommonNames is { Count: > 0 } bestMatchNames)
+                        {
+                            AddCommonNameIndex(catToAddIdx, bestMatchNames);
                         }
 
                         // Also link non-bestMatch relevantIds (e.g. HD without TYC) to catToAddIdx and bestMatches
