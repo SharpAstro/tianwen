@@ -3,6 +3,7 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.PlateSolve;
 using Xunit;
 
@@ -10,6 +11,44 @@ namespace TianWen.Lib.Tests;
 
 public class PlateSolverTests
 {
+    private static ICelestialObjectDB? _cachedDB;
+    private static readonly SemaphoreSlim _dbSem = new SemaphoreSlim(1, 1);
+
+    private static async Task<ICelestialObjectDB> InitDBAsync(CancellationToken cancellationToken)
+    {
+        if (_cachedDB is ICelestialObjectDB db)
+        {
+            return db;
+        }
+        await _dbSem.WaitAsync(cancellationToken);
+        try
+        {
+            if (_cachedDB is ICelestialObjectDB db2)
+            {
+                return db2;
+            }
+            var newDb = new CelestialObjectDB();
+            await newDb.InitDBAsync(cancellationToken: cancellationToken);
+            _cachedDB = newDb;
+            return newDb;
+        }
+        finally
+        {
+            _dbSem.Release();
+        }
+    }
+
+    private static IPlateSolver CreateSolver(Type solverType, ICelestialObjectDB? db = null)
+    {
+        if (solverType == typeof(CatalogPlateSolver))
+        {
+            db.ShouldNotBeNull();
+            return new CatalogPlateSolver(db);
+        }
+
+        return (Activator.CreateInstance(solverType) as IPlateSolver).ShouldNotBeNull();
+    }
+
     [Theory]
     [InlineData("PlateSolveTestFile", typeof(AstrometryNetPlateSolverUnix))]
     [InlineData("PlateSolveTestFile", typeof(AstrometryNetPlateSolverMultiPlatform))]
@@ -21,7 +60,7 @@ public class PlateSolverTests
         var cancellationToken = TestContext.Current.CancellationToken;
         var extractedFitsFile = await SharedTestData.ExtractGZippedFitsFileAsync(name, cancellationToken);
 
-        var solver = (Activator.CreateInstance(solverType) as IPlateSolver).ShouldNotBeNull();
+        var solver = CreateSolver(solverType);
         var platform = Environment.OSVersion.Platform;
 
         Assert.SkipWhen(solverType.IsAssignableTo(typeof(AstrometryNetPlateSolver))
@@ -60,7 +99,7 @@ public class PlateSolverTests
         var extractedFitsFile = await SharedTestData.ExtractGZippedFitsFileAsync(name, cancellationToken);
         var cts = new CancellationTokenSource(Debugger.IsAttached ? TimeSpan.FromHours(10) : TimeSpan.FromSeconds(10));
 
-        var solver = (Activator.CreateInstance(solverType) as IPlateSolver).ShouldNotBeNull();
+        var solver = CreateSolver(solverType);
         var platform = Environment.OSVersion.Platform;
 
         Assert.SkipWhen(solverType.IsAssignableTo(typeof(AstrometryNetPlateSolver))
@@ -84,5 +123,67 @@ public class PlateSolverTests
         {
             Assert.Fail($"Could not extract test image dimensions for {name}");
         }
+    }
+
+    [Theory]
+    [InlineData("PlateSolveTestFile", 0.03)]
+    [InlineData("image_file-snr-20_stars-28_1280x960x16", 0.03)]
+    public async Task GivenStarFieldImageAndSearchOriginWhenCatalogPlateSolvingThenItIsSolved(string name, double accuracy)
+    {
+        // given
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var db = await InitDBAsync(cancellationToken);
+        var image = await SharedTestData.ExtractGZippedFitsImageAsync(name, cancellationToken: cancellationToken);
+        var solver = new CatalogPlateSolver(db);
+
+        SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords).ShouldBeTrue();
+
+        // when
+        var solution = await solver.SolveImageAsync(image, dimAndCoords.ImageDim, searchOrigin: dimAndCoords.WCS, searchRadius: 3d, cancellationToken: cancellationToken);
+
+        // then
+        solution.HasValue.ShouldBeTrue($"CatalogPlateSolver should solve {name}");
+        var (ra, dec) = solution.Value;
+        ra.ShouldBeInRange(dimAndCoords.WCS.CenterRA - accuracy, dimAndCoords.WCS.CenterRA + accuracy, $"RA should be within {accuracy}h");
+        dec.ShouldBeInRange(dimAndCoords.WCS.CenterDec - accuracy, dimAndCoords.WCS.CenterDec + accuracy, $"Dec should be within {accuracy}°");
+    }
+
+    [Theory]
+    [InlineData("PlateSolveTestFile", 0.03)]
+    [InlineData("image_file-snr-20_stars-28_1280x960x16", 0.03)]
+    public async Task GivenStarFieldFileAndSearchOriginWhenCatalogPlateSolvingViaSolveFileThenItIsSolved(string name, double accuracy)
+    {
+        // given
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var db = await InitDBAsync(cancellationToken);
+        var extractedFitsFile = await SharedTestData.ExtractGZippedFitsFileAsync(name, cancellationToken);
+        var solver = new CatalogPlateSolver(db);
+
+        SharedTestData.TestFileImageDimAndCoords.TryGetValue(name, out var dimAndCoords).ShouldBeTrue();
+
+        // when
+        var solution = await solver.SolveFileAsync(extractedFitsFile, dimAndCoords.ImageDim, searchOrigin: dimAndCoords.WCS, searchRadius: 3d, cancellationToken: cancellationToken);
+
+        // then
+        solution.HasValue.ShouldBeTrue($"CatalogPlateSolver should solve {name} via SolveFileAsync");
+        var (ra, dec) = solution.Value;
+        ra.ShouldBeInRange(dimAndCoords.WCS.CenterRA - accuracy, dimAndCoords.WCS.CenterRA + accuracy);
+        dec.ShouldBeInRange(dimAndCoords.WCS.CenterDec - accuracy, dimAndCoords.WCS.CenterDec + accuracy);
+    }
+
+    [Fact]
+    public async Task GivenNoSearchOriginWhenCatalogPlateSolvingThenItReturnsNull()
+    {
+        // given
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var db = await InitDBAsync(cancellationToken);
+        var image = await SharedTestData.ExtractGZippedFitsImageAsync(SharedTestData.PlateSolveTestFile, cancellationToken: cancellationToken);
+        var solver = new CatalogPlateSolver(db);
+
+        // when — no searchOrigin provided
+        var solution = await solver.SolveImageAsync(image, cancellationToken: cancellationToken);
+
+        // then
+        solution.ShouldBeNull();
     }
 }

@@ -41,10 +41,11 @@ public interface IPlateSolver : IAsyncSupportedCheck
     );
 
     /// <summary>
-    /// Solves an in-memory <paramref name="image"/> by deriving <see cref="ImageDim"/> from its metadata
-    /// (pixel size, binning, focal length) and optionally using <paramref name="searchOrigin"/> as a hint.
+    /// Solves an in-memory <paramref name="image"/> by using the provided <paramref name="imageDim"/>
+    /// (or deriving it from metadata) and optionally using <paramref name="searchOrigin"/> as a hint.
     /// </summary>
     /// <param name="image">The image to plate solve.</param>
+    /// <param name="imageDim">Image dimensions; if <c>null</c>, derived from image metadata.</param>
     /// <param name="range">Search tolerance.</param>
     /// <param name="searchOrigin">Prefilled WCS if known.</param>
     /// <param name="searchRadius">Search radius in degrees.</param>
@@ -52,6 +53,7 @@ public interface IPlateSolver : IAsyncSupportedCheck
     /// <returns>WCS if solved, <c>null</c> otherwise.</returns>
     async Task<WCS?> SolveImageAsync(
         Image image,
+        ImageDim? imageDim = default,
         float range = DefaultRange,
         WCS? searchOrigin = default,
         double? searchRadius = default,
@@ -62,7 +64,7 @@ public interface IPlateSolver : IAsyncSupportedCheck
         try
         {
             image.WriteToFitsFile(fitsFile);
-            return await SolveFileAsync(fitsFile, image.GetImageDim(), range, searchOrigin, searchRadius, cancellationToken);
+            return await SolveFileAsync(fitsFile, imageDim ?? image.GetImageDim(), range, searchOrigin, searchRadius, cancellationToken);
         }
         finally
         {
