@@ -1,6 +1,8 @@
 # CLAUDE.md - TianWen Project Guide
 
-Always use extended thinking when analyzing bugs or designing architecture or when refactoring.
+- Always use extended thinking when analyzing bugs or designing architecture or when refactoring.
+- When running python temp scripts, always use python not python3
+- Always use pwsh not powerhsell
 
 ## Project Overview
 
