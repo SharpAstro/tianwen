@@ -192,7 +192,7 @@ internal record Session(
                 return true;
             }
 
-            External.Sleep(TimeSpan.FromMilliseconds(100));
+            await External.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
         }
 
         return false;
@@ -613,7 +613,7 @@ internal record Session(
             }
             else if (tickMinusElapsed > TimeSpan.Zero)
             {
-                External.Sleep(tickMinusElapsed);
+                await External.SleepAsync(tickMinusElapsed, cancellationToken);
             }
 
             var imageFetchSuccess = new BitVector32(scopes);

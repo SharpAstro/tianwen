@@ -100,7 +100,7 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
         while (await mount.IsSlewingAsync(cancellationToken))
         {
             // this will advance the fake timer and not actually sleep
-            fakeExternal.Sleep(TimeSpan.FromSeconds(1));
+            await fakeExternal.SleepAsync(TimeSpan.FromSeconds(1), cancellationToken);
         }
 
         // then

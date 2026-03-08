@@ -165,8 +165,6 @@ public interface IExternal
 
     ILogger AppLogger { get; }
 
-    void Sleep(TimeSpan duration);
-
     ValueTask SleepAsync(TimeSpan duration, CancellationToken cancellationToken = default);
 
     /// <summary>

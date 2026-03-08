@@ -58,11 +58,9 @@ public class FakeExternal : IExternal
     public virtual ISerialConnection OpenSerialDevice(string address, int baud, Encoding encoding)
         => throw new ArgumentException($"Failed to instantiate serial device at address={address}", nameof(address));
 
-    public void Sleep(TimeSpan duration) => _timeProvider.Advance(duration);
-
     public ValueTask SleepAsync(TimeSpan duration, CancellationToken cancellationToken = default)
     {
-        Sleep(duration);
+        _timeProvider.Advance(duration);
 
         return ValueTask.CompletedTask;
     }

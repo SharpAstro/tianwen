@@ -58,8 +58,6 @@ internal class External(
         ISerialConnection OpenSerialConnection(string portName) => new SerialConnection(portName, baud, encoding, AppLogger);
     }
 
-    public void Sleep(TimeSpan duration) => Thread.Sleep(duration);
-
     public async ValueTask SleepAsync(TimeSpan duration, CancellationToken cancellationToken) => await Task.Delay(duration, cancellationToken);
 
     public Task<IUtf8TextBasedConnection> ConnectGuiderAsync(EndPoint address, CommunicationProtocol protocol = CommunicationProtocol.JsonRPC, CancellationToken cancellationToken = default)

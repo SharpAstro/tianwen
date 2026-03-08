@@ -256,7 +256,7 @@ public interface IGuider : IDeviceDriver
                 var failsafeCounter = 0;
                 while (await IsSettlingAsync(cancellationToken).ConfigureAwait(false) && failsafeCounter++ < MAX_FAILSAFE && !cancellationToken.IsCancellationRequested)
                 {
-                    External.Sleep(TimeSpan.FromSeconds(10));
+                    await External.SleepAsync(TimeSpan.FromSeconds(10), cancellationToken);
                 }
 
                 guidingSuccess = failsafeCounter < MAX_FAILSAFE && await IsGuidingAsync(cancellationToken).ConfigureAwait(false);
