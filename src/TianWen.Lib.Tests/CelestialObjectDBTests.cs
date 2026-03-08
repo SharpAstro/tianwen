@@ -476,6 +476,44 @@ cancellationToken: TestContext.Current.CancellationToken);
         crossIndices.ShouldContain(expectedSourceIndex, $"{tycIndex.ToCanonical()} should cross-ref to {expectedSourceIndex.ToCanonical()}");
     }
 
+    [Theory]
+    [InlineData(CatalogIndex.Tyc_6447_45_1)]
+    [InlineData(CatalogIndex.Tyc_6447_45_2)]
+    [InlineData(CatalogIndex.Tyc_5929_1314_1)]
+    [InlineData(CatalogIndex.Tyc_5929_1314_2)]
+    [InlineData(CatalogIndex.Tyc_1340_1326_1)]
+    [InlineData(CatalogIndex.Tyc_1340_2546_1)]
+    [InlineData(CatalogIndex.Tyc_5993_1105_1)]
+    [InlineData(CatalogIndex.Tyc_5993_1105_2)]
+    [InlineData(CatalogIndex.Tyc_8606_795_1)]
+    [InlineData(CatalogIndex.Tyc_8606_795_2)]
+    [InlineData(CatalogIndex.Tyc_4026_566_1)]
+    [InlineData(CatalogIndex.Tyc_4026_566_2)]
+    [InlineData(CatalogIndex.Tyc_600_1507_1)]
+    [InlineData(CatalogIndex.Tyc_600_1507_2)]
+    [InlineData(CatalogIndex.Tyc_2785_116_1)]
+    [InlineData(CatalogIndex.Tyc_2785_116_2)]
+    [InlineData(CatalogIndex.Tyc_2259_1286_1)]
+    [InlineData(CatalogIndex.Tyc_2259_1286_2)]
+    [InlineData(CatalogIndex.Tyc_6415_65_1)]
+    [InlineData(CatalogIndex.Tyc_6415_65_2)]
+    public async Task GivenTycStarWhenLookingUpByRaDecThenItIsFoundInCoordinateGrid(CatalogIndex tycIndex)
+    {
+        // given
+        var db = await InitDBAsync();
+
+        // when — look up the star to get its coordinates
+        var found = db.TryLookupByIndex(tycIndex, out var tycObj);
+
+        // then — the star should exist and be findable in the coordinate grid
+        found.ShouldBeTrue($"{tycIndex.ToCanonical()} should be found");
+        tycObj.ObjectType.ShouldBe(ObjectType.Star);
+
+        var grid = db.CoordinateGrid[tycObj.RA, tycObj.Dec];
+        grid.ShouldNotBeEmpty($"{tycIndex.ToCanonical()} at RA={tycObj.RA:F4} Dec={tycObj.Dec:F4} should have grid entries");
+        grid.ShouldContain(tycIndex, $"{tycIndex.ToCanonical()} should be in the coordinate grid at its own RA/Dec");
+    }
+
     [Fact]
     public async Task GivenDBWhenCreateAutoCompleteListThenItContainsAllCommonNamesAndDesignations()
     {
