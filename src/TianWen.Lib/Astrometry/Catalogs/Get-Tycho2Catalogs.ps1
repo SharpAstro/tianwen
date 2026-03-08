@@ -17,35 +17,20 @@ $cats = [ordered]@{
 function Compress-WithLzip
 {
     param(
-        [Parameter(Mandatory)] [string] $Path,
-        [int] $EntryCount = -1
+        [Parameter(Mandatory)] [string] $Path
     )
 
     $lzFile = "$Path.lz"
     if ($ForceProcessing -and (Test-Path $lzFile)) {
         Remove-Item $lzFile
-        $sizeFile = "$lzFile.size"
-        if (Test-Path $sizeFile) { Remove-Item $sizeFile }
     }
 
     $uncompressedSize = [int](Get-Item $Path).Length
-    & lzip -9 $Path
+    & lzip -9 -b 4MiB $Path
     if (Test-Path $lzFile) {
         $compressedSize = (Get-Item $lzFile).Length
         $ratio = if ($uncompressedSize -gt 0) { $compressedSize / $uncompressedSize * 100 } else { 0 }
-        $entryInfo = if ($EntryCount -ge 0) { ", $EntryCount entries" } else { '' }
-        Write-Host ("  {0}: {1:N0} -> {2:N0} bytes ({3:N1}%{4})" -f (Split-Path $lzFile -Leaf), $uncompressedSize, $compressedSize, $ratio, $entryInfo)
-
-        # Write sidecar: LE int32 uncompressed size + LE int32 entry count (-1 if N/A)
-        $isLE = [BitConverter]::IsLittleEndian
-        $sizeBytes = [BitConverter]::GetBytes([int32]$uncompressedSize)
-        $countBytes = [BitConverter]::GetBytes([int32]$EntryCount)
-        if (-not $isLE) { [array]::Reverse($sizeBytes); [array]::Reverse($countBytes) }
-        $sizeFile = "$lzFile.size"
-        $sidecar = [byte[]]::new(8)
-        [array]::Copy($sizeBytes, 0, $sidecar, 0, 4)
-        [array]::Copy($countBytes, 0, $sidecar, 4, 4)
-        [System.IO.File]::WriteAllBytes($sizeFile, $sidecar)
+        Write-Host ("  {0}: {1:N0} -> {2:N0} bytes ({3:N1}%)" -f (Split-Path $lzFile -Leaf), $uncompressedSize, $compressedSize, $ratio)
     }
 }
 
@@ -262,11 +247,11 @@ function Write-CrossRefFiles
     }
 
     [System.IO.File]::WriteAllBytes($BinFile, $buffer)
-    Compress-WithLzip $BinFile -EntryCount $maxKey
+    Compress-WithLzip $BinFile
 
     if ($collisions.Count -gt 0) {
         $collisions | ConvertTo-Json | Set-Content -Encoding UTF8 $JsonFile
-        Compress-WithLzip $JsonFile -EntryCount $collisions.Count
+        Compress-WithLzip $JsonFile
         Write-Host "  $($collisions.Count) collision(s) written to $JsonFile.jz"
     }
 }
@@ -453,7 +438,7 @@ $cats.GetEnumerator() | ForEach-Object {
                 [array]::Copy($b4, 0, $boundsBuffer, $off + 12, 4)
             }
             [System.IO.File]::WriteAllBytes($boundsFile, $boundsBuffer)
-            Compress-WithLzip $boundsFile -EntryCount $cat.StreamCount
+            Compress-WithLzip $boundsFile
         }
 
         # Simple binary archive: int32 streamCount, then streamCount × int32 byte-offsets, then concatenated stream data.
@@ -507,7 +492,7 @@ $cats.GetEnumerator() | ForEach-Object {
             $outStream.Close()
         }
 
-        Compress-WithLzip $outBin -EntryCount $streamCount
+        Compress-WithLzip $outBin
         # Remove-Item $outBin
     } elseif ($null -ne $catalogTable) {
         $unzippedDataFileName = [System.IO.Path]::GetFileNameWithoutExtension($cat.File)

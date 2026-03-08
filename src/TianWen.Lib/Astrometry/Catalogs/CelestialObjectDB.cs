@@ -1,6 +1,5 @@
 ﻿using CsvHelper;
 using CsvHelper.Configuration;
-using SharpCompress.Compressors.LZMA;
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
@@ -300,6 +299,10 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         // Wait for Tycho2 data (runs in parallel with CSV + SIMBAD processing)
         await initTycho2DataTask;
 
+        // Load cross-ref multi-json files (modifies shared _crossIndexLookuptable, must be sequential)
+        LoadCrossRefMultiJson(assembly, manifestNames, "hip_to_tyc_multi", Catalog.HIP, Catalog.HIP.GetNumericalIndexSize(), _hipToTyc);
+        LoadCrossRefMultiJson(assembly, manifestNames, "hd_to_tyc_multi", Catalog.HD, Catalog.HD.GetNumericalIndexSize(), _hdToTyc);
+
         // Build cross-indices between HD and HIP via shared TYC stars
         // (must happen after all catalog loading so HIP cross-refs to HR, vdB etc. are present)
         BuildHdHipCrossIndicesViaTyc();
@@ -317,12 +320,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             return;
         }
 
-        using (var lzipStream = new LZipStream(tyc2Stream, SharpCompress.Compressors.CompressionMode.Decompress))
-        {
-            var (uncompressedSize, _) = ReadLzSizeInfo(assembly, tyc2Manifest);
-            _tycho2Data = new byte[uncompressedSize];
-            await lzipStream.ReadExactlyAsync(_tycho2Data);
-        }
+        _tycho2Data = LzipDecoder.Decompress(tyc2Stream);
 
         _tycho2StreamCount = BinaryPrimitives.ReadInt32LittleEndian(_tycho2Data);
 
@@ -330,21 +328,15 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         var boundsManifest = manifestNames.FirstOrDefault(p => p.EndsWith(".tyc2_gsc_bounds.bin.lz"));
         if (boundsManifest is not null && assembly.GetManifestResourceStream(boundsManifest) is Stream boundsStream)
         {
-            using var boundsLzip = new LZipStream(boundsStream, SharpCompress.Compressors.CompressionMode.Decompress);
-            var boundsSize = _tycho2StreamCount * 16; // 4 × float32 per GSC region
-            var boundsData = new byte[boundsSize];
-            await boundsLzip.ReadExactlyAsync(boundsData);
+            var boundsData = LzipDecoder.Decompress(boundsStream);
             _tycho2RaDecIndex = new Tycho2RaDecIndex(_tycho2Data, _tycho2StreamCount, boundsData);
         }
 
-        // 3. Load HIP → TYC cross-reference
+        // 3. Load HIP → TYC cross-reference (binary only; multi-json modifies shared state, done after await)
         _hipToTyc = LoadCrossRefBinFile(assembly, manifestNames, "hip_to_tyc");
-        LoadCrossRefMultiJson(assembly, manifestNames, "hip_to_tyc_multi", Catalog.HIP, Catalog.HIP.GetNumericalIndexSize(), _hipToTyc);
 
-        // 4. Load HD → TYC cross-reference
+        // 4. Load HD → TYC cross-reference (binary only)
         _hdToTyc = LoadCrossRefBinFile(assembly, manifestNames, "hd_to_tyc");
-        LoadCrossRefMultiJson(assembly, manifestNames, "hd_to_tyc_multi", Catalog.HD, Catalog.HD.GetNumericalIndexSize(), _hdToTyc);
-
     }
 
     private void BuildHdHipCrossIndicesViaTyc()
@@ -428,10 +420,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             return null;
         }
 
-        using var lzipStream = new LZipStream(stream, SharpCompress.Compressors.CompressionMode.Decompress);
-        var (uncompressedSize, _) = ReadLzSizeInfo(assembly, manifestFileName);
-        var data = new byte[uncompressedSize];
-        lzipStream.ReadExactly(data);
+        var data = LzipDecoder.Decompress(stream);
 
         const int recordSize = 5;
         var count = data.Length / recordSize;
@@ -454,16 +443,6 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         return result;
     }
 
-    private static (int UncompressedSize, int EntryCount) ReadLzSizeInfo(Assembly assembly, string lzManifestName)
-    {
-        var sizeManifest = lzManifestName + ".size";
-        using var sizeStream = assembly.GetManifestResourceStream(sizeManifest)
-            ?? throw new InvalidOperationException($"Missing sidecar resource: {sizeManifest}");
-        Span<byte> buf = stackalloc byte[8];
-        sizeStream.ReadExactly(buf);
-        return (BinaryPrimitives.ReadInt32LittleEndian(buf), BinaryPrimitives.ReadInt32LittleEndian(buf[4..]));
-    }
-
     private void LoadCrossRefMultiJson(Assembly assembly, string[] manifestNames, string name, Catalog catalog, int digits, CatalogIndex[]? crossRefArray)
     {
         var manifestFileName = manifestNames.FirstOrDefault(p => p.EndsWith("." + name + ".json.lz"));
@@ -473,8 +452,8 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
 
         using (stream)
-        using (var lzipStream = new LZipStream(stream, SharpCompress.Compressors.CompressionMode.Decompress))
-        using (var doc = JsonDocument.Parse(lzipStream))
+        using (var decompressed = LzipDecoder.DecompressToStream(stream))
+        using (var doc = JsonDocument.Parse(decompressed))
         {
             foreach (var property in doc.RootElement.EnumerateObject())
             {
@@ -630,8 +609,8 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             return (processed, failed);
         }
 
-        using var lzipStream = new LZipStream(stream, SharpCompress.Compressors.CompressionMode.Decompress);
-        using var streamReader = new StreamReader(lzipStream, new UTF8Encoding(false), detectEncodingFromByteOrderMarks: false, leaveOpen: true);
+        using var decompressed = LzipDecoder.DecompressToStream(stream);
+        using var streamReader = new StreamReader(decompressed, new UTF8Encoding(false), detectEncodingFromByteOrderMarks: false, leaveOpen: true);
         using var csvParser = new CsvParser(streamReader, new CsvConfiguration(CultureInfo.InvariantCulture) { Delimiter = ";" }, leaveOpen: true);
         using var csvReader = new CsvReader(csvParser);
 
@@ -778,14 +757,14 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             return (processed, failed);
         }
 
-        using var lzipStream = new LZipStream(stream, SharpCompress.Compressors.CompressionMode.Decompress);
+        using var decompressed = LzipDecoder.DecompressToStream(stream);
 
         // Reuse collections across records to reduce allocations
         var catToAddIdxs = new SortedSet<CatalogIndex>();
         var relevantIds = new Dictionary<Catalog, CatalogIndex[]>();
         var commonNames = new HashSet<string>(8);
 
-        await foreach (var record in JsonSerializer.DeserializeAsyncEnumerable(lzipStream, SimbadCatalogDtoJsonSerializerContext.Default.SimbadCatalogDto, cancellationToken))
+        await foreach (var record in JsonSerializer.DeserializeAsyncEnumerable(decompressed, SimbadCatalogDtoJsonSerializerContext.Default.SimbadCatalogDto, cancellationToken))
         {
             if (record is null)
             {

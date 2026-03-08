@@ -70,8 +70,6 @@ $catalogs.GetEnumerator() | ForEach-Object {
         $outFile = "$PSScriptRoot/$($cat.Replace('*', '_')).json"
         $lzFile = "$outFile.lz"
         if (Test-Path $lzFile) { Remove-Item $lzFile }
-        $sizeFile = "$lzFile.size"
-        if (Test-Path $sizeFile) { Remove-Item $sizeFile }
         $entries | ConvertTo-Json | Out-File -Encoding UTF8NoBOM $outFile
         $uncompressedSize = [int](Get-Item $outFile).Length
         $null = lzip -9 $outFile
@@ -79,16 +77,6 @@ $catalogs.GetEnumerator() | ForEach-Object {
             $compressedSize = (Get-Item $lzFile).Length
             $ratio = if ($uncompressedSize -gt 0) { $compressedSize / $uncompressedSize * 100 } else { 0 }
             Write-Host ("  {0}: {1:N0} -> {2:N0} bytes ({3:N1}%), {4} entries" -f (Split-Path $lzFile -Leaf), $uncompressedSize, $compressedSize, $ratio, $entryCount)
-
-            $isLE = [BitConverter]::IsLittleEndian
-            $sizeBytes = [BitConverter]::GetBytes([int32]$uncompressedSize)
-            $countBytes = [BitConverter]::GetBytes([int32]$entryCount)
-            if (-not $isLE) { [array]::Reverse($sizeBytes); [array]::Reverse($countBytes) }
-            $sizeFile = "$lzFile.size"
-            $sidecar = [byte[]]::new(8)
-            [array]::Copy($sizeBytes, 0, $sidecar, 0, 4)
-            [array]::Copy($countBytes, 0, $sidecar, 4, 4)
-            [System.IO.File]::WriteAllBytes($sizeFile, $sidecar)
         }
     }
 }
