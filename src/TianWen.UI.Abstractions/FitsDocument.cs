@@ -119,6 +119,7 @@ public sealed class FitsDocument
         {
             StretchMode.Linked => await DebayeredImage.StretchLinkedIntoAsync(_displayBuffer, parameters.Factor, parameters.ShadowsClipping, cancellationToken),
             StretchMode.Unlinked => await DebayeredImage.StretchUnlinkedIntoAsync(_displayBuffer, parameters.Factor, parameters.ShadowsClipping, cancellationToken),
+            StretchMode.Luma => await DebayeredImage.StretchLumaIntoAsync(_displayBuffer, parameters.Factor, parameters.ShadowsClipping, cancellationToken),
             _ => DebayeredImage
         };
     }

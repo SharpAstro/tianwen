@@ -62,6 +62,140 @@ public partial class Image
     }
 
     /// <summary>
+    /// Luma-only stretch: computes luminance Y from RGB, stretches Y → Y', then scales
+    /// all channels by Y'/Y to preserve chrominance ratios.
+    /// Falls back to unlinked stretch for mono images.
+    /// </summary>
+    public async Task<Image> StretchLumaAsync(double stretchFactor = 0.2d, double shadowsClipping = -3d, DebayerAlgorithm debayerAlgorithm = DebayerAlgorithm.VNG, CancellationToken cancellationToken = default)
+    {
+        if (imageMeta.SensorType is SensorType.RGGB)
+        {
+            var debayered = await DebayerAsync(debayerAlgorithm, cancellationToken);
+            return await debayered.StretchLumaAsync(stretchFactor, shadowsClipping, DebayerAlgorithm.None, cancellationToken);
+        }
+        else if (imageMeta.SensorType is SensorType.Monochrome || Shape.ChannelCount < 3)
+        {
+            return await StretchUnlinkedAsync(stretchFactor, shadowsClipping, DebayerAlgorithm.None, cancellationToken);
+        }
+        else
+        {
+            var (channelCount, width, height) = Shape;
+            var stretchedData = CreateChannelData(channelCount, height, width);
+            await StretchLumaCoreAsync(stretchedData, stretchFactor, shadowsClipping, cancellationToken);
+            var stretchedImage = new Image(stretchedData, BitDepth.Float32, 1.0f, 0f, 0f, imageMeta);
+            return MaxValue > stretchedImage.MaxValue ? stretchedImage.ScaleFloatValues(MaxValue) : stretchedImage;
+        }
+    }
+
+    /// <summary>
+    /// Luma-only stretch into a pre-allocated destination buffer, reusing memory.
+    /// </summary>
+    internal async Task<Image> StretchLumaIntoAsync(float[][,] destination, double stretchFactor = 0.2d, double shadowsClipping = -3d, CancellationToken cancellationToken = default)
+    {
+        if (imageMeta.SensorType is SensorType.Monochrome || Shape.ChannelCount < 3)
+        {
+            return await StretchUnlinkedIntoAsync(destination, stretchFactor, shadowsClipping, cancellationToken);
+        }
+
+        await StretchLumaCoreAsync(destination, stretchFactor, shadowsClipping, cancellationToken);
+        return new Image(destination, BitDepth.Float32, 1.0f, 0f, 0f, imageMeta);
+    }
+
+    // Rec. 709 luminance weights
+    private const float LumaR = 0.2126f;
+    private const float LumaG = 0.7152f;
+    private const float LumaB = 0.0722f;
+
+    private async Task StretchLumaCoreAsync(float[][,] destination, double stretchFactor, double shadowsClipping, CancellationToken cancellationToken)
+    {
+        var (channelCount, width, height) = Shape;
+
+        // Build luminance channel
+        var lumaData = new float[height, width];
+        var srcR = data[0];
+        var srcG = data[1];
+        var srcB = data[2];
+        var needsNorm = MaxValue > 1.0f + float.Epsilon;
+        var normFactor = 1.0f / MaxValue;
+
+        await Parallel.ForAsync(0, height, new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = Environment.ProcessorCount * 4 }, async (y, ct) => await Task.Run(() =>
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var r = srcR[y, x];
+                var g = srcG[y, x];
+                var b = srcB[y, x];
+                if (float.IsNaN(r) || float.IsNaN(g) || float.IsNaN(b))
+                {
+                    lumaData[y, x] = float.NaN;
+                }
+                else
+                {
+                    if (needsNorm) { r *= normFactor; g *= normFactor; b *= normFactor; }
+                    lumaData[y, x] = LumaR * r + LumaG * g + LumaB * b;
+                }
+            }
+            return ValueTask.CompletedTask;
+        }, ct));
+
+        // Compute stats on the luminance channel using a temporary single-channel image
+        var lumaChannelData = new float[1][,];
+        lumaChannelData[0] = lumaData;
+        var lumaImage = new Image(lumaChannelData, BitDepth.Float32, 1.0f, 0f, 0f, imageMeta with { SensorType = SensorType.Monochrome });
+
+        var (pedestral, median, mad) = lumaImage.GetPedestralMedianAndMADScaledToUnit(0);
+
+        // Compute stretch parameters from luminance stats
+double shadows, midtones, highlights, rescale;
+        if (median > 0.5)
+        {
+            shadows = 0f;
+            highlights = median - shadowsClipping * mad * MAD_TO_SD;
+            rescale = 1.0 / (highlights - 0);
+            midtones = MidtonesTransferFunction(stretchFactor, 1f - (highlights - median) * rescale);
+        }
+        else
+        {
+            shadows = median + shadowsClipping * mad * MAD_TO_SD;
+            rescale = 1.0 / (1.0 - shadows);
+            midtones = MidtonesTransferFunction(stretchFactor, (median - shadows) * rescale);
+            highlights = 1;
+        }
+
+        // Stretch luminance and scale RGB channels by Y'/Y ratio
+        await Parallel.ForAsync(0, height, new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = Environment.ProcessorCount * 4 }, async (y, ct) => await Task.Run(() =>
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var luma = lumaData[y, x];
+                if (float.IsNaN(luma))
+                {
+                    for (var c = 0; c < channelCount; c++)
+                    {
+                        destination[c][y, x] = float.NaN;
+                    }
+                    continue;
+                }
+
+                // Stretch the luminance
+                var rescaled = (1 - highlights + luma - shadows) * rescale;
+                var stretchedLuma = (float)MidtonesTransferFunction(midtones, rescaled);
+
+                // Scale factor: Y'/Y (avoid division by zero)
+                var scale = luma > 1e-7f ? stretchedLuma / luma : 0f;
+
+                for (var c = 0; c < channelCount; c++)
+                {
+                    var value = data[c][y, x];
+                    if (needsNorm) { value *= normFactor; }
+                    destination[c][y, x] = Math.Clamp(value * scale, 0f, 1f);
+                }
+            }
+            return ValueTask.CompletedTask;
+        }, ct));
+    }
+
+    /// <summary>
     /// Stretches linked into a pre-allocated destination buffer, reusing memory.
     /// The destination array must have the same dimensions as this image.
     /// </summary>
@@ -112,19 +246,22 @@ public partial class Image
         var needsNorm = MaxValue > 1.0f + float.Epsilon;
         var normFactor = 1.0 / MaxValue;
 
-        double shadows, midtones, highlights;
+        double shadows, midtones, highlights, rescale;
 
         // assume the image is inverted or overexposed when median is higher than half of the possible value
         if (median > 0.5)
         {
             shadows = 0f;
             highlights = median - shadowsClipping * mad * MAD_TO_SD;
-            midtones = MidtonesTransferFunction(stretchFactor, 1f - (highlights - median));
+            rescale = 1.0 / (highlights - 0);
+            midtones = MidtonesTransferFunction(stretchFactor, 1f - (highlights - median) * rescale);
         }
         else
         {
             shadows = median + shadowsClipping * mad * MAD_TO_SD;
-            midtones = MidtonesTransferFunction(stretchFactor, median - shadows);
+            rescale = 1.0 / (1.0 - shadows);
+            // Rescaled median: (median - shadows) / (1 - shadows)
+            midtones = MidtonesTransferFunction(stretchFactor, (median - shadows) * rescale);
             highlights = 1;
         }
 
@@ -139,7 +276,9 @@ public partial class Image
                 if (!float.IsNaN(value))
                 {
                     var normValue = (needsNorm ? value * normFactor : value) - pedestral;
-                    dstChannel[y, x] = (float)MidtonesTransferFunction(midtones, 1 - highlights + normValue - shadows);
+                    // Subtract blackpoint and rescale to [0,1] before applying MTF
+                    var rescaled = (1 - highlights + normValue - shadows) * rescale;
+                    dstChannel[y, x] = (float)MidtonesTransferFunction(midtones, rescaled);
                 }
                 else
                 {

@@ -75,6 +75,15 @@ internal sealed class GlShaderProgram : IDisposable
         }
     }
 
+    public void SetFloat(string name, float value)
+    {
+        var location = _gl.GetUniformLocation(Handle, name);
+        if (location >= 0)
+        {
+            _gl.Uniform1(location, value);
+        }
+    }
+
     public void Dispose() => _gl.DeleteProgram(Handle);
 
     private static uint CompileShader(GL gl, ShaderType type, string source)

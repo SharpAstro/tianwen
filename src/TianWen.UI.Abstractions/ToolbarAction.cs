@@ -11,6 +11,8 @@ public enum ToolbarAction
     StretchParams,
     Channel,
     Debayer,
+    CurvesBoost,
+    Hdr,
     ZoomFit,
     ZoomActual,
     PlateSolve,

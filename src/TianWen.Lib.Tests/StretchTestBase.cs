@@ -10,23 +10,28 @@ namespace TianWen.Lib.Tests;
 
 public abstract class StretchTestBase(ITestOutputHelper testOutputHelper)
 {
-    internal async Task StretchTest(string fileName, DebayerAlgorithm algorithm, int stretchPct, int clippingSigma, bool linked, uint expectedChannelCount)
+    internal Task StretchTest(string fileName, DebayerAlgorithm algorithm, int stretchPct, int clippingSigma, bool linked, uint expectedChannelCount)
+        => StretchTest(fileName, algorithm, stretchPct, clippingSigma, linked ? "linked" : "unlinked", expectedChannelCount);
+
+    internal async Task StretchTest(string fileName, DebayerAlgorithm algorithm, int stretchPct, int clippingSigma, string mode, uint expectedChannelCount)
     {
         // given
         var cancellationToken = TestContext.Current.CancellationToken;
         var image = await SharedTestData.ExtractGZippedFitsImageAsync(fileName, cancellationToken: cancellationToken);
 
-        var linkedStr = linked ? "linked" : "unlinked"; 
-        var namePrefix = $"{fileName}_{algorithm}_{stretchPct}s_{linkedStr}";
+        var namePrefix = $"{fileName}_{algorithm}_{stretchPct}s_{mode}";
         var testDir = SharedTestData.CreateTempTestOutputDir(TestContext.Current.TestClass?.TestClassSimpleName ?? nameof(StretchTest));
 
         // when
         var sw = Stopwatch.StartNew();
-        var stretched = linked
-            ? await image.StretchLinkedAsync(stretchPct * 0.01d, clippingSigma, debayerAlgorithm: algorithm, cancellationToken: cancellationToken)
-            : await image.StretchUnlinkedAsync(stretchPct * 0.01d, clippingSigma, debayerAlgorithm: algorithm, cancellationToken: cancellationToken);
+        var stretched = mode switch
+        {
+            "linked" => await image.StretchLinkedAsync(stretchPct * 0.01d, clippingSigma, debayerAlgorithm: algorithm, cancellationToken: cancellationToken),
+            "luma" => await image.StretchLumaAsync(stretchPct * 0.01d, clippingSigma, debayerAlgorithm: algorithm, cancellationToken: cancellationToken),
+            _ => await image.StretchUnlinkedAsync(stretchPct * 0.01d, clippingSigma, debayerAlgorithm: algorithm, cancellationToken: cancellationToken),
+        };
         sw.Stop();
-        testOutputHelper.WriteLine($"Debayering and stretching ({(linked ? "linked" : "unlinked")}) to {stretchPct}% using {algorithm} took: {sw.Elapsed}");
+        testOutputHelper.WriteLine($"Debayering and stretching ({mode}) to {stretchPct}% using {algorithm} took: {sw.Elapsed}");
 
         // then
         sw.Restart();

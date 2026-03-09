@@ -69,6 +69,8 @@ public sealed class GlFitsRenderer : IDisposable
         ("Params", ToolbarAction.StretchParams, 1),
         ("Channel", ToolbarAction.Channel, 2),
         ("Debayer", ToolbarAction.Debayer, 2),
+        ("Boost", ToolbarAction.CurvesBoost, 2),
+        ("HDR", ToolbarAction.Hdr, 2),
         ("Fit", ToolbarAction.ZoomFit, 3),
         ("1:1", ToolbarAction.ZoomActual, 3),
         ("Plate Solve", ToolbarAction.PlateSolve, 4),
@@ -259,6 +261,7 @@ public sealed class GlFitsRenderer : IDisposable
             ToolbarAction.Debayer => document?.RawImage.ImageMeta.SensorType is TianWen.Lib.Imaging.SensorType.RGGB,
             // Channel cycling only useful when there are multiple channels (after debayer or native color)
             ToolbarAction.Channel => document is not null && document.DisplayImage.ChannelCount > 1,
+            ToolbarAction.CurvesBoost or ToolbarAction.Hdr => document is not null,
             // Stretch buttons need a loaded document; link/params only when stretch is active
             ToolbarAction.StretchToggle => document is not null,
             ToolbarAction.StretchLink or ToolbarAction.StretchParams => document is not null,
@@ -276,6 +279,8 @@ public sealed class GlFitsRenderer : IDisposable
         {
             ToolbarAction.StretchToggle or ToolbarAction.StretchLink or ToolbarAction.StretchParams
                 => state.StretchMode is not StretchMode.None,
+            ToolbarAction.CurvesBoost => state.CurvesBoost > 0f,
+            ToolbarAction.Hdr => state.HdrAmount > 0f,
             ToolbarAction.ZoomFit => state.ZoomToFit,
             ToolbarAction.ZoomActual => !state.ZoomToFit && MathF.Abs(state.Zoom - 1f) < 0.001f,
             _ => false,
@@ -287,10 +292,17 @@ public sealed class GlFitsRenderer : IDisposable
         return action switch
         {
             ToolbarAction.StretchToggle => "STF",
-            ToolbarAction.StretchLink => state.StretchMode is StretchMode.Linked ? "Linked" : "Unlinked",
+            ToolbarAction.StretchLink => state.StretchMode switch
+            {
+                StretchMode.Linked => "Linked",
+                StretchMode.Luma => "Luma",
+                _ => "Unlinked"
+            },
             ToolbarAction.StretchParams => $"{state.StretchParameters}",
-            ToolbarAction.Channel => $"Channel: {state.ChannelView}",
+            ToolbarAction.Channel => $"Channel: {(state.ChannelView is ChannelView.Composite ? "RGB" : state.ChannelView)}",
             ToolbarAction.Debayer => $"Debayer: {state.DebayerAlgorithm}",
+            ToolbarAction.CurvesBoost => $"Boost: {state.CurvesBoost:P0}",
+            ToolbarAction.Hdr => state.HdrAmount > 0f ? $"HDR: {state.HdrAmount:F1}" : "HDR",
             ToolbarAction.ZoomFit => "Fit",
             ToolbarAction.ZoomActual => "1:1",
             ToolbarAction.PlateSolve when state.IsPlateSolving => "Solving...",
@@ -489,6 +501,10 @@ public sealed class GlFitsRenderer : IDisposable
 
         _imageShader.Use();
         _imageShader.SetInt("uChannelCount", _channelTextureCount);
+        _imageShader.SetFloat("uCurvesBoost", state.CurvesBoost);
+        _imageShader.SetFloat("uCurvesMidpoint", (float)state.StretchParameters.Factor);
+        _imageShader.SetFloat("uHdrAmount", state.HdrAmount);
+        _imageShader.SetFloat("uHdrKnee", state.HdrKnee);
         for (int i = 0; i < _channelTextureCount && i < _channelTextures.Length; i++)
         {
             _gl.ActiveTexture(TextureUnit.Texture0 + i);
@@ -557,7 +573,7 @@ public sealed class GlFitsRenderer : IDisposable
 
         // Controls help at bottom of panel
         var lineHeight = FontSize + 2f;
-        var controlLines = 10; // header + 9 controls
+        var controlLines = 11; // header + 10 controls
         y = _height - StatusBarHeight - lineHeight * controlLines - PanelPadding;
         if (y > ToolbarHeight + lineHeight * 5)
         {
@@ -566,6 +582,7 @@ public sealed class GlFitsRenderer : IDisposable
             DrawTextLine(ref y, x, "+/-: Stretch factor", 0.7f, 0.7f, 0.7f);
             DrawTextLine(ref y, x, "C: Cycle channel", 0.7f, 0.7f, 0.7f);
             DrawTextLine(ref y, x, "D: Cycle debayer", 0.7f, 0.7f, 0.7f);
+            DrawTextLine(ref y, x, "H: Cycle HDR", 0.7f, 0.7f, 0.7f);
             DrawTextLine(ref y, x, "P: Plate solve", 0.7f, 0.7f, 0.7f);
             DrawTextLine(ref y, x, "I: Toggle info panel", 0.7f, 0.7f, 0.7f);
             DrawTextLine(ref y, x, "L: Toggle file list", 0.7f, 0.7f, 0.7f);
@@ -783,13 +800,63 @@ public sealed class GlFitsRenderer : IDisposable
         uniform sampler2D uChannel1;
         uniform sampler2D uChannel2;
         uniform int uChannelCount;
+        uniform float uCurvesBoost;
+        uniform float uCurvesMidpoint;
+        uniform float uHdrAmount;
+        uniform float uHdrKnee;
+
+        // S-curve contrast enhancement inspired by the PixInsight
+        // Statistical Stretch "Final Sigma Curves" boost.
+        // Darkens below midpoint, brightens above — anchored at 0, mid, and 1.
+        float applyCurve(float v, float boost) {
+            float mid = uCurvesMidpoint;
+            if (v <= 0.0 || v >= 1.0 || mid <= 0.0 || mid >= 1.0) return v;
+            if (v <= mid) {
+                float t = v / mid;
+                return mid * pow(t, 1.0 + boost);
+            } else {
+                float t = (v - mid) / (1.0 - mid);
+                return mid + (1.0 - mid) * pow(t, 1.0 / (1.0 + boost));
+            }
+        }
+
+        // Hermite soft-knee HDR compression.
+        // Values below knee pass through unchanged. Values above knee are
+        // compressed toward 1.0 using a smooth Hermite (smoothstep) curve.
+        // Amount controls the compression strength (0 = off, higher = more).
+        float applyHdr(float v, float amount, float knee) {
+            if (v <= knee) return v;
+            float range = 1.0 - knee;
+            float t = (v - knee) / range;
+            // Hermite interpolation: compressed = knee + range * smoothstep blend
+            // At amount=0 this is identity; higher amount flattens highlights more.
+            float compressed = knee + range * t / (1.0 + amount * t);
+            return compressed;
+        }
+
         void main() {
             float r = texture(uChannel0, vTexCoord).r;
             if (uChannelCount >= 3) {
                 float g = texture(uChannel1, vTexCoord).r;
                 float b = texture(uChannel2, vTexCoord).r;
+                if (uCurvesBoost > 0.0) {
+                    r = applyCurve(r, uCurvesBoost);
+                    g = applyCurve(g, uCurvesBoost);
+                    b = applyCurve(b, uCurvesBoost);
+                }
+                if (uHdrAmount > 0.0) {
+                    r = applyHdr(r, uHdrAmount, uHdrKnee);
+                    g = applyHdr(g, uHdrAmount, uHdrKnee);
+                    b = applyHdr(b, uHdrAmount, uHdrKnee);
+                }
                 FragColor = vec4(r, g, b, 1.0);
             } else {
+                if (uCurvesBoost > 0.0) {
+                    r = applyCurve(r, uCurvesBoost);
+                }
+                if (uHdrAmount > 0.0) {
+                    r = applyHdr(r, uHdrAmount, uHdrKnee);
+                }
                 FragColor = vec4(r, r, r, 1.0);
             }
         }
