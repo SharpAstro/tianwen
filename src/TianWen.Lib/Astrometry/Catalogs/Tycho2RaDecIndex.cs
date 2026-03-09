@@ -11,7 +11,7 @@ internal sealed class Tycho2RaDecIndex
     const int RaGridSize = 24 * 15;
     const int DecGridSize = 2 * 90 + 1;
 
-    private readonly ushort[]?[,] _gscRegionsPerCell = new ushort[RaGridSize, DecGridSize][];
+    private readonly List<ushort>?[,] _gscRegionsPerCell = new List<ushort>[RaGridSize, DecGridSize];
     private readonly byte[] _tycho2Data;
     private readonly int _streamCount;
 
@@ -64,7 +64,7 @@ internal sealed class Tycho2RaDecIndex
         for (int ra = 0; ra < RaGridSize; ra++)
             for (int dec = 0; dec < DecGridSize; dec++)
                 if (cellLists[ra, dec] is { Count: > 0 } list)
-                    _gscRegionsPerCell[ra, dec] = list.ToArray();
+                    _gscRegionsPerCell[ra, dec] = list;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -98,7 +98,7 @@ internal sealed class Tycho2RaDecIndex
         return false;
     }
 
-    internal ushort[]? GetOverlappingRegions(double ra, double dec)
+    internal List<ushort>? GetOverlappingRegions(double ra, double dec)
     {
         if (TryGetGridIndex(ra, dec, out var raIdx, out var decIdx))
             return _gscRegionsPerCell[raIdx, decIdx];

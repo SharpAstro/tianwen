@@ -1,6 +1,5 @@
-﻿using System;
-using System.IO;
-using System.Linq;
+using System;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace TianWen.Lib;
@@ -9,40 +8,49 @@ namespace TianWen.Lib;
 /// <remarks>See more: <seealso href="http://base91.sourceforge.net/"/>.</remarks>
 public static class Base91
 {
-    /// <summary>Gets <see cref="Environment.NewLine"/> as a sequence of bytes used as a line separator within the <see cref="WriteLine(Stream, Span{byte}, int, int, ref int)"/>
-    /// and <see cref="WriteLine(Stream, byte, int, ref int)"/> methods.</summary>
-    private static readonly ReadOnlyMemory<byte> Separator = Encoding.UTF8.GetBytes(Environment.NewLine);
-
-    /// <inheritdoc cref="EncodeStream(Stream, Stream, int, bool)"/>
-    public static void EncodeStream(Stream inputStream, Stream outputStream, bool dispose) =>
-        EncodeStream(inputStream, outputStream, 0, dispose);
-
     /// <summary>Encodes the specified sequence of bytes.</summary>
     /// <param name="bytes">The sequence of bytes to encode.</param>
-    /// <param name="lineLength">The length of lines.</param>
-    /// <exception cref="ArgumentNullException">bytes is null.</exception>
     /// <returns>A string that contains the result of encoding the specified sequence of bytes.</returns>
-    public static string EncodeBytes(byte[] bytes, int lineLength = 0)
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public static string EncodeBytes(ReadOnlySpan<byte> bytes)
     {
-        ArgumentNullException.ThrowIfNull(bytes);
+        // Worst case: each byte produces ~1.23 output chars, use 2x as safe upper bound.
+        // Safety check for large bytes by stackalloc'ing small outputs. This should not happen in practice.
+        Span<char> output = bytes.Length < 100 ? stackalloc char[bytes.Length * 2 + 2] : new char[bytes.Length * 2 + 2];
+        var pos = 0;
+        int ebVal = 0, ebBits = 0;
 
-        using var msi = new MemoryStream(bytes);
-        using var mso = new MemoryStream();
-        EncodeStream(msi, mso, lineLength);
-        return Encoding.UTF8.GetString(mso.ToArray());
-    }
+        foreach (var b in bytes)
+        {
+            ebVal |= b << ebBits;
+            ebBits += 8;
+            if (ebBits < 14)
+                continue;
 
-    /// <summary>Encodes the specified string.</summary>
-    /// <param name="text">The string to encode.</param>
-    /// <param name="lineLength">The length of lines.</param>
-    /// <exception cref="ArgumentNullException">text is null.</exception>
-    /// <returns>A string that contains the result of encoding the specified string.</returns>
-    public static string EncodeString(string text, int lineLength = 0)
-    {
-        ArgumentNullException.ThrowIfNull(text);
-        
-        var ba = Encoding.UTF8.GetBytes(text);
-        return EncodeBytes(ba, lineLength);
+            int v = ebVal & 8191;
+            if (v > 88)
+            {
+                ebBits -= 13;
+                ebVal >>= 13;
+            }
+            else
+            {
+                v = ebVal & 16383;
+                ebBits -= 14;
+                ebVal >>= 14;
+            }
+            output[pos++] = (char)CharacterTable91[v % 91];
+            output[pos++] = (char)CharacterTable91[v / 91];
+        }
+
+        if (ebBits > 0)
+        {
+            output[pos++] = (char)CharacterTable91[ebVal % 91];
+            if (ebBits >= 8 || ebVal >= 91)
+                output[pos++] = (char)CharacterTable91[ebVal / 91];
+        }
+
+        return new string(output[..pos]);
     }
 
     /// <summary>Decodes the specified string into a sequence of bytes.</summary>
@@ -50,78 +58,51 @@ public static class Base91
     /// <exception cref="ArgumentNullException">code is null.</exception>
     /// <exception cref="DecoderFallbackException">code contains invalid characters.</exception>
     /// <returns>A sequence of bytes that contains the results of decoding the specified string.</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     public static byte[] DecodeBytes(string code)
     {
         ArgumentNullException.ThrowIfNull(code);
-        
-        var ba = Encoding.UTF8.GetBytes(code);
-        using var msi = new MemoryStream(ba);
-        using var mso = new MemoryStream();
-        DecodeStream(msi, mso);
-        return mso.ToArray();
-    }
 
-    /// <summary>Decodes the specified string into a string.</summary>
-    /// <param name="code">The string to decode.</param>
-    /// <exception cref="ArgumentNullException">code is null.</exception>
-    /// <exception cref="DecoderFallbackException">code contains invalid characters.</exception>
-    /// <returns>A string that contains the result of decoding the specified string.</returns>
-    public static string DecodeString(string code)
-    {
-        var ba = DecodeBytes(code) ?? throw new NullReferenceException();
- 
-        return Encoding.UTF8.GetString(ba);
-    }
+        // Decoded output is at most ~81% of encoded length
+        // Safety check for large strings by stackalloc'ing small outputs. This should not happen in practice.
+        Span<byte> output = code.Length < 100 ? stackalloc byte[code.Length] : new byte[code.Length];
+        var pos = 0;
+        int dbVal = 0, dbBits = 0, dbPrev = -1;
 
-    /// <summary>Determines whether the specified value can be ignored.</summary>
-    /// <param name="value">The character to check.</param>
-    /// <param name="additional">Additional characters to be skipped.</param>
-    /// <returns><see langword="true"/> if the byte number matches one of the characters; otherwise, <see langword="false"/>.</returns>
-    private static bool IsSkippable(int value, params int[] additional) =>
-        value is '\0' or '\t' or '\n' or '\r' or ' ' || additional?.Any(i => value == i) == true;
-
-    /// <summary>Write the specified byte into the stream and add a line separator depending on the specified line length.</summary>
-    /// <param name="stream">The stream in which to write the single byte.</param>
-    /// <param name="value">The byte to write to the stream.</param>
-    /// <param name="lineLength">The length of lines.</param>
-    /// <param name="linePos">The position in the line.</param>
-    /// <exception cref="ArgumentNullException">stream is null.</exception>
-    private static void WriteLine(Stream stream, byte value, int lineLength, ref int linePos)
-    {
-        ArgumentNullException.ThrowIfNull(stream);
-
-        stream.WriteByte(value);
-        if (Separator.IsEmpty || lineLength < 1 || ++linePos < lineLength)
-            return;
-        linePos = 0;
-        stream.Write(Separator.Span);
-    }
-
-    internal static BufferedStream GetBufferedStream(Stream stream, int size = 0) =>
-        stream switch
+        foreach (var ch in code)
         {
-            null => throw new ArgumentNullException(nameof(stream)),
-            BufferedStream bs => bs,
-            _ => new BufferedStream(stream, size > 0 ? size : GetBufferSize(stream))
-        };
+            if (ch is '\0' or '\t' or '\n' or '\r' or ' ')
+                continue;
 
-    internal static int GetBufferSize(Stream stream)
-    {
-        const int kb128 = 0x20000;
-        const int kb64 = 0x10000;
-        const int kb32 = 0x8000;
-        const int kb16 = 0x4000;
-        const int kb8 = 0x2000;
-        const int kb4 = 0x1000;
-        return (int)Math.Floor((stream?.Length ?? 0) / 1.5d) switch
-        {
-            > kb128 => kb128,
-            > kb64 => kb64,
-            > kb32 => kb32,
-            > kb16 => kb16,
-            > kb8 => kb8,
-            _ => kb4
-        };
+            var idx = ch < 128 ? ReverseTable91[ch] : -1;
+            if (idx < 0)
+                throw new DecoderFallbackException($"Character {ch} is invalid!");
+
+            if (dbPrev < 0)
+            {
+                dbPrev = idx;
+                continue;
+            }
+
+            dbPrev += idx * 91;
+            dbVal |= dbPrev << dbBits;
+            dbBits += (dbPrev & 8191) > 88 ? 13 : 14;
+
+            do
+            {
+                output[pos++] = (byte)(dbVal & byte.MaxValue);
+                dbVal >>= 8;
+                dbBits -= 8;
+            }
+            while (dbBits > 7);
+
+            dbPrev = -1;
+        }
+
+        if (dbPrev != -1)
+            output[pos++] = (byte)((dbVal | (dbPrev << dbBits)) & byte.MaxValue);
+
+        return output[..pos].ToArray();
     }
 
     /// <summary>Standard 91-character set:
@@ -147,133 +128,15 @@ public static class Base91
         0x22
     ];
 
-    /// <summary>Encodes the specified input stream into the specified output stream.</summary>
-    /// <param name="inputStream">The input stream to encode.</param>
-    /// <param name="outputStream">The output stream for encoding.</param>
-    /// <param name="lineLength">The length of lines.</param>
-    /// <param name="dispose"><see langword="true"/> to release all resources used by the input and output <see cref="Stream"/>; otherwise, <see langword="false"/>.</param>
-    /// <exception cref="ArgumentNullException">inputStream or outputStream is null.</exception>
-    /// <exception cref="ArgumentException">inputStream or outputStream is invalid.</exception>
-    /// <exception cref="NotSupportedException">inputStream is not readable -or- outputStream is not writable.</exception>
-    /// <exception cref="IOException">An I/O error occurred, such as the specified file cannot be found.</exception>
-    /// <exception cref="ObjectDisposedException">Methods were called after the inputStream or outputStream was closed.</exception>
-    public static void EncodeStream(Stream inputStream, Stream outputStream, int lineLength = 0, bool dispose = false)
-    {
-        ArgumentNullException.ThrowIfNull(inputStream);
-        ArgumentNullException.ThrowIfNull(outputStream);
-        var bsi = GetBufferedStream(inputStream);
-        var bso = GetBufferedStream(outputStream, bsi.BufferSize);
-        try
-        {
-            Span<int> eb = [0, 0, 0];
-            var pos = 0;
-            int i;
-            while ((i = bsi.ReadByte()) != -1)
-            {
-                eb[0] |= i << eb[1];
-                eb[1] += 8;
-                if (eb[1] < 14)
-                    continue;
-                eb[2] = eb[0] & 8191;
-                if (eb[2] > 88)
-                {
-                    eb[1] -= 13;
-                    eb[0] >>= 13;
-                }
-                else
-                {
-                    eb[2] = eb[0] & 16383;
-                    eb[1] -= 14;
-                    eb[0] >>= 14;
-                }
-                WriteLine(bso, CharacterTable91[eb[2] % 91], lineLength, ref pos);
-                WriteLine(bso, CharacterTable91[eb[2] / 91], lineLength, ref pos);
-            }
-            if (eb[1] == 0)
-                return;
-            WriteLine(bso, CharacterTable91[eb[0] % 91], lineLength, ref pos);
-            if (eb[1] >= 8 || eb[0] >= 91)
-                WriteLine(bso, CharacterTable91[eb[0] / 91], lineLength, ref pos);
-        }
-        finally
-        {
-            if (dispose)
-            {
-                bsi.Dispose();
-                bso.Dispose();
-            }
-            else
-            {
-                bsi.Flush();
-                bso.Flush();
-            }
-        }
-    }
+    /// <summary>Reverse lookup table: ASCII byte value → index in <see cref="CharacterTable91"/>, or -1 if not a valid Base91 character.</summary>
+    private static readonly sbyte[] ReverseTable91 = BuildReverseTable();
 
-    /// <summary>Decodes the specified input stream into the specified output stream.</summary>
-    /// <param name="inputStream">The input stream to decode.</param>
-    /// <param name="outputStream">The output stream for decoding.</param>
-    /// <param name="dispose"><see langword="true"/> to release all resources used by the input and output <see cref="Stream"/>; otherwise, <see langword="false"/>.</param>
-    /// <exception cref="ArgumentNullException">inputStream or outputStream is null.</exception>
-    /// <exception cref="ArgumentException">inputStream or outputStream is invalid.</exception>
-    /// <exception cref="DecoderFallbackException">inputStream contains invalid characters.</exception>
-    /// <exception cref="NotSupportedException">inputStream is not readable -or- outputStream is not writable.</exception>
-    /// <exception cref="IOException">An I/O error occurred, such as the specified file cannot be found.</exception>
-    /// <exception cref="ObjectDisposedException">Methods were called after the inputStream or outputStream was closed.</exception>
-    public static void DecodeStream(Stream inputStream, Stream outputStream, bool dispose = false)
+    private static sbyte[] BuildReverseTable()
     {
-        ArgumentNullException.ThrowIfNull(inputStream);
-        ArgumentNullException.ThrowIfNull(outputStream);
-        
-        var bsi = GetBufferedStream(inputStream);
-        var bso = GetBufferedStream(outputStream, bsi.BufferSize);
-        try
-        {
-            var db = new[] { 0, -1, 0, 0 }.AsSpan();
-            int i;
-            while ((i = bsi.ReadByte()) != -1)
-            {
-                if (IsSkippable(i))
-                    continue;
-
-                var table91Idx = Array.IndexOf(CharacterTable91, (byte)i);
-                if (table91Idx < 0)
-                    throw new DecoderFallbackException($"Character {(char)i} is invalid!");
-                db[0] = table91Idx;
-                if (db[0] == -1)
-                    continue;
-                if (db[1] < 0)
-                {
-                    db[1] = db[0];
-                    continue;
-                }
-                db[1] += db[0] * 91;
-                db[2] |= db[1] << db[3];
-                db[3] += (db[1] & 8191) > 88 ? 13 : 14;
-                do
-                {
-                    bso.WriteByte((byte)(db[2] & byte.MaxValue));
-                    db[2] >>= 8;
-                    db[3] -= 8;
-                }
-                while (db[3] > 7);
-                db[1] = -1;
-            }
-            if (db[1] != -1)
-                bso.WriteByte((byte)((db[2] | (db[1] << db[3])) & byte.MaxValue));
-        }
-        finally
-        {
-            if (dispose)
-            {
-                bsi.Dispose();
-                bso.Dispose();
-            }
-            else
-            {
-                bsi.Flush();
-                bso.Flush();
-            }
-        }
+        var table = new sbyte[128];
+        Array.Fill(table, (sbyte)-1);
+        for (int i = 0; i < CharacterTable91.Length; i++)
+            table[CharacterTable91[i]] = (sbyte)i;
+        return table;
     }
 }

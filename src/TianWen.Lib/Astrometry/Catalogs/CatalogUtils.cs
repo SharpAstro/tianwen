@@ -323,8 +323,7 @@ public static partial class CatalogUtils
             Span<byte> bytesN = stackalloc byte[8];
             BinaryPrimitives.WriteUInt64BigEndian(bytesN, idAsLongH);
 
-            // TODO update lib to accept spans
-            return Base91.EncodeBytes(bytesN[1..].ToArray());
+            return Base91.EncodeBytes(bytesN[1..]);
         }
 
         return null;
@@ -357,8 +356,7 @@ public static partial class CatalogUtils
         Span<byte> bytesN = stackalloc byte[sizeof(ulong)];
         BinaryPrimitives.WriteUInt64BigEndian(bytesN, idAsLongH);
 
-        // TODO update lib to accept spans
-        return Base91.EncodeBytes(bytesN[1..].ToArray());
+        return Base91.EncodeBytes(bytesN[1..]);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
