@@ -63,7 +63,7 @@ if (initialFilePath is null && state.FitsFileNames.Count > 0 && folderPath is no
 FitsDocument? document = null;
 if (initialFilePath is not null)
 {
-    document = FitsDocument.Open(initialFilePath);
+    document = await FitsDocument.OpenAsync(initialFilePath, state.DebayerAlgorithm);
     if (document is null)
     {
         Console.Error.WriteLine($"Warning: Failed to open FITS file: {initialFilePath}");
@@ -394,9 +394,10 @@ window.Render += (_) =>
     {
         state.RequestedFilePath = null;
         state.StatusMessage = $"Loading {Path.GetFileName(requestedPath)}...";
-        reprocessTask = Task.Run(() =>
+        var debayerAlgorithm = state.DebayerAlgorithm;
+        reprocessTask = Task.Run(async () =>
         {
-            var newDoc = FitsDocument.Open(requestedPath);
+            var newDoc = await FitsDocument.OpenAsync(requestedPath, debayerAlgorithm, cts.Token);
             if (newDoc is not null)
             {
                 document = newDoc;
@@ -544,7 +545,7 @@ void HandleToolbarAction(ToolbarAction action, bool reverse = false)
             }
             break;
         case ToolbarAction.Debayer:
-            ViewerActions.CycleDebayerAlgorithm(state);
+            ViewerActions.CycleDebayerAlgorithm(state, reverse);
             break;
         case ToolbarAction.CurvesBoost:
             ViewerActions.CycleCurvesBoost(state, reverse);

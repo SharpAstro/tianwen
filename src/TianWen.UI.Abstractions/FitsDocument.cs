@@ -38,16 +38,13 @@ public sealed class FitsDocument
 
     public bool IsPlateSolved => Wcs?.HasCDMatrix == true;
 
-    private FitsDocument(string filePath, Image rawImage)
+    private FitsDocument(string filePath, Image rawImage, Image debayeredImage, DebayerAlgorithm debayerAlgorithm)
     {
         _filePath = filePath;
         RawImage = rawImage;
-
-        // Normalize to 0..1 so all downstream processing and display works in unit range.
-        var normalized = rawImage.ScaleFloatValuesToUnit();
-        DebayeredImage = normalized;
-        DisplayImage = normalized;
-        DebayerAlgorithm = DebayerAlgorithm.None;
+        DebayeredImage = debayeredImage;
+        DisplayImage = debayeredImage;
+        DebayerAlgorithm = debayerAlgorithm;
 
         var stats = new ImageHistogram[rawImage.ChannelCount];
         for (var c = 0; c < rawImage.ChannelCount; c++)
@@ -58,38 +55,31 @@ public sealed class FitsDocument
     }
 
     /// <summary>
-    /// Loads a FITS file and creates a new <see cref="FitsDocument"/>.
+    /// Loads a FITS file, applies debayering once, and creates a new <see cref="FitsDocument"/>.
+    /// The debayer result becomes the permanent base image for all subsequent stretch operations.
     /// </summary>
-    public static FitsDocument? Open(string filePath)
+    public static async Task<FitsDocument?> OpenAsync(string filePath, DebayerAlgorithm algorithm = DebayerAlgorithm.VNG, CancellationToken cancellationToken = default)
     {
-        if (Image.TryReadFitsFile(filePath, out var image) && image is not null)
+        if (!Image.TryReadFitsFile(filePath, out var rawImage) || rawImage is null)
         {
-            return new FitsDocument(filePath, image);
-        }
-        return null;
-    }
-
-    /// <summary>
-    /// Applies debayering with the specified algorithm. No-op if not a Bayer image.
-    /// </summary>
-    public async Task ApplyDebayerAsync(DebayerAlgorithm algorithm, CancellationToken cancellationToken = default)
-    {
-        if (RawImage.ImageMeta.SensorType is not SensorType.RGGB)
-        {
-            DebayeredImage = RawImage.ScaleFloatValuesToUnit();
-            DebayerAlgorithm = DebayerAlgorithm.None;
-            return;
+            return null;
         }
 
-        if (algorithm is DebayerAlgorithm.None)
+        Image debayered;
+        DebayerAlgorithm actualAlgorithm;
+
+        if (rawImage.ImageMeta.SensorType is SensorType.RGGB && algorithm is not DebayerAlgorithm.None)
         {
-            DebayeredImage = RawImage.ScaleFloatValuesToUnit();
-            DebayerAlgorithm = DebayerAlgorithm.None;
-            return;
+            debayered = (await rawImage.DebayerAsync(algorithm, cancellationToken)).ScaleFloatValuesToUnit();
+            actualAlgorithm = algorithm;
+        }
+        else
+        {
+            debayered = rawImage.ScaleFloatValuesToUnit();
+            actualAlgorithm = DebayerAlgorithm.None;
         }
 
-        DebayeredImage = (await RawImage.DebayerAsync(algorithm, cancellationToken)).ScaleFloatValuesToUnit();
-        DebayerAlgorithm = algorithm;
+        return new FitsDocument(filePath, rawImage, debayered, actualAlgorithm);
     }
 
     /// <summary>
