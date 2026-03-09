@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.CompilerServices;
+using CommunityToolkit.HighPerformance;
 
 namespace TianWen.Lib.Imaging;
 
@@ -56,6 +57,11 @@ public partial class Image(float[,,] data, BitDepth bitDepth, float maxValue, fl
     /// <param name="w"></param>
     /// <returns></returns>
     public float this[int c, int h, int w] => data[c, h, w];
+
+    /// <summary>
+    /// Returns a flat span over the pixel data for a single channel plane (height * width floats).
+    /// </summary>
+    public ReadOnlySpan<float> GetChannelSpan(int channel) => data.AsSpan(channel);
 
     /// <summary>
     /// calculate image pixel value on subpixel level
