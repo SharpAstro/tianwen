@@ -4,5 +4,6 @@ public enum StretchMode
 {
     None,
     Linked,
-    Unlinked
+    Unlinked,
+    Luma
 }

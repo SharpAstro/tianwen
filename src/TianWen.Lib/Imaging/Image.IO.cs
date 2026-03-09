@@ -1,6 +1,8 @@
 using CommunityToolkit.HighPerformance;
 using System;
+using System.Buffers.Binary;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -80,10 +82,8 @@ public partial class Image
 
             if (dataIsLittleEndian != BitConverter.IsLittleEndian)
             {
-                for (var i = 0; i < channelPixels; i++)
-                {
-                    Array.Reverse(channelBytes, i * sizeof(float), sizeof(float));
-                }
+                var intSpan = MemoryMarshal.Cast<byte, int>(channelBytes.AsSpan());
+                BinaryPrimitives.ReverseEndianness(intSpan, intSpan);
             }
 
             imgChannels[c] = new float[height, width];

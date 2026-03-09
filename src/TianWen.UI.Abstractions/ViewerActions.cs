@@ -22,12 +22,16 @@ public static class ViewerActions
         state.StatusMessage = state.StretchMode is StretchMode.None ? "Stretch: Off" : "Stretch: On";
     }
 
-    public static void CycleStretchLink(ViewerState state)
+    public static void CycleStretchLink(ViewerState state, bool reverse = false)
     {
-        state.StretchMode = state.StretchMode switch
+        state.StretchMode = (state.StretchMode, reverse) switch
         {
-            StretchMode.Unlinked => StretchMode.Linked,
-            _ => StretchMode.Unlinked,
+            (StretchMode.Unlinked, false) => StretchMode.Linked,
+            (StretchMode.Linked, false) => StretchMode.Luma,
+            (_, false) => StretchMode.Unlinked,
+            (StretchMode.Unlinked, true) => StretchMode.Luma,
+            (StretchMode.Luma, true) => StretchMode.Linked,
+            (_, true) => StretchMode.Unlinked,
         };
         state.NeedsReprocess = true;
         state.StatusMessage = $"Stretch: {state.StretchMode}";
@@ -70,10 +74,36 @@ public static class ViewerActions
         state.StatusMessage = $"Debayer: {state.DebayerAlgorithm}";
     }
 
-    public static void CycleStretchPreset(ViewerState state)
+    public static void CycleCurvesBoost(ViewerState state, bool reverse = false)
+    {
+        var len = ViewerState.CurvesBoostPresets.Length;
+        state.CurvesBoostIndex = reverse
+            ? (state.CurvesBoostIndex - 1 + len) % len
+            : (state.CurvesBoostIndex + 1) % len;
+        state.CurvesBoost = ViewerState.CurvesBoostPresets[state.CurvesBoostIndex];
+        state.NeedsRedraw = true;
+        state.StatusMessage = state.CurvesBoost > 0f ? $"Curves Boost: {state.CurvesBoost:P0}" : "Curves Boost: Off";
+    }
+
+    public static void CycleHdr(ViewerState state, bool reverse = false)
+    {
+        var len = ViewerState.HdrPresets.Length;
+        state.HdrPresetIndex = reverse
+            ? (state.HdrPresetIndex - 1 + len) % len
+            : (state.HdrPresetIndex + 1) % len;
+        var (amount, knee) = ViewerState.HdrPresets[state.HdrPresetIndex];
+        state.HdrAmount = amount;
+        state.HdrKnee = knee;
+        state.NeedsRedraw = true;
+        state.StatusMessage = amount > 0f ? $"HDR: {amount:F1} (knee {knee:F2})" : "HDR: Off";
+    }
+
+    public static void CycleStretchPreset(ViewerState state, bool reverse = false)
     {
         var presets = StretchParameters.Presets;
-        state.StretchPresetIndex = (state.StretchPresetIndex + 1) % presets.Length;
+        state.StretchPresetIndex = reverse
+            ? (state.StretchPresetIndex - 1 + presets.Length) % presets.Length
+            : (state.StretchPresetIndex + 1) % presets.Length;
         state.StretchParameters = presets[state.StretchPresetIndex];
         if (state.StretchMode is not StretchMode.None)
         {

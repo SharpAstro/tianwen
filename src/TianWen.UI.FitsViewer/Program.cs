@@ -172,6 +172,15 @@ window.Load += () =>
                 case Key.Equal or Key.KeypadAdd:
                     ViewerActions.CycleStretchPreset(state);
                     break;
+                case Key.Minus or Key.KeypadSubtract:
+                    ViewerActions.CycleStretchPreset(state, reverse: true);
+                    break;
+                case Key.B:
+                    ViewerActions.CycleCurvesBoost(state);
+                    break;
+                case Key.H:
+                    ViewerActions.CycleHdr(state);
+                    break;
                 case Key.P:
                     if (document is not null && !state.IsPlateSolving)
                     {
@@ -280,6 +289,17 @@ window.Load += () =>
                 if (fileIndex >= 0)
                 {
                     ViewerActions.SelectFile(state, fileIndex);
+                    return;
+                }
+            }
+
+            if (button == MouseButton.Right)
+            {
+                // Right-click on toolbar cycles backward
+                var toolbarAction = renderer.HitTestToolbar(pos.X, pos.Y, document, state);
+                if (toolbarAction.HasValue)
+                {
+                    HandleToolbarAction(toolbarAction.Value, reverse: true);
                     return;
                 }
             }
@@ -473,7 +493,7 @@ if (backgroundTask is not null)
 
 return 0;
 
-void HandleToolbarAction(ToolbarAction action)
+void HandleToolbarAction(ToolbarAction action, bool reverse = false)
 {
     switch (action)
     {
@@ -512,10 +532,10 @@ void HandleToolbarAction(ToolbarAction action)
             ViewerActions.ToggleStretch(state);
             break;
         case ToolbarAction.StretchLink:
-            ViewerActions.CycleStretchLink(state);
+            ViewerActions.CycleStretchLink(state, reverse);
             break;
         case ToolbarAction.StretchParams:
-            ViewerActions.CycleStretchPreset(state);
+            ViewerActions.CycleStretchPreset(state, reverse);
             break;
         case ToolbarAction.Channel:
             if (document is not null)
@@ -525,6 +545,12 @@ void HandleToolbarAction(ToolbarAction action)
             break;
         case ToolbarAction.Debayer:
             ViewerActions.CycleDebayerAlgorithm(state);
+            break;
+        case ToolbarAction.CurvesBoost:
+            ViewerActions.CycleCurvesBoost(state, reverse);
+            break;
+        case ToolbarAction.Hdr:
+            ViewerActions.CycleHdr(state, reverse);
             break;
         case ToolbarAction.ZoomFit:
             ViewerActions.ZoomToFit(state);

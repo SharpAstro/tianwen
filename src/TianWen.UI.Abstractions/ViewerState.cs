@@ -15,6 +15,34 @@ public sealed class ViewerState
     public DebayerAlgorithm DebayerAlgorithm { get; set; } = DebayerAlgorithm.VNG;
     public bool ShowInfoPanel { get; set; } = true;
 
+    /// <summary>Curves boost amount applied in the display shader (0.0 = off, up to 1.0).</summary>
+    public float CurvesBoost { get; set; }
+
+    /// <summary>Index into <see cref="CurvesBoostPresets"/>.</summary>
+    public int CurvesBoostIndex { get; set; }
+
+    /// <summary>Available curves boost presets.</summary>
+    public static readonly float[] CurvesBoostPresets = [0f, 0.25f, 0.50f, 1.0f, 1.5f];
+
+    /// <summary>HDR compression amount (0.0 = off). Applied in the display shader.</summary>
+    public float HdrAmount { get; set; }
+
+    /// <summary>HDR knee point — values above this are compressed.</summary>
+    public float HdrKnee { get; set; } = 0.8f;
+
+    /// <summary>Index into <see cref="HdrPresets"/>.</summary>
+    public int HdrPresetIndex { get; set; }
+
+    /// <summary>Available HDR presets: (amount, knee).</summary>
+    public static readonly (float Amount, float Knee)[] HdrPresets =
+    [
+        (0f, 0.8f),
+        (0.5f, 0.85f),
+        (1.0f, 0.8f),
+        (1.5f, 0.75f),
+        (2.0f, 0.7f),
+    ];
+
     /// <summary>Current mouse position in image coordinates (0-based), or <c>null</c> if outside.</summary>
     public (int X, int Y)? CursorImagePosition { get; set; }
 
@@ -40,7 +68,7 @@ public sealed class ViewerState
     public bool ShowStretchFactorMenu { get; set; }
 
     /// <summary>Index into <see cref="StretchParameters.Presets"/> for the selected stretch preset.</summary>
-    public int StretchPresetIndex { get; set; } = 1; // (0.2, -3.0) default
+    public int StretchPresetIndex { get; set; } = 0; // (0.1, -5.0) default
 
     /// <summary>Whether to automatically fit the image to the viewport.</summary>
     public bool ZoomToFit { get; set; } = true;
