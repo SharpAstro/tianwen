@@ -27,6 +27,23 @@ The TianWen library is a comprehensive .NET library designed for astronomical de
 
 ## Installation
 
-You can install the TianWen library via NuGet: ```dotnet add package TianWen.Lib```
+### Library
 
+You can install the TianWen library via NuGet:
 
+```bash
+dotnet add package TianWen.Lib
+```
+
+### CLI
+
+Pre-built native AOT binaries of `TianWen.Lib.CLI` are available from [GitHub Releases](https://github.com/SharpAstro/tianwen/releases):
+
+| Platform | Architecture | Artifact |
+|----------|-------------|----------|
+| Windows  | x64         | `tianwen-cli-win-x64.tar.gz` |
+| Windows  | ARM64       | `tianwen-cli-win-arm64.tar.gz` |
+| Linux    | x64         | `tianwen-cli-linux-x64.tar.gz` |
+| Linux    | ARM64       | `tianwen-cli-linux-arm64.tar.gz` |
+| macOS    | x64         | `tianwen-cli-osx-x64.tar.gz` |
+| macOS    | ARM64       | `tianwen-cli-osx-arm64.tar.gz` |
