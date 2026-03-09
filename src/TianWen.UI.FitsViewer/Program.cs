@@ -283,13 +283,31 @@ window.Load += () =>
                 return;
             }
 
-            // Ctrl+scroll zooms the image
+            // Ctrl+scroll zooms the image toward the cursor
             var kb = input.Keyboards.Count > 0 ? input.Keyboards[0] : null;
             if (kb is not null && (kb.IsKeyPressed(Key.ControlLeft) || kb.IsKeyPressed(Key.ControlRight)))
             {
                 var zoomFactor = scroll.Y > 0 ? 1.15f : 1f / 1.15f;
+                var oldZoom = state.Zoom;
+                var newZoom = MathF.Max(0.01f, oldZoom * zoomFactor);
+
+                // Adjust pan so the point under the cursor stays fixed
+                var (areaW, areaH) = renderer.GetImageAreaSize(state);
+                var fileListW = state.ShowFileList ? renderer.ScaledFileListWidth : 0;
+                var toolbarH = renderer.ScaledToolbarHeight;
+
+                // Cursor position relative to the image area center
+                var cx = pos.X - fileListW - areaW / 2f - state.PanOffset.X;
+                var cy = pos.Y - toolbarH - areaH / 2f - state.PanOffset.Y;
+
+                // Scale the offset so the world point under cursor stays put
+                state.PanOffset = (
+                    state.PanOffset.X - cx * (newZoom / oldZoom - 1f),
+                    state.PanOffset.Y - cy * (newZoom / oldZoom - 1f)
+                );
+
                 state.ZoomToFit = false;
-                state.Zoom = MathF.Max(0.01f, state.Zoom * zoomFactor);
+                state.Zoom = newZoom;
                 return;
             }
         };

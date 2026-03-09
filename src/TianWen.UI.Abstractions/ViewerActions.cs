@@ -17,7 +17,7 @@ public static class ViewerActions
 {
     public static void ToggleStretch(ViewerState state)
     {
-        state.StretchMode = state.StretchMode is StretchMode.None ? StretchMode.Linked : StretchMode.None;
+        state.StretchMode = state.StretchMode is StretchMode.None ? StretchMode.Unlinked : StretchMode.None;
         state.NeedsReprocess = true;
         state.StatusMessage = state.StretchMode is StretchMode.None ? "Stretch: Off" : "Stretch: On";
     }
@@ -26,8 +26,8 @@ public static class ViewerActions
     {
         state.StretchMode = state.StretchMode switch
         {
-            StretchMode.Linked => StretchMode.Unlinked,
-            _ => StretchMode.Linked,
+            StretchMode.Unlinked => StretchMode.Linked,
+            _ => StretchMode.Unlinked,
         };
         state.NeedsReprocess = true;
         state.StatusMessage = $"Stretch: {state.StretchMode}";
@@ -150,9 +150,12 @@ public static class ViewerActions
             return;
         }
 
-        var files = Directory.EnumerateFiles(folderPath, "*.fits?", SearchOption.TopDirectoryOnly)
+        string[] fitsPatterns = ["*.fit", "*.fits", "*.fts", "*.fits.gz"];
+        var files = fitsPatterns
+            .SelectMany(p => Directory.EnumerateFiles(folderPath, p, SearchOption.TopDirectoryOnly))
             .Select(Path.GetFileName)
             .OfType<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
             .ToList();
 

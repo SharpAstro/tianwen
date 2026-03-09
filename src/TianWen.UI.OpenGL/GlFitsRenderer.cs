@@ -39,9 +39,9 @@ public sealed class GlFitsRenderer : IDisposable
     private const float BaseInfoPanelWidth = 260f;
     private const float BaseStatusBarHeight = 24f;
     private const float BaseToolbarHeight = 40f;
-    private const float BaseFileListWidth = 200f;
-    private const float BaseFontSize = 16f;
-    private const float BaseToolbarFontSize = 16f;
+    private const float BaseFileListWidth = 260f;
+    private const float BaseFontSize = 18f;
+    private const float BaseToolbarFontSize = 18f;
     private const float BasePanelPadding = 6f;
     private const float BaseButtonPaddingH = 12f;
     private const float BaseButtonSpacing = 4f;
@@ -216,6 +216,7 @@ public sealed class GlFitsRenderer : IDisposable
             var textWidth = MeasureText(displayLabel, ToolbarFontSize);
             var btnW = textWidth + ButtonPaddingH * 2;
             var enabled = IsToolbarButtonEnabled(action, document);
+            var active = IsToolbarButtonActive(action, state);
 
             // Hover detection (only for enabled buttons)
             var hovered = enabled && mouseX >= x && mouseX < x + btnW && mouseY >= btnY && mouseY < btnY + btnH;
@@ -224,6 +225,14 @@ public sealed class GlFitsRenderer : IDisposable
             if (!enabled)
             {
                 FillRect(x, btnY, btnW, btnH, 0.20f, 0.20f, 0.22f, 1f);
+            }
+            else if (active && hovered)
+            {
+                FillRect(x, btnY, btnW, btnH, 0.25f, 0.35f, 0.55f, 1f);
+            }
+            else if (active)
+            {
+                FillRect(x, btnY, btnW, btnH, 0.20f, 0.30f, 0.50f, 1f);
             }
             else if (hovered)
             {
@@ -261,17 +270,29 @@ public sealed class GlFitsRenderer : IDisposable
         };
     }
 
+    private static bool IsToolbarButtonActive(ToolbarAction action, ViewerState state)
+    {
+        return action switch
+        {
+            ToolbarAction.StretchToggle or ToolbarAction.StretchLink or ToolbarAction.StretchParams
+                => state.StretchMode is not StretchMode.None,
+            ToolbarAction.ZoomFit => state.ZoomToFit,
+            ToolbarAction.ZoomActual => !state.ZoomToFit && MathF.Abs(state.Zoom - 1f) < 0.001f,
+            _ => false,
+        };
+    }
+
     private static string GetToolbarButtonLabel(string baseLabel, ToolbarAction action, FitsDocument? document, ViewerState state)
     {
         return action switch
         {
-            ToolbarAction.StretchToggle => state.StretchMode is not StretchMode.None ? "[STF]" : "STF",
-            ToolbarAction.StretchLink => state.StretchMode is StretchMode.Linked ? "[Linked]" : state.StretchMode is StretchMode.Unlinked ? "[Unlinked]" : "Linked",
+            ToolbarAction.StretchToggle => "STF",
+            ToolbarAction.StretchLink => state.StretchMode is StretchMode.Linked ? "Linked" : "Unlinked",
             ToolbarAction.StretchParams => $"{state.StretchParameters}",
             ToolbarAction.Channel => $"Channel: {state.ChannelView}",
             ToolbarAction.Debayer => $"Debayer: {state.DebayerAlgorithm}",
-            ToolbarAction.ZoomFit => state.ZoomToFit ? "[Fit]" : "Fit",
-            ToolbarAction.ZoomActual => MathF.Abs(state.Zoom - 1f) < 0.001f ? "[1:1]" : "1:1",
+            ToolbarAction.ZoomFit => "Fit",
+            ToolbarAction.ZoomActual => "1:1",
             ToolbarAction.PlateSolve when state.IsPlateSolving => "Solving...",
             ToolbarAction.PlateSolve when document?.IsPlateSolved == true => "Solved",
             _ => baseLabel,
@@ -535,8 +556,10 @@ public sealed class GlFitsRenderer : IDisposable
         }
 
         // Controls help at bottom of panel
-        y = _height - StatusBarHeight - FontSize * 10 - PanelPadding;
-        if (y > ToolbarHeight + FontSize * 5)
+        var lineHeight = FontSize + 2f;
+        var controlLines = 10; // header + 9 controls
+        y = _height - StatusBarHeight - lineHeight * controlLines - PanelPadding;
+        if (y > ToolbarHeight + lineHeight * 5)
         {
             DrawTextLine(ref y, x, "-- Controls --", 0.6f, 0.8f, 1f);
             DrawTextLine(ref y, x, "S: Cycle stretch", 0.7f, 0.7f, 0.7f);
