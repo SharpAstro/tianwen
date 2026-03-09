@@ -9,7 +9,7 @@ namespace TianWen.UI.Abstractions;
 /// </summary>
 public sealed class ViewerState
 {
-    public StretchMode StretchMode { get; set; } = StretchMode.None;
+    public StretchMode StretchMode { get; set; } = StretchMode.Unlinked;
     public StretchParameters StretchParameters { get; set; } = StretchParameters.Default;
     public ChannelView ChannelView { get; set; } = ChannelView.Composite;
     public DebayerAlgorithm DebayerAlgorithm { get; set; } = DebayerAlgorithm.VNG;

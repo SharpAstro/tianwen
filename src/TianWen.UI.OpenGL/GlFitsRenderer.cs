@@ -37,10 +37,10 @@ public sealed class GlFitsRenderer : IDisposable
     public float DpiScale { get; set; } = 1f;
 
     // Base layout constants (at 1x scale)
-    private const float BaseInfoPanelWidth = 260f;
+    private const float BaseInfoPanelWidth = 300f;
     private const float BaseStatusBarHeight = 24f;
     private const float BaseToolbarHeight = 40f;
-    private const float BaseFileListWidth = 260f;
+    private const float BaseFileListWidth = 300f;
     private const float BaseFontSize = 18f;
     private const float BaseToolbarFontSize = 18f;
     private const float BasePanelPadding = 6f;
@@ -547,11 +547,13 @@ public sealed class GlFitsRenderer : IDisposable
         var y = (float)ToolbarHeight + PanelPadding;
         var x = panelLeft + PanelPadding;
 
+        var maxTextWidth = InfoPanelWidth - PanelPadding * 2;
+
         // Metadata section
         DrawTextLine(ref y, x, "-- Metadata --", 0.6f, 0.8f, 1f);
         foreach (var line in InfoPanelData.GetMetadataLines(document))
         {
-            DrawTextLine(ref y, x, line, 0.9f, 0.9f, 0.9f);
+            DrawWrappedTextLine(ref y, x, line, maxTextWidth, 0.9f, 0.9f, 0.9f);
         }
 
         y += FontSize;
@@ -587,7 +589,7 @@ public sealed class GlFitsRenderer : IDisposable
 
         // Controls help at bottom of panel
         var lineHeight = FontSize + 2f;
-        var controlLines = 11; // header + 10 controls
+        var controlLines = 15; // header + 14 controls
         y = _height - StatusBarHeight - lineHeight * controlLines - PanelPadding;
         if (y > ToolbarHeight + lineHeight * 5)
         {
@@ -598,6 +600,10 @@ public sealed class GlFitsRenderer : IDisposable
             DrawTextLine(ref y, x, "D: Cycle debayer", 0.7f, 0.7f, 0.7f);
             DrawTextLine(ref y, x, "H: Cycle HDR", 0.7f, 0.7f, 0.7f);
             DrawTextLine(ref y, x, "P: Plate solve", 0.7f, 0.7f, 0.7f);
+            DrawTextLine(ref y, x, "Ctrl+Wheel: Zoom", 0.7f, 0.7f, 0.7f);
+            DrawTextLine(ref y, x, "Ctrl++/-: Zoom in/out", 0.7f, 0.7f, 0.7f);
+            DrawTextLine(ref y, x, "Ctrl+0: Zoom to fit", 0.7f, 0.7f, 0.7f);
+            DrawTextLine(ref y, x, "Ctrl+1: Zoom 1:1", 0.7f, 0.7f, 0.7f);
             DrawTextLine(ref y, x, "I: Toggle info panel", 0.7f, 0.7f, 0.7f);
             DrawTextLine(ref y, x, "L: Toggle file list", 0.7f, 0.7f, 0.7f);
             DrawTextLine(ref y, x, "F11: Fullscreen", 0.7f, 0.7f, 0.7f);
@@ -645,6 +651,70 @@ public sealed class GlFitsRenderer : IDisposable
     {
         DrawText(text, x, y, FontSize, r, g, b);
         y += FontSize + 2f;
+    }
+
+    private void DrawWrappedTextLine(ref float y, float x, string text, float maxWidth, float r, float g, float b)
+    {
+        var textWidth = MeasureText(text, FontSize);
+        if (textWidth <= maxWidth)
+        {
+            DrawTextLine(ref y, x, text, r, g, b);
+            return;
+        }
+
+        // Find the "Label: " prefix to use as indent for continuation
+        var colonIdx = text.IndexOf(": ", StringComparison.Ordinal);
+        if (colonIdx < 0)
+        {
+            // No label, just truncate
+            DrawTextLine(ref y, x, text, r, g, b);
+            return;
+        }
+
+        var label = text[..(colonIdx + 2)];
+        var value = text[(colonIdx + 2)..];
+        var indent = new string(' ', label.Length);
+
+        // First line: label + as much value as fits
+        var remaining = value;
+        var firstLine = true;
+        while (remaining.Length > 0)
+        {
+            var prefix = firstLine ? label : indent;
+            var lineText = prefix + remaining;
+            if (MeasureText(lineText, FontSize) <= maxWidth)
+            {
+                DrawTextLine(ref y, x, lineText, r, g, b);
+                break;
+            }
+
+            // Find how many chars fit
+            var fit = remaining.Length;
+            while (fit > 1 && MeasureText(prefix + remaining[..fit], FontSize) > maxWidth)
+            {
+                fit--;
+            }
+
+            // Try to break at a word boundary (after space or hyphen)
+            var breakAt = -1;
+            for (var i = fit; i > 0; i--)
+            {
+                if (remaining[i - 1] is ' ' or '-')
+                {
+                    breakAt = i; // wrap after the space or hyphen
+                    break;
+                }
+            }
+
+            if (breakAt > 0)
+            {
+                fit = breakAt;
+            }
+
+            DrawTextLine(ref y, x, prefix + remaining[..fit], r, g, b);
+            remaining = remaining[fit..];
+            firstLine = false;
+        }
     }
 
     private float MeasureText(string text, float fontSize)

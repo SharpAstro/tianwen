@@ -22,17 +22,16 @@ public static class ViewerActions
         state.StatusMessage = state.StretchMode is StretchMode.None ? "Stretch: Off" : "Stretch: On";
     }
 
+    // Cycle order for stretch link — excludes None
+    private static readonly StretchMode[] StretchLinkModes = [StretchMode.Unlinked, StretchMode.Linked, StretchMode.Luma];
+
     public static void CycleStretchLink(ViewerState state, bool reverse = false)
     {
-        state.StretchMode = (state.StretchMode, reverse) switch
-        {
-            (StretchMode.Unlinked, false) => StretchMode.Linked,
-            (StretchMode.Linked, false) => StretchMode.Luma,
-            (_, false) => StretchMode.Unlinked,
-            (StretchMode.Unlinked, true) => StretchMode.Luma,
-            (StretchMode.Luma, true) => StretchMode.Linked,
-            (_, true) => StretchMode.Unlinked,
-        };
+        var idx = Array.IndexOf(StretchLinkModes, state.StretchMode);
+        if (idx < 0) idx = 0;
+        var len = StretchLinkModes.Length;
+        idx = (idx + (reverse ? len - 1 : 1)) % len;
+        state.StretchMode = StretchLinkModes[idx];
         state.NeedsRedraw = true;
         state.StatusMessage = $"Stretch: {state.StretchMode}";
     }
@@ -60,20 +59,13 @@ public static class ViewerActions
         state.StatusMessage = $"Channel: {state.ChannelView}";
     }
 
+    private const int DebayerAlgorithmCount = 4; // None, BilinearMono, VNG, AHD
+
     public static void CycleDebayerAlgorithm(ViewerState state, bool reverse = false)
     {
-        state.DebayerAlgorithm = (state.DebayerAlgorithm, reverse) switch
-        {
-            (DebayerAlgorithm.None, false) => DebayerAlgorithm.BilinearMono,
-            (DebayerAlgorithm.BilinearMono, false) => DebayerAlgorithm.VNG,
-            (DebayerAlgorithm.VNG, false) => DebayerAlgorithm.AHD,
-            (DebayerAlgorithm.AHD, false) => DebayerAlgorithm.None,
-            (DebayerAlgorithm.None, true) => DebayerAlgorithm.AHD,
-            (DebayerAlgorithm.AHD, true) => DebayerAlgorithm.VNG,
-            (DebayerAlgorithm.VNG, true) => DebayerAlgorithm.BilinearMono,
-            (DebayerAlgorithm.BilinearMono, true) => DebayerAlgorithm.None,
-            _ => DebayerAlgorithm.VNG,
-        };
+        var idx = (int)state.DebayerAlgorithm;
+        idx = (idx + (reverse ? DebayerAlgorithmCount - 1 : 1)) % DebayerAlgorithmCount;
+        state.DebayerAlgorithm = (DebayerAlgorithm)idx;
         state.NeedsRedraw = true;
         state.StatusMessage = $"Debayer (next load): {state.DebayerAlgorithm.DisplayName}";
     }
@@ -233,6 +225,28 @@ public static class ViewerActions
         state.ZoomToFit = false;
         state.Zoom = 1.0f;
         state.PanOffset = (0f, 0f);
+    }
+
+    private const float ZoomStepFactor = 1.15f;
+
+    /// <summary>
+    /// Zooms in by one step (15%).
+    /// </summary>
+    public static void ZoomIn(ViewerState state)
+    {
+        state.ZoomToFit = false;
+        state.Zoom = MathF.Max(0.01f, state.Zoom * ZoomStepFactor);
+        state.NeedsRedraw = true;
+    }
+
+    /// <summary>
+    /// Zooms out by one step (15%).
+    /// </summary>
+    public static void ZoomOut(ViewerState state)
+    {
+        state.ZoomToFit = false;
+        state.Zoom = MathF.Max(0.01f, state.Zoom / ZoomStepFactor);
+        state.NeedsRedraw = true;
     }
 
     /// <summary>

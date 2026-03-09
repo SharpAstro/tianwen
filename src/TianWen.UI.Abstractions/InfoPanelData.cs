@@ -17,6 +17,11 @@ public static class InfoPanelData
         var meta = document.RawImage.ImageMeta;
         var img = document.RawImage;
 
+        if (!string.IsNullOrEmpty(meta.ObjectName))
+        {
+            lines.Add($"Object: {meta.ObjectName}");
+        }
+
         lines.Add($"Size: {img.Width} x {img.Height} x {img.ChannelCount}ch");
         lines.Add($"BitDepth: {img.BitDepth}");
         lines.Add($"Range: [{img.MinValue:F1}, {img.MaxValue:F1}]");
@@ -45,9 +50,10 @@ public static class InfoPanelData
         {
             lines.Add($"Bin: {meta.BinX}x{meta.BinY}");
         }
-        if (meta.Filter.Name is { Length: > 0 } filterName)
+        if (meta.Filter.Name is { Length: > 0 })
         {
-            lines.Add($"Filter: {filterName}");
+            var filterDisplay = meta.Filter.ShortName is { Length: > 0 } shortName ? shortName : meta.Filter.Name;
+            lines.Add($"Filter: {filterDisplay}");
         }
         if (!float.IsNaN(meta.CCDTemperature))
         {
