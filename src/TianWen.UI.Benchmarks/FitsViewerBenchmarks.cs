@@ -15,16 +15,16 @@ public class FitsViewerBenchmarks
     public string FilePath { get; set; } = "";
 
     [GlobalSetup]
-    public void Setup()
+    public async Task Setup()
     {
-        _document = FitsDocument.Open(FilePath)
+        _document = await FitsDocument.OpenAsync(FilePath)
             ?? throw new InvalidOperationException($"Failed to open: {FilePath}");
     }
 
     [Benchmark]
-    public FitsDocument? Open()
+    public Task<FitsDocument?> Open()
     {
-        return FitsDocument.Open(FilePath);
+        return FitsDocument.OpenAsync(FilePath);
     }
 
     [Benchmark]

@@ -60,18 +60,22 @@ public static class ViewerActions
         state.StatusMessage = $"Channel: {state.ChannelView}";
     }
 
-    public static void CycleDebayerAlgorithm(ViewerState state)
+    public static void CycleDebayerAlgorithm(ViewerState state, bool reverse = false)
     {
-        state.DebayerAlgorithm = state.DebayerAlgorithm switch
+        state.DebayerAlgorithm = (state.DebayerAlgorithm, reverse) switch
         {
-            DebayerAlgorithm.None => DebayerAlgorithm.BilinearMono,
-            DebayerAlgorithm.BilinearMono => DebayerAlgorithm.VNG,
-            DebayerAlgorithm.VNG => DebayerAlgorithm.AHD,
-            DebayerAlgorithm.AHD => DebayerAlgorithm.None,
-            _ => DebayerAlgorithm.VNG
+            (DebayerAlgorithm.None, false) => DebayerAlgorithm.BilinearMono,
+            (DebayerAlgorithm.BilinearMono, false) => DebayerAlgorithm.VNG,
+            (DebayerAlgorithm.VNG, false) => DebayerAlgorithm.AHD,
+            (DebayerAlgorithm.AHD, false) => DebayerAlgorithm.None,
+            (DebayerAlgorithm.None, true) => DebayerAlgorithm.AHD,
+            (DebayerAlgorithm.AHD, true) => DebayerAlgorithm.VNG,
+            (DebayerAlgorithm.VNG, true) => DebayerAlgorithm.BilinearMono,
+            (DebayerAlgorithm.BilinearMono, true) => DebayerAlgorithm.None,
+            _ => DebayerAlgorithm.VNG,
         };
-        state.NeedsReprocess = true;
-        state.StatusMessage = $"Debayer: {state.DebayerAlgorithm}";
+        state.NeedsRedraw = true;
+        state.StatusMessage = $"Debayer (next load): {state.DebayerAlgorithm.DisplayName}";
     }
 
     public static void CycleCurvesBoost(ViewerState state, bool reverse = false)
@@ -120,7 +124,6 @@ public static class ViewerActions
         state.StatusMessage = "Processing...";
         state.NeedsReprocess = false;
 
-        await document.ApplyDebayerAsync(state.DebayerAlgorithm, cancellationToken);
         await document.ApplyStretchAsync(state.StretchMode, state.StretchParameters, cancellationToken);
 
         state.NeedsTextureUpdate = true;

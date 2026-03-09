@@ -1,4 +1,5 @@
 using Silk.NET.OpenGL;
+using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
 
 namespace TianWen.UI.OpenGL;
@@ -218,7 +219,7 @@ public sealed class GlFitsRenderer : IDisposable
             var textWidth = MeasureText(displayLabel, ToolbarFontSize);
             var btnW = textWidth + ButtonPaddingH * 2;
             var enabled = IsToolbarButtonEnabled(action, document);
-            var active = IsToolbarButtonActive(action, state);
+            var active = IsToolbarButtonActive(action, document, state);
 
             // Hover detection (only for enabled buttons)
             var hovered = enabled && mouseX >= x && mouseX < x + btnW && mouseY >= btnY && mouseY < btnY + btnH;
@@ -273,12 +274,14 @@ public sealed class GlFitsRenderer : IDisposable
         };
     }
 
-    private static bool IsToolbarButtonActive(ToolbarAction action, ViewerState state)
+    private static bool IsToolbarButtonActive(ToolbarAction action, FitsDocument? document, ViewerState state)
     {
         return action switch
         {
             ToolbarAction.StretchToggle or ToolbarAction.StretchLink or ToolbarAction.StretchParams
                 => state.StretchMode is not StretchMode.None,
+            ToolbarAction.Debayer => document?.DebayerAlgorithm == state.DebayerAlgorithm
+                && state.DebayerAlgorithm is not DebayerAlgorithm.None,
             ToolbarAction.CurvesBoost => state.CurvesBoost > 0f,
             ToolbarAction.Hdr => state.HdrAmount > 0f,
             ToolbarAction.ZoomFit => state.ZoomToFit,
@@ -300,7 +303,7 @@ public sealed class GlFitsRenderer : IDisposable
             },
             ToolbarAction.StretchParams => $"{state.StretchParameters}",
             ToolbarAction.Channel => $"Channel: {(state.ChannelView is ChannelView.Composite ? "RGB" : state.ChannelView)}",
-            ToolbarAction.Debayer => $"Debayer: {state.DebayerAlgorithm}",
+            ToolbarAction.Debayer => $"Debayer: {state.DebayerAlgorithm.DisplayName}",
             ToolbarAction.CurvesBoost => $"Boost: {state.CurvesBoost:P0}",
             ToolbarAction.Hdr => state.HdrAmount > 0f ? $"HDR: {state.HdrAmount:F1}" : "HDR",
             ToolbarAction.ZoomFit => "Fit",
