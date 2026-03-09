@@ -138,9 +138,30 @@ window.Load += () =>
 
     foreach (var kb in input.Keyboards)
     {
-        kb.KeyDown += (_, key, _) =>
+        kb.KeyDown += (keyboard, key, _) =>
         {
             state.NeedsRedraw = true;
+            var ctrl = keyboard.IsKeyPressed(Key.ControlLeft) || keyboard.IsKeyPressed(Key.ControlRight);
+
+            if (ctrl)
+            {
+                switch (key)
+                {
+                    case Key.Equal or Key.KeypadAdd:
+                        ViewerActions.ZoomIn(state);
+                        return;
+                    case Key.Minus or Key.KeypadSubtract:
+                        ViewerActions.ZoomOut(state);
+                        return;
+                    case Key.Number0 or Key.Keypad0:
+                        ViewerActions.ZoomToFit(state);
+                        return;
+                    case Key.Number1 or Key.Keypad1:
+                        ViewerActions.ZoomToActual(state);
+                        return;
+                }
+            }
+
             switch (key)
             {
                 case Key.Escape:

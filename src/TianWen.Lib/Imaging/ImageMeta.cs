@@ -21,5 +21,6 @@ public record struct ImageMeta(
     int BayerOffsetY,
     RowOrder RowOrder,
     float Latitude,
-    float Longitude
+    float Longitude,
+    string ObjectName = ""
 );

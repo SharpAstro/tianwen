@@ -84,6 +84,7 @@ public partial class Image
         );
         var latitude = hdu.Header.GetFloatValue("LATITUDE", float.NaN);
         var longitude = hdu.Header.GetFloatValue("LONGITUDE", float.NaN);
+        var objectName = hdu.Header.GetStringValue("OBJECT") ?? "";
 
         var minValue = (float)hdu.MinimumValue;
         var maxValue = (float)hdu.MaximumValue;
@@ -186,7 +187,8 @@ public partial class Image
             bayerOffsetY,
             rowOrder,
             latitude,
-            longitude
+            longitude,
+            objectName
         );
         image = new Image(imgChannels, bitDepth, maxValue, minValue, blackLevel, imageMeta);
         return true;
@@ -293,6 +295,7 @@ public partial class Image
         AddHeaderValueIfHasValue("DATAMAX", MaxValue, "");
         AddHeaderValueIfHasValue("INSTRUME", imageMeta.Instrument, "");
         AddHeaderValueIfHasValue("TELESCOP", imageMeta.Telescope, "");
+        AddHeaderValueIfHasValue("OBJECT", imageMeta.ObjectName, "");
         AddHeaderValueIfHasValue("ROWORDER", imageMeta.RowOrder, "");
         AddHeaderValueIfHasValue("CCD-TEMP", imageMeta.CCDTemperature, "Celsius");
         AddHeaderValueIfHasValue("BAYOFFX", imageMeta.BayerOffsetX, "");
