@@ -5,6 +5,7 @@ using System;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
+using System.Numerics;
 
 namespace TianWen.Lib.Imaging;
 
@@ -12,7 +13,7 @@ public partial class Image
 {
     public static bool TryReadFitsFile(string fileName, [NotNullWhen(true)] out Image? image)
     {
-        using var bufferedReader = new BufferedFile(fileName, FileAccess.ReadWrite, FileShare.Read, 1000 * 2088);
+        using var bufferedReader = new BufferedFile(fileName, FileAccess.Read, FileShare.Read, 1000 * 2088);
         return TryReadFitsFile(new Fits(bufferedReader, fileName.EndsWith(".gz")), out image);
     }
 
@@ -21,8 +22,8 @@ public partial class Image
         var hdu = fitsFile.ReadHDU();
         if (hdu?.Axes?.Length is not { } axisLength
             || hdu.Data is not ImageData imageData
-            || imageData.DataArray is not object[] channelOrHeightArray
-            || channelOrHeightArray.Length == 0
+            || imageData.DataArray is not Array dataArray
+            || dataArray.Length == 0
             || !(BitDepth.FromValue(hdu.BitPix) is { } bitDepth)
         )
         {
@@ -31,7 +32,6 @@ public partial class Image
         }
 
         int height, width, channelCount;
-        TypeCode elementType;
 
         switch (axisLength)
         {
@@ -39,14 +39,12 @@ public partial class Image
                 height = hdu.Axes[0];
                 width = hdu.Axes[1];
                 channelCount = 1;
-                elementType = Type.GetTypeCode(channelOrHeightArray[0].GetType().GetElementType());
                 break;
 
             case 3:
                 channelCount = hdu.Axes[0];
                 height = hdu.Axes[1];
                 width = hdu.Axes[2];
-                elementType = Type.GetTypeCode(((object[])channelOrHeightArray[0])[0].GetType().GetElementType());
                 break;
 
             default:
@@ -86,10 +84,6 @@ public partial class Image
         var latitude = hdu.Header.GetFloatValue("LATITUDE", float.NaN);
         var longitude = hdu.Header.GetFloatValue("LONGITUDE", float.NaN);
 
-        var imgArray = new float[channelCount, height, width];
-        Span<float> scratchRow = stackalloc float[Math.Min(256, width)];
-
-        var quot = Math.DivRem(width, scratchRow.Length, out var rem);
         var minValue = (float)hdu.MinimumValue;
         var maxValue = (float)hdu.MaximumValue;
         bool needsMinMaxValRecalc = float.IsNaN(minValue) || minValue < 0 || float.IsNaN(maxValue) || maxValue is <= 0 || maxValue <= minValue;
@@ -99,194 +93,104 @@ public partial class Image
             minValue = float.MaxValue;
         }
 
-        var rowSize = sizeof(float) * width;
-        var channelSize = rowSize * height;
+        bool trivialScaling = bscale == 1f && bzero == 0f;
+        float[,,] imgArray;
 
-        switch (elementType)
+        // Fast path: float 3D data with trivial scaling — reuse the array directly (zero-copy)
+        if (trivialScaling && dataArray is float[,,] floatSrc3d)
         {
-            case TypeCode.Byte:
-                for (int c = 0; c < channelCount; c++)
+            imgArray = floatSrc3d;
+            if (needsMinMaxValRecalc)
+            {
+                RecalcMinMax(imgArray, channelCount, ref minValue, ref maxValue);
+            }
+        }
+        // Float 2D with trivial scaling — single BlockCopy into 3D wrapper
+        else if (trivialScaling && dataArray is float[,] floatSrc2d)
+        {
+            imgArray = new float[1, height, width];
+            Buffer.BlockCopy(floatSrc2d, 0, imgArray, 0, sizeof(float) * height * width);
+            if (needsMinMaxValRecalc)
+            {
+                RecalcMinMax(imgArray, channelCount, ref minValue, ref maxValue);
+            }
+        }
+        else
+        {
+            imgArray = new float[channelCount, height, width];
+            // Generic conversion path for all element types with bscale/bzero application
+            switch (dataArray)
+            {
+                case byte[,] src: Convert2D(src); break;
+                case byte[,,] src: Convert3D(src); break;
+                case short[,] src: Convert2D(src); break;
+                case short[,,] src: Convert3D(src); break;
+                case int[,] src: Convert2D(src); break;
+                case int[,,] src: Convert3D(src); break;
+                case float[,] src: Convert2D(src); break;
+                case float[,,] src: Convert3D(src); break;
+                default:
+                    image = null;
+                    return false;
+            }
+        }
+
+        void Convert2D<T>(T[,] src) where T : struct, INumberBase<T>
+        {
+            var dst = imgArray.AsSpan2D(0);
+            for (int h = 0; h < height; h++)
+            {
+                var row = dst.GetRowSpan(h);
+                for (int w = 0; w < width; w++)
                 {
-                    var heightArray = (object[])(axisLength is 2 ? channelOrHeightArray : channelOrHeightArray[c]);
-                    var imgArray2d = imgArray.AsSpan2D(c);
-                    for (int h = 0; h < height; h++)
+                    var val = bscale * float.CreateTruncating(src[h, w]) + bzero;
+                    row[w] = val;
+                    if (needsMinMaxValRecalc && !float.IsNaN(val))
                     {
-                        var byteWidthArray = (byte[])heightArray[h];
-                        var row = imgArray2d.GetRowSpan(h);
-                        var sourceIndex = 0;
-                        for (int i = 0; i < quot; i++)
+                        maxValue = MathF.Max(maxValue, val);
+                        minValue = MathF.Min(minValue, val);
+                    }
+                }
+            }
+        }
+
+        void Convert3D<T>(T[,,] src) where T : struct, INumberBase<T>
+        {
+            for (int c = 0; c < channelCount; c++)
+            {
+                var dst = imgArray.AsSpan2D(c);
+                for (int h = 0; h < height; h++)
+                {
+                    var row = dst.GetRowSpan(h);
+                    for (int w = 0; w < width; w++)
+                    {
+                        var val = bscale * float.CreateTruncating(src[c, h, w]) + bzero;
+                        row[w] = val;
+                        if (needsMinMaxValRecalc && !float.IsNaN(val))
                         {
-                            for (int w = 0; w < scratchRow.Length; w++)
-                            {
-                                var val = bscale * byteWidthArray[sourceIndex + w] + bzero;
-                                scratchRow[w] = val;
-                                if (needsMinMaxValRecalc && !float.IsNaN(val))
-                                {
-                                    maxValue = MathF.Max(maxValue, val);
-                                    minValue = MathF.Min(minValue, val);
-                                }
-                            }
-                            sourceIndex += scratchRow.Length;
-                            scratchRow.CopyTo(row);
-                            row = row[scratchRow.Length..];
-                        }
-                        if (rem > 0)
-                        {
-                            // copy rest
-                            for (int w = 0; w < rem; w++)
-                            {
-                                var val = bscale * byteWidthArray[sourceIndex + w] + bzero;
-                                scratchRow[w] = val;
-                                if (needsMinMaxValRecalc && !float.IsNaN(val))
-                                {
-                                    maxValue = MathF.Max(maxValue, val);
-                                    minValue = MathF.Min(minValue, val);
-                                }
-                            }
-                            scratchRow[..rem].CopyTo(row);
+                            maxValue = MathF.Max(maxValue, val);
+                            minValue = MathF.Min(minValue, val);
                         }
                     }
                 }
-                break;
+            }
+        }
 
-            case TypeCode.Int16:
-                for (int c = 0; c < channelCount; c++)
+        static void RecalcMinMax(float[,,] imgArray, int channelCount, ref float minValue, ref float maxValue)
+        {
+            for (int c = 0; c < channelCount; c++)
+            {
+                var span = imgArray.AsSpan(c);
+                for (int i = 0; i < span.Length; i++)
                 {
-                    var heightArray = (object[])(axisLength is 2 ? channelOrHeightArray : channelOrHeightArray[c]);
-                    var imgArray2d = imgArray.AsSpan2D(c);
-                    for (int h = 0; h < height; h++)
+                    var val = span[i];
+                    if (!float.IsNaN(val))
                     {
-                        var shortWidthArray = (short[])heightArray[h];
-                        var row = imgArray2d.GetRowSpan(h);
-                        var sourceIndex = 0;
-                        for (int i = 0; i < quot; i++)
-                        {
-                            for (int w = 0; w < scratchRow.Length; w++)
-                            {
-                                var val = bscale * shortWidthArray[sourceIndex + w] + bzero;
-                                scratchRow[w] = val;
-                                if (needsMinMaxValRecalc && !float.IsNaN(val))
-                                {
-                                    maxValue = MathF.Max(maxValue, val);
-                                    minValue = MathF.Min(minValue, val);
-                                }
-                            }
-                            sourceIndex += scratchRow.Length;
-                            scratchRow.CopyTo(row);
-                            row = row[scratchRow.Length..];
-                        }
-                        if (rem > 0)
-                        {
-                            // copy rest
-                            for (int w = 0; w < rem; w++)
-                            {
-                                var val = bscale * shortWidthArray[sourceIndex + w] + bzero;
-                                scratchRow[w] = val;
-                                if (needsMinMaxValRecalc && !float.IsNaN(val))
-                                {
-                                    maxValue = MathF.Max(maxValue, val);
-                                    minValue = MathF.Min(minValue, val);
-                                }
-                            }
-                            scratchRow[..rem].CopyTo(row);
-                        }
+                        maxValue = MathF.Max(maxValue, val);
+                        minValue = MathF.Min(minValue, val);
                     }
                 }
-                break;
-
-            case TypeCode.Int32:
-                for (int c = 0; c < channelCount; c++)
-                {
-                    var heightArray = (object[])(axisLength is 2 ? channelOrHeightArray : channelOrHeightArray[c]);
-                    var imgArray2d = imgArray.AsSpan2D(c);
-                    for (int h = 0; h < height; h++)
-                    {
-                        var intWidthArray = (int[])heightArray[h];
-                        var row = imgArray2d.GetRowSpan(h);
-                        var sourceIndex = 0;
-                        for (int i = 0; i < quot; i++)
-                        {
-                            for (int w = 0; w < scratchRow.Length; w++)
-                            {
-                                var val = bscale * intWidthArray[sourceIndex + w] + bzero;
-                                scratchRow[w] = val;
-                                if (needsMinMaxValRecalc && !float.IsNaN(val))
-                                {
-                                    maxValue = MathF.Max(maxValue, val);
-                                    minValue = MathF.Min(minValue, val);
-                                }
-                            }
-                            sourceIndex += scratchRow.Length;
-                            scratchRow.CopyTo(row);
-                            row = row[scratchRow.Length..];
-                        }
-                        if (rem > 0)
-                        {
-                            // copy rest
-                            for (int w = 0; w < rem; w++)
-                            {
-                                var val = bscale * intWidthArray[sourceIndex + w] + bzero;
-                                scratchRow[w] = val;
-                                if (needsMinMaxValRecalc && !float.IsNaN(val))
-                                {
-                                    maxValue = MathF.Max(maxValue, val);
-                                    minValue = MathF.Min(minValue, val);
-                                }
-                            }
-                            scratchRow[..rem].CopyTo(row);
-                        }
-                    }
-                }
-                break;
-
-            case TypeCode.Single:
-                for (int c = 0; c < channelCount; c++)
-                {
-                    var heightArray = (object[])(axisLength is 2 ? channelOrHeightArray : channelOrHeightArray[c]);
-                    var imgArray2d = imgArray.AsSpan2D(c);
-                    for (int h = 0; h < height; h++)
-                    {
-                        var floatWidthArray = (float[])heightArray[h];
-                        var row = imgArray2d.GetRowSpan(h);
-                        var sourceIndex = 0;
-                        for (int i = 0; i < quot; i++)
-                        {
-                            for (int w = 0; w < scratchRow.Length; w++)
-                            {
-                                var val = bscale * floatWidthArray[sourceIndex + w] + bzero;
-                                scratchRow[w] = val;
-                                if (needsMinMaxValRecalc && !float.IsNaN(val))
-                                {
-                                    maxValue = MathF.Max(maxValue, val);
-                                    minValue = MathF.Min(minValue, val);
-                                }
-                            }
-                            sourceIndex += scratchRow.Length;
-                            scratchRow.CopyTo(row);
-                            row = row[scratchRow.Length..];
-                        }
-                        if (rem > 0)
-                        {
-                            // copy rest
-                            for (int w = 0; w < rem; w++)
-                            {
-                                var val = bscale * floatWidthArray[sourceIndex + w] + bzero;
-                                scratchRow[w] = val;
-                                if (needsMinMaxValRecalc && !float.IsNaN(val))
-                                {
-                                    maxValue = MathF.Max(maxValue, val);
-                                    minValue = MathF.Min(minValue, val);
-                                }
-                            }
-                            scratchRow[..rem].CopyTo(row);
-                        }
-                    }
-                }
-                break;
-
-            default:
-                image = null;
-                return false;
+            }
         }
 
         var imageMeta = new ImageMeta(
