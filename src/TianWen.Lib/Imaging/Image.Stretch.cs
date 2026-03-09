@@ -101,6 +101,59 @@ public partial class Image
         return new Image(destination, BitDepth.Float32, 1.0f, 0f, 0f, imageMeta);
     }
 
+    /// <summary>
+    /// Computes luminance stretch statistics (pedestal, median, MAD) from a color image.
+    /// Builds a Rec. 709 luminance channel and computes histogram statistics on it.
+    /// Falls back to channel 0 stats for mono images. Optionally debayers Bayer images first.
+    /// </summary>
+    public async Task<(float Pedestal, float Median, float MAD)> GetLumaStretchStatsAsync(DebayerAlgorithm debayerAlgorithm = DebayerAlgorithm.VNG, CancellationToken cancellationToken = default)
+    {
+        if (imageMeta.SensorType is SensorType.RGGB)
+        {
+            var debayered = await DebayerAsync(debayerAlgorithm, cancellationToken);
+            return await debayered.GetLumaStretchStatsAsync(DebayerAlgorithm.None, cancellationToken);
+        }
+
+        if (ChannelCount < 3)
+        {
+            return GetPedestralMedianAndMADScaledToUnit(0);
+        }
+
+        return await Task.Run(() =>
+        {
+            var (_, width, height) = Shape;
+            var needsNorm = MaxValue > 1.0f + float.Epsilon;
+            var normFactor = 1.0f / MaxValue;
+
+            var lumaData = new float[1][,];
+            lumaData[0] = new float[height, width];
+            var dst = lumaData[0];
+
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    var r = data[0][y, x];
+                    var g = data[1][y, x];
+                    var b = data[2][y, x];
+                    if (float.IsNaN(r) || float.IsNaN(g) || float.IsNaN(b))
+                    {
+                        dst[y, x] = float.NaN;
+                    }
+                    else
+                    {
+                        if (needsNorm) { r *= normFactor; g *= normFactor; b *= normFactor; }
+                        dst[y, x] = LumaR * r + LumaG * g + LumaB * b;
+                    }
+                }
+            }
+
+            var lumaImage = new Image(lumaData, BitDepth.Float32, 1.0f, 0f, 0f,
+                imageMeta with { SensorType = SensorType.Monochrome });
+            return lumaImage.GetPedestralMedianAndMADScaledToUnit(0);
+        }, cancellationToken);
+    }
+
     // Rec. 709 luminance weights
     private const float LumaR = 0.2126f;
     private const float LumaG = 0.7152f;
@@ -143,24 +196,8 @@ public partial class Image
         lumaChannelData[0] = lumaData;
         var lumaImage = new Image(lumaChannelData, BitDepth.Float32, 1.0f, 0f, 0f, imageMeta with { SensorType = SensorType.Monochrome });
 
-        var (pedestral, median, mad) = lumaImage.GetPedestralMedianAndMADScaledToUnit(0);
-
-        // Compute stretch parameters from luminance stats
-double shadows, midtones, highlights, rescale;
-        if (median > 0.5)
-        {
-            shadows = 0f;
-            highlights = median - shadowsClipping * mad * MAD_TO_SD;
-            rescale = 1.0 / (highlights - 0);
-            midtones = MidtonesTransferFunction(stretchFactor, 1f - (highlights - median) * rescale);
-        }
-        else
-        {
-            shadows = median + shadowsClipping * mad * MAD_TO_SD;
-            rescale = 1.0 / (1.0 - shadows);
-            midtones = MidtonesTransferFunction(stretchFactor, (median - shadows) * rescale);
-            highlights = 1;
-        }
+        var (_, median, mad) = lumaImage.GetPedestralMedianAndMADScaledToUnit(0);
+        var (shadows, midtones, highlights, rescale) = ComputeStretchParameters(median, mad, stretchFactor, shadowsClipping);
 
         // Stretch luminance and scale RGB channels by Y'/Y ratio
         await Parallel.ForAsync(0, height, new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = Environment.ProcessorCount * 4 }, async (y, ct) => await Task.Run(() =>
@@ -287,6 +324,33 @@ double shadows, midtones, highlights, rescale;
             }
             return ValueTask.CompletedTask;
         }, ct));
+    }
+
+    /// <summary>
+    /// Computes the stretch parameters (shadows, midtones, highlights, rescale) from channel statistics.
+    /// These can be passed as GPU shader uniforms to perform the stretch on the GPU.
+    /// </summary>
+    public static (double Shadows, double Midtones, double Highlights, double Rescale) ComputeStretchParameters(
+        float median, float mad, double stretchFactor, double shadowsClipping)
+    {
+        double shadows, midtones, highlights, rescale;
+
+        if (median > 0.5)
+        {
+            shadows = 0f;
+            highlights = median - shadowsClipping * mad * MAD_TO_SD;
+            rescale = 1.0 / (highlights - 0);
+            midtones = MidtonesTransferFunction(stretchFactor, 1f - (highlights - median) * rescale);
+        }
+        else
+        {
+            shadows = median + shadowsClipping * mad * MAD_TO_SD;
+            rescale = 1.0 / (1.0 - shadows);
+            midtones = MidtonesTransferFunction(stretchFactor, (median - shadows) * rescale);
+            highlights = 1;
+        }
+
+        return (shadows, midtones, highlights, rescale);
     }
 
     /// <summary>

@@ -177,7 +177,7 @@ public partial class Image
     public ImageHistogram Statistics(int channel, bool removePedestral = false)
         => Histogram(channel, thresholdPct: 100, ignoreBlack: false, calcStats: true, removePedestral);
 
-    private (float Pedestral, float Median, float MAD) GetPedestralMedianAndMADScaledToUnit(int channel)
+    public (float Pedestral, float Median, float MAD) GetPedestralMedianAndMADScaledToUnit(int channel)
     {
         var stats = Statistics(channel, removePedestral: true);
         if (stats.Median is not { } median || stats.MAD is not { } mad)

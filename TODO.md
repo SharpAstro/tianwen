@@ -62,6 +62,17 @@
 
 - [ ] Not sure if `SensorType` LRGB check is correct (`SensorType.cs:54`)
 
+## Stretch / Image Processing
+
+Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
+
+- [x] Luma-only stretch mode (Rec. 709 luminance, stretch Y, scale RGB by Y'/Y)
+- [x] HDR compression in GPU shader (Hermite soft-knee, `uHdrAmount`/`uHdrKnee` uniforms)
+- [ ] Support rec601/rec2020 luminance weighting options
+- [ ] Normalize after stretch — `x / max(x)` to fill full [0,1] range
+- [ ] Iterative convergence — multiple stretch iterations until median converges to target
+- [ ] Luma blend — smoothly blend between linked and luma-only results
+
 ## Astrometry / Catalogs
 
 - [x] Update lib to accept spans in `CatalogUtils` (`CatalogUtils.cs:326,360`)
