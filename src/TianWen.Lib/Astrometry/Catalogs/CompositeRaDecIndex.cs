@@ -24,7 +24,7 @@ internal sealed class CompositeRaDecIndex(RaDecIndex primary, Tycho2RaDecIndex? 
         double dec
     ) : ICollection<CatalogIndex>, IReadOnlyCollection<CatalogIndex>
     {
-        public int Count => directEntries.Count > 0 || tycho2Index.GetOverlappingRegions(ra, dec) is { Length: > 0 } ? 1 : 0;
+        public int Count => directEntries.Count > 0 || tycho2Index.GetOverlappingRegions(ra, dec) is { Count: > 0 } ? 1 : 0;
 
         public bool IsReadOnly => true;
 
