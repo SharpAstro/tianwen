@@ -21,7 +21,11 @@ src/
 ├── TianWen.Lib/                   # Core library (net10.0)
 ├── TianWen.Lib.Tests/             # Unit tests (xUnit v3)
 ├── TianWen.Lib.CLI/               # CLI application (AOT-published)
-└── TianWen.Lib.Hosting/           # IHostedService extensions
+├── TianWen.Lib.Hosting/           # IHostedService extensions
+├── TianWen.UI.Abstractions/       # Viewer state, document model, shared types
+├── TianWen.UI.OpenGL/             # OpenGL renderer (Silk.NET)
+├── TianWen.UI.FitsViewer/         # FITS viewer application
+└── TianWen.UI.Benchmarks/         # BenchmarkDotNet performance tests
 ```
 
 ## Build & Test Commands
@@ -50,6 +54,7 @@ dotnet test -c Release
 | CLI | System.CommandLine v2 + Pastel |
 | Testing | xUnit v3 + Shouldly + NSubstitute |
 | Imaging | Magick.NET, FITS.Lib |
+| UI / OpenGL | Silk.NET (GLFW) |
 | Astronomy | ASCOM, WWA.Core, ZWOptical.SDK |
 | Compression | SharpCompress |
 
@@ -101,6 +106,15 @@ Devices are URI-addressed and managed through:
 - `IExternal` — file I/O, serial ports, time management, logging
 - `ISessionFactory` — creates observation sessions with bound devices
 - `IPlateSolverFactory` — plate solving (ASTAP, astrometry.net)
+
+### FITS Viewer / GPU Stretch
+
+- Stretch (MTF) is computed entirely in the GLSL fragment shader — no CPU reprocessing on parameter changes
+- `FitsDocument` debayers once at load time; the debayered image is the permanent base
+- Per-channel and luminance stretch stats are cached at load time
+- `ComputeStretchUniforms()` produces shader uniforms from cached stats
+- Three stretch modes: per-channel (linked/unlinked), luma (preserves chrominance ratios)
+- HDR compression via Hermite soft-knee, also in the shader
 
 ### Concurrency
 

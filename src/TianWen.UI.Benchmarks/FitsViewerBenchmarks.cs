@@ -28,17 +28,21 @@ public class FitsViewerBenchmarks
     }
 
     [Benchmark]
-    public Task Reprocess_Linked()
+    public GpuStretchUniforms ComputeStretchUniforms_Linked()
     {
-        var state = new ViewerState { StretchMode = StretchMode.Linked };
-        return ViewerActions.ReprocessAsync(_document, state);
+        return _document.ComputeStretchUniforms(StretchMode.Linked, StretchParameters.Default);
     }
 
     [Benchmark]
-    public Task Reprocess_Unlinked()
+    public GpuStretchUniforms ComputeStretchUniforms_Unlinked()
     {
-        var state = new ViewerState { StretchMode = StretchMode.Unlinked };
-        return ViewerActions.ReprocessAsync(_document, state);
+        return _document.ComputeStretchUniforms(StretchMode.Unlinked, StretchParameters.Default);
+    }
+
+    [Benchmark]
+    public GpuStretchUniforms ComputeStretchUniforms_Luma()
+    {
+        return _document.ComputeStretchUniforms(StretchMode.Luma, StretchParameters.Default);
     }
 
     [Benchmark]

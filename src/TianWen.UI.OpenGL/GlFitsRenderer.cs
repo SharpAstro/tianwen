@@ -167,7 +167,9 @@ public sealed class GlFitsRenderer : IDisposable
 
         if (_imageWidth > 0 && _imageHeight > 0)
         {
-            RenderImage(state);
+            var stretch = document?.ComputeStretchUniforms(state.StretchMode, state.StretchParameters)
+                ?? new GpuStretchUniforms(0, 1f, default, default, default, default, default);
+            RenderImage(state, stretch);
         }
 
         if (state.ShowInfoPanel && document is not null)
@@ -449,7 +451,7 @@ public sealed class GlFitsRenderer : IDisposable
 
     // --- Image ---
 
-    private void RenderImage(ViewerState state)
+    private void RenderImage(ViewerState state, GpuStretchUniforms stretch)
     {
         var fileListW = state.ShowFileList ? FileListWidth : 0;
         var panelW = state.ShowInfoPanel ? InfoPanelWidth : 0;
@@ -508,6 +510,15 @@ public sealed class GlFitsRenderer : IDisposable
         _imageShader.SetFloat("uCurvesMidpoint", (float)state.StretchParameters.Factor);
         _imageShader.SetFloat("uHdrAmount", state.HdrAmount);
         _imageShader.SetFloat("uHdrKnee", state.HdrKnee);
+
+        // Stretch uniforms
+        _imageShader.SetInt("uStretchMode", stretch.Mode);
+        _imageShader.SetFloat("uNormFactor", stretch.NormFactor);
+        _imageShader.SetVector3("uPedestal", stretch.Pedestal.R, stretch.Pedestal.G, stretch.Pedestal.B);
+        _imageShader.SetVector3("uShadows", stretch.Shadows.R, stretch.Shadows.G, stretch.Shadows.B);
+        _imageShader.SetVector3("uMidtones", stretch.Midtones.R, stretch.Midtones.G, stretch.Midtones.B);
+        _imageShader.SetVector3("uHighlights", stretch.Highlights.R, stretch.Highlights.G, stretch.Highlights.B);
+        _imageShader.SetVector3("uRescale", stretch.Rescale.R, stretch.Rescale.G, stretch.Rescale.B);
         for (int i = 0; i < _channelTextureCount && i < _channelTextures.Length; i++)
         {
             _gl.ActiveTexture(TextureUnit.Texture0 + i);
@@ -808,9 +819,30 @@ public sealed class GlFitsRenderer : IDisposable
         uniform float uHdrAmount;
         uniform float uHdrKnee;
 
-        // S-curve contrast enhancement inspired by the PixInsight
-        // Statistical Stretch "Final Sigma Curves" boost.
-        // Darkens below midpoint, brightens above — anchored at 0, mid, and 1.
+        // Stretch uniforms: 0=none, 1=per-channel (linked/unlinked), 2=luma
+        uniform int uStretchMode;
+        uniform float uNormFactor;
+        uniform vec3 uPedestal;
+        uniform vec3 uShadows;
+        uniform vec3 uMidtones;
+        uniform vec3 uHighlights;
+        uniform vec3 uRescale;
+
+        // Midtones Transfer Function — same as PixInsight STF
+        float mtf(float m, float v) {
+            float c = clamp(v, 0.0, 1.0);
+            if (v != c) return c;
+            return (m - 1.0) * v / ((2.0 * m - 1.0) * v - m);
+        }
+
+        // Per-channel stretch: normalize, subtract pedestal, clip shadows/highlights, apply MTF
+        float stretchChannel(float raw, int ch) {
+            float norm = raw * uNormFactor - uPedestal[ch];
+            float rescaled = (1.0 - uHighlights[ch] + norm - uShadows[ch]) * uRescale[ch];
+            return mtf(uMidtones[ch], rescaled);
+        }
+
+        // S-curve contrast enhancement
         float applyCurve(float v, float boost) {
             float mid = uCurvesMidpoint;
             if (v <= 0.0 || v >= 1.0 || mid <= 0.0 || mid >= 1.0) return v;
@@ -823,18 +855,12 @@ public sealed class GlFitsRenderer : IDisposable
             }
         }
 
-        // Hermite soft-knee HDR compression.
-        // Values below knee pass through unchanged. Values above knee are
-        // compressed toward 1.0 using a smooth Hermite (smoothstep) curve.
-        // Amount controls the compression strength (0 = off, higher = more).
+        // Hermite soft-knee HDR compression
         float applyHdr(float v, float amount, float knee) {
             if (v <= knee) return v;
             float range = 1.0 - knee;
             float t = (v - knee) / range;
-            // Hermite interpolation: compressed = knee + range * smoothstep blend
-            // At amount=0 this is identity; higher amount flattens highlights more.
-            float compressed = knee + range * t / (1.0 + amount * t);
-            return compressed;
+            return knee + range * t / (1.0 + amount * t);
         }
 
         void main() {
@@ -842,6 +868,27 @@ public sealed class GlFitsRenderer : IDisposable
             if (uChannelCount >= 3) {
                 float g = texture(uChannel1, vTexCoord).r;
                 float b = texture(uChannel2, vTexCoord).r;
+
+                // Stretch
+                if (uStretchMode == 1) {
+                    // Per-channel (linked or unlinked — uniforms differ)
+                    r = stretchChannel(r, 0);
+                    g = stretchChannel(g, 1);
+                    b = stretchChannel(b, 2);
+                } else if (uStretchMode == 2) {
+                    // Luma: stretch luminance, scale RGB by Y'/Y
+                    float nr = r * uNormFactor;
+                    float ng = g * uNormFactor;
+                    float nb = b * uNormFactor;
+                    float Y = 0.2126 * nr + 0.7152 * ng + 0.0722 * nb;
+                    float rescaled = (1.0 - uHighlights.x + Y - uShadows.x) * uRescale.x;
+                    float Yp = mtf(uMidtones.x, rescaled);
+                    float scale = Y > 1e-7 ? Yp / Y : 0.0;
+                    r = clamp(nr * scale, 0.0, 1.0);
+                    g = clamp(ng * scale, 0.0, 1.0);
+                    b = clamp(nb * scale, 0.0, 1.0);
+                }
+
                 if (uCurvesBoost > 0.0) {
                     r = applyCurve(r, uCurvesBoost);
                     g = applyCurve(g, uCurvesBoost);
@@ -854,6 +901,10 @@ public sealed class GlFitsRenderer : IDisposable
                 }
                 FragColor = vec4(r, g, b, 1.0);
             } else {
+                // Mono
+                if (uStretchMode >= 1) {
+                    r = stretchChannel(r, 0);
+                }
                 if (uCurvesBoost > 0.0) {
                     r = applyCurve(r, uCurvesBoost);
                 }

@@ -367,8 +367,8 @@ window.Load += () =>
         };
     }
 
-    // Initial processing
-    state.NeedsReprocess = true;
+    // Initial texture upload
+    state.NeedsTextureUpdate = true;
 };
 
 window.Resize += (size) =>
@@ -401,7 +401,6 @@ window.Render += (_) =>
             if (newDoc is not null)
             {
                 document = newDoc;
-                state.NeedsReprocess = true;
                 state.NeedsTextureUpdate = true;
                 state.CursorImagePosition = null;
                 state.CursorPixelInfo = null;
@@ -416,14 +415,14 @@ window.Render += (_) =>
         window.Title = $"TianWen FITS Viewer - {Path.GetFileName(requestedPath)}";
     }
 
-    // Handle async reprocessing (debayer + stretch on background thread)
-    if (document is not null && state.NeedsReprocess && (reprocessTask is null || reprocessTask.IsCompleted))
+    // Handle reprocess flag (just triggers texture re-upload, stretch is done in shader)
+    if (state.NeedsReprocess)
     {
-        reprocessTask = Task.Run(() => ViewerActions.ReprocessAsync(document, state, cts.Token), cts.Token);
+        ViewerActions.Reprocess(state);
     }
 
     // Upload texture when needed (pixel extraction on background, GL upload on render thread)
-    if (document is not null && state.NeedsTextureUpdate && !state.NeedsReprocess && (reprocessTask is null || reprocessTask.IsCompleted))
+    if (document is not null && state.NeedsTextureUpdate && (reprocessTask is null || reprocessTask.IsCompleted))
     {
         state.NeedsTextureUpdate = false;
         state.StatusMessage = "Preparing display...";
@@ -466,7 +465,7 @@ while (!window.IsClosing)
     window.DoEvents();
     window.DoUpdate();
 
-    if (state.NeedsRedraw || state.NeedsReprocess || state.NeedsTextureUpdate
+    if (state.NeedsRedraw || state.NeedsTextureUpdate
         || pendingChannels is not null
         || state.RequestedFilePath is not null
         || (reprocessTask is not null && !reprocessTask.IsCompleted))

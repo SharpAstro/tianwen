@@ -57,6 +57,15 @@ internal sealed class GlShaderProgram : IDisposable
         }
     }
 
+    public void SetVector3(string name, float x, float y, float z)
+    {
+        var location = _gl.GetUniformLocation(Handle, name);
+        if (location >= 0)
+        {
+            _gl.Uniform3(location, x, y, z);
+        }
+    }
+
     public void SetVector4(string name, float x, float y, float z, float w)
     {
         var location = _gl.GetUniformLocation(Handle, name);

@@ -7,25 +7,41 @@ using TianWen.Lib.Imaging;
 namespace TianWen.UI.Abstractions;
 
 /// <summary>
+/// Per-channel stretch statistics cached from the debayered image.
+/// </summary>
+public record struct ChannelStretchStats(float Pedestal, float Median, float Mad);
+
+/// <summary>
+/// Stretch parameters ready to pass as GPU shader uniforms.
+/// Each field is a 3-component vector (R/G/B or replicated for mono/linked).
+/// </summary>
+public record struct GpuStretchUniforms(
+    int Mode,
+    float NormFactor,
+    (float R, float G, float B) Pedestal,
+    (float R, float G, float B) Shadows,
+    (float R, float G, float B) Midtones,
+    (float R, float G, float B) Highlights,
+    (float R, float G, float B) Rescale);
+
+/// <summary>
 /// Core document model for the FITS viewer. Manages the image lifecycle:
-/// loading, debayering, stretching, channel extraction, plate solving,
+/// loading, debayering, channel extraction, plate solving,
 /// and conversion to display-ready RGBA pixels.
+/// Stretch is performed entirely on the GPU via shader uniforms.
 /// </summary>
 public sealed class FitsDocument
 {
     private readonly string _filePath;
 
-    /// <summary>Pre-allocated buffer for stretch output, reused across stretch calls to avoid allocation.</summary>
-    private float[][,]? _displayBuffer;
-
     /// <summary>Raw image as loaded from the FITS file.</summary>
     public Image RawImage { get; }
 
-    /// <summary>Debayered image (or same as <see cref="RawImage"/> if not Bayer).</summary>
-    public Image DebayeredImage { get; private set; }
+    /// <summary>Debayered image (or same as <see cref="RawImage"/> if not Bayer). This is the permanent base image.</summary>
+    public Image DebayeredImage { get; }
 
-    /// <summary>Currently stretched image for display.</summary>
-    public Image DisplayImage { get; private set; }
+    /// <summary>Display image — always the debayered image (stretch is done in the GPU shader).</summary>
+    public Image DisplayImage => DebayeredImage;
 
     /// <summary>WCS solution, available after plate solving.</summary>
     public WCS? Wcs { get; private set; }
@@ -33,18 +49,31 @@ public sealed class FitsDocument
     /// <summary>Per-channel statistics computed from the raw image.</summary>
     public ImageHistogram[] ChannelStatistics { get; }
 
-    /// <summary>Current debayer algorithm used.</summary>
-    public DebayerAlgorithm DebayerAlgorithm { get; private set; }
+    /// <summary>Debayer algorithm actually used when loading this image.</summary>
+    public DebayerAlgorithm DebayerAlgorithm { get; }
+
+    /// <summary>Per-channel stretch stats from the debayered image.</summary>
+    public ChannelStretchStats[] PerChannelStats { get; }
+
+    /// <summary>Luminance stretch stats (for luma mode). Only populated for color images (>=3 channels).</summary>
+    public ChannelStretchStats? LumaStats { get; }
 
     public bool IsPlateSolved => Wcs?.HasCDMatrix == true;
 
-    private FitsDocument(string filePath, Image rawImage, Image debayeredImage, DebayerAlgorithm debayerAlgorithm)
+    private FitsDocument(
+        string filePath,
+        Image rawImage,
+        Image debayeredImage,
+        DebayerAlgorithm debayerAlgorithm,
+        ChannelStretchStats[] perChannelStats,
+        ChannelStretchStats? lumaStats)
     {
         _filePath = filePath;
         RawImage = rawImage;
         DebayeredImage = debayeredImage;
-        DisplayImage = debayeredImage;
         DebayerAlgorithm = debayerAlgorithm;
+        PerChannelStats = perChannelStats;
+        LumaStats = lumaStats;
 
         var stats = new ImageHistogram[rawImage.ChannelCount];
         for (var c = 0; c < rawImage.ChannelCount; c++)
@@ -55,8 +84,8 @@ public sealed class FitsDocument
     }
 
     /// <summary>
-    /// Loads a FITS file, applies debayering once, and creates a new <see cref="FitsDocument"/>.
-    /// The debayer result becomes the permanent base image for all subsequent stretch operations.
+    /// Loads a FITS file, applies debayering once, and caches stretch statistics.
+    /// The debayer result becomes the permanent base image; stretch is done on the GPU.
     /// </summary>
     public static async Task<FitsDocument?> OpenAsync(string filePath, DebayerAlgorithm algorithm = DebayerAlgorithm.VNG, CancellationToken cancellationToken = default)
     {
@@ -79,39 +108,77 @@ public sealed class FitsDocument
             actualAlgorithm = DebayerAlgorithm.None;
         }
 
-        return new FitsDocument(filePath, rawImage, debayered, actualAlgorithm);
+        // Cache per-channel stretch stats
+        var channelCount = debayered.ChannelCount;
+        var perChannelStats = new ChannelStretchStats[channelCount];
+        for (var c = 0; c < channelCount; c++)
+        {
+            var (ped, med, mad) = debayered.GetPedestralMedianAndMADScaledToUnit(c);
+            perChannelStats[c] = new ChannelStretchStats(ped, med, mad);
+        }
+
+        // Compute luminance stats for color images
+        ChannelStretchStats? lumaStats = null;
+        if (channelCount >= 3)
+        {
+            var (lumaPed, lumaMed, lumaMad) = await debayered.GetLumaStretchStatsAsync(DebayerAlgorithm.None, cancellationToken);
+            lumaStats = new ChannelStretchStats(lumaPed, lumaMed, lumaMad);
+        }
+
+        return new FitsDocument(filePath, rawImage, debayered, actualAlgorithm, perChannelStats, lumaStats);
     }
 
     /// <summary>
-    /// Applies stretch to the debayered image and updates <see cref="DisplayImage"/>.
-    /// Reuses a pre-allocated buffer to avoid large allocations on repeated stretch calls.
+    /// Computes stretch shader uniforms for the current stretch mode and parameters.
     /// </summary>
-    public async Task ApplyStretchAsync(StretchMode mode, StretchParameters parameters, CancellationToken cancellationToken = default)
+    public GpuStretchUniforms ComputeStretchUniforms(StretchMode mode, StretchParameters parameters)
     {
         if (mode is StretchMode.None)
         {
-            DisplayImage = DebayeredImage;
-            return;
+            return new GpuStretchUniforms(0, 1f, default, default, default, default, default);
         }
 
-        var (channelCount, width, height) = DebayeredImage.Shape;
+        var normFactor = DebayeredImage.MaxValue > 1.0f + float.Epsilon ? 1f / DebayeredImage.MaxValue : 1f;
+        var factor = parameters.Factor;
+        var clipping = parameters.ShadowsClipping;
 
-        // Allocate or reuse the display buffer
-        if (_displayBuffer is null
-            || _displayBuffer.Length != channelCount
-            || _displayBuffer[0].GetLength(0) != height
-            || _displayBuffer[0].GetLength(1) != width)
+        if (mode is StretchMode.Luma && LumaStats is { } luma)
         {
-            _displayBuffer = Image.CreateChannelData(channelCount, height, width);
+            var (s, m, h, r) = Image.ComputeStretchParameters(luma.Median, luma.Mad, factor, clipping);
+            return new GpuStretchUniforms(
+                Mode: 2,
+                NormFactor: normFactor,
+                Pedestal: default, // not used in luma mode per-pixel
+                Shadows: ((float)s, (float)s, (float)s),
+                Midtones: ((float)m, (float)m, (float)m),
+                Highlights: ((float)h, (float)h, (float)h),
+                Rescale: ((float)r, (float)r, (float)r));
         }
 
-        DisplayImage = mode switch
+        // Linked or unlinked
+        var stats = PerChannelStats;
+        var ch0 = stats.Length > 0 ? stats[0] : default;
+        var ch1 = stats.Length > 1 ? stats[1] : ch0;
+        var ch2 = stats.Length > 2 ? stats[2] : ch0;
+
+        if (mode is StretchMode.Linked)
         {
-            StretchMode.Linked => await DebayeredImage.StretchLinkedIntoAsync(_displayBuffer, parameters.Factor, parameters.ShadowsClipping, cancellationToken),
-            StretchMode.Unlinked => await DebayeredImage.StretchUnlinkedIntoAsync(_displayBuffer, parameters.Factor, parameters.ShadowsClipping, cancellationToken),
-            StretchMode.Luma => await DebayeredImage.StretchLumaIntoAsync(_displayBuffer, parameters.Factor, parameters.ShadowsClipping, cancellationToken),
-            _ => DebayeredImage
-        };
+            ch1 = ch0;
+            ch2 = ch0;
+        }
+
+        var p0 = Image.ComputeStretchParameters(ch0.Median, ch0.Mad, factor, clipping);
+        var p1 = Image.ComputeStretchParameters(ch1.Median, ch1.Mad, factor, clipping);
+        var p2 = Image.ComputeStretchParameters(ch2.Median, ch2.Mad, factor, clipping);
+
+        return new GpuStretchUniforms(
+            Mode: 1,
+            NormFactor: normFactor,
+            Pedestal: (ch0.Pedestal, ch1.Pedestal, ch2.Pedestal),
+            Shadows: ((float)p0.Shadows, (float)p1.Shadows, (float)p2.Shadows),
+            Midtones: ((float)p0.Midtones, (float)p1.Midtones, (float)p2.Midtones),
+            Highlights: ((float)p0.Highlights, (float)p1.Highlights, (float)p2.Highlights),
+            Rescale: ((float)p0.Rescale, (float)p1.Rescale, (float)p2.Rescale));
     }
 
     /// <summary>
@@ -131,11 +198,11 @@ public sealed class FitsDocument
 
     /// <summary>
     /// Gets pixel information at the given display coordinates, including sky coordinates if plate-solved.
-    /// Coordinates are 0-based pixel positions in the raw image.
+    /// Returns raw (unstretched) values from the debayered image.
     /// </summary>
     public PixelInfo GetPixelInfo(int x, int y)
     {
-        var image = DisplayImage;
+        var image = DebayeredImage;
         if (x < 0 || x >= image.Width || y < 0 || y >= image.Height)
         {
             return new PixelInfo(x, y, [], null, null);
@@ -150,7 +217,6 @@ public sealed class FitsDocument
         double? ra = null, dec = null;
         if (Wcs is { } wcs)
         {
-            // PixelToSky expects 1-based FITS coordinates
             var sky = wcs.PixelToSky(x + 1, y + 1);
             if (sky.HasValue)
             {
@@ -163,18 +229,15 @@ public sealed class FitsDocument
     }
 
     /// <summary>
-    /// Extracts per-channel float arrays from <see cref="DisplayImage"/> for GPU upload as R32f textures.
-    /// Returns 1 channel for mono/single-channel view, 3 channels for RGB composite.
-    /// Each array is a flat height*width float span copied from the image data.
+    /// Extracts per-channel float arrays from the debayered image for GPU upload as R32f textures.
     /// </summary>
     public float[][] GetChannelArrays(ChannelView channelView)
     {
-        var image = DisplayImage;
+        var image = DebayeredImage;
         var (channelCount, _, _) = image.Shape;
 
         if (channelView is ChannelView.Composite && channelCount >= 3)
         {
-            // RGB composite — return 3 channel planes
             return
             [
                 image.GetChannelSpan(0).ToArray(),
@@ -183,7 +246,6 @@ public sealed class FitsDocument
             ];
         }
 
-        // Single channel (mono, or specific channel view)
         var ch = channelView switch
         {
             ChannelView.Red or ChannelView.Channel0 => 0,
@@ -200,4 +262,5 @@ public sealed class FitsDocument
 
         return [image.GetChannelSpan(ch).ToArray()];
     }
+
 }

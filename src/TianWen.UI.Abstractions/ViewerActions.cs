@@ -18,7 +18,7 @@ public static class ViewerActions
     public static void ToggleStretch(ViewerState state)
     {
         state.StretchMode = state.StretchMode is StretchMode.None ? StretchMode.Unlinked : StretchMode.None;
-        state.NeedsReprocess = true;
+        state.NeedsRedraw = true;
         state.StatusMessage = state.StretchMode is StretchMode.None ? "Stretch: Off" : "Stretch: On";
     }
 
@@ -33,7 +33,7 @@ public static class ViewerActions
             (StretchMode.Luma, true) => StretchMode.Linked,
             (_, true) => StretchMode.Unlinked,
         };
-        state.NeedsReprocess = true;
+        state.NeedsRedraw = true;
         state.StatusMessage = $"Stretch: {state.StretchMode}";
     }
 
@@ -109,25 +109,18 @@ public static class ViewerActions
             ? (state.StretchPresetIndex - 1 + presets.Length) % presets.Length
             : (state.StretchPresetIndex + 1) % presets.Length;
         state.StretchParameters = presets[state.StretchPresetIndex];
-        if (state.StretchMode is not StretchMode.None)
-        {
-            state.NeedsReprocess = true;
-        }
+        state.NeedsRedraw = true;
         state.StatusMessage = $"Stretch: {state.StretchParameters}";
     }
 
     /// <summary>
-    /// Reprocesses the image pipeline (debayer + stretch) based on current state.
+    /// Reprocesses the image pipeline based on current state.
+    /// With GPU stretch, this only triggers a texture re-upload from the debayered image.
     /// </summary>
-    public static async Task ReprocessAsync(FitsDocument document, ViewerState state, CancellationToken cancellationToken = default)
+    public static void Reprocess(ViewerState state)
     {
-        state.StatusMessage = "Processing...";
         state.NeedsReprocess = false;
-
-        await document.ApplyStretchAsync(state.StretchMode, state.StretchParameters, cancellationToken);
-
         state.NeedsTextureUpdate = true;
-        state.StatusMessage = null;
     }
 
     /// <summary>
