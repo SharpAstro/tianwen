@@ -43,7 +43,7 @@ public partial class Image
             var debayered = await DebayerAsync(debayerAlgorithm, cancellationToken);
             return await debayered.StretchUnlinkedAsync(stretchFactor, shadowsClipping, DebayerAlgorithm.None, cancellationToken);
         }
-        
+
         var (channelCount, width, height) = Shape;
 
         var stretchedData = new float[channelCount, height, width];
@@ -59,6 +59,45 @@ public partial class Image
 
         // rescale if required
         return MaxValue > stretchedImage.MaxValue ? stretchedImage.ScaleFloatValues(MaxValue) : stretchedImage;
+    }
+
+    /// <summary>
+    /// Stretches linked into a pre-allocated destination buffer, reusing memory.
+    /// The destination array must have the same dimensions as this image.
+    /// </summary>
+    internal async Task<Image> StretchLinkedIntoAsync(float[,,] destination, double stretchFactor = 0.2d, double shadowsClipping = -3d, CancellationToken cancellationToken = default)
+    {
+        if (imageMeta.SensorType is SensorType.Monochrome)
+        {
+            return await StretchUnlinkedIntoAsync(destination, stretchFactor, shadowsClipping, cancellationToken);
+        }
+
+        var (channelCount, _, _) = Shape;
+        var (pedestral, median, mad) = GetPedestralMedianAndMADScaledToUnit(0);
+
+        for (var c = 0; c < channelCount; c++)
+        {
+            await StretchChannelAsync(destination, c, stretchFactor, shadowsClipping, pedestral, median, mad, cancellationToken);
+        }
+
+        return new Image(destination, BitDepth.Float32, 1.0f, 0f, 0f, imageMeta);
+    }
+
+    /// <summary>
+    /// Stretches unlinked into a pre-allocated destination buffer, reusing memory.
+    /// The destination array must have the same dimensions as this image.
+    /// </summary>
+    internal async Task<Image> StretchUnlinkedIntoAsync(float[,,] destination, double stretchFactor = 0.2d, double shadowsClipping = -3d, CancellationToken cancellationToken = default)
+    {
+        var (channelCount, _, _) = Shape;
+
+        for (var c = 0; c < channelCount; c++)
+        {
+            var (pedestral, median, mad) = GetPedestralMedianAndMADScaledToUnit(c);
+            await StretchChannelAsync(destination, c, stretchFactor, shadowsClipping, pedestral, median, mad, cancellationToken);
+        }
+
+        return new Image(destination, BitDepth.Float32, 1.0f, 0f, 0f, imageMeta);
     }
 
     private async Task StretchChannelAsync(float[,,] stretched, int channel, double stretchFactor, double shadowsClipping, float pedestral, float median, float mad, CancellationToken cancellationToken = default)

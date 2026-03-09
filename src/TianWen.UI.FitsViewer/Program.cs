@@ -9,9 +9,6 @@ using Silk.NET.Windowing.Glfw;
 using TianWen.UI.Abstractions;
 using TianWen.UI.Abstractions.Extensions;
 using TianWen.Lib.Extensions;
-#if DEBUG
-using System.Diagnostics;
-#endif
 
 // Explicitly register GLFW platforms to avoid reflection-based discovery (AOT-incompatible).
 GlfwWindowing.RegisterPlatform();
@@ -66,13 +63,7 @@ if (initialFilePath is null && state.FitsFileNames.Count > 0 && folderPath is no
 FitsDocument? document = null;
 if (initialFilePath is not null)
 {
-#if DEBUG
-    var swOpen = Stopwatch.StartNew();
-#endif
     document = FitsDocument.Open(initialFilePath);
-#if DEBUG
-    Console.Error.WriteLine($"[DEBUG] FitsDocument.Open({Path.GetFileName(initialFilePath)}): {swOpen.ElapsedMilliseconds}ms | Mem: {GC.GetTotalMemory(false) / 1048576.0:F1}MB");
-#endif
     if (document is null)
     {
         Console.Error.WriteLine($"Warning: Failed to open FITS file: {initialFilePath}");
@@ -333,13 +324,7 @@ window.Render += (_) =>
         state.StatusMessage = $"Loading {Path.GetFileName(requestedPath)}...";
         reprocessTask = Task.Run(() =>
         {
-#if DEBUG
-            var sw = Stopwatch.StartNew();
-#endif
             var newDoc = FitsDocument.Open(requestedPath);
-#if DEBUG
-            Console.Error.WriteLine($"[DEBUG] FitsDocument.Open({Path.GetFileName(requestedPath)}): {sw.ElapsedMilliseconds}ms | Mem: {GC.GetTotalMemory(false) / 1048576.0:F1}MB");
-#endif
             if (newDoc is not null)
             {
                 document = newDoc;
@@ -371,17 +356,7 @@ window.Render += (_) =>
         state.StatusMessage = "Preparing display...";
         var doc = document;
         var channelView = state.ChannelView;
-        reprocessTask = Task.Run(() =>
-            {
-#if DEBUG
-                var sw = Stopwatch.StartNew();
-#endif
-                var result = doc.GetChannelArrays(channelView);
-#if DEBUG
-                Console.Error.WriteLine($"[DEBUG] GetChannelArrays ({result.Length}ch): {sw.ElapsedMilliseconds}ms | Mem: {GC.GetTotalMemory(false) / 1048576.0:F1}MB");
-#endif
-                return result;
-            }, cts.Token)
+        reprocessTask = Task.Run(() => doc.GetChannelArrays(channelView), cts.Token)
             .ContinueWith(t =>
             {
                 if (t.IsCompletedSuccessfully)
@@ -397,13 +372,7 @@ window.Render += (_) =>
     // Upload pending channel textures on the render thread (GL calls must happen here)
     if (pendingChannels is not null)
     {
-#if DEBUG
-        var swUpload = Stopwatch.StartNew();
-#endif
         renderer.UploadChannelTextures(pendingChannels, pendingPixelWidth, pendingPixelHeight);
-#if DEBUG
-        Console.Error.WriteLine($"[DEBUG] UploadChannelTextures ({pendingChannels.Length}ch, {pendingPixelWidth}x{pendingPixelHeight}): {swUpload.ElapsedMilliseconds}ms | Mem: {GC.GetTotalMemory(false) / 1048576.0:F1}MB");
-#endif
         pendingChannels = null;
     }
 
