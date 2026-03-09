@@ -69,12 +69,13 @@ public partial class Image
         var count = 1; /* prevent divide by zero */
         var total_value = 0f;
         var pedestralAdjustValue = removePedestral ? image.MinValue : 0f;
+        var channelData = image;
 
         for (var h = 0; h <= height - 1; h++)
         {
             for (var w = 0; w <= width - 1; w++)
             {
-                var value = image[channel, h, w];
+                var value = channelData[channel, h, w];
                 if (!float.IsNaN(value))
                 {
                     var valueMinusPedestral = value - pedestralAdjustValue;
@@ -271,6 +272,7 @@ public partial class Image
         var iterations = 0;
 
         var rescaledFactor = histogram.RescaledMaxValue ?? 1.0f;
+        var channelData = data[channel];
         // repeat until sd is stable or 7 iterations
         do
         {
@@ -283,7 +285,7 @@ public partial class Image
                 var fitsX = 15;
                 while (fitsX <= width - 1 - 15)
                 {
-                    var value = data[channel, fitsY, fitsX];
+                    var value = channelData[fitsY, fitsX];
                     // not an outlier, noise should be symmetrical so should be less then twice background
                     if (!float.IsNaN(value))
                     {

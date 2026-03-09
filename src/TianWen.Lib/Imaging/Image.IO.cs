@@ -69,26 +69,30 @@ public partial class Image
         var channelCount = headerIntSize > 5 ? ints[5] : 1;
         var minValue = headerIntSize > 6 ? BitConverter.Int32BitsToSingle(ints[6]) : blackLevel;
 
-        var imageSize = channelCount * width * height;
-        var dataSize = imageSize * sizeof(float);
+        var channelPixels = height * width;
+        var channelByteSize = channelPixels * sizeof(float);
+        var channelBytes = new byte[channelByteSize];
+        var imgChannels = new float[channelCount][,];
 
-        var byteData = new byte[dataSize];
-        await stream.ReadExactlyAsync(byteData, cancellationToken);
-
-        if (dataIsLittleEndian != BitConverter.IsLittleEndian)
+        for (var c = 0; c < channelCount; c++)
         {
-            for (var i = 0; i < imageSize; i++)
-            {
-                Array.Reverse(byteData, i * sizeof(float), sizeof(float));
-            }
-        }
+            await stream.ReadExactlyAsync(channelBytes, cancellationToken);
 
-        var data = new float[channelCount, height, width];
-        Buffer.BlockCopy(byteData, 0, data, 0, byteData.Length);
+            if (dataIsLittleEndian != BitConverter.IsLittleEndian)
+            {
+                for (var i = 0; i < channelPixels; i++)
+                {
+                    Array.Reverse(channelBytes, i * sizeof(float), sizeof(float));
+                }
+            }
+
+            imgChannels[c] = new float[height, width];
+            Buffer.BlockCopy(channelBytes, 0, imgChannels[c], 0, channelByteSize);
+        }
 
         var imageMeta = await JsonSerializer.DeserializeAsync(stream, ImageJsonSerializerContext.Default.ImageMeta, cancellationToken);
 
-        return new Image(data, bitDepth, maxValue, minValue, blackLevel, imageMeta);
+        return new Image(imgChannels, bitDepth, maxValue, minValue, blackLevel, imageMeta);
     }
 
     /// <summary>
@@ -120,7 +124,13 @@ public partial class Image
             await stream.WriteAsync(BitConverter.GetBytes(header[i]), cancellationToken);
         }
 
-        await stream.WriteAsync(data.AsMemory().Cast<float, byte>(), cancellationToken);
+        var channelByteSize = height * width * sizeof(float);
+        var channelBytes = new byte[channelByteSize];
+        for (var c = 0; c < channelCount; c++)
+        {
+            Buffer.BlockCopy(data[c], 0, channelBytes, 0, channelByteSize);
+            await stream.WriteAsync(channelBytes, cancellationToken);
+        }
 
         await JsonSerializer.SerializeAsync(stream, ImageMeta, ImageJsonSerializerContext.Default.ImageMeta, cancellationToken);
     }

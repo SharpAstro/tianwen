@@ -24,7 +24,7 @@ public partial class Image
 
             var (pedestral, median, mad) = GetPedestralMedianAndMADScaledToUnit(0);
 
-            var stretchedData = new float[channelCount, height, width];
+            var stretchedData = CreateChannelData(channelCount, height, width);
             for (var c = 0; c < channelCount; c++)
             {
                 await StretchChannelAsync(stretchedData, c, stretchFactor, shadowsClipping, pedestral, median, mad, cancellationToken);
@@ -46,7 +46,7 @@ public partial class Image
 
         var (channelCount, width, height) = Shape;
 
-        var stretchedData = new float[channelCount, height, width];
+        var stretchedData = CreateChannelData(channelCount, height, width);
 
         for (var c = 0; c < channelCount; c++)
         {
@@ -65,7 +65,7 @@ public partial class Image
     /// Stretches linked into a pre-allocated destination buffer, reusing memory.
     /// The destination array must have the same dimensions as this image.
     /// </summary>
-    internal async Task<Image> StretchLinkedIntoAsync(float[,,] destination, double stretchFactor = 0.2d, double shadowsClipping = -3d, CancellationToken cancellationToken = default)
+    internal async Task<Image> StretchLinkedIntoAsync(float[][,] destination, double stretchFactor = 0.2d, double shadowsClipping = -3d, CancellationToken cancellationToken = default)
     {
         if (imageMeta.SensorType is SensorType.Monochrome)
         {
@@ -87,7 +87,7 @@ public partial class Image
     /// Stretches unlinked into a pre-allocated destination buffer, reusing memory.
     /// The destination array must have the same dimensions as this image.
     /// </summary>
-    internal async Task<Image> StretchUnlinkedIntoAsync(float[,,] destination, double stretchFactor = 0.2d, double shadowsClipping = -3d, CancellationToken cancellationToken = default)
+    internal async Task<Image> StretchUnlinkedIntoAsync(float[][,] destination, double stretchFactor = 0.2d, double shadowsClipping = -3d, CancellationToken cancellationToken = default)
     {
         var (channelCount, _, _) = Shape;
 
@@ -100,7 +100,7 @@ public partial class Image
         return new Image(destination, BitDepth.Float32, 1.0f, 0f, 0f, imageMeta);
     }
 
-    private async Task StretchChannelAsync(float[,,] stretched, int channel, double stretchFactor, double shadowsClipping, float pedestral, float median, float mad, CancellationToken cancellationToken = default)
+    private async Task StretchChannelAsync(float[][,] stretched, int channel, double stretchFactor, double shadowsClipping, float pedestral, float median, float mad, CancellationToken cancellationToken = default)
     {
         var (channelCount, width, height) = Shape;
 
@@ -128,19 +128,22 @@ public partial class Image
             highlights = 1;
         }
 
+        var srcChannel = data[channel];
+        var dstChannel = stretched[channel];
+
         await Parallel.ForAsync(0, height, new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = Environment.ProcessorCount * 4 }, async (y, ct) => await Task.Run(() =>
         {
             for (var x = 0; x < width; x++)
             {
-                var value = data[channel, y, x];
+                var value = srcChannel[y, x];
                 if (!float.IsNaN(value))
                 {
                     var normValue = (needsNorm ? value * normFactor : value) - pedestral;
-                    stretched[channel, y, x] = (float)MidtonesTransferFunction(midtones, 1 - highlights + normValue - shadows);
+                    dstChannel[y, x] = (float)MidtonesTransferFunction(midtones, 1 - highlights + normValue - shadows);
                 }
                 else
                 {
-                    stretched[channel, y, x] = float.NaN;
+                    dstChannel[y, x] = float.NaN;
                 }
             }
             return ValueTask.CompletedTask;

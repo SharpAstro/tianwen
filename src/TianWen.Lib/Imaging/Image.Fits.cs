@@ -6,6 +6,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Numerics;
+using System.Runtime.InteropServices;
 
 namespace TianWen.Lib.Imaging;
 
@@ -94,53 +95,45 @@ public partial class Image
         }
 
         bool trivialScaling = bscale == 1f && bzero == 0f;
-        float[,,] imgArray;
+        var imgChannels = new float[channelCount][,];
 
-        // Fast path: float 3D data with trivial scaling — reuse the array directly (zero-copy)
-        if (trivialScaling && dataArray is float[,,] floatSrc3d)
+        // Use GetChannel API from FITS.Lib 4.2 for per-channel access
+        for (int c = 0; c < channelCount; c++)
         {
-            imgArray = floatSrc3d;
-            if (needsMinMaxValRecalc)
+            var channelArray = imageData.GetChannel(c);
+
+            if (trivialScaling && channelArray is float[,] floatChannel)
             {
-                RecalcMinMax(imgArray, channelCount, ref minValue, ref maxValue);
+                // Zero-copy: reuse float[,] from FITS.Lib directly
+                imgChannels[c] = floatChannel;
             }
-        }
-        // Float 2D with trivial scaling — single BlockCopy into 3D wrapper
-        else if (trivialScaling && dataArray is float[,] floatSrc2d)
-        {
-            imgArray = new float[1, height, width];
-            Buffer.BlockCopy(floatSrc2d, 0, imgArray, 0, sizeof(float) * height * width);
-            if (needsMinMaxValRecalc)
+            else
             {
-                RecalcMinMax(imgArray, channelCount, ref minValue, ref maxValue);
-            }
-        }
-        else
-        {
-            imgArray = new float[channelCount, height, width];
-            // Generic conversion path for all element types with bscale/bzero application
-            switch (dataArray)
-            {
-                case byte[,] src: Convert2D(src); break;
-                case byte[,,] src: Convert3D(src); break;
-                case short[,] src: Convert2D(src); break;
-                case short[,,] src: Convert3D(src); break;
-                case int[,] src: Convert2D(src); break;
-                case int[,,] src: Convert3D(src); break;
-                case float[,] src: Convert2D(src); break;
-                case float[,,] src: Convert3D(src); break;
-                default:
-                    image = null;
-                    return false;
+                imgChannels[c] = new float[height, width];
+                switch (channelArray)
+                {
+                    case byte[,] src: ConvertChannel(src, imgChannels[c]); break;
+                    case short[,] src: ConvertChannel(src, imgChannels[c]); break;
+                    case int[,] src: ConvertChannel(src, imgChannels[c]); break;
+                    case float[,] src: ConvertChannel(src, imgChannels[c]); break;
+                    default:
+                        image = null;
+                        return false;
+                }
             }
         }
 
-        void Convert2D<T>(T[,] src) where T : struct, INumberBase<T>
+        if (needsMinMaxValRecalc)
         {
-            var dst = imgArray.AsSpan2D(0);
+            RecalcMinMax(imgChannels, channelCount, ref minValue, ref maxValue);
+        }
+
+        void ConvertChannel<T>(T[,] src, float[,] dst) where T : struct, INumberBase<T>
+        {
+            var dstSpan = dst.AsSpan2D();
             for (int h = 0; h < height; h++)
             {
-                var row = dst.GetRowSpan(h);
+                var row = dstSpan.GetRowSpan(h);
                 for (int w = 0; w < width; w++)
                 {
                     var val = bscale * float.CreateTruncating(src[h, w]) + bzero;
@@ -154,33 +147,14 @@ public partial class Image
             }
         }
 
-        void Convert3D<T>(T[,,] src) where T : struct, INumberBase<T>
+        static void RecalcMinMax(float[][,] channels, int channelCount, ref float minValue, ref float maxValue)
         {
             for (int c = 0; c < channelCount; c++)
             {
-                var dst = imgArray.AsSpan2D(c);
-                for (int h = 0; h < height; h++)
-                {
-                    var row = dst.GetRowSpan(h);
-                    for (int w = 0; w < width; w++)
-                    {
-                        var val = bscale * float.CreateTruncating(src[c, h, w]) + bzero;
-                        row[w] = val;
-                        if (needsMinMaxValRecalc && !float.IsNaN(val))
-                        {
-                            maxValue = MathF.Max(maxValue, val);
-                            minValue = MathF.Min(minValue, val);
-                        }
-                    }
-                }
-            }
-        }
-
-        static void RecalcMinMax(float[,,] imgArray, int channelCount, ref float minValue, ref float maxValue)
-        {
-            for (int c = 0; c < channelCount; c++)
-            {
-                var span = imgArray.AsSpan(c);
+                var channel = channels[c];
+                var len = channel.Length;
+                ref var r0 = ref channel[0, 0];
+                var span = MemoryMarshal.CreateReadOnlySpan(ref r0, len);
                 for (int i = 0; i < span.Length; i++)
                 {
                     var val = span[i];
@@ -214,7 +188,7 @@ public partial class Image
             latitude,
             longitude
         );
-        image = new Image(imgArray, bitDepth, maxValue, minValue, blackLevel, imageMeta);
+        image = new Image(imgChannels, bitDepth, maxValue, minValue, blackLevel, imageMeta);
         return true;
     }
 
@@ -228,43 +202,75 @@ public partial class Image
         switch (bitDepth)
         {
             case BitDepth.Int8:
-                var byteArray = new byte[channelCount, height, width];
                 bzero = 0;
                 dataIsInt = true;
-                for (var c = 0; c < channelCount; c++)
+                if (channelCount == 1)
                 {
+                    var byteArray = new byte[height, width];
                     for (var h = 0; h < height; h++)
                     {
                         for (var w = 0; w < width; w++)
                         {
-                            byteArray[c, h, w] = (byte)data[c, h, w];
+                            byteArray[h, w] = (byte)data[0][h, w];
                         }
                     }
+                    arrayToWrite = byteArray;
                 }
-                arrayToWrite = byteArray;
+                else
+                {
+                    var byteChannels = new byte[channelCount][,];
+                    for (var c = 0; c < channelCount; c++)
+                    {
+                        byteChannels[c] = new byte[height, width];
+                        for (var h = 0; h < height; h++)
+                        {
+                            for (var w = 0; w < width; w++)
+                            {
+                                byteChannels[c][h, w] = (byte)data[c][h, w];
+                            }
+                        }
+                    }
+                    arrayToWrite = byteChannels;
+                }
                 break;
 
             case BitDepth.Int16:
-                var shortArray = new short[channelCount, height, width];
                 bzero = 32768;
                 dataIsInt = true;
-                for (var c = 0; c < channelCount; c++)
+                if (channelCount == 1)
                 {
+                    var shortArray = new short[height, width];
                     for (var h = 0; h < height; h++)
                     {
                         for (var w = 0; w < width; w++)
                         {
-                            shortArray[c, h, w] = (short)(data[c, h, w] - bzero);
+                            shortArray[h, w] = (short)(data[0][h, w] - bzero);
                         }
                     }
+                    arrayToWrite = shortArray;
                 }
-                arrayToWrite = shortArray;
+                else
+                {
+                    var shortChannels = new short[channelCount][,];
+                    for (var c = 0; c < channelCount; c++)
+                    {
+                        shortChannels[c] = new short[height, width];
+                        for (var h = 0; h < height; h++)
+                        {
+                            for (var w = 0; w < width; w++)
+                            {
+                                shortChannels[c][h, w] = (short)(data[c][h, w] - bzero);
+                            }
+                        }
+                    }
+                    arrayToWrite = shortChannels;
+                }
                 break;
 
             case BitDepth.Float32:
                 bzero = 0;
                 dataIsInt = false;
-                arrayToWrite = data;
+                arrayToWrite = channelCount == 1 ? data[0] : data;
                 break;
 
             default:

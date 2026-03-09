@@ -79,7 +79,7 @@ public partial class Image
         var channelCount = ChannelCount;
         var width = Width;
         var height = Height;
-        var transformedData = new float[channelCount, newHeight, newWidth];
+        var transformedData = CreateChannelData(channelCount, newHeight, newWidth);
 
         var parallelOptions = new ParallelOptions
         {
@@ -90,12 +90,13 @@ public partial class Image
         for (var c = 0; c < channelCount; c++)
         {
             var channel = c;
+            var dstChannel = transformedData[channel];
             await Parallel.ForAsync(0, newHeight, parallelOptions, async (y, ct) => await Task.Run(() =>
             {
                 for (var x = 0; x < newWidth; x++)
                 {
                     var sourcePos = Vector2.Transform(new Vector2(x, y), inverseTransform);
-                    transformedData[channel, y, x] = sourcePos.X >= 0 && sourcePos.X < width && sourcePos.Y >= 0 && sourcePos.Y < height
+                    dstChannel[y, x] = sourcePos.X >= 0 && sourcePos.X < width && sourcePos.Y >= 0 && sourcePos.Y < height
                         ? SubpixelValue(channel, sourcePos.X, sourcePos.Y)
                         : float.NaN;
                 }

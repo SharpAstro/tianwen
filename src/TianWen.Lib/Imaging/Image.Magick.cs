@@ -1,4 +1,3 @@
-using CommunityToolkit.HighPerformance;
 using ImageMagick;
 using System;
 using System.Threading;
@@ -72,7 +71,7 @@ public partial class Image
             };
 
             using var pix = image.GetPixelsUnsafe();
-            pix.SetPixels(data.AsSpan(channel));
+            pix.SetPixels(GetChannelSpan(channel));
 
             return image;
         }

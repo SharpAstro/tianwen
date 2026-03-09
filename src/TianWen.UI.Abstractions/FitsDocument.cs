@@ -16,7 +16,7 @@ public sealed class FitsDocument
     private readonly string _filePath;
 
     /// <summary>Pre-allocated buffer for stretch output, reused across stretch calls to avoid allocation.</summary>
-    private float[,,]? _displayBuffer;
+    private float[][,]? _displayBuffer;
 
     /// <summary>Raw image as loaded from the FITS file.</summary>
     public Image RawImage { get; }
@@ -108,11 +108,11 @@ public sealed class FitsDocument
 
         // Allocate or reuse the display buffer
         if (_displayBuffer is null
-            || _displayBuffer.GetLength(0) != channelCount
-            || _displayBuffer.GetLength(1) != height
-            || _displayBuffer.GetLength(2) != width)
+            || _displayBuffer.Length != channelCount
+            || _displayBuffer[0].GetLength(0) != height
+            || _displayBuffer[0].GetLength(1) != width)
         {
-            _displayBuffer = new float[channelCount, height, width];
+            _displayBuffer = Image.CreateChannelData(channelCount, height, width);
         }
 
         DisplayImage = mode switch

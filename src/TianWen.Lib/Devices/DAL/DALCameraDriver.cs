@@ -694,10 +694,11 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         }
 
         var cachedArray = Interlocked.Exchange(ref _camImageArray, null);
-        var (data, maxValue, minValue) = cachedArray?.Data is null || cachedArray.Data.GetLength(0) != h || cachedArray.Data.GetLength(1) != w
-            ? new Float32HxWImageData(new float[1, h, w], 0f, float.MaxValue)
+        var (data, maxValue, minValue) = cachedArray?.Data is null || cachedArray.Data[0].GetLength(0) != h || cachedArray.Data[0].GetLength(1) != w
+            ? new Float32HxWImageData([new float[h, w]], 0f, float.MaxValue)
             : cachedArray;
 
+        var channel = data[0];
         switch (exposureSettings.BitDepth.BitSize)
         {
             case 8:
@@ -707,7 +708,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
                 {
                     for (var j = 0; j < w; j++)
                     {
-                        var @byte = data[0, i, j] = bytes[(w * i) + j];
+                        var @byte = channel[i, j] = bytes[(w * i) + j];
                         maxValue = MathF.Max(@byte, maxValue);
                         minValue = MathF.Min(@byte, minValue);
                     }
@@ -721,7 +722,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
                 {
                     for (var j = 0; j < w; j++)
                     {
-                        var @short = data[0, i, j] = shorts[(w * i) + j];
+                        var @short = channel[i, j] = shorts[(w * i) + j];
                         maxValue = MathF.Max(@short, maxValue);
                         minValue = MathF.Min(@short, minValue);
                     }

@@ -89,6 +89,7 @@ public partial class Image
 
         var starList = new ConcurrentBag<ImagedStar>();
         var img_star_area = new BitMatrix(height, width);
+        var channelData = data[channel];
 
         // we use interleaved processing of rows (so that we do not have to lock to protect the bitmatrix
         var halfChunkCount = (int)Math.Ceiling(height * HalfChunkSizeInv);
@@ -109,7 +110,7 @@ public partial class Image
                             for (var fitsX = 0; fitsX < width; fitsX++)
                             {
                                 // new star. For analyse used sigma is 5, so not too low.
-                                var value = data[channel, fitsY, fitsX];
+                                var value = channelData[fitsY, fitsX];
                                 if (float.IsNaN(value))
                                 {
                                     img_star_area[fitsY, fitsX] = true; /* ignore NaN values */
@@ -190,6 +191,7 @@ public partial class Image
             return false;
         }
 
+        var channelData = data[channel];
         Span<float> backgroundScratch = stackalloc float[maxAnnulusBg];
         int backgroundIndex = 0;
 
@@ -204,7 +206,7 @@ public partial class Image
                     /*annulus, circular area outside rs, typical one pixel wide*/
                     if (distance > r1_square && distance <= r2_square)
                     {
-                        var value = data[channel, y1 + i, x1 + j];
+                        var value = channelData[y1 + i, x1 + j];
                         if (!float.IsNaN(value))
                         {
                             backgroundScratch[backgroundIndex++] = value;
@@ -254,7 +256,7 @@ public partial class Image
                 {
                     for (var j = -boxRadius; j <= boxRadius; j++)
                     {
-                        var value = data[channel, y1 + i, x1 + j];
+                        var value = channelData[y1 + i, x1 + j];
                         if (!float.IsNaN(value))
                         {
                             var bg_sub_value = value - bg;
