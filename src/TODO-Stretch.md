@@ -6,10 +6,10 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 
 Biggest quality win for color images. Our linked stretch applies the same MTF to all RGB channels, which desaturates colors. Luma-only mode:
 
-- Compute luminance: `Y = 0.2126*R + 0.7152*G + 0.0722*B` (rec709)
-- Stretch Y → Y' using the standard MTF
-- Scale all channels by `Y'/Y`, preserving chrominance ratios
-- Add as a third `StretchMode` (Linked / Unlinked / **Luma**)
+- [x] Compute luminance: `Y = 0.2126*R + 0.7152*G + 0.0722*B` (rec709)
+- [x] Stretch Y → Y' using the standard MTF
+- [x] Scale all channels by `Y'/Y`, preserving chrominance ratios
+- [x] Add as a third `StretchMode` (Linked / Unlinked / **Luma**)
 - Support rec601/rec2020 weighting options
 
 ## 2. HDR compression (GPU shader)
@@ -17,10 +17,10 @@ Biggest quality win for color images. Our linked stretch applies the same MTF to
 Hermite soft-knee compression for blown-out star cores and galaxy centers.
 Only affects values above a configurable knee point — faint detail is untouched.
 
-- Add `uHdrAmount` and `uHdrKnee` uniforms to the image fragment shader
-- Hermite basis: cubic interpolation from knee to 1.0 with adjustable tangent
-- Toolbar button or keyboard shortcut to cycle amount/knee presets
-- Zero CPU cost — pure display-time transform like curves boost
+- [x] Add `uHdrAmount` and `uHdrKnee` uniforms to the image fragment shader
+- [x] Hermite basis: cubic interpolation from knee to 1.0 with adjustable tangent
+- [x] Toolbar button or keyboard shortcut to cycle amount/knee presets
+- [x] Zero CPU cost — pure display-time transform like curves boost
 
 ## 3. Normalize after stretch
 
