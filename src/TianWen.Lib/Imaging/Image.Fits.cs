@@ -65,7 +65,7 @@ public partial class Image
         var pixelSizeY = hdu.Header.GetFloatValue("YPIXSZ", float.NaN);
         var xbinning = hdu.Header.GetIntValue("XBINNING", 1);
         var ybinning = hdu.Header.GetIntValue("YBINNING", 1);
-        var blackLevel = hdu.Header.GetFloatValue("BLKLEVEL", hdu.Header.GetFloatValue("OFFSET", float.NaN));
+        var blackLevel = hdu.Header.GetFloatValue("BLKLEVEL", hdu.Header.GetFloatValue("OFFSET", 0f));
         var pixelScale = hdu.Header.GetFloatValue("PIXSCALE", float.NaN);
         var focalLength = hdu.Header.GetIntValue("FOCALLEN", -1);
         var focusPos = hdu.Header.GetIntValue("FOCUSPOS", -1);

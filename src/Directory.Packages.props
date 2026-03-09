@@ -5,12 +5,12 @@
   <ItemGroup>
     <!-- Source generator packages -->
     <PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="3.11.0" />
-    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.12.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.0.0" />
     <!-- Core libraries -->
     <PackageVersion Include="CommunityToolkit.HighPerformance" Version="8.4.0" />
     <PackageVersion Include="CsvHelper" Version="33.1.0" />
     <PackageVersion Include="DotNext.Threading" Version="5.26.3" />
-    <PackageVersion Include="FITS.Lib" Version="3.1.8" />
+    <PackageVersion Include="FITS.Lib" Version="3.2.0" />
     <PackageVersion Include="GeoTimeZone" Version="6.1.0" />
     <PackageVersion Include="Magick.NET-Q16-HDRI-AnyCPU" Version="14.10.3" />
     <!-- Microsoft packages -->
@@ -37,6 +37,10 @@
     <!-- CLI packages -->
     <PackageVersion Include="Pastel" Version="7.0.1" />
     <PackageVersion Include="System.CommandLine" Version="2.0.3" />
+    <!-- Silk.NET packages -->
+    <PackageVersion Include="Silk.NET.Input" Version="2.23.0" />
+    <PackageVersion Include="Silk.NET.OpenGL" Version="2.23.0" />
+    <PackageVersion Include="Silk.NET.Windowing" Version="2.23.0" />
     <!-- Other packages -->
     <PackageVersion Include="WWA.Core" Version="1.2.0" />
     <PackageVersion Include="ZWOptical.SDK" Version="3.4.531" />
