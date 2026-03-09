@@ -150,7 +150,7 @@ public static class ViewerActions
             return;
         }
 
-        string[] fitsPatterns = ["*.fit", "*.fits", "*.fts", "*.fits.gz"];
+        string[] fitsPatterns = ["*.fit", "*.fits", "*.fts"];
         var files = fitsPatterns
             .SelectMany(p => Directory.EnumerateFiles(folderPath, p, SearchOption.TopDirectoryOnly))
             .Select(Path.GetFileName)
