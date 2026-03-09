@@ -36,7 +36,9 @@ public partial class Image
     {
         var width = Width;
         var height = Height;
-        var debayered = new float[1, height, width];
+        var debayered = CreateChannelData(1, height, width);
+        var dstChannel = debayered[0];
+        var srcChannel = data[0];
         var w1 = width - 1;
         var h1 = height - 1;
 
@@ -51,11 +53,11 @@ public partial class Image
         {
             for (int x = 0; x < w1; x++)
             {
-                debayered[0, y, x] = (float)(0.25d * ((double)data[0, y, x] + data[0, y + 1, x + 1] + data[0, y, x + 1] + data[0, y + 1, x]));
+                dstChannel[y, x] = (float)(0.25d * ((double)srcChannel[y, x] + srcChannel[y + 1, x + 1] + srcChannel[y, x + 1] + srcChannel[y + 1, x]));
             }
 
             // last column
-            debayered[0, y, w1] = (float)(0.25d * ((double)data[0, y, w1] + data[0, y + 1, w1 - 1] + data[0, y, w1 - 1] + data[0, y + 1, w1]));
+            dstChannel[y, w1] = (float)(0.25d * ((double)srcChannel[y, w1] + srcChannel[y + 1, w1 - 1] + srcChannel[y, w1 - 1] + srcChannel[y + 1, w1]));
 
             return ValueTask.CompletedTask;
         }, ct));
@@ -63,11 +65,11 @@ public partial class Image
         // last row (processed sequentially as it's a single row)
         for (int x = 0; x < w1; x++)
         {
-            debayered[0, h1, x] = (float)(0.25d * ((double)data[0, h1, x] + data[0, h1 - 1, x + 1] + data[0, h1, x + 1] + data[0, h1 - 1, x]));
+            dstChannel[h1, x] = (float)(0.25d * ((double)srcChannel[h1, x] + srcChannel[h1 - 1, x + 1] + srcChannel[h1, x + 1] + srcChannel[h1 - 1, x]));
         }
 
         // last pixel
-        debayered[0, h1, w1] = (float)(0.25d * ((double)data[0, h1, w1] + data[0, h1 - 1, w1 - 1] + data[0, h1, w1 - 1] + data[0, h1 - 1, w1]));
+        dstChannel[h1, w1] = (float)(0.25d * ((double)srcChannel[h1, w1] + srcChannel[h1 - 1, w1 - 1] + srcChannel[h1, w1 - 1] + srcChannel[h1 - 1, w1]));
 
         return new Image(debayered, BitDepth.Float32, maxValue, minValue, blackLevel, imageMeta with
         {
@@ -83,7 +85,7 @@ public partial class Image
     {
         var width = Width;
         var height = Height;
-        var debayered = new float[3, height, width]; // RGB output
+        var debayered = CreateChannelData(3, height, width); // RGB output
 
         var bayerOffsetX = imageMeta.BayerOffsetX;
         var bayerOffsetY = imageMeta.BayerOffsetY;
@@ -98,6 +100,11 @@ public partial class Image
 
         const int R = 0, G = 1, B = 2;
         const int radius = 2;
+
+        var srcChannel = data[0];
+        var dstR = debayered[R];
+        var dstG = debayered[G];
+        var dstB = debayered[B];
 
         // Process interior pixels in parallel (where full VNG can be applied)
         await Parallel.ForAsync(radius,
@@ -114,8 +121,8 @@ public partial class Image
                     int knownColor = (x & 1) == 0 ? patternEven : patternOdd;
 
                     // Copy known value
-                    float rawValue = data[0, y, x];
-                    debayered[knownColor, y, x] = rawValue;
+                    float rawValue = srcChannel[y, x];
+                    debayered[knownColor][y, x] = rawValue;
 
                     // Interpolate missing colors based on which color we have
                     if (knownColor == G)
@@ -125,18 +132,18 @@ public partial class Image
                         int neighborColor = (x & 1) == 0 ? patternOdd : patternEven;
                         bool rOnHorizontal = neighborColor == R;
 
-                        debayered[R, y, x] = rOnHorizontal
-                            ? InterpolateHorizontalVNG(x, y)
-                            : InterpolateVerticalVNG(x, y);
-                        debayered[B, y, x] = rOnHorizontal
-                            ? InterpolateVerticalVNG(x, y)
-                            : InterpolateHorizontalVNG(x, y);
+                        dstR[y, x] = rOnHorizontal
+                            ? InterpolateHorizontalVNG(srcChannel, x, y)
+                            : InterpolateVerticalVNG(srcChannel, x, y);
+                        dstB[y, x] = rOnHorizontal
+                            ? InterpolateVerticalVNG(srcChannel, x, y)
+                            : InterpolateHorizontalVNG(srcChannel, x, y);
                     }
                     else
                     {
                         // At R or B pixel: interpolate G and the opposite color
-                        debayered[G, y, x] = InterpolateGreenAtRBVNG(x, y);
-                        debayered[knownColor == R ? B : R, y, x] = InterpolateDiagonalVNG(x, y);
+                        dstG[y, x] = InterpolateGreenAtRBVNG(srcChannel, x, y);
+                        debayered[knownColor == R ? B : R][y, x] = InterpolateDiagonalVNG(srcChannel, x, y);
                     }
                 }
 
@@ -156,32 +163,32 @@ public partial class Image
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private float InterpolateGreenAtRBVNG(int x, int y)
+    private static float InterpolateGreenAtRBVNG(float[,] src, int x, int y)
     {
         // Interpolate green at R or B position using 4 cardinal directions
-        float center = data[0, y, x];
+        float center = src[y, x];
 
         // North: green at y-1, same color at y-2
-        float gN = data[0, y - 1, x];
-        float vN = data[0, y - 2, x];
+        float gN = src[y - 1, x];
+        float vN = src[y - 2, x];
         float gradN = MathF.Abs(MathF.FusedMultiplyAdd(2, gN, - vN - center));
         float valN = gN + (center - vN) * 0.5f;
 
         // South
-        float gS = data[0, y + 1, x];
-        float vS = data[0, y + 2, x];
+        float gS = src[y + 1, x];
+        float vS = src[y + 2, x];
         float gradS = MathF.Abs(MathF.FusedMultiplyAdd(2, gS, - center - vS));
         float valS = MathF.FusedMultiplyAdd(center - vS, 0.5f, gS);
 
         // West
-        float gW = data[0, y, x - 1];
-        float vW = data[0, y, x - 2];
+        float gW = src[y, x - 1];
+        float vW = src[y, x - 2];
         float gradW = MathF.Abs(2 * gW - vW - center);
         float valW = MathF.FusedMultiplyAdd(center - vW, 0.5f, gW);
 
         // East
-        float gE = data[0, y, x + 1];
-        float vE = data[0, y, x + 2];
+        float gE = src[y, x + 1];
+        float vE = src[y, x + 2];
         float gradE = MathF.Abs(2 * gE - center - vE);
         float valE = MathF.FusedMultiplyAdd(center - vE, 0.5f, gE);
 
@@ -202,12 +209,12 @@ public partial class Image
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private float InterpolateHorizontalVNG(int x, int y)
+    private static float InterpolateHorizontalVNG(float[,] src, int x, int y)
     {
         // Interpolate R or B at green position from horizontal neighbors
-        float center = data[0, y, x];
-        float left = data[0, y, x - 1];
-        float right = data[0, y, x + 1];
+        float center = src[y, x];
+        float left = src[y, x - 1];
+        float right = src[y, x + 1];
 
         float gradL = MathF.Abs(left - center);
         float gradR = MathF.Abs(right - center);
@@ -225,12 +232,12 @@ public partial class Image
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private float InterpolateVerticalVNG(int x, int y)
+    private static float InterpolateVerticalVNG(float[,] src, int x, int y)
     {
         // Interpolate R or B at green position from vertical neighbors
-        float center = data[0, y, x];
-        float top = data[0, y - 1, x];
-        float bottom = data[0, y + 1, x];
+        float center = src[y, x];
+        float top = src[y - 1, x];
+        float bottom = src[y + 1, x];
 
         float gradT = MathF.Abs(top - center);
         float gradB = MathF.Abs(bottom - center);
@@ -248,21 +255,21 @@ public partial class Image
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private float InterpolateDiagonalVNG(int x, int y)
+    private static float InterpolateDiagonalVNG(float[,] src, int x, int y)
     {
         // Interpolate R at B or B at R from 4 diagonal neighbors
-        float center = data[0, y, x];
+        float center = src[y, x];
 
-        float nw = data[0, y - 1, x - 1];
-        float ne = data[0, y - 1, x + 1];
-        float sw = data[0, y + 1, x - 1];
-        float se = data[0, y + 1, x + 1];
+        float nw = src[y - 1, x - 1];
+        float ne = src[y - 1, x + 1];
+        float sw = src[y + 1, x - 1];
+        float se = src[y + 1, x + 1];
 
         // Green values at cardinal neighbors
-        float gN = data[0, y - 1, x];
-        float gS = data[0, y + 1, x];
-        float gW = data[0, y, x - 1];
-        float gE = data[0, y, x + 1];
+        float gN = src[y - 1, x];
+        float gS = src[y + 1, x];
+        float gW = src[y, x - 1];
+        float gE = src[y, x + 1];
 
         // Calculate gradients including green channel differences
         float gradNW = MathF.Abs(nw - center) + MathF.Abs(gN - gW);
@@ -285,7 +292,7 @@ public partial class Image
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private void ProcessEdgePixels(float[,,] debayered, int width, int height, int radius, int[,] bayerPattern)
+    private void ProcessEdgePixels(float[][,] debayered, int width, int height, int radius, int[,] bayerPattern)
     {
         // Top and bottom edges
         for (int y = 0; y < height; y++)
@@ -314,16 +321,16 @@ public partial class Image
 
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private void ProcessEdgePixel(float[,,] debayered, int x, int y, int width, int height, int[,] bayerPattern)
+    private void ProcessEdgePixel(float[][,] debayered, int x, int y, int width, int height, int[,] bayerPattern)
     {
         int knownColor = bayerPattern[y & 1, x & 1];
-        debayered[knownColor, y, x] = data[0, y, x];
+        debayered[knownColor][y, x] = data[0][y, x];
 
         for (int c = 0; c < 3; c++)
         {
             if (c != knownColor)
             {
-                debayered[c, y, x] = BilinearInterpolateColorFast(x, y, c, width, height, bayerPattern);
+                debayered[c][y, x] = BilinearInterpolateColorFast(x, y, c, width, height, bayerPattern);
             }
         }
     }
@@ -333,6 +340,7 @@ public partial class Image
     {
         float sum = 0;
         int count = 0;
+        var srcChannel = data[0];
 
         int yMin = Math.Max(0, y - 2);
         int yMax = Math.Min(height - 1, y + 2);
@@ -346,7 +354,7 @@ public partial class Image
             {
                 if (bayerPattern[patternY, nx & 1] == targetColor)
                 {
-                    sum += data[0, ny, nx];
+                    sum += srcChannel[ny, nx];
                     count++;
                 }
             }
@@ -359,7 +367,7 @@ public partial class Image
     {
         var width = Width;
         var height = Height;
-        var debayered = new float[3, height, width]; // RGB output
+        var debayered = CreateChannelData(3, height, width); // RGB output
 
         var bayerOffsetX = imageMeta.BayerOffsetX;
         var bayerOffsetY = imageMeta.BayerOffsetY;
@@ -377,8 +385,12 @@ public partial class Image
         const int totalRadius = radius + homogeneityRadius;
 
         // Phase 1 & 2: Build horizontal and vertical full-color interpolations in parallel
-        var rgbH = new float[3, height, width];
-        var rgbV = new float[3, height, width];
+        var rgbH = CreateChannelData(3, height, width);
+        var rgbV = CreateChannelData(3, height, width);
+
+        var srcChannel = data[0];
+        var rgbH_R = rgbH[R]; var rgbH_G = rgbH[G]; var rgbH_B = rgbH[B];
+        var rgbV_R = rgbV[R]; var rgbV_G = rgbV[G]; var rgbV_B = rgbV[B];
 
         var parallelOptions = new ParallelOptions
         {
@@ -395,27 +407,27 @@ public partial class Image
             for (int x = radius; x < width - radius; x++)
             {
                 int knownColor = (x & 1) == 0 ? patternEven : patternOdd;
-                float rawValue = data[0, y, x];
+                float rawValue = srcChannel[y, x];
 
                 if (knownColor == G)
                 {
                     // At green pixel: green is known for both directions
-                    rgbH[G, y, x] = rawValue;
-                    rgbV[G, y, x] = rawValue;
+                    rgbH_G[y, x] = rawValue;
+                    rgbV_G[y, x] = rawValue;
 
                     // Determine which color is on horizontal vs vertical neighbors
                     int neighborColor = (x & 1) == 0 ? patternOdd : patternEven;
                     bool rOnHorizontal = neighborColor == R;
 
                     // Simple bilinear average (AHD defers direction choice to homogeneity)
-                    float hAvg = (data[0, y, x - 1] + data[0, y, x + 1]) * 0.5f;
-                    float vAvg = (data[0, y - 1, x] + data[0, y + 1, x]) * 0.5f;
+                    float hAvg = (srcChannel[y, x - 1] + srcChannel[y, x + 1]) * 0.5f;
+                    float vAvg = (srcChannel[y - 1, x] + srcChannel[y + 1, x]) * 0.5f;
 
-                    rgbH[R, y, x] = rOnHorizontal ? hAvg : vAvg;
-                    rgbH[B, y, x] = rOnHorizontal ? vAvg : hAvg;
+                    rgbH_R[y, x] = rOnHorizontal ? hAvg : vAvg;
+                    rgbH_B[y, x] = rOnHorizontal ? vAvg : hAvg;
 
-                    rgbV[R, y, x] = rOnHorizontal ? hAvg : vAvg;
-                    rgbV[B, y, x] = rOnHorizontal ? vAvg : hAvg;
+                    rgbV_R[y, x] = rOnHorizontal ? hAvg : vAvg;
+                    rgbV_B[y, x] = rOnHorizontal ? vAvg : hAvg;
                 }
                 else
                 {
@@ -423,30 +435,30 @@ public partial class Image
                     float center = rawValue;
 
                     // Horizontal green interpolation (Laplacian-corrected)
-                    float gW = data[0, y, x - 1];
-                    float gE = data[0, y, x + 1];
-                    float greenH = (gW + gE) * 0.5f + (2 * center - data[0, y, x - 2] - data[0, y, x + 2]) * 0.25f;
+                    float gW = srcChannel[y, x - 1];
+                    float gE = srcChannel[y, x + 1];
+                    float greenH = (gW + gE) * 0.5f + (2 * center - srcChannel[y, x - 2] - srcChannel[y, x + 2]) * 0.25f;
 
                     // Vertical green interpolation (Laplacian-corrected)
-                    float gN = data[0, y - 1, x];
-                    float gS = data[0, y + 1, x];
-                    float greenV = (gN + gS) * 0.5f + (2 * center - data[0, y - 2, x] - data[0, y + 2, x]) * 0.25f;
+                    float gN = srcChannel[y - 1, x];
+                    float gS = srcChannel[y + 1, x];
+                    float greenV = (gN + gS) * 0.5f + (2 * center - srcChannel[y - 2, x] - srcChannel[y + 2, x]) * 0.25f;
 
-                    rgbH[G, y, x] = greenH;
-                    rgbV[G, y, x] = greenV;
+                    rgbH_G[y, x] = greenH;
+                    rgbV_G[y, x] = greenV;
 
                     // Known color is the same for both
-                    rgbH[knownColor, y, x] = rawValue;
-                    rgbV[knownColor, y, x] = rawValue;
+                    rgbH[knownColor][y, x] = rawValue;
+                    rgbV[knownColor][y, x] = rawValue;
 
                     // Interpolate opposite color guided by per-pixel color differences
                     int oppositeColor = knownColor == R ? B : R;
 
                     // Diagonal neighbors hold the opposite color
-                    float dNW = data[0, y - 1, x - 1];
-                    float dNE = data[0, y - 1, x + 1];
-                    float dSW = data[0, y + 1, x - 1];
-                    float dSE = data[0, y + 1, x + 1];
+                    float dNW = srcChannel[y - 1, x - 1];
+                    float dNE = srcChannel[y - 1, x + 1];
+                    float dSW = srcChannel[y + 1, x - 1];
+                    float dSE = srcChannel[y + 1, x + 1];
 
                     // Per-pixel color-difference: each diagonal pixel's green is estimated
                     // from its 2 nearest cardinal green neighbors
@@ -457,8 +469,8 @@ public partial class Image
                     float cdAvg = (cdNW + cdNE + cdSW + cdSE) * 0.25f;
 
                     // Reconstruct: opposite = green_interpolated + color_difference
-                    rgbH[oppositeColor, y, x] = greenH + cdAvg;
-                    rgbV[oppositeColor, y, x] = greenV + cdAvg;
+                    rgbH[oppositeColor][y, x] = greenH + cdAvg;
+                    rgbV[oppositeColor][y, x] = greenV + cdAvg;
                 }
             }
 
@@ -466,6 +478,8 @@ public partial class Image
         }, ct));
 
         // Phase 3: Compute homogeneity and select best direction
+        var dstR = debayered[R]; var dstG = debayered[G]; var dstB = debayered[B];
+
         await Parallel.ForAsync(totalRadius, height - totalRadius, parallelOptions, async (y, ct) => await Task.Run(() =>
         {
             for (int x = totalRadius; x < width - totalRadius; x++)
@@ -473,13 +487,13 @@ public partial class Image
                 // Compute homogeneity for horizontal and vertical in a neighborhood
                 int homH = 0, homV = 0;
 
-                float lH = RgbToLuma(rgbH[R, y, x], rgbH[G, y, x], rgbH[B, y, x]);
-                float aH = rgbH[R, y, x] - rgbH[G, y, x];
-                float bH = rgbH[B, y, x] - rgbH[G, y, x];
+                float lH = RgbToLuma(rgbH_R[y, x], rgbH_G[y, x], rgbH_B[y, x]);
+                float aH = rgbH_R[y, x] - rgbH_G[y, x];
+                float bH = rgbH_B[y, x] - rgbH_G[y, x];
 
-                float lV = RgbToLuma(rgbV[R, y, x], rgbV[G, y, x], rgbV[B, y, x]);
-                float aV = rgbV[R, y, x] - rgbV[G, y, x];
-                float bV = rgbV[B, y, x] - rgbV[G, y, x];
+                float lV = RgbToLuma(rgbV_R[y, x], rgbV_G[y, x], rgbV_B[y, x]);
+                float aV = rgbV_R[y, x] - rgbV_G[y, x];
+                float bV = rgbV_B[y, x] - rgbV_G[y, x];
 
                 for (int dy = -homogeneityRadius; dy <= homogeneityRadius; dy++)
                 {
@@ -491,15 +505,15 @@ public partial class Image
                         int nx = x + dx;
 
                         // Horizontal neighbor differences
-                        float nlH = RgbToLuma(rgbH[R, ny, nx], rgbH[G, ny, nx], rgbH[B, ny, nx]);
-                        float naH = rgbH[R, ny, nx] - rgbH[G, ny, nx];
-                        float nbH = rgbH[B, ny, nx] - rgbH[G, ny, nx];
+                        float nlH = RgbToLuma(rgbH_R[ny, nx], rgbH_G[ny, nx], rgbH_B[ny, nx]);
+                        float naH = rgbH_R[ny, nx] - rgbH_G[ny, nx];
+                        float nbH = rgbH_B[ny, nx] - rgbH_G[ny, nx];
                         float diffH = MathF.Abs(lH - nlH) + MathF.Abs(aH - naH) + MathF.Abs(bH - nbH);
 
                         // Vertical neighbor differences
-                        float nlV = RgbToLuma(rgbV[R, ny, nx], rgbV[G, ny, nx], rgbV[B, ny, nx]);
-                        float naV = rgbV[R, ny, nx] - rgbV[G, ny, nx];
-                        float nbV = rgbV[B, ny, nx] - rgbV[G, ny, nx];
+                        float nlV = RgbToLuma(rgbV_R[ny, nx], rgbV_G[ny, nx], rgbV_B[ny, nx]);
+                        float naV = rgbV_R[ny, nx] - rgbV_G[ny, nx];
+                        float nbV = rgbV_B[ny, nx] - rgbV_G[ny, nx];
                         float diffV = MathF.Abs(lV - nlV) + MathF.Abs(aV - naV) + MathF.Abs(bV - nbV);
 
                         // Lower difference = more homogeneous
@@ -511,21 +525,21 @@ public partial class Image
                 // Select the direction with higher homogeneity, or average if tied
                 if (homH > homV)
                 {
-                    debayered[R, y, x] = rgbH[R, y, x];
-                    debayered[G, y, x] = rgbH[G, y, x];
-                    debayered[B, y, x] = rgbH[B, y, x];
+                    dstR[y, x] = rgbH_R[y, x];
+                    dstG[y, x] = rgbH_G[y, x];
+                    dstB[y, x] = rgbH_B[y, x];
                 }
                 else if (homV > homH)
                 {
-                    debayered[R, y, x] = rgbV[R, y, x];
-                    debayered[G, y, x] = rgbV[G, y, x];
-                    debayered[B, y, x] = rgbV[B, y, x];
+                    dstR[y, x] = rgbV_R[y, x];
+                    dstG[y, x] = rgbV_G[y, x];
+                    dstB[y, x] = rgbV_B[y, x];
                 }
                 else
                 {
-                    debayered[R, y, x] = (rgbH[R, y, x] + rgbV[R, y, x]) * 0.5f;
-                    debayered[G, y, x] = (rgbH[G, y, x] + rgbV[G, y, x]) * 0.5f;
-                    debayered[B, y, x] = (rgbH[B, y, x] + rgbV[B, y, x]) * 0.5f;
+                    dstR[y, x] = (rgbH_R[y, x] + rgbV_R[y, x]) * 0.5f;
+                    dstG[y, x] = (rgbH_G[y, x] + rgbV_G[y, x]) * 0.5f;
+                    dstB[y, x] = (rgbH_B[y, x] + rgbV_B[y, x]) * 0.5f;
                 }
             }
 
@@ -537,7 +551,8 @@ public partial class Image
 
         // Phase 4: Artifact reduction - 3×3 median filter on color differences (R-G) and (B-G)
         // This smooths the abrupt H/V direction switching that causes per-pixel colour noise
-        var filtered = new float[3, height, width];
+        var filtered = CreateChannelData(3, height, width);
+        var filtR = filtered[R]; var filtG = filtered[G]; var filtB = filtered[B];
 
         await Parallel.ForAsync(0, height, parallelOptions, async (y, ct) => await Task.Run(() =>
         {
@@ -546,32 +561,33 @@ public partial class Image
             for (int x = 0; x < width; x++)
             {
                 // Green channel is kept as-is
-                filtered[G, y, x] = debayered[G, y, x];
+                filtG[y, x] = dstG[y, x];
 
                 if (y >= 1 && y < height - 1 && x >= 1 && x < width - 1)
                 {
                     // Apply median filter on color differences for R and B
-                    float gCenter = debayered[G, y, x];
+                    float gCenter = dstG[y, x];
 
                     for (int c = 0; c < 3; c += 2) // R (0) and B (2) only
                     {
+                        var dstC = debayered[c];
                         int idx = 0;
                         for (int dy = -1; dy <= 1; dy++)
                         {
                             for (int dx = -1; dx <= 1; dx++)
                             {
-                                medianBuf[idx++] = debayered[c, y + dy, x + dx] - debayered[G, y + dy, x + dx];
+                                medianBuf[idx++] = dstC[y + dy, x + dx] - dstG[y + dy, x + dx];
                             }
                         }
 
-                        filtered[c, y, x] = gCenter + Median(medianBuf);
+                        filtered[c][y, x] = gCenter + Median(medianBuf);
                     }
                 }
                 else
                 {
                     // Edge pixels: copy as-is
-                    filtered[R, y, x] = debayered[R, y, x];
-                    filtered[B, y, x] = debayered[B, y, x];
+                    filtR[y, x] = dstR[y, x];
+                    filtB[y, x] = dstB[y, x];
                 }
             }
 

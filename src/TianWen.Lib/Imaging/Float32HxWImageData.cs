@@ -1,9 +1,9 @@
-﻿using CommunityToolkit.HighPerformance;
+using CommunityToolkit.HighPerformance;
 using System;
 
 namespace TianWen.Lib.Imaging;
 
-public record Float32HxWImageData(float[,,] Data, float MaxValue, float MinValue)
+public record Float32HxWImageData(float[][,] Data, float MaxValue, float MinValue)
 {
     /// <summary>
     /// Transposes and converts image source data if required to Height X Width X 32-bit floats, single channel.
@@ -18,7 +18,7 @@ public record Float32HxWImageData(float[,,] Data, float MaxValue, float MinValue
 
         var maxValue = 0f;
         var minValue = float.MaxValue;
-        var targetData = new float[1, height, width];
+        var channel = new float[height, width];
 
         for (var h = 0; h < height; h++)
         {
@@ -26,13 +26,13 @@ public record Float32HxWImageData(float[,,] Data, float MaxValue, float MinValue
             foreach (var val in span2d.GetColumn(h))
             {
                 float valF = val;
-                targetData[0, h, w++] = valF;
+                channel[h, w++] = valF;
                 maxValue = MathF.Max(valF, maxValue);
                 minValue = MathF.Min(val, minValue);
             }
         }
 
-        return new Float32HxWImageData(targetData, maxValue, minValue);
+        return new Float32HxWImageData([channel], maxValue, minValue);
     }
 
 

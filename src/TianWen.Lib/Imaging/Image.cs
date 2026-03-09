@@ -1,29 +1,29 @@
 using System;
 using System.Runtime.CompilerServices;
-using CommunityToolkit.HighPerformance;
+using System.Runtime.InteropServices;
 
 namespace TianWen.Lib.Imaging;
 
 // track minValue and blackLevel (offset) independently
-public partial class Image(float[,,] data, BitDepth bitDepth, float maxValue, float minValue, float blackLevel, ImageMeta imageMeta)
+public partial class Image(float[][,] data, BitDepth bitDepth, float maxValue, float minValue, float blackLevel, ImageMeta imageMeta)
 {
     public int Width
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         get;
-    } = data.GetLength(2);
+    } = data[0].GetLength(1);
 
     public int Height
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         get;
-    } = data.GetLength(1);
+    } = data[0].GetLength(0);
 
     public int ChannelCount
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         get;
-    } = data.GetLength(0);
+    } = data.Length;
 
     public (int ChannelCount, int Width, int Height) Shape => (ChannelCount, Width, Height);
 
@@ -56,12 +56,27 @@ public partial class Image(float[,,] data, BitDepth bitDepth, float maxValue, fl
     /// <param name="h"></param>
     /// <param name="w"></param>
     /// <returns></returns>
-    public float this[int c, int h, int w] => data[c, h, w];
+    public float this[int c, int h, int w] => data[c][h, w];
 
     /// <summary>
     /// Returns a flat span over the pixel data for a single channel plane (height * width floats).
     /// </summary>
-    public ReadOnlySpan<float> GetChannelSpan(int channel) => data.AsSpan(channel);
+    public ReadOnlySpan<float> GetChannelSpan(int channel)
+        => MemoryMarshal.CreateReadOnlySpan(ref data[channel][0, 0], data[channel].Length);
+
+    /// <summary>
+    /// Creates a jagged channel array structure: an array of 2D float arrays, one per channel.
+    /// This avoids a single huge LOH allocation for multi-channel images.
+    /// </summary>
+    internal static float[][,] CreateChannelData(int channelCount, int height, int width)
+    {
+        var channels = new float[channelCount][,];
+        for (var c = 0; c < channelCount; c++)
+        {
+            channels[c] = new float[height, width];
+        }
+        return channels;
+    }
 
     /// <summary>
     /// calculate image pixel value on subpixel level
@@ -72,6 +87,7 @@ public partial class Image(float[,,] data, BitDepth bitDepth, float maxValue, fl
     [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.AggressiveInlining)]
     private float SubpixelValue(int channel, float x1, float y1)
     {
+        var channelData = data[channel];
         var width = Width;
         var height = Height;
 
@@ -85,7 +101,7 @@ public partial class Image(float[,,] data, BitDepth bitDepth, float maxValue, fl
         }
         else if (x_trunc == x1 && y_trunc == y1)
         {
-            return data[channel, y_trunc, x_trunc];
+            return channelData[y_trunc, x_trunc];
         }
 
         var x_frac = x1 - x_trunc;
@@ -101,20 +117,20 @@ public partial class Image(float[,,] data, BitDepth bitDepth, float maxValue, fl
             Span<float> pixels = stackalloc float[4];
             pixels.Fill(float.NaN);
 
-            pixels[tl] = data[channel, y_trunc, x_trunc];
+            pixels[tl] = channelData[y_trunc, x_trunc];
             if (x_trunc < width - 1)
             {
-                pixels[tr] = data[channel, y_trunc, x_trunc + 1];
+                pixels[tr] = channelData[y_trunc, x_trunc + 1];
             }
 
             if (y_trunc < height - 1)
             {
-                pixels[bl] = data[channel, y_trunc + 1, x_trunc];
+                pixels[bl] = channelData[y_trunc + 1, x_trunc];
             }
 
             if (x_trunc < width - 1 && y_trunc < height - 1)
             {
-                pixels[br] = data[channel, y_trunc + 1, x_trunc + 1];
+                pixels[br] = channelData[y_trunc + 1, x_trunc + 1];
             }
 
             for (var i = 0; i < 4; i++)
@@ -193,22 +209,24 @@ public partial class Image(float[,,] data, BitDepth bitDepth, float maxValue, fl
         }
 
         var (channelCount, width, height) = Shape;
-        var denormalized = new float[channelCount, height, width];
+        var denormalized = CreateChannelData(channelCount, height, width);
 
         for (var c = 0; c < channelCount; c++)
         {
+            var src = data[c];
+            var dst = denormalized[c];
             for (int y = 0; y < height; y++)
             {
                 for (int x = 0; x < width; x++)
                 {
-                    var value = data[c, y, x];
+                    var value = src[y, x];
                     if (!float.IsNaN(value))
                     {
-                        denormalized[c, y, x] = value * newMaxValue;
+                        dst[y, x] = value * newMaxValue;
                     }
                     else
                     {
-                        denormalized[c, y, x] = missingValue;
+                        dst[y, x] = missingValue;
                     }
                 }
             }
@@ -231,22 +249,24 @@ public partial class Image(float[,,] data, BitDepth bitDepth, float maxValue, fl
         }
 
         var (channelCount, width, height) = Shape;
-        var normalized = new float[channelCount, height, width];
+        var normalized = CreateChannelData(channelCount, height, width);
 
         for (var c = 0; c < channelCount; c++)
         {
+            var src = data[c];
+            var dst = normalized[c];
             for (int y = 0; y < height; y++)
             {
                 for (int x = 0; x < width; x++)
                 {
-                    var value = data[c, y, x];
+                    var value = src[y, x];
                     if (!float.IsNaN(value))
                     {
-                        normalized[c, y, x] = value / MaxValue;
+                        dst[y, x] = value / MaxValue;
                     }
                     else
                     {
-                        normalized[c, y, x] = missingValue;
+                        dst[y, x] = missingValue;
                     }
                 }
             }
