@@ -88,6 +88,40 @@ float[][]? pendingChannels = null;
 int pendingPixelWidth = 0;
 int pendingPixelHeight = 0;
 
+window.FileDrop += (paths) =>
+{
+    // Take the first FITS file from the dropped paths
+    var fitsFile = paths.FirstOrDefault(p =>
+        Path.GetExtension(p).Equals(".fit", StringComparison.OrdinalIgnoreCase)
+        || Path.GetExtension(p).Equals(".fits", StringComparison.OrdinalIgnoreCase)
+        || Path.GetExtension(p).Equals(".fts", StringComparison.OrdinalIgnoreCase));
+
+    if (fitsFile is null && paths.Length > 0 && Directory.Exists(paths[0]))
+    {
+        // Dropped a folder — scan it
+        ViewerActions.ScanFolder(state, paths[0]);
+        if (state.FitsFileNames.Count > 0)
+        {
+            ViewerActions.SelectFile(state, 0);
+        }
+        state.NeedsRedraw = true;
+        return;
+    }
+
+    if (fitsFile is null)
+    {
+        return;
+    }
+
+    var dir = Path.GetDirectoryName(fitsFile);
+    if (dir is not null)
+    {
+        ViewerActions.ScanFolder(state, dir, Path.GetFileName(fitsFile));
+    }
+    state.RequestedFilePath = fitsFile;
+    state.NeedsRedraw = true;
+};
+
 window.Load += () =>
 {
     gl = window.CreateOpenGL();

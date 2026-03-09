@@ -76,7 +76,9 @@ public static class InfoPanelData
                 ? c switch { 0 => "R", 1 => "G", 2 => "B", _ => $"Ch{c}" }
                 : $"Ch{c}";
 
-            lines.Add($"{label}: mean={stats.Mean:F1} med={stats.Median:F1} MAD={stats.MAD:F1}");
+            lines.Add($"{label}: mean={stats.Mean:F1}");
+            lines.Add($"{new string(' ', label.Length + 2)}med={stats.Median:F1}");
+            lines.Add($"{new string(' ', label.Length + 2)}MAD={stats.MAD:F1}");
         }
 
         return lines;
