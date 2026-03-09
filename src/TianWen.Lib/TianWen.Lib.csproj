@@ -4,7 +4,7 @@
     <OutputType>Library</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <AssemblyVersion>2.0.0.0</AssemblyVersion>
+    <AssemblyVersion>3.0.0.0</AssemblyVersion>
     <PackageID>TianWen.Lib</PackageID>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
@@ -14,17 +14,9 @@
     <DebugType>embedded</DebugType>
     <Nullable>enable</Nullable>
     <Platforms>AnyCPU</Platforms>
-    <IsTrimmable>False</IsTrimmable>
-    <IsAotCompatible>False</IsAotCompatible>
+    <IsTrimmable>True</IsTrimmable>
+    <IsAotCompatible>True</IsAotCompatible>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
-    <IsTrimmable>True</IsTrimmable>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
-    <IsTrimmable>True</IsTrimmable>
   </PropertyGroup>
 
   <ItemGroup>
