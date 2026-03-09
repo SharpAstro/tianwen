@@ -1,8 +1,5 @@
 using System;
 using System.Collections.Generic;
-#if DEBUG
-using System.Diagnostics;
-#endif
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -93,18 +90,8 @@ public static class ViewerActions
         state.StatusMessage = "Processing...";
         state.NeedsReprocess = false;
 
-#if DEBUG
-        var sw = Stopwatch.StartNew();
-#endif
         await document.ApplyDebayerAsync(state.DebayerAlgorithm, cancellationToken);
-#if DEBUG
-        Console.Error.WriteLine($"[DEBUG] Debayer ({state.DebayerAlgorithm}): {sw.ElapsedMilliseconds}ms | Mem: {GC.GetTotalMemory(false) / 1048576.0:F1}MB");
-        sw.Restart();
-#endif
         await document.ApplyStretchAsync(state.StretchMode, state.StretchParameters, cancellationToken);
-#if DEBUG
-        Console.Error.WriteLine($"[DEBUG] Stretch ({state.StretchMode}, {state.StretchParameters}): {sw.ElapsedMilliseconds}ms | Mem: {GC.GetTotalMemory(false) / 1048576.0:F1}MB");
-#endif
 
         state.NeedsTextureUpdate = true;
         state.StatusMessage = null;

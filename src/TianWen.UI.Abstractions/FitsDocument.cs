@@ -15,6 +15,9 @@ public sealed class FitsDocument
 {
     private readonly string _filePath;
 
+    /// <summary>Pre-allocated buffer for stretch output, reused across stretch calls to avoid allocation.</summary>
+    private float[,,]? _displayBuffer;
+
     /// <summary>Raw image as loaded from the FITS file.</summary>
     public Image RawImage { get; }
 
@@ -91,13 +94,31 @@ public sealed class FitsDocument
 
     /// <summary>
     /// Applies stretch to the debayered image and updates <see cref="DisplayImage"/>.
+    /// Reuses a pre-allocated buffer to avoid large allocations on repeated stretch calls.
     /// </summary>
     public async Task ApplyStretchAsync(StretchMode mode, StretchParameters parameters, CancellationToken cancellationToken = default)
     {
+        if (mode is StretchMode.None)
+        {
+            DisplayImage = DebayeredImage;
+            return;
+        }
+
+        var (channelCount, width, height) = DebayeredImage.Shape;
+
+        // Allocate or reuse the display buffer
+        if (_displayBuffer is null
+            || _displayBuffer.GetLength(0) != channelCount
+            || _displayBuffer.GetLength(1) != height
+            || _displayBuffer.GetLength(2) != width)
+        {
+            _displayBuffer = new float[channelCount, height, width];
+        }
+
         DisplayImage = mode switch
         {
-            StretchMode.Linked => await DebayeredImage.StretchLinkedAsync(parameters.Factor, parameters.ShadowsClipping, DebayerAlgorithm.None, cancellationToken),
-            StretchMode.Unlinked => await DebayeredImage.StretchUnlinkedAsync(parameters.Factor, parameters.ShadowsClipping, DebayerAlgorithm.None, cancellationToken),
+            StretchMode.Linked => await DebayeredImage.StretchLinkedIntoAsync(_displayBuffer, parameters.Factor, parameters.ShadowsClipping, cancellationToken),
+            StretchMode.Unlinked => await DebayeredImage.StretchUnlinkedIntoAsync(_displayBuffer, parameters.Factor, parameters.ShadowsClipping, cancellationToken),
             _ => DebayeredImage
         };
     }
