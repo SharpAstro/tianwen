@@ -1,5 +1,7 @@
 using nom.tam.fits;
 using System;
+using System.Globalization;
+using TianWen.Lib.Astrometry;
 
 namespace TianWen.Lib.Imaging;
 
@@ -43,6 +45,12 @@ public record struct WCS(double CenterRA, double CenterDec)
 
     /// <summary>Partial derivative ∂Dec/∂y in degrees per pixel.</summary>
     public double CD2_2 { get; init; } = double.NaN;
+
+    /// <summary>
+    /// Whether the CD matrix was constructed from approximate data (PIXSCALE + ANGLE)
+    /// rather than from an actual plate solution.
+    /// </summary>
+    public bool IsApproximate { get; init; }
 
     /// <summary>
     /// Whether a full astrometric solution (CD matrix + reference pixel) is present,
@@ -182,25 +190,52 @@ public record struct WCS(double CenterRA, double CenterDec)
             return default;
         }
 
-        var ra = header.GetDoubleValue("CRVAL1");
-        var dec = header.GetDoubleValue("CRVAL2");
+        return FromHeader(header);
+    }
 
-        if (double.IsNaN(ra) || double.IsNaN(dec))
+    /// <summary>
+    /// Read WCS parameters from a FITS header.
+    /// </summary>
+    public static WCS? FromHeader(Header header)
+    {
+        // Try CRVAL1/2 first (degrees), then RA/DEC (degrees), then OBJCTRA/OBJCTDEC (HMS/DMS strings)
+        var raDeg = header.GetDoubleValue("CRVAL1", double.NaN);
+        var dec = header.GetDoubleValue("CRVAL2", double.NaN);
+
+        if (double.IsNaN(raDeg) || double.IsNaN(dec))
+        {
+            raDeg = header.GetDoubleValue("RA", double.NaN);
+            dec = header.GetDoubleValue("DEC", double.NaN);
+        }
+
+        if (double.IsNaN(raDeg) || double.IsNaN(dec))
+        {
+            // OBJCTRA is "HH MM SS.sss", OBJCTDEC is "+DD MM SS.sss" (space-separated)
+            var objctRa = header.GetStringValue("OBJCTRA");
+            var objctDec = header.GetStringValue("OBJCTDEC");
+            if (objctRa is not null && objctDec is not null)
+            {
+                raDeg = CoordinateUtils.HMSToDegree(objctRa.Replace(' ', ':'));
+                dec = CoordinateUtils.DMSToDegree(objctDec.Replace(' ', ':'));
+            }
+        }
+
+        if (double.IsNaN(raDeg) || double.IsNaN(dec))
         {
             return default;
         }
 
-        var wcs = new WCS(ra / 15.0, dec)
+        var wcs = new WCS(raDeg / 15.0, dec)
         {
-            CRPix1 = header.GetDoubleValue("CRPIX1"),
-            CRPix2 = header.GetDoubleValue("CRPIX2"),
+            CRPix1 = header.GetDoubleValue("CRPIX1", double.NaN),
+            CRPix2 = header.GetDoubleValue("CRPIX2", double.NaN),
         };
 
         // Try CD matrix first (preferred modern convention)
-        var cd1_1 = header.GetDoubleValue("CD1_1");
-        var cd1_2 = header.GetDoubleValue("CD1_2");
-        var cd2_1 = header.GetDoubleValue("CD2_1");
-        var cd2_2 = header.GetDoubleValue("CD2_2");
+        var cd1_1 = header.GetDoubleValue("CD1_1", double.NaN);
+        var cd1_2 = header.GetDoubleValue("CD1_2", double.NaN);
+        var cd2_1 = header.GetDoubleValue("CD2_1", double.NaN);
+        var cd2_2 = header.GetDoubleValue("CD2_2", double.NaN);
 
         if (!double.IsNaN(cd1_1) && !double.IsNaN(cd1_2) && !double.IsNaN(cd2_1) && !double.IsNaN(cd2_2))
         {
@@ -215,9 +250,9 @@ public record struct WCS(double CenterRA, double CenterDec)
         else
         {
             // Fall back to CDELT + CROTA2 (older convention)
-            var cdelt1 = header.GetDoubleValue("CDELT1");
-            var cdelt2 = header.GetDoubleValue("CDELT2");
-            var crota2 = header.GetDoubleValue("CROTA2");
+            var cdelt1 = header.GetDoubleValue("CDELT1", double.NaN);
+            var cdelt2 = header.GetDoubleValue("CDELT2", double.NaN);
+            var crota2 = header.GetDoubleValue("CROTA2", double.NaN);
 
             if (!double.IsNaN(cdelt1) && !double.IsNaN(cdelt2))
             {
@@ -235,6 +270,113 @@ public record struct WCS(double CenterRA, double CenterDec)
                     CD2_2 = cdelt2 * cosRot,
                 };
             }
+            else
+            {
+                // Fall back to PIXSCALE/SCALE + ANGLE/POSANGLE (approximate WCS from mount + camera)
+                var pixscale = header.GetDoubleValue("PIXSCALE", double.NaN);
+                if (double.IsNaN(pixscale))
+                {
+                    pixscale = header.GetDoubleValue("SCALE", double.NaN);
+                }
+                // ANGLE is the image angle; POSANGLE is the camera rotator angle
+                var posAngle = header.GetDoubleValue("ANGLE", double.NaN);
+                if (double.IsNaN(posAngle))
+                {
+                    posAngle = header.GetDoubleValue("POSANGLE", double.NaN);
+                }
+
+                if (!double.IsNaN(pixscale) && pixscale > 0)
+                {
+                    if (double.IsNaN(posAngle))
+                    {
+                        posAngle = 0.0;
+                    }
+
+                    var pixscaleDeg = pixscale / 3600.0;
+
+                    // ANGLE is the position angle in screen coordinates.
+                    // For TOP-DOWN images (most hobby astro): Y is flipped vs FITS convention,
+                    // so CROTA2 = 180 - ANGLE. For standard BOTTOM-UP: CROTA2 = ANGLE.
+                    // FLIPPED mirrors the X axis, which also adds 180° offset.
+                    var rowOrder = header.GetStringValue("ROWORDER");
+                    var isTopDown = rowOrder is null or "TOP-DOWN";
+                    var flippedStr = header.GetStringValue("FLIPPED");
+                    var isFlipped = flippedStr is "T" or "True" or "true";
+                    var effectiveCrota2 = (isTopDown != isFlipped) ? 180.0 - posAngle : posAngle;
+
+                    var (sinRot, cosRot) = Math.SinCos(double.DegreesToRadians(effectiveCrota2));
+                    wcs = wcs with
+                    {
+                        CD1_1 = pixscaleDeg * cosRot,
+                        CD1_2 = -pixscaleDeg * sinRot,
+                        CD2_1 = pixscaleDeg * sinRot,
+                        CD2_2 = pixscaleDeg * cosRot,
+                        IsApproximate = true,
+                    };
+                }
+            }
+        }
+
+        return wcs;
+    }
+
+    /// <summary>
+    /// Reads WCS from an ASTAP plate solution .ini file (key=value pairs with FITS-like keywords).
+    /// Returns a non-approximate WCS with CD matrix if the file contains a valid solution.
+    /// </summary>
+    public static WCS? FromAstapIniFile(string iniPath)
+    {
+        if (!System.IO.File.Exists(iniPath))
+        {
+            return null;
+        }
+
+        var values = new System.Collections.Generic.Dictionary<string, double>();
+        foreach (var rawLine in System.IO.File.ReadLines(iniPath))
+        {
+            var line = rawLine.Trim();
+            var eqIdx = line.IndexOf('=');
+            if (eqIdx <= 0)
+            {
+                continue;
+            }
+
+            var key = line[..eqIdx].Trim();
+            var valStr = line[(eqIdx + 1)..].Trim();
+
+            if (double.TryParse(valStr, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var val))
+            {
+                values[key] = val;
+            }
+        }
+
+        if (!values.TryGetValue("CRVAL1", out var ra) || !values.TryGetValue("CRVAL2", out var dec))
+        {
+            return null;
+        }
+
+        var wcs = new WCS(ra / 15.0, dec)
+        {
+            CRPix1 = values.TryGetValue("CRPIX1", out var crpix1) ? crpix1 : double.NaN,
+            CRPix2 = values.TryGetValue("CRPIX2", out var crpix2) ? crpix2 : double.NaN,
+        };
+
+        if (values.TryGetValue("CD1_1", out var cd11) && values.TryGetValue("CD1_2", out var cd12)
+            && values.TryGetValue("CD2_1", out var cd21) && values.TryGetValue("CD2_2", out var cd22))
+        {
+            wcs = wcs with { CD1_1 = cd11, CD1_2 = cd12, CD2_1 = cd21, CD2_2 = cd22 };
+        }
+        else if (values.TryGetValue("CDELT1", out var cdelt1) && values.TryGetValue("CDELT2", out var cdelt2))
+        {
+            var crota2 = values.TryGetValue("CROTA2", out var cr2) ? cr2 : 0.0;
+            var (sinRot, cosRot) = Math.SinCos(double.DegreesToRadians(crota2));
+            wcs = wcs with
+            {
+                CD1_1 = cdelt1 * cosRot,
+                CD1_2 = -cdelt2 * sinRot,
+                CD2_1 = cdelt1 * sinRot,
+                CD2_2 = cdelt2 * cosRot,
+            };
         }
 
         return wcs;

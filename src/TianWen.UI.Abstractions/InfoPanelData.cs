@@ -90,23 +90,6 @@ public static class InfoPanelData
         return lines;
     }
 
-    public static List<string> GetWcsLines(FitsDocument document)
-    {
-        var lines = new List<string>();
-
-        if (document.Wcs is { } wcs)
-        {
-            lines.Add($"RA: {CoordinateUtils.HoursToHMS(wcs.CenterRA)}");
-            lines.Add($"Dec: {CoordinateUtils.DegreesToDMS(wcs.CenterDec)}");
-            if (wcs.HasCDMatrix)
-            {
-                lines.Add($"Scale: {wcs.PixelScaleArcsec:F2}\"/px");
-            }
-        }
-
-        return lines;
-    }
-
     public static List<string> GetCursorLines(ViewerState state)
     {
         var lines = new List<string>();

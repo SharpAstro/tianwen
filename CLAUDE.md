@@ -115,6 +115,20 @@ Devices are URI-addressed and managed through:
 - `ComputeStretchUniforms()` produces shader uniforms from cached stats
 - Three stretch modes: per-channel (linked/unlinked), luma (preserves chrominance ratios)
 - HDR compression via Hermite soft-knee, also in the shader
+- WCS coordinate grid overlay rendered in the fragment shader with per-pixel TAN deprojection
+- Grid labels placed at viewport edges where RA/Dec lines cross, with corner exclusion zones
+
+### WCS (World Coordinate System)
+
+- `WCS.FromHeader()` reads WCS from FITS headers with three-tier fallback:
+  1. CD matrix (CD1_1/CD1_2/CD2_1/CD2_2) — full plate solution
+  2. CDELT + CROTA2 — older convention
+  3. PIXSCALE/SCALE + ANGLE/POSANGLE — approximate from mount/camera metadata
+- Center coordinates fallback: CRVAL1/2 → RA/DEC → OBJCTRA/OBJCTDEC (HMS/DMS strings)
+- `WCS.FromAstapIniFile()` reads companion ASTAP `.ini` plate solution files as fallback
+- `IsApproximate` flag distinguishes tier-3 (approximate) from real plate solutions
+- ANGLE→CROTA2 conversion accounts for ROWORDER and FLIPPED headers
+- `header.GetDoubleValue()` must use explicit `double.NaN` default (returns 0.0 for missing keys otherwise)
 
 ### Concurrency
 
