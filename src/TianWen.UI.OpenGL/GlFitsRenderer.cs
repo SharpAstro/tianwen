@@ -177,7 +177,7 @@ public sealed class GlFitsRenderer : IDisposable
             var stretch = document?.ComputeStretchUniforms(state.StretchMode, state.StretchParameters)
                 ?? new GpuStretchUniforms(0, 1f, default, default, default, default, default);
             var gridWcs = state.ShowGrid && document?.Wcs is { HasCDMatrix: true } w ? w : (WCS?)null;
-            RenderImage(state, stretch, gridWcs);
+            RenderImage(document, state, stretch, gridWcs);
         }
 
         if (state.ShowGrid && document?.Wcs is { HasCDMatrix: true } wcs)
@@ -477,7 +477,7 @@ public sealed class GlFitsRenderer : IDisposable
 
     // --- Image ---
 
-    private void RenderImage(ViewerState state, GpuStretchUniforms stretch, WCS? gridWcs = null)
+    private void RenderImage(FitsDocument? document, ViewerState state, GpuStretchUniforms stretch, WCS? gridWcs = null)
     {
         var fileListW = state.ShowFileList ? FileListWidth : 0;
         var panelW = state.ShowInfoPanel ? InfoPanelWidth : 0;
@@ -533,7 +533,10 @@ public sealed class GlFitsRenderer : IDisposable
         _imageShader.Use();
         _imageShader.SetInt("uChannelCount", ChannelTextureCount);
         _imageShader.SetFloat("uCurvesBoost", state.CurvesBoost);
-        _imageShader.SetFloat("uCurvesMidpoint", (float)state.StretchParameters.Factor);
+        var bgLevel = document is not null
+            ? stretch.EstimatePostStretchBackground(document.PerChannelStats, document.LumaStats)
+            : 0.15f;
+        _imageShader.SetFloat("uCurvesMidpoint", bgLevel);
         _imageShader.SetFloat("uHdrAmount", state.HdrAmount);
         _imageShader.SetFloat("uHdrKnee", state.HdrKnee);
 
@@ -1492,20 +1495,37 @@ public sealed class GlFitsRenderer : IDisposable
         // Per-channel stretch: normalize, subtract pedestal, clip shadows/highlights, apply MTF
         float stretchChannel(float raw, int ch) {
             float norm = raw * uNormFactor - uPedestal[ch];
-            float rescaled = (1.0 - uHighlights[ch] + norm - uShadows[ch]) * uRescale[ch];
+            float rescaled = (norm - uShadows[ch]) * uRescale[ch];
             return mtf(uMidtones[ch], rescaled);
         }
 
-        // S-curve contrast enhancement
+        // Background-aware contrast enhancement:
+        // Symmetry point placed slightly ABOVE background so bg itself gets darkened.
+        // Below SP: darken (pushes sky background down towards black)
+        // SP to highlight knee: boost midtone detail (nebulosity, galaxy arms)
+        // Above highlight knee: linear passthrough (protect stars)
         float applyCurve(float v, float boost) {
-            float mid = uCurvesMidpoint;
-            if (v <= 0.0 || v >= 1.0 || mid <= 0.0 || mid >= 1.0) return v;
-            if (v <= mid) {
-                float t = v / mid;
-                return mid * pow(t, 1.0 + boost);
+            float bg = uCurvesMidpoint;
+            float hp = 0.85; // highlight protection knee
+            if (v <= 0.0 || v >= 1.0 || bg <= 0.0 || bg >= hp) return v;
+
+            // Place symmetry point slightly above background:
+            // bg falls in the darken zone, objects above SP get boosted
+            float sp = bg * (1.0 + 0.1 * boost);
+            sp = min(sp, hp - 0.01);
+
+            if (v <= sp) {
+                // Shadow/background zone: power curve darkens towards black
+                float t = v / sp;
+                float darkPower = 1.0 + boost * 3.0;
+                return sp * pow(t, darkPower);
+            } else if (v < hp) {
+                // Midtone boost zone: inverse power lifts nebulosity detail
+                float t = (v - sp) / (hp - sp);
+                return sp + (hp - sp) * pow(t, 1.0 / (1.0 + boost));
             } else {
-                float t = (v - mid) / (1.0 - mid);
-                return mid + (1.0 - mid) * pow(t, 1.0 / (1.0 + boost));
+                // Highlight protection: linear passthrough above knee
+                return v;
             }
         }
 
@@ -1582,12 +1602,18 @@ public sealed class GlFitsRenderer : IDisposable
                     float ng = g * uNormFactor;
                     float nb = b * uNormFactor;
                     float Y = 0.2126 * nr + 0.7152 * ng + 0.0722 * nb;
-                    float rescaled = (1.0 - uHighlights.x + Y - uShadows.x) * uRescale.x;
+                    // Subtract luma pedestal (passed via uPedestal.x)
+                    float lumaPed = uPedestal.x;
+                    float Ynorm = Y - lumaPed;
+                    float rescaled = (Ynorm - uShadows.x) * uRescale.x;
                     float Yp = mtf(uMidtones.x, rescaled);
-                    float scale = Y > 1e-7 ? Yp / Y : 0.0;
-                    r = clamp(nr * scale, 0.0, 1.0);
-                    g = clamp(ng * scale, 0.0, 1.0);
-                    b = clamp(nb * scale, 0.0, 1.0);
+                    float scale = Ynorm > 1e-7 ? Yp / Ynorm : 0.0;
+                    // Cap scale using pedestal-subtracted channel values
+                    float maxCh = max(nr - lumaPed, max(ng - lumaPed, nb - lumaPed));
+                    if (maxCh > 1e-7) scale = min(scale, 1.0 / maxCh);
+                    r = clamp((nr - lumaPed) * scale, 0.0, 1.0);
+                    g = clamp((ng - lumaPed) * scale, 0.0, 1.0);
+                    b = clamp((nb - lumaPed) * scale, 0.0, 1.0);
                 }
 
                 if (uCurvesBoost > 0.0) {

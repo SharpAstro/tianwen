@@ -341,7 +341,7 @@ public partial class Image
                 double d when isDataValue && dataIsInt => new HeaderCard(key, (int)d, comment),
                 int i => new HeaderCard(key, i, comment),
                 long l => new HeaderCard(key, l, comment),
-                string s => new HeaderCard(key, s, comment),
+                string s when !string.IsNullOrWhiteSpace(s) => new HeaderCard(key, s.Length <= 68 ? s : s[..68], comment),
                 bool b => new HeaderCard(key, b, comment),
                 FrameType ft => new HeaderCard(key, ft.ToFITSValue(), comment),
                 RowOrder ro => new HeaderCard(key, ro.ToFITSValue(), comment),

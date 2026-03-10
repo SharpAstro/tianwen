@@ -272,6 +272,6 @@ public partial class Image(float[][,] data, BitDepth bitDepth, float maxValue, f
             }
         }
 
-        return new Image(normalized, BitDepth.Float32, 1.0f, blackLevel / maxValue, blackLevel / maxValue, imageMeta);
+        return new Image(normalized, BitDepth.Float32, 1.0f, minValue / maxValue, blackLevel / maxValue, imageMeta);
     }
 }
