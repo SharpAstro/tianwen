@@ -96,9 +96,6 @@ GlFitsRenderer? renderer = null;
 var cts = new CancellationTokenSource();
 Task? reprocessTask = null;
 Task? backgroundTask = null; // For non-pipeline background work (plate solve, file dialog)
-float[][]? pendingChannels = null;
-int pendingPixelWidth = 0;
-int pendingPixelHeight = 0;
 
 window.FileDrop += (paths) =>
 {
@@ -143,9 +140,11 @@ window.Load += () =>
     var fbSize = window.FramebufferSize;
     var dpiScale = (float)fbSize.X / window.Size.X;
 
-    renderer = new GlFitsRenderer(gl, (uint)fbSize.X, (uint)fbSize.Y);
-    renderer.DpiScale = dpiScale;
-    renderer.CelestialObjectDB = celestialObjectDB;
+    renderer = new GlFitsRenderer(gl, (uint)fbSize.X, (uint)fbSize.Y)
+    {
+        DpiScale = dpiScale,
+        CelestialObjectDB = celestialObjectDB
+    };
     // Kick off DB init eagerly so it's ready when user toggles overlays
     _ = celestialObjectDB.Task;
 
@@ -463,30 +462,39 @@ window.Render += (_) =>
     }
 
     // Upload texture when needed (pixel extraction on background, GL upload on render thread)
-    if (document is not null && state.NeedsTextureUpdate && (reprocessTask is null || reprocessTask.IsCompleted))
+    if (document is not null && state.NeedsTextureUpdate)
     {
         state.NeedsTextureUpdate = false;
         state.StatusMessage = "Preparing display...";
         var doc = document;
         var channelView = state.ChannelView;
-        reprocessTask = Task.Run(() => doc.GetChannelArrays(channelView), cts.Token)
-            .ContinueWith(t =>
-            {
-                if (t.IsCompletedSuccessfully)
-                {
-                    pendingChannels = t.Result;
-                    pendingPixelWidth = doc.UnstretchedImage.Width;
-                    pendingPixelHeight = doc.UnstretchedImage.Height;
-                }
-                state.StatusMessage = null;
-            }, TaskScheduler.Default);
-    }
 
-    // Upload pending channel textures on the render thread (GL calls must happen here)
-    if (pendingChannels is not null)
-    {
-        renderer.UploadChannelTextures(pendingChannels, pendingPixelWidth, pendingPixelHeight);
-        pendingChannels = null;
+        var pixelWidth = doc.UnstretchedImage.Width;
+        var pixelHeight = doc.UnstretchedImage.Height;
+        if (channelView is ChannelView.Composite)
+        {
+            renderer.ChannelTextureCount = 3; // RGB
+
+            for (var i = 0; i < 3; i++)
+            {
+                renderer.UploadChannelTexture(doc.UnstretchedImage.GetChannelSpan(i), i, pixelWidth, pixelHeight);
+            }
+        }
+        else
+        {
+            renderer.ChannelTextureCount = 1;
+
+            var channelIndex = channelView switch {
+                ChannelView.Channel0 or ChannelView.Red => 0,
+                ChannelView.Channel1 or ChannelView.Green => 1,
+                ChannelView.Channel2 or ChannelView.Blue => 1,
+                _ => throw new ArgumentOutOfRangeException(nameof(channelView), "Invalid channel view")
+            };
+
+            renderer.UploadChannelTexture(doc.UnstretchedImage.GetChannelSpan(channelIndex), 0, pixelWidth, pixelHeight);
+        }
+
+        state.StatusMessage = null;
     }
 
     renderer.Render(document, state);
@@ -507,7 +515,6 @@ while (!window.IsClosing)
     window.DoUpdate();
 
     if (state.NeedsRedraw || state.NeedsTextureUpdate
-        || pendingChannels is not null
         || state.RequestedFilePath is not null
         || (reprocessTask is not null && !reprocessTask.IsCompleted))
     {

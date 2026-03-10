@@ -1,3 +1,4 @@
+using CommunityToolkit.HighPerformance;
 using System;
 using System.IO;
 using System.Threading;
@@ -232,40 +233,4 @@ public sealed class FitsDocument
 
         return new PixelInfo(x, y, values, ra, dec);
     }
-
-    /// <summary>
-    /// Extracts per-channel float arrays from the processedRawImage image for GPU upload as R32f textures.
-    /// </summary>
-    public float[][] GetChannelArrays(ChannelView channelView)
-    {
-        var image = UnstretchedImage;
-        var (channelCount, _, _) = image.Shape;
-
-        if (channelView is ChannelView.Composite && channelCount >= 3)
-        {
-            return
-            [
-                image.GetChannelSpan(0).ToArray(),
-                image.GetChannelSpan(1).ToArray(),
-                image.GetChannelSpan(2).ToArray(),
-            ];
-        }
-
-        var ch = channelView switch
-        {
-            ChannelView.Red or ChannelView.Channel0 => 0,
-            ChannelView.Green or ChannelView.Channel1 => 1,
-            ChannelView.Blue or ChannelView.Channel2 => 2,
-            ChannelView.Channel3 => 3,
-            _ => 0
-        };
-
-        if (ch >= channelCount)
-        {
-            ch = 0;
-        }
-
-        return [image.GetChannelSpan(ch).ToArray()];
-    }
-
 }
