@@ -279,31 +279,28 @@ public sealed class GlFitsRenderer : IDisposable
         }
     }
 
-    private bool IsToolbarButtonEnabled(ToolbarAction action, FitsDocument? document)
+    private bool IsToolbarButtonEnabled(ToolbarAction action, FitsDocument? document) => action switch
     {
-        return action switch
-        {
-            // Debayer only makes sense for Bayer sensors (e.g. RGGB)
-            ToolbarAction.Debayer => document?.RawImage.ImageMeta.SensorType is TianWen.Lib.Imaging.SensorType.RGGB,
-            // Channel cycling only useful when there are multiple channels (after debayer or native color)
-            ToolbarAction.Channel => document is not null && document.DisplayImage.ChannelCount > 1,
-            ToolbarAction.CurvesBoost or ToolbarAction.Hdr => document is not null,
-            // Stretch buttons need a loaded document; link/params only when stretch is active
-            ToolbarAction.StretchToggle => document is not null,
-            ToolbarAction.StretchLink or ToolbarAction.StretchParams => document is not null,
-            // Grid needs a WCS with CD matrix (solved or approximate)
-            ToolbarAction.Grid => document?.Wcs is { HasCDMatrix: true },
-            // Overlays also need the DB to be initialized
-            ToolbarAction.Overlays => document?.Wcs is { HasCDMatrix: true } && CelestialObjectDB?.IsReady == true,
-            // Plate solve needs a loaded, unsolved document
-            ToolbarAction.PlateSolve => document is not null && !document.IsPlateSolved,
-            // Zoom needs a loaded document
-            ToolbarAction.ZoomFit or ToolbarAction.ZoomActual
-                => document is not null,
-            // Open is always enabled
-            _ => true,
-        };
-    }
+        // Debayer only makes sense for Bayer sensors (e.g. RGGB)
+        ToolbarAction.Debayer => document?.UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB,
+        // Channel cycling only useful when there are multiple channels (after debayer or native color)
+        ToolbarAction.Channel => document is not null && document.UnstretchedImage.ChannelCount > 1,
+        ToolbarAction.CurvesBoost or ToolbarAction.Hdr => document is not null,
+        // Stretch buttons need a loaded document; link/params only when stretch is active
+        ToolbarAction.StretchToggle => document is not null,
+        ToolbarAction.StretchLink or ToolbarAction.StretchParams => document is not null,
+        // Grid needs a WCS with CD matrix (solved or approximate)
+        ToolbarAction.Grid => document?.Wcs is { HasCDMatrix: true },
+        // Overlays also need the DB to be initialized
+        ToolbarAction.Overlays => document?.Wcs is { HasCDMatrix: true } && CelestialObjectDB?.IsReady == true,
+        // Plate solve needs a loaded, unsolved document
+        ToolbarAction.PlateSolve => document is not null && !document.IsPlateSolved,
+        // Zoom needs a loaded document
+        ToolbarAction.ZoomFit or ToolbarAction.ZoomActual
+            => document is not null,
+        // Open is always enabled
+        _ => true,
+    };
 
     private bool IsToolbarButtonActive(ToolbarAction action, FitsDocument? document, ViewerState state)
     {

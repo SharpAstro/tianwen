@@ -193,7 +193,7 @@ window.Load += () =>
                 case Key.C:
                     if (document is not null)
                     {
-                        ViewerActions.CycleChannelView(state, document.DisplayImage.ChannelCount);
+                        ViewerActions.CycleChannelView(state, document.UnstretchedImage.ChannelCount);
                     }
                     break;
                 case Key.D:
@@ -277,33 +277,31 @@ window.Load += () =>
                 state.PanStart = (px, py);
             }
 
-            if (document?.DisplayImage is null)
+            if (document?.UnstretchedImage is { } image)
             {
-                return;
-            }
+                // Convert screen position to image coordinates
+                var (areaW, areaH) = renderer.GetImageAreaSize(state);
+                var fileListW = state.ShowFileList ? renderer.ScaledFileListWidth : 0;
+                var toolbarH = renderer.ScaledToolbarHeight;
 
-            // Convert screen position to image coordinates
-            var (areaW, areaH) = renderer.GetImageAreaSize(state);
-            var fileListW = state.ShowFileList ? renderer.ScaledFileListWidth : 0;
-            var toolbarH = renderer.ScaledToolbarHeight;
+                var scale = state.Zoom;
+                var drawW = image.Width * scale;
+                var drawH = image.Height * scale;
+                var offsetX = fileListW + (areaW - drawW) / 2f + state.PanOffset.X;
+                var offsetY = toolbarH + (areaH - drawH) / 2f + state.PanOffset.Y;
 
-            var scale = state.Zoom;
-            var drawW = document.DisplayImage.Width * scale;
-            var drawH = document.DisplayImage.Height * scale;
-            var offsetX = fileListW + (areaW - drawW) / 2f + state.PanOffset.X;
-            var offsetY = toolbarH + (areaH - drawH) / 2f + state.PanOffset.Y;
+                var imgX = (int)((px - offsetX) / scale);
+                var imgY = (int)((py - offsetY) / scale);
 
-            var imgX = (int)((px - offsetX) / scale);
-            var imgY = (int)((py - offsetY) / scale);
-
-            if (imgX >= 0 && imgX < document.DisplayImage.Width && imgY >= 0 && imgY < document.DisplayImage.Height)
-            {
-                ViewerActions.UpdateCursorInfo(document, state, imgX, imgY);
-            }
-            else
-            {
-                state.CursorImagePosition = null;
-                state.CursorPixelInfo = null;
+                if (imgX >= 0 && imgX < image.Width && imgY >= 0 && imgY < image.Height)
+                {
+                    ViewerActions.UpdateCursorInfo(document, state, imgX, imgY);
+                }
+                else
+                {
+                    state.CursorImagePosition = null;
+                    state.CursorPixelInfo = null;
+                }
             }
         };
 
@@ -477,8 +475,8 @@ window.Render += (_) =>
                 if (t.IsCompletedSuccessfully)
                 {
                     pendingChannels = t.Result;
-                    pendingPixelWidth = doc.DisplayImage.Width;
-                    pendingPixelHeight = doc.DisplayImage.Height;
+                    pendingPixelWidth = doc.UnstretchedImage.Width;
+                    pendingPixelHeight = doc.UnstretchedImage.Height;
                 }
                 state.StatusMessage = null;
             }, TaskScheduler.Default);
@@ -583,7 +581,7 @@ void HandleToolbarAction(ToolbarAction action, bool reverse = false)
         case ToolbarAction.Channel:
             if (document is not null)
             {
-                ViewerActions.CycleChannelView(state, document.DisplayImage.ChannelCount);
+                ViewerActions.CycleChannelView(state, document.UnstretchedImage.ChannelCount);
             }
             break;
         case ToolbarAction.Debayer:
