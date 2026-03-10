@@ -8,6 +8,5 @@ public enum ChannelView
     Blue,
     Channel0,
     Channel1,
-    Channel2,
-    Channel3
+    Channel2
 }

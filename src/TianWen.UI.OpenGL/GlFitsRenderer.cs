@@ -1,5 +1,3 @@
-using System;
-using System.Collections.Generic;
 using Silk.NET.OpenGL;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -22,7 +20,6 @@ public sealed class GlFitsRenderer : IDisposable
     private readonly GlShaderProgram _textShader;
 
     private readonly uint[] _channelTextures = new uint[3];
-    private int _channelTextureCount;
     private uint _vao;
     private uint _vbo;
 
@@ -35,6 +32,8 @@ public sealed class GlFitsRenderer : IDisposable
 
     public uint Width => _width;
     public uint Height => _height;
+
+    public int ChannelTextureCount { get; set; } = 0;
 
     /// <summary>
     /// DPI scale factor. Set from framebuffer size / window size ratio.
@@ -145,19 +144,15 @@ public sealed class GlFitsRenderer : IDisposable
     /// <summary>
     /// Uploads per-channel R32f textures. Channels are stored as flat float arrays (height * width).
     /// </summary>
-    public void UploadChannelTextures(ReadOnlySpan<float[]> channels, int imageWidth, int imageHeight)
+    public void UploadChannelTexture(ReadOnlySpan<float> data, int channel, int imageWidth, int imageHeight)
     {
         _imageWidth = imageWidth;
         _imageHeight = imageHeight;
-        _channelTextureCount = channels.Length;
 
-        for (int i = 0; i < channels.Length && i < _channelTextures.Length; i++)
-        {
-            _gl.BindTexture(TextureTarget.Texture2D, _channelTextures[i]);
-            _gl.TexImage2D<float>(TextureTarget.Texture2D, 0, InternalFormat.R32f,
-                (uint)imageWidth, (uint)imageHeight, 0,
-                PixelFormat.Red, PixelType.Float, channels[i].AsSpan());
-        }
+        _gl.BindTexture(TextureTarget.Texture2D, _channelTextures[channel]);
+        _gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.R32f,
+            (uint)imageWidth, (uint)imageHeight, 0,
+            PixelFormat.Red, PixelType.Float, data);
     }
 
     /// <summary>
@@ -536,7 +531,7 @@ public sealed class GlFitsRenderer : IDisposable
         _gl.Scissor((int)fileListW, (int)StatusBarHeight, (uint)areaW, (uint)areaH);
 
         _imageShader.Use();
-        _imageShader.SetInt("uChannelCount", _channelTextureCount);
+        _imageShader.SetInt("uChannelCount", ChannelTextureCount);
         _imageShader.SetFloat("uCurvesBoost", state.CurvesBoost);
         _imageShader.SetFloat("uCurvesMidpoint", (float)state.StretchParameters.Factor);
         _imageShader.SetFloat("uHdrAmount", state.HdrAmount);
@@ -595,7 +590,7 @@ public sealed class GlFitsRenderer : IDisposable
             _imageShader.SetInt("uGridEnabled", 0);
         }
 
-        for (int i = 0; i < _channelTextureCount && i < _channelTextures.Length; i++)
+        for (int i = 0; i < ChannelTextureCount && i < _channelTextures.Length; i++)
         {
             _gl.ActiveTexture(TextureUnit.Texture0 + i);
             _gl.BindTexture(TextureTarget.Texture2D, _channelTextures[i]);
