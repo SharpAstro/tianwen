@@ -78,10 +78,10 @@ public sealed class FitsDocument
         LumaStats = lumaStats;
         Wcs = wcs;
 
-        var stats = new ImageHistogram[rawImage.ChannelCount];
-        for (var c = 0; c < rawImage.ChannelCount; c++)
+        var stats = new ImageHistogram[debayeredImage.ChannelCount];
+        for (var c = 0; c < debayeredImage.ChannelCount; c++)
         {
-            stats[c] = rawImage.Statistics(c);
+            stats[c] = debayeredImage.Statistics(c);
         }
         ChannelStatistics = stats;
     }

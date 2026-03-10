@@ -5,6 +5,7 @@ using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
+using TianWen.UI.Abstractions.Overlays;
 
 namespace TianWen.UI.OpenGL;
 
@@ -911,148 +912,6 @@ public sealed class GlFitsRenderer : IDisposable
 
     // --- Object Overlays ---
 
-    /// <summary>
-    /// Object types considered "extended" (drawn as ellipses/markers).
-    /// </summary>
-    private static bool IsExtendedObjectType(ObjectType ot) => ot is
-        ObjectType.Galaxy or ObjectType.PairG or ObjectType.GroupG or
-        ObjectType.OpenCluster or ObjectType.GlobCluster or
-        ObjectType.GalNeb or ObjectType.PlanetaryNeb or ObjectType.EmObj or
-        ObjectType.HIIReg or ObjectType.RefNeb or ObjectType.DarkNeb or
-        ObjectType.SNRemnant or ObjectType.Association or
-        ObjectType.Unknown;
-
-    /// <summary>
-    /// Whether the object type is a star (single, double, variable, etc.).
-    /// Uses the built-in <see cref="ObjectType.IsStar"/> which checks for '*' in the encoding.
-    /// </summary>
-    private static bool IsStarType(ObjectType ot) => ot.IsStar();
-
-    /// <summary>
-    /// Returns a priority score for a common name (lower = better).
-    /// IAU proper names (e.g. "Sirius") > Bayer (e.g. "eta Ori") > Flamsteed (e.g. "28 Ori") > other.
-    /// </summary>
-    private static int GetNamePriority(string name)
-    {
-        if (name.Length == 0) return 100;
-
-        // Flamsteed numbers start with a digit (e.g. "28 Ori")
-        if (char.IsAsciiDigit(name[0])) return 3;
-
-        // Bayer designations start with a Greek letter abbreviation (lowercase, e.g. "eta Ori", "alf CMa")
-        if (char.IsAsciiLetterLower(name[0]) && name.Length > 2 && name.Contains(' ')) return 2;
-
-        // IAU proper name or other named object (e.g. "Sirius", "Whirlpool Galaxy")
-        if (char.IsAsciiLetterUpper(name[0])) return 1;
-
-        return 50;
-    }
-
-    /// <summary>
-    /// Builds label lines for an overlay object based on zoom level.
-    /// ≤50%: best name only. 50-100%: name + catalog designation. ≥100%: all names + cross indices.
-    /// </summary>
-    private static List<string> BuildOverlayLabel(CelestialObject obj, CatalogIndex idx, ICelestialObjectDB db, float zoom)
-    {
-        var lines = new List<string>(4);
-        var canonical = obj.Index.ToCanonical();
-
-        // Get best common name (sorted by priority)
-        string? bestName = null;
-        if (obj.CommonNames.Count > 0)
-        {
-            var bestScore = int.MaxValue;
-            foreach (var name in obj.CommonNames)
-            {
-                var score = GetNamePriority(name);
-                if (score < bestScore)
-                {
-                    bestScore = score;
-                    bestName = name;
-                }
-            }
-        }
-
-        if (zoom <= 0.5f)
-        {
-            // Zoomed out: best name only, or catalog designation if no name
-            lines.Add(bestName ?? canonical);
-        }
-        else if (zoom < 1.0f)
-        {
-            // Medium zoom: best name + catalog designation if different
-            lines.Add(bestName ?? canonical);
-            if (bestName is not null && bestName != canonical)
-            {
-                lines.Add(canonical);
-            }
-        }
-        else
-        {
-            // Full zoom (≥100%): all common names + primary designation + cross indices
-            // First line: best name or canonical
-            lines.Add(bestName ?? canonical);
-
-            // Add remaining common names (sorted by priority)
-            if (obj.CommonNames.Count > 1)
-            {
-                var sortedNames = new List<(int Priority, string Name)>();
-                foreach (var name in obj.CommonNames)
-                {
-                    if (name != bestName)
-                    {
-                        sortedNames.Add((GetNamePriority(name), name));
-                    }
-                }
-                sortedNames.Sort((a, b) => a.Priority.CompareTo(b.Priority));
-                foreach (var (_, name) in sortedNames)
-                {
-                    lines.Add(name);
-                }
-            }
-
-            // Add canonical designation if not already shown as a common name
-            if (bestName is not null && !obj.CommonNames.Contains(canonical))
-            {
-                lines.Add(canonical);
-            }
-
-            // Add cross-catalog indices
-            if (db.TryGetCrossIndices(idx, out var crossIndices))
-            {
-                foreach (var crossIdx in crossIndices)
-                {
-                    var crossCanon = crossIdx.ToCanonical();
-                    // Skip Tycho entries (too verbose) and already-shown canonical
-                    if (crossIdx.ToCatalog() != Catalog.Tycho2 && crossCanon != canonical)
-                    {
-                        lines.Add(crossCanon);
-                    }
-                }
-            }
-        }
-
-        return lines;
-    }
-
-    /// <summary>
-    /// Returns overlay color (R, G, B) based on object type.
-    /// </summary>
-    private static (float R, float G, float B) GetOverlayColor(ObjectType ot) => ot switch
-    {
-        ObjectType.Galaxy or ObjectType.PairG or ObjectType.GroupG => (0.0f, 0.8f, 0.8f),       // cyan
-        ObjectType.OpenCluster or ObjectType.GlobCluster or ObjectType.Association => (1.0f, 0.8f, 0.0f), // yellow
-        ObjectType.PlanetaryNeb => (0.6f, 0.3f, 1.0f),  // purple
-        ObjectType.DarkNeb => (0.6f, 0.6f, 0.6f),       // gray
-        _ when ot.IsStar() => (1.0f, 1.0f, 1.0f),           // white (stars)
-        _ => (1.0f, 0.4f, 0.25f),                        // orange (emission, HII, reflection, SNR, etc.)
-    };
-
-    /// <summary>
-    /// Maximum number of overlay labels to render (to prevent clutter).
-    /// </summary>
-    private const int MaxOverlayLabels = 80;
-
     private void RenderOverlays(ViewerState state, WCS wcs, ICelestialObjectDB db)
     {
         if (_fontPath is null || _imageWidth <= 0 || _imageHeight <= 0)
@@ -1064,281 +923,75 @@ public sealed class GlFitsRenderer : IDisposable
         var panelW = state.ShowInfoPanel ? InfoPanelWidth : 0;
         var areaW = (float)(_width - fileListW - panelW);
         var areaH = (float)(_height - ToolbarHeight - StatusBarHeight);
-        var scale = state.Zoom;
-        var drawW = _imageWidth * scale;
-        var drawH = _imageHeight * scale;
-        var imgOffsetX = fileListW + (areaW - drawW) / 2f + state.PanOffset.X;
-        var imgOffsetY = ToolbarHeight + (areaH - drawH) / 2f + state.PanOffset.Y;
 
-        // Visible image pixel bounds (1-based FITS coordinates)
-        var visLeft = Math.Max(1.0, (fileListW - imgOffsetX) / scale + 1);
-        var visRight = Math.Min((double)_imageWidth, (fileListW + areaW - imgOffsetX) / scale + 1);
-        var visTop = Math.Max(1.0, (ToolbarHeight - imgOffsetY) / scale + 1);
-        var visBottom = Math.Min((double)_imageHeight, (ToolbarHeight + areaH - imgOffsetY) / scale + 1);
+        var layout = new ViewportLayout(
+            WindowWidth: _width,
+            WindowHeight: _height,
+            ImageWidth: _imageWidth,
+            ImageHeight: _imageHeight,
+            Zoom: state.Zoom,
+            PanOffset: state.PanOffset,
+            AreaLeft: fileListW,
+            AreaTop: ToolbarHeight,
+            AreaWidth: areaW,
+            AreaHeight: areaH,
+            DpiScale: DpiScale
+        );
 
-        if (visLeft >= visRight || visTop >= visBottom)
+        var items = OverlayEngine.ComputeOverlays(layout, wcs, db, MeasureText, BaseFontSize);
+        if (items.Count == 0)
         {
             return;
         }
-
-        // Compute FOV for zoom-dependent filtering
-        var pixelScaleArcsec = wcs.PixelScaleArcsec;
-        var viewImagePixels = MathF.Min(areaW, areaH) / scale;
-        var fovArcmin = viewImagePixels * pixelScaleArcsec / 60.0;
-
-        // Magnitude cutoff based on FOV (extended objects)
-        var magCutoff = fovArcmin switch
-        {
-            > 300.0 => 8.0,   // > 5 degrees: Messier-class only
-            > 60.0 => 12.0,   // 1-5 degrees: bright NGC/IC
-            _ => 20.0          // < 1 degree: show all
-        };
-
-        // Star magnitude cutoff: tighter, zoom-dependent
-        var starMagCutoff = fovArcmin switch
-        {
-            > 300.0 => 1.0,   // > 5 degrees: only the very brightest
-            > 120.0 => 2.5,   // 2-5 degrees: naked-eye bright
-            > 60.0 => 4.0,    // 1-2 degrees: moderate
-            > 30.0 => 5.5,    // 0.5-1 degrees
-            _ => 7.0           // < 0.5 degrees: show fainter stars
-        };
-
-        // Get RA/Dec bounds of the visible area
-        var corners = new (double RA, double Dec)?[]
-        {
-            wcs.PixelToSky(visLeft, visTop),
-            wcs.PixelToSky(visRight, visTop),
-            wcs.PixelToSky(visLeft, visBottom),
-            wcs.PixelToSky(visRight, visBottom),
-            wcs.PixelToSky((visLeft + visRight) / 2, (visTop + visBottom) / 2),
-        };
-
-        double minRA = double.MaxValue, maxRA = double.MinValue;
-        double minDec = double.MaxValue, maxDec = double.MinValue;
-        foreach (var c in corners)
-        {
-            if (c is not { } sky)
-            {
-                continue;
-            }
-            minRA = Math.Min(minRA, sky.RA);
-            maxRA = Math.Max(maxRA, sky.RA);
-            minDec = Math.Min(minDec, sky.Dec);
-            maxDec = Math.Max(maxDec, sky.Dec);
-        }
-
-        if (minRA > maxRA || minDec > maxDec)
-        {
-            return;
-        }
-
-        // Handle RA wraparound
-        var raWrapped = maxRA - minRA > 12.0;
-        if (raWrapped)
-        {
-            double wrapMin = double.MaxValue, wrapMax = double.MinValue;
-            foreach (var c in corners)
-            {
-                if (c is not { } sky) continue;
-                var ra = sky.RA < 12.0 ? sky.RA + 24.0 : sky.RA;
-                wrapMin = Math.Min(wrapMin, ra);
-                wrapMax = Math.Max(wrapMax, ra);
-            }
-            minRA = wrapMin;
-            maxRA = wrapMax;
-        }
-
-        // Expand bounds slightly (1 degree) to catch objects near edges
-        minRA -= 1.0 / 15.0;
-        maxRA += 1.0 / 15.0;
-        minDec = Math.Max(-90.0, minDec - 1.0);
-        maxDec = Math.Min(90.0, maxDec + 1.0);
-
-        // Query the spatial index for candidate objects
-        var grid = db.CoordinateGrid;
-        var seen = new HashSet<CatalogIndex>();
-        var candidates = new List<(CatalogIndex Index, CelestialObject Obj, float ScreenX, float ScreenY)>();
-
-        // Iterate over 1-degree RA/Dec cells covering the viewport
-        var decStep = 1.0;
-        var raStep = 1.0 / 15.0; // ~4 minutes of RA per cell
-
-        for (var dec = Math.Floor(minDec); dec <= maxDec; dec += decStep)
-        {
-            for (var ra = Math.Floor(minRA * 15.0) / 15.0; ra <= maxRA; ra += raStep)
-            {
-                var queryRA = ra;
-                if (raWrapped && queryRA >= 24.0) queryRA -= 24.0;
-                if (queryRA < 0.0) queryRA += 24.0;
-
-                foreach (var idx in grid[queryRA, dec])
-                {
-                    if (!seen.Add(idx))
-                    {
-                        continue;
-                    }
-
-                    if (!db.TryLookupByIndex(idx, out var obj))
-                    {
-                        continue;
-                    }
-
-                    var isExtended = IsExtendedObjectType(obj.ObjectType);
-                    var isStar = IsStarType(obj.ObjectType);
-
-                    if (!isExtended && !isStar)
-                    {
-                        continue;
-                    }
-
-                    // Skip Tycho2 stars (too many — ~2.5M entries)
-                    if (isStar && idx.ToCatalog() == Catalog.Tycho2)
-                    {
-                        continue;
-                    }
-
-                    // Deduplicate cross-catalog entries (e.g. HIP/HD/HR for the same star)
-                    if (db.TryGetCrossIndices(idx, out var crossIndices))
-                    {
-                        var isDuplicate = false;
-                        foreach (var crossIdx in crossIndices)
-                        {
-                            if (crossIdx != idx && seen.Contains(crossIdx))
-                            {
-                                isDuplicate = true;
-                                break;
-                            }
-                        }
-                        if (isDuplicate)
-                        {
-                            continue;
-                        }
-                    }
-
-                    // Star magnitude cutoff: tighter than extended objects
-                    var effectiveMagCutoff = isStar ? starMagCutoff : magCutoff;
-                    if (!Half.IsNaN(obj.V_Mag) && (double)obj.V_Mag > effectiveMagCutoff)
-                    {
-                        continue;
-                    }
-
-                    // Project to pixel coordinates
-                    var pixel = wcs.SkyToPixel(obj.RA, obj.Dec);
-                    if (pixel is not { } px)
-                    {
-                        continue;
-                    }
-
-                    // Convert to screen coordinates
-                    var screenX = imgOffsetX + (float)(px.X - 1) * scale;
-                    var screenY = imgOffsetY + (float)(px.Y - 1) * scale;
-
-                    // Skip if off-screen — margin based on actual object extent
-                    var margin = 100f;
-                    if (db.TryGetShape(idx, out var earlyShape) && !Half.IsNaN(earlyShape.MajorAxis))
-                    {
-                        // arcmin to screen pixels: scale / (pixelScaleArcsec / 60)
-                        var shapeScreenPx = (float)((double)earlyShape.MajorAxis / 2.0 * scale / (pixelScaleArcsec / 60.0)) + 50f;
-                        if (shapeScreenPx > margin) margin = shapeScreenPx;
-                    }
-                    if (screenX < fileListW - margin || screenX > fileListW + areaW + margin ||
-                        screenY < ToolbarHeight - margin || screenY > ToolbarHeight + areaH + margin)
-                    {
-                        continue;
-                    }
-
-                    candidates.Add((idx, obj, screenX, screenY));
-                }
-            }
-        }
-
-        if (candidates.Count == 0)
-        {
-            return;
-        }
-
-        // Sort by magnitude (brightest first) for label priority
-        candidates.Sort((a, b) =>
-        {
-            var aMag = Half.IsNaN(a.Obj.V_Mag) ? 99.0 : (double)a.Obj.V_Mag;
-            var bMag = Half.IsNaN(b.Obj.V_Mag) ? 99.0 : (double)b.Obj.V_Mag;
-            return aMag.CompareTo(bMag);
-        });
 
         // Scissor to image area
         _gl.Enable(EnableCap.ScissorTest);
         _gl.Scissor((int)fileListW, (int)StatusBarHeight, (uint)areaW, (uint)areaH);
-
-        // Arcminutes to screen pixels conversion factor
-        var arcminToPixels = scale / (pixelScaleArcsec / 60.0);
 
         var labelSize = FontSize * 0.85f;
         var labelPad = 4f;
         var placedLabels = new List<(float X, float Y, float W, float H)>();
         var labelCount = 0;
 
-        foreach (var (idx, obj, cx, cy) in candidates)
+        foreach (var item in items)
         {
-            var (r, g, b) = GetOverlayColor(obj.ObjectType);
+            var (r, g, b) = item.Color;
+            var cx = item.ScreenX;
+            var cy = item.ScreenY;
 
-            if (db.TryGetShape(idx, out var shape) &&
-                !Half.IsNaN(shape.MajorAxis) && !Half.IsNaN(shape.MinorAxis))
+            // Draw marker
+            switch (item.Marker)
             {
-                // Draw ellipse
-                var semiMajPx = (float)((double)shape.MajorAxis / 2.0 * arcminToPixels);
-                var semiMinPx = (float)((double)shape.MinorAxis / 2.0 * arcminToPixels);
-
-                // Skip tiny ellipses (< 3 pixels)
-                if (semiMajPx < 3f)
-                {
-                    continue;
-                }
-
-                // Compute screen-space PA from WCS
-                var paScreen = ComputeScreenPA(wcs, obj.RA, obj.Dec, shape.PositionAngle);
-
-                DrawEllipse(cx, cy, semiMajPx, semiMinPx, paScreen, r, g, b, 1.0f);
-            }
-            else if (IsStarType(obj.ObjectType))
-            {
-                // Draw a cross/plus marker for stars
-                var arm = 6f * DpiScale;
-                DrawCross(cx, cy, arm, r, g, b, 1.0f);
-            }
-            else
-            {
-                // Draw a small circle marker for extended objects without shape data
-                var markerRadius = 8f * DpiScale;
-                DrawEllipse(cx, cy, markerRadius, markerRadius, 0f, r, g, b, 0.9f);
+                case OverlayMarker.Ellipse ellipse:
+                    DrawEllipse(cx, cy, ellipse.SemiMajorPx, ellipse.SemiMinorPx, ellipse.AngleRad, r, g, b, 1.0f);
+                    break;
+                case OverlayMarker.Cross cross:
+                    DrawCross(cx, cy, cross.ArmPx, r, g, b, 1.0f);
+                    break;
+                case OverlayMarker.Circle circle:
+                    DrawEllipse(cx, cy, circle.RadiusPx, circle.RadiusPx, 0f, r, g, b, 0.9f);
+                    break;
             }
 
-            // Build label lines based on zoom level
-            if (labelCount < MaxOverlayLabels)
+            // Place labels with collision avoidance
+            if (labelCount < OverlayEngine.MaxOverlayLabels && item.LabelLines.Count > 0)
             {
-                var lines = BuildOverlayLabel(obj, idx, db, scale);
-                if (lines.Count == 0)
-                {
-                    continue;
-                }
-
-                // Measure total label block
                 var maxLineW = 0f;
-                foreach (var line in lines)
+                foreach (var line in item.LabelLines)
                 {
                     var w = MeasureText(line, labelSize);
                     if (w > maxLineW) maxLineW = w;
                 }
                 var lineH = labelSize * 1.2f;
-                var totalH = lineH * lines.Count;
+                var totalH = lineH * item.LabelLines.Count;
 
                 // Try 4 candidate positions: right, left, above, below
                 (float X, float Y)[] positions =
                 [
-                    (cx + labelPad + 6f, cy - totalH / 2f),             // right
-                    (cx - maxLineW - labelPad - 6f, cy - totalH / 2f),  // left
-                    (cx - maxLineW / 2f, cy - totalH - labelPad - 6f),  // above
-                    (cx - maxLineW / 2f, cy + labelPad + 6f),           // below
+                    (cx + labelPad + 6f, cy - totalH / 2f),
+                    (cx - maxLineW - labelPad - 6f, cy - totalH / 2f),
+                    (cx - maxLineW / 2f, cy - totalH - labelPad - 6f),
+                    (cx - maxLineW / 2f, cy + labelPad + 6f),
                 ];
 
                 var placed = false;
@@ -1356,12 +1009,7 @@ public sealed class GlFitsRenderer : IDisposable
 
                     if (!overlaps)
                     {
-                        for (int li = 0; li < lines.Count; li++)
-                        {
-                            // First line full brightness, secondary lines slightly dimmer
-                            var alpha = li == 0 ? 1.0f : 0.7f;
-                            DrawText(lines[li], lx, ly + li * lineH, labelSize, r * alpha, g * alpha, b * alpha);
-                        }
+                        DrawOverlayLabelLines(item.LabelLines, lx, ly, lineH, labelSize, r, g, b);
                         placedLabels.Add((lx, ly, maxLineW, totalH));
                         placed = true;
                         labelCount++;
@@ -1370,14 +1018,10 @@ public sealed class GlFitsRenderer : IDisposable
                 }
 
                 // If all positions collide and this is a bright object, force-place right
-                if (!placed && !Half.IsNaN(obj.V_Mag) && (double)obj.V_Mag < 10.0)
+                if (!placed && item.ForcePlaceLabel)
                 {
                     var (fx, fy) = positions[0];
-                    for (int li = 0; li < lines.Count; li++)
-                    {
-                        var alpha = li == 0 ? 1.0f : 0.7f;
-                        DrawText(lines[li], fx, fy + li * lineH, labelSize, r * alpha, g * alpha, b * alpha);
-                    }
+                    DrawOverlayLabelLines(item.LabelLines, fx, fy, lineH, labelSize, r, g, b);
                     placedLabels.Add((fx, fy, maxLineW, totalH));
                     labelCount++;
                 }
@@ -1387,41 +1031,13 @@ public sealed class GlFitsRenderer : IDisposable
         _gl.Disable(EnableCap.ScissorTest);
     }
 
-    /// <summary>
-    /// Computes the screen-space position angle by projecting a small sky offset through the WCS.
-    /// Returns angle in radians (0 = up on screen, clockwise positive).
-    /// </summary>
-    private static float ComputeScreenPA(WCS wcs, double raH, double decDeg, Half paFromNorth)
+    private void DrawOverlayLabelLines(IReadOnlyList<string> lines, float x, float y, float lineH, float fontSize, float r, float g, float b)
     {
-        if (Half.IsNaN(paFromNorth))
+        for (int li = 0; li < lines.Count; li++)
         {
-            return 0f;
+            var alpha = li == 0 ? 1.0f : 0.7f;
+            DrawText(lines[li], x, y + li * lineH, fontSize, r * alpha, g * alpha, b * alpha);
         }
-
-        var paDeg = (double)paFromNorth;
-        var paRad = paDeg * Math.PI / 180.0;
-
-        // Compute a small offset along the PA direction in sky coordinates
-        var offsetArcmin = 1.0; // 1 arcmin offset
-        var offsetDeg = offsetArcmin / 60.0;
-
-        // PA is measured N through E on the sky
-        var dDecDeg = offsetDeg * Math.Cos(paRad);
-        var dRADeg = offsetDeg * Math.Sin(paRad) / Math.Cos(decDeg * Math.PI / 180.0);
-        var dRAH = dRADeg / 15.0;
-
-        var center = wcs.SkyToPixel(raH, decDeg);
-        var tip = wcs.SkyToPixel(raH + dRAH, decDeg + dDecDeg);
-
-        if (center is not { } c || tip is not { } t)
-        {
-            return 0f;
-        }
-
-        // Screen-space angle (note: screen Y increases downward, pixel Y increases upward)
-        var dx = (float)(t.X - c.X);
-        var dy = -(float)(t.Y - c.Y); // negate because screen Y is flipped
-        return MathF.Atan2(dx, dy); // angle from "up" (north on screen), clockwise positive
     }
 
     /// <summary>
