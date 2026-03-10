@@ -202,10 +202,9 @@ public class ContrastBoostTests(ITestOutputHelper testOutputHelper)
     }
 
     /// <summary>
-    /// Verifies that the GPU background estimate (EstimatePostStretchBackground) matches
-    /// the actual measured background of the CPU-stretched image. A mismatch here means
-    /// the boost curve's symmetry point (SP) is placed at the wrong level, causing
-    /// background pixels to be boosted instead of darkened.
+    /// Verifies that the computed post-stretch background (from measured image data)
+    /// matches the actual background of the CPU-stretched image. A mismatch means
+    /// the boost curve's symmetry point (SP) is placed at the wrong level.
     /// Uses FitsDocument.OpenAsync and ComputeStretchUniforms directly — no duplication.
     /// </summary>
     [Theory]
@@ -213,7 +212,7 @@ public class ContrastBoostTests(ITestOutputHelper testOutputHelper)
     [InlineData(VelaColor, "None", 15, 3)]
     [InlineData(VelaColor, "None", 10, 3)]
     [InlineData(VelaMono, "None", 15, 1)]
-    public async Task EstimatePostStretchBackground_MatchesActualBackground(string imageName, string algorithmStr, int stretchPct, int expectedChannels)
+    public async Task ComputePostStretchBackground_MatchesActualBackground(string imageName, string algorithmStr, int stretchPct, int expectedChannels)
     {
         var algorithm = Enum.Parse<DebayerAlgorithm>(algorithmStr);
         var cancellationToken = TestContext.Current.CancellationToken;
@@ -224,15 +223,11 @@ public class ContrastBoostTests(ITestOutputHelper testOutputHelper)
         document.ShouldNotBeNull();
         document.UnstretchedImage.ChannelCount.ShouldBe(expectedChannels);
 
-        for (var c = 0; c < document.PerChannelStats.Length; c++)
+        for (var c = 0; c < document.PerChannelBackground.Length; c++)
         {
-            var s = document.PerChannelStats[c];
-            testOutputHelper.WriteLine($"Ch{c}: pedestal={s.Pedestal:F6}, median={s.Median:F6}, MAD={s.Mad:F6}");
+            testOutputHelper.WriteLine($"Ch{c} background (pedestal-subtracted): {document.PerChannelBackground[c]:F6}");
         }
-        if (document.LumaStats is { } ls)
-        {
-            testOutputHelper.WriteLine($"Luma: pedestal={ls.Pedestal:F6}, median={ls.Median:F6}, MAD={ls.Mad:F6}");
-        }
+        testOutputHelper.WriteLine($"Luma background (pedestal-subtracted): {document.LumaBackground:F6}");
 
         // Use the real ComputeStretchUniforms — same path as the viewer
         var stretchFactor = stretchPct * 0.01d;
@@ -245,9 +240,9 @@ public class ContrastBoostTests(ITestOutputHelper testOutputHelper)
         testOutputHelper.WriteLine($"  Midtones: ({stretch.Midtones.R:F6}, {stretch.Midtones.G:F6}, {stretch.Midtones.B:F6})");
         testOutputHelper.WriteLine($"  Rescale:  ({stretch.Rescale.R:F6}, {stretch.Rescale.G:F6}, {stretch.Rescale.B:F6})");
 
-        // GPU background estimate — same call as the viewer's renderer
-        var estimatedBg = stretch.EstimatePostStretchBackground(document.PerChannelStats, document.LumaStats);
-        testOutputHelper.WriteLine($"\nEstimatedPostStretchBackground = {estimatedBg:F6}");
+        // Computed background — same call as the viewer's renderer
+        var computedBg = stretch.ComputePostStretchBackground(document.PerChannelBackground, document.LumaBackground);
+        testOutputHelper.WriteLine($"\nComputePostStretchBackground = {computedBg:F6}");
 
         // CPU stretch and measure actual background
         var rawImage = await SharedTestData.ExtractGZippedFitsImageAsync(imageName, cancellationToken: cancellationToken);
@@ -273,21 +268,21 @@ public class ContrastBoostTests(ITestOutputHelper testOutputHelper)
         var actualBg = AverageLuma(stretched, bgX, bgY, squareSize);
 
         testOutputHelper.WriteLine($"Actual post-stretch background ({bgX},{bgY}): luma = {actualBg:F6}");
-        testOutputHelper.WriteLine($"Estimate vs Actual: {estimatedBg:F6} vs {actualBg:F6} (ratio={estimatedBg / actualBg:F4})");
+        testOutputHelper.WriteLine($"Estimate vs Actual: {computedBg:F6} vs {actualBg:F6} (ratio={computedBg / actualBg:F4})");
 
         // The SP the curve would use with each bg value
         var boost = 1.5f;
-        var estimatedSp = estimatedBg * (1f + 0.1f * boost);
+        var estimatedSp = computedBg * (1f + 0.1f * boost);
         var actualSp = actualBg * (1f + 0.1f * boost);
         testOutputHelper.WriteLine($"\nWith boost={boost:F2}:");
-        testOutputHelper.WriteLine($"  Estimated SP = {estimatedSp:F6}  (bg pixels {(actualBg <= estimatedSp ? "BELOW" : "ABOVE")} SP → {(actualBg <= estimatedSp ? "darken" : "BOOST!")})");
+        testOutputHelper.WriteLine($"  Computed SP = {estimatedSp:F6}  (bg pixels {(actualBg <= estimatedSp ? "BELOW" : "ABOVE")} SP → {(actualBg <= estimatedSp ? "darken" : "BOOST!")})");
         testOutputHelper.WriteLine($"  Actual SP    = {actualSp:F6}  (bg pixels BELOW SP → darken)");
 
         // The estimate should be within 50% of the actual value
         // If not, the curve's SP will be misplaced and boost will malfunction
-        var ratio = estimatedBg / actualBg;
+        var ratio = computedBg / actualBg;
         ratio.ShouldBeInRange(0.5f, 2.0f,
-            $"Background estimate {estimatedBg:F4} is too far from actual {actualBg:F4} (ratio={ratio:F4}). " +
+            $"Computed background {computedBg:F4} is too far from actual {actualBg:F4} (ratio={ratio:F4}). " +
             $"This will cause the boost curve to malfunction.");
     }
 

@@ -534,7 +534,7 @@ public sealed class GlFitsRenderer : IDisposable
         _imageShader.SetInt("uChannelCount", ChannelTextureCount);
         _imageShader.SetFloat("uCurvesBoost", state.CurvesBoost);
         var bgLevel = document is not null
-            ? stretch.EstimatePostStretchBackground(document.PerChannelStats, document.LumaStats)
+            ? stretch.ComputePostStretchBackground(document.PerChannelBackground, document.LumaBackground)
             : 0.15f;
         _imageShader.SetFloat("uCurvesMidpoint", bgLevel);
         _imageShader.SetFloat("uHdrAmount", state.HdrAmount);
