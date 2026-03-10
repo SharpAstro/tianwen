@@ -14,17 +14,17 @@ public static class InfoPanelData
     public static List<string> GetMetadataLines(FitsDocument document)
     {
         var lines = new List<string>();
-        var meta = document.RawImage.ImageMeta;
-        var img = document.RawImage;
+        var image = document.UnstretchedImage;
+        var meta = image.ImageMeta;
 
         if (!string.IsNullOrEmpty(meta.ObjectName))
         {
             lines.Add($"Object: {meta.ObjectName}");
         }
 
-        lines.Add($"Size: {img.Width} x {img.Height} x {img.ChannelCount}ch");
-        lines.Add($"BitDepth: {img.BitDepth}");
-        lines.Add($"Range: [{img.MinValue:F1}, {img.MaxValue:F1}]");
+        lines.Add($"Size: {image.Width} x {image.Height} x {image.ChannelCount}ch");
+        lines.Add($"BitDepth: {image.BitDepth}");
+        lines.Add($"Range: [{image.MinValue:F1}, {image.MaxValue:F1}]");
 
         if (!string.IsNullOrEmpty(meta.Telescope))
         {
@@ -78,7 +78,7 @@ public static class InfoPanelData
         for (var c = 0; c < document.ChannelStatistics.Length; c++)
         {
             var stats = document.ChannelStatistics[c];
-            var label = document.RawImage.ChannelCount >= 3
+            var label = document.UnstretchedImage.ChannelCount >= 3
                 ? c switch { 0 => "R", 1 => "G", 2 => "B", _ => $"Ch{c}" }
                 : $"Ch{c}";
 

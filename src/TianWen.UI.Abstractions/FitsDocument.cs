@@ -8,7 +8,7 @@ using TianWen.Lib.Imaging;
 namespace TianWen.UI.Abstractions;
 
 /// <summary>
-/// Per-channel stretch statistics cached from the debayered image.
+/// Per-channel stretch statistics cached from the processedRawImage image.
 /// </summary>
 public record struct ChannelStretchStats(float Pedestal, float Median, float Mad);
 
@@ -35,14 +35,8 @@ public sealed class FitsDocument
 {
     private readonly string _filePath;
 
-    /// <summary>Raw image as loaded from the FITS file.</summary>
-    public Image RawImage { get; }
-
-    /// <summary>Debayered image (or same as <see cref="RawImage"/> if not Bayer). This is the permanent base image.</summary>
-    public Image DebayeredImage { get; }
-
-    /// <summary>Display image — always the debayered image (stretch is done in the GPU shader).</summary>
-    public Image DisplayImage => DebayeredImage;
+    /// <summary>Debayered image (or raw image if it is a colour or mono image). This is the permanent base image.</summary>
+    public Image UnstretchedImage { get; }
 
     /// <summary>WCS solution, available after plate solving.</summary>
     public WCS? Wcs { get; private set; }
@@ -53,7 +47,7 @@ public sealed class FitsDocument
     /// <summary>Debayer algorithm actually used when loading this image.</summary>
     public DebayerAlgorithm DebayerAlgorithm { get; }
 
-    /// <summary>Per-channel stretch stats from the debayered image.</summary>
+    /// <summary>Per-channel stretch stats from the processedRawImage image.</summary>
     public ChannelStretchStats[] PerChannelStats { get; }
 
     /// <summary>Luminance stretch stats (for luma mode). Only populated for color images (>=3 channels).</summary>
@@ -63,25 +57,23 @@ public sealed class FitsDocument
 
     private FitsDocument(
         string filePath,
-        Image rawImage,
-        Image debayeredImage,
+        Image image,
         DebayerAlgorithm debayerAlgorithm,
         ChannelStretchStats[] perChannelStats,
         ChannelStretchStats? lumaStats,
         WCS? wcs)
     {
         _filePath = filePath;
-        RawImage = rawImage;
-        DebayeredImage = debayeredImage;
+        UnstretchedImage = image;
         DebayerAlgorithm = debayerAlgorithm;
         PerChannelStats = perChannelStats;
         LumaStats = lumaStats;
         Wcs = wcs;
 
-        var stats = new ImageHistogram[debayeredImage.ChannelCount];
-        for (var c = 0; c < debayeredImage.ChannelCount; c++)
+        var stats = new ImageHistogram[image.ChannelCount];
+        for (var c = 0; c < image.ChannelCount; c++)
         {
-            stats[c] = debayeredImage.Statistics(c);
+            stats[c] = image.Statistics(c);
         }
         ChannelStatistics = stats;
     }
@@ -97,26 +89,26 @@ public sealed class FitsDocument
             return null;
         }
 
-        Image debayered;
+        Image processedRawImage;
         DebayerAlgorithm actualAlgorithm;
 
         if (rawImage.ImageMeta.SensorType is SensorType.RGGB && algorithm is not DebayerAlgorithm.None)
         {
-            debayered = (await rawImage.DebayerAsync(algorithm, cancellationToken)).ScaleFloatValuesToUnit();
+            processedRawImage = (await rawImage.DebayerAsync(algorithm, cancellationToken)).ScaleFloatValuesToUnit();
             actualAlgorithm = algorithm;
         }
         else
         {
-            debayered = rawImage.ScaleFloatValuesToUnit();
+            processedRawImage = rawImage.ScaleFloatValuesToUnit();
             actualAlgorithm = DebayerAlgorithm.None;
         }
 
         // Cache per-channel stretch stats
-        var channelCount = debayered.ChannelCount;
+        var channelCount = processedRawImage.ChannelCount;
         var perChannelStats = new ChannelStretchStats[channelCount];
         for (var c = 0; c < channelCount; c++)
         {
-            var (ped, med, mad) = debayered.GetPedestralMedianAndMADScaledToUnit(c);
+            var (ped, med, mad) = processedRawImage.GetPedestralMedianAndMADScaledToUnit(c);
             perChannelStats[c] = new ChannelStretchStats(ped, med, mad);
         }
 
@@ -124,7 +116,7 @@ public sealed class FitsDocument
         ChannelStretchStats? lumaStats = null;
         if (channelCount >= 3)
         {
-            var (lumaPed, lumaMed, lumaMad) = await debayered.GetLumaStretchStatsAsync(DebayerAlgorithm.None, cancellationToken);
+            var (lumaPed, lumaMed, lumaMad) = await processedRawImage.GetLumaStretchStatsAsync(DebayerAlgorithm.None, cancellationToken);
             lumaStats = new ChannelStretchStats(lumaPed, lumaMed, lumaMad);
         }
 
@@ -138,7 +130,7 @@ public sealed class FitsDocument
             }
         }
 
-        return new FitsDocument(filePath, rawImage, debayered, actualAlgorithm, perChannelStats, lumaStats, fileWcs);
+        return new FitsDocument(filePath, processedRawImage, actualAlgorithm, perChannelStats, lumaStats, fileWcs);
     }
 
     /// <summary>
@@ -151,7 +143,7 @@ public sealed class FitsDocument
             return new GpuStretchUniforms(0, 1f, default, default, default, default, default);
         }
 
-        var normFactor = DebayeredImage.MaxValue > 1.0f + float.Epsilon ? 1f / DebayeredImage.MaxValue : 1f;
+        var normFactor = UnstretchedImage.MaxValue > 1.0f + float.Epsilon ? 1f / UnstretchedImage.MaxValue : 1f;
         var factor = parameters.Factor;
         var clipping = parameters.ShadowsClipping;
 
@@ -199,7 +191,7 @@ public sealed class FitsDocument
     /// </summary>
     public async Task<bool> PlateSolveAsync(IPlateSolverFactory solverFactory, CancellationToken cancellationToken = default)
     {
-        var imageDim = RawImage.GetImageDim();
+        var imageDim = UnstretchedImage.GetImageDim();
         var result = await solverFactory.SolveFileAsync(_filePath, imageDim, cancellationToken: cancellationToken);
         if (result.Solution is { } wcs)
         {
@@ -211,11 +203,11 @@ public sealed class FitsDocument
 
     /// <summary>
     /// Gets pixel information at the given display coordinates, including sky coordinates if plate-solved.
-    /// Returns raw (unstretched) values from the debayered image.
+    /// Returns raw (unstretched) values from the processedRawImage image.
     /// </summary>
     public PixelInfo GetPixelInfo(int x, int y)
     {
-        var image = DebayeredImage;
+        var image = UnstretchedImage;
         if (x < 0 || x >= image.Width || y < 0 || y >= image.Height)
         {
             return new PixelInfo(x, y, [], null, null);
@@ -242,11 +234,11 @@ public sealed class FitsDocument
     }
 
     /// <summary>
-    /// Extracts per-channel float arrays from the debayered image for GPU upload as R32f textures.
+    /// Extracts per-channel float arrays from the processedRawImage image for GPU upload as R32f textures.
     /// </summary>
     public float[][] GetChannelArrays(ChannelView channelView)
     {
-        var image = DebayeredImage;
+        var image = UnstretchedImage;
         var (channelCount, _, _) = image.Shape;
 
         if (channelView is ChannelView.Composite && channelCount >= 3)
