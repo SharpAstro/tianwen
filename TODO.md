@@ -68,10 +68,17 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 
 - [x] Luma-only stretch mode (Rec. 709 luminance, stretch Y, scale RGB by Y'/Y)
 - [x] HDR compression in GPU shader (Hermite soft-knee, `uHdrAmount`/`uHdrKnee` uniforms)
-- [ ] Support rec601/rec2020 luminance weighting options
 - [ ] Normalize after stretch — `x / max(x)` to fill full [0,1] range
 - [ ] Iterative convergence — multiple stretch iterations until median converges to target
 - [ ] Luma blend — smoothly blend between linked and luma-only results
+
+## FITS Viewer
+
+- [ ] Remove debug `Console.Error.WriteLine` WCS output from `Program.cs`
+- [ ] Support rec601/rec2020 luminance weighting options in luma stretch
+- [ ] Grid label formatting: show arc-seconds for very narrow FOVs
+- [ ] Crosshair / reticle overlay at image center
+- [ ] Annotation overlay (object names from catalogs when plate-solved)
 
 ## Astrometry / Catalogs
 

@@ -12,7 +12,7 @@ public sealed class ViewerState
     public StretchMode StretchMode { get; set; } = StretchMode.Unlinked;
     public StretchParameters StretchParameters { get; set; } = StretchParameters.Default;
     public ChannelView ChannelView { get; set; } = ChannelView.Composite;
-    public DebayerAlgorithm DebayerAlgorithm { get; set; } = DebayerAlgorithm.VNG;
+    public DebayerAlgorithm DebayerAlgorithm { get; set; } = DebayerAlgorithm.AHD;
     public bool ShowInfoPanel { get; set; } = true;
 
     /// <summary>Curves boost amount applied in the display shader (0.0 = off, up to 1.0).</summary>
@@ -51,6 +51,9 @@ public sealed class ViewerState
 
     /// <summary>Whether a plate solve is currently in progress.</summary>
     public bool IsPlateSolving { get; set; }
+
+    /// <summary>Whether the WCS coordinate grid overlay is visible.</summary>
+    public bool ShowGrid { get; set; }
 
     /// <summary>Status message to display (e.g. "Plate solving...", "Stretching...").</summary>
     public string? StatusMessage { get; set; }

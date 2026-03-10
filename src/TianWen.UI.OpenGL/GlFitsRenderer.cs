@@ -1,4 +1,6 @@
+using System;
 using Silk.NET.OpenGL;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
 
@@ -75,6 +77,7 @@ public sealed class GlFitsRenderer : IDisposable
         ("Fit", ToolbarAction.ZoomFit, 3),
         ("1:1", ToolbarAction.ZoomActual, 3),
         ("Plate Solve", ToolbarAction.PlateSolve, 4),
+        ("Grid", ToolbarAction.Grid, 4),
     ];
 
     /// <summary>Scaled toolbar height in pixels.</summary>
@@ -169,7 +172,13 @@ public sealed class GlFitsRenderer : IDisposable
         {
             var stretch = document?.ComputeStretchUniforms(state.StretchMode, state.StretchParameters)
                 ?? new GpuStretchUniforms(0, 1f, default, default, default, default, default);
-            RenderImage(state, stretch);
+            var gridWcs = state.ShowGrid && document?.Wcs is { HasCDMatrix: true } w ? w : (WCS?)null;
+            RenderImage(state, stretch, gridWcs);
+        }
+
+        if (state.ShowGrid && document?.Wcs is { HasCDMatrix: true } wcs)
+        {
+            RenderGridLabels(state, wcs);
         }
 
         if (state.ShowInfoPanel && document is not null)
@@ -268,8 +277,12 @@ public sealed class GlFitsRenderer : IDisposable
             // Stretch buttons need a loaded document; link/params only when stretch is active
             ToolbarAction.StretchToggle => document is not null,
             ToolbarAction.StretchLink or ToolbarAction.StretchParams => document is not null,
-            // Zoom, plate solve need a loaded document
-            ToolbarAction.ZoomFit or ToolbarAction.ZoomActual or ToolbarAction.PlateSolve
+            // Grid needs a WCS with CD matrix (solved or approximate)
+            ToolbarAction.Grid => document?.Wcs is { HasCDMatrix: true },
+            // Plate solve needs a loaded, unsolved document
+            ToolbarAction.PlateSolve => document is not null && !document.IsPlateSolved,
+            // Zoom needs a loaded document
+            ToolbarAction.ZoomFit or ToolbarAction.ZoomActual
                 => document is not null,
             // Open is always enabled
             _ => true,
@@ -286,6 +299,7 @@ public sealed class GlFitsRenderer : IDisposable
                 && state.DebayerAlgorithm is not DebayerAlgorithm.None,
             ToolbarAction.CurvesBoost => state.CurvesBoost > 0f,
             ToolbarAction.Hdr => state.HdrAmount > 0f,
+            ToolbarAction.Grid => state.ShowGrid,
             ToolbarAction.ZoomFit => state.ZoomToFit,
             ToolbarAction.ZoomActual => !state.ZoomToFit && MathF.Abs(state.Zoom - 1f) < 0.001f,
             _ => false,
@@ -310,6 +324,7 @@ public sealed class GlFitsRenderer : IDisposable
             ToolbarAction.Hdr => state.HdrAmount > 0f ? $"HDR: {state.HdrAmount:F1}" : "HDR",
             ToolbarAction.ZoomFit => "Fit",
             ToolbarAction.ZoomActual => "1:1",
+            ToolbarAction.Grid => "Grid",
             ToolbarAction.PlateSolve when state.IsPlateSolving => "Solving...",
             ToolbarAction.PlateSolve when document?.IsPlateSolved == true => "Solved",
             _ => baseLabel,
@@ -451,7 +466,7 @@ public sealed class GlFitsRenderer : IDisposable
 
     // --- Image ---
 
-    private void RenderImage(ViewerState state, GpuStretchUniforms stretch)
+    private void RenderImage(ViewerState state, GpuStretchUniforms stretch, WCS? gridWcs = null)
     {
         var fileListW = state.ShowFileList ? FileListWidth : 0;
         var panelW = state.ShowInfoPanel ? InfoPanelWidth : 0;
@@ -519,6 +534,51 @@ public sealed class GlFitsRenderer : IDisposable
         _imageShader.SetVector3("uMidtones", stretch.Midtones.R, stretch.Midtones.G, stretch.Midtones.B);
         _imageShader.SetVector3("uHighlights", stretch.Highlights.R, stretch.Highlights.G, stretch.Highlights.B);
         _imageShader.SetVector3("uRescale", stretch.Rescale.R, stretch.Rescale.G, stretch.Rescale.B);
+
+        // WCS grid uniforms
+        if (gridWcs is { } gw)
+        {
+            _imageShader.SetInt("uGridEnabled", 1);
+            _imageShader.SetVector2("uImageSize", _imageWidth, _imageHeight);
+            _imageShader.SetVector2("uCRPix", (float)gw.CRPix1, (float)gw.CRPix2);
+            // Convert RA hours→radians, Dec degrees→radians
+            var ra0Rad = (float)(gw.CenterRA * (Math.PI / 12.0));
+            var dec0Rad = (float)(gw.CenterDec * (Math.PI / 180.0));
+            _imageShader.SetVector2("uCRVal", ra0Rad, dec0Rad);
+            // CD matrix in radians/pixel (column-major for GLSL mat2)
+            var degToRad = (float)(Math.PI / 180.0);
+            ReadOnlySpan<float> cdMatrix =
+            [
+                (float)gw.CD1_1 * degToRad, (float)gw.CD2_1 * degToRad,  // column 0
+                (float)gw.CD1_2 * degToRad, (float)gw.CD2_2 * degToRad,  // column 1
+            ];
+            _imageShader.SetMatrix2("uCDMatrix", cdMatrix);
+
+            // Compute grid spacing
+            var pixelScaleArcsec = gw.PixelScaleArcsec;
+            var viewImagePixels = MathF.Min(areaW, areaH) / scale;
+            var viewArcsec = viewImagePixels * pixelScaleArcsec;
+            var spacingArcsec = GridSpacingsArcsec[^1];
+            foreach (var candidate in GridSpacingsArcsec)
+            {
+                if (candidate >= viewArcsec / 8.0)
+                {
+                    spacingArcsec = candidate;
+                    break;
+                }
+            }
+            var spacingRad = (float)(spacingArcsec / 3600.0 * (Math.PI / 180.0));
+            var spacingRArad = (float)(spacingArcsec / 3600.0 / 15.0 * (Math.PI / 12.0));
+            _imageShader.SetFloat("uGridSpacingRA", spacingRArad);
+            _imageShader.SetFloat("uGridSpacingDec", spacingRad);
+            // Line width: ~1.5 pixels in sky-coordinate space
+            _imageShader.SetFloat("uGridLineWidth", (float)(1.5 * pixelScaleArcsec / 3600.0 * (Math.PI / 180.0)));
+        }
+        else
+        {
+            _imageShader.SetInt("uGridEnabled", 0);
+        }
+
         for (int i = 0; i < _channelTextureCount && i < _channelTextures.Length; i++)
         {
             _gl.ActiveTexture(TextureUnit.Texture0 + i);
@@ -529,6 +589,306 @@ public sealed class GlFitsRenderer : IDisposable
         _gl.DrawArrays(PrimitiveType.Triangles, 0, 6);
 
         _gl.Disable(EnableCap.ScissorTest);
+    }
+
+    // --- WCS Grid ---
+
+    /// <summary>
+    /// Grid spacing options in arcseconds, from fine to coarse.
+    /// The renderer picks the smallest spacing that gives at least ~3 grid lines.
+    /// </summary>
+    private static readonly double[] GridSpacingsArcsec =
+    [
+        1, 2, 5, 10, 15, 30,                           // sub-arcminute
+        60, 120, 300, 600, 900, 1800,                   // arcminutes
+        3600, 7200, 18000, 36000, 90000, 180000,        // degrees
+    ];
+
+    /// <summary>
+    /// Renders RA/Dec labels at grid line intersections with image edges.
+    /// The grid lines themselves are drawn by the GPU shader.
+    /// </summary>
+    private void RenderGridLabels(ViewerState state, WCS wcs)
+    {
+        if (_fontPath is null || _imageWidth <= 0 || _imageHeight <= 0)
+        {
+            return;
+        }
+
+        var fileListW = state.ShowFileList ? FileListWidth : 0;
+        var panelW = state.ShowInfoPanel ? InfoPanelWidth : 0;
+        var areaW = (float)(_width - fileListW - panelW);
+        var areaH = (float)(_height - ToolbarHeight - StatusBarHeight);
+        var scale = state.Zoom;
+        var drawW = _imageWidth * scale;
+        var drawH = _imageHeight * scale;
+        var imgOffsetX = fileListW + (areaW - drawW) / 2f + state.PanOffset.X;
+        var imgOffsetY = ToolbarHeight + (areaH - drawH) / 2f + state.PanOffset.Y;
+
+        // Visible image pixel bounds (1-based FITS coordinates)
+        var visLeft = Math.Max(1.0, (fileListW - imgOffsetX) / scale + 1);
+        var visRight = Math.Min((double)_imageWidth, (fileListW + areaW - imgOffsetX) / scale + 1);
+        var visTop = Math.Max(1.0, (ToolbarHeight - imgOffsetY) / scale + 1);
+        var visBottom = Math.Min((double)_imageHeight, (ToolbarHeight + areaH - imgOffsetY) / scale + 1);
+
+        if (visLeft >= visRight || visTop >= visBottom)
+        {
+            return;
+        }
+
+        // Get sky coordinates at corners to determine RA/Dec range
+        var corners = new (double RA, double Dec)?[]
+        {
+            wcs.PixelToSky(visLeft, visTop),
+            wcs.PixelToSky(visRight, visTop),
+            wcs.PixelToSky(visLeft, visBottom),
+            wcs.PixelToSky(visRight, visBottom),
+            wcs.PixelToSky((visLeft + visRight) / 2, visTop),
+            wcs.PixelToSky((visLeft + visRight) / 2, visBottom),
+            wcs.PixelToSky(visLeft, (visTop + visBottom) / 2),
+            wcs.PixelToSky(visRight, (visTop + visBottom) / 2),
+        };
+
+        double minRA = double.MaxValue, maxRA = double.MinValue;
+        double minDec = double.MaxValue, maxDec = double.MinValue;
+        foreach (var c in corners)
+        {
+            if (c is not { } sky)
+            {
+                continue;
+            }
+            minRA = Math.Min(minRA, sky.RA);
+            maxRA = Math.Max(maxRA, sky.RA);
+            minDec = Math.Min(minDec, sky.Dec);
+            maxDec = Math.Max(maxDec, sky.Dec);
+        }
+
+        if (minRA > maxRA || minDec > maxDec)
+        {
+            return;
+        }
+
+        // Handle RA wraparound (if range spans 0h/24h)
+        if (maxRA - minRA > 12.0)
+        {
+            // Wrap: shift RAs < 12h up by 24h, recompute range
+            double wrapMin = double.MaxValue, wrapMax = double.MinValue;
+            foreach (var c in corners)
+            {
+                if (c is not { } sky)
+                {
+                    continue;
+                }
+                var ra = sky.RA < 12.0 ? sky.RA + 24.0 : sky.RA;
+                wrapMin = Math.Min(wrapMin, ra);
+                wrapMax = Math.Max(wrapMax, ra);
+            }
+            minRA = wrapMin;
+            maxRA = wrapMax;
+        }
+
+        // Compute grid spacing in sky units
+        var pixelScaleArcsec = wcs.PixelScaleArcsec;
+        var viewImagePixels = MathF.Min(areaW, areaH) / scale;
+        var viewArcsec = viewImagePixels * pixelScaleArcsec;
+        var spacingArcsec = GridSpacingsArcsec[^1];
+        foreach (var candidate in GridSpacingsArcsec)
+        {
+            if (candidate >= viewArcsec / 8.0)
+            {
+                spacingArcsec = candidate;
+                break;
+            }
+        }
+
+        var spacingDecDeg = spacingArcsec / 3600.0;
+        var spacingRAhours = spacingArcsec / 3600.0 / 15.0;
+
+        var labelSize = FontSize * 0.85f;
+        var labelPad = 3f;
+
+        // Scissor to image area
+        _gl.Enable(EnableCap.ScissorTest);
+        _gl.Scissor((int)fileListW, (int)StatusBarHeight, (uint)areaW, (uint)areaH);
+
+        // Scan each image edge for RA and Dec grid line crossings.
+        // Place a label at each crossing, right at the edge of the image.
+        var numSamples = 300;
+
+        // Determine which edges get RA labels vs Dec labels from the CD matrix.
+        // RA varies more along the axis where |CD1_x| is larger; that axis's
+        // perpendicular edges get RA labels. Same logic for Dec with CD2_x.
+        var raOnHorizEdges = Math.Abs(wcs.CD1_1) > Math.Abs(wcs.CD1_2); // RA varies more with X → RA lines are vertical → label on horiz edges
+
+        // Corner exclusion zone: skip labels near viewport corners to prevent cross-edge overlap
+        var cornerMargin = labelSize * 4f;
+
+        // Scan along the viewport-visible pixel bounds so labels stay fixed on screen.
+        var edges = new (double X0, double Y0, double X1, double Y1, bool IsHorizontal)[]
+        {
+            (visLeft, visTop, visRight, visTop, true),       // top edge
+            (visLeft, visBottom, visRight, visBottom, true),  // bottom edge
+            (visLeft, visTop, visLeft, visBottom, false),     // left edge
+            (visRight, visTop, visRight, visBottom, false),   // right edge
+        };
+
+        foreach (var (x0, y0, x1, y1, isHoriz) in edges)
+        {
+            var showRA = isHoriz == raOnHorizEdges;
+            var showDec = isHoriz != raOnHorizEdges;
+            // Which side of the edge: top/left = first, bottom/right = second
+            var isFirstEdge = isHoriz ? (y0 <= visTop + 1) : (x0 <= visLeft + 1);
+
+            // Screen-space start/end of this edge for corner exclusion
+            var edgeStartX = imgOffsetX + (float)(x0 - 1) * scale;
+            var edgeStartY = imgOffsetY + (float)(y0 - 1) * scale;
+            var edgeEndX = imgOffsetX + (float)(x1 - 1) * scale;
+            var edgeEndY = imgOffsetY + (float)(y1 - 1) * scale;
+
+            double prevRA = double.NaN, prevDec = double.NaN;
+            float prevScreenX = 0, prevScreenY = 0;
+
+            for (int i = 0; i <= numSamples; i++)
+            {
+                var t = (double)i / numSamples;
+                var px = x0 + (x1 - x0) * t;
+                var py = y0 + (y1 - y0) * t;
+                var sky = wcs.PixelToSky(px, py);
+                if (sky is not { } s)
+                {
+                    prevRA = double.NaN;
+                    prevDec = double.NaN;
+                    continue;
+                }
+
+                var screenX = imgOffsetX + (float)(px - 1) * scale;
+                var screenY = imgOffsetY + (float)(py - 1) * scale;
+
+                if (!double.IsNaN(prevRA))
+                {
+                    // RA crossings (skip wraparound jumps)
+                    if (showRA && Math.Abs(s.RA - prevRA) < 12.0)
+                    {
+                        var raLo = Math.Min(prevRA, s.RA);
+                        var raHi = Math.Max(prevRA, s.RA);
+                        var firstG = (int)Math.Ceiling(raLo / spacingRAhours);
+                        var lastG = (int)Math.Floor(raHi / spacingRAhours);
+                        for (var g = firstG; g <= lastG; g++)
+                        {
+                            var gridRA = g * spacingRAhours;
+                            var frac = (gridRA - prevRA) / (s.RA - prevRA);
+                            var lx = prevScreenX + (screenX - prevScreenX) * (float)frac;
+                            var ly = prevScreenY + (screenY - prevScreenY) * (float)frac;
+
+                            // Skip labels too close to edge corners to prevent cross-edge overlap
+                            var distToStart = MathF.Abs(isHoriz ? lx - edgeStartX : ly - edgeStartY);
+                            var distToEnd = MathF.Abs(isHoriz ? lx - edgeEndX : ly - edgeEndY);
+                            if (distToStart < cornerMargin || distToEnd < cornerMargin)
+                            {
+                                continue;
+                            }
+
+                            var normalizedRA = gridRA % 24.0;
+                            if (normalizedRA < 0) normalizedRA += 24.0;
+                            var label = FormatRALabel(normalizedRA, spacingArcsec);
+                            PlaceEdgeLabel(label, lx, ly, labelSize, labelPad, isHoriz, isFirstEdge);
+                        }
+                    }
+
+                    // Dec crossings
+                    if (showDec)
+                    {
+                        var decLo = Math.Min(prevDec, s.Dec);
+                        var decHi = Math.Max(prevDec, s.Dec);
+                        var firstG = (int)Math.Ceiling(decLo / spacingDecDeg);
+                        var lastG = (int)Math.Floor(decHi / spacingDecDeg);
+                        for (var g = firstG; g <= lastG; g++)
+                        {
+                            var gridDec = g * spacingDecDeg;
+                            var frac = (gridDec - prevDec) / (s.Dec - prevDec);
+                            var lx = prevScreenX + (screenX - prevScreenX) * (float)frac;
+                            var ly = prevScreenY + (screenY - prevScreenY) * (float)frac;
+
+                            var distToStart = MathF.Abs(isHoriz ? lx - edgeStartX : ly - edgeStartY);
+                            var distToEnd = MathF.Abs(isHoriz ? lx - edgeEndX : ly - edgeEndY);
+                            if (distToStart < cornerMargin || distToEnd < cornerMargin)
+                            {
+                                continue;
+                            }
+
+                            var label = FormatDecLabel(gridDec, spacingArcsec);
+                            PlaceEdgeLabel(label, lx, ly, labelSize, labelPad, isHoriz, isFirstEdge);
+                        }
+                    }
+                }
+
+                prevRA = s.RA;
+                prevDec = s.Dec;
+                prevScreenX = screenX;
+                prevScreenY = screenY;
+            }
+        }
+
+        _gl.Disable(EnableCap.ScissorTest);
+    }
+
+    private void PlaceEdgeLabel(string label, float lx, float ly, float labelSize, float labelPad,
+        bool isHoriz, bool isFirstEdge)
+    {
+        var lineOffset = labelPad + 2f;
+        if (isHoriz)
+        {
+            // Horizontal edge (top/bottom): labels offset left/right of the grid line
+            var labelX = isFirstEdge ? lx + lineOffset : lx - MeasureText(label, labelSize) - lineOffset;
+            // Top edge: label just inside (below edge); Bottom edge: just inside (above edge)
+            var labelY = isFirstEdge ? ly + labelPad : ly - labelSize - labelPad;
+            DrawText(label, labelX, labelY, labelSize, 0.0f, 0.85f, 0.0f);
+        }
+        else
+        {
+            // Vertical edge (left/right): labels offset above/below the grid line
+            var labelX = isFirstEdge ? lx + labelPad : lx - MeasureText(label, labelSize) - labelPad;
+            var labelY = isFirstEdge ? ly + lineOffset : ly - labelSize - lineOffset;
+            DrawText(label, labelX, labelY, labelSize, 0.0f, 0.85f, 0.0f);
+        }
+    }
+
+    private static string FormatRALabel(double raHours, double spacingArcsec)
+    {
+        var h = (int)Math.Floor(raHours);
+        var m = (raHours - h) * 60.0;
+        var mi = (int)Math.Floor(m);
+        var s = (m - mi) * 60.0;
+
+        if (spacingArcsec >= 3600)
+        {
+            return $"{h}h";
+        }
+        if (spacingArcsec >= 60)
+        {
+            return $"{h}h{mi:D2}m";
+        }
+        return $"{h}h{mi:D2}m{s:00.0}s";
+    }
+
+    private static string FormatDecLabel(double decDeg, double spacingArcsec)
+    {
+        var sign = decDeg >= 0 ? "+" : "-";
+        var abs = Math.Abs(decDeg);
+        var d = (int)Math.Floor(abs);
+        var m = (abs - d) * 60.0;
+        var mi = (int)Math.Floor(m);
+        var s = (m - mi) * 60.0;
+
+        if (spacingArcsec >= 3600)
+        {
+            return $"{sign}{d}\u00b0";
+        }
+        if (spacingArcsec >= 60)
+        {
+            return $"{sign}{d}\u00b0{mi:D2}'";
+        }
+        return $"{sign}{d}\u00b0{mi:D2}'{s:00.0}\"";
     }
 
     // --- Info panel ---
@@ -565,17 +925,6 @@ public sealed class GlFitsRenderer : IDisposable
             DrawTextLine(ref y, x, line, 0.9f, 0.9f, 0.9f);
         }
 
-        // WCS section
-        if (document.IsPlateSolved)
-        {
-            y += FontSize;
-            DrawTextLine(ref y, x, "-- WCS --", 0.6f, 0.8f, 1f);
-            foreach (var line in InfoPanelData.GetWcsLines(document))
-            {
-                DrawTextLine(ref y, x, line, 0.9f, 0.9f, 0.9f);
-            }
-        }
-
         // Cursor section
         if (state.CursorPixelInfo is not null)
         {
@@ -589,7 +938,7 @@ public sealed class GlFitsRenderer : IDisposable
 
         // Controls help at bottom of panel
         var lineHeight = FontSize + 2f;
-        var controlLines = 15; // header + 14 controls
+        var controlLines = 16; // header + 15 controls
         y = _height - StatusBarHeight - lineHeight * controlLines - PanelPadding;
         if (y > ToolbarHeight + lineHeight * 5)
         {
@@ -599,6 +948,7 @@ public sealed class GlFitsRenderer : IDisposable
             DrawTextLine(ref y, x, "C: Cycle channel", 0.7f, 0.7f, 0.7f);
             DrawTextLine(ref y, x, "D: Cycle debayer", 0.7f, 0.7f, 0.7f);
             DrawTextLine(ref y, x, "H: Cycle HDR", 0.7f, 0.7f, 0.7f);
+            DrawTextLine(ref y, x, "G: Toggle grid", 0.7f, 0.7f, 0.7f);
             DrawTextLine(ref y, x, "P: Plate solve", 0.7f, 0.7f, 0.7f);
             DrawTextLine(ref y, x, "Ctrl+Wheel: Zoom", 0.7f, 0.7f, 0.7f);
             DrawTextLine(ref y, x, "Ctrl++/-: Zoom in/out", 0.7f, 0.7f, 0.7f);
@@ -628,9 +978,13 @@ public sealed class GlFitsRenderer : IDisposable
 
         var statusParts = new List<string>();
 
-        if (document.IsPlateSolved)
+        if (document.Wcs is { HasCDMatrix: true } wcs)
         {
-            statusParts.Add("WCS: solved");
+            var scale = wcs.PixelScaleArcsec;
+            var label = wcs.IsApproximate ? "approx" : "solved";
+            var ra = CoordinateUtils.HoursToHMS(wcs.CenterRA);
+            var dec = CoordinateUtils.DegreesToDMS(wcs.CenterDec);
+            statusParts.Add($"WCS: {label} ({scale:F2}\"/px)  RA {ra}  Dec {dec}");
         }
 
         var zoomPct = state.Zoom * 100f;
@@ -898,6 +1252,20 @@ public sealed class GlFitsRenderer : IDisposable
         uniform vec3 uHighlights;
         uniform vec3 uRescale;
 
+        // WCS grid uniforms
+        uniform bool uGridEnabled;
+        uniform vec2 uImageSize;    // image dimensions in pixels
+        // WCS parameters
+        uniform vec2 uCRPix;        // reference pixel (1-based)
+        uniform vec2 uCRVal;        // reference sky coord (RA in radians, Dec in radians)
+        uniform mat2 uCDMatrix;     // CD matrix in radians/pixel
+        // Grid spacing in radians
+        uniform float uGridSpacingRA;
+        uniform float uGridSpacingDec;
+        uniform float uGridLineWidth; // in sky-coordinate space (radians)
+
+        const float PI = 3.14159265358979323846;
+
         // Midtones Transfer Function — same as PixInsight STF
         float mtf(float m, float v) {
             float c = clamp(v, 0.0, 1.0);
@@ -933,6 +1301,55 @@ public sealed class GlFitsRenderer : IDisposable
             return knee + range * t / (1.0 + amount * t);
         }
 
+        // Pixel to sky via gnomonic (TAN) deprojection — returns (RA, Dec) in radians
+        vec2 pixelToSky(vec2 pixel) {
+            vec2 dp = pixel - uCRPix;
+            vec2 uv = uCDMatrix * dp; // intermediate world coords in radians
+
+            float xi = uv.x;
+            float eta = uv.y;
+            float rho = length(uv);
+
+            float ra0 = uCRVal.x;
+            float dec0 = uCRVal.y;
+            float sinDec0 = sin(dec0);
+            float cosDec0 = cos(dec0);
+
+            if (rho < 1e-10) return uCRVal;
+
+            float c = atan(rho);
+            float sinC = sin(c);
+            float cosC = cos(c);
+
+            float dec = asin(cosC * sinDec0 + eta * sinC * cosDec0 / rho);
+            float ra = ra0 + atan(xi * sinC, rho * cosDec0 * cosC - eta * sinDec0 * sinC);
+
+            return vec2(ra, dec);
+        }
+
+        // Check if this pixel is on a grid line
+        float gridIntensity(vec2 pixel) {
+            vec2 sky = pixelToSky(pixel);
+            float ra = sky.x;
+            float dec = sky.y;
+
+            // Distance to nearest RA grid line
+            float raGrid = ra / uGridSpacingRA;
+            float raFrac = abs(raGrid - round(raGrid)) * uGridSpacingRA;
+
+            // Distance to nearest Dec grid line
+            float decGrid = dec / uGridSpacingDec;
+            float decFrac = abs(decGrid - round(decGrid)) * uGridSpacingDec;
+
+            // RA line width scaled by cos(dec) for convergence at poles
+            float raWidth = uGridLineWidth / max(cos(dec), 0.01);
+
+            float raLine = 1.0 - smoothstep(0.0, raWidth, raFrac);
+            float decLine = 1.0 - smoothstep(0.0, uGridLineWidth, decFrac);
+
+            return max(raLine, decLine);
+        }
+
         void main() {
             float r = texture(uChannel0, vTexCoord).r;
             if (uChannelCount >= 3) {
@@ -941,12 +1358,10 @@ public sealed class GlFitsRenderer : IDisposable
 
                 // Stretch
                 if (uStretchMode == 1) {
-                    // Per-channel (linked or unlinked — uniforms differ)
                     r = stretchChannel(r, 0);
                     g = stretchChannel(g, 1);
                     b = stretchChannel(b, 2);
                 } else if (uStretchMode == 2) {
-                    // Luma: stretch luminance, scale RGB by Y'/Y
                     float nr = r * uNormFactor;
                     float ng = g * uNormFactor;
                     float nb = b * uNormFactor;
@@ -969,6 +1384,17 @@ public sealed class GlFitsRenderer : IDisposable
                     g = applyHdr(g, uHdrAmount, uHdrKnee);
                     b = applyHdr(b, uHdrAmount, uHdrKnee);
                 }
+
+                // Grid overlay
+                if (uGridEnabled) {
+                    vec2 pixel = vec2(vTexCoord.x * uImageSize.x + 1.0, vTexCoord.y * uImageSize.y + 1.0);
+                    float grid = gridIntensity(pixel);
+                    vec3 gridColor = vec3(0.0, 0.8, 0.0);
+                    r = mix(r, gridColor.r, grid * 0.7);
+                    g = mix(g, gridColor.g, grid * 0.7);
+                    b = mix(b, gridColor.b, grid * 0.7);
+                }
+
                 FragColor = vec4(r, g, b, 1.0);
             } else {
                 // Mono
@@ -981,7 +1407,21 @@ public sealed class GlFitsRenderer : IDisposable
                 if (uHdrAmount > 0.0) {
                     r = applyHdr(r, uHdrAmount, uHdrKnee);
                 }
-                FragColor = vec4(r, r, r, 1.0);
+
+                // Grid overlay
+                if (uGridEnabled) {
+                    vec2 pixel = vec2(vTexCoord.x * uImageSize.x + 1.0, vTexCoord.y * uImageSize.y + 1.0);
+                    float grid = gridIntensity(pixel);
+                    vec3 gridColor = vec3(0.0, 0.8, 0.0);
+                    float mono = mix(r, gridColor.r, grid * 0.7);
+                    FragColor = vec4(
+                        mix(r, gridColor.r, grid * 0.7),
+                        mix(r, gridColor.g, grid * 0.7),
+                        mix(r, gridColor.b, grid * 0.7),
+                        1.0);
+                } else {
+                    FragColor = vec4(r, r, r, 1.0);
+                }
             }
         }
         """;

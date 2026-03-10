@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.PlateSolve;
@@ -58,7 +59,7 @@ public sealed class FitsDocument
     /// <summary>Luminance stretch stats (for luma mode). Only populated for color images (>=3 channels).</summary>
     public ChannelStretchStats? LumaStats { get; }
 
-    public bool IsPlateSolved => Wcs?.HasCDMatrix == true;
+    public bool IsPlateSolved => Wcs is { HasCDMatrix: true, IsApproximate: false };
 
     private FitsDocument(
         string filePath,
@@ -66,7 +67,8 @@ public sealed class FitsDocument
         Image debayeredImage,
         DebayerAlgorithm debayerAlgorithm,
         ChannelStretchStats[] perChannelStats,
-        ChannelStretchStats? lumaStats)
+        ChannelStretchStats? lumaStats,
+        WCS? wcs)
     {
         _filePath = filePath;
         RawImage = rawImage;
@@ -74,6 +76,7 @@ public sealed class FitsDocument
         DebayerAlgorithm = debayerAlgorithm;
         PerChannelStats = perChannelStats;
         LumaStats = lumaStats;
+        Wcs = wcs;
 
         var stats = new ImageHistogram[rawImage.ChannelCount];
         for (var c = 0; c < rawImage.ChannelCount; c++)
@@ -87,9 +90,9 @@ public sealed class FitsDocument
     /// Loads a FITS file, applies debayering once, and caches stretch statistics.
     /// The debayer result becomes the permanent base image; stretch is done on the GPU.
     /// </summary>
-    public static async Task<FitsDocument?> OpenAsync(string filePath, DebayerAlgorithm algorithm = DebayerAlgorithm.VNG, CancellationToken cancellationToken = default)
+    public static async Task<FitsDocument?> OpenAsync(string filePath, DebayerAlgorithm algorithm = DebayerAlgorithm.AHD, CancellationToken cancellationToken = default)
     {
-        if (!Image.TryReadFitsFile(filePath, out var rawImage) || rawImage is null)
+        if (!Image.TryReadFitsFile(filePath, out var rawImage, out var fileWcs) || rawImage is null)
         {
             return null;
         }
@@ -125,7 +128,17 @@ public sealed class FitsDocument
             lumaStats = new ChannelStretchStats(lumaPed, lumaMed, lumaMad);
         }
 
-        return new FitsDocument(filePath, rawImage, debayered, actualAlgorithm, perChannelStats, lumaStats);
+        // If the FITS header didn't have a full CD matrix, try companion ASTAP .ini file
+        if (fileWcs is not { HasCDMatrix: true } || fileWcs.Value.IsApproximate)
+        {
+            var iniPath = Path.ChangeExtension(filePath, ".ini");
+            if (WCS.FromAstapIniFile(iniPath) is { HasCDMatrix: true } astapWcs)
+            {
+                fileWcs = astapWcs;
+            }
+        }
+
+        return new FitsDocument(filePath, rawImage, debayered, actualAlgorithm, perChannelStats, lumaStats, fileWcs);
     }
 
     /// <summary>

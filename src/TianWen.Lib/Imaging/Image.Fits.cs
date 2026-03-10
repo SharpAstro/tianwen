@@ -14,12 +14,23 @@ public partial class Image
 {
     public static bool TryReadFitsFile(string fileName, [NotNullWhen(true)] out Image? image)
     {
+        return TryReadFitsFile(fileName, out image, out _);
+    }
+
+    public static bool TryReadFitsFile(string fileName, [NotNullWhen(true)] out Image? image, out WCS? wcs)
+    {
         using var bufferedReader = new BufferedFile(fileName, FileAccess.Read, FileShare.Read, 1000 * 2088);
-        return TryReadFitsFile(new Fits(bufferedReader, fileName.EndsWith(".gz")), out image);
+        return TryReadFitsFile(new Fits(bufferedReader, fileName.EndsWith(".gz")), out image, out wcs);
     }
 
     public static bool TryReadFitsFile(Fits fitsFile, [NotNullWhen(true)] out Image? image)
     {
+        return TryReadFitsFile(fitsFile, out image, out _);
+    }
+
+    public static bool TryReadFitsFile(Fits fitsFile, [NotNullWhen(true)] out Image? image, out WCS? wcs)
+    {
+        wcs = null;
         var hdu = fitsFile.ReadHDU();
         if (hdu?.Axes?.Length is not { } axisLength
             || hdu.Data is not ImageData imageData
@@ -191,6 +202,7 @@ public partial class Image
             objectName
         );
         image = new Image(imgChannels, bitDepth, maxValue, minValue, blackLevel, imageMeta);
+        wcs = WCS.FromHeader(hdu.Header);
         return true;
     }
 

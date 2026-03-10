@@ -15,5 +15,6 @@ public enum ToolbarAction
     Hdr,
     ZoomFit,
     ZoomActual,
+    Grid,
     PlateSolve,
 }

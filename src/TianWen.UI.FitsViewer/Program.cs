@@ -68,6 +68,10 @@ if (initialFilePath is not null)
     {
         Console.Error.WriteLine($"Warning: Failed to open FITS file: {initialFilePath}");
     }
+    else if (document.Wcs is { } loadedWcs)
+    {
+        Console.Error.WriteLine($"WCS: HasCD={loadedWcs.HasCDMatrix}, Approx={loadedWcs.IsApproximate}, Scale={loadedWcs.PixelScaleArcsec:F2}\"/px, RA={loadedWcs.CenterRA:F4}h, Dec={loadedWcs.CenterDec:F4}°");
+    }
 }
 
 var opts = WindowOptions.Default;
@@ -199,11 +203,14 @@ window.Load += () =>
                 case Key.B:
                     ViewerActions.CycleCurvesBoost(state);
                     break;
+                case Key.G:
+                    state.ShowGrid = !state.ShowGrid;
+                    break;
                 case Key.H:
                     ViewerActions.CycleHdr(state);
                     break;
                 case Key.P:
-                    if (document is not null && !state.IsPlateSolving)
+                    if (document is not null && !state.IsPlateSolving && !document.IsPlateSolved)
                     {
                         var factory = sp.GetRequiredService<TianWen.Lib.Astrometry.PlateSolve.IPlateSolverFactory>();
                         backgroundTask = ViewerActions.PlateSolveAsync(document, state, factory, cts.Token);
@@ -572,6 +579,10 @@ void HandleToolbarAction(ToolbarAction action, bool reverse = false)
             break;
         case ToolbarAction.Hdr:
             ViewerActions.CycleHdr(state, reverse);
+            break;
+        case ToolbarAction.Grid:
+            state.ShowGrid = !state.ShowGrid;
+            state.NeedsRedraw = true;
             break;
         case ToolbarAction.ZoomFit:
             ViewerActions.ZoomToFit(state);
