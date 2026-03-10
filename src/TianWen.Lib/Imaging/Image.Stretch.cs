@@ -256,27 +256,8 @@ public partial class Image
             throw new ArgumentOutOfRangeException(nameof(channel));
         }
 
-        var needsNorm = MaxValue > 1.0f + float.Epsilon;
-        var normFactor = 1.0 / MaxValue;
-
-        double shadows, midtones, highlights, rescale;
-
-        // assume the image is inverted or overexposed when median is higher than half of the possible value
-        if (median > 0.5)
-        {
-            shadows = 0f;
-            highlights = median - shadowsClipping * mad * MAD_TO_SD;
-            rescale = 1.0 / (highlights - 0);
-            midtones = MidtonesTransferFunction(stretchFactor, 1f - (highlights - median) * rescale);
-        }
-        else
-        {
-            shadows = median + shadowsClipping * mad * MAD_TO_SD;
-            rescale = 1.0 / (1.0 - shadows);
-            // Rescaled median: (median - shadows) / (1 - shadows)
-            midtones = MidtonesTransferFunction(stretchFactor, (median - shadows) * rescale);
-            highlights = 1;
-        }
+        var normFactor = MaxValue > 1.0f + float.Epsilon ? (float)(1.0 / MaxValue) : 1f;
+        var (shadows, midtones, highlights, rescale) = ComputeStretchParameters(median, mad, stretchFactor, shadowsClipping);
 
         var srcChannel = data[channel];
         var dstChannel = stretched[channel];
@@ -288,10 +269,7 @@ public partial class Image
                 var value = srcChannel[y, x];
                 if (!float.IsNaN(value))
                 {
-                    var normValue = (needsNorm ? value * normFactor : value) - pedestral;
-                    // Subtract blackpoint and rescale to [0,1] before applying MTF
-                    var rescaled = (normValue - shadows) * rescale;
-                    dstChannel[y, x] = (float)MidtonesTransferFunction(midtones, rescaled);
+                    dstChannel[y, x] = StretchValue(value, normFactor, pedestral, shadows, midtones, rescale);
                 }
                 else
                 {
@@ -330,12 +308,11 @@ public partial class Image
     }
 
     /// <summary>
-    /// Adjusts x for a given midToneBalance
+    /// Midtones Transfer Function (PixInsight STF formula).
+    /// Maps [0,1] → [0,1] with midtone balance controlling the curve shape.
+    /// This is the single source of truth — the GLSL shader reimplements the same formula.
     /// </summary>
-    /// <param name="midToneBalance"></param>
-    /// <param name="value"></param>
-    /// <returns></returns>
-    private static double MidtonesTransferFunction(double midToneBalance, double value)
+    public static double MidtonesTransferFunction(double midToneBalance, double value)
     {
         var clamped = Math.Clamp(value, 0, 1d);
         if (value == clamped)
@@ -346,5 +323,16 @@ public partial class Image
         {
             return clamped;
         }
+    }
+
+    /// <summary>
+    /// Applies the stretch pipeline to a single value: normalize, subtract pedestal, rescale, MTF.
+    /// Matches both the CPU stretch loop and the GLSL <c>stretchChannel()</c> function exactly.
+    /// </summary>
+    public static float StretchValue(float rawValue, float normFactor, float pedestal, double shadows, double midtones, double rescale)
+    {
+        var norm = rawValue * normFactor - pedestal;
+        var rescaled = (norm - shadows) * rescale;
+        return (float)MidtonesTransferFunction(midtones, rescaled);
     }
 }

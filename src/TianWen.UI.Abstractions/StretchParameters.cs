@@ -8,6 +8,8 @@ public record struct StretchParameters(double Factor, double ShadowsClipping)
     [
         new(0.1, -5.0),
         new(0.1, -3.0),
+        new(0.15, -5.0),
+        new(0.15, -3.0),
         new(0.2, -5.0),
         new(0.2, -3.0),
         new(0.25, -5.0),

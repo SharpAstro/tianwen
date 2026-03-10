@@ -206,6 +206,7 @@ public class ContrastBoostTests(ITestOutputHelper testOutputHelper)
     /// the actual measured background of the CPU-stretched image. A mismatch here means
     /// the boost curve's symmetry point (SP) is placed at the wrong level, causing
     /// background pixels to be boosted instead of darkened.
+    /// Uses FitsDocument.OpenAsync and ComputeStretchUniforms directly — no duplication.
     /// </summary>
     [Theory]
     [InlineData(RGGBImage, "AHD", 10, 3)]
@@ -216,62 +217,27 @@ public class ContrastBoostTests(ITestOutputHelper testOutputHelper)
     {
         var algorithm = Enum.Parse<DebayerAlgorithm>(algorithmStr);
         var cancellationToken = TestContext.Current.CancellationToken;
-        var rawImage = await SharedTestData.ExtractGZippedFitsImageAsync(imageName, cancellationToken: cancellationToken);
 
-        // === Simulate FitsDocument.OpenAsync path ===
-        Image processedRawImage;
-        DebayerAlgorithm actualAlgorithm;
-        if (rawImage.ImageMeta.SensorType is SensorType.RGGB && algorithm is not DebayerAlgorithm.None)
-        {
-            processedRawImage = (await rawImage.DebayerAsync(algorithm, cancellationToken)).ScaleFloatValuesToUnit();
-            actualAlgorithm = algorithm;
-        }
-        else
-        {
-            processedRawImage = rawImage.ScaleFloatValuesToUnit();
-            actualAlgorithm = DebayerAlgorithm.None;
-        }
+        // Use the real FitsDocument.OpenAsync — same path as the viewer
+        var filePath = await SharedTestData.ExtractGZippedFitsFileAsync(imageName, cancellationToken);
+        var document = await FitsDocument.OpenAsync(filePath, algorithm, cancellationToken);
+        document.ShouldNotBeNull();
+        document.UnstretchedImage.ChannelCount.ShouldBe(expectedChannels);
 
-        var channelCount = processedRawImage.ChannelCount;
-        channelCount.ShouldBe(expectedChannels);
-        var perChannelStats = new ChannelStretchStats[channelCount];
-        for (var c = 0; c < channelCount; c++)
+        for (var c = 0; c < document.PerChannelStats.Length; c++)
         {
-            var (ped, med, mad) = processedRawImage.GetPedestralMedianAndMADScaledToUnit(c);
-            perChannelStats[c] = new ChannelStretchStats(ped, med, mad);
-            testOutputHelper.WriteLine($"Ch{c}: pedestal={ped:F6}, median={med:F6}, MAD={mad:F6}");
+            var s = document.PerChannelStats[c];
+            testOutputHelper.WriteLine($"Ch{c}: pedestal={s.Pedestal:F6}, median={s.Median:F6}, MAD={s.Mad:F6}");
+        }
+        if (document.LumaStats is { } ls)
+        {
+            testOutputHelper.WriteLine($"Luma: pedestal={ls.Pedestal:F6}, median={ls.Median:F6}, MAD={ls.Mad:F6}");
         }
 
-        ChannelStretchStats? lumaStats = null;
-        if (channelCount >= 3)
-        {
-            var (lumaPed, lumaMed, lumaMad) = await processedRawImage.GetLumaStretchStatsAsync(DebayerAlgorithm.None, cancellationToken);
-            lumaStats = new ChannelStretchStats(lumaPed, lumaMed, lumaMad);
-            testOutputHelper.WriteLine($"Luma: pedestal={lumaPed:F6}, median={lumaMed:F6}, MAD={lumaMad:F6}");
-        }
-
-        // === Compute stretch uniforms (same as ComputeStretchUniforms) ===
+        // Use the real ComputeStretchUniforms — same path as the viewer
         var stretchFactor = stretchPct * 0.01d;
         var sigma = -5.0;
-        var parameters = new StretchParameters(stretchFactor, sigma);
-        var normFactor = processedRawImage.MaxValue > 1.0f + float.Epsilon ? 1f / processedRawImage.MaxValue : 1f;
-
-        // Unlinked mode (Mode=1)
-        var ch0 = perChannelStats.Length > 0 ? perChannelStats[0] : default;
-        var ch1 = perChannelStats.Length > 1 ? perChannelStats[1] : ch0;
-        var ch2 = perChannelStats.Length > 2 ? perChannelStats[2] : ch0;
-        var p0 = Image.ComputeStretchParameters(ch0.Median, ch0.Mad, stretchFactor, sigma);
-        var p1 = Image.ComputeStretchParameters(ch1.Median, ch1.Mad, stretchFactor, sigma);
-        var p2 = Image.ComputeStretchParameters(ch2.Median, ch2.Mad, stretchFactor, sigma);
-
-        var stretch = new GpuStretchUniforms(
-            Mode: 1,
-            NormFactor: normFactor,
-            Pedestal: (ch0.Pedestal, ch1.Pedestal, ch2.Pedestal),
-            Shadows: ((float)p0.Shadows, (float)p1.Shadows, (float)p2.Shadows),
-            Midtones: ((float)p0.Midtones, (float)p1.Midtones, (float)p2.Midtones),
-            Highlights: ((float)p0.Highlights, (float)p1.Highlights, (float)p2.Highlights),
-            Rescale: ((float)p0.Rescale, (float)p1.Rescale, (float)p2.Rescale));
+        var stretch = document.ComputeStretchUniforms(StretchMode.Unlinked, new StretchParameters(stretchFactor, sigma));
 
         testOutputHelper.WriteLine($"\nStretch uniforms (Mode={stretch.Mode}, NormFactor={stretch.NormFactor:F6}):");
         testOutputHelper.WriteLine($"  Pedestal: ({stretch.Pedestal.R:F6}, {stretch.Pedestal.G:F6}, {stretch.Pedestal.B:F6})");
@@ -279,14 +245,14 @@ public class ContrastBoostTests(ITestOutputHelper testOutputHelper)
         testOutputHelper.WriteLine($"  Midtones: ({stretch.Midtones.R:F6}, {stretch.Midtones.G:F6}, {stretch.Midtones.B:F6})");
         testOutputHelper.WriteLine($"  Rescale:  ({stretch.Rescale.R:F6}, {stretch.Rescale.G:F6}, {stretch.Rescale.B:F6})");
 
-        // === GPU estimate ===
-        var estimatedBg = stretch.EstimatePostStretchBackground(perChannelStats, lumaStats);
+        // GPU background estimate — same call as the viewer's renderer
+        var estimatedBg = stretch.EstimatePostStretchBackground(document.PerChannelStats, document.LumaStats);
         testOutputHelper.WriteLine($"\nEstimatedPostStretchBackground = {estimatedBg:F6}");
 
-        // === CPU stretch and measure actual background ===
+        // CPU stretch and measure actual background
+        var rawImage = await SharedTestData.ExtractGZippedFitsImageAsync(imageName, cancellationToken: cancellationToken);
         var stretched = await rawImage.StretchUnlinkedAsync(stretchFactor, sigma, algorithm, cancellationToken);
 
-        // Scan for actual background (same algorithm as the boost test)
         var squareSize = 32;
         var step = squareSize * 4;
         var minLuma = float.MaxValue;
