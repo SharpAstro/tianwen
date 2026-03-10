@@ -929,6 +929,113 @@ public sealed class GlFitsRenderer : IDisposable
     private static bool IsStarType(ObjectType ot) => ot.IsStar();
 
     /// <summary>
+    /// Returns a priority score for a common name (lower = better).
+    /// IAU proper names (e.g. "Sirius") > Bayer (e.g. "eta Ori") > Flamsteed (e.g. "28 Ori") > other.
+    /// </summary>
+    private static int GetNamePriority(string name)
+    {
+        if (name.Length == 0) return 100;
+
+        // Flamsteed numbers start with a digit (e.g. "28 Ori")
+        if (char.IsAsciiDigit(name[0])) return 3;
+
+        // Bayer designations start with a Greek letter abbreviation (lowercase, e.g. "eta Ori", "alf CMa")
+        if (char.IsAsciiLetterLower(name[0]) && name.Length > 2 && name.Contains(' ')) return 2;
+
+        // IAU proper name or other named object (e.g. "Sirius", "Whirlpool Galaxy")
+        if (char.IsAsciiLetterUpper(name[0])) return 1;
+
+        return 50;
+    }
+
+    /// <summary>
+    /// Builds label lines for an overlay object based on zoom level.
+    /// ≤50%: best name only. 50-100%: name + catalog designation. ≥100%: all names + cross indices.
+    /// </summary>
+    private static List<string> BuildOverlayLabel(CelestialObject obj, CatalogIndex idx, ICelestialObjectDB db, float zoom)
+    {
+        var lines = new List<string>(4);
+        var canonical = obj.Index.ToCanonical();
+
+        // Get best common name (sorted by priority)
+        string? bestName = null;
+        if (obj.CommonNames.Count > 0)
+        {
+            var bestScore = int.MaxValue;
+            foreach (var name in obj.CommonNames)
+            {
+                var score = GetNamePriority(name);
+                if (score < bestScore)
+                {
+                    bestScore = score;
+                    bestName = name;
+                }
+            }
+        }
+
+        if (zoom <= 0.5f)
+        {
+            // Zoomed out: best name only, or catalog designation if no name
+            lines.Add(bestName ?? canonical);
+        }
+        else if (zoom < 1.0f)
+        {
+            // Medium zoom: best name + catalog designation if different
+            lines.Add(bestName ?? canonical);
+            if (bestName is not null && bestName != canonical)
+            {
+                lines.Add(canonical);
+            }
+        }
+        else
+        {
+            // Full zoom (≥100%): all common names + primary designation + cross indices
+            // First line: best name or canonical
+            lines.Add(bestName ?? canonical);
+
+            // Add remaining common names (sorted by priority)
+            if (obj.CommonNames.Count > 1)
+            {
+                var sortedNames = new List<(int Priority, string Name)>();
+                foreach (var name in obj.CommonNames)
+                {
+                    if (name != bestName)
+                    {
+                        sortedNames.Add((GetNamePriority(name), name));
+                    }
+                }
+                sortedNames.Sort((a, b) => a.Priority.CompareTo(b.Priority));
+                foreach (var (_, name) in sortedNames)
+                {
+                    lines.Add(name);
+                }
+            }
+
+            // Add canonical designation if not already shown as a common name
+            if (bestName is not null && !obj.CommonNames.Contains(canonical))
+            {
+                lines.Add(canonical);
+            }
+
+            // Add cross-catalog indices
+            if (db.TryGetCrossIndices(idx, out var crossIndices))
+            {
+                foreach (var crossIdx in crossIndices)
+                {
+                    var crossCanon = crossIdx.ToCanonical();
+                    // Skip Tycho entries (too verbose) and already-shown canonical
+                    if (crossIdx.ToCatalog() != Catalog.Tycho2 && crossCanon != canonical)
+                    {
+                        lines.Add(crossCanon);
+                    }
+                }
+            }
+        }
+
+        return lines;
+    }
+
+    /// <summary>
     /// Returns overlay color (R, G, B) based on object type.
     /// </summary>
     private static (float R, float G, float B) GetOverlayColor(ObjectType ot) => ot switch
@@ -1091,6 +1198,24 @@ public sealed class GlFitsRenderer : IDisposable
                         continue;
                     }
 
+                    // Deduplicate cross-catalog entries (e.g. HIP/HD/HR for the same star)
+                    if (db.TryGetCrossIndices(idx, out var crossIndices))
+                    {
+                        var isDuplicate = false;
+                        foreach (var crossIdx in crossIndices)
+                        {
+                            if (crossIdx != idx && seen.Contains(crossIdx))
+                            {
+                                isDuplicate = true;
+                                break;
+                            }
+                        }
+                        if (isDuplicate)
+                        {
+                            continue;
+                        }
+                    }
+
                     // Star magnitude cutoff: tighter than extended objects
                     var effectiveMagCutoff = isStar ? starMagCutoff : magCutoff;
                     if (!Half.IsNaN(obj.V_Mag) && (double)obj.V_Mag > effectiveMagCutoff)
@@ -1109,8 +1234,14 @@ public sealed class GlFitsRenderer : IDisposable
                     var screenX = imgOffsetX + (float)(px.X - 1) * scale;
                     var screenY = imgOffsetY + (float)(px.Y - 1) * scale;
 
-                    // Skip if off-screen (with margin for ellipse extent)
+                    // Skip if off-screen — margin based on actual object extent
                     var margin = 100f;
+                    if (db.TryGetShape(idx, out var earlyShape) && !Half.IsNaN(earlyShape.MajorAxis))
+                    {
+                        // arcmin to screen pixels: scale / (pixelScaleArcsec / 60)
+                        var shapeScreenPx = (float)((double)earlyShape.MajorAxis / 2.0 * scale / (pixelScaleArcsec / 60.0)) + 50f;
+                        if (shapeScreenPx > margin) margin = shapeScreenPx;
+                    }
                     if (screenX < fileListW - margin || screenX > fileListW + areaW + margin ||
                         screenY < ToolbarHeight - margin || screenY > ToolbarHeight + areaH + margin)
                     {
@@ -1182,30 +1313,32 @@ public sealed class GlFitsRenderer : IDisposable
                 DrawEllipse(cx, cy, markerRadius, markerRadius, 0f, r, g, b, 0.9f);
             }
 
-            // Place label with collision avoidance
+            // Build label lines based on zoom level
             if (labelCount < MaxOverlayLabels)
             {
-                var label = obj.Index.ToCanonical();
-                // If common names available and zoom is close enough, prefer a common name
-                if (fovArcmin < 30.0 && obj.CommonNames.Count > 0)
+                var lines = BuildOverlayLabel(obj, idx, db, scale);
+                if (lines.Count == 0)
                 {
-                    foreach (var name in obj.CommonNames)
-                    {
-                        label = name;
-                        break;
-                    }
+                    continue;
                 }
 
-                var textW = MeasureText(label, labelSize);
-                var textH = labelSize;
+                // Measure total label block
+                var maxLineW = 0f;
+                foreach (var line in lines)
+                {
+                    var w = MeasureText(line, labelSize);
+                    if (w > maxLineW) maxLineW = w;
+                }
+                var lineH = labelSize * 1.2f;
+                var totalH = lineH * lines.Count;
 
                 // Try 4 candidate positions: right, left, above, below
                 (float X, float Y)[] positions =
                 [
-                    (cx + labelPad + 6f, cy - textH / 2f),         // right
-                    (cx - textW - labelPad - 6f, cy - textH / 2f), // left
-                    (cx - textW / 2f, cy - textH - labelPad - 6f), // above
-                    (cx - textW / 2f, cy + labelPad + 6f),         // below
+                    (cx + labelPad + 6f, cy - totalH / 2f),             // right
+                    (cx - maxLineW - labelPad - 6f, cy - totalH / 2f),  // left
+                    (cx - maxLineW / 2f, cy - totalH - labelPad - 6f),  // above
+                    (cx - maxLineW / 2f, cy + labelPad + 6f),           // below
                 ];
 
                 var placed = false;
@@ -1214,7 +1347,7 @@ public sealed class GlFitsRenderer : IDisposable
                     var overlaps = false;
                     foreach (var (px, py, pw, ph) in placedLabels)
                     {
-                        if (lx < px + pw && lx + textW > px && ly < py + ph && ly + textH > py)
+                        if (lx < px + pw && lx + maxLineW > px && ly < py + ph && ly + totalH > py)
                         {
                             overlaps = true;
                             break;
@@ -1223,8 +1356,13 @@ public sealed class GlFitsRenderer : IDisposable
 
                     if (!overlaps)
                     {
-                        DrawText(label, lx, ly, labelSize, r, g, b);
-                        placedLabels.Add((lx, ly, textW, textH));
+                        for (int li = 0; li < lines.Count; li++)
+                        {
+                            // First line full brightness, secondary lines slightly dimmer
+                            var alpha = li == 0 ? 1.0f : 0.7f;
+                            DrawText(lines[li], lx, ly + li * lineH, labelSize, r * alpha, g * alpha, b * alpha);
+                        }
+                        placedLabels.Add((lx, ly, maxLineW, totalH));
                         placed = true;
                         labelCount++;
                         break;
@@ -1235,8 +1373,12 @@ public sealed class GlFitsRenderer : IDisposable
                 if (!placed && !Half.IsNaN(obj.V_Mag) && (double)obj.V_Mag < 10.0)
                 {
                     var (fx, fy) = positions[0];
-                    DrawText(label, fx, fy, labelSize, r, g, b);
-                    placedLabels.Add((fx, fy, textW, textH));
+                    for (int li = 0; li < lines.Count; li++)
+                    {
+                        var alpha = li == 0 ? 1.0f : 0.7f;
+                        DrawText(lines[li], fx, fy + li * lineH, labelSize, r * alpha, g * alpha, b * alpha);
+                    }
+                    placedLabels.Add((fx, fy, maxLineW, totalH));
                     labelCount++;
                 }
             }
