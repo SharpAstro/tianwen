@@ -94,6 +94,9 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 ## Statistics
 
 - [ ] Find a faster way to multiply all values in an array/span (`StatisticsHelper.cs:167`)
+- [ ] Run star detection and use the mask to exclude stars from background estimation.
+      Currently the darkest-patch heuristic works well for typical astro images, but
+      images with dense star fields or nebulosity could benefit from masking.
 
 ## Guider
 

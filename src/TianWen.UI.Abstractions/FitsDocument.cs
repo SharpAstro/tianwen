@@ -27,47 +27,36 @@ public record struct GpuStretchUniforms(
     (float R, float G, float B) Rescale)
 {
     /// <summary>
-    /// Computes the post-stretch background level (luminance) by running
-    /// the median through the same stretch pipeline the shader uses.
-    /// Uses <see cref="Image.StretchValue"/> — the single source of truth.
+    /// Computes the post-stretch background level by stretching the measured
+    /// background values (from <see cref="FitsDocument.PerChannelBackground"/>)
+    /// through <see cref="Image.StretchValue"/> — the same pipeline as the GLSL shader.
     /// </summary>
-    public float EstimatePostStretchBackground(ChannelStretchStats[] perChannelStats, ChannelStretchStats? lumaStats)
+    public float ComputePostStretchBackground(float[] perChannelBackground, float lumaBackground)
     {
         if (Mode == 0)
         {
-            // No stretch — background is just the normalized median
-            if (perChannelStats.Length == 0) return 0.5f;
-            // Median is already pedestal-subtracted; add pedestal back for the raw value, then normalize
-            var med = (perChannelStats[0].Median + perChannelStats[0].Pedestal) * NormFactor;
-            return Math.Clamp(med, 0.01f, 0.99f);
+            // No stretch — background is the raw luminance
+            return Math.Clamp(lumaBackground * NormFactor, 0.01f, 0.99f);
         }
 
-        if (Mode == 2 && lumaStats is { } luma)
+        if (Mode == 2)
         {
-            // Luma mode: median from stats is already pedestal-subtracted,
-            // which is exactly what the shader computes as norm = Y - pedestal.
-            // Feed it through the shared stretch pipeline with normFactor=1, pedestal=0
-            // since the median is already in post-pedestal-subtraction space.
-            var bg = Image.StretchValue(luma.Median, 1f, 0f, Shadows.R, Midtones.R, Rescale.R);
+            // Luma mode: stretch the luma background value
+            var bg = Image.StretchValue(lumaBackground, 1f, 0f, Shadows.R, Midtones.R, Rescale.R);
             return Math.Clamp(bg, 0.01f, 0.99f);
         }
 
-        // Per-channel or linked: stretch each channel's median, then take Rec.709 luminance.
-        // Stats medians are already pedestal-subtracted, so pass normFactor=1, pedestal=0.
-        var r = StretchChannelMedian(perChannelStats, 0, Shadows.R, Midtones.R, Rescale.R);
-        var g = StretchChannelMedian(perChannelStats, 1, Shadows.G, Midtones.G, Rescale.G);
-        var b = StretchChannelMedian(perChannelStats, 2, Shadows.B, Midtones.B, Rescale.B);
+        // Per-channel or linked: stretch each channel's measured background, then Rec.709 luminance
+        var r = Image.StretchValue(GetChannelBg(perChannelBackground, 0), 1f, 0f, Shadows.R, Midtones.R, Rescale.R);
+        var g = Image.StretchValue(GetChannelBg(perChannelBackground, 1), 1f, 0f, Shadows.G, Midtones.G, Rescale.G);
+        var b = Image.StretchValue(GetChannelBg(perChannelBackground, 2), 1f, 0f, Shadows.B, Midtones.B, Rescale.B);
 
-        // Rec.709 luminance
         var Y = 0.2126f * r + 0.7152f * g + 0.0722f * b;
         return Math.Clamp(Y, 0.01f, 0.99f);
     }
 
-    private static float StretchChannelMedian(ChannelStretchStats[] stats, int ch, float shadows, float midtones, float rescale)
-    {
-        var median = ch < stats.Length ? stats[ch].Median : stats[0].Median;
-        return Image.StretchValue(median, 1f, 0f, shadows, midtones, rescale);
-    }
+    private static float GetChannelBg(float[] perChannelBackground, int ch)
+        => ch < perChannelBackground.Length ? perChannelBackground[ch] : perChannelBackground[0];
 }
 
 /// <summary>
@@ -98,6 +87,16 @@ public sealed class FitsDocument
     /// <summary>Luminance stretch stats (for luma mode). Only populated for color images (>=3 channels).</summary>
     public ChannelStretchStats? LumaStats { get; }
 
+    /// <summary>
+    /// Per-channel background values measured from the unstretched image (pedestal-subtracted).
+    /// These are the average values of the darkest spatial region, ready to feed into
+    /// <see cref="Image.StretchValue"/> to get the post-stretch background level.
+    /// </summary>
+    public float[] PerChannelBackground { get; }
+
+    /// <summary>Luminance background from the unstretched image (pedestal-subtracted).</summary>
+    public float LumaBackground { get; }
+
     public bool IsPlateSolved => Wcs is { HasCDMatrix: true, IsApproximate: false };
 
     private FitsDocument(
@@ -106,6 +105,8 @@ public sealed class FitsDocument
         DebayerAlgorithm debayerAlgorithm,
         ChannelStretchStats[] perChannelStats,
         ChannelStretchStats? lumaStats,
+        float[] perChannelBackground,
+        float lumaBackground,
         WCS? wcs)
     {
         _filePath = filePath;
@@ -113,6 +114,8 @@ public sealed class FitsDocument
         DebayerAlgorithm = debayerAlgorithm;
         PerChannelStats = perChannelStats;
         LumaStats = lumaStats;
+        PerChannelBackground = perChannelBackground;
+        LumaBackground = lumaBackground;
         Wcs = wcs;
 
         var stats = new ImageHistogram[image.ChannelCount];
@@ -165,6 +168,12 @@ public sealed class FitsDocument
             lumaStats = new ChannelStretchStats(lumaPed, lumaMed, lumaMad);
         }
 
+        // Scan for the darkest spatial region to get a reliable background level.
+        // This is pedestal-subtracted (matching the shader's norm = raw * normFactor - pedestal).
+        var pedestals = new float[channelCount];
+        for (var c = 0; c < channelCount; c++) { pedestals[c] = perChannelStats[c].Pedestal; }
+        var (perChannelBg, lumaBg) = processedRawImage.ScanBackgroundRegion(pedestals);
+
         // If the FITS header didn't have a full CD matrix, try companion ASTAP .ini file
         if (fileWcs is not { HasCDMatrix: true } || fileWcs.Value.IsApproximate)
         {
@@ -175,7 +184,7 @@ public sealed class FitsDocument
             }
         }
 
-        return new FitsDocument(filePath, processedRawImage, actualAlgorithm, perChannelStats, lumaStats, fileWcs);
+        return new FitsDocument(filePath, processedRawImage, actualAlgorithm, perChannelStats, lumaStats, perChannelBg, lumaBg, fileWcs);
     }
 
     /// <summary>

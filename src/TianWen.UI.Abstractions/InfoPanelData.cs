@@ -82,9 +82,20 @@ public static class InfoPanelData
                 ? c switch { 0 => "R", 1 => "G", 2 => "B", _ => $"Ch{c}" }
                 : $"Ch{c}";
 
+            var pad = new string(' ', label.Length + 2);
             lines.Add($"{label}: mean={stats.Mean:F1}");
-            lines.Add($"{new string(' ', label.Length + 2)}med={stats.Median:F1}");
-            lines.Add($"{new string(' ', label.Length + 2)}MAD={stats.MAD:F1}");
+            lines.Add($"{pad}med={stats.Median:F1}");
+            lines.Add($"{pad}MAD={stats.MAD:F1}");
+
+            var bg = c < document.PerChannelBackground.Length
+                ? document.PerChannelBackground[c]
+                : document.PerChannelBackground[0];
+            lines.Add($"{pad}bg={bg:F4}");
+        }
+
+        if (document.UnstretchedImage.ChannelCount >= 3)
+        {
+            lines.Add($"Luma bg={document.LumaBackground:F4}");
         }
 
         return lines;

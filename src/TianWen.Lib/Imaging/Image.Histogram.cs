@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
 using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging;
@@ -335,5 +336,135 @@ public partial class Image
         {
             return (background, starLevel, sd, histogram.Threshold);
         }
+    }
+
+    /// <summary>
+    /// Scans the image for the darkest spatial region and returns per-channel averages
+    /// in pedestal-subtracted space (matching the shader's norm = raw * normFactor - pedestal).
+    /// Uses the median of each patch (not the mean) to reject hot pixels.
+    /// </summary>
+    /// <param name="pedestals">Per-channel pedestal values (from <see cref="GetPedestralMedianAndMADScaledToUnit(int)"/>.</param>
+    /// <param name="squareSize">Size of the sampling square in pixels.</param>
+    /// <returns>Per-channel background values and luminance background, both pedestal-subtracted.</returns>
+    public (float[] PerChannel, float Luma) ScanBackgroundRegion(float[] pedestals, int squareSize = 32)
+    {
+        var step = squareSize * 4;
+        var channelCount = ChannelCount;
+
+        // Skip a 5% border on each side to avoid stacking artifacts (black edges, vignetting)
+        var marginX = (int)(Width * 0.05f);
+        var marginY = (int)(Height * 0.05f);
+
+        var minLuma = float.MaxValue;
+        int bgX = marginX, bgY = marginY;
+        var lockObj = new object();
+
+        // Build the list of row-strip Y values to scan
+        var yStart = marginY;
+        var yEnd = Height - squareSize - marginY;
+        var xStart = marginX;
+        var xEnd = Width - squareSize - marginX;
+
+        Parallel.For(0, (yEnd - yStart + step - 1) / step, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount * 4 }, (yIdx) =>
+        {
+            var y = yStart + yIdx * step;
+            var localMinLuma = float.MaxValue;
+            int localBgX = xStart, localBgY = y;
+
+            for (var x = xStart; x < xEnd; x += step)
+            {
+                var luma = AverageRegionLuma(x, y, squareSize);
+                if (luma > 0.001f && luma < localMinLuma)
+                {
+                    localMinLuma = luma;
+                    localBgX = x;
+                    localBgY = y;
+                }
+            }
+
+            if (localMinLuma < float.MaxValue)
+            {
+                lock (lockObj)
+                {
+                    if (localMinLuma < minLuma)
+                    {
+                        minLuma = localMinLuma;
+                        bgX = localBgX;
+                        bgY = localBgY;
+                    }
+                }
+            }
+        });
+
+        // Compute per-channel background, pedestal-subtracted
+        var perChannel = new float[channelCount];
+        for (var c = 0; c < channelCount; c++)
+        {
+            var pedestal = c < pedestals.Length ? pedestals[c] : pedestals[0];
+            perChannel[c] = MedianRegion(c, bgX, bgY, squareSize) - pedestal;
+        }
+
+        // Rec.709 luminance in pedestal-subtracted space
+        var lumaBg = channelCount >= 3
+            ? 0.2126f * perChannel[0] + 0.7152f * perChannel[1] + 0.0722f * perChannel[2]
+            : perChannel[0];
+
+        return (perChannel, lumaBg);
+    }
+
+    /// <summary>
+    /// Computes the median pixel value over a square region of a single channel.
+    /// Using median instead of mean rejects hot pixels and other outliers.
+    /// </summary>
+    private float MedianRegion(int channel, int x0, int y0, int size)
+    {
+        var count = 0;
+        var maxCount = size * size;
+        var buffer = maxCount <= 1024 ? stackalloc float[maxCount] : new float[maxCount];
+
+        for (var y = y0; y < y0 + size && y < Height; y++)
+        {
+            for (var x = x0; x < x0 + size && x < Width; x++)
+            {
+                var val = this[channel, y, x];
+                if (!float.IsNaN(val))
+                {
+                    buffer[count++] = val;
+                }
+            }
+        }
+
+        if (count == 0) return 0f;
+
+        var span = buffer[..count];
+        span.Sort();
+        return span[count / 2];
+    }
+
+    private float AverageRegionLuma(int x0, int y0, int size)
+    {
+        if (ChannelCount < 3)
+        {
+            return AverageRegionChannel(0, x0, y0, size);
+        }
+        var r = AverageRegionChannel(0, x0, y0, size);
+        var g = AverageRegionChannel(1, x0, y0, size);
+        var b = AverageRegionChannel(2, x0, y0, size);
+        return 0.2126f * r + 0.7152f * g + 0.0722f * b;
+    }
+
+    private float AverageRegionChannel(int channel, int x0, int y0, int size)
+    {
+        double sum = 0;
+        var count = 0;
+        for (var y = y0; y < y0 + size && y < Height; y++)
+        {
+            for (var x = x0; x < x0 + size && x < Width; x++)
+            {
+                sum += this[channel, y, x];
+                count++;
+            }
+        }
+        return count > 0 ? (float)(sum / count) : 0f;
     }
 }
