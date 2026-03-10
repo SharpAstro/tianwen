@@ -19,7 +19,7 @@ public abstract class StretchTestBase(ITestOutputHelper testOutputHelper)
         var cancellationToken = TestContext.Current.CancellationToken;
         var image = await SharedTestData.ExtractGZippedFitsImageAsync(fileName, cancellationToken: cancellationToken);
 
-        var namePrefix = $"{fileName}_{algorithm}_{stretchPct}s_{mode}";
+        var namePrefix = $"{fileName}_{algorithm}_f{stretchPct}_s{clippingSigma}_{mode}";
         var testDir = SharedTestData.CreateTempTestOutputDir(TestContext.Current.TestClass?.TestClassSimpleName ?? nameof(StretchTest));
 
         // Pre-stretch diagnostics: show input image stats

@@ -21,21 +21,25 @@ public readonly record struct Filter(string Name, string ShortName, Bandpass Ban
     /// <summary>Parses a known set of filters or <see cref="Unknown"/> if none match</summary>
     /// <param name="name"></param>
     /// <returns></returns>
-    public static Filter FromName(string name) => name?.Trim().ToUpperInvariant().Replace("-", "").Replace("+", "") switch
+    public static Filter FromName(string name)
     {
-        "NONE" => None,
-        "L" or "LUM" or "LUMINANCE" => Luminance,
-        "R" or "RED" => Red,
-        "B" or "BLUE" => Blue,
-        "G" or "GREEN" => Green,
-        "HALPHA" or "HA" or "HYDROGENALPHA" => HydrogenAlpha,
-        "HBETA" or "HB" or "HYDROGENBETA" => HydrogenBeta,
-        "OIII" or "O3" or "OIII" or "OXYIII" or "OXYGENIII" => OxygenIII,
-        "SII" or "S2" or "SULPHURII" => SulphurII,
-        "HYDROGENALPHAOXYGENIII" or "HALPHA" => HydrogenAlphaOxygenIII,
-        null => None,
-        _ => Unknown
-    };
+        var normalizedName = name?.Trim().ToUpperInvariant().Replace(" ", "").Replace("-", "").Replace("+", "");
+        return normalizedName switch
+        {
+            "NONE" => None,
+            "L" or "LUM" or "LUMINANCE" => Luminance,
+            "R" or "RED" => Red,
+            "B" or "BLUE" => Blue,
+            "G" or "GREEN" => Green,
+            "HALPHA" or "HA" or "HYDROGENALPHA" => HydrogenAlpha,
+            "HBETA" or "HB" or "HYDROGENBETA" => HydrogenBeta,
+            "OIII" or "O3" or "OIII" or "OXYIII" or "OXYGENIII" => OxygenIII,
+            "SII" or "S2" or "SULPHURII" => SulphurII,
+            "HYDROGENALPHAOXYGENIII" or "HALPHA" => HydrogenAlphaOxygenIII,
+            null => None,
+            _ => Unknown
+        };
+    }
 
     public static implicit operator Filter(string name) => FromName(name);
 
