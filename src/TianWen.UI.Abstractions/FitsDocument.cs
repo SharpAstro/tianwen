@@ -37,24 +37,25 @@ public record struct GpuStretchUniforms(
         {
             // No stretch — background is just the normalized median
             if (perChannelStats.Length == 0) return 0.5f;
-            var med = perChannelStats[0].Median * NormFactor;
+            // Median is already pedestal-subtracted; add pedestal back for the raw value, then normalize
+            var med = (perChannelStats[0].Median + perChannelStats[0].Pedestal) * NormFactor;
             return Math.Clamp(med, 0.01f, 0.99f);
         }
 
         if (Mode == 2 && lumaStats is { } luma)
         {
-            // Luma mode: subtract pedestal (passed in Pedestal.R), then apply stretch
-            var norm = luma.Median * NormFactor - Pedestal.R;
-            var rescaled = (norm - Shadows.R) * Rescale.R;
+            // Luma mode: median from stats is already pedestal-subtracted,
+            // which is exactly what the shader computes as norm = Y - pedestal.
+            // So use median directly — no further pedestal subtraction.
+            var rescaled = (luma.Median - Shadows.R) * Rescale.R;
             rescaled = Math.Clamp(rescaled, 0f, 1f);
             return Math.Clamp(Mtf(Midtones.R, rescaled), 0.01f, 0.99f);
         }
 
         // Per-channel or linked: compute per-channel post-stretch median, then luminance
-        var normFactor = NormFactor;
-        var r = ComputeChannelBackground(perChannelStats, 0, normFactor, Pedestal.R, Shadows.R, Midtones.R, Highlights.R, Rescale.R);
-        var g = ComputeChannelBackground(perChannelStats, 1, normFactor, Pedestal.G, Shadows.G, Midtones.G, Highlights.G, Rescale.G);
-        var b = ComputeChannelBackground(perChannelStats, 2, normFactor, Pedestal.B, Shadows.B, Midtones.B, Highlights.B, Rescale.B);
+        var r = ComputeChannelBackground(perChannelStats, 0, Shadows.R, Midtones.R, Rescale.R);
+        var g = ComputeChannelBackground(perChannelStats, 1, Shadows.G, Midtones.G, Rescale.G);
+        var b = ComputeChannelBackground(perChannelStats, 2, Shadows.B, Midtones.B, Rescale.B);
 
         // Rec.709 luminance
         var Y = 0.2126f * r + 0.7152f * g + 0.0722f * b;
@@ -62,12 +63,14 @@ public record struct GpuStretchUniforms(
     }
 
     private static float ComputeChannelBackground(
-        ChannelStretchStats[] stats, int ch, float normFactor,
-        float pedestal, float shadows, float midtones, float highlights, float rescale)
+        ChannelStretchStats[] stats, int ch,
+        float shadows, float midtones, float rescale)
     {
+        // The stats median is already pedestal-subtracted and in [0,1] space.
+        // This matches the shader's norm = rawPixel * normFactor - pedestal,
+        // so we can feed it directly into the stretch pipeline.
         var median = ch < stats.Length ? stats[ch].Median : stats[0].Median;
-        var norm = median * normFactor - pedestal;
-        var rescaled = (norm - shadows) * rescale;
+        var rescaled = (median - shadows) * rescale;
         rescaled = Math.Clamp(rescaled, 0f, 1f);
         return Mtf(midtones, rescaled);
     }
