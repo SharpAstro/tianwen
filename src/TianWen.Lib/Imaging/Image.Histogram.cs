@@ -185,9 +185,25 @@ public partial class Image
             throw new InvalidOperationException("Median and MAD should have been calculated");
         }
 
+        // The histogram may have been computed on a rescaled copy (float [0,1] → ushort [0,65535]).
+        // Median and MAD are in that rescaled space and need dividing by rescaledMaxValue.
         var maxValueFactor = 1f / (stats.RescaledMaxValue ?? MaxValue);
 
-        return (blackLevel * maxValueFactor, median * maxValueFactor, mad * maxValueFactor);
+        // The histogram with removePedestral:true subtracted the rescaled image's MinValue.
+        // The pedestal must be expressed in the [0,1] (unit-scaled) coordinate space that the
+        // stretch formula operates in. MinValue / MaxValue always gives us this, regardless of
+        // whether the histogram rescaled the data or not.
+        var pedestral = MinValue / MaxValue;
+
+        // Guard against MAD=0 (happens when the distribution is narrower than one histogram bin).
+        // Use a minimum of half a bin width in the unit-scaled space.
+        var scaledMad = mad * maxValueFactor;
+        if (scaledMad < maxValueFactor * 0.5f)
+        {
+            scaledMad = maxValueFactor * 0.5f;
+        }
+
+        return (pedestral, median * maxValueFactor, scaledMad);
     }
 
     /// <summary>

@@ -469,15 +469,16 @@ window.Render += (_) =>
         var doc = document;
         var channelView = state.ChannelView;
 
-        var pixelWidth = doc.UnstretchedImage.Width;
-        var pixelHeight = doc.UnstretchedImage.Height;
-        if (channelView is ChannelView.Composite)
+        var image = doc.UnstretchedImage;
+        var pixelWidth = image.Width;
+        var pixelHeight = image.Height;
+        if (channelView is ChannelView.Composite && image.ChannelCount >= 3)
         {
             renderer.ChannelTextureCount = 3; // RGB
 
             for (var i = 0; i < 3; i++)
             {
-                renderer.UploadChannelTexture(doc.UnstretchedImage.GetChannelSpan(i), i, pixelWidth, pixelHeight);
+                renderer.UploadChannelTexture(image.GetChannelSpan(i), i, pixelWidth, pixelHeight);
             }
         }
         else
@@ -485,13 +486,13 @@ window.Render += (_) =>
             renderer.ChannelTextureCount = 1;
 
             var channelIndex = channelView switch {
-                ChannelView.Channel0 or ChannelView.Red => 0,
-                ChannelView.Channel1 or ChannelView.Green => 1,
-                ChannelView.Channel2 or ChannelView.Blue => 1,
-                _ => throw new ArgumentOutOfRangeException(nameof(channelView), "Invalid channel view")
+                ChannelView.Composite or ChannelView.Channel0 or ChannelView.Red => 0,
+                ChannelView.Channel1 or ChannelView.Green => Math.Min(1, image.ChannelCount - 1),
+                ChannelView.Channel2 or ChannelView.Blue => Math.Min(2, image.ChannelCount - 1),
+                var cv => throw new InvalidOperationException($"Invalid channel view {cv}")
             };
 
-            renderer.UploadChannelTexture(doc.UnstretchedImage.GetChannelSpan(channelIndex), 0, pixelWidth, pixelHeight);
+            renderer.UploadChannelTexture(image.GetChannelSpan(channelIndex), 0, pixelWidth, pixelHeight);
         }
 
         state.StatusMessage = null;

@@ -9,23 +9,21 @@ public partial class Image
 {
     public async Task<IMagickImage<float>> ToMagickImageAsync(DebayerAlgorithm debayerAlgorithm = DebayerAlgorithm.VNG, CancellationToken cancellationToken = default)
     {
-        var scaled = BitDepth != BitDepth.Float32 ? ScaleFloatValues(MaxValue, missingValue: 0f) : this;
-
         Image debayered;
-        if (scaled.ImageMeta.SensorType is SensorType.RGGB)
+        if (ImageMeta.SensorType is SensorType.RGGB)
         {
             if (debayerAlgorithm is DebayerAlgorithm.None)
             {
                 throw new ArgumentException("Must specify an algorithm for debayering", nameof(debayerAlgorithm));
             }
-            debayered = await scaled.DebayerAsync(debayerAlgorithm, cancellationToken);
+            debayered = await DebayerAsync(debayerAlgorithm, cancellationToken);
         }
         else
         {
-            debayered = scaled;
+            debayered = this;
         }
 
-        return debayered.DoToMagickImage();
+        return debayered.ScaleFloatValues(Quantum.Max).DoToMagickImage();
     }
 
     /// <summary>
@@ -51,6 +49,7 @@ public partial class Image
             };
 
             result = coll.Combine(ColorSpace.sRGB);
+            // result.TransformColorSpace(ColorProfiles.SRGB);
             result.SetProfile(ColorProfiles.SRGB);
         }
         else

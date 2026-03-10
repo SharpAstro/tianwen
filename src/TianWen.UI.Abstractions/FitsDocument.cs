@@ -24,7 +24,61 @@ public record struct GpuStretchUniforms(
     (float R, float G, float B) Shadows,
     (float R, float G, float B) Midtones,
     (float R, float G, float B) Highlights,
-    (float R, float G, float B) Rescale);
+    (float R, float G, float B) Rescale)
+{
+    /// <summary>
+    /// Computes the post-stretch background level (luminance) by running
+    /// the median through the same MTF pipeline the shader uses.
+    /// This tells us where the sky background lands after stretch.
+    /// </summary>
+    public float EstimatePostStretchBackground(ChannelStretchStats[] perChannelStats, ChannelStretchStats? lumaStats)
+    {
+        if (Mode == 0)
+        {
+            // No stretch — background is just the normalized median
+            if (perChannelStats.Length == 0) return 0.5f;
+            var med = perChannelStats[0].Median * NormFactor;
+            return Math.Clamp(med, 0.01f, 0.99f);
+        }
+
+        if (Mode == 2 && lumaStats is { } luma)
+        {
+            // Luma mode: subtract pedestal (passed in Pedestal.R), then apply stretch
+            var norm = luma.Median * NormFactor - Pedestal.R;
+            var rescaled = (norm - Shadows.R) * Rescale.R;
+            rescaled = Math.Clamp(rescaled, 0f, 1f);
+            return Math.Clamp(Mtf(Midtones.R, rescaled), 0.01f, 0.99f);
+        }
+
+        // Per-channel or linked: compute per-channel post-stretch median, then luminance
+        var normFactor = NormFactor;
+        var r = ComputeChannelBackground(perChannelStats, 0, normFactor, Pedestal.R, Shadows.R, Midtones.R, Highlights.R, Rescale.R);
+        var g = ComputeChannelBackground(perChannelStats, 1, normFactor, Pedestal.G, Shadows.G, Midtones.G, Highlights.G, Rescale.G);
+        var b = ComputeChannelBackground(perChannelStats, 2, normFactor, Pedestal.B, Shadows.B, Midtones.B, Highlights.B, Rescale.B);
+
+        // Rec.709 luminance
+        var Y = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+        return Math.Clamp(Y, 0.01f, 0.99f);
+    }
+
+    private static float ComputeChannelBackground(
+        ChannelStretchStats[] stats, int ch, float normFactor,
+        float pedestal, float shadows, float midtones, float highlights, float rescale)
+    {
+        var median = ch < stats.Length ? stats[ch].Median : stats[0].Median;
+        var norm = median * normFactor - pedestal;
+        var rescaled = (norm - shadows) * rescale;
+        rescaled = Math.Clamp(rescaled, 0f, 1f);
+        return Mtf(midtones, rescaled);
+    }
+
+    private static float Mtf(float m, float v)
+    {
+        var clamped = Math.Clamp(v, 0f, 1f);
+        if (v != clamped) return clamped;
+        return (m - 1f) * v / ((2f * m - 1f) * v - m);
+    }
+}
 
 /// <summary>
 /// Core document model for the FITS viewer. Manages the image lifecycle:
@@ -151,10 +205,11 @@ public sealed class FitsDocument
         if (mode is StretchMode.Luma && LumaStats is { } luma)
         {
             var (s, m, h, r) = Image.ComputeStretchParameters(luma.Median, luma.Mad, factor, clipping);
+            // Pass the luma pedestal via Pedestal.R — the shader uses it to subtract from Y and channels
             return new GpuStretchUniforms(
                 Mode: 2,
                 NormFactor: normFactor,
-                Pedestal: default, // not used in luma mode per-pixel
+                Pedestal: (luma.Pedestal, luma.Pedestal, luma.Pedestal),
                 Shadows: ((float)s, (float)s, (float)s),
                 Midtones: ((float)m, (float)m, (float)m),
                 Highlights: ((float)h, (float)h, (float)h),
