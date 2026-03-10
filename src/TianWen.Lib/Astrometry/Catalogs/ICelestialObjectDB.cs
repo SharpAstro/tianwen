@@ -24,6 +24,8 @@ public interface ICelestialObjectDB
 
     bool TryLookupByIndex(CatalogIndex index, [NotNullWhen(true)] out CelestialObject celestialObject);
 
+    bool TryGetShape(CatalogIndex index, out CelestialObjectShape shape);
+
     public bool TryLookupByIndex(string name, [NotNullWhen(true)] out CelestialObject celestialObject)
     {
         if (TryGetCleanedUpCatalogName(name, out var index) && TryLookupByIndex(index, out celestialObject))

@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using Silk.NET.OpenGL;
 using TianWen.Lib.Astrometry;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
 
@@ -78,6 +80,7 @@ public sealed class GlFitsRenderer : IDisposable
         ("1:1", ToolbarAction.ZoomActual, 3),
         ("Plate Solve", ToolbarAction.PlateSolve, 4),
         ("Grid", ToolbarAction.Grid, 4),
+        ("Objects", ToolbarAction.Overlays, 4),
     ];
 
     /// <summary>Scaled toolbar height in pixels.</summary>
@@ -156,6 +159,11 @@ public sealed class GlFitsRenderer : IDisposable
         }
     }
 
+    /// <summary>
+    /// Lazy-initialized celestial object database used for object overlays.
+    /// </summary>
+    public AsyncLazy<ICelestialObjectDB>? CelestialObjectDB { get; set; }
+
     public void Render(FitsDocument? document, ViewerState state)
     {
         _gl.ClearColor(0.1f, 0.1f, 0.1f, 1.0f);
@@ -179,6 +187,11 @@ public sealed class GlFitsRenderer : IDisposable
         if (state.ShowGrid && document?.Wcs is { HasCDMatrix: true } wcs)
         {
             RenderGridLabels(state, wcs);
+        }
+
+        if (state.ShowOverlays && document?.Wcs is { HasCDMatrix: true } overlayWcs && CelestialObjectDB?.ValueOrDefault is { } db)
+        {
+            RenderOverlays(state, overlayWcs, db);
         }
 
         if (state.ShowInfoPanel && document is not null)
@@ -265,7 +278,7 @@ public sealed class GlFitsRenderer : IDisposable
         }
     }
 
-    private static bool IsToolbarButtonEnabled(ToolbarAction action, FitsDocument? document)
+    private bool IsToolbarButtonEnabled(ToolbarAction action, FitsDocument? document)
     {
         return action switch
         {
@@ -279,6 +292,8 @@ public sealed class GlFitsRenderer : IDisposable
             ToolbarAction.StretchLink or ToolbarAction.StretchParams => document is not null,
             // Grid needs a WCS with CD matrix (solved or approximate)
             ToolbarAction.Grid => document?.Wcs is { HasCDMatrix: true },
+            // Overlays also need the DB to be initialized
+            ToolbarAction.Overlays => document?.Wcs is { HasCDMatrix: true } && CelestialObjectDB?.IsReady == true,
             // Plate solve needs a loaded, unsolved document
             ToolbarAction.PlateSolve => document is not null && !document.IsPlateSolved,
             // Zoom needs a loaded document
@@ -289,7 +304,7 @@ public sealed class GlFitsRenderer : IDisposable
         };
     }
 
-    private static bool IsToolbarButtonActive(ToolbarAction action, FitsDocument? document, ViewerState state)
+    private bool IsToolbarButtonActive(ToolbarAction action, FitsDocument? document, ViewerState state)
     {
         return action switch
         {
@@ -300,13 +315,14 @@ public sealed class GlFitsRenderer : IDisposable
             ToolbarAction.CurvesBoost => state.CurvesBoost > 0f,
             ToolbarAction.Hdr => state.HdrAmount > 0f,
             ToolbarAction.Grid => state.ShowGrid,
+            ToolbarAction.Overlays => state.ShowOverlays,
             ToolbarAction.ZoomFit => state.ZoomToFit,
             ToolbarAction.ZoomActual => !state.ZoomToFit && MathF.Abs(state.Zoom - 1f) < 0.001f,
             _ => false,
         };
     }
 
-    private static string GetToolbarButtonLabel(string baseLabel, ToolbarAction action, FitsDocument? document, ViewerState state)
+    private string GetToolbarButtonLabel(string baseLabel, ToolbarAction action, FitsDocument? document, ViewerState state)
     {
         return action switch
         {
@@ -325,6 +341,8 @@ public sealed class GlFitsRenderer : IDisposable
             ToolbarAction.ZoomFit => "Fit",
             ToolbarAction.ZoomActual => "1:1",
             ToolbarAction.Grid => "Grid",
+            ToolbarAction.Overlays when CelestialObjectDB is { IsReady: false } => "Objects...",
+            ToolbarAction.Overlays => "Objects",
             ToolbarAction.PlateSolve when state.IsPlateSolving => "Solving...",
             ToolbarAction.PlateSolve when document?.IsPlateSolved == true => "Solved",
             _ => baseLabel,
@@ -889,6 +907,454 @@ public sealed class GlFitsRenderer : IDisposable
             return $"{sign}{d}\u00b0{mi:D2}'";
         }
         return $"{sign}{d}\u00b0{mi:D2}'{s:00.0}\"";
+    }
+
+    // --- Object Overlays ---
+
+    /// <summary>
+    /// Object types considered "extended" (drawn as ellipses/markers).
+    /// </summary>
+    private static bool IsExtendedObjectType(ObjectType ot) => ot is
+        ObjectType.Galaxy or ObjectType.PairG or ObjectType.GroupG or
+        ObjectType.OpenCluster or ObjectType.GlobCluster or
+        ObjectType.GalNeb or ObjectType.PlanetaryNeb or ObjectType.EmObj or
+        ObjectType.HIIReg or ObjectType.RefNeb or ObjectType.DarkNeb or
+        ObjectType.SNRemnant or ObjectType.Association or
+        ObjectType.Unknown;
+
+    /// <summary>
+    /// Whether the object type is a star (single, double, variable, etc.).
+    /// Uses the built-in <see cref="ObjectType.IsStar"/> which checks for '*' in the encoding.
+    /// </summary>
+    private static bool IsStarType(ObjectType ot) => ot.IsStar();
+
+    /// <summary>
+    /// Returns overlay color (R, G, B) based on object type.
+    /// </summary>
+    private static (float R, float G, float B) GetOverlayColor(ObjectType ot) => ot switch
+    {
+        ObjectType.Galaxy or ObjectType.PairG or ObjectType.GroupG => (0.0f, 0.8f, 0.8f),       // cyan
+        ObjectType.OpenCluster or ObjectType.GlobCluster or ObjectType.Association => (1.0f, 0.8f, 0.0f), // yellow
+        ObjectType.PlanetaryNeb => (0.6f, 0.3f, 1.0f),  // purple
+        ObjectType.DarkNeb => (0.6f, 0.6f, 0.6f),       // gray
+        _ when ot.IsStar() => (1.0f, 1.0f, 1.0f),           // white (stars)
+        _ => (1.0f, 0.4f, 0.25f),                        // orange (emission, HII, reflection, SNR, etc.)
+    };
+
+    /// <summary>
+    /// Maximum number of overlay labels to render (to prevent clutter).
+    /// </summary>
+    private const int MaxOverlayLabels = 80;
+
+    private void RenderOverlays(ViewerState state, WCS wcs, ICelestialObjectDB db)
+    {
+        if (_fontPath is null || _imageWidth <= 0 || _imageHeight <= 0)
+        {
+            return;
+        }
+
+        var fileListW = state.ShowFileList ? FileListWidth : 0;
+        var panelW = state.ShowInfoPanel ? InfoPanelWidth : 0;
+        var areaW = (float)(_width - fileListW - panelW);
+        var areaH = (float)(_height - ToolbarHeight - StatusBarHeight);
+        var scale = state.Zoom;
+        var drawW = _imageWidth * scale;
+        var drawH = _imageHeight * scale;
+        var imgOffsetX = fileListW + (areaW - drawW) / 2f + state.PanOffset.X;
+        var imgOffsetY = ToolbarHeight + (areaH - drawH) / 2f + state.PanOffset.Y;
+
+        // Visible image pixel bounds (1-based FITS coordinates)
+        var visLeft = Math.Max(1.0, (fileListW - imgOffsetX) / scale + 1);
+        var visRight = Math.Min((double)_imageWidth, (fileListW + areaW - imgOffsetX) / scale + 1);
+        var visTop = Math.Max(1.0, (ToolbarHeight - imgOffsetY) / scale + 1);
+        var visBottom = Math.Min((double)_imageHeight, (ToolbarHeight + areaH - imgOffsetY) / scale + 1);
+
+        if (visLeft >= visRight || visTop >= visBottom)
+        {
+            return;
+        }
+
+        // Compute FOV for zoom-dependent filtering
+        var pixelScaleArcsec = wcs.PixelScaleArcsec;
+        var viewImagePixels = MathF.Min(areaW, areaH) / scale;
+        var fovArcmin = viewImagePixels * pixelScaleArcsec / 60.0;
+
+        // Magnitude cutoff based on FOV (extended objects)
+        var magCutoff = fovArcmin switch
+        {
+            > 300.0 => 8.0,   // > 5 degrees: Messier-class only
+            > 60.0 => 12.0,   // 1-5 degrees: bright NGC/IC
+            _ => 20.0          // < 1 degree: show all
+        };
+
+        // Star magnitude cutoff: tighter, zoom-dependent
+        var starMagCutoff = fovArcmin switch
+        {
+            > 300.0 => 1.0,   // > 5 degrees: only the very brightest
+            > 120.0 => 2.5,   // 2-5 degrees: naked-eye bright
+            > 60.0 => 4.0,    // 1-2 degrees: moderate
+            > 30.0 => 5.5,    // 0.5-1 degrees
+            _ => 7.0           // < 0.5 degrees: show fainter stars
+        };
+
+        // Get RA/Dec bounds of the visible area
+        var corners = new (double RA, double Dec)?[]
+        {
+            wcs.PixelToSky(visLeft, visTop),
+            wcs.PixelToSky(visRight, visTop),
+            wcs.PixelToSky(visLeft, visBottom),
+            wcs.PixelToSky(visRight, visBottom),
+            wcs.PixelToSky((visLeft + visRight) / 2, (visTop + visBottom) / 2),
+        };
+
+        double minRA = double.MaxValue, maxRA = double.MinValue;
+        double minDec = double.MaxValue, maxDec = double.MinValue;
+        foreach (var c in corners)
+        {
+            if (c is not { } sky)
+            {
+                continue;
+            }
+            minRA = Math.Min(minRA, sky.RA);
+            maxRA = Math.Max(maxRA, sky.RA);
+            minDec = Math.Min(minDec, sky.Dec);
+            maxDec = Math.Max(maxDec, sky.Dec);
+        }
+
+        if (minRA > maxRA || minDec > maxDec)
+        {
+            return;
+        }
+
+        // Handle RA wraparound
+        var raWrapped = maxRA - minRA > 12.0;
+        if (raWrapped)
+        {
+            double wrapMin = double.MaxValue, wrapMax = double.MinValue;
+            foreach (var c in corners)
+            {
+                if (c is not { } sky) continue;
+                var ra = sky.RA < 12.0 ? sky.RA + 24.0 : sky.RA;
+                wrapMin = Math.Min(wrapMin, ra);
+                wrapMax = Math.Max(wrapMax, ra);
+            }
+            minRA = wrapMin;
+            maxRA = wrapMax;
+        }
+
+        // Expand bounds slightly (1 degree) to catch objects near edges
+        minRA -= 1.0 / 15.0;
+        maxRA += 1.0 / 15.0;
+        minDec = Math.Max(-90.0, minDec - 1.0);
+        maxDec = Math.Min(90.0, maxDec + 1.0);
+
+        // Query the spatial index for candidate objects
+        var grid = db.CoordinateGrid;
+        var seen = new HashSet<CatalogIndex>();
+        var candidates = new List<(CatalogIndex Index, CelestialObject Obj, float ScreenX, float ScreenY)>();
+
+        // Iterate over 1-degree RA/Dec cells covering the viewport
+        var decStep = 1.0;
+        var raStep = 1.0 / 15.0; // ~4 minutes of RA per cell
+
+        for (var dec = Math.Floor(minDec); dec <= maxDec; dec += decStep)
+        {
+            for (var ra = Math.Floor(minRA * 15.0) / 15.0; ra <= maxRA; ra += raStep)
+            {
+                var queryRA = ra;
+                if (raWrapped && queryRA >= 24.0) queryRA -= 24.0;
+                if (queryRA < 0.0) queryRA += 24.0;
+
+                foreach (var idx in grid[queryRA, dec])
+                {
+                    if (!seen.Add(idx))
+                    {
+                        continue;
+                    }
+
+                    if (!db.TryLookupByIndex(idx, out var obj))
+                    {
+                        continue;
+                    }
+
+                    var isExtended = IsExtendedObjectType(obj.ObjectType);
+                    var isStar = IsStarType(obj.ObjectType);
+
+                    if (!isExtended && !isStar)
+                    {
+                        continue;
+                    }
+
+                    // Skip Tycho2 stars (too many — ~2.5M entries)
+                    if (isStar && idx.ToCatalog() == Catalog.Tycho2)
+                    {
+                        continue;
+                    }
+
+                    // Star magnitude cutoff: tighter than extended objects
+                    var effectiveMagCutoff = isStar ? starMagCutoff : magCutoff;
+                    if (!Half.IsNaN(obj.V_Mag) && (double)obj.V_Mag > effectiveMagCutoff)
+                    {
+                        continue;
+                    }
+
+                    // Project to pixel coordinates
+                    var pixel = wcs.SkyToPixel(obj.RA, obj.Dec);
+                    if (pixel is not { } px)
+                    {
+                        continue;
+                    }
+
+                    // Convert to screen coordinates
+                    var screenX = imgOffsetX + (float)(px.X - 1) * scale;
+                    var screenY = imgOffsetY + (float)(px.Y - 1) * scale;
+
+                    // Skip if off-screen (with margin for ellipse extent)
+                    var margin = 100f;
+                    if (screenX < fileListW - margin || screenX > fileListW + areaW + margin ||
+                        screenY < ToolbarHeight - margin || screenY > ToolbarHeight + areaH + margin)
+                    {
+                        continue;
+                    }
+
+                    candidates.Add((idx, obj, screenX, screenY));
+                }
+            }
+        }
+
+        if (candidates.Count == 0)
+        {
+            return;
+        }
+
+        // Sort by magnitude (brightest first) for label priority
+        candidates.Sort((a, b) =>
+        {
+            var aMag = Half.IsNaN(a.Obj.V_Mag) ? 99.0 : (double)a.Obj.V_Mag;
+            var bMag = Half.IsNaN(b.Obj.V_Mag) ? 99.0 : (double)b.Obj.V_Mag;
+            return aMag.CompareTo(bMag);
+        });
+
+        // Scissor to image area
+        _gl.Enable(EnableCap.ScissorTest);
+        _gl.Scissor((int)fileListW, (int)StatusBarHeight, (uint)areaW, (uint)areaH);
+
+        // Arcminutes to screen pixels conversion factor
+        var arcminToPixels = scale / (pixelScaleArcsec / 60.0);
+
+        var labelSize = FontSize * 0.85f;
+        var labelPad = 4f;
+        var placedLabels = new List<(float X, float Y, float W, float H)>();
+        var labelCount = 0;
+
+        foreach (var (idx, obj, cx, cy) in candidates)
+        {
+            var (r, g, b) = GetOverlayColor(obj.ObjectType);
+
+            if (db.TryGetShape(idx, out var shape) &&
+                !Half.IsNaN(shape.MajorAxis) && !Half.IsNaN(shape.MinorAxis))
+            {
+                // Draw ellipse
+                var semiMajPx = (float)((double)shape.MajorAxis / 2.0 * arcminToPixels);
+                var semiMinPx = (float)((double)shape.MinorAxis / 2.0 * arcminToPixels);
+
+                // Skip tiny ellipses (< 3 pixels)
+                if (semiMajPx < 3f)
+                {
+                    continue;
+                }
+
+                // Compute screen-space PA from WCS
+                var paScreen = ComputeScreenPA(wcs, obj.RA, obj.Dec, shape.PositionAngle);
+
+                DrawEllipse(cx, cy, semiMajPx, semiMinPx, paScreen, r, g, b, 1.0f);
+            }
+            else if (IsStarType(obj.ObjectType))
+            {
+                // Draw a cross/plus marker for stars
+                var arm = 6f * DpiScale;
+                DrawCross(cx, cy, arm, r, g, b, 1.0f);
+            }
+            else
+            {
+                // Draw a small circle marker for extended objects without shape data
+                var markerRadius = 8f * DpiScale;
+                DrawEllipse(cx, cy, markerRadius, markerRadius, 0f, r, g, b, 0.9f);
+            }
+
+            // Place label with collision avoidance
+            if (labelCount < MaxOverlayLabels)
+            {
+                var label = obj.Index.ToCanonical();
+                // If common names available and zoom is close enough, prefer a common name
+                if (fovArcmin < 30.0 && obj.CommonNames.Count > 0)
+                {
+                    foreach (var name in obj.CommonNames)
+                    {
+                        label = name;
+                        break;
+                    }
+                }
+
+                var textW = MeasureText(label, labelSize);
+                var textH = labelSize;
+
+                // Try 4 candidate positions: right, left, above, below
+                (float X, float Y)[] positions =
+                [
+                    (cx + labelPad + 6f, cy - textH / 2f),         // right
+                    (cx - textW - labelPad - 6f, cy - textH / 2f), // left
+                    (cx - textW / 2f, cy - textH - labelPad - 6f), // above
+                    (cx - textW / 2f, cy + labelPad + 6f),         // below
+                ];
+
+                var placed = false;
+                foreach (var (lx, ly) in positions)
+                {
+                    var overlaps = false;
+                    foreach (var (px, py, pw, ph) in placedLabels)
+                    {
+                        if (lx < px + pw && lx + textW > px && ly < py + ph && ly + textH > py)
+                        {
+                            overlaps = true;
+                            break;
+                        }
+                    }
+
+                    if (!overlaps)
+                    {
+                        DrawText(label, lx, ly, labelSize, r, g, b);
+                        placedLabels.Add((lx, ly, textW, textH));
+                        placed = true;
+                        labelCount++;
+                        break;
+                    }
+                }
+
+                // If all positions collide and this is a bright object, force-place right
+                if (!placed && !Half.IsNaN(obj.V_Mag) && (double)obj.V_Mag < 10.0)
+                {
+                    var (fx, fy) = positions[0];
+                    DrawText(label, fx, fy, labelSize, r, g, b);
+                    placedLabels.Add((fx, fy, textW, textH));
+                    labelCount++;
+                }
+            }
+        }
+
+        _gl.Disable(EnableCap.ScissorTest);
+    }
+
+    /// <summary>
+    /// Computes the screen-space position angle by projecting a small sky offset through the WCS.
+    /// Returns angle in radians (0 = up on screen, clockwise positive).
+    /// </summary>
+    private static float ComputeScreenPA(WCS wcs, double raH, double decDeg, Half paFromNorth)
+    {
+        if (Half.IsNaN(paFromNorth))
+        {
+            return 0f;
+        }
+
+        var paDeg = (double)paFromNorth;
+        var paRad = paDeg * Math.PI / 180.0;
+
+        // Compute a small offset along the PA direction in sky coordinates
+        var offsetArcmin = 1.0; // 1 arcmin offset
+        var offsetDeg = offsetArcmin / 60.0;
+
+        // PA is measured N through E on the sky
+        var dDecDeg = offsetDeg * Math.Cos(paRad);
+        var dRADeg = offsetDeg * Math.Sin(paRad) / Math.Cos(decDeg * Math.PI / 180.0);
+        var dRAH = dRADeg / 15.0;
+
+        var center = wcs.SkyToPixel(raH, decDeg);
+        var tip = wcs.SkyToPixel(raH + dRAH, decDeg + dDecDeg);
+
+        if (center is not { } c || tip is not { } t)
+        {
+            return 0f;
+        }
+
+        // Screen-space angle (note: screen Y increases downward, pixel Y increases upward)
+        var dx = (float)(t.X - c.X);
+        var dy = -(float)(t.Y - c.Y); // negate because screen Y is flipped
+        return MathF.Atan2(dx, dy); // angle from "up" (north on screen), clockwise positive
+    }
+
+    /// <summary>
+    /// Draws an ellipse outline using line segments via the flat shader.
+    /// </summary>
+    private void DrawEllipse(float cx, float cy, float semiMajor, float semiMinor, float angle, float r, float g, float b, float a)
+    {
+        const int segments = 48;
+        var cosA = MathF.Cos(angle);
+        var sinA = MathF.Sin(angle);
+
+        // Generate line segment pairs
+        Span<float> verts = stackalloc float[segments * 4]; // 2 vertices per segment, 2 floats each
+        var prevX = cx + semiMajor * cosA;
+        var prevY = cy - semiMajor * sinA; // screen Y is inverted
+
+        for (int i = 0; i < segments; i++)
+        {
+            var t = (i + 1) * 2f * MathF.PI / segments;
+            var ex = semiMajor * MathF.Cos(t);
+            var ey = semiMinor * MathF.Sin(t);
+            var nextX = cx + ex * cosA - ey * sinA;
+            var nextY = cy - (ex * sinA + ey * cosA); // screen Y is inverted
+
+            // Convert to NDC
+            verts[i * 4 + 0] = (prevX / _width) * 2f - 1f;
+            verts[i * 4 + 1] = 1f - (prevY / _height) * 2f;
+            verts[i * 4 + 2] = (nextX / _width) * 2f - 1f;
+            verts[i * 4 + 3] = 1f - (nextY / _height) * 2f;
+
+            prevX = nextX;
+            prevY = nextY;
+        }
+
+        _gl.BindVertexArray(_vao);
+        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vbo);
+        _gl.BufferData<float>(BufferTargetARB.ArrayBuffer, verts, BufferUsageARB.StreamDraw);
+
+        _gl.VertexAttribPointer(0, 2, VertexAttribPointerType.Float, false, 2 * sizeof(float), 0);
+        _gl.EnableVertexAttribArray(0);
+        _gl.DisableVertexAttribArray(1);
+
+        _flatShader.Use();
+        _flatShader.SetVector4("uColor", r, g, b, a);
+
+        _gl.DrawArrays(PrimitiveType.Lines, 0, (uint)(segments * 2));
+    }
+
+    private void DrawCross(float cx, float cy, float arm, float r, float g, float b, float a)
+    {
+        // 4 line endpoints: horizontal + vertical
+        Span<float> verts = stackalloc float[8];
+        // Horizontal line
+        verts[0] = ((cx - arm) / _width) * 2f - 1f;
+        verts[1] = 1f - (cy / _height) * 2f;
+        verts[2] = ((cx + arm) / _width) * 2f - 1f;
+        verts[3] = verts[1];
+        // Vertical line
+        verts[4] = (cx / _width) * 2f - 1f;
+        verts[5] = 1f - ((cy - arm) / _height) * 2f;
+        verts[6] = verts[4];
+        verts[7] = 1f - ((cy + arm) / _height) * 2f;
+
+        _gl.BindVertexArray(_vao);
+        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vbo);
+        _gl.BufferData<float>(BufferTargetARB.ArrayBuffer, verts, BufferUsageARB.StreamDraw);
+
+        _gl.VertexAttribPointer(0, 2, VertexAttribPointerType.Float, false, 2 * sizeof(float), 0);
+        _gl.EnableVertexAttribArray(0);
+        _gl.DisableVertexAttribArray(1);
+
+        _flatShader.Use();
+        _flatShader.SetVector4("uColor", r, g, b, a);
+
+        _gl.DrawArrays(PrimitiveType.Lines, 0, 4);
     }
 
     // --- Info panel ---

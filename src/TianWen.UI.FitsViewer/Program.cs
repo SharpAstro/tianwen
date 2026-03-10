@@ -47,6 +47,14 @@ services
 var sp = services.BuildServiceProvider();
 var state = sp.GetRequiredService<ViewerState>();
 
+// Lazy-initialized catalog DB — starts init on first access, safe to pass around immediately
+var celestialObjectDB = new AsyncLazy<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(async () =>
+{
+    var db = sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
+    await db.InitDBAsync();
+    return db;
+});
+
 // Scan folder for FITS files
 if (folderPath is not null)
 {
@@ -137,6 +145,9 @@ window.Load += () =>
 
     renderer = new GlFitsRenderer(gl, (uint)fbSize.X, (uint)fbSize.Y);
     renderer.DpiScale = dpiScale;
+    renderer.CelestialObjectDB = celestialObjectDB;
+    // Kick off DB init eagerly so it's ready when user toggles overlays
+    _ = celestialObjectDB.Task;
 
     var input = window.CreateInput();
 
@@ -205,6 +216,10 @@ window.Load += () =>
                     break;
                 case Key.G:
                     state.ShowGrid = !state.ShowGrid;
+                    break;
+                case Key.O:
+                    state.ShowOverlays = !state.ShowOverlays;
+                    state.NeedsRedraw = true;
                     break;
                 case Key.H:
                     ViewerActions.CycleHdr(state);
@@ -582,6 +597,10 @@ void HandleToolbarAction(ToolbarAction action, bool reverse = false)
             break;
         case ToolbarAction.Grid:
             state.ShowGrid = !state.ShowGrid;
+            state.NeedsRedraw = true;
+            break;
+        case ToolbarAction.Overlays:
+            state.ShowOverlays = !state.ShowOverlays;
             state.NeedsRedraw = true;
             break;
         case ToolbarAction.ZoomFit:

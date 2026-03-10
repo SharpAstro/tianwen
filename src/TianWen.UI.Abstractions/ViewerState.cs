@@ -55,6 +55,9 @@ public sealed class ViewerState
     /// <summary>Whether the WCS coordinate grid overlay is visible.</summary>
     public bool ShowGrid { get; set; }
 
+    /// <summary>Whether deep-sky object overlays (galaxy ellipses, markers, labels) are visible.</summary>
+    public bool ShowOverlays { get; set; }
+
     /// <summary>Status message to display (e.g. "Plate solving...", "Stretching...").</summary>
     public string? StatusMessage { get; set; }
 
