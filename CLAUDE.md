@@ -115,6 +115,12 @@ Devices are URI-addressed and managed through:
 - `ComputeStretchUniforms()` produces shader uniforms from cached stats
 - Three stretch modes: per-channel (linked/unlinked), luma (preserves chrominance ratios)
 - HDR compression via Hermite soft-knee, also in the shader
+- Background estimation via `Image.ScanBackgroundRegion()`: finds the darkest 32×32 patch
+  (skipping 5% border to avoid stacking artifacts), uses median (not mean) to reject hot pixels,
+  parallelized with `Parallel.For`. Result is pedestal-subtracted and fed through `Image.StretchValue`
+  to compute the post-stretch background level for the boost curve's symmetry point.
+- `Image.StretchValue()` is the single source of truth for the stretch pipeline
+  (normalize → subtract pedestal → rescale → MTF), used by CPU stretch, background computation, and tests
 - WCS coordinate grid overlay rendered in the fragment shader with per-pixel TAN deprojection
 - Grid labels placed at viewport edges where RA/Dec lines cross, with corner exclusion zones
 
