@@ -151,6 +151,8 @@ cancellationToken: TestContext.Current.CancellationToken);
     [InlineData("eps Eri", CatalogIndex.HIP016537, CatalogIndex.HD022049, CatalogIndex.HR1084)]
     [InlineData("Electra", CatalogIndex.HIP017499, CatalogIndex.HD023302, CatalogIndex.HR1142, CatalogIndex.vdB0020)]
     [InlineData("Erakis", CatalogIndex.HIP107259, CatalogIndex.HD206936, CatalogIndex.HR8316)]
+    [InlineData("eta Ori", CatalogIndex.HIP025281, CatalogIndex.HD035411, CatalogIndex.HR1788)]
+    [InlineData("28 Ori", CatalogIndex.HIP025281, CatalogIndex.HD035411, CatalogIndex.HR1788)]
     public async Task GivenANameWhenLookingItUpThenAnObjIsReturned(string name, params CatalogIndex[] expectedMatches)
     {
         // given
@@ -175,6 +177,10 @@ cancellationToken: TestContext.Current.CancellationToken);
     [InlineData(CatalogIndex.NGC3372, "Car Nebula", "Carina Nebula", "eta Car Nebula", "Keyhole", "Keyhole Nebula")]
     [InlineData(CatalogIndex.GUM033, "Car Nebula", "Carina Nebula", "eta Car Nebula", "Keyhole", "Keyhole Nebula")]
     [InlineData(CatalogIndex.NGC6302, "Bug Nebula", "Butterfly Nebula")]
+    // eta Ori: Bayer designation and Flamsteed number should be common names on all cross-refs
+    [InlineData(CatalogIndex.HR1788, "28 Ori", "eta Ori")]
+    [InlineData(CatalogIndex.HIP025281, "28 Ori", "eta Ori")]
+    [InlineData(CatalogIndex.HD035411, "28 Ori", "eta Ori")]
     [InlineData(CatalogIndex.C009, "Cave Nebula")]
     [InlineData(CatalogIndex.Sh2_0155, "Cave Nebula")]
     [InlineData(CatalogIndex.Ced0201, "Cave Nebula")]
@@ -232,6 +238,10 @@ cancellationToken: TestContext.Current.CancellationToken);
     [InlineData(CatalogIndex.HIP034178, CatalogIndex.GUM003, CatalogIndex.vdB0094)]
     [InlineData(CatalogIndex.HIP107259, CatalogIndex.HR8316)]
     [InlineData(CatalogIndex.HR8316, CatalogIndex.HIP107259)]
+    // eta Ori cross-references (HIP/HD/HR should all be linked)
+    [InlineData(CatalogIndex.HIP025281, CatalogIndex.HD035411, CatalogIndex.HR1788)]
+    [InlineData(CatalogIndex.HD035411, CatalogIndex.HIP025281, CatalogIndex.HR1788)]
+    [InlineData(CatalogIndex.HR1788, CatalogIndex.HIP025281, CatalogIndex.HD035411)]
     [InlineData(CatalogIndex.HIP000424, CatalogIndex.HR0001, CatalogIndex.HD000003)]
     [InlineData(CatalogIndex.HR0264, CatalogIndex.vdB0005, CatalogIndex.HIP004427, CatalogIndex.HD005394)]
     [InlineData(CatalogIndex.HR1142, CatalogIndex.vdB0020, CatalogIndex.HIP017499, CatalogIndex.HD023302)]
