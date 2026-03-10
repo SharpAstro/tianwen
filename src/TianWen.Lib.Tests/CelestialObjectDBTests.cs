@@ -514,6 +514,38 @@ cancellationToken: TestContext.Current.CancellationToken);
         grid.ShouldContain(tycIndex, $"{tycIndex.ToCanonical()} should be in the coordinate grid at its own RA/Dec");
     }
 
+    [Theory]
+    [InlineData(CatalogIndex.NGC7331, 9.27, 3.76, 170.0)]   // NGC 7331
+    [InlineData(CatalogIndex.NGC5194, 13.71, 11.67, 163.0)] // M51 Whirlpool
+    [InlineData(CatalogIndex.NGC5457, 23.99, 23.07, 28.0)]  // M101 Pinwheel
+    public async Task GivenGalaxyWhenTryGetShapeThenShapeDataIsReturned(CatalogIndex catalogIndex, double expectedMajAx, double expectedMinAx, double expectedPA)
+    {
+        // given
+        var db = await InitDBAsync();
+
+        // when
+        var found = db.TryGetShape(catalogIndex, out var shape);
+
+        // then
+        found.ShouldBeTrue($"{catalogIndex.ToCanonical()} should have shape data");
+        ((double)shape.MajorAxis).ShouldBeInRange(expectedMajAx - 0.1, expectedMajAx + 0.1);
+        ((double)shape.MinorAxis).ShouldBeInRange(expectedMinAx - 0.1, expectedMinAx + 0.1);
+        ((double)shape.PositionAngle).ShouldBeInRange(expectedPA - 1.0, expectedPA + 1.0);
+    }
+
+    [Fact]
+    public async Task GivenStarWhenTryGetShapeThenNoShapeData()
+    {
+        // given
+        var db = await InitDBAsync();
+
+        // when
+        var found = db.TryGetShape(CatalogIndex.HD000001, out _);
+
+        // then
+        found.ShouldBeFalse();
+    }
+
     [Fact]
     public async Task GivenDBWhenCreateAutoCompleteListThenItContainsAllCommonNamesAndDesignations()
     {

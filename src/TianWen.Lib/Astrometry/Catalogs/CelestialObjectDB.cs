@@ -45,6 +45,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     private readonly Dictionary<CatalogIndex, CelestialObject> _objectsByIndex = new(32000);
     private readonly Dictionary<CatalogIndex, (CatalogIndex i1, CatalogIndex[]? ext)> _crossIndexLookuptable = new(39000);
     private readonly Dictionary<string, (CatalogIndex i1, CatalogIndex[]? ext)> _objectsByCommonName = new(5700);
+    private readonly Dictionary<CatalogIndex, CelestialObjectShape> _shapesByIndex = new(11000);
     private readonly RaDecIndex _raDecIndex = new();
 
     private byte[]? _tycho2Data;
@@ -190,6 +191,9 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             }
         }
     }
+
+    /// <inheritdoc/>
+    public bool TryGetShape(CatalogIndex index, out CelestialObjectShape shape) => _shapesByIndex.TryGetValue(index, out shape);
 
     public bool TryGetCrossIndices(CatalogIndex catalogIndex, out IReadOnlySet<CatalogIndex> crossIndices)
     {
@@ -711,6 +715,19 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                 else
                 {
                     commonNames = EmptyNameSet;
+                }
+
+                if (csvReader.TryGetField<string>("MajAx", out var majAxStr)
+                    && Half.TryParse(majAxStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var majAx)
+                    && csvReader.TryGetField<string>("MinAx", out var minAxStr)
+                    && Half.TryParse(minAxStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var minAx))
+                {
+                    var posAng = csvReader.TryGetField<string>("PosAng", out var posAngStr)
+                        && Half.TryParse(posAngStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var posAngFloat)
+                        ? posAngFloat
+                        : HalfUndefined;
+
+                    _shapesByIndex[indexEntry] = new CelestialObjectShape(majAx, minAx, posAng);
                 }
 
                 var ra = HMSToHours(raHMS);

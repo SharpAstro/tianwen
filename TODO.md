@@ -78,7 +78,9 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 - [ ] Support rec601/rec2020 luminance weighting options in luma stretch
 - [ ] Grid label formatting: show arc-seconds for very narrow FOVs
 - [ ] Crosshair / reticle overlay at image center
-- [ ] Annotation overlay (object names from catalogs when plate-solved)
+- [x] Annotation overlay (object names from catalogs when plate-solved)
+- [ ] Image-based star overlay: run `FindStarsAsync` on the loaded image, project each detected star through WCS to RA/Dec, nearest-neighbor match against Tycho2 catalog (fast spatial lookup via `IRaDecIndex`), then only display stars that have a cross-catalog entry (HIP, HD, etc.) — label with the cross-cat name. Draw matched stars as circles with radius = HFR from `ImagedStar` for visual size feedback. This gives pixel-accurate positions (no WCS projection error). Needs: expose `FindStarsAsync` from `FitsDocument`, cache the `StarList`, use `TryGetCrossIndices` to filter for named stars.
+- [ ] Replace custom `AsyncLazy<T>` with `DotNext.Threading.AsyncLazy<T>` (already a dependency in TianWen.Lib)
 
 ## Astrometry / Catalogs
 
