@@ -20,7 +20,7 @@ public sealed class FileLoggerProvider : ILoggerProvider
         var dateDir = now.ToString("yyyyMMdd");
         var timestamp = now.ToString("yyyyMMdd'T'HH_mm_ss");
 
-        var logDir = TianWenPaths.CommonDataRoot.CreateSubdirectory("Logs").CreateSubdirectory(dateDir).FullName;
+        var logDir = SharedStaticData.CommonDataRoot.CreateSubdirectory("Logs").CreateSubdirectory(dateDir).FullName;
 
         var logFile = Path.Combine(logDir, $"{appName}_{timestamp}.log");
         _writer = new StreamWriter(logFile, append: false) { AutoFlush = true };

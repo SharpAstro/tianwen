@@ -76,16 +76,8 @@ if (initialFilePath is null && state.FitsFileNames.Count > 0 && folderPath is no
 FitsDocument? document = null;
 if (initialFilePath is not null)
 {
-    document = await FitsDocument.OpenAsync(initialFilePath, state.DebayerAlgorithm);
-    if (document is null)
-    {
-        logger.LogWarning("Failed to open FITS file: {FilePath}", initialFilePath);
-    }
-    else if (document.Wcs is { } loadedWcs)
-    {
-        logger.LogInformation("WCS: HasCD={HasCDMatrix}, Approx={IsApproximate}, Scale={PixelScale:F2}\"/px, RA={CenterRA:F4}h, Dec={CenterDec:F4}°",
-            loadedWcs.HasCDMatrix, loadedWcs.IsApproximate, loadedWcs.PixelScaleArcsec, loadedWcs.CenterRA, loadedWcs.CenterDec);
-    }
+    // Defer loading so the window appears immediately with a status message
+    state.RequestedFilePath = initialFilePath;
 }
 
 var opts = WindowOptions.Default;
@@ -179,6 +171,12 @@ window.Load += () =>
                     case Key.Number1 or Key.Keypad1:
                         ViewerActions.ZoomToActual(state);
                         return;
+                    case >= Key.Number2 and <= Key.Number9:
+                        ViewerActions.ZoomTo(state, 1f / (key - Key.Number0));
+                        return;
+                    case >= Key.Keypad2 and <= Key.Keypad9:
+                        ViewerActions.ZoomTo(state, 1f / (key - Key.Keypad0));
+                        return;
                 }
             }
 
@@ -239,7 +237,7 @@ window.Load += () =>
                 case Key.F:
                     ViewerActions.ZoomToFit(state);
                     break;
-                case Key.Number1:
+                case Key.R:
                     ViewerActions.ZoomToActual(state);
                     break;
                 case Key.Up:
@@ -383,24 +381,25 @@ window.Load += () =>
                 return;
             }
 
-            // Ctrl+scroll zooms the image toward the cursor
+            // Zoom: Ctrl+scroll anywhere, or bare scroll inside the image viewport
             var kb = input.Keyboards.Count > 0 ? input.Keyboards[0] : null;
-            if (kb is not null && (kb.IsKeyPressed(Key.ControlLeft) || kb.IsKeyPressed(Key.ControlRight)))
+            var ctrlHeld = kb is not null && (kb.IsKeyPressed(Key.ControlLeft) || kb.IsKeyPressed(Key.ControlRight));
+            var fileListW = state.ShowFileList ? renderer.ScaledFileListWidth : 0;
+            var toolbarH = renderer.ScaledToolbarHeight;
+            var (areaW, areaH) = renderer.GetImageAreaSize(state);
+            var inImageViewport = pos.X >= fileListW && pos.X < fileListW + areaW
+                               && pos.Y >= toolbarH && pos.Y < toolbarH + areaH;
+
+            if (ctrlHeld || inImageViewport)
             {
                 var zoomFactor = scroll.Y > 0 ? 1.15f : 1f / 1.15f;
                 var oldZoom = state.Zoom;
                 var newZoom = MathF.Max(0.01f, oldZoom * zoomFactor);
 
                 // Adjust pan so the point under the cursor stays fixed
-                var (areaW, areaH) = renderer.GetImageAreaSize(state);
-                var fileListW = state.ShowFileList ? renderer.ScaledFileListWidth : 0;
-                var toolbarH = renderer.ScaledToolbarHeight;
-
-                // Cursor position relative to the image area center
                 var cx = pos.X - fileListW - areaW / 2f - state.PanOffset.X;
                 var cy = pos.Y - toolbarH - areaH / 2f - state.PanOffset.Y;
 
-                // Scale the offset so the world point under cursor stays put
                 state.PanOffset = (
                     state.PanOffset.X - cx * (newZoom / oldZoom - 1f),
                     state.PanOffset.Y - cy * (newZoom / oldZoom - 1f)
@@ -451,9 +450,16 @@ window.Render += (_) =>
                 state.CursorImagePosition = null;
                 state.CursorPixelInfo = null;
                 state.StatusMessage = null;
+
+                if (newDoc.Wcs is { } wcs)
+                {
+                    logger.LogInformation("WCS: HasCD={HasCDMatrix}, Approx={IsApproximate}, Scale={PixelScale:F2}\"/px, RA={CenterRA:F4}h, Dec={CenterDec:F4}°",
+                        wcs.HasCDMatrix, wcs.IsApproximate, wcs.PixelScaleArcsec, wcs.CenterRA, wcs.CenterDec);
+                }
             }
             else
             {
+                logger.LogWarning("Failed to open FITS file: {FilePath}", requestedPath);
                 state.StatusMessage = $"Failed to open: {Path.GetFileName(requestedPath)}";
             }
         }, cts.Token);
