@@ -6,7 +6,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
-using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
@@ -21,8 +20,6 @@ namespace TianWen.Lib.Tests;
 public class FakeExternal : IExternal
 {
     private readonly FakeTimeProvider _timeProvider;
-    private readonly DirectoryInfo _profileRoot;
-    private readonly DirectoryInfo _outputFolder;
 
     public FakeExternal(ITestOutputHelper testOutputHelper, DirectoryInfo? root = null, DateTimeOffset? now = null, TimeSpan? autoAdvanceAmount = null, [CallerMemberName] string? callerName = null)
     {
@@ -36,17 +33,17 @@ public class FakeExternal : IExternal
         }
 
         var testRoot = root ?? new DirectoryInfo(SharedTestData.CreateTempTestOutputDir(callerName));
-        _profileRoot = testRoot.CreateSubdirectory("profiles");
-        _outputFolder = testRoot.CreateSubdirectory("output");
+        ProfileFolder = testRoot.CreateSubdirectory("profiles");
+        OutputFolder = testRoot.CreateSubdirectory("output");
 
         AppLogger = CreateLogger(testOutputHelper);
     }
 
     public static ILogger CreateLogger(ITestOutputHelper testOutputHelper) => new XUnitLoggerProvider(testOutputHelper, false).CreateLogger("Test");
 
-    public DirectoryInfo ProfileFolder => _profileRoot;
+    public DirectoryInfo ProfileFolder { get; private set; }
 
-    public DirectoryInfo OutputFolder => _outputFolder;
+    public DirectoryInfo OutputFolder { get; private set; }
 
     public TimeProvider TimeProvider => _timeProvider;
 

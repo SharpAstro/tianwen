@@ -7,6 +7,7 @@ using System.Diagnostics;
 using System.Text;
 using TianWen.Lib.CLI;
 using TianWen.Lib.Extensions;
+using TianWen.Lib.Logging;
 
 Console.InputEncoding = Encoding.UTF8;
 Console.OutputEncoding = Encoding.UTF8;
@@ -15,12 +16,13 @@ ConsoleExtensions.Enable();
 
 var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = args, DisableDefaults = true });
 builder.Services
-    .AddLogging(static builder => builder.AddSimpleConsole(
-        static options =>
+    .AddLogging(static builder => builder
+        .AddSimpleConsole(static options =>
         {
             options.IncludeScopes = false;
             options.SingleLine = false;
         })
+        .AddProvider(new FileLoggerProvider("CLI"))
     )
     .AddExternal()
     .AddAstrometry()
