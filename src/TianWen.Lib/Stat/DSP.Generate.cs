@@ -129,7 +129,8 @@ public partial class DSP
             // Make an n length noise vector
             var noiseVector = Noise(_randomFactory.Value, points, amplitudeVrms);
 
-            return VectorMath.Add(noiseVector, dcV);
+            TensorPrimitives.Add(noiseVector, dcV, noiseVector);
+            return noiseVector;
         }
 
 
