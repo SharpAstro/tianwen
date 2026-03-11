@@ -87,6 +87,8 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 - [ ] Replace custom `AsyncLazy<T>` with `DotNext.Threading.AsyncLazy<T>` (already a dependency in TianWen.Lib)
 - [ ] Use a `WeakReference<FitsDocument>` cache (keyed by file path) so that cycling through
       images can reuse recently loaded documents without keeping them pinned in memory
+- [ ] Investigate `DotNext.Threading.RandomAccessCache<TKey, TValue>` (or similar bounded cache)
+      as an alternative to `WeakReference` for the document cache — may offer better eviction control
 
 ## Astrometry / Catalogs
 

@@ -21,7 +21,8 @@ public partial class Image
     public static bool TryReadFitsFile(string fileName, [NotNullWhen(true)] out Image? image, out WCS? wcs)
     {
         using var bufferedReader = new BufferedFile(fileName, FileAccess.Read, FileShare.Read, 1000 * 2088);
-        return TryReadFitsFile(new Fits(bufferedReader, fileName.EndsWith(".gz")), out image, out wcs);
+        using var fitsFile = new Fits(bufferedReader, fileName.EndsWith(".gz"));
+        return TryReadFitsFile(fitsFile, out image, out wcs);
     }
 
     public static bool TryReadFitsFile(Fits fitsFile, [NotNullWhen(true)] out Image? image)
@@ -202,7 +203,7 @@ public partial class Image
     public void WriteToFitsFile(string fileName, WCS? wcs = null)
     {
         var (channelCount, width, height) = Shape;
-        var fits = new Fits();
+        using var fits = new Fits();
         Array arrayToWrite;
         int bzero;
         bool dataIsInt;
