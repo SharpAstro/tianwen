@@ -1,4 +1,7 @@
-﻿namespace TianWen.Lib.Stat;
+using System;
+using System.Numerics.Tensors;
+
+namespace TianWen.Lib.Stat;
 
 public partial class DSP
 {
@@ -14,17 +17,9 @@ public partial class DSP
             /// <returns>double scaleFactor</returns>
             public static double Signal(double[] windowCoefficients)
             {
-                double s1 = 0;
-                foreach (double coeff in windowCoefficients)
-                {
-                    s1 += coeff;
-                }
-
-                s1 /= windowCoefficients.Length;
-
+                double s1 = TensorPrimitives.Sum(windowCoefficients) / windowCoefficients.Length;
                 return 1.0 / s1;
             }
-
 
             /// <summary>
             ///  Calculate Noise scale factor from window coefficient array.
@@ -36,20 +31,11 @@ public partial class DSP
             /// <returns>double scaleFactor</returns>
             public static double Noise(double[] windowCoefficients, double samplingFrequencyHz)
             {
-                double s2 = 0;
-                foreach (double coeff in windowCoefficients)
-                {
-                    s2 += coeff * coeff;
-                }
-
+                double s2 = TensorPrimitives.SumOfSquares(windowCoefficients);
                 double n = windowCoefficients.Length;
                 double fbin = samplingFrequencyHz / n;
-
-                double sf = System.Math.Sqrt(1.0 / (s2 / n * fbin));
-
-                return sf;
+                return Math.Sqrt(1.0 / (s2 / n * fbin));
             }
-
 
             /// <summary>
             ///  Calculate Normalized, Equivalent Noise BandWidth from window coefficient array.
@@ -58,20 +44,10 @@ public partial class DSP
             /// <returns>double NENBW</returns>
             public static double NENBW(double[] windowCoefficients)
             {
-                double s1 = 0;
-                double s2 = 0;
-                foreach (double coeff in windowCoefficients)
-                {
-                    s1 += coeff;
-                    s2 += coeff * coeff;
-                }
-
                 double n = windowCoefficients.Length;
-                s1 /= n;
-
-                double nenbw = s2 / (s1 * s1) / n;
-
-                return nenbw;
+                double s1 = TensorPrimitives.Sum(windowCoefficients) / n;
+                double s2 = TensorPrimitives.SumOfSquares(windowCoefficients);
+                return s2 / (s1 * s1) / n;
             }
         }
     }

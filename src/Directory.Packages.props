@@ -25,6 +25,7 @@
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.103" />
     <PackageVersion Include="System.IO.Ports" Version="10.0.3" />
+    <PackageVersion Include="System.Numerics.Tensors" Version="9.0.5" />
     <!-- Benchmark packages -->
     <PackageVersion Include="BenchmarkDotNet" Version="0.14.0" />
     <!-- Testing packages -->

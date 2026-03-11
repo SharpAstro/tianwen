@@ -1,5 +1,5 @@
 ﻿using System;
-using System.Numerics;
+using System.Numerics.Tensors;
 using System.Runtime.CompilerServices;
 
 namespace TianWen.Lib.Stat;
@@ -55,36 +55,8 @@ public static class StatisticsHelper
         {
             return float.NaN;
         }
-        else if (values.Length == 1)
-        {
-            return values[0];
-        }
 
-        int i = 0;
-        var sum = 0d;
-
-        if (Vector<float>.IsSupported)
-        {
-            int vectorSize = Vector<float>.Count;
-
-            // Sum using Vector<float>
-            if (values.Length >= vectorSize)
-            {
-                for (; i <= values.Length - vectorSize; i += vectorSize)
-                {
-                    var vector = new Vector<float>(values.Slice(i, vectorSize));
-                    sum += Vector.Sum(vector);
-                }
-            }
-        }
-
-        // Sum remaining elements
-        for (; i < values.Length; i++)
-        {
-            sum += values[i];
-        }
-
-        return sum;
+        return TensorPrimitives.Sum(values);
     }
 
     /// <summary>

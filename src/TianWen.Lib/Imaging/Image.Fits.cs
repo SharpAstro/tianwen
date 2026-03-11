@@ -6,6 +6,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Numerics;
+using System.Numerics.Tensors;
 using System.Runtime.InteropServices;
 
 namespace TianWen.Lib.Imaging;
@@ -164,18 +165,10 @@ public partial class Image
             for (int c = 0; c < channelCount; c++)
             {
                 var channel = channels[c];
-                var len = channel.Length;
-                ref var r0 = ref channel[0, 0];
-                var span = MemoryMarshal.CreateReadOnlySpan(ref r0, len);
-                for (int i = 0; i < span.Length; i++)
-                {
-                    var val = span[i];
-                    if (!float.IsNaN(val))
-                    {
-                        maxValue = MathF.Max(maxValue, val);
-                        minValue = MathF.Min(minValue, val);
-                    }
-                }
+                var span = MemoryMarshal.CreateReadOnlySpan(ref channel[0, 0], channel.Length);
+                // MinNumber/MaxNumber skip NaN values (IEEE 754 minNum/maxNum semantics)
+                maxValue = MathF.Max(maxValue, TensorPrimitives.MaxNumber(span));
+                minValue = MathF.Min(minValue, TensorPrimitives.MinNumber(span));
             }
         }
 

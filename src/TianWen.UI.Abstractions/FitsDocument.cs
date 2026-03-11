@@ -157,12 +157,12 @@ public sealed class FitsDocument
 
         if (rawImage.ImageMeta.SensorType is SensorType.RGGB && algorithm is not DebayerAlgorithm.None)
         {
-            processedRawImage = (await rawImage.DebayerAsync(algorithm, cancellationToken)).ScaleFloatValuesToUnit();
+            processedRawImage = await rawImage.DebayerAsync(algorithm, normalizeToUnit: true, cancellationToken);
             actualAlgorithm = algorithm;
         }
         else
         {
-            processedRawImage = rawImage.ScaleFloatValuesToUnit();
+            processedRawImage = rawImage.ScaleFloatValuesToUnitInPlace();
             actualAlgorithm = DebayerAlgorithm.None;
         }
 

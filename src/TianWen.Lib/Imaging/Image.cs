@@ -1,4 +1,5 @@
 using System;
+using System.Numerics.Tensors;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -63,6 +64,14 @@ public partial class Image(float[][,] data, BitDepth bitDepth, float maxValue, f
     /// </summary>
     public ReadOnlySpan<float> GetChannelSpan(int channel)
         => MemoryMarshal.CreateReadOnlySpan(ref data[channel][0, 0], data[channel].Length);
+
+    /// <summary>
+    /// SIMD-accelerated element-wise multiply: <c>dst[i] = src[i] * scalar</c>.
+    /// Supports in-place operation (src and dst may alias).
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static void MultiplyScalar(ReadOnlySpan<float> src, float scalar, Span<float> dst)
+        => TensorPrimitives.Multiply(src, scalar, dst);
 
     /// <summary>
     /// Creates a jagged channel array structure: an array of 2D float arrays, one per channel.
@@ -213,23 +222,9 @@ public partial class Image(float[][,] data, BitDepth bitDepth, float maxValue, f
 
         for (var c = 0; c < channelCount; c++)
         {
-            var src = data[c];
-            var dst = denormalized[c];
-            for (int y = 0; y < height; y++)
-            {
-                for (int x = 0; x < width; x++)
-                {
-                    var value = src[y, x];
-                    if (!float.IsNaN(value))
-                    {
-                        dst[y, x] = value * newMaxValue;
-                    }
-                    else
-                    {
-                        dst[y, x] = missingValue;
-                    }
-                }
-            }
+            var src = MemoryMarshal.CreateReadOnlySpan(ref data[c][0, 0], data[c].Length);
+            var dst = MemoryMarshal.CreateSpan(ref denormalized[c][0, 0], denormalized[c].Length);
+            MultiplyScalar(src, newMaxValue, dst);
         }
 
         return new Image(denormalized, BitDepth.Float32, newMaxValue, minValue * newMaxValue, blackLevel * newMaxValue, imageMeta);
@@ -250,28 +245,39 @@ public partial class Image(float[][,] data, BitDepth bitDepth, float maxValue, f
 
         var (channelCount, width, height) = Shape;
         var normalized = CreateChannelData(channelCount, height, width);
+        var invMax = 1.0f / MaxValue;
 
         for (var c = 0; c < channelCount; c++)
         {
-            var src = data[c];
-            var dst = normalized[c];
-            for (int y = 0; y < height; y++)
-            {
-                for (int x = 0; x < width; x++)
-                {
-                    var value = src[y, x];
-                    if (!float.IsNaN(value))
-                    {
-                        dst[y, x] = value / MaxValue;
-                    }
-                    else
-                    {
-                        dst[y, x] = missingValue;
-                    }
-                }
-            }
+            var src = MemoryMarshal.CreateReadOnlySpan(ref data[c][0, 0], data[c].Length);
+            var dst = MemoryMarshal.CreateSpan(ref normalized[c][0, 0], normalized[c].Length);
+            MultiplyScalar(src, invMax, dst);
         }
 
         return new Image(normalized, BitDepth.Float32, 1.0f, minValue / maxValue, blackLevel / maxValue, imageMeta);
+    }
+
+    /// <summary>
+    /// In-place version of <see cref="ScaleFloatValuesToUnit"/>: divides all pixel values by <see cref="MaxValue"/>,
+    /// mutating the underlying channel arrays. Returns a new <see cref="Image"/> wrapping the same arrays.
+    /// </summary>
+    /// <remarks>Internal only — callers must ensure the source image is not retained elsewhere.</remarks>
+    internal Image ScaleFloatValuesToUnitInPlace(float missingValue = float.NaN)
+    {
+        if (MaxValue <= 1.0f)
+        {
+            return this;
+        }
+
+        var invMax = 1.0f / MaxValue;
+
+        for (var c = 0; c < ChannelCount; c++)
+        {
+            // NaN * invMax = NaN, so NaN values are preserved without branching.
+            var span = MemoryMarshal.CreateSpan(ref data[c][0, 0], data[c].Length);
+            MultiplyScalar(span, invMax, span);
+        }
+
+        return new Image(data, BitDepth.Float32, 1.0f, minValue / maxValue, blackLevel / maxValue, imageMeta);
     }
 }
