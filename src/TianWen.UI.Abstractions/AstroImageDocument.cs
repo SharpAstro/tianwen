@@ -1,7 +1,9 @@
 using CommunityToolkit.HighPerformance;
 using System;
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.PlateSolve;
@@ -30,7 +32,7 @@ public record struct GpuStretchUniforms(
 {
     /// <summary>
     /// Computes the post-stretch background level by stretching the measured
-    /// background values (from <see cref="FitsDocument.PerChannelBackground"/>)
+    /// background values (from <see cref="AstroImageDocument.PerChannelBackground"/>)
     /// through <see cref="Image.StretchValue"/> — the same pipeline as the GLSL shader.
     /// </summary>
     public float ComputePostStretchBackground(float[] perChannelBackground, float lumaBackground)
@@ -62,13 +64,26 @@ public record struct GpuStretchUniforms(
 }
 
 /// <summary>
-/// Core document model for the FITS viewer. Manages the image lifecycle:
-/// loading, debayering, channel extraction, plate solving,
+/// Core document model for the astro image viewer. Manages the image lifecycle:
+/// loading (FITS, TIFF), debayering, channel extraction, plate solving,
 /// and conversion to display-ready RGBA pixels.
 /// Stretch is performed entirely on the GPU via shader uniforms.
 /// </summary>
-public sealed class FitsDocument
+public sealed class AstroImageDocument
 {
+    /// <summary>Supported file extensions for the image viewer.</summary>
+    public static readonly ImmutableArray<string> SupportedExtensions = [".fits", ".fit", ".fts", ".tif", ".tiff"];
+
+    /// <summary>Glob patterns matching all supported file extensions (for folder scanning).</summary>
+    public static readonly ImmutableArray<string> SupportedPatterns = [.. SupportedExtensions.Select(ext => "*" + ext)];
+
+    /// <summary>File dialog filter definitions.</summary>
+    public static readonly (string Name, string[] Extensions)[] FileDialogFilters =
+    [
+        ("FITS files", [".fits", ".fit", ".fts"]),
+        ("TIFF files", [".tif", ".tiff"]),
+    ];
+
     private readonly string _filePath;
 
     /// <summary>Debayered image (or raw image if it is a colour or mono image). This is the permanent base image.</summary>
@@ -111,10 +126,16 @@ public sealed class FitsDocument
     /// <summary>Time taken for star detection.</summary>
     public TimeSpan StarDetectionDuration { get; private set; }
 
+    /// <summary>Whether the image appears to be already stretched (e.g. processed TIFF). When true, STF should be disabled by default.</summary>
+    public bool IsPreStretched { get; }
 
     public bool IsPlateSolved => Wcs is { HasCDMatrix: true, IsApproximate: false };
 
-    private FitsDocument(
+    /// <summary>Returns true if the given file extension is a supported image format.</summary>
+    public static bool IsSupportedExtension(string extension)
+        => SupportedExtensions.Any(ext => ext.Equals(extension, StringComparison.OrdinalIgnoreCase));
+
+    private AstroImageDocument(
         string filePath,
         Image image,
         DebayerAlgorithm debayerAlgorithm,
@@ -122,7 +143,8 @@ public sealed class FitsDocument
         ChannelStretchStats? lumaStats,
         float[] perChannelBackground,
         float lumaBackground,
-        WCS? wcs)
+        WCS? wcs,
+        bool isPreStretched)
     {
         _filePath = filePath;
         UnstretchedImage = image;
@@ -132,6 +154,7 @@ public sealed class FitsDocument
         PerChannelBackground = perChannelBackground;
         LumaBackground = lumaBackground;
         Wcs = wcs;
+        IsPreStretched = isPreStretched;
 
         var stats = new ImageHistogram[image.ChannelCount];
         for (var c = 0; c < image.ChannelCount; c++)
@@ -142,10 +165,22 @@ public sealed class FitsDocument
     }
 
     /// <summary>
-    /// Loads a FITS file, applies debayering once, and caches stretch statistics.
+    /// Opens an image file (FITS or TIFF), applies debayering if needed, and caches stretch statistics.
     /// The debayer result becomes the permanent base image; stretch is done on the GPU.
     /// </summary>
-    public static async Task<FitsDocument?> OpenAsync(string filePath, DebayerAlgorithm algorithm = DebayerAlgorithm.AHD, CancellationToken cancellationToken = default)
+    public static async Task<AstroImageDocument?> OpenAsync(string filePath, DebayerAlgorithm algorithm = DebayerAlgorithm.AHD, CancellationToken cancellationToken = default)
+    {
+        var ext = Path.GetExtension(filePath);
+
+        if (ext.Equals(".tif", StringComparison.OrdinalIgnoreCase) || ext.Equals(".tiff", StringComparison.OrdinalIgnoreCase))
+        {
+            return OpenTiff(filePath);
+        }
+
+        return await OpenFitsAsync(filePath, algorithm, cancellationToken);
+    }
+
+    private static async Task<AstroImageDocument?> OpenFitsAsync(string filePath, DebayerAlgorithm algorithm, CancellationToken cancellationToken)
     {
         if (!Image.TryReadFitsFile(filePath, out var rawImage, out var fileWcs) || rawImage is null)
         {
@@ -166,28 +201,7 @@ public sealed class FitsDocument
             actualAlgorithm = DebayerAlgorithm.None;
         }
 
-        // Cache per-channel stretch stats
-        var channelCount = processedRawImage.ChannelCount;
-        var perChannelStats = new ChannelStretchStats[channelCount];
-        for (var c = 0; c < channelCount; c++)
-        {
-            var (ped, med, mad) = processedRawImage.GetPedestralMedianAndMADScaledToUnit(c);
-            perChannelStats[c] = new ChannelStretchStats(ped, med, mad);
-        }
-
-        // Compute luminance stats for color images
-        ChannelStretchStats? lumaStats = null;
-        if (channelCount >= 3)
-        {
-            var (lumaPed, lumaMed, lumaMad) = await processedRawImage.GetLumaStretchStatsAsync(DebayerAlgorithm.None, cancellationToken);
-            lumaStats = new ChannelStretchStats(lumaPed, lumaMed, lumaMad);
-        }
-
-        // Scan for the darkest spatial region to get a reliable background level.
-        // This is pedestal-subtracted (matching the shader's norm = raw * normFactor - pedestal).
-        var pedestals = new float[channelCount];
-        for (var c = 0; c < channelCount; c++) { pedestals[c] = perChannelStats[c].Pedestal; }
-        var (perChannelBg, lumaBg) = processedRawImage.ScanBackgroundRegion(pedestals);
+        var (perChannelStats, lumaStats, perChannelBg, lumaBg) = await ComputeStretchStatsAsync(processedRawImage, cancellationToken);
 
         // If the FITS header didn't have a full CD matrix, try companion ASTAP .ini file
         if (fileWcs is not { HasCDMatrix: true } || fileWcs.Value.IsApproximate)
@@ -199,7 +213,73 @@ public sealed class FitsDocument
             }
         }
 
-        return new FitsDocument(filePath, processedRawImage, actualAlgorithm, perChannelStats, lumaStats, perChannelBg, lumaBg, fileWcs);
+        return new AstroImageDocument(filePath, processedRawImage, actualAlgorithm, perChannelStats, lumaStats, perChannelBg, lumaBg, fileWcs, isPreStretched: false);
+    }
+
+    private static AstroImageDocument? OpenTiff(string filePath)
+    {
+        if (!Image.TryReadTiffFile(filePath, out var image))
+        {
+            return null;
+        }
+
+        var isPreStretched = Image.DetectPreStretched(image);
+
+        // Image is already normalized to [0,1] by TryReadTiffFile
+        var channelCount = image.ChannelCount;
+        var perChannelStats = new ChannelStretchStats[channelCount];
+        for (var c = 0; c < channelCount; c++)
+        {
+            var (ped, med, mad) = image.GetPedestralMedianAndMADScaledToUnit(c);
+            perChannelStats[c] = new ChannelStretchStats(ped, med, mad);
+        }
+
+        ChannelStretchStats? lumaStats = null;
+        if (channelCount >= 3)
+        {
+            // Synchronous since TIFF images are already debayered
+            var (lumaPed, lumaMed, lumaMad) = image.GetLumaStretchStatsAsync(DebayerAlgorithm.None, CancellationToken.None).GetAwaiter().GetResult();
+            lumaStats = new ChannelStretchStats(lumaPed, lumaMed, lumaMad);
+        }
+
+        var pedestals = new float[channelCount];
+        for (var c = 0; c < channelCount; c++) { pedestals[c] = perChannelStats[c].Pedestal; }
+        var (perChannelBg, lumaBg) = image.ScanBackgroundRegion(pedestals);
+
+        // Try companion ASTAP .ini file for WCS
+        WCS? wcs = null;
+        var iniPath = Path.ChangeExtension(filePath, ".ini");
+        if (WCS.FromAstapIniFile(iniPath) is { HasCDMatrix: true } astapWcs)
+        {
+            wcs = astapWcs;
+        }
+
+        return new AstroImageDocument(filePath, image, DebayerAlgorithm.None, perChannelStats, lumaStats, perChannelBg, lumaBg, wcs, isPreStretched);
+    }
+
+    private static async Task<(ChannelStretchStats[] PerChannelStats, ChannelStretchStats? LumaStats, float[] PerChannelBg, float LumaBg)> ComputeStretchStatsAsync(
+        Image processedRawImage, CancellationToken cancellationToken)
+    {
+        var channelCount = processedRawImage.ChannelCount;
+        var perChannelStats = new ChannelStretchStats[channelCount];
+        for (var c = 0; c < channelCount; c++)
+        {
+            var (ped, med, mad) = processedRawImage.GetPedestralMedianAndMADScaledToUnit(c);
+            perChannelStats[c] = new ChannelStretchStats(ped, med, mad);
+        }
+
+        ChannelStretchStats? lumaStats = null;
+        if (channelCount >= 3)
+        {
+            var (lumaPed, lumaMed, lumaMad) = await processedRawImage.GetLumaStretchStatsAsync(DebayerAlgorithm.None, cancellationToken);
+            lumaStats = new ChannelStretchStats(lumaPed, lumaMed, lumaMad);
+        }
+
+        var pedestals = new float[channelCount];
+        for (var c = 0; c < channelCount; c++) { pedestals[c] = perChannelStats[c].Pedestal; }
+        var (perChannelBg, lumaBg) = processedRawImage.ScanBackgroundRegion(pedestals);
+
+        return (perChannelStats, lumaStats, perChannelBg, lumaBg);
     }
 
     /// <summary>

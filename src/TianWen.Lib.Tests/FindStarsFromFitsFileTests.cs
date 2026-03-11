@@ -46,14 +46,14 @@ public class FindStarsFromFitsFileTests(ITestOutputHelper testOutputHelper)
     [Theory]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", "None", 28)]
     [InlineData("RGGB_frame_bx0_by0_top_down", "AHD", 100)]
-    public async Task GivenFitsDocumentWhenDetectingStarsThenStarsAreFound(string name, string algorithmStr, int minExpectedStars)
+    public async Task GivenAstroImageDocumentWhenDetectingStarsThenStarsAreFound(string name, string algorithmStr, int minExpectedStars)
     {
         var cancellationToken = TestContext.Current.CancellationToken;
         var algorithm = System.Enum.Parse<DebayerAlgorithm>(algorithmStr);
 
-        // given — load via FitsDocument (same path as the viewer)
+        // given — load via AstroImageDocument (same path as the viewer)
         var filePath = await SharedTestData.ExtractGZippedFitsFileAsync(name, cancellationToken);
-        var document = await FitsDocument.OpenAsync(filePath, algorithm, cancellationToken);
+        var document = await AstroImageDocument.OpenAsync(filePath, algorithm, cancellationToken);
         document.ShouldNotBeNull();
 
         // when

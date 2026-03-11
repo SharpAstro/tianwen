@@ -24,24 +24,44 @@ public static partial class FileDialogHelper
     /// <param name="filters">
     /// Display name to extensions map, e.g. <c>{ "FITS files", [".fits", ".fit", ".fts"] }</c>.
     /// </param>
+    /// <param name="combinedFilterName">
+    /// If provided, a combined filter entry is prepended that includes all extensions from <paramref name="filters"/>.
+    /// E.g. "All supported images" → *.fits;*.fit;*.fts;*.tif;*.tiff.
+    /// </param>
     /// <param name="title">Dialog title. Defaults to "Open file".</param>
     /// <param name="cancellationToken">Cancellation token (only effective on Linux/macOS process-based dialogs).</param>
     public static async Task<string?> PickAsync(
         IReadOnlyDictionary<string, IReadOnlyList<string>> filters,
+        string? combinedFilterName = null,
         string title = "Open file",
         CancellationToken cancellationToken = default)
     {
+        IReadOnlyDictionary<string, IReadOnlyList<string>> effectiveFilters = filters;
+        if (combinedFilterName is not null)
+        {
+            var allExtensions = filters.Values.SelectMany(exts => exts).Distinct().ToList();
+            var combined = new Dictionary<string, IReadOnlyList<string>>
+            {
+                [combinedFilterName] = allExtensions
+            };
+            foreach (var kv in filters)
+            {
+                combined[kv.Key] = kv.Value;
+            }
+            effectiveFilters = combined;
+        }
+
         if (OperatingSystem.IsWindows())
         {
-            return PickWindows(filters, title);
+            return PickWindows(effectiveFilters, title);
         }
         if (OperatingSystem.IsLinux())
         {
-            return await PickLinuxAsync(filters, cancellationToken).ConfigureAwait(false);
+            return await PickLinuxAsync(effectiveFilters, cancellationToken).ConfigureAwait(false);
         }
         if (OperatingSystem.IsMacOS())
         {
-            return await PickMacOSAsync(filters, title, cancellationToken).ConfigureAwait(false);
+            return await PickMacOSAsync(effectiveFilters, title, cancellationToken).ConfigureAwait(false);
         }
         return null;
     }

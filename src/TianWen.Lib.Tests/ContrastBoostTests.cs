@@ -205,7 +205,7 @@ public class ContrastBoostTests(ITestOutputHelper testOutputHelper)
     /// Verifies that the computed post-stretch background (from measured image data)
     /// matches the actual background of the CPU-stretched image. A mismatch means
     /// the boost curve's symmetry point (SP) is placed at the wrong level.
-    /// Uses FitsDocument.OpenAsync and ComputeStretchUniforms directly — no duplication.
+    /// Uses AstroImageDocument.OpenAsync and ComputeStretchUniforms directly — no duplication.
     /// </summary>
     [Theory]
     [InlineData(RGGBImage, "AHD", 10, 3)]
@@ -217,9 +217,9 @@ public class ContrastBoostTests(ITestOutputHelper testOutputHelper)
         var algorithm = Enum.Parse<DebayerAlgorithm>(algorithmStr);
         var cancellationToken = TestContext.Current.CancellationToken;
 
-        // Use the real FitsDocument.OpenAsync — same path as the viewer
+        // Use the real AstroImageDocument.OpenAsync — same path as the viewer
         var filePath = await SharedTestData.ExtractGZippedFitsFileAsync(imageName, cancellationToken);
-        var document = await FitsDocument.OpenAsync(filePath, algorithm, cancellationToken);
+        var document = await AstroImageDocument.OpenAsync(filePath, algorithm, cancellationToken);
         document.ShouldNotBeNull();
         document.UnstretchedImage.ChannelCount.ShouldBe(expectedChannels);
 

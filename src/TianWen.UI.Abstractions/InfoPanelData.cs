@@ -11,7 +11,7 @@ namespace TianWen.UI.Abstractions;
 /// </summary>
 public static class InfoPanelData
 {
-    public static List<string> GetMetadataLines(FitsDocument document)
+    public static List<string> GetMetadataLines(AstroImageDocument document)
     {
         var lines = new List<string>();
         var image = document.UnstretchedImage;
@@ -71,7 +71,7 @@ public static class InfoPanelData
         return lines;
     }
 
-    public static List<string> GetStatisticsLines(FitsDocument document)
+    public static List<string> GetStatisticsLines(AstroImageDocument document)
     {
         var lines = new List<string>();
 
