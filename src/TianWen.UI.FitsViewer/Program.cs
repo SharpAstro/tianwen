@@ -94,6 +94,8 @@ GlFitsRenderer? renderer = null;
 var cts = new CancellationTokenSource();
 Task? reprocessTask = null;
 Task? backgroundTask = null; // For non-pipeline background work (plate solve, file dialog)
+CancellationTokenSource? starDetectionCts = null;
+Task? starDetectionTask = null;
 
 window.FileDrop += (paths) =>
 {
@@ -439,6 +441,10 @@ window.Render += (_) =>
     {
         state.RequestedFilePath = null;
         state.StatusMessage = $"Loading {Path.GetFileName(requestedPath)}...";
+        // Cancel any in-progress star detection from previous image
+        starDetectionCts?.Cancel();
+        starDetectionCts?.Dispose();
+        starDetectionCts = null;
         var debayerAlgorithm = state.DebayerAlgorithm;
         reprocessTask = Task.Run(async () =>
         {
@@ -456,6 +462,25 @@ window.Render += (_) =>
                     logger.LogInformation("WCS: HasCD={HasCDMatrix}, Approx={IsApproximate}, Scale={PixelScale:F2}\"/px, RA={CenterRA:F4}h, Dec={CenterDec:F4}°",
                         wcs.HasCDMatrix, wcs.IsApproximate, wcs.PixelScaleArcsec, wcs.CenterRA, wcs.CenterDec);
                 }
+
+                // Kick off star detection in the background
+                var sdCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
+                starDetectionCts = sdCts;
+                starDetectionTask = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await newDoc.DetectStarsAsync(sdCts.Token);
+                        logger.LogInformation("Detected {StarCount} stars in {Duration:F1}s (HFR={HFR:F2}, FWHM={FWHM:F2})",
+                            newDoc.Stars?.Count ?? 0, newDoc.StarDetectionDuration.TotalSeconds, newDoc.AverageHFR, newDoc.AverageFWHM);
+                        state.NeedsRedraw = true;
+                    }
+                    catch (OperationCanceledException) { }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Star detection failed");
+                    }
+                }, sdCts.Token);
             }
             else
             {
@@ -619,6 +644,10 @@ void HandleToolbarAction(ToolbarAction action, bool reverse = false)
             break;
         case ToolbarAction.Overlays:
             state.ShowOverlays = !state.ShowOverlays;
+            state.NeedsRedraw = true;
+            break;
+        case ToolbarAction.Stars:
+            state.ShowStarOverlay = !state.ShowStarOverlay;
             state.NeedsRedraw = true;
             break;
         case ToolbarAction.ZoomFit:

@@ -1,10 +1,12 @@
 using CommunityToolkit.HighPerformance;
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Stat;
 
 namespace TianWen.UI.Abstractions;
 
@@ -96,6 +98,18 @@ public sealed class FitsDocument
 
     /// <summary>Luminance background from the unstretched image (pedestal-subtracted).</summary>
     public float LumaBackground { get; }
+
+    /// <summary>Detected stars, or <c>null</c> if star detection has not completed yet.</summary>
+    public StarList? Stars { get; private set; }
+
+    /// <summary>Average HFR of detected stars (median).</summary>
+    public float AverageHFR { get; private set; }
+
+    /// <summary>Average FWHM of detected stars (median).</summary>
+    public float AverageFWHM { get; private set; }
+
+    /// <summary>Time taken for star detection.</summary>
+    public TimeSpan StarDetectionDuration { get; private set; }
 
     public bool IsPlateSolved => Wcs is { HasCDMatrix: true, IsApproximate: false };
 
@@ -254,6 +268,25 @@ public sealed class FitsDocument
             return true;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Detects stars in the image. Should be called as a background task after loading.
+    /// </summary>
+    public async Task DetectStarsAsync(CancellationToken cancellationToken = default)
+    {
+        var sw = Stopwatch.StartNew();
+        var stars = await UnstretchedImage.FindStarsAsync(channel: 0, snrMin: 10f, maxStars: 2000, cancellationToken: cancellationToken);
+        sw.Stop();
+
+        Stars = stars;
+        StarDetectionDuration = sw.Elapsed;
+
+        if (stars.Count > 0)
+        {
+            AverageHFR = stars.MapReduceStarProperty(SampleKind.HFD, AggregationMethod.Median);
+            AverageFWHM = stars.MapReduceStarProperty(SampleKind.FWHM, AggregationMethod.Median);
+        }
     }
 
     /// <summary>

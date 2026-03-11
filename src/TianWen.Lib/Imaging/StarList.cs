@@ -3,7 +3,6 @@ using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
-using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Stat;
 using static TianWen.Lib.Stat.StatisticsHelper;
 

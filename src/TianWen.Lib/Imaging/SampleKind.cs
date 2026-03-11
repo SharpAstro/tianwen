@@ -1,4 +1,4 @@
-﻿namespace TianWen.Lib.Astrometry.Focus;
+﻿namespace TianWen.Lib.Imaging;
 
 public enum SampleKind : byte
 {
