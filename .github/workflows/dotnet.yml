@@ -80,10 +80,10 @@ jobs:
       with:
         dotnet-version: 10.0.x
     - name: Publish TianWen.Lib.CLI
-      run: dotnet publish src/TianWen.Lib.CLI/TianWen.Lib.CLI.csproj -r ${{ matrix.rid }} -c Release -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV}
+      run: dotnet publish src/TianWen.Lib.CLI/TianWen.Lib.CLI.csproj -r ${{ matrix.rid }} -c Release -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:GeneratePackageOnBuild=false
       shell: bash
     - name: Publish TianWen.UI.FitsViewer
-      run: dotnet publish src/TianWen.UI.FitsViewer/TianWen.UI.FitsViewer.csproj -r ${{ matrix.rid }} -c Release -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV}
+      run: dotnet publish src/TianWen.UI.FitsViewer/TianWen.UI.FitsViewer.csproj -r ${{ matrix.rid }} -c Release -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:GeneratePackageOnBuild=false
       shell: bash
     - uses: actions/upload-artifact@v4
       with:
