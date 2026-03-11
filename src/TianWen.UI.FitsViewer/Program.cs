@@ -12,6 +12,7 @@ using TianWen.Lib.Logging;
 using TianWen.UI.Abstractions;
 using TianWen.UI.Abstractions.Extensions;
 using TianWen.Lib.Extensions;
+using TianWen.Lib.Imaging;
 
 // Explicitly register GLFW platforms to avoid reflection-based discovery (AOT-incompatible).
 GlfwWindowing.RegisterPlatform();
@@ -192,8 +193,11 @@ window.Load += () =>
                         ? WindowState.Normal
                         : WindowState.Fullscreen;
                     break;
-                case Key.S:
+                case Key.T:
                     ViewerActions.ToggleStretch(state);
+                    break;
+                case Key.S:
+                    state.ShowStarOverlay = !state.ShowStarOverlay;
                     break;
                 case Key.C:
                     if (document is not null)
@@ -479,6 +483,9 @@ window.Render += (_) =>
                     catch (Exception ex)
                     {
                         logger.LogWarning(ex, "Star detection failed");
+                        newDoc.Stars = StarList.Empty;
+                        state.StatusMessage = "Star detection failed";
+                        state.NeedsRedraw = true;
                     }
                 }, sdCts.Token);
             }

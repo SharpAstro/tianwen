@@ -1,4 +1,5 @@
 ﻿using Shouldly;
+using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
@@ -9,6 +10,17 @@ namespace TianWen.Lib.Tests;
 
 public class FindStarsFromFitsFileTests(ITestOutputHelper testOutputHelper)
 {
+    [Fact]
+    public void StarMasksCoverFullHfdRange()
+    {
+        // The maximum HFD accepted by FindStarsAsync is BoxRadius * 2.
+        // The scaled radius used for masking is Round(HfdFactor * HFD).
+        // StarMasks must have an entry for every possible radius index.
+        var maxHfd = Image.BoxRadius * 2;
+        var maxScaledRadius = (int)MathF.Round(Image.HfdFactor * maxHfd);
+        Image.StarMasks.Length.ShouldBeGreaterThanOrEqualTo(maxScaledRadius);
+    }
+
     [Theory]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 10f, 89)]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 20f, 28)]

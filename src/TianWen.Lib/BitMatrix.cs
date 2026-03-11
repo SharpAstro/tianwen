@@ -226,9 +226,10 @@ public readonly struct BitMatrix
         }
 
         // fast path for when the other matrix is a vector (after skipping invisible cells)
+        var d0Max = _data.GetLength(0);
         if (d1Rem + otherD1 - d1SkipTotal <= VECTOR_SIZE)
         {
-            for (var i = d0Skip; i < otherD0; i++)
+            for (var i = d0Skip; i < otherD0 && d0 + i < d0Max; i++)
             {
                 _data[d0 + i, d1Offset] |= other._data[i, d1Skip] << d1Rem;
             }

@@ -99,8 +99,8 @@ public sealed class FitsDocument
     /// <summary>Luminance background from the unstretched image (pedestal-subtracted).</summary>
     public float LumaBackground { get; }
 
-    /// <summary>Detected stars, or <c>null</c> if star detection has not completed yet.</summary>
-    public StarList? Stars { get; private set; }
+    /// <summary>Detected stars: <c>null</c> while detection is in progress, empty on failure/no stars, populated on success.</summary>
+    public StarList? Stars { get; set; }
 
     /// <summary>Average HFR of detected stars (median).</summary>
     public float AverageHFR { get; private set; }
@@ -110,6 +110,7 @@ public sealed class FitsDocument
 
     /// <summary>Time taken for star detection.</summary>
     public TimeSpan StarDetectionDuration { get; private set; }
+
 
     public bool IsPlateSolved => Wcs is { HasCDMatrix: true, IsApproximate: false };
 

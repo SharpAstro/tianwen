@@ -10,6 +10,8 @@ namespace TianWen.Lib.Imaging;
 
 public class StarList(ConcurrentBag<ImagedStar> stars) : IReadOnlyCollection<ImagedStar>
 {
+    public static StarList Empty { get; } = new StarList(new ConcurrentBag<ImagedStar>());
+
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     public float MapReduceStarProperty(SampleKind kind, AggregationMethod aggregationMethod)
     {
