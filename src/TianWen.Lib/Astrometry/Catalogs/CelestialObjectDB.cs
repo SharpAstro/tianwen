@@ -1,6 +1,4 @@
-﻿using CsvHelper;
-using CsvHelper.Configuration;
-using System;
+﻿using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -264,7 +262,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
         foreach (var csvName in new[] { "NGC", "NGC.addendum" })
         {
-            var (processed, failed) = await ReadEmbeddedLzCsvDataFileAsync(assembly, manifestNames, csvName, cancellationToken);
+            var (processed, failed) = ReadEmbeddedLzCsvData(assembly, manifestNames, csvName, cancellationToken);
             totalProcessed += processed;
             totalFailed += failed;
         }
@@ -656,7 +654,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         return false;
     }
 
-    private async Task<(int Processed, int Failed)> ReadEmbeddedLzCsvDataFileAsync(Assembly assembly, string[] manifestNames, string csvName, CancellationToken cancellationToken)
+    private (int Processed, int Failed) ReadEmbeddedLzCsvData(Assembly assembly, string[] manifestNames, string csvName, CancellationToken cancellationToken)
     {
         const string NGC = nameof(NGC);
         const string IC = nameof(IC);
@@ -671,44 +669,37 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
 
         using var decompressed = LzipDecoder.DecompressToStream(stream);
-        using var streamReader = new StreamReader(decompressed, new UTF8Encoding(false), detectEncodingFromByteOrderMarks: false, leaveOpen: true);
-        using var csvParser = new CsvParser(streamReader, new CsvConfiguration(CultureInfo.InvariantCulture) { Delimiter = ";" }, leaveOpen: true);
-        using var csvReader = new CsvReader(csvParser);
+        var csvText = decompressed.TryGetBuffer(out var buffer) && buffer is { Array.Length: > 0 }
+            ? new UTF8Encoding(false).GetString(buffer.Array, buffer.Offset, buffer.Count)
+            : new UTF8Encoding(false).GetString(decompressed.ToArray());
+        var csvReader = new CsvFieldReader(csvText, ';');
 
-        if (!cancellationToken.IsCancellationRequested && !await csvReader.ReadAsync() || !csvReader.ReadHeader())
+        while (!cancellationToken.IsCancellationRequested && csvReader.Read())
         {
-            return (processed, failed);
-        }
-
-        while (!cancellationToken.IsCancellationRequested && await csvReader.ReadAsync())
-        {
-            if (csvReader.TryGetField<string>("Name", out var entryName)
-                && csvReader.TryGetField<string>("Type", out var objectTypeAbbr)
+            if (csvReader.TryGetFieldString("Name", out var entryName)
+                && csvReader.TryGetField("Type", out var objectTypeAbbr)
                 && objectTypeAbbr is { Length: > 0 }
-                && csvReader.TryGetField<string>("RA", out var raHMS)
-                && raHMS is not null
-                && csvReader.TryGetField<string>("Dec", out var decDMS)
-                && decDMS is not null
-                && csvReader.TryGetField<string>("Const", out var constAbbr)
-                && constAbbr is not null
+                && csvReader.TryGetField("RA", out var raHMS)
+                && csvReader.TryGetField("Dec", out var decDMS)
+                && csvReader.TryGetFieldString("Const", out var constAbbr)
                 && TryGetCleanedUpCatalogName(entryName, out var indexEntry)
             )
             {
-                var objectType = AbbreviationToEnumMember<OpenNGCObjectType>(objectTypeAbbr).ToObjectType();
+                var objectType = AbbreviationToEnumMember<OpenNGCObjectType>(objectTypeAbbr.ToString()).ToObjectType();
                 var @const = AbbreviationToEnumMember<Constellation>(constAbbr);
 
-                var vmag = csvReader.TryGetField<string>("V-Mag", out var vmagStr)
-                    && Half.TryParse(vmagStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var vmagFloat)
+                var vmag = csvReader.TryGetField("V-Mag", out var vmagSpan)
+                    && Half.TryParse(vmagSpan, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var vmagFloat)
                     ? vmagFloat
                     : HalfUndefined;
 
-                var surfaceBrightness = csvReader.TryGetField<string>("SurfBr", out var surfaceBrightnessStr)
-                    && Half.TryParse(surfaceBrightnessStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var surfaceBrightnessFloat)
+                var surfaceBrightness = csvReader.TryGetField("SurfBr", out var surfaceBrightnessSpan)
+                    && Half.TryParse(surfaceBrightnessSpan, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var surfaceBrightnessFloat)
                     ? surfaceBrightnessFloat
                     : HalfUndefined;
 
                 IReadOnlySet<string> commonNames;
-                if (csvReader.TryGetField<string>("Common names", out var commonNamesEntry) && !string.IsNullOrWhiteSpace(commonNamesEntry))
+                if (csvReader.TryGetFieldString("Common names", out var commonNamesEntry) && !string.IsNullOrWhiteSpace(commonNamesEntry))
                 {
                     commonNames = new HashSet<string>(commonNamesEntry.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
                 }
@@ -717,21 +708,21 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                     commonNames = EmptyNameSet;
                 }
 
-                if (csvReader.TryGetField<string>("MajAx", out var majAxStr)
-                    && Half.TryParse(majAxStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var majAx)
-                    && csvReader.TryGetField<string>("MinAx", out var minAxStr)
-                    && Half.TryParse(minAxStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var minAx))
+                if (csvReader.TryGetField("MajAx", out var majAxSpan)
+                    && Half.TryParse(majAxSpan, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var majAx)
+                    && csvReader.TryGetField("MinAx", out var minAxSpan)
+                    && Half.TryParse(minAxSpan, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var minAx))
                 {
-                    var posAng = csvReader.TryGetField<string>("PosAng", out var posAngStr)
-                        && Half.TryParse(posAngStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var posAngFloat)
+                    var posAng = csvReader.TryGetField("PosAng", out var posAngSpan)
+                        && Half.TryParse(posAngSpan, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var posAngFloat)
                         ? posAngFloat
                         : HalfUndefined;
 
                     _shapesByIndex[indexEntry] = new CelestialObjectShape(majAx, minAx, posAng);
                 }
 
-                var ra = HMSToHours(raHMS);
-                var dec = DMSToDegree(decDMS);
+                var ra = HMSToHours(raHMS.ToString());
+                var dec = DMSToDegree(decDMS.ToString());
                 var obj = _objectsByIndex[indexEntry] = new CelestialObject(
                     indexEntry,
                     objectType,
@@ -748,27 +739,27 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                 if (objectType == ObjectType.Duplicate)
                 {
                     // when the entry is a duplicate, use the cross lookup table to list the entries it duplicates
-                    if (TryGetCatalogField(NGC, out var ngcIndexEntry))
+                    if (csvReader.TryGetFieldString(NGC, out var ngcSuffix) && TryGetCleanedUpCatalogName(NGC + ngcSuffix, out var ngcIndexEntry))
                     {
                         _crossIndexLookuptable.AddLookupEntry(indexEntry, ngcIndexEntry);
                     }
-                    if (TryGetCatalogField(M, out var messierIndexEntry))
+                    if (csvReader.TryGetFieldString(M, out var messierSuffix) && TryGetCleanedUpCatalogName(M + messierSuffix, out var messierIndexEntry))
                     {
                         _crossIndexLookuptable.AddLookupEntry(indexEntry, messierIndexEntry);
                     }
-                    if (TryGetCatalogField(IC, out var icIndexEntry))
+                    if (csvReader.TryGetFieldString(IC, out var icSuffix) && TryGetCleanedUpCatalogName(IC + icSuffix, out var icIndexEntry))
                     {
                         _crossIndexLookuptable.AddLookupEntry(indexEntry, icIndexEntry);
                     }
                 }
                 else
                 {
-                    if (TryGetCatalogField(IC, out var icIndexEntry) && indexEntry != icIndexEntry)
+                    if (csvReader.TryGetFieldString(IC, out var icSuffix) && TryGetCleanedUpCatalogName(IC + icSuffix, out var icIndexEntry) && indexEntry != icIndexEntry)
                     {
                         _crossIndexLookuptable.AddLookupEntry(icIndexEntry, indexEntry);
                         _crossIndexLookuptable.AddLookupEntry(indexEntry, icIndexEntry);
                     }
-                    if (TryGetCatalogField(M, out var messierIndexEntry) && indexEntry != messierIndexEntry)
+                    if (csvReader.TryGetFieldString(M, out var messierSuffix) && TryGetCleanedUpCatalogName(M + messierSuffix, out var messierIndexEntry) && indexEntry != messierIndexEntry)
                     {
                         // Adds Messier to NGC/IC entry lookup, but only if its not a duplicate
                         _crossIndexLookuptable.AddLookupEntry(messierIndexEntry, indexEntry);
@@ -776,7 +767,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                         AddCommonNameIndex(messierIndexEntry, commonNames);
                     }
 
-                    if (csvReader.TryGetField<string>("Identifiers", out var identifiersEntry) && identifiersEntry is { Length: > 0 })
+                    if (csvReader.TryGetFieldString("Identifiers", out var identifiersEntry) && identifiersEntry is { Length: > 0 })
                     {
                         var identifiers = identifiersEntry.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
                         foreach (var identifier in identifiers)
@@ -804,13 +795,6 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
 
         return (processed, failed);
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        bool TryGetCatalogField(string catPrefix, out CatalogIndex entry)
-        {
-            entry = 0;
-            return csvReader.TryGetField<string>(catPrefix, out var suffix) && TryGetCleanedUpCatalogName(catPrefix + suffix, out entry);
-        }
     }
 
     static readonly Regex ClusterMemberPattern = ClusterMemberPatternGen();
