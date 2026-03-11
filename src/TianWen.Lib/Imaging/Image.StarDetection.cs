@@ -150,7 +150,7 @@ public partial class Image
             }
         } while (starList.Count < maxStars && retries > 0);/* reduce detection level till enough stars are found. Note that faint stars have less positional accuracy */
 
-        return new StarList(starList);
+        return new StarList(starList, img_star_area);
     }
 
     /// <summary>

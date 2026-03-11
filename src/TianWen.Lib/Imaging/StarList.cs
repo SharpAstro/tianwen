@@ -8,9 +8,16 @@ using static TianWen.Lib.Stat.StatisticsHelper;
 
 namespace TianWen.Lib.Imaging;
 
-public class StarList(ConcurrentBag<ImagedStar> stars) : IReadOnlyCollection<ImagedStar>
+public class StarList(ConcurrentBag<ImagedStar> stars, BitMatrix? starMask = null) : IReadOnlyCollection<ImagedStar>
 {
     public static StarList Empty { get; } = new StarList(new ConcurrentBag<ImagedStar>());
+
+    /// <summary>
+    /// Bit mask of pixels occupied by detected stars, or <c>null</c> if not available.
+    /// Built during <see cref="Image.FindStarsAsync"/> for deduplication and reusable
+    /// for star-aware background estimation.
+    /// </summary>
+    public BitMatrix? StarMask => starMask;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     public float MapReduceStarProperty(SampleKind kind, AggregationMethod aggregationMethod)

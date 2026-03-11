@@ -60,12 +60,58 @@ public class FindStarsFromFitsFileTests(ITestOutputHelper testOutputHelper)
         var sw = Stopwatch.StartNew();
         await document.DetectStarsAsync(cancellationToken);
         testOutputHelper.WriteLine("DetectStarsAsync on {0} took {1:F0} ms, found {2} stars (HFR={3:F2}, FWHM={4:F2})",
-            name, sw.Elapsed.TotalMilliseconds, document.Stars?.Count, document.AverageHFR, document.AverageFWHM);
+            name, sw.Elapsed.TotalMilliseconds, document.Stars?.Count ?? -1, document.AverageHFR, document.AverageFWHM);
 
         // then
         document.Stars.ShouldNotBeNull();
         document.Stars.Count.ShouldBeGreaterThanOrEqualTo(minExpectedStars);
         document.AverageHFR.ShouldBeGreaterThan(0f);
         document.AverageFWHM.ShouldBeGreaterThan(0f);
+    }
+
+    [Theory]
+    [InlineData("RGGB_frame_bx0_by0_top_down")]
+    [InlineData("image_file-snr-20_stars-28_1280x960x16")]
+    public async Task GivenImageWithStarsWhenScanningBackgroundWithMaskThenStarPixelsAreExcluded(string name)
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var image = await SharedTestData.ExtractGZippedFitsImageAsync(name, cancellationToken: cancellationToken);
+        var scaledImage = image.ScaleFloatValuesToUnit();
+
+        // Detect stars — mask is built during detection
+        var stars = await scaledImage.FindStarsAsync(channel: 0, snrMin: 10f, maxStars: 2000, cancellationToken: cancellationToken);
+        stars.Count.ShouldBeGreaterThan(0);
+        stars.StarMask.ShouldNotBeNull();
+        var starMask = stars.StarMask;
+
+        // Compute pedestals
+        var pedestals = new float[scaledImage.ChannelCount];
+        for (var c = 0; c < scaledImage.ChannelCount; c++)
+        {
+            var (ped, _, _) = scaledImage.GetPedestralMedianAndMADScaledToUnit(c);
+            pedestals[c] = ped;
+        }
+
+        // Scan background without mask (32×32) — same as initial load
+        var (bgNoMask, lumaBgNoMask) = scaledImage.ScanBackgroundRegion(pedestals, squareSize: 32);
+
+        // Scan background with star mask (48×48) — post star detection
+        var (bgWithMask, lumaBgWithMask) = scaledImage.ScanBackgroundRegion(pedestals, squareSize: 48, starMask);
+
+        // Log both for comparison
+        for (var c = 0; c < bgNoMask.Length; c++)
+        {
+            testOutputHelper.WriteLine("Ch{0}: bg_no_mask={1:F6}, bg_with_mask={2:F6}, diff={3:F6}",
+                c, bgNoMask[c], bgWithMask[c], bgWithMask[c] - bgNoMask[c]);
+        }
+        testOutputHelper.WriteLine("Luma: bg_no_mask={0:F6}, bg_with_mask={1:F6}, diff={2:F6}",
+            lumaBgNoMask, lumaBgWithMask, lumaBgWithMask - lumaBgNoMask);
+
+        // Masked background should be <= unmasked (stars only add flux)
+        for (var c = 0; c < bgNoMask.Length; c++)
+        {
+            bgWithMask[c].ShouldBeLessThanOrEqualTo(bgNoMask[c] + 1e-4f,
+                $"Ch{c}: masked background should not exceed unmasked");
+        }
     }
 }

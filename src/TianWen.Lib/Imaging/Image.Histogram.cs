@@ -346,7 +346,7 @@ public partial class Image
     /// <param name="pedestals">Per-channel pedestal values (from <see cref="GetPedestralMedianAndMADScaledToUnit(int)"/>.</param>
     /// <param name="squareSize">Size of the sampling square in pixels.</param>
     /// <returns>Per-channel background values and luminance background, both pedestal-subtracted.</returns>
-    public (float[] PerChannel, float Luma) ScanBackgroundRegion(float[] pedestals, int squareSize = 32)
+    public (float[] PerChannel, float Luma) ScanBackgroundRegion(float[] pedestals, int squareSize = 32, BitMatrix? starMask = null)
     {
         var step = squareSize * 4;
         var channelCount = ChannelCount;
@@ -373,7 +373,7 @@ public partial class Image
 
             for (var x = xStart; x < xEnd; x += step)
             {
-                var luma = AverageRegionLuma(x, y, squareSize);
+                var luma = AverageRegionLuma(x, y, squareSize, starMask);
                 if (luma > 0.001f && luma < localMinLuma)
                 {
                     localMinLuma = luma;
@@ -401,7 +401,7 @@ public partial class Image
         for (var c = 0; c < channelCount; c++)
         {
             var pedestal = c < pedestals.Length ? pedestals[c] : pedestals[0];
-            perChannel[c] = MedianRegion(c, bgX, bgY, squareSize) - pedestal;
+            perChannel[c] = MedianRegion(c, bgX, bgY, squareSize, starMask) - pedestal;
         }
 
         // Rec.709 luminance in pedestal-subtracted space
@@ -413,19 +413,43 @@ public partial class Image
     }
 
     /// <summary>
+    /// Builds a <see cref="BitMatrix"/> star mask from detected stars, suitable for passing to
+    /// <see cref="ScanBackgroundRegion"/> to exclude star pixels from background estimation.
+    /// </summary>
+    public BitMatrix BuildStarMask(StarList stars)
+    {
+        var mask = new BitMatrix(Height, Width);
+        foreach (var star in stars)
+        {
+            var scaledHfd = HfdFactor * star.HFD;
+            var r = (int)MathF.Round(scaledHfd);
+            var xc_offset = (int)MathF.Round(star.XCentroid - scaledHfd);
+            var yc_offset = (int)MathF.Round(star.YCentroid - scaledHfd);
+            var starMaskEntry = StarMasks[Math.Clamp(r - 1, 0, StarMasks.Length - 1)];
+            mask.SetRegionClipped(yc_offset, xc_offset, starMaskEntry);
+        }
+        return mask;
+    }
+
+    /// <summary>
     /// Computes the median pixel value over a square region of a single channel.
     /// Using median instead of mean rejects hot pixels and other outliers.
+    /// When a star mask is provided, star pixels are excluded.
     /// </summary>
-    private float MedianRegion(int channel, int x0, int y0, int size)
+    private float MedianRegion(int channel, int x0, int y0, int size, BitMatrix? starMask = null)
     {
         var count = 0;
         var maxCount = size * size;
-        var buffer = maxCount <= 1024 ? stackalloc float[maxCount] : new float[maxCount];
+        var buffer = maxCount <= 4096 ? stackalloc float[maxCount] : new float[maxCount];
 
         for (var y = y0; y < y0 + size && y < Height; y++)
         {
             for (var x = x0; x < x0 + size && x < Width; x++)
             {
+                if (starMask is { } sm && sm[y, x])
+                {
+                    continue;
+                }
                 var val = this[channel, y, x];
                 if (!float.IsNaN(val))
                 {
@@ -441,19 +465,19 @@ public partial class Image
         return span[count / 2];
     }
 
-    private float AverageRegionLuma(int x0, int y0, int size)
+    private float AverageRegionLuma(int x0, int y0, int size, BitMatrix? starMask = null)
     {
         if (ChannelCount < 3)
         {
-            return AverageRegionChannel(0, x0, y0, size);
+            return AverageRegionChannel(0, x0, y0, size, starMask);
         }
-        var r = AverageRegionChannel(0, x0, y0, size);
-        var g = AverageRegionChannel(1, x0, y0, size);
-        var b = AverageRegionChannel(2, x0, y0, size);
+        var r = AverageRegionChannel(0, x0, y0, size, starMask);
+        var g = AverageRegionChannel(1, x0, y0, size, starMask);
+        var b = AverageRegionChannel(2, x0, y0, size, starMask);
         return 0.2126f * r + 0.7152f * g + 0.0722f * b;
     }
 
-    private float AverageRegionChannel(int channel, int x0, int y0, int size)
+    private float AverageRegionChannel(int channel, int x0, int y0, int size, BitMatrix? starMask = null)
     {
         double sum = 0;
         var count = 0;
@@ -461,6 +485,10 @@ public partial class Image
         {
             for (var x = x0; x < x0 + size && x < Width; x++)
             {
+                if (starMask is { } sm && sm[y, x])
+                {
+                    continue;
+                }
                 sum += this[channel, y, x];
                 count++;
             }
