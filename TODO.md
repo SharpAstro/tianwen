@@ -81,6 +81,7 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 - [x] Annotation overlay (object names from catalogs when plate-solved)
 - [x] Star detection overlay: `FitsDocument.DetectStarsAsync()` runs as background task,
       draws HFD-sized green circles, shows count/HFR/FWHM in status bar (S key toggle)
+- [ ] Star profile tooltip: show radial profile plot (flux vs. distance) when mouse hovers over a detected star
 - [ ] Named star labels: match detected stars against Tycho2 via WCS→RA/Dec projection,
       label with cross-catalog names (HIP, HD) using `TryGetCrossIndices`
 - [ ] Replace custom `AsyncLazy<T>` with `DotNext.Threading.AsyncLazy<T>` (already a dependency in TianWen.Lib)
