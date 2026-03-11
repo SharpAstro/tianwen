@@ -94,10 +94,10 @@ public sealed class FitsDocument
     /// These are the average values of the darkest spatial region, ready to feed into
     /// <see cref="Image.StretchValue"/> to get the post-stretch background level.
     /// </summary>
-    public float[] PerChannelBackground { get; }
+    public float[] PerChannelBackground { get; private set; }
 
     /// <summary>Luminance background from the unstretched image (pedestal-subtracted).</summary>
-    public float LumaBackground { get; }
+    public float LumaBackground { get; private set; }
 
     /// <summary>Detected stars: <c>null</c> while detection is in progress, empty on failure/no stars, populated on success.</summary>
     public StarList? Stars { get; set; }
@@ -287,6 +287,13 @@ public sealed class FitsDocument
         {
             AverageHFR = stars.MapReduceStarProperty(SampleKind.HFD, AggregationMethod.Median);
             AverageFWHM = stars.MapReduceStarProperty(SampleKind.FWHM, AggregationMethod.Median);
+
+            // Re-scan background with star mask for more accurate boost operation
+            var pedestals = new float[PerChannelStats.Length];
+            for (var c = 0; c < PerChannelStats.Length; c++) { pedestals[c] = PerChannelStats[c].Pedestal; }
+            var (perChannelBg, lumaBg) = UnstretchedImage.ScanBackgroundRegion(pedestals, squareSize: 48, stars.StarMask);
+            PerChannelBackground = perChannelBg;
+            LumaBackground = lumaBg;
         }
     }
 
