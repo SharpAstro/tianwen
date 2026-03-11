@@ -283,7 +283,7 @@ public sealed class GlFitsRenderer : IDisposable
         ToolbarAction.Debayer => document?.UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB,
         // Channel cycling only useful when there are multiple channels (after debayer or native color)
         ToolbarAction.Channel => document is not null && document.UnstretchedImage.ChannelCount > 1,
-        ToolbarAction.CurvesBoost => document?.Stars is not null,
+        ToolbarAction.CurvesBoost => document?.Stars is { Count: > 0 },
         ToolbarAction.Hdr => document is not null,
         // Stretch buttons need a loaded document; link/params only when stretch is active
         ToolbarAction.StretchToggle => document is not null,
@@ -293,7 +293,7 @@ public sealed class GlFitsRenderer : IDisposable
         // Overlays also need the DB to be initialized
         ToolbarAction.Overlays => document?.Wcs is { HasCDMatrix: true } && CelestialObjectDB?.IsReady == true,
         // Stars overlay needs detected stars
-        ToolbarAction.Stars => document?.Stars is not null,
+        ToolbarAction.Stars => document?.Stars is { Count: > 0 },
         // Plate solve needs a loaded, unsolved document
         ToolbarAction.PlateSolve => document is not null && !document.IsPlateSolved,
         // Zoom needs a loaded document
@@ -344,7 +344,8 @@ public sealed class GlFitsRenderer : IDisposable
             ToolbarAction.Overlays when CelestialObjectDB is { IsReady: false } => "Objects...",
             ToolbarAction.Overlays => "Objects",
             ToolbarAction.Stars when document?.Stars is null => "Stars...",
-            ToolbarAction.Stars when document?.Stars is { } s => $"Stars: {s.Count}",
+            ToolbarAction.Stars when document?.Stars is { Count: > 0 } s => $"Stars: {s.Count}",
+            ToolbarAction.Stars => "Stars: 0",
             ToolbarAction.PlateSolve when state.IsPlateSolving => "Solving...",
             ToolbarAction.PlateSolve when document?.IsPlateSolved == true => "Solved",
             _ => baseLabel,
@@ -1198,7 +1199,8 @@ public sealed class GlFitsRenderer : IDisposable
         ReadOnlySpan<string> controlLabels =
         [
             "-- Controls --",
-            "S: Cycle stretch",
+            "T: Cycle stretch",
+            "S: Toggle stars",
             "+/-: Stretch factor",
             "C: Cycle channel",
             "D: Cycle debayer",
@@ -1273,7 +1275,7 @@ public sealed class GlFitsRenderer : IDisposable
 
         if (document?.Stars is { Count: > 0 } detectedStars)
         {
-            statusParts.Add($"Stars: {detectedStars.Count}  HFR: {document.AverageHFR:F1}  FWHM: {document.AverageFWHM:F1}");
+            statusParts.Add($"Stars: {detectedStars.Count}  HFR: {document.AverageHFR:F2}  FWHM: {document.AverageFWHM:F2}");
         }
 
         if (state.StatusMessage is { } msg)

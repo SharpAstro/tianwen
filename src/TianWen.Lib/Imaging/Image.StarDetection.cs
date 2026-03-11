@@ -11,10 +11,10 @@ namespace TianWen.Lib.Imaging;
 
 public partial class Image
 {
-    const int BoxRadius = 14;
-    const float HfdFactor = 1.5f;
-    const int MaxScaledRadius = (int)(HfdFactor * BoxRadius) + 1;
-    static readonly ImmutableArray<BitMatrix> StarMasks;
+    internal const int BoxRadius = 14;
+    internal const float HfdFactor = 1.5f;
+    internal const int MaxScaledRadius = (int)(HfdFactor * BoxRadius * 2) + 1;
+    internal static readonly ImmutableArray<BitMatrix> StarMasks;
 
     static Image()
     {
@@ -62,8 +62,8 @@ public partial class Image
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public virtual async Task<StarList> FindStarsAsync(int channel, float snrMin = 20f, int maxStars = 500, int maxRetries = 2, CancellationToken cancellationToken = default)
     {
-        const int ChunkSize = 2 * MaxScaledRadius;
-        const float HalfChunkSizeInv = 1.0f / 2.0f * ChunkSize;
+        const int ChunkSize = 2 * ((int)(HfdFactor * BoxRadius) + 1);
+        const float HalfChunkSizeInv = 1.0f / (2.0f * ChunkSize);
         var (channelCount, width, height) = Shape;
 
         if (channel >= channelCount)
@@ -128,7 +128,7 @@ public partial class Image
                                     var xc_offset = (int)MathF.Round(star.XCentroid - scaledHfd); /* star center as integer */
                                     var yc_offset = (int)MathF.Round(star.YCentroid - scaledHfd);
 
-                                    var mask = StarMasks[Math.Max(r - 1, 0)];
+                                    var mask = StarMasks[Math.Clamp(r - 1, 0, StarMasks.Length - 1)];
 
                                     img_star_area.SetRegionClipped(yc_offset, xc_offset, mask);
                                 }
