@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -64,12 +65,15 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
     {
         var sw = Stopwatch.StartNew();
 
-        if (searchOrigin is null)
+        if (!Image.TryReadFitsFile(fitsFile, out var image, out var fileWcs))
         {
             return Task.FromResult(new PlateSolveResult(null, sw.Elapsed));
         }
 
-        if (!Image.TryReadFitsFile(fitsFile, out var image))
+        // Fall back to the file's own WCS (approximate RA/Dec from headers) when no explicit search origin
+        searchOrigin ??= fileWcs;
+
+        if (searchOrigin is null)
         {
             return Task.FromResult(new PlateSolveResult(null, sw.Elapsed));
         }
@@ -226,7 +230,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
             }
 
             // Compute offset using Matrix3x2 affine fit (handles translation + rotation)
-            var M = Matrix3x2.FitAffineTransform(matchedProjected, matchedDetected);
+            var M = Matrix3x2.FitAffineTransform(CollectionsMarshal.AsSpan(matchedProjected), CollectionsMarshal.AsSpan(matchedDetected));
             if (M is null || !Matrix3x2.Invert(M.Value, out var Minv))
             {
                 return iteration > 0 ? AttachCDMatrix(currentOrigin, hasMinv ? lastMinv : default(Matrix3x2?), pixelScaleRad, cx, cy, dim, xSign) : null;

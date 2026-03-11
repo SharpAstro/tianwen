@@ -43,6 +43,10 @@ internal class ZWOFocuserDriver(ZWODevice device, IExternal external) : DALDevic
 
     public bool TempCompAvailable => false;
 
+    public int BacklashStepsIn { get; set; } = -1;
+
+    public int BacklashStepsOut { get; set; } = -1;
+
     public ValueTask<double> GetTemperatureAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(EAFGetTemp(ConnectionId, out var temp) is EAF_SUCCESS ? temp : double.NaN);
 

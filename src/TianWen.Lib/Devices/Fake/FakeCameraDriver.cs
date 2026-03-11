@@ -20,6 +20,20 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
     private int _cameraState = (int)CameraState.Idle;
     private ITimer? _exposureTimer;
 
+    /// <summary>
+    /// The true best focus position from the focuser. Set by test setup or Session
+    /// to enable synthetic star field rendering with defocus-dependent PSF.
+    /// When null, produces empty images (legacy behavior).
+    /// </summary>
+    public int? TrueBestFocus { get; set; }
+
+    // Cooling simulation
+    private double _ccdTemperature = 20.0;
+    private double _heatsinkTemperature = 20.0;
+    private double _setpointTemperature = 20.0;
+    private bool _coolerOn;
+    private double _coolerPower;
+
     public bool CanGetCoolerPower { get; } = true;
 
     public bool CanGetCoolerOn { get; } = true;
@@ -367,25 +381,54 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
         => ValueTask.FromResult((CameraState)Interlocked.CompareExchange(ref _cameraState, (int)CameraState.Error, (int)CameraState.Error));
 
     public ValueTask<double> GetCCDTemperatureAsync(CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+    {
+        if (_coolerOn)
+        {
+            // Move 1°C toward setpoint per call when cooler is on
+            var delta = _setpointTemperature - _ccdTemperature;
+            if (Math.Abs(delta) > 0.1)
+            {
+                _ccdTemperature += Math.Sign(delta) * Math.Min(1.0, Math.Abs(delta));
+            }
+            else
+            {
+                _ccdTemperature = _setpointTemperature;
+            }
+
+            // Cooler power proportional to temperature difference from heatsink
+            _coolerPower = Math.Clamp((_heatsinkTemperature - _ccdTemperature) / 40.0 * 100.0, 0, 100);
+        }
+
+        return ValueTask.FromResult(_ccdTemperature);
+    }
 
     public ValueTask<double> GetHeatSinkTemperatureAsync(CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+        => ValueTask.FromResult(_heatsinkTemperature);
 
     public ValueTask<double> GetCoolerPowerAsync(CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+        => ValueTask.FromResult(_coolerPower);
 
     public ValueTask<bool> GetCoolerOnAsync(CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+        => ValueTask.FromResult(_coolerOn);
 
     public ValueTask SetCoolerOnAsync(bool value, CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+    {
+        _coolerOn = value;
+        if (!value)
+        {
+            _coolerPower = 0;
+        }
+        return ValueTask.CompletedTask;
+    }
 
     public ValueTask<double> GetSetCCDTemperatureAsync(CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+        => ValueTask.FromResult(_setpointTemperature);
 
     public ValueTask SetSetCCDTemperatureAsync(double value, CancellationToken cancellationToken = default)
-        => throw new NotImplementedException();
+    {
+        _setpointTemperature = value;
+        return ValueTask.CompletedTask;
+    }
 
     public ValueTask<bool> GetIsPulseGuidingAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(Connected ? false : throw new InvalidOperationException("Camera is not connected"));
@@ -407,6 +450,7 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
 
             lock (_lock)
             {
+                _lastImageData = null; // Clear previous image so GetImageReadyAsync returns false
                 _exposureSettings = _cameraSettings;
                 _exposureData = new ExposureData(startTime, intentedDuration, null, frameType, _gain, _offset);
 
@@ -444,11 +488,35 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
 
                 if (imageReady)
                 {
-                    var array = new float[
-                        lastExposureSettings.Height - lastExposureSettings.StartY,
-                        lastExposureSettings.Width - lastExposureSettings.StartX
-                    ];
-                    _lastImageData = new Float32HxWImageData([array], current.Offset, current.Offset);
+                    var imgHeight = lastExposureSettings.Height - lastExposureSettings.StartY;
+                    var imgWidth = lastExposureSettings.Width - lastExposureSettings.StartX;
+
+                    float[,] array;
+                    if (TrueBestFocus is { } bestFocus)
+                    {
+                        var defocus = Math.Abs(FocusPosition - bestFocus);
+                        var exposureSec = current.IntendedDuration.TotalSeconds;
+                        array = SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocus, exposureSeconds: exposureSec);
+                    }
+                    else
+                    {
+                        array = new float[imgHeight, imgWidth];
+                    }
+
+                    // Compute actual min/max of the rendered data
+                    var dataMax = 0f;
+                    var dataMin = float.MaxValue;
+                    for (var y = 0; y < array.GetLength(0); y++)
+                    {
+                        for (var x = 0; x < array.GetLength(1); x++)
+                        {
+                            var val = array[y, x];
+                            if (val > dataMax) dataMax = val;
+                            if (val < dataMin) dataMin = val;
+                        }
+                    }
+
+                    _lastImageData = new Float32HxWImageData([array], dataMax, dataMin);
                 }
             }
 

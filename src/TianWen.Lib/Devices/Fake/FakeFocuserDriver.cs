@@ -6,6 +6,63 @@ namespace TianWen.Lib.Devices.Fake;
 
 internal class FakeFocuserDriver(FakeDevice fakeDevice, IExternal external) : FakePositionBasedDriver(fakeDevice, external), IFocuserDriver
 {
+    // Temperature model
+    private readonly double _baseTemperature = 15.0;
+    private double _tempDriftRate = -0.5; // °C per hour (cooling overnight)
+    private DateTimeOffset? _startTime;
+
+    // Focus model
+    private readonly int _baseBestFocus = 1000;
+    private double _tempCoefficient = 5.0; // steps per °C of focus shift
+
+    // Backlash model
+    private int _lastDirection; // +1 or -1
+    private int _backlashSteps; // consumed backlash pending
+    private int _trueBacklashIn = 20; // actual mechanical backlash moving inward
+    private int _trueBacklashOut = 15; // actual mechanical backlash moving outward
+
+    /// <summary>Current true best focus position accounting for temperature drift.</summary>
+    public int TrueBestFocus
+    {
+        get
+        {
+            var currentTemp = GetCurrentTemperature();
+            return _baseBestFocus + (int)(_tempCoefficient * (currentTemp - _baseTemperature));
+        }
+    }
+
+    /// <summary>Settable mechanical backlash for inward moves (for test setup).</summary>
+    public int TrueBacklashIn
+    {
+        get => _trueBacklashIn;
+        set => _trueBacklashIn = value;
+    }
+
+    /// <summary>Settable mechanical backlash for outward moves (for test setup).</summary>
+    public int TrueBacklashOut
+    {
+        get => _trueBacklashOut;
+        set => _trueBacklashOut = value;
+    }
+
+    public int BacklashStepsIn { get; set; } = 20;
+
+    public int BacklashStepsOut { get; set; } = 15;
+
+    /// <summary>Temperature drift rate in °C per hour. Negative = cooling.</summary>
+    public double TempDriftRate
+    {
+        get => _tempDriftRate;
+        set => _tempDriftRate = value;
+    }
+
+    /// <summary>Focus shift steps per °C of temperature change.</summary>
+    public double TempCoefficient
+    {
+        get => _tempCoefficient;
+        set => _tempCoefficient = value;
+    }
+
     public ValueTask<int> GetPositionAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(_position);
 
     public bool Absolute => true;
@@ -27,7 +84,8 @@ internal class FakeFocuserDriver(FakeDevice fakeDevice, IExternal external) : Fa
 
     public bool TempCompAvailable => false;
 
-    public ValueTask<double> GetTemperatureAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(double.NaN);
+    public ValueTask<double> GetTemperatureAsync(CancellationToken cancellationToken = default)
+        => ValueTask.FromResult(GetCurrentTemperature());
 
     public Task BeginHaltAsync(CancellationToken cancellationToken = default) => BeginStopMovingAsync(cancellationToken);
 
@@ -42,6 +100,49 @@ internal class FakeFocuserDriver(FakeDevice fakeDevice, IExternal external) : Fa
             throw new ArgumentOutOfRangeException(nameof(position), position, $"Position out of range (0..{MaxStep})");
         }
 
+        // Track direction for backlash
+        var currentPos = _position;
+        var direction = Math.Sign(position - currentPos);
+        if (direction != 0)
+        {
+            if (_lastDirection != 0 && direction != _lastDirection)
+            {
+                // Direction reversed — backlash engages, amount depends on new direction
+                _backlashSteps = direction > 0 ? _trueBacklashOut : _trueBacklashIn;
+            }
+            _lastDirection = direction;
+        }
+
+        // Consume backlash during movement
+        if (_backlashSteps > 0)
+        {
+            var stepsToMove = Math.Abs(position - currentPos);
+            _backlashSteps = Math.Max(0, _backlashSteps - stepsToMove);
+        }
+
         return BeginSetPositionAsync(position, cancellationToken);
+    }
+
+    /// <summary>
+    /// Returns the effective position accounting for backlash. When backlash steps remain,
+    /// physical movement doesn't translate to actual optical position change.
+    /// </summary>
+    public int EffectivePosition
+    {
+        get
+        {
+            if (_backlashSteps > 0)
+            {
+                return _position - (_lastDirection * _backlashSteps);
+            }
+            return _position;
+        }
+    }
+
+    private double GetCurrentTemperature()
+    {
+        _startTime ??= External.TimeProvider.GetUtcNow();
+        var elapsed = External.TimeProvider.GetUtcNow() - _startTime.Value;
+        return _baseTemperature + _tempDriftRate * elapsed.TotalHours;
     }
 }

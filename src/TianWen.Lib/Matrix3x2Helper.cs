@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Numerics;
 
 namespace TianWen.Lib;
@@ -21,9 +20,9 @@ public static class Matrix3x2Helper
         /// <param name="source">Source (input) 2D positions.</param>
         /// <param name="dest">Destination (output) 2D positions; must have the same count as <paramref name="source"/>.</param>
         /// <returns>The best-fit affine transform, or <c>null</c> if fewer than 3 points or the system is singular.</returns>
-        public static Matrix3x2? FitAffineTransform(List<Vector2> source, List<Vector2> dest)
+        public static Matrix3x2? FitAffineTransform(ReadOnlySpan<Vector2> source, ReadOnlySpan<Vector2> dest)
         {
-            int n = source.Count;
+            int n = source.Length;
             if (n < 3)
             {
                 return null;

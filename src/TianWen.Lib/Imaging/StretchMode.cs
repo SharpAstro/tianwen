@@ -1,4 +1,4 @@
-namespace TianWen.UI.Abstractions;
+namespace TianWen.Lib.Imaging;
 
 public enum StretchMode
 {

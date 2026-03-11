@@ -46,6 +46,18 @@ public interface IFocuserDriver : IDeviceDriver
     public bool TempCompAvailable { get; }
 
     /// <summary>
+    /// Known backlash in steps when moving inward (decreasing position).
+    /// Negative means unknown/unmeasured. Zero means no backlash.
+    /// </summary>
+    public int BacklashStepsIn { get; }
+
+    /// <summary>
+    /// Known backlash in steps when moving outward (increasing position).
+    /// Negative means unknown/unmeasured. Zero means no backlash.
+    /// </summary>
+    public int BacklashStepsOut { get; }
+
+    /// <summary>
     /// Moves the focuser by the specified amount or to the specified position depending on the value of the <see cref="Absolute"/> property.
     /// Poll for <see cref="GetIsMovingAsync"/> to see if move is complete.
     /// </summary>

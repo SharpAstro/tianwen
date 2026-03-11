@@ -61,6 +61,12 @@ public sealed class ViewerState
     /// <summary>Whether detected star circles are visible.</summary>
     public bool ShowStarOverlay { get; set; }
 
+    /// <summary>Whether the histogram overlay is visible in the upper-right corner.</summary>
+    public bool ShowHistogram { get; set; } = true;
+
+    /// <summary>Whether the histogram uses log scale. Auto-set when stretch mode changes; user can override.</summary>
+    public bool HistogramLogScale { get; set; } = true;
+
     /// <summary>Status message to display (e.g. "Plate solving...", "Stretching...").</summary>
     public string? StatusMessage { get; set; }
 

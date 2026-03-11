@@ -1,4 +1,4 @@
-namespace TianWen.UI.Abstractions;
+namespace TianWen.Lib.Imaging;
 
 public record struct StretchParameters(double Factor, double ShadowsClipping)
 {

@@ -18,6 +18,7 @@ public static class ViewerActions
     public static void ToggleStretch(ViewerState state)
     {
         state.StretchMode = state.StretchMode is StretchMode.None ? StretchMode.Unlinked : StretchMode.None;
+        state.HistogramLogScale = state.StretchMode is StretchMode.None;
         state.NeedsRedraw = true;
         state.StatusMessage = state.StretchMode is StretchMode.None ? "Stretch: Off" : "Stretch: On";
     }

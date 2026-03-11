@@ -1,6 +1,4 @@
-using TianWen.Lib.Imaging;
-
-namespace TianWen.UI.Abstractions;
+namespace TianWen.Lib.Imaging;
 
 public static class DebayerAlgorithmExtensions
 {

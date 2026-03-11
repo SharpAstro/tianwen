@@ -13,57 +13,6 @@ using TianWen.Lib.Stat;
 namespace TianWen.UI.Abstractions;
 
 /// <summary>
-/// Per-channel stretch statistics cached from the processedRawImage image.
-/// </summary>
-public record struct ChannelStretchStats(float Pedestal, float Median, float Mad);
-
-/// <summary>
-/// Stretch parameters ready to pass as GPU shader uniforms.
-/// Each field is a 3-component vector (R/G/B or replicated for mono/linked).
-/// </summary>
-public record struct GpuStretchUniforms(
-    int Mode,
-    float NormFactor,
-    (float R, float G, float B) Pedestal,
-    (float R, float G, float B) Shadows,
-    (float R, float G, float B) Midtones,
-    (float R, float G, float B) Highlights,
-    (float R, float G, float B) Rescale)
-{
-    /// <summary>
-    /// Computes the post-stretch background level by stretching the measured
-    /// background values (from <see cref="AstroImageDocument.PerChannelBackground"/>)
-    /// through <see cref="Image.StretchValue"/> — the same pipeline as the GLSL shader.
-    /// </summary>
-    public float ComputePostStretchBackground(float[] perChannelBackground, float lumaBackground)
-    {
-        if (Mode == 0)
-        {
-            // No stretch — background is the raw luminance
-            return Math.Clamp(lumaBackground * NormFactor, 0.01f, 0.99f);
-        }
-
-        if (Mode == 2)
-        {
-            // Luma mode: stretch the luma background value
-            var bg = Image.StretchValue(lumaBackground, 1f, 0f, Shadows.R, Midtones.R, Rescale.R);
-            return Math.Clamp(bg, 0.01f, 0.99f);
-        }
-
-        // Per-channel or linked: stretch each channel's measured background, then Rec.709 luminance
-        var r = Image.StretchValue(GetChannelBg(perChannelBackground, 0), 1f, 0f, Shadows.R, Midtones.R, Rescale.R);
-        var g = Image.StretchValue(GetChannelBg(perChannelBackground, 1), 1f, 0f, Shadows.G, Midtones.G, Rescale.G);
-        var b = Image.StretchValue(GetChannelBg(perChannelBackground, 2), 1f, 0f, Shadows.B, Midtones.B, Rescale.B);
-
-        var Y = 0.2126f * r + 0.7152f * g + 0.0722f * b;
-        return Math.Clamp(Y, 0.01f, 0.99f);
-    }
-
-    private static float GetChannelBg(float[] perChannelBackground, int ch)
-        => ch < perChannelBackground.Length ? perChannelBackground[ch] : perChannelBackground[0];
-}
-
-/// <summary>
 /// Core document model for the astro image viewer. Manages the image lifecycle:
 /// loading (FITS, TIFF), debayering, channel extraction, plate solving,
 /// and conversion to display-ready RGBA pixels.
@@ -174,7 +123,7 @@ public sealed class AstroImageDocument
 
         if (ext.Equals(".tif", StringComparison.OrdinalIgnoreCase) || ext.Equals(".tiff", StringComparison.OrdinalIgnoreCase))
         {
-            return OpenTiff(filePath);
+            return await OpenTiffAsync(filePath, cancellationToken);
         }
 
         return await OpenFitsAsync(filePath, algorithm, cancellationToken);
@@ -216,7 +165,7 @@ public sealed class AstroImageDocument
         return new AstroImageDocument(filePath, processedRawImage, actualAlgorithm, perChannelStats, lumaStats, perChannelBg, lumaBg, fileWcs, isPreStretched: false);
     }
 
-    private static AstroImageDocument? OpenTiff(string filePath)
+    private static async Task<AstroImageDocument?> OpenTiffAsync(string filePath, CancellationToken cancellationToken)
     {
         if (!Image.TryReadTiffFile(filePath, out var image))
         {
@@ -237,8 +186,7 @@ public sealed class AstroImageDocument
         ChannelStretchStats? lumaStats = null;
         if (channelCount >= 3)
         {
-            // Synchronous since TIFF images are already debayered
-            var (lumaPed, lumaMed, lumaMad) = image.GetLumaStretchStatsAsync(DebayerAlgorithm.None, CancellationToken.None).GetAwaiter().GetResult();
+            var (lumaPed, lumaMed, lumaMad) = await image.GetLumaStretchStatsAsync(DebayerAlgorithm.None, cancellationToken);
             lumaStats = new ChannelStretchStats(lumaPed, lumaMed, lumaMad);
         }
 
@@ -285,11 +233,11 @@ public sealed class AstroImageDocument
     /// <summary>
     /// Computes stretch shader uniforms for the current stretch mode and parameters.
     /// </summary>
-    public GpuStretchUniforms ComputeStretchUniforms(StretchMode mode, StretchParameters parameters)
+    public StretchUniforms ComputeStretchUniforms(StretchMode mode, StretchParameters parameters)
     {
         if (mode is StretchMode.None)
         {
-            return new GpuStretchUniforms(0, 1f, default, default, default, default, default);
+            return new StretchUniforms(StretchMode.None, 1f, default, default, default, default, default);
         }
 
         var normFactor = UnstretchedImage.MaxValue > 1.0f + float.Epsilon ? 1f / UnstretchedImage.MaxValue : 1f;
@@ -300,8 +248,8 @@ public sealed class AstroImageDocument
         {
             var (s, m, h, r) = Image.ComputeStretchParameters(luma.Median, luma.Mad, factor, clipping);
             // Pass the luma pedestal via Pedestal.R — the shader uses it to subtract from Y and channels
-            return new GpuStretchUniforms(
-                Mode: 2,
+            return new StretchUniforms(
+                Mode: StretchMode.Luma,
                 NormFactor: normFactor,
                 Pedestal: (luma.Pedestal, luma.Pedestal, luma.Pedestal),
                 Shadows: ((float)s, (float)s, (float)s),
@@ -326,8 +274,8 @@ public sealed class AstroImageDocument
         var p1 = Image.ComputeStretchParameters(ch1.Median, ch1.Mad, factor, clipping);
         var p2 = Image.ComputeStretchParameters(ch2.Median, ch2.Mad, factor, clipping);
 
-        return new GpuStretchUniforms(
-            Mode: 1,
+        return new StretchUniforms(
+            Mode: mode,
             NormFactor: normFactor,
             Pedestal: (ch0.Pedestal, ch1.Pedestal, ch2.Pedestal),
             Shadows: ((float)p0.Shadows, (float)p1.Shadows, (float)p2.Shadows),
@@ -338,11 +286,13 @@ public sealed class AstroImageDocument
 
     /// <summary>
     /// Plate-solves the image using the provided factory.
+    /// When the document already has an approximate WCS (from FITS headers or ASTAP .ini),
+    /// it is passed as the search origin so that the catalog plate solver can use it.
     /// </summary>
     public async Task<bool> PlateSolveAsync(IPlateSolverFactory solverFactory, CancellationToken cancellationToken = default)
     {
         var imageDim = UnstretchedImage.GetImageDim();
-        var result = await solverFactory.SolveFileAsync(_filePath, imageDim, cancellationToken: cancellationToken);
+        var result = await solverFactory.SolveFileAsync(_filePath, imageDim, searchOrigin: Wcs, cancellationToken: cancellationToken);
         if (result.Solution is { } wcs)
         {
             Wcs = wcs;

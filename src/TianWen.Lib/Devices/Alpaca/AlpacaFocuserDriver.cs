@@ -41,6 +41,10 @@ internal class AlpacaFocuserDriver(AlpacaDevice device, IExternal external)
     public bool CanGetStepSize { get; private set; }
     public bool TempCompAvailable { get; private set; }
 
+    public int BacklashStepsIn { get; set; } = -1;
+
+    public int BacklashStepsOut { get; set; } = -1;
+
     // Async properties
     public async ValueTask<int> GetPositionAsync(CancellationToken cancellationToken = default)
         => Connected && _absolute

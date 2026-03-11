@@ -1,4 +1,4 @@
-namespace TianWen.UI.Abstractions;
+namespace TianWen.Lib.Imaging;
 
 /// <summary>
 /// Information about a pixel at a given position, including sky coordinates if plate-solved.

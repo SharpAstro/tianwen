@@ -24,7 +24,7 @@ internal abstract class FakePositionBasedDriver(FakeDevice fakeDevice, IExternal
     /// <remarks>Does not validate inputs (subclass responsibility)</remarks>
     protected virtual Task BeginSetPositionAsync(int position, CancellationToken cancellationToken = default)
     {
-        var currentPosition = position;
+        var currentPosition = _position;
 
         if (currentPosition != position)
         {
