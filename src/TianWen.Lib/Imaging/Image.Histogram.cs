@@ -2,8 +2,6 @@ using System;
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
-using TianWen.Lib.Stat;
-
 namespace TianWen.Lib.Imaging;
 
 public partial class Image
@@ -334,9 +332,8 @@ public partial class Image
         // renormalize
         if (histogram.RescaledMaxValue is { } rescaledMaxValue)
         {
-            var values = VectorMath.Divide([background, starLevel, sd, histogram.Threshold], rescaledMaxValue);
-
-            return ((float)values[0], (float)values[1], (float)values[2], (float)values[3]);
+            var invScale = 1f / rescaledMaxValue;
+            return (background * invScale, starLevel * invScale, sd * invScale, histogram.Threshold * invScale);
         }
         else
         {
