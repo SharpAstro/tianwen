@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
-using System.Runtime.InteropServices.Marshalling;
 using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,7 +12,7 @@ namespace TianWen.UI.Abstractions;
 
 /// <summary>
 /// Launches a native file picker dialog.
-/// On Windows, uses the modern IFileOpenDialog COM interface (Vista+).
+/// On Windows, uses GetOpenFileName from comdlg32.dll.
 /// On Linux/macOS, falls back to shell commands (zenity/kdialog/osascript).
 /// Returns the selected path, or <c>null</c> if cancelled.
 /// </summary>
@@ -47,164 +46,80 @@ public static partial class FileDialogHelper
         return null;
     }
 
-    // ── Windows: IFileOpenDialog COM interface (modern Vista+ dialog) ──
+    // ── Windows: GetOpenFileName from comdlg32.dll ──
 
     [SupportedOSPlatform("windows")]
     private static string? PickWindows(IReadOnlyDictionary<string, IReadOnlyList<string>> filters, string title)
     {
-        var dialog = new FileOpenDialogClass();
-        var fileDialog = (IFileOpenDialog)dialog;
+        // Build null-separated filter string: "FITS files\0*.fits;*.fit;*.fts\0\0"
+        var filterStr = string.Concat(
+            filters.Select(kv => kv.Key + '\0' + string.Join(';', kv.Value.Select(ext => "*" + ext)) + '\0'))
+            + '\0';
+
+        const int maxPath = 260;
+        var fileBuffer = Marshal.AllocHGlobal(maxPath * sizeof(char));
+        Marshal.WriteInt16(fileBuffer, 0); // null-terminate
 
         try
         {
-            fileDialog.SetTitle(title);
-
-            var specs = filters.Select(kv => new COMDLG_FILTERSPEC
+            var ofn = new OPENFILENAME
             {
-                pszName = Marshal.StringToCoTaskMemUni(kv.Key),
-                pszSpec = Marshal.StringToCoTaskMemUni(string.Join(';', kv.Value.Select(ext => "*" + ext))),
-            }).ToArray();
+                lStructSize = Marshal.SizeOf<OPENFILENAME>(),
+                lpstrFilter = filterStr,
+                lpstrFile = fileBuffer,
+                nMaxFile = maxPath,
+                lpstrTitle = title,
+                Flags = 0x00080000 /* OFN_EXPLORER */ | 0x00001000 /* OFN_FILEMUSTEXIST */ | 0x00000800 /* OFN_PATHMUSTEXIST */,
+            };
 
-            var specSize = Marshal.SizeOf<COMDLG_FILTERSPEC>();
-            var specsPtr = Marshal.AllocCoTaskMem(specSize * specs.Length);
-            try
+            if (!GetOpenFileName(ref ofn))
             {
-                for (var i = 0; i < specs.Length; i++)
-                {
-                    Marshal.StructureToPtr(specs[i], specsPtr + i * specSize, false);
-                }
-
-                fileDialog.SetFileTypes((uint)specs.Length, specsPtr);
-
-                var hr = fileDialog.Show(nint.Zero);
-                if (hr < 0)
-                {
-                    return null;
-                }
-
-                fileDialog.GetResult(out var shellItem);
-                try
-                {
-                    shellItem.GetDisplayName(SIGDN.SIGDN_FILESYSPATH, out var path);
-                    return path;
-                }
-                finally
-                {
-                    Marshal.ReleaseComObject(shellItem);
-                }
+                return null;
             }
-            finally
-            {
-                foreach (var spec in specs)
-                {
-                    Marshal.FreeCoTaskMem(spec.pszName);
-                    Marshal.FreeCoTaskMem(spec.pszSpec);
-                }
-                Marshal.FreeCoTaskMem(specsPtr);
-            }
+
+            return Marshal.PtrToStringUni(fileBuffer);
         }
         finally
         {
-            Marshal.ReleaseComObject(dialog);
+            Marshal.FreeHGlobal(fileBuffer);
         }
     }
 
-    // ── COM interfaces for IFileOpenDialog ──
-
-    [GeneratedComInterface]
-    [Guid("42f85136-db7e-439c-85f1-e4075d135fc8")]
-    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     [SupportedOSPlatform("windows")]
-    internal partial interface IFileOpenDialog
+    [DllImport("comdlg32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetOpenFileName(ref OPENFILENAME lpofn);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct OPENFILENAME
     {
-        [PreserveSig]
-        int Show(nint hwndOwner);
-
-        void SetFileTypes(uint cFileTypes, nint rgFilterSpec);
-
-        void SetFileTypeIndex(uint iFileType);
-
-        void GetFileTypeIndex(out uint piFileType);
-
-        void Advise(nint pfde, out uint pdwCookie);
-
-        void Unadvise(uint dwCookie);
-
-        void SetOptions(uint fos);
-
-        void GetOptions(out uint pfos);
-
-        void SetDefaultFolder(IShellItem psi);
-
-        void SetFolder(IShellItem psi);
-
-        void GetFolder(out IShellItem ppsi);
-
-        void GetCurrentSelection(out IShellItem ppsi);
-
-        void SetFileName([MarshalAs(UnmanagedType.LPWStr)] string pszName);
-
-        void GetFileName([MarshalAs(UnmanagedType.LPWStr)] out string pszName);
-
-        void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string pszTitle);
-
-        void SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string pszText);
-
-        void SetFileNameLabel([MarshalAs(UnmanagedType.LPWStr)] string pszLabel);
-
-        void GetResult(out IShellItem ppsi);
-
-        void AddPlace(IShellItem psi, int fdap);
-
-        void SetDefaultExtension([MarshalAs(UnmanagedType.LPWStr)] string pszDefaultExtension);
-
-        void Close([MarshalAs(UnmanagedType.Error)] int hr);
-
-        void SetClientGuid(ref Guid guid);
-
-        void ClearClientData();
-
-        void SetFilter(nint pFilter);
-
-        void GetResults(out nint ppenum);
-
-        void GetSelectedItems(out nint ppsai);
-    }
-
-    [GeneratedComInterface]
-    [Guid("43826d1e-e718-42ee-bc55-a1e261c37bfe")]
-    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    [SupportedOSPlatform("windows")]
-    internal partial interface IShellItem
-    {
-        void BindToHandler(nint pbc, ref Guid bhid, ref Guid riid, out nint ppv);
-
-        void GetParent(out IShellItem ppsi);
-
-        void GetDisplayName(SIGDN sigdnName, [MarshalAs(UnmanagedType.LPWStr)] out string ppszName);
-
-        void GetAttributes(uint sfgaoMask, out uint psfgaoAttribs);
-
-        void Compare(IShellItem psi, uint hint, out int piOrder);
-    }
-
-    internal enum SIGDN : uint
-    {
-        SIGDN_FILESYSPATH = 0x80058000,
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct COMDLG_FILTERSPEC
-    {
-        public nint pszName;
-        public nint pszSpec;
-    }
-
-    [ComImport]
-    [Guid("DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7")]
-    [SupportedOSPlatform("windows")]
-    private class FileOpenDialogClass
-    {
+        public int lStructSize;
+        public nint hwndOwner;
+        public nint hInstance;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string? lpstrFilter;
+        public nint lpstrCustomFilter;
+        public int nMaxCustFilter;
+        public int nFilterIndex;
+        public nint lpstrFile;
+        public int nMaxFile;
+        public nint lpstrFileTitle;
+        public int nMaxFileTitle;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string? lpstrInitialDir;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string? lpstrTitle;
+        public uint Flags;
+        public ushort nFileOffset;
+        public ushort nFileExtension;
+        [MarshalAs(UnmanagedType.LPWStr)]
+        public string? lpstrDefExt;
+        public nint lCustData;
+        public nint lpfnHook;
+        public nint lpTemplateName;
+        public nint pvReserved;
+        public int dwReserved;
+        public uint FlagsEx;
     }
 
     // ── Linux: zenity / kdialog ──
