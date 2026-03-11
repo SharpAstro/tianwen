@@ -23,8 +23,6 @@ public static class InfoPanelData
         }
 
         lines.Add($"Size: {image.Width} x {image.Height} x {image.ChannelCount}ch");
-        lines.Add($"BitDepth: {image.BitDepth}");
-        lines.Add($"Range: [{image.MinValue:F1}, {image.MaxValue:F1}]");
 
         if (!string.IsNullOrEmpty(meta.Telescope))
         {
