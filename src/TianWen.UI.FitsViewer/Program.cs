@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using TianWen.UI.OpenGL;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -82,7 +84,7 @@ if (initialFilePath is not null)
 }
 
 var opts = WindowOptions.Default;
-opts.Size = new Vector2D<int>(1280, 900);
+opts.Size = new Vector2D<int>(1536, 1080);
 opts.Title = document is not null
     ? $"TianWen FITS Viewer - {Path.GetFileName(initialFilePath)}"
     : "TianWen FITS Viewer";
@@ -134,6 +136,12 @@ window.FileDrop += (paths) =>
 
 window.Load += () =>
 {
+    // Enable dark title bar on Windows 11+
+    if (OperatingSystem.IsWindows() && window.Native?.Win32 is { } win32)
+    {
+        TianWen.UI.OpenGL.WindowHelper.EnableDarkTitleBar(win32.Hwnd);
+    }
+
     gl = window.CreateOpenGL();
     gl.Enable(EnableCap.Blend);
     gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
@@ -593,9 +601,15 @@ void HandleToolbarAction(ToolbarAction action, bool reverse = false)
         case ToolbarAction.Open:
             // Run dialog on a background thread to avoid blocking the render loop
             state.StatusMessage = "Opening file dialog...";
-            backgroundTask = Task.Run(() =>
+            backgroundTask = Task.Run(async () =>
             {
-                var picked = FileDialogHelper.Pick();
+                var picked = await FileDialogHelper.PickAsync(
+                    new Dictionary<string, IReadOnlyList<string>>
+                    {
+                        ["FITS files"] = [".fits", ".fit", ".fts"]
+                    },
+                    "Open FITS file"
+                ).ConfigureAwait(false);
                 state.StatusMessage = null;
                 if (picked is null)
                 {

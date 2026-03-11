@@ -595,8 +595,8 @@ public sealed class GlFitsRenderer : IDisposable
             var spacingRArad = (float)(spacingArcsec / 3600.0 / 15.0 * (Math.PI / 12.0));
             _imageShader.SetFloat("uGridSpacingRA", spacingRArad);
             _imageShader.SetFloat("uGridSpacingDec", spacingRad);
-            // Line width: ~1.5 pixels in sky-coordinate space
-            _imageShader.SetFloat("uGridLineWidth", (float)(1.5 * pixelScaleArcsec / 3600.0 * (Math.PI / 180.0)));
+            // Line width: ~1.5 screen pixels, divided by zoom so it stays constant on screen
+            _imageShader.SetFloat("uGridLineWidth", (float)(1.5 * pixelScaleArcsec / scale / 3600.0 * (Math.PI / 180.0)));
         }
         else
         {
@@ -937,9 +937,10 @@ public sealed class GlFitsRenderer : IDisposable
         {
             var cx = offsetX + star.XCentroid * state.Zoom;
             var cy = offsetY + star.YCentroid * state.Zoom;
-            var radius = MathF.Max(star.HFD * 0.5f * state.Zoom, 2f);
+            var radius = MathF.Max(star.HFD * 0.5f * state.Zoom, 6f);
+            var lineWidth = state.Zoom > 1f ? 1f + MathF.Sqrt(state.Zoom) : 0f;
 
-            DrawEllipse(cx, cy, radius, radius, 0f, 0.2f, 0.8f, 0.2f, 0.6f);
+            DrawEllipse(cx, cy, radius, radius, 0f, 0.2f, 0.8f, 0.2f, 0.6f, lineWidth);
         }
 
         _gl.Disable(EnableCap.ScissorTest);
@@ -1078,47 +1079,103 @@ public sealed class GlFitsRenderer : IDisposable
     /// <summary>
     /// Draws an ellipse outline using line segments via the flat shader.
     /// </summary>
-    private void DrawEllipse(float cx, float cy, float semiMajor, float semiMinor, float angle, float r, float g, float b, float a)
+    private void DrawEllipse(float cx, float cy, float semiMajor, float semiMinor, float angle, float r, float g, float b, float a, float thickness = 0f)
     {
         const int segments = 48;
         var cosA = MathF.Cos(angle);
         var sinA = MathF.Sin(angle);
 
-        // Generate line segment pairs
-        Span<float> verts = stackalloc float[segments * 4]; // 2 vertices per segment, 2 floats each
-        var prevX = cx + semiMajor * cosA;
-        var prevY = cy - semiMajor * sinA; // screen Y is inverted
-
-        for (int i = 0; i < segments; i++)
+        if (thickness <= 1f)
         {
-            var t = (i + 1) * 2f * MathF.PI / segments;
-            var ex = semiMajor * MathF.Cos(t);
-            var ey = semiMinor * MathF.Sin(t);
-            var nextX = cx + ex * cosA - ey * sinA;
-            var nextY = cy - (ex * sinA + ey * cosA); // screen Y is inverted
+            // Thin 1px lines — fast path for low zoom
+            Span<float> verts = stackalloc float[segments * 4];
+            var prevX = cx + semiMajor * cosA;
+            var prevY = cy - semiMajor * sinA;
 
-            // Convert to NDC
-            verts[i * 4 + 0] = (prevX / _width) * 2f - 1f;
-            verts[i * 4 + 1] = 1f - (prevY / _height) * 2f;
-            verts[i * 4 + 2] = (nextX / _width) * 2f - 1f;
-            verts[i * 4 + 3] = 1f - (nextY / _height) * 2f;
+            for (int i = 0; i < segments; i++)
+            {
+                var t = (i + 1) * 2f * MathF.PI / segments;
+                var ex = semiMajor * MathF.Cos(t);
+                var ey = semiMinor * MathF.Sin(t);
+                var nextX = cx + ex * cosA - ey * sinA;
+                var nextY = cy - (ex * sinA + ey * cosA);
 
-            prevX = nextX;
-            prevY = nextY;
+                verts[i * 4 + 0] = (prevX / _width) * 2f - 1f;
+                verts[i * 4 + 1] = 1f - (prevY / _height) * 2f;
+                verts[i * 4 + 2] = (nextX / _width) * 2f - 1f;
+                verts[i * 4 + 3] = 1f - (nextY / _height) * 2f;
+
+                prevX = nextX;
+                prevY = nextY;
+            }
+
+            _gl.BindVertexArray(_vao);
+            _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vbo);
+            _gl.BufferData<float>(BufferTargetARB.ArrayBuffer, verts, BufferUsageARB.StreamDraw);
+
+            _gl.VertexAttribPointer(0, 2, VertexAttribPointerType.Float, false, 2 * sizeof(float), 0);
+            _gl.EnableVertexAttribArray(0);
+            _gl.DisableVertexAttribArray(1);
+
+            _flatShader.Use();
+            _flatShader.SetVector4("uColor", r, g, b, a);
+
+            _gl.DrawArrays(PrimitiveType.Lines, 0, (uint)(segments * 2));
         }
+        else
+        {
+            // Thick triangle strip — for zoomed-in views
+            var halfW = thickness * 0.5f;
+            Span<float> verts = stackalloc float[(segments + 1) * 4];
 
-        _gl.BindVertexArray(_vao);
-        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vbo);
-        _gl.BufferData<float>(BufferTargetARB.ArrayBuffer, verts, BufferUsageARB.StreamDraw);
+            for (int i = 0; i <= segments; i++)
+            {
+                var t = i * 2f * MathF.PI / segments;
+                var cosT = MathF.Cos(t);
+                var sinT = MathF.Sin(t);
 
-        _gl.VertexAttribPointer(0, 2, VertexAttribPointerType.Float, false, 2 * sizeof(float), 0);
-        _gl.EnableVertexAttribArray(0);
-        _gl.DisableVertexAttribArray(1);
+                // Outward normal direction on the ellipse
+                var nx = cosT / MathF.Max(semiMajor, 0.001f);
+                var ny = sinT / MathF.Max(semiMinor, 0.001f);
+                var nLen = MathF.Sqrt(nx * nx + ny * ny);
+                nx /= nLen;
+                ny /= nLen;
 
-        _flatShader.Use();
-        _flatShader.SetVector4("uColor", r, g, b, a);
+                // Rotate normal by the ellipse angle
+                var rnx = nx * cosA - ny * sinA;
+                var rny = nx * sinA + ny * cosA;
 
-        _gl.DrawArrays(PrimitiveType.Lines, 0, (uint)(segments * 2));
+                // Center point on ellipse
+                var ex = semiMajor * cosT;
+                var ey = semiMinor * sinT;
+                var px = cx + ex * cosA - ey * sinA;
+                var py = cy - (ex * sinA + ey * cosA);
+
+                // Inner and outer vertices
+                var ix = px - rnx * halfW;
+                var iy = py + rny * halfW;
+                var ox = px + rnx * halfW;
+                var oy = py - rny * halfW;
+
+                verts[i * 4 + 0] = (ix / _width) * 2f - 1f;
+                verts[i * 4 + 1] = 1f - (iy / _height) * 2f;
+                verts[i * 4 + 2] = (ox / _width) * 2f - 1f;
+                verts[i * 4 + 3] = 1f - (oy / _height) * 2f;
+            }
+
+            _gl.BindVertexArray(_vao);
+            _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vbo);
+            _gl.BufferData<float>(BufferTargetARB.ArrayBuffer, verts, BufferUsageARB.StreamDraw);
+
+            _gl.VertexAttribPointer(0, 2, VertexAttribPointerType.Float, false, 2 * sizeof(float), 0);
+            _gl.EnableVertexAttribArray(0);
+            _gl.DisableVertexAttribArray(1);
+
+            _flatShader.Use();
+            _flatShader.SetVector4("uColor", r, g, b, a);
+
+            _gl.DrawArrays(PrimitiveType.TriangleStrip, 0, (uint)((segments + 1) * 2));
+        }
     }
 
     private void DrawCross(float cx, float cy, float arm, float r, float g, float b, float a)
