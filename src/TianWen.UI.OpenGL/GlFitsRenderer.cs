@@ -161,7 +161,7 @@ public sealed class GlFitsRenderer : IDisposable
     /// </summary>
     public AsyncLazy<ICelestialObjectDB>? CelestialObjectDB { get; set; }
 
-    public void Render(FitsDocument? document, ViewerState state)
+    public void Render(AstroImageDocument? document, ViewerState state)
     {
         _gl.ClearColor(0.1f, 0.1f, 0.1f, 1.0f);
         _gl.Clear(ClearBufferMask.ColorBufferBit);
@@ -208,7 +208,7 @@ public sealed class GlFitsRenderer : IDisposable
 
     // --- Toolbar ---
 
-    private void RenderToolbar(FitsDocument? document, ViewerState state)
+    private void RenderToolbar(AstroImageDocument? document, ViewerState state)
     {
         // Background
         FillRect(0, 0, _width, ToolbarHeight, 0.18f, 0.18f, 0.20f, 1f);
@@ -277,7 +277,7 @@ public sealed class GlFitsRenderer : IDisposable
         }
     }
 
-    private bool IsToolbarButtonEnabled(ToolbarAction action, FitsDocument? document) => action switch
+    private bool IsToolbarButtonEnabled(ToolbarAction action, AstroImageDocument? document) => action switch
     {
         // Debayer only makes sense for Bayer sensors (e.g. RGGB)
         ToolbarAction.Debayer => document?.UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB,
@@ -303,7 +303,7 @@ public sealed class GlFitsRenderer : IDisposable
         _ => true,
     };
 
-    private bool IsToolbarButtonActive(ToolbarAction action, FitsDocument? document, ViewerState state)
+    private bool IsToolbarButtonActive(ToolbarAction action, AstroImageDocument? document, ViewerState state)
     {
         return action switch
         {
@@ -322,7 +322,7 @@ public sealed class GlFitsRenderer : IDisposable
         };
     }
 
-    private string GetToolbarButtonLabel(string baseLabel, ToolbarAction action, FitsDocument? document, ViewerState state)
+    private string GetToolbarButtonLabel(string baseLabel, ToolbarAction action, AstroImageDocument? document, ViewerState state)
     {
         return action switch
         {
@@ -355,7 +355,7 @@ public sealed class GlFitsRenderer : IDisposable
     /// <summary>
     /// Hit-tests the toolbar using actual rendered button widths for the current state.
     /// </summary>
-    public ToolbarAction? HitTestToolbar(float screenX, float screenY, FitsDocument? document, ViewerState state)
+    public ToolbarAction? HitTestToolbar(float screenX, float screenY, AstroImageDocument? document, ViewerState state)
     {
         if (screenY < ButtonSpacing || screenY >= ToolbarHeight - ButtonSpacing || _fontPath is null)
         {
@@ -419,10 +419,10 @@ public sealed class GlFitsRenderer : IDisposable
         var mouseX = state.MouseScreenPosition.X;
         var mouseY = state.MouseScreenPosition.Y;
 
-        for (var i = 0; i < visibleCount && i + state.FileListScrollOffset < state.FitsFileNames.Count; i++)
+        for (var i = 0; i < visibleCount && i + state.FileListScrollOffset < state.ImageFileNames.Count; i++)
         {
             var fileIndex = i + state.FileListScrollOffset;
-            var fileName = state.FitsFileNames[fileIndex];
+            var fileName = state.ImageFileNames[fileIndex];
             var itemY = y + i * itemHeight;
 
             var isSelected = fileIndex == state.SelectedFileIndex;
@@ -447,10 +447,10 @@ public sealed class GlFitsRenderer : IDisposable
         }
 
         // Scroll indicator
-        if (state.FitsFileNames.Count > visibleCount)
+        if (state.ImageFileNames.Count > visibleCount)
         {
-            var scrollFraction = (float)state.FileListScrollOffset / Math.Max(1, state.FitsFileNames.Count - visibleCount);
-            var scrollBarH = Math.Max(20f, listHeight * visibleCount / state.FitsFileNames.Count);
+            var scrollFraction = (float)state.FileListScrollOffset / Math.Max(1, state.ImageFileNames.Count - visibleCount);
+            var scrollBarH = Math.Max(20f, listHeight * visibleCount / state.ImageFileNames.Count);
             var scrollBarY = listTop + scrollFraction * (listHeight - scrollBarH);
             FillRect(FileListWidth - 4, scrollBarY, 3, scrollBarH, 0.4f, 0.4f, 0.45f, 0.8f);
         }
@@ -477,7 +477,7 @@ public sealed class GlFitsRenderer : IDisposable
         }
 
         var itemIndex = (int)(relY / itemHeight) + state.FileListScrollOffset;
-        if (itemIndex >= 0 && itemIndex < state.FitsFileNames.Count)
+        if (itemIndex >= 0 && itemIndex < state.ImageFileNames.Count)
         {
             return itemIndex;
         }
@@ -487,7 +487,7 @@ public sealed class GlFitsRenderer : IDisposable
 
     // --- Image ---
 
-    private void RenderImage(FitsDocument? document, ViewerState state, GpuStretchUniforms stretch, WCS? gridWcs = null)
+    private void RenderImage(AstroImageDocument? document, ViewerState state, GpuStretchUniforms stretch, WCS? gridWcs = null)
     {
         var fileListW = state.ShowFileList ? FileListWidth : 0;
         var panelW = state.ShowInfoPanel ? InfoPanelWidth : 0;
@@ -1209,7 +1209,7 @@ public sealed class GlFitsRenderer : IDisposable
 
     // --- Info panel ---
 
-    private void RenderInfoPanel(FitsDocument document, ViewerState state)
+    private void RenderInfoPanel(AstroImageDocument document, ViewerState state)
     {
         if (_fontPath is null)
         {
@@ -1300,7 +1300,7 @@ public sealed class GlFitsRenderer : IDisposable
 
     // --- Status bar ---
 
-    private void RenderStatusBar(FitsDocument? document, ViewerState state)
+    private void RenderStatusBar(AstroImageDocument? document, ViewerState state)
     {
         if (_fontPath is null)
         {

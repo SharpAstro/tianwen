@@ -63,20 +63,20 @@ var celestialObjectDB = new AsyncLazy<TianWen.Lib.Astrometry.Catalogs.ICelestial
     return db;
 });
 
-// Scan folder for FITS files
+// Scan folder for supported image files
 if (folderPath is not null)
 {
     ViewerActions.ScanFolder(state, folderPath, initialFilePath is not null ? Path.GetFileName(initialFilePath) : null);
 }
 
-// If no specific file was given, try to open the first FITS file in the folder
-if (initialFilePath is null && state.FitsFileNames.Count > 0 && folderPath is not null)
+// If no specific file was given, try to open the first image in the folder
+if (initialFilePath is null && state.ImageFileNames.Count > 0 && folderPath is not null)
 {
-    initialFilePath = Path.Combine(folderPath, state.FitsFileNames[0]);
+    initialFilePath = Path.Combine(folderPath, state.ImageFileNames[0]);
     state.SelectedFileIndex = 0;
 }
 
-FitsDocument? document = null;
+AstroImageDocument? document = null;
 if (initialFilePath is not null)
 {
     // Defer loading so the window appears immediately with a status message
@@ -86,8 +86,8 @@ if (initialFilePath is not null)
 var opts = WindowOptions.Default;
 opts.Size = new Vector2D<int>(1536, 1080);
 opts.Title = document is not null
-    ? $"TianWen FITS Viewer - {Path.GetFileName(initialFilePath)}"
-    : "TianWen FITS Viewer";
+    ? $"TianWen Image Viewer - {Path.GetFileName(initialFilePath)}"
+    : "TianWen Image Viewer";
 opts.API = new GraphicsAPI(ContextAPI.OpenGL, ContextProfile.Core, ContextFlags.ForwardCompatible, new APIVersion(3, 3));
 
 var window = Window.Create(opts);
@@ -102,17 +102,14 @@ Task? starDetectionTask = null;
 
 window.FileDrop += (paths) =>
 {
-    // Take the first FITS file from the dropped paths
-    var fitsFile = paths.FirstOrDefault(p =>
-        Path.GetExtension(p).Equals(".fit", StringComparison.OrdinalIgnoreCase)
-        || Path.GetExtension(p).Equals(".fits", StringComparison.OrdinalIgnoreCase)
-        || Path.GetExtension(p).Equals(".fts", StringComparison.OrdinalIgnoreCase));
+    // Take the first supported image file from the dropped paths
+    var imageFile = paths.FirstOrDefault(p => AstroImageDocument.IsSupportedExtension(Path.GetExtension(p)));
 
-    if (fitsFile is null && paths.Length > 0 && Directory.Exists(paths[0]))
+    if (imageFile is null && paths.Length > 0 && Directory.Exists(paths[0]))
     {
         // Dropped a folder — scan it
         ViewerActions.ScanFolder(state, paths[0]);
-        if (state.FitsFileNames.Count > 0)
+        if (state.ImageFileNames.Count > 0)
         {
             ViewerActions.SelectFile(state, 0);
         }
@@ -120,17 +117,17 @@ window.FileDrop += (paths) =>
         return;
     }
 
-    if (fitsFile is null)
+    if (imageFile is null)
     {
         return;
     }
 
-    var dir = Path.GetDirectoryName(fitsFile);
+    var dir = Path.GetDirectoryName(imageFile);
     if (dir is not null)
     {
-        ViewerActions.ScanFolder(state, dir, Path.GetFileName(fitsFile));
+        ViewerActions.ScanFolder(state, dir, Path.GetFileName(imageFile));
     }
-    state.RequestedFilePath = fitsFile;
+    state.RequestedFilePath = imageFile;
     state.NeedsRedraw = true;
 };
 
@@ -261,7 +258,7 @@ window.Load += () =>
                     }
                     break;
                 case Key.Down:
-                    if (state.SelectedFileIndex < state.FitsFileNames.Count - 1)
+                    if (state.SelectedFileIndex < state.ImageFileNames.Count - 1)
                     {
                         ViewerActions.SelectFile(state, state.SelectedFileIndex + 1);
                     }
@@ -460,7 +457,7 @@ window.Render += (_) =>
         var debayerAlgorithm = state.DebayerAlgorithm;
         reprocessTask = Task.Run(async () =>
         {
-            var newDoc = await FitsDocument.OpenAsync(requestedPath, debayerAlgorithm, cts.Token);
+            var newDoc = await AstroImageDocument.OpenAsync(requestedPath, debayerAlgorithm, cts.Token);
             if (newDoc is not null)
             {
                 document = newDoc;
@@ -468,6 +465,9 @@ window.Render += (_) =>
                 state.CursorImagePosition = null;
                 state.CursorPixelInfo = null;
                 state.StatusMessage = null;
+
+                // Disable stretch for pre-stretched images, re-enable for linear images
+                state.StretchMode = newDoc.IsPreStretched ? StretchMode.None : StretchMode.Unlinked;
 
                 if (newDoc.Wcs is { } wcs)
                 {
@@ -499,12 +499,12 @@ window.Render += (_) =>
             }
             else
             {
-                logger.LogWarning("Failed to open FITS file: {FilePath}", requestedPath);
+                logger.LogWarning("Failed to open image file: {FilePath}", requestedPath);
                 state.StatusMessage = $"Failed to open: {Path.GetFileName(requestedPath)}";
             }
         }, cts.Token);
         // Update title immediately
-        window.Title = $"TianWen FITS Viewer - {Path.GetFileName(requestedPath)}";
+        window.Title = $"TianWen Image Viewer - {Path.GetFileName(requestedPath)}";
     }
 
     // Handle reprocess flag (just triggers texture re-upload, stretch is done in shader)
@@ -603,13 +603,9 @@ void HandleToolbarAction(ToolbarAction action, bool reverse = false)
             state.StatusMessage = "Opening file dialog...";
             backgroundTask = Task.Run(async () =>
             {
-                var picked = await FileDialogHelper.PickAsync(
-                    new Dictionary<string, IReadOnlyList<string>>
-                    {
-                        ["FITS files"] = [".fits", ".fit", ".fts"]
-                    },
-                    "Open FITS file"
-                ).ConfigureAwait(false);
+                var filters = AstroImageDocument.FileDialogFilters
+                    .ToDictionary(f => f.Name, f => (IReadOnlyList<string>)f.Extensions);
+                var picked = await FileDialogHelper.PickAsync(filters, combinedFilterName: "All supported images", title: "Open image").ConfigureAwait(false);
                 state.StatusMessage = null;
                 if (picked is null)
                 {
@@ -619,7 +615,7 @@ void HandleToolbarAction(ToolbarAction action, bool reverse = false)
                 if (Directory.Exists(picked))
                 {
                     ViewerActions.ScanFolder(state, picked);
-                    if (state.FitsFileNames.Count > 0)
+                    if (state.ImageFileNames.Count > 0)
                     {
                         ViewerActions.SelectFile(state, 0);
                     }

@@ -10,7 +10,7 @@ using TianWen.Lib.Imaging;
 namespace TianWen.UI.Abstractions;
 
 /// <summary>
-/// Stateless action handlers that mutate <see cref="ViewerState"/> and <see cref="FitsDocument"/>.
+/// Stateless action handlers that mutate <see cref="ViewerState"/> and <see cref="AstroImageDocument"/>.
 /// Shared between all display backends.
 /// </summary>
 public static class ViewerActions
@@ -118,7 +118,7 @@ public static class ViewerActions
     /// <summary>
     /// Initiates plate solving in the background.
     /// </summary>
-    public static async Task PlateSolveAsync(FitsDocument document, ViewerState state, IPlateSolverFactory solverFactory, CancellationToken cancellationToken = default)
+    public static async Task PlateSolveAsync(AstroImageDocument document, ViewerState state, IPlateSolverFactory solverFactory, CancellationToken cancellationToken = default)
     {
         if (state.IsPlateSolving)
         {
@@ -146,20 +146,20 @@ public static class ViewerActions
     /// <summary>
     /// Updates cursor pixel info when the mouse moves over the image.
     /// </summary>
-    public static void UpdateCursorInfo(FitsDocument document, ViewerState state, int imageX, int imageY)
+    public static void UpdateCursorInfo(AstroImageDocument document, ViewerState state, int imageX, int imageY)
     {
         state.CursorImagePosition = (imageX, imageY);
         state.CursorPixelInfo = document.GetPixelInfo(imageX, imageY);
     }
 
     /// <summary>
-    /// Scans a folder for FITS files and populates the file list.
+    /// Scans a folder for supported image files and populates the file list.
     /// Optionally selects the file matching <paramref name="currentFileName"/>.
     /// </summary>
     public static void ScanFolder(ViewerState state, string folderPath, string? currentFileName = null)
     {
         state.CurrentFolder = folderPath;
-        state.FitsFileNames.Clear();
+        state.ImageFileNames.Clear();
         state.FileListScrollOffset = 0;
 
         if (!Directory.Exists(folderPath))
@@ -168,8 +168,7 @@ public static class ViewerActions
             return;
         }
 
-        string[] fitsPatterns = ["*.fit", "*.fits", "*.fts"];
-        var files = fitsPatterns
+        var files = AstroImageDocument.SupportedPatterns
             .SelectMany(p => Directory.EnumerateFiles(folderPath, p, SearchOption.TopDirectoryOnly))
             .Select(Path.GetFileName)
             .OfType<string>()
@@ -177,7 +176,7 @@ public static class ViewerActions
             .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        state.FitsFileNames = files;
+        state.ImageFileNames = files;
         state.SelectedFileIndex = currentFileName is not null
             ? files.FindIndex(f => string.Equals(f, currentFileName, StringComparison.OrdinalIgnoreCase))
             : -1;
@@ -194,7 +193,7 @@ public static class ViewerActions
     /// </summary>
     public static void SelectFile(ViewerState state, int index)
     {
-        if (index < 0 || index >= state.FitsFileNames.Count || state.CurrentFolder is null)
+        if (index < 0 || index >= state.ImageFileNames.Count || state.CurrentFolder is null)
         {
             return;
         }
@@ -205,7 +204,7 @@ public static class ViewerActions
         }
 
         state.SelectedFileIndex = index;
-        state.RequestedFilePath = Path.Combine(state.CurrentFolder, state.FitsFileNames[index]);
+        state.RequestedFilePath = Path.Combine(state.CurrentFolder, state.ImageFileNames[index]);
     }
 
     /// <summary>
@@ -256,7 +255,7 @@ public static class ViewerActions
     /// </summary>
     public static void ScrollFileList(ViewerState state, int delta)
     {
-        var maxScroll = Math.Max(0, state.FitsFileNames.Count - 1);
+        var maxScroll = Math.Max(0, state.ImageFileNames.Count - 1);
         state.FileListScrollOffset = Math.Clamp(state.FileListScrollOffset + delta, 0, maxScroll);
     }
 }

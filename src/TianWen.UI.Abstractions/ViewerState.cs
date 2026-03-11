@@ -99,10 +99,10 @@ public sealed class ViewerState
     /// <summary>Current folder path being browsed.</summary>
     public string? CurrentFolder { get; set; }
 
-    /// <summary>List of FITS filenames (name only) in the current folder.</summary>
-    public List<string> FitsFileNames { get; set; } = new List<string>();
+    /// <summary>List of image filenames (name only) in the current folder.</summary>
+    public List<string> ImageFileNames { get; set; } = new List<string>();
 
-    /// <summary>Index of the currently loaded file in <see cref="FitsFileNames"/>, or -1 if none.</summary>
+    /// <summary>Index of the currently loaded file in <see cref="ImageFileNames"/>, or -1 if none.</summary>
     public int SelectedFileIndex { get; set; } = -1;
 
     /// <summary>Whether the file list sidebar is visible.</summary>
