@@ -41,7 +41,6 @@
   <ItemGroup>
     <ProjectReference Include="..\TianWen.Lib.SourceGenerators\TianWen.Lib.SourceGenerators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <PackageReference Include="CommunityToolkit.HighPerformance" />
-    <PackageReference Include="CsvHelper" />
     <PackageReference Include="DotNext.Threading" />
     <PackageReference Include="FITS.Lib" />
     <PackageReference Include="GeoTimeZone" />
