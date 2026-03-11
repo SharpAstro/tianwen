@@ -1,11 +1,14 @@
 using TianWen.UI.OpenGL;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Silk.NET.Input;
 using Silk.NET.Input.Glfw;
 using Silk.NET.Maths;
 using Silk.NET.OpenGL;
 using Silk.NET.Windowing;
 using Silk.NET.Windowing.Glfw;
+using TianWen.Lib.Devices;
+using TianWen.Lib.Logging;
 using TianWen.UI.Abstractions;
 using TianWen.UI.Abstractions.Extensions;
 using TianWen.Lib.Extensions;
@@ -13,6 +16,18 @@ using TianWen.Lib.Extensions;
 // Explicitly register GLFW platforms to avoid reflection-based discovery (AOT-incompatible).
 GlfwWindowing.RegisterPlatform();
 GlfwInput.RegisterPlatform();
+
+// DI setup — before args processing so logger is available for early errors
+var services = new ServiceCollection();
+services
+    .AddFileLogging("FitsViewer")
+    .AddFitsViewer()
+    .AddExternal()
+    .AddAstrometry();
+
+var sp = services.BuildServiceProvider();
+var state = sp.GetRequiredService<ViewerState>();
+var logger = sp.GetRequiredService<IExternal>().AppLogger;
 
 string? initialFilePath = null;
 string? folderPath = null;
@@ -32,20 +47,10 @@ if (args.Length >= 1)
     }
     else
     {
-        Console.Error.WriteLine($"Path not found: {inputPath}");
+        logger.LogError("Path not found: {InputPath}", inputPath);
         return 1;
     }
 }
-
-// DI setup
-var services = new ServiceCollection();
-services
-    .AddFitsViewer()
-    .AddExternal()
-    .AddAstrometry();
-
-var sp = services.BuildServiceProvider();
-var state = sp.GetRequiredService<ViewerState>();
 
 // Lazy-initialized catalog DB — starts init on first access, safe to pass around immediately
 var celestialObjectDB = new AsyncLazy<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(async () =>
@@ -74,11 +79,12 @@ if (initialFilePath is not null)
     document = await FitsDocument.OpenAsync(initialFilePath, state.DebayerAlgorithm);
     if (document is null)
     {
-        Console.Error.WriteLine($"Warning: Failed to open FITS file: {initialFilePath}");
+        logger.LogWarning("Failed to open FITS file: {FilePath}", initialFilePath);
     }
     else if (document.Wcs is { } loadedWcs)
     {
-        Console.Error.WriteLine($"WCS: HasCD={loadedWcs.HasCDMatrix}, Approx={loadedWcs.IsApproximate}, Scale={loadedWcs.PixelScaleArcsec:F2}\"/px, RA={loadedWcs.CenterRA:F4}h, Dec={loadedWcs.CenterDec:F4}°");
+        logger.LogInformation("WCS: HasCD={HasCDMatrix}, Approx={IsApproximate}, Scale={PixelScale:F2}\"/px, RA={CenterRA:F4}h, Dec={CenterDec:F4}°",
+            loadedWcs.HasCDMatrix, loadedWcs.IsApproximate, loadedWcs.PixelScaleArcsec, loadedWcs.CenterRA, loadedWcs.CenterDec);
     }
 }
 
