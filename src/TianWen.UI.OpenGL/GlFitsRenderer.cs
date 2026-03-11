@@ -195,10 +195,7 @@ public sealed class GlFitsRenderer : IDisposable
             RenderInfoPanel(document, state);
         }
 
-        if (document is not null)
-        {
-            RenderStatusBar(document, state);
-        }
+        RenderStatusBar(document, state);
 
         _fontAtlas.Flush();
     }
@@ -1155,34 +1152,54 @@ public sealed class GlFitsRenderer : IDisposable
             }
         }
 
-        // Controls help at bottom of panel
+        // Controls help at bottom of panel — only show lines that fit below content
+        ReadOnlySpan<string> controlLabels =
+        [
+            "-- Controls --",
+            "S: Cycle stretch",
+            "+/-: Stretch factor",
+            "C: Cycle channel",
+            "D: Cycle debayer",
+            "H: Cycle HDR",
+            "G: Toggle grid",
+            "P: Plate solve",
+            "Wheel/Ctrl+Wheel: Zoom",
+            "Ctrl++/-: Zoom in/out",
+            "F/Ctrl+0: Zoom to fit",
+            "R/Ctrl+1: Zoom 1:1",
+            "Ctrl+2..9: Zoom 1:N",
+            "I: Toggle info panel",
+            "L: Toggle file list",
+            "F11: Fullscreen",
+            "Esc: Quit",
+        ];
+
         var lineHeight = FontSize + 2f;
-        var controlLines = 16; // header + 15 controls
-        y = _height - StatusBarHeight - lineHeight * controlLines - PanelPadding;
-        if (y > ToolbarHeight + lineHeight * 5)
+        var availableLines = (int)((_height - StatusBarHeight - PanelPadding - y - lineHeight) / lineHeight);
+        if (availableLines >= 2)
         {
-            DrawTextLine(ref y, x, "-- Controls --", 0.6f, 0.8f, 1f);
-            DrawTextLine(ref y, x, "S: Cycle stretch", 0.7f, 0.7f, 0.7f);
-            DrawTextLine(ref y, x, "+/-: Stretch factor", 0.7f, 0.7f, 0.7f);
-            DrawTextLine(ref y, x, "C: Cycle channel", 0.7f, 0.7f, 0.7f);
-            DrawTextLine(ref y, x, "D: Cycle debayer", 0.7f, 0.7f, 0.7f);
-            DrawTextLine(ref y, x, "H: Cycle HDR", 0.7f, 0.7f, 0.7f);
-            DrawTextLine(ref y, x, "G: Toggle grid", 0.7f, 0.7f, 0.7f);
-            DrawTextLine(ref y, x, "P: Plate solve", 0.7f, 0.7f, 0.7f);
-            DrawTextLine(ref y, x, "Ctrl+Wheel: Zoom", 0.7f, 0.7f, 0.7f);
-            DrawTextLine(ref y, x, "Ctrl++/-: Zoom in/out", 0.7f, 0.7f, 0.7f);
-            DrawTextLine(ref y, x, "Ctrl+0: Zoom to fit", 0.7f, 0.7f, 0.7f);
-            DrawTextLine(ref y, x, "Ctrl+1: Zoom 1:1", 0.7f, 0.7f, 0.7f);
-            DrawTextLine(ref y, x, "I: Toggle info panel", 0.7f, 0.7f, 0.7f);
-            DrawTextLine(ref y, x, "L: Toggle file list", 0.7f, 0.7f, 0.7f);
-            DrawTextLine(ref y, x, "F11: Fullscreen", 0.7f, 0.7f, 0.7f);
-            DrawTextLine(ref y, x, "Esc: Quit", 0.7f, 0.7f, 0.7f);
+            var clipped = availableLines < controlLabels.Length;
+            var linesToDraw = clipped ? availableLines - 1 : controlLabels.Length;
+            var totalLines = clipped ? linesToDraw + 1 : linesToDraw;
+            y = _height - StatusBarHeight - lineHeight * totalLines - PanelPadding;
+            for (var i = 0; i < linesToDraw; i++)
+            {
+                var isHeader = i == 0;
+                DrawTextLine(ref y, x, controlLabels[i],
+                    isHeader ? 0.6f : 0.7f,
+                    isHeader ? 0.8f : 0.7f,
+                    isHeader ? 1f : 0.7f);
+            }
+            if (clipped)
+            {
+                DrawTextLine(ref y, x, "...", 0.5f, 0.5f, 0.5f);
+            }
         }
     }
 
     // --- Status bar ---
 
-    private void RenderStatusBar(FitsDocument document, ViewerState state)
+    private void RenderStatusBar(FitsDocument? document, ViewerState state)
     {
         if (_fontPath is null)
         {
@@ -1197,7 +1214,7 @@ public sealed class GlFitsRenderer : IDisposable
 
         var statusParts = new List<string>();
 
-        if (document.Wcs is { HasCDMatrix: true } wcs)
+        if (document?.Wcs is { HasCDMatrix: true } wcs)
         {
             var scale = wcs.PixelScaleArcsec;
             var label = wcs.IsApproximate ? "approx" : "solved";
@@ -1206,8 +1223,11 @@ public sealed class GlFitsRenderer : IDisposable
             statusParts.Add($"WCS: {label} ({scale:F2}\"/px)  RA {ra}  Dec {dec}");
         }
 
-        var zoomPct = state.Zoom * 100f;
-        statusParts.Add($"Zoom: {zoomPct:F0}%");
+        if (document is not null)
+        {
+            var zoomPct = state.Zoom * 100f;
+            statusParts.Add($"Zoom: {zoomPct:F0}%");
+        }
 
         if (state.StatusMessage is { } msg)
         {

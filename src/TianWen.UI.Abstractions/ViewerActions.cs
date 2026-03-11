@@ -220,10 +220,12 @@ public static class ViewerActions
     /// <summary>
     /// Sets zoom to 100% (1 image pixel = 1 screen pixel).
     /// </summary>
-    public static void ZoomToActual(ViewerState state)
+    public static void ZoomToActual(ViewerState state) => ZoomTo(state, 1.0f);
+
+    public static void ZoomTo(ViewerState state, float zoom)
     {
         state.ZoomToFit = false;
-        state.Zoom = 1.0f;
+        state.Zoom = zoom;
         state.PanOffset = (0f, 0f);
     }
 
