@@ -19,7 +19,17 @@ The TianWen library is a comprehensive .NET library designed for astronomical de
   - Read and write FITS files.
   - Analyze images to find stars and calculate metrics like HFD, FWHM, SNR, and flux.
   - Generate image histograms and background levels.
-  - Debayer OSC images to synthetic luminance.
+  - Debayer OSC images (AHD, bilinear) to color or synthetic luminance.
+  - Scale-invariant star detection works on both raw ADU and normalized [0,1] images.
+
+- **FITS Viewer** (`TianWen.UI.FitsViewer`):
+  - GPU-accelerated stretch (MTF) with per-channel, linked, and luma modes.
+  - HDR compression via Hermite soft-knee in the GLSL shader.
+  - Automatic star detection with HFD-sized overlay circles and status bar metrics.
+  - Contrast boost with star-masked background estimation for clean nebula enhancement.
+  - WCS coordinate grid overlay with RA/Dec labels.
+  - Celestial object annotation overlay (NGC, IC, Messier, etc.) when plate-solved.
+  - Plate solving via ASTAP or astrometry.net.
 
 - **External Integration**:
   - Interfaces for external operations such as logging, `TimeProvider` based time management, and file management.

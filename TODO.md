@@ -79,7 +79,10 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 - [ ] Grid label formatting: show arc-seconds for very narrow FOVs
 - [ ] Crosshair / reticle overlay at image center
 - [x] Annotation overlay (object names from catalogs when plate-solved)
-- [ ] Image-based star overlay: run `FindStarsAsync` on the loaded image, project each detected star through WCS to RA/Dec, nearest-neighbor match against Tycho2 catalog (fast spatial lookup via `IRaDecIndex`), then only display stars that have a cross-catalog entry (HIP, HD, etc.) — label with the cross-cat name. Draw matched stars as circles with radius = HFR from `ImagedStar` for visual size feedback. This gives pixel-accurate positions (no WCS projection error). Needs: expose `FindStarsAsync` from `FitsDocument`, cache the `StarList`, use `TryGetCrossIndices` to filter for named stars.
+- [x] Star detection overlay: `FitsDocument.DetectStarsAsync()` runs as background task,
+      draws HFD-sized green circles, shows count/HFR/FWHM in status bar (S key toggle)
+- [ ] Named star labels: match detected stars against Tycho2 via WCS→RA/Dec projection,
+      label with cross-catalog names (HIP, HD) using `TryGetCrossIndices`
 - [ ] Replace custom `AsyncLazy<T>` with `DotNext.Threading.AsyncLazy<T>` (already a dependency in TianWen.Lib)
 
 ## Astrometry / Catalogs
@@ -94,9 +97,9 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 ## Statistics
 
 - [ ] Find a faster way to multiply all values in an array/span (`StatisticsHelper.cs:167`)
-- [ ] Run star detection and use the mask to exclude stars from background estimation.
-      Currently the darkest-patch heuristic works well for typical astro images, but
-      images with dense star fields or nebulosity could benefit from masking.
+- [x] Run star detection and use the mask to exclude stars from background estimation.
+      `ScanBackgroundRegion` accepts optional `BitMatrix? starMask`, re-scanned with
+      48×48 squares after detection. Star mask reused from `StarList.StarMask`.
 
 ## Guider
 

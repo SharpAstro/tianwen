@@ -115,14 +115,34 @@ Devices are URI-addressed and managed through:
 - `ComputeStretchUniforms()` produces shader uniforms from cached stats
 - Three stretch modes: per-channel (linked/unlinked), luma (preserves chrominance ratios)
 - HDR compression via Hermite soft-knee, also in the shader
-- Background estimation via `Image.ScanBackgroundRegion()`: finds the darkest 32×32 patch
+- Background estimation via `Image.ScanBackgroundRegion()`: finds the darkest patch
   (skipping 5% border to avoid stacking artifacts), uses median (not mean) to reject hot pixels,
   parallelized with `Parallel.For`. Result is pedestal-subtracted and fed through `Image.StretchValue`
   to compute the post-stretch background level for the boost curve's symmetry point.
+  After star detection, re-scanned with 48×48 squares and star mask for cleaner boost.
 - `Image.StretchValue()` is the single source of truth for the stretch pipeline
   (normalize → subtract pedestal → rescale → MTF), used by CPU stretch, background computation, and tests
 - WCS coordinate grid overlay rendered in the fragment shader with per-pixel TAN deprojection
 - Grid labels placed at viewport edges where RA/Dec lines cross, with corner exclusion zones
+
+### Star Detection
+
+- `Image.FindStarsAsync()` detects stars using histogram-based background estimation,
+  iterative detection level lowering, and per-star HFD/FWHM/SNR analysis
+- Parallelized via interleaved chunk processing: even chunks first, then odd, to avoid
+  locking the `BitMatrix` star mask used for deduplication
+- `ChunkSize` is decoupled from `MaxScaledRadius` — chunk size stays fixed at
+  `2 * (HfdFactor * BoxRadius + 1)` for stable parallelization, while `StarMasks`
+  covers the full HFD range up to `HfdFactor * BoxRadius * 2`
+- SNR calculation is scale-invariant: uses `aduScale = MaxValue > 1 ? 1 : ushort.MaxValue`
+  so detection works on both raw ADU and [0,1]-normalized images
+- The `BitMatrix` star mask built during detection is stored on `StarList.StarMask`
+  and reused by `ScanBackgroundRegion` to exclude star pixels from background estimation
+- `Image.BuildStarMask(stars)` can reconstruct a mask from a `StarList` standalone
+- `FitsDocument.DetectStarsAsync()` runs as a background task after loading, cancellable
+  on image switch via `CancellationTokenSource.CreateLinkedTokenSource`
+- Star overlay rendered as green HFD-sized circles; boost and star overlay gated on
+  `Stars is { Count: > 0 }`
 
 ### WCS (World Coordinate System)
 
