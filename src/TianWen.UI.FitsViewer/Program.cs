@@ -77,6 +77,7 @@ if (initialFilePath is null && state.ImageFileNames.Count > 0 && folderPath is n
 }
 
 AstroImageDocument? document = null;
+var documentCache = new DocumentCache();
 if (initialFilePath is not null)
 {
     // Defer loading so the window appears immediately with a status message
@@ -457,7 +458,7 @@ window.Render += (_) =>
         var debayerAlgorithm = state.DebayerAlgorithm;
         reprocessTask = Task.Run(async () =>
         {
-            var newDoc = await AstroImageDocument.OpenAsync(requestedPath, debayerAlgorithm, cts.Token);
+            var newDoc = await documentCache.GetOrLoadAsync(requestedPath, debayerAlgorithm, cts.Token);
             if (newDoc is not null)
             {
                 document = newDoc;
