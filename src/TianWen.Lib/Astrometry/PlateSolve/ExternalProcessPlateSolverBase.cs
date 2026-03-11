@@ -110,14 +110,11 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
             throw new PlateSolverException($"Failed to solve {normalisedFilePath} file, exit code {solveFieldProc.ExitCode}, has WCS: {hasWCSFile}, log: {string.Join('\n', outputLines)}");
         }
 
-        var wcsReader = new BufferedFile(wcsFile, FileAccess.ReadWrite, FileShare.Read, 1000 * 2088);
-        var wcs = new Fits(wcsReader);
         try
         {
-            using (wcs.Stream)
-            {
-                return new PlateSolveResult(WCS.FromFits(wcs), sw.Elapsed);
-            }
+            using var wcsReader = new BufferedFile(wcsFile, FileAccess.ReadWrite, FileShare.Read, 1000 * 2088);
+            using var wcs = new Fits(wcsReader);
+            return new PlateSolveResult(WCS.FromFits(wcs), sw.Elapsed);
         }
         finally
         {

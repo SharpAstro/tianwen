@@ -65,7 +65,8 @@ public static class SharedTestData
     {
         using var inStream = OpenGZippedFitsFileStream(name) ?? throw new ArgumentException($"Missing test data {name}", nameof(name));
 
-        return Image.TryReadFitsFile(new Fits(inStream, true), out var image)
+        using var fitsFile = new Fits(inStream, true);
+        return Image.TryReadFitsFile(fitsFile, out var image)
             ? image
             : throw new InvalidDataException($"Failed to read FITS image from test data {name}");
     }
