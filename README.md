@@ -29,6 +29,7 @@ The TianWen library is a comprehensive .NET library designed for astronomical de
   - Contrast boost with star-masked background estimation for clean nebula enhancement.
   - WCS coordinate grid overlay with RA/Dec labels.
   - Celestial object annotation overlay (NGC, IC, Messier, etc.) when plate-solved.
+  - Per-channel histogram overlay (R/G/B colored) with log/linear scale toggle and stretch-aware bin remapping.
   - Plate solving via ASTAP or astrometry.net.
 
 - **External Integration**:
@@ -57,3 +58,31 @@ Pre-built native AOT binaries of `TianWen.Lib.CLI` are available from [GitHub Re
 | Linux    | ARM64       | `tianwen-cli-linux-arm64.tar.gz` |
 | macOS    | x64         | `tianwen-cli-osx-x64.tar.gz` |
 | macOS    | ARM64       | `tianwen-cli-osx-arm64.tar.gz` |
+
+### FITS Viewer
+
+Pre-built native AOT binaries of `TianWen.UI.FitsViewer` are available from [GitHub Releases](https://github.com/SharpAstro/tianwen/releases):
+
+| Platform | Architecture | Artifact |
+|----------|-------------|----------|
+| Windows  | x64         | `tianwen-fits-viewer-win-x64.tar.gz` |
+| Windows  | ARM64       | `tianwen-fits-viewer-win-arm64.tar.gz` |
+| Linux    | x64         | `tianwen-fits-viewer-linux-x64.tar.gz` |
+| Linux    | ARM64       | `tianwen-fits-viewer-linux-arm64.tar.gz` |
+| macOS    | x64         | `tianwen-fits-viewer-osx-x64.tar.gz` |
+| macOS    | ARM64       | `tianwen-fits-viewer-osx-arm64.tar.gz` |
+
+#### Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| T | Cycle stretch mode (none / per-channel / luma) |
+| S | Toggle star overlay |
+| C | Cycle channel display |
+| D | Cycle debayer algorithm |
+| V | Toggle histogram overlay |
+| Shift+V | Toggle histogram log scale |
+| F / Ctrl+0 | Zoom to fit |
+| R / Ctrl+1 | Zoom 1:1 |
+| Ctrl+2..9 | Zoom 1:N |
+| Mouse wheel | Zoom in viewport |

@@ -12,5 +12,9 @@ public record struct SessionConfiguration(
     double SettlePixel,
     int DitherEveryNthFrame,
     TimeSpan SettleTime,
-    int GuidingTries
+    int GuidingTries,
+    bool MeasureBacklashIfUnknown = true,
+    int AutoFocusRange = 200,
+    int AutoFocusStepCount = 9,
+    float FocusDriftThreshold = 1.3f
 );

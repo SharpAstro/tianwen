@@ -84,9 +84,10 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 - [ ] Star profile tooltip: show radial profile plot (flux vs. distance) when mouse hovers over a detected star
 - [ ] Named star labels: match detected stars against Tycho2 via WCS→RA/Dec projection,
       label with cross-catalog names (HIP, HD) using `TryGetCrossIndices`
-- [ ] Replace custom `AsyncLazy<T>` with `DotNext.Threading.AsyncLazy<T>` (already a dependency in TianWen.Lib)
-- [ ] Use a `WeakReference<FitsDocument>` cache (keyed by file path) so that cycling through
+- [x] Replace custom `AsyncLazy<T>` with `DotNext.Threading.AsyncLazy<T>` (already a dependency in TianWen.Lib)
+- [x] Use a `WeakReference<AstroImageDocument>` cache (keyed by file path) so that cycling through
       images can reuse recently loaded documents without keeping them pinned in memory
+      (`DocumentCache` with `ConditionalWeakTable` + `WeakReference<T>`)
 - [ ] Investigate `DotNext.Threading.RandomAccessCache<TKey, TValue>` (or similar bounded cache)
       as an alternative to `WeakReference` for the document cache — may offer better eviction control
 

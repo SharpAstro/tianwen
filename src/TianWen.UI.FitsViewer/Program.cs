@@ -10,11 +10,11 @@ using Silk.NET.OpenGL;
 using Silk.NET.Windowing;
 using Silk.NET.Windowing.Glfw;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Logging;
 using TianWen.UI.Abstractions;
 using TianWen.UI.Abstractions.Extensions;
 using TianWen.Lib.Extensions;
-using TianWen.Lib.Imaging;
 
 // Explicitly register GLFW platforms to avoid reflection-based discovery (AOT-incompatible).
 GlfwWindowing.RegisterPlatform();
@@ -56,7 +56,7 @@ if (args.Length >= 1)
 }
 
 // Lazy-initialized catalog DB — starts init on first access, safe to pass around immediately
-var celestialObjectDB = new AsyncLazy<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(async () =>
+var celestialObjectDB = new DotNext.Threading.AsyncLazy<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(async (ct) =>
 {
     var db = sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
     await db.InitDBAsync();
@@ -94,7 +94,7 @@ opts.API = new GraphicsAPI(ContextAPI.OpenGL, ContextProfile.Core, ContextFlags.
 var window = Window.Create(opts);
 
 GL? gl = null;
-GlFitsRenderer? renderer = null;
+GlImageRenderer? renderer = null;
 var cts = new CancellationTokenSource();
 Task? reprocessTask = null;
 Task? backgroundTask = null; // For non-pipeline background work (plate solve, file dialog)
@@ -147,13 +147,13 @@ window.Load += () =>
     var fbSize = window.FramebufferSize;
     var dpiScale = (float)fbSize.X / window.Size.X;
 
-    renderer = new GlFitsRenderer(gl, (uint)fbSize.X, (uint)fbSize.Y)
+    renderer = new GlImageRenderer(gl, (uint)fbSize.X, (uint)fbSize.Y)
     {
         DpiScale = dpiScale,
         CelestialObjectDB = celestialObjectDB
     };
     // Kick off DB init eagerly so it's ready when user toggles overlays
-    _ = celestialObjectDB.Task;
+    _ = celestialObjectDB.WithCancellation(cts.Token);
 
     var input = window.CreateInput();
 
@@ -238,6 +238,17 @@ window.Load += () =>
                     break;
                 case Key.H:
                     ViewerActions.CycleHdr(state);
+                    break;
+                case Key.V:
+                    var shift = keyboard.IsKeyPressed(Key.ShiftLeft) || keyboard.IsKeyPressed(Key.ShiftRight);
+                    if (shift)
+                    {
+                        state.HistogramLogScale = !state.HistogramLogScale;
+                    }
+                    else
+                    {
+                        state.ShowHistogram = !state.ShowHistogram;
+                    }
                     break;
                 case Key.P:
                     if (document is not null && !state.IsPlateSolving && !document.IsPlateSolved)
@@ -337,6 +348,13 @@ window.Load += () =>
                 if (toolbarAction.HasValue)
                 {
                     HandleToolbarAction(toolbarAction.Value);
+                    return;
+                }
+
+                // Histogram LOG button hit test
+                if (renderer.HitTestHistogramLog(pos.X, pos.Y, state))
+                {
+                    state.HistogramLogScale = !state.HistogramLogScale;
                     return;
                 }
 
@@ -469,6 +487,7 @@ window.Render += (_) =>
 
                 // Disable stretch for pre-stretched images, re-enable for linear images
                 state.StretchMode = newDoc.IsPreStretched ? StretchMode.None : StretchMode.Unlinked;
+                state.HistogramLogScale = state.StretchMode is StretchMode.None;
 
                 if (newDoc.Wcs is { } wcs)
                 {
@@ -548,6 +567,7 @@ window.Render += (_) =>
             renderer.UploadChannelTexture(image.GetChannelSpan(channelIndex), 0, pixelWidth, pixelHeight);
         }
 
+        renderer.UploadHistogramData(doc);
         state.StatusMessage = null;
     }
 

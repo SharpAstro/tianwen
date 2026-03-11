@@ -97,11 +97,14 @@ public class CelestialObjectDBBenchmarkTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public async Task GivenInitializedDBWhenLookingUpCrossIndicesThenItCompletesInUnder1Millisecond()
+    public async Task GivenInitializedDBWhenLookingUpCrossIndicesThenItIsMuchFasterThanInit()
     {
-        // given
+        // given — measure initialization cost per entry
         var db = new CelestialObjectDB();
-        await db.InitDBAsync(TestContext.Current.CancellationToken);
+        var initSw = Stopwatch.StartNew();
+        var (processed, _) = await db.InitDBAsync(TestContext.Current.CancellationToken);
+        initSw.Stop();
+        var initNsPerEntry = initSw.Elapsed.TotalNanoseconds / processed;
 
         var indices = new[]
         {
@@ -115,7 +118,7 @@ public class CelestialObjectDBBenchmarkTests(ITestOutputHelper output)
             db.TryGetCrossIndices(idx, out _);
         }
 
-        // when
+        // when — measure lookup cost
         var sw = Stopwatch.StartNew();
         const int iterations = 1_000;
         for (var i = 0; i < iterations; i++)
@@ -127,9 +130,11 @@ public class CelestialObjectDBBenchmarkTests(ITestOutputHelper output)
         }
         sw.Stop();
 
-        // then
-        var avgNs = sw.Elapsed.TotalNanoseconds / (iterations * indices.Length);
-        output.WriteLine($"TryGetCrossIndices: {avgNs:F1}ns avg per lookup ({iterations * indices.Length} lookups in {sw.Elapsed.TotalMilliseconds:F1}ms)");
-        avgNs.ShouldBeLessThan(10_000, $"Cross-index lookup took {avgNs:F1}ns avg, expected < 1000ns");
+        // then — lookups should be at least 10x faster than init per entry
+        var avgLookupNs = sw.Elapsed.TotalNanoseconds / (iterations * indices.Length);
+        var speedup = initNsPerEntry / avgLookupNs;
+        output.WriteLine($"Init: {initNsPerEntry:F1}ns/entry, Lookup: {avgLookupNs:F1}ns avg, Speedup: {speedup:F0}x");
+        speedup.ShouldBeGreaterThan(10,
+            $"Cross-index lookup ({avgLookupNs:F1}ns) should be at least 10x faster than init per entry ({initNsPerEntry:F1}ns), but was only {speedup:F1}x faster");
     }
 }

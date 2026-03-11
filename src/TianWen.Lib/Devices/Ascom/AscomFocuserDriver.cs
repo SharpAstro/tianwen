@@ -64,6 +64,10 @@ internal class AscomFocuserDriver : AscomDeviceDriverBase, IFocuserDriver
 
     public bool TempCompAvailable { get; private set; }
 
+    public int BacklashStepsIn { get; set; } = -1;
+
+    public int BacklashStepsOut { get; set; } = -1;
+
     public ValueTask<double> GetTemperatureAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(Connected ? _focuser.Temperature : double.NaN);
 

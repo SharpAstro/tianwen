@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using static TianWen.Lib.Stat.StatisticsHelper;
 
@@ -147,7 +148,7 @@ public class StarReferenceTable
     /// Fits a least-squares affine transform from dest to source positions without validation.
     /// Returns <c>null</c> if fewer than 3 pairs or the system is singular.
     /// </summary>
-    public Matrix3x2? FitAffineTransform() => Matrix3x2.FitAffineTransform(_dest, _source);
+    public Matrix3x2? FitAffineTransform() => Matrix3x2.FitAffineTransform(CollectionsMarshal.AsSpan(_dest), CollectionsMarshal.AsSpan(_source));
 
     /// <summary>
     /// Fits an affine transform and validates it via <see cref="Matrix3x2Helper.Decompose"/>:

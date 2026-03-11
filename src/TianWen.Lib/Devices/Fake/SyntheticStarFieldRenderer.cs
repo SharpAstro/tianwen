@@ -1,0 +1,96 @@
+using System;
+
+namespace TianWen.Lib.Devices.Fake;
+
+/// <summary>
+/// Generates synthetic star field images with defocus-dependent PSF.
+/// Stars are rendered as 2D Gaussians whose FWHM follows a hyperbolic
+/// relationship with distance from best focus, matching the real optical model.
+/// </summary>
+internal static class SyntheticStarFieldRenderer
+{
+    /// <summary>
+    /// Renders a synthetic star field into a float[height, width] array.
+    /// </summary>
+    /// <param name="width">Image width in pixels.</param>
+    /// <param name="height">Image height in pixels.</param>
+    /// <param name="defocusSteps">Absolute distance from true best focus in focuser steps.</param>
+    /// <param name="hyperbolaA">Minimum FWHM in pixels at perfect focus (~2.0).</param>
+    /// <param name="hyperbolaB">Asymptote scaling in steps (~50).</param>
+    /// <param name="exposureSeconds">Exposure duration in seconds.</param>
+    /// <param name="skyBackground">Base sky background per second.</param>
+    /// <param name="readNoise">Read noise sigma in ADU.</param>
+    /// <param name="starCount">Number of stars to generate.</param>
+    /// <param name="seed">Random seed (0 = random).</param>
+    /// <returns>Image data array with synthetic stars.</returns>
+    public static float[,] Render(
+        int width,
+        int height,
+        double defocusSteps,
+        double hyperbolaA = 2.0,
+        double hyperbolaB = 50.0,
+        double exposureSeconds = 1.0,
+        double skyBackground = 100.0,
+        double readNoise = 5.0,
+        int starCount = 50,
+        int seed = 42)
+    {
+        var rng = new Random(seed);
+        var data = new float[height, width];
+
+        // FWHM from defocus via hyperbola: fwhm = a * cosh(asinh(defocus / b))
+        var fwhm = hyperbolaA * Math.Cosh(Asinh(defocusSteps / hyperbolaB));
+        var sigma = fwhm / 2.3548; // FWHM = 2 * sqrt(2 * ln(2)) * sigma
+
+        // Sky background
+        var skyLevel = skyBackground * exposureSeconds;
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                data[y, x] = (float)(skyLevel + rng.NextDouble() * readNoise);
+            }
+        }
+
+        // Generate stars with random positions and magnitudes
+        var psfRadius = (int)Math.Ceiling(sigma * 4);
+
+        for (var s = 0; s < starCount; s++)
+        {
+            var starX = rng.NextDouble() * (width - 2 * psfRadius) + psfRadius;
+            var starY = rng.NextDouble() * (height - 2 * psfRadius) + psfRadius;
+
+            // Random magnitude between 5 and 12
+            var magnitude = 5.0 + rng.NextDouble() * 7.0;
+            var flux = 10000.0 * Math.Pow(10, -0.4 * (magnitude - 5.0)) * exposureSeconds;
+
+            // Distribute flux as 2D Gaussian
+            var sigma2x2 = 2.0 * sigma * sigma;
+            var normalization = flux / (Math.PI * sigma2x2);
+
+            var xMin = Math.Max(0, (int)(starX - psfRadius));
+            var xMax = Math.Min(width - 1, (int)(starX + psfRadius));
+            var yMin = Math.Max(0, (int)(starY - psfRadius));
+            var yMax = Math.Min(height - 1, (int)(starY + psfRadius));
+
+            for (var y = yMin; y <= yMax; y++)
+            {
+                var dy = y - starY;
+                for (var x = xMin; x <= xMax; x++)
+                {
+                    var dx = x - starX;
+                    var r2 = dx * dx + dy * dy;
+                    var value = normalization * Math.Exp(-r2 / sigma2x2);
+
+                    // Add Poisson-like shot noise
+                    var noisy = value + Math.Sqrt(Math.Max(0, value)) * rng.NextDouble() * 0.5;
+                    data[y, x] += (float)noisy;
+                }
+            }
+        }
+
+        return data;
+    }
+
+    private static double Asinh(double x) => Math.Log(x + Math.Sqrt(x * x + 1));
+}

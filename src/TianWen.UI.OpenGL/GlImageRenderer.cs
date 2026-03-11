@@ -11,15 +11,20 @@ namespace TianWen.UI.OpenGL;
 /// OpenGL renderer for the FITS viewer. Renders the image as a textured quad
 /// and overlays UI panels using text rendering.
 /// </summary>
-public sealed class GlFitsRenderer : IDisposable
+public sealed class GlImageRenderer : IDisposable
 {
     private readonly GL _gl;
     private readonly GlFontAtlas _fontAtlas;
     private readonly GlShaderProgram _imageShader;
     private readonly GlShaderProgram _flatShader;
     private readonly GlShaderProgram _textShader;
+    private readonly GlShaderProgram _histogramShader;
 
     private readonly uint[] _channelTextures = new uint[3];
+    private readonly uint[] _histogramTextures = new uint[3];
+    private HistogramDisplay? _histogramDisplay;
+    private StretchMode? _histogramLastStretchMode;
+    private float _histogramLastNormFactor;
     private uint _vao;
     private uint _vbo;
 
@@ -108,7 +113,7 @@ public sealed class GlFitsRenderer : IDisposable
         return (areaW, areaH);
     }
 
-    public GlFitsRenderer(GL gl, uint width, uint height)
+    public GlImageRenderer(GL gl, uint width, uint height)
     {
         _gl = gl;
         _width = width;
@@ -118,6 +123,7 @@ public sealed class GlFitsRenderer : IDisposable
         _imageShader = GlShaderProgram.Create(gl, ImageVertexShader, ImageFragmentShader);
         _flatShader = GlShaderProgram.Create(gl, FlatVertexShader, FlatFragmentShader);
         _textShader = GlShaderProgram.Create(gl, TextVertexShader, TextFragmentShader);
+        _histogramShader = GlShaderProgram.Create(gl, HistogramVertexShader, HistogramFragmentShader);
 
         for (int i = 0; i < _channelTextures.Length; i++)
         {
@@ -157,9 +163,56 @@ public sealed class GlFitsRenderer : IDisposable
     }
 
     /// <summary>
+    /// Uploads per-channel histogram data as 1D R32F textures for the histogram shader.
+    /// Call once when a new document is loaded.
+    /// </summary>
+    public void UploadHistogramData(AstroImageDocument document)
+    {
+        _histogramDisplay = new HistogramDisplay(document.ChannelStatistics);
+        _histogramLastStretchMode = null; // force re-upload on next render
+
+        // Ensure textures exist
+        for (var c = 0; c < _histogramDisplay.ChannelCount; c++)
+        {
+            if (_histogramTextures[c] == 0)
+            {
+                _histogramTextures[c] = _gl.GenTexture();
+                _gl.BindTexture(TextureTarget.Texture2D, _histogramTextures[c]);
+                _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)GLEnum.Linear);
+                _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)GLEnum.Linear);
+                _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)GLEnum.ClampToEdge);
+                _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)GLEnum.ClampToEdge);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Recomputes display bins via <see cref="HistogramDisplay"/> and uploads to GL textures.
+    /// </summary>
+    private void UpdateHistogramTextures(StretchUniforms stretch)
+    {
+        if (_histogramDisplay is null) return;
+
+        _histogramLastStretchMode = stretch.Mode;
+        _histogramLastNormFactor = stretch.NormFactor;
+
+        _histogramDisplay.Recompute(
+            stretch.Mode, stretch.NormFactor,
+            stretch.Pedestal, stretch.Shadows, stretch.Midtones, stretch.Rescale);
+
+        for (var c = 0; c < _histogramDisplay.ChannelCount; c++)
+        {
+            _gl.BindTexture(TextureTarget.Texture2D, _histogramTextures[c]);
+            _gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.R32f,
+                (uint)HistogramDisplay.BinCount, 1, 0,
+                PixelFormat.Red, PixelType.Float, _histogramDisplay.GetDisplayBins(c));
+        }
+    }
+
+    /// <summary>
     /// Lazy-initialized celestial object database used for object overlays.
     /// </summary>
-    public AsyncLazy<ICelestialObjectDB>? CelestialObjectDB { get; set; }
+    public DotNext.Threading.AsyncLazy<ICelestialObjectDB>? CelestialObjectDB { get; set; }
 
     public void Render(AstroImageDocument? document, ViewerState state)
     {
@@ -176,7 +229,7 @@ public sealed class GlFitsRenderer : IDisposable
         if (_imageWidth > 0 && _imageHeight > 0)
         {
             var stretch = document?.ComputeStretchUniforms(state.StretchMode, state.StretchParameters)
-                ?? new GpuStretchUniforms(0, 1f, default, default, default, default, default);
+                ?? new StretchUniforms(StretchMode.None, 1f, default, default, default, default, default);
             var gridWcs = state.ShowGrid && document?.Wcs is { HasCDMatrix: true } w ? w : (WCS?)null;
             RenderImage(document, state, stretch, gridWcs);
         }
@@ -191,9 +244,14 @@ public sealed class GlFitsRenderer : IDisposable
             RenderStarOverlay(state, stars);
         }
 
-        if (state.ShowOverlays && document?.Wcs is { HasCDMatrix: true } overlayWcs && CelestialObjectDB?.ValueOrDefault is { } db)
+        if (state.ShowOverlays && document?.Wcs is { HasCDMatrix: true } overlayWcs && CelestialObjectDB?.Value?.Value is { } db)
         {
             RenderOverlays(state, overlayWcs, db);
+        }
+
+        if (state.ShowHistogram && document is not null)
+        {
+            RenderHistogram(document, state);
         }
 
         if (state.ShowInfoPanel && document is not null)
@@ -291,7 +349,7 @@ public sealed class GlFitsRenderer : IDisposable
         // Grid needs a WCS with CD matrix (solved or approximate)
         ToolbarAction.Grid => document?.Wcs is { HasCDMatrix: true },
         // Overlays also need the DB to be initialized
-        ToolbarAction.Overlays => document?.Wcs is { HasCDMatrix: true } && CelestialObjectDB?.IsReady == true,
+        ToolbarAction.Overlays => document?.Wcs is { HasCDMatrix: true } && CelestialObjectDB?.IsValueCreated == true,
         // Stars overlay needs detected stars
         ToolbarAction.Stars => document?.Stars is { Count: > 0 },
         // Plate solve needs a loaded, unsolved document
@@ -341,7 +399,7 @@ public sealed class GlFitsRenderer : IDisposable
             ToolbarAction.ZoomFit => "Fit",
             ToolbarAction.ZoomActual => "1:1",
             ToolbarAction.Grid => "Grid",
-            ToolbarAction.Overlays when CelestialObjectDB is { IsReady: false } => "Objects...",
+            ToolbarAction.Overlays when CelestialObjectDB is { IsValueCreated: false } => "Objects...",
             ToolbarAction.Overlays => "Objects",
             ToolbarAction.Stars when document?.Stars is null => "Stars...",
             ToolbarAction.Stars when document?.Stars is { Count: > 0 } s => $"Stars: {s.Count}",
@@ -487,7 +545,7 @@ public sealed class GlFitsRenderer : IDisposable
 
     // --- Image ---
 
-    private void RenderImage(AstroImageDocument? document, ViewerState state, GpuStretchUniforms stretch, WCS? gridWcs = null)
+    private void RenderImage(AstroImageDocument? document, ViewerState state, StretchUniforms stretch, WCS? gridWcs = null)
     {
         var fileListW = state.ShowFileList ? FileListWidth : 0;
         var panelW = state.ShowInfoPanel ? InfoPanelWidth : 0;
@@ -551,7 +609,7 @@ public sealed class GlFitsRenderer : IDisposable
         _imageShader.SetFloat("uHdrKnee", state.HdrKnee);
 
         // Stretch uniforms
-        _imageShader.SetInt("uStretchMode", stretch.Mode);
+        _imageShader.SetInt("uStretchMode", (int)stretch.Mode);
         _imageShader.SetFloat("uNormFactor", stretch.NormFactor);
         _imageShader.SetVector3("uPedestal", stretch.Pedestal.R, stretch.Pedestal.G, stretch.Pedestal.B);
         _imageShader.SetVector3("uShadows", stretch.Shadows.R, stretch.Shadows.G, stretch.Shadows.B);
@@ -1207,6 +1265,131 @@ public sealed class GlFitsRenderer : IDisposable
         _gl.DrawArrays(PrimitiveType.Lines, 0, 4);
     }
 
+    // --- Histogram overlay ---
+
+    private const float BaseHistogramWidth = 256f;
+    private const float BaseHistogramHeight = 128f;
+    private const float BaseHistogramMargin = 8f;
+
+    private (float Left, float Top, float Width, float Height) GetHistogramRect(ViewerState state)
+    {
+        var histW = BaseHistogramWidth * DpiScale;
+        var histH = BaseHistogramHeight * DpiScale;
+        var margin = BaseHistogramMargin * DpiScale;
+        var rightEdge = state.ShowInfoPanel ? _width - InfoPanelWidth : (float)_width;
+        return (rightEdge - histW - margin, ToolbarHeight + margin, histW, histH);
+    }
+
+    private (float X, float Y, float W, float H) GetHistogramLogButtonRect(ViewerState state)
+    {
+        var (histLeft, histTop, histW, _) = GetHistogramRect(state);
+        var btnW = MeasureText("LOG", ToolbarFontSize) + ButtonPaddingH;
+        var btnH = ToolbarFontSize + 4f * DpiScale;
+        var btnX = histLeft + histW - btnW - 2f * DpiScale;
+        var btnY = histTop + 2f * DpiScale;
+        return (btnX, btnY, btnW, btnH);
+    }
+
+    /// <summary>
+    /// Returns true if the given screen position hits the histogram LOG button.
+    /// </summary>
+    public bool HitTestHistogramLog(float screenX, float screenY, ViewerState state)
+    {
+        if (!state.ShowHistogram || _histogramDisplay is not { ChannelCount: > 0 })
+        {
+            return false;
+        }
+        var (bx, by, bw, bh) = GetHistogramLogButtonRect(state);
+        return screenX >= bx && screenX < bx + bw && screenY >= by && screenY < by + bh;
+    }
+
+    private void RenderHistogram(AstroImageDocument document, ViewerState state)
+    {
+        if (_histogramDisplay is not { ChannelCount: > 0 })
+        {
+            return;
+        }
+
+        // Recompute histogram textures when stretch mode changes
+        var stretch = document.ComputeStretchUniforms(state.StretchMode, state.StretchParameters);
+        if (stretch.Mode != _histogramLastStretchMode || stretch.NormFactor != _histogramLastNormFactor)
+        {
+            UpdateHistogramTextures(stretch);
+        }
+
+        var (histLeft, histTop, histW, histH) = GetHistogramRect(state);
+
+        // Semi-transparent background
+        FillRect(histLeft, histTop, histW, histH, 0f, 0f, 0f, 0.6f);
+
+        // Convert screen coords to NDC for the quad
+        var left = (histLeft / _width) * 2f - 1f;
+        var right = ((histLeft + histW) / _width) * 2f - 1f;
+        var top = 1f - (histTop / _height) * 2f;
+        var bottom = 1f - ((histTop + histH) / _height) * 2f;
+
+        // Quad with tex coords (0,0) bottom-left to (1,1) top-right
+        ReadOnlySpan<float> verts =
+        [
+            left,  bottom, 0f, 0f,
+            right, bottom, 1f, 0f,
+            left,  top,    0f, 1f,
+            right, bottom, 1f, 0f,
+            right, top,    1f, 1f,
+            left,  top,    0f, 1f,
+        ];
+
+        _gl.BindVertexArray(_vao);
+        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vbo);
+        _gl.BufferData(BufferTargetARB.ArrayBuffer, verts, BufferUsageARB.StreamDraw);
+
+        _gl.VertexAttribPointer(0, 2, VertexAttribPointerType.Float, false, 4 * sizeof(float), 0);
+        _gl.EnableVertexAttribArray(0);
+        _gl.VertexAttribPointer(1, 2, VertexAttribPointerType.Float, false, 4 * sizeof(float), 2 * sizeof(float));
+        _gl.EnableVertexAttribArray(1);
+
+        // Bind histogram textures
+        for (var c = 0; c < _histogramDisplay.ChannelCount && c < 3; c++)
+        {
+            _gl.ActiveTexture(TextureUnit.Texture0 + c);
+            _gl.BindTexture(TextureTarget.Texture2D, _histogramTextures[c]);
+        }
+
+        _histogramShader.Use();
+        _histogramShader.SetInt("uHist0", 0);
+        _histogramShader.SetInt("uHist1", 1);
+        _histogramShader.SetInt("uHist2", 2);
+        _histogramShader.SetInt("uChannelCount", _histogramDisplay.ChannelCount);
+        _histogramShader.SetFloat("uLogPeak", _histogramDisplay.LogPeak);
+        _histogramShader.SetFloat("uLinearPeak", _histogramDisplay.LinearPeak);
+        _histogramShader.SetInt("uLogScale", state.HistogramLogScale ? 1 : 0);
+
+        _gl.Enable(EnableCap.Blend);
+        _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
+        _gl.DrawArrays(PrimitiveType.Triangles, 0, 6);
+
+        // Draw LOG button in upper-right corner of histogram
+        if (_fontPath is not null)
+        {
+            var (bx, by, bw, bh) = GetHistogramLogButtonRect(state);
+            var mouseX = state.MouseScreenPosition.X;
+            var mouseY = state.MouseScreenPosition.Y;
+            var hovered = mouseX >= bx && mouseX < bx + bw && mouseY >= by && mouseY < by + bh;
+
+            if (state.HistogramLogScale)
+            {
+                FillRect(bx, by, bw, bh, hovered ? 0.25f : 0.20f, hovered ? 0.35f : 0.30f, hovered ? 0.55f : 0.50f, 0.9f);
+            }
+            else
+            {
+                FillRect(bx, by, bw, bh, hovered ? 0.35f : 0.25f, hovered ? 0.35f : 0.25f, hovered ? 0.40f : 0.28f, 0.9f);
+            }
+
+            var textY = by + (bh - ToolbarFontSize) / 2f;
+            DrawText("LOG", bx + ButtonPaddingH / 2f, textY, ToolbarFontSize, 0.9f, 0.9f, 0.9f);
+        }
+    }
+
     // --- Info panel ---
 
     private void RenderInfoPanel(AstroImageDocument document, ViewerState state)
@@ -1263,6 +1446,7 @@ public sealed class GlFitsRenderer : IDisposable
             "D: Cycle debayer",
             "H: Cycle HDR",
             "G: Toggle grid",
+            "V/Shift+V: Histogram/Log",
             "P: Plate solve",
             "Wheel/Ctrl+Wheel: Zoom",
             "Ctrl++/-: Zoom in/out",
@@ -1540,6 +1724,7 @@ public sealed class GlFitsRenderer : IDisposable
         _imageShader.Dispose();
         _flatShader.Dispose();
         _textShader.Dispose();
+        _histogramShader.Dispose();
         _fontAtlas.Dispose();
 
         for (int i = 0; i < _channelTextures.Length; i++)
@@ -1548,6 +1733,14 @@ public sealed class GlFitsRenderer : IDisposable
             {
                 _gl.DeleteTexture(_channelTextures[i]);
                 _channelTextures[i] = 0;
+            }
+        }
+        for (int i = 0; i < _histogramTextures.Length; i++)
+        {
+            if (_histogramTextures[i] != 0)
+            {
+                _gl.DeleteTexture(_histogramTextures[i]);
+                _histogramTextures[i] = 0;
             }
         }
         if (_vao != 0)
@@ -1831,6 +2024,66 @@ public sealed class GlFitsRenderer : IDisposable
         void main() {
             vec4 texel = texture(uTexture, vTexCoord);
             FragColor = vec4(uColor.rgb, texel.a * uColor.a);
+        }
+        """;
+
+    private const string HistogramVertexShader = """
+        #version 330 core
+        layout(location = 0) in vec2 aPos;
+        layout(location = 1) in vec2 aTexCoord;
+        out vec2 vTexCoord;
+        void main() {
+            gl_Position = vec4(aPos, 0.0, 1.0);
+            vTexCoord = aTexCoord;
+        }
+        """;
+
+    private const string HistogramFragmentShader = """
+        #version 330 core
+        in vec2 vTexCoord;
+        out vec4 FragColor;
+        uniform sampler2D uHist0;
+        uniform sampler2D uHist1;
+        uniform sampler2D uHist2;
+        uniform int uChannelCount;
+        uniform float uLogPeak;
+        uniform float uLinearPeak;
+        uniform int uLogScale;
+
+        float scaleValue(float v) {
+            if (uLogScale != 0) {
+                return log(1.0 + v) / uLogPeak;
+            } else {
+                return v / uLinearPeak;
+            }
+        }
+
+        void main() {
+            float x = vTexCoord.x;
+            float y = vTexCoord.y; // 0 = bottom, 1 = top
+
+            if (uLogPeak <= 0.0) {
+                FragColor = vec4(0.0);
+                return;
+            }
+
+            float n0 = scaleValue(texture(uHist0, vec2(x, 0.5)).r);
+
+            vec3 color = vec3(0.0);
+            float alpha = 0.0;
+
+            if (uChannelCount >= 3) {
+                float n1 = scaleValue(texture(uHist1, vec2(x, 0.5)).r);
+                float n2 = scaleValue(texture(uHist2, vec2(x, 0.5)).r);
+
+                if (y <= n0) { color.r += 0.85; alpha = max(alpha, 0.7); }
+                if (y <= n1) { color.g += 0.85; alpha = max(alpha, 0.7); }
+                if (y <= n2) { color.b += 0.85; alpha = max(alpha, 0.7); }
+            } else {
+                if (y <= n0) { color = vec3(0.8); alpha = 0.7; }
+            }
+
+            FragColor = vec4(color, alpha);
         }
         """;
 }

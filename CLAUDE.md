@@ -162,6 +162,21 @@ Devices are URI-addressed and managed through:
 - `ConcurrentDictionary` for thread-safe caches
 - `CancellationToken` propagated throughout
 - `ValueTask` for allocation-free async paths
+- **Never use `.GetAwaiter().GetResult()`** — always make the method `async` and `await` instead
+
+### Histogram Overlay
+
+- `HistogramDisplay` (in `TianWen.Lib.Imaging`) handles CPU-side histogram computation: downsamples 65K raw bins to 512 display bins, with stretch-aware remapping via `Image.StretchValue()`
+- GPU renders the histogram as a single quad with a GLSL shader sampling 1D R32F textures
+- Log scale default: ON for unstretched, OFF for stretched; toggled via Shift+V
+- `MemoryMarshal.CreateReadOnlySpan` provides zero-copy row access on the internal `float[,]` arrays
+
+### Code Quality Guidelines
+
+- **Reduced allocations**: prefer `MemoryMarshal`, `stackalloc`, `ArrayPool<T>`, and `Span<T>` over allocating new arrays. Use `ReadOnlySpan<T>` for read-only views.
+- **Immutability with controlled mutability**: make types immutable by default. When mutation is needed (e.g., `HistogramDisplay.Recompute()`), keep mutable state private and expose only read-only views.
+- **Correct abstraction levels**: pure math and data processing in `TianWen.Lib`, UI state and document model in `TianWen.UI.Abstractions`, GL-specific rendering in `TianWen.UI.OpenGL`. Never put OpenGL calls in Lib or Abstractions.
+- **Avoid code duplication**: reuse existing methods (e.g., `Image.StretchValue()` as single source of truth for stretch) rather than reimplementing logic in multiple places.
 
 ## Package Management
 
