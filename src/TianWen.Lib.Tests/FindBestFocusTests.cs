@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.Focus;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Stat;
 using Xunit;
 

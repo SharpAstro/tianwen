@@ -410,7 +410,13 @@ public partial class Image
         var flux = MathF.Max(sumVal, 0.00001f); /* prevent dividing by zero or negative values */
         var hfd = MathF.Max(0.7f, 2 * sumValR / flux);
         var star_fwhm = 2 * MathF.Sqrt(pixel_counter / MathF.PI);/*calculate from surface (by counting pixels above half max) the diameter equals FWHM */
-        var snr = flux / MathF.Sqrt(flux + r_aperture * r_aperture * MathF.PI * sd_bg * sd_bg);
+
+        // SNR formula assumes Poisson statistics on ADU counts (gain=1).
+        // For normalized [0,1] images, scale flux and sd back to ADU range so shot noise is correct.
+        var aduScale = MaxValue > 1.0f + float.Epsilon ? 1.0f : ushort.MaxValue;
+        var aduFlux = flux * aduScale;
+        var aduSdBg = sd_bg * aduScale;
+        var snr = aduFlux / MathF.Sqrt(aduFlux + r_aperture * r_aperture * MathF.PI * aduSdBg * aduSdBg);
 
         star = new ImagedStar(hfd, star_fwhm, snr, flux, xc, yc);
         return true;

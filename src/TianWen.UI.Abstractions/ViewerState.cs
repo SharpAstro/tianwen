@@ -58,6 +58,9 @@ public sealed class ViewerState
     /// <summary>Whether deep-sky object overlays (galaxy ellipses, markers, labels) are visible.</summary>
     public bool ShowOverlays { get; set; }
 
+    /// <summary>Whether detected star circles are visible.</summary>
+    public bool ShowStarOverlay { get; set; }
+
     /// <summary>Status message to display (e.g. "Plate solving...", "Stretching...").</summary>
     public string? StatusMessage { get; set; }
 

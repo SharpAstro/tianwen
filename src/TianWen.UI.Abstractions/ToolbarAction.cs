@@ -18,4 +18,5 @@ public enum ToolbarAction
     Grid,
     Overlays,
     PlateSolve,
+    Stars,
 }

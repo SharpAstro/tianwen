@@ -81,6 +81,7 @@ public sealed class GlFitsRenderer : IDisposable
         ("Plate Solve", ToolbarAction.PlateSolve, 4),
         ("Grid", ToolbarAction.Grid, 4),
         ("Objects", ToolbarAction.Overlays, 4),
+        ("Stars", ToolbarAction.Stars, 4),
     ];
 
     /// <summary>Scaled toolbar height in pixels.</summary>
@@ -185,6 +186,11 @@ public sealed class GlFitsRenderer : IDisposable
             RenderGridLabels(state, wcs);
         }
 
+        if (state.ShowStarOverlay && document?.Stars is { Count: > 0 } stars)
+        {
+            RenderStarOverlay(state, stars);
+        }
+
         if (state.ShowOverlays && document?.Wcs is { HasCDMatrix: true } overlayWcs && CelestialObjectDB?.ValueOrDefault is { } db)
         {
             RenderOverlays(state, overlayWcs, db);
@@ -277,7 +283,8 @@ public sealed class GlFitsRenderer : IDisposable
         ToolbarAction.Debayer => document?.UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB,
         // Channel cycling only useful when there are multiple channels (after debayer or native color)
         ToolbarAction.Channel => document is not null && document.UnstretchedImage.ChannelCount > 1,
-        ToolbarAction.CurvesBoost or ToolbarAction.Hdr => document is not null,
+        ToolbarAction.CurvesBoost => document?.Stars is not null,
+        ToolbarAction.Hdr => document is not null,
         // Stretch buttons need a loaded document; link/params only when stretch is active
         ToolbarAction.StretchToggle => document is not null,
         ToolbarAction.StretchLink or ToolbarAction.StretchParams => document is not null,
@@ -285,6 +292,8 @@ public sealed class GlFitsRenderer : IDisposable
         ToolbarAction.Grid => document?.Wcs is { HasCDMatrix: true },
         // Overlays also need the DB to be initialized
         ToolbarAction.Overlays => document?.Wcs is { HasCDMatrix: true } && CelestialObjectDB?.IsReady == true,
+        // Stars overlay needs detected stars
+        ToolbarAction.Stars => document?.Stars is not null,
         // Plate solve needs a loaded, unsolved document
         ToolbarAction.PlateSolve => document is not null && !document.IsPlateSolved,
         // Zoom needs a loaded document
@@ -306,6 +315,7 @@ public sealed class GlFitsRenderer : IDisposable
             ToolbarAction.Hdr => state.HdrAmount > 0f,
             ToolbarAction.Grid => state.ShowGrid,
             ToolbarAction.Overlays => state.ShowOverlays,
+            ToolbarAction.Stars => state.ShowStarOverlay,
             ToolbarAction.ZoomFit => state.ZoomToFit,
             ToolbarAction.ZoomActual => !state.ZoomToFit && MathF.Abs(state.Zoom - 1f) < 0.001f,
             _ => false,
@@ -333,6 +343,8 @@ public sealed class GlFitsRenderer : IDisposable
             ToolbarAction.Grid => "Grid",
             ToolbarAction.Overlays when CelestialObjectDB is { IsReady: false } => "Objects...",
             ToolbarAction.Overlays => "Objects",
+            ToolbarAction.Stars when document?.Stars is null => "Stars...",
+            ToolbarAction.Stars when document?.Stars is { } s => $"Stars: {s.Count}",
             ToolbarAction.PlateSolve when state.IsPlateSolving => "Solving...",
             ToolbarAction.PlateSolve when document?.IsPlateSolved == true => "Solved",
             _ => baseLabel,
@@ -902,6 +914,36 @@ public sealed class GlFitsRenderer : IDisposable
         return $"{sign}{d}\u00b0{mi:D2}'{s:00.0}\"";
     }
 
+    // --- Star Overlay ---
+
+    private void RenderStarOverlay(ViewerState state, StarList stars)
+    {
+        var fileListW = state.ShowFileList ? FileListWidth : 0;
+        var panelW = state.ShowInfoPanel ? InfoPanelWidth : 0;
+        var areaW = (float)(_width - fileListW - panelW);
+        var areaH = (float)(_height - ToolbarHeight - StatusBarHeight);
+
+        // Image-to-screen transform
+        var drawW = _imageWidth * state.Zoom;
+        var drawH = _imageHeight * state.Zoom;
+        var offsetX = fileListW + (areaW - drawW) / 2f + state.PanOffset.X;
+        var offsetY = ToolbarHeight + (areaH - drawH) / 2f + state.PanOffset.Y;
+
+        _gl.Enable(EnableCap.ScissorTest);
+        _gl.Scissor((int)fileListW, (int)StatusBarHeight, (uint)areaW, (uint)areaH);
+
+        foreach (var star in stars)
+        {
+            var cx = offsetX + star.XCentroid * state.Zoom;
+            var cy = offsetY + star.YCentroid * state.Zoom;
+            var radius = MathF.Max(star.HFD * 0.5f * state.Zoom, 2f);
+
+            DrawEllipse(cx, cy, radius, radius, 0f, 0.2f, 0.8f, 0.2f, 0.6f);
+        }
+
+        _gl.Disable(EnableCap.ScissorTest);
+    }
+
     // --- Object Overlays ---
 
     private void RenderOverlays(ViewerState state, WCS wcs, ICelestialObjectDB db)
@@ -1227,6 +1269,11 @@ public sealed class GlFitsRenderer : IDisposable
         {
             var zoomPct = state.Zoom * 100f;
             statusParts.Add($"Zoom: {zoomPct:F0}%");
+        }
+
+        if (document?.Stars is { Count: > 0 } detectedStars)
+        {
+            statusParts.Add($"Stars: {detectedStars.Count}  HFR: {document.AverageHFR:F1}  FWHM: {document.AverageFWHM:F1}");
         }
 
         if (state.StatusMessage is { } msg)

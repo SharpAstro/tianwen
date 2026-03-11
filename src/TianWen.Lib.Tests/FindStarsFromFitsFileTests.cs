@@ -1,6 +1,8 @@
 ﻿using Shouldly;
 using System.Diagnostics;
 using System.Threading.Tasks;
+using TianWen.Lib.Imaging;
+using TianWen.UI.Abstractions;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
@@ -27,5 +29,31 @@ public class FindStarsFromFitsFileTests(ITestOutputHelper testOutputHelper)
         // then
         actualStars.ShouldNotBeEmpty();
         actualStars.Count.ShouldBe(expectedStars);
+    }
+
+    [Theory]
+    [InlineData("image_file-snr-20_stars-28_1280x960x16", "None", 28)]
+    [InlineData("RGGB_frame_bx0_by0_top_down", "AHD", 100)]
+    public async Task GivenFitsDocumentWhenDetectingStarsThenStarsAreFound(string name, string algorithmStr, int minExpectedStars)
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var algorithm = System.Enum.Parse<DebayerAlgorithm>(algorithmStr);
+
+        // given — load via FitsDocument (same path as the viewer)
+        var filePath = await SharedTestData.ExtractGZippedFitsFileAsync(name, cancellationToken);
+        var document = await FitsDocument.OpenAsync(filePath, algorithm, cancellationToken);
+        document.ShouldNotBeNull();
+
+        // when
+        var sw = Stopwatch.StartNew();
+        await document.DetectStarsAsync(cancellationToken);
+        testOutputHelper.WriteLine("DetectStarsAsync on {0} took {1:F0} ms, found {2} stars (HFR={3:F2}, FWHM={4:F2})",
+            name, sw.Elapsed.TotalMilliseconds, document.Stars?.Count, document.AverageHFR, document.AverageFWHM);
+
+        // then
+        document.Stars.ShouldNotBeNull();
+        document.Stars.Count.ShouldBeGreaterThanOrEqualTo(minExpectedStars);
+        document.AverageHFR.ShouldBeGreaterThan(0f);
+        document.AverageFWHM.ShouldBeGreaterThan(0f);
     }
 }
