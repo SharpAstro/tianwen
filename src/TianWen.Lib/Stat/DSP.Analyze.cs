@@ -8,6 +8,9 @@
 // 15Oct17 - 1.03.1 - Slight interoperability correction to V1.03, same results, different design pattern.
 //
 
+using System;
+using System.Numerics.Tensors;
+
 namespace TianWen.Lib.Stat;
 
 public partial class DSP
@@ -17,33 +20,24 @@ public partial class DSP
     /// </summary>
     public static class Analyze
     {
+        private static ReadOnlySpan<double> GetSlice(double[] a, uint startBin, uint stopBin)
+        {
+            var start = (int)startBin;
+            var length = a.Length - (int)startBin - (int)stopBin;
+            return a.AsSpan(start, length);
+        }
+
         /// <summary>
         /// Find the RMS value of a[].
         /// </summary>
-        /// <param name="inData"> = of N data points, 0 based.</param>
+        /// <param name="a"> = of N data points, 0 based.</param>
         /// <param name="startBin"> = Bin to start the counting at (0 based)."></param>
         /// <param name="stopBin"> = Bin FROM END to stop counting at (Max = N - 1)."></param>
         /// <returns>RMS value of input array between start and stop bins.</returns>
         public static double FindRms(double[] a, uint startBin = 10, uint stopBin = 10)
         {
-            double sum2 = 0.0;
-            uint actualSumCount = 0;
-            uint n = (uint)a.Length;
-            for (uint i = 0; i < n; i++)
-            {
-                if (i <= startBin - 1)
-                    continue;
-                if (i > n - 1 - stopBin)
-                    continue;
-
-                sum2 += a[i] * a[i];
-                actualSumCount++;
-            }
-
-            double avg2 = sum2 / actualSumCount;
-            double rms = System.Math.Sqrt(avg2);
-
-            return rms;
+            var slice = GetSlice(a, startBin, stopBin);
+            return Math.Sqrt(TensorPrimitives.SumOfSquares(slice) / slice.Length);
         }
 
         /// <summary>
@@ -55,44 +49,16 @@ public partial class DSP
         /// <returns>Mean value of input array between start and stop bins.</returns>
         public static double FindMean(double[] inData, uint startBin = 10, uint stopBin = 10)
         {
-            double sum = 0;
-            double n = inData.Length;
-            uint actualSumCount = 0;
-
-            for (uint i = 0; i < n; i++)
-            {
-                if (i <= startBin - 1)
-                    continue;
-                if (i > n - 1 - stopBin)
-                    continue;
-
-                sum += inData[i];
-                actualSumCount++;
-            }
-            return sum / actualSumCount;
+            var slice = GetSlice(inData, startBin, stopBin);
+            return TensorPrimitives.Sum(slice) / slice.Length;
         }
-
 
         /// <summary>
         /// Finds the maximum value in an array.
         /// </summary>
         /// <param name="inData"></param>
         /// <returns>Maximum value of input array</returns>
-        public static double FindMaxAmplitude(double[] inData)
-        {
-            double n = inData.Length;
-            double maxVal = -1e300;
-
-            for (uint i = 0; i < n; i++)
-            {
-                if (inData[i] > maxVal)
-                {
-                    maxVal = inData[i];
-                }
-            }
-
-            return maxVal;
-        }
+        public static double FindMaxAmplitude(double[] inData) => TensorPrimitives.Max(inData);
 
 
         /// <summary>
@@ -100,23 +66,7 @@ public partial class DSP
         /// </summary>
         /// <param name="inData"></param>
         /// <returns>Position of maximum value in input array</returns>
-        public static uint FindMaxPosition(double[] inData)
-        {
-            double n = inData.Length;
-            double maxVal = -1e300;
-            uint maxIndex = 0;
-
-            for (uint i = 0; i < n; i++)
-            {
-                if (inData[i] > maxVal)
-                {
-                    maxIndex = i;
-                    maxVal = inData[i];
-                }
-            }
-
-            return maxIndex;
-        }
+        public static uint FindMaxPosition(double[] inData) => (uint)TensorPrimitives.IndexOfMax(inData);
 
         /// <summary>
         /// Finds the maximum frequency from the given inData and fSpan arrays.
@@ -124,23 +74,7 @@ public partial class DSP
         /// <param name="inData"></param>
         /// <param name="fSpan"></param>
         /// <returns>Maximum frequency from input arrays</returns>
-        public static double FindMaxFrequency(double[] inData, double[] fSpan)
-        {
-            double n = inData.Length;
-            double maxVal = -1e300;
-            uint maxIndex = 0;
-
-            for (uint i = 0; i < n; i++)
-            {
-                if (inData[i] > maxVal)
-                {
-                    maxIndex = i;
-                    maxVal = inData[i];
-                }
-            }
-
-            return fSpan[maxIndex];
-        }
+        public static double FindMaxFrequency(double[] inData, double[] fSpan) => fSpan[TensorPrimitives.IndexOfMax(inData)];
 
 
         /// <summary>

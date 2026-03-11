@@ -8,19 +8,21 @@ namespace TianWen.Lib.Imaging;
 
 public partial class Image
 {
-    public Task<Image> DebayerAsync(DebayerAlgorithm debayerAlgorithm, CancellationToken cancellationToken = default)
+    public Task<Image> DebayerAsync(DebayerAlgorithm debayerAlgorithm, bool normalizeToUnit = false, CancellationToken cancellationToken = default)
     {
         // NO-OP for monochrome or full colour images
         if (imageMeta.SensorType is SensorType.Monochrome or SensorType.Color)
         {
-            return Task.FromResult(this);
+            return Task.FromResult(normalizeToUnit ? ScaleFloatValuesToUnitInPlace() : this);
         }
+
+        var scale = normalizeToUnit && MaxValue > 1.0f ? 1.0f / MaxValue : 1.0f;
 
         return debayerAlgorithm switch
         {
-            DebayerAlgorithm.BilinearMono => DebayerBilinearMonoAsync(cancellationToken),
-            DebayerAlgorithm.VNG => DebayerVNGAsync(cancellationToken),
-            DebayerAlgorithm.AHD => DebayerAHDAsync(cancellationToken),
+            DebayerAlgorithm.BilinearMono => DebayerBilinearMonoAsync(scale, cancellationToken),
+            DebayerAlgorithm.VNG => DebayerVNGAsync(scale, cancellationToken),
+            DebayerAlgorithm.AHD => DebayerAHDAsync(scale, cancellationToken),
             DebayerAlgorithm.None => throw new ArgumentException("Must specify an algorithm", nameof(debayerAlgorithm)),
             _ => throw new NotSupportedException($"Debayer algorithm {debayerAlgorithm} is not supported"),
         };
@@ -32,7 +34,7 @@ public partial class Image
     /// </summary>
     /// <returns>Debayered monochrome image</returns>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private async Task<Image> DebayerBilinearMonoAsync(CancellationToken cancellationToken = default)
+    private async Task<Image> DebayerBilinearMonoAsync(float scale, CancellationToken cancellationToken = default)
     {
         var width = Width;
         var height = Height;
@@ -41,6 +43,7 @@ public partial class Image
         var srcChannel = data[0];
         var w1 = width - 1;
         var h1 = height - 1;
+        var s = (double)scale;
 
         var parallelOptions = new ParallelOptions
         {
@@ -53,11 +56,11 @@ public partial class Image
         {
             for (int x = 0; x < w1; x++)
             {
-                dstChannel[y, x] = (float)(0.25d * ((double)srcChannel[y, x] + srcChannel[y + 1, x + 1] + srcChannel[y, x + 1] + srcChannel[y + 1, x]));
+                dstChannel[y, x] = (float)(0.25d * s * ((double)srcChannel[y, x] + srcChannel[y + 1, x + 1] + srcChannel[y, x + 1] + srcChannel[y + 1, x]));
             }
 
             // last column
-            dstChannel[y, w1] = (float)(0.25d * ((double)srcChannel[y, w1] + srcChannel[y + 1, w1 - 1] + srcChannel[y, w1 - 1] + srcChannel[y + 1, w1]));
+            dstChannel[y, w1] = (float)(0.25d * s * ((double)srcChannel[y, w1] + srcChannel[y + 1, w1 - 1] + srcChannel[y, w1 - 1] + srcChannel[y + 1, w1]));
 
             return ValueTask.CompletedTask;
         }, ct));
@@ -65,23 +68,28 @@ public partial class Image
         // last row (processed sequentially as it's a single row)
         for (int x = 0; x < w1; x++)
         {
-            dstChannel[h1, x] = (float)(0.25d * ((double)srcChannel[h1, x] + srcChannel[h1 - 1, x + 1] + srcChannel[h1, x + 1] + srcChannel[h1 - 1, x]));
+            dstChannel[h1, x] = (float)(0.25d * s * ((double)srcChannel[h1, x] + srcChannel[h1 - 1, x + 1] + srcChannel[h1, x + 1] + srcChannel[h1 - 1, x]));
         }
 
         // last pixel
-        dstChannel[h1, w1] = (float)(0.25d * ((double)srcChannel[h1, w1] + srcChannel[h1 - 1, w1 - 1] + srcChannel[h1, w1 - 1] + srcChannel[h1 - 1, w1]));
+        dstChannel[h1, w1] = (float)(0.25d * s * ((double)srcChannel[h1, w1] + srcChannel[h1 - 1, w1 - 1] + srcChannel[h1, w1 - 1] + srcChannel[h1 - 1, w1]));
 
-        return new Image(debayered, BitDepth.Float32, maxValue, minValue, blackLevel, imageMeta with
-        {
-            SensorType = SensorType.Monochrome,
-            BayerOffsetX = 0,
-            BayerOffsetY = 0,
-            Filter = Filter.Luminance
-        });
+        var normalized = scale < 1.0f;
+        return new Image(debayered, BitDepth.Float32,
+            normalized ? 1.0f : maxValue,
+            normalized ? minValue / maxValue : minValue,
+            normalized ? blackLevel / maxValue : blackLevel,
+            imageMeta with
+            {
+                SensorType = SensorType.Monochrome,
+                BayerOffsetX = 0,
+                BayerOffsetY = 0,
+                Filter = Filter.Luminance
+            });
     }
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private async Task<Image> DebayerVNGAsync(CancellationToken cancellationToken)
+    private async Task<Image> DebayerVNGAsync(float scale, CancellationToken cancellationToken)
     {
         var width = Width;
         var height = Height;
@@ -121,7 +129,7 @@ public partial class Image
                     int knownColor = (x & 1) == 0 ? patternEven : patternOdd;
 
                     // Copy known value
-                    float rawValue = srcChannel[y, x];
+                    float rawValue = srcChannel[y, x] * scale;
                     debayered[knownColor][y, x] = rawValue;
 
                     // Interpolate missing colors based on which color we have
@@ -132,18 +140,18 @@ public partial class Image
                         int neighborColor = (x & 1) == 0 ? patternOdd : patternEven;
                         bool rOnHorizontal = neighborColor == R;
 
-                        dstR[y, x] = rOnHorizontal
+                        dstR[y, x] = scale * (rOnHorizontal
                             ? InterpolateHorizontalVNG(srcChannel, x, y)
-                            : InterpolateVerticalVNG(srcChannel, x, y);
-                        dstB[y, x] = rOnHorizontal
+                            : InterpolateVerticalVNG(srcChannel, x, y));
+                        dstB[y, x] = scale * (rOnHorizontal
                             ? InterpolateVerticalVNG(srcChannel, x, y)
-                            : InterpolateHorizontalVNG(srcChannel, x, y);
+                            : InterpolateHorizontalVNG(srcChannel, x, y));
                     }
                     else
                     {
                         // At R or B pixel: interpolate G and the opposite color
-                        dstG[y, x] = InterpolateGreenAtRBVNG(srcChannel, x, y);
-                        debayered[knownColor == R ? B : R][y, x] = InterpolateDiagonalVNG(srcChannel, x, y);
+                        dstG[y, x] = scale * InterpolateGreenAtRBVNG(srcChannel, x, y);
+                        debayered[knownColor == R ? B : R][y, x] = scale * InterpolateDiagonalVNG(srcChannel, x, y);
                     }
                 }
 
@@ -152,14 +160,19 @@ public partial class Image
         );
 
         // Process edge pixels with simpler bilinear interpolation (not parallelized - small portion)
-        ProcessEdgePixels(debayered, width, height, radius, bayerPattern);
+        ProcessEdgePixels(debayered, width, height, radius, bayerPattern, scale);
 
-        return new Image(debayered, BitDepth.Float32, maxValue, minValue, blackLevel, imageMeta with
-        {
-            SensorType = SensorType.Color,
-            BayerOffsetX = 0,
-            BayerOffsetY = 0
-        });
+        var normalized = scale < 1.0f;
+        return new Image(debayered, BitDepth.Float32,
+            normalized ? 1.0f : maxValue,
+            normalized ? minValue / maxValue : minValue,
+            normalized ? blackLevel / maxValue : blackLevel,
+            imageMeta with
+            {
+                SensorType = SensorType.Color,
+                BayerOffsetX = 0,
+                BayerOffsetY = 0
+            });
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
@@ -292,7 +305,7 @@ public partial class Image
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private void ProcessEdgePixels(float[][,] debayered, int width, int height, int radius, int[,] bayerPattern)
+    private void ProcessEdgePixels(float[][,] debayered, int width, int height, int radius, int[,] bayerPattern, float scale = 1.0f)
     {
         // Top and bottom edges
         for (int y = 0; y < height; y++)
@@ -301,7 +314,7 @@ public partial class Image
 
             for (int x = 0; x < width; x++)
             {
-                ProcessEdgePixel(debayered, x, y, width, height, bayerPattern);
+                ProcessEdgePixel(debayered, x, y, width, height, bayerPattern, scale);
             }
         }
 
@@ -310,27 +323,27 @@ public partial class Image
         {
             for (int x = 0; x < radius; x++)
             {
-                ProcessEdgePixel(debayered, x, y, width, height, bayerPattern);
+                ProcessEdgePixel(debayered, x, y, width, height, bayerPattern, scale);
             }
             for (int x = width - radius; x < width; x++)
             {
-                ProcessEdgePixel(debayered, x, y, width, height, bayerPattern);
+                ProcessEdgePixel(debayered, x, y, width, height, bayerPattern, scale);
             }
         }
     }
 
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private void ProcessEdgePixel(float[][,] debayered, int x, int y, int width, int height, int[,] bayerPattern)
+    private void ProcessEdgePixel(float[][,] debayered, int x, int y, int width, int height, int[,] bayerPattern, float scale)
     {
         int knownColor = bayerPattern[y & 1, x & 1];
-        debayered[knownColor][y, x] = data[0][y, x];
+        debayered[knownColor][y, x] = data[0][y, x] * scale;
 
         for (int c = 0; c < 3; c++)
         {
             if (c != knownColor)
             {
-                debayered[c][y, x] = BilinearInterpolateColorFast(x, y, c, width, height, bayerPattern);
+                debayered[c][y, x] = BilinearInterpolateColorFast(x, y, c, width, height, bayerPattern) * scale;
             }
         }
     }
@@ -363,7 +376,7 @@ public partial class Image
         return count > 0 ? sum / count : 0;
     }
 
-    private async Task<Image> DebayerAHDAsync(CancellationToken cancellationToken)
+    private async Task<Image> DebayerAHDAsync(float scale, CancellationToken cancellationToken)
     {
         var width = Width;
         var height = Height;
@@ -551,7 +564,8 @@ public partial class Image
 
         // Phase 4: Artifact reduction - 3×3 median filter on color differences (R-G) and (B-G)
         // This smooths the abrupt H/V direction switching that causes per-pixel colour noise
-        var filtered = CreateChannelData(3, height, width);
+        // Reuse rgbH — it is dead after Phase 3 (saves one full 3-channel allocation)
+        var filtered = rgbH;
         var filtR = filtered[R]; var filtG = filtered[G]; var filtB = filtered[B];
 
         await Parallel.ForAsync(0, height, parallelOptions, async (y, ct) => await Task.Run(() =>
@@ -561,7 +575,7 @@ public partial class Image
             for (int x = 0; x < width; x++)
             {
                 // Green channel is kept as-is
-                filtG[y, x] = dstG[y, x];
+                filtG[y, x] = dstG[y, x] * scale;
 
                 if (y >= 1 && y < height - 1 && x >= 1 && x < width - 1)
                 {
@@ -580,26 +594,31 @@ public partial class Image
                             }
                         }
 
-                        filtered[c][y, x] = gCenter + Median(medianBuf);
+                        filtered[c][y, x] = (gCenter + Median(medianBuf)) * scale;
                     }
                 }
                 else
                 {
                     // Edge pixels: copy as-is
-                    filtR[y, x] = dstR[y, x];
-                    filtB[y, x] = dstB[y, x];
+                    filtR[y, x] = dstR[y, x] * scale;
+                    filtB[y, x] = dstB[y, x] * scale;
                 }
             }
 
             return ValueTask.CompletedTask;
         }, ct));
 
-        return new Image(filtered, BitDepth.Float32, maxValue, minValue, blackLevel, imageMeta with
-        {
-            SensorType = SensorType.Color,
-            BayerOffsetX = 0,
-            BayerOffsetY = 0
-        });
+        var normalized = scale < 1.0f;
+        return new Image(filtered, BitDepth.Float32,
+            normalized ? 1.0f : maxValue,
+            normalized ? minValue / maxValue : minValue,
+            normalized ? blackLevel / maxValue : blackLevel,
+            imageMeta with
+            {
+                SensorType = SensorType.Color,
+                BayerOffsetX = 0,
+                BayerOffsetY = 0
+            });
 
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         static float RgbToLuma(float r, float g, float b)

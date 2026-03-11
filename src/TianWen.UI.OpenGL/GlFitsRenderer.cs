@@ -151,7 +151,7 @@ public sealed class GlFitsRenderer : IDisposable
         _imageHeight = imageHeight;
 
         _gl.BindTexture(TextureTarget.Texture2D, _channelTextures[channel]);
-        _gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.R32f,
+        _gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.R16f,
             (uint)imageWidth, (uint)imageHeight, 0,
             PixelFormat.Red, PixelType.Float, data);
     }

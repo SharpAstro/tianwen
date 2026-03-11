@@ -1,5 +1,7 @@
 using ImageMagick;
 using System;
+using System.Numerics;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -16,23 +18,29 @@ public partial class Image
             {
                 throw new ArgumentException("Must specify an algorithm for debayering", nameof(debayerAlgorithm));
             }
-            debayered = await DebayerAsync(debayerAlgorithm, cancellationToken);
+            debayered = await DebayerAsync(debayerAlgorithm, cancellationToken: cancellationToken);
         }
         else
         {
             debayered = this;
         }
 
-        return debayered.ScaleFloatValues(Quantum.Max).DoToMagickImage();
+        return debayered.DoToMagickImage();
     }
 
     /// <summary>
-    /// Assumes that imge has been converted to floats and debayered.
+    /// Converts the image to a MagickImage, scaling pixel values to [0, Quantum.Max].
+    /// Uses a single reusable buffer per channel to avoid allocating a full scaled Image copy.
     /// </summary>
-    /// <returns></returns>
     private IMagickImage<float> DoToMagickImage()
     {
         var (channelCount, width, height) = Shape;
+        var pixelCount = width * height;
+        var scale = MaxValue > 0f ? Quantum.Max / MaxValue : 1f;
+
+        // Reusable buffer for scaling one channel at a time
+        var buffer = new float[pixelCount];
+
         var firstChannel = ChannelToImage(0); // mono or red
 
         IMagickImage<float> result;
@@ -49,7 +57,6 @@ public partial class Image
             };
 
             result = coll.Combine(ColorSpace.sRGB);
-            // result.TransformColorSpace(ColorProfiles.SRGB);
             result.SetProfile(ColorProfiles.SRGB);
         }
         else
@@ -69,8 +76,11 @@ public partial class Image
                 ColorType = ColorType.Grayscale
             };
 
+            // Scale channel data into reusable buffer (SIMD-accelerated)
+            MultiplyScalar(GetChannelSpan(channel), scale, buffer);
+
             using var pix = image.GetPixelsUnsafe();
-            pix.SetPixels(GetChannelSpan(channel));
+            pix.SetPixels(buffer.AsSpan());
 
             return image;
         }

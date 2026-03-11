@@ -60,7 +60,7 @@ public class ImagConversionTests(ITestOutputHelper testOutputHelper)
 
         // when
         sw.Restart();
-        var debayered = await image.DebayerAsync(algorithm, cancellationToken);
+        var debayered = await image.DebayerAsync(algorithm, cancellationToken: cancellationToken);
         testOutputHelper.WriteLine($"Debayering using {algorithm} took: {sw.Elapsed}");
         
         sw.Restart();

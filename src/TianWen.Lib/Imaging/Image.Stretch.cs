@@ -11,7 +11,7 @@ public partial class Image
     {
         if (imageMeta.SensorType is SensorType.RGGB)
         {
-            var debayered = await DebayerAsync(debayerAlgorithm, cancellationToken);
+            var debayered = await DebayerAsync(debayerAlgorithm, cancellationToken: cancellationToken);
             return await debayered.StretchLinkedAsync(stretchFactor, shadowsClipping, DebayerAlgorithm.None, cancellationToken);
         }
         else if (imageMeta.SensorType is SensorType.Monochrome)
@@ -37,7 +37,7 @@ public partial class Image
     {
         if (imageMeta.SensorType is SensorType.RGGB)
         {
-            var debayered = await DebayerAsync(debayerAlgorithm, cancellationToken);
+            var debayered = await DebayerAsync(debayerAlgorithm, cancellationToken: cancellationToken);
             return await debayered.StretchUnlinkedAsync(stretchFactor, shadowsClipping, DebayerAlgorithm.None, cancellationToken);
         }
 
@@ -63,7 +63,7 @@ public partial class Image
     {
         if (imageMeta.SensorType is SensorType.RGGB)
         {
-            var debayered = await DebayerAsync(debayerAlgorithm, cancellationToken);
+            var debayered = await DebayerAsync(debayerAlgorithm, cancellationToken: cancellationToken);
             return await debayered.StretchLumaAsync(stretchFactor, shadowsClipping, DebayerAlgorithm.None, cancellationToken);
         }
         else if (imageMeta.SensorType is SensorType.Monochrome || Shape.ChannelCount < 3)
@@ -91,7 +91,7 @@ public partial class Image
     {
         if (imageMeta.SensorType is SensorType.RGGB)
         {
-            var debayered = await DebayerAsync(debayerAlgorithm, cancellationToken);
+            var debayered = await DebayerAsync(debayerAlgorithm, cancellationToken: cancellationToken);
             return await debayered.GetLumaStretchStatsAsync(DebayerAlgorithm.None, cancellationToken);
         }
 

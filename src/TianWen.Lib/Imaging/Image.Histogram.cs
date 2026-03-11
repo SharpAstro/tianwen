@@ -34,20 +34,25 @@ public partial class Image
             throw new ArgumentOutOfRangeException(nameof(thresholdPct), thresholdPct, "Threshold percentage must be between 0 and 100");
         }
 
+        // For normalized float images, histogram bins are mapped to [0, 65535] range inline
+        // without allocating a full rescaled copy of the image.
         float? rescaledMaxValue;
-        Image image;
+        float scaleFactor;
+        float effectiveMaxValue;
         if (BitDepth is BitDepth.Float32 && MaxValue <= 1.0f)
         {
             rescaledMaxValue = ushort.MaxValue;
-            image = ScaleFloatValues(rescaledMaxValue.Value);
+            scaleFactor = ushort.MaxValue;
+            effectiveMaxValue = ushort.MaxValue;
         }
         else
         {
             rescaledMaxValue = null;
-            image = this;
+            scaleFactor = 1f;
+            effectiveMaxValue = MaxValue;
         }
 
-        var threshold = (uint)Math.Round(image.MaxValue * (0.01d * thresholdPct), MidpointRounding.ToPositiveInfinity) + 1;
+        var threshold = (uint)Math.Round(effectiveMaxValue * (0.01d * thresholdPct), MidpointRounding.ToPositiveInfinity) + 1;
         var histogram = ImmutableArray.CreateBuilder<uint>((int)threshold);
 
         const int size = 1024;
@@ -69,16 +74,17 @@ public partial class Image
         var hist_total = 0u;
         var count = 1; /* prevent divide by zero */
         var total_value = 0f;
-        var pedestralAdjustValue = removePedestral ? image.MinValue : 0f;
-        var channelData = image;
+        var pedestralAdjustValue = removePedestral ? MinValue * scaleFactor : 0f;
+        var channelData = data[channel];
 
         for (var h = 0; h <= height - 1; h++)
         {
             for (var w = 0; w <= width - 1; w++)
             {
-                var value = channelData[channel, h, w];
-                if (!float.IsNaN(value))
+                var rawValue = channelData[h, w];
+                if (!float.IsNaN(rawValue))
                 {
+                    var value = rawValue * scaleFactor;
                     var valueMinusPedestral = value - pedestralAdjustValue;
 
                     // ignore black overlap areas and bright stars (if threshold percentage is below 100%)

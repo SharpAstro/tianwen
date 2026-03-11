@@ -32,7 +32,7 @@ internal sealed class GlFontAtlas : IDisposable
 
     public uint TextureHandle => _textureHandle;
 
-    public GlFontAtlas(GL gl, int initialWidth = 2048, int initialHeight = 2048)
+    public GlFontAtlas(GL gl, int initialWidth = 512, int initialHeight = 512)
     {
         _gl = gl;
         _atlasWidth = initialWidth;

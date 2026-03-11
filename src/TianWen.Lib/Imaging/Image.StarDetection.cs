@@ -73,7 +73,7 @@ public partial class Image
         if (imageMeta.SensorType is SensorType.RGGB && ChannelCount is 1)
         {
             // debayer to mono
-            var monoImage = await DebayerAsync(DebayerAlgorithm.BilinearMono, cancellationToken);
+            var monoImage = await DebayerAsync(DebayerAlgorithm.BilinearMono, cancellationToken: cancellationToken);
             return await monoImage.FindStarsAsync(channel, snrMin, maxStars, maxRetries, cancellationToken);
         }
 

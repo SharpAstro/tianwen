@@ -85,6 +85,8 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 - [ ] Named star labels: match detected stars against Tycho2 via WCS→RA/Dec projection,
       label with cross-catalog names (HIP, HD) using `TryGetCrossIndices`
 - [ ] Replace custom `AsyncLazy<T>` with `DotNext.Threading.AsyncLazy<T>` (already a dependency in TianWen.Lib)
+- [ ] Use a `WeakReference<FitsDocument>` cache (keyed by file path) so that cycling through
+      images can reuse recently loaded documents without keeping them pinned in memory
 
 ## Astrometry / Catalogs
 
@@ -97,7 +99,9 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 
 ## Statistics
 
-- [ ] Find a faster way to multiply all values in an array/span (`StatisticsHelper.cs:167`)
+- [x] Find a faster way to multiply all values in an array/span (`StatisticsHelper.cs:167`)
+      Replaced manual `Vector<T>` loops in `StatisticsHelper`, `VectorMath`, `Image`, and DSP
+      classes with `System.Numerics.Tensors` (`TensorPrimitives`) — SIMD-accelerated one-liners.
 - [x] Run star detection and use the mask to exclude stars from background estimation.
       `ScanBackgroundRegion` accepts optional `BitMatrix? starMask`, re-scanned with
       48×48 squares after detection. Star mask reused from `StarList.StarMask`.

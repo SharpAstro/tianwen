@@ -1,5 +1,5 @@
 ﻿using System;
-using System.Numerics;
+using System.Numerics.Tensors;
 
 namespace TianWen.Lib.Stat;
 
@@ -154,7 +154,6 @@ public partial class DSP
             double output_scale = scaling_vrms;
 
             double[] data = new double[size];
-            double sum = 0;
 
             for (uint n = 0; n < size; n++)
             {
@@ -172,16 +171,11 @@ public partial class DSP
                     data[n] = 0.0;
                 else
                     data[n] = v1 * Math.Sqrt(-2.0 * Math.Log(s) / s) * output_scale;
-
-                sum += data[n];
             }
 
             // Remove the average value
-            double average = sum / size;
-            for (uint n = 0; n < size; n++)
-            {
-                data[n] -= average;
-            }
+            double average = TensorPrimitives.Sum(data) / size;
+            TensorPrimitives.Subtract(data, average, data);
 
             // Return the Gaussian noise
             return data;
