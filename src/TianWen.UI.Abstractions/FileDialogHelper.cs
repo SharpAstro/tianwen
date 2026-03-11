@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Marshalling;
 using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
@@ -51,133 +52,160 @@ public static partial class FileDialogHelper
     [SupportedOSPlatform("windows")]
     private static string? PickWindows(IReadOnlyDictionary<string, IReadOnlyList<string>> filters, string title)
     {
-        var hr = CoCreateInstance(ref CLSID_FileOpenDialog, nint.Zero, 1 /* CLSCTX_INPROC_SERVER */, ref IID_IFileOpenDialog, out var dialogPtr);
-        if (hr < 0)
-        {
-            return null;
-        }
+        var dialog = new FileOpenDialogClass();
+        var fileDialog = (IFileOpenDialog)dialog;
 
         try
         {
-            var vtbl = Marshal.ReadIntPtr(dialogPtr);
+            fileDialog.SetTitle(title);
 
-            // SetTitle (index 17)
-            CallMethod<SetTitleDelegate>(vtbl, 17)(dialogPtr, title);
-
-            // SetFileTypes (index 4)
-            var specs = new COMDLG_FILTERSPEC[filters.Count];
-            var pinned = new GCHandle[filters.Count * 2];
-            var idx = 0;
-            foreach (var kv in filters)
+            var specs = filters.Select(kv => new COMDLG_FILTERSPEC
             {
-                var name = kv.Key;
-                var pattern = string.Join(';', kv.Value.Select(ext => "*" + ext));
-                pinned[idx * 2] = GCHandle.Alloc(name, GCHandleType.Pinned);
-                pinned[idx * 2 + 1] = GCHandle.Alloc(pattern, GCHandleType.Pinned);
-                specs[idx] = new COMDLG_FILTERSPEC
-                {
-                    pszName = pinned[idx * 2].AddrOfPinnedObject(),
-                    pszSpec = pinned[idx * 2 + 1].AddrOfPinnedObject(),
-                };
-                idx++;
-            }
+                pszName = Marshal.StringToCoTaskMemUni(kv.Key),
+                pszSpec = Marshal.StringToCoTaskMemUni(string.Join(';', kv.Value.Select(ext => "*" + ext))),
+            }).ToArray();
 
+            var specSize = Marshal.SizeOf<COMDLG_FILTERSPEC>();
+            var specsPtr = Marshal.AllocCoTaskMem(specSize * specs.Length);
             try
             {
-                CallMethod<SetFileTypesDelegate>(vtbl, 4)(dialogPtr, (uint)specs.Length, specs);
-
-                // Show (index 3)
-                hr = CallMethod<ShowDelegate>(vtbl, 3)(dialogPtr, nint.Zero);
-                if (hr < 0)
+                for (var i = 0; i < specs.Length; i++)
                 {
-                    return null; // user cancelled or error
+                    Marshal.StructureToPtr(specs[i], specsPtr + i * specSize, false);
                 }
 
-                // GetResult (index 20)
-                hr = CallMethod<GetResultDelegate>(vtbl, 20)(dialogPtr, out var shellItemPtr);
-                if (hr < 0 || shellItemPtr == nint.Zero)
+                fileDialog.SetFileTypes((uint)specs.Length, specsPtr);
+
+                var hr = fileDialog.Show(nint.Zero);
+                if (hr < 0)
                 {
                     return null;
                 }
 
+                fileDialog.GetResult(out var shellItem);
                 try
                 {
-                    // IShellItem::GetDisplayName(SIGDN_FILESYSPATH = 0x80058000)
-                    var shellItemVtbl = Marshal.ReadIntPtr(shellItemPtr);
-                    hr = CallMethod<GetDisplayNameDelegate>(shellItemVtbl, 5)(shellItemPtr, 0x80058000, out var pathPtr);
-                    if (hr < 0 || pathPtr == nint.Zero)
-                    {
-                        return null;
-                    }
-
-                    try
-                    {
-                        return Marshal.PtrToStringUni(pathPtr);
-                    }
-                    finally
-                    {
-                        CoTaskMemFree(pathPtr);
-                    }
+                    shellItem.GetDisplayName(SIGDN.SIGDN_FILESYSPATH, out var path);
+                    return path;
                 }
                 finally
                 {
-                    Marshal.Release(shellItemPtr);
+                    Marshal.ReleaseComObject(shellItem);
                 }
             }
             finally
             {
-                foreach (var handle in pinned)
+                foreach (var spec in specs)
                 {
-                    if (handle.IsAllocated)
-                    {
-                        handle.Free();
-                    }
+                    Marshal.FreeCoTaskMem(spec.pszName);
+                    Marshal.FreeCoTaskMem(spec.pszSpec);
                 }
+                Marshal.FreeCoTaskMem(specsPtr);
             }
         }
         finally
         {
-            Marshal.Release(dialogPtr);
+            Marshal.ReleaseComObject(dialog);
         }
     }
 
-    private static TDelegate CallMethod<TDelegate>(nint vtbl, int slot) where TDelegate : Delegate
+    // ── COM interfaces for IFileOpenDialog ──
+
+    [GeneratedComInterface]
+    [Guid("42f85136-db7e-439c-85f1-e4075d135fc8")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [SupportedOSPlatform("windows")]
+    internal partial interface IFileOpenDialog
     {
-        return Marshal.GetDelegateForFunctionPointer<TDelegate>(Marshal.ReadIntPtr(vtbl, slot * nint.Size));
+        [PreserveSig]
+        int Show(nint hwndOwner);
+
+        void SetFileTypes(uint cFileTypes, nint rgFilterSpec);
+
+        void SetFileTypeIndex(uint iFileType);
+
+        void GetFileTypeIndex(out uint piFileType);
+
+        void Advise(nint pfde, out uint pdwCookie);
+
+        void Unadvise(uint dwCookie);
+
+        void SetOptions(uint fos);
+
+        void GetOptions(out uint pfos);
+
+        void SetDefaultFolder(IShellItem psi);
+
+        void SetFolder(IShellItem psi);
+
+        void GetFolder(out IShellItem ppsi);
+
+        void GetCurrentSelection(out IShellItem ppsi);
+
+        void SetFileName([MarshalAs(UnmanagedType.LPWStr)] string pszName);
+
+        void GetFileName([MarshalAs(UnmanagedType.LPWStr)] out string pszName);
+
+        void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string pszTitle);
+
+        void SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string pszText);
+
+        void SetFileNameLabel([MarshalAs(UnmanagedType.LPWStr)] string pszLabel);
+
+        void GetResult(out IShellItem ppsi);
+
+        void AddPlace(IShellItem psi, int fdap);
+
+        void SetDefaultExtension([MarshalAs(UnmanagedType.LPWStr)] string pszDefaultExtension);
+
+        void Close([MarshalAs(UnmanagedType.Error)] int hr);
+
+        void SetClientGuid(ref Guid guid);
+
+        void ClearClientData();
+
+        void SetFilter(nint pFilter);
+
+        void GetResults(out nint ppenum);
+
+        void GetSelectedItems(out nint ppsai);
     }
 
-    private static Guid CLSID_FileOpenDialog = new("DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7");
-    private static Guid IID_IFileOpenDialog = new("d57c7288-d4ad-4768-be02-9d969532d960");
+    [GeneratedComInterface]
+    [Guid("43826d1e-e718-42ee-bc55-a1e261c37bfe")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [SupportedOSPlatform("windows")]
+    internal partial interface IShellItem
+    {
+        void BindToHandler(nint pbc, ref Guid bhid, ref Guid riid, out nint ppv);
 
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    private struct COMDLG_FILTERSPEC
+        void GetParent(out IShellItem ppsi);
+
+        void GetDisplayName(SIGDN sigdnName, [MarshalAs(UnmanagedType.LPWStr)] out string ppszName);
+
+        void GetAttributes(uint sfgaoMask, out uint psfgaoAttribs);
+
+        void Compare(IShellItem psi, uint hint, out int piOrder);
+    }
+
+    internal enum SIGDN : uint
+    {
+        SIGDN_FILESYSPATH = 0x80058000,
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct COMDLG_FILTERSPEC
     {
         public nint pszName;
         public nint pszSpec;
     }
 
-    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
-    private delegate int ShowDelegate(nint self, nint hwndOwner);
-
-    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
-    private delegate int SetFileTypesDelegate(nint self, uint cFileTypes, [MarshalAs(UnmanagedType.LPArray)] COMDLG_FILTERSPEC[] rgFilterSpec);
-
-    [UnmanagedFunctionPointer(CallingConvention.StdCall, CharSet = CharSet.Unicode)]
-    private delegate int SetTitleDelegate(nint self, [MarshalAs(UnmanagedType.LPWStr)] string pszTitle);
-
-    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
-    private delegate int GetResultDelegate(nint self, out nint ppsi);
-
-    [UnmanagedFunctionPointer(CallingConvention.StdCall)]
-    private delegate int GetDisplayNameDelegate(nint self, uint sigdnName, out nint ppszName);
-
+    [ComImport]
+    [Guid("DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7")]
     [SupportedOSPlatform("windows")]
-    [LibraryImport("ole32.dll")]
-    private static partial int CoCreateInstance(ref Guid rclsid, nint pUnkOuter, uint dwClsContext, ref Guid riid, out nint ppv);
-
-    [SupportedOSPlatform("windows")]
-    [LibraryImport("ole32.dll")]
-    private static partial void CoTaskMemFree(nint pv);
+    private class FileOpenDialogClass
+    {
+    }
 
     // ── Linux: zenity / kdialog ──
 
