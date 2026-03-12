@@ -53,6 +53,8 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
 
         // Move focuser to a starting position away from best focus
         await focuserDriver.BeginMoveAsync(TrueBestFocusPosition + 50, cancellationToken);
+
+        // TODO: validate that we did see focuser movement
         while (await focuserDriver.GetIsMovingAsync(cancellationToken))
         {
             await external.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
@@ -85,8 +87,9 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
 
         var setup = new Setup(mount, guider, new GuiderSetup(), [ota]);
 
+        // TODO: why not using FakePlateSolver? If not possible, what is missing?
         var plateSolver = Substitute.For<IPlateSolver>();
-        plateSolver.CheckSupportAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(true));
+        plateSolver.CheckSupportAsync(Arg.Any<CancellationToken>()).ReturnsForAnyArgs(true);
 
         var config = configuration ?? new SessionConfiguration(
             SetpointCCDTemperature: new SetpointTemp(-10, SetpointTempKind.Normal),

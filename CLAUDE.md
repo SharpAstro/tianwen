@@ -3,6 +3,7 @@
 - Always use extended thinking when analyzing bugs or designing architecture or when refactoring.
 - When running python temp scripts, always use python not python3
 - Always use pwsh not powerhsell
+- Use CRLF line endings for `.cs` and `.csproj` files
 
 ## Project Overview
 
