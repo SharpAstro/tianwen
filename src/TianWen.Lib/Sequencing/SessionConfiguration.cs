@@ -18,5 +18,6 @@ public record struct SessionConfiguration(
     int AutoFocusStepCount = 9,
     float FocusDriftThreshold = 1.3f,
     bool AlwaysRefocusOnNewTarget = false,
-    int BaselineHfdFrameCount = 3
+    int BaselineHfdFrameCount = 3,
+    TimeSpan? DefaultSubExposure = null
 );

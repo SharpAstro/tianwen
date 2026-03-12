@@ -30,14 +30,16 @@ internal static class SessionTestHelper
         FocusDriftThreshold: 1.3f
     );
 
-    public static readonly Observation[] DefaultObservations =
+    public static readonly ScheduledObservation[] DefaultScheduledObservations =
     [
-        new Observation(
+        new ScheduledObservation(
             new Target(6.75, 16.7, "M42", null),
             DateTimeOffset.UtcNow,
             TimeSpan.FromMinutes(30),
             AcrossMeridian: false,
-            SubExposure: TimeSpan.FromSeconds(120)
+            SubExposure: TimeSpan.FromSeconds(120),
+            Gain: 0,
+            Offset: 0
         )
     ];
 
@@ -48,7 +50,7 @@ internal static class SessionTestHelper
     public static async Task<SessionTestContext> CreateSessionAsync(
         ITestOutputHelper output,
         SessionConfiguration? configuration = null,
-        Observation[]? observations = null,
+        ScheduledObservation[]? observations = null,
         CancellationToken cancellationToken = default)
     {
         var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
@@ -96,9 +98,9 @@ internal static class SessionTestHelper
         var plateSolver = new FakePlateSolver();
 
         var config = configuration ?? DefaultConfiguration;
-        var obs = observations ?? DefaultObservations;
+        var obs = observations ?? DefaultScheduledObservations;
 
-        var session = new Session(setup, config, plateSolver, external, obs);
+        var session = new Session(setup, config, plateSolver, external, new ScheduledObservationTree(obs));
 
         return new SessionTestContext(session, external, cameraDriver, focuserDriver);
     }

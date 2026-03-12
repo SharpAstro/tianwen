@@ -24,7 +24,7 @@ internal partial record Session(
     in SessionConfiguration Configuration,
     IPlateSolver PlateSolver,
     IExternal External,
-    IReadOnlyList<Observation> PlannedObservations
+    ScheduledObservationTree Observations
 ) : ISession
 {
     const int UNINITIALIZED_OBSERVATION_INDEX = -1;
@@ -33,6 +33,7 @@ internal partial record Session(
     private readonly ConcurrentDictionary<int, FrameMetrics[]> _baselineByObservation = [];
     private readonly ConcurrentDictionary<int, List<FrameMetrics>[]> _baselineSamples = [];
     private int _activeObservation = UNINITIALIZED_OBSERVATION_INDEX;
+    private int _spareIndex;
 
     /// <summary>
     /// Per-observation, per-telescope baseline metrics for focus drift and environmental anomaly detection.
@@ -40,9 +41,13 @@ internal partial record Session(
     /// </summary>
     internal IReadOnlyDictionary<int, FrameMetrics[]> BaselineByObservation => _baselineByObservation;
 
-    public Observation? ActiveObservation => _activeObservation is int active and >= 0 && active < PlannedObservations.Count ? PlannedObservations[active] : null;
+    public ScheduledObservation? ActiveObservation => _activeObservation is int active and >= 0 && active < Observations.Count ? Observations[active] : null;
 
-    private int AdvanceObservation() => Interlocked.Increment(ref _activeObservation);
+    private int AdvanceObservation()
+    {
+        _spareIndex = 0;
+        return Interlocked.Increment(ref _activeObservation);
+    }
 
     public async Task RunAsync(CancellationToken cancellationToken)
     {

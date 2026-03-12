@@ -1,12 +1,59 @@
 # TODOs
 
+## Observation Scheduler (PLAN-SessionTests.md)
+
+### Done
+
+- [x] **ObservationPriority enum** — `High`, `Normal`, `Low`, `Spare` priority levels
+- [x] **ProposedObservation record** — user-facing proposal with optional gain/offset/exposure/duration
+- [x] **ScheduledObservation record** — resolved observation with concrete start/duration/gain/offset (replaces old `Observation`)
+- [x] **ScheduledObservationTree** — `IReadOnlyList<ScheduledObservation>` with per-slot spare target fallback via `TryGetNextSpare`
+- [x] **TargetScore** — altitude-integrated scoring with elevation profile and optimal window
+- [x] **DeviceQueryKey enum** — typed URI query key access with C# 14 extension block (`gain`, `offset`, `latitude`, etc.)
+- [x] **ObservationScheduler.CalculateNightWindow** — computes night boundaries with high-latitude fallback chain (AmateurAstroTwilight → NauticalTwilight for evening, AstroTwilight → NauticalTwilight for morning); handles polar night (24h window) and post-midnight twilight onset (Dublin summer solstice)
+- [x] **ObservationScheduler.ScoreTarget** — altitude-above-minimum scoring across time bins with optimal window extraction
+- [x] **ObservationScheduler.Schedule** — full scheduling pipeline: score → sort by priority/score → allocate time bins → attach spare targets per slot → resolve nullable defaults
+- [x] **ObservationScheduler.ResolveGain/ResolveOffset** — 3-tier resolution: explicit → URI query → interpolation/default
+- [x] **SOFAHelper bug fix** — `AmateurAstronomicalTwilight` case had `altitiude0 = AMATEUR_ASRONOMICAL_TWILIGHT` (assignment) instead of `altitiude0 -= AMATEUR_ASRONOMICAL_TWILIGHT` (subtraction)
+- [x] **Session spare target fallback** — when primary target is below horizon or slew impossible, try spare targets before advancing to next slot
+- [x] **SessionFactory.Create(proposals)** — new overload that builds `Transform` from mount URI, resolves defaults from camera URI, and calls `ObservationScheduler.Schedule`
+- [x] **SessionFactory refactored** — extracted `CreateSetup` helper to share device wiring between the two `Create` overloads
+- [x] **SessionConfiguration.DefaultSubExposure** — new optional field for scheduler default resolution
+- [x] **ISession/ISessionFactory updated** — `PlannedObservations` → `Observations` (tree), `Observation` → `ScheduledObservation` throughout
+- [x] **Tests**: 18 tests in `ObservationSchedulerTests` covering scoring, scheduling, priority ordering, spare target attachment, gain/offset resolution, night window calculation (Vienna summer, Melbourne winter, Germany winter solstice, Dublin summer solstice, Tromsø polar night), and full schedule-with-calculated-window integration
+
+### Not Yet Done
+
+- [ ] Integrate scheduler into `Session.RunAsync` flow — currently `ObservationLoopAsync` iterates linearly; needs to respect `ScheduledObservation.Start` times (wait until scheduled start before slewing)
+- [ ] Time-aware observation switching — advance to next observation when current observation's `Duration` elapses, not just when imaging loop exits
+- [ ] Weather/cloud interruption handling — if conditions degrade, pause schedule and resume with re-scored remaining targets
+- [ ] Multi-night scheduling — carry over incomplete observations to next session with accumulated exposure tracking
+- [ ] Filter support in ProposedObservation — per-target filter sequences (L, R, G, B, Ha, etc.)
+- [ ] Mosaic panel support — schedule multiple pointings for a single target as linked observations
+- [ ] Scheduler UI/CLI integration — expose `ProposedObservation` input and `ScheduledObservationTree` output in CLI and future UI
+- [ ] Persistent observation database — save/load proposals and completed exposure history
+
+## Session Test Plan Progress (PLAN-SessionTests.md phases)
+
+- [x] **Phase 2**: FakeCamera cooling simulation (commit 9ae4490)
+- [x] **Phase 3**: FakeFocuser temperature + focus model (commit 25ce32d)
+- [x] **Phase 4**: Synthetic star field renderer (commit 6fee8fb)
+- [x] **Phase 5 partial**: Backlash property on IFocuserDriver, FocusDirection 2x2 matrix (commit 25ce32d)
+- [x] **Phase 6 partial**: AutoFocusAsync with V-curve + hyperbola fitting, per-target baseline HFD (commits 25ce32d, 68d061c)
+- [ ] **Phase 1**: FakeGuider state machine — still throws `NotImplementedException`
+- [ ] **Phase 5 remaining**: BacklashMeasurement.MeasureAsync, backlash-compensated moves
+- [ ] **Phase 6 remaining**: Focus drift detection in ImagingLoopAsync (threshold check + auto-refocus trigger)
+- [ ] **Phase 7a**: Observation duration enforcement in imaging loop
+- [ ] **Phase 7b**: PeriodicTimer replacing hand-rolled sleep/overslept timing
+- [ ] **Phase 7c**: Full Session integration tests (tests 1-12 from plan)
+
 ## Sequencing / Session
 
 - [ ] Gracefully stop a session (`HostedSession.cs:39`)
 - [ ] Wait until 5 min to astro dark, and/or implement `IExternal.IsPolarAligned` (`Session.cs:61`)
 - [ ] Maybe slew slightly above/below 0 declination to avoid trees, etc. (`Session.cs:235`)
 - [ ] Plate solve, sync, and re-slew after initial slew (`Session.cs:245`)
-- [ ] Wait until target rises again instead of skipping (`Session.cs:455`)
+- [x] ~~Wait until target rises again instead of skipping~~ — replaced by spare target fallback in observation loop
 - [ ] Plate solve and re-slew during observation (`Session.cs:467`)
 - [ ] Per-camera exposure calculation, e.g. via f/ratio (`Session.cs:540`)
 - [ ] Stop exposures before meridian flip (if we can, and if there are any) (`Session.cs:668`)
