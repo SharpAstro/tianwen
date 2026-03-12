@@ -66,6 +66,9 @@ dotnet test -c Release
 - Mocking: **NSubstitute** (with analyzer for correctness)
 - Logging: `Meziantou.Extensions.Logging.Xunit.v3` for test output
 - Test data: embedded resources in `Data/` subdirectories
+- **Avoid code duplication in tests**: extract shared setup into helper classes (e.g.,
+  `SessionTestHelper` for Session test context creation). Minor duplication in simple tests
+  is acceptable, but complex setup should be shared across test classes.
 
 ## Coding Style
 
@@ -107,6 +110,46 @@ Devices are URI-addressed and managed through:
 - `IExternal` — file I/O, serial ports, time management, logging
 - `ISessionFactory` — creates observation sessions with bound devices
 - `IPlateSolverFactory` — plate solving (ASTAP, astrometry.net)
+
+### Session (Most Critical Class)
+
+`Session` (`TianWen.Lib/Sequencing/Session.cs`) is the central orchestrator for semi-automated
+image capturing. It drives the entire observation workflow and is the most vital piece of the library.
+
+**RunAsync workflow** (in order):
+1. `InitialisationAsync` — connect devices, validate setup
+2. `WaitUntilTenMinutesBeforeAmateurAstroTwilightEndsAsync` — timing
+3. `CoolCamerasToSetpointAsync` — ramp CCD temperature down
+4. `InitialRoughFocusAsync` — slew near zenith, take short exposures, verify ≥15 stars detected
+5. `AutoFocusAllTelescopesAsync` → `AutoFocusAsync` — V-curve scan, hyperbola fit, store baseline HFD
+6. `CalibrateGuiderAsync` — calibrate guiding
+7. `ObservationLoopAsync` → `ImagingLoopAsync` — main imaging loop with guiding, dithering,
+   focus drift detection, meridian flip handling
+
+**Key methods** (21 total):
+- `RunAsync` — top-level entry point
+- `InitialisationAsync` — device setup
+- `InitialRoughFocusAsync` — rough focus via plate solve readiness
+- `AutoFocusAllTelescopesAsync` / `AutoFocusAsync` — V-curve auto-focus
+- `CalibrateGuiderAsync` — guider calibration
+- `ObservationLoopAsync` — observation sequencing (slew, guide, image)
+- `ImagingLoopAsync` — per-observation imaging with drift detection
+- `CoolCamerasToSetpointAsync` / `CoolCamerasToSensorTempAsync` / `CoolCamerasToAmbientAsync`
+- `MoveTelescopeCoversToStateAsync` — cover management
+- `WriteImageToFitsFileAsync` — FITS output
+- `GuiderFocusLoopAsync` — guider plate solve loop
+- `Finalise` — warmup cameras, park mount, disconnect
+- `WaitUntilTenMinutesBeforeAmateurAstroTwilightEndsAsync` / `SessionEndTimeAsync` — timing
+- `CatchAsync` — error handling wrappers
+
+**Test coverage** (as of March 2026):
+- **Tested**: `AutoFocusAsync`, `AutoFocusAllTelescopesAsync` (6 tests in `SessionAutoFocusTests`)
+- **Not tested**: `RunAsync`, `InitialisationAsync`, `InitialRoughFocusAsync`,
+  `CalibrateGuiderAsync`, `ObservationLoopAsync`, `ImagingLoopAsync`, `Finalise`,
+  `CoolCamerasToSetpointAsync`, `MoveTelescopeCoversToStateAsync`, `WriteImageToFitsFileAsync`,
+  `GuiderFocusLoopAsync`, `WaitUntilTenMinutesBeforeAmateurAstroTwilightEndsAsync`
+- **Coverage gap**: ~90% of Session methods have no tests. The imaging loop (focus drift
+  detection, dithering, meridian flip) and full RunAsync workflow are completely untested.
 
 ### FITS Viewer / GPU Stretch
 
