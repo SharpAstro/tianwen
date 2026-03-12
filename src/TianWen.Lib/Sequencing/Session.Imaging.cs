@@ -25,7 +25,7 @@ internal partial record Session
         var sessionStartTime = await GetMountUtcNowAsync(cancellationToken);
         var sessionEndTime = await SessionEndTimeAsync(sessionStartTime, cancellationToken);
 
-        Observation? observation;
+        ScheduledObservation? observation;
         while ((observation = ActiveObservation) is not null
             && await GetMountUtcNowAsync(cancellationToken) < sessionEndTime
             && !cancellationToken.IsCancellationRequested
@@ -44,15 +44,26 @@ internal partial record Session
             try
             {
                 (var postCondition, hourAngleAtSlewTime) = await mount.Driver.BeginSlewToTargetAsync(observation.Target, Configuration.MinHeightAboveHorizon, cancellationToken).ConfigureAwait(false);
-                if (postCondition is SlewPostCondition.SlewNotPossible)
+                if (postCondition is SlewPostCondition.SlewNotPossible or SlewPostCondition.TargetBelowHorizonLimit)
                 {
-                    _ = AdvanceObservation();
-                    continue;
-                }
-                else if (postCondition is SlewPostCondition.TargetBelowHorizonLimit)
-                {
-                    // TODO: wait until target rises again instead of skipping
-                    continue;
+                    if (Observations.TryGetNextSpare(_activeObservation, ref _spareIndex) is { } spare)
+                    {
+                        External.AppLogger.LogInformation("Primary target {Target} not available ({PostCondition}), trying spare target {SpareTarget}.",
+                            observation.Target, postCondition, spare.Target);
+                        observation = spare;
+
+                        (postCondition, hourAngleAtSlewTime) = await mount.Driver.BeginSlewToTargetAsync(spare.Target, Configuration.MinHeightAboveHorizon, cancellationToken).ConfigureAwait(false);
+                        if (postCondition is SlewPostCondition.SlewNotPossible or SlewPostCondition.TargetBelowHorizonLimit)
+                        {
+                            _ = AdvanceObservation();
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        _ = AdvanceObservation();
+                        continue;
+                    }
                 }
                 else if (postCondition is SlewPostCondition.Slewing)
                 {
@@ -136,7 +147,7 @@ internal partial record Session
     /// <param name="cancellationToken"></param>
     /// <returns>loop result</returns>
     /// <exception cref="InvalidOperationException"></exception>
-    internal async ValueTask<ImageLoopNextAction> ImagingLoopAsync(Observation observation, double hourAngleAtSlewTime, CancellationToken cancellationToken)
+    internal async ValueTask<ImageLoopNextAction> ImagingLoopAsync(ScheduledObservation observation, double hourAngleAtSlewTime, CancellationToken cancellationToken)
     {
         var guider = Setup.Guider;
         var mount = Setup.Mount;

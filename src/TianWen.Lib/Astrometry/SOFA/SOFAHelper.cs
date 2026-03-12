@@ -164,7 +164,7 @@ public static class SOFAHelpers
 
                 case EventType.AmateurAstronomicalTwilight:
                     altitiudeMinus1 -= AMATEUR_ASRONOMICAL_TWILIGHT;
-                    altitiude0 = AMATEUR_ASRONOMICAL_TWILIGHT;
+                    altitiude0 -= AMATEUR_ASRONOMICAL_TWILIGHT;
                     altitiudePlus1 -= AMATEUR_ASRONOMICAL_TWILIGHT;
                     break;
 
