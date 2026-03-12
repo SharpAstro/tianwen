@@ -1,0 +1,403 @@
+using Microsoft.Extensions.Logging;
+using System;
+using System.Collections.Generic;
+using System.Collections.Specialized;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using TianWen.Lib.Astrometry.PlateSolve;
+using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Guider;
+using TianWen.Lib.Imaging;
+using TianWen.Lib.Stat;
+using static TianWen.Lib.Stat.StatisticsHelper;
+
+namespace TianWen.Lib.Sequencing;
+
+internal partial record Session
+{
+    internal async ValueTask ObservationLoopAsync(CancellationToken cancellationToken)
+    {
+        var guider = Setup.Guider;
+        var mount = Setup.Mount;
+        var sessionStartTime = await GetMountUtcNowAsync(cancellationToken);
+        var sessionEndTime = await SessionEndTimeAsync(sessionStartTime, cancellationToken);
+
+        Observation? observation;
+        while ((observation = ActiveObservation) is not null
+            && await GetMountUtcNowAsync(cancellationToken) < sessionEndTime
+            && !cancellationToken.IsCancellationRequested
+        )
+        {
+            if (!await mount.Driver.EnsureTrackingAsync(cancellationToken: cancellationToken))
+            {
+                External.AppLogger.LogError("Failed to enable tracking of {Mount}.", mount);
+                return;
+            }
+
+            External.AppLogger.LogInformation("Stop guiding to start slewing mount to target {Observation}.", observation);
+            await guider.Driver.StopCaptureAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
+
+            double hourAngleAtSlewTime;
+            try
+            {
+                (var postCondition, hourAngleAtSlewTime) = await mount.Driver.BeginSlewToTargetAsync(observation.Target, Configuration.MinHeightAboveHorizon, cancellationToken).ConfigureAwait(false);
+                if (postCondition is SlewPostCondition.SlewNotPossible)
+                {
+                    _ = AdvanceObservation();
+                    continue;
+                }
+                else if (postCondition is SlewPostCondition.TargetBelowHorizonLimit)
+                {
+                    // TODO: wait until target rises again instead of skipping
+                    continue;
+                }
+                else if (postCondition is SlewPostCondition.Slewing)
+                {
+                    if (!await mount.Driver.WaitForSlewCompleteAsync(cancellationToken).ConfigureAwait(false))
+                    {
+                        External.AppLogger.LogError("Failed to complete slewing of mount {Mount}", mount);
+
+                        throw new InvalidOperationException($"Failed to complete slewing of mount {mount} while slewing to {observation.Target}");
+                    }
+
+                    // TODO: Plate solve and re-slew
+                }
+                else
+                {
+                    throw new InvalidOperationException($"Unknown post condition {postCondition} after slewing to target {observation.Target}");
+                }
+            }
+            catch (Exception ex)
+            {
+                External.AppLogger.LogError(ex, "Error while slewing to {Observation}, retrying", observation);
+
+                // todo: if next observation is not yet risen, we need to wait and retry
+                continue;
+            }
+
+            var guidingSuccess = await guider.Driver.StartGuidingLoopAsync(Configuration.GuidingTries, cancellationToken).ConfigureAwait(false);
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                External.AppLogger.LogWarning("Cancellation requested, abort setting up guider \"{GuiderName}\" and quit observation loop.", guider.Driver);
+                break;
+            }
+            else if (!guidingSuccess)
+            {
+                External.AppLogger.LogError("Skipping target {Observation} as starting guider \"{GuiderName}\" failed after trying {GuiderTries} times.", observation, guider.Driver, Configuration.GuidingTries);
+                
+                // todo: if next observation is not yet risen, we need to wait and retry
+                _ = AdvanceObservation();
+                continue;
+            }
+
+            // Optionally refocus when switching to a new target
+            if (Configuration.AlwaysRefocusOnNewTarget && !_baselineByObservation.ContainsKey(ActiveObservationIndex))
+            {
+                External.AppLogger.LogInformation("Refocusing for new target {Target}.", observation.Target);
+                await guider.Driver.StopCaptureAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
+
+                if (!await AutoFocusAllTelescopesAsync(cancellationToken))
+                {
+                    External.AppLogger.LogWarning("Auto-focus did not converge for all telescopes on new target, proceeding.");
+                }
+
+                await guider.Driver.StartGuidingLoopAsync(Configuration.GuidingTries, cancellationToken).ConfigureAwait(false);
+            }
+
+            var imageLoopStart = await GetMountUtcNowAsync(cancellationToken);
+            var imageLoopResult = await ImagingLoopAsync(observation, hourAngleAtSlewTime, cancellationToken).ConfigureAwait(false);
+            if (imageLoopResult is ImageLoopNextAction.AdvanceToNextObservation)
+            {
+                _ = AdvanceObservation();
+                continue;
+            }
+            else if (imageLoopResult is ImageLoopNextAction.RepeatCurrentObservation)
+            {
+                // todo maybe wait a bit for better weather/tree out of the way, etc.
+                continue;
+            }
+            else
+            {
+                External.AppLogger.LogError("Imaging loop for {Observation} did not complete successfully, total runtime: {TotalRuntime:c}", observation, await GetMountUtcNowAsync(cancellationToken) - imageLoopStart);
+                break;
+            }
+        } // end observation loop
+    }
+
+    /// <summary>
+    /// Imaging loop for one observation, handles exposing frames + dithering, handles meridian flip.
+    /// </summary>
+    /// <param name="observation">Observation to image.</param>
+    /// <param name="hourAngleAtSlewTime">provide hour angle current as of start of session, used to calculate meridian flip.</param>
+    /// <param name="cancellationToken"></param>
+    /// <returns>loop result</returns>
+    /// <exception cref="InvalidOperationException"></exception>
+    internal async ValueTask<ImageLoopNextAction> ImagingLoopAsync(Observation observation, double hourAngleAtSlewTime, CancellationToken cancellationToken)
+    {
+        var guider = Setup.Guider;
+        var mount = Setup.Mount;
+        var scopes = Setup.Telescopes.Count;
+        var frameNumbers = new int[scopes];
+        var subExposuresSec = new int[scopes];
+
+        for (var i = 0; i < scopes; i++)
+        {
+            var camera = Setup.Telescopes[i].Camera;
+
+            camera.Driver.Target = observation.Target;
+
+            // TODO per camera exposure calculation, e.g. via f/ratio
+            var subExposure = observation.SubExposure;
+            subExposuresSec[i] = (int)Math.Ceiling(subExposure.TotalSeconds);
+        }
+
+        var maxSubExposureSec = subExposuresSec.Max();
+        var tickGCD = GCD(subExposuresSec);
+        var tickLCM = LCM(tickGCD, subExposuresSec);
+        var tickDuration = TimeSpan.FromSeconds(tickGCD);
+        var ticksPerMaxSubExposure = maxSubExposureSec / tickGCD;
+        var expStartTimes = new DateTimeOffset[scopes];
+        var expTicks = new int[scopes];
+        var ditherRound = 0;
+
+        var overslept = TimeSpan.Zero;
+        var imageWriteQueue = new Queue<QueuedImageWrite>();
+        ImageLoopNextAction? next = null;
+
+        while (!cancellationToken.IsCancellationRequested
+            && mount.Driver.Connected
+            && await CatchAsync(mount.Driver.IsTrackingAsync, cancellationToken)
+        )
+        {
+            if (!await CatchAsync(guider.Driver.IsGuidingAsync, cancellationToken).ConfigureAwait(false))
+            {
+                var guiderRestartedSuccess =
+                    await CatchAsync(guider.Driver.ConnectAsync, cancellationToken) &&
+                    await guider.Driver.StartGuidingLoopAsync(Configuration.GuidingTries, cancellationToken);
+
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    External.AppLogger.LogWarning("Cancellation requested, abort setting up guider \"{GuiderName}\" and quit imaging loop for observation {Observation}.", guider.Driver, observation);
+                    next = ImageLoopNextAction.BreakObservationLoop;
+                    break;
+                }
+                else if (!guiderRestartedSuccess)
+                {
+                    External.AppLogger.LogError("Reschedule target {Observation} as starting guider \"{GuiderName}\" failed after trying {GuiderTries} times.", observation, guider.Driver, Configuration.GuidingTries);
+                    next = ImageLoopNextAction.RepeatCurrentObservation;
+                    break;
+                }
+            }
+
+            for (var i = 0; i < scopes; i++)
+            {
+                var telescope = Setup.Telescopes[i];
+                var camerDriver = telescope.Camera.Driver;
+                if (await camerDriver.GetCameraStateAsync(cancellationToken) is CameraState.Idle)
+                {
+                    // set denormalized parameters so that the image driver can write proper headers in the image file
+                    camerDriver.FocusPosition = await CatchAsync(async ct => telescope.Focuser?.Driver is { Connected: true } focuserDriver ? await focuserDriver.GetPositionAsync(ct) : -1, cancellationToken, -1);
+                    camerDriver.Filter = await CatchAsync(async ct => telescope.FilterWheel?.Driver is { Connected: true } filterWheelDriver ? (await filterWheelDriver.GetCurrentFilterAsync(ct)).Filter : Filter.Unknown, cancellationToken, Filter.Unknown);
+
+                    var subExposureSec = subExposuresSec[i];
+                    var frameExpTime = TimeSpan.FromSeconds(subExposureSec);
+                    expStartTimes[i] = await camerDriver.StartExposureAsync(frameExpTime, cancellationToken: cancellationToken);
+                    expTicks[i] = (int)(subExposureSec / tickGCD);
+                    var frameNo = ++frameNumbers[i];
+
+                    External.AppLogger.LogInformation("Camera #{CameraNumber} {CamerName} starting {ExposureStartTime} exposure of frame #{FrameNo}.",
+                        i + 1, camerDriver.Name, frameExpTime, frameNo);
+                }
+            }
+
+            var elapsed = await WriteQueuedImagesToFitsFilesAsync().ConfigureAwait(false);
+            var tickMinusElapsed = tickDuration - elapsed - overslept;
+            // clear overslept
+            overslept = TimeSpan.Zero;
+            if (cancellationToken.IsCancellationRequested)
+            {
+                External.AppLogger.LogWarning("Cancellation requested, all images in queue written to disk, abort image acquisition and quit imaging loop");
+                next = ImageLoopNextAction.BreakObservationLoop;
+                break;
+            }
+            else if (tickMinusElapsed > TimeSpan.Zero)
+            {
+                await External.SleepAsync(tickMinusElapsed, cancellationToken);
+            }
+
+            var imageFetchSuccess = new BitVector32(scopes);
+            for (var i = 0; i < scopes && !cancellationToken.IsCancellationRequested; i++)
+            {
+                var tick = --expTicks[i];
+
+                var camDriver = Setup.Telescopes[i].Camera.Driver;
+                imageFetchSuccess[i] = false;
+                if (tick <= 0)
+                {
+                    var frameExpTime = TimeSpan.FromSeconds(subExposuresSec[i]);
+                    var frameNo = frameNumbers[i];
+                    do // wait for image loop
+                    {
+                        if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } image)
+                        {
+                            imageFetchSuccess[i] = true;
+                            External.AppLogger.LogInformation("Camera #{CameraNumber} {CameraName} finished {ExposureStartTime} exposure of frame #{FrameNo}",
+                                i + 1, camDriver.Name, frameExpTime, frameNo);
+
+                            imageWriteQueue.Enqueue(new QueuedImageWrite(image, observation, expStartTimes[i], frameNo));
+                            break;
+                        }
+                        else
+                        {
+                            var spinDuration = TimeSpan.FromMilliseconds(100);
+                            overslept += spinDuration;
+
+                            await External.SleepAsync(spinDuration, cancellationToken);
+                        }
+                    }
+                    while (overslept < (tickDuration / 5)
+                        && await camDriver.GetCameraStateAsync(cancellationToken) is not CameraState.Error and not CameraState.NotConnected
+                        && !cancellationToken.IsCancellationRequested
+                    );
+
+                    if (!imageFetchSuccess[i])
+                    {
+                        External.AppLogger.LogError("Failed fetching camera #{CameraNumber)} {CameraName} {ExposureStartTime} exposure of frame #{FrameNo}, camera state: {CameraState}",
+                            i + 1, camDriver.Name, frameExpTime, frameNo, await camDriver.GetCameraStateAsync(cancellationToken));
+                    }
+                }
+            }
+
+            var fetchImagesSuccessAll = imageFetchSuccess.AllSet(scopes);
+            if (!await mount.Driver.IsOnSamePierSideAsync(hourAngleAtSlewTime, cancellationToken))
+            {
+                // write all images as the loop is ending here
+                _ = await WriteQueuedImagesToFitsFilesAsync();
+
+                // TODO stop exposures (if we can, and if there are any)
+
+                if (observation.AcrossMeridian)
+                {
+                    // TODO, stop guiding flip, resync, verify and restart guiding
+                    throw new NotSupportedException("Observing across meridian is not yet supported");
+                }
+                else
+                {
+                    // finished this target
+                    break;
+                }
+            }
+            else if (fetchImagesSuccessAll)
+            {
+                // Check for focus drift on the last fetched image from each telescope
+                var currentBaselines = GetBaselineForCurrentObservation();
+                if (imageWriteQueue.Count > 0)
+                {
+                    for (var i = 0; i < scopes; i++)
+                    {
+                        var lastImage = imageWriteQueue.Last().Image;
+                        var driftStars = await lastImage.FindStarsAsync(0, snrMin: 10, maxStars: 100, cancellationToken: cancellationToken);
+                        if (driftStars.Count <= 3)
+                        {
+                            continue;
+                        }
+
+                        var camera = Setup.Telescopes[i].Camera.Driver;
+                        var currentGain = await camera.GetGainAsync(cancellationToken);
+                        var currentMetrics = FrameMetrics.FromStarList(driftStars, observation.SubExposure, currentGain);
+
+                        // If no baseline yet for this observation, collect samples from first frames
+                        if (currentBaselines is null || !currentBaselines[i].IsValid)
+                        {
+                            AccumulateBaselineSample(i, currentMetrics);
+                            continue;
+                        }
+
+                        // Only compare metrics captured with the same acquisition settings
+                        if (!currentMetrics.IsComparableTo(currentBaselines[i]))
+                        {
+                            continue;
+                        }
+
+                        var ratio = currentMetrics.MedianHfd / currentBaselines[i].MedianHfd;
+
+                        if (ratio > Configuration.FocusDriftThreshold)
+                        {
+                            External.AppLogger.LogWarning("Focus drift detected on telescope #{TelescopeNumber}: HFD={CurrentHFD:F2} vs baseline={BaselineHFD:F2} (ratio={Ratio:F2}), triggering auto-refocus.",
+                                i + 1, currentMetrics.MedianHfd, currentBaselines[i].MedianHfd, ratio);
+
+                            // Write pending images before refocusing
+                            _ = await WriteQueuedImagesToFitsFilesAsync();
+
+                            // Stop guiding, refocus, restart guiding
+                            await guider.Driver.StopCaptureAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
+
+                            var (converged, newBaseline) = await AutoFocusAsync(i, cancellationToken);
+                            if (converged && newBaseline.IsValid)
+                            {
+                                var baselines = GetBaselineForCurrentObservation() ?? new FrameMetrics[scopes];
+                                baselines[i] = newBaseline;
+                                SetBaselineForCurrentObservation(baselines);
+                            }
+
+                            await guider.Driver.StartGuidingLoopAsync(Configuration.GuidingTries, cancellationToken).ConfigureAwait(false);
+                            break; // restart imaging loop after refocus
+                        }
+                    }
+                }
+
+                var shouldDither = (++ditherRound % Configuration.DitherEveryNthFrame) == 0;
+                if (shouldDither)
+                {
+                    if (await guider.Driver.DitherWaitAsync(Configuration.DitherPixel, Configuration.SettlePixel, Configuration.SettleTime, WriteQueuedImagesToFitsFilesAsync, cancellationToken).ConfigureAwait(false))
+                    {
+                        External.AppLogger.LogInformation("Dithering using \"{GuiderName}\" succeeded.", guider.Driver);
+                    }
+                    else
+                    {
+                        External.AppLogger.LogWarning("Dithering using \"{GuiderName}\" failed.", guider.Driver);
+                    }
+                }
+                else
+                {
+                    External.AppLogger.LogDebug("Skipping dithering ({DitheringRound}/{DitherEveryNthFrame} frame)",
+                        ditherRound % Configuration.DitherEveryNthFrame, Configuration.DitherEveryNthFrame);
+                }
+            }
+        } // end imaging loop
+
+        if (imageWriteQueue.TryPeek(out _))
+        {
+            // write all images as the loop is ending here
+            _ = await WriteQueuedImagesToFitsFilesAsync();
+        }
+
+        return next ?? ImageLoopNextAction.AdvanceToNextObservation;
+
+        async ValueTask<TimeSpan> WriteQueuedImagesToFitsFilesAsync()
+        {
+            var writeQueueStart = await GetMountUtcNowAsync(cancellationToken);
+            while (imageWriteQueue.TryDequeue(out var imageWrite))
+            {
+                try
+                {
+                    await WriteImageToFitsFileAsync(imageWrite);
+                }
+                catch (Exception ex)
+                {
+                    External.AppLogger.LogError(ex, "Exception while saving frame #{FrameNumber} taken at {ExposureStartTime:o} by {Instrument}",
+                        imageWrite.FrameNumber, imageWrite.ExpStartTime, imageWrite.Image.ImageMeta.Instrument);
+                }
+            }
+            
+            return await GetMountUtcNowAsync(cancellationToken) - writeQueueStart;
+        }
+    }
+
+
+
+}
