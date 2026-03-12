@@ -1,13 +1,9 @@
-using NSubstitute;
 using Shouldly;
 using System;
 using System.Collections.Specialized;
-using System.IO;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.Focus;
-using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Imaging;
@@ -52,13 +48,17 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
         cameraDriver.NumY = 512;
 
         // Move focuser to a starting position away from best focus
+        var positionBeforeMove = await focuserDriver.GetPositionAsync(cancellationToken);
         await focuserDriver.BeginMoveAsync(TrueBestFocusPosition + 50, cancellationToken);
 
-        // TODO: validate that we did see focuser movement
         while (await focuserDriver.GetIsMovingAsync(cancellationToken))
         {
             await external.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
         }
+
+        var positionAfterMove = await focuserDriver.GetPositionAsync(cancellationToken);
+        positionAfterMove.ShouldBe(TrueBestFocusPosition + 50, "focuser should have moved to starting position");
+        positionAfterMove.ShouldNotBe(positionBeforeMove, "focuser position should have changed");
 
         var ota = new OTA(
             "Test Telescope",
@@ -87,9 +87,7 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
 
         var setup = new Setup(mount, guider, new GuiderSetup(), [ota]);
 
-        // TODO: why not using FakePlateSolver? If not possible, what is missing?
-        var plateSolver = Substitute.For<IPlateSolver>();
-        plateSolver.CheckSupportAsync(Arg.Any<CancellationToken>()).ReturnsForAnyArgs(true);
+        var plateSolver = new FakePlateSolver();
 
         var config = configuration ?? new SessionConfiguration(
             SetpointCCDTemperature: new SetpointTemp(-10, SetpointTempKind.Normal),
