@@ -112,3 +112,214 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 ## Guider
 
 - [ ] `appState` parameter should probably be an enum (`GuiderStateChangedEventArgs.cs:34`)
+
+## Vulkan Migration / HDR Display Output
+
+Investigation into whether Silk.NET can support HDR display output (HDR10, scRGB, wide color gamut).
+
+### Current Status: OpenGL Cannot Do HDR on Windows
+
+- GPU vendors (NVIDIA, AMD) block 10-bit and floating-point pixel formats for OpenGL in windowed mode
+- Windows HDR compositor (DWM) requires a DXGI swapchain, which only DirectX can drive natively
+- GLFW has no HDR support — [issue #890](https://github.com/glfw/glfw/issues/890) open since 2016, never implemented
+- GLFW 3.4 (Feb 2024) shipped without it; a proposed `GLFW_FLOAT_PIXEL_TYPE` patch was never merged
+- Silk.NET's `WindowHintBool` ends at `SrgbCapable`/`DoubleBuffer` — no float pixel type or HDR color space
+
+### Vulkan as Alternative
+
+Vulkan supports HDR output via `VK_EXT_swapchain_colorspace` + HDR10 surface formats.
+Silk.NET provides Vulkan bindings (`Silk.NET.Vulkan`).
+
+#### Platform Support Comparison
+
+| Platform | OpenGL | Vulkan | HDR possible? |
+|----------|--------|--------|---------------|
+| Windows  | Native | Native | Yes (Vulkan HDR swapchain) |
+| Linux    | Native | Native | Yes (if compositor supports) |
+| macOS    | Deprecated (frozen at 4.1) | MoltenVK | No (Metal HDR needs separate path) |
+| Android  | OpenGL ES | Native | Yes (Android 10+) |
+| iOS      | OpenGL ES (deprecated) | MoltenVK | No (same as macOS) |
+| Web/WASM | WebGL  | **No**  | No |
+
+#### Shader Migration Effort: Low
+
+GLSL shaders compile to SPIR-V with minimal mechanical changes:
+- `#version 330 core` → `#version 450`
+- `uniform float uFoo;` → `layout(binding=0) uniform UBO { float uFoo; };` (pack into UBOs)
+- `uniform sampler2D uTex;` → `layout(binding=1) uniform sampler2D uTex;` (explicit binding)
+- Compile to SPIR-V at build time via `glslc`/`glslangValidator` or `Silk.NET.Shaderc` at runtime
+- All shader math (MTF stretch, Hermite soft-knee, WCS deprojection, histogram) stays identical
+
+#### API Migration Effort: High
+
+The real work is replacing OpenGL API calls in `GlImageRenderer.cs` (~2000 lines):
+swapchain setup, descriptor sets, pipeline objects, command buffers, synchronization.
+
+#### Known Issues
+
+- **macOS regression**: Silk.NET 2.21+ cannot create GLFW Vulkan windows on macOS
+  ([#2440](https://github.com/dotnet/Silk.NET/issues/2440)); 2.20 worked
+- **MoltenVK not fully conformant**: translates Vulkan to Metal, supports Vulkan 1.4 but
+  some features missing; HDR swapchain extensions may not be implemented
+- **Web target lost**: Vulkan has no browser support (WebGPU would be the path forward)
+
+### Silk.NET Status (Incumbent)
+
+- **v2.23.0** (Jan 2026) — stable, quarterly maintenance releases
+- **3.0**: `develop/3.0` branch exists, tracking issue [#209](https://github.com/dotnet/Silk.NET/issues/209)
+  open since June 2020 (5.5+ years). Complete rewrite of bindings generation. No release date.
+  Lead developer (Perksey) less active. WebGPU bindings planned for 3.0.
+- Current Silk.NET surface in TianWen is well-contained: 4 source files (`GlImageRenderer.cs`,
+  `GlShaderProgram.cs`, `GlFontAtlas.cs`, `Program.cs`), 3 NuGet packages
+- AOT works with trimmer warning suppressions already in place
+- **Verdict**: Not dead, but 3.0 has been in development for years. "Stale" criticism has merit
+  for anyone waiting on Vulkan/WebGPU improvements. 2.x works fine for current OpenGL usage.
+
+### Alternatives Evaluated (March 2026)
+
+#### Veldrid — Avoid (Dead Project)
+
+- Last commit: March 2024 (2 years ago). Latest NuGet: v4.9.0 (Feb 2023). 159 open issues.
+- Clean abstraction (Vulkan, D3D11, Metal, OpenGL) but author (mellinoe) has moved on
+- Targets .NET 6 / netstandard2.0, not .NET 10. No AOT testing. No HDR.
+
+#### Avalonia + GPU Interop — Consider If Full UI Rewrite Desired
+
+- 30K+ stars, extremely active (committed yesterday). .NET 10 supported.
+- Has `GpuInterop` sample with Vulkan demo via `CompositionDrawingSurface`
+- Gives proper UI framework (menus, panels, dialogs) — could replace hand-built text/panel rendering
+- **But**: GPU interop is low-level — you manage your own Vulkan context inside a compositor callback.
+  HDR depends on SkiaSharp compositor pipeline (no HDR). AOT improving but Avalonia is large.
+- Migration effort: Very high. Only worth it if also replacing the hand-built UI.
+
+#### SDL3 (.NET bindings) — Best Near-Term Migration Path
+
+- SDL3 itself: 15K stars, committed yesterday, extremely battle-tested
+- Three competing .NET bindings: **ppy/SDL3-CS** (osu! team, most production-tested),
+  edwardgushchin/SDL3-CS, flibitijibibo/SDL3-CS
+- SDL3 has native Vulkan surface creation + new **SDL_GPU** abstraction (Vulkan/D3D12/Metal
+  with automatic shader cross-compilation)
+- **SDL3 + keep OpenGL**: replaces only GLFW windowing/input, preserves all GLSL shaders and
+  GL rendering. Migration effort: **medium** (SDL3 windowing maps closely to GLFW concepts)
+- **SDL3 + SDL_GPU**: higher-level Vulkan-like API, handles shader translation. Medium-high effort.
+- SDL3 has HDR output support at the windowing level
+- AOT: P/Invoke should work, untested with .NET 10 AOT specifically
+
+#### Evergine Vulkan.NET — Best Raw Vulkan Bindings
+
+- 284 stars, committed yesterday. Source-generated from Vulkan headers (always up-to-date, v1.4.341).
+- Targets .NET 8+. NuGet: `Evergine.Bindings.Vulkan`
+- Full HDR access via raw Vulkan swapchain formats
+- **But**: raw bindings only — all Vulkan boilerplate is your problem. No windowing (pair with SDL3).
+- Migration effort: Very high. 5-10x more code than OpenGL for the same result.
+
+#### Vortice.Vulkan — Best Raw Vulkan Ecosystem
+
+- 371 stars (Vulkan), 1.1K stars (Windows/D3D). Last commit: Feb 2026. Only 2 open issues.
+- Explicitly targets net9.0 + net10.0. By amerkoleci (also builds Alimer engine).
+- Bundles VMA (Vulkan Memory Allocator), SPIRV-Cross, and shaderc in one package
+- Same migration effort as Evergine but better ecosystem (VMA + shaderc bundled)
+- Single maintainer (bus factor of 1)
+
+#### WebGPU via wgpu-native — Future Option (Not Ready)
+
+- wgpu-native: 1.2K stars, committed yesterday. Translates to Vulkan/D3D12/Metal.
+- .NET bindings immature: Evergine WebGPU.NET (Nov 2025), WebGPUSharp (14 stars)
+- Shader language is WGSL (GLSL would need porting). HDR not yet in WebGPU spec.
+- Revisit in 1-2 years when .NET bindings mature.
+
+### Vortice.Vulkan + edwardgushchin/SDL3-CS — Platform Matrix (Recommended Combo)
+
+Vortice.Vulkan is pure managed C# bindings (`delegate* unmanaged` function pointers, no P/Invoke).
+Uses system Vulkan loader. Explicitly `IsAotCompatible = true`. Targets net9.0 + net10.0.
+Companion packages (VMA, SPIRV-Cross, shaderc) ship natives for all platforms including Android.
+
+edwardgushchin/SDL3-CS uses `LibraryImport` (source-generated, AOT-safe).
+`SDL3-CS.Native` NuGet ships desktop natives. Android works but needs manual lib bundling.
+
+| Platform | Vulkan | SDL3 native | AOT | HDR |
+|----------|--------|-------------|-----|-----|
+| Windows x64 | Native | NuGet | Yes | Yes (Vulkan HDR swapchain) |
+| Windows ARM64 | Native | NuGet | Yes | Yes |
+| Linux x64 | Native (Mesa/NVIDIA) | NuGet | Yes | Possible (Wayland + Vulkan) |
+| Linux ARM64 | Native (Mesa) | NuGet | Yes | Limited |
+| macOS x64 | MoltenVK | NuGet | Yes | MoltenVK limitations |
+| macOS ARM64 | MoltenVK | NuGet | Yes | MoltenVK limitations |
+| Android | Native | Manual bundling | Partial | Yes |
+| iOS | MoltenVK (must bundle) | Not shipped | Yes | Limited |
+
+SDL3 HDR support: `SDL.window.HDR_enabled`, `SDL.window.SDR_white_level`, `SDL.window.HDR_headroom`
+display properties, plus PQ (ST 2084) and HLG transfer characteristics. Combined with Vulkan
+`VK_COLOR_SPACE_HDR10_ST2084_EXT` swapchain, full HDR output is achievable.
+
+SDL3 Vulkan surface creation: `SDL.VulkanLoadLibrary()` (auto-finds MoltenVK on macOS),
+`SDL.VulkanCreateSurface()` → `VkSurfaceKHR`, pairs directly with Vortice.Vulkan rendering.
+
+### Option: Contributing Upstream Fixes to Silk.NET
+
+#### macOS Vulkan Regression (#2440) — Small Fix, Uncertain Merge Timeline
+
+Root cause: GLFW 3.4 changed Vulkan detection on macOS. `glfwVulkanSupported()` can't find
+the Vulkan loader even though Silk.NET ships it (`Silk.NET.Vulkan.Loader.Native`).
+GLFW 3.4 added `glfwInitVulkanLoader()` which could solve this.
+
+Possible fixes:
+1. Call `glfwInitVulkanLoader()` with a custom `vkGetInstanceProcAddr` before `glfwInit()`
+2. Set `VK_ICD_FILENAMES` environment variable to point at bundled MoltenVK ICD
+3. Ensure Vulkan loader is on `DYLD_LIBRARY_PATH`
+
+**Status**: No PRs submitted, zero maintainer engagement on the issue. Worth contributing
+but may sit unmerged — 2.x is in maintenance mode (14-month gap between 2.22 and 2.23),
+team is focused on 3.0. Trivial PRs merge in 0-11 days; no evidence of substantive
+external feature PRs merging recently.
+
+#### HDR Support — Blocked by GLFW Architecture
+
+HDR is **not feasible** within Silk.NET's current GLFW-based windowing:
+- GLFW has no API for HDR pixel formats, transfer functions, or color spaces
+- GLFW's own HDR issue ([#890](https://github.com/glfw/glfw/issues/890)) open since 2016, never implemented
+- Silk.NET's Vulkan bindings already cover all HDR swapchain extensions — the blocker is purely windowing
+- Would require replacing GLFW with SDL3 as windowing backend (huge change) or platform-specific code
+
+| Path | macOS fix | HDR | Effort | Risk |
+|------|-----------|-----|--------|------|
+| Fix Silk.NET upstream | Small PR, may wait months | **Blocked by GLFW** | Low for macOS, impossible for HDR | PR rot |
+| Vortice.Vulkan + SDL3-CS | SDL3 auto-detects MoltenVK | Full HDR built into SDL3 | High (rewrite renderer) | Two active projects |
+
+**Verdict**: Contributing the macOS fix is worth doing regardless (small PR, helps community).
+But it doesn't solve HDR — migration is the only path for that.
+
+### Comparison Matrix
+
+| Option | Maintenance | Vulkan | HDR | AOT | Migration | Shaders kept? |
+|--------|------------|--------|-----|-----|-----------|---------------|
+| Silk.NET 2.x (stay) | Moderate | Via 3.0 someday | No | Yes | None | Yes |
+| Silk.NET 2.x + macOS PR | Moderate | Yes (with fix) | No | Yes | None | Yes |
+| SDL3 + OpenGL | Excellent | Surface only | **No** | Yes | Medium | **Yes** |
+| SDL3 + SDL_GPU | Excellent | Under the hood | Possible | Yes | Medium-high | Rewrite to SDL_GPU |
+| Vortice.Vulkan + SDL3 | Good | Full | **Yes** | **Yes** | Very high | GLSL→SPIR-V |
+| Evergine Vulkan.NET + SDL3 | Excellent | Full | **Yes** | **Yes** | Very high | GLSL→SPIR-V |
+| Avalonia + Vulkan interop | Excellent | Yes (interop) | No | Improving | Very high | Rewrite |
+| WebGPU/wgpu | Weak (.NET) | Under the hood | Not yet | Possible | High | GLSL→WGSL |
+
+Note: SDL3 + OpenGL HDR corrected to **No** — SDL3's OpenGL renderer hardcodes `SDL_COLORSPACE_SRGB`
+as the only accepted output. No float pixel formats, no scRGB, no HDR10 via OpenGL on any platform.
+
+### Recommended Strategy
+
+1. **Short term**: Stay on Silk.NET 2.x. It works, it's AOT-compatible, and usage is well-contained.
+   Consider submitting a PR for the macOS Vulkan regression (#2440).
+
+2. **If Silk.NET becomes untenable**: Migrate windowing to **SDL3 (edwardgushchin/SDL3-CS) + keep OpenGL**.
+   This replaces only GLFW (windowing/input) while preserving all GLSL shaders and GL code.
+   Modest effort since SDL3 windowing concepts map closely to GLFW. Prefer edwardgushchin/SDL3-CS
+   over ppy/SDL3-CS for AOT compatibility (`LibraryImport` vs old `DllImport`).
+
+3. **For Vulkan/HDR**: Use **SDL3 for windowing** + **Vortice.Vulkan** for rendering
+   (includes VMA + shaderc). Compile GLSL to SPIR-V at build time. Major rewrite of
+   `GlImageRenderer.cs` but shader math stays identical. This is the only path to HDR output.
+
+4. **For full UI overhaul**: Consider **Avalonia** if the hand-built text/panel rendering becomes
+   a maintenance burden. Biggest investment but gives a real UI framework.
+
+5. **Watch**: SDL3_GPU maturity (could simplify Vulkan), WebGPU .NET bindings, Silk.NET 3.0.
