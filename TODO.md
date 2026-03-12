@@ -12,6 +12,8 @@
 - [ ] Stop exposures before meridian flip (if we can, and if there are any) (`Session.cs:668`)
 - [ ] Stop guiding, flip, resync, verify, and restart guiding (`Session.cs:672`)
 - [ ] Make FITS output path configurable, add frame type (`Session.cs:893`)
+- [ ] FOV obstruction detection: if first frames on a new target show HFD way higher or star count way lower than previous target's baseline, nudge mount up in altitude by one frame radius and re-check — if metrics recover, something is blocking the FOV (tree, building); make this a new imaging loop exit condition
+- [ ] Switch `ImagingLoopAsync` to `PeriodicTimer` instead of hand-rolled sleep/overslept timing (blocked on test coverage for imaging loop)
 
 ## Camera / ICameraDriver
 

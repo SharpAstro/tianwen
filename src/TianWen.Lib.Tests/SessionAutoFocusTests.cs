@@ -49,15 +49,16 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
         var ctx = await CreateAutoFocusSessionAsync(ct);
 
         // when
-        var (converged, baselineHfd) = await ctx.Session.AutoFocusAsync(0, ct);
+        var (converged, baseline) = await ctx.Session.AutoFocusAsync(0, ct);
 
         // then — should converge
         converged.ShouldBeTrue("auto-focus should converge");
-        baselineHfd.ShouldBeGreaterThan(0, "baseline HFD should be positive");
+        baseline.IsValid.ShouldBeTrue("baseline should be valid");
+        baseline.MedianHfd.ShouldBeGreaterThan(0, "baseline HFD should be positive");
 
         // focuser should be near the true best focus position
         var finalPos = await ctx.Focuser.GetPositionAsync(ct);
-        output.WriteLine($"True best focus: {TrueBestFocusPosition}, found: {finalPos}, baseline HFD: {baselineHfd:F2}");
+        output.WriteLine($"True best focus: {TrueBestFocusPosition}, found: {finalPos}, baseline HFD: {baseline.MedianHfd:F2}");
 
         Math.Abs(finalPos - TrueBestFocusPosition).ShouldBeLessThan(30, "focuser should be within 30 steps of true best focus");
     }
@@ -93,13 +94,15 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
         // then
         allConverged.ShouldBeTrue("all telescopes should converge");
 
-        // Verify baseline HFD is stored (accessible via reflection since _baselineHfd is private)
-        var baselineField = typeof(TianWen.Lib.Sequencing.Session).GetField("_baselineHfd", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        var baselineHfd = (float[]?)baselineField?.GetValue(ctx.Session);
-        baselineHfd.ShouldNotBeNull();
-        baselineHfd.Length.ShouldBe(1);
-        baselineHfd[0].ShouldBeGreaterThan(0);
-        output.WriteLine($"Baseline HFD: {baselineHfd[0]:F2}");
+        // Verify baseline metrics are stored for the current observation
+        ctx.Session.BaselineByObservation.ShouldContainKey(0);
+        var baselines = ctx.Session.BaselineByObservation[0];
+        baselines.Length.ShouldBe(1);
+        baselines[0].IsValid.ShouldBeTrue("baseline should be valid");
+        baselines[0].MedianHfd.ShouldBeGreaterThan(0);
+        baselines[0].MedianFwhm.ShouldBeGreaterThan(0);
+        baselines[0].StarCount.ShouldBeGreaterThan(3);
+        output.WriteLine($"Baseline HFD: {baselines[0].MedianHfd:F2}, FWHM: {baselines[0].MedianFwhm:F2}, Stars: {baselines[0].StarCount}");
     }
 
     [Fact]

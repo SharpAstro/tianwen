@@ -69,6 +69,9 @@ dotnet test -c Release
 - **Avoid code duplication in tests**: extract shared setup into helper classes (e.g.,
   `SessionTestHelper` for Session test context creation). Minor duplication in simple tests
   is acceptable, but complex setup should be shared across test classes.
+- **Never use reflection in tests**: do not access private fields/methods via `System.Reflection`.
+  If test code needs access to internal state, add an `internal` property or method to the
+  production code — the test project already has `InternalsVisibleTo` access.
 
 ## Coding Style
 
