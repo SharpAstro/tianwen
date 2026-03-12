@@ -1,0 +1,367 @@
+using Microsoft.Extensions.Logging;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using TianWen.Lib.Astrometry.Focus;
+using TianWen.Lib.Astrometry.PlateSolve;
+using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Guider;
+using TianWen.Lib.Imaging;
+using TianWen.Lib.Stat;
+using static TianWen.Lib.Stat.StatisticsHelper;
+
+namespace TianWen.Lib.Sequencing;
+
+internal partial record Session
+{
+    /// <summary>
+    /// Rough focus in this context is defined as: at least 15 stars can be detected by plate-solving when doing a short, high-gain exposure.
+    /// Assumes that zenith is visible, which should hopefully be the default for most setups.
+    /// </summary>
+    /// <param name="cancellationToken"></param>
+    /// <returns>true iff all cameras have at least rough focus.</returns>
+    internal async ValueTask<bool> InitialRoughFocusAsync(CancellationToken cancellationToken)
+    {
+        var mount = Setup.Mount;
+        var distMeridian = TimeSpan.FromMinutes(15);
+
+        if (!await mount.Driver.EnsureTrackingAsync(cancellationToken: cancellationToken))
+        {
+            External.AppLogger.LogError("Failed to enable tracking of {Mount}.", mount);
+
+            return false;
+        }
+
+        External.AppLogger.LogInformation("Slew mount {Mount} near zenith to verify that we have rough focus.", mount);
+
+        // coordinates not quite accurate at this point (we have not plate-solved yet) but good enough for this purpose.
+        await mount.Driver.BeginSlewToZenithAsync(distMeridian, cancellationToken).ConfigureAwait(false);
+        var slewTime = await GetMountUtcNowAsync(cancellationToken);
+
+        if (!await mount.Driver.WaitForSlewCompleteAsync(cancellationToken).ConfigureAwait(false))
+        {
+            External.AppLogger.LogError("Failed to complete slewing of mount {Mount}", mount);
+
+            return false;
+        }
+        
+        if (!await GuiderFocusLoopAsync(TimeSpan.FromMinutes(1), cancellationToken))
+        {
+            return false;
+        }
+
+        var count = Setup.Telescopes.Count;
+        var origGain = new short[count];
+        for (var i = 0; i < count; i++)
+        {
+            var camDriver = Setup.Telescopes[i].Camera.Driver;
+
+            if (camDriver.UsesGainValue)
+            {
+                origGain[i] = await camDriver.GetGainAsync(cancellationToken);
+
+                // set high gain
+                await camDriver.SetGainAsync((short)MathF.Truncate((camDriver.GainMin + camDriver.GainMin) * 0.75f), cancellationToken);
+            }
+            else
+            {
+                origGain[i] = short.MinValue;
+            }
+
+            await camDriver.StartExposureAsync(TimeSpan.FromSeconds(1), cancellationToken: cancellationToken);
+        }
+
+        var expTimesSec = new int[count];
+        var hasRoughFocus = new bool[count];
+        Array.Fill(expTimesSec, 1);
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            for (var i = 0; i < count; i++)
+            {
+                var camDriver = Setup.Telescopes[i].Camera.Driver;
+
+                if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } image)
+                {
+                    var stars = await image.FindStarsAsync(0, snrMin: 15, cancellationToken: cancellationToken);
+
+                    if (stars.Count < 15)
+                    {
+                        expTimesSec[i]++;
+
+                        if (await GetMountUtcNowAsync(cancellationToken) - slewTime + TimeSpan.FromSeconds(count * 5 + expTimesSec[i]) < distMeridian)
+                        {
+                            await camDriver.StartExposureAsync(TimeSpan.FromSeconds(expTimesSec[i]), cancellationToken: cancellationToken);
+                        }
+                    }
+                    else
+                    {
+                        if (camDriver.UsesGainValue && origGain[i] is >= 0)
+                        {
+                            await camDriver.SetGainAsync(origGain[i], cancellationToken);
+                        }
+
+                        hasRoughFocus[i] = true;
+                    }
+                }
+            }
+
+            // slew back to start position
+            if (await GetMountUtcNowAsync(cancellationToken) - slewTime > distMeridian)
+            {
+                await mount.Driver.BeginSlewToZenithAsync(distMeridian, cancellationToken).ConfigureAwait(false);
+                
+                slewTime = await GetMountUtcNowAsync(cancellationToken);
+
+                if (!await mount.Driver.WaitForSlewCompleteAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    External.AppLogger.LogError("Failed to complete slewing of mount {Mount}", mount);
+
+                    return false;
+                }
+            }
+
+            if (hasRoughFocus.All(v => v))
+            {
+                return true;
+            }
+
+            await External.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Runs V-curve auto-focus for all telescopes that have a focuser attached.
+    /// Stores the resulting baseline metrics per telescope for drift detection.
+    /// </summary>
+    internal async ValueTask<bool> AutoFocusAllTelescopesAsync(CancellationToken cancellationToken)
+    {
+        var scopes = Setup.Telescopes.Count;
+        var baselines = new FrameMetrics[scopes];
+        var allConverged = true;
+
+        for (var i = 0; i < scopes; i++)
+        {
+            var (converged, baseline) = await AutoFocusAsync(i, cancellationToken);
+            baselines[i] = baseline;
+            if (!converged)
+            {
+                allConverged = false;
+            }
+        }
+
+        SetBaselineForCurrentObservation(baselines);
+        return allConverged;
+    }
+
+    private int ActiveObservationIndex => _activeObservation is >= 0 ? _activeObservation : 0;
+
+    private void SetBaselineForCurrentObservation(FrameMetrics[] baselines)
+    {
+        var obsIndex = ActiveObservationIndex;
+        _baselineByObservation[obsIndex] = baselines;
+        _baselineSamples.TryRemove(obsIndex, out _);
+    }
+
+    private FrameMetrics[]? GetBaselineForCurrentObservation()
+    {
+        return _baselineByObservation.TryGetValue(ActiveObservationIndex, out var baselines) ? baselines : null;
+    }
+
+    /// <summary>
+    /// Accumulates frame metrics from the first frames of a new target.
+    /// Once <see cref="SessionConfiguration.BaselineHfdFrameCount"/> samples are collected,
+    /// the median metrics are used as the baseline for focus drift detection.
+    /// </summary>
+    private void AccumulateBaselineSample(int telescopeIndex, FrameMetrics metrics)
+    {
+        var obsIndex = ActiveObservationIndex;
+        var scopes = Setup.Telescopes.Count;
+        var samples = _baselineSamples.GetOrAdd(obsIndex, _ =>
+        {
+            var arr = new List<FrameMetrics>[scopes];
+            for (var j = 0; j < scopes; j++)
+            {
+                arr[j] = new List<FrameMetrics>();
+            }
+            return arr;
+        });
+
+        samples[telescopeIndex].Add(metrics);
+
+        if (samples[telescopeIndex].Count >= Configuration.BaselineHfdFrameCount)
+        {
+            var frameSamples = samples[telescopeIndex];
+            frameSamples.Sort((a, b) => a.MedianHfd.CompareTo(b.MedianHfd));
+            var medianIndex = frameSamples.Count / 2;
+            var medianMetrics = frameSamples[medianIndex];
+
+            var baselines = GetBaselineForCurrentObservation() ?? new FrameMetrics[scopes];
+            baselines[telescopeIndex] = medianMetrics;
+            SetBaselineForCurrentObservation(baselines);
+
+            External.AppLogger.LogInformation(
+                "Established baseline for telescope #{TelescopeNumber} on observation #{ObservationIndex}: HFD={BaselineHFD:F2}, FWHM={BaselineFWHM:F2}, stars={StarCount} (from {FrameCount} frames).",
+                telescopeIndex + 1, obsIndex + 1, medianMetrics.MedianHfd, medianMetrics.MedianFwhm, medianMetrics.StarCount, Configuration.BaselineHfdFrameCount);
+        }
+    }
+
+    /// <summary>
+    /// Performs V-curve auto-focus for a single telescope: scans focuser positions,
+    /// takes short exposures, measures median HFD, fits hyperbola, moves to best focus.
+    /// </summary>
+    /// <returns>Whether the fit converged, and the baseline metrics at best focus.</returns>
+    internal async ValueTask<(bool Converged, FrameMetrics Baseline)> AutoFocusAsync(int telescopeIndex, CancellationToken cancellationToken)
+    {
+        var telescope = Setup.Telescopes[telescopeIndex];
+        var focuser = telescope.Focuser?.Driver;
+        var camera = telescope.Camera.Driver;
+
+        if (focuser is not { Connected: true })
+        {
+            External.AppLogger.LogWarning("Telescope #{TelescopeNumber} has no connected focuser, skipping auto-focus.", telescopeIndex + 1);
+            return (false, default);
+        }
+
+        var autoFocusExposure = TimeSpan.FromSeconds(2);
+        var currentGain = await camera.GetGainAsync(cancellationToken);
+        var currentPos = await focuser.GetPositionAsync(cancellationToken);
+        var range = Configuration.AutoFocusRange;
+        var stepCount = Configuration.AutoFocusStepCount;
+        var stepSize = range / (stepCount - 1);
+        var startPos = Math.Max(0, currentPos - range / 2);
+
+        External.AppLogger.LogInformation("Auto-focus telescope #{TelescopeNumber}: scanning {StepCount} positions from {StartPos} with step size {StepSize}.",
+            telescopeIndex + 1, stepCount, startPos, stepSize);
+
+        var sampleMap = new MetricSampleMap(SampleKind.HFD, AggregationMethod.Median);
+
+        // Move to start position with backlash compensation
+        var focusDir = telescope.FocusDirection;
+        await BacklashCompensation.MoveWithCompensationAsync(
+            focuser, startPos, currentPos, focuser.BacklashStepsIn, focuser.BacklashStepsOut, focusDir, External, cancellationToken);
+
+        // Scan from start to end (always moving outward — no backlash needed)
+        for (var i = 0; i < stepCount && !cancellationToken.IsCancellationRequested; i++)
+        {
+            var targetPos = startPos + i * stepSize;
+            await focuser.BeginMoveAsync(targetPos, cancellationToken);
+            while (await focuser.GetIsMovingAsync(cancellationToken) && !cancellationToken.IsCancellationRequested)
+            {
+                await External.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
+            }
+
+            camera.FocusPosition = targetPos;
+            await camera.StartExposureAsync(TimeSpan.FromSeconds(2), cancellationToken: cancellationToken);
+
+            Image? image = null;
+            var retries = 0;
+            while (image is null && retries++ < 100 && !cancellationToken.IsCancellationRequested)
+            {
+                image = await camera.GetImageAsync(cancellationToken);
+                if (image is null)
+                {
+                    await External.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
+                }
+            }
+
+            if (image is { Width: > 0, Height: > 0 })
+            {
+                var stars = await image.FindStarsAsync(0, snrMin: 10, cancellationToken: cancellationToken);
+                if (stars.Count > 3)
+                {
+                    var hfd = stars.MapReduceStarProperty(SampleKind.HFD, AggregationMethod.Median);
+                    sampleMap.AddSampleAtFocusPosition(targetPos, hfd);
+                    External.AppLogger.LogDebug("Auto-focus pos={Position} stars={StarCount} HFD={HFD:F2}", targetPos, stars.Count, hfd);
+                }
+                else
+                {
+                    External.AppLogger.LogDebug("Auto-focus pos={Position} too few stars ({StarCount})", targetPos, stars.Count);
+                }
+            }
+        }
+
+        // Fit hyperbola
+        if (sampleMap.TryGetBestFocusSolution(out var solution, out _, out _))
+        {
+            var bestPos = (int)Math.Round(solution.Value.BestFocus);
+            var currentPosNow = await focuser.GetPositionAsync(cancellationToken);
+
+            External.AppLogger.LogInformation("Auto-focus telescope #{TelescopeNumber}: best focus at position {BestFocus} (A={A:F2}, B={B:F2}, error={Error:F4}).",
+                telescopeIndex + 1, bestPos, solution.Value.A, solution.Value.B, solution.Value.Error);
+
+            await BacklashCompensation.MoveWithCompensationAsync(
+                focuser, bestPos, currentPosNow, focuser.BacklashStepsIn, focuser.BacklashStepsOut, focusDir, External, cancellationToken);
+
+            // Take a verification exposure at best focus to get baseline HFD
+            camera.FocusPosition = bestPos;
+            await camera.StartExposureAsync(TimeSpan.FromSeconds(2), cancellationToken: cancellationToken);
+
+            Image? verifyImage = null;
+            var retries = 0;
+            while (verifyImage is null && retries++ < 100 && !cancellationToken.IsCancellationRequested)
+            {
+                verifyImage = await camera.GetImageAsync(cancellationToken);
+                if (verifyImage is null)
+                {
+                    await External.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
+                }
+            }
+
+            if (verifyImage is { Width: > 0, Height: > 0 })
+            {
+                var verifyStars = await verifyImage.FindStarsAsync(0, snrMin: 10, cancellationToken: cancellationToken);
+                if (verifyStars.Count > 3)
+                {
+                    var baseline = FrameMetrics.FromStarList(verifyStars, autoFocusExposure, currentGain);
+                    External.AppLogger.LogInformation("Auto-focus telescope #{TelescopeNumber}: baseline HFD={BaselineHFD:F2}, FWHM={BaselineFWHM:F2}, stars={StarCount}.",
+                        telescopeIndex + 1, baseline.MedianHfd, baseline.MedianFwhm, baseline.StarCount);
+                    return (true, baseline);
+                }
+            }
+
+            // Fit converged but we couldn't measure baseline — use the hyperbola minimum as HFD estimate
+            return (true, new FrameMetrics(0, (float)solution.Value.A, float.NaN, autoFocusExposure, currentGain));
+        }
+
+        External.AppLogger.LogWarning("Auto-focus telescope #{TelescopeNumber}: hyperbola fit did not converge.", telescopeIndex + 1);
+        return (false, default);
+    }
+
+    private async ValueTask<bool> GuiderFocusLoopAsync(TimeSpan timeoutAfter, CancellationToken cancellationToken)
+    {
+        var mount = Setup.Mount;
+        var guider = Setup.Guider;
+
+        var plateSolveTimeout = timeoutAfter > TimeSpan.FromSeconds(5) ? timeoutAfter - TimeSpan.FromSeconds(3) : timeoutAfter;
+
+        var result = await guider.Driver.PlateSolveGuiderImageAsync(PlateSolver,
+            await mount.Driver.GetRightAscensionAsync(cancellationToken),
+            await mount.Driver.GetDeclinationAsync(cancellationToken),
+            plateSolveTimeout,
+            10d,
+            cancellationToken
+        );
+
+        if (result.Solution is var (solvedRa, solvedDec))
+        {
+            External.AppLogger.LogInformation("Guider \"{GuiderName}\" is in focus and camera image plate solve succeeded with ({SolvedRa}, {SolvedDec})",
+                guider.Driver, solvedRa, solvedDec);
+            return true;
+        }
+        else
+        {
+            External.AppLogger.LogWarning("Failed to plate solve guider \"{GuiderName}\" without a specific reason (probably not enough stars detected)",
+                guider.Driver);
+        }
+
+        return false;
+    }
+
+
+
+}
