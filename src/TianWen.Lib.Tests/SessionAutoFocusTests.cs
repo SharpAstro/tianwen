@@ -1,13 +1,11 @@
 using Shouldly;
 using System;
-using System.Collections.Specialized;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Imaging;
-using TianWen.Lib.Sequencing;
 using TianWen.Lib.Stat;
 using Xunit;
 
@@ -18,105 +16,29 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
     private const int TrueBestFocusPosition = 1000;
 
     /// <summary>
-    /// Creates a minimal Session with fake devices suitable for auto-focus and imaging tests.
-    /// Camera + focuser are connected and configured with a known best focus position.
+    /// Creates a Session with the focuser configured for auto-focus testing:
+    /// synthetic star generation enabled and focuser moved away from best focus.
     /// </summary>
-    private async Task<(Session Session, FakeExternal External, FakeCameraDriver Camera, FakeFocuserDriver Focuser)> CreateAutoFocusSessionAsync(
-        SessionConfiguration? configuration = null,
-        Observation[]? observations = null,
-        CancellationToken cancellationToken = default)
+    private async Task<SessionTestContext> CreateAutoFocusSessionAsync(CancellationToken cancellationToken = default)
     {
-        var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: cancellationToken);
 
-        // Camera + Focuser (real fake devices for star generation)
-        var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
-        var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
-        var camera = new Camera(cameraDevice, external);
-        var focuser = new Focuser(focuserDevice, external);
-
-        await camera.Driver.ConnectAsync(cancellationToken);
-        await focuser.Driver.ConnectAsync(cancellationToken);
-
-        // Configure synthetic star generation
-        var cameraDriver = (FakeCameraDriver)camera.Driver;
-        var focuserDriver = (FakeFocuserDriver)focuser.Driver;
-        cameraDriver.TrueBestFocus = TrueBestFocusPosition;
-
-        // Set camera dimensions (defaults are 0x0)
-        cameraDriver.BinX = 1;
-        cameraDriver.NumX = 512;
-        cameraDriver.NumY = 512;
+        ctx.Camera.TrueBestFocus = TrueBestFocusPosition;
 
         // Move focuser to a starting position away from best focus
-        var positionBeforeMove = await focuserDriver.GetPositionAsync(cancellationToken);
-        await focuserDriver.BeginMoveAsync(TrueBestFocusPosition + 50, cancellationToken);
+        var positionBeforeMove = await ctx.Focuser.GetPositionAsync(cancellationToken);
+        await ctx.Focuser.BeginMoveAsync(TrueBestFocusPosition + 50, cancellationToken);
 
-        while (await focuserDriver.GetIsMovingAsync(cancellationToken))
+        while (await ctx.Focuser.GetIsMovingAsync(cancellationToken))
         {
-            await external.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
+            await ctx.External.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
         }
 
-        var positionAfterMove = await focuserDriver.GetPositionAsync(cancellationToken);
+        var positionAfterMove = await ctx.Focuser.GetPositionAsync(cancellationToken);
         positionAfterMove.ShouldBe(TrueBestFocusPosition + 50, "focuser should have moved to starting position");
         positionAfterMove.ShouldNotBe(positionBeforeMove, "focuser position should have changed");
 
-        var ota = new OTA(
-            "Test Telescope",
-            1000,
-            camera,
-            Cover: null,
-            focuser,
-            new FocusDirection(PreferOutward: true, OutwardIsPositive: true),
-            FilterWheel: null,
-            Switches: null
-        );
-
-        // Mount + Guider (use real fake devices with NSubstitute fallback for unneeded methods)
-        var mountDevice = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection
-        {
-            { "latitude", "48.2" },
-            { "longitude", "16.3" }
-        });
-        var guiderDevice = new FakeDevice(DeviceType.Guider, 1);
-        var mount = new Mount(mountDevice, external);
-        var guider = new Guider(guiderDevice, external);
-
-        await mount.Driver.ConnectAsync(cancellationToken);
-        await guider.Driver.ConnectAsync(cancellationToken);
-        await ((FakeGuider)guider.Driver).ConnectEquipmentAsync(cancellationToken);
-
-        var setup = new Setup(mount, guider, new GuiderSetup(), [ota]);
-
-        var plateSolver = new FakePlateSolver();
-
-        var config = configuration ?? new SessionConfiguration(
-            SetpointCCDTemperature: new SetpointTemp(-10, SetpointTempKind.Normal),
-            CooldownRampInterval: TimeSpan.FromSeconds(1),
-            WarmupRampInterval: TimeSpan.FromSeconds(1),
-            MinHeightAboveHorizon: 20,
-            DitherPixel: 1.5,
-            SettlePixel: 0.3,
-            DitherEveryNthFrame: 5,
-            SettleTime: TimeSpan.FromSeconds(3),
-            GuidingTries: 3,
-            AutoFocusRange: 200,
-            AutoFocusStepCount: 9,
-            FocusDriftThreshold: 1.3f
-        );
-
-        var obs = observations ?? [
-            new Observation(
-                new Target(6.75, 16.7, "M42", null),
-                DateTimeOffset.UtcNow,
-                TimeSpan.FromMinutes(30),
-                AcrossMeridian: false,
-                SubExposure: TimeSpan.FromSeconds(120)
-            )
-        ];
-
-        var session = new Session(setup, config, plateSolver, external, obs);
-
-        return (session, external, cameraDriver, focuserDriver);
+        return ctx;
     }
 
     [Fact]
@@ -124,17 +46,17 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
     {
         // given
         var ct = TestContext.Current.CancellationToken;
-        var (session, external, camera, focuser) = await CreateAutoFocusSessionAsync(cancellationToken: ct);
+        var ctx = await CreateAutoFocusSessionAsync(ct);
 
         // when
-        var (converged, baselineHfd) = await session.AutoFocusAsync(0, ct);
+        var (converged, baselineHfd) = await ctx.Session.AutoFocusAsync(0, ct);
 
         // then — should converge
         converged.ShouldBeTrue("auto-focus should converge");
         baselineHfd.ShouldBeGreaterThan(0, "baseline HFD should be positive");
 
         // focuser should be near the true best focus position
-        var finalPos = await focuser.GetPositionAsync(ct);
+        var finalPos = await ctx.Focuser.GetPositionAsync(ct);
         output.WriteLine($"True best focus: {TrueBestFocusPosition}, found: {finalPos}, baseline HFD: {baselineHfd:F2}");
 
         Math.Abs(finalPos - TrueBestFocusPosition).ShouldBeLessThan(30, "focuser should be within 30 steps of true best focus");
@@ -145,15 +67,15 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
     {
         // given — focuser starts above best focus, backlash = 20
         var ct = TestContext.Current.CancellationToken;
-        var (session, external, camera, focuser) = await CreateAutoFocusSessionAsync(cancellationToken: ct);
+        var ctx = await CreateAutoFocusSessionAsync(ct);
 
         // when
-        var (converged, _) = await session.AutoFocusAsync(0, ct);
+        var (converged, _) = await ctx.Session.AutoFocusAsync(0, ct);
 
         // then — should still converge despite backlash
         converged.ShouldBeTrue("auto-focus should converge with backlash compensation");
 
-        var finalPos = await focuser.GetPositionAsync(ct);
+        var finalPos = await ctx.Focuser.GetPositionAsync(ct);
         output.WriteLine($"Final position: {finalPos}");
         Math.Abs(finalPos - TrueBestFocusPosition).ShouldBeLessThan(30);
     }
@@ -163,17 +85,17 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
     {
         // given
         var ct = TestContext.Current.CancellationToken;
-        var (session, external, camera, focuser) = await CreateAutoFocusSessionAsync(cancellationToken: ct);
+        var ctx = await CreateAutoFocusSessionAsync(ct);
 
         // when
-        var allConverged = await session.AutoFocusAllTelescopesAsync(ct);
+        var allConverged = await ctx.Session.AutoFocusAllTelescopesAsync(ct);
 
         // then
         allConverged.ShouldBeTrue("all telescopes should converge");
 
         // Verify baseline HFD is stored (accessible via reflection since _baselineHfd is private)
-        var baselineField = typeof(Session).GetField("_baselineHfd", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        var baselineHfd = (float[]?)baselineField?.GetValue(session);
+        var baselineField = typeof(TianWen.Lib.Sequencing.Session).GetField("_baselineHfd", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        var baselineHfd = (float[]?)baselineField?.GetValue(ctx.Session);
         baselineHfd.ShouldNotBeNull();
         baselineHfd.Length.ShouldBe(1);
         baselineHfd[0].ShouldBeGreaterThan(0);
