@@ -275,4 +275,5 @@ public class FakeDeviceTests(ITestOutputHelper output)
         var state = await camera.GetCameraStateAsync();
         state.ShouldBe(CameraState.Idle);
     }
+
 }
