@@ -14,24 +14,6 @@ namespace TianWen.Lib.Devices;
 
 public interface IExternal
 {
-    public async ValueTask<TimeSpan> SleepWithOvertimeAsync(TimeSpan sleep, TimeSpan extra, CancellationToken cancellationToken = default)
-    {
-        var adjustedTime = sleep - extra;
-
-        TimeSpan overslept;
-        if (adjustedTime >= TimeSpan.Zero)
-        {
-            overslept = TimeSpan.Zero;
-            await SleepAsync(adjustedTime, cancellationToken);
-        }
-        else
-        {
-            overslept = adjustedTime.Negate();
-        }
-
-        return overslept;
-    }
-
     /// <summary>
     /// Uses <see langword="try"/> <see langword="catch"/> to safely execute <paramref name="action"/>.
     /// Returns <see langword="true"/> on success and  <see langword="false"/> failure, and logs errors using <see cref="AppLogger"/>.

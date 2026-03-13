@@ -285,10 +285,10 @@ public interface IGuider : IDeviceDriver
     /// <param name="ditherPixel">Dither amount in pixels.</param>
     /// <param name="settlePixel">Settle threshold in pixels.</param>
     /// <param name="settleTime">Settle time.</param>
-    /// <param name="processQueuedWork">Function to process queued work.</param>
+    /// <param name="processQueuedWork">Function to process queued work while waiting for settle.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>True if dithering and settling completed successfully, otherwise false.</returns>
-    public async ValueTask<bool> DitherWaitAsync(double ditherPixel, double settlePixel, TimeSpan settleTime, Func<ValueTask<TimeSpan>> processQueuedWork, CancellationToken cancellationToken = default)
+    public async ValueTask<bool> DitherWaitAsync(double ditherPixel, double settlePixel, TimeSpan settleTime, Func<ValueTask> processQueuedWork, CancellationToken cancellationToken = default)
     {
         var settleTimeout = settleTime * SETTLE_TIMEOUT_FACTOR;
 
@@ -297,8 +297,9 @@ public interface IGuider : IDeviceDriver
 
         await DitherAsync(ditherPixel, settlePixel, settleTime.TotalSeconds, settleTimeout.TotalSeconds, cancellationToken: cancellationToken);
 
-        var overslept = TimeSpan.Zero;
-        var elapsed = await processQueuedWork().ConfigureAwait(false);
+        await processQueuedWork().ConfigureAwait(false);
+
+        using var ticker = new PeriodicTimer(settleTime, External.TimeProvider);
 
         for (var i = 0; i < SETTLE_TIMEOUT_FACTOR; i++)
         {
@@ -307,10 +308,8 @@ public interface IGuider : IDeviceDriver
                 External.AppLogger.LogWarning("Cancellation requested, all images in queue written to disk, abort image acquisition and quit imaging loop");
                 return false;
             }
-            else
-            {
-                overslept = await External.SleepWithOvertimeAsync(settleTime, elapsed + overslept, cancellationToken);
-            }
+
+            await ticker.WaitForNextTickAsync(cancellationToken);
 
             if (await GetSettleProgressAsync(cancellationToken).ConfigureAwait(false) is { } settleProgress)
             {

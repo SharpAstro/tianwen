@@ -175,6 +175,8 @@ internal partial record Session
         var imageWriteQueue = new Queue<QueuedImageWrite>();
         ImageLoopNextAction? next = null;
 
+        using var ticker = new PeriodicTimer(tickDuration, External.TimeProvider);
+
         while (!cancellationToken.IsCancellationRequested
             && mount.Driver.Connected
             && await CatchAsync(mount.Driver.IsTrackingAsync, cancellationToken)
@@ -223,7 +225,7 @@ internal partial record Session
                 }
             }
 
-            var elapsed = await WriteQueuedImagesToFitsFilesAsync().ConfigureAwait(false);
+            await WriteQueuedImagesToFitsFilesAsync().ConfigureAwait(false);
             if (cancellationToken.IsCancellationRequested)
             {
                 External.AppLogger.LogWarning("Cancellation requested, all images in queue written to disk, abort image acquisition and quit imaging loop");
@@ -231,11 +233,7 @@ internal partial record Session
                 break;
             }
 
-            var remaining = tickDuration - elapsed;
-            if (remaining > TimeSpan.Zero)
-            {
-                await External.SleepAsync(remaining, cancellationToken);
-            }
+            await ticker.WaitForNextTickAsync(cancellationToken);
 
             var imageFetchSuccess = new BitVector32(scopes);
             for (var i = 0; i < scopes && !cancellationToken.IsCancellationRequested; i++)
@@ -293,14 +291,14 @@ internal partial record Session
                 External.AppLogger.LogInformation(
                     "Target {Target} dropped below minimum altitude ({Alt:F1}° < {Min}°), advancing.",
                     observation.Target, altCoords.Alt, Configuration.MinHeightAboveHorizon);
-                _ = await WriteQueuedImagesToFitsFilesAsync();
+                await WriteQueuedImagesToFitsFilesAsync();
                 break; // falls through to return AdvanceToNextObservation
             }
 
             if (!await mount.Driver.IsOnSamePierSideAsync(hourAngleAtSlewTime, cancellationToken))
             {
                 // write all images as the loop is ending here
-                _ = await WriteQueuedImagesToFitsFilesAsync();
+                await WriteQueuedImagesToFitsFilesAsync();
 
                 // TODO stop exposures (if we can, and if there are any)
 
@@ -355,7 +353,7 @@ internal partial record Session
                                 i + 1, currentMetrics.MedianHfd, currentBaselines[i].MedianHfd, ratio);
 
                             // Write pending images before refocusing
-                            _ = await WriteQueuedImagesToFitsFilesAsync();
+                            await WriteQueuedImagesToFitsFilesAsync();
 
                             // Stop guiding, refocus, restart guiding
                             await guider.Driver.StopCaptureAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
@@ -400,14 +398,13 @@ internal partial record Session
         if (imageWriteQueue.TryPeek(out _))
         {
             // write all images as the loop is ending here
-            _ = await WriteQueuedImagesToFitsFilesAsync();
+            await WriteQueuedImagesToFitsFilesAsync();
         }
 
         return next ?? ImageLoopNextAction.AdvanceToNextObservation;
 
-        async ValueTask<TimeSpan> WriteQueuedImagesToFitsFilesAsync()
+        async ValueTask WriteQueuedImagesToFitsFilesAsync()
         {
-            var writeQueueStart = await GetMountUtcNowAsync(cancellationToken);
             while (imageWriteQueue.TryDequeue(out var imageWrite))
             {
                 try
@@ -422,8 +419,6 @@ internal partial record Session
                         imageWrite.FrameNumber, imageWrite.ExpStartTime, imageWrite.Image.ImageMeta.Instrument);
                 }
             }
-
-            return await GetMountUtcNowAsync(cancellationToken) - writeQueueStart;
         }
     }
 }

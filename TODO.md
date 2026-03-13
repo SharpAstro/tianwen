@@ -44,7 +44,7 @@
 - [ ] **Phase 5 remaining**: BacklashMeasurement.MeasureAsync, backlash-compensated moves
 - [ ] **Phase 6 remaining**: Focus drift detection in ImagingLoopAsync (threshold check + auto-refocus trigger)
 - [ ] **Phase 7a**: Observation duration enforcement in imaging loop
-- [ ] **Phase 7b**: PeriodicTimer replacing hand-rolled sleep/overslept timing
+- [x] **Phase 7b**: PeriodicTimer replacing hand-rolled sleep/overslept timing
 - [ ] **Phase 7c**: Full Session integration tests (tests 1-12 from plan)
 
 ## Sequencing / Session
@@ -60,7 +60,7 @@
 - [ ] Stop guiding, flip, resync, verify, and restart guiding (`Session.cs:672`)
 - [ ] Make FITS output path configurable, add frame type (`Session.cs:893`)
 - [ ] FOV obstruction detection: if first frames on a new target show HFD way higher or star count way lower than previous target's baseline, nudge mount up in altitude by one frame radius and re-check — if metrics recover, something is blocking the FOV (tree, building); make this a new imaging loop exit condition
-- [ ] Switch `ImagingLoopAsync` to `PeriodicTimer` instead of hand-rolled sleep/overslept timing (blocked on test coverage for imaging loop)
+- [x] Switch `ImagingLoopAsync` to `PeriodicTimer` instead of hand-rolled sleep/overslept timing
 
 ## Camera / ICameraDriver
 

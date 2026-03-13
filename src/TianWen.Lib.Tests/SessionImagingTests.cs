@@ -84,8 +84,19 @@ public class SessionImagingTests(ITestOutputHelper output)
         // Get hour angle for pier side tracking
         var hourAngle = await ctx.Mount.GetHourAngleAsync(ct);
 
-        // when
-        var result = await ctx.Session.ImagingLoopAsync(observation, hourAngle, ct);
+        // when — run imaging loop on thread pool, advance fake time from test thread
+        var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, ct));
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        var maxTicks = (int)(TimeSpan.FromHours(24) / subExposure);
+        for (var i = 0; i < maxTicks && !imagingTask.IsCompleted && !timeout.IsCancellationRequested; i++)
+        {
+            await ctx.External.SleepAsync(subExposure, ct);
+            await Task.Delay(10, ct);
+        }
+
+        imagingTask.IsCompleted.ShouldBeTrue("imaging loop should have completed within timeout");
+        var result = await imagingTask;
 
         // then
         result.ShouldBe(ImageLoopNextAction.AdvanceToNextObservation);
@@ -142,8 +153,19 @@ public class SessionImagingTests(ITestOutputHelper output)
 
         var hourAngle = await ctx.Mount.GetHourAngleAsync(ct);
 
-        // when
-        var result = await ctx.Session.ImagingLoopAsync(observation, hourAngle, ct);
+        // when — run imaging loop on thread pool, advance fake time from test thread
+        var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, ct));
+
+        using var timeout2 = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        var maxTicks = (int)(TimeSpan.FromHours(24) / subExposure);
+        for (var i = 0; i < maxTicks && !imagingTask.IsCompleted && !timeout2.IsCancellationRequested; i++)
+        {
+            await ctx.External.SleepAsync(subExposure, ct);
+            await Task.Delay(10, ct);
+        }
+
+        imagingTask.IsCompleted.ShouldBeTrue("imaging loop should have completed within timeout");
+        var result = await imagingTask;
 
         // then — should have stopped early due to altitude check
         result.ShouldBe(ImageLoopNextAction.AdvanceToNextObservation);
@@ -183,8 +205,19 @@ public class SessionImagingTests(ITestOutputHelper output)
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
 
-        // when — run the full observation loop
-        await ctx.Session.ObservationLoopAsync(ct);
+        // when — run observation loop on thread pool, advance fake time from test thread
+        var loopTask = Task.Run(async () => await ctx.Session.ObservationLoopAsync(ct));
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        var maxTicks = (int)(TimeSpan.FromHours(24) / subExposure);
+        for (var i = 0; i < maxTicks && !loopTask.IsCompleted && !timeout.IsCancellationRequested; i++)
+        {
+            await ctx.External.SleepAsync(subExposure, ct);
+            await Task.Delay(10, ct);
+        }
+
+        loopTask.IsCompleted.ShouldBeTrue("observation loop should have completed within timeout");
+        await loopTask;
 
         // then
         ctx.Session.TotalFramesWritten.ShouldBeGreaterThan(0, "should have written frames");
