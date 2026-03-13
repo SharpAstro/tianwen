@@ -48,7 +48,7 @@ public sealed class ObservationSchedulerTests
         var transform = CreateTransform();
         var score = ObservationScheduler.ScoreTarget(M13, transform, AstroDark, AstroTwilight, MinHeight);
 
-        score.TotalScore.ShouldBeGreaterThan(0, "M13 should be well above horizon in summer from Vienna");
+        score.TotalScore.ShouldBeGreaterThan(Half.Zero, "M13 should be well above horizon in summer from Vienna");
         score.OptimalDuration.ShouldBeGreaterThan(TimeSpan.Zero);
     }
 

@@ -166,11 +166,12 @@ internal partial record Session
         var tickLCM = LCM(tickGCD, subExposuresSec);
         var tickDuration = TimeSpan.FromSeconds(tickGCD);
         var ticksPerMaxSubExposure = maxSubExposureSec / tickGCD;
+        var ticksPerFullCycle = (int)(tickLCM / tickGCD);
+        var ditherEveryNTicks = Configuration.DitherEveryNthFrame * ticksPerFullCycle;
         var expStartTimes = new DateTimeOffset[scopes];
         var expTicks = new int[scopes];
-        var ditherRound = 0;
+        var tickCount = 0;
 
-        var overslept = TimeSpan.Zero;
         var imageWriteQueue = new Queue<QueuedImageWrite>();
         ImageLoopNextAction? next = null;
 
@@ -179,6 +180,8 @@ internal partial record Session
             && await CatchAsync(mount.Driver.IsTrackingAsync, cancellationToken)
         )
         {
+            tickCount++;
+
             if (!await CatchAsync(guider.Driver.IsGuidingAsync, cancellationToken).ConfigureAwait(false))
             {
                 var guiderRestartedSuccess =
@@ -221,18 +224,17 @@ internal partial record Session
             }
 
             var elapsed = await WriteQueuedImagesToFitsFilesAsync().ConfigureAwait(false);
-            var tickMinusElapsed = tickDuration - elapsed - overslept;
-            // clear overslept
-            overslept = TimeSpan.Zero;
             if (cancellationToken.IsCancellationRequested)
             {
                 External.AppLogger.LogWarning("Cancellation requested, all images in queue written to disk, abort image acquisition and quit imaging loop");
                 next = ImageLoopNextAction.BreakObservationLoop;
                 break;
             }
-            else if (tickMinusElapsed > TimeSpan.Zero)
+
+            var remaining = tickDuration - elapsed;
+            if (remaining > TimeSpan.Zero)
             {
-                await External.SleepAsync(tickMinusElapsed, cancellationToken);
+                await External.SleepAsync(remaining, cancellationToken);
             }
 
             var imageFetchSuccess = new BitVector32(scopes);
@@ -246,6 +248,7 @@ internal partial record Session
                 {
                     var frameExpTime = TimeSpan.FromSeconds(subExposuresSec[i]);
                     var frameNo = frameNumbers[i];
+                    var polled = TimeSpan.Zero;
                     do // wait for image loop
                     {
                         if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } image)
@@ -260,12 +263,12 @@ internal partial record Session
                         else
                         {
                             var spinDuration = TimeSpan.FromMilliseconds(100);
-                            overslept += spinDuration;
+                            polled += spinDuration;
 
                             await External.SleepAsync(spinDuration, cancellationToken);
                         }
                     }
-                    while (overslept < (tickDuration / 5)
+                    while (polled < (tickDuration / 5)
                         && await camDriver.GetCameraStateAsync(cancellationToken) is not CameraState.Error and not CameraState.NotConnected
                         && !cancellationToken.IsCancellationRequested
                     );
@@ -371,22 +374,25 @@ internal partial record Session
                     }
                 }
 
-                var shouldDither = (++ditherRound % Configuration.DitherEveryNthFrame) == 0;
-                if (shouldDither)
+                if (ditherEveryNTicks > 0)
                 {
-                    if (await guider.Driver.DitherWaitAsync(Configuration.DitherPixel, Configuration.SettlePixel, Configuration.SettleTime, WriteQueuedImagesToFitsFilesAsync, cancellationToken).ConfigureAwait(false))
+                    var shouldDither = (tickCount % ditherEveryNTicks) == 0;
+                    if (shouldDither)
                     {
-                        External.AppLogger.LogInformation("Dithering using \"{GuiderName}\" succeeded.", guider.Driver);
+                        if (await guider.Driver.DitherWaitAsync(Configuration.DitherPixel, Configuration.SettlePixel, Configuration.SettleTime, WriteQueuedImagesToFitsFilesAsync, cancellationToken).ConfigureAwait(false))
+                        {
+                            External.AppLogger.LogInformation("Dithering using \"{GuiderName}\" succeeded.", guider.Driver);
+                        }
+                        else
+                        {
+                            External.AppLogger.LogWarning("Dithering using \"{GuiderName}\" failed.", guider.Driver);
+                        }
                     }
                     else
                     {
-                        External.AppLogger.LogWarning("Dithering using \"{GuiderName}\" failed.", guider.Driver);
+                        External.AppLogger.LogDebug("Skipping dithering ({DitheringRound}/{DitherEveryNthFrame} ticks)",
+                            tickCount % ditherEveryNTicks, ditherEveryNTicks);
                     }
-                }
-                else
-                {
-                    External.AppLogger.LogDebug("Skipping dithering ({DitheringRound}/{DitherEveryNthFrame} frame)",
-                        ditherRound % Configuration.DitherEveryNthFrame, Configuration.DitherEveryNthFrame);
                 }
             }
         } // end imaging loop

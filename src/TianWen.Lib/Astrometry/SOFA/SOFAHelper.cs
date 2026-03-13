@@ -1,8 +1,8 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using TianWen.Lib.Astrometry.VSOP87;
 using static TianWen.Lib.Astrometry.Constants;
-using static WorldWideAstronomy.WWA;
+using static TianWen.Lib.Astrometry.SOFA.SofaFunctions;
 
 namespace TianWen.Lib.Astrometry.SOFA;
 
@@ -275,25 +275,50 @@ public static class SOFAHelpers
 
     public static (double raTop, double decTop, double az, double alt) J2000ToTopo(double ra, double dec, double utc1, double utc2, double siteLat, double siteLong, double siteElevation, double sitePressure = double.NaN, double siteTemp = double.NaN)
     {
-        double dut1;
-        double aob = default, zob = default, hob = default, dob = default, rob = default, eo = default;
+        double dut1 = LeapSecondsTable.DeltaTCalc(utc1 + utc2);
 
-        dut1 = LeapSecondsTable.DeltaTCalc(utc1 + utc2);
+        double aob, zob, hob, dob, rob, eo;
 
         if (!double.IsNaN(sitePressure) && !double.IsNaN(siteTemp)) // Include refraction
         {
-            _ = wwaAtco13(ra * HOURS2RADIANS, dec * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, utc1, utc2, dut1, siteLong * DEGREES2RADIANS, siteLat * DEGREES2RADIANS, siteElevation, 0.0d, 0.0d, sitePressure, siteTemp, 0.8d, 0.57d, ref aob, ref zob, ref hob, ref dob, ref rob, ref eo);
+            _ = Atco13(ra * HOURS2RADIANS, dec * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, utc1, utc2, dut1, siteLong * DEGREES2RADIANS, siteLat * DEGREES2RADIANS, siteElevation, 0.0d, 0.0d, sitePressure, siteTemp, 0.8d, 0.57d, out aob, out zob, out hob, out dob, out rob, out eo);
         }
         else // No refraction
         {
-            _ = wwaAtco13(ra * HOURS2RADIANS, dec * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, utc1, utc2, dut1, siteLong * DEGREES2RADIANS, siteLat * DEGREES2RADIANS, siteElevation, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, ref aob, ref zob, ref hob, ref dob, ref rob, ref eo);
+            _ = Atco13(ra * HOURS2RADIANS, dec * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, utc1, utc2, dut1, siteLong * DEGREES2RADIANS, siteLat * DEGREES2RADIANS, siteElevation, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, out aob, out zob, out hob, out dob, out rob, out eo);
         }
 
         return (
-            wwaAnp(rob - eo) * RADIANS2HOURS, // // Convert CIO RA to equinox of date RA by subtracting the equation of the origins and convert from radians to hours
+            Anp(rob - eo) * RADIANS2HOURS, // Convert CIO RA to equinox of date RA by subtracting the equation of the origins and convert from radians to hours
             dob * RADIANS2DEGREES, // Convert Dec from radians to degrees
             aob * RADIANS2DEGREES,
             90.0d - zob * RADIANS2DEGREES
         );
+    }
+
+    /// <summary>
+    /// Precompute the star-independent astrometry parameters for a given UTC time and site.
+    /// This is the expensive part of coordinate transforms (Epv00, Pnm06a, etc.).
+    /// The returned Astrom struct can be reused for many targets at the same time.
+    /// </summary>
+    public static Astrom PrepareAstrom(double utc1, double utc2, double siteLat, double siteLong, double siteElevation)
+    {
+        double dut1 = LeapSecondsTable.DeltaTCalc(utc1 + utc2);
+        Astrom astrom = default;
+        _ = Apco13(utc1, utc2, dut1, siteLong * DEGREES2RADIANS, siteLat * DEGREES2RADIANS, siteElevation,
+                    0.0d, 0.0d, 0.0d, 0.0d, 0.0d, 0.0d, ref astrom, out _);
+        return astrom;
+    }
+
+    /// <summary>
+    /// Compute altitude for a J2000 object using a precomputed Astrom struct.
+    /// This is very fast — just trig, no Epv00 or Pnm06a.
+    /// RA in hours, Dec in degrees. Returns altitude in degrees.
+    /// </summary>
+    public static double AltitudeFromAstrom(double ra, double dec, in Astrom astrom)
+    {
+        Atciq(ra * HOURS2RADIANS, dec * DEGREES2RADIANS, 0.0d, 0.0d, 0.0d, 0.0d, in astrom, out double ri, out double di);
+        Atioq(ri, di, in astrom, out _, out double zob, out _, out _, out _);
+        return 90.0d - zob * RADIANS2DEGREES;
     }
 }
