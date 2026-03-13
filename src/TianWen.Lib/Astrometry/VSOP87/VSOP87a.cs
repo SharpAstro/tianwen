@@ -1,6 +1,6 @@
-﻿using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.Catalogs;
 using System;
-using static WorldWideAstronomy.WWA;
+using static TianWen.Lib.Astrometry.SOFA.SofaFunctions;
 
 namespace TianWen.Lib.Astrometry.VSOP87;
 
@@ -34,7 +34,7 @@ public static class VSOP87a
 
         //Compute initial position
         Span<double> earth = stackalloc double[3];
-        var body = new double[3]; // not stack allocated due to wwaRxp expecting double[]
+        Span<double> body = stackalloc double[3];
 
         if (!GetBody(catIndex, et, body))
         {
@@ -75,38 +75,31 @@ public static class VSOP87a
         Rotvsop2J2000(body);
 
         //Get the precession, nutation, and bias matrix
-        double[,] rnpb = new double[3, 3];
-        wwaPnm06a(tt1, tt2, rnpb);
+        Span<double> rnpb = stackalloc double[9];
+        Pnm06a(tt1, tt2, rnpb);
 
-        wwaRxp(rnpb, body, body);
+        Rxp(rnpb, body, body);
 
         //Use UT1 for Earth Rotation Angle
-        double era = wwaEra00(utc1, utc2);
+        double era = Era00(utc1, utc2);
 
         //Get observer's xyz coordinates in J2000 coords
         double latRad = latitude * Constants.DEGREES2RADIANS;
         double lonRad = longitude * Constants.DEGREES2RADIANS;
-        double[,] observerPV = new double[2, 3];
-        wwaPvtob(lonRad, latRad, 0, 0, 0, 0, era, observerPV);
+        Span<double> observerPV = stackalloc double[6];
+        Pvtob(lonRad, latRad, 0, 0, 0, 0, era, observerPV);
 
-        wwaTr(rnpb, rnpb);
-        wwaRxpv(rnpb, observerPV, observerPV);
+        Tr(rnpb, rnpb);
+        Rxpv(rnpb, observerPV, observerPV);
 
-        observerPV[0, 0] /= 1.49597870691E+11;
-        observerPV[0, 1] /= 1.49597870691E+11;
-        observerPV[0, 2] /= 1.49597870691E+11;
-
-        /*
-        printf("Observer Position and Velocity:\r\n%2.10f %2.10f %2.10f\r\n%2.10f %2.10f %2.10f\r\n\r\n",
-                observerPV[0][0],observerPV[0][1],observerPV[0][2],
-                observerPV[1][0],observerPV[1][1],observerPV[1][2]
-                );
-        */
+        observerPV[0] /= 1.49597870691E+11;
+        observerPV[1] /= 1.49597870691E+11;
+        observerPV[2] /= 1.49597870691E+11;
 
         //Convert body position to topocentric
-        body[0] -= observerPV[0, 0];
-        body[1] -= observerPV[0, 1];
-        body[2] -= observerPV[0, 2];
+        body[0] -= observerPV[0];
+        body[1] -= observerPV[1];
+        body[2] -= observerPV[2];
 
         //Convert coords to polar, which gives RA/DEC
         double r = Math.Sqrt(body[0] * body[0] + body[1] * body[1] + body[2] * body[2]);
@@ -124,7 +117,7 @@ public static class VSOP87a
         dec = .5 * Math.PI - dec;
 
         //Convert to altaz
-        double GMST = wwaGmst06(utc1, utc2, tt1, tt2);
+        double GMST = Gmst06(utc1, utc2, tt1, tt2);
 
         double h = GMST + lonRad - ra;
 

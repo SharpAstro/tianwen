@@ -54,7 +54,6 @@
     </PackageReference>
     <PackageReference Include="System.IO.Ports" />
     <PackageReference Include="System.Numerics.Tensors" />
-    <PackageReference Include="WWA.Core" />
     <PackageReference Include="ZWOptical.SDK" />
   </ItemGroup>
 

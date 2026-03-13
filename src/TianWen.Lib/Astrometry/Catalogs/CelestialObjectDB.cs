@@ -45,6 +45,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     private readonly Dictionary<string, (CatalogIndex i1, CatalogIndex[]? ext)> _objectsByCommonName = new(5700);
     private readonly Dictionary<CatalogIndex, CelestialObjectShape> _shapesByIndex = new(11000);
     private readonly RaDecIndex _raDecIndex = new();
+    internal RaDecIndex PrimaryRaDecIndex => _raDecIndex;
 
     private byte[]? _tycho2Data;
     private int _tycho2StreamCount;
@@ -65,6 +66,8 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     public IReadOnlySet<CatalogIndex> AllObjectIndices => GetOrRebuildIndex(ref _catalogIndicesCache, RebuildObjectIndices);
 
     public IRaDecIndex CoordinateGrid => new CompositeRaDecIndex(_raDecIndex, _tycho2RaDecIndex);
+
+    public IRaDecIndex DeepSkyCoordinateGrid => _raDecIndex;
 
     /// <inheritdoc/>
     public bool TryResolveCommonName(string name, out IReadOnlyList<CatalogIndex> matches) => _objectsByCommonName.TryGetLookupEntries(name, out matches);
@@ -734,10 +737,11 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                     commonNames
                 );
 
-                AddCommonNameAndPosIndices(obj);
-
                 if (objectType == ObjectType.Duplicate)
                 {
+                    // Duplicates are stored in _objectsByIndex for cross-reference resolution
+                    // but NOT added to the spatial grid — only the primary entry belongs there.
+                    AddCommonNameIndex(obj.Index, obj.CommonNames);
                     // when the entry is a duplicate, use the cross lookup table to list the entries it duplicates
                     if (csvReader.TryGetFieldString(NGC, out var ngcSuffix) && TryGetCleanedUpCatalogName(NGC + ngcSuffix, out var ngcIndexEntry))
                     {
@@ -754,6 +758,8 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                 }
                 else
                 {
+                    AddCommonNameAndPosIndices(obj);
+
                     if (csvReader.TryGetFieldString(IC, out var icSuffix) && TryGetCleanedUpCatalogName(IC + icSuffix, out var icIndexEntry) && indexEntry != icIndexEntry)
                     {
                         _crossIndexLookuptable.AddLookupEntry(icIndexEntry, indexEntry);

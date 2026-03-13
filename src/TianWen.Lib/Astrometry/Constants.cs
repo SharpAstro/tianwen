@@ -29,10 +29,10 @@ internal static class Constants
     internal const double EARTHRAD = 6378.14; //Radius of Earth in kilometres.
     internal const double F = 0.00335281; //Earth ellipsoid flattening.
     internal const double OMEGA = 0.00007292115; //Rotational angular velocity of Earth in radians/sec.
-    internal const double TWOPI = 6.2831853071795862; //Value of pi in radians.
-    internal const double RAD2SEC = 206264.80624709636; //Angle conversion constants.
-    internal const double DEG2RAD = 0.017453292519943295;
-    internal const double RAD2DEG = 57.295779513082323;
+    internal const double TWOPI = 2.0 * Math.PI;
+    internal const double RAD2SEC = 180.0 * 3600.0 / Math.PI; // Radians to arcseconds
+    internal const double DEG2RAD = DEGREES2RADIANS;
+    internal const double RAD2DEG = RADIANS2DEGREES;
     internal const double SIDEREAL_RATE = 15.0417; // approx. rate of sky moving in arcseconds/second
     internal const double MEAN_SOLAR_DAY_DEG = 0.985647332; //  number of degrees the Earth rotates in one mean solar day, sans a multiple of 360
 

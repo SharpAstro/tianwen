@@ -554,9 +554,10 @@ public class OverlayEngineTests
         public IReadOnlySet<Catalog> Catalogs => new HashSet<Catalog>();
         public IReadOnlyCollection<string> CommonNames => Array.Empty<string>();
         public IRaDecIndex CoordinateGrid => _grid;
+        public IRaDecIndex DeepSkyCoordinateGrid => _grid;
 
         public System.Threading.Tasks.Task<(int Processed, int Failed)> InitDBAsync(
-            System.Threading.CancellationToken cancellationToken = default)
+            System.Threading.CancellationToken cancellationToken)
         {
             return System.Threading.Tasks.Task.FromResult((0, 0));
         }

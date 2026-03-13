@@ -208,27 +208,30 @@ public enum ObjectType : ulong
 
 public static class ObjectTypeEx
 {
-    public static string ToAbbreviation(this ObjectType objectType) => EnumHelper.EnumValueToAbbreviation((ulong)objectType);
-
-    public static string ToName(this ObjectType objectType) => objectType switch
+    extension(ObjectType objectType)
     {
-        ObjectType.GroupG => "Group of Galaxies",
-        ObjectType.GrGCandidate => "Group of Galaxies Candidate",
-        ObjectType.GlobCluster => "Globular Cluster",
-        ObjectType.EmObj => "Emmission Object",
-        ObjectType.EmLineStar => "Emission Line Star",
-        ObjectType.RefNeb => "Reflection Nebula",
-        ObjectType.DarkNeb => "Dark Nebula",
-        ObjectType.GalNeb => "Galactic Nebula",
-        ObjectType.PlanetaryNeb => "Planetary Nebula",
-        ObjectType.PairG => "Galaxy Pair",
-        ObjectType.StarburstG => "Starburst Galaxy",
-        ObjectType.HIIG => "HII Galaxy",
-        ObjectType.HIIReg => "HII Region",
-        _ => objectType.PascalCaseStringToName()
-    };
+        public string ToAbbreviation() => EnumHelper.EnumValueToAbbreviation((ulong)objectType);
 
-    public static bool IsCandidate(this ObjectType objectType) => EnumHelper.FindCharInValue((ulong)objectType, '?');
+        public string ToName() => objectType switch
+        {
+            ObjectType.GroupG => "Group of Galaxies",
+            ObjectType.GrGCandidate => "Group of Galaxies Candidate",
+            ObjectType.GlobCluster => "Globular Cluster",
+            ObjectType.EmObj => "Emmission Object",
+            ObjectType.EmLineStar => "Emission Line Star",
+            ObjectType.RefNeb => "Reflection Nebula",
+            ObjectType.DarkNeb => "Dark Nebula",
+            ObjectType.GalNeb => "Galactic Nebula",
+            ObjectType.PlanetaryNeb => "Planetary Nebula",
+            ObjectType.PairG => "Galaxy Pair",
+            ObjectType.StarburstG => "Starburst Galaxy",
+            ObjectType.HIIG => "HII Galaxy",
+            ObjectType.HIIReg => "HII Region",
+            _ => objectType.PascalCaseStringToName()
+        };
 
-    public static bool IsStar(this ObjectType objectType) => EnumHelper.FindCharInValue((ulong)objectType, '*');
+        public bool IsCandidate => EnumHelper.FindCharInValue((ulong)objectType, '?');
+
+        public bool IsStar => EnumHelper.FindCharInValue((ulong)objectType, '*');
+    }
 }

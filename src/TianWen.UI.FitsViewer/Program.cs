@@ -59,7 +59,7 @@ if (args.Length >= 1)
 var celestialObjectDB = new DotNext.Threading.AsyncLazy<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(async (ct) =>
 {
     var db = sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
-    await db.InitDBAsync();
+    await db.InitDBAsync(ct);
     return db;
 });
 

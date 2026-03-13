@@ -137,7 +137,7 @@ public sealed class ObservationScheduleVisualizationTests(ITestOutputHelper test
 
         // Score all targets (including spares) for elevation profiles
         var allTargets = proposals.Select(p => p.Target).Distinct().ToArray();
-        var scores = new Dictionary<Target, TargetScore>();
+        var scores = new Dictionary<Target, ScoredTarget>();
         foreach (var target in allTargets)
         {
             scores[target] = ObservationScheduler.ScoreTarget(target, transform, astroDark, astroTwilight, MinHeight);

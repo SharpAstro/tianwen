@@ -31,7 +31,7 @@ public static class OverlayEngine
     /// <summary>
     /// Whether the object type is a star (single, double, variable, etc.).
     /// </summary>
-    public static bool IsStarType(ObjectType ot) => ot.IsStar();
+    public static bool IsStarType(ObjectType ot) => ot.IsStar;
 
     /// <summary>
     /// Returns a priority score for a common name (lower = better).
@@ -62,7 +62,7 @@ public static class OverlayEngine
         ObjectType.OpenCluster or ObjectType.GlobCluster or ObjectType.Association => (1.0f, 0.8f, 0.0f), // yellow
         ObjectType.PlanetaryNeb => (0.6f, 0.3f, 1.0f),  // purple
         ObjectType.DarkNeb => (0.6f, 0.6f, 0.6f),       // gray
-        _ when ot.IsStar() => (1.0f, 1.0f, 1.0f),       // white (stars)
+        _ when ot.IsStar => (1.0f, 1.0f, 1.0f),       // white (stars)
         _ => (1.0f, 0.4f, 0.25f),                        // orange (emission, HII, reflection, SNR, etc.)
     };
 
@@ -305,8 +305,8 @@ public static class OverlayEngine
         minDec = Math.Max(-90.0, minDec - 1.0);
         maxDec = Math.Min(90.0, maxDec + 1.0);
 
-        // Query the spatial index for candidate objects
-        var grid = db.CoordinateGrid;
+        // Query the spatial index for candidate objects (deep-sky only, no Tycho2)
+        var grid = db.DeepSkyCoordinateGrid;
         var seen = new HashSet<CatalogIndex>();
         var candidates = new List<(CatalogIndex Index, CelestialObject Obj, float ScreenX, float ScreenY)>();
 
@@ -338,12 +338,6 @@ public static class OverlayEngine
                     var isStar = IsStarType(obj.ObjectType);
 
                     if (!isExtended && !isStar)
-                    {
-                        continue;
-                    }
-
-                    // Skip Tycho2 stars (too many — ~2.5M entries)
-                    if (isStar && idx.ToCatalog() == Catalog.Tycho2)
                     {
                         continue;
                     }

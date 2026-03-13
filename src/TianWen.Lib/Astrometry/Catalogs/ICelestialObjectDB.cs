@@ -16,11 +16,17 @@ public interface ICelestialObjectDB
 
     IReadOnlySet<Catalog> Catalogs { get; }
 
-    Task<(int Processed, int Failed)> InitDBAsync(CancellationToken cancellationToken = default);
+    Task<(int Processed, int Failed)> InitDBAsync(CancellationToken cancellationToken);
 
     IReadOnlyCollection<string> CommonNames { get; }
 
     IRaDecIndex CoordinateGrid { get; }
+
+    /// <summary>
+    /// Coordinate grid excluding star catalogs (Tycho-2). Use this for deep-sky object searches
+    /// where star entries are not needed, as enumerating the full grid with Tycho-2 is ~235x slower.
+    /// </summary>
+    IRaDecIndex DeepSkyCoordinateGrid { get; }
 
     bool TryLookupByIndex(CatalogIndex index, [NotNullWhen(true)] out CelestialObject celestialObject);
 

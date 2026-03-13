@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
+using TianWen.Lib.Astrometry;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
 
@@ -86,46 +88,20 @@ internal static class ObservationScheduler
 
     /// <summary>
     /// Scores a target by accumulating altitude above the minimum horizon across the night.
-    /// Higher altitude = more points. Returns the total score, elevation profile, and optimal window.
+    /// Precomputes Astrom structs internally. For batch scoring, prefer the overload taking
+    /// precomputed arrays to avoid redundant Apco13 calls.
     /// </summary>
-    public static TargetScore ScoreTarget(
+    public static ScoredTarget ScoreTarget(
         Target target,
         Transform transform,
         DateTimeOffset astroDark,
         DateTimeOffset astroTwilight,
         byte minHeightAboveHorizon)
     {
-        var profile = transform.CalculateObjElevation(target.RA, target.Dec, astroDark, astroTwilight);
-
-        var totalScore = 0d;
-        var bestAlt = double.MinValue;
-        DateTimeOffset bestTime = astroDark;
-        DateTimeOffset? windowStart = null;
-        DateTimeOffset? windowEnd = null;
-
-        foreach (var (_, info) in profile)
-        {
-            if (info.Alt > minHeightAboveHorizon)
-            {
-                totalScore += info.Alt - minHeightAboveHorizon;
-
-                windowStart ??= info.Time;
-                windowEnd = info.Time;
-
-                if (info.Alt > bestAlt)
-                {
-                    bestAlt = info.Alt;
-                    bestTime = info.Time;
-                }
-            }
-        }
-
-        var optimalStart = windowStart ?? astroDark;
-        var optimalDuration = windowEnd.HasValue && windowStart.HasValue
-            ? windowEnd.Value - windowStart.Value
-            : TimeSpan.Zero;
-
-        return new TargetScore(target, totalScore, profile, optimalStart, optimalDuration);
+        var (astroms, times) = PrecomputeAstromGrid(
+            astroDark, astroTwilight,
+            transform.SiteLatitude, transform.SiteLongitude, transform.SiteElevation);
+        return ScoreTarget(target, astroms, times, astroDark, astroTwilight, minHeightAboveHorizon, transform.SiteLongitude);
     }
 
     /// <summary>
@@ -177,11 +153,17 @@ internal static class ObservationScheduler
             return new ScheduledObservationTree([]);
         }
 
+        // Precompute Astrom grid once for all proposals
+        var (astroms, times) = PrecomputeAstromGrid(
+            astroDark, astroTwilight,
+            transform.SiteLatitude, transform.SiteLongitude, transform.SiteElevation);
+
         // Score all proposals
-        var scored = new List<(ProposedObservation Proposal, TargetScore Score)>(proposals.Length);
+        var scored = new List<(ProposedObservation Proposal, ScoredTarget Score)>(proposals.Length);
         foreach (var proposal in proposals)
         {
-            var score = ScoreTarget(proposal.Target, transform, astroDark, astroTwilight, minHeightAboveHorizon);
+            var score = ScoreTarget(proposal.Target, astroms, times, astroDark, astroTwilight,
+                minHeightAboveHorizon, transform.SiteLongitude);
             scored.Add((proposal, score));
         }
 
@@ -206,7 +188,7 @@ internal static class ObservationScheduler
         // Schedule each proposal into its optimal time window
         foreach (var (proposal, score) in schedulable)
         {
-            if (score.TotalScore <= 0)
+            if (score.TotalScore <= Half.Zero)
             {
                 continue; // Target never rises above minimum
             }
@@ -259,7 +241,7 @@ internal static class ObservationScheduler
             var slotSpares = ImmutableArray.CreateBuilder<ScheduledObservation>();
             foreach (var (spareProposal, spareScore) in spares)
             {
-                if (spareScore.TotalScore <= 0)
+                if (spareScore.TotalScore <= Half.Zero)
                 {
                     continue;
                 }
@@ -389,5 +371,292 @@ internal static class ObservationScheduler
         }
 
         return 0;
+    }
+
+    private static readonly TimeSpan AstromGridStep = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// Precomputes Astrom structs for evenly-spaced time samples across the night (every 15 minutes).
+    /// Each Astrom encapsulates the expensive star-independent astrometry parameters (Epv00, Pnm06a, etc.)
+    /// and can be reused across all targets at the same time point.
+    /// The dense grid naturally captures meridian transit detail.
+    /// </summary>
+    private static (Astrom[] Astroms, DateTimeOffset[] Times) PrecomputeAstromGrid(
+        DateTimeOffset astroDark,
+        DateTimeOffset astroTwilight,
+        double siteLat,
+        double siteLong,
+        double siteElevation)
+    {
+        var nightDuration = astroTwilight - astroDark;
+        var sampleCount = Math.Max(2, (int)(nightDuration / AstromGridStep) + 1);
+        var astroms = new Astrom[sampleCount];
+        var times = new DateTimeOffset[sampleCount];
+        var step = nightDuration / (sampleCount - 1);
+
+        for (var i = 0; i < sampleCount; i++)
+        {
+            times[i] = astroDark + step * i;
+            times[i].ToSOFAUtcJd(out var utc1, out var utc2);
+            astroms[i] = SOFAHelpers.PrepareAstrom(utc1, utc2, siteLat, siteLong, siteElevation);
+        }
+
+        return (astroms, times);
+    }
+
+    /// <summary>
+    /// Scores a target using precomputed Astrom structs.
+    /// Calls only Atciq + Atioq per sample (no Apco13).
+    /// </summary>
+    internal static ScoredTarget ScoreTarget(
+        Target target,
+        ReadOnlySpan<Astrom> astroms,
+        ReadOnlySpan<DateTimeOffset> times,
+        DateTimeOffset astroDark,
+        DateTimeOffset astroTwilight,
+        byte minHeightAboveHorizon,
+        double siteLong)
+    {
+        var profile = new Dictionary<RaDecEventTime, RaDecEventInfo>(astroms.Length + 4);
+        var totalScore = 0d;
+        var bestAlt = double.MinValue;
+        DateTimeOffset bestTime = astroDark;
+        DateTimeOffset? windowStart = null;
+        DateTimeOffset? windowEnd = null;
+
+        for (var i = 0; i < astroms.Length; i++)
+        {
+            var alt = SOFAHelpers.AltitudeFromAstrom(target.RA, target.Dec, in astroms[i]);
+            var time = times[i];
+
+            profile[RaDecEventTime.Balance + i] = new RaDecEventInfo(time, alt);
+
+            if (alt > minHeightAboveHorizon)
+            {
+                totalScore += alt - minHeightAboveHorizon;
+
+                windowStart ??= time;
+                windowEnd = time;
+
+                if (alt > bestAlt)
+                {
+                    bestAlt = alt;
+                    bestTime = time;
+                }
+            }
+        }
+
+        // Add landmark events using the nearest precomputed sample
+        profile[RaDecEventTime.AstroDark] = profile[RaDecEventTime.Balance]; // first sample ≈ astroDark
+        profile[RaDecEventTime.AstroTwilight] = profile[RaDecEventTime.Balance + astroms.Length - 1]; // last ≈ astroTwilight
+
+        // Estimate meridian crossing from RA and LST
+        var siderealTimeAtAstroDark = Transform.CalculateLocalSiderealTime(astroDark.UtcDateTime, siteLong);
+        var hourAngle = TimeSpan.FromHours(CoordinateUtils.ConditionHA(siderealTimeAtAstroDark - target.RA));
+        var crossMeridianTime = astroDark - hourAngle;
+        // Find the closest precomputed sample to the meridian time
+        var meridianIdx = FindClosestTimeIndex(times, crossMeridianTime);
+        profile[RaDecEventTime.Meridian] = new RaDecEventInfo(crossMeridianTime, profile[RaDecEventTime.Balance + meridianIdx].Alt);
+
+        var optimalStart = windowStart ?? astroDark;
+        var optimalDuration = windowEnd.HasValue && windowStart.HasValue
+            ? windowEnd.Value - windowStart.Value
+            : TimeSpan.Zero;
+
+        return new ScoredTarget(target, (Half)totalScore, Half.One, profile, optimalStart, optimalDuration);
+    }
+
+    private static int FindClosestTimeIndex(ReadOnlySpan<DateTimeOffset> times, DateTimeOffset target)
+    {
+        var bestIdx = 0;
+        var bestDiff = Math.Abs((times[0] - target).TotalSeconds);
+        for (var i = 1; i < times.Length; i++)
+        {
+            var diff = Math.Abs((times[i] - target).TotalSeconds);
+            if (diff < bestDiff)
+            {
+                bestDiff = diff;
+                bestIdx = i;
+            }
+        }
+        return bestIdx;
+    }
+
+    /// <summary>
+    /// Enumerates tonight's best deep-sky targets from the catalog, ranked by a combination
+    /// of altitude score and object desirability (size, brightness, type).
+    /// Uses precomputed Astrom structs to avoid redundant Apco13 calls across targets.
+    /// </summary>
+    public static IEnumerable<ScoredTarget> TonightsBest(
+        ICelestialObjectDB objectDb,
+        Transform transform,
+        byte minHeightAboveHorizon)
+    {
+        var (astroDark, astroTwilight) = CalculateNightWindow(transform);
+
+        // Precompute Astrom structs for evenly-spaced time samples across the night.
+        // This is the expensive part (Epv00 + Pnm06a per sample) — done once for all targets.
+        var (astroms, times) = PrecomputeAstromGrid(
+            astroDark, astroTwilight,
+            transform.SiteLatitude, transform.SiteLongitude, transform.SiteElevation);
+
+        // Precompute a single Astrom at astronomical midnight for the quick pre-filter.
+        var midIdx = astroms.Length / 2;
+        var midAstrom = astroms[midIdx];
+
+        // Astronomical midnight = midpoint of the night
+        var astroMidnight = astroDark + (astroTwilight - astroDark) / 2;
+
+        // LST at astronomical midnight = RA on the meridian
+        var lstAtMidnight = Transform.CalculateLocalSiderealTime(astroMidnight.UtcDateTime, transform.SiteLongitude);
+
+        // RA band: ±half night duration (objects transit during the night)
+        var halfNightHours = (astroTwilight - astroDark).TotalHours / 2;
+        var raMin = lstAtMidnight - halfNightHours;
+        var raMax = lstAtMidnight + halfNightHours;
+
+        // Dec band: visible from site latitude above minAlt
+        var lat = transform.SiteLatitude;
+        var decMin = Math.Max(-90, lat - (90 - minHeightAboveHorizon));
+        var decMax = Math.Min(90, lat + (90 - minHeightAboveHorizon));
+
+        var grid = objectDb.DeepSkyCoordinateGrid;
+        var seen = new HashSet<CatalogIndex>();
+        var candidates = new SortedSet<ScoredTarget>();
+
+        // Iterate RA/Dec grid cells (1° RA resolution = 1/15 hour steps)
+        for (var ra = raMin; ra <= raMax; ra += 1.0 / 15)
+        {
+            var wrappedRa = ((ra % 24) + 24) % 24; // wrap to [0, 24)
+            for (var dec = decMin; dec <= decMax; dec += 1.0)
+            {
+                ScanGridCell(grid, wrappedRa, dec, objectDb, in midAstrom, astroms, times, astroDark, astroTwilight,
+                    minHeightAboveHorizon, transform.SiteLongitude, seen, candidates);
+            }
+        }
+
+        // Circumpolar sweep: objects at extreme declinations (same hemisphere as site) are
+        // always above the horizon but may be missed by the RA-band search when their RA
+        // is far from the night-time meridian (e.g. Magellanic Clouds from Melbourne in winter).
+        const double CircumpolarMinObjectBonus = 10.0;
+        var absLat = Math.Abs(lat);
+        var circumpolarThresholdDec = 90 - absLat; // |dec| > this = circumpolar
+
+        var hasCircumpolarBand = (lat < 0 && decMin < -circumpolarThresholdDec)
+            || (lat > 0 && decMax > circumpolarThresholdDec);
+
+        if (hasCircumpolarBand)
+        {
+            foreach (var idx in objectDb.AllObjectIndices)
+            {
+                if (!seen.Add(idx)) continue;
+                if (!objectDb.TryLookupByIndex(idx, out var obj)) continue;
+
+                // Check if object is in the circumpolar dec band
+                var isCircumpolar = lat < 0
+                    ? obj.Dec < -circumpolarThresholdDec && obj.Dec >= decMin
+                    : obj.Dec > circumpolarThresholdDec && obj.Dec <= decMax;
+                if (!isCircumpolar) continue;
+
+                if (obj.ObjectType.IsStar) continue;
+                if (obj.ObjectType is ObjectType.Duplicate or ObjectType.Inexistent) continue;
+
+                var objectBonus = CalculateObjectBonus(obj, objectDb);
+                if (objectBonus < CircumpolarMinObjectBonus) continue;
+
+                // Mark cross-referenced indices as seen to avoid duplicate entries
+                MarkCrossIndicesSeen(objectDb, idx, seen);
+
+                var name = obj.CommonNames.Count > 0
+                    ? obj.CommonNames.First()
+                    : idx.ToCanonical();
+                var target = new Target(obj.RA, obj.Dec, name, idx);
+                var scored = ScoreTarget(target, astroms, times, astroDark, astroTwilight, minHeightAboveHorizon, transform.SiteLongitude);
+                if (scored.TotalScore <= Half.Zero) continue;
+
+                candidates.Add(scored with { ObjectBonus = (Half)objectBonus });
+            }
+        }
+
+        return candidates;
+    }
+
+    private static void ScanGridCell(
+        IRaDecIndex grid,
+        double ra,
+        double dec,
+        ICelestialObjectDB objectDb,
+        in Astrom midAstrom,
+        ReadOnlySpan<Astrom> astroms,
+        ReadOnlySpan<DateTimeOffset> times,
+        DateTimeOffset astroDark,
+        DateTimeOffset astroTwilight,
+        byte minHeightAboveHorizon,
+        double siteLong,
+        HashSet<CatalogIndex> seen,
+        SortedSet<ScoredTarget> candidates)
+    {
+        foreach (var idx in grid[ra, dec])
+        {
+            if (!seen.Add(idx)) continue;
+            if (!objectDb.TryLookupByIndex(idx, out var obj)) continue;
+            if (obj.ObjectType.IsStar) continue;
+            if (obj.ObjectType is ObjectType.Duplicate or ObjectType.Inexistent) continue;
+
+            var objectBonus = CalculateObjectBonus(obj, objectDb);
+            if (objectBonus <= 0) continue;
+
+            // Mark cross-referenced indices as seen to avoid duplicate entries
+            MarkCrossIndicesSeen(objectDb, idx, seen);
+
+            // Quick altitude check at astronomical midnight using the precomputed Astrom.
+            // No Apco13 overhead — just Atciq + Atioq.
+            var quickAlt = SOFAHelpers.AltitudeFromAstrom(obj.RA, obj.Dec, in midAstrom);
+            if (quickAlt < minHeightAboveHorizon - 10) continue; // 10° margin for objects rising/setting
+
+            var name = obj.CommonNames.Count > 0
+                ? obj.CommonNames.First()
+                : idx.ToCanonical();
+            var target = new Target(obj.RA, obj.Dec, name, idx);
+            var scored = ScoreTarget(target, astroms, times, astroDark, astroTwilight, minHeightAboveHorizon, siteLong);
+            if (scored.TotalScore <= Half.Zero) continue;
+
+            candidates.Add(scored with { ObjectBonus = (Half)objectBonus });
+        }
+    }
+
+    private static void MarkCrossIndicesSeen(ICelestialObjectDB objectDb, CatalogIndex idx, HashSet<CatalogIndex> seen)
+    {
+        if (objectDb.TryGetCrossIndices(idx, out var crossIndices))
+        {
+            foreach (var crossIdx in crossIndices)
+            {
+                seen.Add(crossIdx);
+            }
+        }
+    }
+
+    private static double CalculateObjectBonus(in CelestialObject obj, ICelestialObjectDB objectDb)
+    {
+        // Size score (arcmin, log-scaled)
+        var sizeScore = 1.0;
+        if (objectDb.TryGetShape(obj.Index, out var shape) && (double)shape.MajorAxis > 0)
+        {
+            sizeScore = Math.Log2(1 + (double)shape.MajorAxis);
+        }
+
+        // Surface brightness score (lower mag/arcsec² = brighter = better)
+        var brightnessScore = !Half.IsNaN(obj.SurfaceBrightness)
+            ? Math.Max(0, 25 - (double)obj.SurfaceBrightness)
+            : 5.0;
+
+        // Type bonus: planetary nebulae are compact but visually rich
+        var typeBonusFactor = obj.ObjectType is ObjectType.PlanetaryNeb ? 2.0 : 1.0;
+
+        // Named object bonus: objects with common names (M13, M42, LMC, etc.) are
+        // the ones users most want to image — boost them significantly in ranking.
+        var nameFactor = obj.CommonNames.Count > 0 ? 3.0 : 1.0;
+
+        return sizeScore * brightnessScore * typeBonusFactor * nameFactor;
     }
 }
