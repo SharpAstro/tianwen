@@ -2,16 +2,11 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
-using System.Globalization;
-using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
-using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Imaging;
-using TianWen.Lib.Stat;
 using static TianWen.Lib.Stat.StatisticsHelper;
 
 namespace TianWen.Lib.Sequencing;
@@ -284,6 +279,21 @@ internal partial record Session
             }
 
             var fetchImagesSuccessAll = imageFetchSuccess.AllSet(scopes);
+
+            // Check if target has dropped below minimum altitude
+            if (await mount.Driver.TryGetTransformAsync(cancellationToken) is { } altTransform
+                && await mount.Driver.TryTransformJ2000ToMountNativeAsync(
+                    altTransform, observation.Target.RA, observation.Target.Dec,
+                    updateTime: true, cancellationToken) is { } altCoords
+                && altCoords.Alt < Configuration.MinHeightAboveHorizon)
+            {
+                External.AppLogger.LogInformation(
+                    "Target {Target} dropped below minimum altitude ({Alt:F1}° < {Min}°), advancing.",
+                    observation.Target, altCoords.Alt, Configuration.MinHeightAboveHorizon);
+                _ = await WriteQueuedImagesToFitsFilesAsync();
+                break; // falls through to return AdvanceToNextObservation
+            }
+
             if (!await mount.Driver.IsOnSamePierSideAsync(hourAngleAtSlewTime, cancellationToken))
             {
                 // write all images as the loop is ending here
@@ -397,6 +407,8 @@ internal partial record Session
                 try
                 {
                     await WriteImageToFitsFileAsync(imageWrite);
+                    Interlocked.Increment(ref _totalFramesWritten);
+                    Interlocked.Add(ref _totalExposureTimeTicks, imageWrite.Observation.SubExposure.Ticks);
                 }
                 catch (Exception ex)
                 {
@@ -404,11 +416,8 @@ internal partial record Session
                         imageWrite.FrameNumber, imageWrite.ExpStartTime, imageWrite.Image.ImageMeta.Instrument);
                 }
             }
-            
+
             return await GetMountUtcNowAsync(cancellationToken) - writeQueueStart;
         }
     }
-
-
-
 }

@@ -318,6 +318,117 @@ public sealed class ObservationSchedulerTests
         nightDuration.ShouldBeGreaterThanOrEqualTo(TimeSpan.FromHours(20), "Polar night should have near 24h window");
     }
 
+    [Theory]
+    [InlineData(48.2, 16.4, "2025-06-15T00:00:00+02:00", 200)]    // Vienna, summer — short night
+    [InlineData(48.2, 16.4, "2025-12-15T00:00:00+01:00", 200)]    // Vienna, winter — long night
+    [InlineData(-37.88, 145.17, "2025-06-15T00:00:00+10:00", 120)] // Melbourne, winter
+    [InlineData(51.4, 8.06, "2025-12-21T00:00:00+01:00", 400)]      // Northern Germany, winter solstice
+    public void CalculateNightWindow_ThenTwilightBoundaries_OrderedCorrectly(double lat, double lon, string dateStr, double elevation)
+    {
+        var dto = DateTimeOffset.Parse(dateStr, System.Globalization.CultureInfo.InvariantCulture);
+        var transform = new Transform(TimeProvider.System)
+        {
+            SiteLatitude = lat,
+            SiteLongitude = lon,
+            SiteElevation = elevation,
+            SiteTemperature = 15,
+            DateTimeOffset = dto
+        };
+
+        // CalculateNightWindow mutates transform.DateTimeOffset — this is by design.
+        var (astroDark, astroTwilight) = ObservationScheduler.CalculateNightWindow(transform);
+
+        // Compute twilight boundaries AFTER CalculateNightWindow (the bug scenario).
+        // Evening events must be derived from astroDark's date, not transform.DateTimeOffset.
+        // Subtract 12h so that post-midnight astroDark (e.g., 00:23) maps to the previous day's evening.
+        var eveningDate = astroDark.AddHours(-12);
+        var eveningDayStart = new DateTimeOffset(eveningDate.Date, eveningDate.Offset);
+        var morningDayStart = new DateTimeOffset(astroTwilight.Date, astroTwilight.Offset);
+
+        transform.DateTimeOffset = eveningDayStart;
+        var (_, _, civilS) = transform.EventTimes(EventType.CivilTwilight);
+        transform.DateTimeOffset = eveningDayStart;
+        var (_, _, nautS) = transform.EventTimes(EventType.NauticalTwilight);
+
+        transform.DateTimeOffset = morningDayStart;
+        var (_, civilR, _) = transform.EventTimes(EventType.CivilTwilight);
+        transform.DateTimeOffset = morningDayStart;
+        var (_, nautR, _) = transform.EventTimes(EventType.NauticalTwilight);
+
+        // Evening: civilSet < nauticalSet < astroDark
+        if (civilS is { Count: >= 1 } && nautS is { Count: >= 1 })
+        {
+            var civilSet = eveningDayStart + civilS[0];
+            var nauticalSet = eveningDayStart + nautS[0];
+
+            civilSet.ShouldBeLessThan(nauticalSet, "Civil twilight set should precede nautical set");
+            nauticalSet.ShouldBeLessThan(astroDark, "Nautical set should precede astronomical dark");
+        }
+
+        // Morning: astroTwilight < nauticalRise < civilRise
+        if (nautR is { Count: >= 1 } && civilR is { Count: >= 1 })
+        {
+            var nauticalRise = morningDayStart + nautR[0];
+            var civilRise = morningDayStart + civilR[0];
+
+            astroTwilight.ShouldBeLessThan(nauticalRise, "Astronomical twilight should precede nautical rise");
+            nauticalRise.ShouldBeLessThan(civilRise, "Nautical rise should precede civil rise");
+        }
+
+        // Full chain: civilSet < nauticalSet < astroDark < astroTwilight < nauticalRise < civilRise
+        astroDark.ShouldBeLessThan(astroTwilight, "Astro dark should precede astro twilight");
+    }
+
+    [Fact]
+    public void CalculateNightWindow_ThenTwilightBoundaries_HighLatitudeSummer_PartialOrdering()
+    {
+        // Dublin, summer solstice — no astronomical twilight, falls back to nautical.
+        // Civil twilight set may occur AFTER the nautical-derived "astro dark" because
+        // the sun never drops below -18° (or even -12° fully), so only a partial chain applies.
+        var dto = new DateTimeOffset(2025, 6, 21, 0, 0, 0, TimeSpan.FromHours(1));
+        var transform = new Transform(TimeProvider.System)
+        {
+            SiteLatitude = 53.35,
+            SiteLongitude = -6.26,
+            SiteElevation = 20,
+            SiteTemperature = 15,
+            DateTimeOffset = dto
+        };
+
+        var (astroDark, astroTwilight) = ObservationScheduler.CalculateNightWindow(transform);
+        astroDark.ShouldBeLessThan(astroTwilight, "Dark should precede twilight");
+
+        // Night window falls back to nautical — should be short (1-8 hours per existing test)
+        var nightDuration = astroTwilight - astroDark;
+        nightDuration.ShouldBeGreaterThan(TimeSpan.FromHours(1));
+        nightDuration.ShouldBeLessThan(TimeSpan.FromHours(8));
+
+        // Civil twilight still exists at this latitude.
+        // Subtract 12h so post-midnight astroDark maps to the previous day's evening.
+        var eveningDate = astroDark.AddHours(-12);
+        var eveningDayStart = new DateTimeOffset(eveningDate.Date, eveningDate.Offset);
+        var morningDayStart = new DateTimeOffset(astroTwilight.Date, astroTwilight.Offset);
+
+        transform.DateTimeOffset = eveningDayStart;
+        var (_, _, civilS) = transform.EventTimes(EventType.CivilTwilight);
+        civilS.ShouldNotBeNull();
+        civilS.Count.ShouldBeGreaterThanOrEqualTo(1, "Civil twilight set should exist at Dublin latitude");
+        var civilSet = eveningDayStart + civilS![0];
+
+        transform.DateTimeOffset = morningDayStart;
+        var (_, civilR, _) = transform.EventTimes(EventType.CivilTwilight);
+        civilR.ShouldNotBeNull();
+        civilR.Count.ShouldBeGreaterThanOrEqualTo(1, "Civil twilight rise should exist at Dublin latitude");
+        var civilRise = morningDayStart + civilR![0];
+
+        // Partial ordering: civil set < astroDark (nautical-derived) and astroTwilight < civil rise
+        civilSet.ShouldBeLessThan(astroDark, "Civil set should precede nautical-derived dark boundary");
+        astroTwilight.ShouldBeLessThan(civilRise, "Nautical-derived twilight should precede civil rise");
+
+        // Civil rise should be after civil set (dawn after dusk)
+        civilRise.ShouldBeGreaterThan(civilSet, "Dawn should be after dusk");
+    }
+
     [Fact]
     public void Schedule_WithCalculatedNightWindow_SchedulesSuccessfully()
     {

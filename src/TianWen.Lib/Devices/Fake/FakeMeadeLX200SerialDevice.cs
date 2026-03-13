@@ -23,6 +23,8 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
     private volatile bool _isSlewing = false;
     private volatile bool _highPrecision = false;
     private volatile int _trackingFrequency = 601; // 60.1 Hz * 10, sidereal tracking rate
+    private TimeSpan _utcOffset = TimeSpan.Zero;
+    private DateTime _localDateTime;
 
     // Mount axis angles (German Equatorial Mount)
     // HA axis: 0 = pointing at meridian (home position), positive = west of meridian
@@ -64,6 +66,9 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
         _targetDec = CurrentDec;
 
         _lastTrackingTicks = timeProvider.GetTimestamp();
+
+        // Initialize local date/time from the time provider
+        _localDateTime = timeProvider.GetUtcNow().UtcDateTime;
 
         _logger = logger;
         IsOpen = isOpen;
@@ -307,6 +312,22 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
                     _isTracking = true;
                     break;
 
+                case ":TQ#":
+                    // Set tracking speed to sidereal
+                    _trackingFrequency = 601;
+                    break;
+
+                case ":TL#":
+                    // Set tracking speed to lunar
+                    _trackingFrequency = 571;
+                    break;
+
+                case ":Q#":
+                    // Halt all slewing
+                    _isSlewing = false;
+                    Interlocked.Exchange(ref _slewTimer, null)?.Dispose();
+                    break;
+
                 case ":GVN#":
                     _responseBuffer.Append("A4s4#");
                     break;
@@ -335,6 +356,33 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
                     _responseBuffer.AppendFormat("{0}#", DegreesToDM(_transform.SiteLatitude));
                     break;
 
+                case ":Gg#":
+                    // LX200 convention: returns degrees west of Greenwich
+                    // For east longitude 16.3°, we return -16°18' so that
+                    // GetLatOrLongAsync returns -16.3 and GetSiteLongitudeAsync negates to +16.3
+                    _responseBuffer.AppendFormat("{0}#", DegreesToDM(-_transform.SiteLongitude));
+                    break;
+
+                case ":GG#":
+                    // UTC offset: sHH# format
+                    var offsetHours = _utcOffset.TotalHours;
+                    _responseBuffer.AppendFormat("{0}{1:00}#",
+                        offsetHours >= 0 ? "+" : "",
+                        (int)offsetHours);
+                    break;
+
+                case ":GL#":
+                    // Local time: HH:MM:SS# — uses time provider so it advances with FakeTimeProvider
+                    var currentLocalTime = _timeProvider.GetUtcNow().UtcDateTime - _utcOffset;
+                    _responseBuffer.AppendFormat("{0:HH\\:mm\\:ss}#", currentLocalTime);
+                    break;
+
+                case ":GC#":
+                    // Local date: MM/DD/YY# — uses time provider so it advances with FakeTimeProvider
+                    var currentLocalDate = _timeProvider.GetUtcNow().UtcDateTime - _utcOffset;
+                    _responseBuffer.AppendFormat("{0:MM/dd/yy}#", currentLocalDate);
+                    break;
+
                 case ":GT#":
                     var (trackingHz, tracking10thHz) = Math.DivRem(_trackingFrequency, 10);
                     _responseBuffer.AppendFormat("{0:00}.{1:0}#", trackingHz, tracking10thHz);
@@ -360,6 +408,32 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
                     else if (dataStr.StartsWith(":Sd", StringComparison.Ordinal))
                     {
                         _responseBuffer.Append(ParseTargetDec(dataStr) ? '1' : '0');
+                    }
+                    else if (dataStr.StartsWith(":SL", StringComparison.Ordinal))
+                    {
+                        // Set local time: :SLHH:MM:SS#
+                        if (TimeSpan.TryParseExact(dataStr[3..^1], "hh\\:mm\\:ss", CultureInfo.InvariantCulture, out var time))
+                        {
+                            _localDateTime = _localDateTime.Date + time;
+                            _responseBuffer.Append('0'); // 0 = success
+                        }
+                        else
+                        {
+                            _responseBuffer.Append('1'); // 1 = error
+                        }
+                    }
+                    else if (dataStr.StartsWith(":SC", StringComparison.Ordinal))
+                    {
+                        // Set calendar date: :SCMM/DD/YY#
+                        if (DateTime.TryParseExact(dataStr[3..^1], "MM/dd/yy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+                        {
+                            _localDateTime = date + _localDateTime.TimeOfDay;
+                            _responseBuffer.Append("0Updating Planetary Data#                       #");
+                        }
+                        else
+                        {
+                            _responseBuffer.Append('1');
+                        }
                     }
                     else
                     {

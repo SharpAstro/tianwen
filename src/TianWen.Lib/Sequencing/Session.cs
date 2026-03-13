@@ -34,6 +34,12 @@ internal partial record Session(
     private readonly ConcurrentDictionary<int, List<FrameMetrics>[]> _baselineSamples = [];
     private int _activeObservation = UNINITIALIZED_OBSERVATION_INDEX;
     private int _spareIndex;
+    private int _totalFramesWritten;
+    private long _totalExposureTimeTicks;
+
+    internal int TotalFramesWritten => _totalFramesWritten;
+    internal TimeSpan TotalExposureTime => TimeSpan.FromTicks(Interlocked.Read(ref _totalExposureTimeTicks));
+    internal int CurrentObservationIndex => _activeObservation;
 
     /// <summary>
     /// Per-observation, per-telescope baseline metrics for focus drift and environmental anomaly detection.
@@ -48,6 +54,12 @@ internal partial record Session(
         _spareIndex = 0;
         return Interlocked.Increment(ref _activeObservation);
     }
+
+    /// <summary>
+    /// Advances the observation index for test purposes, allowing tests to set up
+    /// the session state before calling ObservationLoopAsync or ImagingLoopAsync directly.
+    /// </summary>
+    internal int AdvanceObservationForTest() => AdvanceObservation();
 
     public async Task RunAsync(CancellationToken cancellationToken)
     {

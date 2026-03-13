@@ -360,7 +360,7 @@ public interface IMountDriver : IDeviceDriver
         {
             return new Transform(External.TimeProvider)
             {
-                SiteElevation = await GetSiteElevationAsync(cancellationToken),
+                SiteElevation = await GetSiteElevationAsync(cancellationToken) is var elev && !double.IsNaN(elev) ? elev : 0,
                 SiteLatitude = await GetSiteLatitudeAsync(cancellationToken),
                 SiteLongitude = await GetSiteLongitudeAsync(cancellationToken),
                 SitePressure = 1010, // TODO standard atmosphere

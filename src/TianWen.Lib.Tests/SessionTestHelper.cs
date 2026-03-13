@@ -94,6 +94,9 @@ internal static class SessionTestHelper
         await guider.Driver.ConnectAsync(cancellationToken);
         await ((FakeGuider)guider.Driver).ConnectEquipmentAsync(cancellationToken);
 
+        // Set UTC date on mount so TryGetTransformAsync works
+        await mount.Driver.SetUTCDateAsync(external.TimeProvider.GetUtcNow().UtcDateTime, cancellationToken);
+
         var setup = new Setup(mount, guider, new GuiderSetup(), [ota]);
         var plateSolver = new FakePlateSolver();
 
@@ -101,8 +104,9 @@ internal static class SessionTestHelper
         var obs = observations ?? DefaultScheduledObservations;
 
         var session = new Session(setup, config, plateSolver, external, new ScheduledObservationTree(obs));
+        var mountDriver = (FakeMeadeLX200ProtocolMountDriver)mount.Driver;
 
-        return new SessionTestContext(session, external, cameraDriver, focuserDriver);
+        return new SessionTestContext(session, external, cameraDriver, focuserDriver, mountDriver);
     }
 }
 
@@ -110,5 +114,6 @@ internal record SessionTestContext(
     Session Session,
     FakeExternal External,
     FakeCameraDriver Camera,
-    FakeFocuserDriver Focuser
+    FakeFocuserDriver Focuser,
+    FakeMeadeLX200ProtocolMountDriver Mount
 );

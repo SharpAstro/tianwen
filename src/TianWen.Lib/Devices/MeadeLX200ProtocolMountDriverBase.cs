@@ -717,13 +717,15 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     private async ValueTask<double> GetLatOrLongAsync(ReadOnlyMemory<byte> command, CancellationToken cancellationToken)
     {
         using var response = ArrayPoolHelper.Rent<byte>(10);
-        if (await SendAndReceiveRawAsync(command, response, cancellationToken) >= 5)
+        var bytesRead = await SendAndReceiveRawAsync(command, response, cancellationToken);
+        if (bytesRead >= 5)
         {
-            var isNegative = response[0] is (byte)'-';
+            var data = response.AsSpan(0, bytesRead);
+            var isNegative = data[0] is (byte)'-';
             var offset = isNegative ? 1 : 0;
 
-            if (Utf8Parser.TryParse(response.AsSpan(offset), out int degrees, out var consumed)
-                && Utf8Parser.TryParse(response.AsSpan(offset + consumed + 1), out int minutes, out _)
+            if (Utf8Parser.TryParse(data[offset..], out int degrees, out var consumed)
+                && Utf8Parser.TryParse(data[(offset + consumed + 1)..], out int minutes, out _)
             )
             {
                 var latOrLongNotAdjusted = (isNegative ? -1 : 1) * (degrees + minutes / 60d);
