@@ -10,6 +10,17 @@ internal partial record Session
     internal async ValueTask<DateTime> GetMountUtcNowAsync(CancellationToken cancellationToken)
         => await Setup.Mount.Driver.TryGetUTCDateFromMountAsync(cancellationToken) ?? External.TimeProvider.GetUtcNow().UtcDateTime;
 
+    /// <summary>
+    /// Converts a UTC <see cref="DateTime"/> to a local <see cref="DateTimeOffset"/> at the site's timezone,
+    /// then returns the start of that local day as a <see cref="DateTimeOffset"/>.
+    /// </summary>
+    private static DateTimeOffset LocalStartOfDay(DateTime utc, TimeSpan siteTimeZone)
+    {
+        var localDto = new DateTimeOffset(utc, TimeSpan.Zero).ToOffset(siteTimeZone);
+        var localMidnight = localDto.Date; // DateTimeKind.Unspecified
+        return new DateTimeOffset(localMidnight, siteTimeZone);
+    }
+
     internal async ValueTask WaitUntilTenMinutesBeforeAmateurAstroTwilightEndsAsync(CancellationToken cancellationToken)
     {
         if (await Setup.Mount.Driver.TryGetTransformAsync(cancellationToken) is not { } transform)
@@ -21,9 +32,9 @@ internal partial record Session
         if (set is { Count: 1 })
         {
             var now = External.TimeProvider.GetUtcNow().UtcDateTime;
-            var localNow = new DateTimeOffset(now, transform.SiteTimeZone);
-            var utcDayStart = now - now.TimeOfDay;
-            var localAstroTwilightSet = new DateTimeOffset(utcDayStart, transform.SiteTimeZone) + set[0];
+            var localNow = new DateTimeOffset(now, TimeSpan.Zero).ToOffset(transform.SiteTimeZone);
+            var localDayStart = LocalStartOfDay(now, transform.SiteTimeZone);
+            var localAstroTwilightSet = localDayStart + set[0];
             var local10MinBeforeAstroTwilightSet = localAstroTwilightSet - TimeSpan.FromMinutes(10);
             var diff = local10MinBeforeAstroTwilightSet - now;
 
@@ -58,8 +69,8 @@ internal partial record Session
 
         if (rise is { Count: 1 })
         {
-            var tomorrowStartOfDay = nowPlusOneDay - nowPlusOneDay.TimeOfDay;
-            return (new DateTimeOffset(tomorrowStartOfDay, transform.SiteTimeZone) + rise[0]).UtcDateTime;
+            var tomorrowLocalStart = LocalStartOfDay(nowPlusOneDay, transform.SiteTimeZone);
+            return (tomorrowLocalStart + rise[0]).UtcDateTime;
         }
         else
         {
