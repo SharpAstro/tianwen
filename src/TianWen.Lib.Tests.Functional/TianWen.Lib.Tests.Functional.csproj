@@ -8,28 +8,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Remove="Data/*.gz" />
-    <None Remove="Data/Focus/*.gz" />
-    <None Remove="Data/Focus/NINA/*.json" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <EmbeddedResource Include="Data/*.gz" />
-    <EmbeddedResource Include="Data/Focus/*.gz" />
-    <EmbeddedResource Include="Data/Focus/NINA/*.json" />
-  </ItemGroup>
-
-  <ItemGroup>
     <PackageReference Include="Meziantou.Extensions.Logging.Xunit.v3" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="Nerdbank.Streams" />
-    <PackageReference Include="NSubstitute" />
-    <PackageReference Include="NSubstitute.Analyzers.CSharp">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-    </PackageReference>
     <PackageReference Include="Shouldly" />
     <PackageReference Include="xunit.runner.visualstudio">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -44,11 +26,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\TianWen.Lib\TianWen.Lib.csproj" />
-    <ProjectReference Include="..\TianWen.UI.Abstractions\TianWen.UI.Abstractions.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <InternalsVisibleTo Include="TianWen.Lib.Tests.Functional" />
+    <ProjectReference Include="..\TianWen.Lib.Tests\TianWen.Lib.Tests.csproj" />
   </ItemGroup>
 
 </Project>
