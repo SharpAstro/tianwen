@@ -5,7 +5,7 @@ using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
 using Xunit;
 
-namespace TianWen.Lib.Tests;
+namespace TianWen.Lib.Tests.Functional;
 
 public class FakeDeviceTests(ITestOutputHelper output)
 {

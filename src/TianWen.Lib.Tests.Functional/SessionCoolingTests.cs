@@ -6,7 +6,7 @@ using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 using Xunit;
 
-namespace TianWen.Lib.Tests;
+namespace TianWen.Lib.Tests.Functional;
 
 public class SessionCoolingTests(ITestOutputHelper output)
 {

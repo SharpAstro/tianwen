@@ -8,7 +8,7 @@ using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Devices.Guider;
 using Xunit;
 
-namespace TianWen.Lib.Tests;
+namespace TianWen.Lib.Tests.Functional;
 
 public class GuideLoopTests(ITestOutputHelper output)
 {
