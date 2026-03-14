@@ -39,13 +39,23 @@ internal sealed class GuideLoop
     private bool _hasPreviousError;
 
     // Thread-safe scratch buffers for neural inference during online learning
-    private readonly float[] _hiddenScratch = new float[NeuralGuideModel.HiddenSize];
+    private readonly float[] _hidden1Scratch = new float[NeuralGuideModel.Hidden1Size];
+    private readonly float[] _hidden2Scratch = new float[NeuralGuideModel.Hidden2Size];
     private readonly float[] _outputScratch = new float[NeuralGuideModel.OutputSize];
 
     /// <summary>
     /// Maximum pulse duration for corrections in milliseconds.
     /// </summary>
     public double MaxPulseMs { get; set; } = 2000;
+
+    /// <summary>
+    /// Blend factor for neural model corrections. Controls how much the neural output
+    /// modifies the P-controller baseline. 0 = P-controller only, 1 = full neural replacement.
+    /// Default: 0.15 (neural provides 15% refinement on top of P-controller).
+    /// Kept conservative to prevent runaway corrections from an under-trained model;
+    /// online learning gradually improves the model in-place.
+    /// </summary>
+    public double NeuralBlendFactor { get; set; } = 0.15;
 
     /// <summary>
     /// Number of frames between online training updates.
@@ -361,7 +371,7 @@ internal sealed class GuideLoop
                 _errorTracker.RaRmsShort, _errorTracker.DecRmsShort,
                 hourAngle, declination, input);
 
-            var output = _neuralModel.ForwardWithScratch(input, _hiddenScratch, _outputScratch);
+            var output = _neuralModel.ForwardWithScratch(input, _hidden1Scratch, _hidden2Scratch, _outputScratch);
             var raPulseMs = output[0] * MaxPulseMs;
             var decPulseMs = output[1] * MaxPulseMs;
 
@@ -385,7 +395,14 @@ internal sealed class GuideLoop
             }
 
             _consecutiveFallbacks = 0;
-            return (new GuideCorrection(raPulseMs, decPulseMs), true);
+
+            // Blend neural output with P-controller baseline. The P-controller provides
+            // a proven-reliable correction; the neural model refines it. This prevents
+            // the neural model from catastrophically over-correcting when inputs are noisy
+            // (gear noise, seeing jitter).
+            var blendedRa = (1.0 - NeuralBlendFactor) * pCorrection.RaPulseMs + NeuralBlendFactor * raPulseMs;
+            var blendedDec = (1.0 - NeuralBlendFactor) * pCorrection.DecPulseMs + NeuralBlendFactor * decPulseMs;
+            return (new GuideCorrection(blendedRa, blendedDec), true);
         }
 
         // P-controller only

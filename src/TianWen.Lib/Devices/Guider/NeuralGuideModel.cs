@@ -4,13 +4,14 @@ using System.Numerics.Tensors;
 namespace TianWen.Lib.Devices.Guider;
 
 /// <summary>
-/// Tiny 2-layer MLP for guide correction prediction.
+/// Tiny 3-layer MLP for guide correction prediction.
 /// Input: recent guide errors + mount state → Output: RA/Dec pulse corrections.
 /// Hand-rolled inference using <see cref="TensorPrimitives"/> for zero-allocation hot path.
 /// </summary>
 /// <remarks>
-/// Architecture: Input(16) → Dense(32, ReLU) → Dense(2, Linear)
-/// 610 parameters total. Inference is ~1K FMAs, well under 1µs on modern CPUs.
+/// Architecture: Input(16) → Dense(32, ReLU) → Dense(16, ReLU) → Dense(2, Tanh)
+/// 1,106 parameters total. Inference is ~2K FMAs, well under 1µs on modern CPUs.
+/// The middle layer provides denoising capacity for gear noise and seeing jitter.
 ///
 /// Input features (16):
 ///   [0-1]   Current RA/Dec error (pixels)
@@ -33,26 +34,37 @@ internal sealed class NeuralGuideModel
     /// <summary>Number of input features.</summary>
     internal const int InputSize = 16;
 
-    /// <summary>Number of hidden units.</summary>
-    internal const int HiddenSize = 32;
+    /// <summary>Number of hidden units in layer 1.</summary>
+    internal const int Hidden1Size = 32;
+
+    /// <summary>Number of hidden units in layer 2.</summary>
+    internal const int Hidden2Size = 16;
 
     /// <summary>Number of output values.</summary>
     internal const int OutputSize = 2;
 
     /// <summary>Total parameter count.</summary>
-    internal const int TotalParams = (InputSize * HiddenSize + HiddenSize) + (HiddenSize * OutputSize + OutputSize);
-    // = (16*32 + 32) + (32*2 + 2) = 512 + 32 + 64 + 2 = 610
+    internal const int TotalParams =
+        (InputSize * Hidden1Size + Hidden1Size)     // Layer 1: 16*32 + 32 = 544
+        + (Hidden1Size * Hidden2Size + Hidden2Size) // Layer 2: 32*16 + 16 = 528
+        + (Hidden2Size * OutputSize + OutputSize);  // Layer 3: 16*2  + 2  = 34
+    // Total: 1,106
 
-    // Layer 1: Input → Hidden (weight matrix stored row-major: hidden × input)
-    private readonly float[] _w1 = new float[HiddenSize * InputSize];
-    private readonly float[] _b1 = new float[HiddenSize];
+    // Layer 1: Input → Hidden1 (weight matrix stored row-major: hidden1 × input)
+    private readonly float[] _w1 = new float[Hidden1Size * InputSize];
+    private readonly float[] _b1 = new float[Hidden1Size];
 
-    // Layer 2: Hidden → Output
-    private readonly float[] _w2 = new float[OutputSize * HiddenSize];
-    private readonly float[] _b2 = new float[OutputSize];
+    // Layer 2: Hidden1 → Hidden2
+    private readonly float[] _w2 = new float[Hidden2Size * Hidden1Size];
+    private readonly float[] _b2 = new float[Hidden2Size];
+
+    // Layer 3: Hidden2 → Output
+    private readonly float[] _w3 = new float[OutputSize * Hidden2Size];
+    private readonly float[] _b3 = new float[OutputSize];
 
     // Scratch buffers (avoid allocation on hot path)
-    private readonly float[] _hidden = new float[HiddenSize];
+    private readonly float[] _hidden1 = new float[Hidden1Size];
+    private readonly float[] _hidden2 = new float[Hidden2Size];
     private readonly float[] _output = new float[OutputSize];
 
     /// <summary>
@@ -64,19 +76,23 @@ internal sealed class NeuralGuideModel
         var rng = new Random(seed);
 
         // Xavier: std = sqrt(2 / (fan_in + fan_out))
-        var std1 = MathF.Sqrt(2.0f / (InputSize + HiddenSize));
+        var std1 = MathF.Sqrt(2.0f / (InputSize + Hidden1Size));
         FillNormal(rng, _w1, std1);
         Array.Clear(_b1);
 
-        var std2 = MathF.Sqrt(2.0f / (HiddenSize + OutputSize));
+        var std2 = MathF.Sqrt(2.0f / (Hidden1Size + Hidden2Size));
         FillNormal(rng, _w2, std2);
         Array.Clear(_b2);
+
+        var std3 = MathF.Sqrt(2.0f / (Hidden2Size + OutputSize));
+        FillNormal(rng, _w3, std3);
+        Array.Clear(_b3);
     }
 
     /// <summary>
     /// Loads model weights from a flat parameter array.
     /// </summary>
-    /// <param name="parameters">Flat array of all parameters in order: w1, b1, w2, b2.</param>
+    /// <param name="parameters">Flat array of all parameters in order: w1, b1, w2, b2, w3, b3.</param>
     public void LoadParameters(ReadOnlySpan<float> parameters)
     {
         if (parameters.Length != TotalParams)
@@ -92,6 +108,10 @@ internal sealed class NeuralGuideModel
         parameters.Slice(offset, _w2.Length).CopyTo(_w2);
         offset += _w2.Length;
         parameters.Slice(offset, _b2.Length).CopyTo(_b2);
+        offset += _b2.Length;
+        parameters.Slice(offset, _w3.Length).CopyTo(_w3);
+        offset += _w3.Length;
+        parameters.Slice(offset, _b3.Length).CopyTo(_b3);
     }
 
     /// <summary>
@@ -108,6 +128,10 @@ internal sealed class NeuralGuideModel
         _w2.CopyTo(result.AsSpan(offset));
         offset += _w2.Length;
         _b2.CopyTo(result.AsSpan(offset));
+        offset += _b2.Length;
+        _w3.CopyTo(result.AsSpan(offset));
+        offset += _w3.Length;
+        _b3.CopyTo(result.AsSpan(offset));
         return result;
     }
 
@@ -123,12 +147,16 @@ internal sealed class NeuralGuideModel
             throw new ArgumentException($"Expected {InputSize} inputs, got {input.Length}");
         }
 
-        // Layer 1: hidden = ReLU(W1 @ input + b1)
-        MatVecAdd(_w1, input, _b1, _hidden, HiddenSize, InputSize);
-        ReLUInPlace(_hidden);
+        // Layer 1: hidden1 = ReLU(W1 @ input + b1)
+        MatVecAdd(_w1, input, _b1, _hidden1, Hidden1Size, InputSize);
+        ReLUInPlace(_hidden1);
 
-        // Layer 2: output = W2 @ hidden + b2
-        MatVecAdd(_w2, _hidden, _b2, _output, OutputSize, HiddenSize);
+        // Layer 2: hidden2 = ReLU(W2 @ hidden1 + b2)
+        MatVecAdd(_w2, _hidden1, _b2, _hidden2, Hidden2Size, Hidden1Size);
+        ReLUInPlace(_hidden2);
+
+        // Layer 3: output = W3 @ hidden2 + b3
+        MatVecAdd(_w3, _hidden2, _b3, _output, OutputSize, Hidden2Size);
 
         // Clamp output to [-1, 1]
         TanhClampInPlace(_output);
@@ -141,22 +169,27 @@ internal sealed class NeuralGuideModel
     /// Thread-safe: does not use any mutable instance state beyond the weight arrays.
     /// </summary>
     /// <param name="input">Input feature vector of length <see cref="InputSize"/>.</param>
-    /// <param name="hiddenScratch">Scratch buffer of length <see cref="HiddenSize"/>.</param>
+    /// <param name="hidden1Scratch">Scratch buffer of length <see cref="Hidden1Size"/>.</param>
+    /// <param name="hidden2Scratch">Scratch buffer of length <see cref="Hidden2Size"/>.</param>
     /// <param name="outputScratch">Scratch buffer of length <see cref="OutputSize"/>.</param>
     /// <returns>Output span (the outputScratch buffer, filled with results).</returns>
-    public ReadOnlySpan<float> ForwardWithScratch(ReadOnlySpan<float> input, Span<float> hiddenScratch, Span<float> outputScratch)
+    public ReadOnlySpan<float> ForwardWithScratch(ReadOnlySpan<float> input, Span<float> hidden1Scratch, Span<float> hidden2Scratch, Span<float> outputScratch)
     {
         if (input.Length != InputSize)
         {
             throw new ArgumentException($"Expected {InputSize} inputs, got {input.Length}");
         }
 
-        // Layer 1: hidden = ReLU(W1 @ input + b1)
-        MatVecAdd(_w1, input, _b1, hiddenScratch, HiddenSize, InputSize);
-        ReLUInPlace(hiddenScratch);
+        // Layer 1: hidden1 = ReLU(W1 @ input + b1)
+        MatVecAdd(_w1, input, _b1, hidden1Scratch, Hidden1Size, InputSize);
+        ReLUInPlace(hidden1Scratch);
 
-        // Layer 2: output = W2 @ hidden + b2
-        MatVecAdd(_w2, hiddenScratch, _b2, outputScratch, OutputSize, HiddenSize);
+        // Layer 2: hidden2 = ReLU(W2 @ hidden1 + b2)
+        MatVecAdd(_w2, hidden1Scratch, _b2, hidden2Scratch, Hidden2Size, Hidden1Size);
+        ReLUInPlace(hidden2Scratch);
+
+        // Layer 3: output = W3 @ hidden2 + b3
+        MatVecAdd(_w3, hidden2Scratch, _b3, outputScratch, OutputSize, Hidden2Size);
 
         // Clamp output to [-1, 1]
         TanhClampInPlace(outputScratch);

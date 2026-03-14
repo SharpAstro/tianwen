@@ -19,10 +19,14 @@ internal sealed class NeuralGuideTrainer
     private readonly float[] _gradB1;
     private readonly float[] _gradW2;
     private readonly float[] _gradB2;
+    private readonly float[] _gradW3;
+    private readonly float[] _gradB3;
 
     // Forward pass cache for backpropagation
-    private readonly float[] _hiddenPreAct;
-    private readonly float[] _hiddenPostAct;
+    private readonly float[] _hidden1PreAct;
+    private readonly float[] _hidden1PostAct;
+    private readonly float[] _hidden2PreAct;
+    private readonly float[] _hidden2PostAct;
     private readonly float[] _outputPreAct;
     private readonly float[] _output;
 
@@ -31,6 +35,8 @@ internal sealed class NeuralGuideTrainer
     private float[] _b1;
     private float[] _w2;
     private float[] _b2;
+    private float[] _w3;
+    private float[] _b3;
 
     public NeuralGuideTrainer(NeuralGuideModel model, float learningRate = 0.001f, int batchSize = 32)
     {
@@ -38,26 +44,34 @@ internal sealed class NeuralGuideTrainer
         _learningRate = learningRate;
         _batchSize = batchSize;
 
-        _gradW1 = new float[NeuralGuideModel.HiddenSize * NeuralGuideModel.InputSize];
-        _gradB1 = new float[NeuralGuideModel.HiddenSize];
-        _gradW2 = new float[NeuralGuideModel.OutputSize * NeuralGuideModel.HiddenSize];
-        _gradB2 = new float[NeuralGuideModel.OutputSize];
+        _gradW1 = new float[NeuralGuideModel.Hidden1Size * NeuralGuideModel.InputSize];
+        _gradB1 = new float[NeuralGuideModel.Hidden1Size];
+        _gradW2 = new float[NeuralGuideModel.Hidden2Size * NeuralGuideModel.Hidden1Size];
+        _gradB2 = new float[NeuralGuideModel.Hidden2Size];
+        _gradW3 = new float[NeuralGuideModel.OutputSize * NeuralGuideModel.Hidden2Size];
+        _gradB3 = new float[NeuralGuideModel.OutputSize];
 
-        _hiddenPreAct = new float[NeuralGuideModel.HiddenSize];
-        _hiddenPostAct = new float[NeuralGuideModel.HiddenSize];
+        _hidden1PreAct = new float[NeuralGuideModel.Hidden1Size];
+        _hidden1PostAct = new float[NeuralGuideModel.Hidden1Size];
+        _hidden2PreAct = new float[NeuralGuideModel.Hidden2Size];
+        _hidden2PostAct = new float[NeuralGuideModel.Hidden2Size];
         _outputPreAct = new float[NeuralGuideModel.OutputSize];
         _output = new float[NeuralGuideModel.OutputSize];
 
         // Extract current weights from model
         var p = model.ExportParameters();
         var offset = 0;
-        _w1 = p[offset..(offset + NeuralGuideModel.HiddenSize * NeuralGuideModel.InputSize)];
+        _w1 = p[offset..(offset + NeuralGuideModel.Hidden1Size * NeuralGuideModel.InputSize)];
         offset += _w1.Length;
-        _b1 = p[offset..(offset + NeuralGuideModel.HiddenSize)];
+        _b1 = p[offset..(offset + NeuralGuideModel.Hidden1Size)];
         offset += _b1.Length;
-        _w2 = p[offset..(offset + NeuralGuideModel.OutputSize * NeuralGuideModel.HiddenSize)];
+        _w2 = p[offset..(offset + NeuralGuideModel.Hidden2Size * NeuralGuideModel.Hidden1Size)];
         offset += _w2.Length;
-        _b2 = p[offset..];
+        _b2 = p[offset..(offset + NeuralGuideModel.Hidden2Size)];
+        offset += _b2.Length;
+        _w3 = p[offset..(offset + NeuralGuideModel.OutputSize * NeuralGuideModel.Hidden2Size)];
+        offset += _w3.Length;
+        _b3 = p[offset..];
     }
 
     /// <summary>
@@ -70,13 +84,17 @@ internal sealed class NeuralGuideTrainer
     /// <param name="maxPulseMs">Maximum pulse in ms for normalizing targets.</param>
     /// <param name="numSamples">Number of training samples per epoch.</param>
     /// <param name="seed">Random seed for reproducibility.</param>
+    /// <param name="inputNoiseStd">Standard deviation of Gaussian noise added to input features
+    /// for robustness training. Simulates gear noise, encoder jitter, and seeing-induced
+    /// measurement uncertainty. Recommended: 0.1–0.3 pixels. 0 = no augmentation.</param>
     /// <returns>Average MSE loss for the epoch.</returns>
     public float TrainEpoch(
         GuiderCalibrationResult calibration,
         ProportionalGuideController pController,
         double maxPulseMs,
         int numSamples = 256,
-        int seed = 0)
+        int seed = 0,
+        float inputNoiseStd = 0.15f)
     {
         var rng = new Random(seed);
         var totalLoss = 0.0f;
@@ -101,12 +119,23 @@ internal sealed class NeuralGuideTrainer
             var hourAngle = (rng.NextDouble() - 0.5) * 24.0;
             var declination = (rng.NextDouble() - 0.5) * 120.0; // ±60°
 
-            // Build features (2 frames of history per sample)
+            // Build features from clean errors (2 frames of history per sample)
             features.Reset();
             features.Build(prevRaError, prevDecError, 0, raRms, decRms, hourAngle, declination, inputBuffer);
             features.Build(raError, decError, 2.0, raRms, decRms, hourAngle, declination, inputBuffer);
 
-            // Compute teacher target
+            // Input noise augmentation: jitter the features while keeping the teacher target
+            // computed from clean errors. This teaches the model to be conservative when
+            // inputs are noisy (gear noise, encoder jitter, seeing).
+            if (inputNoiseStd > 0)
+            {
+                for (var f = 0; f < inputBuffer.Length; f++)
+                {
+                    inputBuffer[f] += inputNoiseStd * (float)NextGaussian(rng);
+                }
+            }
+
+            // Compute teacher target from clean errors (not noisy inputs)
             var correction = pController.Compute(calibration, raError, decError);
             var targetRa = (float)Math.Clamp(correction.RaPulseMs / maxPulseMs, -1.0, 1.0);
             var targetDec = (float)Math.Clamp(correction.DecPulseMs / maxPulseMs, -1.0, 1.0);
@@ -197,55 +226,86 @@ internal sealed class NeuralGuideTrainer
 
     private void ForwardWithCache(ReadOnlySpan<float> input)
     {
-        // Layer 1: hidden = ReLU(W1 @ input + b1)
-        for (var i = 0; i < NeuralGuideModel.HiddenSize; i++)
+        // Layer 1: hidden1 = ReLU(W1 @ input + b1)
+        for (var i = 0; i < NeuralGuideModel.Hidden1Size; i++)
         {
             var row = _w1.AsSpan(i * NeuralGuideModel.InputSize, NeuralGuideModel.InputSize);
-            _hiddenPreAct[i] = TensorPrimitives.Dot(row, input) + _b1[i];
-            _hiddenPostAct[i] = Math.Max(0, _hiddenPreAct[i]);
+            _hidden1PreAct[i] = TensorPrimitives.Dot(row, input) + _b1[i];
+            _hidden1PostAct[i] = Math.Max(0, _hidden1PreAct[i]);
         }
 
-        // Layer 2: output = tanh(W2 @ hidden + b2)
+        // Layer 2: hidden2 = ReLU(W2 @ hidden1 + b2)
+        for (var i = 0; i < NeuralGuideModel.Hidden2Size; i++)
+        {
+            var row = _w2.AsSpan(i * NeuralGuideModel.Hidden1Size, NeuralGuideModel.Hidden1Size);
+            _hidden2PreAct[i] = TensorPrimitives.Dot(row, _hidden1PostAct) + _b2[i];
+            _hidden2PostAct[i] = Math.Max(0, _hidden2PreAct[i]);
+        }
+
+        // Layer 3: output = tanh(W3 @ hidden2 + b3)
         for (var i = 0; i < NeuralGuideModel.OutputSize; i++)
         {
-            var row = _w2.AsSpan(i * NeuralGuideModel.HiddenSize, NeuralGuideModel.HiddenSize);
-            _outputPreAct[i] = TensorPrimitives.Dot(row, _hiddenPostAct) + _b2[i];
+            var row = _w3.AsSpan(i * NeuralGuideModel.Hidden2Size, NeuralGuideModel.Hidden2Size);
+            _outputPreAct[i] = TensorPrimitives.Dot(row, _hidden2PostAct) + _b3[i];
             _output[i] = MathF.Tanh(_outputPreAct[i]);
         }
     }
 
     private void AccumulateGradients(ReadOnlySpan<float> input, ReadOnlySpan<float> dOutput)
     {
-        // Backprop through layer 2
+        // Backprop through layer 3: Hidden2 → Output
         for (var i = 0; i < NeuralGuideModel.OutputSize; i++)
         {
-            _gradB2[i] += dOutput[i];
-            for (var j = 0; j < NeuralGuideModel.HiddenSize; j++)
+            _gradB3[i] += dOutput[i];
+            for (var j = 0; j < NeuralGuideModel.Hidden2Size; j++)
             {
-                _gradW2[i * NeuralGuideModel.HiddenSize + j] += dOutput[i] * _hiddenPostAct[j];
+                _gradW3[i * NeuralGuideModel.Hidden2Size + j] += dOutput[i] * _hidden2PostAct[j];
             }
         }
 
-        // Compute dHidden
-        Span<float> dHidden = stackalloc float[NeuralGuideModel.HiddenSize];
-        for (var j = 0; j < NeuralGuideModel.HiddenSize; j++)
+        // Compute dHidden2
+        Span<float> dHidden2 = stackalloc float[NeuralGuideModel.Hidden2Size];
+        for (var j = 0; j < NeuralGuideModel.Hidden2Size; j++)
         {
             var sum = 0.0f;
             for (var i = 0; i < NeuralGuideModel.OutputSize; i++)
             {
-                sum += dOutput[i] * _w2[i * NeuralGuideModel.HiddenSize + j];
+                sum += dOutput[i] * _w3[i * NeuralGuideModel.Hidden2Size + j];
             }
             // ReLU derivative
-            dHidden[j] = _hiddenPreAct[j] > 0 ? sum : 0;
+            dHidden2[j] = _hidden2PreAct[j] > 0 ? sum : 0;
         }
 
-        // Backprop through layer 1
-        for (var i = 0; i < NeuralGuideModel.HiddenSize; i++)
+        // Backprop through layer 2: Hidden1 → Hidden2
+        for (var i = 0; i < NeuralGuideModel.Hidden2Size; i++)
         {
-            _gradB1[i] += dHidden[i];
+            _gradB2[i] += dHidden2[i];
+            for (var j = 0; j < NeuralGuideModel.Hidden1Size; j++)
+            {
+                _gradW2[i * NeuralGuideModel.Hidden1Size + j] += dHidden2[i] * _hidden1PostAct[j];
+            }
+        }
+
+        // Compute dHidden1
+        Span<float> dHidden1 = stackalloc float[NeuralGuideModel.Hidden1Size];
+        for (var j = 0; j < NeuralGuideModel.Hidden1Size; j++)
+        {
+            var sum = 0.0f;
+            for (var i = 0; i < NeuralGuideModel.Hidden2Size; i++)
+            {
+                sum += dHidden2[i] * _w2[i * NeuralGuideModel.Hidden1Size + j];
+            }
+            // ReLU derivative
+            dHidden1[j] = _hidden1PreAct[j] > 0 ? sum : 0;
+        }
+
+        // Backprop through layer 1: Input → Hidden1
+        for (var i = 0; i < NeuralGuideModel.Hidden1Size; i++)
+        {
+            _gradB1[i] += dHidden1[i];
             for (var j = 0; j < NeuralGuideModel.InputSize; j++)
             {
-                _gradW1[i * NeuralGuideModel.InputSize + j] += dHidden[i] * input[j];
+                _gradW1[i * NeuralGuideModel.InputSize + j] += dHidden1[i] * input[j];
             }
         }
     }
@@ -270,6 +330,14 @@ internal sealed class NeuralGuideTrainer
         {
             _b2[i] += scale * _gradB2[i];
         }
+        for (var i = 0; i < _w3.Length; i++)
+        {
+            _w3[i] += scale * _gradW3[i];
+        }
+        for (var i = 0; i < _b3.Length; i++)
+        {
+            _b3[i] += scale * _gradB3[i];
+        }
     }
 
     private void ClipGradients(float clipNorm)
@@ -278,6 +346,8 @@ internal sealed class NeuralGuideTrainer
         ClipArray(_gradB1, clipNorm);
         ClipArray(_gradW2, clipNorm);
         ClipArray(_gradB2, clipNorm);
+        ClipArray(_gradW3, clipNorm);
+        ClipArray(_gradB3, clipNorm);
 
         static void ClipArray(float[] arr, float norm)
         {
@@ -294,6 +364,8 @@ internal sealed class NeuralGuideTrainer
         Array.Clear(_gradB1);
         Array.Clear(_gradW2);
         Array.Clear(_gradB2);
+        Array.Clear(_gradW3);
+        Array.Clear(_gradB3);
     }
 
     private void SyncToModel()
@@ -303,7 +375,19 @@ internal sealed class NeuralGuideTrainer
         _w1.CopyTo(p, offset); offset += _w1.Length;
         _b1.CopyTo(p, offset); offset += _b1.Length;
         _w2.CopyTo(p, offset); offset += _w2.Length;
-        _b2.CopyTo(p, offset);
+        _b2.CopyTo(p, offset); offset += _b2.Length;
+        _w3.CopyTo(p, offset); offset += _w3.Length;
+        _b3.CopyTo(p, offset);
         _model.LoadParameters(p);
+    }
+
+    /// <summary>
+    /// Box-Muller transform for generating standard normal random variates.
+    /// </summary>
+    private static double NextGaussian(Random rng)
+    {
+        var u1 = rng.NextDouble();
+        var u2 = rng.NextDouble();
+        return Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2);
     }
 }

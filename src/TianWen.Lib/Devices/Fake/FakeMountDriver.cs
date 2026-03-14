@@ -136,6 +136,28 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
     /// </summary>
     public double FlexureDriftRateDecArcsecPerHaHour { get; set; }
 
+    /// <summary>
+    /// Gear noise amplitude (1-sigma) in arcseconds. Models gear mesh imperfections
+    /// and encoder noise as a time-correlated Ornstein-Uhlenbeck process. The noise
+    /// is consistent across reads at the same time instant and evolves with a decay
+    /// time of <see cref="GearNoiseDecayTimeSeconds"/>.
+    /// Default: 0.3 arcsec (typical for mid-range gear trains).
+    /// Set to 0 for a perfect mount.
+    /// </summary>
+    public double GearNoiseArcsec { get; set; } = 0.3;
+
+    /// <summary>
+    /// Gear noise decay time constant (tau) in seconds. Controls the frequency
+    /// profile of gear noise. Short tau = high-frequency jitter, long tau = low-frequency drift.
+    /// Default: 0.5s (gear mesh noise is relatively fast-changing).
+    /// </summary>
+    public double GearNoiseDecayTimeSeconds { get; set; } = 0.5;
+
+    /// <summary>
+    /// Random seed for gear noise. Same seed = deterministic jitter sequence.
+    /// </summary>
+    public int GearNoiseSeed { get; set; } = 17;
+
     // Backlash tracking
     private int _lastDecDirection; // +1 = north, -1 = south, 0 = none
     private double _backlashRemaining; // arcsec of backlash still to be consumed
@@ -148,6 +170,12 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
 
     // Cable snag state
     private bool _cableSnagApplied;
+
+    // Gear noise state (Ornstein-Uhlenbeck process, like wind but faster-decaying)
+    private double _gearNoiseStateRa;
+    private double _gearNoiseStateDec;
+    private Random _gearNoiseRng = new Random(17);
+    private long _gearNoiseLastUpdateTicks;
 
     // --- Accumulated tracking error from PE and polar drift ---
     // These accumulate over time and represent the "true" position error
@@ -261,14 +289,24 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
     {
         using var @lock = await _sem.AcquireLockAsync(cancellationToken);
         UpdateTrackingState();
-        return ConditionRA(_ra + _accumulatedRaHours);
+        var ra = ConditionRA(_ra + _accumulatedRaHours);
+        if (GearNoiseArcsec > 0 && _isTracking)
+        {
+            ra += _gearNoiseStateRa / (ARCSEC_PER_DEGREE * HOURS2DEG);
+        }
+        return ConditionRA(ra);
     }
 
     public async ValueTask<double> GetDeclinationAsync(CancellationToken cancellationToken)
     {
         using var @lock = await _sem.AcquireLockAsync(cancellationToken);
         UpdateTrackingState();
-        return Math.Clamp(_dec + _accumulatedDecDegrees, -90, 90);
+        var dec = _dec + _accumulatedDecDegrees;
+        if (GearNoiseArcsec > 0 && _isTracking)
+        {
+            dec += _gearNoiseStateDec / ARCSEC_PER_DEGREE;
+        }
+        return Math.Clamp(dec, -90, 90);
     }
 
     // --- Encoder simulation ---
@@ -618,6 +656,12 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
 
         // Reset cable snag
         _cableSnagApplied = false;
+
+        // Reset gear noise OU state and RNG
+        _gearNoiseStateRa = 0;
+        _gearNoiseStateDec = 0;
+        _gearNoiseRng = new Random(GearNoiseSeed);
+        _gearNoiseLastUpdateTicks = _trackingCheckpointTicks;
     }
 
     /// <summary>
@@ -714,6 +758,24 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
             var haHours = elapsedSeconds * SIDEREAL_RATE_HOURS_PER_SECOND;
             _accumulatedFlexureDecArcsec = FlexureDriftRateDecArcsecPerHaHour * haHours;
             _accumulatedDecDegrees += _accumulatedFlexureDecArcsec / ARCSEC_PER_DEGREE;
+        }
+
+        // 8. Gear noise (Ornstein-Uhlenbeck process — time-correlated)
+        // Unlike wind (slow, atmospheric), gear noise is fast-decaying mechanical jitter.
+        // The OU process ensures reads at the same time instant return the same noise value,
+        // and the noise evolves realistically between time steps.
+        if (GearNoiseArcsec > 0)
+        {
+            var gearDt = (double)(currentTicks - _gearNoiseLastUpdateTicks) / External.TimeProvider.TimestampFrequency;
+            if (gearDt > 0)
+            {
+                var tau = GearNoiseDecayTimeSeconds;
+                var decay = Math.Exp(-gearDt / tau);
+                var diffusion = GearNoiseArcsec * Math.Sqrt(1.0 - decay * decay);
+                _gearNoiseStateRa = _gearNoiseStateRa * decay + diffusion * NextGaussian(_gearNoiseRng);
+                _gearNoiseStateDec = _gearNoiseStateDec * decay + diffusion * NextGaussian(_gearNoiseRng);
+                _gearNoiseLastUpdateTicks = currentTicks;
+            }
         }
     }
 
