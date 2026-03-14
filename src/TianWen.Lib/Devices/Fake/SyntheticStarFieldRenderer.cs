@@ -60,6 +60,10 @@ internal static class SyntheticStarFieldRenderer
     /// <param name="maxADU">Maximum ADU value for hot pixels.</param>
     /// <param name="seeingArcsec">Atmospheric seeing FWHM in arcsec (added in quadrature with optical PSF).</param>
     /// <param name="pixelScaleArcsec">Pixel scale in arcsec/pixel (for converting seeing to pixels).</param>
+    /// <param name="seeingJitterRng">Optional RNG for per-frame centroid jitter due to atmospheric turbulence.
+    /// Each star's centroid is randomly shifted by a Gaussian offset whose sigma = seeing_FWHM / (2.35 * sqrt(exposure)).
+    /// Pass a persistent Random instance (not seeded per frame) so jitter varies between frames.
+    /// If null, no centroid jitter is applied (only PSF broadening).</param>
     /// <returns>Image data array with synthetic stars at offset positions.</returns>
     public static float[,] Render(
         int width,
@@ -77,7 +81,8 @@ internal static class SyntheticStarFieldRenderer
         int hotPixelCount = 0,
         double maxADU = 4096.0,
         double seeingArcsec = 0.0,
-        double pixelScaleArcsec = 1.5)
+        double pixelScaleArcsec = 1.5,
+        Random? seeingJitterRng = null)
     {
         var rng = new Random(seed);
         var data = new float[height, width];
@@ -115,6 +120,27 @@ internal static class SyntheticStarFieldRenderer
             var magnitude = 5.0 + rng.NextDouble() * 7.0;
             stars[s] = (baseX + offsetX, baseY + offsetY,
                 10000.0 * Math.Pow(10, -0.4 * (magnitude - 5.0)) * exposureSeconds);
+        }
+
+        // Apply per-frame seeing centroid jitter (atmospheric turbulence)
+        // Short-exposure centroid wander: sigma_jitter = seeing_sigma / sqrt(exposure)
+        // This models the residual tip-tilt after exposure averaging
+        if (seeingJitterRng is not null && seeingFwhmPixels > 0 && exposureSeconds > 0)
+        {
+            var seeingSigmaPixels = seeingFwhmPixels / 2.3548;
+            var jitterSigma = seeingSigmaPixels / Math.Sqrt(exposureSeconds);
+
+            for (var s = 0; s < starCount; s++)
+            {
+                var (sx, sy, sf) = stars[s];
+                // Box-Muller for Gaussian jitter
+                var u1 = seeingJitterRng.NextDouble();
+                var u2 = seeingJitterRng.NextDouble();
+                var r = Math.Sqrt(-2.0 * Math.Log(Math.Max(u1, 1e-300)));
+                var jitterX = r * Math.Cos(2.0 * Math.PI * u2) * jitterSigma;
+                var jitterY = r * Math.Sin(2.0 * Math.PI * u2) * jitterSigma;
+                stars[s] = (sx + jitterX, sy + jitterY, sf);
+            }
         }
 
         // Render stars with shot noise (separate RNG — clipping differences don't affect positions)
