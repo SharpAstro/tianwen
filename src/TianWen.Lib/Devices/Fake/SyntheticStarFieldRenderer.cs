@@ -93,35 +93,37 @@ internal static class SyntheticStarFieldRenderer
 
         var sigma = fwhm / 2.3548; // FWHM = 2 * sqrt(2 * ln(2)) * sigma
 
-        // Sky background
+        // Sky background — use separate RNG so star positions don't depend on image size
+        var bgRng = new Random(seed + 1);
         var skyLevel = skyBackground * exposureSeconds;
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
             {
-                data[y, x] = (float)(skyLevel + rng.NextDouble() * readNoise);
+                data[y, x] = (float)(skyLevel + bgRng.NextDouble() * readNoise);
             }
         }
 
-        // Generate stars with random positions and magnitudes
+        // Generate all star positions and magnitudes first (deterministic regardless of offset/clipping)
         var psfRadius = (int)Math.Ceiling(sigma * 4);
+        var stars = new (double X, double Y, double Flux)[starCount];
 
         for (var s = 0; s < starCount; s++)
         {
-            // Base position from seed (deterministic)
             var baseX = rng.NextDouble() * (width - 2 * psfRadius) + psfRadius;
             var baseY = rng.NextDouble() * (height - 2 * psfRadius) + psfRadius;
-
-            // Apply offset (tracking error shifts all stars uniformly)
-            var starX = baseX + offsetX;
-            var starY = baseY + offsetY;
-
-            // Random magnitude between 5 and 12
             var magnitude = 5.0 + rng.NextDouble() * 7.0;
-            var flux = 10000.0 * Math.Pow(10, -0.4 * (magnitude - 5.0)) * exposureSeconds;
+            stars[s] = (baseX + offsetX, baseY + offsetY,
+                10000.0 * Math.Pow(10, -0.4 * (magnitude - 5.0)) * exposureSeconds);
+        }
 
-            // Distribute flux as 2D Gaussian
-            var sigma2x2 = 2.0 * sigma * sigma;
+        // Render stars with shot noise (separate RNG — clipping differences don't affect positions)
+        var shotRng = new Random(seed + 2);
+        var sigma2x2 = 2.0 * sigma * sigma;
+
+        for (var s = 0; s < starCount; s++)
+        {
+            var (starX, starY, flux) = stars[s];
             var normalization = flux / (Math.PI * sigma2x2);
 
             var xMin = Math.Max(0, (int)(starX - psfRadius));
@@ -139,7 +141,7 @@ internal static class SyntheticStarFieldRenderer
                     var value = normalization * Math.Exp(-r2 / sigma2x2);
 
                     // Add Poisson-like shot noise
-                    var noisy = value + Math.Sqrt(Math.Max(0, value)) * rng.NextDouble() * 0.5;
+                    var noisy = value + Math.Sqrt(Math.Max(0, value)) * shotRng.NextDouble() * 0.5;
                     data[y, x] += (float)noisy;
                 }
             }

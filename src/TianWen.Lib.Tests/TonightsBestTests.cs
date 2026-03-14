@@ -1,14 +1,13 @@
+using Shouldly;
 using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Shouldly;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 using Xunit;
-using Xunit.Sdk;
-using TianWen.Lib.Devices;
 using static TianWen.Lib.Astrometry.Catalogs.CatalogUtils;
 
 namespace TianWen.Lib.Tests;
@@ -230,7 +229,7 @@ public class TonightsBestTests
     private const byte MelbourneMinHeight = 15; // lower than 20 to keep LMC above cutoff at lower culm
 
     [Theory]
-    [InlineData(2025, 12, 15, 11, "Summer")]  // LST@midnight ≈ 6h — LMC near transit, best season
+    [InlineData(2025, 12, 15, 11, "Summer")]   // LST@midnight ≈ 6h — LMC near transit, best season
     [InlineData(2025, 6, 15, 10, "Winter")]    // LST@midnight ≈ 18h — LMC at lower culm, worst season
     [InlineData(2025, 3, 15, 11, "Autumn")]    // LST@midnight ≈ 12h — intermediate
     [InlineData(2025, 9, 15, 10, "Spring")]    // LST@midnight ≈ 0h — SMC near transit
@@ -276,28 +275,28 @@ public class TonightsBestTests
         TryGetCleanedUpCatalogName("IC2118", out var ic2118).ShouldBeTrue();
 
         db.TryLookupByIndex(ngc1909, out var ngc1909Obj).ShouldBeTrue();
-        output.WriteLine($"NGC 1909: RA={ngc1909Obj.RA:F3}h Dec={ngc1909Obj.Dec:F2}° Type={ngc1909Obj.ObjectType}");
+        output?.WriteLine($"NGC 1909: RA={ngc1909Obj.RA:F3}h Dec={ngc1909Obj.Dec:F2}° Type={ngc1909Obj.ObjectType}");
 
         var ic2118InDb = db.TryLookupByIndex(ic2118, out var ic2118Obj);
-        output.WriteLine($"IC 2118 in DB: {ic2118InDb}" + (ic2118InDb ? $" RA={ic2118Obj.RA:F3}h Dec={ic2118Obj.Dec:F2}° Type={ic2118Obj.ObjectType}" : ""));
+        output?.WriteLine($"IC 2118 in DB: {ic2118InDb}" + (ic2118InDb ? $" RA={ic2118Obj.RA:F3}h Dec={ic2118Obj.Dec:F2}° Type={ic2118Obj.ObjectType}" : ""));
 
         // Check cross-indices
         if (db.TryGetCrossIndices(ngc1909, out var crossIndices))
         {
-            output.WriteLine($"NGC 1909 cross-indices: {string.Join(", ", crossIndices.Select(ci => ci.ToCanonical()))}");
+            output?.WriteLine($"NGC 1909 cross-indices: {string.Join(", ", crossIndices.Select(ci => ci.ToCanonical()))}");
         }
         else
         {
-            output.WriteLine("NGC 1909 has no cross-indices");
+            output?.WriteLine("NGC 1909 has no cross-indices");
         }
 
         // Check grid presence
         var ngc1909InGrid = grid[ngc1909Obj.RA, ngc1909Obj.Dec];
-        output.WriteLine($"Grid cell at NGC 1909 coords contains: {string.Join(", ", ngc1909InGrid.Select(ci => ci.ToCanonical()))}");
+        output?.WriteLine($"Grid cell at NGC 1909 coords contains: {string.Join(", ", ngc1909InGrid.Select(ci => ci.ToCanonical()))}");
 
         var ngc1909Found = ngc1909InGrid.Contains(ngc1909);
         var ic2118Found = ngc1909InGrid.Contains(ic2118);
-        output.WriteLine($"NGC 1909 in grid: {ngc1909Found}, IC 2118 in grid: {ic2118Found}");
+        output?.WriteLine($"NGC 1909 in grid: {ngc1909Found}, IC 2118 in grid: {ic2118Found}");
 
         ngc1909Found.ShouldBeTrue("Primary NGC 1909 should be in the grid");
         ic2118Found.ShouldBeFalse("Duplicate IC 2118 should NOT be in the grid");
@@ -305,36 +304,36 @@ public class TonightsBestTests
         // Eta Carinae: NGC 3372, C92, GUM 33, RCW 53 — all appeared as separate entries
         TryGetCleanedUpCatalogName("NGC3372", out var ngc3372).ShouldBeTrue();
         db.TryLookupByIndex(ngc3372, out var ngc3372Obj).ShouldBeTrue();
-        output.WriteLine($"\nNGC 3372 (eta Car): RA={ngc3372Obj.RA:F3}h Dec={ngc3372Obj.Dec:F2}° Type={ngc3372Obj.ObjectType}");
+        output?.WriteLine($"\nNGC 3372 (eta Car): RA={ngc3372Obj.RA:F3}h Dec={ngc3372Obj.Dec:F2}° Type={ngc3372Obj.ObjectType}");
 
         if (db.TryGetCrossIndices(ngc3372, out var etaCarCross))
         {
-            output.WriteLine($"NGC 3372 cross-indices: {string.Join(", ", etaCarCross.Select(ci => ci.ToCanonical()))}");
+            output?.WriteLine($"NGC 3372 cross-indices: {string.Join(", ", etaCarCross.Select(ci => ci.ToCanonical()))}");
         }
 
         var etaCarGridCell = grid[ngc3372Obj.RA, ngc3372Obj.Dec];
-        output.WriteLine($"Grid cell at eta Car coords contains ({etaCarGridCell.Count}): {string.Join(", ", etaCarGridCell.Select(ci => ci.ToCanonical()))}");
+        output?.WriteLine($"Grid cell at eta Car coords contains ({etaCarGridCell.Count}): {string.Join(", ", etaCarGridCell.Select(ci => ci.ToCanonical()))}");
 
         // Check each cross-index individually
         foreach (var ci in etaCarCross)
         {
             db.TryLookupByIndex(ci, out var ciObj).ShouldBeTrue($"{ci.ToCanonical()} should exist in DB");
             var ciInGridCell = grid[ciObj.RA, ciObj.Dec];
-            output.WriteLine($"  {ci.ToCanonical()}: RA={ciObj.RA:F3}h Dec={ciObj.Dec:F2}° Type={ciObj.ObjectType} grid cell has {ciInGridCell.Count} entries, self in grid: {ciInGridCell.Contains(ci)}");
+            output?.WriteLine($"  {ci.ToCanonical()}: RA={ciObj.RA:F3}h Dec={ciObj.Dec:F2}° Type={ciObj.ObjectType} grid cell has {ciInGridCell.Count} entries, self in grid: {ciInGridCell.Contains(ci)}");
         }
 
         // Horsehead: Barnard 33 / IC 434
         TryGetCleanedUpCatalogName("IC434", out var ic434).ShouldBeTrue();
         db.TryLookupByIndex(ic434, out var ic434Obj).ShouldBeTrue();
-        output.WriteLine($"\nIC 434 (Horsehead region): RA={ic434Obj.RA:F3}h Dec={ic434Obj.Dec:F2}° Type={ic434Obj.ObjectType}");
+        output?.WriteLine($"\nIC 434 (Horsehead region): RA={ic434Obj.RA:F3}h Dec={ic434Obj.Dec:F2}° Type={ic434Obj.ObjectType}");
 
         if (db.TryGetCrossIndices(ic434, out var horseheadCross))
         {
-            output.WriteLine($"IC 434 cross-indices: {string.Join(", ", horseheadCross.Select(ci => ci.ToCanonical()))}");
+            output?.WriteLine($"IC 434 cross-indices: {string.Join(", ", horseheadCross.Select(ci => ci.ToCanonical()))}");
         }
 
         var horseheadGridCell = grid[ic434Obj.RA, ic434Obj.Dec];
-        output.WriteLine($"Grid cell at IC 434 coords contains ({horseheadGridCell.Count}): {string.Join(", ", horseheadGridCell.Select(ci => ci.ToCanonical()))}");
+        output?.WriteLine($"Grid cell at IC 434 coords contains ({horseheadGridCell.Count}): {string.Join(", ", horseheadGridCell.Select(ci => ci.ToCanonical()))}");
     }
 
     [Fact]
@@ -348,8 +347,8 @@ public class TonightsBestTests
         results.Count.ShouldBeGreaterThan(0);
 
         var output = TestContext.Current.TestOutputHelper;
-        output.WriteLine($"{"#",-4} {"Score",7} {"Catalog",-14} {"Name",-30} {"Type",-8} {"RA",8} {"Dec",8} {"Start",-14} {"Dur"}");
-        output.WriteLine(new string('-', 110));
+        output?.WriteLine($"{"#",-4} {"Score",7} {"Catalog",-14} {"Name",-30} {"Type",-8} {"RA",8} {"Dec",8} {"Start",-14} {"Dur"}");
+        output?.WriteLine(new string('-', 110));
 
         for (var i = 0; i < results.Count; i++)
         {
@@ -367,7 +366,7 @@ public class TonightsBestTests
                 }
             }
 
-            output.WriteLine(
+            output?.WriteLine(
                 $"{i + 1,-4} {r.TotalScore,7:F1} {catalogId,-14} {name,-30} {objType,-8} {r.Target.RA,8:F3}h {r.Target.Dec,8:F2} {r.OptimalStart:HH:mm dd-MMM}  {r.OptimalDuration:h\\:mm}");
         }
     }

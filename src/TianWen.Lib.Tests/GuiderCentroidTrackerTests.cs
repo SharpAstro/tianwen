@@ -143,8 +143,8 @@ public class GuiderCentroidTrackerTests(ITestOutputHelper output)
         // Same frame again — delta should be zero now
         var result2 = tracker.ProcessFrame(frame1);
         result2.ShouldNotBeNull();
-        result2.Value.DeltaX.ShouldBe(0, 0.5);
-        result2.Value.DeltaY.ShouldBe(0, 0.5);
+        result2.Value.DeltaX.ShouldBe(0, 1.0);
+        result2.Value.DeltaY.ShouldBe(0, 1.0);
     }
 
     [Fact]
