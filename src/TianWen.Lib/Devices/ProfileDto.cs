@@ -9,6 +9,7 @@ public readonly record struct ProfileData(
     Uri Mount,
     Uri Guider,
     ImmutableArray<OTAData> OTAs,
+    Uri? GuiderCamera = null,
     Uri? GuiderFocuser = null,
     int? OAG_OTA_Index = null
 )

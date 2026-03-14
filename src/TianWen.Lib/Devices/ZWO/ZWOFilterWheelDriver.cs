@@ -23,8 +23,8 @@ internal class ZWOFilterWheelDriver(ZWODevice device, IExternal external) : DALD
 
                 for (var i = 0; i < filterCount; i++)
                 {
-                    filters.Add(new InstalledFilter(_device.Query[$"filter{i + 1}"] ?? $"Filter {i + 1}",
-                        int.TryParse(_device.Query[$"offset{i + 1}"], out int focusOffset) ? focusOffset : 0));
+                    filters.Add(new InstalledFilter(_device.Query[DeviceQueryKeyExtensions.FilterKey(i + 1)] ?? $"Filter {i + 1}",
+                        int.TryParse(_device.Query[DeviceQueryKeyExtensions.FilterOffsetKey(i + 1)], out int focusOffset) ? focusOffset : 0));
                 }
 
                 return filters;

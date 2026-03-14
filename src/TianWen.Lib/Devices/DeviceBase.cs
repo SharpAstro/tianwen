@@ -79,9 +79,9 @@ public abstract record class DeviceBase(Uri DeviceUri)
 
     public virtual ISerialConnection? ConnectSerialDevice(IExternal external, int baud = 9600, Encoding? encoding = null)
     {
-        if (Query["port"] is { Length: > 0 } port)
+        if (Query.QueryValue(DeviceQueryKey.Port) is { Length: > 0 } port)
         {
-            var selectedBaud = int.TryParse(Query["baud"], CultureInfo.InvariantCulture, out var customBaud) ? customBaud : baud;
+            var selectedBaud = int.TryParse(Query.QueryValue(DeviceQueryKey.Baud), CultureInfo.InvariantCulture, out var customBaud) ? customBaud : baud;
 
             if (port.StartsWith(ISerialConnection.SerialProto, StringComparison.Ordinal)
                 || port.StartsWith("COM", StringComparison.OrdinalIgnoreCase)

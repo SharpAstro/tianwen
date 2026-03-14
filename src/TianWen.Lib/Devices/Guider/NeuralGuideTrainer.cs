@@ -87,6 +87,7 @@ internal sealed class NeuralGuideTrainer
 
         var features = new NeuralGuideFeatures(siteLatitude: 45.0);
         Span<float> inputBuffer = stackalloc float[NeuralGuideModel.InputSize];
+        Span<float> dOutput = stackalloc float[NeuralGuideModel.OutputSize];
 
         for (var s = 0; s < numSamples; s++)
         {
@@ -119,7 +120,6 @@ internal sealed class NeuralGuideTrainer
             totalLoss += errRa * errRa + errDec * errDec;
 
             // Backpropagation
-            Span<float> dOutput = stackalloc float[NeuralGuideModel.OutputSize];
             dOutput[0] = 2.0f * errRa * (1.0f - _output[0] * _output[0]); // tanh derivative
             dOutput[1] = 2.0f * errDec * (1.0f - _output[1] * _output[1]);
 
@@ -168,6 +168,7 @@ internal sealed class NeuralGuideTrainer
         ClearGradients();
         var totalLoss = 0.0f;
         var totalWeight = 0.0f;
+        Span<float> dOutput = stackalloc float[NeuralGuideModel.OutputSize];
 
         for (var s = 0; s < count; s++)
         {
@@ -181,7 +182,6 @@ internal sealed class NeuralGuideTrainer
             totalLoss += loss * exp.PriorityWeight;
             totalWeight += exp.PriorityWeight;
 
-            Span<float> dOutput = stackalloc float[NeuralGuideModel.OutputSize];
             dOutput[0] = 2.0f * errRa * (1.0f - _output[0] * _output[0]) * exp.PriorityWeight;
             dOutput[1] = 2.0f * errDec * (1.0f - _output[1] * _output[1]) * exp.PriorityWeight;
 

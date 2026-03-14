@@ -1,3 +1,8 @@
+using System;
+using System.Collections.Specialized;
+using System.Globalization;
+using System.Web;
+
 namespace TianWen.Lib.Devices;
 
 public enum DeviceQueryKey
@@ -10,6 +15,7 @@ public enum DeviceQueryKey
     Offset,
     Host,
     DeviceNumber,
+    Data,
 }
 
 public static class DeviceQueryKeyExtensions
@@ -26,7 +32,29 @@ public static class DeviceQueryKeyExtensions
             DeviceQueryKey.Offset => "offset",
             DeviceQueryKey.Host => "host",
             DeviceQueryKey.DeviceNumber => "deviceNumber",
+            DeviceQueryKey.Data => "data",
             _ => key.ToString().ToLowerInvariant()
         };
+    }
+
+    /// <summary>
+    /// Query key for a named filter slot (1-based), e.g. "filter1", "filter2".
+    /// </summary>
+    public static string FilterKey(int slotNumber) => $"filter{slotNumber.ToString(CultureInfo.InvariantCulture)}";
+
+    /// <summary>
+    /// Query key for a filter's focus offset (1-based), e.g. "offset1", "offset2".
+    /// Distinct from <see cref="DeviceQueryKey.Offset"/> which is the camera ADC offset.
+    /// </summary>
+    public static string FilterOffsetKey(int slotNumber) => $"offset{slotNumber.ToString(CultureInfo.InvariantCulture)}";
+
+    extension(NameValueCollection query)
+    {
+        public string? QueryValue(DeviceQueryKey key) => query[key.Key];
+    }
+
+    extension(Uri uri)
+    {
+        public string? QueryValue(DeviceQueryKey key) => HttpUtility.ParseQueryString(uri.Query)[key.Key];
     }
 }
