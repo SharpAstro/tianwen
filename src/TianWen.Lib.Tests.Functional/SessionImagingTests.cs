@@ -7,7 +7,7 @@ using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Sequencing;
 using Xunit;
 
-namespace TianWen.Lib.Tests;
+namespace TianWen.Lib.Tests.Functional;
 
 public class SessionImagingTests(ITestOutputHelper output)
 {

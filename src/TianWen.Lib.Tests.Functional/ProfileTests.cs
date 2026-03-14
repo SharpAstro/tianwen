@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 using TianWen.Lib.Devices;
 using Xunit;
 
-namespace TianWen.Lib.Tests;
+namespace TianWen.Lib.Tests.Functional;
 
 public class ProfileTests(ITestOutputHelper outputHelper)
 {

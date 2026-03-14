@@ -9,7 +9,7 @@ using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Ascom;
 using Xunit;
 
-namespace TianWen.Lib.Tests;
+namespace TianWen.Lib.Tests.Functional;
 
 public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
 {

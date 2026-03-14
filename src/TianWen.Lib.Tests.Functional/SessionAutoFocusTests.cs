@@ -9,7 +9,7 @@ using TianWen.Lib.Imaging;
 using TianWen.Lib.Stat;
 using Xunit;
 
-namespace TianWen.Lib.Tests;
+namespace TianWen.Lib.Tests.Functional;
 
 public class SessionAutoFocusTests(ITestOutputHelper output)
 {
