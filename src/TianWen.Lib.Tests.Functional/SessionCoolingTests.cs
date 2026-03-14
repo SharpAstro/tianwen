@@ -113,27 +113,23 @@ public class SessionCoolingTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
 
-        // when — cancel after a few ramp iterations
+        // when — cancel after 3 fake-time seconds via timer on the FakeTimeProvider.
+        // Each SleepAsync(1s) inside the cooling loop calls Advance(1s), which fires
+        // pending timers synchronously — so after 3 ramp steps the cancel timer fires
+        // deterministically inside the loop's own Advance call. No Task.Run race.
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        using var cancelTimer = ctx.External.TimeProvider.CreateTimer(
+            _ => cts.Cancel(), null, TimeSpan.FromSeconds(3), Timeout.InfiniteTimeSpan);
 
-        var coolTask = Task.Run(async () =>
-        {
-            return await ctx.Session.CoolCamerasToSetpointAsync(
-                new SetpointTemp(-10, SetpointTempKind.Normal),
-                TimeSpan.FromSeconds(1),
-                80,
-                SetupointDirection.Down,
-                cts.Token
-            );
-        }, ct);
+        await ctx.Session.CoolCamerasToSetpointAsync(
+            new SetpointTemp(-10, SetpointTempKind.Normal),
+            TimeSpan.FromSeconds(1),
+            80,
+            SetupointDirection.Down,
+            cts.Token
+        );
 
-        // Allow a few ramp iterations then cancel
-        await ctx.External.SleepAsync(TimeSpan.FromSeconds(3), ct);
-        await cts.CancelAsync();
-
-        var reached = await coolTask;
-
-        // then — should not have fully reached setpoint (20°C → -10°C is 30 steps)
+        // then — should not have fully reached setpoint (20°C → -10°C is 30 steps, only 3 completed)
         var temp = await ctx.Camera.GetCCDTemperatureAsync(ct);
         output.WriteLine($"Temp after cancellation: {temp:F1} °C");
         temp.ShouldBeGreaterThan(-10, "should not have reached setpoint when cancelled early");
