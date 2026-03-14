@@ -32,6 +32,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     const double DEFAULT_GUIDE_RATE = SIDEREAL_RATE * 2d / 3d / 3600d;
 
     private bool? _isSouthernHemisphere;
+    private long _pulseGuideEndTicks;
     private string _telescopeName = "Unknown";
     private string _telescopeFW = "Unknown";
 
@@ -173,7 +174,11 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
     public ValueTask<bool> AtParkAsync(CancellationToken cancellationToken) => ValueTask.FromResult(false);
 
-    public ValueTask<bool> IsPulseGuidingAsync(CancellationToken cancellationToken) => ValueTask.FromResult(false);
+    public ValueTask<bool> IsPulseGuidingAsync(CancellationToken cancellationToken)
+    {
+        var endTicks = Volatile.Read(ref _pulseGuideEndTicks);
+        return ValueTask.FromResult(endTicks > 0 && external.TimeProvider.GetTimestamp() < endTicks);
+    }
 
     private static readonly ReadOnlyMemory<byte> DCommand = "D"u8.ToArray();
     /// <summary>
@@ -803,6 +808,16 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
         if (ms.TryFormat(buffer.AsSpan(3), out _, "0000", CultureInfo.InvariantCulture))
         {
+            // Track pulse end time for IsPulseGuidingAsync (LX200 has no wire-level query)
+            var endTicks = external.TimeProvider.GetTimestamp()
+                + (long)(duration.TotalSeconds * external.TimeProvider.TimestampFrequency);
+            // Keep the latest end time (overlapping pulses)
+            long current;
+            do
+            {
+                current = Volatile.Read(ref _pulseGuideEndTicks);
+            } while (endTicks > current && Interlocked.CompareExchange(ref _pulseGuideEndTicks, endTicks, current) != current);
+
             await SendWithoutResponseAsync(buffer, cancellationToken);
         }
         else
