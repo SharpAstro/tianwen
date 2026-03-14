@@ -101,10 +101,10 @@ public class NeuralGuideModelPersistenceTests : IDisposable
         var filePath = Path.Combine(dir.FullName, "00000000.ngm");
 
         // Compute what the file would look like with wrong dims
-        var wrongInputSize = 10; // old size, doesn't match current 16
-        var wrongTotalParams = (wrongInputSize * 32 + 32) + (32 * 2 + 2); // 418
+        var wrongInputSize = 10; // doesn't match current 16
+        var wrongTotalParams = (wrongInputSize * 32 + 32) + (32 * 16 + 16) + (16 * 2 + 2); // 882
         var wrongWeightsSize = wrongTotalParams * sizeof(float);
-        var headerSize = 16; // magic(2) + version(2) + 3 ints(12)
+        var headerSize = 20; // magic(2) + version(2) + 4 ints(16)
         var calibrationSize = 48;
         var totalSize = headerSize + calibrationSize + wrongWeightsSize;
 
@@ -113,8 +113,9 @@ public class NeuralGuideModelPersistenceTests : IDisposable
         BinaryPrimitives.WriteUInt16LittleEndian(span, 0x4E47); // magic
         BinaryPrimitives.WriteUInt16LittleEndian(span[2..], 0x0001); // version
         BinaryPrimitives.WriteInt32LittleEndian(span[4..], wrongInputSize); // wrong!
-        BinaryPrimitives.WriteInt32LittleEndian(span[8..], 32); // HiddenSize
-        BinaryPrimitives.WriteInt32LittleEndian(span[12..], 2); // OutputSize
+        BinaryPrimitives.WriteInt32LittleEndian(span[8..], 32); // Hidden1Size
+        BinaryPrimitives.WriteInt32LittleEndian(span[12..], 16); // Hidden2Size
+        BinaryPrimitives.WriteInt32LittleEndian(span[16..], 2); // OutputSize
 
         await File.WriteAllBytesAsync(filePath, buffer, ct);
 

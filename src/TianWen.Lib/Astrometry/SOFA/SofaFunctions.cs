@@ -1682,8 +1682,8 @@ namespace TianWen.Lib.Astrometry.SOFA
                            phpa, tc, rh, wl, ref astrom, out eo);
             if (j < 0) { aob = 0; zob = 0; hob = 0; dob = 0; rob = 0; return j; }
 
-            Atciq(rc, dc, pr, pd, px, rv, ref astrom, out double ri, out double di);
-            Atioq(ri, di, ref astrom, out aob, out zob, out hob, out dob, out rob);
+            Atciq(rc, dc, pr, pd, px, rv, in astrom, out double ri, out double di);
+            Atioq(ri, di, in astrom, out aob, out zob, out hob, out dob, out rob);
             return j;
         }
 

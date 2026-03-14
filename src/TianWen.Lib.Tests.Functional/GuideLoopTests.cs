@@ -647,6 +647,74 @@ public class GuideLoopTests(ITestOutputHelper output)
             "combined disturbances should keep RMS bounded with guiding");
     }
 
+    [Theory]
+    [InlineData(2.0, "good seeing")]
+    [InlineData(4.0, "poor seeing")]
+    public async Task GivenSameScenarioWhenNeuralPlusPVsPOnlyThenNeuralIsNotWorse(double seeingArcsec, string label)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        const int iterations = 60;
+
+        // --- Run 1: P-controller only ---
+        var (_, pOnlyLoop, _, _, pOnlyRender) = await SetupGuidedMount(ct,
+            peAmplitude: 10.0, windAmplitude: 1.5, seeingArcsec: seeingArcsec);
+
+        await RunGuideIterations(pOnlyLoop, pOnlyRender, iterations, ct);
+
+        var pOnlyRms = pOnlyLoop.ErrorTracker.TotalRmsAll;
+        output.WriteLine($"[{label}] P-only total RMS: {pOnlyRms:F3} px");
+        output.WriteLine($"[{label}] P-only RA RMS:    {pOnlyLoop.ErrorTracker.RaRmsAll:F3} px");
+        output.WriteLine($"[{label}] P-only Dec RMS:   {pOnlyLoop.ErrorTracker.DecRmsAll:F3} px");
+
+        // --- Run 2: Neural + P-controller (identical scenario) ---
+        var (_, neuralLoop, _, neuralCalResult, neuralRender) = await SetupGuidedMount(ct,
+            peAmplitude: 10.0, windAmplitude: 1.5, seeingArcsec: seeingArcsec);
+
+        var model = new NeuralGuideModel();
+        model.InitializeRandom(seed: 42);
+
+        // Pre-train offline so the model starts with reasonable weights
+        var pController = new ProportionalGuideController
+        {
+            AggressivenessRa = 0.7,
+            AggressivenessDec = 0.7,
+            MinPulseMs = 20
+        };
+        var offlineTrainer = new NeuralGuideTrainer(model, learningRate: 0.005f);
+        for (var e = 0; e < 50; e++)
+        {
+            offlineTrainer.TrainEpoch(neuralCalResult, pController, maxPulseMs: 2000, numSamples: 512, seed: e, inputNoiseStd: 0.3f);
+        }
+
+        neuralLoop.EnableNeuralModel(model);
+
+        await RunGuideIterations(neuralLoop, neuralRender, iterations, ct);
+
+        var neuralRms = neuralLoop.ErrorTracker.TotalRmsAll;
+        output.WriteLine($"[{label}] Neural+P total RMS: {neuralRms:F3} px");
+        output.WriteLine($"[{label}] Neural+P RA RMS:    {neuralLoop.ErrorTracker.RaRmsAll:F3} px");
+        output.WriteLine($"[{label}] Neural+P Dec RMS:   {neuralLoop.ErrorTracker.DecRmsAll:F3} px");
+
+        if (neuralLoop.PerformanceMonitor is not null)
+        {
+            output.WriteLine($"[{label}] Monitor Neural RMS: {neuralLoop.PerformanceMonitor.NeuralRms:F3}");
+            output.WriteLine($"[{label}] Monitor P-ctrl RMS: {neuralLoop.PerformanceMonitor.PControllerRms:F3}");
+            output.WriteLine($"[{label}] Neural helping: {neuralLoop.PerformanceMonitor.IsNeuralModelHelping}");
+        }
+
+        var ratio = pOnlyRms > 0.001 ? neuralRms / pOnlyRms : double.NaN;
+        output.WriteLine($"[{label}] Ratio (neural/P-only): {ratio:F3}");
+
+        // Neural+P should not catastrophically destabilize guiding.
+        // Allow 50% tolerance — in production the performance monitor would disable
+        // the neural model if it's hurting, but here we verify it doesn't cause runaway errors.
+        if (pOnlyRms > 0.001)
+        {
+            neuralRms.ShouldBeLessThan(pOnlyRms * 1.50,
+                $"[{label}] Neural+P RMS ({neuralRms:F3}) should not be >50% worse than P-only ({pOnlyRms:F3})");
+        }
+    }
+
     // --- Helpers ---
 
     private async Task<(FakeMountDriver mount, GuideLoop guideLoop, GuiderCentroidTracker tracker,

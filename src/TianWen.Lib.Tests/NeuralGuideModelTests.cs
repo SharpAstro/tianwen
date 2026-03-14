@@ -10,8 +10,8 @@ public class NeuralGuideModelTests
     [Fact]
     public void GivenModelWhenInitializedThenParameterCountCorrect()
     {
-        // (16*32 + 32) + (32*2 + 2) = 512 + 32 + 64 + 2 = 610
-        NeuralGuideModel.TotalParams.ShouldBe(610);
+        // (16*32 + 32) + (32*16 + 16) + (16*2 + 2) = 544 + 528 + 34 = 1,106
+        NeuralGuideModel.TotalParams.ShouldBe(1106);
     }
 
     [Fact]
