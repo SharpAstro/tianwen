@@ -13,6 +13,15 @@ namespace TianWen.Lib.Tests.Functional;
 public class GuideLoopTests(ITestOutputHelper output)
 {
     private const double PixelScaleArcsec = 1.5;
+    private const double GuideIntervalSeconds = 2.0;
+    private const int FrameWidth = 128;
+    private const int FrameHeight = 96;
+
+    /// <summary>
+    /// Computes the number of guide iterations needed to cover a given number of PE cycles.
+    /// </summary>
+    private static int IterationsForPeCycles(double pePeriodSeconds, double cycles = 0.5)
+        => (int)Math.Ceiling(cycles * pePeriodSeconds / GuideIntervalSeconds);
 
     [Fact]
     public async Task GivenCalibratedLoopWhenGuidingThenErrorDecreases()
@@ -38,7 +47,7 @@ public class GuideLoopTests(ITestOutputHelper output)
             var deltaDecArcsec = (dec - initialDec) * 3600.0;
             var offsetX = deltaRaArcsec / PixelScaleArcsec;
             var offsetY = deltaDecArcsec / PixelScaleArcsec;
-            return SyntheticStarFieldRenderer.Render(320, 240, 0,
+            return SyntheticStarFieldRenderer.Render(FrameWidth, FrameHeight, 0,
                 offsetX: offsetX, offsetY: offsetY,
                 starCount: 5, seed: 42,
                 pixelScaleArcsec: PixelScaleArcsec);
@@ -63,8 +72,9 @@ public class GuideLoopTests(ITestOutputHelper output)
 
         // Enable tracking and PE now (after calibration)
         await mount.SetTrackingAsync(true, ct);
+        const double pePeriod = 480.0;
         mount.PeriodicErrorAmplitudeArcsec = 10.0;
-        mount.PeriodicErrorPeriodSeconds = 480.0;
+        mount.PeriodicErrorPeriodSeconds = pePeriod;
 
         // Re-acquire after calibration
         tracker.Reset();
@@ -81,13 +91,14 @@ public class GuideLoopTests(ITestOutputHelper output)
         var guideLoop = new GuideLoop(mount, tracker, pController, external);
         guideLoop.SetCalibration(calResult.Value);
 
-        // Run guide loop for a limited number of iterations
+        // Run guide loop for enough iterations to cover the PE cycle
+        var maxIterations = IterationsForPeCycles(pePeriod);
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var iterationCount = 0;
 
         async ValueTask<float[,]> RenderAndCount(CancellationToken token)
         {
-            if (++iterationCount >= 30)
+            if (++iterationCount >= maxIterations)
             {
                 await cts.CancelAsync();
             }
@@ -96,11 +107,11 @@ public class GuideLoopTests(ITestOutputHelper output)
 
         try
         {
-            await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(2), hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cts.Token);
+            await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(GuideIntervalSeconds), hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cts.Token);
         }
         catch (OperationCanceledException)
         {
-            // Expected — we cancel after 30 iterations
+            // Expected — we cancel after covering the PE cycle
         }
 
         output.WriteLine($"Guide iterations: {iterationCount}");
@@ -137,7 +148,7 @@ public class GuideLoopTests(ITestOutputHelper output)
             var deltaDecArcsec = (dec - initialDec) * 3600.0;
             var offsetX = deltaRaArcsec / PixelScaleArcsec;
             var offsetY = deltaDecArcsec / PixelScaleArcsec;
-            return SyntheticStarFieldRenderer.Render(320, 240, 0,
+            return SyntheticStarFieldRenderer.Render(FrameWidth, FrameHeight, 0,
                 offsetX: offsetX, offsetY: offsetY,
                 starCount: 5, seed: 42,
                 pixelScaleArcsec: PixelScaleArcsec);
@@ -156,9 +167,10 @@ public class GuideLoopTests(ITestOutputHelper output)
         calResult.ShouldNotBeNull();
 
         // Enable PE
+        const double pePeriod = 480.0;
         await mount.SetTrackingAsync(true, ct);
         mount.PeriodicErrorAmplitudeArcsec = 10.0;
-        mount.PeriodicErrorPeriodSeconds = 480.0;
+        mount.PeriodicErrorPeriodSeconds = pePeriod;
 
         // Re-acquire
         tracker.Reset();
@@ -195,12 +207,13 @@ public class GuideLoopTests(ITestOutputHelper output)
 
             guideLoop.IsOnlineLearningEnabled.ShouldBeTrue();
 
+            var maxIterations = IterationsForPeCycles(pePeriod);
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             var iterationCount = 0;
 
             async ValueTask<float[,]> RenderAndCount(CancellationToken token)
             {
-                if (++iterationCount >= 60)
+                if (++iterationCount >= maxIterations)
                 {
                     await cts.CancelAsync();
                 }
@@ -209,7 +222,7 @@ public class GuideLoopTests(ITestOutputHelper output)
 
             try
             {
-                await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(2), hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cts.Token);
+                await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(GuideIntervalSeconds), hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cts.Token);
             }
             catch (OperationCanceledException)
             {
@@ -269,7 +282,7 @@ public class GuideLoopTests(ITestOutputHelper output)
             var deltaDecArcsec = (dec - initialDec) * 3600.0;
             var offsetX = deltaRaArcsec / PixelScaleArcsec;
             var offsetY = deltaDecArcsec / PixelScaleArcsec;
-            return SyntheticStarFieldRenderer.Render(320, 240, 0,
+            return SyntheticStarFieldRenderer.Render(FrameWidth, FrameHeight, 0,
                 offsetX: offsetX, offsetY: offsetY,
                 starCount: 5, seed: 42,
                 pixelScaleArcsec: PixelScaleArcsec,
@@ -297,6 +310,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         await mount.SetTrackingAsync(true, ct);
         mount.PeriodicErrorAmplitudeArcsec = 10.0;
         mount.PeriodicErrorPeriodSeconds = 480.0;
+        var maxIterations = IterationsForPeCycles(480.0, cycles: 0.25);
 
         // Re-acquire
         tracker.Reset();
@@ -318,7 +332,7 @@ public class GuideLoopTests(ITestOutputHelper output)
 
         async ValueTask<float[,]> RenderAndCount(CancellationToken token)
         {
-            if (++iterationCount >= 40)
+            if (++iterationCount >= maxIterations)
             {
                 await cts.CancelAsync();
             }
@@ -327,7 +341,7 @@ public class GuideLoopTests(ITestOutputHelper output)
 
         try
         {
-            await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(2), hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cts.Token);
+            await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(GuideIntervalSeconds), hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cts.Token);
         }
         catch (OperationCanceledException)
         {
@@ -354,11 +368,11 @@ public class GuideLoopTests(ITestOutputHelper output)
         // Same seed, same offset, but different jitter RNG state → different centroids
         var rng = new Random(42);
 
-        var frame1 = SyntheticStarFieldRenderer.Render(320, 240, 0,
+        var frame1 = SyntheticStarFieldRenderer.Render(FrameWidth, FrameHeight, 0,
             offsetX: 0, offsetY: 0, starCount: 3, seed: 99,
             seeingArcsec: 3.0, pixelScaleArcsec: 1.5, seeingJitterRng: rng);
 
-        var frame2 = SyntheticStarFieldRenderer.Render(320, 240, 0,
+        var frame2 = SyntheticStarFieldRenderer.Render(FrameWidth, FrameHeight, 0,
             offsetX: 0, offsetY: 0, starCount: 3, seed: 99,
             seeingArcsec: 3.0, pixelScaleArcsec: 1.5, seeingJitterRng: rng);
 
@@ -381,11 +395,11 @@ public class GuideLoopTests(ITestOutputHelper output)
     public void GivenNoSeeingWhenRenderThenCentroidStable()
     {
         // Without jitter RNG, same parameters should produce identical frames
-        var frame1 = SyntheticStarFieldRenderer.Render(320, 240, 0,
+        var frame1 = SyntheticStarFieldRenderer.Render(FrameWidth, FrameHeight, 0,
             offsetX: 0, offsetY: 0, starCount: 3, seed: 99,
             seeingArcsec: 3.0, pixelScaleArcsec: 1.5, seeingJitterRng: null);
 
-        var frame2 = SyntheticStarFieldRenderer.Render(320, 240, 0,
+        var frame2 = SyntheticStarFieldRenderer.Render(FrameWidth, FrameHeight, 0,
             offsetX: 0, offsetY: 0, starCount: 3, seed: 99,
             seeingArcsec: 3.0, pixelScaleArcsec: 1.5, seeingJitterRng: null);
 
@@ -416,6 +430,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         return (mx, my);
     }
 
+
     [Theory]
     [InlineData(2.0, "good seeing")]
     [InlineData(4.0, "poor seeing")]
@@ -442,7 +457,7 @@ public class GuideLoopTests(ITestOutputHelper output)
             var deltaDecArcsec = (dec - initialDec) * 3600.0;
             var offsetX = deltaRaArcsec / PixelScaleArcsec;
             var offsetY = deltaDecArcsec / PixelScaleArcsec;
-            return SyntheticStarFieldRenderer.Render(320, 240, 0,
+            return SyntheticStarFieldRenderer.Render(FrameWidth, FrameHeight, 0,
                 offsetX: offsetX, offsetY: offsetY,
                 starCount: 5, seed: 42,
                 pixelScaleArcsec: PixelScaleArcsec,
@@ -593,7 +608,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         }
         guideLoop.EnableNeuralModel(model);
 
-        await RunGuideIterations(guideLoop, RenderFrame, 50, ct);
+        await RunGuideIterations(guideLoop, RenderFrame, IterationsForPeCycles(480.0), ct);
 
         output.WriteLine($"Wind+PE RMS: {guideLoop.ErrorTracker.TotalRmsAll:F3} px");
         guideLoop.ErrorTracker.TotalRmsAll.ShouldBeLessThan(15.0,
@@ -617,7 +632,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         }
         guideLoop.EnableNeuralModel(model);
 
-        await RunGuideIterations(guideLoop, RenderFrame, 60, ct);
+        await RunGuideIterations(guideLoop, RenderFrame, IterationsForPeCycles(480.0), ct);
 
         output.WriteLine($"CableSnag RMS: {guideLoop.ErrorTracker.TotalRmsAll:F3} px");
         guideLoop.ErrorTracker.TotalSamples.ShouldBeGreaterThan(0u);
@@ -640,7 +655,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         }
         guideLoop.EnableNeuralModel(model);
 
-        await RunGuideIterations(guideLoop, RenderFrame, 60, ct);
+        await RunGuideIterations(guideLoop, RenderFrame, IterationsForPeCycles(480.0), ct);
 
         output.WriteLine($"Combined stress test RMS: {guideLoop.ErrorTracker.TotalRmsAll:F3} px");
         guideLoop.ErrorTracker.TotalRmsAll.ShouldBeLessThan(15.0,
@@ -653,7 +668,7 @@ public class GuideLoopTests(ITestOutputHelper output)
     public async Task GivenSameScenarioWhenNeuralPlusPVsPOnlyThenNeuralIsNotWorse(double seeingArcsec, string label)
     {
         var ct = TestContext.Current.CancellationToken;
-        const int iterations = 60;
+        var iterations = IterationsForPeCycles(480.0, cycles: 1.5);
 
         // --- Run 1: P-controller only ---
         var (_, pOnlyLoop, _, _, pOnlyRender) = await SetupGuidedMount(ct,
@@ -720,7 +735,7 @@ public class GuideLoopTests(ITestOutputHelper output)
     private async Task<(FakeMountDriver mount, GuideLoop guideLoop, GuiderCentroidTracker tracker,
         GuiderCalibrationResult calResult, Func<CancellationToken, ValueTask<float[,]>> renderFrame)>
         SetupGuidedMount(CancellationToken ct,
-            double peAmplitude = 0, double windAmplitude = 0, double flexureRate = 0,
+            double peAmplitude = 0, double pePeriod = 480.0, double windAmplitude = 0, double flexureRate = 0,
             double cableSnagTime = 0, double cableSnagRa = 0, double cableSnagDec = 0,
             double seeingArcsec = 0)
     {
@@ -744,7 +759,7 @@ public class GuideLoopTests(ITestOutputHelper output)
             var deltaDecArcsec = (dec - initialDec) * 3600.0;
             var offsetX = deltaRaArcsec / PixelScaleArcsec;
             var offsetY = deltaDecArcsec / PixelScaleArcsec;
-            return SyntheticStarFieldRenderer.Render(320, 240, 0,
+            return SyntheticStarFieldRenderer.Render(FrameWidth, FrameHeight, 0,
                 offsetX: offsetX, offsetY: offsetY,
                 starCount: 5, seed: 42,
                 pixelScaleArcsec: PixelScaleArcsec,
@@ -767,7 +782,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         // Enable tracking and disturbances after calibration
         await mount.SetTrackingAsync(true, ct);
         mount.PeriodicErrorAmplitudeArcsec = peAmplitude;
-        mount.PeriodicErrorPeriodSeconds = 480.0;
+        mount.PeriodicErrorPeriodSeconds = pePeriod;
         mount.WindGustAmplitudeArcsec = windAmplitude;
         mount.FlexureDriftRateDecArcsecPerHaHour = flexureRate;
         mount.CableSnagTimeSeconds = cableSnagTime;
@@ -812,7 +827,7 @@ public class GuideLoopTests(ITestOutputHelper output)
 
         try
         {
-            await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(2),
+            await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(GuideIntervalSeconds),
                 hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cts.Token);
         }
         catch (OperationCanceledException)
