@@ -23,16 +23,14 @@ public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
         _data = data;
     }
 
-    const string DataKey = "data";
-
     public static string DeviceIdFromUUID(Guid profileId) => profileId.ToString("D");
 
 
     public static Uri CreateProfileUri(Guid profileId, string name, ProfileData data)
-        => new UriBuilder(nameof(Profile), nameof(Profile), -1, $"/{DeviceIdFromUUID(profileId)}", $"?{DataKey}={EncodeValues(data)}#{name}").Uri;
+        => new UriBuilder(nameof(Profile), nameof(Profile), -1, $"/{DeviceIdFromUUID(profileId)}", $"?{DeviceQueryKey.Data.Key}={EncodeValues(data)}#{name}").Uri;
 
     public ProfileData? Data
-        => _data ??= (Query[DataKey] is string encodedValues && JsonSerializer.Deserialize(Base64UrlDecode(encodedValues), ProfileJsonSerializerContextSingleLine.ProfileData) is { } data ? data : null);
+        => _data ??= (Query.QueryValue(DeviceQueryKey.Data) is string encodedValues && JsonSerializer.Deserialize(Base64UrlDecode(encodedValues), ProfileJsonSerializerContextSingleLine.ProfileData) is { } data ? data : null);
 
     public Profile WithData(ProfileData data)
         => new Profile(ProfileId, DisplayName, data);

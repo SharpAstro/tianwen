@@ -332,8 +332,7 @@ internal static class ObservationScheduler
 
         if (cameraUri is not null)
         {
-            var query = System.Web.HttpUtility.ParseQueryString(cameraUri.Query);
-            if (query[DeviceQueryKey.Gain.Key] is { Length: > 0 } gainStr && int.TryParse(gainStr, out var uriGain))
+            if (cameraUri.QueryValue(DeviceQueryKey.Gain) is { Length: > 0 } gainStr && int.TryParse(gainStr, out var uriGain))
             {
                 return uriGain;
             }
@@ -363,8 +362,7 @@ internal static class ObservationScheduler
 
         if (cameraUri is not null)
         {
-            var query = System.Web.HttpUtility.ParseQueryString(cameraUri.Query);
-            if (query[DeviceQueryKey.Offset.Key] is { Length: > 0 } offsetStr && int.TryParse(offsetStr, out var uriOffset))
+            if (cameraUri.QueryValue(DeviceQueryKey.Offset) is { Length: > 0 } offsetStr && int.TryParse(offsetStr, out var uriOffset))
             {
                 return uriOffset;
             }

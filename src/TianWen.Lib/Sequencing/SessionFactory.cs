@@ -39,8 +39,8 @@ internal class SessionFactory(
 
         // Construct Transform from mount URI query params
         var mountQuery = setup.Mount.Device.Query;
-        if (!double.TryParse(mountQuery[DeviceQueryKey.Latitude.Key], CultureInfo.InvariantCulture, out var latitude)
-            || !double.TryParse(mountQuery[DeviceQueryKey.Longitude.Key], CultureInfo.InvariantCulture, out var longitude))
+        if (!double.TryParse(mountQuery.QueryValue(DeviceQueryKey.Latitude), CultureInfo.InvariantCulture, out var latitude)
+            || !double.TryParse(mountQuery.QueryValue(DeviceQueryKey.Longitude), CultureInfo.InvariantCulture, out var longitude))
         {
             throw new InvalidOperationException("Mount device URI must contain latitude and longitude query parameters for scheduling.");
         }
@@ -109,19 +109,21 @@ internal class SessionFactory(
             var filterWheel = otaData.FilterWheel is { } filterWheelUri ? new FilterWheel(DeviceFromUri(filterWheelUri, i), external) : null;
 
             var focusDirection = new FocusDirection(otaData.PreferOutwardFocus ?? true, otaData.OutwardIsPositive ?? true);
-            otas[i] = new OTA(otaData.Name, otaData.FocalLength, camera, cover, focuser, focusDirection, filterWheel, null);
+            var ota = new OTA(otaData.Name, otaData.FocalLength, camera, cover, focuser, focusDirection, filterWheel, null);
+            otas.Add(ota);
 
             if (profileData.OAG_OTA_Index == i)
             {
-                guiderIsOAGOfOTA = otas[i];
+                guiderIsOAGOfOTA = ota;
             }
         }
 
         var mount = new Mount(DeviceFromUri(profileData.Mount), external);
         var guider = new Guider(DeviceFromUri(profileData.Guider), external);
+        var guiderCamera = profileData.GuiderCamera is { } guiderCameraUri ? new Camera(DeviceFromUri(guiderCameraUri), external) : null;
         var guiderFocuser = profileData.GuiderFocuser is { } guiderFocuserUri ? new Focuser(DeviceFromUri(guiderFocuserUri), external) : null;
 
-        var guiderSetup = new GuiderSetup(guiderFocuser, guiderIsOAGOfOTA);
+        var guiderSetup = new GuiderSetup(guiderCamera, guiderFocuser, guiderIsOAGOfOTA);
 
         var setup = new Setup(mount, guider, guiderSetup, otas);
 

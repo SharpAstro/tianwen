@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
@@ -7,7 +7,7 @@ namespace TianWen.Lib.Sequencing;
 public record Setup(
     Mount Mount,
     Guider Guider,
-    GuiderSetup GuiderFocuser,
+    GuiderSetup GuiderSetup,
     IReadOnlyList<OTA> Telescopes
 ) : IAsyncDisposable
 {
@@ -15,7 +15,11 @@ public record Setup(
     {
         await Mount.DisposeAsync();
         await Guider.DisposeAsync();
-        if (GuiderFocuser.Focuser is { } focuser)
+        if (GuiderSetup.Camera is { } camera)
+        {
+            await camera.DisposeAsync();
+        }
+        if (GuiderSetup.Focuser is { } focuser)
         {
             await focuser.DisposeAsync();
         }

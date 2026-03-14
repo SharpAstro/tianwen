@@ -24,17 +24,17 @@ public record class AlpacaDevice : DeviceBase
     /// <summary>
     /// The Alpaca server host (IP or hostname).
     /// </summary>
-    public string Host => Query["host"] ?? "localhost";
+    public string Host => Query.QueryValue(DeviceQueryKey.Host) ?? "localhost";
 
     /// <summary>
     /// The Alpaca server port.
     /// </summary>
-    public int Port => int.TryParse(Query["port"], CultureInfo.InvariantCulture, out var port) ? port : 11111;
+    public int Port => int.TryParse(Query.QueryValue(DeviceQueryKey.Port), CultureInfo.InvariantCulture, out var port) ? port : 11111;
 
     /// <summary>
     /// The device number on the Alpaca server.
     /// </summary>
-    public int DeviceNumber => int.TryParse(Query["deviceNumber"], CultureInfo.InvariantCulture, out var num) ? num : 0;
+    public int DeviceNumber => int.TryParse(Query.QueryValue(DeviceQueryKey.DeviceNumber), CultureInfo.InvariantCulture, out var num) ? num : 0;
 
     /// <summary>
     /// The base URL for this device's Alpaca server.

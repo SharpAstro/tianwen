@@ -33,7 +33,7 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
     {
         // If port=LX200 is specified, use the full serial protocol stack.
         // Otherwise use the lightweight direct driver.
-        if (string.Equals(Query["port"], "LX200", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(Query.QueryValue(DeviceQueryKey.Port), "LX200", StringComparison.OrdinalIgnoreCase))
         {
             return new FakeMeadeLX200ProtocolMountDriver(this, external);
         }
@@ -48,9 +48,9 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
     };
 
     [JsonIgnore]
-    private double SiteLatitude => double.TryParse(Query["latitude"], out var latitude) ? latitude : throw new InvalidOperationException("Failed to parse latitude");
+    private double SiteLatitude => double.TryParse(Query.QueryValue(DeviceQueryKey.Latitude), out var latitude) ? latitude : throw new InvalidOperationException("Failed to parse latitude");
 
     [JsonIgnore]
-    private double SiteLongitude => double.TryParse(Query["longitude"], out var latitude) ? latitude : throw new InvalidOperationException("Failed to parse longitude");
+    private double SiteLongitude => double.TryParse(Query.QueryValue(DeviceQueryKey.Longitude), out var longitude) ? longitude : throw new InvalidOperationException("Failed to parse longitude");
 
 }
