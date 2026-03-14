@@ -9,20 +9,20 @@ namespace TianWen.Lib.Devices.Guider;
 /// Hand-rolled inference using <see cref="TensorPrimitives"/> for zero-allocation hot path.
 /// </summary>
 /// <remarks>
-/// Architecture: Input(10) → Dense(32, ReLU) → Dense(2, Linear)
-/// ~354 parameters total. Inference is ~700 FMAs, well under 1µs on modern CPUs.
+/// Architecture: Input(16) → Dense(32, ReLU) → Dense(2, Linear)
+/// 610 parameters total. Inference is ~1K FMAs, well under 1µs on modern CPUs.
 ///
-/// Input features (10):
-///   [0] Current RA error (pixels)
-///   [1] Current Dec error (pixels)
-///   [2] Previous RA error (pixels)
-///   [3] Previous Dec error (pixels)
-///   [4] RA error rate (pixels/sec, finite difference)
-///   [5] Dec error rate (pixels/sec, finite difference)
-///   [6] Short-window RA RMS (pixels)
-///   [7] Short-window Dec RMS (pixels)
-///   [8] Time since last correction (seconds)
-///   [9] Hour angle / 12 (normalized, for RA rate variation)
+/// Input features (16):
+///   [0-1]   Current RA/Dec error (pixels)
+///   [2-3]   t-1 RA/Dec error (pixels)
+///   [4-5]   t-2 RA/Dec error (pixels)
+///   [6-7]   t-3 RA/Dec error (pixels)
+///   [8-9]   Mean RA/Dec error over last 10 frames (pixels)
+///   [10-11] Short-window RA/Dec RMS (pixels)
+///   [12]    Time since last correction (seconds)
+///   [13]    Hour angle / 12 (normalized to [-1, 1])
+///   [14]    Altitude / 90 (normalized to [0, 1])
+///   [15]    Declination / 90 (normalized to [-1, 1])
 ///
 /// Output (2):
 ///   [0] RA correction (normalized: -1 to +1, maps to -MaxPulse to +MaxPulse)
@@ -31,7 +31,7 @@ namespace TianWen.Lib.Devices.Guider;
 internal sealed class NeuralGuideModel
 {
     /// <summary>Number of input features.</summary>
-    internal const int InputSize = 10;
+    internal const int InputSize = 16;
 
     /// <summary>Number of hidden units.</summary>
     internal const int HiddenSize = 32;
@@ -41,7 +41,7 @@ internal sealed class NeuralGuideModel
 
     /// <summary>Total parameter count.</summary>
     internal const int TotalParams = (InputSize * HiddenSize + HiddenSize) + (HiddenSize * OutputSize + OutputSize);
-    // = (10*32 + 32) + (32*2 + 2) = 320 + 32 + 64 + 2 = 418
+    // = (16*32 + 32) + (32*2 + 2) = 512 + 32 + 64 + 2 = 610
 
     // Layer 1: Input → Hidden (weight matrix stored row-major: hidden × input)
     private readonly float[] _w1 = new float[HiddenSize * InputSize];

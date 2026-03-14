@@ -62,17 +62,17 @@ public class NeuralGuideTrainerTests(ITestOutputHelper output)
 
         var trainer = new NeuralGuideTrainer(model, learningRate: 0.01f, batchSize: 16);
 
-        // Train for several epochs
-        for (var epoch = 0; epoch < 50; epoch++)
+        // Train for several epochs (more needed for 16-input model with 610 params)
+        for (var epoch = 0; epoch < 200; epoch++)
         {
-            trainer.TrainEpoch(cal, pController, maxPulseMs: 2000, numSamples: 256, seed: epoch);
+            trainer.TrainEpoch(cal, pController, maxPulseMs: 2000, numSamples: 512, seed: epoch);
         }
 
         // Test: positive RA error should produce positive correction
-        var features = new NeuralGuideFeatures();
+        var features = new NeuralGuideFeatures(siteLatitude: 45.0);
         Span<float> input = stackalloc float[NeuralGuideModel.InputSize];
-        features.Build(0, 0, 0, 0.5, 0.3, 0, input);
-        features.Build(2.0, 0, 2.0, 0.5, 0.3, 0, input);
+        features.Build(0, 0, 0, 0.5, 0.3, 0, 45.0, input);
+        features.Build(2.0, 0, 2.0, 0.5, 0.3, 0, 45.0, input);
 
         var result = model.Forward(input);
         output.WriteLine($"RA error=2.0 → model RA correction={result[0]:F3}, Dec={result[1]:F3}");
@@ -104,10 +104,10 @@ public class NeuralGuideTrainerTests(ITestOutputHelper output)
         }
 
         // Zero error input should produce near-zero output
-        var features = new NeuralGuideFeatures();
+        var features = new NeuralGuideFeatures(siteLatitude: 45.0);
         Span<float> input = stackalloc float[NeuralGuideModel.InputSize];
-        features.Build(0, 0, 0, 0.1, 0.1, 0, input);
-        features.Build(0, 0, 2.0, 0.1, 0.1, 0, input);
+        features.Build(0, 0, 0, 0.1, 0.1, 0, 45.0, input);
+        features.Build(0, 0, 2.0, 0.1, 0.1, 0, 45.0, input);
 
         var result = model.Forward(input);
         output.WriteLine($"Zero error → RA={result[0]:F4}, Dec={result[1]:F4}");

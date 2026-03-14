@@ -1,5 +1,6 @@
 using Shouldly;
 using System;
+using System.Buffers.Binary;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -88,6 +89,38 @@ public class NeuralGuideModelPersistenceTests : IDisposable
         var model = new NeuralGuideModel();
         var result = await NeuralGuideModelPersistence.TryLoadAsync(model, _tempDir, ct);
         result.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GivenWrongArchitectureFileWhenLoadThenReturnsNull()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // Craft a file with correct magic/version but wrong InputSize
+        var dir = _tempDir.CreateSubdirectory("NeuralGuider");
+        var filePath = Path.Combine(dir.FullName, "00000000.ngm");
+
+        // Compute what the file would look like with wrong dims
+        var wrongInputSize = 10; // old size, doesn't match current 16
+        var wrongTotalParams = (wrongInputSize * 32 + 32) + (32 * 2 + 2); // 418
+        var wrongWeightsSize = wrongTotalParams * sizeof(float);
+        var headerSize = 16; // magic(2) + version(2) + 3 ints(12)
+        var calibrationSize = 48;
+        var totalSize = headerSize + calibrationSize + wrongWeightsSize;
+
+        var buffer = new byte[totalSize];
+        var span = buffer.AsSpan();
+        BinaryPrimitives.WriteUInt16LittleEndian(span, 0x4E47); // magic
+        BinaryPrimitives.WriteUInt16LittleEndian(span[2..], 0x0001); // version
+        BinaryPrimitives.WriteInt32LittleEndian(span[4..], wrongInputSize); // wrong!
+        BinaryPrimitives.WriteInt32LittleEndian(span[8..], 32); // HiddenSize
+        BinaryPrimitives.WriteInt32LittleEndian(span[12..], 2); // OutputSize
+
+        await File.WriteAllBytesAsync(filePath, buffer, ct);
+
+        var model = new NeuralGuideModel();
+        var result = await NeuralGuideModelPersistence.TryLoadAsync(model, _tempDir, ct);
+        result.ShouldBeNull("wrong architecture should be rejected");
     }
 
     [Fact]

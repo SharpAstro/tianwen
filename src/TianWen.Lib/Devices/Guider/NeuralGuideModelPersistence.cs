@@ -11,21 +11,24 @@ namespace TianWen.Lib.Devices.Guider;
 /// that was active when the model was trained. Keyed by optical train identity.
 /// </summary>
 /// <remarks>
-/// File format (little-endian):
-///   [0..1]  Magic: 0x4E47 ('NG')
-///   [2..3]  Version: 0x0001
-///   [4..51] CalibrationResult: 6 doubles (CameraAngleRad, RaRate, DecRate, RaDisp, DecDisp, TotalTime)
-///   [52..1723] Model weights: 418 floats
-///   Total: 1724 bytes
+/// File format v1 (little-endian):
+///   [0..1]   Magic: 0x4E47 ('NG')
+///   [2..3]   Version: 0x0001
+///   [4..7]   InputSize (int32)
+///   [8..11]  HiddenSize (int32)
+///   [12..15] OutputSize (int32)
+///   [16..63] CalibrationResult: 6 doubles (CameraAngleRad, RaRate, DecRate, RaDisp, DecDisp, TotalTime)
+///   [64..]   Model weights: TotalParams floats
+///   Total: 16 + 48 + TotalParams*4 bytes
 /// </remarks>
 internal static class NeuralGuideModelPersistence
 {
     private const ushort Magic = 0x4E47;
     private const ushort Version = 0x0001;
-    private const int HeaderSize = 4; // magic + version
+    private const int HeaderSize = 4 + 12; // magic(2) + version(2) + 3 ints(12)
     private const int CalibrationSize = 6 * sizeof(double); // 48 bytes
-    private const int WeightsSize = NeuralGuideModel.TotalParams * sizeof(float); // 1672 bytes
-    private const int TotalFileSize = HeaderSize + CalibrationSize + WeightsSize; // 1724 bytes
+    private const int WeightsSize = NeuralGuideModel.TotalParams * sizeof(float);
+    private const int TotalFileSize = HeaderSize + CalibrationSize + WeightsSize;
 
     private const string SubDirectory = "NeuralGuider";
 
@@ -44,9 +47,12 @@ internal static class NeuralGuideModelPersistence
         var buffer = new byte[TotalFileSize];
         var span = buffer.AsSpan();
 
-        // Header
+        // Header: magic + version + architecture dims
         BinaryPrimitives.WriteUInt16LittleEndian(span, Magic);
         BinaryPrimitives.WriteUInt16LittleEndian(span[2..], Version);
+        BinaryPrimitives.WriteInt32LittleEndian(span[4..], NeuralGuideModel.InputSize);
+        BinaryPrimitives.WriteInt32LittleEndian(span[8..], NeuralGuideModel.HiddenSize);
+        BinaryPrimitives.WriteInt32LittleEndian(span[12..], NeuralGuideModel.OutputSize);
 
         // Calibration (6 doubles)
         var calSpan = span[HeaderSize..];
@@ -70,6 +76,7 @@ internal static class NeuralGuideModelPersistence
 
     /// <summary>
     /// Attempts to load saved model weights and calibration from disk.
+    /// Validates architecture dimensions match current model constants.
     /// </summary>
     /// <returns>The loaded calibration result, or null if no saved state was found or the file was invalid.</returns>
     public static async ValueTask<GuiderCalibrationResult?> TryLoadAsync(
@@ -110,6 +117,17 @@ internal static class NeuralGuideModelPersistence
         var magic = BinaryPrimitives.ReadUInt16LittleEndian(span);
         var version = BinaryPrimitives.ReadUInt16LittleEndian(span[2..]);
         if (magic != Magic || version != Version)
+        {
+            return null;
+        }
+
+        // Validate architecture dimensions
+        var inputSize = BinaryPrimitives.ReadInt32LittleEndian(span[4..]);
+        var hiddenSize = BinaryPrimitives.ReadInt32LittleEndian(span[8..]);
+        var outputSize = BinaryPrimitives.ReadInt32LittleEndian(span[12..]);
+        if (inputSize != NeuralGuideModel.InputSize
+            || hiddenSize != NeuralGuideModel.HiddenSize
+            || outputSize != NeuralGuideModel.OutputSize)
         {
             return null;
         }

@@ -125,7 +125,7 @@ internal sealed class GuideLoop
     public void EnableNeuralModel(NeuralGuideModel model)
     {
         _neuralModel = model;
-        _neuralFeatures = new NeuralGuideFeatures();
+        _neuralFeatures = new NeuralGuideFeatures(siteLatitude: 0);
         _useNeuralModel = true;
         _consecutiveFallbacks = 0;
     }
@@ -167,11 +167,15 @@ internal sealed class GuideLoop
     /// <param name="captureFrame">Function that captures a guide frame.</param>
     /// <param name="exposureInterval">Time between guide exposures.</param>
     /// <param name="hourAngle">Current hour angle in hours (for neural model features).</param>
+    /// <param name="declination">Target declination in degrees (for neural model features).</param>
+    /// <param name="siteLatitude">Observer latitude in degrees (for altitude computation).</param>
     /// <param name="cancellationToken">Cancellation token to stop guiding.</param>
     public async ValueTask RunAsync(
         Func<CancellationToken, ValueTask<float[,]>> captureFrame,
         TimeSpan exposureInterval,
         double hourAngle,
+        double declination,
+        double siteLatitude,
         CancellationToken cancellationToken)
     {
         if (_calibration is null)
@@ -181,7 +185,10 @@ internal sealed class GuideLoop
 
         _isGuiding = true;
         _errorTracker.Reset();
-        _neuralFeatures?.Reset();
+        if (_neuralFeatures is not null)
+        {
+            _neuralFeatures = new NeuralGuideFeatures(siteLatitude);
+        }
         _performanceMonitor?.Reset();
         _experienceBuffer?.Reset();
         _guideStartTimestamp = GetTimestamp();
@@ -228,7 +235,7 @@ internal sealed class GuideLoop
                 // Compute actual correction (neural or P-controller)
                 var (correction, usedNeural) = ComputeCorrection(
                     _calibration.Value, result.Value.DeltaX, result.Value.DeltaY,
-                    timestamp, hourAngle, pCorrection);
+                    timestamp, hourAngle, declination, pCorrection);
 
                 // Record experience for online learning
                 if (_experienceBuffer is not null && _neuralFeatures is not null)
@@ -236,7 +243,7 @@ internal sealed class GuideLoop
                     var features = new float[NeuralGuideModel.InputSize];
                     var (raErr, decErr) = _calibration.Value.TransformToMountAxes(result.Value.DeltaX, result.Value.DeltaY);
                     _neuralFeatures.Build(raErr, decErr, timestamp,
-                        _errorTracker.RaRmsShort, _errorTracker.DecRmsShort, hourAngle, features);
+                        _errorTracker.RaRmsShort, _errorTracker.DecRmsShort, hourAngle, declination, features);
 
                     var experience = new OnlineGuideExperience
                     {
@@ -341,7 +348,7 @@ internal sealed class GuideLoop
     private (GuideCorrection Correction, bool UsedNeural) ComputeCorrection(
         GuiderCalibrationResult calibration,
         double deltaX, double deltaY,
-        double timestamp, double hourAngle,
+        double timestamp, double hourAngle, double declination,
         GuideCorrection pCorrection)
     {
         if (_useNeuralModel && _neuralModel is not null && _neuralFeatures is not null)
@@ -352,7 +359,7 @@ internal sealed class GuideLoop
             _neuralFeatures.Build(
                 raErrorPx, decErrorPx, timestamp,
                 _errorTracker.RaRmsShort, _errorTracker.DecRmsShort,
-                hourAngle, input);
+                hourAngle, declination, input);
 
             var output = _neuralModel.ForwardWithScratch(input, _hiddenScratch, _outputScratch);
             var raPulseMs = output[0] * MaxPulseMs;
