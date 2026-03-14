@@ -206,7 +206,7 @@ public class SessionImagingTests(ITestOutputHelper output)
         await mount.EnsureTrackingAsync(cancellationToken: ct);
 
         // when — run observation loop on thread pool, advance fake time from test thread
-        var loopTask = Task.Run(async () => await ctx.Session.ObservationLoopAsync(ct));
+        var loopTask = Task.Run(async () => await ctx.Session.ObservationLoopAsync(ct), ct);
 
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
         var maxTicks = (int)(TimeSpan.FromHours(24) / subExposure);
