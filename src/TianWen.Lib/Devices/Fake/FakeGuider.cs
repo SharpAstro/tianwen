@@ -6,8 +6,20 @@ using TianWen.Lib.Devices.Guider;
 
 namespace TianWen.Lib.Devices.Fake;
 
-internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDeviceDriverBase(fakeDevice, external), IGuider
+internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDeviceDriverBase(fakeDevice, external), IMountDependentGuider
 {
+    private IMountDriver? _mountDriver;
+
+    /// <summary>
+    /// The mount driver wired by <see cref="IMountDependentGuider.SetMountDriver"/>.
+    /// </summary>
+    internal IMountDriver? MountDriver => _mountDriver;
+
+    public void SetMountDriver(IMountDriver mount)
+    {
+        _mountDriver = mount;
+    }
+
     private const double DefaultPixelScale = 1.5;
     private const int GuideWidth = 320;
     private const int GuideHeight = 240;

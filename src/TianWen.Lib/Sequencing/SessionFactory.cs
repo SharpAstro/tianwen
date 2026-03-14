@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Guider;
 
 
 namespace TianWen.Lib.Sequencing;
@@ -120,6 +121,13 @@ internal class SessionFactory(
 
         var mount = new Mount(DeviceFromUri(profileData.Mount), external);
         var guider = new Guider(DeviceFromUri(profileData.Guider), external);
+
+        // Wire the mount driver into built-in guiders that need it for pulse guide corrections.
+        if (guider.Driver is IMountDependentGuider mountDependentGuider)
+        {
+            mountDependentGuider.SetMountDriver(mount.Driver);
+        }
+
         var guiderCamera = profileData.GuiderCamera is { } guiderCameraUri ? new Camera(DeviceFromUri(guiderCameraUri), external) : null;
         var guiderFocuser = profileData.GuiderFocuser is { } guiderFocuserUri ? new Focuser(DeviceFromUri(guiderFocuserUri), external) : null;
 

@@ -6,6 +6,8 @@ namespace TianWen.Lib.Sequencing;
 
 public interface ISession : IAsyncDisposable
 {
+    Setup Setup { get; }
+
     ScheduledObservation? ActiveObservation { get; }
 
     ScheduledObservationTree Observations { get; }

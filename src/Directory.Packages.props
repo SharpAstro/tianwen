@@ -9,7 +9,7 @@
     <!-- Core libraries -->
     <PackageVersion Include="CommunityToolkit.HighPerformance" Version="8.4.0" />
     <PackageVersion Include="DotNext.Threading" Version="6.0.0" />
-    <PackageVersion Include="FITS.Lib" Version="4.4.0" />
+    <PackageVersion Include="FITS.Lib" Version="4.5.0" />
     <PackageVersion Include="GeoTimeZone" Version="6.1.0" />
     <PackageVersion Include="Magick.NET-Q16-HDRI-AnyCPU" Version="14.10.4" />
     <!-- Microsoft packages -->
@@ -44,6 +44,6 @@
     <PackageVersion Include="Silk.NET.OpenGL" Version="2.23.0" />
     <PackageVersion Include="Silk.NET.Windowing" Version="2.23.0" />
     <!-- Other packages -->
-    <PackageVersion Include="ZWOptical.SDK" Version="3.4.531" />
+    <PackageVersion Include="ZWOptical.SDK" Version="4.1.561" />
   </ItemGroup>
 </Project>

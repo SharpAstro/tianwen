@@ -26,11 +26,14 @@
 
 - [ ] Integrate scheduler into `Session.RunAsync` flow — currently `ObservationLoopAsync` iterates linearly; needs to respect `ScheduledObservation.Start` times (wait until scheduled start before slewing)
 - [ ] Time-aware observation switching — advance to next observation when current observation's `Duration` elapses, not just when imaging loop exits
-- [ ] Weather/cloud interruption handling — if conditions degrade, pause schedule and resume with re-scored remaining targets
+- [ ] Weather/cloud interruption handling — detect clouds via star count outliers; if conditions degrade, pause schedule and resume with re-scored remaining targets
 - [ ] Multi-night scheduling — carry over incomplete observations to next session with accumulated exposure tracking
 - [ ] Filter support in ProposedObservation — per-target filter sequences (L, R, G, B, Ha, etc.)
 - [ ] Mosaic panel support — schedule multiple pointings for a single target as linked observations
+- [ ] Scoring: calculate how large the object is in pixels on the sensor (normalizes across different telescopes)
+- [ ] Unify scoring into a single path (remove one-Fast variant)
 - [ ] Scheduler UI/CLI integration — expose `ProposedObservation` input and `ScheduledObservationTree` output in CLI and future UI
+- [ ] Generalise `TonightsBest` to accept an arbitrary LST / `DateTimeOffset` (not just current UTC)
 - [ ] Persistent observation database — save/load proposals and completed exposure history
 
 ## Session Test Plan Progress (PLAN-SessionTests.md phases)
@@ -89,6 +92,7 @@
 
 ## Mount / Meade LX200 Protocol
 
+- [ ] Implement effective `:Gm#` command — ask Johansen (Melbourne) if he knows how to get it or how to use `:E;` to retrieve state
 - [ ] Determine precision based on firmware/patchlevel (`MeadeLX200ProtocolMountDriverBase.cs:43`)
 - [ ] LX800 fixed GW response not being terminated, account for that (`MeadeLX200ProtocolMountDriverBase.cs:143`)
 - [ ] Pier side detection only works for GEM mounts (`MeadeLX200ProtocolMountDriverBase.cs:305`)
@@ -106,10 +110,12 @@
 
 - [ ] Free unmanaged resources and override finalizer in `External.Dispose` (`External.cs:85-91`)
 - [ ] Actually ensure that FITS library writes async (`IExternal.cs:226`)
+- [ ] Write an MCP server for TianWen (expose session status, device state, observation schedule)
 
 ## Imaging
 
 - [ ] Not sure if `SensorType` LRGB check is correct (`SensorType.cs:54`)
+- [ ] Find bounding box of non-NaN region in `Image.cs` (for stacked images with NaN borders)
 
 ## Stretch / Image Processing
 
@@ -123,6 +129,7 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 
 ## FITS Viewer
 
+- [ ] Rename HDR button/label to "Compress Highlights"
 - [ ] Remove debug `Console.Error.WriteLine` WCS output from `Program.cs`
 - [ ] Support rec601/rec2020 luminance weighting options in luma stretch
 - [ ] Grid label formatting: show arc-seconds for very narrow FOVs
@@ -144,10 +151,21 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 
 - [x] Update lib to accept spans in `CatalogUtils` (`CatalogUtils.cs:326,360`)
 
+## Astrometry / Plate Solving
+
+- [ ] Extract distortion model (SIP polynomial coefficients) from plate solver output
+- [ ] Implement image undistortion using extracted distortion model
+
+## Astrometry / Catalogs (Queries)
+
+- [ ] Check if SIMBAD supports angular size + dimensions in queries
+
 ## Testing
 
+- [ ] `ObjectType.IsStar()` helper method
 - [ ] VDB has objects listed as `Be*`, but in HIP we only know stars (`*`) (`CelestialObjectDBTests.cs:73`)
 - [ ] Read WCS from FITS file in `FakePlateSolver` (`FakePlateSolver.cs:26`)
+- [ ] See if fake mounts (`FakeMountDriver` and `FakeMeadeLX200ProtocolMountDriver`) can share a mount-specific base class
 
 ## Statistics
 
@@ -161,6 +179,19 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 ## Guider
 
 - [ ] `appState` parameter should probably be an enum (`GuiderStateChangedEventArgs.cs:34`)
+- [ ] Decide whether to ship a pretrained neural guide model (or train from scratch per-mount)
+- [ ] Guider profile should use profile id (not name) for model persistence and lookup
+- [ ] Write guide logs (CSV) into folder next to model weights for post-session analysis
+- [ ] Investigate if increasing neural model parameters (wider/deeper MLP) improves guide accuracy
+- [ ] Investigate improving pretrained model with real-time mount telemetry data
+- [x] Built-in guider receives same mount driver instance via `IMountDependentGuider` wiring in `SessionFactory`
+- [ ] Support ST-4 guide port as guiding output (DAL already detects `HasST4Port`)
+- [ ] Support snap/shutter-release port for external camera triggering
+
+## Protocol Support
+
+- [ ] GSS ServoCAT / SiTech protocol support + simulator
+- [ ] SGP (Sequence Generator Pro) ASCOM mount driver — needs a fake like LX200; special handling for RA-only axis mounts
 
 ## Vulkan Migration / HDR Display Output
 

@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
+using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Sequencing;
 using Xunit;
 
@@ -104,14 +105,13 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
 
         // then
         session.ShouldNotBeNull();
-        var s = (Session)session;
-        s.Setup.Telescopes.Count.ShouldBe(1);
-        s.Setup.Telescopes[0].Name.ShouldBe("Test Scope");
-        s.Setup.Telescopes[0].FocalLength.ShouldBe(1000);
-        s.Setup.Telescopes[0].Focuser.ShouldNotBeNull();
-        s.Setup.GuiderSetup.IsOAG.ShouldBeFalse();
-        s.Setup.GuiderSetup.HasCamera.ShouldBeFalse();
-        s.Setup.GuiderSetup.HasFocuser.ShouldBeFalse();
+        session.Setup.Telescopes.Count.ShouldBe(1);
+        session.Setup.Telescopes[0].Name.ShouldBe("Test Scope");
+        session.Setup.Telescopes[0].FocalLength.ShouldBe(1000);
+        session.Setup.Telescopes[0].Focuser.ShouldNotBeNull();
+        session.Setup.GuiderSetup.IsOAG.ShouldBeFalse();
+        session.Setup.GuiderSetup.HasCamera.ShouldBeFalse();
+        session.Setup.GuiderSetup.HasFocuser.ShouldBeFalse();
     }
 
     [Fact]
@@ -142,12 +142,11 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         var session = factory.Create(TestProfileId, SessionTestHelper.DefaultConfiguration, new ReadOnlySpan<ScheduledObservation>(observations));
 
         // then
-        var s = (Session)session;
-        s.Setup.Telescopes.Count.ShouldBe(2);
-        s.Setup.Telescopes[0].Name.ShouldBe("Scope 1");
-        s.Setup.Telescopes[0].FocalLength.ShouldBe(800);
-        s.Setup.Telescopes[1].Name.ShouldBe("Scope 2");
-        s.Setup.Telescopes[1].FocalLength.ShouldBe(1200);
+        session.Setup.Telescopes.Count.ShouldBe(2);
+        session.Setup.Telescopes[0].Name.ShouldBe("Scope 1");
+        session.Setup.Telescopes[0].FocalLength.ShouldBe(800);
+        session.Setup.Telescopes[1].Name.ShouldBe("Scope 2");
+        session.Setup.Telescopes[1].FocalLength.ShouldBe(1200);
     }
 
     [Fact]
@@ -177,10 +176,9 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         var session = factory.Create(TestProfileId, SessionTestHelper.DefaultConfiguration, new ReadOnlySpan<ScheduledObservation>(observations));
 
         // then
-        var s = (Session)session;
-        s.Setup.GuiderSetup.IsOAG.ShouldBeTrue();
-        s.Setup.GuiderSetup.OAG.ShouldNotBeNull();
-        s.Setup.GuiderSetup.OAG.ShouldBeSameAs(s.Setup.Telescopes[0]);
+        session.Setup.GuiderSetup.IsOAG.ShouldBeTrue();
+        session.Setup.GuiderSetup.OAG.ShouldNotBeNull();
+        session.Setup.GuiderSetup.OAG.ShouldBeSameAs(session.Setup.Telescopes[0]);
     }
 
     [Fact]
@@ -206,9 +204,8 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         var session = factory.Create(TestProfileId, SessionTestHelper.DefaultConfiguration, new ReadOnlySpan<ScheduledObservation>(observations));
 
         // then
-        var s = (Session)session;
-        s.Setup.GuiderSetup.HasCamera.ShouldBeTrue();
-        s.Setup.GuiderSetup.Camera.ShouldNotBeNull();
+        session.Setup.GuiderSetup.HasCamera.ShouldBeTrue();
+        session.Setup.GuiderSetup.Camera.ShouldNotBeNull();
     }
 
     [Fact]
@@ -234,9 +231,8 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         var session = factory.Create(TestProfileId, SessionTestHelper.DefaultConfiguration, new ReadOnlySpan<ScheduledObservation>(observations));
 
         // then
-        var s = (Session)session;
-        s.Setup.GuiderSetup.HasFocuser.ShouldBeTrue();
-        s.Setup.GuiderSetup.Focuser.ShouldNotBeNull();
+        session.Setup.GuiderSetup.HasFocuser.ShouldBeTrue();
+        session.Setup.GuiderSetup.Focuser.ShouldNotBeNull();
     }
 
     [Fact]
@@ -353,9 +349,36 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         var session = factory.Create(TestProfileId, SessionTestHelper.DefaultConfiguration, new ReadOnlySpan<ScheduledObservation>(observations));
 
         // then
-        var s = (Session)session;
-        s.Setup.Telescopes[0].FocusDirection.PreferOutward.ShouldBeFalse();
-        s.Setup.Telescopes[0].FocusDirection.OutwardIsPositive.ShouldBeFalse();
+        session.Setup.Telescopes[0].FocusDirection.PreferOutward.ShouldBeFalse();
+        session.Setup.Telescopes[0].FocusDirection.OutwardIsPositive.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void GivenMountDependentGuiderWhenCreatedThenGuiderReceivesSameMountDriver()
+    {
+        // given
+        var mountDevice = CreateMountDevice();
+        var cameraDevice = CreateCameraDevice();
+        var guiderDevice = CreateGuiderDevice();
+
+        var profileData = new ProfileData(
+            Mount: mountDevice.DeviceUri,
+            Guider: guiderDevice.DeviceUri,
+            OTAs: [new OTAData("Test Scope", 1000, cameraDevice.DeviceUri, null, null, null, null, null)]
+        );
+
+        var (factory, _) = CreateFactory(profileData);
+        var observations = new[] { CreateDefaultObservation() };
+
+        // when
+        var session = factory.Create(TestProfileId, SessionTestHelper.DefaultConfiguration, new ReadOnlySpan<ScheduledObservation>(observations));
+
+        // then — the guider driver should have received the same mount driver instance
+        var s = session;
+        var guiderDriver = s.Setup.Guider.Driver.ShouldBeAssignableTo<IMountDependentGuider>();
+        var fakeGuider = (FakeGuider)guiderDriver!;
+        fakeGuider.MountDriver.ShouldNotBeNull();
+        fakeGuider.MountDriver.ShouldBeSameAs(s.Setup.Mount.Driver);
     }
 
     private static ScheduledObservation CreateDefaultObservation() => new ScheduledObservation(
