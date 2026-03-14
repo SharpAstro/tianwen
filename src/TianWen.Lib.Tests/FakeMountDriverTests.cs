@@ -343,6 +343,28 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         peakWithSeeing.ShouldBeLessThan(peakNoSeeing);
     }
 
+    [Fact]
+    public async Task GivenMountWhenGetAxisPositionThenReturnsEncoderTicks()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, _) = CreateMount();
+        await mount.ConnectAsync();
+
+        await mount.SetPositionAsync(6.0, 45.0); // RA=6h, Dec=+45°
+
+        var raTicks = await mount.GetAxisPositionAsync(TelescopeAxis.Primary, ct);
+        var decTicks = await mount.GetAxisPositionAsync(TelescopeAxis.Seconary, ct);
+        var tertiaryTicks = await mount.GetAxisPositionAsync(TelescopeAxis.Tertiary, ct);
+
+        raTicks.ShouldNotBeNull();
+        decTicks.ShouldNotBeNull();
+        tertiaryTicks.ShouldBeNull("tertiary axis not supported");
+
+        // RA=6h → 6/24 of full revolution
+        raTicks.Value.ShouldBeGreaterThan(0);
+        output.WriteLine($"RA encoder: {raTicks}, Dec encoder: {decTicks}");
+    }
+
     private static (int x, int y) FindBrightestPixel(float[,] data)
     {
         var (x, y, _) = FindBrightestPixelAndValue(data);
