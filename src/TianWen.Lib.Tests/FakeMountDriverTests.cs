@@ -25,12 +25,13 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     public async Task GivenConnectedMountWhenSetPositionThenCoordinatesMatch()
     {
         var (mount, _) = CreateMount();
-        await mount.ConnectAsync();
+        var ct = TestContext.Current.CancellationToken;
+        await mount.ConnectAsync(ct);
 
-        await mount.SetPositionAsync(16.695, 36.46); // M13
+        await mount.SetPositionAsync(16.695, 36.46, ct); // M13
 
-        var ra = await mount.GetRightAscensionAsync(TestContext.Current.CancellationToken);
-        var dec = await mount.GetDeclinationAsync(TestContext.Current.CancellationToken);
+        var ra = await mount.GetRightAscensionAsync(ct);
+        var dec = await mount.GetDeclinationAsync(ct);
 
         ra.ShouldBe(16.695, 0.001);
         dec.ShouldBe(36.46, 0.001);
@@ -41,9 +42,9 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         var (mount, external) = CreateMount();
-        await mount.ConnectAsync();
+        await mount.ConnectAsync(ct);
 
-        await mount.SetPositionAsync(16.695, 36.46);
+        await mount.SetPositionAsync(16.695, 36.46, ct);
         await mount.SetTrackingAsync(true, ct);
 
         var ra0 = await mount.GetRightAscensionAsync(ct);
@@ -67,8 +68,8 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         var (mount, external) = CreateMount();
-        await mount.ConnectAsync();
-        await mount.SetPositionAsync(12.0, 45.0);
+        await mount.ConnectAsync(ct);
+        await mount.SetPositionAsync(12.0, 45.0, ct);
 
         var raBefore = await mount.GetRightAscensionAsync(ct);
 
@@ -90,8 +91,8 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         var (mount, external) = CreateMount();
-        await mount.ConnectAsync();
-        await mount.SetPositionAsync(12.0, 45.0);
+        await mount.ConnectAsync(ct);
+        await mount.SetPositionAsync(12.0, 45.0, ct);
 
         var decBefore = await mount.GetDeclinationAsync(ct);
 
@@ -108,11 +109,11 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         var (mount, external) = CreateMount();
-        await mount.ConnectAsync();
+        await mount.ConnectAsync(ct);
 
         mount.PeriodicErrorAmplitudeArcsec = 15.0; // 15" peak PE
         mount.PeriodicErrorPeriodSeconds = 480.0;  // 8 min worm period
-        await mount.SetPositionAsync(12.0, 45.0);
+        await mount.SetPositionAsync(12.0, 45.0, ct);
         await mount.SetTrackingAsync(true, ct);
 
         // Sample PE over one full period
@@ -142,10 +143,10 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         var (mount, external) = CreateMount();
-        await mount.ConnectAsync();
+        await mount.ConnectAsync(ct);
 
         mount.PolarDriftRateDecArcsecPerSec = 0.5; // 0.5"/s drift north
-        await mount.SetPositionAsync(12.0, 45.0);
+        await mount.SetPositionAsync(12.0, 45.0, ct);
         await mount.SetTrackingAsync(true, ct);
 
         var dec0 = await mount.GetDeclinationAsync(ct);
@@ -165,10 +166,10 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         var (mount, external) = CreateMount();
-        await mount.ConnectAsync();
+        await mount.ConnectAsync(ct);
 
         mount.DecBacklashArcsec = 5.0; // 5" backlash
-        await mount.SetPositionAsync(12.0, 45.0);
+        await mount.SetPositionAsync(12.0, 45.0, ct);
 
         var dec0 = await mount.GetDeclinationAsync(ct);
 
@@ -194,10 +195,10 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         var (mount, external) = CreateMount();
-        await mount.ConnectAsync();
+        await mount.ConnectAsync(ct);
 
         mount.DecBacklashArcsec = 5.0;
-        await mount.SetPositionAsync(12.0, 45.0);
+        await mount.SetPositionAsync(12.0, 45.0, ct);
 
         // Two north pulses in same direction — no backlash
         await mount.PulseGuideAsync(GuideDirection.North, TimeSpan.FromSeconds(1), ct);
@@ -219,9 +220,9 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         var (mount, external) = CreateMount();
-        await mount.ConnectAsync();
+        await mount.ConnectAsync(ct);
 
-        await mount.SetPositionAsync(12.0, 45.0);
+        await mount.SetPositionAsync(12.0, 45.0, ct);
 
         // Slew to different position
         await mount.BeginSlewRaDecAsync(14.0, 50.0, ct);
@@ -244,10 +245,10 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         var (mount, external) = CreateMount();
-        await mount.ConnectAsync();
+        await mount.ConnectAsync(ct);
 
         // All error injection defaults to 0
-        await mount.SetPositionAsync(12.0, 45.0);
+        await mount.SetPositionAsync(12.0, 45.0, ct);
         await mount.SetTrackingAsync(true, ct);
 
         await external.SleepAsync(TimeSpan.FromMinutes(5), ct);
@@ -261,8 +262,8 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         var (mount, external) = CreateMount();
-        await mount.ConnectAsync();
-        await mount.SetPositionAsync(12.0, 45.0);
+        await mount.ConnectAsync(ct);
+        await mount.SetPositionAsync(12.0, 45.0, ct);
 
         // Before pulse: not guiding
         (await mount.IsPulseGuidingAsync(ct)).ShouldBeFalse();
@@ -348,9 +349,9 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         var (mount, _) = CreateMount();
-        await mount.ConnectAsync();
+        await mount.ConnectAsync(ct);
 
-        await mount.SetPositionAsync(6.0, 45.0); // RA=6h, Dec=+45°
+        await mount.SetPositionAsync(6.0, 45.0, ct); // RA=6h, Dec=+45°
 
         var raTicks = await mount.GetAxisPositionAsync(TelescopeAxis.Primary, ct);
         var decTicks = await mount.GetAxisPositionAsync(TelescopeAxis.Seconary, ct);

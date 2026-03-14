@@ -20,8 +20,8 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
         var device = new FakeDevice(DeviceType.Mount, 1);
         var mount = new FakeMountDriver(device, external);
-        await mount.ConnectAsync();
-        await mount.SetPositionAsync(12.0, 45.0);
+        await mount.ConnectAsync(ct);
+        await mount.SetPositionAsync(12.0, 45.0, ct);
 
         // Record initial position — guide camera sees star shift relative to this
         var initialRa = await mount.GetRightAscensionAsync(ct);
@@ -83,8 +83,8 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
         var device = new FakeDevice(DeviceType.Mount, 1);
         var mount = new FakeMountDriver(device, external);
-        await mount.ConnectAsync();
-        await mount.SetPositionAsync(12.0, 45.0);
+        await mount.ConnectAsync(ct);
+        await mount.SetPositionAsync(12.0, 45.0, ct);
 
         var initialRa = await mount.GetRightAscensionAsync(ct);
         var initialDec = await mount.GetDeclinationAsync(ct);
