@@ -25,9 +25,21 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         DeviceType.FilterWheel => new FakeFilterWheelDriver(this, external),
         DeviceType.Focuser => new FakeFocuserDriver(this, external),
         DeviceType.Guider => new FakeGuider(this, external),
-        DeviceType.Mount => new FakeMeadeLX200ProtocolMountDriver(this, external),
+        DeviceType.Mount => CreateMountDriver(external),
         _ => null
     };
+
+    private IDeviceDriver CreateMountDriver(IExternal external)
+    {
+        // If port=LX200 is specified, use the full serial protocol stack.
+        // Otherwise use the lightweight direct driver.
+        if (string.Equals(Query["port"], "LX200", StringComparison.OrdinalIgnoreCase))
+        {
+            return new FakeMeadeLX200ProtocolMountDriver(this, external);
+        }
+
+        return new FakeMountDriver(this, external);
+    }
 
     public override ISerialConnection? ConnectSerialDevice(IExternal external, int baud = 9600, Encoding? encoding = null) => DeviceType switch
     {

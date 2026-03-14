@@ -83,6 +83,7 @@ internal static class SessionTestHelper
 
         var mountDevice = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection
         {
+            { "port", "LX200" },
             { "latitude", "48.2" },
             { "longitude", "16.3" }
         });
