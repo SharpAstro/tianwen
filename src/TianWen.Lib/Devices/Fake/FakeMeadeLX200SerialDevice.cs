@@ -36,8 +36,14 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
     private double _targetDec;
     private ITimer? _slewTimer;
     private ITimer? _trackingTimer;
+    private ITimer? _pulseGuideTimerRA;
+    private ITimer? _pulseGuideTimerDec;
+    private int _activePulseGuides;
     private long _lastTrackingTicks;
     private readonly ILogger _logger;
+
+    // Guide rate: 2/3 sidereal rate in degrees per second
+    private const double GUIDE_RATE_DEG_PER_SEC = SIDEREAL_RATE * 2.0 / 3.0 / 3600.0;
 
     // I/O properties
     private readonly StringBuilder _responseBuffer = new StringBuilder();
@@ -79,6 +85,11 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
     }
 
     public bool IsOpen { get; private set; }
+
+    /// <summary>
+    /// Whether a pulse guide is currently active (timer-based tracking).
+    /// </summary>
+    public bool IsPulseGuiding => Volatile.Read(ref _activePulseGuides) > 0;
 
     public Encoding Encoding { get; private set; }
 
@@ -193,6 +204,8 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
         IsOpen = false;
         Interlocked.Exchange(ref _trackingTimer, null)?.Dispose();
         Interlocked.Exchange(ref _slewTimer, null)?.Dispose();
+        Interlocked.Exchange(ref _pulseGuideTimerRA, null)?.Dispose();
+        Interlocked.Exchange(ref _pulseGuideTimerDec, null)?.Dispose();
         _responseBuffer.Clear();
         _responsePointer = 0;
 
@@ -401,7 +414,46 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
                     break;
 
                 default:
-                    if (dataStr.StartsWith(":Sr", StringComparison.Ordinal))
+                    if (dataStr.StartsWith(":Mg", StringComparison.Ordinal) && dataStr.Length >= 8)
+                    {
+                        // Pulse guide: :Mg<dir><ms4>#
+                        // dir: n/s/e/w, ms4: 4-digit milliseconds (e.g., "0500")
+                        var dir = dataStr[3];
+                        if (int.TryParse(dataStr[4..8], CultureInfo.InvariantCulture, out var ms) && ms > 0)
+                        {
+                            var durationSec = ms / 1000.0;
+
+                            switch (dir)
+                            {
+                                case 'w':
+                                    // West: increase HA (star drifts west on sensor)
+                                    _haAxisAngle += GUIDE_RATE_DEG_PER_SEC * durationSec * DEG2HOURS;
+                                    break;
+                                case 'e':
+                                    // East: decrease HA
+                                    _haAxisAngle -= GUIDE_RATE_DEG_PER_SEC * durationSec * DEG2HOURS;
+                                    break;
+                                case 'n':
+                                    _decAxisAngle += GUIDE_RATE_DEG_PER_SEC * durationSec;
+                                    break;
+                                case 's':
+                                    _decAxisAngle -= GUIDE_RATE_DEG_PER_SEC * durationSec;
+                                    break;
+                            }
+
+                            // Track pulse guide duration via timer
+                            Interlocked.Increment(ref _activePulseGuides);
+                            var isRA = dir is 'e' or 'w';
+                            ref var timerRef = ref isRA ? ref _pulseGuideTimerRA : ref _pulseGuideTimerDec;
+                            var timer = _timeProvider.CreateTimer(
+                                _ => Interlocked.Decrement(ref _activePulseGuides),
+                                null,
+                                TimeSpan.FromMilliseconds(ms),
+                                Timeout.InfiniteTimeSpan);
+                            Interlocked.Exchange(ref timerRef, timer)?.Dispose();
+                        }
+                    }
+                    else if (dataStr.StartsWith(":Sr", StringComparison.Ordinal))
                     {
                         _responseBuffer.Append(ParseTargetRa(dataStr) ? '1' : '0');
                     }
