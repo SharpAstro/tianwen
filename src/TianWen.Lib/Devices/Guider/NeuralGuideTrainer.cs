@@ -147,6 +147,54 @@ internal sealed class NeuralGuideTrainer
         return totalLoss / numSamples;
     }
 
+    /// <summary>
+    /// Trains on a batch sampled from an experience replay buffer.
+    /// Used for online learning during guiding.
+    /// </summary>
+    /// <param name="buffer">Experience replay buffer to sample from.</param>
+    /// <param name="batchSize">Number of samples per training step.</param>
+    /// <param name="rng">Random number generator for sampling.</param>
+    /// <param name="clipNorm">Maximum gradient component magnitude.</param>
+    /// <returns>Average weighted loss for the batch, or 0 if no valid samples.</returns>
+    public float TrainOnBatch(ExperienceReplayBuffer buffer, int batchSize, Random rng, float clipNorm = 1.0f)
+    {
+        Span<int> indices = stackalloc int[batchSize];
+        var count = buffer.SampleBatch(indices, rng);
+        if (count == 0)
+        {
+            return 0;
+        }
+
+        ClearGradients();
+        var totalLoss = 0.0f;
+        var totalWeight = 0.0f;
+
+        for (var s = 0; s < count; s++)
+        {
+            ref readonly var exp = ref buffer.GetAt(indices[s]);
+
+            ForwardWithCache(exp.Features);
+
+            var errRa = _output[0] - exp.TargetRa;
+            var errDec = _output[1] - exp.TargetDec;
+            var loss = errRa * errRa + errDec * errDec;
+            totalLoss += loss * exp.PriorityWeight;
+            totalWeight += exp.PriorityWeight;
+
+            Span<float> dOutput = stackalloc float[NeuralGuideModel.OutputSize];
+            dOutput[0] = 2.0f * errRa * (1.0f - _output[0] * _output[0]) * exp.PriorityWeight;
+            dOutput[1] = 2.0f * errDec * (1.0f - _output[1] * _output[1]) * exp.PriorityWeight;
+
+            AccumulateGradients(exp.Features, dOutput);
+        }
+
+        ClipGradients(clipNorm);
+        ApplyGradients(count);
+        SyncToModel();
+
+        return totalWeight > 0 ? totalLoss / totalWeight : 0;
+    }
+
     private void ForwardWithCache(ReadOnlySpan<float> input)
     {
         // Layer 1: hidden = ReLU(W1 @ input + b1)
@@ -221,6 +269,22 @@ internal sealed class NeuralGuideTrainer
         for (var i = 0; i < _b2.Length; i++)
         {
             _b2[i] += scale * _gradB2[i];
+        }
+    }
+
+    private void ClipGradients(float clipNorm)
+    {
+        ClipArray(_gradW1, clipNorm);
+        ClipArray(_gradB1, clipNorm);
+        ClipArray(_gradW2, clipNorm);
+        ClipArray(_gradB2, clipNorm);
+
+        static void ClipArray(float[] arr, float norm)
+        {
+            for (var i = 0; i < arr.Length; i++)
+            {
+                arr[i] = Math.Clamp(arr[i], -norm, norm);
+            }
         }
     }
 

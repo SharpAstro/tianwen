@@ -6,6 +6,21 @@ using TianWen.DAL;
 namespace TianWen.Lib.Devices.Guider;
 
 /// <summary>
+/// Result of validating a saved calibration against current conditions.
+/// </summary>
+internal enum CalibrationValidationResult
+{
+    /// <summary>Saved calibration matches current conditions. Use it.</summary>
+    Valid,
+
+    /// <summary>Guide rates drifted but camera angle is OK. Recalibrate, keep model weights.</summary>
+    RateDrifted,
+
+    /// <summary>Camera angle changed significantly. Recalibrate and discard saved model weights.</summary>
+    AngleChanged
+}
+
+/// <summary>
 /// Performs guider calibration by sending test pulses to the mount and measuring
 /// the resulting star displacement. Determines camera angle and effective guide rates.
 /// </summary>
@@ -13,6 +28,17 @@ internal sealed class GuiderCalibration
 {
     private const int DefaultCalibrationPulseMs = 2000;
     private const int DefaultCalibrationSteps = 5;
+
+    /// <summary>
+    /// Maximum angle deviation (degrees) for a saved calibration to be considered valid.
+    /// </summary>
+    public double AngleToleranceDeg { get; set; } = 5.0;
+
+    /// <summary>
+    /// Maximum fractional rate deviation for a saved calibration to be considered valid.
+    /// 0.20 = 20%.
+    /// </summary>
+    public double RateToleranceFraction { get; set; } = 0.20;
 
     /// <summary>
     /// Duration of each calibration pulse.
@@ -122,6 +148,91 @@ internal sealed class GuiderCalibration
             RaDisplacementPx: raDisplacementPx,
             DecDisplacementPx: decDisplacementPx,
             TotalCalibrationTimeSec: totalRaTimeSec + totalDecTimeSec);
+    }
+
+    /// <summary>
+    /// Validates a saved calibration by sending a single West pulse and comparing
+    /// the measured displacement against the saved rates and camera angle.
+    /// Much faster than full calibration (~2s vs ~12s).
+    /// </summary>
+    /// <param name="savedCalibration">Previously saved calibration to validate.</param>
+    /// <param name="mount">Mount to pulse guide.</param>
+    /// <param name="tracker">Centroid tracker with an acquired star.</param>
+    /// <param name="captureFrame">Function that captures a guide frame.</param>
+    /// <param name="external">External services for time management.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Validation result indicating whether the saved calibration can be reused.</returns>
+    public async ValueTask<CalibrationValidationResult> ValidateAsync(
+        GuiderCalibrationResult savedCalibration,
+        IMountDriver mount,
+        GuiderCentroidTracker tracker,
+        Func<CancellationToken, ValueTask<float[,]>> captureFrame,
+        IExternal external,
+        CancellationToken cancellationToken)
+    {
+        if (!tracker.IsAcquired)
+        {
+            return CalibrationValidationResult.AngleChanged;
+        }
+
+        tracker.SetLockPosition();
+
+        // Send a single West pulse using the same pulse duration as the saved calibration
+        var pulseDuration = CalibrationPulseDuration;
+        await mount.PulseGuideAsync(GuideDirection.West, pulseDuration, cancellationToken);
+        await WaitForPulseCompleteAsync(mount, external, pulseDuration, cancellationToken);
+
+        var frame = await captureFrame(cancellationToken);
+        var result = tracker.ProcessFrame(frame);
+
+        // Return the star to its original position
+        await mount.PulseGuideAsync(GuideDirection.East, pulseDuration, cancellationToken);
+        await WaitForPulseCompleteAsync(mount, external, pulseDuration, cancellationToken);
+
+        // Reset tracker for next use
+        tracker.Reset();
+        var returnFrame = await captureFrame(cancellationToken);
+        tracker.ProcessFrame(returnFrame);
+
+        if (result is null)
+        {
+            return CalibrationValidationResult.AngleChanged;
+        }
+
+        var dx = result.Value.DeltaX;
+        var dy = result.Value.DeltaY;
+        var displacement = Math.Sqrt(dx * dx + dy * dy);
+
+        if (displacement < 1.0)
+        {
+            // Not enough displacement to validate
+            return CalibrationValidationResult.RateDrifted;
+        }
+
+        // Compare camera angle
+        var measuredAngleRad = Math.Atan2(dy, dx);
+        var angleDiffDeg = Math.Abs(measuredAngleRad - savedCalibration.CameraAngleRad) * 180.0 / Math.PI;
+        // Normalize to [0, 180]
+        if (angleDiffDeg > 180.0)
+        {
+            angleDiffDeg = 360.0 - angleDiffDeg;
+        }
+
+        if (angleDiffDeg > AngleToleranceDeg)
+        {
+            return CalibrationValidationResult.AngleChanged;
+        }
+
+        // Compare RA guide rate
+        var measuredRate = displacement / pulseDuration.TotalSeconds;
+        var rateDeviation = Math.Abs(measuredRate - savedCalibration.RaRatePixPerSec) / savedCalibration.RaRatePixPerSec;
+
+        if (rateDeviation > RateToleranceFraction)
+        {
+            return CalibrationValidationResult.RateDrifted;
+        }
+
+        return CalibrationValidationResult.Valid;
     }
 
     private static async ValueTask<GuiderCentroidResult?> MeasureDisplacementAsync(

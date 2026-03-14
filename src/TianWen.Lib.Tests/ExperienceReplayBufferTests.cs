@@ -1,0 +1,149 @@
+using Shouldly;
+using System;
+using TianWen.Lib.Devices.Guider;
+using Xunit;
+
+namespace TianWen.Lib.Tests;
+
+public class ExperienceReplayBufferTests
+{
+    private static OnlineGuideExperience MakeExperience(float targetRa, float targetDec)
+    {
+        return new OnlineGuideExperience
+        {
+            Features = new float[NeuralGuideModel.InputSize],
+            TargetRa = targetRa,
+            TargetDec = targetDec,
+            PriorityWeight = 1.0f,
+            OutcomeKnown = false
+        };
+    }
+
+    [Fact]
+    public void GivenEmptyBufferWhenSampleThenReturnsZero()
+    {
+        var buffer = new ExperienceReplayBuffer();
+        Span<int> indices = stackalloc int[8];
+        var count = buffer.SampleBatch(indices, new Random(42));
+        count.ShouldBe(0);
+    }
+
+    [Fact]
+    public void GivenBufferWhenAddThenCountIncreases()
+    {
+        var buffer = new ExperienceReplayBuffer();
+        buffer.Count.ShouldBe(0);
+
+        buffer.Add(MakeExperience(0.1f, 0.2f));
+        buffer.Count.ShouldBe(1);
+        buffer.TotalWritten.ShouldBe(1);
+
+        buffer.Add(MakeExperience(0.3f, 0.4f));
+        buffer.Count.ShouldBe(2);
+    }
+
+    [Fact]
+    public void GivenBufferWhenOverflowThenWrapsAround()
+    {
+        var buffer = new ExperienceReplayBuffer(capacity: 4);
+
+        for (var i = 0; i < 6; i++)
+        {
+            var exp = MakeExperience(i * 0.1f, 0);
+            exp.OutcomeKnown = true;
+            buffer.Add(exp);
+        }
+
+        buffer.Count.ShouldBe(4); // capped at capacity
+        buffer.TotalWritten.ShouldBe(6);
+
+        // The oldest entries should have been overwritten
+        // Newest entries: indices 2,3,4,5 → wrapped to slots 2,3,0,1
+        buffer.GetAt(0).TargetRa.ShouldBe(0.4f, 0.001f); // entry 4
+        buffer.GetAt(1).TargetRa.ShouldBe(0.5f, 0.001f); // entry 5
+    }
+
+    [Fact]
+    public void GivenBufferWhenOutcomeNotKnownThenSampleSkips()
+    {
+        var buffer = new ExperienceReplayBuffer();
+
+        // Add 10 experiences, none with outcome known
+        for (var i = 0; i < 10; i++)
+        {
+            buffer.Add(MakeExperience(0.1f, 0.1f));
+        }
+
+        Span<int> indices = stackalloc int[5];
+        var count = buffer.SampleBatch(indices, new Random(42));
+        count.ShouldBe(0); // none have OutcomeKnown
+    }
+
+    [Fact]
+    public void GivenBufferWhenOutcomeKnownThenSampleReturnsIndices()
+    {
+        var buffer = new ExperienceReplayBuffer();
+
+        for (var i = 0; i < 10; i++)
+        {
+            var exp = MakeExperience(i * 0.1f, 0);
+            exp.OutcomeKnown = true;
+            buffer.Add(exp);
+        }
+
+        Span<int> indices = stackalloc int[5];
+        var count = buffer.SampleBatch(indices, new Random(42));
+        count.ShouldBe(5);
+
+        for (var i = 0; i < count; i++)
+        {
+            indices[i].ShouldBeInRange(0, 9);
+        }
+    }
+
+    [Fact]
+    public void GivenBufferWhenUpdateOutcomeThenPriorityWeightSet()
+    {
+        var buffer = new ExperienceReplayBuffer();
+
+        buffer.Add(MakeExperience(0.1f, 0.1f));
+        buffer.GetAt(0).OutcomeKnown.ShouldBeFalse();
+
+        // Error got worse: 1.0 → 2.0
+        buffer.UpdateOutcome(nextRaError: 2.0, nextDecError: 0, prevRaError: 1.0, prevDecError: 0);
+
+        buffer.GetAt(0).OutcomeKnown.ShouldBeTrue();
+        buffer.GetAt(0).PriorityWeight.ShouldBeGreaterThan(1.0f); // upweighted because error grew
+    }
+
+    [Fact]
+    public void GivenBufferWhenErrorImprovesThenPriorityWeightLow()
+    {
+        var buffer = new ExperienceReplayBuffer();
+
+        buffer.Add(MakeExperience(0.1f, 0.1f));
+
+        // Error improved: 2.0 → 0.5
+        buffer.UpdateOutcome(nextRaError: 0.5, nextDecError: 0, prevRaError: 2.0, prevDecError: 0);
+
+        buffer.GetAt(0).OutcomeKnown.ShouldBeTrue();
+        buffer.GetAt(0).PriorityWeight.ShouldBeLessThan(1.0f); // downweighted because error shrank
+    }
+
+    [Fact]
+    public void GivenBufferWhenResetThenEmpty()
+    {
+        var buffer = new ExperienceReplayBuffer();
+
+        for (var i = 0; i < 5; i++)
+        {
+            buffer.Add(MakeExperience(0.1f, 0.1f));
+        }
+
+        buffer.Count.ShouldBe(5);
+
+        buffer.Reset();
+        buffer.Count.ShouldBe(0);
+        buffer.TotalWritten.ShouldBe(0);
+    }
+}
