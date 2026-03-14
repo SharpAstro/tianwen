@@ -35,11 +35,62 @@ internal static class SyntheticStarFieldRenderer
         int starCount = 50,
         int seed = 42)
     {
+        return Render(width, height, defocusSteps, offsetX: 0, offsetY: 0,
+            hyperbolaA, hyperbolaB, exposureSeconds, skyBackground, readNoise, starCount, seed);
+    }
+
+    /// <summary>
+    /// Renders a synthetic star field with a sub-pixel offset applied to all star positions.
+    /// Used by guider simulation to model tracking error and guide corrections:
+    /// as the mount drifts, the star field shifts on the sensor.
+    /// </summary>
+    /// <param name="width">Image width in pixels.</param>
+    /// <param name="height">Image height in pixels.</param>
+    /// <param name="defocusSteps">Absolute distance from true best focus in focuser steps.</param>
+    /// <param name="offsetX">Horizontal offset in pixels (positive = stars shift right).</param>
+    /// <param name="offsetY">Vertical offset in pixels (positive = stars shift down).</param>
+    /// <param name="hyperbolaA">Minimum FWHM in pixels at perfect focus (~2.0).</param>
+    /// <param name="hyperbolaB">Asymptote scaling in steps (~50).</param>
+    /// <param name="exposureSeconds">Exposure duration in seconds.</param>
+    /// <param name="skyBackground">Base sky background per second.</param>
+    /// <param name="readNoise">Read noise sigma in ADU.</param>
+    /// <param name="starCount">Number of stars to generate.</param>
+    /// <param name="seed">Random seed (0 = random).</param>
+    /// <param name="hotPixelCount">Number of hot pixels to inject (value = maxADU).</param>
+    /// <param name="maxADU">Maximum ADU value for hot pixels.</param>
+    /// <param name="seeingArcsec">Atmospheric seeing FWHM in arcsec (added in quadrature with optical PSF).</param>
+    /// <param name="pixelScaleArcsec">Pixel scale in arcsec/pixel (for converting seeing to pixels).</param>
+    /// <returns>Image data array with synthetic stars at offset positions.</returns>
+    public static float[,] Render(
+        int width,
+        int height,
+        double defocusSteps,
+        double offsetX,
+        double offsetY,
+        double hyperbolaA = 2.0,
+        double hyperbolaB = 50.0,
+        double exposureSeconds = 1.0,
+        double skyBackground = 100.0,
+        double readNoise = 5.0,
+        int starCount = 50,
+        int seed = 42,
+        int hotPixelCount = 0,
+        double maxADU = 4096.0,
+        double seeingArcsec = 0.0,
+        double pixelScaleArcsec = 1.5)
+    {
         var rng = new Random(seed);
         var data = new float[height, width];
 
         // FWHM from defocus via hyperbola: fwhm = a * cosh(asinh(defocus / b))
-        var fwhm = hyperbolaA * Math.Cosh(Asinh(defocusSteps / hyperbolaB));
+        var opticalFwhm = hyperbolaA * Math.Cosh(Asinh(defocusSteps / hyperbolaB));
+
+        // Add atmospheric seeing in quadrature (both are Gaussian, so sigma adds in quadrature)
+        var seeingFwhmPixels = seeingArcsec > 0 && pixelScaleArcsec > 0
+            ? seeingArcsec / pixelScaleArcsec
+            : 0.0;
+        var fwhm = Math.Sqrt(opticalFwhm * opticalFwhm + seeingFwhmPixels * seeingFwhmPixels);
+
         var sigma = fwhm / 2.3548; // FWHM = 2 * sqrt(2 * ln(2)) * sigma
 
         // Sky background
@@ -57,8 +108,13 @@ internal static class SyntheticStarFieldRenderer
 
         for (var s = 0; s < starCount; s++)
         {
-            var starX = rng.NextDouble() * (width - 2 * psfRadius) + psfRadius;
-            var starY = rng.NextDouble() * (height - 2 * psfRadius) + psfRadius;
+            // Base position from seed (deterministic)
+            var baseX = rng.NextDouble() * (width - 2 * psfRadius) + psfRadius;
+            var baseY = rng.NextDouble() * (height - 2 * psfRadius) + psfRadius;
+
+            // Apply offset (tracking error shifts all stars uniformly)
+            var starX = baseX + offsetX;
+            var starY = baseY + offsetY;
 
             // Random magnitude between 5 and 12
             var magnitude = 5.0 + rng.NextDouble() * 7.0;
@@ -86,6 +142,18 @@ internal static class SyntheticStarFieldRenderer
                     var noisy = value + Math.Sqrt(Math.Max(0, value)) * rng.NextDouble() * 0.5;
                     data[y, x] += (float)noisy;
                 }
+            }
+        }
+
+        // Inject hot pixels at random positions
+        if (hotPixelCount > 0)
+        {
+            var hotRng = new Random(seed + 9999);
+            for (var i = 0; i < hotPixelCount; i++)
+            {
+                var hx = hotRng.Next(width);
+                var hy = hotRng.Next(height);
+                data[hy, hx] = (float)maxADU;
             }
         }
 
