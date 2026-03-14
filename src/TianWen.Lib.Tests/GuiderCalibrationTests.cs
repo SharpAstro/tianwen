@@ -77,6 +77,57 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task GivenSavedCalibrationWhenValidateThenValid()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var device = new FakeDevice(DeviceType.Mount, 1);
+        var mount = new FakeMountDriver(device, external);
+        await mount.ConnectAsync();
+        await mount.SetPositionAsync(12.0, 45.0);
+
+        var initialRa = await mount.GetRightAscensionAsync(ct);
+        var initialDec = await mount.GetDeclinationAsync(ct);
+
+        var tracker = new GuiderCentroidTracker(maxStars: 1);
+        var calibration = new GuiderCalibration
+        {
+            CalibrationPulseDuration = TimeSpan.FromSeconds(1),
+            CalibrationSteps = 3
+        };
+
+        async ValueTask<float[,]> RenderFrame(CancellationToken token)
+        {
+            var ra = await mount.GetRightAscensionAsync(token);
+            var dec = await mount.GetDeclinationAsync(token);
+            var deltaRaArcsec = (ra - initialRa) * 15.0 * 3600.0;
+            var deltaDecArcsec = (dec - initialDec) * 3600.0;
+            var offsetX = deltaRaArcsec / PixelScaleArcsec;
+            var offsetY = deltaDecArcsec / PixelScaleArcsec;
+            return SyntheticStarFieldRenderer.Render(320, 240, 0,
+                offsetX: offsetX, offsetY: offsetY,
+                starCount: 5, seed: 42,
+                pixelScaleArcsec: PixelScaleArcsec);
+        }
+
+        // Full calibration first
+        tracker.ProcessFrame(await RenderFrame(ct));
+        var calResult = await calibration.CalibrateAsync(mount, tracker, RenderFrame, external, ct);
+        calResult.ShouldNotBeNull();
+
+        output.WriteLine($"Calibrated: angle={calResult.Value.CameraAngleDeg:F1}°, RA rate={calResult.Value.RaRatePixPerSec:F3}");
+
+        // Re-acquire for validation
+        tracker.Reset();
+        tracker.ProcessFrame(await RenderFrame(ct));
+
+        // Validate with same mount/conditions — should be Valid
+        var result = await calibration.ValidateAsync(calResult.Value, mount, tracker, RenderFrame, external, ct);
+        output.WriteLine($"Validation result: {result}");
+        result.ShouldBe(CalibrationValidationResult.Valid);
+    }
+
+    [Fact]
     public async Task GivenCalibrationResultWhenTransformThenMountAxesSeparated()
     {
         // Given a 45° camera rotation

@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
@@ -8,7 +9,7 @@ namespace TianWen.Lib.Devices.Guider;
 /// <summary>
 /// Self-contained guide loop that captures frames, computes centroid errors,
 /// and sends pulse guide corrections to the mount. Supports both classical
-/// P-controller and neural model controllers.
+/// P-controller and neural model controllers with optional online learning.
 /// </summary>
 internal sealed class GuideLoop
 {
@@ -25,10 +26,51 @@ internal sealed class GuideLoop
     private bool _isGuiding;
     private double _guideStartTimestamp;
 
+    // Online learning state
+    private ExperienceReplayBuffer? _experienceBuffer;
+    private NeuralGuideTrainer? _onlineTrainer;
+    private NeuralGuidePerformanceMonitor? _performanceMonitor;
+    private DirectoryInfo? _profileFolder;
+    private int _consecutiveFallbacks;
+    private int _framesSinceTraining;
+    private double _lastSaveTimestamp;
+    private double _lastRaError;
+    private double _lastDecError;
+    private bool _hasPreviousError;
+
+    // Thread-safe scratch buffers for neural inference during online learning
+    private readonly float[] _hiddenScratch = new float[NeuralGuideModel.HiddenSize];
+    private readonly float[] _outputScratch = new float[NeuralGuideModel.OutputSize];
+
     /// <summary>
     /// Maximum pulse duration for corrections in milliseconds.
     /// </summary>
     public double MaxPulseMs { get; set; } = 2000;
+
+    /// <summary>
+    /// Number of frames between online training updates.
+    /// </summary>
+    public int OnlineTrainingInterval { get; set; } = 20;
+
+    /// <summary>
+    /// Minimum experiences before online training starts.
+    /// </summary>
+    public int MinExperiencesBeforeTraining { get; set; } = 64;
+
+    /// <summary>
+    /// Batch size for online training.
+    /// </summary>
+    public int OnlineBatchSize { get; set; } = 16;
+
+    /// <summary>
+    /// Minimum seconds between saves of model weights.
+    /// </summary>
+    public double SaveIntervalSeconds { get; set; } = 60.0;
+
+    /// <summary>
+    /// Consecutive neural fallbacks before hard-disabling the neural model.
+    /// </summary>
+    public int MaxConsecutiveFallbacks { get; set; } = 5;
 
     /// <summary>
     /// Whether the guide loop is currently running.
@@ -44,6 +86,16 @@ internal sealed class GuideLoop
     /// The calibration result, if calibrated.
     /// </summary>
     public GuiderCalibrationResult? Calibration => _calibration;
+
+    /// <summary>
+    /// Whether online learning is active.
+    /// </summary>
+    public bool IsOnlineLearningEnabled => _experienceBuffer is not null;
+
+    /// <summary>
+    /// The performance monitor, if online learning is enabled.
+    /// </summary>
+    public NeuralGuidePerformanceMonitor? PerformanceMonitor => _performanceMonitor;
 
     public GuideLoop(
         IMountDriver mount,
@@ -75,6 +127,7 @@ internal sealed class GuideLoop
         _neuralModel = model;
         _neuralFeatures = new NeuralGuideFeatures();
         _useNeuralModel = true;
+        _consecutiveFallbacks = 0;
     }
 
     /// <summary>
@@ -86,8 +139,30 @@ internal sealed class GuideLoop
     }
 
     /// <summary>
+    /// Enables online learning: experience recording, periodic training, and model persistence.
+    /// Must be called after <see cref="EnableNeuralModel"/> and <see cref="SetCalibration"/>.
+    /// </summary>
+    /// <param name="onlineLearningRate">Learning rate for online updates (typically 10x lower than offline).</param>
+    /// <param name="profileFolder">Directory for saving model weights.</param>
+    public void EnableOnlineLearning(float onlineLearningRate = 0.0001f, DirectoryInfo? profileFolder = null)
+    {
+        if (_neuralModel is null)
+        {
+            throw new InvalidOperationException("Neural model must be enabled before online learning.");
+        }
+
+        _experienceBuffer = new ExperienceReplayBuffer();
+        _onlineTrainer = new NeuralGuideTrainer(_neuralModel, onlineLearningRate, OnlineBatchSize);
+        _performanceMonitor = new NeuralGuidePerformanceMonitor();
+        _profileFolder = profileFolder;
+        _framesSinceTraining = 0;
+        _lastSaveTimestamp = 0;
+    }
+
+    /// <summary>
     /// Runs the guide loop: capture frame → compute error → send correction.
-    /// Continues until cancelled.
+    /// Continues until cancelled. When online learning is enabled, periodically
+    /// trains the neural model from accumulated experience.
     /// </summary>
     /// <param name="captureFrame">Function that captures a guide frame.</param>
     /// <param name="exposureInterval">Time between guide exposures.</param>
@@ -107,7 +182,14 @@ internal sealed class GuideLoop
         _isGuiding = true;
         _errorTracker.Reset();
         _neuralFeatures?.Reset();
+        _performanceMonitor?.Reset();
+        _experienceBuffer?.Reset();
         _guideStartTimestamp = GetTimestamp();
+        _hasPreviousError = false;
+        _consecutiveFallbacks = 0;
+        _framesSinceTraining = 0;
+
+        var trainingRng = _experienceBuffer is not null ? new Random(42) : null;
 
         try
         {
@@ -122,6 +204,7 @@ internal sealed class GuideLoop
                 if (result is null)
                 {
                     // Star lost — wait and try again
+                    _hasPreviousError = false;
                     await _external.SleepAsync(exposureInterval, cancellationToken);
                     continue;
                 }
@@ -133,10 +216,53 @@ internal sealed class GuideLoop
                 var timestamp = GetTimestamp();
                 _errorTracker.Add(timestamp, raErrorPx, decErrorPx);
 
-                // Compute correction
-                var correction = ComputeCorrection(
+                // Update outcome of previous experience
+                if (_hasPreviousError && _experienceBuffer is not null)
+                {
+                    _experienceBuffer.UpdateOutcome(raErrorPx, decErrorPx, _lastRaError, _lastDecError);
+                }
+
+                // Compute P-controller correction (always, for shadow comparison and experience recording)
+                var pCorrection = _pController.Compute(_calibration.Value, result.Value.DeltaX, result.Value.DeltaY);
+
+                // Compute actual correction (neural or P-controller)
+                var (correction, usedNeural) = ComputeCorrection(
                     _calibration.Value, result.Value.DeltaX, result.Value.DeltaY,
-                    timestamp, hourAngle);
+                    timestamp, hourAngle, pCorrection);
+
+                // Record experience for online learning
+                if (_experienceBuffer is not null && _neuralFeatures is not null)
+                {
+                    var features = new float[NeuralGuideModel.InputSize];
+                    var (raErr, decErr) = _calibration.Value.TransformToMountAxes(result.Value.DeltaX, result.Value.DeltaY);
+                    _neuralFeatures.Build(raErr, decErr, timestamp,
+                        _errorTracker.RaRmsShort, _errorTracker.DecRmsShort, hourAngle, features);
+
+                    var experience = new OnlineGuideExperience
+                    {
+                        Features = features,
+                        TargetRa = (float)Math.Clamp(pCorrection.RaPulseMs / MaxPulseMs, -1.0, 1.0),
+                        TargetDec = (float)Math.Clamp(pCorrection.DecPulseMs / MaxPulseMs, -1.0, 1.0),
+                        PriorityWeight = 1.0f,
+                        OutcomeKnown = false
+                    };
+                    _experienceBuffer.Add(experience);
+                }
+
+                // Update performance monitor
+                if (usedNeural && _performanceMonitor is not null)
+                {
+                    var actualErrorMag = Math.Sqrt(raErrorPx * raErrorPx + decErrorPx * decErrorPx);
+                    // Estimate P-controller residual: error magnitude after theoretical P correction
+                    var pRaResidual = raErrorPx - pCorrection.RaPulseMs / 1000.0 * _calibration.Value.RaRatePixPerSec;
+                    var pDecResidual = decErrorPx - pCorrection.DecPulseMs / 1000.0 * _calibration.Value.DecRatePixPerSec;
+                    var pResidualMag = Math.Sqrt(pRaResidual * pRaResidual + pDecResidual * pDecResidual);
+                    _performanceMonitor.Record(timestamp, actualErrorMag, pResidualMag);
+                }
+
+                _lastRaError = raErrorPx;
+                _lastDecError = decErrorPx;
+                _hasPreviousError = true;
 
                 // Apply RA correction
                 if (correction.HasRaCorrection)
@@ -161,6 +287,27 @@ internal sealed class GuideLoop
                     _neuralFeatures?.RecordCorrection(timestamp);
                 }
 
+                // Online training step (synchronous, fast: ~16 samples * 418 weights < 1ms)
+                if (_onlineTrainer is not null && _experienceBuffer is not null && trainingRng is not null)
+                {
+                    _framesSinceTraining++;
+                    if (_framesSinceTraining >= OnlineTrainingInterval
+                        && _experienceBuffer.Count >= MinExperiencesBeforeTraining)
+                    {
+                        _onlineTrainer.TrainOnBatch(_experienceBuffer, OnlineBatchSize, trainingRng);
+                        _framesSinceTraining = 0;
+
+                        // Throttled save
+                        if (_profileFolder is not null && _calibration is not null
+                            && timestamp - _lastSaveTimestamp >= SaveIntervalSeconds)
+                        {
+                            await NeuralGuideModelPersistence.SaveAsync(
+                                _neuralModel!, _calibration.Value, _profileFolder, cancellationToken);
+                            _lastSaveTimestamp = timestamp;
+                        }
+                    }
+                }
+
                 // Wait for the remainder of the exposure interval
                 var elapsed = TimeSpan.FromSeconds(GetTimestamp() - frameStart);
                 var remaining = exposureInterval - elapsed;
@@ -172,14 +319,30 @@ internal sealed class GuideLoop
         }
         finally
         {
+            // Final save on shutdown
+            if (_profileFolder is not null && _neuralModel is not null && _calibration is not null)
+            {
+                using var saveCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                try
+                {
+                    await NeuralGuideModelPersistence.SaveAsync(
+                        _neuralModel, _calibration.Value, _profileFolder, saveCts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Best-effort save on shutdown
+                }
+            }
+
             _isGuiding = false;
         }
     }
 
-    private GuideCorrection ComputeCorrection(
+    private (GuideCorrection Correction, bool UsedNeural) ComputeCorrection(
         GuiderCalibrationResult calibration,
         double deltaX, double deltaY,
-        double timestamp, double hourAngle)
+        double timestamp, double hourAngle,
+        GuideCorrection pCorrection)
     {
         if (_useNeuralModel && _neuralModel is not null && _neuralFeatures is not null)
         {
@@ -191,19 +354,35 @@ internal sealed class GuideLoop
                 _errorTracker.RaRmsShort, _errorTracker.DecRmsShort,
                 hourAngle, input);
 
-            var output = _neuralModel.Forward(input);
+            var output = _neuralModel.ForwardWithScratch(input, _hiddenScratch, _outputScratch);
             var raPulseMs = output[0] * MaxPulseMs;
             var decPulseMs = output[1] * MaxPulseMs;
 
-            // Sanity check: if neural output is unreasonable, fall back to P-controller
-            if (Math.Abs(raPulseMs) <= MaxPulseMs && Math.Abs(decPulseMs) <= MaxPulseMs)
+            // Gate 1: bounds check
+            if (Math.Abs(raPulseMs) > MaxPulseMs || Math.Abs(decPulseMs) > MaxPulseMs)
             {
-                return new GuideCorrection(raPulseMs, decPulseMs);
+                _consecutiveFallbacks++;
+                if (_consecutiveFallbacks >= MaxConsecutiveFallbacks)
+                {
+                    DisableNeuralModel();
+                }
+                return (pCorrection, false);
             }
+
+            // Gate 2: performance monitor
+            if (_performanceMonitor is not null && !_performanceMonitor.IsNeuralModelHelping
+                && _errorTracker.ShortWindowCount >= _performanceMonitor.MinSamples)
+            {
+                _consecutiveFallbacks++;
+                return (pCorrection, false);
+            }
+
+            _consecutiveFallbacks = 0;
+            return (new GuideCorrection(raPulseMs, decPulseMs), true);
         }
 
-        // Fallback: P-controller
-        return _pController.Compute(calibration, deltaX, deltaY);
+        // P-controller only
+        return (pCorrection, false);
     }
 
     private double GetTimestamp()

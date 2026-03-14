@@ -1,5 +1,6 @@
 using Shouldly;
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
@@ -111,6 +112,133 @@ public class GuideLoopTests(ITestOutputHelper output)
         // With PE enabled and guiding active, the total RMS should be bounded
         guideLoop.ErrorTracker.TotalSamples.ShouldBeGreaterThan(0u);
         guideLoop.IsGuiding.ShouldBeFalse("loop should have stopped");
+    }
+
+    [Fact]
+    public async Task GivenCalibratedLoopWithOnlineLearningWhenGuidingThenExperienceRecorded()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var device = new FakeDevice(DeviceType.Mount, 1);
+        var mount = new FakeMountDriver(device, external);
+        await mount.ConnectAsync();
+        await mount.SetPositionAsync(12.0, 45.0);
+
+        var initialRa = await mount.GetRightAscensionAsync(ct);
+        var initialDec = await mount.GetDeclinationAsync(ct);
+
+        var tracker = new GuiderCentroidTracker(maxStars: 1);
+
+        async ValueTask<float[,]> RenderFrame(CancellationToken token)
+        {
+            var ra = await mount.GetRightAscensionAsync(token);
+            var dec = await mount.GetDeclinationAsync(token);
+            var deltaRaArcsec = (ra - initialRa) * 15.0 * 3600.0;
+            var deltaDecArcsec = (dec - initialDec) * 3600.0;
+            var offsetX = deltaRaArcsec / PixelScaleArcsec;
+            var offsetY = deltaDecArcsec / PixelScaleArcsec;
+            return SyntheticStarFieldRenderer.Render(320, 240, 0,
+                offsetX: offsetX, offsetY: offsetY,
+                starCount: 5, seed: 42,
+                pixelScaleArcsec: PixelScaleArcsec);
+        }
+
+        // Acquire
+        tracker.ProcessFrame(await RenderFrame(ct));
+
+        // Calibrate
+        var calibration = new GuiderCalibration
+        {
+            CalibrationPulseDuration = TimeSpan.FromSeconds(1),
+            CalibrationSteps = 3
+        };
+        var calResult = await calibration.CalibrateAsync(mount, tracker, RenderFrame, external, ct);
+        calResult.ShouldNotBeNull();
+
+        // Enable PE
+        await mount.SetTrackingAsync(true, ct);
+        mount.PeriodicErrorAmplitudeArcsec = 10.0;
+        mount.PeriodicErrorPeriodSeconds = 480.0;
+
+        // Re-acquire
+        tracker.Reset();
+        tracker.ProcessFrame(await RenderFrame(ct));
+        tracker.SetLockPosition();
+
+        // Set up guide loop with neural model + online learning
+        var pController = new ProportionalGuideController
+        {
+            AggressivenessRa = 0.7,
+            AggressivenessDec = 0.7,
+            MinPulseMs = 20
+        };
+
+        var model = new NeuralGuideModel();
+        model.InitializeRandom(seed: 42);
+
+        // Pre-train with a few offline epochs
+        var offlineTrainer = new NeuralGuideTrainer(model, learningRate: 0.01f);
+        for (var e = 0; e < 10; e++)
+        {
+            offlineTrainer.TrainEpoch(calResult.Value, pController, maxPulseMs: 2000, numSamples: 128, seed: e);
+        }
+
+        var tempDir = Directory.CreateTempSubdirectory("guide_loop_online_test_");
+        try
+        {
+            var guideLoop = new GuideLoop(mount, tracker, pController, external);
+            guideLoop.SetCalibration(calResult.Value);
+            guideLoop.EnableNeuralModel(model);
+            guideLoop.EnableOnlineLearning(onlineLearningRate: 0.0001f, profileFolder: tempDir);
+            guideLoop.OnlineTrainingInterval = 10; // train more frequently for test
+            guideLoop.MinExperiencesBeforeTraining = 15;
+
+            guideLoop.IsOnlineLearningEnabled.ShouldBeTrue();
+
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            var iterationCount = 0;
+
+            async ValueTask<float[,]> RenderAndCount(CancellationToken token)
+            {
+                if (++iterationCount >= 60)
+                {
+                    await cts.CancelAsync();
+                }
+                return await RenderFrame(token);
+            }
+
+            try
+            {
+                await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(2), hourAngle: 0, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected
+            }
+
+            output.WriteLine($"Guide iterations: {iterationCount}");
+            output.WriteLine($"Total samples: {guideLoop.ErrorTracker.TotalSamples}");
+            output.WriteLine($"RA RMS: {guideLoop.ErrorTracker.RaRmsAll:F3} px");
+            output.WriteLine($"Dec RMS: {guideLoop.ErrorTracker.DecRmsAll:F3} px");
+
+            if (guideLoop.PerformanceMonitor is not null)
+            {
+                output.WriteLine($"Neural RMS: {guideLoop.PerformanceMonitor.NeuralRms:F3}");
+                output.WriteLine($"P-controller RMS: {guideLoop.PerformanceMonitor.PControllerRms:F3}");
+                output.WriteLine($"Neural helping: {guideLoop.PerformanceMonitor.IsNeuralModelHelping}");
+            }
+
+            guideLoop.ErrorTracker.TotalSamples.ShouldBeGreaterThan(0u);
+            guideLoop.IsGuiding.ShouldBeFalse("loop should have stopped");
+
+            // Verify model was saved
+            var savedFiles = new DirectoryInfo(Path.Combine(tempDir.FullName, "NeuralGuider")).GetFiles("*.ngm");
+            savedFiles.Length.ShouldBeGreaterThan(0, "model weights should have been saved");
+        }
+        finally
+        {
+            try { tempDir.Delete(true); } catch { /* best effort */ }
+        }
     }
 
     [Fact]

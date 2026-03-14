@@ -137,6 +137,34 @@ internal sealed class NeuralGuideModel
     }
 
     /// <summary>
+    /// Runs forward inference with caller-provided scratch buffers.
+    /// Thread-safe: does not use any mutable instance state beyond the weight arrays.
+    /// </summary>
+    /// <param name="input">Input feature vector of length <see cref="InputSize"/>.</param>
+    /// <param name="hiddenScratch">Scratch buffer of length <see cref="HiddenSize"/>.</param>
+    /// <param name="outputScratch">Scratch buffer of length <see cref="OutputSize"/>.</param>
+    /// <returns>Output span (the outputScratch buffer, filled with results).</returns>
+    public ReadOnlySpan<float> ForwardWithScratch(ReadOnlySpan<float> input, Span<float> hiddenScratch, Span<float> outputScratch)
+    {
+        if (input.Length != InputSize)
+        {
+            throw new ArgumentException($"Expected {InputSize} inputs, got {input.Length}");
+        }
+
+        // Layer 1: hidden = ReLU(W1 @ input + b1)
+        MatVecAdd(_w1, input, _b1, hiddenScratch, HiddenSize, InputSize);
+        ReLUInPlace(hiddenScratch);
+
+        // Layer 2: output = W2 @ hidden + b2
+        MatVecAdd(_w2, hiddenScratch, _b2, outputScratch, OutputSize, HiddenSize);
+
+        // Clamp output to [-1, 1]
+        TanhClampInPlace(outputScratch);
+
+        return outputScratch;
+    }
+
+    /// <summary>
     /// Performs output = W @ x + b using TensorPrimitives for the dot products.
     /// W is stored row-major with dimensions [rows × cols].
     /// </summary>
