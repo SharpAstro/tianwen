@@ -188,7 +188,7 @@ internal sealed class GuideLoop
         double siteLatitude,
         CancellationToken cancellationToken)
     {
-        if (_calibration is null)
+        if (_calibration is not { } calibration)
         {
             throw new InvalidOperationException("Cannot start guiding without calibration.");
         }
@@ -227,7 +227,7 @@ internal sealed class GuideLoop
                 }
 
                 // Transform pixel error to mount axes
-                var (raErrorPx, decErrorPx) = _calibration.Value.TransformToMountAxes(
+                var (raErrorPx, decErrorPx) = calibration.TransformToMountAxes(
                     result.Value.DeltaX, result.Value.DeltaY);
 
                 var timestamp = GetTimestamp();
@@ -240,18 +240,18 @@ internal sealed class GuideLoop
                 }
 
                 // Compute P-controller correction (always, for shadow comparison and experience recording)
-                var pCorrection = _pController.Compute(_calibration.Value, result.Value.DeltaX, result.Value.DeltaY);
+                var pCorrection = _pController.Compute(calibration, result.Value.DeltaX, result.Value.DeltaY);
 
                 // Compute actual correction (neural or P-controller)
                 var (correction, usedNeural) = ComputeCorrection(
-                    _calibration.Value, result.Value.DeltaX, result.Value.DeltaY,
+                    calibration, result.Value.DeltaX, result.Value.DeltaY,
                     timestamp, hourAngle, declination, pCorrection);
 
                 // Record experience for online learning
                 if (_experienceBuffer is not null && _neuralFeatures is not null)
                 {
                     var features = new float[NeuralGuideModel.InputSize];
-                    var (raErr, decErr) = _calibration.Value.TransformToMountAxes(result.Value.DeltaX, result.Value.DeltaY);
+                    var (raErr, decErr) = calibration.TransformToMountAxes(result.Value.DeltaX, result.Value.DeltaY);
                     _neuralFeatures.Build(raErr, decErr, timestamp,
                         _errorTracker.RaRmsShort, _errorTracker.DecRmsShort, hourAngle, declination, features);
 
@@ -271,8 +271,8 @@ internal sealed class GuideLoop
                 {
                     var actualErrorMag = Math.Sqrt(raErrorPx * raErrorPx + decErrorPx * decErrorPx);
                     // Estimate P-controller residual: error magnitude after theoretical P correction
-                    var pRaResidual = raErrorPx - pCorrection.RaPulseMs / 1000.0 * _calibration.Value.RaRatePixPerSec;
-                    var pDecResidual = decErrorPx - pCorrection.DecPulseMs / 1000.0 * _calibration.Value.DecRatePixPerSec;
+                    var pRaResidual = raErrorPx - pCorrection.RaPulseMs / 1000.0 * calibration.RaRatePixPerSec;
+                    var pDecResidual = decErrorPx - pCorrection.DecPulseMs / 1000.0 * calibration.DecRatePixPerSec;
                     var pResidualMag = Math.Sqrt(pRaResidual * pRaResidual + pDecResidual * pDecResidual);
                     _performanceMonitor.Record(timestamp, actualErrorMag, pResidualMag);
                 }
@@ -319,7 +319,7 @@ internal sealed class GuideLoop
                             && timestamp - _lastSaveTimestamp >= SaveIntervalSeconds)
                         {
                             await NeuralGuideModelPersistence.SaveAsync(
-                                _neuralModel!, _calibration.Value, _profileFolder, cancellationToken);
+                                _neuralModel!, calibration, _profileFolder, cancellationToken);
                             _lastSaveTimestamp = timestamp;
                         }
                     }
@@ -343,7 +343,7 @@ internal sealed class GuideLoop
                 try
                 {
                     await NeuralGuideModelPersistence.SaveAsync(
-                        _neuralModel, _calibration.Value, _profileFolder, saveCts.Token);
+                        _neuralModel, calibration, _profileFolder, saveCts.Token);
                 }
                 catch (OperationCanceledException)
                 {
