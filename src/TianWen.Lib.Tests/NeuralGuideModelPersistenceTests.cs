@@ -100,6 +100,13 @@ public class NeuralGuideModelPersistenceTests : IDisposable
         var cal1 = MakeCalibration();
         await NeuralGuideModelPersistence.SaveAsync(model1, cal1, _tempDir, ct);
 
+        // Backdate all existing files so the second save is unambiguously newer
+        var ngDir = new DirectoryInfo(Path.Combine(_tempDir.FullName, "NeuralGuider"));
+        foreach (var f in ngDir.GetFiles("*.ngm"))
+        {
+            f.LastWriteTimeUtc = DateTime.UtcNow.AddMinutes(-10);
+        }
+
         // Save again with different weights
         var model2 = new NeuralGuideModel();
         model2.InitializeRandom(seed: 99);
