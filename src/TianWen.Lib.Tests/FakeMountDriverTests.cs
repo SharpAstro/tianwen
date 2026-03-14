@@ -391,4 +391,165 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         }
         return (maxX, maxY, maxVal);
     }
+
+    // --- Wind gust tests ---
+
+    [Fact]
+    public async Task GivenWindGustsWhenTrackingThenPositionFluctuates()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, external) = CreateMount();
+        await mount.ConnectAsync(ct);
+
+        mount.WindGustAmplitudeArcsec = 3.0;
+        mount.WindGustDecayTimeSeconds = 5.0;
+        mount.WindGustSeed = 42;
+        await mount.SetPositionAsync(12.0, 45.0, ct);
+        await mount.SetTrackingAsync(true, ct);
+
+        var raErrors = new double[20];
+        var decErrors = new double[20];
+        for (var i = 0; i < 20; i++)
+        {
+            await external.SleepAsync(TimeSpan.FromSeconds(2), ct);
+            raErrors[i] = await mount.GetTrackingErrorRaArcsecAsync(ct);
+            decErrors[i] = await mount.GetTrackingErrorDecArcsecAsync(ct);
+        }
+
+        // Compute variance — should be non-zero (wind is active)
+        var raVariance = Variance(raErrors);
+        var decVariance = Variance(decErrors);
+        output.WriteLine($"RA wind variance: {raVariance:F4}, Dec wind variance: {decVariance:F4}");
+
+        raVariance.ShouldBeGreaterThan(0.01, "wind should cause RA fluctuations");
+        decVariance.ShouldBeGreaterThan(0.01, "wind should cause Dec fluctuations");
+
+        // Amplitude should be bounded (OU process is mean-reverting)
+        foreach (var err in raErrors)
+        {
+            Math.Abs(err).ShouldBeLessThan(30.0, "RA wind error should be bounded");
+        }
+    }
+
+    [Fact]
+    public async Task GivenWindGustsWithSameSeedThenDeterministic()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var now = new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero);
+        var external1 = new FakeExternal(output, now: now);
+        var mount1 = new FakeMountDriver(new FakeDevice(DeviceType.Mount, 1), external1);
+        await mount1.ConnectAsync(ct);
+        mount1.WindGustAmplitudeArcsec = 3.0;
+        mount1.WindGustSeed = 77;
+        await mount1.SetPositionAsync(12.0, 45.0, ct);
+        await mount1.SetTrackingAsync(true, ct);
+
+        var external2 = new FakeExternal(output, now: now);
+        var mount2 = new FakeMountDriver(new FakeDevice(DeviceType.Mount, 2), external2);
+        await mount2.ConnectAsync(ct);
+        mount2.WindGustAmplitudeArcsec = 3.0;
+        mount2.WindGustSeed = 77;
+        await mount2.SetPositionAsync(12.0, 45.0, ct);
+        await mount2.SetTrackingAsync(true, ct);
+
+        for (var i = 0; i < 10; i++)
+        {
+            await external1.SleepAsync(TimeSpan.FromSeconds(2), ct);
+            await external2.SleepAsync(TimeSpan.FromSeconds(2), ct);
+
+            var ra1 = await mount1.GetTrackingErrorRaArcsecAsync(ct);
+            var ra2 = await mount2.GetTrackingErrorRaArcsecAsync(ct);
+            ra1.ShouldBe(ra2, 1e-10, $"RA error should be identical at step {i}");
+
+            var dec1 = await mount1.GetTrackingErrorDecArcsecAsync(ct);
+            var dec2 = await mount2.GetTrackingErrorDecArcsecAsync(ct);
+            dec1.ShouldBe(dec2, 1e-10, $"Dec error should be identical at step {i}");
+        }
+    }
+
+    // --- Cable snag tests ---
+
+    [Fact]
+    public async Task GivenCableSnagWhenTimeReachedThenStepApplied()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, external) = CreateMount();
+        await mount.ConnectAsync(ct);
+
+        mount.CableSnagTimeSeconds = 30.0;
+        mount.CableSnagAmplitudeRaArcsec = 10.0;
+        mount.CableSnagAmplitudeDecArcsec = -5.0;
+        await mount.SetPositionAsync(12.0, 45.0, ct);
+        await mount.SetTrackingAsync(true, ct);
+
+        // Before snag time
+        await external.SleepAsync(TimeSpan.FromSeconds(20), ct);
+        var raBefore = await mount.GetRightAscensionAsync(ct);
+        var decBefore = await mount.GetDeclinationAsync(ct);
+
+        // After snag time
+        await external.SleepAsync(TimeSpan.FromSeconds(15), ct); // total = 35s, past 30s snag
+        var raAfter = await mount.GetRightAscensionAsync(ct);
+        var decAfter = await mount.GetDeclinationAsync(ct);
+
+        // Verify step was applied (RA increased by ~10", Dec decreased by ~5")
+        // Account for sidereal tracking in RA
+        var decDeltaArcsec = (decAfter - decBefore) * 3600.0;
+        output.WriteLine($"Dec delta across snag: {decDeltaArcsec:F2} arcsec");
+        decDeltaArcsec.ShouldBe(-5.0 / 3600.0 * 3600.0, 1.0);
+    }
+
+    [Fact]
+    public async Task GivenCableSnagWhenTimeNotReachedThenNoEffect()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, external) = CreateMount();
+        await mount.ConnectAsync(ct);
+
+        mount.CableSnagTimeSeconds = 60.0;
+        mount.CableSnagAmplitudeRaArcsec = 20.0;
+        mount.CableSnagAmplitudeDecArcsec = 20.0;
+        await mount.SetPositionAsync(12.0, 45.0, ct);
+        await mount.SetTrackingAsync(true, ct);
+
+        // Only advance 30s — snag at 60s should not fire
+        await external.SleepAsync(TimeSpan.FromSeconds(30), ct);
+
+        (await mount.GetTrackingErrorRaArcsecAsync(ct)).ShouldBe(0.0, 0.01);
+        (await mount.GetTrackingErrorDecArcsecAsync(ct)).ShouldBe(0.0, 0.01);
+    }
+
+    // --- Flexure drift tests ---
+
+    [Fact]
+    public async Task GivenFlexureDriftWhenTrackingThenDecDriftsWithHA()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, external) = CreateMount();
+        await mount.ConnectAsync(ct);
+
+        mount.FlexureDriftRateDecArcsecPerHaHour = 2.0; // 2"/HA-hour
+        await mount.SetPositionAsync(12.0, 45.0, ct);
+        await mount.SetTrackingAsync(true, ct);
+
+        // Advance 1 hour (3600 seconds)
+        await external.SleepAsync(TimeSpan.FromHours(1), ct);
+
+        var flexureError = await mount.GetTrackingErrorDecArcsecAsync(ct);
+        output.WriteLine($"Flexure Dec error after 1h: {flexureError:F4} arcsec");
+
+        // Sidereal rate = 24h/86164s, so in 3600s: haHours = 3600 * 24/86164 ≈ 1.0027
+        // Expected flexure = 2.0 * 1.0027 ≈ 2.005"
+        flexureError.ShouldBe(2.005, 0.1);
+    }
+
+    private static double Variance(double[] values)
+    {
+        var mean = 0.0;
+        foreach (var v in values) mean += v;
+        mean /= values.Length;
+        var sumSq = 0.0;
+        foreach (var v in values) sumSq += (v - mean) * (v - mean);
+        return sumSq / values.Length;
+    }
 }

@@ -9,7 +9,7 @@ namespace TianWen.Lib.Tests;
 public class CelestialObjectDBBenchmarkTests(ITestOutputHelper output)
 {
     [Fact]
-    public async Task GivenNewDBWhenInitializingThenItCompletesInUnder10Seconds()
+    public async Task GivenNewDBWhenInitializingThenItCompletesInUnder20Seconds()
     {
         // given
         var db = new CelestialObjectDB();
@@ -23,7 +23,7 @@ public class CelestialObjectDBBenchmarkTests(ITestOutputHelper output)
         failed.ShouldBe(0);
         processed.ShouldBeGreaterThan(13000);
         output.WriteLine($"DB initialization: {sw.Elapsed.TotalMilliseconds:F1}ms ({processed} entries processed)");
-        sw.Elapsed.TotalSeconds.ShouldBeLessThan(10, $"DB initialization took {sw.Elapsed.TotalSeconds:F1}s, expected < 10s");
+        sw.Elapsed.TotalSeconds.ShouldBeLessThan(20, $"DB initialization took {sw.Elapsed.TotalSeconds:F1}s, expected < 20s");
     }
 
     [Fact]

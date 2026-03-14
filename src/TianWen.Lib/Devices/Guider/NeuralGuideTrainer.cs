@@ -85,7 +85,7 @@ internal sealed class NeuralGuideTrainer
         // Clear gradient accumulators
         ClearGradients();
 
-        var features = new NeuralGuideFeatures();
+        var features = new NeuralGuideFeatures(siteLatitude: 45.0);
         Span<float> inputBuffer = stackalloc float[NeuralGuideModel.InputSize];
 
         for (var s = 0; s < numSamples; s++)
@@ -98,12 +98,12 @@ internal sealed class NeuralGuideTrainer
             var raRms = 0.2 + rng.NextDouble() * 1.5;
             var decRms = 0.1 + rng.NextDouble() * 1.0;
             var hourAngle = (rng.NextDouble() - 0.5) * 24.0;
-            var timeSinceCorrection = rng.NextDouble() * 10.0;
+            var declination = (rng.NextDouble() - 0.5) * 120.0; // ±60°
 
-            // Build features
+            // Build features (2 frames of history per sample)
             features.Reset();
-            features.Build(prevRaError, prevDecError, 0, raRms, decRms, hourAngle, inputBuffer);
-            features.Build(raError, decError, 2.0, raRms, decRms, hourAngle, inputBuffer);
+            features.Build(prevRaError, prevDecError, 0, raRms, decRms, hourAngle, declination, inputBuffer);
+            features.Build(raError, decError, 2.0, raRms, decRms, hourAngle, declination, inputBuffer);
 
             // Compute teacher target
             var correction = pController.Compute(calibration, raError, decError);

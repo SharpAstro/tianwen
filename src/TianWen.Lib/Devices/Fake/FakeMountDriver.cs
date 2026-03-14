@@ -96,9 +96,58 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
     /// </summary>
     public double ConeErrorArcsec { get; set; }
 
+    /// <summary>
+    /// Wind gust amplitude in arcseconds (Ornstein-Uhlenbeck stationary std dev).
+    /// 0 = disabled. Typical: 1–5 arcsec for moderate wind.
+    /// </summary>
+    public double WindGustAmplitudeArcsec { get; set; }
+
+    /// <summary>
+    /// Wind gust decay time constant (tau) in seconds.
+    /// Controls how quickly gusts die out. Typical: 3–10 seconds.
+    /// </summary>
+    public double WindGustDecayTimeSeconds { get; set; } = 5.0;
+
+    /// <summary>
+    /// Random seed for wind gust simulation. Same seed = deterministic output.
+    /// </summary>
+    public int WindGustSeed { get; set; } = 42;
+
+    /// <summary>
+    /// Time (seconds after tracking starts) at which a cable snag impulse occurs.
+    /// 0 = disabled.
+    /// </summary>
+    public double CableSnagTimeSeconds { get; set; }
+
+    /// <summary>
+    /// Cable snag impulse amplitude in RA (arcseconds).
+    /// </summary>
+    public double CableSnagAmplitudeRaArcsec { get; set; }
+
+    /// <summary>
+    /// Cable snag impulse amplitude in Dec (arcseconds).
+    /// </summary>
+    public double CableSnagAmplitudeDecArcsec { get; set; }
+
+    /// <summary>
+    /// Flexure drift rate in Dec arcseconds per hour of HA change.
+    /// Simulates differential flexure as the telescope tracks across the sky.
+    /// 0 = disabled.
+    /// </summary>
+    public double FlexureDriftRateDecArcsecPerHaHour { get; set; }
+
     // Backlash tracking
     private int _lastDecDirection; // +1 = north, -1 = south, 0 = none
     private double _backlashRemaining; // arcsec of backlash still to be consumed
+
+    // Wind gust state (Ornstein-Uhlenbeck process)
+    private double _windStateRa;
+    private double _windStateDec;
+    private Random? _windRng;
+    private long _windLastUpdateTicks;
+
+    // Cable snag state
+    private bool _cableSnagApplied;
 
     // --- Accumulated tracking error from PE and polar drift ---
     // These accumulate over time and represent the "true" position error
@@ -106,6 +155,9 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
     private double _accumulatedPeRaArcsec; // accumulated PE in RA
     private double _accumulatedPolarDriftDecArcsec; // accumulated polar drift in Dec
     private double _accumulatedPolarDriftRaArcsec; // accumulated polar drift in RA
+    private double _accumulatedWindRaArcsec; // accumulated wind gust in RA
+    private double _accumulatedWindDecArcsec; // accumulated wind gust in Dec
+    private double _accumulatedFlexureDecArcsec; // accumulated flexure drift in Dec
 
     /// <summary>
     /// Gets the current accumulated tracking error in RA (arcseconds).
@@ -116,19 +168,19 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
     {
         using var @lock = await _sem.AcquireLockAsync(cancellationToken);
         UpdateTrackingState();
-        return _accumulatedPeRaArcsec + _accumulatedPolarDriftRaArcsec;
+        return _accumulatedPeRaArcsec + _accumulatedPolarDriftRaArcsec + _accumulatedWindRaArcsec;
     }
 
     /// <summary>
     /// Gets the current accumulated tracking error in Dec (arcseconds).
-    /// Includes polar drift Dec component.
+    /// Includes polar drift Dec component, wind gusts, and flexure drift.
     /// Positive = north of nominal.
     /// </summary>
     public async ValueTask<double> GetTrackingErrorDecArcsecAsync(CancellationToken cancellationToken = default)
     {
         using var @lock = await _sem.AcquireLockAsync(cancellationToken);
         UpdateTrackingState();
-        return _accumulatedPolarDriftDecArcsec;
+        return _accumulatedPolarDriftDecArcsec + _accumulatedWindDecArcsec + _accumulatedFlexureDecArcsec;
     }
 
     // --- IMountDriver implementation ---
@@ -549,11 +601,23 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
         _accumulatedPeRaArcsec = 0;
         _accumulatedPolarDriftDecArcsec = 0;
         _accumulatedPolarDriftRaArcsec = 0;
+        _accumulatedWindRaArcsec = 0;
+        _accumulatedWindDecArcsec = 0;
+        _accumulatedFlexureDecArcsec = 0;
         _backlashRemaining = 0;
         _lastDecDirection = 0;
         _accumulatedRaHours = 0;
         _accumulatedDecDegrees = 0;
         _trackingCheckpointTicks = External.TimeProvider.GetTimestamp();
+
+        // Reset wind OU state and RNG
+        _windStateRa = 0;
+        _windStateDec = 0;
+        _windRng = WindGustAmplitudeArcsec > 0 ? new Random(WindGustSeed) : null;
+        _windLastUpdateTicks = _trackingCheckpointTicks;
+
+        // Reset cable snag
+        _cableSnagApplied = false;
     }
 
     /// <summary>
@@ -570,6 +634,9 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
         _accumulatedPeRaArcsec = 0;
         _accumulatedPolarDriftDecArcsec = 0;
         _accumulatedPolarDriftRaArcsec = 0;
+        _accumulatedWindRaArcsec = 0;
+        _accumulatedWindDecArcsec = 0;
+        _accumulatedFlexureDecArcsec = 0;
         _trackingCheckpointTicks = External.TimeProvider.GetTimestamp();
     }
 
@@ -612,6 +679,52 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
             _accumulatedPolarDriftRaArcsec = PolarDriftRateRaArcsecPerSec * elapsedSeconds;
             _accumulatedRaHours += _accumulatedPolarDriftRaArcsec / (ARCSEC_PER_DEGREE * HOURS2DEG);
         }
+
+        // 5. Wind gusts (Ornstein-Uhlenbeck process)
+        if (WindGustAmplitudeArcsec > 0 && _windRng is not null)
+        {
+            var windDt = (double)(currentTicks - _windLastUpdateTicks) / External.TimeProvider.TimestampFrequency;
+            if (windDt > 0)
+            {
+                var tau = WindGustDecayTimeSeconds;
+                var decay = Math.Exp(-windDt / tau);
+                // sigma_OU such that stationary variance = amplitude²
+                var diffusion = WindGustAmplitudeArcsec * Math.Sqrt(1.0 - decay * decay);
+                _windStateRa = _windStateRa * decay + diffusion * NextGaussian(_windRng);
+                _windStateDec = _windStateDec * decay + diffusion * NextGaussian(_windRng);
+                _windLastUpdateTicks = currentTicks;
+            }
+            _accumulatedWindRaArcsec = _windStateRa;
+            _accumulatedWindDecArcsec = _windStateDec;
+            _accumulatedRaHours += _accumulatedWindRaArcsec / (ARCSEC_PER_DEGREE * HOURS2DEG);
+            _accumulatedDecDegrees += _accumulatedWindDecArcsec / ARCSEC_PER_DEGREE;
+        }
+
+        // 6. Cable snag (step impulse at a specific time)
+        if (CableSnagTimeSeconds > 0 && elapsedSeconds >= CableSnagTimeSeconds && !_cableSnagApplied)
+        {
+            _accumulatedRaHours += CableSnagAmplitudeRaArcsec / (ARCSEC_PER_DEGREE * HOURS2DEG);
+            _accumulatedDecDegrees += CableSnagAmplitudeDecArcsec / ARCSEC_PER_DEGREE;
+            _cableSnagApplied = true;
+        }
+
+        // 7. Flexure drift (Dec drift proportional to HA elapsed)
+        if (FlexureDriftRateDecArcsecPerHaHour != 0)
+        {
+            var haHours = elapsedSeconds * SIDEREAL_RATE_HOURS_PER_SECOND;
+            _accumulatedFlexureDecArcsec = FlexureDriftRateDecArcsecPerHaHour * haHours;
+            _accumulatedDecDegrees += _accumulatedFlexureDecArcsec / ARCSEC_PER_DEGREE;
+        }
+    }
+
+    /// <summary>
+    /// Box-Muller transform for generating standard normal random variates.
+    /// </summary>
+    private static double NextGaussian(Random rng)
+    {
+        var u1 = rng.NextDouble();
+        var u2 = rng.NextDouble();
+        return Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2);
     }
 
     private static double ConditionRA(double ra)
