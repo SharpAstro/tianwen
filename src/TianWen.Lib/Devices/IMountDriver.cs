@@ -310,6 +310,17 @@ public interface IMountDriver : IDeviceDriver
     ValueTask<double> GetDeclinationAsync(CancellationToken cancellationToken);
 
     /// <summary>
+    /// Gets the raw encoder position for the specified axis, if supported by the mount.
+    /// Encoder ticks are hardware-specific integers; useful for training ML models
+    /// that need repeatable mechanical state rather than computed sky coordinates.
+    /// </summary>
+    /// <param name="axis">Which mechanical axis to query.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Encoder position in ticks, or null if the mount does not expose encoder data.</returns>
+    ValueTask<int?> GetAxisPositionAsync(TelescopeAxis axis, CancellationToken cancellationToken)
+        => ValueTask.FromResult<int?>(null);
+
+    /// <summary>
     /// Gets the right ascension (hours) of the telescope's intended right ascension, in the coordinate system given by the <see cref="EquatorialSystem"/> property.
     /// </summary>
     ValueTask<double> GetTargetRightAscensionAsync(CancellationToken cancellationToken);

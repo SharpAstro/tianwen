@@ -219,6 +219,22 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
         return Math.Clamp(_dec + _accumulatedDecDegrees, -90, 90);
     }
 
+    // --- Encoder simulation ---
+    // Simulates encoder ticks: 360° = EncoderTicksPerRevolution ticks
+    private const int EncoderTicksPerRevolution = 11_520_000; // typical high-res encoder
+
+    public async ValueTask<int?> GetAxisPositionAsync(TelescopeAxis axis, CancellationToken cancellationToken)
+    {
+        using var @lock = await _sem.AcquireLockAsync(cancellationToken);
+        UpdateTrackingState();
+        return axis switch
+        {
+            TelescopeAxis.Primary => (int)(ConditionRA(_ra + _accumulatedRaHours) / 24.0 * EncoderTicksPerRevolution),
+            TelescopeAxis.Seconary => (int)((_dec + _accumulatedDecDegrees + 90.0) / 360.0 * EncoderTicksPerRevolution),
+            _ => null
+        };
+    }
+
     public async ValueTask<double> GetTargetRightAscensionAsync(CancellationToken cancellationToken)
     {
         using var @lock = await _sem.AcquireLockAsync(cancellationToken);
