@@ -31,19 +31,30 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 
     private IDeviceDriver CreateMountDriver(IExternal external)
     {
-        // If port=LX200 is specified, use the full serial protocol stack.
-        // Otherwise use the lightweight direct driver.
-        if (string.Equals(Query.QueryValue(DeviceQueryKey.Port), "LX200", StringComparison.OrdinalIgnoreCase))
+        var port = Query.QueryValue(DeviceQueryKey.Port);
+
+        // If port=LX200 is specified, use the full Meade serial protocol stack.
+        if (string.Equals(port, "LX200", StringComparison.OrdinalIgnoreCase))
         {
             return new FakeMeadeLX200ProtocolMountDriver(this, external);
         }
 
+        // If port=SGP is specified, use the iOptron SkyGuider Pro serial protocol stack.
+        if (string.Equals(port, "SGP", StringComparison.OrdinalIgnoreCase))
+        {
+            return new FakeSgpMountDriver(this, external);
+        }
+
+        // Otherwise use the lightweight direct driver.
         return new FakeMountDriver(this, external);
     }
 
     public override ISerialConnection? ConnectSerialDevice(IExternal external, int baud = 9600, Encoding? encoding = null) => DeviceType switch
     {
-        DeviceType.Mount => new FakeMeadeLX200SerialDevice(external.AppLogger, encoding ?? Encoding.Latin1, external.TimeProvider, SiteLatitude, SiteLongitude, true),
+        DeviceType.Mount when string.Equals(Query.QueryValue(DeviceQueryKey.Port), "SGP", StringComparison.OrdinalIgnoreCase)
+            => new FakeSgpSerialDevice(external.AppLogger, encoding ?? Encoding.ASCII, external.TimeProvider, SiteLatitude >= 0, true),
+        DeviceType.Mount
+            => new FakeMeadeLX200SerialDevice(external.AppLogger, encoding ?? Encoding.Latin1, external.TimeProvider, SiteLatitude, SiteLongitude, true),
         _ => null
     };
 

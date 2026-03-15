@@ -39,6 +39,11 @@ public interface IMountDriver : IDeviceDriver
     bool CanMoveAxis(TelescopeAxis axis);
 
     /// <summary>
+    /// Whether the mount supports triggering a camera shutter release port.
+    /// </summary>
+    bool CanCameraSnap => false;
+
+    /// <summary>
     /// Determine the rates at which the telescope may be moved about the specified axis by the <see cref="MoveAxisAsync(TelescopeAxis, double, CancellationToken)"> method.
     /// </summary>
     /// <param name="axis"></param>
@@ -519,6 +524,18 @@ public interface IMountDriver : IDeviceDriver
         return !isStillSlewing;
     }
 
+    /// <summary>
+    /// Triggers the mount's built-in camera shutter release port.
+    /// </summary>
+    ValueTask CameraSnapAsync(CameraSnapSettings settings, CancellationToken cancellationToken)
+        => throw new NotSupportedException("Camera snap not supported by this mount");
+
+    /// <summary>
+    /// Gets the current camera snap settings from the mount.
+    /// </summary>
+    ValueTask<CameraSnapSettings?> GetCameraSnapSettingsAsync(CancellationToken cancellationToken)
+        => ValueTask.FromResult<CameraSnapSettings?>(null);
+
     public async ValueTask<bool> EnsureTrackingAsync(TrackingSpeed speed = TrackingSpeed.Sidereal, CancellationToken cancellationToken = default)
     {
         if (speed is TrackingSpeed.None)
@@ -593,3 +610,5 @@ public enum TelescopeAxis
     Seconary = 1,
     Tertiary = 2
 }
+
+public record struct CameraSnapSettings(TimeSpan ShutterTime, TimeSpan Interval, int ShotCount);
