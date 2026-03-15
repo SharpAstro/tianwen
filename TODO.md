@@ -191,7 +191,10 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 ## Protocol Support
 
 - [ ] GSS ServoCAT / SiTech protocol support + simulator
-- [ ] SGP (Sequence Generator Pro) ASCOM mount driver — needs a fake like LX200; special handling for RA-only axis mounts
+- [x] iOptron SkyGuider Pro (SGP) mount driver — `SgpMountDriverBase<T>` with custom serial protocol at 28800 baud, RA-only axis, pulse guiding via timed move, CameraSnap support, `FakeSgpSerialDevice` for testing
+- [ ] iOptron SkyGuider Pro: investigate patching the SGP handbox firmware (STM32F103, same as iOptron SmartEQ) to support the standard iOptron serial protocol, enabling features like position reporting and goto
+- [ ] iOptron SkyGuider Pro: device identity — no UUID mechanism available (firmware has no user string storage, doesn't read STM32 hardware UID); falls back to firmware version + port name
+- [ ] Generic iOptron serial protocol support (SmartEQ, CEM series) — same 28800 baud, similar command set but with position feedback
 
 ## Vulkan Migration / HDR Display Output
 
