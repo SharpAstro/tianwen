@@ -276,7 +276,9 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         {
             CalibrationPulseDuration = TimeSpan.FromSeconds(1),
             CalibrationSteps = 3,
-            BacklashClearingSteps = 2
+            BacklashClearingEnabled = true,
+            MaxBacklashClearingSteps = 10,
+            BacklashMovementThresholdPx = 1.5
         };
 
         return await calibration.CalibrateAsync(pulseTarget, tracker, CaptureFrame, External, ct);

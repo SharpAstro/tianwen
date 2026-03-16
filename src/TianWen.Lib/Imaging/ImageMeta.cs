@@ -23,4 +23,14 @@ public record struct ImageMeta(
     float Latitude,
     float Longitude,
     string ObjectName = ""
-);
+)
+{
+    /// <summary>
+    /// Pixel scale in arcsec/pixel, derived from pixel size and focal length.
+    /// Returns NaN if either value is unavailable.
+    /// </summary>
+    public readonly double DerivedPixelScale =>
+        FocalLength > 0 && PixelSizeX > 0
+            ? PixelSizeX / FocalLength * 206.265
+            : double.NaN;
+}

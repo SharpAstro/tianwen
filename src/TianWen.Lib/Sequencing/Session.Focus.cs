@@ -52,7 +52,7 @@ internal partial record Session
             return false;
         }
 
-        var count = Setup.Telescopes.Count;
+        var count = Setup.Telescopes.Length;
         var origGain = new short[count];
         for (var i = 0; i < count; i++)
         {
@@ -140,7 +140,7 @@ internal partial record Session
     /// </summary>
     internal async ValueTask<bool> AutoFocusAllTelescopesAsync(CancellationToken cancellationToken)
     {
-        var scopes = Setup.Telescopes.Count;
+        var scopes = Setup.Telescopes.Length;
         var baselines = new FrameMetrics[scopes];
         var allConverged = true;
 
@@ -180,7 +180,7 @@ internal partial record Session
     private void AccumulateBaselineSample(int telescopeIndex, FrameMetrics metrics)
     {
         var obsIndex = ActiveObservationIndex;
-        var scopes = Setup.Telescopes.Count;
+        var scopes = Setup.Telescopes.Length;
         var samples = _baselineSamples.GetOrAdd(obsIndex, _ =>
         {
             var arr = new List<FrameMetrics>[scopes];

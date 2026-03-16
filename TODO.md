@@ -21,6 +21,7 @@
 - [x] **SessionConfiguration.DefaultSubExposure** — new optional field for scheduler default resolution
 - [x] **ISession/ISessionFactory updated** — `PlannedObservations` → `Observations` (tree), `Observation` → `ScheduledObservation` throughout
 - [x] **Tests**: 18 tests in `ObservationSchedulerTests` covering scoring, scheduling, priority ordering, spare target attachment, gain/offset resolution, night window calculation (Vienna summer, Melbourne winter, Germany winter solstice, Dublin summer solstice, Tromsø polar night), and full schedule-with-calculated-window integration
+- [X] Unify scoring into a single path (remove one-Fast variant)
 
 ### Not Yet Done
 
@@ -31,10 +32,12 @@
 - [ ] Filter support in ProposedObservation — per-target filter sequences (L, R, G, B, Ha, etc.)
 - [ ] Mosaic panel support — schedule multiple pointings for a single target as linked observations
 - [ ] Scoring: calculate how large the object is in pixels on the sensor (normalizes across different telescopes)
-- [ ] Unify scoring into a single path (remove one-Fast variant)
 - [ ] Scheduler UI/CLI integration — expose `ProposedObservation` input and `ScheduledObservationTree` output in CLI and future UI
 - [ ] Generalise `TonightsBest` to accept an arbitrary LST / `DateTimeOffset` (not just current UTC)
 - [ ] Persistent observation database — save/load proposals and completed exposure history
+- [ ] Use custom TIFF instead of Magicks for both reading and writing (both the tiling and striping one)
+- [ ] Use custom PNG (we have reading but will need writing too, thumbnails)
+- [ ] Support arbitrary image formats for loading and saving using Magick.NET for all the other formats
 
 ## Session Test Plan Progress (PLAN-SessionTests.md phases)
 
@@ -43,9 +46,9 @@
 - [x] **Phase 4**: Synthetic star field renderer (commit 6fee8fb)
 - [x] **Phase 5 partial**: Backlash property on IFocuserDriver, FocusDirection 2x2 matrix (commit 25ce32d)
 - [x] **Phase 6 partial**: AutoFocusAsync with V-curve + hyperbola fitting, per-target baseline HFD (commits 25ce32d, 68d061c)
-- [ ] **Phase 1**: FakeGuider state machine — still throws `NotImplementedException`
+- [x] **Phase 1**: FakeGuider state machine — full state machine (Idle, Looping, Calibrating, Guiding, Settling) with atomic transitions
 - [ ] **Phase 5 remaining**: BacklashMeasurement.MeasureAsync, backlash-compensated moves
-- [ ] **Phase 6 remaining**: Focus drift detection in ImagingLoopAsync (threshold check + auto-refocus trigger)
+- [x] **Phase 6 remaining**: Focus drift detection in ImagingLoopAsync (HFD threshold check + auto-refocus trigger)
 - [ ] **Phase 7a**: Observation duration enforcement in imaging loop
 - [x] **Phase 7b**: PeriodicTimer replacing hand-rolled sleep/overslept timing
 - [ ] **Phase 7c**: Full Session integration tests (tests 1-12 from plan)
@@ -56,7 +59,9 @@
 - [ ] Wait until 5 min to astro dark, and/or implement `IExternal.IsPolarAligned` (`Session.cs:61`)
 - [ ] Maybe slew slightly above/below 0 declination to avoid trees, etc. (`Session.cs:235`)
 - [ ] Plate solve, sync, and re-slew after initial slew (`Session.cs:245`)
-- [x] ~~Wait until target rises again instead of skipping~~ — replaced by spare target fallback in observation loop
+- [x] ~~Wait until target rises again instead of skipping~~ — replaced by spare target fallback in observation loop, todo
+      Maybe we should estimate how long it will take for the target to appear, i.e. by slewing where it _will_ be in lets say half an hour and see if we can get more stars
+      etc there
 - [ ] Plate solve and re-slew during observation (`Session.cs:467`)
 - [ ] Per-camera exposure calculation, e.g. via f/ratio (`Session.cs:540`)
 - [ ] Stop exposures before meridian flip (if we can, and if there are any) (`Session.cs:668`)
@@ -64,6 +69,11 @@
 - [ ] Make FITS output path configurable, add frame type (`Session.cs:893`)
 - [ ] FOV obstruction detection: if first frames on a new target show HFD way higher or star count way lower than previous target's baseline, nudge mount up in altitude by one frame radius and re-check — if metrics recover, something is blocking the FOV (tree, building); make this a new imaging loop exit condition
 - [x] Switch `ImagingLoopAsync` to `PeriodicTimer` instead of hand-rolled sleep/overslept timing
+- [ ] Device disconnect resilience in imaging loop — when mount/camera/guider disconnects, attempt reconnect with backoff instead of immediately advancing to next observation; only bail after N retries or timeout
+- [ ] Altitude check should distinguish rising vs setting targets — if target is currently below minimum altitude but rising, estimate time until it clears the threshold; only advance to next observation if wait exceeds a configurable threshold (e.g. 15 min), otherwise pause and wait
+- [x] Write `FOCALLEN` and `FOCUSPOS` to FITS output headers (currently read on load but never written)
+- [x] Write `DATAMIN` to FITS output headers (only `DATAMAX` was written)
+- [ ] `FocusDriftThreshold` (currently hardcoded at 1.3 = 30%): should be at most 10% (e.g. 1.07); make this a `SessionConfiguration` setting
 
 ## Camera / ICameraDriver
 
@@ -137,6 +147,8 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 - [x] Annotation overlay (object names from catalogs when plate-solved)
 - [x] Star detection overlay: `FitsDocument.DetectStarsAsync()` runs as background task,
       draws HFD-sized green circles, shows count/HFR/FWHM in status bar (S key toggle)
+- [ ] Continuous image advance when holding arrow keys (advance every ~1 second while pressed)
+- [ ] Display original bit depth before normalization (e.g. "16-bit" in status bar) when available from FITS header
 - [ ] Star profile tooltip: show radial profile plot (flux vs. distance) when mouse hovers over a detected star
 - [ ] Named star labels: match detected stars against Tycho2 via WCS→RA/Dec projection,
       label with cross-catalog names (HIP, HD) using `TryGetCrossIndices`
@@ -195,6 +207,7 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 - [ ] iOptron SkyGuider Pro: investigate patching the SGP handbox firmware (STM32F103, same as iOptron SmartEQ) to support the standard iOptron serial protocol, enabling features like position reporting and goto
 - [ ] iOptron SkyGuider Pro: device identity — no UUID mechanism available (firmware has no user string storage, doesn't read STM32 hardware UID); falls back to firmware version + port name
 - [ ] Generic iOptron serial protocol support (SmartEQ, CEM series) — same 28800 baud, similar command set but with position feedback
+- [ ] SGP pulse guiding should restore previous speed not just siderial (wait Pulse guiding is wrong, it will be 1x siderial but SGP has a different guide rate configured) or make this configurable; alternative: if guide rate is 0.5, half guide pulse time by 2
 
 ## Vulkan Migration / HDR Display Output
 

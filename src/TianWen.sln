@@ -15,6 +15,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 		Directory.Packages.props = Directory.Packages.props
 		..\.github\workflows\dotnet.yml = ..\.github\workflows\dotnet.yml
 		NuGet.config = NuGet.config
+		..\TODO.md = ..\TODO.md
 	EndProjectSection
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "TianWen.Lib.Hosting", "TianWen.Lib.Hosting\TianWen.Lib.Hosting.csproj", "{2F7C5398-AAB4-4D83-ACA3-7C4D273B5B2F}"

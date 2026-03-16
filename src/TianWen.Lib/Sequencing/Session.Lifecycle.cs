@@ -96,7 +96,7 @@ internal partial record Session
             ["Mount disconnected"] = mountDisconnected
         };
 
-        for (var i = 0; i < Setup.Telescopes.Count; i++)
+        for (var i = 0; i < Setup.Telescopes.Length; i++)
         {
             var camDriver = Setup.Telescopes[i].Camera.Driver;
             if (Catch(() => camDriver.CanGetCoolerOn))
@@ -158,7 +158,7 @@ internal partial record Session
         // try set the time to our time if supported
         await mount.Driver.SetUTCDateAsync(External.TimeProvider.GetUtcNow().UtcDateTime, cancellationToken);
 
-        for (var i = 0; i < Setup.Telescopes.Count; i++)
+        for (var i = 0; i < Setup.Telescopes.Length; i++)
         {
             var telescope = Setup.Telescopes[i];
             var camera = telescope.Camera;

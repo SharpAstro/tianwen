@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.DAL;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Connections;
@@ -32,7 +33,6 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, IExt
     private bool _isNorthernHemisphere = true;
     private TrackingSpeed _trackingSpeed = TrackingSpeed.Sidereal;
     private int _slewSpeedIndex = 1; // 1-7
-    private volatile bool _isPulseGuiding;
     private int _guideRateRA = 50; // 0-99, default 50 = 0.50x sidereal
 
     // RA-only mount: Dec is fixed at ±90 (pole) based on hemisphere
@@ -55,7 +55,7 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, IExt
 
     public bool CanSetTracking => true;
     public bool CanSetSideOfPier => false;
-    public bool CanPulseGuide => true; // via set speed 1x + move + timed stop
+    public bool CanPulseGuide => false; // SGP guiding requires ST-4 port, not serial commands
     public bool CanSetRightAscensionRate => false;
     public bool CanSetDeclinationRate => false;
     public bool CanSetGuideRates => true; // via :MSGR command
@@ -182,11 +182,6 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, IExt
             throw new InvalidOperationException("SGP only supports RA (Primary) axis movement");
         }
 
-        if (_isPulseGuiding)
-        {
-            throw new InvalidOperationException("Cannot move axis while pulse guiding");
-        }
-
         if (rate == 0.0)
         {
             await SendCommandAsync(":MSMR2#", cancellationToken);
@@ -243,60 +238,13 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, IExt
 
     #endregion
 
-    #region Pulse Guide
+    #region Pulse Guide (not supported — use ST-4 guide port)
 
-    public async ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
-    {
-        if (duration <= TimeSpan.Zero)
-        {
-            throw new ArgumentException("Duration must be greater than 0", nameof(duration));
-        }
-
-        if (direction is GuideDirection.North or GuideDirection.South)
-        {
-            throw new InvalidOperationException("SGP does not support Dec (North/South) pulse guiding");
-        }
-
-        if (_isMoving)
-        {
-            throw new InvalidOperationException("Cannot pulse guide while axis is moving");
-        }
-
-        _isPulseGuiding = true;
-        try
-        {
-            var dirCmd = direction == GuideDirection.West ? ":MSMR1#" : ":MSMR0#";
-
-            if (_deviceInfo.SerialDevice is { IsOpen: true } port)
-            {
-                // Set speed to 1x + start move (atomic under single lock)
-                using (var @lock = await port.WaitAsync(cancellationToken))
-                {
-                    await WriteAsync(port, ":MSMS1#", cancellationToken);
-                    await port.TryReadTerminatedAsync(HashTerminator, cancellationToken);
-                    await WriteAsync(port, dirCmd, cancellationToken);
-                    await port.TryReadTerminatedAsync(HashTerminator, cancellationToken);
-                }
-
-                // Wait for pulse duration
-                await External.SleepAsync(duration, cancellationToken);
-
-                // Stop (separate lock acquisition)
-                using (var @lock = await port.WaitAsync(cancellationToken))
-                {
-                    await WriteAsync(port, ":MSMR2#", cancellationToken);
-                    await port.TryReadTerminatedAsync(HashTerminator, cancellationToken);
-                }
-            }
-        }
-        finally
-        {
-            _isPulseGuiding = false;
-        }
-    }
+    public ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
+        => throw new InvalidOperationException("SGP does not support serial pulse guiding. Use the ST-4 guide port instead.");
 
     public ValueTask<bool> IsPulseGuidingAsync(CancellationToken cancellationToken)
-        => ValueTask.FromResult(_isPulseGuiding);
+        => ValueTask.FromResult(false);
 
     #endregion
 

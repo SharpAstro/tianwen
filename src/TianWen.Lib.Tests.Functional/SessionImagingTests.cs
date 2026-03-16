@@ -111,6 +111,8 @@ public class SessionImagingTests(ITestOutputHelper output)
 
         // With 30s subs over 30 min, we expect ~60 frames max. Allow for overhead.
         utilization.ShouldBeGreaterThan(0.50, "imaging utilization should exceed 50%");
+
+        ctx.CleanupOutputFolder();
     }
 
     [Fact]
@@ -177,6 +179,8 @@ public class SessionImagingTests(ITestOutputHelper output)
         // With 70° min altitude, imaging should stop well before the full 4 hours
         ctx.Session.TotalExposureTime.ShouldBeLessThan(scheduledDuration * 0.5,
             "imaging should stop early when target drops below minimum altitude");
+
+        ctx.CleanupOutputFolder();
     }
 
     [Fact]
@@ -230,5 +234,7 @@ public class SessionImagingTests(ITestOutputHelper output)
         output.WriteLine($"Frames written: {ctx.Session.TotalFramesWritten}");
         output.WriteLine($"Total exposure time: {ctx.Session.TotalExposureTime}");
         output.WriteLine($"Final observation index: {ctx.Session.CurrentObservationIndex}");
+
+        ctx.CleanupOutputFolder();
     }
 }

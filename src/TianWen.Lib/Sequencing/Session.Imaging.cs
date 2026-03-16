@@ -146,7 +146,7 @@ internal partial record Session
     {
         var guider = Setup.Guider;
         var mount = Setup.Mount;
-        var scopes = Setup.Telescopes.Count;
+        var scopes = Setup.Telescopes.Length;
         var frameNumbers = new int[scopes];
         var subExposuresSec = new int[scopes];
 

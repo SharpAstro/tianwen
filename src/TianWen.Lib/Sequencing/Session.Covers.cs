@@ -19,7 +19,7 @@ internal partial record Session
     /// <exception cref="ArgumentException"></exception>
     internal async ValueTask<bool> MoveTelescopeCoversToStateAsync(CoverStatus finalCoverState, CancellationToken cancellationToken)
     {
-        var scopes = Setup.Telescopes.Count;
+        var scopes = Setup.Telescopes.Length;
 
         var finalCoverStateReached = new bool[scopes];
         var coversToWait = new List<int>();

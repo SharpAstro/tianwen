@@ -29,6 +29,7 @@ builder.Services
     .AddZWO()
     .AddAscom()
     .AddMeade()
+    .AddIOptron()
     .AddProfiles()
     .AddFake()
     .AddPHD2()
