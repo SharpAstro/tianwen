@@ -98,6 +98,11 @@ public partial class Image
         var latitude = hdu.Header.GetFloatValue("SITELAT", float.NaN);
         var longitude = hdu.Header.GetFloatValue("SITELONG", float.NaN);
         var objectName = hdu.Header.GetStringValue("OBJECT") ?? "";
+        var gain = (short)hdu.Header.GetIntValue("GAIN", -1);
+        var camOffset = hdu.Header.GetIntValue("CAMOFFS", -1);
+        var setCCDTemp = hdu.Header.GetFloatValue("SET-TEMP", float.NaN);
+        var egain = hdu.Header.GetFloatValue("EGAIN", float.NaN);
+        var swCreator = hdu.Header.GetStringValue("SWCREATE") ?? "";
 
         var minValue = (float)hdu.MinimumValue;
         var maxValue = (float)hdu.MaximumValue;
@@ -193,7 +198,12 @@ public partial class Image
             rowOrder,
             latitude,
             longitude,
-            objectName
+            objectName,
+            Gain: gain,
+            Offset: camOffset,
+            SetCCDTemperature: setCCDTemp,
+            ElectronsPerADU: egain,
+            SWCreator: swCreator
         );
         image = new Image(imgChannels, bitDepth, maxValue, minValue, blackLevel, imageMeta);
         wcs = WCS.FromHeader(hdu.Header);
@@ -323,10 +333,28 @@ public partial class Image
             AddHeaderValueIfHasValue("FILTER", filterName, "");
         }
         AddHeaderValueIfHasValue("CCD-TEMP", imageMeta.CCDTemperature, "Celsius");
+        AddHeaderValueIfHasValue("SET-TEMP", imageMeta.SetCCDTemperature, "Celsius");
+        if (imageMeta.Gain >= 0)
+        {
+            AddHeaderValueIfHasValue("GAIN", (int)imageMeta.Gain, "");
+        }
+        if (imageMeta.Offset >= 0)
+        {
+            AddHeaderValueIfHasValue("CAMOFFS", imageMeta.Offset, "camera offset");
+        }
+        AddHeaderValueIfHasValue("EGAIN", imageMeta.ElectronsPerADU, "e-/ADU");
         AddHeaderValueIfHasValue("BAYOFFX", imageMeta.BayerOffsetX, "");
         AddHeaderValueIfHasValue("BAYOFFY", imageMeta.BayerOffsetY, "");
         AddHeaderValueIfHasValue("SITELAT", imageMeta.Latitude, "degrees");
         AddHeaderValueIfHasValue("SITELONG", imageMeta.Longitude, "degrees");
+        if (!double.IsNaN(imageMeta.TargetRA) && !double.IsNaN(imageMeta.TargetDec))
+        {
+            AddHeaderValueIfHasValue("OBJCTRA", Astrometry.CoordinateUtils.HoursToHMS(imageMeta.TargetRA, ' '), "");
+            AddHeaderValueIfHasValue("OBJCTDEC", Astrometry.CoordinateUtils.DegreesToDMS(imageMeta.TargetDec, degreeSign: ' '), "");
+            AddHeaderValueIfHasValue("RA", imageMeta.TargetRA * 15.0, "degrees");
+            AddHeaderValueIfHasValue("DEC", imageMeta.TargetDec, "degrees");
+        }
+        AddHeaderValueIfHasValue("SWCREATE", imageMeta.SWCreator, "");
         if (imageMeta.SensorType is SensorType.RGGB)
         {
             AddHeaderValueIfHasValue("BAYERPAT", "RGGB", "");

@@ -130,7 +130,14 @@ public class FitsRoundTripTests(ITestOutputHelper testOutput)
             RowOrder: RowOrder.TopDown,
             Latitude: 48.2f,
             Longitude: 16.3f,
-            ObjectName: "M42"
+            ObjectName: "M42",
+            Gain: 120,
+            Offset: 30,
+            SetCCDTemperature: -15.0f,
+            TargetRA: 5.5883,
+            TargetDec: -5.3911,
+            ElectronsPerADU: 1.2f,
+            SWCreator: "TianWen"
         );
 
         var image = new Image(
@@ -174,6 +181,13 @@ public class FitsRoundTripTests(ITestOutputHelper testOutput)
         rt.ObjectName.ShouldBe("M42");
         rt.ExposureDuration.TotalSeconds.ShouldBe(120.0, 0.01);
         rt.SensorType.ShouldBe(SensorType.Monochrome);
+
+        // New fields
+        rt.Gain.ShouldBe((short)120);
+        rt.Offset.ShouldBe(30);
+        rt.SetCCDTemperature.ShouldBe(-15.0f, 0.1f);
+        rt.ElectronsPerADU.ShouldBe(1.2f, 0.01f);
+        rt.SWCreator.ShouldBe("TianWen");
 
         // DerivedPixelScale should be consistent
         rt.DerivedPixelScale.ShouldBe(imageMeta.DerivedPixelScale, 0.001);

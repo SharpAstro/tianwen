@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -238,4 +239,20 @@ public interface IExternal
     /// <param name="protocol"></param>
     /// <returns></returns>
     Task<IUtf8TextBasedConnection> ConnectGuiderAsync(EndPoint address, CommunicationProtocol protocol = CommunicationProtocol.JsonRPC, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Software creator string for FITS SWCREATE header. Includes app name and version.
+    /// Override in host applications (CLI, UI) to include the host app name.
+    /// </summary>
+    string SWCreator
+    {
+        get
+        {
+            var asm = typeof(IExternal).Assembly;
+            var version = asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+                ?? asm.GetName().Version?.ToString(3)
+                ?? "unknown";
+            return $"{SharedStaticData.AppName} {version}";
+        }
+    }
 }
