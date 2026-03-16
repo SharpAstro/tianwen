@@ -70,10 +70,10 @@
 - [ ] FOV obstruction detection: if first frames on a new target show HFD way higher or star count way lower than previous target's baseline, nudge mount up in altitude by one frame radius and re-check — if metrics recover, something is blocking the FOV (tree, building); make this a new imaging loop exit condition
 - [x] Switch `ImagingLoopAsync` to `PeriodicTimer` instead of hand-rolled sleep/overslept timing
 - [ ] Device disconnect resilience in imaging loop — when mount/camera/guider disconnects, attempt reconnect with backoff instead of immediately advancing to next observation; only bail after N retries or timeout
-- [ ] Altitude check should distinguish rising vs setting targets — if target is currently below minimum altitude but rising, estimate time until it clears the threshold; only advance to next observation if wait exceeds a configurable threshold (e.g. 15 min), otherwise pause and wait
+- [x] Altitude check distinguishes rising vs setting targets — `EstimateTimeUntilTargetRisesAsync` samples altitude at 5-min intervals; if rising and within `MaxWaitForRisingTarget` (default 15 min), waits then retries slew; otherwise tries spare targets then advances
 - [x] Write `FOCALLEN` and `FOCUSPOS` to FITS output headers (currently read on load but never written)
 - [x] Write `DATAMIN` to FITS output headers (only `DATAMAX` was written)
-- [ ] `FocusDriftThreshold` (currently hardcoded at 1.3 = 30%): should be at most 10% (e.g. 1.07); make this a `SessionConfiguration` setting
+- [x] `FocusDriftThreshold` default changed from 1.3 (30%) to 1.07 (7%); already a `SessionConfiguration` setting
 
 ## Camera / ICameraDriver
 
