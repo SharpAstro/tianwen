@@ -255,6 +255,10 @@ public interface ICameraDriver : IDeviceDriver
 
         var ccdTemp = await GetCCDTemperatureAsync(cancellationToken);
         var offset = await GetOffsetAsync(cancellationToken);
+        var gain = await GetGainAsync(cancellationToken);
+        var setCCDTemp = CanSetCCDTemperature ? (float)await External.CatchAsync(GetSetCCDTemperatureAsync, cancellationToken, double.NaN) : float.NaN;
+        float egain;
+        try { egain = (float)ElectronsPerADU; } catch { egain = float.NaN; }
 
         return imageData.ToImage(
             bitDepth,
@@ -278,7 +282,15 @@ public interface ICameraDriver : IDeviceDriver
                 SensorType == SensorType.RGGB ? BayerOffsetY : 0,
                 RowOrder.TopDown,
                 (float)(Latitude ?? double.NaN),
-                (float)(Longitude ?? double.NaN)
+                (float)(Longitude ?? double.NaN),
+                ObjectName: Target?.Name ?? "",
+                Gain: gain,
+                Offset: offset,
+                SetCCDTemperature: setCCDTemp,
+                TargetRA: Target?.RA ?? double.NaN,
+                TargetDec: Target?.Dec ?? double.NaN,
+                ElectronsPerADU: egain,
+                SWCreator: External.SWCreator
             )
         );
     }

@@ -22,7 +22,14 @@ public record struct ImageMeta(
     RowOrder RowOrder,
     float Latitude,
     float Longitude,
-    string ObjectName = ""
+    string ObjectName = "",
+    short Gain = -1,
+    int Offset = -1,
+    float SetCCDTemperature = float.NaN,
+    double TargetRA = double.NaN,
+    double TargetDec = double.NaN,
+    float ElectronsPerADU = float.NaN,
+    string SWCreator = ""
 )
 {
     /// <summary>
