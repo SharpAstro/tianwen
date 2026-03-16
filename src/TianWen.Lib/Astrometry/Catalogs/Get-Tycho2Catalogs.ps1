@@ -146,11 +146,11 @@ function ConvertAndWrite-Tycho2Data
         }
         [void][float]::TryParse($values[$decIdx], $inv, [ref] $dec)
 
-        if ($posType -eq 'X') {
-            $raDecJ2000 = ConvertFrom-EpochRADec -RA1 $ra -Dec1 $dec -Epoch1 1991.5 -Epoch2 2000.0
-            $ra = $raDecJ2000.RA
-            $dec = $raDecJ2000.Dec
-        }
+        # Note: for posType 'X' entries, fields 24/25 are the observed Tycho-2 position
+        # already in ICRS (J2000 reference frame). No precession is needed — ICRS coordinates
+        # only differ by proper motion between epochs, and type 'X' entries have no proper motion.
+        # Applying classical precession here would incorrectly rotate the coordinate frame,
+        # producing errors of ~400" for Pleiades-era stars (e.g. Electra/TYC 1799-1441-1).
 
         # Parse VTmag (field 19) and BTmag (field 17), 0-indexed pipe-delimited
         # Encode as biased decimag: byte = clamp(round(mag * 10) + 20, 0, 254), 0xFF = missing
