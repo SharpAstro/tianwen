@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Threading.Tasks;
 
 namespace TianWen.Lib.Sequencing;
@@ -8,7 +9,7 @@ public record Setup(
     Mount Mount,
     Guider Guider,
     GuiderSetup GuiderSetup,
-    IReadOnlyList<OTA> Telescopes
+    ImmutableArray<OTA> Telescopes
 ) : IAsyncDisposable
 {
     public async ValueTask DisposeAsync()

@@ -37,6 +37,14 @@ namespace TianWen.Lib.Devices.Guider;
 public interface IGuider : IDeviceDriver
 {
     /// <summary>
+    /// Clear the current calibration data, forcing a full recalibration on the next
+    /// <see cref="GuideAsync(double, double, double, CancellationToken)"/> call.
+    /// Maps to PHD2's <c>clear_calibration</c> RPC command.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    ValueTask ClearCalibrationAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Start guiding with the given settling parameters. PHD2 takes care of looping exposures,
     /// guide star selection, and settling. Call <see cref="GetSettleProgressAsync(CancellationToken)"/> periodically to see when settling
     /// is complete.

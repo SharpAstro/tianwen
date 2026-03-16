@@ -63,7 +63,8 @@ public class GuideLoopTests(ITestOutputHelper output)
             CalibrationPulseDuration = TimeSpan.FromSeconds(1),
             CalibrationSteps = 3
         };
-        var calResult = await calibration.CalibrateAsync(mount, tracker, RenderFrame, external, ct);
+        var pulseTarget = new MountPulseGuideTarget(mount);
+        var calResult = await calibration.CalibrateAsync(pulseTarget, tracker, RenderFrame, external, ct);
         calResult.ShouldNotBeNull();
 
         output.WriteLine($"Calibration: RA rate={calResult.Value.RaRatePixPerSec:F2} px/s, " +
@@ -88,7 +89,7 @@ public class GuideLoopTests(ITestOutputHelper output)
             AggressivenessDec = 0.7,
             MinPulseMs = 20
         };
-        var guideLoop = new GuideLoop(mount, tracker, pController, external);
+        var guideLoop = new GuideLoop(pulseTarget, tracker, pController, external);
         guideLoop.SetCalibration(calResult.Value);
 
         // Run guide loop for enough iterations to cover the PE cycle
@@ -163,7 +164,8 @@ public class GuideLoopTests(ITestOutputHelper output)
             CalibrationPulseDuration = TimeSpan.FromSeconds(1),
             CalibrationSteps = 3
         };
-        var calResult = await calibration.CalibrateAsync(mount, tracker, RenderFrame, external, ct);
+        var pulseTarget = new MountPulseGuideTarget(mount);
+        var calResult = await calibration.CalibrateAsync(pulseTarget, tracker, RenderFrame, external, ct);
         calResult.ShouldNotBeNull();
 
         // Enable PE
@@ -198,7 +200,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         var tempDir = Directory.CreateTempSubdirectory("guide_loop_online_test_");
         try
         {
-            var guideLoop = new GuideLoop(mount, tracker, pController, external);
+            var guideLoop = new GuideLoop(pulseTarget, tracker, pController, external);
             guideLoop.SetCalibration(calResult.Value);
             guideLoop.EnableNeuralModel(model);
             guideLoop.EnableOnlineLearning(onlineLearningRate: 0.0001f, profileFolder: tempDir);
@@ -300,7 +302,8 @@ public class GuideLoopTests(ITestOutputHelper output)
             CalibrationPulseDuration = TimeSpan.FromSeconds(1),
             CalibrationSteps = 3
         };
-        var calResult = await calibration.CalibrateAsync(mount, tracker, RenderFrame, external, ct);
+        var pulseTarget = new MountPulseGuideTarget(mount);
+        var calResult = await calibration.CalibrateAsync(pulseTarget, tracker, RenderFrame, external, ct);
         calResult.ShouldNotBeNull($"calibration should succeed even with {label}");
 
         output.WriteLine($"[{label}] Calibration: RA rate={calResult.Value.RaRatePixPerSec:F2} px/s, " +
@@ -324,7 +327,7 @@ public class GuideLoopTests(ITestOutputHelper output)
             AggressivenessDec = 0.7,
             MinPulseMs = 20
         };
-        var guideLoop = new GuideLoop(mount, tracker, pController, external);
+        var guideLoop = new GuideLoop(pulseTarget, tracker, pController, external);
         guideLoop.SetCalibration(calResult.Value);
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -475,7 +478,8 @@ public class GuideLoopTests(ITestOutputHelper output)
             CalibrationPulseDuration = TimeSpan.FromSeconds(1),
             CalibrationSteps = 3
         };
-        var calResult = await calibration.CalibrateAsync(mount, tracker, RenderFrame, external, ct);
+        var pulseTarget = new MountPulseGuideTarget(mount);
+        var calResult = await calibration.CalibrateAsync(pulseTarget, tracker, RenderFrame, external, ct);
         calResult.ShouldNotBeNull($"calibration should succeed even with {label}");
 
         output.WriteLine($"[{label}] Calibration: RA rate={calResult.Value.RaRatePixPerSec:F2} px/s, " +
@@ -512,7 +516,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         var tempDir = Directory.CreateTempSubdirectory("guide_loop_seeing_online_test_");
         try
         {
-            var guideLoop = new GuideLoop(mount, tracker, pController, external);
+            var guideLoop = new GuideLoop(pulseTarget, tracker, pController, external);
             guideLoop.SetCalibration(calResult.Value);
             guideLoop.EnableNeuralModel(model);
             guideLoop.EnableOnlineLearning(onlineLearningRate: 0.0001f, profileFolder: tempDir);
@@ -580,9 +584,10 @@ public class GuideLoopTests(ITestOutputHelper output)
         var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
         var device = new FakeDevice(DeviceType.Mount, 1);
         var mount = new FakeMountDriver(device, external);
+        var pulseTarget = new MountPulseGuideTarget(mount);
         var tracker = new GuiderCentroidTracker(maxStars: 1);
         var pController = new ProportionalGuideController();
-        var guideLoop = new GuideLoop(mount, tracker, pController, external);
+        var guideLoop = new GuideLoop(pulseTarget, tracker, pController, external);
 
         await Should.ThrowAsync<InvalidOperationException>(async () =>
         {
@@ -776,7 +781,8 @@ public class GuideLoopTests(ITestOutputHelper output)
             CalibrationPulseDuration = TimeSpan.FromSeconds(1),
             CalibrationSteps = 3
         };
-        var calResult = await calibration.CalibrateAsync(mount, tracker, RenderFrame, external, ct);
+        var pulseTarget = new MountPulseGuideTarget(mount);
+        var calResult = await calibration.CalibrateAsync(pulseTarget, tracker, RenderFrame, external, ct);
         calResult.ShouldNotBeNull();
 
         // Enable tracking and disturbances after calibration
@@ -801,7 +807,7 @@ public class GuideLoopTests(ITestOutputHelper output)
             AggressivenessDec = 0.7,
             MinPulseMs = 20
         };
-        var guideLoop = new GuideLoop(mount, tracker, pController, external);
+        var guideLoop = new GuideLoop(pulseTarget, tracker, pController, external);
         guideLoop.SetCalibration(calResult.Value);
 
         return (mount, guideLoop, tracker, calResult.Value, RenderFrame);

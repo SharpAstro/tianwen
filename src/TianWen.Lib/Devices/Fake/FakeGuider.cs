@@ -6,19 +6,8 @@ using TianWen.Lib.Devices.Guider;
 
 namespace TianWen.Lib.Devices.Fake;
 
-internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDeviceDriverBase(fakeDevice, external), IMountDependentGuider
+internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDeviceDriverBase(fakeDevice, external), IGuider
 {
-    private IMountDriver? _mountDriver;
-
-    /// <summary>
-    /// The mount driver wired by <see cref="IMountDependentGuider.SetMountDriver"/>.
-    /// </summary>
-    internal IMountDriver? MountDriver => _mountDriver;
-
-    public void SetMountDriver(IMountDriver mount)
-    {
-        _mountDriver = mount;
-    }
 
     private const double DefaultPixelScale = 1.5;
     private const int GuideWidth = 320;
@@ -174,6 +163,9 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
         var avgDist = state is GuiderState.Guiding or GuiderState.Settling ? 0.2 : 0.0;
         return ValueTask.FromResult<(string?, double)>((appState, avgDist));
     }
+
+    public ValueTask ClearCalibrationAsync(CancellationToken cancellationToken = default)
+        => ValueTask.CompletedTask;
 
     public ValueTask GuideAsync(double settlePixels, double settleTime, double settleTimeout, CancellationToken cancellationToken)
     {
