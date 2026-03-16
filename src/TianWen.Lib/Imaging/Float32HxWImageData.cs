@@ -41,9 +41,9 @@ public record Float32HxWImageData(float[][,] Data, float MaxValue, float MinValu
     /// </summary>
     /// <param name="imageData">2d image array</param>
     /// <param name="bitDepth">bit depth</param>
-    /// <param name="blackLevel">black level or offset</param>
+    /// <param name="pedestal">pedestal (ADU floor)</param>
     /// <param name="imageMeta">image meta data</param>
     /// <returns>image from data, transposed and transformed to 32-bit floats</returns>
-    public Image ToImage(BitDepth bitDepth, float blackLevel, in ImageMeta imageMeta) =>
-        new Image(Data, bitDepth, MaxValue, MinValue, blackLevel, imageMeta);
+    public Image ToImage(BitDepth bitDepth, float pedestal, in ImageMeta imageMeta) =>
+        new Image(Data, bitDepth, MaxValue, MinValue, pedestal, imageMeta);
 }

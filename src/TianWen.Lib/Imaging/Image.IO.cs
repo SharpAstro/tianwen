@@ -67,9 +67,9 @@ public partial class Image
         var height = ints[1];
         var bitDepth = (BitDepth)ints[2];
         var maxValue = BitConverter.Int32BitsToSingle(ints[3]);
-        var blackLevel = BitConverter.Int32BitsToSingle(ints[4]);
+        var pedestal = BitConverter.Int32BitsToSingle(ints[4]);
         var channelCount = headerIntSize > 5 ? ints[5] : 1;
-        var minValue = headerIntSize > 6 ? BitConverter.Int32BitsToSingle(ints[6]) : blackLevel;
+        var minValue = headerIntSize > 6 ? BitConverter.Int32BitsToSingle(ints[6]) : pedestal;
 
         var channelPixels = height * width;
         var channelByteSize = channelPixels * sizeof(float);
@@ -92,7 +92,7 @@ public partial class Image
 
         var imageMeta = await JsonSerializer.DeserializeAsync(stream, ImageJsonSerializerContext.Default.ImageMeta, cancellationToken);
 
-        return new Image(imgChannels, bitDepth, maxValue, minValue, blackLevel, imageMeta);
+        return new Image(imgChannels, bitDepth, maxValue, minValue, pedestal, imageMeta);
     }
 
     /// <summary>
@@ -113,7 +113,7 @@ public partial class Image
             height,
             (int)bitDepth,
             BitConverter.SingleToInt32Bits(maxValue),
-            BitConverter.SingleToInt32Bits(blackLevel),
+            BitConverter.SingleToInt32Bits(pedestal),
             channelCount,
             BitConverter.SingleToInt32Bits(minValue)
         ];

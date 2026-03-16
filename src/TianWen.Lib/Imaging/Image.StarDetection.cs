@@ -218,28 +218,22 @@ public partial class Image
             var background = backgroundScratch[..backgroundIndex];
             bg = Median(background);
 
-            float minNonZeroBgValue = 0;
-            /* fill background with offsets */
+            /* fill background with absolute deviations from median */
             for (var i = 0; i < background.Length; i++)
             {
-                var bg_i = background[i];
-                // assumes that median sorts ascending
-                if (minNonZeroBgValue == 0)
-                {
-                    minNonZeroBgValue = bg_i;
-                }
-                background[i] = MathF.Abs(bg_i - bg);
+                background[i] = MathF.Abs(background[i] - bg);
             }
 
             //median absolute deviation (MAD)
             var mad_bg = Median(background);
             sd_bg = mad_bg * MAD_TO_SD;
 
-            // add some value for images with zero noise background.
-            // This will prevent that background is seen as a star. E.g. some jpg processed by nova.astrometry.net
+            // Guard against zero-noise backgrounds (e.g. JPGs from nova.astrometry.net, or uniform synthetic data).
+            // Without a minimum noise floor, every background pixel would be classified as signal.
+            // The pedestal (if set) provides a scale-aware minimum that survives normalization.
             if (sd_bg == 0)
             {
-                sd_bg = blackLevel > 0 ? blackLevel : minNonZeroBgValue > 0 ? minNonZeroBgValue : minValue;
+                sd_bg = pedestal > 0 ? pedestal : 1f;
             }
 
             // reduce square annulus radius until it is symmetric to remove stars
