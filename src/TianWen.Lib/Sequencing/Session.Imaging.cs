@@ -41,23 +41,44 @@ internal partial record Session
                 (var postCondition, hourAngleAtSlewTime) = await mount.Driver.BeginSlewToTargetAsync(observation.Target, Configuration.MinHeightAboveHorizon, cancellationToken).ConfigureAwait(false);
                 if (postCondition is SlewPostCondition.SlewNotPossible or SlewPostCondition.TargetBelowHorizonLimit)
                 {
-                    if (Observations.TryGetNextSpare(_activeObservation, ref _spareIndex) is { } spare)
-                    {
-                        External.AppLogger.LogInformation("Primary target {Target} not available ({PostCondition}), trying spare target {SpareTarget}.",
-                            observation.Target, postCondition, spare.Target);
-                        observation = spare;
+                    var maxWait = Configuration.MaxWaitForRisingTarget ?? TimeSpan.FromMinutes(15);
 
-                        (postCondition, hourAngleAtSlewTime) = await mount.Driver.BeginSlewToTargetAsync(spare.Target, Configuration.MinHeightAboveHorizon, cancellationToken).ConfigureAwait(false);
-                        if (postCondition is SlewPostCondition.SlewNotPossible or SlewPostCondition.TargetBelowHorizonLimit)
+                    // If target is rising and will clear the horizon soon, wait for it
+                    if (postCondition is SlewPostCondition.TargetBelowHorizonLimit
+                        && await EstimateTimeUntilTargetRisesAsync(observation.Target, Configuration.MinHeightAboveHorizon, maxWait, cancellationToken) is { } waitTime
+                        && waitTime > TimeSpan.Zero)
+                    {
+                        External.AppLogger.LogInformation(
+                            "Target {Target} is rising, waiting {WaitMinutes:F0} min until it clears {MinAlt}°.",
+                            observation.Target, waitTime.TotalMinutes, Configuration.MinHeightAboveHorizon);
+                        await External.SleepAsync(waitTime, cancellationToken);
+
+                        // Retry slew after waiting
+                        (postCondition, hourAngleAtSlewTime) = await mount.Driver.BeginSlewToTargetAsync(
+                            observation.Target, Configuration.MinHeightAboveHorizon, cancellationToken).ConfigureAwait(false);
+                    }
+
+                    // Still not available — try spare targets, then advance
+                    if (postCondition is SlewPostCondition.SlewNotPossible or SlewPostCondition.TargetBelowHorizonLimit)
+                    {
+                        if (Observations.TryGetNextSpare(_activeObservation, ref _spareIndex) is { } spare)
+                        {
+                            External.AppLogger.LogInformation("Primary target {Target} not available ({PostCondition}), trying spare target {SpareTarget}.",
+                                observation.Target, postCondition, spare.Target);
+                            observation = spare;
+
+                            (postCondition, hourAngleAtSlewTime) = await mount.Driver.BeginSlewToTargetAsync(spare.Target, Configuration.MinHeightAboveHorizon, cancellationToken).ConfigureAwait(false);
+                            if (postCondition is SlewPostCondition.SlewNotPossible or SlewPostCondition.TargetBelowHorizonLimit)
+                            {
+                                _ = AdvanceObservation();
+                                continue;
+                            }
+                        }
+                        else
                         {
                             _ = AdvanceObservation();
                             continue;
                         }
-                    }
-                    else
-                    {
-                        _ = AdvanceObservation();
-                        continue;
                     }
                 }
                 else if (postCondition is SlewPostCondition.Slewing)
@@ -79,8 +100,6 @@ internal partial record Session
             catch (Exception ex)
             {
                 External.AppLogger.LogError(ex, "Error while slewing to {Observation}, retrying", observation);
-
-                // todo: if next observation is not yet risen, we need to wait and retry
                 continue;
             }
 
@@ -94,8 +113,6 @@ internal partial record Session
             else if (!guidingSuccess)
             {
                 External.AppLogger.LogError("Skipping target {Observation} as starting guider \"{GuiderName}\" failed after trying {GuiderTries} times.", observation, guider.Driver, Configuration.GuidingTries);
-                
-                // todo: if next observation is not yet risen, we need to wait and retry
                 _ = AdvanceObservation();
                 continue;
             }
@@ -420,5 +437,65 @@ internal partial record Session
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Estimates how long until a target rises above <paramref name="minAlt"/> degrees,
+    /// by sampling altitude at 5-minute intervals. Returns <c>null</c> if the target is
+    /// setting (altitude decreasing) or won't rise within <paramref name="maxLookahead"/>.
+    /// </summary>
+    internal async ValueTask<TimeSpan?> EstimateTimeUntilTargetRisesAsync(
+        Target target, byte minAlt, TimeSpan maxLookahead, CancellationToken cancellationToken)
+    {
+        var mount = Setup.Mount;
+        if (await mount.Driver.TryGetTransformAsync(cancellationToken) is not { } transform)
+        {
+            return null;
+        }
+
+        var now = await GetMountUtcNowAsync(cancellationToken);
+        var step = TimeSpan.FromMinutes(5);
+
+        // Sample current altitude
+        transform.DateTime = now;
+        transform.SetJ2000(target.RA, target.Dec);
+        transform.Refresh();
+        var altNow = transform.ElevationTopocentric;
+
+        // Check if already above threshold (shouldn't normally be called in this case)
+        if (altNow >= minAlt)
+        {
+            return TimeSpan.Zero;
+        }
+
+        // Sample one step ahead to check if rising
+        transform.DateTime = now.Add(step);
+        transform.Refresh();
+        var altNext = transform.ElevationTopocentric;
+
+        if (altNext <= altNow)
+        {
+            // Target is setting, not rising
+            return null;
+        }
+
+        // Target is rising — scan forward to find when it clears the threshold
+        var elapsed = step;
+        var prevAlt = altNext;
+        while (elapsed < maxLookahead)
+        {
+            if (prevAlt >= minAlt)
+            {
+                return elapsed;
+            }
+
+            elapsed += step;
+            transform.DateTime = now.Add(elapsed);
+            transform.Refresh();
+            prevAlt = transform.ElevationTopocentric;
+        }
+
+        // Won't rise within maxLookahead
+        return null;
     }
 }

@@ -29,7 +29,7 @@ internal static class SessionTestHelper
         GuidingTries: 3,
         AutoFocusRange: 200,
         AutoFocusStepCount: 9,
-        FocusDriftThreshold: 1.3f
+        FocusDriftThreshold: 1.07f
     );
 
     public static readonly ScheduledObservation[] DefaultScheduledObservations =
