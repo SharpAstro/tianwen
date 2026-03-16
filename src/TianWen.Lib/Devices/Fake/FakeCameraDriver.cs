@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Devices.Fake;
@@ -364,6 +365,13 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
     public int FocusPosition { get; set; }
     public Target? Target { get; set; }
 
+    /// <summary>
+    /// When set together with <see cref="Target"/> and <see cref="TrueBestFocus"/>,
+    /// renders catalog stars from Tycho-2 projected onto the sensor via TAN projection
+    /// instead of generating random star positions.
+    /// </summary>
+    public ICelestialObjectDB? CelestialObjectDB { get; set; }
+
     // Async-primary members
     public ValueTask<bool> GetImageReadyAsync(CancellationToken cancellationToken = default)
     {
@@ -497,7 +505,23 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
                     {
                         var defocus = Math.Abs(FocusPosition - bestFocus);
                         var exposureSec = current.IntendedDuration.TotalSeconds;
-                        array = SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocus, exposureSeconds: exposureSec, noiseSeed: _frameRng.Next());
+
+                        if (CelestialObjectDB is { } db && Target is { } target && FocalLength > 0)
+                        {
+                            // Magnitude cutoff: brighter limit for shorter exposures
+                            // ~mag 8 at 1s, ~mag 10 at 10s, ~mag 12 at 120s
+                            var magCutoff = Math.Min(12.0, 7.0 + 2.5 * Math.Log10(Math.Max(exposureSec, 0.1)));
+                            var stars = SyntheticStarFieldRenderer.ProjectCatalogStars(
+                                target.RA, target.Dec, FocalLength, PixelSizeX, imgWidth, imgHeight, db, magCutoff);
+                            array = SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocus,
+                                stars: System.Runtime.InteropServices.CollectionsMarshal.AsSpan(stars),
+                                exposureSeconds: exposureSec, noiseSeed: _frameRng.Next());
+                        }
+                        else
+                        {
+                            array = SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocus,
+                                exposureSeconds: exposureSec, noiseSeed: _frameRng.Next());
+                        }
                     }
                     else
                     {

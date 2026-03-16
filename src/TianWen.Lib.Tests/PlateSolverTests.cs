@@ -6,6 +6,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.PlateSolve;
+using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Imaging;
 using Xunit;
 
@@ -282,5 +284,134 @@ public class PlateSolverTests(ITestOutputHelper output)
 
         // then
         result.Solution.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData(5.59, -5.39, "M42", 200, 0.05)]   // Orion Nebula — galactic plane, star-rich
+    [InlineData(6.75, 16.7, "M35", 200, 0.05)]     // M35 open cluster — dense star field
+    [InlineData(18.87, 33.03, "M57", 400, 0.05)]   // Ring Nebula — sparser but enough Tycho-2 stars
+    [InlineData(5.60, -1.12, "OrionBelt", 50, 0.05)]  // Orion's Belt (Alnitak/Alnilam/Mintaka) — wide field
+    [InlineData(3.79, 24.12, "M45", 100, 0.05)]    // Pleiades — all bright stars visible
+    public async Task GivenSyntheticCatalogImageWhenCatalogPlateSolvingThenSolutionMatchesTarget(
+        double targetRA, double targetDec, string targetName, int focalLengthMm, double accuracy)
+    {
+        // given — set up fake camera with catalog DB
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var db = await InitDBAsync(cancellationToken);
+
+        var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
+        var camera = new FakeCameraDriver(cameraDevice, external);
+        await camera.ConnectAsync(cancellationToken);
+
+        camera.BinX = 1;
+        camera.NumX = camera.CameraXSize - 1;
+        camera.NumY = camera.CameraYSize - 1;
+        camera.TrueBestFocus = 1000;
+        camera.FocusPosition = 1000; // at perfect focus
+        camera.FocalLength = focalLengthMm;
+        camera.Target = new Target(targetRA, targetDec, targetName, null);
+        camera.CelestialObjectDB = db;
+
+        // Pixel scale: 206265 * pixelSizeUm * 1e-3 / focalLengthMm
+        var pixelScaleArcsec = 206264.806 * camera.PixelSizeX * 1e-3 / focalLengthMm;
+        var imgWidth = camera.CameraXSize - 1;
+        var imgHeight = camera.CameraYSize - 1;
+        var imageDim = new ImageDim(pixelScaleArcsec, imgWidth, imgHeight);
+
+        output.WriteLine($"Target: {targetName} RA={targetRA:F4}h Dec={targetDec:F4}°");
+        output.WriteLine($"Focal length: {focalLengthMm}mm, pixel scale: {pixelScaleArcsec:F2}\"/px");
+        output.WriteLine($"FOV: {imageDim.FieldOfView.width:F3}° × {imageDim.FieldOfView.height:F3}°");
+
+        // when — take an exposure and get image
+        var exposureDuration = TimeSpan.FromSeconds(60);
+
+        // Check how many catalog stars project onto the sensor (same cutoff as FakeCameraDriver)
+        var magCutoff = Math.Min(12.0, 7.0 + 2.5 * Math.Log10(exposureDuration.TotalSeconds));
+        var projectedStars = SyntheticStarFieldRenderer.ProjectCatalogStars(
+            targetRA, targetDec, focalLengthMm, camera.PixelSizeX,
+            imgWidth, imgHeight, db, magCutoff);
+        output.WriteLine($"Projected catalog stars: {projectedStars.Count} (mag ≤ {magCutoff:F1})");
+        projectedStars.Count.ShouldBeGreaterThanOrEqualTo(6, $"Need at least 6 catalog stars in FOV for {targetName}");
+        await camera.StartExposureAsync(exposureDuration, cancellationToken: cancellationToken);
+        await external.SleepAsync(exposureDuration, cancellationToken);
+
+        (await camera.GetImageReadyAsync(cancellationToken)).ShouldBeTrue("Image should be ready after exposure");
+        ICameraDriver cameraDriver = camera;
+        var image = await cameraDriver.GetImageAsync(cancellationToken);
+        image.ShouldNotBeNull("Camera should produce an image");
+
+        output.WriteLine($"Image: {image.Width}×{image.Height}, BitDepth={image.BitDepth}, MaxValue={image.MaxValue:F0}, MinValue={image.MinValue:F0}");
+
+        // Detect stars in the rendered image
+        var detectedStars = await image.FindStarsAsync(0, snrMin: 5f, maxStars: 500, cancellationToken: cancellationToken);
+        output.WriteLine($"Detected stars: {detectedStars.Count}");
+        detectedStars.Count.ShouldBeGreaterThanOrEqualTo(6, "Need at least 6 detected stars for plate solving");
+
+        // Plate solve with search origin near the target
+        var searchOrigin = new WCS(targetRA, targetDec);
+        var solver = new CatalogPlateSolver(db);
+        var result = await solver.SolveImageAsync(image, imageDim, searchOrigin: searchOrigin, searchRadius: 3d, cancellationToken: cancellationToken);
+
+        output.WriteLine($"Solve: {result.Elapsed.TotalMilliseconds:F0}ms, {result.Iterations} iterations, " +
+            $"{result.CatalogStars} catalog, {result.DetectedStars} detected, " +
+            $"{result.ProjectedStars} projected, {result.MatchedStars} matched");
+
+        // then — solution should match target coordinates
+        result.Solution.ShouldNotBeNull($"CatalogPlateSolver should solve synthetic image of {targetName}");
+
+        // Save rendered image to FITS with solved WCS (includes CD matrix)
+        var outputDir = SharedTestData.CreateTempTestOutputDir("SyntheticCatalogPlateSolve");
+        var fitsPath = System.IO.Path.Combine(outputDir, $"{targetName}_{focalLengthMm}mm_{exposureDuration.TotalSeconds:F0}s.fits");
+        image.WriteToFitsFile(fitsPath, result.Solution.Value);
+        output.WriteLine($"FITS written: {fitsPath}");
+
+        var solvedWcs = result.Solution.Value;
+        var (solvedRA, solvedDec) = solvedWcs;
+        var cosDec = Math.Cos(double.DegreesToRadians(targetDec));
+        var errorRAArcsec = Math.Abs(solvedRA - targetRA) * 15.0 * cosDec * 3600.0;
+        var errorDecArcsec = Math.Abs(solvedDec - targetDec) * 3600.0;
+        var totalErrorArcsec = Math.Sqrt(errorRAArcsec * errorRAArcsec + errorDecArcsec * errorDecArcsec);
+        output.WriteLine($"Solved: RA={solvedRA:F6}h Dec={solvedDec:F6}° (expected RA={targetRA:F6}h Dec={targetDec:F6}°)");
+        output.WriteLine($"Error: ΔRA={errorRAArcsec:F1}\" ΔDec={errorDecArcsec:F1}\" total={totalErrorArcsec:F1}\"");
+
+        // Report WCS CD matrix
+        output.WriteLine($"\nWCS: CRPIX=({solvedWcs.CRPix1:F1}, {solvedWcs.CRPix2:F1}), CRVAL=({solvedWcs.CenterRA:F6}h, {solvedWcs.CenterDec:F6}°)");
+        output.WriteLine($"  CD1_1={solvedWcs.CD1_1:E4} CD1_2={solvedWcs.CD1_2:E4}");
+        output.WriteLine($"  CD2_1={solvedWcs.CD2_1:E4} CD2_2={solvedWcs.CD2_2:E4}");
+        output.WriteLine($"  HasCDMatrix={solvedWcs.HasCDMatrix}");
+
+        // Report rendered vs WCS pixel position mismatch for brightest stars
+        var brightestStars = projectedStars.OrderBy(s => s.Magnitude).Take(Math.Min(10, projectedStars.Count)).ToList();
+        output.WriteLine($"\nStar position mismatch (rendered 0-based vs WCS SkyToPixel 1-based - 1):");
+        output.WriteLine($"  {"Mag",5} {"RA",10} {"Dec",10} {"RendX",8} {"RendY",8} {"WcsX",8} {"WcsY",8} {"dX",7} {"dY",7} {"dist",7}");
+        double sumSqDist = 0;
+        int mismatchCount = 0;
+        foreach (var star in brightestStars)
+        {
+            var wcsPixel = solvedWcs.SkyToPixel(star.RA, star.Dec);
+            if (wcsPixel is not { } px)
+            {
+                continue;
+            }
+            // WCS SkyToPixel returns 1-based; rendered positions are 0-based
+            var wcsX0 = px.X - 1.0;
+            var wcsY0 = px.Y - 1.0;
+            var dx = star.PixelX - wcsX0;
+            var dy = star.PixelY - wcsY0;
+            var dist = Math.Sqrt(dx * dx + dy * dy);
+            sumSqDist += dist * dist;
+            mismatchCount++;
+            output.WriteLine($"  {star.Magnitude,5:F1} {star.RA,10:F5} {star.Dec,10:F5} {star.PixelX,8:F2} {star.PixelY,8:F2} {wcsX0,8:F2} {wcsY0,8:F2} {dx,7:F2} {dy,7:F2} {dist,7:F2}");
+        }
+        if (mismatchCount > 0)
+        {
+            var rmsPixels = Math.Sqrt(sumSqDist / mismatchCount);
+            var rmsArcsec = rmsPixels * pixelScaleArcsec;
+            output.WriteLine($"  RMS mismatch: {rmsPixels:F2} px ({rmsArcsec:F1}\")");
+        }
+
+        solvedRA.ShouldBeInRange(targetRA - accuracy, targetRA + accuracy, $"RA should be within {accuracy}h for {targetName}");
+        solvedDec.ShouldBeInRange(targetDec - accuracy, targetDec + accuracy, $"Dec should be within {accuracy}° for {targetName}");
     }
 }
