@@ -1,5 +1,6 @@
 ﻿using TianWen.Lib.Astrometry.Catalogs;
 using Shouldly;
+using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -570,6 +571,41 @@ cancellationToken: TestContext.Current.CancellationToken);
 
         db.CommonNames.ShouldBeSubsetOf(list);
         db.AllObjectIndices.Select(p => p.ToCanonical()).ShouldBeSubsetOf(list);
+    }
+
+    [Fact]
+    public async Task GivenElectraWhenLookingUpTycho2EntryThenPositionMatchesHIP()
+    {
+        // Regression test: Tycho-2 type 'X' entries (no astrometric solution) had ICRS
+        // coordinates incorrectly precessed, producing ~426" error for Electra (TYC 1799-1441-1).
+        // See Get-Tycho2Catalogs.ps1 fix — ICRS positions must NOT be precessed.
+
+        var db = await InitDBAsync();
+
+        // Electra via HIP — this is our reference position
+        db.TryLookupByIndex(CatalogIndex.HIP017499, out var electraHip).ShouldBeTrue("HIP 17499 should be found");
+
+        // HIP position should be within 10" of Stellarium J2000 (RA=3.747764h, Dec=24.112833°)
+        var hipDeltaRaArcsec = (electraHip.RA - 3.747764) * 15.0 * Math.Cos(Math.PI / 180.0 * electraHip.Dec) * 3600.0;
+        var hipDeltaDecArcsec = (electraHip.Dec - 24.112833) * 3600.0;
+        var hipDistArcsec = Math.Sqrt(hipDeltaRaArcsec * hipDeltaRaArcsec + hipDeltaDecArcsec * hipDeltaDecArcsec);
+        hipDistArcsec.ShouldBeLessThan(10.0, "HIP 17499 should be within 10\" of Stellarium J2000 position");
+
+        // TYC 1799-1441-1 direct lookup — should exist and match HIP position within 5"
+        db.TryLookupByIndex("TYC 1799-1441-1", out var tycObj).ShouldBeTrue("TYC 1799-1441-1 should be found");
+
+        var cosDec = Math.Cos(Math.PI / 180.0 * electraHip.Dec);
+        var tycDeltaRaArcsec = (tycObj.RA - electraHip.RA) * 15.0 * cosDec * 3600.0;
+        var tycDeltaDecArcsec = (tycObj.Dec - electraHip.Dec) * 3600.0;
+        var tycDistArcsec = Math.Sqrt(tycDeltaRaArcsec * tycDeltaRaArcsec + tycDeltaDecArcsec * tycDeltaDecArcsec);
+        tycDistArcsec.ShouldBeLessThan(5.0, "TYC 1799-1441-1 should be within 5\" of HIP 17499 (was 426\" before ICRS precession fix)");
+
+        // Magnitude should be ~3.7
+        ((double)tycObj.V_Mag).ShouldBeInRange(3.5, 3.9, "Electra V magnitude");
+
+        // TYC should also appear in spatial grid near Electra
+        var grid = db.CoordinateGrid[electraHip.RA, electraHip.Dec];
+        grid.ShouldNotBeEmpty("Grid cell at Electra's position should have entries");
     }
 
 }
