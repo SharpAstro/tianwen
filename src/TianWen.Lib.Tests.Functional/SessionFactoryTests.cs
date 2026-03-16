@@ -45,6 +45,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
                     DeviceType.Camera => new FakeDevice(uri),
                     DeviceType.Focuser => new FakeDevice(uri),
                     DeviceType.Mount => new FakeDevice(uri),
+                    DeviceType.Guider when string.Equals(uri.Host, nameof(BuiltInGuiderDevice), StringComparison.OrdinalIgnoreCase) => new BuiltInGuiderDevice(uri),
                     DeviceType.Guider => new FakeDevice(uri),
                     DeviceType.FilterWheel => new FakeDevice(uri),
                     DeviceType.CoverCalibrator => new FakeDevice(uri),
@@ -105,7 +106,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
 
         // then
         session.ShouldNotBeNull();
-        session.Setup.Telescopes.Count.ShouldBe(1);
+        session.Setup.Telescopes.Length.ShouldBe(1);
         session.Setup.Telescopes[0].Name.ShouldBe("Test Scope");
         session.Setup.Telescopes[0].FocalLength.ShouldBe(1000);
         session.Setup.Telescopes[0].Focuser.ShouldNotBeNull();
@@ -142,7 +143,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         var session = factory.Create(TestProfileId, SessionTestHelper.DefaultConfiguration, new ReadOnlySpan<ScheduledObservation>(observations));
 
         // then
-        session.Setup.Telescopes.Count.ShouldBe(2);
+        session.Setup.Telescopes.Length.ShouldBe(2);
         session.Setup.Telescopes[0].Name.ShouldBe("Scope 1");
         session.Setup.Telescopes[0].FocalLength.ShouldBe(800);
         session.Setup.Telescopes[1].Name.ShouldBe("Scope 2");
@@ -354,17 +355,19 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
     }
 
     [Fact]
-    public void GivenMountDependentGuiderWhenCreatedThenGuiderReceivesSameMountDriver()
+    public void GivenDeviceDependentGuiderWhenCreatedWithGuiderCameraThenGuiderReceivesMountAndCamera()
     {
-        // given
+        // given — use BuiltInGuiderDevice which implements IDeviceDependentGuider
         var mountDevice = CreateMountDevice();
-        var cameraDevice = CreateCameraDevice();
-        var guiderDevice = CreateGuiderDevice();
+        var cameraDevice = CreateCameraDevice(1);
+        var guiderCameraDevice = CreateCameraDevice(2);
+        var builtInGuiderDevice = new BuiltInGuiderDevice();
 
         var profileData = new ProfileData(
             Mount: mountDevice.DeviceUri,
-            Guider: guiderDevice.DeviceUri,
-            OTAs: [new OTAData("Test Scope", 1000, cameraDevice.DeviceUri, null, null, null, null, null)]
+            Guider: builtInGuiderDevice.DeviceUri,
+            OTAs: [new OTAData("Test Scope", 1000, cameraDevice.DeviceUri, null, null, null, null, null)],
+            GuiderCamera: guiderCameraDevice.DeviceUri
         );
 
         var (factory, _) = CreateFactory(profileData);
@@ -373,12 +376,37 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         // when
         var session = factory.Create(TestProfileId, SessionTestHelper.DefaultConfiguration, new ReadOnlySpan<ScheduledObservation>(observations));
 
-        // then — the guider driver should have received the same mount driver instance
+        // then — the guider driver should have received both mount and camera driver instances
         var s = session;
-        var guiderDriver = s.Setup.Guider.Driver.ShouldBeAssignableTo<IMountDependentGuider>();
-        var fakeGuider = (FakeGuider)guiderDriver!;
-        fakeGuider.MountDriver.ShouldNotBeNull();
-        fakeGuider.MountDriver.ShouldBeSameAs(s.Setup.Mount.Driver);
+        var guiderDriver = s.Setup.Guider.Driver.ShouldBeAssignableTo<IDeviceDependentGuider>();
+        var builtInDriver = (BuiltInGuiderDriver)guiderDriver!;
+        builtInDriver.MountDriver.ShouldNotBeNull();
+        builtInDriver.MountDriver.ShouldBeSameAs(s.Setup.Mount.Driver);
+        builtInDriver.CameraDriver.ShouldNotBeNull();
+        builtInDriver.CameraDriver.ShouldBeSameAs(s.Setup.GuiderSetup.Camera!.Driver);
+    }
+
+    [Fact]
+    public void GivenDeviceDependentGuiderWhenCreatedWithoutGuiderCameraThenThrows()
+    {
+        // given — BuiltInGuiderDevice with no guider camera configured
+        var mountDevice = CreateMountDevice();
+        var cameraDevice = CreateCameraDevice();
+        var builtInGuiderDevice = new BuiltInGuiderDevice();
+
+        var profileData = new ProfileData(
+            Mount: mountDevice.DeviceUri,
+            Guider: builtInGuiderDevice.DeviceUri,
+            OTAs: [new OTAData("Test Scope", 1000, cameraDevice.DeviceUri, null, null, null, null, null)]
+        );
+
+        var (factory, _) = CreateFactory(profileData);
+        var observations = new[] { CreateDefaultObservation() };
+
+        // when/then — built-in guider requires a dedicated guider camera
+        Should.Throw<InvalidOperationException>(() =>
+            factory.Create(TestProfileId, SessionTestHelper.DefaultConfiguration, new ReadOnlySpan<ScheduledObservation>(observations))
+        );
     }
 
     private static ScheduledObservation CreateDefaultObservation() => new ScheduledObservation(

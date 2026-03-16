@@ -57,6 +57,7 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
     private Accum AccumDEC { get; } = new Accum();
     private bool IsAccumActive { get; set; }
     private double SettlePixels { get; set; }
+    private bool _forceCalibration;
     private string? AppState { get; set; }
     private double AverageDistance { get; set; }
     private GuideStats? Stats { get; set; }
@@ -575,6 +576,14 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
         }
     }
 
+    public async ValueTask ClearCalibrationAsync(CancellationToken cancellationToken = default)
+    {
+        EnsureConnected();
+
+        using var response = await CallAsync("clear_calibration", cancellationToken, "both");
+        _forceCalibration = true;
+    }
+
     public async ValueTask GuideAsync(double settlePixels, double settleTime, double settleTimeout, CancellationToken cancellationToken = default)
     {
         EnsureConnected();
@@ -599,7 +608,9 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
 
         try
         {
-            using var response = await CallAsync("guide", cancellationToken, new SettleRequest(settlePixels, settleTime, settleTimeout), false /* don't force calibration */);
+            var recalibrate = _forceCalibration;
+            _forceCalibration = false;
+            using var response = await CallAsync("guide", cancellationToken, new SettleRequest(settlePixels, settleTime, settleTimeout), recalibrate);
             SettlePixels = settlePixels;
         }
         catch (Exception ex)

@@ -51,16 +51,22 @@ internal sealed class GuiderCalibration
     public int CalibrationSteps { get; set; } = DefaultCalibrationSteps;
 
     /// <summary>
+    /// Number of backlash clearing pulses sent in the calibration direction before measuring.
+    /// This takes up gear backlash so the first measurement step produces real displacement.
+    /// </summary>
+    public int BacklashClearingSteps { get; set; }
+
+    /// <summary>
     /// Runs calibration by pulsing in each direction and measuring displacement.
     /// </summary>
-    /// <param name="mount">Mount to pulse guide.</param>
+    /// <param name="pulseTarget">Pulse guide target (camera ST-4, mount, or router).</param>
     /// <param name="tracker">Centroid tracker with an acquired star.</param>
     /// <param name="captureFrame">Function that captures a guide frame and returns the image data.</param>
     /// <param name="external">External services for time management.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Calibration result, or null if calibration failed.</returns>
     public async ValueTask<GuiderCalibrationResult?> CalibrateAsync(
-        IMountDriver mount,
+        IPulseGuideTarget pulseTarget,
         GuiderCentroidTracker tracker,
         Func<CancellationToken, ValueTask<float[,]>> captureFrame,
         IExternal external,
@@ -75,7 +81,22 @@ internal sealed class GuiderCalibration
         tracker.SetLockPosition();
 
         // --- RA calibration (West then East to return) ---
-        var westResult = await MeasureDisplacementAsync(mount, tracker, captureFrame, external,
+        if (BacklashClearingSteps > 0)
+        {
+            // Clear backlash by pulsing West before measuring
+            await ClearBacklashAsync(pulseTarget, external, GuideDirection.West, cancellationToken);
+
+            // Re-acquire after backlash clearing and reset lock position
+            tracker.Reset();
+            var blFrame = await captureFrame(cancellationToken);
+            if (tracker.ProcessFrame(blFrame) is null)
+            {
+                return null;
+            }
+            tracker.SetLockPosition();
+        }
+
+        var westResult = await MeasureDisplacementAsync(pulseTarget, tracker, captureFrame, external,
             GuideDirection.West, CalibrationSteps, CalibrationPulseDuration, cancellationToken);
 
         if (westResult is null)
@@ -86,8 +107,8 @@ internal sealed class GuiderCalibration
         // Return to start by pulsing East
         for (var i = 0; i < CalibrationSteps; i++)
         {
-            await mount.PulseGuideAsync(GuideDirection.East, CalibrationPulseDuration, cancellationToken);
-            await WaitForPulseCompleteAsync(mount, external, CalibrationPulseDuration, cancellationToken);
+            await pulseTarget.PulseGuideAsync(GuideDirection.East, CalibrationPulseDuration, cancellationToken);
+            await WaitForPulseCompleteAsync(pulseTarget, external, CalibrationPulseDuration, cancellationToken);
         }
 
         // Re-acquire after return — star position jumped back, may exceed search radius
@@ -100,7 +121,22 @@ internal sealed class GuiderCalibration
         tracker.SetLockPosition();
 
         // --- Dec calibration (North then South to return) ---
-        var northResult = await MeasureDisplacementAsync(mount, tracker, captureFrame, external,
+        if (BacklashClearingSteps > 0)
+        {
+            // Clear backlash by pulsing North before measuring
+            await ClearBacklashAsync(pulseTarget, external, GuideDirection.North, cancellationToken);
+
+            // Re-acquire after backlash clearing and reset lock position
+            tracker.Reset();
+            var blFrame2 = await captureFrame(cancellationToken);
+            if (tracker.ProcessFrame(blFrame2) is null)
+            {
+                return null;
+            }
+            tracker.SetLockPosition();
+        }
+
+        var northResult = await MeasureDisplacementAsync(pulseTarget, tracker, captureFrame, external,
             GuideDirection.North, CalibrationSteps, CalibrationPulseDuration, cancellationToken);
 
         if (northResult is null)
@@ -111,8 +147,8 @@ internal sealed class GuiderCalibration
         // Return to start by pulsing South
         for (var i = 0; i < CalibrationSteps; i++)
         {
-            await mount.PulseGuideAsync(GuideDirection.South, CalibrationPulseDuration, cancellationToken);
-            await WaitForPulseCompleteAsync(mount, external, CalibrationPulseDuration, cancellationToken);
+            await pulseTarget.PulseGuideAsync(GuideDirection.South, CalibrationPulseDuration, cancellationToken);
+            await WaitForPulseCompleteAsync(pulseTarget, external, CalibrationPulseDuration, cancellationToken);
         }
 
         // Compute calibration from West displacement (RA axis) and North displacement (Dec axis)
@@ -156,7 +192,7 @@ internal sealed class GuiderCalibration
     /// Much faster than full calibration (~2s vs ~12s).
     /// </summary>
     /// <param name="savedCalibration">Previously saved calibration to validate.</param>
-    /// <param name="mount">Mount to pulse guide.</param>
+    /// <param name="pulseTarget">Pulse guide target (camera ST-4, mount, or router).</param>
     /// <param name="tracker">Centroid tracker with an acquired star.</param>
     /// <param name="captureFrame">Function that captures a guide frame.</param>
     /// <param name="external">External services for time management.</param>
@@ -164,7 +200,7 @@ internal sealed class GuiderCalibration
     /// <returns>Validation result indicating whether the saved calibration can be reused.</returns>
     public async ValueTask<CalibrationValidationResult> ValidateAsync(
         GuiderCalibrationResult savedCalibration,
-        IMountDriver mount,
+        IPulseGuideTarget pulseTarget,
         GuiderCentroidTracker tracker,
         Func<CancellationToken, ValueTask<float[,]>> captureFrame,
         IExternal external,
@@ -179,15 +215,15 @@ internal sealed class GuiderCalibration
 
         // Send a single West pulse using the same pulse duration as the saved calibration
         var pulseDuration = CalibrationPulseDuration;
-        await mount.PulseGuideAsync(GuideDirection.West, pulseDuration, cancellationToken);
-        await WaitForPulseCompleteAsync(mount, external, pulseDuration, cancellationToken);
+        await pulseTarget.PulseGuideAsync(GuideDirection.West, pulseDuration, cancellationToken);
+        await WaitForPulseCompleteAsync(pulseTarget, external, pulseDuration, cancellationToken);
 
         var frame = await captureFrame(cancellationToken);
         var result = tracker.ProcessFrame(frame);
 
         // Return the star to its original position
-        await mount.PulseGuideAsync(GuideDirection.East, pulseDuration, cancellationToken);
-        await WaitForPulseCompleteAsync(mount, external, pulseDuration, cancellationToken);
+        await pulseTarget.PulseGuideAsync(GuideDirection.East, pulseDuration, cancellationToken);
+        await WaitForPulseCompleteAsync(pulseTarget, external, pulseDuration, cancellationToken);
 
         // Reset tracker for next use
         tracker.Reset();
@@ -235,8 +271,18 @@ internal sealed class GuiderCalibration
         return CalibrationValidationResult.Valid;
     }
 
+    private async ValueTask ClearBacklashAsync(
+        IPulseGuideTarget pulseTarget, IExternal external, GuideDirection direction, CancellationToken cancellationToken)
+    {
+        for (var i = 0; i < BacklashClearingSteps; i++)
+        {
+            await pulseTarget.PulseGuideAsync(direction, CalibrationPulseDuration, cancellationToken);
+            await WaitForPulseCompleteAsync(pulseTarget, external, CalibrationPulseDuration, cancellationToken);
+        }
+    }
+
     private static async ValueTask<GuiderCentroidResult?> MeasureDisplacementAsync(
-        IMountDriver mount,
+        IPulseGuideTarget pulseTarget,
         GuiderCentroidTracker tracker,
         Func<CancellationToken, ValueTask<float[,]>> captureFrame,
         IExternal external,
@@ -249,8 +295,8 @@ internal sealed class GuiderCalibration
 
         for (var i = 0; i < steps; i++)
         {
-            await mount.PulseGuideAsync(direction, pulseDuration, cancellationToken);
-            await WaitForPulseCompleteAsync(mount, external, pulseDuration, cancellationToken);
+            await pulseTarget.PulseGuideAsync(direction, pulseDuration, cancellationToken);
+            await WaitForPulseCompleteAsync(pulseTarget, external, pulseDuration, cancellationToken);
 
             var frame = await captureFrame(cancellationToken);
             lastResult = tracker.ProcessFrame(frame);
@@ -265,7 +311,7 @@ internal sealed class GuiderCalibration
     }
 
     private static async ValueTask WaitForPulseCompleteAsync(
-        IMountDriver mount, IExternal external, TimeSpan pulseDuration, CancellationToken cancellationToken)
+        IPulseGuideTarget pulseTarget, IExternal external, TimeSpan pulseDuration, CancellationToken cancellationToken)
     {
         // Wait most of the pulse duration upfront, then poll at small intervals
         var bulkWait = pulseDuration * 0.9;
@@ -276,7 +322,7 @@ internal sealed class GuiderCalibration
 
         var pollInterval = TimeSpan.FromMilliseconds(50);
         var maxPolls = (int)(pulseDuration.TotalMilliseconds / pollInterval.TotalMilliseconds) + 20;
-        while (await mount.IsPulseGuidingAsync(cancellationToken) && --maxPolls > 0)
+        while (await pulseTarget.IsPulseGuidingAsync(cancellationToken) && --maxPolls > 0)
         {
             await external.SleepAsync(pollInterval, cancellationToken);
         }

@@ -56,8 +56,9 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         tracker.IsAcquired.ShouldBeTrue();
 
         // Calibrate
+        var pulseTarget = new MountPulseGuideTarget(mount);
         var result = await calibration.CalibrateAsync(
-            mount, tracker, RenderFrame, external, ct);
+            pulseTarget, tracker, RenderFrame, external, ct);
 
         result.ShouldNotBeNull();
 
@@ -112,7 +113,8 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
 
         // Full calibration first
         tracker.ProcessFrame(await RenderFrame(ct));
-        var calResult = await calibration.CalibrateAsync(mount, tracker, RenderFrame, external, ct);
+        var pulseTarget = new MountPulseGuideTarget(mount);
+        var calResult = await calibration.CalibrateAsync(pulseTarget, tracker, RenderFrame, external, ct);
         calResult.ShouldNotBeNull();
 
         output.WriteLine($"Calibrated: angle={calResult.Value.CameraAngleDeg:F1}°, RA rate={calResult.Value.RaRatePixPerSec:F3}");
@@ -122,7 +124,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         tracker.ProcessFrame(await RenderFrame(ct));
 
         // Validate with same mount/conditions — should be Valid
-        var result = await calibration.ValidateAsync(calResult.Value, mount, tracker, RenderFrame, external, ct);
+        var result = await calibration.ValidateAsync(calResult.Value, pulseTarget, tracker, RenderFrame, external, ct);
         output.WriteLine($"Validation result: {result}");
         result.ShouldBe(CalibrationValidationResult.Valid);
     }

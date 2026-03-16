@@ -16,6 +16,7 @@ public enum DeviceQueryKey
     Host,
     DeviceNumber,
     Data,
+    PulseGuideSource,
 }
 
 public static class DeviceQueryKeyExtensions
@@ -33,6 +34,7 @@ public static class DeviceQueryKeyExtensions
             DeviceQueryKey.Host => "host",
             DeviceQueryKey.DeviceNumber => "deviceNumber",
             DeviceQueryKey.Data => "data",
+            DeviceQueryKey.PulseGuideSource => "pulseGuideSource",
             _ => key.ToString().ToLowerInvariant()
         };
     }

@@ -36,6 +36,124 @@ The TianWen library is a comprehensive .NET library designed for astronomical de
   - Interfaces for external operations such as logging, `TimeProvider` based time management, and file management.
   - Connect to external guider software using JSON-RPC over TCP.
 
+## Device Architecture
+
+Devices are URI-addressed records that act as factories for their corresponding drivers via `NewInstanceFromDevice`. The hierarchy is rooted at `DeviceBase`:
+
+```mermaid
+graph LR
+    subgraph Abstract
+        DeviceBase
+        GuiderDeviceBase
+    end
+
+    subgraph "ASCOM (Windows)"
+        AscomDevice
+        AscomCameraDriver
+        AscomCoverCalibratorDriver
+        AscomFilterWheelDriver
+        AscomFocuserDriver
+        AscomSwitchDriver
+        AscomTelescopeDriver
+    end
+
+    subgraph "Alpaca (HTTP)"
+        AlpacaDevice
+        AlpacaCameraDriver
+        AlpacaCoverCalibratorDriver
+        AlpacaFilterWheelDriver
+        AlpacaFocuserDriver
+        AlpacaSwitchDriver
+        AlpacaTelescopeDriver
+    end
+
+    subgraph ZWO
+        ZWODevice
+        ZWOCameraDriver
+        ZWOFilterWheelDriver
+        ZWOFocuserDriver
+    end
+
+    subgraph Meade
+        MeadeDevice
+        MeadeLX200ProtocolMountDriver
+    end
+
+    subgraph iOptron
+        IOptronDevice
+        SgpMountDriver
+    end
+
+    subgraph Guiders
+        BuiltInGuiderDevice
+        BuiltInGuiderDriver
+        OpenPHD2GuiderDevice
+        OpenPHD2GuiderDriver
+    end
+
+    subgraph Fake
+        FakeDevice
+        FakeCameraDriver
+        FakeFilterWheelDriver
+        FakeFocuserDriver
+        FakeGuider
+        FakeMountDriver
+        FakeMeadeLX200ProtocolMountDriver
+        FakeSgpMountDriver
+    end
+
+    subgraph Sentinel
+        NoneDevice
+        Profile
+    end
+
+    DeviceBase --> AscomDevice
+    DeviceBase --> AlpacaDevice
+    DeviceBase --> ZWODevice
+    DeviceBase --> MeadeDevice
+    DeviceBase --> IOptronDevice
+    DeviceBase --> FakeDevice
+    DeviceBase --> NoneDevice
+    DeviceBase --> Profile
+    DeviceBase --> GuiderDeviceBase
+    GuiderDeviceBase --> BuiltInGuiderDevice
+    GuiderDeviceBase --> OpenPHD2GuiderDevice
+
+    AscomDevice -.-> AscomCameraDriver
+    AscomDevice -.-> AscomCoverCalibratorDriver
+    AscomDevice -.-> AscomFilterWheelDriver
+    AscomDevice -.-> AscomFocuserDriver
+    AscomDevice -.-> AscomSwitchDriver
+    AscomDevice -.-> AscomTelescopeDriver
+
+    AlpacaDevice -.-> AlpacaCameraDriver
+    AlpacaDevice -.-> AlpacaCoverCalibratorDriver
+    AlpacaDevice -.-> AlpacaFilterWheelDriver
+    AlpacaDevice -.-> AlpacaFocuserDriver
+    AlpacaDevice -.-> AlpacaSwitchDriver
+    AlpacaDevice -.-> AlpacaTelescopeDriver
+
+    ZWODevice -.-> ZWOCameraDriver
+    ZWODevice -.-> ZWOFilterWheelDriver
+    ZWODevice -.-> ZWOFocuserDriver
+
+    MeadeDevice -.-> MeadeLX200ProtocolMountDriver
+    IOptronDevice -.-> SgpMountDriver
+
+    BuiltInGuiderDevice -.-> BuiltInGuiderDriver
+    OpenPHD2GuiderDevice -.-> OpenPHD2GuiderDriver
+
+    FakeDevice -.-> FakeCameraDriver
+    FakeDevice -.-> FakeFilterWheelDriver
+    FakeDevice -.-> FakeFocuserDriver
+    FakeDevice -.-> FakeGuider
+    FakeDevice -.-> FakeMountDriver
+    FakeDevice -.-> FakeMeadeLX200ProtocolMountDriver
+    FakeDevice -.-> FakeSgpMountDriver
+```
+
+> Solid arrows = inheritance, dashed arrows = instantiates driver via `NewInstanceFromDevice`.
+
 ## Installation
 
 ### Library

@@ -13,7 +13,7 @@ namespace TianWen.Lib.Devices.Guider;
 /// </summary>
 internal sealed class GuideLoop
 {
-    private readonly IMountDriver _mount;
+    private readonly IPulseGuideTarget _pulseTarget;
     private readonly GuiderCentroidTracker _tracker;
     private readonly GuideErrorTracker _errorTracker;
     private readonly ProportionalGuideController _pController;
@@ -108,12 +108,12 @@ internal sealed class GuideLoop
     public NeuralGuidePerformanceMonitor? PerformanceMonitor => _performanceMonitor;
 
     public GuideLoop(
-        IMountDriver mount,
+        IPulseGuideTarget pulseTarget,
         GuiderCentroidTracker tracker,
         ProportionalGuideController pController,
         IExternal external)
     {
-        _mount = mount;
+        _pulseTarget = pulseTarget;
         _tracker = tracker;
         _pController = pController;
         _external = external;
@@ -287,7 +287,7 @@ internal sealed class GuideLoop
                     var direction = correction.RaPulseMs > 0
                         ? GuideDirection.West
                         : GuideDirection.East;
-                    await _mount.PulseGuideAsync(direction, correction.RaPulseDuration, cancellationToken);
+                    await _pulseTarget.PulseGuideAsync(direction, correction.RaPulseDuration, cancellationToken);
                 }
 
                 // Apply Dec correction
@@ -296,7 +296,7 @@ internal sealed class GuideLoop
                     var direction = correction.DecPulseMs > 0
                         ? GuideDirection.North
                         : GuideDirection.South;
-                    await _mount.PulseGuideAsync(direction, correction.DecPulseDuration, cancellationToken);
+                    await _pulseTarget.PulseGuideAsync(direction, correction.DecPulseDuration, cancellationToken);
                 }
 
                 if (correction.HasRaCorrection || correction.HasDecCorrection)

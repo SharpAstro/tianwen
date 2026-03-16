@@ -108,6 +108,26 @@ Devices are URI-addressed and managed through:
 - `ICombinedDeviceManager` — coordinates multiple device sources
 - `IDeviceUriRegistry` — maps URIs to device instances
 
+#### Device URI Query Parameters
+
+Each `DeviceBase` subclass reads specific query keys from its URI (`?key=value`).
+Keys are defined in `DeviceQueryKey` enum (wire strings in parentheses).
+
+| DeviceBase subclass | Query keys | Notes |
+|---|---|---|
+| `DeviceBase` (base) | `port`, `baud` | Used in `ConnectSerialDevice()` |
+| `AscomDevice` | *(none)* | Identity in URI path only |
+| `AlpacaDevice` | `host`, `port`, `deviceNumber` | HTTP endpoint + device index |
+| `ZWODevice` | `filter{n}`, `offset{n}` | Dynamic keys (not enum), on filter wheel URIs |
+| `FakeDevice` | `port`, `latitude`, `longitude` | `port` selects mount protocol: `LX200`, `SGP`, or default |
+| `MeadeDevice` | `port`, `baud` | Inherited from `DeviceBase` |
+| `IOptronDevice` | `port`, `latitude`, `longitude` | `ConnectSerialDevice` enforces 28800 baud; lat/lon optional seed |
+| `BuiltInGuiderDevice` | `pulseGuideSource` | `Auto` (default), `Camera`, or `Mount` |
+| `OpenPHD2GuiderDevice` | *(none)* | Host/instance/profile encoded in URI path segments |
+| `Profile` | `data` | Base64url-encoded `ProfileData` JSON blob |
+| `NoneDevice` | *(none)* | Sentinel, fixed URI |
+| Any camera device | `gain`, `offset` | Cross-cutting; resolved by `ObservationScheduler` at session creation |
+
 ### Key Abstractions
 
 - `IExternal` — file I/O, serial ports, time management, logging
