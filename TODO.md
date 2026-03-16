@@ -126,6 +126,7 @@
 
 - [ ] Not sure if `SensorType` LRGB check is correct (`SensorType.cs:54`)
 - [ ] Find bounding box of non-NaN region in `Image.cs` (for stacked images with NaN borders)
+- [ ] Star detection noise robustness: `FindStarsAsync` with `snrMin: 5` picks up false positives from shot noise halos around bright stars (e.g. M42 synthetic field: 49 rendered stars → 64 detected). Consider deblending or a minimum star separation filter to reject noise peaks near bright stars.
 
 ## Stretch / Image Processing
 
@@ -147,6 +148,7 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 - [x] Annotation overlay (object names from catalogs when plate-solved)
 - [x] Star detection overlay: `FitsDocument.DetectStarsAsync()` runs as background task,
       draws HFD-sized green circles, shows count/HFR/FWHM in status bar (S key toggle)
+- [ ] Remember last opened folder and recent images across sessions
 - [ ] Continuous image advance when holding arrow keys (advance every ~1 second while pressed)
 - [ ] Display original bit depth before normalization (e.g. "16-bit" in status bar) when available from FITS header
 - [ ] Star profile tooltip: show radial profile plot (flux vs. distance) when mouse hovers over a detected star
