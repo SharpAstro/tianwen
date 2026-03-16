@@ -95,8 +95,8 @@ public partial class Image
             hdu.Header.GetIntValue("BAYOFFX", 0), hdu.Header.GetIntValue("BAYOFFY", 0),
             [hdu.Header.GetStringValue("BAYERPAT"), hdu.Header.GetStringValue("COLORTYP")]
         );
-        var latitude = hdu.Header.GetFloatValue("SITELAT", hdu.Header.GetFloatValue("LATITUDE", float.NaN));
-        var longitude = hdu.Header.GetFloatValue("SITELONG", hdu.Header.GetFloatValue("LONGITUDE", float.NaN));
+        var latitude = hdu.Header.GetFloatValue("SITELAT", float.NaN);
+        var longitude = hdu.Header.GetFloatValue("SITELONG", float.NaN);
         var objectName = hdu.Header.GetStringValue("OBJECT") ?? "";
 
         var minValue = (float)hdu.MinimumValue;
