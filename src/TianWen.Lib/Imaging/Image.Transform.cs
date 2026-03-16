@@ -105,6 +105,6 @@ public partial class Image
             }, ct));
         }
 
-        return new Image(transformedData, BitDepth.Float32, maxValue, minValue, blackLevel, imageMeta);
+        return new Image(transformedData, BitDepth.Float32, maxValue, minValue, pedestal, imageMeta);
     }
 }

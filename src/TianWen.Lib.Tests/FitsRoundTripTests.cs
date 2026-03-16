@@ -145,7 +145,7 @@ public class FitsRoundTripTests(ITestOutputHelper testOutput)
             BitDepth.Int16,
             maxValue: 4000f,
             minValue: 100f,
-            blackLevel: 0f,
+            pedestal: 0f,
             imageMeta
         );
 

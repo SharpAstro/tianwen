@@ -78,7 +78,7 @@ public partial class Image
         return new Image(debayered, BitDepth.Float32,
             normalized ? 1.0f : maxValue,
             normalized ? minValue / maxValue : minValue,
-            normalized ? blackLevel / maxValue : blackLevel,
+            normalized ? pedestal / maxValue : pedestal,
             imageMeta with
             {
                 SensorType = SensorType.Monochrome,
@@ -166,7 +166,7 @@ public partial class Image
         return new Image(debayered, BitDepth.Float32,
             normalized ? 1.0f : maxValue,
             normalized ? minValue / maxValue : minValue,
-            normalized ? blackLevel / maxValue : blackLevel,
+            normalized ? pedestal / maxValue : pedestal,
             imageMeta with
             {
                 SensorType = SensorType.Color,
@@ -612,7 +612,7 @@ public partial class Image
         return new Image(filtered, BitDepth.Float32,
             normalized ? 1.0f : maxValue,
             normalized ? minValue / maxValue : minValue,
-            normalized ? blackLevel / maxValue : blackLevel,
+            normalized ? pedestal / maxValue : pedestal,
             imageMeta with
             {
                 SensorType = SensorType.Color,

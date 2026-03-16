@@ -262,7 +262,7 @@ public interface ICameraDriver : IDeviceDriver
 
         return imageData.ToImage(
             bitDepth,
-            offset,
+            pedestal: 0f,
             new ImageMeta(
                 Name,
                 startTime,

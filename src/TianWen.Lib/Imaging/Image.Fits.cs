@@ -77,7 +77,7 @@ public partial class Image
         var pixelSizeY = hdu.Header.GetFloatValue("YPIXSZ", float.NaN);
         var xbinning = hdu.Header.GetIntValue("XBINNING", 1);
         var ybinning = hdu.Header.GetIntValue("YBINNING", 1);
-        var blackLevel = hdu.Header.GetFloatValue("BLKLEVEL", hdu.Header.GetFloatValue("OFFSET", 0f));
+        var pedestal = hdu.Header.GetFloatValue("PEDESTAL", 0f);
         var pixelScale = hdu.Header.GetFloatValue("PIXSCALE", hdu.Header.GetFloatValue("SCALE", float.NaN));
         var focalLength = hdu.Header.GetIntValue("FOCALLEN", -1);
         var focusPos = hdu.Header.GetIntValue("FOCUSPOS", hdu.Header.GetIntValue("FOCPOS", -1));
@@ -99,7 +99,7 @@ public partial class Image
         var longitude = hdu.Header.GetFloatValue("SITELONG", float.NaN);
         var objectName = hdu.Header.GetStringValue("OBJECT") ?? "";
         var gain = (short)hdu.Header.GetIntValue("GAIN", -1);
-        var camOffset = hdu.Header.GetIntValue("CAMOFFS", -1);
+        var camOffset = hdu.Header.GetIntValue("OFFSET", hdu.Header.GetIntValue("BLKLEVEL", hdu.Header.GetIntValue("CAMOFFS", -1)));
         var setCCDTemp = hdu.Header.GetFloatValue("SET-TEMP", float.NaN);
         var egain = hdu.Header.GetFloatValue("EGAIN", float.NaN);
         var swCreator = hdu.Header.GetStringValue("SWCREATE") ?? "";
@@ -205,7 +205,7 @@ public partial class Image
             ElectronsPerADU: egain,
             SWCreator: swCreator
         );
-        image = new Image(imgChannels, bitDepth, maxValue, minValue, blackLevel, imageMeta);
+        image = new Image(imgChannels, bitDepth, maxValue, minValue, pedestal, imageMeta);
         wcs = WCS.FromHeader(hdu.Header);
         return true;
     }
@@ -298,8 +298,7 @@ public partial class Image
         basicHdu.Header.Bitpix = (int)bitDepth;
         AddHeaderValueIfHasValue("BZERO", bzero, "offset data range to that of unsigned short");
         AddHeaderValueIfHasValue("BSCALE", 1, "default scaling factor");
-        AddHeaderValueIfHasValue("BLKLEVEL", blackLevel, "", isDataValue: true);
-        AddHeaderValueIfHasValue("OFFSET", blackLevel, "", isDataValue: true);
+        AddHeaderValueIfHasValue("PEDESTAL", pedestal, "", isDataValue: true);
         AddHeaderValueIfHasValue("XBINNING", imageMeta.BinX, "");
         AddHeaderValueIfHasValue("YBINNING", imageMeta.BinY, "");
         AddHeaderValueIfHasValue("XPIXSZ", imageMeta.PixelSizeX, "");
@@ -340,7 +339,7 @@ public partial class Image
         }
         if (imageMeta.Offset >= 0)
         {
-            AddHeaderValueIfHasValue("CAMOFFS", imageMeta.Offset, "camera offset");
+            AddHeaderValueIfHasValue("OFFSET", imageMeta.Offset, "camera offset");
         }
         AddHeaderValueIfHasValue("EGAIN", imageMeta.ElectronsPerADU, "e-/ADU");
         AddHeaderValueIfHasValue("BAYOFFX", imageMeta.BayerOffsetX, "");

@@ -5,8 +5,8 @@ using System.Runtime.InteropServices;
 
 namespace TianWen.Lib.Imaging;
 
-// track minValue and blackLevel (offset) independently
-public partial class Image(float[][,] data, BitDepth bitDepth, float maxValue, float minValue, float blackLevel, ImageMeta imageMeta)
+// track minValue and pedestal independently
+public partial class Image(float[][,] data, BitDepth bitDepth, float maxValue, float minValue, float pedestal, ImageMeta imageMeta)
 {
     public int Width
     {
@@ -227,7 +227,7 @@ public partial class Image(float[][,] data, BitDepth bitDepth, float maxValue, f
             MultiplyScalar(src, newMaxValue, dst);
         }
 
-        return new Image(denormalized, BitDepth.Float32, newMaxValue, minValue * newMaxValue, blackLevel * newMaxValue, imageMeta);
+        return new Image(denormalized, BitDepth.Float32, newMaxValue, minValue * newMaxValue, pedestal * newMaxValue, imageMeta);
     }
 
     /// <summary>
@@ -254,7 +254,7 @@ public partial class Image(float[][,] data, BitDepth bitDepth, float maxValue, f
             MultiplyScalar(src, invMax, dst);
         }
 
-        return new Image(normalized, BitDepth.Float32, 1.0f, minValue / maxValue, blackLevel / maxValue, imageMeta);
+        return new Image(normalized, BitDepth.Float32, 1.0f, minValue / maxValue, pedestal / maxValue, imageMeta);
     }
 
     /// <summary>
@@ -278,6 +278,6 @@ public partial class Image(float[][,] data, BitDepth bitDepth, float maxValue, f
             MultiplyScalar(span, invMax, span);
         }
 
-        return new Image(data, BitDepth.Float32, 1.0f, minValue / maxValue, blackLevel / maxValue, imageMeta);
+        return new Image(data, BitDepth.Float32, 1.0f, minValue / maxValue, pedestal / maxValue, imageMeta);
     }
 }
