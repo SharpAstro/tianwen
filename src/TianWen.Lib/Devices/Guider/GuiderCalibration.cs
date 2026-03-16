@@ -51,10 +51,20 @@ internal sealed class GuiderCalibration
     public int CalibrationSteps { get; set; } = DefaultCalibrationSteps;
 
     /// <summary>
-    /// Number of backlash clearing pulses sent in the calibration direction before measuring.
-    /// This takes up gear backlash so the first measurement step produces real displacement.
+    /// Whether adaptive backlash clearing is enabled. When true, backlash clearing
+    /// pulses are sent until star movement is detected or <see cref="MaxBacklashClearingSteps"/> is reached.
     /// </summary>
-    public int BacklashClearingSteps { get; set; }
+    public bool BacklashClearingEnabled { get; set; }
+
+    /// <summary>
+    /// Maximum number of backlash clearing pulses before giving up.
+    /// </summary>
+    public int MaxBacklashClearingSteps { get; set; } = 10;
+
+    /// <summary>
+    /// Cumulative star displacement (pixels) that indicates backlash has been cleared.
+    /// </summary>
+    public double BacklashMovementThresholdPx { get; set; } = 1.5;
 
     /// <summary>
     /// Runs calibration by pulsing in each direction and measuring displacement.
@@ -81,10 +91,11 @@ internal sealed class GuiderCalibration
         tracker.SetLockPosition();
 
         // --- RA calibration (West then East to return) ---
-        if (BacklashClearingSteps > 0)
+        var raBacklashResult = BacklashClearingResult.None;
+        if (BacklashClearingEnabled)
         {
             // Clear backlash by pulsing West before measuring
-            await ClearBacklashAsync(pulseTarget, external, GuideDirection.West, cancellationToken);
+            raBacklashResult = await ClearBacklashAsync(pulseTarget, tracker, captureFrame, external, GuideDirection.West, cancellationToken);
 
             // Re-acquire after backlash clearing and reset lock position
             tracker.Reset();
@@ -121,10 +132,11 @@ internal sealed class GuiderCalibration
         tracker.SetLockPosition();
 
         // --- Dec calibration (North then South to return) ---
-        if (BacklashClearingSteps > 0)
+        var decBacklashResult = BacklashClearingResult.None;
+        if (BacklashClearingEnabled)
         {
             // Clear backlash by pulsing North before measuring
-            await ClearBacklashAsync(pulseTarget, external, GuideDirection.North, cancellationToken);
+            decBacklashResult = await ClearBacklashAsync(pulseTarget, tracker, captureFrame, external, GuideDirection.North, cancellationToken);
 
             // Re-acquire after backlash clearing and reset lock position
             tracker.Reset();
@@ -183,7 +195,9 @@ internal sealed class GuiderCalibration
             DecRatePixPerSec: decRatePixPerSec,
             RaDisplacementPx: raDisplacementPx,
             DecDisplacementPx: decDisplacementPx,
-            TotalCalibrationTimeSec: totalRaTimeSec + totalDecTimeSec);
+            TotalCalibrationTimeSec: totalRaTimeSec + totalDecTimeSec,
+            BacklashClearingStepsRa: raBacklashResult.StepsUsed,
+            BacklashClearingStepsDec: decBacklashResult.StepsUsed);
     }
 
     /// <summary>
@@ -271,14 +285,39 @@ internal sealed class GuiderCalibration
         return CalibrationValidationResult.Valid;
     }
 
-    private async ValueTask ClearBacklashAsync(
-        IPulseGuideTarget pulseTarget, IExternal external, GuideDirection direction, CancellationToken cancellationToken)
+    internal async ValueTask<BacklashClearingResult> ClearBacklashAsync(
+        IPulseGuideTarget pulseTarget,
+        GuiderCentroidTracker tracker,
+        Func<CancellationToken, ValueTask<float[,]>> captureFrame,
+        IExternal external,
+        GuideDirection direction,
+        CancellationToken cancellationToken)
     {
-        for (var i = 0; i < BacklashClearingSteps; i++)
+        // Record pre-clearing star position — displacement accumulates from here
+        tracker.SetLockPosition();
+
+        for (var i = 0; i < MaxBacklashClearingSteps; i++)
         {
             await pulseTarget.PulseGuideAsync(direction, CalibrationPulseDuration, cancellationToken);
             await WaitForPulseCompleteAsync(pulseTarget, external, CalibrationPulseDuration, cancellationToken);
+
+            var frame = await captureFrame(cancellationToken);
+            var result = tracker.ProcessFrame(frame);
+
+            if (result is null)
+            {
+                // Star lost during backlash clearing
+                return new BacklashClearingResult(i + 1, MovementDetected: false);
+            }
+
+            var disp = Math.Sqrt(result.Value.DeltaX * result.Value.DeltaX + result.Value.DeltaY * result.Value.DeltaY);
+            if (disp >= BacklashMovementThresholdPx)
+            {
+                return new BacklashClearingResult(i + 1, MovementDetected: true);
+            }
         }
+
+        return new BacklashClearingResult(MaxBacklashClearingSteps, MovementDetected: false);
     }
 
     private static async ValueTask<GuiderCentroidResult?> MeasureDisplacementAsync(
@@ -330,6 +369,19 @@ internal sealed class GuiderCalibration
 }
 
 /// <summary>
+/// Result of adaptive backlash clearing.
+/// </summary>
+/// <param name="StepsUsed">Number of pulses sent.</param>
+/// <param name="MovementDetected">Whether star displacement exceeded the threshold.</param>
+internal readonly record struct BacklashClearingResult(int StepsUsed, bool MovementDetected)
+{
+    /// <summary>
+    /// Default result when backlash clearing is not enabled.
+    /// </summary>
+    public static BacklashClearingResult None => new BacklashClearingResult(0, MovementDetected: false);
+}
+
+/// <summary>
 /// Result of guider calibration.
 /// </summary>
 /// <param name="CameraAngleRad">Angle of the RA axis on the sensor in radians.</param>
@@ -338,13 +390,17 @@ internal sealed class GuiderCalibration
 /// <param name="RaDisplacementPx">Total RA displacement measured during calibration (pixels).</param>
 /// <param name="DecDisplacementPx">Total Dec displacement measured during calibration (pixels).</param>
 /// <param name="TotalCalibrationTimeSec">Total calibration time in seconds.</param>
+/// <param name="BacklashClearingStepsRa">Number of backlash clearing steps used for RA axis.</param>
+/// <param name="BacklashClearingStepsDec">Number of backlash clearing steps used for Dec axis.</param>
 internal readonly record struct GuiderCalibrationResult(
     double CameraAngleRad,
     double RaRatePixPerSec,
     double DecRatePixPerSec,
     double RaDisplacementPx,
     double DecDisplacementPx,
-    double TotalCalibrationTimeSec)
+    double TotalCalibrationTimeSec,
+    int BacklashClearingStepsRa = 0,
+    int BacklashClearingStepsDec = 0)
 {
     /// <summary>
     /// Camera angle in degrees.

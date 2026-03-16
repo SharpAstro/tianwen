@@ -33,10 +33,12 @@ internal static class SyntheticStarFieldRenderer
         double skyBackground = 100.0,
         double readNoise = 5.0,
         int starCount = 50,
-        int seed = 42)
+        int seed = 42,
+        int? noiseSeed = null)
     {
         return Render(width, height, defocusSteps, offsetX: 0, offsetY: 0,
-            hyperbolaA, hyperbolaB, exposureSeconds, skyBackground, readNoise, starCount, seed);
+            hyperbolaA, hyperbolaB, exposureSeconds, skyBackground, readNoise, starCount, seed,
+            noiseSeed: noiseSeed);
     }
 
     /// <summary>
@@ -64,6 +66,9 @@ internal static class SyntheticStarFieldRenderer
     /// Each star's centroid is randomly shifted by a Gaussian offset whose sigma = seeing_FWHM / (2.35 * sqrt(exposure)).
     /// Pass a persistent Random instance (not seeded per frame) so jitter varies between frames.
     /// If null, no centroid jitter is applied (only PSF broadening).</param>
+    /// <param name="noiseSeed">Optional separate seed for background and shot noise RNGs.
+    /// When provided, star positions remain determined by <paramref name="seed"/> but noise varies
+    /// per frame. When null, noise RNGs are derived from <paramref name="seed"/> (legacy behavior).</param>
     /// <returns>Image data array with synthetic stars at offset positions.</returns>
     public static float[,] Render(
         int width,
@@ -82,7 +87,8 @@ internal static class SyntheticStarFieldRenderer
         double maxADU = 4096.0,
         double seeingArcsec = 0.0,
         double pixelScaleArcsec = 1.5,
-        Random? seeingJitterRng = null)
+        Random? seeingJitterRng = null,
+        int? noiseSeed = null)
     {
         var rng = new Random(seed);
         var data = new float[height, width];
@@ -99,7 +105,7 @@ internal static class SyntheticStarFieldRenderer
         var sigma = fwhm / 2.3548; // FWHM = 2 * sqrt(2 * ln(2)) * sigma
 
         // Sky background — use separate RNG so star positions don't depend on image size
-        var bgRng = new Random(seed + 1);
+        var bgRng = new Random(noiseSeed.HasValue ? noiseSeed.Value : seed + 1);
         var skyLevel = skyBackground * exposureSeconds;
         for (var y = 0; y < height; y++)
         {
@@ -144,7 +150,7 @@ internal static class SyntheticStarFieldRenderer
         }
 
         // Render stars with shot noise (separate RNG — clipping differences don't affect positions)
-        var shotRng = new Random(seed + 2);
+        var shotRng = new Random(noiseSeed.HasValue ? noiseSeed.Value + 1 : seed + 2);
         var sigma2x2 = 2.0 * sigma * sigma;
 
         for (var s = 0; s < starCount; s++)

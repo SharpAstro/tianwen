@@ -44,13 +44,13 @@ internal partial record Session
         CancellationToken cancellationToken
     )
     {
-        var scopes = Setup.Telescopes.Count;
+        var scopes = Setup.Telescopes.Length;
         var coolingStates = new CameraCoolingState[scopes];
 
         var accSleep = TimeSpan.Zero;
         do
         {
-            for (var i = 0; i < Setup.Telescopes.Count; i++)
+            for (var i = 0; i < Setup.Telescopes.Length; i++)
             {
                 var camera = Setup.Telescopes[i].Camera;
                 coolingStates[i] = await camera.Driver.CoolToSetpointAsync(desiredSetpointTemp, thresPower, direction, coolingStates[i], cancellationToken);

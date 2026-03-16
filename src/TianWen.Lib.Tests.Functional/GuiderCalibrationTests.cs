@@ -2,6 +2,7 @@ using Shouldly;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.DAL;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Devices.Guider;
@@ -152,6 +153,247 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         // At 45°: ra = sin(45) = 0.707, dec = cos(45) = 0.707
         ra2.ShouldBe(Math.Sin(Math.PI / 4), 0.01);
         dec2.ShouldBe(Math.Cos(Math.PI / 4), 0.01);
+    }
+
+    [Fact]
+    public async Task GivenDecBacklashWhenAdaptiveClearThenDetectsMovementAfterBacklashConsumed()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var device = new FakeDevice(DeviceType.Mount, 1);
+        // Guide rate is ~10 arcsec/s, so 25 arcsec backlash needs ~3 pulses to clear
+        var mount = new FakeMountDriver(device, external) { DecBacklashArcsec = 25.0 };
+        await mount.ConnectAsync(ct);
+        await mount.SetPositionAsync(12.0, 45.0, ct);
+
+        // Pre-pulse South to arm backlash on reversal to North
+        var pulseTarget = new MountPulseGuideTarget(mount);
+        await pulseTarget.PulseGuideAsync(GuideDirection.South, TimeSpan.FromSeconds(1), ct);
+        await external.SleepAsync(TimeSpan.FromSeconds(2), ct);
+
+        // Update initial position after pre-pulse
+        var initialRa = await mount.GetRightAscensionAsync(ct);
+        var initialDec = await mount.GetDeclinationAsync(ct);
+
+        var tracker = new GuiderCentroidTracker(maxStars: 1);
+        var calibration = new GuiderCalibration
+        {
+            CalibrationPulseDuration = TimeSpan.FromSeconds(1),
+            BacklashClearingEnabled = true,
+            MaxBacklashClearingSteps = 15,
+            BacklashMovementThresholdPx = 0.3
+        };
+
+        async ValueTask<float[,]> RenderFrame(CancellationToken token)
+        {
+            var ra = await mount.GetRightAscensionAsync(token);
+            var dec = await mount.GetDeclinationAsync(token);
+            var deltaRaArcsec = (ra - initialRa) * 15.0 * 3600.0;
+            var deltaDecArcsec = (dec - initialDec) * 3600.0;
+            var offsetX = deltaRaArcsec / PixelScaleArcsec;
+            var offsetY = deltaDecArcsec / PixelScaleArcsec;
+            return SyntheticStarFieldRenderer.Render(320, 240, 0,
+                offsetX: offsetX, offsetY: offsetY,
+                starCount: 5, seed: 42,
+                pixelScaleArcsec: PixelScaleArcsec);
+        }
+
+        // Acquire guide star
+        tracker.ProcessFrame(await RenderFrame(ct));
+        tracker.IsAcquired.ShouldBeTrue();
+
+        // Run adaptive backlash clearing in North direction (reversal from South)
+        var result = await calibration.ClearBacklashAsync(
+            pulseTarget, tracker, RenderFrame, external, GuideDirection.North, ct);
+
+        output.WriteLine($"Backlash clearing: StepsUsed={result.StepsUsed}, MovementDetected={result.MovementDetected}");
+
+        result.MovementDetected.ShouldBeTrue("movement should be detected after backlash is consumed");
+        result.StepsUsed.ShouldBeGreaterThan(1, "should need more than 1 step to consume 25 arcsec backlash");
+    }
+
+    [Fact]
+    public async Task GivenNoBacklashWhenAdaptiveClearThenDetectsMovementImmediately()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var device = new FakeDevice(DeviceType.Mount, 1);
+        var mount = new FakeMountDriver(device, external) { DecBacklashArcsec = 0 };
+        await mount.ConnectAsync(ct);
+        await mount.SetPositionAsync(12.0, 45.0, ct);
+
+        var initialRa = await mount.GetRightAscensionAsync(ct);
+        var initialDec = await mount.GetDeclinationAsync(ct);
+
+        // Pre-pulse South then update baseline
+        var pulseTarget = new MountPulseGuideTarget(mount);
+        await pulseTarget.PulseGuideAsync(GuideDirection.South, TimeSpan.FromSeconds(1), ct);
+        await external.SleepAsync(TimeSpan.FromSeconds(2), ct);
+
+        initialRa = await mount.GetRightAscensionAsync(ct);
+        initialDec = await mount.GetDeclinationAsync(ct);
+
+        var tracker = new GuiderCentroidTracker(maxStars: 1);
+        var calibration = new GuiderCalibration
+        {
+            CalibrationPulseDuration = TimeSpan.FromSeconds(1),
+            BacklashClearingEnabled = true,
+            MaxBacklashClearingSteps = 10,
+            BacklashMovementThresholdPx = 0.3
+        };
+
+        async ValueTask<float[,]> RenderFrame(CancellationToken token)
+        {
+            var ra = await mount.GetRightAscensionAsync(token);
+            var dec = await mount.GetDeclinationAsync(token);
+            var deltaRaArcsec = (ra - initialRa) * 15.0 * 3600.0;
+            var deltaDecArcsec = (dec - initialDec) * 3600.0;
+            var offsetX = deltaRaArcsec / PixelScaleArcsec;
+            var offsetY = deltaDecArcsec / PixelScaleArcsec;
+            return SyntheticStarFieldRenderer.Render(320, 240, 0,
+                offsetX: offsetX, offsetY: offsetY,
+                starCount: 5, seed: 42,
+                pixelScaleArcsec: PixelScaleArcsec);
+        }
+
+        tracker.ProcessFrame(await RenderFrame(ct));
+        tracker.IsAcquired.ShouldBeTrue();
+
+        var result = await calibration.ClearBacklashAsync(
+            pulseTarget, tracker, RenderFrame, external, GuideDirection.North, ct);
+
+        output.WriteLine($"Backlash clearing: StepsUsed={result.StepsUsed}, MovementDetected={result.MovementDetected}");
+
+        result.MovementDetected.ShouldBeTrue("movement should be detected immediately with no backlash");
+        result.StepsUsed.ShouldBe(1, "should detect movement on the very first step");
+    }
+
+    [Fact]
+    public async Task GivenMaxStepsExceededWhenClearThenReturnsMovementNotDetected()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var device = new FakeDevice(DeviceType.Mount, 1);
+        var mount = new FakeMountDriver(device, external) { DecBacklashArcsec = 1000.0 };
+        await mount.ConnectAsync(ct);
+        await mount.SetPositionAsync(12.0, 45.0, ct);
+
+        var initialRa = await mount.GetRightAscensionAsync(ct);
+        var initialDec = await mount.GetDeclinationAsync(ct);
+
+        // Pre-pulse South to arm backlash
+        var pulseTarget = new MountPulseGuideTarget(mount);
+        await pulseTarget.PulseGuideAsync(GuideDirection.South, TimeSpan.FromSeconds(1), ct);
+        await external.SleepAsync(TimeSpan.FromSeconds(2), ct);
+
+        initialRa = await mount.GetRightAscensionAsync(ct);
+        initialDec = await mount.GetDeclinationAsync(ct);
+
+        var tracker = new GuiderCentroidTracker(maxStars: 1);
+        var calibration = new GuiderCalibration
+        {
+            CalibrationPulseDuration = TimeSpan.FromSeconds(1),
+            BacklashClearingEnabled = true,
+            MaxBacklashClearingSteps = 3,
+            BacklashMovementThresholdPx = 0.3
+        };
+
+        async ValueTask<float[,]> RenderFrame(CancellationToken token)
+        {
+            var ra = await mount.GetRightAscensionAsync(token);
+            var dec = await mount.GetDeclinationAsync(token);
+            var deltaRaArcsec = (ra - initialRa) * 15.0 * 3600.0;
+            var deltaDecArcsec = (dec - initialDec) * 3600.0;
+            var offsetX = deltaRaArcsec / PixelScaleArcsec;
+            var offsetY = deltaDecArcsec / PixelScaleArcsec;
+            return SyntheticStarFieldRenderer.Render(320, 240, 0,
+                offsetX: offsetX, offsetY: offsetY,
+                starCount: 5, seed: 42,
+                pixelScaleArcsec: PixelScaleArcsec);
+        }
+
+        tracker.ProcessFrame(await RenderFrame(ct));
+        tracker.IsAcquired.ShouldBeTrue();
+
+        var result = await calibration.ClearBacklashAsync(
+            pulseTarget, tracker, RenderFrame, external, GuideDirection.North, ct);
+
+        output.WriteLine($"Backlash clearing: StepsUsed={result.StepsUsed}, MovementDetected={result.MovementDetected}");
+
+        result.MovementDetected.ShouldBeFalse("pathological backlash should not be cleared in 3 steps");
+        result.StepsUsed.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task GivenDecBacklashWhenFullCalibrationThenRatesAccurate()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var device = new FakeDevice(DeviceType.Mount, 1);
+        // Guide rate is ~10 arcsec/s, so 25 arcsec backlash needs ~3 pulses to clear
+        var mount = new FakeMountDriver(device, external) { DecBacklashArcsec = 25.0 };
+        await mount.ConnectAsync(ct);
+        await mount.SetPositionAsync(12.0, 45.0, ct);
+
+        // Pre-pulse South to arm Dec backlash on reversal
+        var pulseTarget = new MountPulseGuideTarget(mount);
+        await pulseTarget.PulseGuideAsync(GuideDirection.South, TimeSpan.FromSeconds(1), ct);
+        await external.SleepAsync(TimeSpan.FromSeconds(2), ct);
+
+        var initialRa = await mount.GetRightAscensionAsync(ct);
+        var initialDec = await mount.GetDeclinationAsync(ct);
+
+        var tracker = new GuiderCentroidTracker(maxStars: 1);
+        var calibration = new GuiderCalibration
+        {
+            CalibrationPulseDuration = TimeSpan.FromSeconds(1),
+            CalibrationSteps = 3,
+            BacklashClearingEnabled = true,
+            MaxBacklashClearingSteps = 15,
+            BacklashMovementThresholdPx = 0.3
+        };
+
+        async ValueTask<float[,]> RenderFrame(CancellationToken token)
+        {
+            var ra = await mount.GetRightAscensionAsync(token);
+            var dec = await mount.GetDeclinationAsync(token);
+            var deltaRaArcsec = (ra - initialRa) * 15.0 * 3600.0;
+            var deltaDecArcsec = (dec - initialDec) * 3600.0;
+            var offsetX = deltaRaArcsec / PixelScaleArcsec;
+            var offsetY = deltaDecArcsec / PixelScaleArcsec;
+            return SyntheticStarFieldRenderer.Render(320, 240, 0,
+                offsetX: offsetX, offsetY: offsetY,
+                starCount: 5, seed: 42,
+                pixelScaleArcsec: PixelScaleArcsec);
+        }
+
+        // Acquire guide star
+        tracker.ProcessFrame(await RenderFrame(ct));
+        tracker.IsAcquired.ShouldBeTrue();
+
+        var result = await calibration.CalibrateAsync(
+            pulseTarget, tracker, RenderFrame, external, ct);
+
+        result.ShouldNotBeNull();
+
+        output.WriteLine($"Camera angle: {result.Value.CameraAngleDeg:F1}°");
+        output.WriteLine($"RA rate: {result.Value.RaRatePixPerSec:F3} px/s");
+        output.WriteLine($"Dec rate: {result.Value.DecRatePixPerSec:F3} px/s");
+        output.WriteLine($"RA displacement: {result.Value.RaDisplacementPx:F2} px");
+        output.WriteLine($"Dec displacement: {result.Value.DecDisplacementPx:F2} px");
+        output.WriteLine($"Backlash steps RA: {result.Value.BacklashClearingStepsRa}");
+        output.WriteLine($"Backlash steps Dec: {result.Value.BacklashClearingStepsDec}");
+
+        // Rates should be positive
+        result.Value.RaRatePixPerSec.ShouldBeGreaterThan(0);
+        result.Value.DecRatePixPerSec.ShouldBeGreaterThan(0);
+
+        // Camera angle should be near 0 (guide camera aligned with RA axis)
+        Math.Abs(result.Value.CameraAngleDeg).ShouldBeLessThan(30,
+            "camera angle should be near 0 for aligned camera");
+
+        // Dec backlash clearing should have used some steps
+        result.Value.BacklashClearingStepsDec.ShouldBeGreaterThan(0);
     }
 
 }

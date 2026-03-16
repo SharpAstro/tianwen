@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Specialized;
+using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
@@ -117,4 +119,39 @@ internal record SessionTestContext(
     FakeCameraDriver Camera,
     FakeFocuserDriver Focuser,
     FakeMeadeLX200ProtocolMountDriver Mount
-);
+)
+{
+    /// <summary>
+    /// Deletes the test output directory, keeping only the first FITS file as a sample.
+    /// Call after assertions pass to avoid accumulating large test artifacts.
+    /// </summary>
+    internal void CleanupOutputFolder()
+    {
+        if (Environment.GetEnvironmentVariable("TIANWEN_TESTS_DISABLE_CLEANUP") == "1")
+        {
+            return;
+        }
+
+        var outputDir = External.OutputFolder;
+        if (!outputDir.Exists)
+        {
+            return;
+        }
+
+        var fitsFiles = outputDir.GetFiles("*.fits", SearchOption.AllDirectories);
+        foreach (var file in fitsFiles.Skip(1))
+        {
+            file.Delete();
+        }
+
+        // Remove empty subdirectories
+        foreach (var dir in outputDir.GetDirectories("*", SearchOption.AllDirectories)
+            .OrderByDescending(d => d.FullName.Length))
+        {
+            if (dir.Exists && dir.GetFileSystemInfos().Length == 0)
+            {
+                dir.Delete();
+            }
+        }
+    }
+}

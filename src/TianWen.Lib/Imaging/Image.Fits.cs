@@ -78,9 +78,9 @@ public partial class Image
         var xbinning = hdu.Header.GetIntValue("XBINNING", 1);
         var ybinning = hdu.Header.GetIntValue("YBINNING", 1);
         var blackLevel = hdu.Header.GetFloatValue("BLKLEVEL", hdu.Header.GetFloatValue("OFFSET", 0f));
-        var pixelScale = hdu.Header.GetFloatValue("PIXSCALE", float.NaN);
+        var pixelScale = hdu.Header.GetFloatValue("PIXSCALE", hdu.Header.GetFloatValue("SCALE", float.NaN));
         var focalLength = hdu.Header.GetIntValue("FOCALLEN", -1);
-        var focusPos = hdu.Header.GetIntValue("FOCUSPOS", -1);
+        var focusPos = hdu.Header.GetIntValue("FOCUSPOS", hdu.Header.GetIntValue("FOCPOS", -1));
         var filterName = hdu.Header.GetStringValue("FILTER");
         var ccdTemp = hdu.Header.GetFloatValue("CCD-TEMP", float.NaN);
         var rowOrder = RowOrder.FromFITSValue(hdu.Header.GetStringValue("ROWORDER")) ?? RowOrder.TopDown;
@@ -298,11 +298,30 @@ public partial class Image
         AddHeaderValueIfHasValue("EXPTIME", imageMeta.ExposureDuration.TotalSeconds, "seconds");
         AddHeaderValueIfHasValue("IMAGETYP", imageMeta.FrameType, "");
         AddHeaderValueIfHasValue("FRAMETYP", imageMeta.FrameType, "");
+        AddHeaderValueIfHasValue("DATAMIN", MinValue, "");
         AddHeaderValueIfHasValue("DATAMAX", MaxValue, "");
         AddHeaderValueIfHasValue("INSTRUME", imageMeta.Instrument, "");
         AddHeaderValueIfHasValue("TELESCOP", imageMeta.Telescope, "");
         AddHeaderValueIfHasValue("OBJECT", imageMeta.ObjectName, "");
         AddHeaderValueIfHasValue("ROWORDER", imageMeta.RowOrder, "");
+        if (imageMeta.FocalLength > 0)
+        {
+            AddHeaderValueIfHasValue("FOCALLEN", imageMeta.FocalLength, "mm");
+        }
+        if (!double.IsNaN(imageMeta.DerivedPixelScale))
+        {
+            AddHeaderValueIfHasValue("SCALE", imageMeta.DerivedPixelScale, "arcsec/px");
+            AddHeaderValueIfHasValue("PIXSCALE", imageMeta.DerivedPixelScale, "arcsec/px");
+        }
+        if (imageMeta.FocusPos >= 0)
+        {
+            AddHeaderValueIfHasValue("FOCUSPOS", imageMeta.FocusPos, "steps");
+            AddHeaderValueIfHasValue("FOCPOS", imageMeta.FocusPos, "steps");
+        }
+        if (imageMeta.Filter is { Name: { Length: > 0 } filterName })
+        {
+            AddHeaderValueIfHasValue("FILTER", filterName, "");
+        }
         AddHeaderValueIfHasValue("CCD-TEMP", imageMeta.CCDTemperature, "Celsius");
         AddHeaderValueIfHasValue("BAYOFFX", imageMeta.BayerOffsetX, "");
         AddHeaderValueIfHasValue("BAYOFFY", imageMeta.BayerOffsetY, "");

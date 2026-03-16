@@ -10,6 +10,7 @@ namespace TianWen.Lib.Devices.Fake;
 internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external) : FakeDeviceDriverBase(fakeDevice, external), ICameraDriver
 {
     private readonly Lock _lock = new Lock();
+    private readonly Random _frameRng = new Random(42);
 
     private Float32HxWImageData? _lastImageData;
     private CameraSettings _cameraSettings;
@@ -496,7 +497,7 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
                     {
                         var defocus = Math.Abs(FocusPosition - bestFocus);
                         var exposureSec = current.IntendedDuration.TotalSeconds;
-                        array = SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocus, exposureSeconds: exposureSec);
+                        array = SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocus, exposureSeconds: exposureSec, noiseSeed: _frameRng.Next());
                     }
                     else
                     {
