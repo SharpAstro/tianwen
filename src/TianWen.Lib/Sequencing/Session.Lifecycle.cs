@@ -25,7 +25,11 @@ internal partial record Session
             throw new InvalidOperationException($"Failed to slew mount {mount} to guider calibration position (near meridian, {DegreesToDMS(dec)} declination)");
         }
 
-        // TODO: plate solve and sync and reslew
+        // Plate solve and sync for accurate calibration position
+        if (!await PlateSolveAndSyncAsync(0, TimeSpan.FromSeconds(5), cancellationToken))
+        {
+            External.AppLogger.LogWarning("Plate solve after calibration slew failed, proceeding with uncorrected pointing.");
+        }
 
         var guider = Setup.Guider;
 

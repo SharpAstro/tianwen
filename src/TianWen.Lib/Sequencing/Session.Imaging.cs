@@ -94,7 +94,11 @@ internal partial record Session
                     // (BeginSlewToTargetAsync returns the pre-slew HA, which may be on a different pier side)
                     hourAngleAtSlewTime = await mount.Driver.GetHourAngleAsync(cancellationToken);
 
-                    // TODO: Plate solve and re-slew
+                    // Plate solve main camera and sync mount for accurate pointing
+                    if (!await PlateSolveAndSyncAsync(0, TimeSpan.FromSeconds(5), cancellationToken))
+                    {
+                        External.AppLogger.LogWarning("Plate solve after slew to {Target} failed, continuing with uncorrected pointing.", observation.Target);
+                    }
                 }
                 else
                 {
@@ -333,25 +337,48 @@ internal partial record Session
                 // write all images before stopping
                 await WriteQueuedImagesToFitsFilesAsync();
 
-                // abort any in-progress exposures
+                // Let nearly-complete exposures finish; only abort if mostly remaining
                 for (var i = 0; i < scopes; i++)
                 {
                     var camDriver = Setup.Telescopes[i].Camera.Driver;
                     if (await camDriver.GetCameraStateAsync(cancellationToken) is CameraState.Exposing)
                     {
-                        if (camDriver.CanAbortExposure)
+                        var elapsed = External.TimeProvider.GetUtcNow() - expStartTimes[i];
+                        var total = TimeSpan.FromSeconds(subExposuresSec[i]);
+                        var remaining = total - elapsed;
+
+                        if (remaining > TimeSpan.FromSeconds(30))
                         {
-                            await camDriver.AbortExposureAsync(cancellationToken);
+                            // Mostly remaining — abort to avoid long wait
+                            External.AppLogger.LogInformation("Aborting exposure on camera #{CameraNumber} ({Remaining:F0}s remaining of {Total}s).",
+                                i + 1, remaining.TotalSeconds, total.TotalSeconds);
+                            if (camDriver.CanAbortExposure)
+                            {
+                                await camDriver.AbortExposureAsync(cancellationToken);
+                            }
+                            else if (camDriver.CanStopExposure)
+                            {
+                                await camDriver.StopExposureAsync(cancellationToken);
+                            }
                         }
-                        else if (camDriver.CanStopExposure)
+                        else
                         {
-                            await camDriver.StopExposureAsync(cancellationToken);
+                            // Nearly done — wait for it to finish and save the frame
+                            External.AppLogger.LogInformation("Waiting for exposure on camera #{CameraNumber} to finish ({Remaining:F0}s remaining).", i + 1, remaining.TotalSeconds);
+                            await External.SleepAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, cancellationToken);
+                            if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } image)
+                            {
+                                imageWriteQueue.Enqueue(new QueuedImageWrite(image, observation, expStartTimes[i], frameNumbers[i]));
+                            }
+                            await WriteQueuedImagesToFitsFilesAsync();
                         }
                     }
                 }
 
                 if (observation.AcrossMeridian)
                 {
+                    // TODO: detect auto-flipping mounts (e.g. iOptron CEM) where the mount
+                    // already flipped physically — skip re-slew, just plate solve and restart guiding
                     var flipResult = await PerformMeridianFlipAsync(observation, cancellationToken);
                     if (flipResult.Success)
                     {
@@ -530,8 +557,6 @@ internal partial record Session
             // Verify the HA is now positive (west of meridian) — the flip actually happened
             if (newHourAngle > 0)
             {
-                // TODO: plate solve and re-sync mount for improved pointing accuracy
-
                 External.AppLogger.LogInformation("Meridian flip: restarting guiding for {Target}.", observation.Target);
                 if (!await guider.Driver.StartGuidingLoopAsync(Configuration.GuidingTries, cancellationToken).ConfigureAwait(false))
                 {
