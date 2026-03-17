@@ -329,11 +329,9 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
             return (PointingState.Unknown, double.NaN);
         }
 
-        var isSlewing = await IsSlewingAsync(cancellationToken);
-
         var (raSideOfPier, lst) = await CalculateSideOfPierAsync(ra, cancellationToken);
 
-        return (isSlewing ? raSideOfPier : PointingState.Normal, lst);
+        return (raSideOfPier, lst);
     }
 
     public async ValueTask<PointingState> GetSideOfPierAsync(CancellationToken cancellationToken)
@@ -922,9 +920,9 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     public async ValueTask SyncRaDecAsync(double ra, double dec, CancellationToken cancellationToken)
     {
         var pointingState = await GetSideOfPierAsync(cancellationToken);
-        if (pointingState is PointingState.Unknown or PointingState.ThroughThePole)
+        if (pointingState is PointingState.Unknown)
         {
-            throw new InvalidOperationException($"Cannot sync across meridian (current side of pier: {pointingState}) given {HoursToHMS(ra)},{DegreesToDMS(dec)}");
+            throw new InvalidOperationException($"Cannot sync with unknown pointing state given {HoursToHMS(ra)},{DegreesToDMS(dec)}");
         }
 
         var response = await SendAndReceiveAsync(CMCommand, cancellationToken);
