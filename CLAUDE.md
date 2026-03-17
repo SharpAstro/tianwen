@@ -149,7 +149,44 @@ image capturing. It drives the entire observation workflow and is the most vital
 7. `ObservationLoopAsync` → `ImagingLoopAsync` — main imaging loop with guiding, dithering,
    focus drift detection, meridian flip handling
 
-**Key methods** (21 total):
+**ObservationLoopAsync** — per-target sequencing:
+```
+while (ActiveObservation && time < sessionEnd)
+│
+├─ EnsureTracking
+├─ StopGuiding
+├─ BeginSlewToTargetAsync (with rising-target wait and spare-target fallback)
+│   ├─ Target below horizon? → wait or skip to spare/next
+│   └─ Slew succeeded? → WaitForSlewComplete, recompute hourAngleAtSlewTime
+├─ StartGuidingLoop
+├─ (Optional) Refocus on new target (AlwaysRefocusOnNewTarget)
+├─ ImagingLoopAsync ──► returns AdvanceToNextObservation / RepeatCurrentObservation
+└─ AdvanceObservation
+```
+
+**ImagingLoopAsync** — per-tick frame capture:
+```
+PeriodicTimer(tickDuration) loop:
+│
+├─ Check guiding (restart if lost)
+├─ Start exposure on idle cameras
+├─ Write queued FITS files
+├─ WaitForNextTick
+├─ Fetch completed images
+├─ Duration check: tickCount >= maxTicks? → advance
+├─ Altitude check: target below min? → advance
+├─ Pier side check: IsOnSamePierSideAsync
+│   ├─ AcrossMeridian=true → PerformMeridianFlipAsync
+│   │   ├─ Abort exposures, stop guiding
+│   │   ├─ Re-slew with RA offset (retry loop, verify HA flipped)
+│   │   ├─ Restart guiding (guider auto-reverses DEC)
+│   │   └─ continue imaging with new hourAngleAtSlewTime
+│   └─ AcrossMeridian=false → break (finished target)
+├─ Focus drift check: HFD ratio > threshold? → auto-refocus
+└─ Dither check: every Nth tick → DitherWaitAsync
+```
+
+**Key methods** (22 total):
 - `RunAsync` — top-level entry point
 - `InitialisationAsync` — device setup
 - `InitialRoughFocusAsync` — rough focus via plate solve readiness
@@ -157,6 +194,7 @@ image capturing. It drives the entire observation workflow and is the most vital
 - `CalibrateGuiderAsync` — guider calibration
 - `ObservationLoopAsync` — observation sequencing (slew, guide, image)
 - `ImagingLoopAsync` — per-observation imaging with drift detection
+- `PerformMeridianFlipAsync` — meridian flip: re-slew, verify HA, restart guiding
 - `CoolCamerasToSetpointAsync` / `CoolCamerasToSensorTempAsync` / `CoolCamerasToAmbientAsync`
 - `MoveTelescopeCoversToStateAsync` — cover management
 - `WriteImageToFitsFileAsync` — FITS output
@@ -165,14 +203,20 @@ image capturing. It drives the entire observation workflow and is the most vital
 - `WaitUntilTenMinutesBeforeAmateurAstroTwilightEndsAsync` / `SessionEndTimeAsync` — timing
 - `CatchAsync` — error handling wrappers
 
-**Test coverage** (as of March 2026):
-- **Tested**: `AutoFocusAsync`, `AutoFocusAllTelescopesAsync` (6 tests in `SessionAutoFocusTests`)
-- **Not tested**: `RunAsync`, `InitialisationAsync`, `InitialRoughFocusAsync`,
-  `CalibrateGuiderAsync`, `ObservationLoopAsync`, `ImagingLoopAsync`, `Finalise`,
-  `CoolCamerasToSetpointAsync`, `MoveTelescopeCoversToStateAsync`, `WriteImageToFitsFileAsync`,
-  `GuiderFocusLoopAsync`, `WaitUntilTenMinutesBeforeAmateurAstroTwilightEndsAsync`
-- **Coverage gap**: ~90% of Session methods have no tests. The imaging loop (focus drift
-  detection, dithering, meridian flip) and full RunAsync workflow are completely untested.
+**Test coverage** (32 tests across 5 test classes, as of March 2026):
+- `SessionAutoFocusTests` (6): `AutoFocusAsync`, `AutoFocusAllTelescopesAsync`
+- `SessionCoolingTests` (6): `CoolCamerasToSetpointAsync`, `CoolCamerasToSensorTempAsync`
+- `SessionImagingTests` (3): `ImagingLoopAsync` (utilization, altitude exit, single-target loop)
+- `SessionObservationLoopTests` (5): `ObservationLoopAsync` (below-horizon skip, multi-target,
+  altitude drop, refocus-on-switch, meridian flip)
+- `SessionLifecycleTests` (12): `RunAsync`, `InitialisationAsync`, `CalibrateGuiderAsync`,
+  `Finalise`, `CoolCamerasToAmbientAsync`, `SessionEndTimeAsync`, twilight wait,
+  `GuiderFocusLoopAsync`, `InitialRoughFocusAsync`, `MoveTelescopeCoversToStateAsync` (3 tests)
+- **18/22 methods tested directly** (82%). Remaining 4 (`WriteImageToFitsFileAsync`,
+  `GetMountUtcNowAsync`, `EstimateTimeUntilTargetRisesAsync`, `AccumulateBaselineSample`)
+  are internal helpers with indirect coverage through the above tests.
+- **Untested branch paths**: dithering logic, focus drift mid-session refocus trigger,
+  spare target fallback, guider failure/restart during imaging.
 
 ### FITS Viewer / GPU Stretch
 
