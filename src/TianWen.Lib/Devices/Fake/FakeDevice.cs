@@ -22,6 +22,7 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
     protected override IDeviceDriver? NewInstanceFromDevice(IExternal external) => DeviceType switch
     {
         DeviceType.Camera => new FakeCameraDriver(this, external),
+        DeviceType.CoverCalibrator => new FakeCoverDriver(this, external),
         DeviceType.FilterWheel => new FakeFilterWheelDriver(this, external),
         DeviceType.Focuser => new FakeFocuserDriver(this, external),
         DeviceType.Guider => new FakeGuider(this, external),
