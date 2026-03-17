@@ -409,6 +409,18 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
                     _responseBuffer.Append(SlewToTarget());
                     break;
 
+                case ":CM#":
+                    // Sync: update mount axis position to match target RA/Dec
+                    lock (_lockObj)
+                    {
+                        var targetHA = ConditionHA(SiderealTime - _targetRa);
+                        _haAxisAngle = targetHA;
+                        _decAxisAngle = _targetDec;
+                        UpdateTransformFromAxisAngles();
+                    }
+                    _responseBuffer.Append("Synced#");
+                    break;
+
                 case ":D#":
                     _responseBuffer.Append(_isSlewing ? "\x7f#" : "#");
                     break;

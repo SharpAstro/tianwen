@@ -332,6 +332,71 @@ internal partial record Session
         return (false, default);
     }
 
+    /// <summary>
+    /// Takes a short exposure on the main imaging camera, plate solves the image,
+    /// and syncs the mount to the solved J2000 coordinates for accurate pointing.
+    /// </summary>
+    /// <param name="telescopeIndex">Which telescope/camera to use (default 0).</param>
+    /// <param name="exposureTime">Exposure duration for the plate solve frame.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><c>true</c> if plate solve succeeded and mount was synced.</returns>
+    internal async ValueTask<bool> PlateSolveAndSyncAsync(int telescopeIndex, TimeSpan exposureTime, CancellationToken cancellationToken)
+    {
+        var mount = Setup.Mount;
+        var camDriver = Setup.Telescopes[telescopeIndex].Camera.Driver;
+
+        // Take a short exposure
+        await camDriver.StartExposureAsync(exposureTime, cancellationToken: cancellationToken);
+
+        // Wait for exposure to complete
+        Image? image = null;
+        var polled = TimeSpan.Zero;
+        var maxPoll = exposureTime + exposureTime; // wait up to 2x exposure time
+        while (polled < maxPoll && !cancellationToken.IsCancellationRequested)
+        {
+            if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } img)
+            {
+                image = img;
+                break;
+            }
+
+            var spinDuration = TimeSpan.FromMilliseconds(250);
+            polled += spinDuration;
+            await External.SleepAsync(spinDuration, cancellationToken);
+        }
+
+        if (image is null)
+        {
+            External.AppLogger.LogWarning("Plate solve: failed to capture image from camera #{CameraNumber}.", telescopeIndex + 1);
+            return false;
+        }
+
+        // Plate solve using mount's current position as search origin
+        var mountRa = await mount.Driver.GetRightAscensionAsync(cancellationToken);
+        var mountDec = await mount.Driver.GetDeclinationAsync(cancellationToken);
+        var searchOrigin = new Imaging.WCS(mountRa, mountDec);
+
+        var result = await PlateSolver.SolveImageAsync(image, searchOrigin: searchOrigin, searchRadius: 10, cancellationToken: cancellationToken);
+
+        if (result.Solution is not { } wcs)
+        {
+            External.AppLogger.LogWarning("Plate solve: failed to solve image from camera #{CameraNumber}.", telescopeIndex + 1);
+            return false;
+        }
+
+        External.AppLogger.LogInformation(
+            "Plate solve: solved at ({SolvedRA}, {SolvedDec}), mount was at ({MountRA}, {MountDec}), offset=({DeltaRA:F4}h, {DeltaDec:F2}°).",
+            Astrometry.CoordinateUtils.HoursToHMS(wcs.CenterRA), Astrometry.CoordinateUtils.DegreesToDMS(wcs.CenterDec),
+            Astrometry.CoordinateUtils.HoursToHMS(mountRa), Astrometry.CoordinateUtils.DegreesToDMS(mountDec),
+            wcs.CenterRA - mountRa, wcs.CenterDec - mountDec);
+
+        // Sync mount to solved J2000 coordinates
+        await mount.Driver.SyncRaDecJ2000Async(wcs.CenterRA, wcs.CenterDec, cancellationToken);
+
+        External.AppLogger.LogInformation("Plate solve: mount synced to solved position.");
+        return true;
+    }
+
     internal async ValueTask<bool> GuiderFocusLoopAsync(TimeSpan timeoutAfter, CancellationToken cancellationToken)
     {
         var mount = Setup.Mount;
