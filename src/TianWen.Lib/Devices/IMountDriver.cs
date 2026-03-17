@@ -429,13 +429,29 @@ public interface IMountDriver : IDeviceDriver
         }
     }
 
+    /// <summary>
+    /// Checks whether the mount is still on the same side of the meridian as when the slew started.
+    /// Uses hour angle comparison with a deadband to detect clear meridian crossings, which works
+    /// reliably across all mount types (including LX200 mounts that cannot report physical pier side).
+    /// A crossing is only detected when the slew-time HA was clearly on one side (&gt; 6 min from meridian)
+    /// and the current HA is clearly on the opposite side.
+    /// </summary>
     public async Task<bool> IsOnSamePierSideAsync(double hourAngleAtSlewTime, CancellationToken cancellationToken)
     {
-        var pierSide = await External.CatchAsync(GetSideOfPierAsync, cancellationToken, PointingState.Unknown);
         var currentHourAngle = await External.CatchAsync(GetHourAngleAsync, cancellationToken, double.NaN);
-        return pierSide == await External.CatchAsync(GetExpectedSideOfPierAsync, cancellationToken, PointingState.Unknown)
-            && !double.IsNaN(currentHourAngle)
-            && (pierSide != PointingState.Unknown || Math.Sign(hourAngleAtSlewTime) == Math.Sign(currentHourAngle));
+        if (double.IsNaN(currentHourAngle))
+        {
+            return false;
+        }
+
+        // Only detect a meridian crossing when both the slew-time and current HA
+        // are clearly on opposite sides of the meridian (beyond the deadband).
+        // This avoids false positives for targets near the meridian where HA naturally drifts across zero.
+        const double meridianDeadband = 0.1; // hours (~6 minutes)
+        var crossedFromWestToEast = hourAngleAtSlewTime > meridianDeadband && currentHourAngle < -meridianDeadband;
+        var crossedFromEastToWest = hourAngleAtSlewTime < -meridianDeadband && currentHourAngle > meridianDeadband;
+
+        return !crossedFromWestToEast && !crossedFromEastToWest;
     }
 
     public async ValueTask BeginSlewToZenithAsync(TimeSpan distMeridian, CancellationToken cancellationToken)
@@ -463,29 +479,26 @@ public interface IMountDriver : IDeviceDriver
     /// <exception cref="InvalidOperationException">Thrown if the device is not connected or if the target cannot be transformed to mount native coordinates.</exception>
     public async Task<SlewResult> BeginSlewToTargetAsync(Target target, int minAboveHorizonDegrees = 10, CancellationToken cancellationToken = default)
     {
-        var az = double.NaN;
-        var alt = double.NaN;
-        var dsop = PointingState.Unknown;
         if (await TryGetTransformAsync(cancellationToken) is not { } transform
-            || await TryTransformJ2000ToMountNativeAsync(transform, target.RA, target.Dec, updateTime: false, cancellationToken) is not { } nativeCoords
-            || nativeCoords.Alt < minAboveHorizonDegrees
-            || (dsop = await DestinationSideOfPierAsync(nativeCoords.RaMount, nativeCoords.DecMount, cancellationToken)) == PointingState.Unknown
-        )
+            || await TryTransformJ2000ToMountNativeAsync(transform, target.RA, target.Dec, updateTime: false, cancellationToken) is not { } nativeCoords)
         {
+            External.AppLogger.LogError("Failed to slew {MountName} to target {TargetName}, coordinate transform unavailable.", Name, target.Name);
+            return new SlewResult(SlewPostCondition.SlewNotPossible, double.NaN);
+        }
 
-            if (!double.IsNaN(alt) && alt < minAboveHorizonDegrees)
-            {
-                External.AppLogger.LogWarning("Target {TargetName} is below minimum altitude of {MinAlt} degrees.", target.Name, minAboveHorizonDegrees);
-            
-                return new SlewResult(SlewPostCondition.TargetBelowHorizonLimit, double.NaN);
-            }
-            else
-            {
-                External.AppLogger.LogError("Failed to slew {MountName} to target {TargetName} az={AZ:0.00} alt={Alt:0.00} dsop={DestinationSoP}, skipping.",
-                    Name, target.Name, az, alt, dsop);
+        if (nativeCoords.Alt < minAboveHorizonDegrees)
+        {
+            External.AppLogger.LogWarning("Target {TargetName} is below minimum altitude of {MinAlt} degrees (alt={Alt:0.00}°).",
+                target.Name, minAboveHorizonDegrees, nativeCoords.Alt);
+            return new SlewResult(SlewPostCondition.TargetBelowHorizonLimit, double.NaN);
+        }
 
-                return new SlewResult(SlewPostCondition.SlewNotPossible, double.NaN);
-            }
+        var dsop = await DestinationSideOfPierAsync(nativeCoords.RaMount, nativeCoords.DecMount, cancellationToken);
+        if (dsop == PointingState.Unknown)
+        {
+            External.AppLogger.LogError("Failed to slew {MountName} to target {TargetName} az={AZ:0.00} alt={Alt:0.00} dsop={DestinationSoP}, skipping.",
+                Name, target.Name, nativeCoords.Az, nativeCoords.Alt, dsop);
+            return new SlewResult(SlewPostCondition.SlewNotPossible, double.NaN);
         }
 
         var hourAngle = await GetHourAngleAsync(cancellationToken);

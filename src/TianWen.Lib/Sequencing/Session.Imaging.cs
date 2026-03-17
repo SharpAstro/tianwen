@@ -90,6 +90,10 @@ internal partial record Session
                         throw new InvalidOperationException($"Failed to complete slewing of mount {mount} while slewing to {observation.Target}");
                     }
 
+                    // Recompute hour angle now that the mount is pointing at the target
+                    // (BeginSlewToTargetAsync returns the pre-slew HA, which may be on a different pier side)
+                    hourAngleAtSlewTime = await mount.Driver.GetHourAngleAsync(cancellationToken);
+
                     // TODO: Plate solve and re-slew
                 }
                 else
@@ -191,6 +195,7 @@ internal partial record Session
 
         var imageWriteQueue = new Queue<QueuedImageWrite>();
         ImageLoopNextAction? next = null;
+        var maxTicks = (int)(observation.Duration / tickDuration);
 
         using var ticker = new PeriodicTimer(tickDuration, External.TimeProvider);
 
@@ -201,7 +206,8 @@ internal partial record Session
         {
             tickCount++;
 
-            if (!await CatchAsync(guider.Driver.IsGuidingAsync, cancellationToken).ConfigureAwait(false))
+            var isGuiding = await CatchAsync(guider.Driver.IsGuidingAsync, cancellationToken).ConfigureAwait(false);
+            if (!isGuiding)
             {
                 var guiderRestartedSuccess =
                     await CatchAsync(guider.Driver.ConnectAsync, cancellationToken) &&
@@ -297,6 +303,16 @@ internal partial record Session
             }
 
             var fetchImagesSuccessAll = imageFetchSuccess.AllSet(scopes);
+
+            // Check if scheduled observation duration has elapsed (tick-based to avoid clock drift)
+            if (tickCount >= maxTicks)
+            {
+                External.AppLogger.LogInformation(
+                    "Observation duration {Duration} for target {Target} has elapsed ({TickCount}/{MaxTicks} ticks), advancing.",
+                    observation.Duration, observation.Target, tickCount, maxTicks);
+                await WriteQueuedImagesToFitsFilesAsync();
+                break; // falls through to return AdvanceToNextObservation
+            }
 
             // Check if target has dropped below minimum altitude
             if (await mount.Driver.TryGetTransformAsync(cancellationToken) is { } altTransform
