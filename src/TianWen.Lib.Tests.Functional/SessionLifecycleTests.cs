@@ -190,4 +190,72 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
         output.WriteLine("Finalise shutdown completed");
     }
+
+    // --- GuiderFocusLoopAsync ---
+
+    [Fact]
+    public async Task GivenConnectedGuiderWhenGuiderFocusLoopThenPlateSolveSucceeds()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
+
+        // Set guider pointing so SaveImageAsync writes WCS headers
+        var guider = (FakeGuider)ctx.Session.Setup.Guider.Driver;
+        var mountRa = await ctx.Mount.GetRightAscensionAsync(ct);
+        var mountDec = await ctx.Mount.GetDeclinationAsync(ct);
+        guider.PointingRA = mountRa;
+        guider.PointingDec = mountDec;
+
+        IMountDriver mount = ctx.Mount;
+        await mount.EnsureTrackingAsync(cancellationToken: ct);
+
+        // GuiderFocusLoopAsync: LoopAsync → SaveImageAsync (FITS with WCS + stars) → SolveFileAsync
+        var result = await ctx.Session.GuiderFocusLoopAsync(TimeSpan.FromMinutes(1), ct);
+
+        result.ShouldBeTrue("guider focus loop should succeed (FITS with WCS → plate solve)");
+
+        output.WriteLine($"Guider focus loop succeeded — plate solved at RA={mountRa:F4}h, Dec={mountDec:F2}°");
+    }
+
+    // --- InitialRoughFocusAsync ---
+
+    [Fact]
+    public async Task GivenSyntheticStarsWhenInitialRoughFocusThenDetectsStars()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
+
+        // Enable synthetic star field rendering at best focus
+        ctx.Camera.TrueBestFocus = 1000;
+        ctx.Camera.FocusPosition = 1000;
+
+        await ctx.Focuser.BeginMoveAsync(1000, ct);
+        while (await ctx.Focuser.GetIsMovingAsync(ct))
+        {
+            await ctx.External.SleepAsync(TimeSpan.FromMilliseconds(100), ct);
+        }
+
+        IMountDriver mount = ctx.Mount;
+        await mount.EnsureTrackingAsync(cancellationToken: ct);
+
+        // InitialRoughFocusAsync: slews to zenith, guider plate solve, then takes
+        // short exposures looking for ≥15 stars. With synthetic star field at best
+        // focus (1000mm FL, 512×512 sensor), we should detect enough stars.
+        var roughFocusTask = Task.Run(
+            async () => await ctx.Session.InitialRoughFocusAsync(ct), ct);
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        while (!roughFocusTask.IsCompleted && !timeout.IsCancellationRequested)
+        {
+            await ctx.External.SleepAsync(TimeSpan.FromSeconds(1), ct);
+            await Task.Delay(10, ct);
+        }
+
+        roughFocusTask.IsCompleted.ShouldBeTrue("InitialRoughFocusAsync should complete within timeout");
+        var result = await roughFocusTask;
+
+        result.ShouldBeTrue("rough focus should succeed with synthetic star field at best focus");
+
+        output.WriteLine("Initial rough focus completed — enough stars detected");
+    }
 }

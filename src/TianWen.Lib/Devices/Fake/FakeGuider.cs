@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices.Guider;
+using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Devices.Fake;
 
@@ -12,6 +14,18 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
     private const double DefaultPixelScale = 1.5;
     private const int GuideWidth = 320;
     private const int GuideHeight = 240;
+
+    /// <summary>
+    /// Current pointing RA in hours (J2000). Set by the test or by connecting to a mount.
+    /// Used by <see cref="SaveImageAsync"/> to generate a FITS file with correct WCS headers.
+    /// </summary>
+    internal double PointingRA { get; set; } = double.NaN;
+
+    /// <summary>
+    /// Current pointing Dec in degrees (J2000). Set by the test or by connecting to a mount.
+    /// Used by <see cref="SaveImageAsync"/> to generate a FITS file with correct WCS headers.
+    /// </summary>
+    internal double PointingDec { get; set; } = double.NaN;
 
     private int _state = (int)GuiderState.Idle;
     private bool _equipmentConnected;
@@ -231,7 +245,34 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
         => ValueTask.FromResult(DefaultPixelScale);
 
     public ValueTask<string?> SaveImageAsync(string outputFolder, CancellationToken cancellationToken = default)
-        => ValueTask.FromResult<string?>(null);
+    {
+        Directory.CreateDirectory(outputFolder);
+        var path = Path.Combine(outputFolder, $"guider_{External.TimeProvider.GetUtcNow().UtcDateTime:yyyyMMdd_HHmmss}.fits");
+
+        // Render a synthetic star field with proper WCS headers
+        var array = SyntheticStarFieldRenderer.Render(GuideWidth, GuideHeight, defocusSteps: 0, exposureSeconds: 2, noiseSeed: 42);
+
+        var dataMax = 0f;
+        var dataMin = float.MaxValue;
+        for (var y = 0; y < array.GetLength(0); y++)
+        {
+            for (var x = 0; x < array.GetLength(1); x++)
+            {
+                var val = array[y, x];
+                if (val > dataMax) dataMax = val;
+                if (val < dataMin) dataMin = val;
+            }
+        }
+
+        var wcs = !double.IsNaN(PointingRA) && !double.IsNaN(PointingDec)
+            ? new WCS(PointingRA, PointingDec)
+            : null as WCS?;
+
+        var image = new Image([array], BitDepth.Float32, dataMax, dataMin, 0f, default);
+        image.WriteToFitsFile(path, wcs);
+
+        return ValueTask.FromResult<string?>(path);
+    }
 
     public ValueTask StopCaptureAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
     {
