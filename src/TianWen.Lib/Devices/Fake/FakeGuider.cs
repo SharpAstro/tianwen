@@ -181,6 +181,9 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
     public ValueTask ClearCalibrationAsync(CancellationToken cancellationToken = default)
         => ValueTask.CompletedTask;
 
+    public ValueTask FlipCalibrationAsync(CancellationToken cancellationToken = default)
+        => ValueTask.CompletedTask;
+
     public ValueTask GuideAsync(double settlePixels, double settleTime, double settleTimeout, CancellationToken cancellationToken)
     {
         _settlePixels = settlePixels;

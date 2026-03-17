@@ -330,15 +330,37 @@ internal partial record Session
 
             if (!await mount.Driver.IsOnSamePierSideAsync(hourAngleAtSlewTime, cancellationToken))
             {
-                // write all images as the loop is ending here
+                // write all images before stopping
                 await WriteQueuedImagesToFitsFilesAsync();
 
-                // TODO stop exposures (if we can, and if there are any)
+                // abort any in-progress exposures
+                for (var i = 0; i < scopes; i++)
+                {
+                    var camDriver = Setup.Telescopes[i].Camera.Driver;
+                    if (await camDriver.GetCameraStateAsync(cancellationToken) is CameraState.Exposing)
+                    {
+                        if (camDriver.CanAbortExposure)
+                        {
+                            await camDriver.AbortExposureAsync(cancellationToken);
+                        }
+                        else if (camDriver.CanStopExposure)
+                        {
+                            await camDriver.StopExposureAsync(cancellationToken);
+                        }
+                    }
+                }
 
                 if (observation.AcrossMeridian)
                 {
-                    // TODO, stop guiding flip, resync, verify and restart guiding
-                    throw new NotSupportedException("Observing across meridian is not yet supported");
+                    var flipResult = await PerformMeridianFlipAsync(observation, cancellationToken);
+                    if (flipResult.Success)
+                    {
+                        hourAngleAtSlewTime = flipResult.HourAngle;
+                        continue; // resume imaging loop on the new pier side
+                    }
+
+                    next = ImageLoopNextAction.RepeatCurrentObservation;
+                    break;
                 }
                 else
                 {
@@ -453,6 +475,80 @@ internal partial record Session
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Performs a meridian flip: stops guiding, re-slews to the target with a small westward
+    /// RA offset to ensure the mount lands on the west side of the meridian, verifies the HA
+    /// has flipped (retries if needed), then restarts guiding.
+    /// After a GEM flip the DEC guide axis is reversed; the guider is responsible for detecting
+    /// the flip and adjusting its calibration accordingly (e.g., PHD2's "reverse Dec after flip").
+    /// </summary>
+    /// <returns>A <see cref="MeridianFlipResult"/> indicating success and the post-flip hour angle.</returns>
+    private async ValueTask<MeridianFlipResult> PerformMeridianFlipAsync(
+        ScheduledObservation observation,
+        CancellationToken cancellationToken)
+    {
+        const int maxFlipAttempts = 3;
+        const double raOffsetHours = 0.05; // ~3 min westward to ensure mount lands past meridian
+
+        var mount = Setup.Mount;
+        var guider = Setup.Guider;
+
+        External.AppLogger.LogInformation("Meridian flip: stopping guider for {Target}.", observation.Target);
+        await guider.Driver.StopCaptureAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
+
+        for (var attempt = 1; attempt <= maxFlipAttempts; attempt++)
+        {
+            // Offset RA slightly westward (lower RA = more positive HA) to ensure
+            // the mount doesn't land right on the meridian and flip back
+            var offsetRA = observation.Target.RA - raOffsetHours * attempt;
+            if (offsetRA < 0) offsetRA += 24;
+            var slewTarget = observation.Target with { RA = offsetRA };
+
+            External.AppLogger.LogInformation("Meridian flip: slewing to {Target} (attempt {Attempt}/{MaxAttempts}, RA offset {Offset:F3}h).",
+                observation.Target, attempt, maxFlipAttempts, raOffsetHours * attempt);
+
+            var (postCondition, _) = await mount.Driver.BeginSlewToTargetAsync(
+                slewTarget, Configuration.MinHeightAboveHorizon, cancellationToken).ConfigureAwait(false);
+
+            if (postCondition is not SlewPostCondition.Slewing)
+            {
+                External.AppLogger.LogError("Meridian flip: slew failed with {PostCondition} on attempt {Attempt}.", postCondition, attempt);
+                continue;
+            }
+
+            if (!await mount.Driver.WaitForSlewCompleteAsync(cancellationToken).ConfigureAwait(false))
+            {
+                External.AppLogger.LogError("Meridian flip: slew did not complete on attempt {Attempt}.", attempt);
+                continue;
+            }
+
+            var newHourAngle = await mount.Driver.GetHourAngleAsync(cancellationToken);
+            External.AppLogger.LogInformation("Meridian flip: slew complete, HA={NewHA:F4}h (attempt {Attempt}).", newHourAngle, attempt);
+
+            // Verify the HA is now positive (west of meridian) — the flip actually happened
+            if (newHourAngle > 0)
+            {
+                // TODO: plate solve and re-sync mount for improved pointing accuracy
+
+                External.AppLogger.LogInformation("Meridian flip: restarting guiding for {Target}.", observation.Target);
+                if (!await guider.Driver.StartGuidingLoopAsync(Configuration.GuidingTries, cancellationToken).ConfigureAwait(false))
+                {
+                    External.AppLogger.LogError("Meridian flip: failed to restart guider after flip for {Target}.", observation.Target);
+                    return MeridianFlipResult.Failed;
+                }
+
+                External.AppLogger.LogInformation("Meridian flip: completed successfully for {Target}, HA={NewHA:F4}h.", observation.Target, newHourAngle);
+                return new MeridianFlipResult(true, newHourAngle);
+            }
+
+            External.AppLogger.LogWarning("Meridian flip: HA={NewHA:F4}h still east of meridian after attempt {Attempt}, retrying with larger offset.",
+                newHourAngle, attempt);
+        }
+
+        External.AppLogger.LogError("Meridian flip: failed after {MaxAttempts} attempts for {Target}.", maxFlipAttempts, observation.Target);
+        return MeridianFlipResult.Failed;
     }
 
     /// <summary>

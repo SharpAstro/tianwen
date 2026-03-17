@@ -18,7 +18,7 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
     {
         var device = new BuiltInGuiderDevice();
 
-        device.GetPulseGuideSource().ShouldBe(PulseGuideSource.Auto);
+        device.PulseGuideSource.ShouldBe(PulseGuideSource.Auto);
     }
 
     [Theory]
@@ -33,7 +33,7 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
         var uri = new Uri($"guider://BuiltInGuiderDevice/builtin?pulseGuideSource={value}#Built-in Guider");
         var device = new BuiltInGuiderDevice(uri);
 
-        device.GetPulseGuideSource().ShouldBe(expected);
+        device.PulseGuideSource.ShouldBe(expected);
     }
 
     [Fact]
@@ -42,7 +42,7 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
         var uri = new Uri("guider://BuiltInGuiderDevice/builtin?pulseGuideSource=invalid#Built-in Guider");
         var device = new BuiltInGuiderDevice(uri);
 
-        device.GetPulseGuideSource().ShouldBe(PulseGuideSource.Auto);
+        device.PulseGuideSource.ShouldBe(PulseGuideSource.Auto);
     }
 
     [Fact]

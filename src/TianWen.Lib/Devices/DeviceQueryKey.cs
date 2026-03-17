@@ -17,6 +17,7 @@ public enum DeviceQueryKey
     DeviceNumber,
     Data,
     PulseGuideSource,
+    ReverseDecAfterFlip,
 }
 
 public static class DeviceQueryKeyExtensions
@@ -35,6 +36,7 @@ public static class DeviceQueryKeyExtensions
             DeviceQueryKey.DeviceNumber => "deviceNumber",
             DeviceQueryKey.Data => "data",
             DeviceQueryKey.PulseGuideSource => "pulseGuideSource",
+            DeviceQueryKey.ReverseDecAfterFlip => "reverseDecAfterFlip",
             _ => key.ToString().ToLowerInvariant()
         };
     }

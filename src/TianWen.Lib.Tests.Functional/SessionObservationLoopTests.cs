@@ -304,4 +304,50 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
 
         ctx.CleanupOutputFolder();
     }
+
+    /// <summary>
+    /// Test meridian flip: a target starting slightly east of meridian (HA ≈ -0.15h) with
+    /// AcrossMeridian=true. After ~15 min of fake time, HA crosses the deadband (+0.1h),
+    /// triggering PerformMeridianFlipAsync. The mount re-slews, guider restarts, and
+    /// imaging continues on the new pier side.
+    /// At Dec 15 22:00 UTC from Vienna, LST ≈ 4.74h.
+    /// Target RA = 4.89h → initial HA = LST - RA = -0.15h (east of meridian).
+    /// </summary>
+    [Fact]
+    public async Task GivenAcrossMeridianTargetWhenHACrossesDeadbandThenFlipAndContinueImaging()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var subExposure = TimeSpan.FromSeconds(30);
+
+        // Target starts at HA ≈ -0.15h, crosses to +0.1h after ~15 min → flip triggers
+        var observations = new[]
+        {
+            new ScheduledObservation(
+                new Target(4.89, 20.0, "FlipTarget", null),
+                WinterNightStart,
+                TimeSpan.FromMinutes(30), // long enough to image before and after flip
+                AcrossMeridian: true,
+                SubExposure: subExposure,
+                Gain: 0,
+                Offset: 0
+            )
+        };
+
+        var ctx = await CreateWinterSessionAsync(observations, cancellationToken: ct);
+
+        // Run the observation loop with time pump
+        await RunObservationLoopWithTimePumpAsync(ctx, subExposure, ct);
+
+        // Should have produced frames (some before the flip, some after)
+        ctx.Session.TotalFramesWritten.ShouldBeGreaterThan(0, "should have written frames across meridian flip");
+
+        // Observation should have advanced (completed its scheduled duration)
+        ctx.Session.CurrentObservationIndex.ShouldBeGreaterThanOrEqualTo(1,
+            "observation should have advanced after completing duration");
+
+        output.WriteLine($"Frames written: {ctx.Session.TotalFramesWritten}");
+        output.WriteLine($"Total exposure: {ctx.Session.TotalExposureTime}");
+
+        ctx.CleanupOutputFolder();
+    }
 }

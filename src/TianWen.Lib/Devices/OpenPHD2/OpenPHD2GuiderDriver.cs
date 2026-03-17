@@ -584,6 +584,13 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
         _forceCalibration = true;
     }
 
+    public async ValueTask FlipCalibrationAsync(CancellationToken cancellationToken = default)
+    {
+        EnsureConnected();
+
+        using var _ = await CallAsync("flip_calibration", cancellationToken);
+    }
+
     public async ValueTask GuideAsync(double settlePixels, double settleTime, double settleTimeout, CancellationToken cancellationToken = default)
     {
         EnsureConnected();

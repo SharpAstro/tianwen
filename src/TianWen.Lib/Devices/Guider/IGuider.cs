@@ -45,6 +45,13 @@ public interface IGuider : IDeviceDriver
     ValueTask ClearCalibrationAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Reverses the DEC component of the current calibration data after a meridian flip.
+    /// For PHD2 this calls the <c>flip_calibration</c> JSON RPC method.
+    /// For the built-in guider this is a no-op (flip detection is automatic via HA sign change).
+    /// </summary>
+    ValueTask FlipCalibrationAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Start guiding with the given settling parameters. PHD2 takes care of looping exposures,
     /// guide star selection, and settling. Call <see cref="GetSettleProgressAsync(CancellationToken)"/> periodically to see when settling
     /// is complete.
