@@ -191,6 +191,147 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         output.WriteLine("Finalise shutdown completed");
     }
 
+    // --- MoveTelescopeCoversToStateAsync ---
+
+    /// <summary>
+    /// Creates a Session whose OTA has a FakeCoverDriver attached.
+    /// </summary>
+    private async Task<(Session Session, FakeExternal External, FakeCoverDriver Cover)> CreateSessionWithCoverAsync(CancellationToken ct)
+    {
+        var external = new FakeExternal(output, now: WinterNight);
+        var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
+        var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
+        var coverDevice = new FakeDevice(DeviceType.CoverCalibrator, 1);
+
+        var camera = new Camera(cameraDevice, external);
+        var focuser = new Focuser(focuserDevice, external);
+        var cover = new Cover(coverDevice, external);
+
+        await camera.Driver.ConnectAsync(ct);
+        await focuser.Driver.ConnectAsync(ct);
+
+        var cameraDriver = (FakeCameraDriver)camera.Driver;
+        cameraDriver.BinX = 1;
+        cameraDriver.NumX = 512;
+        cameraDriver.NumY = 512;
+
+        var ota = new OTA("Test Telescope", 1000, camera, cover, focuser,
+            new FocusDirection(PreferOutward: true, OutwardIsPositive: true),
+            FilterWheel: null, Switches: null);
+
+        var mountDevice = new FakeDevice(DeviceType.Mount, 1,
+            new System.Collections.Specialized.NameValueCollection
+            {
+                { "port", "LX200" },
+                { "latitude", "48.2" },
+                { "longitude", "16.3" }
+            });
+        var guiderDevice = new FakeDevice(DeviceType.Guider, 1);
+        var mount = new Mount(mountDevice, external);
+        var guider = new Guider(guiderDevice, external);
+
+        await mount.Driver.ConnectAsync(ct);
+        await guider.Driver.ConnectAsync(ct);
+        await ((FakeGuider)guider.Driver).ConnectEquipmentAsync(ct);
+        await mount.Driver.SetUTCDateAsync(external.TimeProvider.GetUtcNow().UtcDateTime, ct);
+
+        var setup = new Setup(mount, guider, new GuiderSetup(), [ota]);
+        var config = SessionTestHelper.DefaultConfiguration;
+        var session = new Session(setup, config, new FakePlateSolver(), external, new ScheduledObservationTree(SessionTestHelper.DefaultScheduledObservations));
+
+        var coverDriver = (FakeCoverDriver)cover.Driver;
+        return (session, external, coverDriver);
+    }
+
+    [Fact]
+    public async Task GivenClosedCoverWhenOpenThenCoverOpens()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (session, external, coverDriver) = await CreateSessionWithCoverAsync(ct);
+
+        // Cover starts Closed
+        (await coverDriver.GetCoverStateAsync(ct)).ShouldBe(CoverStatus.Closed);
+
+        // Open covers — needs time pump for the Moving → Open transition and calibrator check
+        var openTask = Task.Run(async () => await session.MoveTelescopeCoversToStateAsync(CoverStatus.Open, ct), ct);
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        while (!openTask.IsCompleted && !timeout.IsCancellationRequested)
+        {
+            await external.SleepAsync(TimeSpan.FromSeconds(1), ct);
+            await Task.Delay(10, ct);
+        }
+
+        openTask.IsCompleted.ShouldBeTrue("MoveTelescopeCoversToStateAsync should complete within timeout");
+        var result = await openTask;
+
+        result.ShouldBeTrue("opening covers should succeed");
+        (await coverDriver.GetCoverStateAsync(ct)).ShouldBe(CoverStatus.Open);
+
+        output.WriteLine("Cover opened successfully");
+    }
+
+    [Fact]
+    public async Task GivenOpenCoverWhenCloseThenCoverCloses()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (session, external, coverDriver) = await CreateSessionWithCoverAsync(ct);
+
+        // Open the cover first
+        await coverDriver.BeginOpen(ct);
+        await external.SleepAsync(TimeSpan.FromSeconds(10), ct); // let timer fire
+        (await coverDriver.GetCoverStateAsync(ct)).ShouldBe(CoverStatus.Open);
+
+        // Close covers
+        var closeTask = Task.Run(async () => await session.MoveTelescopeCoversToStateAsync(CoverStatus.Closed, ct), ct);
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        while (!closeTask.IsCompleted && !timeout.IsCancellationRequested)
+        {
+            await external.SleepAsync(TimeSpan.FromSeconds(1), ct);
+            await Task.Delay(10, ct);
+        }
+
+        closeTask.IsCompleted.ShouldBeTrue("MoveTelescopeCoversToStateAsync should complete within timeout");
+        var result = await closeTask;
+
+        result.ShouldBeTrue("closing covers should succeed");
+        (await coverDriver.GetCoverStateAsync(ct)).ShouldBe(CoverStatus.Closed);
+
+        output.WriteLine("Cover closed successfully");
+    }
+
+    [Fact]
+    public async Task GivenCalibratorOnWhenOpenCoverThenCalibratorTurnedOffFirst()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (session, external, coverDriver) = await CreateSessionWithCoverAsync(ct);
+
+        // Turn calibrator on
+        await coverDriver.BeginCalibratorOn(128, ct);
+        (await coverDriver.GetCalibratorStateAsync(ct)).ShouldBe(CalibratorStatus.Ready);
+        (await coverDriver.GetBrightnessAsync(ct)).ShouldBe(128);
+
+        // Open cover — should turn off calibrator first, then open
+        var openTask = Task.Run(async () => await session.MoveTelescopeCoversToStateAsync(CoverStatus.Open, ct), ct);
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        while (!openTask.IsCompleted && !timeout.IsCancellationRequested)
+        {
+            await external.SleepAsync(TimeSpan.FromSeconds(1), ct);
+            await Task.Delay(10, ct);
+        }
+
+        openTask.IsCompleted.ShouldBeTrue("should complete within timeout");
+        var result = await openTask;
+
+        result.ShouldBeTrue("opening should succeed");
+        (await coverDriver.GetCalibratorStateAsync(ct)).ShouldBe(CalibratorStatus.Off, "calibrator should be off after opening");
+        (await coverDriver.GetCoverStateAsync(ct)).ShouldBe(CoverStatus.Open);
+
+        output.WriteLine("Calibrator turned off and cover opened");
+    }
+
     // --- GuiderFocusLoopAsync ---
 
     [Fact]
