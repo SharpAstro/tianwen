@@ -53,9 +53,11 @@ internal static class SessionTestHelper
         ITestOutputHelper output,
         SessionConfiguration? configuration = null,
         ScheduledObservation[]? observations = null,
+        DateTimeOffset? now = null,
+        int focalLength = 1000,
         CancellationToken cancellationToken = default)
     {
-        var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var external = new FakeExternal(output, now: now ?? new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
 
         var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
         var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
@@ -74,7 +76,7 @@ internal static class SessionTestHelper
 
         var ota = new OTA(
             "Test Telescope",
-            1000,
+            focalLength,
             camera,
             Cover: null,
             focuser,
