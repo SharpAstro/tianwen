@@ -38,8 +38,10 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
         await mount.ConnectAsync(ct);
 
         mount.Connected.ShouldBeTrue();
-        mount.DriverInfo!.ShouldContain("iOptron SkyGuider Pro");
-        mount.DriverInfo.ShouldContain("FW");
+        var driverInfo = mount.DriverInfo;
+        driverInfo.ShouldNotBeNull();
+        driverInfo.ShouldContain("iOptron SkyGuider Pro");
+        driverInfo.ShouldContain("FW");
     }
 
     [Fact]

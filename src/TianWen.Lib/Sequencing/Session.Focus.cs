@@ -332,7 +332,7 @@ internal partial record Session
         return (false, default);
     }
 
-    private async ValueTask<bool> GuiderFocusLoopAsync(TimeSpan timeoutAfter, CancellationToken cancellationToken)
+    internal async ValueTask<bool> GuiderFocusLoopAsync(TimeSpan timeoutAfter, CancellationToken cancellationToken)
     {
         var mount = Setup.Mount;
         var guider = Setup.Guider;
