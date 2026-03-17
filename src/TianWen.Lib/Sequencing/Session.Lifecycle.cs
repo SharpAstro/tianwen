@@ -16,7 +16,7 @@ internal partial record Session
         var mount = Setup.Mount;
 
         // TODO: maybe slew slightly above/below 0 declination to avoid trees, etc.
-        // slew half an hour to meridian, plate solve and slew closer
+        // slew half an hour east of meridian, plate solve and slew closer
         var dec = 0;
         await mount.Driver.BeginSlewHourAngleDecAsync(TimeSpan.FromMinutes(30).TotalHours, dec, cancellationToken).ConfigureAwait(false);
 

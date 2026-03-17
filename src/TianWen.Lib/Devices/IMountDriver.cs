@@ -196,7 +196,7 @@ public interface IMountDriver : IDeviceDriver
             throw new ArgumentException("Declination must be in [-90..90]", nameof(dec));
         }
 
-        await BeginSlewRaDecAsync(ConditionRA(await GetSiderealTimeAsync(cancellationToken) - ha - 12), dec, cancellationToken);
+        await BeginSlewRaDecAsync(ConditionRA(await GetSiderealTimeAsync(cancellationToken) - ha), dec, cancellationToken);
     }
 
     /// <summary>
@@ -466,7 +466,7 @@ public interface IMountDriver : IDeviceDriver
             throw new InvalidOperationException("Device does not support slewing");
         }
 
-        await BeginSlewHourAngleDecAsync((TimeSpan.FromHours(12) - distMeridian).TotalHours, await GetSiteLatitudeAsync(cancellationToken), cancellationToken);
+        await BeginSlewHourAngleDecAsync(distMeridian.TotalHours, await GetSiteLatitudeAsync(cancellationToken), cancellationToken);
     }
 
     /// <summary>
