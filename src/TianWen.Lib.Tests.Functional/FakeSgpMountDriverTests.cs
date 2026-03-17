@@ -329,7 +329,7 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
         await mount.ConnectAsync(ct);
 
         mount.CanPulseGuide.ShouldBeFalse(); // requires ST-4 guide port
-        mount.CanSetTracking.ShouldBeTrue();
+        mount.CanSetTracking.ShouldBeFalse(); // SGP always tracks, no stop command
         mount.CanSync.ShouldBeTrue();
         mount.CanCameraSnap.ShouldBeTrue();
         mount.CanSetGuideRates.ShouldBeTrue();

@@ -45,7 +45,6 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, IExt
     private double _targetRa = double.NaN;
     private long _trackingStartTicks;
     private double _raAtTrackingStart = double.NaN;
-    private volatile bool _isTracking;
     private volatile bool _isMoving; // RA axis moving via MoveAxis
 
     // Camera snap settings
@@ -53,7 +52,7 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, IExt
 
     #region Capabilities
 
-    public bool CanSetTracking => true;
+    public bool CanSetTracking => false;
     public bool CanSetSideOfPier => false;
     public bool CanPulseGuide => false; // SGP guiding requires ST-4 port, not serial commands
     public bool CanSetRightAscensionRate => false;
@@ -125,15 +124,13 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, IExt
         if (tracking)
         {
             await SetTrackingSpeedAsync(_trackingSpeed, cancellationToken);
-            _isTracking = true;
             _trackingStartTicks = External.TimeProvider.GetTimestamp();
             _raAtTrackingStart = _ra;
         }
         else
         {
             // SGP doesn't have an explicit tracking-off command;
-            // stopping movement resumes tracking. We track state locally.
-            _isTracking = false;
+            // stopping movement resumes tracking. This is a no-op.
         }
     }
 

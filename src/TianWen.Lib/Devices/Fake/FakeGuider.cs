@@ -186,6 +186,11 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
 
     public ValueTask GuideAsync(double settlePixels, double settleTime, double settleTimeout, CancellationToken cancellationToken)
     {
+        if (!_equipmentConnected)
+        {
+            throw new GuiderException("Equipment is not connected. Call ConnectEquipmentAsync first.");
+        }
+
         _settlePixels = settlePixels;
         _settleTime = settleTime;
 
@@ -219,7 +224,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
     }
 
     public ValueTask<bool> IsGuidingAsync(CancellationToken cancellationToken = default)
-        => ValueTask.FromResult(CurrentState is GuiderState.Guiding);
+        => ValueTask.FromResult(CurrentState is GuiderState.Guiding && !_paused);
 
     public ValueTask<bool> IsLoopingAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(CurrentState is GuiderState.Looping or GuiderState.Guiding or GuiderState.Calibrating or GuiderState.Settling);
