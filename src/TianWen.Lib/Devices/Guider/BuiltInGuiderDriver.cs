@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -24,6 +25,14 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     private GuideLoop? _guideLoop;
     private CancellationTokenSource? _guideCts;
     private GuiderCalibrationResult? _lastCalibration;
+    private double _calibrationHourAngle = double.NaN;
+
+    /// <summary>
+    /// When true (the default), the DEC guide direction is automatically reversed when
+    /// a meridian flip is detected (hour angle sign change since calibration).
+    /// Configured via the <c>reverseDecAfterFlip</c> query parameter on <see cref="BuiltInGuiderDevice"/>.
+    /// </summary>
+    internal bool ReverseDecOnFlip { get; set; }
 
     private int _state = (int)GuiderState.Idle;
 
@@ -44,6 +53,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     {
         _device = device;
         External = external;
+        ReverseDecOnFlip = device.ReverseDecAfterFlip;
     }
 
     public string Name => _device.DisplayName;
@@ -75,7 +85,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         _mount = mount;
         _camera = camera;
 
-        var pulseGuideSource = _device.GetPulseGuideSource();
+        var pulseGuideSource = _device.PulseGuideSource;
         _pulseTarget = new PulseGuideRouter(pulseGuideSource, camera, mount);
     }
 
@@ -218,6 +228,23 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     public ValueTask ClearCalibrationAsync(CancellationToken cancellationToken = default)
     {
         _lastCalibration = null;
+        _calibrationHourAngle = double.NaN;
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask FlipCalibrationAsync(CancellationToken cancellationToken = default)
+    {
+        // Reverse DEC direction in existing calibration data
+        if (_lastCalibration is { } cal)
+        {
+            _lastCalibration = cal with
+            {
+                DecRatePixPerSec = -cal.DecRatePixPerSec,
+                DecDisplacementPx = -cal.DecDisplacementPx
+            };
+            _calibrationHourAngle = -_calibrationHourAngle;
+        }
+
         return ValueTask.CompletedTask;
     }
 
@@ -303,6 +330,27 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                 }
 
                 _lastCalibration = calResult;
+                _calibrationHourAngle = await mount.GetSiderealTimeAsync(ct) - await mount.GetRightAscensionAsync(ct);
+            }
+            else if (ReverseDecOnFlip && !double.IsNaN(_calibrationHourAngle))
+            {
+                // Detect meridian flip: HA sign changed since calibration
+                var currentHA = await mount.GetSiderealTimeAsync(ct) - await mount.GetRightAscensionAsync(ct);
+                if (Math.Sign(_calibrationHourAngle) != Math.Sign(currentHA) && _calibrationHourAngle != 0 && currentHA != 0)
+                {
+                    // Reverse DEC direction by negating DecRatePixPerSec and DecDisplacementPx
+                    var flipped = calResult.Value with
+                    {
+                        DecRatePixPerSec = -calResult.Value.DecRatePixPerSec,
+                        DecDisplacementPx = -calResult.Value.DecDisplacementPx
+                    };
+                    calResult = flipped;
+                    _lastCalibration = flipped;
+                    _calibrationHourAngle = currentHA;
+
+                    External.AppLogger.LogInformation("Built-in guider: detected meridian flip (calibration HA={CalHA:F3} → current HA={CurHA:F3}), reversed DEC direction.",
+                        _calibrationHourAngle, currentHA);
+                }
             }
 
             // Acquire guide star and set lock position

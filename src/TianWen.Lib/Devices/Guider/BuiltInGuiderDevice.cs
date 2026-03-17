@@ -31,13 +31,28 @@ public record class BuiltInGuiderDevice(Uri DeviceUri) : GuiderDeviceBase(Device
     /// Parses the <see cref="PulseGuideSource"/> from the device URI query string.
     /// Defaults to <see cref="PulseGuideSource.Auto"/> if not specified or invalid.
     /// </summary>
-    internal PulseGuideSource GetPulseGuideSource()
+    internal PulseGuideSource PulseGuideSource
     {
-        var value = Query.QueryValue(DeviceQueryKey.PulseGuideSource);
-        if (value is not null && Enum.TryParse<PulseGuideSource>(value, ignoreCase: true, out var source))
+        get
         {
-            return source;
+            var value = Query.QueryValue(DeviceQueryKey.PulseGuideSource);
+            return value is not null && Enum.TryParse<PulseGuideSource>(value, ignoreCase: true, out var source)
+                ? source
+                : PulseGuideSource.Auto;
         }
-        return PulseGuideSource.Auto;
+    }
+
+    /// <summary>
+    /// Whether to reverse DEC guide corrections after detecting a meridian flip.
+    /// Defaults to <c>true</c> — most modern GEM mounts require this.
+    /// Some older mounts that internally reverse their DEC motor after a flip may need <c>false</c>.
+    /// </summary>
+    internal bool ReverseDecAfterFlip
+    {
+        get
+        {
+            var value = Query.QueryValue(DeviceQueryKey.ReverseDecAfterFlip);
+            return value is null || !bool.TryParse(value, out var result) || result;
+        }
     }
 }
