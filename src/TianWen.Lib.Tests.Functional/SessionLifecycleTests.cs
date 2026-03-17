@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
 using TianWen.Lib.Tests;
 using Xunit;
@@ -493,5 +494,95 @@ public class SessionLifecycleTests(ITestOutputHelper output)
                 file.Delete();
             }
         }
+    }
+
+    // --- GetMountUtcNowAsync ---
+
+    [Fact]
+    public async Task GivenConnectedMountWhenGetMountUtcNowThenReturnsTimeProviderTime()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
+
+        var mountTime = await ctx.Session.GetMountUtcNowAsync(ct);
+        var providerTime = ctx.External.TimeProvider.GetUtcNow().UtcDateTime;
+
+        // Mount time should be close to the time provider's time (may differ by serial round-trip)
+        Math.Abs((mountTime - providerTime).TotalSeconds).ShouldBeLessThan(5);
+
+        // Advance time and verify mount time follows
+        await ctx.External.SleepAsync(TimeSpan.FromMinutes(10), ct);
+        var mountTimeAfter = await ctx.Session.GetMountUtcNowAsync(ct);
+        mountTimeAfter.ShouldBeGreaterThan(mountTime);
+
+        output.WriteLine($"Mount time: {mountTime:u} → {mountTimeAfter:u}");
+    }
+
+    // --- WriteImageToFitsFileAsync ---
+
+    [Fact]
+    public async Task GivenImageWhenWriteToFitsThenFileCreatedOnDisk()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
+
+        // Create a small synthetic image with valid metadata (Filter.Name must not be empty)
+        var array = SyntheticStarFieldRenderer.Render(64, 64, defocusSteps: 0, exposureSeconds: 1, noiseSeed: 42);
+        var meta = new ImageMeta("FakeCamera", WinterNight, TimeSpan.FromSeconds(30), FrameType.Light,
+            "TestTelescope", 3.8f, 3.8f, 1000, 1000, Filter.Unknown, 1, 1, -10f, SensorType.Monochrome, 0, 0, RowOrder.TopDown, 48.2f, 16.3f);
+        var image = new Image([array], BitDepth.Float32, 1f, 0f, 0f, meta);
+
+        var observation = new ScheduledObservation(
+            new Target(5.0, 20.0, "TestTarget", null),
+            WinterNight, TimeSpan.FromMinutes(5),
+            AcrossMeridian: false, SubExposure: TimeSpan.FromSeconds(30), Gain: 0, Offset: 0);
+
+        var imageWrite = new QueuedImageWrite(image, observation, WinterNight, 1);
+        await ctx.Session.WriteImageToFitsFileAsync(imageWrite);
+
+        // Verify the FITS file was created
+        var outputDir = ctx.External.OutputFolder;
+        var fitsFiles = outputDir.GetFiles("*.fits", System.IO.SearchOption.AllDirectories);
+        fitsFiles.Length.ShouldBeGreaterThan(0, "should have written at least one FITS file");
+
+        output.WriteLine($"FITS written: {fitsFiles[0].FullName} ({fitsFiles[0].Length} bytes)");
+
+        ctx.CleanupOutputFolder();
+    }
+
+    // --- EstimateTimeUntilTargetRisesAsync ---
+
+    [Fact]
+    public async Task GivenRisingTargetWhenEstimateRiseTimeThenReturnsPositiveTimeSpan()
+    {
+        // At Dec 15 22:00 UTC from Vienna, Seagull Nebula (RA=7.06, Dec=-10.45) is low and rising.
+        // It should clear 30° within a few hours.
+        var ct = TestContext.Current.CancellationToken;
+        var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
+
+        var target = new Target(7.06, -10.45, "SeagullNebula", null);
+        var result = await ctx.Session.EstimateTimeUntilTargetRisesAsync(target, 30, TimeSpan.FromHours(4), ct);
+
+        result.ShouldNotBeNull("rising target should have an estimated rise time");
+        result.Value.TotalMinutes.ShouldBeGreaterThan(0, "should need some time to rise above 30°");
+        result.Value.TotalHours.ShouldBeLessThan(4, "should rise within the 4-hour lookahead");
+
+        output.WriteLine($"Seagull Nebula rises above 20° in {result.Value.TotalMinutes:F0} minutes");
+    }
+
+    [Fact]
+    public async Task GivenSettingTargetWhenEstimateRiseTimeThenReturnsNull()
+    {
+        // At Dec 15 22:00 UTC from Vienna, M45 (RA=3.79, Dec=24.12) is at alt ~64° and setting.
+        // It won't rise — it's past the meridian and descending.
+        var ct = TestContext.Current.CancellationToken;
+        var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
+
+        var target = new Target(3.79, 24.12, "M45", null);
+        var result = await ctx.Session.EstimateTimeUntilTargetRisesAsync(target, 70, TimeSpan.FromHours(2), ct);
+
+        result.ShouldBeNull("setting target should return null (not rising)");
+
+        output.WriteLine("M45 is setting — correctly returned null");
     }
 }
