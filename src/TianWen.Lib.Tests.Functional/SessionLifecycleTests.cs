@@ -258,4 +258,99 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
         output.WriteLine("Initial rough focus completed — enough stars detected");
     }
+
+    // --- RunAsync (full end-to-end) ---
+
+    [Fact]
+    public async Task GivenWinterNightWithSingleTargetWhenRunAsyncThenFullSessionCompletes()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var subExposure = TimeSpan.FromSeconds(30);
+        var observations = new[]
+        {
+            new ScheduledObservation(
+                new Target(3.7886, 24.1167, "M45", null),
+                WinterNight,
+                TimeSpan.FromMinutes(5),
+                AcrossMeridian: false,
+                SubExposure: subExposure,
+                Gain: 0,
+                Offset: 0
+            )
+        };
+
+        // Use fresh session — RunAsync handles all setup internally
+        var external = new FakeExternal(output, now: WinterNight);
+        var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
+        var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
+        var camera = new Camera(cameraDevice, external);
+        var focuser = new Focuser(focuserDevice, external);
+
+        await camera.Driver.ConnectAsync(ct);
+        await focuser.Driver.ConnectAsync(ct);
+
+        var cameraDriver = (FakeCameraDriver)camera.Driver;
+        cameraDriver.BinX = 1;
+        cameraDriver.NumX = 512;
+        cameraDriver.NumY = 512;
+        cameraDriver.TrueBestFocus = 1000;
+        cameraDriver.FocusPosition = 1000;
+
+        var ota = new OTA("Test Telescope", 1000, camera, Cover: null, focuser,
+            new FocusDirection(PreferOutward: true, OutwardIsPositive: true),
+            FilterWheel: null, Switches: null);
+
+        var mountDevice = new FakeDevice(DeviceType.Mount, 1,
+            new System.Collections.Specialized.NameValueCollection
+            {
+                { "port", "LX200" },
+                { "latitude", "48.2" },
+                { "longitude", "16.3" }
+            });
+        var guiderDevice = new FakeDevice(DeviceType.Guider, 1);
+        var mount = new Mount(mountDevice, external);
+        var guider = new Guider(guiderDevice, external);
+
+        var setup = new Setup(mount, guider, new GuiderSetup(), [ota]);
+        var plateSolver = new FakePlateSolver();
+        var config = SessionTestHelper.DefaultConfiguration;
+
+        var session = new Session(setup, config, plateSolver, external, new ScheduledObservationTree(observations));
+
+        // Move focuser to best focus before RunAsync
+        var focuserDriver = (FakeFocuserDriver)focuser.Driver;
+        await focuserDriver.BeginMoveAsync(1000, ct);
+
+        // RunAsync on background thread, pump time from test thread
+        var runTask = Task.Run(async () => await session.RunAsync(ct), ct);
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+        var maxPumps = (int)(TimeSpan.FromHours(24) / subExposure);
+        for (var i = 0; i < maxPumps && !runTask.IsCompleted && !timeout.IsCancellationRequested; i++)
+        {
+            await external.SleepAsync(subExposure, ct);
+            await Task.Delay(50, ct);
+        }
+
+        runTask.IsCompleted.ShouldBeTrue("RunAsync should complete within timeout");
+        await runTask; // propagate any exceptions
+
+        // Verify the session produced frames
+        session.TotalFramesWritten.ShouldBeGreaterThan(0, "session should have written at least one frame");
+
+        // Mount should be disconnected after Finalise
+        mount.Driver.Connected.ShouldBeFalse("mount should be disconnected after session");
+
+        output.WriteLine($"Full session completed: {session.TotalFramesWritten} frames, {session.TotalExposureTime} exposure time");
+
+        // Cleanup
+        var outputDir = external.OutputFolder;
+        if (outputDir.Exists)
+        {
+            foreach (var file in outputDir.GetFiles("*", System.IO.SearchOption.AllDirectories))
+            {
+                file.Delete();
+            }
+        }
+    }
 }
