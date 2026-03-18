@@ -19,7 +19,7 @@ public readonly record struct StretchUniforms(
     /// Computes the post-stretch background level by stretching the measured
     /// background values through <see cref="Image.StretchValue"/> — the same pipeline as the GLSL shader.
     /// </summary>
-    public float ComputePostStretchBackground(float[] perChannelBackground, float lumaBackground)
+    public readonly float ComputePostStretchBackground(float[] perChannelBackground, float lumaBackground)
     {
         if (Mode is StretchMode.None)
         {

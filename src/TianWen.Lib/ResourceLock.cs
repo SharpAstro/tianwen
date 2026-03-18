@@ -7,5 +7,5 @@ public readonly record struct ResourceLock(SemaphoreSlim? Semaphore) : IDisposab
 {
     public static readonly ResourceLock AlwaysUnlocked = new ResourceLock(null);
 
-    public void Dispose() => Semaphore?.Release();
+    public readonly void Dispose() => Semaphore?.Release();
 }

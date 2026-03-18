@@ -34,7 +34,7 @@ internal sealed class FakeFilterWheelDriver(FakeDevice fakeDevice, IExternal ext
                 return _filters;
             }
 
-            var query = fakeDevice.Query;
+            var query = _fakeDevice.Query;
             var filters = new List<InstalledFilter>();
 
             for (var i = 1; ; i++)

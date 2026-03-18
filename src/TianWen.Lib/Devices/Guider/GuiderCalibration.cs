@@ -405,7 +405,7 @@ internal readonly record struct GuiderCalibrationResult(
     /// <summary>
     /// Camera angle in degrees.
     /// </summary>
-    public double CameraAngleDeg => CameraAngleRad * 180.0 / Math.PI;
+    public readonly double CameraAngleDeg => CameraAngleRad * 180.0 / Math.PI;
 
     /// <summary>
     /// Transforms a pixel-space error (dX, dY) into RA/Dec corrections
@@ -414,7 +414,7 @@ internal readonly record struct GuiderCalibrationResult(
     /// <param name="deltaX">Error in X pixels.</param>
     /// <param name="deltaY">Error in Y pixels.</param>
     /// <returns>Error decomposed into (raPixels, decPixels) along the mount axes.</returns>
-    public (double RaPixels, double DecPixels) TransformToMountAxes(double deltaX, double deltaY)
+    public readonly (double RaPixels, double DecPixels) TransformToMountAxes(double deltaX, double deltaY)
     {
         var cos = Math.Cos(CameraAngleRad);
         var sin = Math.Sin(CameraAngleRad);

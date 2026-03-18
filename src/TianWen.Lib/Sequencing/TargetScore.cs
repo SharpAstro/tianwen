@@ -18,13 +18,13 @@ public readonly record struct ScoredTarget(
     /// <summary>
     /// Combined score used for ranking: altitude score × object desirability bonus.
     /// </summary>
-    public double CombinedScore => (double)TotalScore * (double)ObjectBonus;
+    public readonly double CombinedScore => (double)TotalScore * (double)ObjectBonus;
 
     /// <summary>
     /// Compares by <see cref="CombinedScore"/> descending (higher = better).
     /// Ties are broken by <see cref="Target.CatalogIndex"/> to ensure deterministic ordering.
     /// </summary>
-    public int CompareTo(ScoredTarget other)
+    public readonly int CompareTo(ScoredTarget other)
     {
         var cmp = other.CombinedScore.CompareTo(CombinedScore); // descending
         if (cmp != 0) return cmp;

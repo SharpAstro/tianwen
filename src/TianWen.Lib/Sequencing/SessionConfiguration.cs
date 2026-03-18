@@ -21,5 +21,7 @@ public record struct SessionConfiguration(
     bool AlwaysRefocusOnNewTarget = false,
     int BaselineHfdFrameCount = 3,
     TimeSpan? DefaultSubExposure = null,
-    FocusFilterStrategy FocusFilterStrategy = FocusFilterStrategy.Auto
+    FocusFilterStrategy FocusFilterStrategy = FocusFilterStrategy.Auto,
+    double MosaicOverlap = 0.2,
+    double MosaicMargin = 0.1
 );
