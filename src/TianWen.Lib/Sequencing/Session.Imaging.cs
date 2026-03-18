@@ -190,8 +190,11 @@ internal partial record Session
             var camera = Setup.Telescopes[i].Camera;
             camera.Driver.Target = observation.Target;
 
-            // Each telescope gets its own copy of the filter plan
-            filterPlans[i] = observation.FilterPlan.IsDefaultOrEmpty
+            // Each telescope gets its own copy of the filter plan.
+            // Single-position filter wheels (manual holders) get a single-entry plan
+            // using the observation's first sub-exposure — they can't switch filters.
+            var hasMultiFilterWheel = Setup.Telescopes[i].FilterWheel?.Driver is { Connected: true, Filters.Count: > 1 };
+            filterPlans[i] = observation.FilterPlan.IsDefaultOrEmpty || !hasMultiFilterWheel
                 ? [new FilterExposure(-1, observation.SubExposure)]
                 : [.. observation.FilterPlan];
 

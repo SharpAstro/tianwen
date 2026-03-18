@@ -140,6 +140,11 @@ internal static class SessionTestHelper
         oscCameraDriver.NumX = 512;
         oscCameraDriver.NumY = 512;
 
+        // Fixed L-Ultimate (Ha+OIII) dual-band filter in a manual holder
+        var oscFilterDevice = new ManualFilterWheelDevice(Filter.HydrogenAlphaOxygenIII);
+        var oscFilterWheel = new FilterWheel(oscFilterDevice, external);
+        await oscFilterWheel.Driver.ConnectAsync(cancellationToken);
+
         var ota1 = new OTA(
             "Samyang 135 OSC",
             135,
@@ -147,7 +152,7 @@ internal static class SessionTestHelper
             Cover: null,
             Focuser: null,
             new FocusDirection(PreferOutward: true, OutwardIsPositive: true),
-            FilterWheel: null,
+            oscFilterWheel,
             Switches: null,
             Aperture: 68,
             OpticalDesign: OpticalDesign.Astrograph
