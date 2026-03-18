@@ -480,6 +480,100 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         telescope.OpticalDesign.NeedsFocusAdjustmentPerFilter.ShouldBeTrue();
     }
 
+    [Fact]
+    public void GivenProfileWithFilterWheelWhenCreatedThenOTAHasFilterWheel()
+    {
+        // given
+        var mountDevice = CreateMountDevice();
+        var cameraDevice = CreateCameraDevice();
+        var focuserDevice = CreateFocuserDevice();
+        var filterWheelDevice = new FakeDevice(DeviceType.FilterWheel, 1);
+        var profileData = new ProfileData(
+            Mount: mountDevice.DeviceUri,
+            Guider: CreateGuiderDevice().DeviceUri,
+            OTAs: [new OTAData("Test Scope", 1000, cameraDevice.DeviceUri, Cover: null, Focuser: focuserDevice.DeviceUri,
+                FilterWheel: filterWheelDevice.DeviceUri, PreferOutwardFocus: null, OutwardIsPositive: null)]
+        );
+
+        var (factory, _) = CreateFactory(profileData);
+        var observations = new[] { CreateDefaultObservation() };
+
+        // when
+        var session = factory.Create(TestProfileId, SessionTestHelper.DefaultConfiguration, new ReadOnlySpan<ScheduledObservation>(observations));
+
+        // then
+        var internalSession = session.ShouldBeOfType<Session>();
+        var telescope = internalSession.Setup.Telescopes[0];
+        telescope.FilterWheel.ShouldNotBeNull();
+        telescope.Focuser.ShouldNotBeNull();
+    }
+
+    [Fact]
+    public void GivenProfileWithCoverWhenCreatedThenOTAHasCover()
+    {
+        // given
+        var mountDevice = CreateMountDevice();
+        var cameraDevice = CreateCameraDevice();
+        var coverDevice = new FakeDevice(DeviceType.CoverCalibrator, 1);
+        var profileData = new ProfileData(
+            Mount: mountDevice.DeviceUri,
+            Guider: CreateGuiderDevice().DeviceUri,
+            OTAs: [new OTAData("Test Scope", 1000, cameraDevice.DeviceUri, Cover: coverDevice.DeviceUri, Focuser: null,
+                FilterWheel: null, PreferOutwardFocus: null, OutwardIsPositive: null)]
+        );
+
+        var (factory, _) = CreateFactory(profileData);
+        var observations = new[] { CreateDefaultObservation() };
+
+        // when
+        var session = factory.Create(TestProfileId, SessionTestHelper.DefaultConfiguration, new ReadOnlySpan<ScheduledObservation>(observations));
+
+        // then
+        var internalSession = session.ShouldBeOfType<Session>();
+        var telescope = internalSession.Setup.Telescopes[0];
+        telescope.Cover.ShouldNotBeNull();
+        telescope.Focuser.ShouldBeNull();
+        telescope.FilterWheel.ShouldBeNull();
+    }
+
+    [Fact]
+    public void GivenProfileWithFullOTAWhenCreatedThenAllDevicesWired()
+    {
+        // given — OTA with camera, focuser, filter wheel, cover, aperture, and optical design
+        var mountDevice = CreateMountDevice();
+        var cameraDevice = CreateCameraDevice();
+        var focuserDevice = CreateFocuserDevice();
+        var filterWheelDevice = new FakeDevice(DeviceType.FilterWheel, 1);
+        var coverDevice = new FakeDevice(DeviceType.CoverCalibrator, 1);
+        var profileData = new ProfileData(
+            Mount: mountDevice.DeviceUri,
+            Guider: CreateGuiderDevice().DeviceUri,
+            OTAs: [new OTAData("SCT 200/2000", 2000, cameraDevice.DeviceUri,
+                Cover: coverDevice.DeviceUri, Focuser: focuserDevice.DeviceUri,
+                FilterWheel: filterWheelDevice.DeviceUri, PreferOutwardFocus: false, OutwardIsPositive: true,
+                Aperture: 200, OpticalDesign: OpticalDesign.SCT)]
+        );
+
+        var (factory, _) = CreateFactory(profileData);
+        var observations = new[] { CreateDefaultObservation() };
+
+        // when
+        var session = factory.Create(TestProfileId, SessionTestHelper.DefaultConfiguration, new ReadOnlySpan<ScheduledObservation>(observations));
+
+        // then
+        var internalSession = session.ShouldBeOfType<Session>();
+        var telescope = internalSession.Setup.Telescopes[0];
+        telescope.Camera.ShouldNotBeNull();
+        telescope.Focuser.ShouldNotBeNull();
+        telescope.FilterWheel.ShouldNotBeNull();
+        telescope.Cover.ShouldNotBeNull();
+        telescope.Aperture.ShouldBe(200);
+        telescope.OpticalDesign.ShouldBe(OpticalDesign.SCT);
+        telescope.OpticalDesign.NeedsFocusAdjustmentPerFilter.ShouldBeTrue();
+        telescope.FocusDirection.PreferOutward.ShouldBeFalse();
+        telescope.FocusDirection.OutwardIsPositive.ShouldBeTrue();
+    }
+
     private static ScheduledObservation CreateDefaultObservation() => new ScheduledObservation(
         new Target(6.75, 16.7, "M42", null),
         DateTimeOffset.UtcNow,
