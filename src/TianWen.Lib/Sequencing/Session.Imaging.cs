@@ -520,6 +520,36 @@ internal partial record Session
                             await guider.Driver.StartGuidingLoopAsync(Configuration.GuidingTries, cancellationToken).ConfigureAwait(false);
                             break; // restart imaging loop after refocus
                         }
+
+                        // Check for condition deterioration (clouds, fog, dew):
+                        // star count drop relative to baseline indicates sky transparency loss
+                        var starCountRatio = (float)currentMetrics.StarCount / currentBaselines[i].StarCount;
+                        if (starCountRatio < Configuration.ConditionDeteriorationThreshold)
+                        {
+                            External.AppLogger.LogWarning(
+                                "Condition deterioration detected on telescope #{TelescopeNumber}: {CurrentStars} stars vs baseline {BaselineStars} (ratio={Ratio:F2}), pausing guiding.",
+                                i + 1, currentMetrics.StarCount, currentBaselines[i].StarCount, starCountRatio);
+
+                            await WriteQueuedImagesToFitsFilesAsync();
+                            await guider.Driver.PauseAsync(cancellationToken).ConfigureAwait(false);
+
+                            var recoveryTimeout = Configuration.ConditionRecoveryTimeout ?? TimeSpan.FromMinutes(10);
+                            var recovered = await WaitForConditionRecoveryAsync(
+                                i, currentBaselines[i], recoveryTimeout, cancellationToken);
+
+                            if (recovered)
+                            {
+                                External.AppLogger.LogInformation("Conditions recovered on telescope #{TelescopeNumber}, resuming imaging.", i + 1);
+                                await guider.Driver.UnpauseAsync(cancellationToken).ConfigureAwait(false);
+                            }
+                            else
+                            {
+                                External.AppLogger.LogWarning("Conditions did not recover within {Timeout} on telescope #{TelescopeNumber}, advancing to next observation.",
+                                    recoveryTimeout, i + 1);
+                                await guider.Driver.UnpauseAsync(cancellationToken).ConfigureAwait(false);
+                                return ImageLoopNextAction.AdvanceToNextObservation;
+                            }
+                        }
                     }
                 }
 
@@ -810,5 +840,63 @@ internal partial record Session
 
         // Won't rise within maxLookahead
         return null;
+    }
+
+    /// <summary>
+    /// Waits for sky conditions to recover by periodically taking short exposures and checking star count.
+    /// Returns true if star count recovers to at least <see cref="SessionConfiguration.ConditionDeteriorationThreshold"/>
+    /// of the baseline within <paramref name="timeout"/>.
+    /// </summary>
+    private async ValueTask<bool> WaitForConditionRecoveryAsync(
+        int telescopeIndex, FrameMetrics baseline, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        var pollInterval = TimeSpan.FromMinutes(1);
+        var elapsed = TimeSpan.Zero;
+
+        while (elapsed < timeout && !cancellationToken.IsCancellationRequested)
+        {
+            await External.SleepAsync(pollInterval, cancellationToken);
+            elapsed += pollInterval;
+
+            var camera = Setup.Telescopes[telescopeIndex].Camera.Driver;
+
+            // Take a short test exposure to check conditions
+            var testExposure = TimeSpan.FromSeconds(Math.Min(baseline.Exposure.TotalSeconds, 5));
+            await camera.StartExposureAsync(testExposure, cancellationToken: cancellationToken);
+            await External.SleepAsync(testExposure + TimeSpan.FromSeconds(2), cancellationToken);
+
+            if (!await camera.GetImageReadyAsync(cancellationToken))
+            {
+                continue;
+            }
+
+            var image = await ((ICameraDriver)camera).GetImageAsync(cancellationToken);
+            if (image is null)
+            {
+                continue;
+            }
+
+            var stars = await image.FindStarsAsync(0, snrMin: 10, maxStars: 100, cancellationToken: cancellationToken);
+            var currentGain = await camera.GetGainAsync(cancellationToken);
+            var metrics = FrameMetrics.FromStarList(stars, testExposure, currentGain);
+
+            if (!metrics.IsValid)
+            {
+                External.AppLogger.LogInformation("Condition check: {Stars} stars detected (waiting for recovery, {Elapsed}/{Timeout}).",
+                    stars.Count, elapsed, timeout);
+                continue;
+            }
+
+            var starCountRatio = (float)metrics.StarCount / baseline.StarCount;
+            External.AppLogger.LogInformation("Condition check: {Stars} stars (ratio={Ratio:F2} vs baseline {Baseline}, {Elapsed}/{Timeout}).",
+                metrics.StarCount, starCountRatio, baseline.StarCount, elapsed, timeout);
+
+            if (starCountRatio >= Configuration.ConditionDeteriorationThreshold)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
