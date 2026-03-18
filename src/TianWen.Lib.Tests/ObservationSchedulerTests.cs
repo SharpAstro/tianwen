@@ -245,7 +245,7 @@ public sealed class ObservationSchedulerTests
     {
         var tree = new ScheduledObservationTree(
         [
-            new ScheduledObservation(M13, DateTimeOffset.UtcNow, TimeSpan.FromMinutes(30), false, TimeSpan.FromSeconds(120), 0, 0)
+            new ScheduledObservation(M13, DateTimeOffset.UtcNow, TimeSpan.FromMinutes(30), false, FilterPlanBuilder.BuildSingleFilterPlan(TimeSpan.FromSeconds(120)), 0, 0)
         ]);
 
         var spareIdx = 0;
@@ -255,10 +255,10 @@ public sealed class ObservationSchedulerTests
     [Fact]
     public void ScheduledObservationTree_TryGetNextSpare_ReturnsSparesThenNull()
     {
-        var spare1 = new ScheduledObservation(M31, DateTimeOffset.UtcNow, TimeSpan.FromMinutes(30), false, TimeSpan.FromSeconds(120), 0, 0, ObservationPriority.Spare);
-        var spare2 = new ScheduledObservation(M42, DateTimeOffset.UtcNow, TimeSpan.FromMinutes(30), false, TimeSpan.FromSeconds(120), 0, 0, ObservationPriority.Spare);
+        var spare1 = new ScheduledObservation(M31, DateTimeOffset.UtcNow, TimeSpan.FromMinutes(30), false, FilterPlanBuilder.BuildSingleFilterPlan(TimeSpan.FromSeconds(120)), 0, 0, ObservationPriority.Spare);
+        var spare2 = new ScheduledObservation(M42, DateTimeOffset.UtcNow, TimeSpan.FromMinutes(30), false, FilterPlanBuilder.BuildSingleFilterPlan(TimeSpan.FromSeconds(120)), 0, 0, ObservationPriority.Spare);
 
-        var primary = ImmutableArray.Create(new ScheduledObservation(M13, DateTimeOffset.UtcNow, TimeSpan.FromMinutes(30), false, TimeSpan.FromSeconds(120), 0, 0));
+        var primary = ImmutableArray.Create(new ScheduledObservation(M13, DateTimeOffset.UtcNow, TimeSpan.FromMinutes(30), false, FilterPlanBuilder.BuildSingleFilterPlan(TimeSpan.FromSeconds(120)), 0, 0));
         var spares = ImmutableDictionary<int, ImmutableArray<ScheduledObservation>>.Empty
             .Add(0, [spare1, spare2]);
 

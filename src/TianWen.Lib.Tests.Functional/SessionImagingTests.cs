@@ -61,7 +61,7 @@ public class SessionImagingTests(ITestOutputHelper output)
                 new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero),
                 scheduledDuration,
                 AcrossMeridian: false,
-                SubExposure: subExposure,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
                 Gain: 0,
                 Offset: 0
             )
@@ -135,7 +135,7 @@ public class SessionImagingTests(ITestOutputHelper output)
                 new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero),
                 scheduledDuration,
                 AcrossMeridian: false,
-                SubExposure: subExposure,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
                 Gain: 0,
                 Offset: 0
             )
@@ -198,7 +198,7 @@ public class SessionImagingTests(ITestOutputHelper output)
                 new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero),
                 scheduledDuration,
                 AcrossMeridian: false,
-                SubExposure: subExposure,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
                 Gain: 0,
                 Offset: 0
             )

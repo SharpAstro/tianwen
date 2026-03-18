@@ -20,5 +20,6 @@ public record struct SessionConfiguration(
     TimeSpan? MaxWaitForRisingTarget = null,
     bool AlwaysRefocusOnNewTarget = false,
     int BaselineHfdFrameCount = 3,
-    TimeSpan? DefaultSubExposure = null
+    TimeSpan? DefaultSubExposure = null,
+    FocusFilterStrategy FocusFilterStrategy = FocusFilterStrategy.Auto
 );

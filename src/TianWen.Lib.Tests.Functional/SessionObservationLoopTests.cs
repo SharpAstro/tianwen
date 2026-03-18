@@ -66,13 +66,20 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
     {
         var loopTask = Task.Run(async () => await ctx.Session.ObservationLoopAsync(cancellationToken), cancellationToken);
 
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(180));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
         var maxTicks = (int)(TimeSpan.FromHours(24) / subExposure);
         for (var i = 0; i < maxTicks && !loopTask.IsCompleted && !linked.IsCancellationRequested; i++)
         {
             await ctx.External.SleepAsync(subExposure, cancellationToken);
-            await Task.Delay(50, cancellationToken);
+
+            // Allow the observation loop to process intermediate states (slews, flips,
+            // guider restarts, filter switches) before pumping the next tick.
+            // Under parallel test execution the loop may need more real-time to react.
+            for (var spin = 0; spin < 10 && !loopTask.IsCompleted; spin++)
+            {
+                await Task.Delay(10, cancellationToken);
+            }
         }
 
         loopTask.IsCompleted.ShouldBeTrue("observation loop should have completed within timeout");
@@ -99,7 +106,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
                 WinterNightStart,
                 TimeSpan.FromMinutes(15),
                 AcrossMeridian: false,
-                SubExposure: subExposure,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
                 Gain: 0,
                 Offset: 0
             ),
@@ -108,7 +115,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
                 WinterNightStart,
                 TimeSpan.FromMinutes(15),
                 AcrossMeridian: false,
-                SubExposure: subExposure,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
                 Gain: 0,
                 Offset: 0
             )
@@ -154,7 +161,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
                 WinterNightStart,
                 TimeSpan.FromMinutes(5),
                 AcrossMeridian: false,
-                SubExposure: subExposure,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
                 Gain: 0,
                 Offset: 0
             ),
@@ -163,7 +170,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
                 WinterNightStart,
                 TimeSpan.FromMinutes(5),
                 AcrossMeridian: false,
-                SubExposure: subExposure,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
                 Gain: 0,
                 Offset: 0
             ),
@@ -172,7 +179,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
                 WinterNightStart,
                 TimeSpan.FromMinutes(5),
                 AcrossMeridian: false,
-                SubExposure: subExposure,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
                 Gain: 0,
                 Offset: 0
             )
@@ -221,7 +228,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
                 WinterNightStart,
                 scheduledDuration,
                 AcrossMeridian: false,
-                SubExposure: subExposure,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
                 Gain: 0,
                 Offset: 0
             )
@@ -268,7 +275,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
                 WinterNightStart,
                 TimeSpan.FromMinutes(10),
                 AcrossMeridian: false,
-                SubExposure: subExposure,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
                 Gain: 0,
                 Offset: 0
             ),
@@ -277,7 +284,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
                 WinterNightStart,
                 TimeSpan.FromMinutes(10),
                 AcrossMeridian: false,
-                SubExposure: subExposure,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
                 Gain: 0,
                 Offset: 0
             )
@@ -327,7 +334,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
                 WinterNightStart,
                 TimeSpan.FromMinutes(30), // long enough to image before and after flip
                 AcrossMeridian: true,
-                SubExposure: subExposure,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
                 Gain: 0,
                 Offset: 0
             )

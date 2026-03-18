@@ -11,7 +11,8 @@ public readonly record struct ScoredTarget(
     Half ObjectBonus,
     IReadOnlyDictionary<RaDecEventTime, RaDecEventInfo> ElevationProfile,
     DateTimeOffset OptimalStart,
-    TimeSpan OptimalDuration
+    TimeSpan OptimalDuration,
+    double OptimalAltitude = 0
 ) : IComparable<ScoredTarget>
 {
     /// <summary>

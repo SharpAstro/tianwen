@@ -11,7 +11,9 @@ public record OTA(
     Focuser? Focuser,
     FocusDirection FocusDirection,
     FilterWheel? FilterWheel,
-    Switch? Switches
+    Switch? Switches,
+    int? Aperture = null,
+    OpticalDesign OpticalDesign = OpticalDesign.Unknown
     ) : IAsyncDisposable
 {
     public async ValueTask DisposeAsync()

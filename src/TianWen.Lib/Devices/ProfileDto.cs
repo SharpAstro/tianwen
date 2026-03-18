@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Immutable;
+using TianWen.Lib.Sequencing;
 
 namespace TianWen.Lib.Devices;
 
@@ -25,5 +26,7 @@ public readonly record struct OTAData(
     Uri? Focuser,
     Uri? FilterWheel,
     bool? PreferOutwardFocus,
-    bool? OutwardIsPositive
+    bool? OutwardIsPositive,
+    int? Aperture = null,
+    OpticalDesign OpticalDesign = OpticalDesign.Unknown
 );

@@ -164,37 +164,44 @@ while (ActiveObservation && time < sessionEnd)
 └─ AdvanceObservation
 ```
 
-**ImagingLoopAsync** — per-tick frame capture:
+**ImagingLoopAsync** — per-tick frame capture with altitude-ladder filter sequencing:
 ```
 PeriodicTimer(tickDuration) loop:
 │
 ├─ Check guiding (restart if lost)
-├─ Start exposure on idle cameras
+├─ For each idle camera:
+│   ├─ Filter batch check (frameCounter >= Count? → advance cursor)
+│   ├─ SwitchFilterIfNeededAsync (move wheel + apply focus offset delta)
+│   ├─ Set FITS metadata (FocusPosition, Filter)
+│   └─ StartExposureAsync(currentEntry.SubExposure)
 ├─ Write queued FITS files
 ├─ WaitForNextTick
-├─ Fetch completed images
+├─ Fetch completed images → QueuedImageWrite(ActualSubExposure)
 ├─ Duration check: tickCount >= maxTicks? → advance
 ├─ Altitude check: target below min? → advance
 ├─ Pier side check: IsOnSamePierSideAsync
 │   ├─ AcrossMeridian=true → PerformMeridianFlipAsync
-│   │   ├─ Abort exposures, stop guiding
+│   │   ├─ Smart exposure handling (wait <30s / abort >30s)
 │   │   ├─ Re-slew with RA offset (retry loop, verify HA flipped)
 │   │   ├─ Restart guiding (guider auto-reverses DEC)
+│   │   ├─ Reverse filter ladder direction (filterAscending = false)
 │   │   └─ continue imaging with new hourAngleAtSlewTime
 │   └─ AcrossMeridian=false → break (finished target)
 ├─ Focus drift check: HFD ratio > threshold? → auto-refocus
-└─ Dither check: every Nth tick → DitherWaitAsync
+└─ Dither check: at filter batch boundaries
 ```
 
-**Key methods** (22 total):
+**Key methods** (25 total):
 - `RunAsync` — top-level entry point
 - `InitialisationAsync` — device setup
-- `InitialRoughFocusAsync` — rough focus via plate solve readiness
-- `AutoFocusAllTelescopesAsync` / `AutoFocusAsync` — V-curve auto-focus
+- `InitialRoughFocusAsync` — rough focus via plate solve readiness; moves to focus filter first
+- `AutoFocusAllTelescopesAsync` / `AutoFocusAsync` — V-curve auto-focus; respects `FocusFilterStrategy`
 - `CalibrateGuiderAsync` — guider calibration
 - `ObservationLoopAsync` — observation sequencing (slew, guide, image)
-- `ImagingLoopAsync` — per-observation imaging with drift detection
-- `PerformMeridianFlipAsync` — meridian flip: re-slew, verify HA, restart guiding
+- `ImagingLoopAsync` — per-observation imaging with filter ladder, drift detection, dithering
+- `SwitchFilterIfNeededAsync` — move filter wheel + apply focuser offset delta
+- `AdvanceFilterCursor` — traverse filter ladder forward (ascending) or backward (descending), clamped
+- `PerformMeridianFlipAsync` — meridian flip: re-slew, verify HA, restart guiding, reverse filter ladder
 - `CoolCamerasToSetpointAsync` / `CoolCamerasToSensorTempAsync` / `CoolCamerasToAmbientAsync`
 - `MoveTelescopeCoversToStateAsync` — cover management
 - `WriteImageToFitsFileAsync` — FITS output
@@ -203,7 +210,42 @@ PeriodicTimer(tickDuration) loop:
 - `WaitUntilTenMinutesBeforeAmateurAstroTwilightEndsAsync` / `SessionEndTimeAsync` — timing
 - `CatchAsync` — error handling wrappers
 
-**Test coverage** (32 tests across 5 test classes, as of March 2026):
+### Filter Wheel & Altitude-Ladder Scheduling
+
+The imaging loop sequences filters using an **altitude ladder** — an ordered plan from
+narrowband (low-altitude tolerant) to luminance (needs best seeing at peak altitude):
+
+```
+FilterPlan: [Ha, SII, OIII, R, G, B, L]
+             ↑ narrowband          ↑ RGB    ↑ Luminance (top)
+             low-alt tolerant      mid-alt   peak seeing
+```
+
+**Traversal**: forward (index 0→N) while ascending (HA < 0, east of meridian),
+reversed (N→0) after meridian flip. Clamped at ends — no wrapping. This naturally
+puts narrowband at the edges of the night and luminance/RGB around transit.
+
+**Key types**:
+- `FilterExposure(FilterPosition, SubExposure, Count)` — one filter slot in the plan
+- `FilterPlanBuilder` — builds the altitude ladder; `BuildAutoFilterPlan` orders
+  narrowband → RGB → Luminance; `GetReferenceFilter` picks the focus filter
+- `FocusFilterStrategy` (`Auto`, `UseLuminance`, `UseScheduledFilter`) — controls
+  which filter is used during auto-focus, configured via `SessionConfiguration`
+- `OpticalDesign` enum + `NeedsFocusAdjustmentPerFilter` extension — pure mirror
+  designs (Newtonian, Cassegrain, RASA, Astrograph) are CA-free; refractive designs
+  (Refractor, SCT, NewtonianCassegrain) need per-filter focus adjustment
+
+**Focus strategy** (`FocusFilterStrategy.Auto`):
+- Mirror/astrograph: focus on luminance, no offset needed on filter change
+- Refractive + non-zero offsets: focus on luminance, apply `InstalledFilter.Position`
+  delta via `BacklashCompensation` on each filter switch
+- Refractive + no offsets: focus directly on the scheduled filter (longer exposure
+  or higher gain for narrowband star detection)
+
+**OTA configuration**: `OTA` and `OTAData` carry `Aperture` (mm) and `OpticalDesign`
+for f/ratio computation and focus strategy decisions.
+
+**Test coverage** (32 Session tests across 5 classes + 29 filter/optics tests, as of March 2026):
 - `SessionAutoFocusTests` (6): `AutoFocusAsync`, `AutoFocusAllTelescopesAsync`
 - `SessionCoolingTests` (6): `CoolCamerasToSetpointAsync`, `CoolCamerasToSensorTempAsync`
 - `SessionImagingTests` (3): `ImagingLoopAsync` (utilization, altitude exit, single-target loop)
@@ -212,11 +254,12 @@ PeriodicTimer(tickDuration) loop:
 - `SessionLifecycleTests` (12): `RunAsync`, `InitialisationAsync`, `CalibrateGuiderAsync`,
   `Finalise`, `CoolCamerasToAmbientAsync`, `SessionEndTimeAsync`, twilight wait,
   `GuiderFocusLoopAsync`, `InitialRoughFocusAsync`, `MoveTelescopeCoversToStateAsync` (3 tests)
-- **18/22 methods tested directly** (82%). Remaining 4 (`WriteImageToFitsFileAsync`,
-  `GetMountUtcNowAsync`, `EstimateTimeUntilTargetRisesAsync`, `AccumulateBaselineSample`)
-  are internal helpers with indirect coverage through the above tests.
+- `FilterPlanBuilderTests` (21): altitude ladder ordering, narrowband/broadband classification,
+  reference filter selection per optical design, single-plan fallback, frames-per-filter
+- `OpticalDesignTests` (8): `NeedsFocusAdjustmentPerFilter` truth table for all designs
 - **Untested branch paths**: dithering logic, focus drift mid-session refocus trigger,
-  spare target fallback, guider failure/restart during imaging.
+  spare target fallback, guider failure/restart during imaging, filter switching during
+  imaging loop (needs `FakeFilterWheelDriver`-equipped session test).
 
 ### FITS Viewer / GPU Stretch
 

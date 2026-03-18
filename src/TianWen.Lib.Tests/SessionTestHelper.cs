@@ -39,7 +39,7 @@ internal static class SessionTestHelper
             DateTimeOffset.UtcNow,
             TimeSpan.FromMinutes(30),
             AcrossMeridian: false,
-            SubExposure: TimeSpan.FromSeconds(120),
+            FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(TimeSpan.FromSeconds(120)),
             Gain: 0,
             Offset: 0
         )

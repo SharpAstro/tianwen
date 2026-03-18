@@ -5,6 +5,7 @@ using System.Collections.Specialized;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using static TianWen.Lib.Stat.StatisticsHelper;
@@ -173,24 +174,49 @@ internal partial record Session
         var mount = Setup.Mount;
         var scopes = Setup.Telescopes.Length;
         var frameNumbers = new int[scopes];
-        var subExposuresSec = new int[scopes];
+
+        // Per-telescope filter plan state
+        // The plan is an altitude ladder: narrowband first (index 0), broadband last.
+        // Ascending = true: traverse forward (0 → N-1), target is rising toward transit.
+        // Ascending = false: traverse backward (N-1 → 0), target is descending after transit.
+        var filterPlans = new FilterExposure[scopes][];
+        var filterCursors = new int[scopes];
+        var filterFrameCounters = new int[scopes];
+        var filterAscending = hourAngleAtSlewTime < 0; // HA < 0 means east of meridian (rising)
+        var currentSubExposuresSec = new int[scopes];
 
         for (var i = 0; i < scopes; i++)
         {
             var camera = Setup.Telescopes[i].Camera;
-
             camera.Driver.Target = observation.Target;
 
-            // TODO per camera exposure calculation, e.g. via f/ratio
-            var subExposure = observation.SubExposure;
-            subExposuresSec[i] = (int)Math.Ceiling(subExposure.TotalSeconds);
+            // Each telescope gets its own copy of the filter plan
+            filterPlans[i] = observation.FilterPlan.IsDefaultOrEmpty
+                ? [new FilterExposure(-1, observation.SubExposure)]
+                : [.. observation.FilterPlan];
+
+            // Start at beginning (ascending/rising) or end (descending/setting) of plan
+            filterCursors[i] = filterAscending ? 0 : filterPlans[i].Length - 1;
+
+            // Initialize with the starting filter entry's exposure
+            currentSubExposuresSec[i] = (int)Math.Ceiling(filterPlans[i][filterCursors[i]].SubExposure.TotalSeconds);
         }
 
-        var maxSubExposureSec = subExposuresSec.Max();
-        var tickGCD = GCD(subExposuresSec);
-        var tickLCM = LCM(tickGCD, subExposuresSec);
+        // Collect all unique sub-exposure durations across all telescopes and all filter entries
+        // for the master tick GCD calculation
+        var allSubExposuresSec = new HashSet<int>();
+        for (var i = 0; i < scopes; i++)
+        {
+            foreach (var entry in filterPlans[i])
+            {
+                allSubExposuresSec.Add((int)Math.Ceiling(entry.SubExposure.TotalSeconds));
+            }
+        }
+
+        var allExposuresArray = allSubExposuresSec.ToArray();
+        var tickGCD = GCD(allExposuresArray);
+        var tickLCM = LCM(tickGCD, allExposuresArray);
         var tickDuration = TimeSpan.FromSeconds(tickGCD);
-        var ticksPerMaxSubExposure = maxSubExposureSec / tickGCD;
         var ticksPerFullCycle = (int)(tickLCM / tickGCD);
         var ditherEveryNTicks = Configuration.DitherEveryNthFrame * ticksPerFullCycle;
         var expStartTimes = new DateTimeOffset[scopes];
@@ -200,6 +226,12 @@ internal partial record Session
         var imageWriteQueue = new Queue<QueuedImageWrite>();
         ImageLoopNextAction? next = null;
         var maxTicks = (int)(observation.Duration / tickDuration);
+
+        External.AppLogger.LogInformation(
+            "ImagingLoop starting for {Target}: {FilterCount} filters, direction={Direction}, tickDuration={TickDuration}s, maxTicks={MaxTicks}.",
+            observation.Target, observation.FilterPlan.Length,
+            filterAscending ? "ascending" : "descending",
+            tickDuration.TotalSeconds, maxTicks);
 
         using var ticker = new PeriodicTimer(tickDuration, External.TimeProvider);
 
@@ -237,18 +269,43 @@ internal partial record Session
                 var camerDriver = telescope.Camera.Driver;
                 if (await camerDriver.GetCameraStateAsync(cancellationToken) is CameraState.Idle)
                 {
+                    // Advance filter cursor if the current batch is complete
+                    var plan = filterPlans[i];
+                    var cursor = filterCursors[i];
+                    var currentEntry = plan[cursor];
+
+                    if (filterFrameCounters[i] >= currentEntry.Count && plan.Length > 1)
+                    {
+                        var prevCursor = cursor;
+                        filterFrameCounters[i] = 0;
+                        cursor = AdvanceFilterCursor(ref filterCursors[i], plan.Length, filterAscending);
+                        currentEntry = plan[cursor];
+
+                        External.AppLogger.LogInformation(
+                            "Telescope #{TelescopeNumber}: filter ladder step {PrevCursor} → {Cursor} ({Direction}), next filter position {FilterPosition}.",
+                            i + 1, prevCursor, cursor, filterAscending ? "ascending" : "descending", currentEntry.FilterPosition);
+                    }
+
+                    // Switch filter if needed
+                    if (currentEntry.FilterPosition >= 0 && telescope.FilterWheel?.Driver is { Connected: true } filterWheelDriver)
+                    {
+                        await SwitchFilterIfNeededAsync(i, filterWheelDriver, currentEntry.FilterPosition, cancellationToken);
+                    }
+
                     // set denormalized parameters so that the image driver can write proper headers in the image file
                     camerDriver.FocusPosition = await CatchAsync(async ct => telescope.Focuser?.Driver is { Connected: true } focuserDriver ? await focuserDriver.GetPositionAsync(ct) : -1, cancellationToken, -1);
-                    camerDriver.Filter = await CatchAsync(async ct => telescope.FilterWheel?.Driver is { Connected: true } filterWheelDriver ? (await filterWheelDriver.GetCurrentFilterAsync(ct)).Filter : Filter.Unknown, cancellationToken, Filter.Unknown);
+                    camerDriver.Filter = await CatchAsync(async ct => telescope.FilterWheel?.Driver is { Connected: true } fwDriver ? (await fwDriver.GetCurrentFilterAsync(ct)).Filter : Filter.Unknown, cancellationToken, Filter.Unknown);
 
-                    var subExposureSec = subExposuresSec[i];
+                    var subExposureSec = (int)Math.Ceiling(currentEntry.SubExposure.TotalSeconds);
+                    currentSubExposuresSec[i] = subExposureSec;
                     var frameExpTime = TimeSpan.FromSeconds(subExposureSec);
                     expStartTimes[i] = await camerDriver.StartExposureAsync(frameExpTime, cancellationToken: cancellationToken);
                     expTicks[i] = (int)(subExposureSec / tickGCD);
+                    filterFrameCounters[i]++;
                     var frameNo = ++frameNumbers[i];
 
-                    External.AppLogger.LogInformation("Camera #{CameraNumber} {CamerName} starting {ExposureStartTime} exposure of frame #{FrameNo}.",
-                        i + 1, camerDriver.Name, frameExpTime, frameNo);
+                    External.AppLogger.LogInformation("Camera #{CameraNumber} {CamerName} starting {ExposureStartTime} exposure of frame #{FrameNo} (filter: {Filter}).",
+                        i + 1, camerDriver.Name, frameExpTime, frameNo, camerDriver.Filter);
                 }
             }
 
@@ -271,7 +328,7 @@ internal partial record Session
                 imageFetchSuccess[i] = false;
                 if (tick <= 0)
                 {
-                    var frameExpTime = TimeSpan.FromSeconds(subExposuresSec[i]);
+                    var frameExpTime = TimeSpan.FromSeconds(currentSubExposuresSec[i]);
                     var frameNo = frameNumbers[i];
                     var polled = TimeSpan.Zero;
                     do // wait for image loop
@@ -282,7 +339,7 @@ internal partial record Session
                             External.AppLogger.LogInformation("Camera #{CameraNumber} {CameraName} finished {ExposureStartTime} exposure of frame #{FrameNo}",
                                 i + 1, camDriver.Name, frameExpTime, frameNo);
 
-                            imageWriteQueue.Enqueue(new QueuedImageWrite(image, observation, expStartTimes[i], frameNo));
+                            imageWriteQueue.Enqueue(new QueuedImageWrite(image, observation, expStartTimes[i], frameNo, frameExpTime));
                             break;
                         }
                         else
@@ -344,7 +401,7 @@ internal partial record Session
                     if (await camDriver.GetCameraStateAsync(cancellationToken) is CameraState.Exposing)
                     {
                         var elapsed = External.TimeProvider.GetUtcNow() - expStartTimes[i];
-                        var total = TimeSpan.FromSeconds(subExposuresSec[i]);
+                        var total = TimeSpan.FromSeconds(currentSubExposuresSec[i]);
                         var remaining = total - elapsed;
 
                         if (remaining > TimeSpan.FromSeconds(30))
@@ -368,7 +425,7 @@ internal partial record Session
                             await External.SleepAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, cancellationToken);
                             if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } image)
                             {
-                                imageWriteQueue.Enqueue(new QueuedImageWrite(image, observation, expStartTimes[i], frameNumbers[i]));
+                                imageWriteQueue.Enqueue(new QueuedImageWrite(image, observation, expStartTimes[i], frameNumbers[i], total));
                             }
                             await WriteQueuedImagesToFitsFilesAsync();
                         }
@@ -383,6 +440,13 @@ internal partial record Session
                     if (flipResult.Success)
                     {
                         hourAngleAtSlewTime = flipResult.HourAngle;
+
+                        // Reverse the altitude ladder: target is now descending
+                        filterAscending = false;
+                        External.AppLogger.LogInformation(
+                            "Meridian flip complete: reversing filter ladder direction to descending for {Target}.",
+                            observation.Target);
+
                         continue; // resume imaging loop on the new pier side
                     }
 
@@ -412,7 +476,7 @@ internal partial record Session
 
                         var camera = Setup.Telescopes[i].Camera.Driver;
                         var currentGain = await camera.GetGainAsync(cancellationToken);
-                        var currentMetrics = FrameMetrics.FromStarList(driftStars, observation.SubExposure, currentGain);
+                        var currentMetrics = FrameMetrics.FromStarList(driftStars, TimeSpan.FromSeconds(currentSubExposuresSec[i]), currentGain);
 
                         // If no baseline yet for this observation, collect samples from first frames
                         if (currentBaselines is null || !currentBaselines[i].IsValid)
@@ -493,13 +557,108 @@ internal partial record Session
                 {
                     await WriteImageToFitsFileAsync(imageWrite);
                     Interlocked.Increment(ref _totalFramesWritten);
-                    Interlocked.Add(ref _totalExposureTimeTicks, imageWrite.Observation.SubExposure.Ticks);
+                    Interlocked.Add(ref _totalExposureTimeTicks, imageWrite.ActualSubExposure.Ticks);
                 }
                 catch (Exception ex)
                 {
                     External.AppLogger.LogError(ex, "Exception while saving frame #{FrameNumber} taken at {ExposureStartTime:o} by {Instrument}",
                         imageWrite.FrameNumber, imageWrite.ExpStartTime, imageWrite.Image.ImageMeta.Instrument);
                 }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Advances the filter cursor forward (ascending) or backward (descending) through
+    /// the altitude ladder. Clamps at the ends — once the ladder is fully traversed,
+    /// stays on the last filter (narrowband at low alt, or luminance at peak).
+    /// </summary>
+    private static int AdvanceFilterCursor(ref int cursor, int planLength, bool ascending)
+    {
+        if (ascending)
+        {
+            if (cursor < planLength - 1)
+            {
+                cursor++;
+            }
+        }
+        else
+        {
+            if (cursor > 0)
+            {
+                cursor--;
+            }
+        }
+
+        return cursor;
+    }
+
+    /// <summary>
+    /// Switches the filter wheel to the target position if it's not already there.
+    /// Waits for the wheel to finish moving, then applies the focuser offset delta
+    /// relative to the reference filter if the OTA has a focuser and non-zero offsets.
+    /// </summary>
+    private async ValueTask SwitchFilterIfNeededAsync(
+        int telescopeIndex,
+        IFilterWheelDriver filterWheelDriver,
+        int targetFilterPosition,
+        CancellationToken cancellationToken)
+    {
+        var currentPosition = await filterWheelDriver.GetPositionAsync(cancellationToken);
+        if (currentPosition == targetFilterPosition)
+        {
+            return;
+        }
+
+        var telescope = Setup.Telescopes[telescopeIndex];
+        var targetFilter = targetFilterPosition < filterWheelDriver.Filters.Count
+            ? filterWheelDriver.Filters[targetFilterPosition]
+            : new InstalledFilter(Filter.Unknown, 0);
+
+        External.AppLogger.LogInformation("Telescope #{TelescopeNumber}: switching filter to {Filter} (position {Position}).",
+            telescopeIndex + 1, targetFilter.Filter, targetFilterPosition);
+
+        await filterWheelDriver.BeginMoveAsync(targetFilterPosition, cancellationToken);
+
+        // Poll until the wheel reports it has arrived (position != -1 and equals target)
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var pos = await filterWheelDriver.GetPositionAsync(cancellationToken);
+            if (pos == targetFilterPosition)
+            {
+                break;
+            }
+
+            await External.SleepAsync(TimeSpan.FromMilliseconds(250), cancellationToken);
+        }
+
+        // Apply focuser offset delta if the telescope has a focuser and the filter has an offset
+        if (telescope.Focuser?.Driver is { Connected: true } focuserDriver && targetFilter.Position != 0)
+        {
+            // Find the reference filter (luminance or position 0) to compute the delta
+            var refOffset = 0;
+            for (var j = 0; j < filterWheelDriver.Filters.Count; j++)
+            {
+                if (filterWheelDriver.Filters[j].Filter.Bandpass == Bandpass.Luminance)
+                {
+                    refOffset = filterWheelDriver.Filters[j].Position;
+                    break;
+                }
+            }
+
+            var delta = targetFilter.Position - refOffset;
+            if (delta != 0)
+            {
+                var currentFocusPos = await focuserDriver.GetPositionAsync(cancellationToken);
+                var targetFocusPos = currentFocusPos + delta;
+
+                External.AppLogger.LogInformation("Telescope #{TelescopeNumber}: applying focus offset {Delta} steps for filter {Filter} (pos {From} -> {To}).",
+                    telescopeIndex + 1, delta, targetFilter.Filter, currentFocusPos, targetFocusPos);
+
+                await BacklashCompensation.MoveWithCompensationAsync(
+                    focuserDriver, targetFocusPos, currentFocusPos,
+                    focuserDriver.BacklashStepsIn, focuserDriver.BacklashStepsOut,
+                    telescope.FocusDirection, External, cancellationToken);
             }
         }
     }
