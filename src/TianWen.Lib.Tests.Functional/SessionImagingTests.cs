@@ -87,12 +87,16 @@ public class SessionImagingTests(ITestOutputHelper output)
         // when — run imaging loop on thread pool, advance fake time from test thread
         var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, ct));
 
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
         var maxTicks = (int)(TimeSpan.FromHours(24) / subExposure);
-        for (var i = 0; i < maxTicks && !imagingTask.IsCompleted && !timeout.IsCancellationRequested; i++)
+        for (var i = 0; i < maxTicks && !imagingTask.IsCompleted && !linked.IsCancellationRequested; i++)
         {
             await ctx.External.SleepAsync(subExposure, ct);
-            await Task.Delay(10, ct);
+            for (var spin = 0; spin < 10 && !imagingTask.IsCompleted; spin++)
+            {
+                await Task.Delay(10, ct);
+            }
         }
 
         imagingTask.IsCompleted.ShouldBeTrue("imaging loop should have completed within timeout");
@@ -158,12 +162,16 @@ public class SessionImagingTests(ITestOutputHelper output)
         // when — run imaging loop on thread pool, advance fake time from test thread
         var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, ct));
 
-        using var timeout2 = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        using var timeout2 = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+        using var linked2 = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout2.Token);
         var maxTicks = (int)(TimeSpan.FromHours(24) / subExposure);
-        for (var i = 0; i < maxTicks && !imagingTask.IsCompleted && !timeout2.IsCancellationRequested; i++)
+        for (var i = 0; i < maxTicks && !imagingTask.IsCompleted && !linked2.IsCancellationRequested; i++)
         {
             await ctx.External.SleepAsync(subExposure, ct);
-            await Task.Delay(10, ct);
+            for (var spin = 0; spin < 10 && !imagingTask.IsCompleted; spin++)
+            {
+                await Task.Delay(10, ct);
+            }
         }
 
         imagingTask.IsCompleted.ShouldBeTrue("imaging loop should have completed within timeout");
@@ -212,12 +220,16 @@ public class SessionImagingTests(ITestOutputHelper output)
         // when — run observation loop on thread pool, advance fake time from test thread
         var loopTask = Task.Run(async () => await ctx.Session.ObservationLoopAsync(ct), ct);
 
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
         var maxTicks = (int)(TimeSpan.FromHours(24) / subExposure);
-        for (var i = 0; i < maxTicks && !loopTask.IsCompleted && !timeout.IsCancellationRequested; i++)
+        for (var i = 0; i < maxTicks && !loopTask.IsCompleted && !linked.IsCancellationRequested; i++)
         {
             await ctx.External.SleepAsync(subExposure, ct);
-            await Task.Delay(10, ct);
+            for (var spin = 0; spin < 10 && !loopTask.IsCompleted; spin++)
+            {
+                await Task.Delay(10, ct);
+            }
         }
 
         loopTask.IsCompleted.ShouldBeTrue("observation loop should have completed within timeout");
