@@ -146,7 +146,10 @@ internal static class ObservationScheduler
         int defaultGain,
         int defaultOffset,
         TimeSpan defaultSubExposure,
-        TimeSpan defaultObservationTime)
+        TimeSpan defaultObservationTime,
+        IReadOnlyList<InstalledFilter>? availableFilters = null,
+        TimeSpan? defaultNarrowbandSubExposure = null,
+        OpticalDesign opticalDesign = OpticalDesign.Unknown)
     {
         if (proposals.IsEmpty)
         {
@@ -226,12 +229,22 @@ internal static class ObservationScheduler
                 && meridianInfo.Time <= start + duration;
 
             var slotIndex = primaryList.Count;
+            var filterPlan = proposal.FilterPlan is { IsEmpty: false } explicitPlan
+                ? explicitPlan
+                : availableFilters is { Count: > 0 }
+                    ? FilterPlanBuilder.BuildAutoFilterPlan(
+                        availableFilters,
+                        subExposure,
+                        defaultNarrowbandSubExposure ?? TimeSpan.FromTicks(subExposure.Ticks * 3),
+                        score.OptimalAltitude)
+                    : FilterPlanBuilder.BuildSingleFilterPlan(subExposure);
+
             primaryList.Add(new ScheduledObservation(
                 proposal.Target,
                 start,
                 duration,
                 acrossMeridian,
-                subExposure,
+                filterPlan,
                 gain,
                 offset,
                 proposal.Priority
@@ -263,12 +276,23 @@ internal static class ObservationScheduler
                         && spareMeridian.Time >= start
                         && spareMeridian.Time <= start + duration;
 
+                    var spareSubExposure = spareProposal.SubExposure ?? subExposure;
+                    var spareFilterPlan = spareProposal.FilterPlan is { IsEmpty: false } sparePlan
+                        ? sparePlan
+                        : availableFilters is { Count: > 0 }
+                            ? FilterPlanBuilder.BuildAutoFilterPlan(
+                                availableFilters,
+                                spareSubExposure,
+                                defaultNarrowbandSubExposure ?? TimeSpan.FromTicks(spareSubExposure.Ticks * 3),
+                                spareScore.OptimalAltitude)
+                            : FilterPlanBuilder.BuildSingleFilterPlan(spareSubExposure);
+
                     slotSpares.Add(new ScheduledObservation(
                         spareProposal.Target,
                         start,
                         duration,
                         spareAcrossMeridian,
-                        spareProposal.SubExposure ?? subExposure,
+                        spareFilterPlan,
                         spareProposal.Gain ?? gain,
                         spareProposal.Offset ?? offset,
                         ObservationPriority.Spare
@@ -461,7 +485,7 @@ internal static class ObservationScheduler
             ? windowEnd.Value - windowStart.Value
             : TimeSpan.Zero;
 
-        return new ScoredTarget(target, (Half)totalScore, Half.One, profile, optimalStart, optimalDuration);
+        return new ScoredTarget(target, (Half)totalScore, Half.One, profile, optimalStart, optimalDuration, bestAlt == double.MinValue ? 0 : bestAlt);
     }
 
     private static int FindClosestTimeIndex(ReadOnlySpan<DateTimeOffset> times, DateTimeOffset target)

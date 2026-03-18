@@ -53,6 +53,21 @@ internal partial record Session
         }
 
         var count = Setup.Telescopes.Length;
+
+        // Move filter wheels to the focus filter before rough focus
+        for (var i = 0; i < count; i++)
+        {
+            var telescope = Setup.Telescopes[i];
+            if (telescope.FilterWheel?.Driver is { Connected: true, Filters.Count: > 0 } fwDriver)
+            {
+                var refFilter = FilterPlanBuilder.GetReferenceFilter(fwDriver.Filters, telescope.OpticalDesign);
+                if (refFilter >= 0)
+                {
+                    await SwitchFilterIfNeededAsync(i, fwDriver, refFilter, cancellationToken);
+                }
+            }
+        }
+
         var origGain = new short[count];
         for (var i = 0; i < count; i++)
         {
@@ -225,6 +240,38 @@ internal partial record Session
         {
             External.AppLogger.LogWarning("Telescope #{TelescopeNumber} has no connected focuser, skipping auto-focus.", telescopeIndex + 1);
             return (false, default);
+        }
+
+        // Determine which filter to focus on based on the strategy
+        var preFocusFilterPosition = -1;
+        var filterWheelDriver = telescope.FilterWheel?.Driver is { Connected: true } fwd ? fwd : null;
+        if (filterWheelDriver is { Filters.Count: > 0 })
+        {
+            var strategy = Configuration.FocusFilterStrategy;
+            if (strategy is FocusFilterStrategy.UseLuminance)
+            {
+                preFocusFilterPosition = FilterPlanBuilder.GetReferenceFilter(filterWheelDriver.Filters, telescope.OpticalDesign);
+                if (preFocusFilterPosition < 0)
+                {
+                    preFocusFilterPosition = 0; // fallback to first filter
+                }
+            }
+            else if (strategy is FocusFilterStrategy.Auto)
+            {
+                var refFilter = FilterPlanBuilder.GetReferenceFilter(filterWheelDriver.Filters, telescope.OpticalDesign);
+                if (refFilter >= 0)
+                {
+                    // Mirror-based or has offsets: focus on luminance
+                    preFocusFilterPosition = refFilter;
+                }
+                // else: refFilter == -1 means refractive + no offsets → focus on current (scheduled) filter
+            }
+            // UseScheduledFilter: keep preFocusFilterPosition = -1 (don't switch)
+
+            if (preFocusFilterPosition >= 0)
+            {
+                await SwitchFilterIfNeededAsync(telescopeIndex, filterWheelDriver, preFocusFilterPosition, cancellationToken);
+            }
         }
 
         var autoFocusExposure = TimeSpan.FromSeconds(2);

@@ -415,7 +415,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
                 WinterNight,
                 TimeSpan.FromMinutes(5),
                 AcrossMeridian: false,
-                SubExposure: subExposure,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
                 Gain: 0,
                 Offset: 0
             )
@@ -535,9 +535,9 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         var observation = new ScheduledObservation(
             new Target(5.0, 20.0, "TestTarget", null),
             WinterNight, TimeSpan.FromMinutes(5),
-            AcrossMeridian: false, SubExposure: TimeSpan.FromSeconds(30), Gain: 0, Offset: 0);
+            AcrossMeridian: false, FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(TimeSpan.FromSeconds(30)), Gain: 0, Offset: 0);
 
-        var imageWrite = new QueuedImageWrite(image, observation, WinterNight, 1);
+        var imageWrite = new QueuedImageWrite(image, observation, WinterNight, 1, TimeSpan.FromSeconds(30));
         await ctx.Session.WriteImageToFitsFileAsync(imageWrite);
 
         // Verify the FITS file was created
