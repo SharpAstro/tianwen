@@ -251,6 +251,97 @@ public class SessionImagingTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task GivenFocusDriftWhenHFDExceedsThresholdThenAutoRefocusTriggered()
+    {
+        // given — start at best focus, then defocus mid-session to trigger drift detection
+        var ct = TestContext.Current.CancellationToken;
+        var subExposure = TimeSpan.FromSeconds(30);
+        var scheduledDuration = TimeSpan.FromMinutes(10);
+
+        // Use a low drift threshold to make it easier to trigger
+        var config = SessionTestHelper.DefaultConfiguration with
+        {
+            FocusDriftThreshold = 1.05f, // 5% HFD increase triggers refocus
+            BaselineHfdFrameCount = 2,   // establish baseline quickly
+            DitherEveryNthFrame = 0      // disable dithering for this test
+        };
+
+        var observations = new[]
+        {
+            new ScheduledObservation(
+                new Target(16.695, 36.46, "M13", null),
+                new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero),
+                scheduledDuration,
+                AcrossMeridian: false,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
+                Gain: 0,
+                Offset: 0
+            )
+        };
+
+        var ctx = await CreateImagingSessionAsync(configuration: config, observations: observations, cancellationToken: ct);
+
+        IMountDriver mount = ctx.Mount;
+        await mount.EnsureTrackingAsync(cancellationToken: ct);
+
+        var guider = (FakeGuider)ctx.Session.Setup.Guider.Driver;
+        await guider.GuideAsync(0.3, 3, 30, ct);
+        await ctx.External.SleepAsync(TimeSpan.FromSeconds(4), ct);
+
+        var observation = ctx.Session.ActiveObservation;
+        observation.ShouldNotBeNull();
+        var hourAngle = await ctx.Mount.GetHourAngleAsync(ct);
+
+        // when — run imaging loop, defocus after baseline is established
+        var defocused = false;
+        var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, ct));
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
+        for (var i = 0; i < 500 && !imagingTask.IsCompleted && !linked.IsCancellationRequested; i++)
+        {
+            await ctx.External.SleepAsync(subExposure, ct);
+
+            // After baseline is established (2 frames), defocus by moving focuser away
+            if (!defocused && ctx.Session.BaselineByObservation.ContainsKey(0))
+            {
+                output.WriteLine($"Baseline established after pump {i}, defocusing by 80 steps");
+                var currentPos = await ctx.Focuser.GetPositionAsync(ct);
+                await ctx.Focuser.BeginMoveAsync(currentPos + 80, ct);
+                while (await ctx.Focuser.GetIsMovingAsync(ct))
+                {
+                    await ctx.External.SleepAsync(TimeSpan.FromMilliseconds(100), ct);
+                }
+                defocused = true;
+            }
+
+            for (var spin = 0; spin < 10 && !imagingTask.IsCompleted; spin++)
+            {
+                await Task.Delay(10, ct);
+            }
+        }
+
+        imagingTask.IsCompleted.ShouldBeTrue("imaging loop should have completed within timeout");
+        await imagingTask;
+
+        // then
+        defocused.ShouldBeTrue("should have defocused during the test");
+        ctx.Session.TotalFramesWritten.ShouldBeGreaterThan(0);
+
+        output.WriteLine($"Frames written: {ctx.Session.TotalFramesWritten}");
+        output.WriteLine($"Total exposure time: {ctx.Session.TotalExposureTime}");
+
+        // The baseline should have been updated after refocus (AutoFocusAsync stores new baseline)
+        ctx.Session.BaselineByObservation.ShouldContainKey(0);
+        var baselines = ctx.Session.BaselineByObservation[0];
+        baselines[0].IsValid.ShouldBeTrue("baseline should be valid after auto-refocus");
+
+        output.WriteLine($"Final baseline HFD: {baselines[0].MedianHfd:F2}");
+
+        ctx.CleanupOutputFolder();
+    }
+
+    [Fact]
     public async Task GivenDitherEveryNthFrameWhenEnoughFramesCapturedThenDitheringTriggered()
     {
         // given — DitherEveryNthFrame=5 (default config), 30s subs, 10 min observation
