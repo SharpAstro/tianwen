@@ -75,7 +75,6 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
 
             // Allow the observation loop to process intermediate states (slews, flips,
             // guider restarts, filter switches) before pumping the next tick.
-            // Under parallel test execution the loop may need more real-time to react.
             for (var spin = 0; spin < 10 && !loopTask.IsCompleted; spin++)
             {
                 await Task.Delay(10, cancellationToken);

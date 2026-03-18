@@ -205,8 +205,8 @@ internal partial record Session
             currentSubExposuresSec[i] = (int)Math.Ceiling(filterPlans[i][filterCursors[i]].SubExposure.TotalSeconds);
         }
 
-        // Collect all unique sub-exposure durations across all telescopes and all filter entries
-        // for the master tick GCD calculation
+        // Tick = GCD of all sub-exposures. TODO: reduce to GCD/6 (clamped [1s,5s]) for faster
+        // monitoring once fake time interaction with PeriodicTimer is resolved (see #tick-refactor).
         var allSubExposuresSec = new HashSet<int>();
         for (var i = 0; i < scopes; i++)
         {
@@ -392,7 +392,8 @@ internal partial record Session
                 break; // falls through to return AdvanceToNextObservation
             }
 
-            if (!await mount.Driver.IsOnSamePierSideAsync(hourAngleAtSlewTime, cancellationToken))
+            if (!await CatchAsync(mount.Driver.IsSlewingAsync, cancellationToken)
+                && !await mount.Driver.IsOnSamePierSideAsync(hourAngleAtSlewTime, cancellationToken))
             {
                 // write all images before stopping
                 await WriteQueuedImagesToFitsFilesAsync();
@@ -687,6 +688,12 @@ internal partial record Session
         External.AppLogger.LogInformation("Meridian flip: stopping guider for {Target}.", observation.Target);
         await guider.Driver.StopCaptureAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
 
+        // Wait for any ongoing slew to complete before attempting the flip
+        while (await CatchAsync(mount.Driver.IsSlewingAsync, cancellationToken) && !cancellationToken.IsCancellationRequested)
+        {
+            await External.SleepAsync(TimeSpan.FromMilliseconds(500), cancellationToken);
+        }
+
         for (var attempt = 1; attempt <= maxFlipAttempts; attempt++)
         {
             // Offset RA slightly westward (lower RA = more positive HA) to ensure
@@ -697,6 +704,12 @@ internal partial record Session
 
             External.AppLogger.LogInformation("Meridian flip: slewing to {Target} (attempt {Attempt}/{MaxAttempts}, RA offset {Offset:F3}h).",
                 observation.Target, attempt, maxFlipAttempts, raOffsetHours * attempt);
+
+            // Ensure no slew is in progress before starting the flip slew
+            if (await CatchAsync(mount.Driver.IsSlewingAsync, cancellationToken))
+            {
+                await mount.Driver.WaitForSlewCompleteAsync(cancellationToken).ConfigureAwait(false);
+            }
 
             var (postCondition, _) = await mount.Driver.BeginSlewToTargetAsync(
                 slewTarget, Configuration.MinHeightAboveHorizon, cancellationToken).ConfigureAwait(false);
