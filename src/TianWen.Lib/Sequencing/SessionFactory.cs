@@ -96,6 +96,11 @@ internal class SessionFactory(
 
         var profileData = profile.Data ?? throw new ArgumentException($"Profile {profileId} contains no devices", nameof(profileId));
 
+        if (profileData.OTAs.IsDefaultOrEmpty)
+        {
+            throw new ArgumentException($"Profile {profileId} must contain at least one OTA", nameof(profileId));
+        }
+
         OTA? guiderIsOAGOfOTA = null;
 
         var telescopeCount = profileData.OTAs.Length;
