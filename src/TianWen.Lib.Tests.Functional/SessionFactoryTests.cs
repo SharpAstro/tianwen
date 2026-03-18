@@ -409,6 +409,77 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         );
     }
 
+    [Fact]
+    public void GivenProfileWithZeroOTAsWhenCreateThenThrowsArgumentException()
+    {
+        // given
+        var profileData = new ProfileData(
+            Mount: CreateMountDevice().DeviceUri,
+            Guider: CreateGuiderDevice().DeviceUri,
+            OTAs: []
+        );
+
+        var (factory, _) = CreateFactory(profileData);
+        var observations = new[] { CreateDefaultObservation() };
+
+        // when/then
+        Should.Throw<ArgumentException>(() =>
+            factory.Create(TestProfileId, SessionTestHelper.DefaultConfiguration, new ReadOnlySpan<ScheduledObservation>(observations))
+        ).Message.ShouldContain("at least one OTA");
+    }
+
+    [Fact]
+    public void GivenProfileWithApertureAndOpticalDesignWhenCreatedThenOTAHasValues()
+    {
+        // given
+        var mountDevice = CreateMountDevice();
+        var cameraDevice = CreateCameraDevice();
+        var profileData = new ProfileData(
+            Mount: mountDevice.DeviceUri,
+            Guider: CreateGuiderDevice().DeviceUri,
+            OTAs: [new OTAData("Newton 200/1000", 1000, cameraDevice.DeviceUri, null, null, null, null, null, Aperture: 200, OpticalDesign: OpticalDesign.Newtonian)]
+        );
+
+        var (factory, _) = CreateFactory(profileData);
+        var observations = new[] { CreateDefaultObservation() };
+
+        // when
+        var session = factory.Create(TestProfileId, SessionTestHelper.DefaultConfiguration, new ReadOnlySpan<ScheduledObservation>(observations));
+
+        // then
+        var internalSession = session.ShouldBeOfType<Session>();
+        var telescope = internalSession.Setup.Telescopes[0];
+        telescope.Aperture.ShouldBe(200);
+        telescope.OpticalDesign.ShouldBe(OpticalDesign.Newtonian);
+        telescope.OpticalDesign.NeedsFocusAdjustmentPerFilter.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void GivenProfileWithRefractorWhenCreatedThenNeedsFocusAdjustmentPerFilter()
+    {
+        // given
+        var mountDevice = CreateMountDevice();
+        var cameraDevice = CreateCameraDevice();
+        var profileData = new ProfileData(
+            Mount: mountDevice.DeviceUri,
+            Guider: CreateGuiderDevice().DeviceUri,
+            OTAs: [new OTAData("APO 130/910", 910, cameraDevice.DeviceUri, null, null, null, null, null, Aperture: 130, OpticalDesign: OpticalDesign.Refractor)]
+        );
+
+        var (factory, _) = CreateFactory(profileData);
+        var observations = new[] { CreateDefaultObservation() };
+
+        // when
+        var session = factory.Create(TestProfileId, SessionTestHelper.DefaultConfiguration, new ReadOnlySpan<ScheduledObservation>(observations));
+
+        // then
+        var internalSession = session.ShouldBeOfType<Session>();
+        var telescope = internalSession.Setup.Telescopes[0];
+        telescope.Aperture.ShouldBe(130);
+        telescope.OpticalDesign.ShouldBe(OpticalDesign.Refractor);
+        telescope.OpticalDesign.NeedsFocusAdjustmentPerFilter.ShouldBeTrue();
+    }
+
     private static ScheduledObservation CreateDefaultObservation() => new ScheduledObservation(
         new Target(6.75, 16.7, "M42", null),
         DateTimeOffset.UtcNow,
