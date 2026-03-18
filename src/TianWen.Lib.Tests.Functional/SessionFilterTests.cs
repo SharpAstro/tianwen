@@ -68,9 +68,10 @@ public class SessionFilterTests(ITestOutputHelper output)
         ctx.MonoCamera.TrueBestFocus = TrueBestFocusPosition;
         ctx.MonoCamera.FocusPosition = TrueBestFocusPosition;
 
-        // Move focuser to best focus
-        await ctx.Focuser.BeginMoveAsync(TrueBestFocusPosition, ct);
-        while (await ctx.Focuser.GetIsMovingAsync(ct))
+        // Move both focusers to best focus
+        await ctx.OSCFocuser.BeginMoveAsync(TrueBestFocusPosition, ct);
+        await ctx.MonoFocuser.BeginMoveAsync(TrueBestFocusPosition, ct);
+        while (await ctx.OSCFocuser.GetIsMovingAsync(ct) || await ctx.MonoFocuser.GetIsMovingAsync(ct))
         {
             await ctx.External.SleepAsync(TimeSpan.FromMilliseconds(100), ct);
         }
