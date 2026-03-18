@@ -329,6 +329,30 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
     }
 
     [Fact]
+    public async Task GivenPlateSolverSupportedWhenInitializeThenDiscoverAsyncCalled()
+    {
+        // given
+        var external = new FakeExternal(outputHelper);
+        var plateSolverFactory = Substitute.For<IPlateSolverFactory>();
+        plateSolverFactory.CheckSupportAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(true));
+
+        var deviceManager = Substitute.For<ICombinedDeviceManager>();
+
+        var factory = new SessionFactory(
+            Substitute.For<IDeviceUriRegistry>(),
+            deviceManager,
+            external,
+            plateSolverFactory
+        );
+
+        // when
+        await factory.InitializeAsync(TestContext.Current.CancellationToken);
+
+        // then
+        await deviceManager.Received(1).DiscoverAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public void GivenProfileWithFocusDirectionOverridesWhenCreatedThenFocusDirectionIsSet()
     {
         // given
