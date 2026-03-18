@@ -26,7 +26,7 @@
 ### Not Yet Done
 
 - [ ] Integrate scheduler into `Session.RunAsync` flow — currently `ObservationLoopAsync` iterates linearly; needs to respect `ScheduledObservation.Start` times (wait until scheduled start before slewing)
-- [ ] Time-aware observation switching — advance to next observation when current observation's `Duration` elapses, not just when imaging loop exits
+- [x] Time-aware observation switching — `ImagingLoopAsync` computes `maxTicks` from `observation.Duration` and advances when `tickCount >= maxTicks`
 - [ ] Weather/cloud interruption handling — detect clouds via star count outliers; if conditions degrade, pause schedule and resume with re-scored remaining targets
 - [ ] Multi-night scheduling — carry over incomplete observations to next session with accumulated exposure tracking
 - [x] Filter support in ProposedObservation — `ImmutableArray<FilterExposure>? FilterPlan` with `FilterPlanBuilder.BuildAutoFilterPlan` altitude-ladder ordering
