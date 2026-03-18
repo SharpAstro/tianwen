@@ -249,4 +249,75 @@ public class SessionImagingTests(ITestOutputHelper output)
 
         ctx.CleanupOutputFolder();
     }
+
+    [Fact]
+    public async Task GivenDitherEveryNthFrameWhenEnoughFramesCapturedThenDitheringTriggered()
+    {
+        // given — DitherEveryNthFrame=5 (default config), 30s subs, 10 min observation
+        // With GCD=30s, tickSec=5, ditherEveryNTicks = 5 * (30/5) = 30 ticks (= 150s)
+        // 10 min = 600s = 120 ticks → dithering fires at tick 30, 60, 90
+        var ct = TestContext.Current.CancellationToken;
+        var subExposure = TimeSpan.FromSeconds(30);
+        var scheduledDuration = TimeSpan.FromMinutes(10);
+
+        var observations = new[]
+        {
+            new ScheduledObservation(
+                new Target(16.695, 36.46, "M13", null),
+                new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero),
+                scheduledDuration,
+                AcrossMeridian: false,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
+                Gain: 0,
+                Offset: 0
+            )
+        };
+
+        var ctx = await CreateImagingSessionAsync(observations: observations, cancellationToken: ct);
+
+        // Enable tracking on mount
+        IMountDriver mount = ctx.Mount;
+        await mount.EnsureTrackingAsync(cancellationToken: ct);
+
+        // Start guiding
+        var guider = (FakeGuider)ctx.Session.Setup.Guider.Driver;
+        await guider.GuideAsync(0.3, 3, 30, ct);
+        await ctx.External.SleepAsync(TimeSpan.FromSeconds(4), ct); // settle
+
+        var observation = ctx.Session.ActiveObservation;
+        observation.ShouldNotBeNull();
+
+        var hourAngle = await ctx.Mount.GetHourAngleAsync(ct);
+
+        // when — run imaging loop, pump time
+        var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, ct));
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
+        var maxTicks = (int)(TimeSpan.FromHours(24) / subExposure);
+        for (var i = 0; i < maxTicks && !imagingTask.IsCompleted && !linked.IsCancellationRequested; i++)
+        {
+            await ctx.External.SleepAsync(subExposure, ct);
+            for (var spin = 0; spin < 10 && !imagingTask.IsCompleted; spin++)
+            {
+                await Task.Delay(10, ct);
+            }
+        }
+
+        imagingTask.IsCompleted.ShouldBeTrue("imaging loop should have completed within timeout");
+        var result = await imagingTask;
+
+        // then — should have captured frames and dithered
+        result.ShouldBe(ImageLoopNextAction.AdvanceToNextObservation);
+        ctx.Session.TotalFramesWritten.ShouldBeGreaterThan(0);
+
+        // With 10 min and 30s subs, we expect ~20 frames and at least 2 dithers
+        output.WriteLine($"Frames written: {ctx.Session.TotalFramesWritten}");
+        output.WriteLine($"Total exposure time: {ctx.Session.TotalExposureTime}");
+
+        // The guider's DitherCount tracks how many times DitherAsync was called
+        guider.DitherCount.ShouldBeGreaterThan(0, "dithering should have been triggered at least once");
+
+        ctx.CleanupOutputFolder();
+    }
 }

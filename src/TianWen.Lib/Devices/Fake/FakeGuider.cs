@@ -89,6 +89,13 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
         return ValueTask.CompletedTask;
     }
 
+    private int _ditherCount;
+
+    /// <summary>
+    /// Number of times <see cref="DitherAsync"/> has been called. Used by tests to verify dithering was triggered.
+    /// </summary>
+    public int DitherCount => _ditherCount;
+
     public ValueTask DitherAsync(double ditherPixels, double settlePixels, double settleTime, double settleTimeout, bool raOnly = false, CancellationToken cancellationToken = default)
     {
         var current = CurrentState;
@@ -96,6 +103,8 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
         {
             throw new GuiderException($"Cannot dither in state {current}");
         }
+
+        Interlocked.Increment(ref _ditherCount);
 
         _ditherPixels = ditherPixels;
         _settlePixels = settlePixels;
