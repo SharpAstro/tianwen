@@ -44,11 +44,14 @@ internal static class SyntheticStarFieldRenderer
         double readNoise = 5.0,
         int starCount = 50,
         int seed = 42,
-        int? noiseSeed = null)
+        int? noiseSeed = null,
+        double cloudCoverage = 0.0,
+        int cloudSeed = 77,
+        double cloudGlow = 200.0)
     {
         return Render(width, height, defocusSteps, offsetX: 0, offsetY: 0,
             hyperbolaA, hyperbolaB, exposureSeconds, skyBackground, readNoise, starCount, seed,
-            noiseSeed: noiseSeed);
+            noiseSeed: noiseSeed, cloudCoverage: cloudCoverage, cloudSeed: cloudSeed, cloudGlow: cloudGlow);
     }
 
     /// <summary>
@@ -98,7 +101,10 @@ internal static class SyntheticStarFieldRenderer
         double seeingArcsec = 0.0,
         double pixelScaleArcsec = 1.5,
         Random? seeingJitterRng = null,
-        int? noiseSeed = null)
+        int? noiseSeed = null,
+        double cloudCoverage = 0.0,
+        int cloudSeed = 77,
+        double cloudGlow = 200.0)
     {
         var rng = new Random(seed);
         var data = new float[height, width];
@@ -201,6 +207,13 @@ internal static class SyntheticStarFieldRenderer
             }
         }
 
+        // Apply cloud coverage: attenuate stars and add diffuse glow
+        if (cloudCoverage > 0)
+        {
+            var cloudMap = GenerateCloudMap(width, height, cloudCoverage, cloudSeed);
+            ApplyCloudMap(data, cloudMap, cloudGlow * exposureSeconds);
+        }
+
         return data;
     }
 
@@ -226,14 +239,17 @@ internal static class SyntheticStarFieldRenderer
         double seeingArcsec = 0.0,
         double pixelScaleArcsec = 1.5,
         Random? seeingJitterRng = null,
-        int? noiseSeed = null)
+        int? noiseSeed = null,
+        double cloudCoverage = 0.0,
+        int cloudSeed = 77,
+        double cloudGlow = 200.0)
     {
         if (stars.IsEmpty)
         {
             return Render(width, height, defocusSteps, offsetX, offsetY,
                 hyperbolaA, hyperbolaB, exposureSeconds, skyBackground, readNoise,
                 starCount: 50, seed, hotPixelCount, maxADU, seeingArcsec, pixelScaleArcsec,
-                seeingJitterRng, noiseSeed);
+                seeingJitterRng, noiseSeed, cloudCoverage, cloudSeed, cloudGlow);
         }
 
         var data = new float[height, width];
@@ -323,6 +339,13 @@ internal static class SyntheticStarFieldRenderer
                 var hy = hotRng.Next(height);
                 data[hy, hx] = (float)maxADU;
             }
+        }
+
+        // Apply cloud coverage
+        if (cloudCoverage > 0)
+        {
+            var cloudMap = GenerateCloudMap(width, height, cloudCoverage, cloudSeed);
+            ApplyCloudMap(data, cloudMap, cloudGlow * exposureSeconds);
         }
 
         return data;
@@ -448,6 +471,122 @@ internal static class SyntheticStarFieldRenderer
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Generates a cloud opacity map using layered gradient noise.
+    /// Produces streaky, elongated bright patches that partially obscure stars
+    /// and add diffuse background glow — matching real thin/medium cloud behaviour.
+    /// </summary>
+    /// <param name="width">Image width in pixels.</param>
+    /// <param name="height">Image height in pixels.</param>
+    /// <param name="coverage">Cloud coverage fraction (0.0 = clear, 1.0 = overcast). Controls threshold.</param>
+    /// <param name="seed">Random seed for deterministic cloud patterns.</param>
+    /// <returns>Float array [height, width] with opacity values in [0, 1].</returns>
+    internal static float[,] GenerateCloudMap(int width, int height, double coverage, int seed)
+    {
+        var map = new float[height, width];
+        if (coverage <= 0)
+        {
+            return map;
+        }
+
+        var rng = new Random(seed);
+
+        // Generate random gradient vectors for value noise on a coarse grid
+        // Use anisotropic scaling: stretch X by 3x to create streaky horizontal clouds
+        const int gridSize = 32;
+        var gridW = width / gridSize + 2;
+        var gridH = height / gridSize + 2;
+        var grid = new double[gridH, gridW];
+        for (var gy = 0; gy < gridH; gy++)
+        {
+            for (var gx = 0; gx < gridW; gx++)
+            {
+                grid[gy, gx] = rng.NextDouble();
+            }
+        }
+
+        // Bilinear interpolation of the coarse grid with anisotropic scaling
+        var stretchX = 3.0; // horizontal stretch for streaky clouds
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                // Map pixel to grid space (stretched horizontally for streakiness)
+                var gx = x / (gridSize * stretchX);
+                var gy = (double)y / gridSize;
+
+                var gxi = (int)gx;
+                var gyi = (int)gy;
+                var fx = gx - gxi;
+                var fy = gy - gyi;
+
+                // Clamp to grid bounds
+                gxi = Math.Min(gxi, gridW - 2);
+                gyi = Math.Min(gyi, gridH - 2);
+
+                // Hermite interpolation (smoother than linear)
+                fx = fx * fx * (3 - 2 * fx);
+                fy = fy * fy * (3 - 2 * fy);
+
+                var v00 = grid[gyi, gxi];
+                var v10 = grid[gyi, gxi + 1];
+                var v01 = grid[gyi + 1, gxi];
+                var v11 = grid[gyi + 1, gxi + 1];
+
+                var v = v00 * (1 - fx) * (1 - fy) + v10 * fx * (1 - fy) +
+                        v01 * (1 - fx) * fy + v11 * fx * fy;
+
+                // Add a second octave at finer scale for texture
+                var gx2 = x / (gridSize * stretchX * 0.4);
+                var gy2 = (double)y / (gridSize * 0.4);
+                var gxi2 = Math.Min((int)gx2, gridW - 2);
+                var gyi2 = Math.Min((int)gy2, gridH - 2);
+                var fx2 = gx2 - (int)gx2;
+                var fy2 = gy2 - (int)gy2;
+                fx2 = fx2 * fx2 * (3 - 2 * fx2);
+                fy2 = fy2 * fy2 * (3 - 2 * fy2);
+
+                var v2 = grid[gyi2, gxi2] * (1 - fx2) * (1 - fy2) + grid[gyi2, Math.Min(gxi2 + 1, gridW - 1)] * fx2 * (1 - fy2) +
+                         grid[Math.Min(gyi2 + 1, gridH - 1), gxi2] * (1 - fx2) * fy2 +
+                         grid[Math.Min(gyi2 + 1, gridH - 1), Math.Min(gxi2 + 1, gridW - 1)] * fx2 * fy2;
+
+                v = v * 0.7 + v2 * 0.3; // blend octaves
+
+                // Threshold based on coverage: higher coverage → lower threshold → more cloud
+                var threshold = 1.0 - coverage;
+                var opacity = Math.Clamp((v - threshold) / (1.0 - threshold), 0, 1);
+                map[y, x] = (float)opacity;
+            }
+        }
+
+        return map;
+    }
+
+    /// <summary>
+    /// Applies a cloud map to a rendered image: attenuates star flux and adds diffuse glow.
+    /// </summary>
+    /// <param name="data">Image data array to modify in-place.</param>
+    /// <param name="cloudMap">Cloud opacity map [0=clear, 1=opaque].</param>
+    /// <param name="cloudGlow">Background glow added where clouds are present (scattered light, in ADU).</param>
+    internal static void ApplyCloudMap(float[,] data, float[,] cloudMap, double cloudGlow)
+    {
+        var height = data.GetLength(0);
+        var width = data.GetLength(1);
+
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var opacity = cloudMap[y, x];
+                if (opacity > 0)
+                {
+                    // Attenuate signal (stars + sky) and add cloud glow
+                    data[y, x] = (float)(data[y, x] * (1.0 - opacity * 0.9) + cloudGlow * opacity);
+                }
+            }
+        }
     }
 
     private static double Asinh(double x) => Math.Log(x + Math.Sqrt(x * x + 1));

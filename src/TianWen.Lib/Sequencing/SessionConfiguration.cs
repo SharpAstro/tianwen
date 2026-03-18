@@ -23,5 +23,7 @@ public record struct SessionConfiguration(
     TimeSpan? DefaultSubExposure = null,
     FocusFilterStrategy FocusFilterStrategy = FocusFilterStrategy.Auto,
     double MosaicOverlap = 0.2,
-    double MosaicMargin = 0.1
+    double MosaicMargin = 0.1,
+    float ConditionDeteriorationThreshold = 0.5f,
+    TimeSpan? ConditionRecoveryTimeout = null
 );
