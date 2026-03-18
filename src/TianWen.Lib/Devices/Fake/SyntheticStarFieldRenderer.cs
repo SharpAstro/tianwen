@@ -474,8 +474,8 @@ internal static class SyntheticStarFieldRenderer
     }
 
     /// <summary>
-    /// Generates a cloud opacity map using layered gradient noise.
-    /// Produces streaky, elongated bright patches that partially obscure stars
+    /// Generates a cloud opacity map using multi-octave value noise.
+    /// Produces soft, streaky cloud patches that partially obscure stars
     /// and add diffuse background glow — matching real thin/medium cloud behaviour.
     /// </summary>
     /// <param name="width">Image width in pixels.</param>
@@ -491,72 +491,72 @@ internal static class SyntheticStarFieldRenderer
             return map;
         }
 
+        // Multi-octave value noise with anisotropic scaling for streaky clouds.
+        // Each octave uses its own random grid at a different frequency.
         var rng = new Random(seed);
+        const int octaves = 4;
+        var stretchX = 2.5; // horizontal stretch for streaky appearance
 
-        // Generate random gradient vectors for value noise on a coarse grid
-        // Use anisotropic scaling: stretch X by 3x to create streaky horizontal clouds
-        const int gridSize = 32;
-        var gridW = width / gridSize + 2;
-        var gridH = height / gridSize + 2;
-        var grid = new double[gridH, gridW];
-        for (var gy = 0; gy < gridH; gy++)
+        // Accumulate weighted octaves into a float buffer
+        var noise = new double[height, width];
+        var totalWeight = 0.0;
+        var cellSize = 128.0; // coarse first octave — large cloud features
+        var weight = 1.0;
+
+        for (var oct = 0; oct < octaves; oct++)
         {
-            for (var gx = 0; gx < gridW; gx++)
+            // Grid dimensions for this octave
+            var gw = (int)(width / (cellSize * stretchX)) + 2;
+            var gh = (int)(height / cellSize) + 2;
+            var grid = new double[gh, gw];
+            for (var gy = 0; gy < gh; gy++)
             {
-                grid[gy, gx] = rng.NextDouble();
+                for (var gx = 0; gx < gw; gx++)
+                {
+                    grid[gy, gx] = rng.NextDouble();
+                }
             }
+
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    var gx = x / (cellSize * stretchX);
+                    var gy = y / cellSize;
+
+                    var gxi = Math.Min((int)gx, gw - 2);
+                    var gyi = Math.Min((int)gy, gh - 2);
+                    var fx = gx - gxi;
+                    var fy = gy - gyi;
+
+                    // Hermite smoothstep
+                    fx = fx * fx * (3 - 2 * fx);
+                    fy = fy * fy * (3 - 2 * fy);
+
+                    var v = grid[gyi, gxi] * (1 - fx) * (1 - fy)
+                          + grid[gyi, gxi + 1] * fx * (1 - fy)
+                          + grid[gyi + 1, gxi] * (1 - fx) * fy
+                          + grid[gyi + 1, gxi + 1] * fx * fy;
+
+                    noise[y, x] += v * weight;
+                }
+            }
+
+            totalWeight += weight;
+            cellSize *= 0.5;   // double frequency
+            weight *= 0.5;     // halve amplitude
         }
 
-        // Bilinear interpolation of the coarse grid with anisotropic scaling
-        var stretchX = 3.0; // horizontal stretch for streaky clouds
+        // Normalize and threshold
+        var threshold = 1.0 - coverage;
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
             {
-                // Map pixel to grid space (stretched horizontally for streakiness)
-                var gx = x / (gridSize * stretchX);
-                var gy = (double)y / gridSize;
-
-                var gxi = (int)gx;
-                var gyi = (int)gy;
-                var fx = gx - gxi;
-                var fy = gy - gyi;
-
-                // Clamp to grid bounds
-                gxi = Math.Min(gxi, gridW - 2);
-                gyi = Math.Min(gyi, gridH - 2);
-
-                // Hermite interpolation (smoother than linear)
-                fx = fx * fx * (3 - 2 * fx);
-                fy = fy * fy * (3 - 2 * fy);
-
-                var v00 = grid[gyi, gxi];
-                var v10 = grid[gyi, gxi + 1];
-                var v01 = grid[gyi + 1, gxi];
-                var v11 = grid[gyi + 1, gxi + 1];
-
-                var v = v00 * (1 - fx) * (1 - fy) + v10 * fx * (1 - fy) +
-                        v01 * (1 - fx) * fy + v11 * fx * fy;
-
-                // Add a second octave at finer scale for texture
-                var gx2 = x / (gridSize * stretchX * 0.4);
-                var gy2 = (double)y / (gridSize * 0.4);
-                var gxi2 = Math.Min((int)gx2, gridW - 2);
-                var gyi2 = Math.Min((int)gy2, gridH - 2);
-                var fx2 = gx2 - (int)gx2;
-                var fy2 = gy2 - (int)gy2;
-                fx2 = fx2 * fx2 * (3 - 2 * fx2);
-                fy2 = fy2 * fy2 * (3 - 2 * fy2);
-
-                var v2 = grid[gyi2, gxi2] * (1 - fx2) * (1 - fy2) + grid[gyi2, Math.Min(gxi2 + 1, gridW - 1)] * fx2 * (1 - fy2) +
-                         grid[Math.Min(gyi2 + 1, gridH - 1), gxi2] * (1 - fx2) * fy2 +
-                         grid[Math.Min(gyi2 + 1, gridH - 1), Math.Min(gxi2 + 1, gridW - 1)] * fx2 * fy2;
-
-                v = v * 0.7 + v2 * 0.3; // blend octaves
-
-                // Threshold based on coverage: higher coverage → lower threshold → more cloud
-                var threshold = 1.0 - coverage;
-                var opacity = Math.Clamp((v - threshold) / (1.0 - threshold), 0, 1);
+                var v = noise[y, x] / totalWeight;
+                var opacity = threshold < 1.0
+                    ? Math.Clamp((v - threshold) / (1.0 - threshold), 0, 1)
+                    : v;
                 map[y, x] = (float)opacity;
             }
         }

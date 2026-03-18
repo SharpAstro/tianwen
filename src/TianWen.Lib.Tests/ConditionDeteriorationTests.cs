@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Devices.Fake;
@@ -121,6 +122,36 @@ public sealed class ConditionDeteriorationTests
                 map1[y, x].ShouldBe(map2[y, x]);
             }
         }
+    }
+
+    [Fact]
+    public void WriteClearAndCloudyFitsFiles()
+    {
+        var outputDir = SharedTestData.CreateTempTestOutputDir();
+
+        var clearData = SyntheticStarFieldRenderer.Render(
+            Width, Height, defocusSteps: 0, exposureSeconds: Exposure,
+            starCount: 80, seed: Seed, noiseSeed: 1);
+        var clearImage = ToImage(clearData);
+        clearImage.WriteToFitsFile(Path.Combine(outputDir, "clear.fits"));
+
+        var cloudyData = SyntheticStarFieldRenderer.Render(
+            Width, Height, defocusSteps: 0, exposureSeconds: Exposure,
+            starCount: 80, seed: Seed, noiseSeed: 1,
+            cloudCoverage: 0.7, cloudSeed: 77);
+        var cloudyImage = ToImage(cloudyData);
+        cloudyImage.WriteToFitsFile(Path.Combine(outputDir, "cloudy_70pct.fits"));
+
+        var overcastData = SyntheticStarFieldRenderer.Render(
+            Width, Height, defocusSteps: 0, exposureSeconds: Exposure,
+            starCount: 80, seed: Seed, noiseSeed: 1,
+            cloudCoverage: 0.9, cloudSeed: 77);
+        var overcastImage = ToImage(overcastData);
+        overcastImage.WriteToFitsFile(Path.Combine(outputDir, "overcast_90pct.fits"));
+
+        File.Exists(Path.Combine(outputDir, "clear.fits")).ShouldBeTrue();
+        File.Exists(Path.Combine(outputDir, "cloudy_70pct.fits")).ShouldBeTrue();
+        File.Exists(Path.Combine(outputDir, "overcast_90pct.fits")).ShouldBeTrue();
     }
 
     [Fact]
