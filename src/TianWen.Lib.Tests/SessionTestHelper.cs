@@ -144,6 +144,12 @@ internal static class SessionTestHelper
         oscCameraDriver.NumX = 512;
         oscCameraDriver.NumY = 512;
 
+        // OTA 1 focuser
+        var oscFocuserDevice = new FakeDevice(DeviceType.Focuser, 1);
+        var oscFocuser = new Focuser(oscFocuserDevice, external);
+        await oscFocuser.Driver.ConnectAsync(cancellationToken);
+        var oscFocuserDriver = (FakeFocuserDriver)oscFocuser.Driver;
+
         // Fixed L-Ultimate (Ha+OIII) dual-band filter in a manual holder
         var oscFilterDevice = new ManualFilterWheelDevice(Filter.HydrogenAlphaOxygenIII);
         var oscFilterWheel = new FilterWheel(oscFilterDevice, external);
@@ -154,7 +160,7 @@ internal static class SessionTestHelper
             135,
             oscCamera,
             Cover: null,
-            Focuser: null,
+            oscFocuser,
             new FocusDirection(PreferOutward: true, OutwardIsPositive: true),
             oscFilterWheel,
             Switches: null,
@@ -171,10 +177,10 @@ internal static class SessionTestHelper
         monoCameraDriver.NumX = 512;
         monoCameraDriver.NumY = 512;
 
-        var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
-        var focuser = new Focuser(focuserDevice, external);
-        await focuser.Driver.ConnectAsync(cancellationToken);
-        var focuserDriver = (FakeFocuserDriver)focuser.Driver;
+        var monoFocuserDevice = new FakeDevice(DeviceType.Focuser, 2);
+        var monoFocuser = new Focuser(monoFocuserDevice, external);
+        await monoFocuser.Driver.ConnectAsync(cancellationToken);
+        var monoFocuserDriver = (FakeFocuserDriver)monoFocuser.Driver;
 
         // 5-position filter wheel: L, SII, R, G, B with focus offsets
         var filterWheelDevice = new FakeDevice(DeviceType.FilterWheel, 1, new NameValueCollection
@@ -194,7 +200,7 @@ internal static class SessionTestHelper
             135,
             monoCamera,
             Cover: null,
-            focuser,
+            monoFocuser,
             new FocusDirection(PreferOutward: true, OutwardIsPositive: true),
             filterWheel,
             Switches: null,
@@ -226,7 +232,7 @@ internal static class SessionTestHelper
 
         var session = new Session(setup, config, plateSolver, external, new ScheduledObservationTree(obs));
 
-        return new DualOTATestContext(session, external, oscCameraDriver, monoCameraDriver, focuserDriver, filterWheelDriver, mount.Driver);
+        return new DualOTATestContext(session, external, oscCameraDriver, monoCameraDriver, oscFocuserDriver, monoFocuserDriver, filterWheelDriver, mount.Driver);
     }
 
     /// <summary>
@@ -250,7 +256,8 @@ internal record DualOTATestContext(
     FakeExternal External,
     FakeCameraDriver OSCCamera,
     FakeCameraDriver MonoCamera,
-    FakeFocuserDriver Focuser,
+    FakeFocuserDriver OSCFocuser,
+    FakeFocuserDriver MonoFocuser,
     FakeFilterWheelDriver FilterWheel,
     IMountDriver Mount
 )
