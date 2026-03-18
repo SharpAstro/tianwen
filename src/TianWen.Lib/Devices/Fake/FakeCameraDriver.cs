@@ -372,6 +372,13 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
     /// </summary>
     public ICelestialObjectDB? CelestialObjectDB { get; set; }
 
+    /// <summary>
+    /// Simulated cloud coverage (0.0 = clear, 1.0 = overcast). Applied to rendered frames
+    /// as streaky attenuation + diffuse glow. Set dynamically during a session to simulate
+    /// clouds rolling in/out.
+    /// </summary>
+    public double CloudCoverage { get; set; }
+
     // Async-primary members
     public ValueTask<bool> GetImageReadyAsync(CancellationToken cancellationToken = default)
     {
@@ -513,14 +520,18 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
                             var magCutoff = Math.Min(12.0, 7.0 + 2.5 * Math.Log10(Math.Max(exposureSec, 0.1)));
                             var stars = SyntheticStarFieldRenderer.ProjectCatalogStars(
                                 target.RA, target.Dec, FocalLength, PixelSizeX, imgWidth, imgHeight, db, magCutoff);
+                            var cloudSeed = _frameRng.Next();
                             array = SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocus,
                                 stars: System.Runtime.InteropServices.CollectionsMarshal.AsSpan(stars),
-                                exposureSeconds: exposureSec, noiseSeed: _frameRng.Next());
+                                exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(),
+                                cloudCoverage: CloudCoverage, cloudSeed: cloudSeed);
                         }
                         else
                         {
+                            var cloudSeed = _frameRng.Next();
                             array = SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocus,
-                                exposureSeconds: exposureSec, noiseSeed: _frameRng.Next());
+                                exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(),
+                                cloudCoverage: CloudCoverage, cloudSeed: cloudSeed);
                         }
                     }
                     else
