@@ -29,7 +29,12 @@ public readonly record struct CelestialObject(
     IReadOnlySet<string> CommonNames
 )
 {
-    private string DebuggerDisplay()
+    /// <summary>
+    /// Returns the preferred display name: first common name if available, otherwise the canonical catalog designation.
+    /// </summary>
+    public readonly string DisplayName => CommonNames.Count > 0 ? CommonNames.First() : Index.ToCanonical();
+
+    private readonly string DebuggerDisplay()
         => $"{Index.ToCanonical()} [{string.Join(",", CommonNames.OrderByDescending(p => p.Length))}] {Constellation.ToIAUAbbreviation()} {ObjectType.ToAbbreviation()} " +
            $"{CoordinateUtils.HoursToHMS(RA)}/{CoordinateUtils.DegreesToDMS(Dec)} v_mag={(Half.IsNaN(V_Mag) ? "n/a" : V_Mag.ToString("0.00"))}";
 }

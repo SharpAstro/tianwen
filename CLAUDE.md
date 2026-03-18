@@ -245,7 +245,36 @@ puts narrowband at the edges of the night and luminance/RGB around transit.
 **OTA configuration**: `OTA` and `OTAData` carry `Aperture` (mm) and `OpticalDesign`
 for f/ratio computation and focus strategy decisions.
 
-**Test coverage** (32 Session tests across 5 classes + 29 filter/optics tests, as of March 2026):
+### Mosaic Support
+
+For extended objects that don't fit in a single FOV, `MosaicGenerator` computes a grid
+of panel centers with configurable overlap and margin. Panels are ordered by RA ascending
+(column-first sweep) so that eastern panels — which cross the meridian first — are imaged
+first, resulting in at most one GEM flip per mosaic cycle.
+
+**Key types**:
+- `MosaicPanel(Target, Row, Column, TransitTimeHours)` — single panel in the grid
+- `MosaicGenerator` — static class, no DI:
+  - `GeneratePanels(centerRA, centerDec, majorAxisArcmin, ...)` — grid from coordinates
+  - `GeneratePanels(objectDb, catalogIndex, fovW, fovH, ...)` — grid from catalog lookup
+  - `ComputeFieldOfView(focalLengthMm, pixelSizeUm, ...)` — FOV from OTA params
+  - `ComputeRotatedEllipseBBox(majorDeg, minorDeg, pa)` — axis-aligned bbox of rotated ellipse
+- `ProposedObservation.MosaicGroupId` — optional `Guid?`, panels sharing the same ID
+  are scheduled as a contiguous block
+- `SessionConfiguration.MosaicOverlap` / `MosaicMargin` — configurable (defaults 0.2 / 0.1)
+
+**Panel generation math**: rotated ellipse bounding box → margin → step sizes with
+cos(Dec) RA correction → grid dimensions → column-first panel centers. Single-panel
+shortcut when the bbox fits within one FOV.
+
+**Scheduling**: `ObservationScheduler.Schedule` groups proposals by `MosaicGroupId`,
+allocates a contiguous time block, orders panels by RA ascending within the group,
+and computes `AcrossMeridian` per panel using individual transit times.
+
+**Output**: each panel is a separate `Target` named `{ObjectName}_R{row}C{col}` with
+the parent `CatalogIndex` propagated, producing per-panel subdirectories for FITS output.
+
+**Test coverage** (32 Session tests across 5 classes + 29 filter/optics tests + 29 mosaic tests, as of March 2026):
 - `SessionAutoFocusTests` (6): `AutoFocusAsync`, `AutoFocusAllTelescopesAsync`
 - `SessionCoolingTests` (6): `CoolCamerasToSetpointAsync`, `CoolCamerasToSensorTempAsync`
 - `SessionImagingTests` (3): `ImagingLoopAsync` (utilization, altitude exit, single-target loop)
@@ -257,9 +286,12 @@ for f/ratio computation and focus strategy decisions.
 - `FilterPlanBuilderTests` (21): altitude ladder ordering, narrowband/broadband classification,
   reference filter selection per optical design, single-plan fallback, frames-per-filter
 - `OpticalDesignTests` (8): `NeedsFocusAdjustmentPerFilter` truth table for all designs
-- **Untested branch paths**: dithering logic, focus drift mid-session refocus trigger,
-  spare target fallback, guider failure/restart during imaging, filter switching during
-  imaging loop (needs `FakeFilterWheelDriver`-equipped session test).
+- `MosaicGeneratorTests` (22): panel generation, FOV computation, rotated ellipse bbox,
+  single-panel shortcut, RA ordering, overlap/margin, near-pole handling, RA wrapping
+- `MosaicSchedulingTests` (7): contiguous allocation, RA-ascending ordering,
+  mixed mosaic+individual scheduling, per-panel AcrossMeridian, end-to-end generate+schedule
+- **Untested branch paths**: spare target fallback, guider failure/restart during imaging,
+  filter switching during imaging loop (needs `FakeFilterWheelDriver`-equipped session test).
 
 ### FITS Viewer / GPU Stretch
 

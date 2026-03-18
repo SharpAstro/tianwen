@@ -11,5 +11,6 @@ public record ProposedObservation(
     ObservationPriority Priority = ObservationPriority.Normal,
     TimeSpan? ObservationTime = null,
     TimeSpan? SubExposure = null,
-    ImmutableArray<FilterExposure>? FilterPlan = null
+    ImmutableArray<FilterExposure>? FilterPlan = null,
+    Guid? MosaicGroupId = null
 );

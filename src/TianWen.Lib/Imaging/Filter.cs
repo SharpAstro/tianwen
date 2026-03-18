@@ -43,5 +43,5 @@ public readonly record struct Filter(string Name, string ShortName, Bandpass Ban
 
     public static implicit operator Filter(string name) => FromName(name);
 
-    public override string ToString() => ShortName;
+    public override readonly string ToString() => ShortName;
 }

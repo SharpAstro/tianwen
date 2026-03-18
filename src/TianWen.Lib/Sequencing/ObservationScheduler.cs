@@ -174,139 +174,289 @@ internal static class ObservationScheduler
         var spares = scored.Where(s => s.Proposal.Priority == ObservationPriority.Spare)
             .OrderByDescending(s => s.Score.TotalScore)
             .ToList();
-        var schedulable = scored
-            .Where(s => s.Proposal.Priority != ObservationPriority.Spare)
-            .OrderBy(s => s.Proposal.Priority)
-            .ThenByDescending(s => s.Score.TotalScore)
-            .ToList();
+
+        // Separate mosaic groups from individual proposals
+        var mosaicGroups = new Dictionary<Guid, List<(ProposedObservation Proposal, ScoredTarget Score)>>();
+        var individualSchedulable = new List<(ProposedObservation Proposal, ScoredTarget Score)>();
+
+        foreach (var item in scored.Where(s => s.Proposal.Priority != ObservationPriority.Spare))
+        {
+            if (item.Proposal.MosaicGroupId is { } groupId)
+            {
+                if (!mosaicGroups.TryGetValue(groupId, out var group))
+                {
+                    group = new List<(ProposedObservation Proposal, ScoredTarget Score)>();
+                    mosaicGroups[groupId] = group;
+                }
+                group.Add(item);
+            }
+            else
+            {
+                individualSchedulable.Add(item);
+            }
+        }
+
+        // Build a unified schedulable list: mosaic groups are represented by their first panel
+        // (for priority/score ordering), then expanded during scheduling
+        var schedulable = new List<(ProposedObservation Proposal, ScoredTarget Score, Guid? GroupId)>();
+
+        foreach (var (groupId, group) in mosaicGroups)
+        {
+            // Order panels by RA ascending within the group
+            group.Sort((a, b) => a.Proposal.Target.RA.CompareTo(b.Proposal.Target.RA));
+
+            // Use the group's best score and highest priority for ordering
+            var bestScore = group.Max(g => g.Score.TotalScore);
+            var highestPriority = group.Min(g => g.Proposal.Priority);
+            var representative = group[0];
+
+            schedulable.Add((representative.Proposal with { Priority = highestPriority },
+                representative.Score with { TotalScore = bestScore }, groupId));
+        }
+
+        foreach (var item in individualSchedulable)
+        {
+            schedulable.Add((item.Proposal, item.Score, null));
+        }
+
+        schedulable.Sort((a, b) =>
+        {
+            var priCmp = a.Proposal.Priority.CompareTo(b.Proposal.Priority);
+            return priCmp != 0 ? priCmp : -a.Score.TotalScore.CompareTo(b.Score.TotalScore);
+        });
 
         // Build time bins from astro dark to astro twilight
         var nightDuration = astroTwilight - astroDark;
         var binCount = Math.Max(1, (int)Math.Ceiling(nightDuration / TimeBinDuration));
 
-        var primaryList = ImmutableArray.CreateBuilder<ScheduledObservation>(schedulable.Count);
+        var primaryList = ImmutableArray.CreateBuilder<ScheduledObservation>(scored.Count);
         var sparesMap = ImmutableDictionary.CreateBuilder<int, ImmutableArray<ScheduledObservation>>();
         var allocatedBins = new bool[binCount];
 
-        // Schedule each proposal into its optimal time window
-        foreach (var (proposal, score) in schedulable)
+        var siderealTimeAtAstroDark = Transform.CalculateLocalSiderealTime(astroDark.UtcDateTime, transform.SiteLongitude);
+
+        // Schedule each proposal (or mosaic group) into its optimal time window
+        foreach (var (proposal, score, groupId) in schedulable)
         {
             if (score.TotalScore <= Half.Zero)
             {
                 continue; // Target never rises above minimum
             }
 
-            var observationTime = proposal.ObservationTime ?? defaultObservationTime;
-            var subExposure = proposal.SubExposure ?? defaultSubExposure;
-            var gain = proposal.Gain ?? defaultGain;
-            var offset = proposal.Offset ?? defaultOffset;
-
-            // Find the best contiguous bins for this target
-            var binsNeeded = Math.Max(1, (int)Math.Ceiling(observationTime / TimeBinDuration));
-            var bestStartBin = FindBestStartBin(allocatedBins, binsNeeded, score.OptimalStart, astroDark, binCount);
-
-            if (bestStartBin < 0)
+            if (groupId is { } gid && mosaicGroups.TryGetValue(gid, out var mosaicGroup))
             {
-                continue; // No room
+                // Schedule entire mosaic group as a contiguous block
+                ScheduleMosaicGroup(mosaicGroup, proposal, score, astroDark, defaultObservationTime,
+                    defaultSubExposure, defaultGain, defaultOffset, allocatedBins, binCount,
+                    siderealTimeAtAstroDark, availableFilters, defaultNarrowbandSubExposure,
+                    primaryList, sparesMap, spares, minHeightAboveHorizon);
             }
-
-            // Mark bins as allocated
-            for (var b = bestStartBin; b < bestStartBin + binsNeeded && b < binCount; b++)
+            else
             {
-                allocatedBins[b] = true;
-            }
-
-            var start = astroDark + TimeBinDuration * bestStartBin;
-            var duration = TimeBinDuration * binsNeeded;
-            if (duration > observationTime)
-            {
-                duration = observationTime;
-            }
-
-            // Determine if observation crosses meridian
-            var acrossMeridian = score.ElevationProfile.TryGetValue(RaDecEventTime.Meridian, out var meridianInfo)
-                && meridianInfo.Time >= start
-                && meridianInfo.Time <= start + duration;
-
-            var slotIndex = primaryList.Count;
-            var filterPlan = proposal.FilterPlan is { IsEmpty: false } explicitPlan
-                ? explicitPlan
-                : availableFilters is { Count: > 0 }
-                    ? FilterPlanBuilder.BuildAutoFilterPlan(
-                        availableFilters,
-                        subExposure,
-                        defaultNarrowbandSubExposure ?? TimeSpan.FromTicks(subExposure.Ticks * 3),
-                        score.OptimalAltitude)
-                    : FilterPlanBuilder.BuildSingleFilterPlan(subExposure);
-
-            primaryList.Add(new ScheduledObservation(
-                proposal.Target,
-                start,
-                duration,
-                acrossMeridian,
-                filterPlan,
-                gain,
-                offset,
-                proposal.Priority
-            ));
-
-            // Attach spares for this slot (spares that are also visible during this window)
-            var slotSpares = ImmutableArray.CreateBuilder<ScheduledObservation>();
-            foreach (var (spareProposal, spareScore) in spares)
-            {
-                if (spareScore.TotalScore <= Half.Zero)
-                {
-                    continue;
-                }
-
-                // Check if spare is visible during this slot's time window
-                var spareVisibleDuringSlot = false;
-                foreach (var (_, info) in spareScore.ElevationProfile)
-                {
-                    if (info.Alt > minHeightAboveHorizon && info.Time >= start && info.Time <= start + duration)
-                    {
-                        spareVisibleDuringSlot = true;
-                        break;
-                    }
-                }
-
-                if (spareVisibleDuringSlot)
-                {
-                    var spareAcrossMeridian = spareScore.ElevationProfile.TryGetValue(RaDecEventTime.Meridian, out var spareMeridian)
-                        && spareMeridian.Time >= start
-                        && spareMeridian.Time <= start + duration;
-
-                    var spareSubExposure = spareProposal.SubExposure ?? subExposure;
-                    var spareFilterPlan = spareProposal.FilterPlan is { IsEmpty: false } sparePlan
-                        ? sparePlan
-                        : availableFilters is { Count: > 0 }
-                            ? FilterPlanBuilder.BuildAutoFilterPlan(
-                                availableFilters,
-                                spareSubExposure,
-                                defaultNarrowbandSubExposure ?? TimeSpan.FromTicks(spareSubExposure.Ticks * 3),
-                                spareScore.OptimalAltitude)
-                            : FilterPlanBuilder.BuildSingleFilterPlan(spareSubExposure);
-
-                    slotSpares.Add(new ScheduledObservation(
-                        spareProposal.Target,
-                        start,
-                        duration,
-                        spareAcrossMeridian,
-                        spareFilterPlan,
-                        spareProposal.Gain ?? gain,
-                        spareProposal.Offset ?? offset,
-                        ObservationPriority.Spare
-                    ));
-                }
-            }
-
-            if (slotSpares.Count > 0)
-            {
-                sparesMap[slotIndex] = slotSpares.ToImmutable();
+                // Schedule individual proposal
+                ScheduleIndividualProposal(proposal, score, astroDark, defaultObservationTime,
+                    defaultSubExposure, defaultGain, defaultOffset, allocatedBins, binCount,
+                    availableFilters, defaultNarrowbandSubExposure,
+                    primaryList, sparesMap, spares, minHeightAboveHorizon);
             }
         }
 
         return new ScheduledObservationTree(primaryList.ToImmutable(), sparesMap.ToImmutable());
+    }
+
+    private static void ScheduleIndividualProposal(
+        ProposedObservation proposal,
+        ScoredTarget score,
+        DateTimeOffset astroDark,
+        TimeSpan defaultObservationTime,
+        TimeSpan defaultSubExposure,
+        int defaultGain,
+        int defaultOffset,
+        bool[] allocatedBins,
+        int binCount,
+        IReadOnlyList<InstalledFilter>? availableFilters,
+        TimeSpan? defaultNarrowbandSubExposure,
+        ImmutableArray<ScheduledObservation>.Builder primaryList,
+        ImmutableDictionary<int, ImmutableArray<ScheduledObservation>>.Builder sparesMap,
+        List<(ProposedObservation Proposal, ScoredTarget Score)> spares,
+        byte minHeightAboveHorizon)
+    {
+        var observationTime = proposal.ObservationTime ?? defaultObservationTime;
+        var subExposure = proposal.SubExposure ?? defaultSubExposure;
+        var gain = proposal.Gain ?? defaultGain;
+        var offset = proposal.Offset ?? defaultOffset;
+
+        var binsNeeded = Math.Max(1, (int)Math.Ceiling(observationTime / TimeBinDuration));
+        var bestStartBin = FindBestStartBin(allocatedBins, binsNeeded, score.OptimalStart, astroDark, binCount);
+
+        if (bestStartBin < 0)
+        {
+            return;
+        }
+
+        for (var b = bestStartBin; b < bestStartBin + binsNeeded && b < binCount; b++)
+        {
+            allocatedBins[b] = true;
+        }
+
+        var start = astroDark + TimeBinDuration * bestStartBin;
+        var duration = TimeBinDuration * binsNeeded;
+        if (duration > observationTime)
+        {
+            duration = observationTime;
+        }
+
+        var acrossMeridian = score.ElevationProfile.TryGetValue(RaDecEventTime.Meridian, out var meridianInfo)
+            && meridianInfo.Time >= start
+            && meridianInfo.Time <= start + duration;
+
+        var slotIndex = primaryList.Count;
+        var filterPlan = ResolveFilterPlan(proposal, subExposure, availableFilters, defaultNarrowbandSubExposure, score.OptimalAltitude);
+
+        primaryList.Add(new ScheduledObservation(
+            proposal.Target, start, duration, acrossMeridian, filterPlan, gain, offset, proposal.Priority));
+
+        AttachSpares(slotIndex, start, duration, subExposure, gain, offset,
+            availableFilters, defaultNarrowbandSubExposure, spares, minHeightAboveHorizon, sparesMap);
+    }
+
+    private static void ScheduleMosaicGroup(
+        List<(ProposedObservation Proposal, ScoredTarget Score)> mosaicGroup,
+        ProposedObservation representativeProposal,
+        ScoredTarget representativeScore,
+        DateTimeOffset astroDark,
+        TimeSpan defaultObservationTime,
+        TimeSpan defaultSubExposure,
+        int defaultGain,
+        int defaultOffset,
+        bool[] allocatedBins,
+        int binCount,
+        double siderealTimeAtAstroDark,
+        IReadOnlyList<InstalledFilter>? availableFilters,
+        TimeSpan? defaultNarrowbandSubExposure,
+        ImmutableArray<ScheduledObservation>.Builder primaryList,
+        ImmutableDictionary<int, ImmutableArray<ScheduledObservation>>.Builder sparesMap,
+        List<(ProposedObservation Proposal, ScoredTarget Score)> spares,
+        byte minHeightAboveHorizon)
+    {
+        var perPanelTime = representativeProposal.ObservationTime ?? defaultObservationTime;
+        var totalBinsNeeded = Math.Max(1, mosaicGroup.Count * Math.Max(1, (int)Math.Ceiling(perPanelTime / TimeBinDuration)));
+
+        var bestStartBin = FindBestStartBin(allocatedBins, totalBinsNeeded, representativeScore.OptimalStart, astroDark, binCount);
+        if (bestStartBin < 0)
+        {
+            return;
+        }
+
+        for (var b = bestStartBin; b < bestStartBin + totalBinsNeeded && b < binCount; b++)
+        {
+            allocatedBins[b] = true;
+        }
+
+        var blockStart = astroDark + TimeBinDuration * bestStartBin;
+        var binsPerPanel = Math.Max(1, (int)Math.Ceiling(perPanelTime / TimeBinDuration));
+        var subExposure = representativeProposal.SubExposure ?? defaultSubExposure;
+        var gain = representativeProposal.Gain ?? defaultGain;
+        var offset = representativeProposal.Offset ?? defaultOffset;
+
+        // Panels are already sorted by RA ascending in the mosaic group
+        for (var i = 0; i < mosaicGroup.Count; i++)
+        {
+            var (panelProposal, panelScore) = mosaicGroup[i];
+            var panelStart = blockStart + perPanelTime * i;
+            var panelDuration = perPanelTime;
+
+            // Determine AcrossMeridian per panel using its individual transit time
+            var panelHA = CoordinateUtils.ConditionHA(siderealTimeAtAstroDark - panelProposal.Target.RA);
+            var panelCrossMeridianTime = astroDark - TimeSpan.FromHours(panelHA);
+            var acrossMeridian = panelCrossMeridianTime >= panelStart
+                && panelCrossMeridianTime <= panelStart + panelDuration;
+
+            var panelSubExposure = panelProposal.SubExposure ?? subExposure;
+            var filterPlan = ResolveFilterPlan(panelProposal, panelSubExposure, availableFilters,
+                defaultNarrowbandSubExposure, panelScore.OptimalAltitude > 0 ? panelScore.OptimalAltitude : representativeScore.OptimalAltitude);
+            var panelGain = panelProposal.Gain ?? gain;
+            var panelOffset = panelProposal.Offset ?? offset;
+
+            var slotIndex = primaryList.Count;
+            primaryList.Add(new ScheduledObservation(
+                panelProposal.Target, panelStart, panelDuration, acrossMeridian, filterPlan,
+                panelGain, panelOffset, panelProposal.Priority));
+
+            AttachSpares(slotIndex, panelStart, panelDuration, panelSubExposure, panelGain, panelOffset,
+                availableFilters, defaultNarrowbandSubExposure, spares, minHeightAboveHorizon, sparesMap);
+        }
+    }
+
+    private static ImmutableArray<FilterExposure> ResolveFilterPlan(
+        ProposedObservation proposal,
+        TimeSpan subExposure,
+        IReadOnlyList<InstalledFilter>? availableFilters,
+        TimeSpan? defaultNarrowbandSubExposure,
+        double optimalAltitude)
+    {
+        return proposal.FilterPlan is { IsEmpty: false } explicitPlan
+            ? explicitPlan
+            : availableFilters is { Count: > 0 }
+                ? FilterPlanBuilder.BuildAutoFilterPlan(
+                    availableFilters,
+                    subExposure,
+                    defaultNarrowbandSubExposure ?? TimeSpan.FromTicks(subExposure.Ticks * 3),
+                    optimalAltitude)
+                : FilterPlanBuilder.BuildSingleFilterPlan(subExposure);
+    }
+
+    private static void AttachSpares(
+        int slotIndex,
+        DateTimeOffset start,
+        TimeSpan duration,
+        TimeSpan subExposure,
+        int gain,
+        int offset,
+        IReadOnlyList<InstalledFilter>? availableFilters,
+        TimeSpan? defaultNarrowbandSubExposure,
+        List<(ProposedObservation Proposal, ScoredTarget Score)> spares,
+        byte minHeightAboveHorizon,
+        ImmutableDictionary<int, ImmutableArray<ScheduledObservation>>.Builder sparesMap)
+    {
+        var slotSpares = ImmutableArray.CreateBuilder<ScheduledObservation>();
+        foreach (var (spareProposal, spareScore) in spares)
+        {
+            if (spareScore.TotalScore <= Half.Zero)
+            {
+                continue;
+            }
+
+            var spareVisibleDuringSlot = false;
+            foreach (var (_, info) in spareScore.ElevationProfile)
+            {
+                if (info.Alt > minHeightAboveHorizon && info.Time >= start && info.Time <= start + duration)
+                {
+                    spareVisibleDuringSlot = true;
+                    break;
+                }
+            }
+
+            if (spareVisibleDuringSlot)
+            {
+                var spareAcrossMeridian = spareScore.ElevationProfile.TryGetValue(RaDecEventTime.Meridian, out var spareMeridian)
+                    && spareMeridian.Time >= start
+                    && spareMeridian.Time <= start + duration;
+
+                var spareSubExposure = spareProposal.SubExposure ?? subExposure;
+                var spareFilterPlan = ResolveFilterPlan(spareProposal, spareSubExposure, availableFilters,
+                    defaultNarrowbandSubExposure, spareScore.OptimalAltitude);
+
+                slotSpares.Add(new ScheduledObservation(
+                    spareProposal.Target, start, duration, spareAcrossMeridian, spareFilterPlan,
+                    spareProposal.Gain ?? gain, spareProposal.Offset ?? offset, ObservationPriority.Spare));
+            }
+        }
+
+        if (slotSpares.Count > 0)
+        {
+            sparesMap[slotIndex] = slotSpares.ToImmutable();
+        }
     }
 
     private static int FindBestStartBin(bool[] allocatedBins, int binsNeeded, DateTimeOffset optimalStart, DateTimeOffset nightStart, int binCount)
@@ -589,10 +739,7 @@ internal static class ObservationScheduler
                 // Mark cross-referenced indices as seen to avoid duplicate entries
                 MarkCrossIndicesSeen(objectDb, idx, seen);
 
-                var name = obj.CommonNames.Count > 0
-                    ? obj.CommonNames.First()
-                    : idx.ToCanonical();
-                var target = new Target(obj.RA, obj.Dec, name, idx);
+                    var target = new Target(obj.RA, obj.Dec, obj.DisplayName, idx);
                 var scored = ScoreTarget(target, astroms, times, astroDark, astroTwilight, minHeightAboveHorizon, transform.SiteLongitude);
                 if (scored.TotalScore <= Half.Zero) continue;
 

@@ -97,20 +97,20 @@ internal readonly record struct GuideCorrection(double RaPulseMs, double DecPuls
     /// <summary>
     /// Duration of the RA pulse.
     /// </summary>
-    public TimeSpan RaPulseDuration => TimeSpan.FromMilliseconds(Math.Abs(RaPulseMs));
+    public readonly TimeSpan RaPulseDuration => TimeSpan.FromMilliseconds(Math.Abs(RaPulseMs));
 
     /// <summary>
     /// Duration of the Dec pulse.
     /// </summary>
-    public TimeSpan DecPulseDuration => TimeSpan.FromMilliseconds(Math.Abs(DecPulseMs));
+    public readonly TimeSpan DecPulseDuration => TimeSpan.FromMilliseconds(Math.Abs(DecPulseMs));
 
     /// <summary>
     /// Whether an RA correction is needed.
     /// </summary>
-    public bool HasRaCorrection => RaPulseMs != 0;
+    public readonly bool HasRaCorrection => RaPulseMs != 0;
 
     /// <summary>
     /// Whether a Dec correction is needed.
     /// </summary>
-    public bool HasDecCorrection => DecPulseMs != 0;
+    public readonly bool HasDecCorrection => DecPulseMs != 0;
 }

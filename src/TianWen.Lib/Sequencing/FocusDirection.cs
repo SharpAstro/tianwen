@@ -25,11 +25,11 @@ public readonly record struct FocusDirection(bool PreferOutward, bool OutwardIsP
     /// Whether the preferred approach direction corresponds to increasing position values.
     /// True when <see cref="PreferOutward"/> and <see cref="OutwardIsPositive"/> agree.
     /// </summary>
-    public bool PreferredDirectionIsPositive => PreferOutward == OutwardIsPositive;
+    public readonly bool PreferredDirectionIsPositive => PreferOutward == OutwardIsPositive;
 
     /// <summary>
     /// Sign multiplier for the preferred approach direction: +1 for increasing position, −1 for decreasing.
     /// Use this to determine overshoot direction in backlash compensation and scan direction in auto-focus.
     /// </summary>
-    public int PreferredSign => PreferredDirectionIsPositive ? 1 : -1;
+    public readonly int PreferredSign => PreferredDirectionIsPositive ? 1 : -1;
 }

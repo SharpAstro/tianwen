@@ -13,13 +13,13 @@ public static class ArrayPoolHelper
         private readonly T[] _value = ArrayPool<T>.Shared.Rent(minimumLength);
         private readonly int _length = minimumLength;
 
-        public int Length => _length;
+        public readonly int Length => _length;
 
         public T this[int index]
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-            get => _value[index];
-            
+            readonly get => _value[index];
+
             [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
             set => _value[index] = value;
         }
@@ -27,7 +27,7 @@ public static class ArrayPoolHelper
         public T this[Index index]
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-            get => index.IsFromEnd ? _value[_length - index.Value] : _value[index];
+            readonly get => index.IsFromEnd ? _value[_length - index.Value] : _value[index];
 
             [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
             set
@@ -44,15 +44,15 @@ public static class ArrayPoolHelper
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-        public Span<T> AsSpan(int start = 0) => _value.AsSpan(start, _length - start);
+        public readonly Span<T> AsSpan(int start = 0) => _value.AsSpan(start, _length - start);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-        public Span<T> AsSpan(int start, int length) => _value.AsSpan(start, length);
+        public readonly Span<T> AsSpan(int start, int length) => _value.AsSpan(start, length);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-        public Memory<T> AsMemory(int start = 0) => _value.AsMemory(start, _length - start);
+        public readonly Memory<T> AsMemory(int start = 0) => _value.AsMemory(start, _length - start);
 
-        public void Dispose() => ArrayPool<T>.Shared.Return(_value);
+        public readonly void Dispose() => ArrayPool<T>.Shared.Return(_value);
 
         public static implicit operator Memory<T>(SharedObject<T> sharedObject)
             => sharedObject._value.AsMemory(0, sharedObject._length);

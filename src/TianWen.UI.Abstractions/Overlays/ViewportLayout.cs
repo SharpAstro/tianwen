@@ -30,14 +30,14 @@ public readonly record struct ViewportLayout(
 )
 {
     /// <summary>Computed drawn image width on screen.</summary>
-    public float DrawWidth => ImageWidth * Zoom;
+    public readonly float DrawWidth => ImageWidth * Zoom;
 
     /// <summary>Computed drawn image height on screen.</summary>
-    public float DrawHeight => ImageHeight * Zoom;
+    public readonly float DrawHeight => ImageHeight * Zoom;
 
     /// <summary>X offset where the image starts on screen.</summary>
-    public float ImageOffsetX => AreaLeft + (AreaWidth - DrawWidth) / 2f + PanOffset.X;
+    public readonly float ImageOffsetX => AreaLeft + (AreaWidth - DrawWidth) / 2f + PanOffset.X;
 
     /// <summary>Y offset where the image starts on screen.</summary>
-    public float ImageOffsetY => AreaTop + (AreaHeight - DrawHeight) / 2f + PanOffset.Y;
+    public readonly float ImageOffsetY => AreaTop + (AreaHeight - DrawHeight) / 2f + PanOffset.Y;
 }

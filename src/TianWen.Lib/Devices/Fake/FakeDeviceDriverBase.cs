@@ -6,7 +6,7 @@ namespace TianWen.Lib.Devices.Fake;
 
 internal abstract class FakeDeviceDriverBase(FakeDevice fakeDevice, IExternal external) : IDeviceDriver
 {
-    private readonly FakeDevice _fakeDevice = fakeDevice;
+    protected readonly FakeDevice _fakeDevice = fakeDevice;
     private bool _connected;
 
     protected IExternal _external = external;
