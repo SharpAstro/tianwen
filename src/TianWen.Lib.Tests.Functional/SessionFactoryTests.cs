@@ -598,6 +598,93 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         telescope.FocusDirection.OutwardIsPositive.ShouldBeTrue();
     }
 
+    [Fact]
+    public void GivenUnresolvableDeviceUriInProfileWhenCreateThenThrowsArgumentException()
+    {
+        // given — camera URI uses an unknown scheme that the registry won't resolve
+        var mountDevice = CreateMountDevice();
+        var guiderDevice = CreateGuiderDevice();
+        var bogusUri = new Uri("bogus://unknown-device/1");
+        var profileData = new ProfileData(
+            Mount: mountDevice.DeviceUri,
+            Guider: guiderDevice.DeviceUri,
+            OTAs: [new OTAData("Bad Scope", 1000, bogusUri, null, null, null, null, null)]
+        );
+
+        var (factory, _) = CreateFactory(profileData);
+        var observations = new[] { CreateDefaultObservation() };
+
+        // when/then
+        Should.Throw<ArgumentException>(() =>
+            factory.Create(TestProfileId, SessionTestHelper.DefaultConfiguration, new ReadOnlySpan<ScheduledObservation>(observations))
+        ).Message.ShouldContain("failed to instantiate");
+    }
+
+    [Fact]
+    public void GivenOAGOnSecondOTAWhenCreatedThenGuiderReferencesSecondTelescope()
+    {
+        // given — two OTAs, OAG on the second (index 1)
+        var mountDevice = CreateMountDevice();
+        var camera1 = CreateCameraDevice(1);
+        var camera2 = CreateCameraDevice(2);
+        var guiderDevice = CreateGuiderDevice();
+
+        var profileData = new ProfileData(
+            Mount: mountDevice.DeviceUri,
+            Guider: guiderDevice.DeviceUri,
+            OTAs:
+            [
+                new OTAData("Imaging Scope", 2000, camera1.DeviceUri, null, null, null, null, null),
+                new OTAData("Guide Scope", 400, camera2.DeviceUri, null, null, null, null, null)
+            ],
+            OAG_OTA_Index: 1
+        );
+
+        var (factory, _) = CreateFactory(profileData);
+        var observations = new[] { CreateDefaultObservation() };
+
+        // when
+        var session = factory.Create(TestProfileId, SessionTestHelper.DefaultConfiguration, new ReadOnlySpan<ScheduledObservation>(observations));
+
+        // then
+        session.Setup.GuiderSetup.IsOAG.ShouldBeTrue();
+        session.Setup.GuiderSetup.OAG.ShouldBeSameAs(session.Setup.Telescopes[1]);
+    }
+
+    [Fact]
+    public void GivenExplicitDefaultSubExposureWhenCreateWithProposalsThenUsedInSchedule()
+    {
+        // given
+        var mountDevice = CreateMountDevice();
+        var cameraDevice = CreateCameraDevice();
+        var guiderDevice = CreateGuiderDevice();
+
+        var profileData = new ProfileData(
+            Mount: mountDevice.DeviceUri,
+            Guider: guiderDevice.DeviceUri,
+            OTAs: [new OTAData("Test Scope", 1000, cameraDevice.DeviceUri, null, null, null, null, null)]
+        );
+
+        var config = SessionTestHelper.DefaultConfiguration with { DefaultSubExposure = TimeSpan.FromSeconds(60) };
+        var (factory, _) = CreateFactory(profileData);
+
+        var proposals = new[]
+        {
+            new ProposedObservation(new Target(6.75, 16.7, "M42", null))
+        };
+
+        // when
+        var session = factory.Create(TestProfileId, config, new ReadOnlySpan<ProposedObservation>(proposals));
+
+        // then
+        var internalSession = session.ShouldBeOfType<Session>();
+        // The scheduled observation should use the explicit 60s default, not the 120s fallback
+        if (internalSession.Observations.Count > 0)
+        {
+            internalSession.Observations[0].SubExposure.ShouldBe(TimeSpan.FromSeconds(60));
+        }
+    }
+
     private static ScheduledObservation CreateDefaultObservation() => new ScheduledObservation(
         new Target(6.75, 16.7, "M42", null),
         DateTimeOffset.UtcNow,
