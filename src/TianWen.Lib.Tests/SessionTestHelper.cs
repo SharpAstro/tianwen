@@ -57,6 +57,7 @@ internal static class SessionTestHelper
         ScheduledObservation[]? observations = null,
         DateTimeOffset? now = null,
         int focalLength = 1000,
+        string? mountPort = "LX200",
         CancellationToken cancellationToken = default)
     {
         var external = new FakeExternal(output, now: now ?? new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
@@ -87,12 +88,16 @@ internal static class SessionTestHelper
             Switches: null
         );
 
-        var mountDevice = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection
+        var mountQuery = new NameValueCollection
         {
-            { "port", "LX200" },
             { "latitude", "48.2" },
             { "longitude", "16.3" }
-        });
+        };
+        if (mountPort is not null)
+        {
+            mountQuery.Add("port", mountPort);
+        }
+        var mountDevice = new FakeDevice(DeviceType.Mount, 1, mountQuery);
         var guiderDevice = new FakeDevice(DeviceType.Guider, 1);
         var mount = new Mount(mountDevice, external);
         var guider = new Guider(guiderDevice, external);
@@ -111,9 +116,8 @@ internal static class SessionTestHelper
         var obs = observations ?? DefaultScheduledObservations;
 
         var session = new Session(setup, config, plateSolver, external, new ScheduledObservationTree(obs));
-        var mountDriver = (FakeMeadeLX200ProtocolMountDriver)mount.Driver;
 
-        return new SessionTestContext(session, external, cameraDriver, focuserDriver, mountDriver);
+        return new SessionTestContext(session, external, cameraDriver, focuserDriver, mount.Driver);
     }
 
     /// <summary>
@@ -221,9 +225,8 @@ internal static class SessionTestHelper
         var obs = observations ?? DefaultScheduledObservations;
 
         var session = new Session(setup, config, plateSolver, external, new ScheduledObservationTree(obs));
-        var mountDriver = (FakeMeadeLX200ProtocolMountDriver)mount.Driver;
 
-        return new DualOTATestContext(session, external, oscCameraDriver, monoCameraDriver, focuserDriver, filterWheelDriver, mountDriver);
+        return new DualOTATestContext(session, external, oscCameraDriver, monoCameraDriver, focuserDriver, filterWheelDriver, mount.Driver);
     }
 
     /// <summary>
@@ -249,7 +252,7 @@ internal record DualOTATestContext(
     FakeCameraDriver MonoCamera,
     FakeFocuserDriver Focuser,
     FakeFilterWheelDriver FilterWheel,
-    FakeMeadeLX200ProtocolMountDriver Mount
+    IMountDriver Mount
 )
 {
     internal void CleanupOutputFolder()
@@ -287,7 +290,7 @@ internal record SessionTestContext(
     FakeExternal External,
     FakeCameraDriver Camera,
     FakeFocuserDriver Focuser,
-    FakeMeadeLX200ProtocolMountDriver Mount
+    IMountDriver Mount
 )
 {
     /// <summary>
