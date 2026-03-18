@@ -172,7 +172,15 @@ internal static class SessionTestHelper
         await focuser.Driver.ConnectAsync(cancellationToken);
         var focuserDriver = (FakeFocuserDriver)focuser.Driver;
 
-        var filterWheelDevice = new FakeDevice(DeviceType.FilterWheel, 1);
+        // 5-position filter wheel: L, SII, R, G, B with focus offsets
+        var filterWheelDevice = new FakeDevice(DeviceType.FilterWheel, 1, new NameValueCollection
+        {
+            { "filter1", "Luminance" }, { "offset1", "0" },
+            { "filter2", "SII" },       { "offset2", "25" },
+            { "filter3", "Red" },       { "offset3", "20" },
+            { "filter4", "Green" },     { "offset4", "0" },
+            { "filter5", "Blue" },      { "offset5", "-15" }
+        });
         var filterWheel = new FilterWheel(filterWheelDevice, external);
         await filterWheel.Driver.ConnectAsync(cancellationToken);
         var filterWheelDriver = (FakeFilterWheelDriver)filterWheel.Driver;
@@ -219,8 +227,8 @@ internal static class SessionTestHelper
     }
 
     /// <summary>
-    /// Filter plan for the FakeFilterWheelDriver's 8-slot wheel, ordered as altitude ladder
-    /// using only the L/SII/R/G/B subset (positions 0, 5, 2, 3, 4).
+    /// Filter plan for the 5-slot L/SII/R/G/B wheel, ordered as altitude ladder:
+    /// SII (narrowband, pos 1) → R (pos 2) → G (pos 3) → B (pos 4) → L (luminance, pos 0).
     /// </summary>
     public static readonly ImmutableArray<FilterExposure> FakeWheelLSIIRGBFilterPlan = FilterPlanBuilder.BuildAutoFilterPlan(
         [
