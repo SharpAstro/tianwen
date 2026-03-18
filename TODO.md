@@ -29,8 +29,8 @@
 - [ ] Time-aware observation switching — advance to next observation when current observation's `Duration` elapses, not just when imaging loop exits
 - [ ] Weather/cloud interruption handling — detect clouds via star count outliers; if conditions degrade, pause schedule and resume with re-scored remaining targets
 - [ ] Multi-night scheduling — carry over incomplete observations to next session with accumulated exposure tracking
-- [ ] Filter support in ProposedObservation — per-target filter sequences (L, R, G, B, Ha, etc.)
-- [ ] Mosaic panel support — schedule multiple pointings for a single target as linked observations
+- [x] Filter support in ProposedObservation — `ImmutableArray<FilterExposure>? FilterPlan` with `FilterPlanBuilder.BuildAutoFilterPlan` altitude-ladder ordering
+- [x] Mosaic panel support — `MosaicGenerator` computes panel grids, `ProposedObservation.MosaicGroupId` links panels for contiguous scheduling with RA-ascending (meridian-aware) ordering
 - [ ] Scoring: calculate how large the object is in pixels on the sensor (normalizes across different telescopes)
 - [ ] Scheduler UI/CLI integration — expose `ProposedObservation` input and `ScheduledObservationTree` output in CLI and future UI
 - [ ] Generalise `TonightsBest` to accept an arbitrary LST / `DateTimeOffset` (not just current UTC)
@@ -58,15 +58,15 @@
 - [ ] Gracefully stop a session (`HostedSession.cs:39`)
 - [ ] Wait until 5 min to astro dark, and/or implement `IExternal.IsPolarAligned` (`Session.cs:61`)
 - [ ] Maybe slew slightly above/below 0 declination to avoid trees, etc. (`Session.cs:235`)
-- [ ] Plate solve, sync, and re-slew after initial slew (`Session.cs:245`)
+- [x] Plate solve, sync, and re-slew after initial slew — `PlateSolveAndSyncAsync` called after slew in `ObservationLoopAsync` and `InitialRoughFocusAsync`
 - [x] ~~Wait until target rises again instead of skipping~~ — replaced by spare target fallback in observation loop, todo
       Maybe we should estimate how long it will take for the target to appear, i.e. by slewing where it _will_ be in lets say half an hour and see if we can get more stars
       etc there
 - [ ] Plate solve and re-slew during observation (`Session.cs:467`)
 - [ ] Per-camera exposure calculation, e.g. via f/ratio (`Session.cs:540`)
-- [ ] Stop exposures before meridian flip (if we can, and if there are any) (`Session.cs:668`)
-- [ ] Stop guiding, flip, resync, verify, and restart guiding (`Session.cs:672`)
-- [ ] Make FITS output path configurable, add frame type (`Session.cs:893`)
+- [x] Stop exposures before meridian flip (if we can, and if there are any) — `PerformMeridianFlipAsync` stops guider, waits for slew completion, smart exposure handling (<30s wait / >30s abort)
+- [x] Stop guiding, flip, resync, verify, and restart guiding — `PerformMeridianFlipAsync` stops capture, re-slews with RA offset, verifies HA flipped positive, restarts guiding loop
+- [ ] Make FITS output path template configurable (`Session.IO.cs:16`) — frame type already in path as `{target}/{date}/{filter}/{frameType}/`
 - [ ] FOV obstruction detection: if first frames on a new target show HFD way higher or star count way lower than previous target's baseline, nudge mount up in altitude by one frame radius and re-check — if metrics recover, something is blocking the FOV (tree, building); make this a new imaging loop exit condition
 - [x] Switch `ImagingLoopAsync` to `PeriodicTimer` instead of hand-rolled sleep/overslept timing
 - [ ] Device disconnect resilience in imaging loop — when mount/camera/guider disconnects, attempt reconnect with backoff instead of immediately advancing to next observation; only bail after N retries or timeout
