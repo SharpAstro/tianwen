@@ -205,8 +205,9 @@ internal partial record Session
             currentSubExposuresSec[i] = (int)Math.Ceiling(filterPlans[i][filterCursors[i]].SubExposure.TotalSeconds);
         }
 
-        // Tick = GCD of all sub-exposures. TODO: reduce to GCD/6 (clamped [1s,5s]) for faster
-        // monitoring once fake time interaction with PeriodicTimer is resolved (see #tick-refactor).
+        // Tick = GCD/6, clamped to [1s, 5s]. Fast enough for responsive monitoring
+        // (guiding, pier side, altitude) while keeping timer callback counts manageable.
+        // GCD and LCM are kept for dithering cadence.
         var allSubExposuresSec = new HashSet<int>();
         for (var i = 0; i < scopes; i++)
         {
@@ -217,24 +218,24 @@ internal partial record Session
         }
 
         var allExposuresArray = allSubExposuresSec.ToArray();
-        var tickGCD = GCD(allExposuresArray);
-        var tickLCM = LCM(tickGCD, allExposuresArray);
-        var tickDuration = TimeSpan.FromSeconds(tickGCD);
-        var ticksPerFullCycle = (int)(tickLCM / tickGCD);
-        var ditherEveryNTicks = Configuration.DitherEveryNthFrame * ticksPerFullCycle;
+        var gcdSec = (int)GCD(allExposuresArray);
+        var lcmSec = (int)LCM(gcdSec, allExposuresArray);
+        var tickSec = Math.Clamp(gcdSec / 6, 1, 5);
+        var tickDuration = TimeSpan.FromSeconds(tickSec);
+        var ditherEveryNTicks = Configuration.DitherEveryNthFrame * (lcmSec / tickSec);
         var expStartTimes = new DateTimeOffset[scopes];
         var expTicks = new int[scopes];
         var tickCount = 0;
 
         var imageWriteQueue = new Queue<QueuedImageWrite>();
         ImageLoopNextAction? next = null;
-        var maxTicks = (int)(observation.Duration / tickDuration);
+        var maxTicks = (int)(observation.Duration.TotalSeconds / tickSec);
 
         External.AppLogger.LogInformation(
-            "ImagingLoop starting for {Target}: {FilterCount} filters, direction={Direction}, tickDuration={TickDuration}s, maxTicks={MaxTicks}.",
+            "ImagingLoop starting for {Target}: {FilterCount} filters, direction={Direction}, tick={TickSec}s, duration={Duration}, GCD={GCD}s.",
             observation.Target, observation.FilterPlan.Length,
             filterAscending ? "ascending" : "descending",
-            tickDuration.TotalSeconds, maxTicks);
+            tickSec, observation.Duration, gcdSec);
 
         using var ticker = new PeriodicTimer(tickDuration, External.TimeProvider);
 
@@ -303,7 +304,7 @@ internal partial record Session
                     currentSubExposuresSec[i] = subExposureSec;
                     var frameExpTime = TimeSpan.FromSeconds(subExposureSec);
                     expStartTimes[i] = await camerDriver.StartExposureAsync(frameExpTime, cancellationToken: cancellationToken);
-                    expTicks[i] = (int)(subExposureSec / tickGCD);
+                    expTicks[i] = subExposureSec / tickSec;
                     filterFrameCounters[i]++;
                     var frameNo = ++frameNumbers[i];
 

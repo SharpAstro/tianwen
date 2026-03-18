@@ -32,12 +32,13 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
     private async Task<SessionTestContext> CreateWinterSessionAsync(
         ScheduledObservation[] observations,
         SessionConfiguration? configuration = null,
+        string? mountPort = "LX200",
         CancellationToken cancellationToken = default)
     {
         var config = configuration ?? SessionTestHelper.DefaultConfiguration;
 
         var ctx = await SessionTestHelper.CreateSessionAsync(
-            output, config, observations, now: WinterNightStart, focalLength: 480, cancellationToken: cancellationToken);
+            output, config, observations, now: WinterNightStart, focalLength: 480, mountPort: mountPort, cancellationToken: cancellationToken);
 
         ctx.Camera.TrueBestFocus = TrueBestFocusPosition;
         ctx.Camera.FocusPosition = TrueBestFocusPosition;
@@ -120,7 +121,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
             )
         };
 
-        var ctx = await CreateWinterSessionAsync(observations, config, ct);
+        var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
 
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
@@ -184,7 +185,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
             )
         };
 
-        var ctx = await CreateWinterSessionAsync(observations, config, ct);
+        var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
 
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
@@ -233,7 +234,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
             )
         };
 
-        var ctx = await CreateWinterSessionAsync(observations, config, ct);
+        var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
 
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
@@ -289,7 +290,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
             )
         };
 
-        var ctx = await CreateWinterSessionAsync(observations, config, ct);
+        var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
 
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
@@ -339,7 +340,9 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
             )
         };
 
-        var ctx = await CreateWinterSessionAsync(observations, cancellationToken: ct);
+        // Use plain FakeMountDriver (not LX200 serial protocol) to avoid timer interleaving
+        // between the slew simulation timer and the imaging loop's faster PeriodicTimer tick.
+        var ctx = await CreateWinterSessionAsync(observations, mountPort: null, cancellationToken: ct);
 
         // Run the observation loop with time pump
         await RunObservationLoopWithTimePumpAsync(ctx, subExposure, ct);
