@@ -487,7 +487,6 @@ void HandleEquipmentClick(EquipmentHitResult hit)
                         eqState.DiscoveredDevices = [.. dm.RegisteredDeviceTypes
                             .Where(t => t is not DeviceType.Profile and not DeviceType.None)
                             .SelectMany(dm.RegisteredDevices)
-                            .Where(d => d is not TianWen.Lib.Devices.Fake.FakeDevice)
                             .OrderBy(d => d.DeviceType).ThenBy(d => d.DisplayName)];
                     }
                     catch (Exception ex)
