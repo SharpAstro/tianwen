@@ -42,7 +42,7 @@ namespace TianWen.UI.Gui
         [
             ("\U0001F52D", GuiTab.Equipment),   // 🔭 Telescope
             ("\U0001F4C5", GuiTab.Planner),     // 📅 Calendar
-            ("\U0001F5BC", GuiTab.Viewer),      // 🖼️ Framed Picture
+            ("\U0001F30C", GuiTab.Viewer),      // 🌌 Milky Way
             ("\U0001F3AF", GuiTab.Session),     // 🎯 Bullseye
         ];
 
