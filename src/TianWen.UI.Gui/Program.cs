@@ -74,8 +74,8 @@ if (OperatingSystem.IsWindows())
     EnableDarkTitleBar(sdlWindow.Handle);
 }
 
-GetWindowSize(sdlWindow.Handle, out var logW, out var logH);
-var dpiScale = pixW > 0 && logW > 0 ? (float)pixW / logW : 1f;
+var dpiScale = GetWindowDisplayScale(sdlWindow.Handle);
+if (dpiScale <= 0f) dpiScale = 1f;
 
 var guiRenderer = new VkGuiRenderer(renderer, (uint)pixW, (uint)pixH)
 {
@@ -169,8 +169,8 @@ while (running)
                     sdlWindow.GetSizeInPixels(out var rw, out var rh);
                     if (rw > 0 && rh > 0)
                     {
-                        GetWindowSize(sdlWindow.Handle, out var rlw, out _);
-                        dpiScale = rlw > 0 ? (float)rw / rlw : 1f;
+                        dpiScale = GetWindowDisplayScale(sdlWindow.Handle);
+                        if (dpiScale <= 0f) dpiScale = 1f;
                         renderer.Resize((uint)rw, (uint)rh);
                         guiRenderer.DpiScale = dpiScale;
                         guiRenderer.Resize((uint)rw, (uint)rh);
