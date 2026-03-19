@@ -42,10 +42,10 @@ namespace TianWen.UI.Gui
         // DejaVu Sans Unicode symbols (color emoji needs DIR.Lib CBDT/COLR investigation)
         private static readonly (string Icon, GuiTab Tab)[] SidebarTabs =
         [
-            ("\u2699", GuiTab.Equipment),   // ⚙ Gear
-            ("\u2605", GuiTab.Planner),     // ★ Star
-            ("\u2604", GuiTab.Viewer),      // ☄ Comet
-            ("\u25C9", GuiTab.Session),     // ◉ Bullseye
+            ("\U0001F52D", GuiTab.Equipment),   // 🔭 Telescope
+            ("\U0001F4C5", GuiTab.Planner),     // 📅 Calendar
+            ("\U0001F30C", GuiTab.Viewer),      // 🌌 Milky Way
+            ("\U0001F3AF", GuiTab.Session),     // 🎯 Bullseye
         ];
 
         // Sidebar colors
