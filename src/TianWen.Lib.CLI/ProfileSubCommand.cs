@@ -1,13 +1,28 @@
-﻿using System.CommandLine;
+using System.CommandLine;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Sequencing;
 
 namespace TianWen.Lib.CLI;
 
 internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selectedProfileOption)
 {
-    private readonly Argument<string> profileNameOrIdArg = new Argument<string>("profileNameOrId") { Description = "Name or ID of the profile" };
-    private readonly Argument<string> profileNameArg = new Argument<string>("profileName") { Description = "Name of the new profile" };
-    private readonly Argument<string> deviceIdArg = new Argument<string>("deviceId") { Description = "Device ID" };
+    private readonly Argument<string> profileNameOrIdArg = new("profileNameOrId") { Description = "Name or ID of the profile" };
+    private readonly Argument<string> profileNameArg = new("profileName") { Description = "Name of the new profile" };
+    private readonly Argument<string> deviceIdArg = new("deviceId") { Description = "Device ID" };
+    private readonly Argument<string> otaNameArg = new("name") { Description = "Display name for the OTA (e.g. 'RC8', 'Samyang 135')" };
+    private readonly Argument<int> otaIndexArg = new("index") { Description = "OTA index (0-based)" };
+
+    // Options for add-ota
+    private readonly Option<int> focalLengthOption = new("--focal-length") { Description = "Focal length in mm", Required = true };
+    private readonly Option<string> cameraOption = new("--camera") { Description = "Camera device ID", Required = true };
+    private readonly Option<string?> focuserOption = new("--focuser") { Description = "Focuser device ID" };
+    private readonly Option<string?> filterWheelOption = new("--filter-wheel") { Description = "Filter wheel device ID" };
+    private readonly Option<string?> coverOption = new("--cover") { Description = "Cover/calibrator device ID" };
+    private readonly Option<int?> apertureOption = new("--aperture") { Description = "Aperture in mm" };
+    private readonly Option<OpticalDesign> opticalDesignOption = new("--optical-design") { Description = "Optical design type", DefaultValueFactory = _ => OpticalDesign.Unknown };
+
+    // Option for add (per-OTA device targeting)
+    private readonly Option<int> otaOption = new("--ota") { Description = "OTA index to target (0-based)", DefaultValueFactory = _ => 0 };
 
     public Command Build()
     {
@@ -28,17 +43,48 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
 
         var addDeviceCommand = new Command("add", "Add a device to a profile")
         {
-            Arguments = { deviceIdArg }
+            Arguments = { deviceIdArg },
+            Options = { otaOption }
         };
         addDeviceCommand.SetAction(AddDeviceActionAsync);
 
+        var setMountCommand = new Command("set-mount", "Set the mount device on a profile")
+        {
+            Arguments = { deviceIdArg }
+        };
+        setMountCommand.SetAction(SetMountActionAsync);
+
+        var setGuiderCommand = new Command("set-guider", "Set the guider device on a profile")
+        {
+            Arguments = { deviceIdArg }
+        };
+        setGuiderCommand.SetAction(SetGuiderActionAsync);
+
+        var addOtaCommand = new Command("add-ota", "Add an OTA (optical tube assembly) to a profile")
+        {
+            Arguments = { otaNameArg },
+            Options = { focalLengthOption, cameraOption, focuserOption, filterWheelOption, coverOption, apertureOption, opticalDesignOption }
+        };
+        addOtaCommand.SetAction(AddOtaActionAsync);
+
+        var removeOtaCommand = new Command("remove-ota", "Remove an OTA from a profile by index")
+        {
+            Arguments = { otaIndexArg }
+        };
+        removeOtaCommand.SetAction(RemoveOtaActionAsync);
+
         return new Command("profile", "Manage profiles")
         {
-            Subcommands = {
+            Subcommands =
+            {
                 listProfilesCommand,
                 deleteProfileCommand,
                 createProfileCommand,
-                addDeviceCommand
+                addDeviceCommand,
+                setMountCommand,
+                setGuiderCommand,
+                addOtaCommand,
+                removeOtaCommand
             }
         };
     }
@@ -69,55 +115,206 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
         }
     }
 
-    internal async Task AddDeviceActionAsync(ParseResult parseResult, CancellationToken cancellationToken)
+    internal async Task SetMountActionAsync(ParseResult parseResult, CancellationToken cancellationToken)
     {
-        var allProfiles = await ListProfilesAsync(cancellationToken);
-
-        var devices = await consoleHost.ListAllDevicesAsync(DeviceDiscoveryOption.None, cancellationToken);
-
-        var selectedProfile = parseResult.GetSelected(allProfiles, selectedProfileOption);
-        var deviceId = parseResult.GetRequiredValue(deviceIdArg);
-
-        if (selectedProfile is { })
+        var (selectedProfile, data) = await GetSelectedProfileDataAsync(parseResult, cancellationToken);
+        if (selectedProfile is null || data is null)
         {
-            var matchingDevices = devices.Where(d => d.DeviceId == deviceId).ToList();
+            return;
+        }
 
-            if (matchingDevices.Count is 1)
+        var deviceId = parseResult.GetRequiredValue(deviceIdArg);
+        var uri = await ResolveDeviceUriAsync(deviceId, cancellationToken);
+        if (uri is null)
+        {
+            return;
+        }
+
+        var newData = data.Value with { Mount = uri };
+        await SaveAndListAsync(selectedProfile, newData, parseResult, cancellationToken);
+    }
+
+    internal async Task SetGuiderActionAsync(ParseResult parseResult, CancellationToken cancellationToken)
+    {
+        var (selectedProfile, data) = await GetSelectedProfileDataAsync(parseResult, cancellationToken);
+        if (selectedProfile is null || data is null)
+        {
+            return;
+        }
+
+        var deviceId = parseResult.GetRequiredValue(deviceIdArg);
+        var uri = await ResolveDeviceUriAsync(deviceId, cancellationToken);
+        if (uri is null)
+        {
+            return;
+        }
+
+        var newData = data.Value with { Guider = uri };
+        await SaveAndListAsync(selectedProfile, newData, parseResult, cancellationToken);
+    }
+
+    internal async Task AddOtaActionAsync(ParseResult parseResult, CancellationToken cancellationToken)
+    {
+        var (selectedProfile, data) = await GetSelectedProfileDataAsync(parseResult, cancellationToken);
+        if (selectedProfile is null || data is null)
+        {
+            return;
+        }
+
+        var name = parseResult.GetRequiredValue(otaNameArg);
+        var focalLength = parseResult.GetRequiredValue(focalLengthOption);
+        var cameraId = parseResult.GetRequiredValue(cameraOption);
+
+        var cameraUri = await ResolveDeviceUriAsync(cameraId, cancellationToken);
+        if (cameraUri is null)
+        {
+            return;
+        }
+
+        var focuserId = parseResult.GetValue(focuserOption);
+        var filterWheelId = parseResult.GetValue(filterWheelOption);
+        var coverId = parseResult.GetValue(coverOption);
+        var aperture = parseResult.GetValue(apertureOption);
+        var opticalDesign = parseResult.GetValue(opticalDesignOption);
+
+        Uri? focuserUri = null;
+        if (focuserId is not null)
+        {
+            focuserUri = await ResolveDeviceUriAsync(focuserId, cancellationToken);
+            if (focuserUri is null)
             {
-                var device = matchingDevices[0];
-                var uri = device.DeviceUri;
-
-                var data = selectedProfile.Data ?? new ProfileData();
-
-                var newData = device.DeviceType switch
-                {
-                    DeviceType.Mount => data with { Mount = uri },
-                    DeviceType.Guider => data with { Guider = uri },
-                    DeviceType.Camera when data.OTAs.Length is 1 => data with { OTAs = [data.OTAs[0] with { Camera = uri }] },
-                    DeviceType.CoverCalibrator when data.OTAs.Length is 1 => data with { OTAs = [data.OTAs[0] with { Cover = uri }] },
-                    DeviceType.Focuser when data.OTAs.Length is 1 => data with { OTAs = [data.OTAs[0] with { Focuser = uri }] },
-                    DeviceType.FilterWheel when data.OTAs.Length is 1 => data with { OTAs = [data.OTAs[0] with { FilterWheel = uri }] },
-                    _ => data
-                };
-
-                var updatedProfile = selectedProfile.WithData(newData);
-                await updatedProfile.SaveAsync(consoleHost.External, cancellationToken);
-
-                await ListProfilesActionAsync(parseResult, cancellationToken);
-            }
-            else if (matchingDevices.Count is 0)
-            {
-                consoleHost.WriteError($"No device found with ID '{deviceId}'");
-            }
-            else
-            {
-                consoleHost.WriteError($"Multiple devices found with ID '{deviceId}':");
-                foreach (var device in matchingDevices)
-                {
-                    consoleHost.WriteError($"- {device}");
-                }
+                return;
             }
         }
+
+        Uri? filterWheelUri = null;
+        if (filterWheelId is not null)
+        {
+            filterWheelUri = await ResolveDeviceUriAsync(filterWheelId, cancellationToken);
+            if (filterWheelUri is null)
+            {
+                return;
+            }
+        }
+
+        Uri? coverUri = null;
+        if (coverId is not null)
+        {
+            coverUri = await ResolveDeviceUriAsync(coverId, cancellationToken);
+            if (coverUri is null)
+            {
+                return;
+            }
+        }
+
+        var otaData = new OTAData(
+            Name: name,
+            FocalLength: focalLength,
+            Camera: cameraUri,
+            Cover: coverUri,
+            Focuser: focuserUri,
+            FilterWheel: filterWheelUri,
+            PreferOutwardFocus: null,
+            OutwardIsPositive: null,
+            Aperture: aperture,
+            OpticalDesign: opticalDesign
+        );
+
+        var newData = data.Value with { OTAs = data.Value.OTAs.Add(otaData) };
+        await SaveAndListAsync(selectedProfile, newData, parseResult, cancellationToken);
+
+        consoleHost.WriteScrollable($"Added OTA '{name}' (index {newData.OTAs.Length - 1})");
+    }
+
+    internal async Task RemoveOtaActionAsync(ParseResult parseResult, CancellationToken cancellationToken)
+    {
+        var (selectedProfile, data) = await GetSelectedProfileDataAsync(parseResult, cancellationToken);
+        if (selectedProfile is null || data is null)
+        {
+            return;
+        }
+
+        var index = parseResult.GetRequiredValue(otaIndexArg);
+
+        if (index < 0 || index >= data.Value.OTAs.Length)
+        {
+            consoleHost.WriteError($"OTA index {index} out of range (0..{data.Value.OTAs.Length - 1})");
+            return;
+        }
+
+        var removedName = data.Value.OTAs[index].Name;
+        var newData = data.Value with { OTAs = data.Value.OTAs.RemoveAt(index) };
+        await SaveAndListAsync(selectedProfile, newData, parseResult, cancellationToken);
+
+        consoleHost.WriteScrollable($"Removed OTA '{removedName}' (was index {index})");
+    }
+
+    internal async Task AddDeviceActionAsync(ParseResult parseResult, CancellationToken cancellationToken)
+    {
+        var (selectedProfile, data) = await GetSelectedProfileDataAsync(parseResult, cancellationToken);
+        if (selectedProfile is null || data is null)
+        {
+            return;
+        }
+
+        var deviceId = parseResult.GetRequiredValue(deviceIdArg);
+        var uri = await ResolveDeviceUriAsync(deviceId, cancellationToken);
+        if (uri is null)
+        {
+            return;
+        }
+
+        // Determine device type from discovered devices
+        var devices = await consoleHost.ListAllDevicesAsync(DeviceDiscoveryOption.None, cancellationToken);
+        var device = devices.FirstOrDefault(d => d.DeviceId == deviceId);
+        if (device is null)
+        {
+            consoleHost.WriteError($"No device found with ID '{deviceId}'");
+            return;
+        }
+
+        var d = data.Value;
+
+        // Mount and guider are profile-level, not per-OTA
+        if (device.DeviceType is DeviceType.Mount)
+        {
+            var newData = d with { Mount = uri };
+            await SaveAndListAsync(selectedProfile, newData, parseResult, cancellationToken);
+            return;
+        }
+        if (device.DeviceType is DeviceType.Guider)
+        {
+            var newData = d with { Guider = uri };
+            await SaveAndListAsync(selectedProfile, newData, parseResult, cancellationToken);
+            return;
+        }
+
+        // Per-OTA device types need a valid OTA index
+        if (d.OTAs.Length == 0)
+        {
+            consoleHost.WriteError("No OTAs in profile. Use 'profile add-ota' first.");
+            return;
+        }
+
+        var otaIndex = parseResult.GetValue(otaOption);
+        if (otaIndex < 0 || otaIndex >= d.OTAs.Length)
+        {
+            consoleHost.WriteError($"OTA index {otaIndex} out of range (0..{d.OTAs.Length - 1})");
+            return;
+        }
+
+        var ota = d.OTAs[otaIndex];
+        var updatedOta = device.DeviceType switch
+        {
+            DeviceType.Camera => ota with { Camera = uri },
+            DeviceType.Focuser => ota with { Focuser = uri },
+            DeviceType.FilterWheel => ota with { FilterWheel = uri },
+            DeviceType.CoverCalibrator => ota with { Cover = uri },
+            _ => ota
+        };
+
+        var result = d with { OTAs = d.OTAs.SetItem(otaIndex, updatedOta) };
+        await SaveAndListAsync(selectedProfile, result, parseResult, cancellationToken);
     }
 
     internal async Task DeleteProfileActionAsync(ParseResult parseResult, CancellationToken cancellationToken)
@@ -166,7 +363,55 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
         consoleHost.WriteScrollable($"Deleted profile '{profileToDelete.DisplayName}' ({profileToDelete.ProfileId})");
 
         // refresh cache
-        var profilesAfterDelete = await ListProfilesAsync(cancellationToken);
+        await ListProfilesAsync(cancellationToken);
+    }
+
+    // --- Helpers ---
+
+    private async Task<(Profile? Profile, ProfileData? Data)> GetSelectedProfileDataAsync(ParseResult parseResult, CancellationToken ct)
+    {
+        var allProfiles = await ListProfilesAsync(ct);
+        var selectedProfile = parseResult.GetSelected(allProfiles, selectedProfileOption);
+        if (selectedProfile is null)
+        {
+            consoleHost.WriteError("No profile selected. Use --active <name> or ensure exactly one profile exists.");
+            return (null, null);
+        }
+        var data = selectedProfile.Data ?? ProfileData.Empty;
+        return (selectedProfile, data);
+    }
+
+    private async Task<Uri?> ResolveDeviceUriAsync(string deviceId, CancellationToken ct)
+    {
+        var devices = await consoleHost.ListAllDevicesAsync(DeviceDiscoveryOption.None, ct);
+        var matches = devices.Where(d => d.DeviceId == deviceId).ToList();
+
+        if (matches.Count == 1)
+        {
+            return matches[0].DeviceUri;
+        }
+
+        if (matches.Count == 0)
+        {
+            consoleHost.WriteError($"No device found with ID '{deviceId}'");
+        }
+        else
+        {
+            consoleHost.WriteError($"Multiple devices found with ID '{deviceId}':");
+            foreach (var device in matches)
+            {
+                consoleHost.WriteError($"- {device}");
+            }
+        }
+
+        return null;
+    }
+
+    private async Task SaveAndListAsync(Profile profile, ProfileData newData, ParseResult parseResult, CancellationToken ct)
+    {
+        var updatedProfile = profile.WithData(newData);
+        await updatedProfile.SaveAsync(consoleHost.External, ct);
+        await ListProfilesActionAsync(parseResult, ct);
     }
 
     private Task<IReadOnlyCollection<Profile>> ListProfilesAsync(CancellationToken cancellationToken) =>
