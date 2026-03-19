@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -14,6 +15,12 @@ internal class FakeDeviceSource : IDeviceSource<FakeDevice>
         for (var i = 1; i <= count; i++)
         {
             yield return new FakeDevice(deviceType, i);
+        }
+
+        // Extra guide camera (camera #3 with a distinct name)
+        if (deviceType is DeviceType.Camera)
+        {
+            yield return new FakeDevice(new Uri($"Camera://{nameof(FakeDevice)}/FakeGuideCam#Fake Guide Cam"));
         }
     }
 
