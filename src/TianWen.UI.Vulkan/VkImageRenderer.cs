@@ -1397,7 +1397,7 @@ public sealed class VkImageRenderer : IDisposable
             return text.Length * fontSize * 0.6f;
         }
 
-        return _renderer.MeasureText(text.AsSpan(), _fontPath, fontSize);
+        return _renderer.MeasureText(text.AsSpan(), _fontPath, fontSize).Width;
     }
 
     private void DrawText(string text, float screenX, float screenY, float fontSize, float r, float g, float b)
