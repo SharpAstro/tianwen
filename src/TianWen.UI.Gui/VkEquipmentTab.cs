@@ -517,7 +517,7 @@ namespace TianWen.UI.Gui
             // [Discover] button at the bottom of the list area
             var discoverBtnY = y + h - buttonH - padding;
             var discoverLabel = State.IsDiscovering ? "Discovering..." : "Discover";
-            var discoverBtnW = _renderer.MeasureText(discoverLabel.AsSpan(), fontPath, fontSize).Width + padding * 4f;
+            var discoverBtnW = _renderer.MeasureText("Discovering...".AsSpan(), fontPath, fontSize).Width + padding * 4f;
             var discoverBtnX = x + padding;
 
             FillRect(discoverBtnX, discoverBtnY, discoverBtnW, buttonH, CreateButton);
