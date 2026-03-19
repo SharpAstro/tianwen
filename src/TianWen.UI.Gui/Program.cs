@@ -3,8 +3,10 @@ using DIR.Lib;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using SdlVulkan.Renderer;
+using System.Runtime.InteropServices;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Extensions;
+using TianWen.Lib.Sequencing;
 using TianWen.Lib.Logging;
 using TianWen.UI.Abstractions;
 using TianWen.UI.Abstractions.Extensions;
@@ -170,6 +172,15 @@ while (running)
                     needsRedraw = true;
                     HandleMouseWheel(evt.Wheel.Y);
                     break;
+
+                case EventType.TextInput:
+                    needsRedraw = true;
+                    var textStr = Marshal.PtrToStringUTF8(evt.Text.Text);
+                    if (textStr is not null)
+                    {
+                        guiRenderer.EquipmentTab.State.ProfileNameInput.InsertText(textStr);
+                    }
+                    break;
             }
         } while (PollEvent(out evt));
     }
@@ -227,6 +238,43 @@ return 0;
 
 void HandleKeyDown(Scancode scancode, Keymod keymod)
 {
+    // Route to text input if active
+    var eqInput = guiRenderer.EquipmentTab.State.ProfileNameInput;
+    if (eqInput.IsActive)
+    {
+        var inputKey = scancode switch
+        {
+            Scancode.Backspace => TextInputKey.Backspace,
+            Scancode.Delete => TextInputKey.Delete,
+            Scancode.Left => TextInputKey.Left,
+            Scancode.Right => TextInputKey.Right,
+            Scancode.Home => TextInputKey.Home,
+            Scancode.End => TextInputKey.End,
+            Scancode.Return => TextInputKey.Enter,
+            Scancode.Escape => TextInputKey.Escape,
+            _ => (TextInputKey?)null
+        };
+
+        if (inputKey.HasValue && eqInput.HandleKey(inputKey.Value))
+        {
+            if (eqInput.IsCommitted && eqInput.Text.Length > 0)
+            {
+                // Trigger profile creation
+                HandleEquipmentClick(new EquipmentHitResult(EquipmentHitType.CreateButton));
+            }
+            else if (eqInput.IsCancelled)
+            {
+                eqInput.Deactivate();
+                eqInput.Clear();
+                guiRenderer.EquipmentTab.State.IsCreatingProfile = false;
+                StopTextInput(sdlWindow.Handle);
+            }
+            appState.NeedsRedraw = true;
+            return;
+        }
+        return; // swallow all keys when text input is active
+    }
+
     switch (scancode)
     {
         case Scancode.Escape:
@@ -299,7 +347,7 @@ void HandleMouseDown(byte button, float px, float py)
     if (button == 1) // Left click
     {
         // Sidebar hit test
-        var tab = guiRenderer.HitTestSidebar(px, py);
+        var tab = guiRenderer.HitTestSidebar(px, py, appState);
         if (tab.HasValue)
         {
             appState.ActiveTab = tab.Value;
@@ -308,14 +356,23 @@ void HandleMouseDown(byte button, float px, float py)
         }
 
         // Tab-specific hit testing
+        var (cl, ct2, cw, ch) = guiRenderer.GetContentArea();
+
         if (appState.ActiveTab is GuiTab.Planner)
         {
-            var (cl, ct2, cw, ch) = guiRenderer.GetContentArea();
             var targetIdx = guiRenderer.PlannerTab.HitTestTargetList(px, py, cl, ct2, guiRenderer.DpiScale);
             if (targetIdx >= 0)
             {
                 plannerState.SelectedTargetIndex = targetIdx;
                 plannerState.NeedsRedraw = true;
+            }
+        }
+        else if (appState.ActiveTab is GuiTab.Equipment)
+        {
+            var hit = guiRenderer.EquipmentTab.HitTest(px, py, cl, ct2, guiRenderer.DpiScale);
+            if (hit is not null)
+            {
+                HandleEquipmentClick(hit);
             }
         }
     }
@@ -336,6 +393,139 @@ void HandleMouseWheel(float scrollY)
             plannerState.NeedsRedraw = true;
         }
     }
+}
+
+// --- Equipment tab click handling ---
+
+void HandleEquipmentClick(EquipmentHitResult hit)
+{
+    var eqTab = guiRenderer.EquipmentTab;
+    var eqState = eqTab.State;
+
+    switch (hit.Type)
+    {
+        case EquipmentHitType.CreateButton:
+            if (!eqState.IsCreatingProfile)
+            {
+                // Enter creation mode
+                eqState.IsCreatingProfile = true;
+                eqState.ProfileNameInput.Activate();
+                StartTextInput(sdlWindow.Handle);
+            }
+            else if (eqState.ProfileNameInput.Text.Length > 0)
+            {
+                // Create the profile
+                var name = eqState.ProfileNameInput.Text;
+                _ = Task.Run(async () =>
+                {
+                    var profile = await EquipmentActions.CreateProfileAsync(name, external, cts.Token);
+                    appState.ActiveProfile = profile;
+                    eqState.IsCreatingProfile = false;
+                    eqState.ProfileNameInput.Deactivate();
+                    eqState.ProfileNameInput.Clear();
+                    StopTextInput(sdlWindow.Handle);
+                    appState.NeedsRedraw = true;
+                });
+            }
+            break;
+
+        case EquipmentHitType.TextInput:
+            if (!eqState.ProfileNameInput.IsActive)
+            {
+                eqState.ProfileNameInput.Activate();
+                StartTextInput(sdlWindow.Handle);
+            }
+            break;
+
+        case EquipmentHitType.ProfileSlot when hit.Slot is not null:
+            // Toggle assignment mode
+            eqState.ActiveAssignment = eqState.ActiveAssignment == hit.Slot ? null : hit.Slot;
+            appState.NeedsRedraw = true;
+            break;
+
+        case EquipmentHitType.DeviceRow when hit.DeviceIndex >= 0 && hit.DeviceIndex < eqState.DiscoveredDevices.Count:
+            if (eqState.ActiveAssignment is { } target && appState.ActiveProfile is { } profile)
+            {
+                var device = eqState.DiscoveredDevices[hit.DeviceIndex];
+                var data = profile.Data ?? ProfileData.Empty;
+
+                var newData = target switch
+                {
+                    AssignTarget.ProfileLevel { Field: "Mount" } => EquipmentActions.AssignMount(data, device.DeviceUri),
+                    AssignTarget.ProfileLevel { Field: "Guider" } => EquipmentActions.AssignGuider(data, device.DeviceUri),
+                    AssignTarget.ProfileLevel { Field: "GuiderCamera" } => EquipmentActions.AssignGuiderCamera(data, device.DeviceUri),
+                    AssignTarget.ProfileLevel { Field: "GuiderFocuser" } => EquipmentActions.AssignGuiderFocuser(data, device.DeviceUri),
+                    AssignTarget.OTALevel otaTarget => EquipmentActions.AssignDeviceToOTA(data, otaTarget.OtaIndex,
+                        device.DeviceType, device.DeviceUri),
+                    _ => data
+                };
+
+                var updated = profile.WithData(newData);
+                _ = Task.Run(async () =>
+                {
+                    await updated.SaveAsync(external, cts.Token);
+                    appState.ActiveProfile = updated;
+                    eqState.ActiveAssignment = null;
+                    appState.NeedsRedraw = true;
+                });
+            }
+            break;
+
+        case EquipmentHitType.DiscoverButton:
+            if (!eqState.IsDiscovering)
+            {
+                eqState.IsDiscovering = true;
+                appState.StatusMessage = "Discovering devices...";
+                appState.NeedsRedraw = true;
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var dm = sp.GetRequiredService<ICombinedDeviceManager>();
+                        await dm.CheckSupportAsync(cts.Token);
+                        await dm.DiscoverAsync(cts.Token);
+                        eqState.DiscoveredDevices = [.. dm.RegisteredDeviceTypes
+                            .Where(t => t is not DeviceType.Profile and not DeviceType.None)
+                            .SelectMany(dm.RegisteredDevices)
+                            .Where(d => d is not TianWen.Lib.Devices.Fake.FakeDevice)
+                            .OrderBy(d => d.DeviceType).ThenBy(d => d.DisplayName)];
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Device discovery failed");
+                        appState.StatusMessage = "Discovery failed";
+                    }
+                    finally
+                    {
+                        eqState.IsDiscovering = false;
+                        appState.StatusMessage = null;
+                        appState.NeedsRedraw = true;
+                    }
+                });
+            }
+            break;
+
+        case EquipmentHitType.AddOtaButton when appState.ActiveProfile is { } p:
+            var d = p.Data ?? ProfileData.Empty;
+            var newOta = new OTAData(
+                Name: $"Telescope #{d.OTAs.Length}",
+                FocalLength: 1000,
+                Camera: NoneDevice.Instance.DeviceUri,
+                Cover: null, Focuser: null, FilterWheel: null,
+                PreferOutwardFocus: null, OutwardIsPositive: null,
+                Aperture: null, OpticalDesign: OpticalDesign.Unknown);
+            var newD = EquipmentActions.AddOTA(d, newOta);
+            var updatedP = p.WithData(newD);
+            _ = Task.Run(async () =>
+            {
+                await updatedP.SaveAsync(external, cts.Token);
+                appState.ActiveProfile = updatedP;
+                appState.NeedsRedraw = true;
+            });
+            break;
+    }
+
+    appState.NeedsRedraw = true;
 }
 
 // --- Windows dark title bar ---

@@ -13,6 +13,7 @@ namespace TianWen.UI.Gui
     {
         private readonly VkRenderer _renderer;
         private readonly VkPlannerTab _plannerTab;
+        private readonly VkEquipmentTab _equipmentTab;
         private string? _fontPath;
         private uint _width;
         private uint _height;
@@ -22,6 +23,9 @@ namespace TianWen.UI.Gui
 
         /// <summary>Exposes the planner tab for external hit testing and scroll control.</summary>
         public VkPlannerTab PlannerTab => _plannerTab;
+
+        /// <summary>Exposes the equipment tab for external hit testing and input routing.</summary>
+        public VkEquipmentTab EquipmentTab => _equipmentTab;
 
         // Base layout constants (at 1x scale)
         private const float BaseSidebarWidth = 40f;
@@ -63,6 +67,7 @@ namespace TianWen.UI.Gui
             _width = width;
             _height = height;
             _plannerTab = new VkPlannerTab(renderer);
+            _equipmentTab = new VkEquipmentTab(renderer);
             ResolveFontPath();
         }
 
@@ -81,6 +86,14 @@ namespace TianWen.UI.Gui
             ViewerState viewerState,
             TimeProvider timeProvider)
         {
+            // Force Equipment tab when no profile exists
+            if (appState.ActiveProfile is null && appState.ActiveTab is not GuiTab.Equipment)
+            {
+                appState.ActiveTab = GuiTab.Equipment;
+            }
+
+            _equipmentTab.FrameCount++;
+
             var (contentLeft, contentTop, contentWidth, contentHeight) = GetContentArea();
 
             // Render the active tab content first (it may fill the full renderer surface)
@@ -108,7 +121,7 @@ namespace TianWen.UI.Gui
         /// Hit-tests the sidebar for a tab click.
         /// Returns the tab if (x, y) is within a tab button, otherwise null.
         /// </summary>
-        public GuiTab? HitTestSidebar(float x, float y)
+        public GuiTab? HitTestSidebar(float x, float y, GuiAppState appState)
         {
             if (x < 0 || x >= SidebarWidth)
             {
@@ -123,7 +136,13 @@ namespace TianWen.UI.Gui
                 var btnY = startY + i * buttonSize;
                 if (y >= btnY && y < btnY + buttonSize)
                 {
-                    return SidebarTabs[i].Tab;
+                    var tab = SidebarTabs[i].Tab;
+                    // When no profile, only Equipment tab is clickable
+                    if (appState.ActiveProfile is null && tab is not GuiTab.Equipment)
+                    {
+                        return null;
+                    }
+                    return tab;
                 }
             }
 
@@ -152,12 +171,15 @@ namespace TianWen.UI.Gui
             var mouseX = appState.MouseScreenPosition.X;
             var mouseY = appState.MouseScreenPosition.Y;
 
+            var noProfile = appState.ActiveProfile is null;
+
             for (var i = 0; i < SidebarTabs.Length; i++)
             {
                 var (icon, tab) = SidebarTabs[i];
                 var btnY = startY + i * buttonSize;
                 var isActive = appState.ActiveTab == tab;
-                var isHover = mouseX >= 0 && mouseX < sw
+                var isLocked = noProfile && tab is not GuiTab.Equipment;
+                var isHover = !isLocked && mouseX >= 0 && mouseX < sw
                            && mouseY >= btnY && mouseY < btnY + buttonSize;
 
                 var bgColor = isActive ? ActiveTabBg
@@ -166,7 +188,9 @@ namespace TianWen.UI.Gui
 
                 FillRect(0, btnY, sw, buttonSize, bgColor);
 
-                var textColor = isActive ? ActiveIcon : IconColor;
+                var textColor = isLocked ? new RGBAColor32(0x44, 0x44, 0x50, 0xff)
+                              : isActive ? ActiveIcon
+                                         : IconColor;
                 DrawText(icon.AsSpan(), 0, btnY, sw, buttonSize, FontSize, textColor,
                     TextAlign.Center, TextAlign.Center);
             }
@@ -234,6 +258,11 @@ namespace TianWen.UI.Gui
                 case GuiTab.Planner:
                     _plannerTab.Render(plannerState, left, top, width, height, DpiScale,
                         _fontPath ?? "monospace", timeProvider);
+                    break;
+
+                case GuiTab.Equipment:
+                    _equipmentTab.Render(appState, left, top, width, height, DpiScale,
+                        _fontPath ?? "monospace");
                     break;
 
                 default:
