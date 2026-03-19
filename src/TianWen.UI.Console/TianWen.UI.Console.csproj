@@ -1,13 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <OutputType>WinExe</OutputType>
+    <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PublishAot>true</PublishAot>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <PropertyGroup Condition=" '$(Version)' == '' ">
@@ -18,13 +16,13 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="SDL3-CS" />
-    <PackageReference Include="SDL3-CS.Native" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Console.Lib" />
+    <PackageReference Include="DIR.Lib" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\TianWen.UI.Vulkan\TianWen.UI.Vulkan.csproj" />
+    <ProjectReference Include="..\TianWen.UI.Abstractions\TianWen.UI.Abstractions.csproj" />
+    <ProjectReference Include="..\TianWen.Lib\TianWen.Lib.csproj" />
   </ItemGroup>
 
 </Project>

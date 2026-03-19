@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using ImageMagick;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
 
@@ -109,16 +108,16 @@ public static class InfoPanelData
             if (info.Values.Length == 1)
             {
                 var v = info.Values[0];
-                lines.Add($"Val: {v:F4} ({v * Quantum.Max:F0})");
+                lines.Add($"Val: {v:F4} ({v * 65535.0:F0})");
             }
             else if (info.Values.Length >= 3)
             {
                 var r = info.Values[0];
                 var g = info.Values[1];
                 var b = info.Values[2];
-                lines.Add($"R: {r:F4} ({r * Quantum.Max:F0})");
-                lines.Add($"G: {g:F4} ({g * Quantum.Max:F0})");
-                lines.Add($"B: {b:F4} ({b * Quantum.Max:F0})");
+                lines.Add($"R: {r:F4} ({r * 65535.0:F0})");
+                lines.Add($"G: {g:F4} ({g * 65535.0:F0})");
+                lines.Add($"B: {b:F4} ({b * 65535.0:F0})");
             }
             if (info.RA.HasValue && info.Dec.HasValue)
             {
