@@ -71,6 +71,13 @@ public static class AltitudeChartRenderer
         var w = (int)renderer.Width;
         var h = (int)renderer.Height;
 
+        // Guard: no data loaded yet (AstroDark is default = 0001-01-01)
+        if (state.AstroDark == default)
+        {
+            FillRect(renderer, 0, 0, w, h, BackgroundColor);
+            return;
+        }
+
         // --- Layout (proportional to renderer size) ---
         var xMargin     = Math.Max(60, w / 14);
         var yMarginTop  = Math.Max(36, h / 22);
