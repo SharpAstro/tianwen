@@ -80,6 +80,7 @@ var implicitPathArg = new Argument<string?>("path")
     Arity = ArgumentArity.ZeroOrOne
 };
 
+var profileSelector = new ProfileSelector(consoleHost, selectedProfileOption);
 var viewSubCommand = new ViewSubCommand(consoleHost, viewerState, documentCache, interactiveOption);
 
 var rootCommand = new RootCommand
@@ -91,7 +92,7 @@ var rootCommand = new RootCommand
         new ProfileSubCommand(consoleHost, selectedProfileOption).Build(),
         new DeviceSubCommand(consoleHost).Build(),
         viewSubCommand.Build(),
-        new PlanSubCommand(consoleHost, plannerState, services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(), selectedProfileOption, interactiveOption).Build()
+        new PlanSubCommand(consoleHost, plannerState, services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(), profileSelector, interactiveOption).Build()
     }
 };
 
