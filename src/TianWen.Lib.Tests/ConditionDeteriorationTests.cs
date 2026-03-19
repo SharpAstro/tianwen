@@ -43,13 +43,13 @@ public sealed class ConditionDeteriorationTests
         var clearData = SyntheticStarFieldRenderer.Render(
             Width, Height, defocusSteps: 0, exposureSeconds: Exposure,
             starCount: 80, seed: Seed, noiseSeed: 1);
-        var clearStars = await ToImage(clearData).FindStarsAsync(0, snrMin: 5, maxStars: 200);
+        var clearStars = await ToImage(clearData).FindStarsAsync(0, snrMin: 5, maxStars: 200, cancellationToken: TestContext.Current.CancellationToken);
 
         var cloudyData = SyntheticStarFieldRenderer.Render(
             Width, Height, defocusSteps: 0, exposureSeconds: Exposure,
             starCount: 80, seed: Seed, noiseSeed: 1,
             cloudCoverage: 0.6, cloudSeed: 77);
-        var cloudyStars = await ToImage(cloudyData).FindStarsAsync(0, snrMin: 5, maxStars: 200);
+        var cloudyStars = await ToImage(cloudyData).FindStarsAsync(0, snrMin: 5, maxStars: 200, cancellationToken: TestContext.Current.CancellationToken);
 
         clearStars.Count.ShouldBeGreaterThan(10, "Clear sky should detect plenty of stars");
         cloudyStars.Count.ShouldBeLessThan(clearStars.Count,
@@ -62,13 +62,13 @@ public sealed class ConditionDeteriorationTests
         var clearData = SyntheticStarFieldRenderer.Render(
             Width, Height, defocusSteps: 0, exposureSeconds: Exposure,
             starCount: 80, seed: Seed, noiseSeed: 1);
-        var clearStars = await ToImage(clearData).FindStarsAsync(0, snrMin: 5, maxStars: 200);
+        var clearStars = await ToImage(clearData).FindStarsAsync(0, snrMin: 5, maxStars: 200, cancellationToken: TestContext.Current.CancellationToken);
 
         var overcastData = SyntheticStarFieldRenderer.Render(
             Width, Height, defocusSteps: 0, exposureSeconds: Exposure,
             starCount: 80, seed: Seed, noiseSeed: 1,
             cloudCoverage: 0.9, cloudSeed: 77);
-        var overcastStars = await ToImage(overcastData).FindStarsAsync(0, snrMin: 5, maxStars: 200);
+        var overcastStars = await ToImage(overcastData).FindStarsAsync(0, snrMin: 5, maxStars: 200, cancellationToken: TestContext.Current.CancellationToken);
 
         // 90% coverage attenuates most stars but bright ones punch through — expect significant drop
         overcastStars.Count.ShouldBeLessThan(clearStars.Count,
@@ -161,7 +161,7 @@ public sealed class ConditionDeteriorationTests
             Width, Height, defocusSteps: 0, exposureSeconds: Exposure,
             starCount: 80, seed: Seed, noiseSeed: 1,
             cloudCoverage: 0.4, cloudSeed: 77);
-        var cloudyStars = await ToImage(cloudyData).FindStarsAsync(0, snrMin: 5, maxStars: 200);
+        var cloudyStars = await ToImage(cloudyData).FindStarsAsync(0, snrMin: 5, maxStars: 200, cancellationToken: TestContext.Current.CancellationToken);
 
         cloudyStars.Count.ShouldBeGreaterThan(0,
             "Bright stars should still be visible through thin clouds");

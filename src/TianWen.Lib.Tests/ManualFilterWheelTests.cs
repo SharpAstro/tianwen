@@ -15,7 +15,7 @@ public class ManualFilterWheelTests(ITestOutputHelper output)
         var external = new FakeExternal(output);
         device.TryInstantiateDriver<IFilterWheelDriver>(external, out var driver).ShouldBeTrue();
 
-        await ((IDeviceDriver)driver!).ConnectAsync();
+        await ((IDeviceDriver)driver!).ConnectAsync(TestContext.Current.CancellationToken);
 
         driver.Connected.ShouldBeTrue();
         driver.Filters.Count.ShouldBe(1);
@@ -30,14 +30,14 @@ public class ManualFilterWheelTests(ITestOutputHelper output)
         var external = new FakeExternal(output);
         device.TryInstantiateDriver<IFilterWheelDriver>(external, out var driver).ShouldBeTrue();
 
-        await ((IDeviceDriver)driver!).ConnectAsync();
+        await ((IDeviceDriver)driver!).ConnectAsync(TestContext.Current.CancellationToken);
 
-        var position = await driver.GetPositionAsync();
+        var position = await driver.GetPositionAsync(TestContext.Current.CancellationToken);
         position.ShouldBe(0);
 
         // BeginMoveAsync is a no-op
-        await driver.BeginMoveAsync(0);
-        (await driver.GetPositionAsync()).ShouldBe(0);
+        await driver.BeginMoveAsync(0, TestContext.Current.CancellationToken);
+        (await driver.GetPositionAsync(TestContext.Current.CancellationToken)).ShouldBe(0);
     }
 
     [Fact]
@@ -47,9 +47,9 @@ public class ManualFilterWheelTests(ITestOutputHelper output)
         var external = new FakeExternal(output);
         device.TryInstantiateDriver<IFilterWheelDriver>(external, out var driver).ShouldBeTrue();
 
-        await ((IDeviceDriver)driver!).ConnectAsync();
+        await ((IDeviceDriver)driver!).ConnectAsync(TestContext.Current.CancellationToken);
 
-        var current = await driver.GetCurrentFilterAsync();
+        var current = await driver.GetCurrentFilterAsync(TestContext.Current.CancellationToken);
         current.Filter.ShouldBe(Filter.Luminance);
     }
 
