@@ -25,10 +25,17 @@ public static class PlannerActions
         ICelestialObjectDB objectDb,
         Transform transform,
         byte minHeightAboveHorizon,
-        CancellationToken ct)
+        CancellationToken ct,
+        Action<string>? onProgress = null)
     {
-        state.StatusMessage = "Computing night window...";
-        state.NeedsRedraw = true;
+        void Report(string msg)
+        {
+            state.StatusMessage = msg;
+            state.NeedsRedraw = true;
+            onProgress?.Invoke(msg);
+        }
+
+        Report("Computing night window...");
 
         var (astroDark, astroTwilight) = ObservationScheduler.CalculateNightWindow(transform);
         state.AstroDark = astroDark;
@@ -38,8 +45,7 @@ public static class PlannerActions
         // Compute twilight boundaries
         ComputeTwilightBoundaries(state, transform, astroDark, astroTwilight);
 
-        state.StatusMessage = "Scanning catalog for tonight's best targets...";
-        state.NeedsRedraw = true;
+        Report("Scanning catalog for tonight's best targets...");
 
         await objectDb.InitDBAsync(ct);
 
@@ -57,8 +63,7 @@ public static class PlannerActions
         }
 
         // Compute fine altitude profiles for the top targets
-        state.StatusMessage = "Computing altitude profiles...";
-        state.NeedsRedraw = true;
+        Report("Computing altitude profiles...");
 
         state.AltitudeProfiles.Clear();
         var targets = tonightsBest.Take(20).Select(s => s.Target).ToArray();
@@ -68,8 +73,8 @@ public static class PlannerActions
                 transform, target, state);
         }
 
+        Report("");
         state.StatusMessage = null;
-        state.NeedsRedraw = true;
     }
 
     /// <summary>

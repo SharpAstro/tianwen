@@ -46,10 +46,11 @@ internal class PlanSubCommand(
         plannerState.SiteTimeZone = transform.SiteTimeZone;
         plannerState.ActiveProfile = profile;
 
-        // Compute tonight's best
+        // Compute tonight's best — show inline progress in non-interactive mode
         await PlannerActions.ComputeTonightsBestAsync(
             plannerState, objectDb, transform,
-            plannerState.MinHeightAboveHorizon, ct);
+            plannerState.MinHeightAboveHorizon, ct,
+            onProgress: interactive ? null : msg => System.Console.Error.Write($"\r{msg.PadRight(60)}"));
 
         if (interactive)
         {
@@ -255,9 +256,12 @@ internal class PlanSubCommand(
 
             // Update status bar
             var scheduleStatus = plannerState.Schedule is { Count: > 0 } s
-                ? $"Schedule: {s.Count} obs"
+                ? $"Schedule: {s.Count} obs | R:start session"
                 : "No schedule (press S)";
-            statusBar.Text($" ↑↓:nav Enter:toggle P:priority S:schedule ?:help Q:quit");
+            var statusText = plannerState.StatusMessage is { } msg
+                ? $" {msg}"
+                : " ↑↓:nav Enter:toggle P:priority S:schedule R:session Q:quit";
+            statusBar.Text(statusText);
             statusBar.RightText($"{scheduleStatus} ");
 
             panel.RenderAll();
@@ -266,6 +270,13 @@ internal class PlanSubCommand(
 
     private bool HandleInput(ConsoleInputEvent evt, TianWen.Lib.Astrometry.SOFA.Transform transform)
     {
+        // Clear transient status message on any keypress
+        if (plannerState.StatusMessage is not null)
+        {
+            plannerState.StatusMessage = null;
+            plannerState.NeedsRedraw = true;
+        }
+
         switch (evt.Key)
         {
             case ConsoleKey.Q or ConsoleKey.Escape:
@@ -312,6 +323,20 @@ internal class PlanSubCommand(
                     defaultGain: 120, defaultOffset: 10,
                     defaultSubExposure: TimeSpan.FromSeconds(120),
                     defaultObservationTime: TimeSpan.FromMinutes(60));
+                break;
+
+            case ConsoleKey.R:
+                if (plannerState.Schedule is { Count: > 0 })
+                {
+                    // TODO: transition to session mode — create ISession from schedule and hand off
+                    plannerState.StatusMessage = "Session start not yet implemented. Schedule is ready.";
+                    plannerState.NeedsRedraw = true;
+                }
+                else
+                {
+                    plannerState.StatusMessage = "No schedule. Press S to build one first.";
+                    plannerState.NeedsRedraw = true;
+                }
                 break;
         }
 
