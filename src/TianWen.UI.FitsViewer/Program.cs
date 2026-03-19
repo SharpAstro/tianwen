@@ -1,24 +1,17 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
-using TianWen.UI.OpenGL;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
-using Silk.NET.Input;
-using Silk.NET.Input.Glfw;
-using Silk.NET.Maths;
-using Silk.NET.OpenGL;
-using Silk.NET.Windowing;
-using Silk.NET.Windowing.Glfw;
+using DIR.Lib;
+using SdlVulkan.Renderer;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Logging;
 using TianWen.UI.Abstractions;
 using TianWen.UI.Abstractions.Extensions;
+using TianWen.UI.Vulkan;
 using TianWen.Lib.Extensions;
-
-// Explicitly register GLFW platforms to avoid reflection-based discovery (AOT-incompatible).
-GlfwWindowing.RegisterPlatform();
-GlfwInput.RegisterPlatform();
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using static SDL3.SDL;
 
 // DI setup — before args processing so logger is available for early errors
 var services = new ServiceCollection();
@@ -84,525 +77,168 @@ if (initialFilePath is not null)
     state.RequestedFilePath = initialFilePath;
 }
 
-var opts = WindowOptions.Default;
-opts.Size = new Vector2D<int>(1536, 1080);
-opts.Title = document is not null
-    ? $"TianWen Image Viewer - {Path.GetFileName(initialFilePath)}"
-    : "TianWen Image Viewer";
-opts.API = new GraphicsAPI(ContextAPI.OpenGL, ContextProfile.Core, ContextFlags.ForwardCompatible, new APIVersion(3, 3));
+// --- SDL3 + Vulkan init ---
+using var sdlWindow = SdlVulkanWindow.Create("TianWen Image Viewer", 1536, 1080);
+sdlWindow.GetSizeInPixels(out var pixW, out var pixH);
 
-var window = Window.Create(opts);
+var ctx = VulkanContext.Create(sdlWindow.Instance, sdlWindow.Surface, (uint)pixW, (uint)pixH);
+var renderer = new VkRenderer(ctx, (uint)pixW, (uint)pixH);
 
-GL? gl = null;
-GlImageRenderer? renderer = null;
+// Enable dark title bar on Windows 11+
+if (OperatingSystem.IsWindows())
+{
+    EnableDarkTitleBarIfPossible(sdlWindow.Handle);
+}
+
+// Compute DPI scale from window size vs pixel size
+GetWindowSize(sdlWindow.Handle, out var logW, out var logH);
+var dpiScale = pixW > 0 && logW > 0 ? (float)pixW / logW : 1f;
+
+var imageRenderer = new VkImageRenderer(renderer, (uint)pixW, (uint)pixH)
+{
+    DpiScale = dpiScale,
+    CelestialObjectDB = celestialObjectDB
+};
+
+// Kick off DB init eagerly so it's ready when user toggles overlays
 var cts = new CancellationTokenSource();
+_ = celestialObjectDB.WithCancellation(cts.Token);
+
 Task? reprocessTask = null;
-Task? backgroundTask = null; // For non-pipeline background work (plate solve, file dialog)
+Task? backgroundTask = null;
 CancellationTokenSource? starDetectionCts = null;
 Task? starDetectionTask = null;
 
-window.FileDrop += (paths) =>
+var needsRedraw = true;
+var running = true;
+
+// Track mouse position
+var mouseX = 0f;
+var mouseY = 0f;
+
+while (running)
 {
-    // Take the first supported image file from the dropped paths
-    var imageFile = paths.FirstOrDefault(p => AstroImageDocument.IsSupportedExtension(Path.GetExtension(p)));
+    Event evt;
+    var hadEvent = needsRedraw
+        ? PollEvent(out evt)
+        : WaitEventTimeout(out evt, 16);
 
-    if (imageFile is null && paths.Length > 0 && Directory.Exists(paths[0]))
+    if (hadEvent)
     {
-        // Dropped a folder — scan it
-        ViewerActions.ScanFolder(state, paths[0]);
-        if (state.ImageFileNames.Count > 0)
+        do
         {
-            ViewerActions.SelectFile(state, 0);
-        }
-        state.NeedsRedraw = true;
-        return;
-    }
-
-    if (imageFile is null)
-    {
-        return;
-    }
-
-    var dir = Path.GetDirectoryName(imageFile);
-    if (dir is not null)
-    {
-        ViewerActions.ScanFolder(state, dir, Path.GetFileName(imageFile));
-    }
-    state.RequestedFilePath = imageFile;
-    state.NeedsRedraw = true;
-};
-
-window.Load += () =>
-{
-    // Enable dark title bar on Windows 11+
-    if (OperatingSystem.IsWindows() && window.Native?.Win32 is { } win32)
-    {
-        TianWen.UI.OpenGL.WindowHelper.EnableDarkTitleBar(win32.Hwnd);
-    }
-
-    gl = window.CreateOpenGL();
-    gl.Enable(EnableCap.Blend);
-    gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
-
-    var fbSize = window.FramebufferSize;
-    var dpiScale = (float)fbSize.X / window.Size.X;
-
-    renderer = new GlImageRenderer(gl, (uint)fbSize.X, (uint)fbSize.Y)
-    {
-        DpiScale = dpiScale,
-        CelestialObjectDB = celestialObjectDB
-    };
-    // Kick off DB init eagerly so it's ready when user toggles overlays
-    _ = celestialObjectDB.WithCancellation(cts.Token);
-
-    var input = window.CreateInput();
-
-    foreach (var kb in input.Keyboards)
-    {
-        kb.KeyDown += (keyboard, key, _) =>
-        {
-            state.NeedsRedraw = true;
-            var ctrl = keyboard.IsKeyPressed(Key.ControlLeft) || keyboard.IsKeyPressed(Key.ControlRight);
-
-            if (ctrl)
+            switch ((EventType)evt.Type)
             {
-                switch (key)
-                {
-                    case Key.Equal or Key.KeypadAdd:
-                        ViewerActions.ZoomIn(state);
-                        return;
-                    case Key.Minus or Key.KeypadSubtract:
-                        ViewerActions.ZoomOut(state);
-                        return;
-                    case Key.Number0 or Key.Keypad0:
-                        ViewerActions.ZoomToFit(state);
-                        return;
-                    case Key.Number1 or Key.Keypad1:
-                        ViewerActions.ZoomToActual(state);
-                        return;
-                    case >= Key.Number2 and <= Key.Number9:
-                        ViewerActions.ZoomTo(state, 1f / (key - Key.Number0));
-                        return;
-                    case >= Key.Keypad2 and <= Key.Keypad9:
-                        ViewerActions.ZoomTo(state, 1f / (key - Key.Keypad0));
-                        return;
-                }
-            }
+                case EventType.Quit:
+                    running = false;
+                    break;
 
-            switch (key)
-            {
-                case Key.Escape:
-                    window.Close();
-                    break;
-                case Key.F11:
-                    window.WindowState = window.WindowState == WindowState.Fullscreen
-                        ? WindowState.Normal
-                        : WindowState.Fullscreen;
-                    break;
-                case Key.T:
-                    ViewerActions.ToggleStretch(state);
-                    break;
-                case Key.S:
-                    state.ShowStarOverlay = !state.ShowStarOverlay;
-                    break;
-                case Key.C:
-                    if (document is not null)
+                case EventType.WindowResized:
+                case EventType.WindowPixelSizeChanged:
+                    sdlWindow.GetSizeInPixels(out var rw, out var rh);
+                    if (rw > 0 && rh > 0)
                     {
-                        ViewerActions.CycleChannelView(state, document.UnstretchedImage.ChannelCount);
+                        GetWindowSize(sdlWindow.Handle, out var rlw, out var rlh);
+                        dpiScale = rlw > 0 ? (float)rw / rlw : 1f;
+                        renderer.Resize((uint)rw, (uint)rh);
+                        imageRenderer.DpiScale = dpiScale;
+                        imageRenderer.Resize((uint)rw, (uint)rh);
                     }
+                    needsRedraw = true;
                     break;
-                case Key.D:
-                    ViewerActions.CycleDebayerAlgorithm(state);
+
+                case EventType.WindowExposed:
+                    needsRedraw = true;
                     break;
-                case Key.I:
-                    state.ShowInfoPanel = !state.ShowInfoPanel;
+
+                case EventType.KeyDown:
+                    needsRedraw = true;
+                    HandleKeyDown(evt.Key.Scancode, evt.Key.Mod);
                     break;
-                case Key.L:
-                    state.ShowFileList = !state.ShowFileList;
+
+                case EventType.MouseMotion:
+                    needsRedraw = true;
+                    HandleMouseMove(evt.Motion.X * dpiScale, evt.Motion.Y * dpiScale);
                     break;
-                case Key.Equal or Key.KeypadAdd:
-                    ViewerActions.CycleStretchPreset(state);
+
+                case EventType.MouseButtonDown:
+                    needsRedraw = true;
+                    HandleMouseDown(evt.Button.Button, evt.Button.X * dpiScale, evt.Button.Y * dpiScale);
                     break;
-                case Key.Minus or Key.KeypadSubtract:
-                    ViewerActions.CycleStretchPreset(state, reverse: true);
+
+                case EventType.MouseButtonUp:
+                    needsRedraw = true;
+                    HandleMouseUp(evt.Button.Button);
                     break;
-                case Key.B:
-                    ViewerActions.CycleCurvesBoost(state);
+
+                case EventType.MouseWheel:
+                    needsRedraw = true;
+                    HandleMouseWheel(evt.Wheel.Y);
                     break;
-                case Key.G:
-                    state.ShowGrid = !state.ShowGrid;
-                    break;
-                case Key.O:
-                    state.ShowOverlays = !state.ShowOverlays;
-                    state.NeedsRedraw = true;
-                    break;
-                case Key.H:
-                    ViewerActions.CycleHdr(state);
-                    break;
-                case Key.V:
-                    var shift = keyboard.IsKeyPressed(Key.ShiftLeft) || keyboard.IsKeyPressed(Key.ShiftRight);
-                    if (shift)
-                    {
-                        state.HistogramLogScale = !state.HistogramLogScale;
-                    }
-                    else
-                    {
-                        state.ShowHistogram = !state.ShowHistogram;
-                    }
-                    break;
-                case Key.P:
-                    if (document is not null && !state.IsPlateSolving && !document.IsPlateSolved)
-                    {
-                        var factory = sp.GetRequiredService<TianWen.Lib.Astrometry.PlateSolve.IPlateSolverFactory>();
-                        backgroundTask = ViewerActions.PlateSolveAsync(document, state, factory, cts.Token);
-                    }
-                    break;
-                case Key.F:
-                    ViewerActions.ZoomToFit(state);
-                    break;
-                case Key.R:
-                    ViewerActions.ZoomToActual(state);
-                    break;
-                case Key.Up:
-                    if (state.SelectedFileIndex > 0)
-                    {
-                        ViewerActions.SelectFile(state, state.SelectedFileIndex - 1);
-                    }
-                    break;
-                case Key.Down:
-                    if (state.SelectedFileIndex < state.ImageFileNames.Count - 1)
-                    {
-                        ViewerActions.SelectFile(state, state.SelectedFileIndex + 1);
-                    }
+
+                case EventType.DropFile:
+                    needsRedraw = true;
+                    HandleFileDrop(Marshal.PtrToStringUTF8(evt.Drop.Data));
                     break;
             }
-        };
+        } while (PollEvent(out evt));
     }
 
-    foreach (var mouse in input.Mice)
+    // Check if background tasks completed
+    if (state.NeedsRedraw || state.NeedsTextureUpdate || state.RequestedFilePath is not null
+        || (reprocessTask is not null && !reprocessTask.IsCompleted))
     {
-        mouse.MouseMove += (m, pos) =>
-        {
-            if (renderer is null)
-            {
-                return;
-            }
-
-            state.NeedsRedraw = true;
-            // Silk.NET mouse coords are in logical pixels; scale to framebuffer pixels
-            var px = pos.X * renderer.DpiScale;
-            var py = pos.Y * renderer.DpiScale;
-            state.MouseScreenPosition = (px, py);
-
-            // Handle panning (middle mouse drag)
-            if (state.IsPanning)
-            {
-                var dx = px - state.PanStart.X;
-                var dy = py - state.PanStart.Y;
-                state.PanOffset = (state.PanOffset.X + dx, state.PanOffset.Y + dy);
-                state.PanStart = (px, py);
-            }
-
-            if (document?.UnstretchedImage is { } image)
-            {
-                // Convert screen position to image coordinates
-                var (areaW, areaH) = renderer.GetImageAreaSize(state);
-                var fileListW = state.ShowFileList ? renderer.ScaledFileListWidth : 0;
-                var toolbarH = renderer.ScaledToolbarHeight;
-
-                var scale = state.Zoom;
-                var drawW = image.Width * scale;
-                var drawH = image.Height * scale;
-                var offsetX = fileListW + (areaW - drawW) / 2f + state.PanOffset.X;
-                var offsetY = toolbarH + (areaH - drawH) / 2f + state.PanOffset.Y;
-
-                var imgX = (int)((px - offsetX) / scale);
-                var imgY = (int)((py - offsetY) / scale);
-
-                if (imgX >= 0 && imgX < image.Width && imgY >= 0 && imgY < image.Height)
-                {
-                    ViewerActions.UpdateCursorInfo(document, state, imgX, imgY);
-                }
-                else
-                {
-                    state.CursorImagePosition = null;
-                    state.CursorPixelInfo = null;
-                }
-            }
-        };
-
-        mouse.MouseDown += (m, button) =>
-        {
-            if (renderer is null)
-            {
-                return;
-            }
-
-            state.NeedsRedraw = true;
-            var pos = state.MouseScreenPosition;
-
-            if (button == MouseButton.Left)
-            {
-                // Toolbar hit test
-                var toolbarAction = renderer.HitTestToolbar(pos.X, pos.Y, document, state);
-                if (toolbarAction.HasValue)
-                {
-                    HandleToolbarAction(toolbarAction.Value);
-                    return;
-                }
-
-                // Histogram LOG button hit test
-                if (renderer.HitTestHistogramLog(pos.X, pos.Y, state))
-                {
-                    state.HistogramLogScale = !state.HistogramLogScale;
-                    return;
-                }
-
-                // File list hit test
-                var fileIndex = renderer.HitTestFileList(pos.X, pos.Y, state);
-                if (fileIndex >= 0)
-                {
-                    ViewerActions.SelectFile(state, fileIndex);
-                    return;
-                }
-            }
-
-            if (button == MouseButton.Right)
-            {
-                // Right-click on toolbar cycles backward
-                var toolbarAction = renderer.HitTestToolbar(pos.X, pos.Y, document, state);
-                if (toolbarAction.HasValue)
-                {
-                    HandleToolbarAction(toolbarAction.Value, reverse: true);
-                    return;
-                }
-            }
-
-            // Left or middle mouse button starts panning
-            if (button is MouseButton.Left or MouseButton.Middle)
-            {
-                state.IsPanning = true;
-                state.PanStart = pos;
-            }
-        };
-
-        mouse.MouseUp += (m, button) =>
-        {
-            state.NeedsRedraw = true;
-            if (button is MouseButton.Left or MouseButton.Middle)
-            {
-                state.IsPanning = false;
-            }
-        };
-
-        mouse.Scroll += (m, scroll) =>
-        {
-            if (renderer is null)
-            {
-                return;
-            }
-            state.NeedsRedraw = true;
-            var pos = state.MouseScreenPosition;
-
-            // Scroll file list when hovering over it
-            if (state.ShowFileList && pos.X >= 0 && pos.X < renderer.ScaledFileListWidth && pos.Y > renderer.ScaledToolbarHeight)
-            {
-                ViewerActions.ScrollFileList(state, -(int)scroll.Y * 3);
-                return;
-            }
-
-            // Zoom: Ctrl+scroll anywhere, or bare scroll inside the image viewport
-            var kb = input.Keyboards.Count > 0 ? input.Keyboards[0] : null;
-            var ctrlHeld = kb is not null && (kb.IsKeyPressed(Key.ControlLeft) || kb.IsKeyPressed(Key.ControlRight));
-            var fileListW = state.ShowFileList ? renderer.ScaledFileListWidth : 0;
-            var toolbarH = renderer.ScaledToolbarHeight;
-            var (areaW, areaH) = renderer.GetImageAreaSize(state);
-            var inImageViewport = pos.X >= fileListW && pos.X < fileListW + areaW
-                               && pos.Y >= toolbarH && pos.Y < toolbarH + areaH;
-
-            if (ctrlHeld || inImageViewport)
-            {
-                var zoomFactor = scroll.Y > 0 ? 1.15f : 1f / 1.15f;
-                var oldZoom = state.Zoom;
-                var newZoom = MathF.Max(0.01f, oldZoom * zoomFactor);
-
-                // Adjust pan so the point under the cursor stays fixed
-                var cx = pos.X - fileListW - areaW / 2f - state.PanOffset.X;
-                var cy = pos.Y - toolbarH - areaH / 2f - state.PanOffset.Y;
-
-                state.PanOffset = (
-                    state.PanOffset.X - cx * (newZoom / oldZoom - 1f),
-                    state.PanOffset.Y - cy * (newZoom / oldZoom - 1f)
-                );
-
-                state.ZoomToFit = false;
-                state.Zoom = newZoom;
-                return;
-            }
-        };
+        needsRedraw = true;
     }
 
-    // Initial texture upload
-    state.NeedsTextureUpdate = true;
-};
-
-window.Resize += (size) =>
-{
-    if (renderer is not null)
+    if (!needsRedraw)
     {
-        var fb = window.FramebufferSize;
-        renderer.DpiScale = (float)fb.X / size.X;
-        renderer.Resize((uint)fb.X, (uint)fb.Y);
+        continue;
     }
-    state.NeedsRedraw = true;
-};
-
-window.Render += (_) =>
-{
-    if (renderer is null)
-    {
-        return;
-    }
+    needsRedraw = false;
 
     // Handle file switch request (load on background thread)
-    if (state.RequestedFilePath is { } requestedPath && (reprocessTask is null || reprocessTask.IsCompleted))
-    {
-        state.RequestedFilePath = null;
-        state.StatusMessage = $"Loading {Path.GetFileName(requestedPath)}...";
-        // Cancel any in-progress star detection from previous image
-        starDetectionCts?.Cancel();
-        starDetectionCts?.Dispose();
-        starDetectionCts = null;
-        var debayerAlgorithm = state.DebayerAlgorithm;
-        reprocessTask = Task.Run(async () =>
-        {
-            var newDoc = await documentCache.GetOrLoadAsync(requestedPath, debayerAlgorithm, cts.Token);
-            if (newDoc is not null)
-            {
-                document = newDoc;
-                state.NeedsTextureUpdate = true;
-                state.CursorImagePosition = null;
-                state.CursorPixelInfo = null;
-                state.StatusMessage = null;
+    HandleFileRequest();
 
-                // Disable stretch for pre-stretched images, re-enable for linear images
-                state.StretchMode = newDoc.IsPreStretched ? StretchMode.None : StretchMode.Unlinked;
-                state.HistogramLogScale = state.StretchMode is StretchMode.None;
-
-                if (newDoc.Wcs is { } wcs)
-                {
-                    logger.LogInformation("WCS: HasCD={HasCDMatrix}, Approx={IsApproximate}, Scale={PixelScale:F2}\"/px, RA={CenterRA:F4}h, Dec={CenterDec:F4}°",
-                        wcs.HasCDMatrix, wcs.IsApproximate, wcs.PixelScaleArcsec, wcs.CenterRA, wcs.CenterDec);
-                }
-
-                // Kick off star detection in the background
-                var sdCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
-                starDetectionCts = sdCts;
-                starDetectionTask = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await newDoc.DetectStarsAsync(sdCts.Token);
-                        logger.LogInformation("Detected {StarCount} stars in {Duration:F1}s (HFR={HFR:F2}, FWHM={FWHM:F2})",
-                            newDoc.Stars?.Count ?? 0, newDoc.StarDetectionDuration.TotalSeconds, newDoc.AverageHFR, newDoc.AverageFWHM);
-                        state.NeedsRedraw = true;
-                    }
-                    catch (OperationCanceledException) { }
-                    catch (Exception ex)
-                    {
-                        logger.LogWarning(ex, "Star detection failed");
-                        newDoc.Stars = StarList.Empty;
-                        state.StatusMessage = "Star detection failed";
-                        state.NeedsRedraw = true;
-                    }
-                }, sdCts.Token);
-            }
-            else
-            {
-                logger.LogWarning("Failed to open image file: {FilePath}", requestedPath);
-                state.StatusMessage = $"Failed to open: {Path.GetFileName(requestedPath)}";
-            }
-        }, cts.Token);
-        // Update title immediately
-        window.Title = $"TianWen Image Viewer - {Path.GetFileName(requestedPath)}";
-    }
-
-    // Handle reprocess flag (just triggers texture re-upload, stretch is done in shader)
+    // Handle reprocess flag
     if (state.NeedsReprocess)
     {
         ViewerActions.Reprocess(state);
     }
 
-    // Upload texture when needed (pixel extraction on background, GL upload on render thread)
-    if (document is not null && state.NeedsTextureUpdate)
-    {
-        state.NeedsTextureUpdate = false;
-        state.StatusMessage = "Preparing display...";
-        var doc = document;
-        var channelView = state.ChannelView;
+    // Upload textures when needed
+    HandleTextureUpload();
 
-        var image = doc.UnstretchedImage;
-        var pixelWidth = image.Width;
-        var pixelHeight = image.Height;
-        if (channelView is ChannelView.Composite && image.ChannelCount >= 3)
+    // --- Render frame ---
+    var bgColor = new RGBAColor32(0x1a, 0x1a, 0x1a, 0xff);
+    if (!renderer.BeginFrame(bgColor))
+    {
+        sdlWindow.GetSizeInPixels(out var sw, out var sh);
+        if (sw > 0 && sh > 0)
         {
-            renderer.ChannelTextureCount = 3; // RGB
-
-            for (var i = 0; i < 3; i++)
-            {
-                renderer.UploadChannelTexture(image.GetChannelSpan(i), i, pixelWidth, pixelHeight);
-            }
+            renderer.Resize((uint)sw, (uint)sh);
+            imageRenderer.Resize((uint)sw, (uint)sh);
         }
-        else
-        {
-            renderer.ChannelTextureCount = 1;
-
-            var channelIndex = channelView switch {
-                ChannelView.Composite or ChannelView.Channel0 or ChannelView.Red => 0,
-                ChannelView.Channel1 or ChannelView.Green => Math.Min(1, image.ChannelCount - 1),
-                ChannelView.Channel2 or ChannelView.Blue => Math.Min(2, image.ChannelCount - 1),
-                var cv => throw new InvalidOperationException($"Invalid channel view {cv}")
-            };
-
-            renderer.UploadChannelTexture(image.GetChannelSpan(channelIndex), 0, pixelWidth, pixelHeight);
-        }
-
-        renderer.UploadHistogramData(doc);
-        state.StatusMessage = null;
+        needsRedraw = true;
+        continue;
     }
 
-    renderer.Render(document, state);
-};
+    imageRenderer.Render(document, state);
 
-window.Closing += () =>
-{
-    cts.Cancel();
-    renderer?.Dispose();
-    renderer = null;
-};
+    renderer.EndFrame();
 
-window.Initialize();
-
-while (!window.IsClosing)
-{
-    window.DoEvents();
-    window.DoUpdate();
-
-    if (state.NeedsRedraw || state.NeedsTextureUpdate
-        || state.RequestedFilePath is not null
-        || (reprocessTask is not null && !reprocessTask.IsCompleted))
+    if (renderer.FontAtlasDirty)
     {
-        window.DoRender();
-        state.NeedsRedraw = false;
+        needsRedraw = true;
     }
-    else
-    {
-        Thread.Sleep(16); // ~60fps idle polling
-    }
+    state.NeedsRedraw = false;
 }
 
-window.DoEvents();
-window.Reset();
+// Cleanup
+cts.Cancel();
+imageRenderer.Dispose();
+renderer.Dispose();
+ctx.Dispose();
 
 if (reprocessTask is not null)
 {
@@ -615,12 +251,408 @@ if (backgroundTask is not null)
 
 return 0;
 
+// --- Event handlers ---
+
+void HandleKeyDown(Scancode scancode, Keymod keymod)
+{
+    var ctrl = (keymod & Keymod.Ctrl) != 0;
+    var shift = (keymod & Keymod.Shift) != 0;
+
+    if (ctrl)
+    {
+        switch (scancode)
+        {
+            case Scancode.Equals:
+                ViewerActions.ZoomIn(state);
+                return;
+            case Scancode.Minus:
+                ViewerActions.ZoomOut(state);
+                return;
+            case Scancode.Alpha0:
+                ViewerActions.ZoomToFit(state);
+                return;
+            case Scancode.Alpha1:
+                ViewerActions.ZoomToActual(state);
+                return;
+            case >= Scancode.Alpha2 and <= Scancode.Alpha9:
+                ViewerActions.ZoomTo(state, 1f / (scancode - Scancode.Alpha0));
+                return;
+        }
+    }
+
+    switch (scancode)
+    {
+        case Scancode.Escape:
+            running = false;
+            break;
+        case Scancode.F11:
+            sdlWindow.ToggleFullscreen();
+            break;
+        case Scancode.T:
+            ViewerActions.ToggleStretch(state);
+            break;
+        case Scancode.S:
+            state.ShowStarOverlay = !state.ShowStarOverlay;
+            break;
+        case Scancode.C:
+            if (document is not null)
+            {
+                ViewerActions.CycleChannelView(state, document.UnstretchedImage.ChannelCount);
+            }
+            break;
+        case Scancode.D:
+            ViewerActions.CycleDebayerAlgorithm(state);
+            break;
+        case Scancode.I:
+            state.ShowInfoPanel = !state.ShowInfoPanel;
+            break;
+        case Scancode.L:
+            state.ShowFileList = !state.ShowFileList;
+            break;
+        case Scancode.Equals:
+            ViewerActions.CycleStretchPreset(state);
+            break;
+        case Scancode.Minus:
+            ViewerActions.CycleStretchPreset(state, reverse: true);
+            break;
+        case Scancode.B:
+            ViewerActions.CycleCurvesBoost(state);
+            break;
+        case Scancode.G:
+            state.ShowGrid = !state.ShowGrid;
+            break;
+        case Scancode.O:
+            state.ShowOverlays = !state.ShowOverlays;
+            state.NeedsRedraw = true;
+            break;
+        case Scancode.H:
+            ViewerActions.CycleHdr(state);
+            break;
+        case Scancode.V:
+            if (shift)
+            {
+                state.HistogramLogScale = !state.HistogramLogScale;
+            }
+            else
+            {
+                state.ShowHistogram = !state.ShowHistogram;
+            }
+            break;
+        case Scancode.P:
+            if (document is not null && !state.IsPlateSolving && !document.IsPlateSolved)
+            {
+                var factory = sp.GetRequiredService<TianWen.Lib.Astrometry.PlateSolve.IPlateSolverFactory>();
+                backgroundTask = ViewerActions.PlateSolveAsync(document, state, factory, cts.Token);
+            }
+            break;
+        case Scancode.F:
+            ViewerActions.ZoomToFit(state);
+            break;
+        case Scancode.R:
+            ViewerActions.ZoomToActual(state);
+            break;
+        case Scancode.Up:
+            if (state.SelectedFileIndex > 0)
+            {
+                ViewerActions.SelectFile(state, state.SelectedFileIndex - 1);
+            }
+            break;
+        case Scancode.Down:
+            if (state.SelectedFileIndex < state.ImageFileNames.Count - 1)
+            {
+                ViewerActions.SelectFile(state, state.SelectedFileIndex + 1);
+            }
+            break;
+    }
+}
+
+void HandleMouseMove(float px, float py)
+{
+    mouseX = px;
+    mouseY = py;
+    state.MouseScreenPosition = (px, py);
+
+    // Handle panning
+    if (state.IsPanning)
+    {
+        var dx = px - state.PanStart.X;
+        var dy = py - state.PanStart.Y;
+        state.PanOffset = (state.PanOffset.X + dx, state.PanOffset.Y + dy);
+        state.PanStart = (px, py);
+    }
+
+    if (document?.UnstretchedImage is { } image)
+    {
+        // Convert screen position to image coordinates
+        var (areaW, areaH) = imageRenderer.GetImageAreaSize(state);
+        var fileListW = state.ShowFileList ? imageRenderer.ScaledFileListWidth : 0;
+        var toolbarH = imageRenderer.ScaledToolbarHeight;
+
+        var scale = state.Zoom;
+        var drawW = image.Width * scale;
+        var drawH = image.Height * scale;
+        var offsetX = fileListW + (areaW - drawW) / 2f + state.PanOffset.X;
+        var offsetY = toolbarH + (areaH - drawH) / 2f + state.PanOffset.Y;
+
+        var imgX = (int)((px - offsetX) / scale);
+        var imgY = (int)((py - offsetY) / scale);
+
+        if (imgX >= 0 && imgX < image.Width && imgY >= 0 && imgY < image.Height)
+        {
+            ViewerActions.UpdateCursorInfo(document, state, imgX, imgY);
+        }
+        else
+        {
+            state.CursorImagePosition = null;
+            state.CursorPixelInfo = null;
+        }
+    }
+}
+
+void HandleMouseDown(byte button, float px, float py)
+{
+    mouseX = px;
+    mouseY = py;
+    state.MouseScreenPosition = (px, py);
+
+    if (button == 1) // Left
+    {
+        // Toolbar hit test
+        var toolbarAction = imageRenderer.HitTestToolbar(px, py, document, state);
+        if (toolbarAction.HasValue)
+        {
+            HandleToolbarAction(toolbarAction.Value);
+            return;
+        }
+
+        // Histogram LOG button hit test
+        if (imageRenderer.HitTestHistogramLog(px, py, state))
+        {
+            state.HistogramLogScale = !state.HistogramLogScale;
+            return;
+        }
+
+        // File list hit test
+        var fileIndex = imageRenderer.HitTestFileList(px, py, state);
+        if (fileIndex >= 0)
+        {
+            ViewerActions.SelectFile(state, fileIndex);
+            return;
+        }
+    }
+
+    if (button == 3) // Right
+    {
+        var toolbarAction = imageRenderer.HitTestToolbar(px, py, document, state);
+        if (toolbarAction.HasValue)
+        {
+            HandleToolbarAction(toolbarAction.Value, reverse: true);
+            return;
+        }
+    }
+
+    // Left or middle mouse button starts panning
+    if (button is 1 or 2) // SDL: 1=left, 2=middle, 3=right
+    {
+        state.IsPanning = true;
+        state.PanStart = (px, py);
+    }
+}
+
+void HandleMouseUp(byte button)
+{
+    if (button is 1 or 2)
+    {
+        state.IsPanning = false;
+    }
+}
+
+void HandleMouseWheel(float scrollY)
+{
+    var pos = state.MouseScreenPosition;
+
+    // Scroll file list when hovering over it
+    if (state.ShowFileList && pos.X >= 0 && pos.X < imageRenderer.ScaledFileListWidth && pos.Y > imageRenderer.ScaledToolbarHeight)
+    {
+        ViewerActions.ScrollFileList(state, -(int)scrollY * 3);
+        return;
+    }
+
+    // Zoom: Ctrl+scroll anywhere, or bare scroll inside the image viewport
+    var modState = GetModState();
+    var ctrlHeld = (modState & Keymod.Ctrl) != 0;
+    var fileListW = state.ShowFileList ? imageRenderer.ScaledFileListWidth : 0;
+    var toolbarH = imageRenderer.ScaledToolbarHeight;
+    var (areaW, areaH) = imageRenderer.GetImageAreaSize(state);
+    var inImageViewport = pos.X >= fileListW && pos.X < fileListW + areaW
+                       && pos.Y >= toolbarH && pos.Y < toolbarH + areaH;
+
+    if (ctrlHeld || inImageViewport)
+    {
+        var zoomFactor = scrollY > 0 ? 1.15f : 1f / 1.15f;
+        var oldZoom = state.Zoom;
+        var newZoom = MathF.Max(0.01f, oldZoom * zoomFactor);
+
+        // Adjust pan so the point under the cursor stays fixed
+        var cx = pos.X - fileListW - areaW / 2f - state.PanOffset.X;
+        var cy = pos.Y - toolbarH - areaH / 2f - state.PanOffset.Y;
+
+        state.PanOffset = (
+            state.PanOffset.X - cx * (newZoom / oldZoom - 1f),
+            state.PanOffset.Y - cy * (newZoom / oldZoom - 1f)
+        );
+
+        state.ZoomToFit = false;
+        state.Zoom = newZoom;
+    }
+}
+
+void HandleFileDrop(string? path)
+{
+    if (path is null)
+    {
+        return;
+    }
+
+    if (Directory.Exists(path))
+    {
+        ViewerActions.ScanFolder(state, path);
+        if (state.ImageFileNames.Count > 0)
+        {
+            ViewerActions.SelectFile(state, 0);
+        }
+        state.NeedsRedraw = true;
+        return;
+    }
+
+    if (File.Exists(path) && AstroImageDocument.IsSupportedExtension(Path.GetExtension(path)))
+    {
+        var dir = Path.GetDirectoryName(path);
+        if (dir is not null)
+        {
+            ViewerActions.ScanFolder(state, dir, Path.GetFileName(path));
+        }
+        state.RequestedFilePath = path;
+        state.NeedsRedraw = true;
+    }
+}
+
+void HandleFileRequest()
+{
+    if (state.RequestedFilePath is not { } requestedPath || (reprocessTask is not null && !reprocessTask.IsCompleted))
+    {
+        return;
+    }
+
+    state.RequestedFilePath = null;
+    state.StatusMessage = $"Loading {Path.GetFileName(requestedPath)}...";
+    // Cancel any in-progress star detection from previous image
+    starDetectionCts?.Cancel();
+    starDetectionCts?.Dispose();
+    starDetectionCts = null;
+    var debayerAlgorithm = state.DebayerAlgorithm;
+    reprocessTask = Task.Run(async () =>
+    {
+        var newDoc = await documentCache.GetOrLoadAsync(requestedPath, debayerAlgorithm, cts.Token);
+        if (newDoc is not null)
+        {
+            document = newDoc;
+            state.NeedsTextureUpdate = true;
+            state.CursorImagePosition = null;
+            state.CursorPixelInfo = null;
+            state.StatusMessage = null;
+
+            // Disable stretch for pre-stretched images, re-enable for linear images
+            state.StretchMode = newDoc.IsPreStretched ? StretchMode.None : StretchMode.Unlinked;
+            state.HistogramLogScale = state.StretchMode is StretchMode.None;
+
+            if (newDoc.Wcs is { } wcs)
+            {
+                logger.LogInformation("WCS: HasCD={HasCDMatrix}, Approx={IsApproximate}, Scale={PixelScale:F2}\"/px, RA={CenterRA:F4}h, Dec={CenterDec:F4}°",
+                    wcs.HasCDMatrix, wcs.IsApproximate, wcs.PixelScaleArcsec, wcs.CenterRA, wcs.CenterDec);
+            }
+
+            // Kick off star detection in the background
+            var sdCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
+            starDetectionCts = sdCts;
+            starDetectionTask = Task.Run(async () =>
+            {
+                try
+                {
+                    await newDoc.DetectStarsAsync(sdCts.Token);
+                    logger.LogInformation("Detected {StarCount} stars in {Duration:F1}s (HFR={HFR:F2}, FWHM={FWHM:F2})",
+                        newDoc.Stars?.Count ?? 0, newDoc.StarDetectionDuration.TotalSeconds, newDoc.AverageHFR, newDoc.AverageFWHM);
+                    state.NeedsRedraw = true;
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Star detection failed");
+                    newDoc.Stars = StarList.Empty;
+                    state.StatusMessage = "Star detection failed";
+                    state.NeedsRedraw = true;
+                }
+            }, sdCts.Token);
+        }
+        else
+        {
+            logger.LogWarning("Failed to open image file: {FilePath}", requestedPath);
+            state.StatusMessage = $"Failed to open: {Path.GetFileName(requestedPath)}";
+        }
+    }, cts.Token);
+
+    // Update title immediately
+    SetWindowTitle(sdlWindow.Handle, $"TianWen Image Viewer - {Path.GetFileName(requestedPath)}");
+}
+
+void HandleTextureUpload()
+{
+    if (document is null || !state.NeedsTextureUpdate)
+    {
+        return;
+    }
+
+    state.NeedsTextureUpdate = false;
+    state.StatusMessage = "Preparing display...";
+    var doc = document;
+    var channelView = state.ChannelView;
+
+    var image = doc.UnstretchedImage;
+    var pixelWidth = image.Width;
+    var pixelHeight = image.Height;
+    if (channelView is ChannelView.Composite && image.ChannelCount >= 3)
+    {
+        imageRenderer.ChannelTextureCount = 3;
+
+        for (var i = 0; i < 3; i++)
+        {
+            imageRenderer.UploadChannelTexture(image.GetChannelSpan(i), i, pixelWidth, pixelHeight);
+        }
+    }
+    else
+    {
+        imageRenderer.ChannelTextureCount = 1;
+
+        var channelIndex = channelView switch
+        {
+            ChannelView.Composite or ChannelView.Channel0 or ChannelView.Red => 0,
+            ChannelView.Channel1 or ChannelView.Green => Math.Min(1, image.ChannelCount - 1),
+            ChannelView.Channel2 or ChannelView.Blue => Math.Min(2, image.ChannelCount - 1),
+            var cv => throw new InvalidOperationException($"Invalid channel view {cv}")
+        };
+
+        imageRenderer.UploadChannelTexture(image.GetChannelSpan(channelIndex), 0, pixelWidth, pixelHeight);
+    }
+
+    imageRenderer.UploadHistogramData(doc);
+    state.StatusMessage = null;
+}
+
 void HandleToolbarAction(ToolbarAction action, bool reverse = false)
 {
     switch (action)
     {
         case ToolbarAction.Open:
-            // Run dialog on a background thread to avoid blocking the render loop
             state.StatusMessage = "Opening file dialog...";
             backgroundTask = Task.Run(async () =>
             {
@@ -701,5 +733,19 @@ void HandleToolbarAction(ToolbarAction action, bool reverse = false)
                 backgroundTask = ViewerActions.PlateSolveAsync(document, state, factory, cts.Token);
             }
             break;
+    }
+}
+
+// --- Windows dark title bar ---
+
+[SupportedOSPlatform("windows")]
+static void EnableDarkTitleBarIfPossible(nint sdlWindowHandle)
+{
+    // Get the HWND from SDL window
+    var props = GetWindowProperties(sdlWindowHandle);
+    var hwnd = GetPointerProperty(props, Props.WindowWin32HWNDPointer, nint.Zero);
+    if (hwnd != nint.Zero)
+    {
+        WindowHelper.EnableDarkTitleBar(hwnd);
     }
 }
