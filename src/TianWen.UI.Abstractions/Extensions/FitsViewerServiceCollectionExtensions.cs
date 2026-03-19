@@ -9,5 +9,6 @@ public static class FitsViewerServiceCollectionExtensions
     /// Display-specific registrations are done by the concrete display project.
     /// </summary>
     public static IServiceCollection AddFitsViewer(this IServiceCollection services) => services
-        .AddSingleton<ViewerState>();
+        .AddSingleton<ViewerState>()
+        .AddSingleton<PlannerState>();
 }
