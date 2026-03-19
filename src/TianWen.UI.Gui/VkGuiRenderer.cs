@@ -28,7 +28,7 @@ namespace TianWen.UI.Gui
         public VkEquipmentTab EquipmentTab => _equipmentTab;
 
         // Base layout constants (at 1x scale)
-        private const float BaseSidebarWidth = 40f;
+        private const float BaseSidebarWidth = 52f;
         private const float BaseStatusBarHeight = 28f;
         private const float BaseFontSize = 14f;
 
