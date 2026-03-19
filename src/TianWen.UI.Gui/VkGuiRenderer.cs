@@ -327,6 +327,14 @@ namespace TianWen.UI.Gui
 
         private void ResolveFontPath()
         {
+            // Prefer bundled DejaVu Sans (supports emoji via FreeType color glyphs)
+            var bundled = Path.Combine(AppContext.BaseDirectory, "Fonts", "DejaVuSans.ttf");
+            if (File.Exists(bundled))
+            {
+                _fontPath = bundled;
+                return;
+            }
+
             string[] candidates = OperatingSystem.IsWindows()
                 ? [@"C:\Windows\Fonts\consola.ttf", @"C:\Windows\Fonts\cour.ttf"]
                 : OperatingSystem.IsMacOS()

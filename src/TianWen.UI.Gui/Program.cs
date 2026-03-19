@@ -118,6 +118,35 @@ if (appState.ActiveProfile is not null)
 var needsRedraw = true;
 var running = true;
 
+// Auto-discover devices on startup (Equipment tab is default when no profile)
+if (appState.ActiveProfile is null)
+{
+    var eqSt = guiRenderer.EquipmentTab.State;
+    eqSt.IsDiscovering = true;
+    _ = Task.Run(async () =>
+    {
+        try
+        {
+            var dm = sp.GetRequiredService<ICombinedDeviceManager>();
+            await dm.CheckSupportAsync(cts.Token);
+            await dm.DiscoverAsync(cts.Token);
+            eqSt.DiscoveredDevices = [.. dm.RegisteredDeviceTypes
+                .Where(t => t is not DeviceType.Profile and not DeviceType.None)
+                .SelectMany(dm.RegisteredDevices)
+                .OrderBy(d => d.DeviceType).ThenBy(d => d.DisplayName)];
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Device discovery failed");
+        }
+        finally
+        {
+            eqSt.IsDiscovering = false;
+            appState.NeedsRedraw = true;
+        }
+    });
+}
+
 while (running)
 {
     Event evt;
@@ -384,6 +413,13 @@ void HandleMouseDown(byte button, float px, float py)
         {
             appState.ActiveTab = tab.Value;
             appState.NeedsRedraw = true;
+
+            // Auto-discover devices when switching to Equipment tab
+            if (tab.Value is GuiTab.Equipment && guiRenderer.EquipmentTab.State.DiscoveredDevices.Count == 0)
+            {
+                HandleEquipmentClick(new EquipmentHitResult(EquipmentHitType.DiscoverButton));
+            }
+
             return;
         }
 
