@@ -177,6 +177,123 @@ Pre-built native AOT binaries of `TianWen.Lib.CLI` are available from [GitHub Re
 | macOS    | x64         | `tianwen-cli-osx-x64.tar.gz` |
 | macOS    | ARM64       | `tianwen-cli-osx-arm64.tar.gz` |
 
+### CLI Reference
+
+The `tianwen` CLI (`TianWen.Lib.CLI`) provides non-interactive commands and an interactive TUI mode (`-i`).
+
+#### Global Options
+
+| Option | Description |
+|--------|-------------|
+| `-a`, `--active <name>` | Select active profile by name or ID |
+| `-i`, `--interactive` | Enter alternate-screen interactive TUI mode |
+| `<path>` | FITS file or directory to view (shorthand for `view <path> -i`) |
+
+#### Profile Management
+
+```
+tianwen profile list                           # List all profiles
+tianwen profile create <name>                  # Create empty profile
+tianwen profile delete <nameOrId>              # Delete a profile
+```
+
+#### Profile — Mount & Site
+
+```
+tianwen profile set-mount <deviceId>           # Set the mount device
+tianwen profile set-site --lat 48.2 --lon 16.3 [--elevation 200]
+                                               # Set observing site location
+tianwen profile set-mount-port --port COM3 [--baud 9600]
+                                               # Set serial port/baud on mount
+```
+
+#### Profile — Guider
+
+```
+tianwen profile set-guider <deviceId>          # Set the guider (PHD2 or built-in)
+tianwen profile set-guider-camera <deviceId>   # Set dedicated guider camera
+tianwen profile set-guider-focuser <deviceId>  # Set guider focuser
+tianwen profile set-oag-ota <index>            # Set which OTA hosts the OAG
+tianwen profile set-guider-options [--pulse-guide-source Auto|Camera|Mount]
+                                  [--reverse-dec-after-flip true|false]
+```
+
+#### Profile — OTA (Optical Tube Assembly)
+
+```
+tianwen profile add-ota <name> --focal-length <mm> --camera <deviceId>
+    [--focuser <id>] [--filter-wheel <id>] [--cover <id>]
+    [--aperture <mm>] [--optical-design Refractor|Newtonian|SCT|...]
+tianwen profile remove-ota <index>
+tianwen profile update-ota <index> [--name <name>] [--focal-length <mm>]
+    [--aperture <mm>] [--optical-design <design>]
+    [--prefer-outward true|false] [--outward-is-positive true|false]
+```
+
+#### Profile — Camera & Filters
+
+```
+tianwen profile set-camera-defaults --ota <N> [--gain <N>] [--offset <N>]
+tianwen profile set-filters --ota <N> --filters Luminance:0 Ha:+21 OIII:-3 SII:+25
+```
+
+Filter specs are `Name:FocusOffset` pairs. Offset is in focuser steps relative to the
+reference filter (typically Luminance=0).
+
+#### Profile — Quick Device Add
+
+```
+tianwen profile add <deviceId> [--ota <N>]     # Add device by type auto-detection
+```
+
+#### Device Discovery
+
+```
+tianwen device list                             # List cached devices
+tianwen device discover                         # Force rediscovery
+```
+
+#### FITS Viewer (Terminal)
+
+```
+tianwen view <path>                             # Single-shot render (Sixel or ASCII)
+tianwen view <path> -i                          # Interactive TUI viewer
+tianwen <path>                                  # Shorthand for view -i
+```
+
+#### Observation Planner
+
+```
+tianwen plan                                    # Tonight's best targets (requires profile)
+tianwen plan -i                                 # Interactive TUI planner with altitude chart
+```
+
+#### Example: Building a Dual-Scope Rig
+
+```bash
+tianwen profile create "Dual Scope"
+tianwen -a "Dual Scope" profile set-mount FakeMount1
+tianwen -a "Dual Scope" profile set-site --lat 48.2 --lon 16.3 --elevation 200
+tianwen -a "Dual Scope" profile set-guider FakeGuider1
+tianwen -a "Dual Scope" profile set-guider-camera FakeCamera1
+
+# OTA 0: widefield
+tianwen -a "Dual Scope" profile add-ota "Samyang 135" \
+    --focal-length 135 --camera FakeCamera1 --focuser FakeFocuser1
+tianwen -a "Dual Scope" profile set-camera-defaults --ota 0 --gain 100
+
+# OTA 1: narrowband with filter wheel
+tianwen -a "Dual Scope" profile add-ota "RC8" \
+    --focal-length 1625 --camera FakeCamera2 --focuser FakeFocuser2 \
+    --filter-wheel FakeFilterWheel1 --aperture 203 --optical-design Astrograph
+tianwen -a "Dual Scope" profile set-filters --ota 1 \
+    --filters Luminance:0 Ha:+21 OIII:-3 SII:+25 R:+20 G:0 B:-15
+tianwen -a "Dual Scope" profile set-camera-defaults --ota 1 --gain 120 --offset 10
+
+# Plan tonight's observations
+tianwen -a "Dual Scope" plan
+```
+
 ### FITS Viewer
 
 Pre-built native AOT binaries of `TianWen.UI.FitsViewer` are available from [GitHub Releases](https://github.com/SharpAstro/tianwen/releases):
