@@ -1,0 +1,311 @@
+using System;
+using System.Linq;
+using DIR.Lib;
+using SdlVulkan.Renderer;
+using TianWen.Lib.Sequencing;
+using TianWen.UI.Abstractions;
+
+namespace TianWen.UI.Gui
+{
+    /// <summary>
+    /// Renders the Planner tab content inside the content area provided by <see cref="VkGuiRenderer"/>.
+    /// Layout: altitude chart fills the full renderer (drawn first), then target list and details panel
+    /// are painted on top with opaque backgrounds.
+    /// </summary>
+    public sealed class VkPlannerTab
+    {
+        private readonly VkRenderer _renderer;
+
+        // Layout constants (at 1x scale)
+        private const float BaseTargetListWidth    = 300f;
+        private const float BaseDetailsPanelHeight = 120f;
+        private const float BaseFontSize           = 14f;
+        private const float BaseHeaderHeight       = 28f;
+        private const float BaseItemHeight         = 22f;
+        private const float BasePadding            = 6f;
+
+        // Colors
+        private static readonly RGBAColor32 PanelBgOpaque   = new RGBAColor32(0x1a, 0x1a, 0x22, 0xff);
+        private static readonly RGBAColor32 HeaderBg        = new RGBAColor32(0x22, 0x22, 0x30, 0xff);
+        private static readonly RGBAColor32 HeaderText      = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
+        private static readonly RGBAColor32 ItemText        = new RGBAColor32(0xcc, 0xcc, 0xcc, 0xff);
+        private static readonly RGBAColor32 SelectedBg      = new RGBAColor32(0x20, 0x30, 0x50, 0xff);
+        private static readonly RGBAColor32 SelectedText    = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
+        private static readonly RGBAColor32 ProposedMarker  = new RGBAColor32(0x00, 0xdd, 0xcc, 0xff);
+        private static readonly RGBAColor32 ProposedBg      = new RGBAColor32(0x18, 0x2a, 0x28, 0xff);
+        private static readonly RGBAColor32 DimText         = new RGBAColor32(0x77, 0x77, 0x88, 0xff);
+        private static readonly RGBAColor32 DetailsBg       = new RGBAColor32(0x14, 0x14, 0x1e, 0xff);
+        private static readonly RGBAColor32 DetailsNameText = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
+        private static readonly RGBAColor32 DetailsInfoText = new RGBAColor32(0xaa, 0xaa, 0xaa, 0xff);
+        private static readonly RGBAColor32 SeparatorColor  = new RGBAColor32(0x33, 0x33, 0x44, 0xff);
+        private static readonly RGBAColor32 ScrollBarBg     = new RGBAColor32(0x22, 0x22, 0x2a, 0xff);
+        private static readonly RGBAColor32 ScrollBarFg     = new RGBAColor32(0x44, 0x44, 0x55, 0xff);
+
+        /// <summary>Current scroll offset (in items) for the target list.</summary>
+        public int ScrollOffset { get; set; }
+
+        public VkPlannerTab(VkRenderer renderer)
+        {
+            _renderer = renderer;
+        }
+
+        /// <summary>
+        /// Renders the planner tab into the given content area.
+        /// The altitude chart is drawn to fill the full renderer; all panels paint on top.
+        /// </summary>
+        public void Render(
+            PlannerState state,
+            float contentLeft,
+            float contentTop,
+            float contentWidth,
+            float contentHeight,
+            float dpiScale,
+            string fontPath,
+            TimeProvider timeProvider)
+        {
+            var targetListWidth  = BaseTargetListWidth * dpiScale;
+            var detailsHeight    = BaseDetailsPanelHeight * dpiScale;
+            var headerHeight     = BaseHeaderHeight * dpiScale;
+            var itemHeight       = BaseItemHeight * dpiScale;
+            var fontSize         = BaseFontSize * dpiScale;
+            var padding          = BasePadding * dpiScale;
+
+            // --- 1. Altitude chart fills the full renderer surface (drawn beneath everything) ---
+            var selectedIndex = state.SelectedTargetIndex >= 0
+                                && state.SelectedTargetIndex < state.TonightsBest.Count
+                ? state.SelectedTargetIndex
+                : (int?)null;
+
+            AltitudeChartRenderer.Render(_renderer, state, fontPath, selectedIndex);
+
+            // --- 2. Target list panel (opaque background, left side of content area) ---
+            RenderTargetList(
+                state, fontPath, dpiScale,
+                contentLeft, contentTop, targetListWidth, contentHeight,
+                headerHeight, itemHeight, fontSize, padding);
+
+            // --- 3. Details panel (opaque background, bottom-right of content area) ---
+            RenderDetailsPanel(
+                state, fontPath,
+                contentLeft + targetListWidth,
+                contentTop + contentHeight - detailsHeight,
+                contentWidth - targetListWidth,
+                detailsHeight,
+                fontSize, padding);
+        }
+
+        /// <summary>
+        /// Hit-tests the target list for a click.
+        /// Returns the index in <see cref="PlannerState.TonightsBest"/>, or -1 if outside the list.
+        /// </summary>
+        public int HitTestTargetList(
+            float x, float y,
+            float contentLeft, float contentTop,
+            float dpiScale)
+        {
+            var targetListWidth = BaseTargetListWidth * dpiScale;
+            var headerHeight    = BaseHeaderHeight * dpiScale;
+            var itemHeight      = BaseItemHeight * dpiScale;
+
+            var listLeft = contentLeft;
+            var listTop  = contentTop + headerHeight;
+            var listRight = contentLeft + targetListWidth;
+
+            if (x < listLeft || x >= listRight || y < listTop)
+            {
+                return -1;
+            }
+
+            var relY = y - listTop;
+            return (int)(relY / itemHeight) + ScrollOffset;
+        }
+
+        // -----------------------------------------------------------------------
+        // Target list
+        // -----------------------------------------------------------------------
+
+        private void RenderTargetList(
+            PlannerState state,
+            string fontPath,
+            float dpiScale,
+            float x, float y, float w, float h,
+            float headerHeight, float itemHeight, float fontSize, float padding)
+        {
+            var scrollBarWidth = 6f * dpiScale;
+            var listW = w - scrollBarWidth;
+
+            // Opaque background covers the chart behind the list
+            FillRect(x, y, w, h, PanelBgOpaque);
+
+            // Header row
+            FillRect(x, y, w, headerHeight, HeaderBg);
+            DrawText("Tonight's Best".AsSpan(), fontPath,
+                x + padding, y, listW - padding * 2f, headerHeight,
+                fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
+
+            var totalItems   = state.TonightsBest.Count;
+            var listTop      = y + headerHeight;
+            var listH        = h - headerHeight;
+            var visibleRows  = Math.Max(1, (int)(listH / itemHeight));
+            var maxScroll    = Math.Max(0, totalItems - visibleRows);
+
+            // Clamp scroll
+            if (ScrollOffset < 0)       ScrollOffset = 0;
+            if (ScrollOffset > maxScroll) ScrollOffset = maxScroll;
+
+            for (var i = ScrollOffset; i < totalItems; i++)
+            {
+                var rowY = listTop + (i - ScrollOffset) * itemHeight;
+                if (rowY + itemHeight > y + h)
+                {
+                    break;
+                }
+
+                var scored     = state.TonightsBest[i];
+                var isSelected = i == state.SelectedTargetIndex;
+                var isProposed = state.Proposals.Any(p => p.Target == scored.Target);
+
+                var rowBg = isSelected ? SelectedBg
+                          : isProposed ? ProposedBg
+                                       : PanelBgOpaque;
+                var rowTextColor = isSelected ? SelectedText : ItemText;
+
+                FillRect(x, rowY, listW, itemHeight, rowBg);
+
+                // Proposed marker "*" in cyan on left
+                if (isProposed)
+                {
+                    var markerW = padding * 2f;
+                    DrawText("*".AsSpan(), fontPath,
+                        x + 1f, rowY, markerW, itemHeight,
+                        fontSize, ProposedMarker, TextAlign.Near, TextAlign.Center);
+                }
+
+                // Target name
+                var nameX = x + padding * 2f;
+                var nameW = listW * 0.60f;
+                DrawText(scored.Target.Name.AsSpan(), fontPath,
+                    nameX, rowY, nameW, itemHeight,
+                    fontSize, rowTextColor, TextAlign.Near, TextAlign.Center);
+
+                // Altitude right-aligned
+                var altStr = $"{scored.OptimalAltitude:F0}°";
+                var altX   = x + padding * 2f + nameW;
+                var altW   = listW - nameW - padding * 3f;
+                DrawText(altStr.AsSpan(), fontPath,
+                    altX, rowY, altW, itemHeight,
+                    fontSize, isSelected ? SelectedText : DimText, TextAlign.Far, TextAlign.Center);
+            }
+
+            // Scrollbar thumb
+            if (totalItems > visibleRows && maxScroll > 0)
+            {
+                var sbX    = x + listW;
+                FillRect(sbX, listTop, scrollBarWidth, listH, ScrollBarBg);
+
+                var thumbH = Math.Max(20f * dpiScale, listH * visibleRows / (float)totalItems);
+                var thumbY = listTop + (listH - thumbH) * ScrollOffset / (float)maxScroll;
+                FillRect(sbX + 1f, thumbY, scrollBarWidth - 2f, thumbH, ScrollBarFg);
+            }
+        }
+
+        // -----------------------------------------------------------------------
+        // Details panel
+        // -----------------------------------------------------------------------
+
+        private void RenderDetailsPanel(
+            PlannerState state,
+            string fontPath,
+            float x, float y, float w, float h,
+            float fontSize, float padding)
+        {
+            FillRect(x, y, w, h, DetailsBg);
+
+            // Separator line at top
+            FillRect(x, y, w, 1f, SeparatorColor);
+
+            var idx = state.SelectedTargetIndex;
+            if (idx < 0 || idx >= state.TonightsBest.Count)
+            {
+                DrawText("Select a target to see details.".AsSpan(), fontPath,
+                    x + padding, y, w - padding * 2f, h,
+                    fontSize, DimText, TextAlign.Near, TextAlign.Center);
+                return;
+            }
+
+            var scored      = state.TonightsBest[idx];
+            var isProposed  = state.Proposals.Any(p => p.Target == scored.Target);
+            var statusSuffix = isProposed ? " [Proposed]" : "";
+            var lineH       = h / 3f;
+
+            // Line 1: target name (larger font)
+            var nameText = scored.Target.Name + statusSuffix;
+            DrawText(nameText.AsSpan(), fontPath,
+                x + padding, y, w - padding * 2f, lineH,
+                fontSize * 1.25f, DetailsNameText, TextAlign.Near, TextAlign.Center);
+
+            // Line 2: coordinates + altitude + window
+            var window = FormatWindow(scored, state);
+            var line2 = $"RA {scored.Target.RA:F3}h  Dec {scored.Target.Dec:+0.0;-0.0}°" +
+                        $"  Alt {scored.OptimalAltitude:F0}°  Window {window}";
+            DrawText(line2.AsSpan(), fontPath,
+                x + padding, y + lineH, w - padding * 2f, lineH,
+                fontSize, DetailsInfoText, TextAlign.Near, TextAlign.Center);
+
+            // Line 3: score
+            var line3 = $"Score {scored.CombinedScore:F0}";
+            DrawText(line3.AsSpan(), fontPath,
+                x + padding, y + lineH * 2f, w - padding * 2f, lineH,
+                fontSize, DetailsInfoText, TextAlign.Near, TextAlign.Center);
+        }
+
+        private static string FormatWindow(ScoredTarget scored, PlannerState state)
+        {
+            var start = scored.OptimalStart.ToOffset(state.SiteTimeZone);
+            var end   = (scored.OptimalStart + scored.OptimalDuration).ToOffset(state.SiteTimeZone);
+            return $"{start:HH:mm}\u2013{end:HH:mm}";
+        }
+
+        // -----------------------------------------------------------------------
+        // Drawing helpers
+        // -----------------------------------------------------------------------
+
+        private void FillRect(float x, float y, float w, float h, RGBAColor32 color)
+        {
+            if (w <= 0 || h <= 0)
+            {
+                return;
+            }
+
+            var ix = (int)x;
+            var iy = (int)y;
+            var iw = (int)w;
+            var ih = (int)h;
+            _renderer.FillRectangle(
+                new RectInt(new PointInt(ix + iw, iy + ih), new PointInt(ix, iy)),
+                color);
+        }
+
+        private void DrawText(
+            ReadOnlySpan<char> text,
+            string fontPath,
+            float x, float y, float w, float h,
+            float fontSize,
+            RGBAColor32 color,
+            TextAlign horizAlign = TextAlign.Near,
+            TextAlign vertAlign = TextAlign.Near)
+        {
+            if (text.IsEmpty || w <= 0 || h <= 0)
+            {
+                return;
+            }
+
+            var ix = (int)x;
+            var iy = (int)y;
+            var iw = (int)w;
+            var ih = Math.Max(1, (int)h);
+            var layout = new RectInt(new PointInt(ix + iw, iy + ih), new PointInt(ix, iy));
+            _renderer.DrawText(text, fontPath, fontSize, color, layout, horizAlign, vertAlign);
+        }
+    }
+}
