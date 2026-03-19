@@ -15,6 +15,7 @@ namespace TianWen.UI.Gui
         private readonly VkPlannerTab _plannerTab;
         private readonly VkEquipmentTab _equipmentTab;
         private string? _fontPath;
+        private string? _emojiFontPath;
         private uint _width;
         private uint _height;
 
@@ -191,8 +192,17 @@ namespace TianWen.UI.Gui
                 var textColor = isLocked ? new RGBAColor32(0x44, 0x44, 0x50, 0xff)
                               : isActive ? ActiveIcon
                                          : IconColor;
-                DrawText(icon.AsSpan(), 0, btnY, sw, buttonSize, FontSize, textColor,
-                    TextAlign.Center, TextAlign.Center);
+                var iconFont = _emojiFontPath ?? _fontPath;
+                if (iconFont is not null)
+                {
+                    var ix = (int)0;
+                    var iy = (int)btnY;
+                    var iw = (int)sw;
+                    var ih = (int)buttonSize;
+                    _renderer.DrawText(icon.AsSpan(), iconFont, FontSize,
+                        textColor, new RectInt(new PointInt(ix + iw, iy + ih), new PointInt(ix, iy)),
+                        TextAlign.Center, TextAlign.Center);
+                }
             }
         }
 
@@ -327,7 +337,18 @@ namespace TianWen.UI.Gui
 
         private void ResolveFontPath()
         {
-            // Prefer bundled DejaVu Sans (supports emoji via FreeType color glyphs)
+            // Emoji font: bundled Noto Color Emoji, or Segoe UI Emoji on Windows
+            var emojiPath = Path.Combine(AppContext.BaseDirectory, "Fonts", "NotoColorEmoji.ttf");
+            if (File.Exists(emojiPath))
+            {
+                _emojiFontPath = emojiPath;
+            }
+            else if (OperatingSystem.IsWindows() && File.Exists(@"C:\Windows\Fonts\seguiemj.ttf"))
+            {
+                _emojiFontPath = @"C:\Windows\Fonts\seguiemj.ttf";
+            }
+
+            // Prefer bundled DejaVu Sans for regular text
             var bundled = Path.Combine(AppContext.BaseDirectory, "Fonts", "DejaVuSans.ttf");
             if (File.Exists(bundled))
             {
