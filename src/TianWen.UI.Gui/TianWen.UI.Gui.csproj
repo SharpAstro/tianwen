@@ -19,6 +19,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Content Include="Fonts\DejaVuSans.ttf" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="SdlVulkan.Renderer" />
     <PackageReference Include="DIR.Lib" />
     <PackageReference Include="SDL3-CS" />
