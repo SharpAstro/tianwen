@@ -40,10 +40,10 @@ namespace TianWen.UI.Gui
         // Sidebar tab definitions
         private static readonly (string Icon, GuiTab Tab)[] SidebarTabs =
         [
-            ("P", GuiTab.Planner),
-            ("V", GuiTab.Viewer),
-            ("S", GuiTab.Session),
-            ("E", GuiTab.Equipment),
+            ("\U0001F52D", GuiTab.Equipment),   // 🔭 Telescope
+            ("\U0001F4C5", GuiTab.Planner),     // 📅 Calendar
+            ("\U0001F5BC", GuiTab.Viewer),      // 🖼️ Framed Picture
+            ("\U0001F3AF", GuiTab.Session),     // 🎯 Bullseye
         ];
 
         // Sidebar colors
