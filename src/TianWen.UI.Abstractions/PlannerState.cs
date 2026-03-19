@@ -58,6 +58,9 @@ public class PlannerState
     /// <summary>Scored targets keyed by Target (for elevation profile access).</summary>
     public Dictionary<Target, ScoredTarget> ScoredTargets { get; set; } = [];
 
+    /// <summary>Site timezone offset (from GeoTimeZone). Used for display instead of machine local time.</summary>
+    public TimeSpan SiteTimeZone { get; set; }
+
     /// <summary>Whether the display needs a redraw.</summary>
     public bool NeedsRedraw { get; set; }
 

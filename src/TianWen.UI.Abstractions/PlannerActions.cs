@@ -201,7 +201,7 @@ public static class PlannerActions
             var typeName = s.Target.CatalogIndex?.ToCatalog().ToString() ?? "?";
             if (typeName.Length > 10) typeName = typeName[..10];
 
-            var window = $"{s.OptimalStart.ToLocalTime():HH:mm}-{(s.OptimalStart + s.OptimalDuration).ToLocalTime():HH:mm}";
+            var window = $"{s.OptimalStart.ToOffset(state.SiteTimeZone):HH:mm}-{(s.OptimalStart + s.OptimalDuration).ToOffset(state.SiteTimeZone):HH:mm}";
 
             lines.Add($"{proposed}{i + 1,2} | {s.Target.Name,-20} | {typeName,-10} | {s.OptimalAltitude,3:F0}° | {window,-13} | {s.CombinedScore,6:F0}");
         }
@@ -231,7 +231,7 @@ public static class PlannerActions
             var obs = schedule[i];
             var end = obs.Start + obs.Duration;
             var flip = obs.AcrossMeridian ? "yes" : "no";
-            lines.Add($"{i + 1,2} | {obs.Target.Name,-20} | {obs.Priority,-8} | {obs.Start.ToLocalTime():HH:mm} | {end.ToLocalTime():HH:mm} | {obs.Duration.TotalMinutes,3:F0}m | {flip}");
+            lines.Add($"{i + 1,2} | {obs.Target.Name,-20} | {obs.Priority,-8} | {obs.Start.ToOffset(state.SiteTimeZone):HH:mm} | {end.ToOffset(state.SiteTimeZone):HH:mm} | {obs.Duration.TotalMinutes,3:F0}m | {flip}");
 
             var spares = schedule.GetSparesForSlot(i);
             if (!spares.IsEmpty)

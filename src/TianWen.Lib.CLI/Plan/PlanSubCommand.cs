@@ -49,6 +49,7 @@ internal class PlanSubCommand(
 
         plannerState.SiteLatitude = transform.SiteLatitude;
         plannerState.SiteLongitude = transform.SiteLongitude;
+        plannerState.SiteTimeZone = transform.SiteTimeZone;
         plannerState.ActiveProfile = profile;
 
         // Compute tonight's best
@@ -72,8 +73,8 @@ internal class PlanSubCommand(
 
         // Header
         var siteLabel = $"{plannerState.SiteLatitude:F1}°{(plannerState.SiteLatitude >= 0 ? "N" : "S")}, {plannerState.SiteLongitude:F1}°{(plannerState.SiteLongitude >= 0 ? "E" : "W")}";
-        var darkLocal = plannerState.AstroDark.ToLocalTime();
-        var twLocal = plannerState.AstroTwilight.ToLocalTime();
+        var darkLocal = plannerState.AstroDark.ToOffset(plannerState.SiteTimeZone);
+        var twLocal = plannerState.AstroTwilight.ToOffset(plannerState.SiteTimeZone);
         var nightHours = (plannerState.AstroTwilight - plannerState.AstroDark).TotalHours;
 
         consoleHost.WriteScrollable($"\nTonight's Best Targets ({darkLocal:yyyy-MM-dd}, {siteLabel})");
@@ -225,8 +226,8 @@ internal class PlanSubCommand(
 
             // Update top bar
             var siteLabel = $"{plannerState.SiteLatitude:F1}°N {plannerState.SiteLongitude:F1}°E";
-            var darkLocal = plannerState.AstroDark.ToLocalTime();
-            var twLocal = plannerState.AstroTwilight.ToLocalTime();
+            var darkLocal = plannerState.AstroDark.ToOffset(plannerState.SiteTimeZone);
+            var twLocal = plannerState.AstroTwilight.ToOffset(plannerState.SiteTimeZone);
             topBar.Text($" {siteLabel} | Dark: {darkLocal:HH:mm}-{twLocal:HH:mm} | Proposals: {plannerState.Proposals.Count}");
             topBar.RightText($"{plannerState.ActiveProfile?.DisplayName ?? "No profile"} ");
 
@@ -251,7 +252,7 @@ internal class PlanSubCommand(
                     $"## {selected.Target.Name}{proposedMark}\n\n" +
                     $"**RA**: {selected.Target.RA:F3}h  **Dec**: {selected.Target.Dec:F2}°\n\n" +
                     $"**Peak altitude**: {selected.OptimalAltitude:F0}°  " +
-                    $"**Window**: {selected.OptimalStart.ToLocalTime():HH:mm}–{(selected.OptimalStart + selected.OptimalDuration).ToLocalTime():HH:mm}  " +
+                    $"**Window**: {selected.OptimalStart.ToOffset(plannerState.SiteTimeZone):HH:mm}–{(selected.OptimalStart + selected.OptimalDuration).ToOffset(plannerState.SiteTimeZone):HH:mm}  " +
                     $"**Score**: {selected.CombinedScore:F0}\n\n" +
                     $"*Enter* to add/remove | *P* priority | *S* schedule | *Q* quit");
             }
