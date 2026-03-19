@@ -33,6 +33,7 @@ namespace TianWen.UI.Gui
     public sealed class VkEquipmentTab
     {
         private readonly VkRenderer _renderer;
+        private readonly List<(float X, float Y, float W, float H, EquipmentHitResult Result)> _clickableRegions = [];
 
         // Layout constants (at 1x scale)
         private const float BaseProfilePanelWidth = 360f;
@@ -70,6 +71,14 @@ namespace TianWen.UI.Gui
         /// <summary>Tab state (scroll offsets, discovery results, assignment mode).</summary>
         public EquipmentTabState State { get; } = new EquipmentTabState();
 
+        /// <summary>
+        /// Registers a clickable region during rendering. Hit testing walks this list.
+        /// </summary>
+        private void RegisterClickable(float x, float y, float w, float h, EquipmentHitResult result)
+        {
+            _clickableRegions.Add((x, y, w, h, result));
+        }
+
         /// <summary>Frame counter for text input cursor blink.</summary>
         public long FrameCount { get; set; }
 
@@ -91,6 +100,9 @@ namespace TianWen.UI.Gui
             float dpiScale,
             string fontPath)
         {
+            // Clear clickable regions from previous frame
+            _clickableRegions.Clear();
+
             // Clear the whole content area first
             FillRect(left, top, width, height, ContentBg);
 
@@ -107,46 +119,6 @@ namespace TianWen.UI.Gui
             }
 
             RenderProfileView(appState, left, top, width, height, dpiScale, fontPath);
-        }
-
-        /// <summary>
-        /// Hit-tests the equipment tab for a mouse click.
-        /// </summary>
-        public EquipmentHitResult? HitTest(float x, float y, float contentLeft, float contentTop, float dpiScale)
-        {
-            // We need the active profile to determine which branch was rendered.
-            // Reconstruct the same layout geometry as Render.
-            var padding       = BasePadding * dpiScale;
-            var bottomBarH    = BaseBottomBarHeight * dpiScale;
-            var buttonH       = BaseButtonHeight * dpiScale;
-            var itemH         = BaseItemHeight * dpiScale;
-            var headerH       = BaseHeaderHeight * dpiScale;
-
-            // If in "no profile" view
-            if (State.IsCreatingProfile)
-            {
-                return HitTestProfileCreation(x, y, contentLeft, contentTop, dpiScale);
-            }
-
-            // Profile view
-            var profilePanelW = BaseProfilePanelWidth * dpiScale;
-            var deviceListLeft = contentLeft + profilePanelW;
-
-            // Text input hit is not needed here (no text input in profile view)
-
-            // Left panel hit tests
-            if (x >= contentLeft && x < deviceListLeft)
-            {
-                return HitTestProfilePanel(x, y, contentLeft, contentTop, dpiScale);
-            }
-
-            // Right panel hit tests
-            if (x >= deviceListLeft)
-            {
-                return HitTestDeviceList(x, y, deviceListLeft, contentTop, dpiScale);
-            }
-
-            return null;
         }
 
         // -----------------------------------------------------------------------
@@ -175,6 +147,7 @@ namespace TianWen.UI.Gui
             var btnY = centerY + padding;
 
             FillRect(btnX, btnY, buttonW, buttonH, CreateButton);
+            RegisterClickable(btnX, btnY, buttonW, buttonH, new EquipmentHitResult(EquipmentHitType.CreateButton));
             DrawText(
                 "Create Profile".AsSpan(),
                 fontPath,
@@ -220,11 +193,13 @@ namespace TianWen.UI.Gui
                 State.ProfileNameInput,
                 (int)fieldX, inputY, (int)fieldW, (int)fieldH,
                 fontPath, fontSize, FrameCount);
+            RegisterClickable(fieldX, inputY, fieldW, fieldH, new EquipmentHitResult(EquipmentHitType.TextInput));
 
             // Create button
             var btnY = inputY + (int)fieldH + (int)padding;
             var btnW = 120f * dpiScale;
             FillRect(fieldX, btnY, btnW, buttonH, CreateButton);
+            RegisterClickable(fieldX, btnY, btnW, buttonH, new EquipmentHitResult(EquipmentHitType.CreateButton));
             DrawText(
                 "Create".AsSpan(),
                 fontPath,
@@ -389,6 +364,7 @@ namespace TianWen.UI.Gui
                 if (addOtaBtnY + buttonH < y + h - padding)
                 {
                     FillRect(x + padding, addOtaBtnY, addOtaBtnW, buttonH, CreateButton);
+                    RegisterClickable(x + padding, addOtaBtnY, addOtaBtnW, buttonH, new EquipmentHitResult(EquipmentHitType.AddOtaButton));
                     DrawText(
                         "+ Add OTA".AsSpan(),
                         fontPath,
@@ -421,6 +397,7 @@ namespace TianWen.UI.Gui
             var bgColor = isActive ? SlotActive : SlotNormal;
 
             FillRect(x, y, w, itemH, bgColor);
+            RegisterClickable(x, y, w, itemH, new EquipmentHitResult(EquipmentHitType.ProfileSlot, slot));
 
             // Separator line at bottom of slot
             FillRect(x, y + itemH - 1f, w, 1f, SeparatorColor);
@@ -503,6 +480,7 @@ namespace TianWen.UI.Gui
 
                 // Row background
                 FillRect(x, rowY, w, itemH, DeviceRowBg);
+                RegisterClickable(x, rowY, w, itemH, new EquipmentHitResult(EquipmentHitType.DeviceRow, DeviceIndex: i));
                 FillRect(x, rowY + itemH - 1f, w, 1f, SeparatorColor);
 
                 // Type badge
@@ -543,6 +521,7 @@ namespace TianWen.UI.Gui
             var discoverLabel = State.IsDiscovering ? "Discovering..." : "Discover";
 
             FillRect(discoverBtnX, discoverBtnY, discoverBtnW, buttonH, CreateButton);
+            RegisterClickable(discoverBtnX, discoverBtnY, discoverBtnW, buttonH, new EquipmentHitResult(EquipmentHitType.DiscoverButton));
             DrawText(
                 discoverLabel.AsSpan(),
                 fontPath,
@@ -590,173 +569,25 @@ namespace TianWen.UI.Gui
         }
 
         // -----------------------------------------------------------------------
-        // Hit testing helpers
+        // Hit testing
         // -----------------------------------------------------------------------
 
-        private EquipmentHitResult? HitTestProfileCreation(
-            float x, float y,
-            float left, float top,
-            float dpiScale)
+        /// <summary>
+        /// Hit-tests the Equipment tab content area using regions registered during the last Render call.
+        /// </summary>
+        public EquipmentHitResult? HitTest(float x, float y, float contentLeft, float contentTop, float dpiScale)
         {
-            var padding  = BasePadding * dpiScale;
-            var fontSize = BaseFontSize * dpiScale;
-            var headerH  = BaseHeaderHeight * dpiScale;
-            var fieldH   = (int)(BaseItemHeight * dpiScale * 1.4f);
-            var buttonH  = BaseButtonHeight * dpiScale;
-
-            var fieldY   = (int)(top + padding + headerH + padding + fontSize * 1.6f);
-            var fieldX   = (int)(left + padding);
-            var fieldW   = (int)Math.Min(360f * dpiScale, 9999f);
-
-            // Text input
-            if (TextInputRenderer.HitTest((int)x, (int)y, fieldX, fieldY, fieldW, fieldH))
+            // Walk registered clickable regions from last render — single source of truth
+            foreach (var (rx, ry, rw, rh, result) in _clickableRegions)
             {
-                return new EquipmentHitResult(EquipmentHitType.TextInput);
-            }
-
-            // Create button
-            var btnY = fieldY + fieldH + (int)padding;
-            var btnW = (int)(120f * dpiScale);
-            if (x >= fieldX && x < fieldX + btnW && y >= btnY && y < btnY + buttonH)
-            {
-                return new EquipmentHitResult(EquipmentHitType.CreateButton);
+                if (x >= rx && x < rx + rw && y >= ry && y < ry + rh)
+                {
+                    return result;
+                }
             }
 
             return null;
         }
-
-        private EquipmentHitResult? HitTestProfilePanel(
-            float x, float y,
-            float left, float top,
-            float dpiScale)
-        {
-            var padding  = BasePadding * dpiScale;
-            var itemH    = BaseItemHeight * dpiScale;
-            var headerH  = BaseHeaderHeight * dpiScale;
-            var buttonH  = BaseButtonHeight * dpiScale;
-            var w        = BaseProfilePanelWidth * dpiScale;
-
-            var cursor = top + padding + headerH + padding; // after separator
-
-            // Mount slot
-            if (HitInRow(y, cursor, itemH))
-            {
-                return new EquipmentHitResult(EquipmentHitType.ProfileSlot, new AssignTarget.ProfileLevel("Mount"));
-            }
-            cursor += itemH;
-
-            // Site info row (non-clickable — skip it if visible)
-            // We don't know at hit-test time whether site was rendered; always skip one row
-            cursor += itemH;
-            cursor += padding / 2f;
-
-            // Guider
-            if (HitInRow(y, cursor, itemH))
-            {
-                return new EquipmentHitResult(EquipmentHitType.ProfileSlot, new AssignTarget.ProfileLevel("Guider"));
-            }
-            cursor += itemH;
-
-            // GuiderCamera
-            if (HitInRow(y, cursor, itemH))
-            {
-                return new EquipmentHitResult(EquipmentHitType.ProfileSlot, new AssignTarget.ProfileLevel("GuiderCamera"));
-            }
-            cursor += itemH;
-
-            // GuiderFocuser
-            if (HitInRow(y, cursor, itemH))
-            {
-                return new EquipmentHitResult(EquipmentHitType.ProfileSlot, new AssignTarget.ProfileLevel("GuiderFocuser"));
-            }
-            cursor += itemH + padding + padding;
-
-            // OTA sections — we cannot know the exact count without state, so we use State
-            var data = State.AllProfiles.Count > 0 ? null : (ProfileData?)null;
-            // Use dummy index traversal over the visible profile's OTAs
-            // (caller passes appState; we use State.AllProfiles — but hit-test is called
-            // before we have appState. We walk OTA slots generically up to some maximum.)
-            const int MaxOtaHitTest = 8;
-            for (var i = 0; i < MaxOtaHitTest; i++)
-            {
-                // OTA header row
-                cursor += itemH;
-
-                // Camera
-                if (HitInRow(y, cursor, itemH))
-                {
-                    return new EquipmentHitResult(EquipmentHitType.ProfileSlot, new AssignTarget.OTALevel(i, "Camera"));
-                }
-                cursor += itemH;
-
-                // Focuser
-                if (HitInRow(y, cursor, itemH))
-                {
-                    return new EquipmentHitResult(EquipmentHitType.ProfileSlot, new AssignTarget.OTALevel(i, "Focuser"));
-                }
-                cursor += itemH;
-
-                // FilterWheel
-                if (HitInRow(y, cursor, itemH))
-                {
-                    return new EquipmentHitResult(EquipmentHitType.ProfileSlot, new AssignTarget.OTALevel(i, "FilterWheel"));
-                }
-                cursor += itemH;
-
-                // Cover
-                if (HitInRow(y, cursor, itemH))
-                {
-                    return new EquipmentHitResult(EquipmentHitType.ProfileSlot, new AssignTarget.OTALevel(i, "Cover"));
-                }
-                cursor += itemH + padding / 2f;
-            }
-
-            // [+ Add OTA] button
-            var addOtaBtnW = 120f * dpiScale;
-            if (y >= cursor && y < cursor + buttonH && x >= left + padding && x < left + padding + addOtaBtnW)
-            {
-                return new EquipmentHitResult(EquipmentHitType.AddOtaButton);
-            }
-
-            return null;
-        }
-
-        private EquipmentHitResult? HitTestDeviceList(
-            float x, float y,
-            float listLeft, float top,
-            float dpiScale)
-        {
-            var padding  = BasePadding * dpiScale;
-            var itemH    = BaseItemHeight * dpiScale;
-            var headerH  = BaseHeaderHeight * dpiScale;
-            var buttonH  = BaseButtonHeight * dpiScale;
-
-            var listTop  = top + headerH + padding / 2f;
-
-            var devices  = State.DiscoveredDevices;
-            for (var i = State.DeviceScrollOffset; i < devices.Count; i++)
-            {
-                var rowY = listTop + (i - State.DeviceScrollOffset) * itemH;
-                if (y >= rowY && y < rowY + itemH)
-                {
-                    return new EquipmentHitResult(EquipmentHitType.DeviceRow, DeviceIndex: i);
-                }
-            }
-
-            // [Discover] button — approximate bottom position
-            var discoverBtnX = listLeft + padding;
-            var discoverBtnW = 100f * dpiScale;
-            // We don't know h here — just check a large enough area
-            if (x >= discoverBtnX && x < discoverBtnX + discoverBtnW)
-            {
-                return new EquipmentHitResult(EquipmentHitType.DiscoverButton);
-            }
-
-            return null;
-        }
-
-        private static bool HitInRow(float y, float rowY, float rowH) =>
-            y >= rowY && y < rowY + rowH;
 
         // -----------------------------------------------------------------------
         // Badge helpers
