@@ -4,7 +4,7 @@
     <OutputType>Library</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <AssemblyVersion>3.5.0.0</AssemblyVersion>
+    <AssemblyVersion>3.6.0.0</AssemblyVersion>
     <PackageID>TianWen.Lib</PackageID>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
