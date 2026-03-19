@@ -7,6 +7,7 @@ using System.CommandLine;
 using System.Diagnostics;
 using System.Text;
 using TianWen.Lib.CLI;
+using TianWen.Lib.CLI.Plan;
 using TianWen.Lib.CLI.View;
 using TianWen.Lib.Extensions;
 using TianWen.Lib.Logging;
@@ -55,6 +56,7 @@ var consoleHost = services.GetRequiredService<IConsoleHost>();
 // Terminal init is deferred — only initialized when view command actually needs it
 var terminal = services.GetRequiredService<IVirtualTerminal>();
 var viewerState = services.GetRequiredService<ViewerState>();
+var plannerState = services.GetRequiredService<PlannerState>();
 var documentCache = services.GetRequiredService<DocumentCache>();
 
 // --- Command tree ---
@@ -88,7 +90,8 @@ var rootCommand = new RootCommand
     {
         new ProfileSubCommand(consoleHost, selectedProfileOption).Build(),
         new DeviceSubCommand(consoleHost).Build(),
-        viewSubCommand.Build()
+        viewSubCommand.Build(),
+        new PlanSubCommand(consoleHost, plannerState, services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(), selectedProfileOption, interactiveOption).Build()
     }
 };
 
