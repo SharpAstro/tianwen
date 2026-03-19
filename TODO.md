@@ -211,6 +211,11 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 - [ ] Generic iOptron serial protocol support (SmartEQ, CEM series) — same 28800 baud, similar command set but with position feedback
 - [ ] SGP pulse guiding should restore previous speed not just siderial (wait Pulse guiding is wrong, it will be 1x siderial but SGP has a different guide rate configured) or make this configurable; alternative: if guide rate is 0.5, half guide pulse time by 2
 
+## Upstream Extraction (to SharpAstro NuGet packages)
+
+- [ ] Move `FileDialogHelper` to DIR.Lib — cross-platform native file picker (comdlg32/zenity/osascript), zero TianWen dependencies
+- [ ] Move `Stat/` DSP suite to DIR.Lib — 12 files: FFT, DFT, 25+ window functions, Catmull-Rom splines, StatisticsHelper, AggregationMethod; all pure math with no astro imports (note: DFT/FFT missing namespace declarations)
+
 ## Vulkan Migration / HDR Display Output
 
 Investigation into whether Silk.NET can support HDR display output (HDR10, scRGB, wide color gamut).
