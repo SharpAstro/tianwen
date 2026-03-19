@@ -33,6 +33,10 @@ internal partial record Session
 
         var guider = Setup.Guider;
 
+        // Ensure guider is in Idle state before calibration — it may still be in Looping
+        // state from GuiderFocusLoopAsync during InitialRoughFocusAsync
+        await guider.Driver.StopCaptureAsync(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
+
         if (!await guider.Driver.StartGuidingLoopAsync(Configuration.GuidingTries, cancellationToken).ConfigureAwait(false))
         {
             throw new InvalidOperationException($"Failed to start guider loop of guider {guider.Driver}");
