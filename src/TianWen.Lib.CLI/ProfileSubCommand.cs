@@ -44,6 +44,14 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
     private readonly Option<bool?> preferOutwardOption = new("--prefer-outward") { Description = "Prefer outward focus approach" };
     private readonly Option<bool?> outwardIsPositiveOption = new("--outward-is-positive") { Description = "Increasing focuser steps = outward" };
 
+    // Options for set-guider-options
+    private readonly Option<string?> pulseGuideSourceOption = new("--pulse-guide-source") { Description = "Pulse guide source: Auto, Camera, or Mount" };
+    private readonly Option<bool?> reverseDecOption = new("--reverse-dec-after-flip") { Description = "Reverse DEC corrections after meridian flip" };
+
+    // Options for set-mount-port
+    private readonly Option<string> portOption = new("--port") { Description = "Serial port (e.g. COM3, /dev/ttyUSB0)", Required = true };
+    private readonly Option<int?> baudOption = new("--baud") { Description = "Baud rate (default depends on mount protocol)" };
+
     // Option for add (per-OTA device targeting)
     private readonly Option<int> otaOption = new("--ota") { Description = "OTA index to target (0-based)", DefaultValueFactory = _ => 0 };
 
@@ -127,6 +135,30 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
         };
         setGuiderCameraCommand.SetAction(SetGuiderCameraActionAsync);
 
+        var setGuiderFocuserCommand = new Command("set-guider-focuser", "Set the focuser for the guider camera")
+        {
+            Arguments = { deviceIdArg }
+        };
+        setGuiderFocuserCommand.SetAction(SetGuiderFocuserActionAsync);
+
+        var setOagOtaCommand = new Command("set-oag-ota", "Set which OTA hosts the off-axis guider")
+        {
+            Arguments = { otaIndexArg }
+        };
+        setOagOtaCommand.SetAction(SetOagOtaActionAsync);
+
+        var setGuiderOptionsCommand = new Command("set-guider-options", "Set guider pulse guide source and DEC reversal")
+        {
+            Options = { pulseGuideSourceOption, reverseDecOption }
+        };
+        setGuiderOptionsCommand.SetAction(SetGuiderOptionsActionAsync);
+
+        var setMountPortCommand = new Command("set-mount-port", "Set the serial port and baud rate on the mount")
+        {
+            Options = { portOption, baudOption }
+        };
+        setMountPortCommand.SetAction(SetMountPortActionAsync);
+
         return new Command("profile", "Manage profiles")
         {
             Subcommands =
@@ -143,7 +175,11 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
                 setSiteCommand,
                 setFiltersCommand,
                 setCameraDefaultsCommand,
-                setGuiderCameraCommand
+                setGuiderCameraCommand,
+                setGuiderFocuserCommand,
+                setOagOtaCommand,
+                setGuiderOptionsCommand,
+                setMountPortCommand
             }
         };
     }
@@ -403,6 +439,116 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
         await SaveAndListAsync(selectedProfile, newData, parseResult, cancellationToken);
 
         consoleHost.WriteScrollable($"Guider camera set to '{deviceId}'");
+    }
+
+    internal async Task SetGuiderFocuserActionAsync(ParseResult parseResult, CancellationToken cancellationToken)
+    {
+        var (selectedProfile, data) = await GetSelectedProfileDataAsync(parseResult, cancellationToken);
+        if (selectedProfile is null || data is null)
+        {
+            return;
+        }
+
+        var deviceId = parseResult.GetRequiredValue(deviceIdArg);
+        var uri = await ResolveDeviceUriAsync(deviceId, cancellationToken);
+        if (uri is null)
+        {
+            return;
+        }
+
+        var newData = data.Value with { GuiderFocuser = uri };
+        await SaveAndListAsync(selectedProfile, newData, parseResult, cancellationToken);
+
+        consoleHost.WriteScrollable($"Guider focuser set to '{deviceId}'");
+    }
+
+    internal async Task SetOagOtaActionAsync(ParseResult parseResult, CancellationToken cancellationToken)
+    {
+        var (selectedProfile, data) = await GetSelectedProfileDataAsync(parseResult, cancellationToken);
+        if (selectedProfile is null || data is null)
+        {
+            return;
+        }
+
+        var index = parseResult.GetRequiredValue(otaIndexArg);
+        if (!ValidateOtaIndex(data.Value, index))
+        {
+            return;
+        }
+
+        var newData = data.Value with { OAG_OTA_Index = index };
+        await SaveAndListAsync(selectedProfile, newData, parseResult, cancellationToken);
+
+        consoleHost.WriteScrollable($"OAG set to OTA {index} ('{data.Value.OTAs[index].Name}')");
+    }
+
+    internal async Task SetGuiderOptionsActionAsync(ParseResult parseResult, CancellationToken cancellationToken)
+    {
+        var (selectedProfile, data) = await GetSelectedProfileDataAsync(parseResult, cancellationToken);
+        if (selectedProfile is null || data is null)
+        {
+            return;
+        }
+
+        if (data.Value.Guider == NoneDevice.Instance.DeviceUri)
+        {
+            consoleHost.WriteError("Profile has no guider configured. Use 'profile set-guider' first.");
+            return;
+        }
+
+        var pulseSource = parseResult.GetValue(pulseGuideSourceOption);
+        var reverseDec = parseResult.GetValue(reverseDecOption);
+
+        if (pulseSource is null && reverseDec is null)
+        {
+            consoleHost.WriteError("Specify at least one of --pulse-guide-source or --reverse-dec-after-flip.");
+            return;
+        }
+
+        var query = HttpUtility.ParseQueryString(data.Value.Guider.Query);
+        if (pulseSource is not null)
+        {
+            query[DeviceQueryKey.PulseGuideSource.Key] = pulseSource;
+        }
+        if (reverseDec.HasValue)
+        {
+            query[DeviceQueryKey.ReverseDecAfterFlip.Key] = reverseDec.Value.ToString().ToLowerInvariant();
+        }
+
+        var builder = new UriBuilder(data.Value.Guider) { Query = query.ToString() };
+        var newData = data.Value with { Guider = builder.Uri };
+        await SaveAndListAsync(selectedProfile, newData, parseResult, cancellationToken);
+    }
+
+    internal async Task SetMountPortActionAsync(ParseResult parseResult, CancellationToken cancellationToken)
+    {
+        var (selectedProfile, data) = await GetSelectedProfileDataAsync(parseResult, cancellationToken);
+        if (selectedProfile is null || data is null)
+        {
+            return;
+        }
+
+        if (data.Value.Mount == NoneDevice.Instance.DeviceUri)
+        {
+            consoleHost.WriteError("Profile has no mount configured. Use 'profile set-mount' first.");
+            return;
+        }
+
+        var port = parseResult.GetRequiredValue(portOption);
+        var baud = parseResult.GetValue(baudOption);
+
+        var query = HttpUtility.ParseQueryString(data.Value.Mount.Query);
+        query[DeviceQueryKey.Port.Key] = port;
+        if (baud.HasValue)
+        {
+            query[DeviceQueryKey.Baud.Key] = baud.Value.ToString(CultureInfo.InvariantCulture);
+        }
+
+        var builder = new UriBuilder(data.Value.Mount) { Query = query.ToString() };
+        var newData = data.Value with { Mount = builder.Uri };
+        await SaveAndListAsync(selectedProfile, newData, parseResult, cancellationToken);
+
+        consoleHost.WriteScrollable($"Mount port set to '{port}'{(baud.HasValue ? $" at {baud.Value} baud" : "")}");
     }
 
     internal async Task AddOtaActionAsync(ParseResult parseResult, CancellationToken cancellationToken)
