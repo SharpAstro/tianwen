@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <Content Include="Fonts\DejaVuSans.ttf" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Fonts\NotoColorEmoji.ttf" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
