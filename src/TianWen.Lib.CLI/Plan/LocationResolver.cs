@@ -1,10 +1,12 @@
+using System.Globalization;
+using System.Web;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.CLI.Plan;
 
 /// <summary>
-/// Resolves site latitude/longitude from the active profile's mount URI.
+/// Resolves site latitude/longitude/elevation from the active profile's mount URI.
 /// </summary>
 internal static class LocationResolver
 {
@@ -23,23 +25,28 @@ internal static class LocationResolver
             return null;
         }
 
-        var query = System.Web.HttpUtility.ParseQueryString(data.Value.Mount.Query);
-        var latStr = query["latitude"];
-        var lonStr = query["longitude"];
+        var query = HttpUtility.ParseQueryString(data.Value.Mount.Query);
+        var latStr = query[DeviceQueryKey.Latitude.Key];
+        var lonStr = query[DeviceQueryKey.Longitude.Key];
+        var elevStr = query[DeviceQueryKey.Elevation.Key];
 
         if (latStr is null || lonStr is null ||
-            !double.TryParse(latStr, System.Globalization.CultureInfo.InvariantCulture, out var lat) ||
-            !double.TryParse(lonStr, System.Globalization.CultureInfo.InvariantCulture, out var lon))
+            !double.TryParse(latStr, CultureInfo.InvariantCulture, out var lat) ||
+            !double.TryParse(lonStr, CultureInfo.InvariantCulture, out var lon))
         {
-            consoleHost.WriteError("Mount URI does not contain latitude/longitude. Reconfigure the mount with location.");
+            consoleHost.WriteError("Mount URI does not contain latitude/longitude. Use 'tianwen profile set-site' to configure.");
             return null;
         }
+
+        var elevation = elevStr is not null && double.TryParse(elevStr, CultureInfo.InvariantCulture, out var elev)
+            ? elev
+            : 0.0;
 
         return new Transform(timeProvider)
         {
             SiteLatitude = lat,
             SiteLongitude = lon,
-            SiteElevation = 200,
+            SiteElevation = elevation,
             SiteTemperature = 15,
             DateTimeOffset = timeProvider.GetLocalNow()
         };

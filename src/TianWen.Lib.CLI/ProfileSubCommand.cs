@@ -21,6 +21,11 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
     private readonly Option<int?> apertureOption = new("--aperture") { Description = "Aperture in mm" };
     private readonly Option<OpticalDesign> opticalDesignOption = new("--optical-design") { Description = "Optical design type", DefaultValueFactory = _ => OpticalDesign.Unknown };
 
+    // Options for set-site
+    private readonly Option<double> siteLatOption = new("--lat") { Description = "Site latitude in degrees (-90..+90, positive=north)", Required = true };
+    private readonly Option<double> siteLonOption = new("--lon") { Description = "Site longitude in degrees (-180..+180, positive=east)", Required = true };
+    private readonly Option<double?> siteElevOption = new("--elevation") { Description = "Site elevation in metres above sea level" };
+
     // Option for add (per-OTA device targeting)
     private readonly Option<int> otaOption = new("--ota") { Description = "OTA index to target (0-based)", DefaultValueFactory = _ => 0 };
 
@@ -73,6 +78,12 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
         };
         removeOtaCommand.SetAction(RemoveOtaActionAsync);
 
+        var setSiteCommand = new Command("set-site", "Set the observing site location on a profile's mount")
+        {
+            Options = { siteLatOption, siteLonOption, siteElevOption }
+        };
+        setSiteCommand.SetAction(SetSiteActionAsync);
+
         return new Command("profile", "Manage profiles")
         {
             Subcommands =
@@ -84,7 +95,8 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
                 setMountCommand,
                 setGuiderCommand,
                 addOtaCommand,
-                removeOtaCommand
+                removeOtaCommand,
+                setSiteCommand
             }
         };
     }
@@ -151,6 +163,41 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
 
         var newData = data.Value with { Guider = uri };
         await SaveAndListAsync(selectedProfile, newData, parseResult, cancellationToken);
+    }
+
+    internal async Task SetSiteActionAsync(ParseResult parseResult, CancellationToken cancellationToken)
+    {
+        var (selectedProfile, data) = await GetSelectedProfileDataAsync(parseResult, cancellationToken);
+        if (selectedProfile is null || data is null)
+        {
+            return;
+        }
+
+        if (data.Value.Mount == NoneDevice.Instance.DeviceUri)
+        {
+            consoleHost.WriteError("Profile has no mount configured. Use 'profile set-mount' first.");
+            return;
+        }
+
+        var lat = parseResult.GetRequiredValue(siteLatOption);
+        var lon = parseResult.GetRequiredValue(siteLonOption);
+        var elevation = parseResult.GetValue(siteElevOption);
+
+        // Patch the mount URI query params with lat/lon/elevation
+        var mountUri = data.Value.Mount;
+        var query = System.Web.HttpUtility.ParseQueryString(mountUri.Query);
+        query[DeviceQueryKey.Latitude.Key] = lat.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        query[DeviceQueryKey.Longitude.Key] = lon.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (elevation.HasValue)
+        {
+            query[DeviceQueryKey.Elevation.Key] = elevation.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        var builder = new UriBuilder(mountUri) { Query = query.ToString() };
+        var newData = data.Value with { Mount = builder.Uri };
+        await SaveAndListAsync(selectedProfile, newData, parseResult, cancellationToken);
+
+        consoleHost.WriteScrollable($"Site set to {lat:F4}°{(lat >= 0 ? "N" : "S")}, {lon:F4}°{(lon >= 0 ? "E" : "W")}{(elevation.HasValue ? $", {elevation.Value:F0}m" : "")}");
     }
 
     internal async Task AddOtaActionAsync(ParseResult parseResult, CancellationToken cancellationToken)

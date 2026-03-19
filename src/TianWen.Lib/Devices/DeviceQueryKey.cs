@@ -9,6 +9,7 @@ public enum DeviceQueryKey
 {
     Latitude,
     Longitude,
+    Elevation,
     Port,
     Baud,
     Gain,
@@ -28,6 +29,7 @@ public static class DeviceQueryKeyExtensions
         {
             DeviceQueryKey.Latitude => "latitude",
             DeviceQueryKey.Longitude => "longitude",
+            DeviceQueryKey.Elevation => "elevation",
             DeviceQueryKey.Port => "port",
             DeviceQueryKey.Baud => "baud",
             DeviceQueryKey.Gain => "gain",
