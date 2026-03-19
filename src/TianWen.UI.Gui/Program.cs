@@ -74,8 +74,7 @@ if (OperatingSystem.IsWindows())
     EnableDarkTitleBar(sdlWindow.Handle);
 }
 
-var dpiScale = GetWindowDisplayScale(sdlWindow.Handle);
-if (dpiScale <= 0f) dpiScale = 1f;
+var dpiScale = sdlWindow.DisplayScale;
 
 var guiRenderer = new VkGuiRenderer(renderer, (uint)pixW, (uint)pixH)
 {
