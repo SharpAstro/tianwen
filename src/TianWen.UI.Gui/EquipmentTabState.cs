@@ -13,6 +13,13 @@ public class EquipmentTabState
     public bool IsCreatingProfile { get; set; }
     public TextInputState ProfileNameInput { get; } = new() { Placeholder = "Enter profile name..." };
 
+    // Site configuration
+    public bool IsEditingSite { get; set; }
+    public TextInputState LatitudeInput { get; } = new() { Placeholder = "Latitude (e.g. 48.2)" };
+    public TextInputState LongitudeInput { get; } = new() { Placeholder = "Longitude (e.g. 16.3)" };
+    public TextInputState ElevationInput { get; } = new() { Placeholder = "Elevation m (e.g. 200)" };
+    public TextInputState? ActiveTextInput { get; set; } // which field is currently focused
+
     // Device discovery
     public IReadOnlyList<DeviceBase> DiscoveredDevices { get; set; } = [];
     public bool IsDiscovering { get; set; }
