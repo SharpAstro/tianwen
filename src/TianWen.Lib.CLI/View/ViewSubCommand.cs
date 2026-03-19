@@ -43,12 +43,8 @@ internal class ViewSubCommand(
 
     private async Task EnsureTerminalInitAsync()
     {
-        var terminal = consoleHost.Terminal;
-        if (!terminal.HasColorSupport && !terminal.HasSixelSupport)
-        {
-            // InitAsync probes capabilities — safe to call multiple times (no-op after first)
-            await terminal.InitAsync();
-        }
+        // InitAsync probes capabilities — safe to call multiple times (no-op after first)
+        await consoleHost.Terminal.InitAsync();
     }
 
     internal async Task RunNonInteractiveAsync(string inputPath, CancellationToken ct)
