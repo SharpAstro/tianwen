@@ -178,7 +178,9 @@ while (running)
                     var textStr = Marshal.PtrToStringUTF8(evt.Text.Text);
                     if (textStr is not null)
                     {
-                        guiRenderer.EquipmentTab.State.ProfileNameInput.InsertText(textStr);
+                        var activeInput = guiRenderer.EquipmentTab.State.ActiveTextInput
+                            ?? guiRenderer.EquipmentTab.State.ProfileNameInput;
+                        activeInput.InsertText(textStr);
                     }
                     break;
             }
@@ -239,8 +241,9 @@ return 0;
 void HandleKeyDown(Scancode scancode, Keymod keymod)
 {
     // Route to text input if active
-    var eqInput = guiRenderer.EquipmentTab.State.ProfileNameInput;
-    if (eqInput.IsActive)
+    var eqState = guiRenderer.EquipmentTab.State;
+    var eqInput = eqState.ActiveTextInput ?? (eqState.ProfileNameInput.IsActive ? eqState.ProfileNameInput : null);
+    if (eqInput is { IsActive: true })
     {
         var inputKey = scancode switch
         {
@@ -255,18 +258,47 @@ void HandleKeyDown(Scancode scancode, Keymod keymod)
             _ => (TextInputKey?)null
         };
 
+        // Tab cycles between site fields
+        if (scancode == Scancode.Tab && eqState.IsEditingSite)
+        {
+            eqState.ActiveTextInput = eqState.ActiveTextInput == eqState.LatitudeInput ? eqState.LongitudeInput
+                : eqState.ActiveTextInput == eqState.LongitudeInput ? eqState.ElevationInput
+                : eqState.LatitudeInput;
+            appState.NeedsRedraw = true;
+            return;
+        }
+
         if (inputKey.HasValue && eqInput.HandleKey(inputKey.Value))
         {
-            if (eqInput.IsCommitted && eqInput.Text.Length > 0)
+            if (eqInput.IsCommitted)
             {
-                // Trigger profile creation
-                HandleEquipmentClick(new EquipmentHitResult(EquipmentHitType.CreateButton));
+                if (eqState.IsEditingSite)
+                {
+                    // Enter in site field → save site
+                    HandleEquipmentClick(new EquipmentHitResult(EquipmentHitType.SaveSiteButton));
+                }
+                else if (eqInput.Text.Length > 0)
+                {
+                    // Trigger profile creation
+                    HandleEquipmentClick(new EquipmentHitResult(EquipmentHitType.CreateButton));
+                }
             }
             else if (eqInput.IsCancelled)
             {
+                if (eqState.IsEditingSite)
+                {
+                    eqState.IsEditingSite = false;
+                    eqState.LatitudeInput.Deactivate();
+                    eqState.LongitudeInput.Deactivate();
+                    eqState.ElevationInput.Deactivate();
+                    eqState.ActiveTextInput = null;
+                }
+                else
+                {
+                    eqState.IsCreatingProfile = false;
+                    eqState.ProfileNameInput.Clear();
+                }
                 eqInput.Deactivate();
-                eqInput.Clear();
-                guiRenderer.EquipmentTab.State.IsCreatingProfile = false;
                 StopTextInput(sdlWindow.Handle);
             }
             appState.NeedsRedraw = true;
@@ -430,9 +462,19 @@ void HandleEquipmentClick(EquipmentHitResult hit)
             break;
 
         case EquipmentHitType.TextInput:
-            if (!eqState.ProfileNameInput.IsActive)
+            if (eqState.IsEditingSite)
+            {
+                // Cycle focus: if no active input, activate latitude
+                if (eqState.ActiveTextInput is null)
+                {
+                    eqState.ActiveTextInput = eqState.LatitudeInput;
+                }
+                StartTextInput(sdlWindow.Handle);
+            }
+            else if (!eqState.ProfileNameInput.IsActive)
             {
                 eqState.ProfileNameInput.Activate();
+                eqState.ActiveTextInput = eqState.ProfileNameInput;
                 StartTextInput(sdlWindow.Handle);
             }
             break;
@@ -521,6 +563,57 @@ void HandleEquipmentClick(EquipmentHitResult hit)
                 appState.ActiveProfile = updatedP;
                 appState.NeedsRedraw = true;
             });
+            break;
+
+        case EquipmentHitType.EditSiteButton:
+            var eqSt = guiRenderer.EquipmentTab.State;
+            eqSt.IsEditingSite = true;
+            // Pre-fill with existing site values if available
+            if (appState.ActiveProfile?.Data is { } pd2)
+            {
+                var existingSite = EquipmentActions.GetSiteFromMount(pd2.Mount);
+                if (existingSite.HasValue)
+                {
+                    eqSt.LatitudeInput.Activate(existingSite.Value.Lat.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    eqSt.LongitudeInput.Activate(existingSite.Value.Lon.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    eqSt.ElevationInput.Activate(existingSite.Value.Elev?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "");
+                }
+                else
+                {
+                    eqSt.LatitudeInput.Activate();
+                    eqSt.LongitudeInput.Activate();
+                    eqSt.ElevationInput.Activate();
+                }
+            }
+            StartTextInput(sdlWindow.Handle);
+            break;
+
+        case EquipmentHitType.SaveSiteButton when appState.ActiveProfile is { } siteProfile:
+            var eqSt2 = guiRenderer.EquipmentTab.State;
+            if (double.TryParse(eqSt2.LatitudeInput.Text, System.Globalization.CultureInfo.InvariantCulture, out var sLat) &&
+                double.TryParse(eqSt2.LongitudeInput.Text, System.Globalization.CultureInfo.InvariantCulture, out var sLon))
+            {
+                double? sElev = double.TryParse(eqSt2.ElevationInput.Text, System.Globalization.CultureInfo.InvariantCulture, out var e) ? e : null;
+                var sData = siteProfile.Data ?? ProfileData.Empty;
+                var newSiteData = EquipmentActions.SetSite(sData, sLat, sLon, sElev);
+                var updatedSite = siteProfile.WithData(newSiteData);
+                _ = Task.Run(async () =>
+                {
+                    await updatedSite.SaveAsync(external, cts.Token);
+                    appState.ActiveProfile = updatedSite;
+                    eqSt2.IsEditingSite = false;
+                    eqSt2.LatitudeInput.Deactivate();
+                    eqSt2.LongitudeInput.Deactivate();
+                    eqSt2.ElevationInput.Deactivate();
+                    eqSt2.ActiveTextInput = null;
+                    StopTextInput(sdlWindow.Handle);
+                    appState.NeedsRedraw = true;
+                });
+            }
+            else
+            {
+                appState.StatusMessage = "Invalid latitude or longitude";
+            }
             break;
     }
 

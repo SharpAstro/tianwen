@@ -18,7 +18,9 @@ namespace TianWen.UI.Gui
         CreateButton,
         AddOtaButton,
         DiscoverButton,
-        TextInput
+        TextInput,
+        EditSiteButton,
+        SaveSiteButton
     }
 
     /// <summary>
@@ -289,21 +291,60 @@ namespace TianWen.UI.Gui
                     "Mount", pd.Mount, new AssignTarget.ProfileLevel("Mount"),
                     x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW);
 
-                // Site info (derived from mount URI, non-clickable)
+                // Site info — clickable to edit
                 var site = EquipmentActions.GetSiteFromMount(pd.Mount ?? NoneDevice.Instance.DeviceUri);
-                if (site.HasValue)
+                if (State.IsEditingSite)
+                {
+                    // Show editable lat/lon/elevation fields
+                    var fieldH = (int)(itemH * 1.2f);
+                    var fieldW = (int)(w - padding * 2f);
+                    var fieldX = (int)(x + padding);
+
+                    DrawText("  Lat:".AsSpan(), fontPath, x + padding, cursor, 50f * dpiScale, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
+                    TextInputRenderer.Render(_renderer, State.LatitudeInput, fieldX + (int)(50f * dpiScale), (int)cursor, fieldW - (int)(50f * dpiScale), fieldH, fontPath, fontSize * 0.9f, FrameCount);
+                    RegisterClickable(fieldX + 50f * dpiScale, cursor, fieldW - 50f * dpiScale, fieldH, new EquipmentHitResult(EquipmentHitType.TextInput));
+                    cursor += fieldH + 2;
+
+                    DrawText("  Lon:".AsSpan(), fontPath, x + padding, cursor, 50f * dpiScale, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
+                    TextInputRenderer.Render(_renderer, State.LongitudeInput, fieldX + (int)(50f * dpiScale), (int)cursor, fieldW - (int)(50f * dpiScale), fieldH, fontPath, fontSize * 0.9f, FrameCount);
+                    RegisterClickable(fieldX + 50f * dpiScale, cursor, fieldW - 50f * dpiScale, fieldH, new EquipmentHitResult(EquipmentHitType.TextInput));
+                    cursor += fieldH + 2;
+
+                    DrawText("  Elev:".AsSpan(), fontPath, x + padding, cursor, 50f * dpiScale, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
+                    TextInputRenderer.Render(_renderer, State.ElevationInput, fieldX + (int)(50f * dpiScale), (int)cursor, fieldW - (int)(50f * dpiScale), fieldH, fontPath, fontSize * 0.9f, FrameCount);
+                    RegisterClickable(fieldX + 50f * dpiScale, cursor, fieldW - 50f * dpiScale, fieldH, new EquipmentHitResult(EquipmentHitType.TextInput));
+                    cursor += fieldH + 2;
+
+                    // Save button
+                    var saveBtnW = _renderer.MeasureText("Save Site".AsSpan(), fontPath, fontSize).Width + padding * 4f;
+                    FillRect(x + padding, cursor, saveBtnW, buttonH, CreateButton);
+                    RegisterClickable(x + padding, cursor, saveBtnW, buttonH, new EquipmentHitResult(EquipmentHitType.SaveSiteButton));
+                    DrawText("Save Site".AsSpan(), fontPath, x + padding, cursor, saveBtnW, buttonH, fontSize, BodyText, TextAlign.Center, TextAlign.Center);
+                    cursor += buttonH + padding;
+                }
+                else if (site.HasValue)
                 {
                     var (lat, lon, elev) = site.Value;
                     var latStr = lat >= 0 ? $"{lat:F1}°N" : $"{-lat:F1}°S";
                     var lonStr = lon >= 0 ? $"{lon:F1}°E" : $"{-lon:F1}°W";
                     var elevStr = elev.HasValue ? $", {elev.Value:F0}m" : "";
                     var siteStr = $"  Site: {latStr}, {lonStr}{elevStr}";
-                    DrawText(
-                        siteStr.AsSpan(),
-                        fontPath,
-                        x + padding, cursor, w - padding * 2f, itemH,
-                        fontSize * 0.9f, SiteText, TextAlign.Near, TextAlign.Center);
+
+                    var siteBtnW = w - padding * 2f;
+                    FillRect(x + padding, cursor, siteBtnW, itemH, SlotNormal);
+                    RegisterClickable(x + padding, cursor, siteBtnW, itemH, new EquipmentHitResult(EquipmentHitType.EditSiteButton));
+                    DrawText(siteStr.AsSpan(), fontPath, x + padding, cursor, siteBtnW - arrowW, itemH, fontSize * 0.9f, SiteText, TextAlign.Near, TextAlign.Center);
+                    DrawText("[>]".AsSpan(), fontPath, x + w - padding - arrowW, cursor, arrowW, itemH, fontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center);
                     cursor += itemH;
+                }
+                else
+                {
+                    // No site configured — show "Set Site" button
+                    var setSiteBtnW = _renderer.MeasureText("Set Site".AsSpan(), fontPath, fontSize).Width + padding * 4f;
+                    FillRect(x + padding, cursor, setSiteBtnW, buttonH, CreateButton);
+                    RegisterClickable(x + padding, cursor, setSiteBtnW, buttonH, new EquipmentHitResult(EquipmentHitType.EditSiteButton));
+                    DrawText("Set Site".AsSpan(), fontPath, x + padding, cursor, setSiteBtnW, buttonH, fontSize, BodyText, TextAlign.Center, TextAlign.Center);
+                    cursor += buttonH;
                 }
 
                 cursor += padding / 2f;
