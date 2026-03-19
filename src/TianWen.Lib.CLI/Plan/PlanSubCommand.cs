@@ -11,7 +11,7 @@ internal class PlanSubCommand(
     IConsoleHost consoleHost,
     PlannerState plannerState,
     ICelestialObjectDB objectDb,
-    Option<string?> selectedProfileOption,
+    ProfileSelector profileSelector,
     Option<bool> interactiveOption
 )
 {
@@ -33,9 +33,8 @@ internal class PlanSubCommand(
     {
         var interactive = parseResult.GetValue(interactiveOption);
 
-        // Resolve profile (needed for location)
-        var allProfiles = await consoleHost.ListDevicesAsync<Profile>(DeviceType.Profile, DeviceDiscoveryOption.Force, ct);
-        var profile = parseResult.GetSelected(allProfiles, selectedProfileOption);
+        // Resolve profile (needed for location) — interactive mode gets picker/wizard
+        var profile = await profileSelector.ResolveProfileAsync(parseResult, interactive, ct);
 
         var lat = parseResult.GetValue(latOption);
         var lon = parseResult.GetValue(lonOption);
