@@ -39,12 +39,13 @@ namespace TianWen.UI.Gui
         private float FontSize => BaseFontSize * DpiScale;
 
         // Sidebar tab definitions
+        // DejaVu Sans Unicode symbols (color emoji needs DIR.Lib CBDT/COLR investigation)
         private static readonly (string Icon, GuiTab Tab)[] SidebarTabs =
         [
-            ("\U0001F52D", GuiTab.Equipment),   // 🔭 Telescope
-            ("\U0001F4C5", GuiTab.Planner),     // 📅 Calendar
-            ("\U0001F30C", GuiTab.Viewer),      // 🌌 Milky Way
-            ("\U0001F3AF", GuiTab.Session),     // 🎯 Bullseye
+            ("\u2699", GuiTab.Equipment),   // ⚙ Gear
+            ("\u2605", GuiTab.Planner),     // ★ Star
+            ("\u2604", GuiTab.Viewer),      // ☄ Comet
+            ("\u25C9", GuiTab.Session),     // ◉ Bullseye
         ];
 
         // Sidebar colors
@@ -337,8 +338,8 @@ namespace TianWen.UI.Gui
 
         private void ResolveFontPath()
         {
-            // Emoji font: bundled Noto Color Emoji, or Segoe UI Emoji on Windows
-            var emojiPath = Path.Combine(AppContext.BaseDirectory, "Fonts", "NotoColorEmoji.ttf");
+            // Emoji font: bundled Noto COLRv1 (uses COLRv1 paint tree, rendered by DIR.Lib)
+            var emojiPath = Path.Combine(AppContext.BaseDirectory, "Fonts", "Noto-COLRv1.ttf");
             if (File.Exists(emojiPath))
             {
                 _emojiFontPath = emojiPath;
