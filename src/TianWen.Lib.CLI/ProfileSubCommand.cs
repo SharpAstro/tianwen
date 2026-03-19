@@ -1,5 +1,8 @@
 using System.CommandLine;
+using System.Globalization;
+using System.Web;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.Lib.CLI;
@@ -25,6 +28,21 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
     private readonly Option<double> siteLatOption = new("--lat") { Description = "Site latitude in degrees (-90..+90, positive=north)", Required = true };
     private readonly Option<double> siteLonOption = new("--lon") { Description = "Site longitude in degrees (-180..+180, positive=east)", Required = true };
     private readonly Option<double?> siteElevOption = new("--elevation") { Description = "Site elevation in metres above sea level" };
+
+    // Options for set-filters
+    private readonly Option<string[]> filtersOption = new("--filters") { Description = "Filter specs as Name:Offset pairs (e.g. Luminance:0 Ha:+21 OIII:-3)", Required = true, AllowMultipleArgumentsPerToken = true };
+
+    // Options for set-camera-defaults
+    private readonly Option<int?> cameraGainOption = new("--gain") { Description = "Default camera gain" };
+    private readonly Option<int?> cameraOffsetOption = new("--offset") { Description = "Default camera ADC offset" };
+
+    // Options for update-ota
+    private readonly Option<string?> updateNameOption = new("--name") { Description = "OTA display name" };
+    private readonly Option<int?> updateFocalLengthOption = new("--focal-length") { Description = "Focal length in mm" };
+    private readonly Option<int?> updateApertureOption = new("--aperture") { Description = "Aperture in mm" };
+    private readonly Option<OpticalDesign?> updateOpticalDesignOption = new("--optical-design") { Description = "Optical design type" };
+    private readonly Option<bool?> preferOutwardOption = new("--prefer-outward") { Description = "Prefer outward focus approach" };
+    private readonly Option<bool?> outwardIsPositiveOption = new("--outward-is-positive") { Description = "Increasing focuser steps = outward" };
 
     // Option for add (per-OTA device targeting)
     private readonly Option<int> otaOption = new("--ota") { Description = "OTA index to target (0-based)", DefaultValueFactory = _ => 0 };
@@ -84,6 +102,31 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
         };
         setSiteCommand.SetAction(SetSiteActionAsync);
 
+        var setFiltersCommand = new Command("set-filters", "Set filter names and focus offsets on an OTA's filter wheel")
+        {
+            Options = { otaOption, filtersOption }
+        };
+        setFiltersCommand.SetAction(SetFiltersActionAsync);
+
+        var setCameraDefaultsCommand = new Command("set-camera-defaults", "Set default gain/offset on an OTA's camera")
+        {
+            Options = { otaOption, cameraGainOption, cameraOffsetOption }
+        };
+        setCameraDefaultsCommand.SetAction(SetCameraDefaultsActionAsync);
+
+        var updateOtaCommand = new Command("update-ota", "Update OTA properties (name, focal length, aperture, optical design, focus direction)")
+        {
+            Arguments = { otaIndexArg },
+            Options = { updateNameOption, updateFocalLengthOption, updateApertureOption, updateOpticalDesignOption, preferOutwardOption, outwardIsPositiveOption }
+        };
+        updateOtaCommand.SetAction(UpdateOtaActionAsync);
+
+        var setGuiderCameraCommand = new Command("set-guider-camera", "Set the dedicated guider camera (for built-in guider)")
+        {
+            Arguments = { deviceIdArg }
+        };
+        setGuiderCameraCommand.SetAction(SetGuiderCameraActionAsync);
+
         return new Command("profile", "Manage profiles")
         {
             Subcommands =
@@ -96,7 +139,11 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
                 setGuiderCommand,
                 addOtaCommand,
                 removeOtaCommand,
-                setSiteCommand
+                updateOtaCommand,
+                setSiteCommand,
+                setFiltersCommand,
+                setCameraDefaultsCommand,
+                setGuiderCameraCommand
             }
         };
     }
@@ -198,6 +245,164 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
         await SaveAndListAsync(selectedProfile, newData, parseResult, cancellationToken);
 
         consoleHost.WriteScrollable($"Site set to {lat:F4}°{(lat >= 0 ? "N" : "S")}, {lon:F4}°{(lon >= 0 ? "E" : "W")}{(elevation.HasValue ? $", {elevation.Value:F0}m" : "")}");
+    }
+
+    internal async Task SetFiltersActionAsync(ParseResult parseResult, CancellationToken cancellationToken)
+    {
+        var (selectedProfile, data) = await GetSelectedProfileDataAsync(parseResult, cancellationToken);
+        if (selectedProfile is null || data is null)
+        {
+            return;
+        }
+
+        var otaIndex = parseResult.GetValue(otaOption);
+        if (!ValidateOtaIndex(data.Value, otaIndex))
+        {
+            return;
+        }
+
+        var ota = data.Value.OTAs[otaIndex];
+        if (ota.FilterWheel is null)
+        {
+            consoleHost.WriteError($"OTA {otaIndex} ('{ota.Name}') has no filter wheel configured.");
+            return;
+        }
+
+        var filterSpecs = parseResult.GetRequiredValue(filtersOption);
+        var query = HttpUtility.ParseQueryString(ota.FilterWheel.Query);
+
+        // Clear existing filter/offset keys
+        var keysToRemove = query.AllKeys.Where(k => k is not null && (k.StartsWith("filter") || k.StartsWith("offset"))).ToArray();
+        foreach (var key in keysToRemove)
+        {
+            query.Remove(key!);
+        }
+
+        // Parse and add new filter specs: "Name:Offset" or just "Name" (offset=0)
+        for (var i = 0; i < filterSpecs.Length; i++)
+        {
+            var spec = filterSpecs[i];
+            var parts = spec.Split(':');
+            var filterName = parts[0];
+            var offset = parts.Length > 1 && int.TryParse(parts[1], out var o) ? o : 0;
+
+            query[DeviceQueryKeyExtensions.FilterKey(i + 1)] = filterName;
+            query[DeviceQueryKeyExtensions.FilterOffsetKey(i + 1)] = offset.ToString(CultureInfo.InvariantCulture);
+        }
+
+        var builder = new UriBuilder(ota.FilterWheel) { Query = query.ToString() };
+        var updatedOta = ota with { FilterWheel = builder.Uri };
+        var newData = data.Value with { OTAs = data.Value.OTAs.SetItem(otaIndex, updatedOta) };
+        await SaveAndListAsync(selectedProfile, newData, parseResult, cancellationToken);
+
+        consoleHost.WriteScrollable($"Set {filterSpecs.Length} filters on OTA {otaIndex} ('{ota.Name}'):");
+        for (var i = 0; i < filterSpecs.Length; i++)
+        {
+            var spec = filterSpecs[i];
+            consoleHost.WriteScrollable($"  [{i + 1}] {spec}");
+        }
+    }
+
+    internal async Task SetCameraDefaultsActionAsync(ParseResult parseResult, CancellationToken cancellationToken)
+    {
+        var (selectedProfile, data) = await GetSelectedProfileDataAsync(parseResult, cancellationToken);
+        if (selectedProfile is null || data is null)
+        {
+            return;
+        }
+
+        var otaIndex = parseResult.GetValue(otaOption);
+        if (!ValidateOtaIndex(data.Value, otaIndex))
+        {
+            return;
+        }
+
+        var ota = data.Value.OTAs[otaIndex];
+        var gain = parseResult.GetValue(cameraGainOption);
+        var offset = parseResult.GetValue(cameraOffsetOption);
+
+        if (!gain.HasValue && !offset.HasValue)
+        {
+            consoleHost.WriteError("Specify at least one of --gain or --offset.");
+            return;
+        }
+
+        var query = HttpUtility.ParseQueryString(ota.Camera.Query);
+        if (gain.HasValue)
+        {
+            query[DeviceQueryKey.Gain.Key] = gain.Value.ToString(CultureInfo.InvariantCulture);
+        }
+        if (offset.HasValue)
+        {
+            query[DeviceQueryKey.Offset.Key] = offset.Value.ToString(CultureInfo.InvariantCulture);
+        }
+
+        var builder = new UriBuilder(ota.Camera) { Query = query.ToString() };
+        var updatedOta = ota with { Camera = builder.Uri };
+        var newData = data.Value with { OTAs = data.Value.OTAs.SetItem(otaIndex, updatedOta) };
+        await SaveAndListAsync(selectedProfile, newData, parseResult, cancellationToken);
+
+        consoleHost.WriteScrollable($"Camera defaults on OTA {otaIndex} ('{ota.Name}'): gain={gain?.ToString() ?? "(unchanged)"}, offset={offset?.ToString() ?? "(unchanged)"}");
+    }
+
+    internal async Task UpdateOtaActionAsync(ParseResult parseResult, CancellationToken cancellationToken)
+    {
+        var (selectedProfile, data) = await GetSelectedProfileDataAsync(parseResult, cancellationToken);
+        if (selectedProfile is null || data is null)
+        {
+            return;
+        }
+
+        var index = parseResult.GetRequiredValue(otaIndexArg);
+        if (!ValidateOtaIndex(data.Value, index))
+        {
+            return;
+        }
+
+        var ota = data.Value.OTAs[index];
+
+        var name = parseResult.GetValue(updateNameOption);
+        var focalLength = parseResult.GetValue(updateFocalLengthOption);
+        var aperture = parseResult.GetValue(updateApertureOption);
+        var opticalDesign = parseResult.GetValue(updateOpticalDesignOption);
+        var preferOutward = parseResult.GetValue(preferOutwardOption);
+        var outwardIsPositive = parseResult.GetValue(outwardIsPositiveOption);
+
+        var updatedOta = ota with
+        {
+            Name = name ?? ota.Name,
+            FocalLength = focalLength ?? ota.FocalLength,
+            Aperture = aperture ?? ota.Aperture,
+            OpticalDesign = opticalDesign ?? ota.OpticalDesign,
+            PreferOutwardFocus = preferOutward ?? ota.PreferOutwardFocus,
+            OutwardIsPositive = outwardIsPositive ?? ota.OutwardIsPositive
+        };
+
+        var newData = data.Value with { OTAs = data.Value.OTAs.SetItem(index, updatedOta) };
+        await SaveAndListAsync(selectedProfile, newData, parseResult, cancellationToken);
+
+        consoleHost.WriteScrollable($"Updated OTA {index} ('{updatedOta.Name}')");
+    }
+
+    internal async Task SetGuiderCameraActionAsync(ParseResult parseResult, CancellationToken cancellationToken)
+    {
+        var (selectedProfile, data) = await GetSelectedProfileDataAsync(parseResult, cancellationToken);
+        if (selectedProfile is null || data is null)
+        {
+            return;
+        }
+
+        var deviceId = parseResult.GetRequiredValue(deviceIdArg);
+        var uri = await ResolveDeviceUriAsync(deviceId, cancellationToken);
+        if (uri is null)
+        {
+            return;
+        }
+
+        var newData = data.Value with { GuiderCamera = uri };
+        await SaveAndListAsync(selectedProfile, newData, parseResult, cancellationToken);
+
+        consoleHost.WriteScrollable($"Guider camera set to '{deviceId}'");
     }
 
     internal async Task AddOtaActionAsync(ParseResult parseResult, CancellationToken cancellationToken)
@@ -414,6 +619,21 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
     }
 
     // --- Helpers ---
+
+    private bool ValidateOtaIndex(ProfileData data, int otaIndex)
+    {
+        if (data.OTAs.Length == 0)
+        {
+            consoleHost.WriteError("No OTAs in profile. Use 'profile add-ota' first.");
+            return false;
+        }
+        if (otaIndex < 0 || otaIndex >= data.OTAs.Length)
+        {
+            consoleHost.WriteError($"OTA index {otaIndex} out of range (0..{data.OTAs.Length - 1})");
+            return false;
+        }
+        return true;
+    }
 
     private async Task<(Profile? Profile, ProfileData? Data)> GetSelectedProfileDataAsync(ParseResult parseResult, CancellationToken ct)
     {
