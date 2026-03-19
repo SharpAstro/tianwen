@@ -32,8 +32,6 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TianWen.Lib.Tests.Functiona
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TianWen.UI.Vulkan", "TianWen.UI.Vulkan\TianWen.UI.Vulkan.csproj", "{276A4228-7153-475A-9D44-163E0EC773E1}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TianWen.UI.Console", "TianWen.UI.Console\TianWen.UI.Console.csproj", "{93C70961-6332-4F84-838B-14394FADDC08}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -164,18 +162,6 @@ Global
 		{276A4228-7153-475A-9D44-163E0EC773E1}.Release|x64.Build.0 = Release|Any CPU
 		{276A4228-7153-475A-9D44-163E0EC773E1}.Release|x86.ActiveCfg = Release|Any CPU
 		{276A4228-7153-475A-9D44-163E0EC773E1}.Release|x86.Build.0 = Release|Any CPU
-		{93C70961-6332-4F84-838B-14394FADDC08}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{93C70961-6332-4F84-838B-14394FADDC08}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{93C70961-6332-4F84-838B-14394FADDC08}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{93C70961-6332-4F84-838B-14394FADDC08}.Debug|x64.Build.0 = Debug|Any CPU
-		{93C70961-6332-4F84-838B-14394FADDC08}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{93C70961-6332-4F84-838B-14394FADDC08}.Debug|x86.Build.0 = Debug|Any CPU
-		{93C70961-6332-4F84-838B-14394FADDC08}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{93C70961-6332-4F84-838B-14394FADDC08}.Release|Any CPU.Build.0 = Release|Any CPU
-		{93C70961-6332-4F84-838B-14394FADDC08}.Release|x64.ActiveCfg = Release|Any CPU
-		{93C70961-6332-4F84-838B-14394FADDC08}.Release|x64.Build.0 = Release|Any CPU
-		{93C70961-6332-4F84-838B-14394FADDC08}.Release|x86.ActiveCfg = Release|Any CPU
-		{93C70961-6332-4F84-838B-14394FADDC08}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

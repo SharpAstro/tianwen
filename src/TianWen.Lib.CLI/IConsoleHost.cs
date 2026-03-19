@@ -1,4 +1,4 @@
-﻿using ImageMagick;
+using Console.Lib;
 using Microsoft.Extensions.Hosting;
 using TianWen.Lib.Devices;
 
@@ -6,7 +6,7 @@ namespace TianWen.Lib.CLI;
 
 public interface IConsoleHost
 {
-    Task<bool> HasSixelSupportAsync();
+    IVirtualTerminal Terminal { get; }
 
     Task<IReadOnlyCollection<TDevice>> ListDevicesAsync<TDevice>(DeviceType deviceType, DeviceDiscoveryOption options, CancellationToken cancellationToken)
         where TDevice : DeviceBase;
@@ -18,8 +18,6 @@ public interface IConsoleHost
     IHostApplicationLifetime ApplicationLifetime { get; }
 
     IExternal External { get; }
-
-    ValueTask RenderImageAsync(IMagickImage<float> image);
 
     void WriteScrollable(string content);
 
@@ -33,5 +31,5 @@ public enum DeviceDiscoveryOption
 {
     None = 0,
     Force       = 0b0001,
-    IncludeFake = 0b0010 
+    IncludeFake = 0b0010
 }

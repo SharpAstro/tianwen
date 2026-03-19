@@ -3,14 +3,14 @@ using DIR.Lib;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
 
-namespace TianWen.UI.Console;
+namespace TianWen.Lib.CLI.View;
 
 /// <summary>
 /// CPU-side FITS image renderer for terminal output.
 /// Applies stretch via <see cref="Image.StretchValue"/> and renders to an <see cref="RgbaImage"/>.
 /// Supports Sixel (via <see cref="RgbaImageRenderer"/>) and ASCII fallback.
 /// </summary>
-public sealed class ConsoleImageRenderer
+internal sealed class ConsoleImageRenderer
 {
     private readonly RgbaImageRenderer _renderer;
 
