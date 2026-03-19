@@ -15,15 +15,9 @@ internal class PlanSubCommand(
     Option<bool> interactiveOption
 )
 {
-    private readonly Option<double?> latOption = new("--lat") { Description = "Site latitude in degrees (overrides profile)" };
-    private readonly Option<double?> lonOption = new("--lon") { Description = "Site longitude in degrees (overrides profile)" };
-
     public Command Build()
     {
-        var planCommand = new Command("plan", "Observation planner — show tonight's best targets and build a schedule")
-        {
-            Options = { latOption, lonOption }
-        };
+        var planCommand = new Command("plan", "Observation planner — show tonight's best targets and build a schedule");
         planCommand.SetAction(PlanActionAsync);
 
         return planCommand;
@@ -33,14 +27,15 @@ internal class PlanSubCommand(
     {
         var interactive = parseResult.GetValue(interactiveOption);
 
-        // Resolve profile (needed for location) — interactive mode gets picker/wizard
+        // Profile is required — it provides the site location via mount URI
         var profile = await profileSelector.ResolveProfileAsync(parseResult, interactive, ct);
+        if (profile is null)
+        {
+            return;
+        }
 
-        var lat = parseResult.GetValue(latOption);
-        var lon = parseResult.GetValue(lonOption);
-
-        // Resolve location
-        var transform = LocationResolver.Resolve(consoleHost, profile, lat, lon, consoleHost.External.TimeProvider);
+        // Extract location from profile's mount URI
+        var transform = LocationResolver.ResolveFromProfile(consoleHost, profile, consoleHost.External.TimeProvider);
         if (transform is null)
         {
             return;
@@ -62,11 +57,11 @@ internal class PlanSubCommand(
         }
         else
         {
-            RunNonInteractive(transform);
+            RunNonInteractive();
         }
     }
 
-    private void RunNonInteractive(TianWen.Lib.Astrometry.SOFA.Transform transform)
+    private void RunNonInteractive()
     {
         var terminal = consoleHost.Terminal;
 
@@ -77,7 +72,8 @@ internal class PlanSubCommand(
         var nightHours = (plannerState.AstroTwilight - plannerState.AstroDark).TotalHours;
 
         consoleHost.WriteScrollable($"\nTonight's Best Targets ({darkLocal:yyyy-MM-dd}, {siteLabel})");
-        consoleHost.WriteScrollable($"Astro dark: {darkLocal:HH:mm} — Astro twilight: {twLocal:HH:mm} ({nightHours:F1}h)\n");
+        consoleHost.WriteScrollable($"Astro dark: {darkLocal:HH:mm} — Astro twilight: {twLocal:HH:mm} ({nightHours:F1}h)");
+        consoleHost.WriteScrollable($"Profile: {plannerState.ActiveProfile?.DisplayName ?? "none"}\n");
 
         // Target table
         foreach (var line in PlannerActions.FormatTonightsBestLines(plannerState))
@@ -105,11 +101,10 @@ internal class PlanSubCommand(
     {
         var pixelSize = terminal.PixelSize;
         var chartW = (int)pixelSize.Width;
-        var chartH = Math.Min((int)(pixelSize.Height / 2), 400); // Use at most half the terminal height
+        var chartH = Math.Min((int)(pixelSize.Height / 2), 400);
 
         if (chartW < 100 || chartH < 50)
         {
-            // Terminal too small for Sixel chart
             foreach (var line in AsciiAltitudeChart.Render(plannerState))
             {
                 consoleHost.WriteScrollable(line);
@@ -119,17 +114,13 @@ internal class PlanSubCommand(
 
         var renderer = new RgbaImageRenderer((uint)chartW, (uint)chartH);
 
-        // Clear to dark background
         renderer.FillRectangle(
             new RectInt(new PointInt(chartW, chartH), new PointInt(0, 0)),
             new RGBAColor32(0x1a, 0x1a, 0x2e, 0xff));
 
-        // Resolve font
         var fontPath = ResolveFontPath();
-
         AltitudeChartRenderer.Render(renderer, plannerState, fontPath);
 
-        // Encode and output
         var surface = (RgbaImage)renderer.Surface;
         using var ms = new MemoryStream();
         SixelEncoder.Encode(surface.Pixels, surface.Width, surface.Height, 4, ms);
@@ -172,7 +163,6 @@ internal class PlanSubCommand(
         var targetList = new ScrollableList<TargetListItem>(leftVp);
         var detailWidget = new MarkdownWidget(detailVp);
 
-        // Build canvas for altitude chart
         var canvasPixelSize = fillVp.PixelSize;
         var canvasRenderer = new RgbaImageRenderer((uint)canvasPixelSize.Width, (uint)canvasPixelSize.Height);
         var canvas = new Canvas<RgbaImage>(fillVp, canvasRenderer);
@@ -183,13 +173,12 @@ internal class PlanSubCommand(
 
         while (!ct.IsCancellationRequested)
         {
-            // Handle input
             if (terminal.HasInput())
             {
                 var evt = terminal.TryReadInput();
                 if (HandleInput(evt, transform))
                 {
-                    return; // quit
+                    return;
                 }
             }
             else
@@ -197,7 +186,6 @@ internal class PlanSubCommand(
                 await Task.Delay(16, ct);
             }
 
-            // Handle resize
             if (panel.Recompute())
             {
                 canvasPixelSize = fillVp.PixelSize;
@@ -247,11 +235,13 @@ internal class PlanSubCommand(
                 var selected = plannerState.TonightsBest[plannerState.SelectedTargetIndex];
                 var isProposed = plannerState.Proposals.Any(p => p.Target == selected.Target);
                 var proposedMark = isProposed ? " **[PROPOSED]**" : "";
+                var optStart = selected.OptimalStart.ToOffset(plannerState.SiteTimeZone);
+                var optEnd = (selected.OptimalStart + selected.OptimalDuration).ToOffset(plannerState.SiteTimeZone);
                 detailWidget.Markdown(
                     $"## {selected.Target.Name}{proposedMark}\n\n" +
                     $"**RA**: {selected.Target.RA:F3}h  **Dec**: {selected.Target.Dec:F2}°\n\n" +
                     $"**Peak altitude**: {selected.OptimalAltitude:F0}°  " +
-                    $"**Window**: {selected.OptimalStart.ToOffset(plannerState.SiteTimeZone):HH:mm}–{(selected.OptimalStart + selected.OptimalDuration).ToOffset(plannerState.SiteTimeZone):HH:mm}  " +
+                    $"**Window**: {optStart:HH:mm}–{optEnd:HH:mm}  " +
                     $"**Score**: {selected.CombinedScore:F0}\n\n" +
                     $"*Enter* to add/remove | *P* priority | *S* schedule | *Q* quit");
             }
@@ -274,9 +264,6 @@ internal class PlanSubCommand(
         }
     }
 
-    /// <summary>
-    /// Handles keyboard input. Returns true if the user wants to quit.
-    /// </summary>
     private bool HandleInput(ConsoleInputEvent evt, TianWen.Lib.Astrometry.SOFA.Transform transform)
     {
         switch (evt.Key)
@@ -309,7 +296,6 @@ internal class PlanSubCommand(
                 break;
 
             case ConsoleKey.P:
-                // Find proposal index for selected target
                 if (plannerState.SelectedTargetIndex >= 0 && plannerState.SelectedTargetIndex < plannerState.TonightsBest.Count)
                 {
                     var target = plannerState.TonightsBest[plannerState.SelectedTargetIndex].Target;

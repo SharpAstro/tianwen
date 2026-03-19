@@ -1,53 +1,37 @@
-using System;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.CLI.Plan;
 
 /// <summary>
-/// Resolves site latitude/longitude from CLI options or the active profile's mount URI.
+/// Resolves site latitude/longitude from the active profile's mount URI.
 /// </summary>
 internal static class LocationResolver
 {
     /// <summary>
-    /// Creates a <see cref="Transform"/> configured with site location.
-    /// Resolution order: explicit CLI args → profile mount URI query params → error.
+    /// Creates a <see cref="Transform"/> configured with the site location from the profile's mount URI.
     /// </summary>
-    public static Transform? Resolve(
+    public static Transform? ResolveFromProfile(
         IConsoleHost consoleHost,
-        Profile? profile,
-        double? cliLatitude,
-        double? cliLongitude,
+        Profile profile,
         TimeProvider timeProvider)
     {
-        double lat, lon;
-
-        if (cliLatitude.HasValue && cliLongitude.HasValue)
+        var data = profile.Data;
+        if (data is null || data.Value.Mount == NoneDevice.Instance.DeviceUri)
         {
-            lat = cliLatitude.Value;
-            lon = cliLongitude.Value;
+            consoleHost.WriteError("Profile has no mount configured. Use 'tianwen profile set-mount' first.");
+            return null;
         }
-        else if (profile?.Data is { } data && data.Mount != NoneDevice.Instance.DeviceUri)
-        {
-            var query = System.Web.HttpUtility.ParseQueryString(data.Mount.Query);
-            var latStr = query["latitude"];
-            var lonStr = query["longitude"];
 
-            if (latStr is not null && lonStr is not null &&
-                double.TryParse(latStr, System.Globalization.CultureInfo.InvariantCulture, out lat) &&
-                double.TryParse(lonStr, System.Globalization.CultureInfo.InvariantCulture, out lon))
-            {
-                // parsed from mount URI
-            }
-            else
-            {
-                consoleHost.WriteError("Mount URI does not contain latitude/longitude. Use --lat and --lon.");
-                return null;
-            }
-        }
-        else
+        var query = System.Web.HttpUtility.ParseQueryString(data.Value.Mount.Query);
+        var latStr = query["latitude"];
+        var lonStr = query["longitude"];
+
+        if (latStr is null || lonStr is null ||
+            !double.TryParse(latStr, System.Globalization.CultureInfo.InvariantCulture, out var lat) ||
+            !double.TryParse(lonStr, System.Globalization.CultureInfo.InvariantCulture, out var lon))
         {
-            consoleHost.WriteError("No location available. Use --lat and --lon, or select a profile with a configured mount.");
+            consoleHost.WriteError("Mount URI does not contain latitude/longitude. Reconfigure the mount with location.");
             return null;
         }
 
