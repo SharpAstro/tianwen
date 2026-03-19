@@ -199,7 +199,7 @@ namespace TianWen.UI.Gui
                     var iy = (int)btnY;
                     var iw = (int)sw;
                     var ih = (int)buttonSize;
-                    _renderer.DrawText(icon.AsSpan(), iconFont, FontSize,
+                    _renderer.DrawText(icon.AsSpan(), iconFont, FontSize * 1.3f,
                         textColor, new RectInt(new PointInt(ix + iw, iy + ih), new PointInt(ix, iy)),
                         TextAlign.Center, TextAlign.Center);
                 }
