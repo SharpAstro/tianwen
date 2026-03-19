@@ -8,7 +8,7 @@
     <PublishAot>true</PublishAot>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
-    <ApplicationManifest>..\TianWen.UI.FitsViewer\app.manifest</ApplicationManifest>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
   <PropertyGroup Condition=" '$(Version)' == '' ">
