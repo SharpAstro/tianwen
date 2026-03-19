@@ -91,8 +91,8 @@ if (OperatingSystem.IsWindows())
 }
 
 // Compute DPI scale from window size vs pixel size
-GetWindowSize(sdlWindow.Handle, out var logW, out var logH);
-var dpiScale = pixW > 0 && logW > 0 ? (float)pixW / logW : 1f;
+var dpiScale = GetWindowDisplayScale(sdlWindow.Handle);
+if (dpiScale <= 0f) dpiScale = 1f;
 
 var imageRenderer = new VkImageRenderer(renderer, (uint)pixW, (uint)pixH)
 {
@@ -138,8 +138,8 @@ while (running)
                     sdlWindow.GetSizeInPixels(out var rw, out var rh);
                     if (rw > 0 && rh > 0)
                     {
-                        GetWindowSize(sdlWindow.Handle, out var rlw, out var rlh);
-                        dpiScale = rlw > 0 ? (float)rw / rlw : 1f;
+                        dpiScale = GetWindowDisplayScale(sdlWindow.Handle);
+                        if (dpiScale <= 0f) dpiScale = 1f;
                         renderer.Resize((uint)rw, (uint)rh);
                         imageRenderer.DpiScale = dpiScale;
                         imageRenderer.Resize((uint)rw, (uint)rh);
