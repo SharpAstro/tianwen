@@ -58,6 +58,9 @@ public class PlannerState
     /// <summary>Scored targets keyed by Target (for elevation profile access).</summary>
     public Dictionary<Target, ScoredTarget> ScoredTargets { get; set; } = [];
 
+    /// <summary>Number of pinned (proposed) targets at the top of the filtered list.</summary>
+    public int PinnedCount { get; set; }
+
     /// <summary>Cross-index aliases for targets (e.g. "Also: NGC 224, UGC 454").</summary>
     public Dictionary<Target, string> TargetAliases { get; set; } = [];
 
