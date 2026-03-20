@@ -352,7 +352,15 @@ void HandleKeyDown(Scancode scancode, Keymod keymod)
             }
             else if (eqInput.IsCancelled)
             {
-                if (eqState.IsEditingSite)
+                if (eqInput == plannerState.SearchInput)
+                {
+                    plannerState.SearchInput.Deactivate();
+                    plannerState.SearchInput.Clear();
+                    plannerState.SearchResults.Clear();
+                    StopTextInput(sdlWindow.Handle);
+                    plannerState.NeedsRedraw = true;
+                }
+                else if (eqState.IsEditingSite)
                 {
                     eqState.IsEditingSite = false;
                     eqState.LatitudeInput.Deactivate();
@@ -514,15 +522,21 @@ void HandleMouseDown(byte button, float px, float py)
                 plannerState.SelectedTargetIndex = 0;
                 guiRenderer.PlannerTab.ScrollOffset = 0;
             }
-            else if (plannerHit is HitResult.TextInputHit { Input: { } searchInput })
+            else if (plannerHit is HitResult.TextInputHit { Input: { } clickedSearchInput })
             {
-                searchInput.Activate();
-                plannerState.SearchInput.Activate();
+                clickedSearchInput.Activate();
                 StartTextInput(sdlWindow.Handle);
                 appState.NeedsRedraw = true;
             }
             else
             {
+                // Clicking anywhere else deactivates the search input
+                if (plannerState.SearchInput.IsActive)
+                {
+                    plannerState.SearchInput.Deactivate();
+                    StopTextInput(sdlWindow.Handle);
+                }
+
                 var targetIdx = guiRenderer.PlannerTab.HitTestTargetList(px, py, cl, ct2, guiRenderer.DpiScale);
                 if (targetIdx >= 0)
                 {
