@@ -46,6 +46,11 @@ public static class AltitudeChartRenderer
     private static readonly RGBAColor32 MinAltLabelColor   = new RGBAColor32(255, 107, 107, 255);
     private static readonly RGBAColor32 MinAltShade        = new RGBAColor32(255, 60, 60, 30);     // subtle red shade
 
+    // Slider / handoff colours
+    private static readonly RGBAColor32 SliderColor        = new RGBAColor32(255, 255, 255, 180);
+    private static readonly RGBAColor32 SliderLabelColor   = new RGBAColor32(255, 255, 255, 220);
+    private static readonly RGBAColor32 ConflictColor      = new RGBAColor32(255, 215,   0, 255);
+
     // Default font family — callers may prefer to pass one via fontPath parameter
     private const string DefaultFontFamily = "monospace";
 
@@ -82,7 +87,9 @@ public static class AltitudeChartRenderer
         PlannerState state,
         string fontFamily,
         int areaX, int areaY, int areaW, int areaH,
-        int? highlightTargetIndex = null)
+        int? highlightTargetIndex = null,
+        DateTimeOffset? currentTime = null,
+        (float X, float Y)? mouseScreenPosition = null)
     {
         // Guard: no data loaded yet (AstroDark is default = 0001-01-01)
         if (state.AstroDark == default)
@@ -145,9 +152,17 @@ public static class AltitudeChartRenderer
             fontFamily, FontSize(h, 10), MinAltLabelColor,
             minAltLabelRect, TextAlign.Near, TextAlign.Center);
 
-        // --- Scheduled observation windows ---
+        // --- Pinned target viable windows + handoff sliders ---
         var allTargets = BuildTargetList(state, highlightTargetIndex);
         var targetColorMap = BuildColorMap(allTargets);
+
+        if (state.PinnedCount >= 1)
+        {
+            DrawPinnedTargetWindows(renderer, state, allTargets, targetColorMap,
+                TimeToX, AltToY, plotX, plotY, plotW, plotH, fontFamily, h);
+        }
+
+        // --- Scheduled observation windows ---
 
         if (state.Schedule is { } tree)
         {
@@ -166,6 +181,29 @@ public static class AltitudeChartRenderer
             $"Observation Schedule — {Math.Abs(state.SiteLatitude):F1}°{latSign}, {Math.Abs(state.SiteLongitude):F1}°{lonSign}",
             fontFamily, FontSize(h, 16), WhiteColor,
             titleRect, TextAlign.Center, TextAlign.Near);
+
+        // --- Current time shade (grey out elapsed time) ---
+        if (currentTime is { } now && now >= tStart && now <= tEnd)
+        {
+            var nowX = TimeToX(now);
+            if (nowX > plotX)
+            {
+                FillRect(renderer, plotX, plotY, nowX - plotX, plotH, new RGBAColor32(0, 0, 0, 100));
+                DrawVLine(renderer, nowX, plotY, plotY + plotH, new RGBAColor32(255, 255, 255, 120));
+            }
+        }
+
+        // --- Mouse follower (vertical line with time label near 90° mark) ---
+        if (mouseScreenPosition is var (mx, my) && mx >= plotX && mx <= plotX + plotW
+            && my >= plotY && my <= plotY + plotH)
+        {
+            DrawVLine(renderer, (int)mx, plotY, plotY + plotH, new RGBAColor32(255, 255, 255, 50));
+            var mouseTime = XToTime(mx, tStart, tEnd, plotX, plotW);
+            var mouseLabel = mouseTime.ToOffset(state.SiteTimeZone).ToString("HH:mm");
+            var mouseLabelRect = MakeRect((int)mx - 20, plotY + 2, 40, 14);
+            renderer.DrawText(mouseLabel, fontFamily, FontSize(h, 10), new RGBAColor32(255, 255, 255, 160),
+                mouseLabelRect, TextAlign.Center, TextAlign.Near);
+        }
 
         // --- Legend (sorted by score, highest first) ---
         var legendTargets = allTargets
@@ -330,6 +368,143 @@ public static class AltitudeChartRenderer
     }
 
     // -----------------------------------------------------------------------
+    // Pinned target windows + handoff sliders
+    // -----------------------------------------------------------------------
+
+    private static void DrawPinnedTargetWindows<TSurface>(
+        Renderer<TSurface> renderer,
+        PlannerState state,
+        Target[] allTargets,
+        Dictionary<Target, int> colorMap,
+        Func<DateTimeOffset, int> timeToX,
+        Func<double, int> altToY,
+        int plotX, int plotY, int plotW, int plotH,
+        string fontFamily, int h)
+    {
+        var pinnedCount = state.PinnedCount;
+        var minAlt = (double)state.MinHeightAboveHorizon;
+        var minAltY = altToY(minAlt);
+
+        for (var i = 0; i < pinnedCount && i < allTargets.Length; i++)
+        {
+            var target = allTargets[i];
+            if (!state.AltitudeProfiles.TryGetValue(target, out var profile) || profile.Count < 2)
+            {
+                continue;
+            }
+
+            // Determine this target's time window from sliders
+            var windowStart = i == 0 ? state.AstroDark : state.HandoffSliders[i - 1];
+            var windowEnd = i >= pinnedCount - 1 || i >= state.HandoffSliders.Count
+                ? state.AstroTwilight
+                : state.HandoffSliders[i];
+
+            var xStart = timeToX(windowStart);
+            var xEnd = timeToX(windowEnd);
+            var colorIdx = colorMap.GetValueOrDefault(target, 0) % TargetColors.Length;
+            var baseColor = state.PinnedTargetConflicts.Length > i && state.PinnedTargetConflicts[i]
+                ? ConflictColor
+                : TargetColors[colorIdx];
+            var fillColor = baseColor with { Alpha = 45 };
+
+            // Column-by-column fill between curve and min-altitude line
+            for (var px = Math.Max(xStart, plotX); px < Math.Min(xEnd, plotX + plotW); px++)
+            {
+                // Interpolate altitude at this pixel's time
+                var fraction = (px - plotX) / (double)plotW;
+                var t = profile[0].Time + TimeSpan.FromSeconds(
+                    (profile[^1].Time - profile[0].Time).TotalSeconds * fraction);
+
+                // Find bracketing profile samples
+                var alt = InterpolateAltitude(profile, t);
+
+                if (alt > minAlt)
+                {
+                    var curveY = altToY(alt);
+                    var fillH = minAltY - curveY;
+                    if (fillH > 0)
+                    {
+                        FillRect(renderer, px, curveY, 1, fillH, fillColor);
+                    }
+                }
+            }
+        }
+
+        // Draw handoff slider lines
+        for (var i = 0; i < state.HandoffSliders.Count; i++)
+        {
+            var sliderX = timeToX(state.HandoffSliders[i]);
+            if (sliderX >= plotX && sliderX <= plotX + plotW)
+            {
+                // Vertical line
+                var isDragging = state.DraggingSliderIndex == i;
+                var lineColor = isDragging
+                    ? WhiteColor
+                    : SliderColor;
+
+                DrawVLine(renderer, sliderX, plotY, plotY + plotH, lineColor);
+
+                // Handle diamonds at top and bottom
+                FillRect(renderer, sliderX - 2, plotY - 2, 5, 5, lineColor);
+                FillRect(renderer, sliderX - 2, plotY + plotH - 3, 5, 5, lineColor);
+
+                // Time label above the min-altitude line
+                var minAltLabelY = altToY(state.MinHeightAboveHorizon);
+                var sliderTime = state.HandoffSliders[i].ToOffset(state.SiteTimeZone);
+                var labelText = sliderTime.ToString("HH:mm");
+                var labelRect = MakeRect(sliderX - 22, minAltLabelY - 18, 44, 14);
+                // Dark background for readability
+                FillRect(renderer, sliderX - 22, minAltLabelY - 18, 44, 14, new RGBAColor32(20, 20, 30, 200));
+                renderer.DrawText(labelText, fontFamily, FontSize(h, 10), SliderLabelColor,
+                    labelRect, TextAlign.Center, TextAlign.Center);
+            }
+        }
+    }
+
+    private static double InterpolateAltitude(List<(DateTimeOffset Time, double Alt)> profile, DateTimeOffset t)
+    {
+        if (t <= profile[0].Time) return profile[0].Alt;
+        if (t >= profile[^1].Time) return profile[^1].Alt;
+
+        for (var k = 0; k < profile.Count - 1; k++)
+        {
+            if (t >= profile[k].Time && t <= profile[k + 1].Time)
+            {
+                var span = (profile[k + 1].Time - profile[k].Time).TotalSeconds;
+                if (span <= 0) return profile[k].Alt;
+                var frac = (t - profile[k].Time).TotalSeconds / span;
+                return profile[k].Alt + (profile[k + 1].Alt - profile[k].Alt) * frac;
+            }
+        }
+
+        return 0;
+    }
+
+    /// <summary>
+    /// Returns the chart's time-to-pixel layout parameters for external hit testing (slider drag).
+    /// </summary>
+    public static (DateTimeOffset TStart, DateTimeOffset TEnd, float PlotX, float PlotW) GetChartTimeLayout(
+        PlannerState state, int areaX, int areaW)
+    {
+        var xMargin = Math.Max(48, areaW / 14);
+        var plotX = areaX + xMargin;
+        var plotW = areaW - xMargin * 2;
+        var tStart = (state.CivilSet ?? state.AstroDark - TimeSpan.FromHours(1)) - TimeSpan.FromMinutes(15);
+        var tEnd = (state.CivilRise ?? state.AstroTwilight + TimeSpan.FromHours(1)) + TimeSpan.FromMinutes(15);
+        return (tStart, tEnd, plotX, plotW);
+    }
+
+    /// <summary>
+    /// Converts a screen X pixel to a time using the chart's time layout.
+    /// </summary>
+    public static DateTimeOffset XToTime(float px, DateTimeOffset tStart, DateTimeOffset tEnd, float plotX, float plotW)
+    {
+        var fraction = (px - plotX) / plotW;
+        fraction = Math.Clamp(fraction, 0, 1);
+        return tStart + TimeSpan.FromSeconds(fraction * (tEnd - tStart).TotalSeconds);
+    }
+
+    // -----------------------------------------------------------------------
     // Scheduled observation windows
     // -----------------------------------------------------------------------
 
@@ -448,13 +623,17 @@ public static class AltitudeChartRenderer
                 DrawSolidCurve(renderer, smoothed, curveColor, dotSize);
             }
 
-            // Label at the peak altitude point
+            // Label at the peak altitude point: name + peak time
             var peak     = profile.MaxBy(p => p.Alt);
             var peakX    = timeToX(peak.Time);
             var peakY    = altToY(peak.Alt);
-            var nameRect = MakeRect(peakX - 40, peakY - 18, 80, 14);
+            var nameRect = MakeRect(peakX - 60, peakY - 28, 120, 14);
             renderer.DrawText(target.Name, fontFamily, FontSize(rendererH, 12), curveColor,
                 nameRect, TextAlign.Center, TextAlign.Far);
+            var peakTimeStr = peak.Time.ToOffset(state.SiteTimeZone).ToString("HH:mm");
+            var timeRect = MakeRect(peakX - 30, peakY - 14, 60, 12);
+            renderer.DrawText(peakTimeStr, fontFamily, FontSize(rendererH, 9), GrayColor,
+                timeRect, TextAlign.Center, TextAlign.Far);
         }
     }
 

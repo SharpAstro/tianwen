@@ -203,12 +203,16 @@ while (running)
 
                 case EventType.MouseMotion:
                     needsRedraw = true;
-                    appState.MouseScreenPosition = (evt.Motion.X, evt.Motion.Y);
+                    handlers.HandleMouseMove(evt.Motion.X, evt.Motion.Y);
                     break;
 
                 case EventType.MouseButtonDown:
                     needsRedraw = true;
                     handlers.HandleMouseDown(evt.Button.X, evt.Button.Y, evt.Button.Clicks);
+                    break;
+
+                case EventType.MouseButtonUp:
+                    handlers.HandleMouseUp();
                     break;
 
                 case EventType.MouseWheel:

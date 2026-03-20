@@ -61,6 +61,21 @@ public class PlannerState
     /// <summary>Number of pinned (proposed) targets at the top of the filtered list.</summary>
     public int PinnedCount { get; set; }
 
+    /// <summary>
+    /// Handoff times between adjacent pinned targets (N-1 entries for N pinned targets).
+    /// Slider[i] is the boundary between pinned target i and pinned target i+1.
+    /// </summary>
+    public List<DateTimeOffset> HandoffSliders { get; set; } = [];
+
+    /// <summary>
+    /// Conflict flags parallel to the sorted pinned targets list.
+    /// True = this pinned target's peak window overlaps significantly with an adjacent target.
+    /// </summary>
+    public bool[] PinnedTargetConflicts { get; set; } = [];
+
+    /// <summary>Index of the slider currently being dragged (-1 = none).</summary>
+    public int DraggingSliderIndex { get; set; } = -1;
+
     /// <summary>Cross-index aliases for targets (e.g. "Also: NGC 224, UGC 454").</summary>
     public Dictionary<Target, string> TargetAliases { get; set; } = [];
 

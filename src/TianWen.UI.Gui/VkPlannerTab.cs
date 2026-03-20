@@ -53,6 +53,8 @@ namespace TianWen.UI.Gui
         // Layout rects computed during Render, used by hit testing
         private PixelRect _targetListRect;
         private PixelRect _listItemsRect;
+        private PixelRect _chartRect;
+        private (float X, float Y)? _appMousePosition;
         private float _itemHeight;
         private float _searchBarBottom;
         private float _searchBarLeft;
@@ -98,7 +100,8 @@ namespace TianWen.UI.Gui
             PixelRect contentRect,
             float dpiScale,
             string fontPath,
-            TimeProvider timeProvider)
+            TimeProvider timeProvider,
+            (float X, float Y) mouseScreenPosition = default)
         {
             var targetListWidth  = BaseTargetListWidth * dpiScale;
             var detailsHeight    = BaseDetailsPanelHeight * dpiScale;
@@ -108,6 +111,7 @@ namespace TianWen.UI.Gui
             var padding          = BasePadding * dpiScale;
 
             _itemHeight = itemHeight;
+            _appMousePosition = mouseScreenPosition;
 
             BeginFrame();
 
@@ -119,7 +123,7 @@ namespace TianWen.UI.Gui
             var layout = new PixelLayout(contentRect);
             _targetListRect = layout.Dock(PixelDockStyle.Left, targetListWidth);
             var detailsRect = layout.Dock(PixelDockStyle.Bottom, detailsHeight);
-            var chartRect = layout.Fill();
+            _chartRect = layout.Fill();
 
             // --- 1. Altitude chart ---
             var selectedIndex = state.SelectedTargetIndex >= 0
@@ -127,9 +131,21 @@ namespace TianWen.UI.Gui
                 ? state.SelectedTargetIndex
                 : (int?)null;
 
+            var now = timeProvider.GetLocalNow();
+            // Only show mouse follower when not dragging and mouse is inside the chart area
+            (float, float)? mousePos = null;
+            if (state.DraggingSliderIndex < 0 && _appMousePosition is var (mx, my)
+                && _chartRect.Contains(mx, my))
+            {
+                mousePos = (mx, my);
+            }
+
             AltitudeChartRenderer.Render(Renderer, state, fontPath,
-                (int)chartRect.X, (int)chartRect.Y, (int)chartRect.Width, (int)chartRect.Height,
-                selectedIndex);
+                (int)_chartRect.X, (int)_chartRect.Y, (int)_chartRect.Width, (int)_chartRect.Height,
+                selectedIndex, now, mousePos);
+
+            // Register slider hit regions for drag interaction
+            RegisterSliderHitRegions(state, dpiScale);
 
             // --- 2. Target list panel (opaque background, left side of content area) ---
             RenderTargetList(
@@ -138,6 +154,32 @@ namespace TianWen.UI.Gui
 
             // --- 3. Details panel (opaque background, bottom-right of content area) ---
             RenderDetailsPanel(state, fontPath, detailsRect, fontSize, padding);
+        }
+
+        /// <summary>Chart rect from last render (for slider drag coordinate conversion).</summary>
+        public PixelRect ChartRect => _chartRect;
+
+        private void RegisterSliderHitRegions(PlannerState state, float dpiScale)
+        {
+            if (state.HandoffSliders.Count == 0)
+            {
+                return;
+            }
+
+            var (tStart, tEnd, plotX, plotW) = AltitudeChartRenderer.GetChartTimeLayout(
+                state, (int)_chartRect.X, (int)_chartRect.Width);
+            var tRange = (tEnd - tStart).TotalHours;
+
+            var hitW = 10f * dpiScale;
+            for (var i = 0; i < state.HandoffSliders.Count; i++)
+            {
+                var fraction = (state.HandoffSliders[i] - tStart).TotalHours / tRange;
+                var sliderX = plotX + (float)(fraction * plotW);
+
+                var capturedIdx = i;
+                RegisterClickable(sliderX - hitW / 2, _chartRect.Y, hitW, _chartRect.Height,
+                    new HitResult.SliderHit(i));
+            }
         }
 
         // -----------------------------------------------------------------------
@@ -291,9 +333,20 @@ namespace TianWen.UI.Gui
                     fontSize, rowTextColor, TextAlign.Near, TextAlign.Center);
 
                 // Altitude / peak time right-aligned
-                var infoStr = isPinned
-                    ? scored.OptimalStart.ToOffset(state.SiteTimeZone).ToString("HH:mm")
-                    : $"{scored.OptimalAltitude:F0}°";
+                string infoStr;
+                if (isPinned)
+                {
+                    var startTime = i == 0 || state.HandoffSliders.Count == 0
+                        ? state.AstroDark
+                        : i - 1 < state.HandoffSliders.Count
+                            ? state.HandoffSliders[i - 1]
+                            : scored.OptimalStart;
+                    infoStr = startTime.ToOffset(state.SiteTimeZone).ToString("HH:mm");
+                }
+                else
+                {
+                    infoStr = $"{scored.OptimalAltitude:F0}°";
+                }
                 var infoX = rect.X + padding + nameW;
                 var infoW = listW - nameW - padding * 2f - removeBtnW;
                 DrawText(infoStr.AsSpan(), fontPath,
@@ -404,10 +457,13 @@ namespace TianWen.UI.Gui
                 rect.X + padding, rect.Y, rect.Width - padding * 2f, lineH,
                 fontSize * 1.25f, DetailsNameText, TextAlign.Near, TextAlign.Center);
 
-            // Line 2: coordinates + altitude + window
+            // Line 2: coordinates + altitude + peak time + window
             var window = FormatWindow(scored, state);
+            var peakTime = state.AltitudeProfiles.TryGetValue(scored.Target, out var prof) && prof.Count > 0
+                ? prof.MaxBy(p => p.Alt).Time.ToOffset(state.SiteTimeZone).ToString("HH:mm")
+                : "?";
             var line2 = $"RA {scored.Target.RA:F3}h  Dec {scored.Target.Dec:+0.0;-0.0}°" +
-                        $"  Alt {scored.OptimalAltitude:F0}°  Window {window}";
+                        $"  Alt {scored.OptimalAltitude:F0}°  Peak {peakTime}  Window {window}";
             DrawText(line2.AsSpan(), fontPath,
                 rect.X + padding, rect.Y + lineH, rect.Width - padding * 2f, lineH,
                 fontSize, DetailsInfoText, TextAlign.Near, TextAlign.Center);
