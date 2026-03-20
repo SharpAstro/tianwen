@@ -367,6 +367,7 @@ void HandleKeyDown(Scancode scancode, Keymod keymod)
                 if (plannerState.SelectedTargetIndex > 0)
                 {
                     plannerState.SelectedTargetIndex--;
+                    guiRenderer.PlannerTab.EnsureVisible(plannerState.SelectedTargetIndex);
                     plannerState.NeedsRedraw = true;
                 }
                 break;
@@ -374,6 +375,7 @@ void HandleKeyDown(Scancode scancode, Keymod keymod)
                 if (plannerState.SelectedTargetIndex < plannerState.TonightsBest.Count - 1)
                 {
                     plannerState.SelectedTargetIndex++;
+                    guiRenderer.PlannerTab.EnsureVisible(plannerState.SelectedTargetIndex);
                     plannerState.NeedsRedraw = true;
                 }
                 break;

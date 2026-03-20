@@ -44,6 +44,24 @@ namespace TianWen.UI.Gui
         /// <summary>Current scroll offset (in items) for the target list.</summary>
         public int ScrollOffset { get; set; }
 
+        /// <summary>Number of visible rows in the last render (set during RenderTargetList).</summary>
+        public int VisibleRows { get; private set; }
+
+        /// <summary>
+        /// Adjusts ScrollOffset so that the item at <paramref name="index"/> is visible.
+        /// </summary>
+        public void EnsureVisible(int index)
+        {
+            if (index < ScrollOffset)
+            {
+                ScrollOffset = index;
+            }
+            else if (VisibleRows > 0 && index >= ScrollOffset + VisibleRows)
+            {
+                ScrollOffset = index - VisibleRows + 1;
+            }
+        }
+
         public VkPlannerTab(VkRenderer renderer)
         {
             _renderer = renderer;
@@ -147,6 +165,7 @@ namespace TianWen.UI.Gui
             var listTop      = y + headerHeight;
             var listH        = h - headerHeight;
             var visibleRows  = Math.Max(1, (int)(listH / itemHeight));
+            VisibleRows = visibleRows;
             var maxScroll    = Math.Max(0, totalItems - visibleRows);
 
             // Clamp scroll
