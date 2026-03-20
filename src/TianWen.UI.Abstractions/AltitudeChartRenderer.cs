@@ -253,18 +253,24 @@ public static class AltitudeChartRenderer
         foreach (var (x1, x2, _, label) in zones)
         {
             var bandW = x2 - x1;
-            if (bandW <= 20)
+
+            // Thin boundary lines (even for narrow zones)
+            if (bandW > 3)
+            {
+                DrawVLine(renderer, x1, labelY + 4, plotY, ZoneLabelColor);
+                DrawVLine(renderer, x2, labelY + 4, plotY, ZoneLabelColor);
+            }
+
+            // Only draw label if the zone is wide enough for the text
+            var fs = FontSize((int)renderer.Height, 10);
+            var textW = renderer.MeasureText(label, fontFamily, fs).Width;
+            if (bandW < textW + 8)
             {
                 continue;
             }
 
-            // Thin boundary lines
-            DrawVLine(renderer, x1, labelY + 4, plotY, ZoneLabelColor);
-            DrawVLine(renderer, x2, labelY + 4, plotY, ZoneLabelColor);
-
-            var cx     = (x1 + x2) / 2;
-            var fs     = bandW < 50 ? FontSize((int)renderer.Height, 9) : FontSize((int)renderer.Height, 11);
-            var lRect  = MakeRect(cx - bandW / 2, labelY - 14, bandW, 14);
+            var cx = (x1 + x2) / 2;
+            var lRect = MakeRect(cx - bandW / 2, labelY - 14, bandW, 14);
             renderer.DrawText(label, fontFamily, fs, ZoneLabelColor, lRect, TextAlign.Center, TextAlign.Far);
         }
     }

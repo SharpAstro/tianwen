@@ -268,9 +268,9 @@ return 0;
 
 void HandleKeyDown(Scancode scancode, Keymod keymod)
 {
-    // Route to text input if active
+    // Route to text input if active (only on Equipment tab)
     var eqState = guiRenderer.EquipmentTab.State;
-    var eqInput = eqState.ActiveTextInput;
+    var eqInput = appState.ActiveTab is GuiTab.Equipment ? eqState.ActiveTextInput : null;
     if (eqInput is { IsActive: true })
     {
         var inputKey = scancode switch
@@ -533,6 +533,7 @@ void HandleEquipmentClick(HitResult hit)
                     eqState.IsCreatingProfile = false;
                     eqState.ProfileNameInput.Deactivate();
                     eqState.ProfileNameInput.Clear();
+                    eqState.ActiveTextInput = null;
                     StopTextInput(sdlWindow.Handle);
                     appState.NeedsRedraw = true;
                 });
