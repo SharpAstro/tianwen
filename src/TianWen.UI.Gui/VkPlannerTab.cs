@@ -41,6 +41,11 @@ namespace TianWen.UI.Gui
         private static readonly RGBAColor32 ScrollBarBg     = new RGBAColor32(0x22, 0x22, 0x2a, 0xff);
         private static readonly RGBAColor32 ScrollBarFg     = new RGBAColor32(0x44, 0x44, 0x55, 0xff);
 
+        private IReadOnlyList<ScoredTarget> _lastFilteredTargets = [];
+
+        /// <summary>The filtered target list from the last render pass.</summary>
+        public IReadOnlyList<ScoredTarget> FilteredTargets => _lastFilteredTargets;
+
         /// <summary>Current scroll offset (in items) for the target list.</summary>
         public int ScrollOffset { get; set; }
 
@@ -88,9 +93,13 @@ namespace TianWen.UI.Gui
             var fontSize         = BaseFontSize * dpiScale;
             var padding          = BasePadding * dpiScale;
 
+            // Compute filtered target list (respects rating filter, always includes proposed)
+            var filteredTargets = PlannerActions.GetFilteredTargets(state);
+            _lastFilteredTargets = filteredTargets;
+
             // --- 1. Altitude chart in the right portion of the content area ---
             var selectedIndex = state.SelectedTargetIndex >= 0
-                                && state.SelectedTargetIndex < state.TonightsBest.Count
+                                && state.SelectedTargetIndex < filteredTargets.Count
                 ? state.SelectedTargetIndex
                 : (int?)null;
 
@@ -160,13 +169,17 @@ namespace TianWen.UI.Gui
             // Opaque background covers the chart behind the list
             FillRect(x, y, w, h, PanelBgOpaque);
 
-            // Header row
+            // Header row with filter label
             FillRect(x, y, w, headerHeight, HeaderBg);
-            DrawText("Tonight's Best".AsSpan(), fontPath,
+            var filterLabel = state.MinRatingFilter > 0f
+                ? $"Tonight's Best ({state.MinRatingFilter:F0}\u2605+)"
+                : "Tonight's Best";
+            DrawText(filterLabel.AsSpan(), fontPath,
                 x + padding, y, listW - padding * 2f, headerHeight,
                 fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
 
-            var totalItems   = state.TonightsBest.Count;
+            var filtered = _lastFilteredTargets;
+            var totalItems = filtered.Count;
             var listTop      = y + headerHeight;
             var listH        = h - headerHeight;
             var visibleRows  = Math.Max(1, (int)(listH / itemHeight));
@@ -185,7 +198,7 @@ namespace TianWen.UI.Gui
                     break;
                 }
 
-                var scored     = state.TonightsBest[i];
+                var scored     = filtered[i];
                 var isSelected = i == state.SelectedTargetIndex;
                 var isProposed = state.Proposals.Any(p => p.Target == scored.Target);
 
@@ -249,7 +262,8 @@ namespace TianWen.UI.Gui
             FillRect(x, y, w, 1f, SeparatorColor);
 
             var idx = state.SelectedTargetIndex;
-            if (idx < 0 || idx >= state.TonightsBest.Count)
+            var filtered = _lastFilteredTargets;
+            if (idx < 0 || idx >= filtered.Count)
             {
                 DrawText("Select a target to see details.".AsSpan(), fontPath,
                     x + padding, y, w - padding * 2f, h,
@@ -257,7 +271,7 @@ namespace TianWen.UI.Gui
                 return;
             }
 
-            var scored      = state.TonightsBest[idx];
+            var scored      = filtered[idx];
             var isProposed  = state.Proposals.Any(p => p.Target == scored.Target);
             var statusSuffix = isProposed ? " [Proposed]" : "";
             var lineH       = h / 3f;

@@ -361,85 +361,96 @@ void HandleKeyDown(Scancode scancode, Keymod keymod)
     // Dispatch to active tab
     if (appState.ActiveTab is GuiTab.Planner)
     {
-        switch (scancode)
-        {
-            case Scancode.Up:
-                if (plannerState.SelectedTargetIndex > 0)
-                {
-                    plannerState.SelectedTargetIndex--;
-                    guiRenderer.PlannerTab.EnsureVisible(plannerState.SelectedTargetIndex);
-                    plannerState.NeedsRedraw = true;
-                }
-                break;
-            case Scancode.Down:
-                if (plannerState.SelectedTargetIndex < plannerState.TonightsBest.Count - 1)
-                {
-                    plannerState.SelectedTargetIndex++;
-                    guiRenderer.PlannerTab.EnsureVisible(plannerState.SelectedTargetIndex);
-                    plannerState.NeedsRedraw = true;
-                }
-                break;
-            case Scancode.Return:
-                if (plannerState.SelectedTargetIndex >= 0 && plannerState.SelectedTargetIndex < plannerState.TonightsBest.Count)
-                {
-                    var target = plannerState.TonightsBest[plannerState.SelectedTargetIndex].Target;
-                    PlannerActions.ToggleProposal(plannerState, target);
-                }
-                break;
-            case Scancode.P:
-                if (plannerState.SelectedTargetIndex >= 0 && plannerState.SelectedTargetIndex < plannerState.TonightsBest.Count)
-                {
-                    var target = plannerState.TonightsBest[plannerState.SelectedTargetIndex].Target;
-                    var propIdx = plannerState.Proposals.FindIndex(p => p.Target == target);
-                    if (propIdx >= 0)
-                    {
-                        PlannerActions.CyclePriority(plannerState, propIdx);
-                    }
-                }
-                break;
-            case Scancode.M:
-                // Cycle minimum altitude: 15 → 20 → 25 → 30 → 35 → 15
-                plannerState.MinHeightAboveHorizon = plannerState.MinHeightAboveHorizon switch
-                {
-                    15 => 20,
-                    20 => 25,
-                    25 => 30,
-                    30 => 35,
-                    _ => 15
-                };
-                // Recompute with new minimum — need to rescore targets
-                if (appState.ActiveProfile is not null)
-                {
-                    var mTransform = TransformFactory.FromProfile(
-                        appState.ActiveProfile, external.TimeProvider, out _);
-                    if (mTransform is not null)
-                    {
-                        _ = Task.Run(async () =>
-                        {
-                            var objectDb2 = sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
-                            await PlannerActions.ComputeTonightsBestAsync(
-                                plannerState, objectDb2, mTransform,
-                                plannerState.MinHeightAboveHorizon, cts.Token);
-                        });
-                    }
-                }
+        HandlePlannerKey(scancode);
+    }
+}
+
+void HandlePlannerKey(Scancode scancode)
+{
+    var tab = guiRenderer.PlannerTab;
+    var filtered = tab.FilteredTargets;
+
+    switch (scancode)
+    {
+        case Scancode.Up:
+            if (plannerState.SelectedTargetIndex > 0)
+            {
+                plannerState.SelectedTargetIndex--;
+                tab.EnsureVisible(plannerState.SelectedTargetIndex);
                 plannerState.NeedsRedraw = true;
-                break;
-            case Scancode.S:
-                if (appState.ActiveProfile is not null)
-                {
-                    var transform = TransformFactory.FromProfile(
-                        appState.ActiveProfile, external.TimeProvider, out _);
-                    if (transform is not null)
-                    {
-                        PlannerActions.BuildSchedule(plannerState, transform,
-                            defaultGain: 120, defaultOffset: 10,
-                            defaultSubExposure: TimeSpan.FromSeconds(120),
-                            defaultObservationTime: TimeSpan.FromMinutes(60));
-                    }
-                }
-                break;
+            }
+            break;
+
+        case Scancode.Down:
+            if (plannerState.SelectedTargetIndex < filtered.Count - 1)
+            {
+                plannerState.SelectedTargetIndex++;
+                tab.EnsureVisible(plannerState.SelectedTargetIndex);
+                plannerState.NeedsRedraw = true;
+            }
+            break;
+
+        case Scancode.Return when plannerState.SelectedTargetIndex >= 0 && plannerState.SelectedTargetIndex < filtered.Count:
+            PlannerActions.ToggleProposal(plannerState, filtered[plannerState.SelectedTargetIndex].Target);
+            break;
+
+        case Scancode.P when plannerState.SelectedTargetIndex >= 0 && plannerState.SelectedTargetIndex < filtered.Count:
+            var propIdx = plannerState.Proposals.FindIndex(p => p.Target == filtered[plannerState.SelectedTargetIndex].Target);
+            if (propIdx >= 0)
+            {
+                PlannerActions.CyclePriority(plannerState, propIdx);
+            }
+            break;
+
+        case Scancode.F:
+            PlannerActions.CycleRatingFilter(plannerState);
+            plannerState.SelectedTargetIndex = 0;
+            tab.ScrollOffset = 0;
+            break;
+
+        case Scancode.M:
+            CycleMinAltitude();
+            break;
+
+        case Scancode.S:
+            BuildScheduleFromProfile();
+            break;
+    }
+}
+
+void CycleMinAltitude()
+{
+    plannerState.MinHeightAboveHorizon = plannerState.MinHeightAboveHorizon switch
+    {
+        15 => 20, 20 => 25, 25 => 30, 30 => 35, _ => 15
+    };
+
+    if (appState.ActiveProfile is not null)
+    {
+        var transform = TransformFactory.FromProfile(appState.ActiveProfile, external.TimeProvider, out _);
+        if (transform is not null)
+        {
+            _ = Task.Run(async () =>
+            {
+                var db = sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
+                await PlannerActions.ComputeTonightsBestAsync(plannerState, db, transform,
+                    plannerState.MinHeightAboveHorizon, cts.Token);
+            });
         }
+    }
+    plannerState.NeedsRedraw = true;
+}
+
+void BuildScheduleFromProfile()
+{
+    if (appState.ActiveProfile is null) return;
+    var transform = TransformFactory.FromProfile(appState.ActiveProfile, external.TimeProvider, out _);
+    if (transform is not null)
+    {
+        PlannerActions.BuildSchedule(plannerState, transform,
+            defaultGain: 120, defaultOffset: 10,
+            defaultSubExposure: TimeSpan.FromSeconds(120),
+            defaultObservationTime: TimeSpan.FromMinutes(60));
     }
 }
 
