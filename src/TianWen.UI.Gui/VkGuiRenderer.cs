@@ -16,6 +16,7 @@ namespace TianWen.UI.Gui
         private readonly VkRenderer _renderer;
         private readonly VkPlannerTab _plannerTab;
         private readonly VkEquipmentTab _equipmentTab;
+        private readonly VkSessionTab _sessionTab;
         private string? _fontPath;
         private string? _emojiFontPath;
         private uint _width;
@@ -29,6 +30,9 @@ namespace TianWen.UI.Gui
 
         /// <summary>Exposes the equipment tab for state access.</summary>
         public VkEquipmentTab EquipmentTab => _equipmentTab;
+
+        /// <summary>Exposes the session tab for scroll control and state access.</summary>
+        public VkSessionTab SessionTab => _sessionTab;
 
         /// <summary>The currently active tab as an <see cref="IPixelWidget"/> for tab-specific hit testing.</summary>
         public IPixelWidget? ActiveTab { get; private set; }
@@ -48,8 +52,8 @@ namespace TianWen.UI.Gui
         [
             ("\U0001F52D", GuiTab.Equipment),   // 🔭 Telescope
             ("\U0001F4C5", GuiTab.Planner),     // 📅 Calendar
+            ("\U0001F3AF", GuiTab.Session),     // 🎯 Session
             ("\U0001F30C", GuiTab.Viewer),      // 🌌 Milky Way
-            ("\U0001F3AF", GuiTab.Session),     // 🎯 Bullseye
         ];
 
         // Sidebar colors
@@ -75,6 +79,7 @@ namespace TianWen.UI.Gui
             _height = height;
             _plannerTab = new VkPlannerTab(renderer);
             _equipmentTab = new VkEquipmentTab(renderer);
+            _sessionTab = new VkSessionTab(renderer);
             ResolveFontPath();
         }
 
@@ -103,11 +108,13 @@ namespace TianWen.UI.Gui
             BeginFrame();
             _equipmentTab.FrameCount++;
             _plannerTab.FrameCount++;
+            _sessionTab.FrameCount++;
 
             ActiveTab = appState.ActiveTab switch
             {
                 GuiTab.Planner => _plannerTab,
                 GuiTab.Equipment => _equipmentTab,
+                GuiTab.Session => _sessionTab,
                 _ => null
             };
 
@@ -307,6 +314,11 @@ namespace TianWen.UI.Gui
 
                 case GuiTab.Equipment:
                     _equipmentTab.Render(appState, contentRect, DpiScale,
+                        _fontPath ?? "monospace");
+                    break;
+
+                case GuiTab.Session:
+                    _sessionTab.Render(plannerState, contentRect, DpiScale,
                         _fontPath ?? "monospace");
                     break;
 
