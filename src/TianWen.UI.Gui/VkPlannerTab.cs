@@ -276,8 +276,10 @@ namespace TianWen.UI.Gui
                 x + padding, y + lineH, w - padding * 2f, lineH,
                 fontSize, DetailsInfoText, TextAlign.Near, TextAlign.Center);
 
-            // Line 3: score
-            var line3 = $"Score {scored.CombinedScore:F0}";
+            // Line 3: log-scale rating (0.5-5.0 stars)
+            var maxScore = state.TonightsBest.Count > 0 ? state.TonightsBest[0].CombinedScore : 1.0;
+            var rating = PlannerActions.ScoreToRating(scored.CombinedScore, maxScore);
+            var line3 = $"Rating: {rating:F1}\u2605";
             DrawText(line3.AsSpan(), fontPath,
                 x + padding, y + lineH * 2f, w - padding * 2f, lineH,
                 fontSize, DetailsInfoText, TextAlign.Near, TextAlign.Center);

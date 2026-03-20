@@ -1,12 +1,13 @@
 using Console.Lib;
 using TianWen.Lib.Sequencing;
+using TianWen.UI.Abstractions;
 
 namespace TianWen.Lib.CLI.Plan;
 
 /// <summary>
 /// A target entry for the planner's scrollable target list.
 /// </summary>
-internal sealed class TargetListItem(ScoredTarget scored, bool isProposed, bool isSelected) : IRowFormatter
+internal sealed class TargetListItem(ScoredTarget scored, bool isProposed, bool isSelected, double maxScore) : IRowFormatter
 {
     public ScoredTarget Scored { get; } = scored;
     public bool IsProposed { get; } = isProposed;
@@ -23,9 +24,10 @@ internal sealed class TargetListItem(ScoredTarget scored, bool isProposed, bool 
         }
 
         var alt = $"{Scored.OptimalAltitude:F0}°";
-        var score = $"{Scored.CombinedScore:F0}";
+        var rating = PlannerActions.ScoreToRating(Scored.CombinedScore, maxScore);
+        var ratingStr = $"{rating:F1}\u2605";
 
-        var line = $"{marker}{name.PadRight(nameWidth)} {alt,4} {score,5}";
+        var line = $"{marker}{name.PadRight(nameWidth)} {alt,4} {ratingStr,5}";
 
         if (IsSelected && IsProposed)
         {
