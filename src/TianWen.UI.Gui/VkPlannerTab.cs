@@ -12,9 +12,8 @@ namespace TianWen.UI.Gui
     /// Layout: altitude chart fills the full renderer (drawn first), then target list and details panel
     /// are painted on top with opaque backgrounds.
     /// </summary>
-    public sealed class VkPlannerTab
+    public sealed class VkPlannerTab : VkTabBase
     {
-        private readonly VkRenderer _renderer;
 
         // Layout constants (at 1x scale)
         private const float BaseTargetListWidth    = 300f;
@@ -40,6 +39,9 @@ namespace TianWen.UI.Gui
         private static readonly RGBAColor32 SeparatorColor  = new RGBAColor32(0x33, 0x33, 0x44, 0xff);
         private static readonly RGBAColor32 ScrollBarBg     = new RGBAColor32(0x22, 0x22, 0x2a, 0xff);
         private static readonly RGBAColor32 ScrollBarFg     = new RGBAColor32(0x44, 0x44, 0x55, 0xff);
+        private static readonly RGBAColor32 FilterBtnBg     = new RGBAColor32(0x35, 0x35, 0x48, 0xff);
+        private static readonly RGBAColor32 ActiveFilterBg  = new RGBAColor32(0x30, 0x50, 0x30, 0xff);
+        private static readonly RGBAColor32 FilterBtnText   = new RGBAColor32(0xdd, 0xdd, 0xdd, 0xff);
 
         private IReadOnlyList<ScoredTarget> _lastFilteredTargets = [];
 
@@ -67,9 +69,8 @@ namespace TianWen.UI.Gui
             }
         }
 
-        public VkPlannerTab(VkRenderer renderer)
+        public VkPlannerTab(VkRenderer renderer) : base(renderer)
         {
-            _renderer = renderer;
         }
 
         /// <summary>
@@ -93,6 +94,8 @@ namespace TianWen.UI.Gui
             var fontSize         = BaseFontSize * dpiScale;
             var padding          = BasePadding * dpiScale;
 
+            BeginFrame();
+
             // Compute filtered target list (respects rating filter, always includes proposed)
             var filteredTargets = PlannerActions.GetFilteredTargets(state);
             _lastFilteredTargets = filteredTargets;
@@ -108,7 +111,7 @@ namespace TianWen.UI.Gui
             var chartW = (int)(contentWidth - targetListWidth);
             var chartH = (int)(contentHeight - detailsHeight);
 
-            AltitudeChartRenderer.Render(_renderer, state, fontPath, chartX, chartY, chartW, chartH, selectedIndex);
+            AltitudeChartRenderer.Render(Renderer, state, fontPath, chartX, chartY, chartW, chartH, selectedIndex);
 
             // --- 2. Target list panel (opaque background, left side of content area) ---
             RenderTargetList(
@@ -169,14 +172,23 @@ namespace TianWen.UI.Gui
             // Opaque background covers the chart behind the list
             FillRect(x, y, w, h, PanelBgOpaque);
 
-            // Header row with filter label
+            // Header row with clickable filter button
             FillRect(x, y, w, headerHeight, HeaderBg);
-            var filterLabel = state.MinRatingFilter > 0f
-                ? $"Tonight's Best ({state.MinRatingFilter:F0}\u2605+)"
-                : "Tonight's Best";
-            DrawText(filterLabel.AsSpan(), fontPath,
-                x + padding, y, listW - padding * 2f, headerHeight,
+            DrawText("Tonight's Best".AsSpan(), fontPath,
+                x + padding, y, listW * 0.6f, headerHeight,
                 fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
+
+            // Filter button on the right side of header
+            var filterBtnLabel = state.MinRatingFilter > 0f
+                ? $"\u2605{state.MinRatingFilter:F0}+"
+                : "All";
+            var filterBtnW = MeasureButtonWidth(filterBtnLabel, fontPath, fontSize * 0.9f, padding * 1.5f);
+            var filterBtnH = headerHeight * 0.75f;
+            var filterBtnX = x + listW - filterBtnW - padding;
+            var filterBtnY = y + (headerHeight - filterBtnH) / 2f;
+            var filterBtnBg = state.MinRatingFilter > 0f ? ActiveFilterBg : FilterBtnBg;
+            RenderButton(filterBtnLabel, filterBtnX, filterBtnY, filterBtnW, filterBtnH,
+                fontPath, fontSize * 0.9f, filterBtnBg, FilterBtnText, "CycleFilter");
 
             var filtered = _lastFilteredTargets;
             var totalItems = filtered.Count;
@@ -306,46 +318,6 @@ namespace TianWen.UI.Gui
             return $"{start:HH:mm}\u2013{end:HH:mm}";
         }
 
-        // -----------------------------------------------------------------------
-        // Drawing helpers
-        // -----------------------------------------------------------------------
-
-        private void FillRect(float x, float y, float w, float h, RGBAColor32 color)
-        {
-            if (w <= 0 || h <= 0)
-            {
-                return;
-            }
-
-            var ix = (int)x;
-            var iy = (int)y;
-            var iw = (int)w;
-            var ih = (int)h;
-            _renderer.FillRectangle(
-                new RectInt(new PointInt(ix + iw, iy + ih), new PointInt(ix, iy)),
-                color);
-        }
-
-        private void DrawText(
-            ReadOnlySpan<char> text,
-            string fontPath,
-            float x, float y, float w, float h,
-            float fontSize,
-            RGBAColor32 color,
-            TextAlign horizAlign = TextAlign.Near,
-            TextAlign vertAlign = TextAlign.Near)
-        {
-            if (text.IsEmpty || w <= 0 || h <= 0)
-            {
-                return;
-            }
-
-            var ix = (int)x;
-            var iy = (int)y;
-            var iw = (int)w;
-            var ih = Math.Max(1, (int)h);
-            var layout = new RectInt(new PointInt(ix + iw, iy + ih), new PointInt(ix, iy));
-            _renderer.DrawText(text, fontPath, fontSize, color, layout, horizAlign, vertAlign);
-        }
+        // Drawing helpers inherited from VkTabBase: FillRect, DrawText, RenderButton, RegisterClickable, etc.
     }
 }
