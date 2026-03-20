@@ -83,6 +83,14 @@ namespace TianWen.UI.Gui
                 return true;
             }
 
+            // Slider drag start
+            if (hit is HitResult.SliderHit { SliderIndex: var sliderIdx })
+            {
+                _plannerState.DraggingSliderIndex = sliderIdx;
+                _appState.NeedsRedraw = true;
+                return true;
+            }
+
             // Clicking outside text input → deactivate
             if (_appState.ActiveTextInput is { IsActive: true } active && hit is not HitResult.TextInputHit)
             {
@@ -115,6 +123,57 @@ namespace TianWen.UI.Gui
             if (target == _plannerState.SearchInput && AutoCompleteCache is not null)
             {
                 PlannerActions.UpdateSuggestions(_plannerState, AutoCompleteCache, target.Text);
+            }
+        }
+
+        /// <summary>
+        /// Handles mouse motion — updates slider position during drag.
+        /// </summary>
+        public void HandleMouseMove(float px, float py)
+        {
+            _appState.MouseScreenPosition = (px, py);
+
+            if (_plannerState.DraggingSliderIndex < 0)
+            {
+                return;
+            }
+
+            var idx = _plannerState.DraggingSliderIndex;
+            if (idx >= _plannerState.HandoffSliders.Count)
+            {
+                _plannerState.DraggingSliderIndex = -1;
+                return;
+            }
+
+            var chartRect = _guiRenderer.PlannerTab.ChartRect;
+            var (tStart, tEnd, plotX, plotW) = AltitudeChartRenderer.GetChartTimeLayout(
+                _plannerState, (int)chartRect.X, (int)chartRect.Width);
+
+            var newTime = AltitudeChartRenderer.XToTime(px, tStart, tEnd, plotX, plotW);
+            var minSlot = TimeSpan.FromMinutes(15);
+
+            // Clamp between adjacent sliders (or dark/twilight boundaries)
+            var minTime = idx > 0 ? _plannerState.HandoffSliders[idx - 1] + minSlot : _plannerState.AstroDark + minSlot;
+            var maxTime = idx < _plannerState.HandoffSliders.Count - 1
+                ? _plannerState.HandoffSliders[idx + 1] - minSlot
+                : _plannerState.AstroTwilight - minSlot;
+
+            if (newTime < minTime) newTime = minTime;
+            if (newTime > maxTime) newTime = maxTime;
+
+            _plannerState.HandoffSliders[idx] = newTime;
+            _appState.NeedsRedraw = true;
+        }
+
+        /// <summary>
+        /// Handles mouse button release — ends slider drag.
+        /// </summary>
+        public void HandleMouseUp()
+        {
+            if (_plannerState.DraggingSliderIndex >= 0)
+            {
+                _plannerState.DraggingSliderIndex = -1;
+                _appState.NeedsRedraw = true;
             }
         }
 

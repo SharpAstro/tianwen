@@ -626,7 +626,8 @@ public static class PlannerActions
         }
 
         state.Proposals.Add(new ProposedObservation(target, Priority: priority));
-        state.Schedule = null; // invalidate schedule
+        state.Schedule = null;
+        RecomputeHandoffSliders(state);
         state.NeedsRedraw = true;
     }
 
@@ -642,6 +643,7 @@ public static class PlannerActions
 
         state.Proposals.RemoveAt(proposalIndex);
         state.Schedule = null;
+        RecomputeHandoffSliders(state);
         state.NeedsRedraw = true;
     }
 
@@ -660,6 +662,7 @@ public static class PlannerActions
             state.Proposals.Add(new ProposedObservation(target, Priority: priority));
         }
         state.Schedule = null;
+        RecomputeHandoffSliders(state);
         state.NeedsRedraw = true;
     }
 
@@ -684,6 +687,96 @@ public static class PlannerActions
         state.Proposals[proposalIndex] = p with { Priority = nextPriority };
         state.Schedule = null;
         state.NeedsRedraw = true;
+    }
+
+    /// <summary>
+    /// Recomputes handoff slider positions between adjacent pinned targets.
+    /// Sliders default to where the altitude curves of adjacent targets intersect.
+    /// Also computes conflict flags for targets with overlapping peak windows.
+    /// </summary>
+    public static void RecomputeHandoffSliders(PlannerState state)
+    {
+        // Get sorted pinned targets (call GetFilteredTargets to update PinnedCount)
+        var filtered = GetFilteredTargets(state);
+        var pinnedCount = state.PinnedCount;
+
+        state.HandoffSliders.Clear();
+        state.PinnedTargetConflicts = new bool[pinnedCount];
+
+        if (pinnedCount < 2)
+        {
+            return;
+        }
+
+        for (var i = 0; i < pinnedCount - 1; i++)
+        {
+            var targetA = filtered[i].Target;
+            var targetB = filtered[i + 1].Target;
+
+            var slider = FindCurveIntersection(state, targetA, targetB);
+            state.HandoffSliders.Add(slider);
+
+            // Conflict: check if peak times (midpoint of viable window) are within 1 hour
+            var scoredA = filtered[i];
+            var scoredB = filtered[i + 1];
+            var peakA = scoredA.OptimalStart + scoredA.OptimalDuration / 2;
+            var peakB = scoredB.OptimalStart + scoredB.OptimalDuration / 2;
+            var peakSeparation = Math.Abs((peakB - peakA).TotalHours);
+
+            if (peakSeparation < 1.0)
+            {
+                state.PinnedTargetConflicts[i] = true;
+                state.PinnedTargetConflicts[i + 1] = true;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Finds where two targets' altitude curves intersect during the night.
+    /// Falls back to the midpoint between their optimal starts.
+    /// </summary>
+    private static DateTimeOffset FindCurveIntersection(PlannerState state, Target a, Target b)
+    {
+        if (state.AltitudeProfiles.TryGetValue(a, out var profileA)
+            && state.AltitudeProfiles.TryGetValue(b, out var profileB)
+            && profileA.Count >= 2 && profileB.Count >= 2)
+        {
+            // Both profiles have the same time steps, find where altA - altB changes sign
+            var minCount = Math.Min(profileA.Count, profileB.Count);
+            for (var k = 0; k < minCount - 1; k++)
+            {
+                var diffK = profileA[k].Alt - profileB[k].Alt;
+                var diffK1 = profileA[k + 1].Alt - profileB[k + 1].Alt;
+
+                // Sign change → curves cross between k and k+1
+                if (diffK >= 0 && diffK1 < 0 || diffK <= 0 && diffK1 > 0)
+                {
+                    // Linear interpolation for exact crossing time
+                    var fraction = Math.Abs(diffK) / (Math.Abs(diffK) + Math.Abs(diffK1));
+                    var tK = profileA[k].Time;
+                    var tK1 = profileA[k + 1].Time;
+                    var crossTime = tK + TimeSpan.FromSeconds((tK1 - tK).TotalSeconds * fraction);
+
+                    // Only use if within the dark window
+                    if (crossTime >= state.AstroDark && crossTime <= state.AstroTwilight)
+                    {
+                        return crossTime;
+                    }
+                }
+            }
+        }
+
+        // Fallback: midpoint between optimal starts
+        var scoredA = state.ScoredTargets.TryGetValue(a, out var sA) ? sA : default;
+        var scoredB = state.ScoredTargets.TryGetValue(b, out var sB) ? sB : default;
+        if (scoredA.Target != default && scoredB.Target != default)
+        {
+            var midTicks = (scoredA.OptimalStart.Ticks + scoredB.OptimalStart.Ticks) / 2;
+            return new DateTimeOffset(midTicks, scoredA.OptimalStart.Offset);
+        }
+
+        // Last resort: midpoint of the dark window
+        return state.AstroDark + (state.AstroTwilight - state.AstroDark) / 2;
     }
 
     /// <summary>
