@@ -113,8 +113,16 @@ public static class PlannerActions
             }
         }
 
-        // Sort pinned by optimal start time (peak time ascending)
-        pinnedScored.Sort((a, b) => a.OptimalStart.CompareTo(b.OptimalStart));
+        // Sort pinned by actual peak altitude time (not OptimalStart, which is the
+        // start of the viable window — misleading for circumpolar targets)
+        pinnedScored.Sort((a, b) =>
+        {
+            var peakA = state.AltitudeProfiles.TryGetValue(a.Target, out var profA) && profA.Count > 0
+                ? profA.MaxBy(p => p.Alt).Time : a.OptimalStart;
+            var peakB = state.AltitudeProfiles.TryGetValue(b.Target, out var profB) && profB.Count > 0
+                ? profB.MaxBy(p => p.Alt).Time : b.OptimalStart;
+            return peakA.CompareTo(peakB);
+        });
 
         foreach (var s in pinnedScored)
         {
@@ -663,6 +671,18 @@ public static class PlannerActions
         }
         state.Schedule = null;
         RecomputeHandoffSliders(state);
+
+        // Selection follows the target to its new position in the reordered list
+        var filtered = GetFilteredTargets(state);
+        for (var i = 0; i < filtered.Count; i++)
+        {
+            if (filtered[i].Target == target)
+            {
+                state.SelectedTargetIndex = i;
+                break;
+            }
+        }
+
         state.NeedsRedraw = true;
     }
 
@@ -708,25 +728,49 @@ public static class PlannerActions
             return;
         }
 
+        var minSlot = TimeSpan.FromMinutes(15);
+
         for (var i = 0; i < pinnedCount - 1; i++)
         {
             var targetA = filtered[i].Target;
             var targetB = filtered[i + 1].Target;
 
             var slider = FindCurveIntersection(state, targetA, targetB);
+
+            // Ensure sliders are monotonically increasing with minimum gap
+            var minTime = i > 0 ? state.HandoffSliders[i - 1] + minSlot : state.AstroDark + minSlot;
+            var maxTime = state.AstroTwilight - minSlot * (pinnedCount - 1 - i);
+            if (slider < minTime) slider = minTime;
+            if (slider > maxTime) slider = maxTime;
+
             state.HandoffSliders.Add(slider);
 
-            // Conflict: check if peak times (midpoint of viable window) are within 1 hour
-            var scoredA = filtered[i];
-            var scoredB = filtered[i + 1];
-            var peakA = scoredA.OptimalStart + scoredA.OptimalDuration / 2;
-            var peakB = scoredB.OptimalStart + scoredB.OptimalDuration / 2;
-            var peakSeparation = Math.Abs((peakB - peakA).TotalHours);
+            // Conflict: check if actual peak altitude times are within 1 hour
+            var peakTimeA = state.AltitudeProfiles.TryGetValue(filtered[i].Target, out var profA) && profA.Count > 0
+                ? profA.MaxBy(p => p.Alt).Time : filtered[i].OptimalStart;
+            var peakTimeB = state.AltitudeProfiles.TryGetValue(filtered[i + 1].Target, out var profB) && profB.Count > 0
+                ? profB.MaxBy(p => p.Alt).Time : filtered[i + 1].OptimalStart;
+            var peakSeparation = Math.Abs((peakTimeB - peakTimeA).TotalHours);
 
             if (peakSeparation < 1.0)
             {
                 state.PinnedTargetConflicts[i] = true;
                 state.PinnedTargetConflicts[i + 1] = true;
+            }
+        }
+
+        // Flag targets whose allocated window is very small (< 1.5 hours)
+        for (var i = 0; i < pinnedCount; i++)
+        {
+            var windowStart = i == 0 ? state.AstroDark
+                : i - 1 < state.HandoffSliders.Count ? state.HandoffSliders[i - 1] : state.AstroDark;
+            var windowEnd = i >= pinnedCount - 1 || i >= state.HandoffSliders.Count
+                ? state.AstroTwilight : state.HandoffSliders[i];
+            var allocatedHours = (windowEnd - windowStart).TotalHours;
+
+            if (allocatedHours < 1.5)
+            {
+                state.PinnedTargetConflicts[i] = true;
             }
         }
     }

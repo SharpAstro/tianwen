@@ -55,6 +55,7 @@ namespace TianWen.UI.Gui
         private PixelRect _listItemsRect;
         private PixelRect _chartRect;
         private (float X, float Y)? _appMousePosition;
+        private DateTimeOffset? _currentTime;
         private float _itemHeight;
         private float _searchBarBottom;
         private float _searchBarLeft;
@@ -132,6 +133,7 @@ namespace TianWen.UI.Gui
                 : (int?)null;
 
             var now = timeProvider.GetLocalNow();
+            _currentTime = now;
             // Only show mouse follower when not dragging and mouse is inside the chart area
             (float, float)? mousePos = null;
             if (state.DraggingSliderIndex < 0 && _appMousePosition is var (mx, my)
@@ -448,7 +450,8 @@ namespace TianWen.UI.Gui
             var isProposed  = state.Proposals.Any(p => p.Target == scored.Target);
             var statusSuffix = isProposed ? " [Proposed]" : "";
             var hasAlias = state.TargetAliases.TryGetValue(scored.Target, out var alias);
-            var lineCount = hasAlias ? 4 : 3;
+            var hasImagingTime = isProposed && idx < state.PinnedCount;
+            var lineCount = 2 + (hasImagingTime ? 1 : 0) + (hasAlias ? 1 : 0) + 1; // name + coords + [imaging] + [alias] + rating
             var lineH = rect.Height / lineCount;
 
             // Line 1: target name (larger font)
@@ -468,19 +471,48 @@ namespace TianWen.UI.Gui
                 rect.X + padding, rect.Y + lineH, rect.Width - padding * 2f, lineH,
                 fontSize, DetailsInfoText, TextAlign.Near, TextAlign.Center);
 
-            // Line 3: cross indices / aliases
+            // Line 3: allocated imaging time (for pinned targets) or aliases
+            var currentLine = 2;
+            if (isProposed && idx < state.PinnedCount)
+            {
+                var imgStart = idx == 0 ? state.AstroDark
+                    : idx - 1 < state.HandoffSliders.Count ? state.HandoffSliders[idx - 1] : state.AstroDark;
+                var imgEnd = idx >= state.PinnedCount - 1 || idx >= state.HandoffSliders.Count
+                    ? state.AstroTwilight : state.HandoffSliders[idx];
+
+                // Effective start accounts for elapsed time
+                var effectiveStart = imgStart;
+                if (_currentTime is { } ct && ct > imgStart && ct < imgEnd)
+                {
+                    effectiveStart = ct;
+                }
+                var imgDuration = imgEnd - effectiveStart;
+                var imgStartStr = imgStart.ToOffset(state.SiteTimeZone).ToString("HH:mm");
+                var imgEndStr = imgEnd.ToOffset(state.SiteTimeZone).ToString("HH:mm");
+
+                var durationStr = imgDuration.TotalHours >= 1.0
+                    ? $"{(int)imgDuration.TotalHours}h {imgDuration.Minutes:D2}m"
+                    : $"{(int)imgDuration.TotalMinutes}m";
+                var imgColor = imgDuration.TotalHours < 1.5 ? new RGBAColor32(0xff, 0xd7, 0x00, 0xff) : DetailsInfoText;
+                DrawText($"Imaging: {imgStartStr}\u2013{imgEndStr} ({durationStr})".AsSpan(), fontPath,
+                    rect.X + padding, rect.Y + lineH * currentLine, rect.Width - padding * 2f, lineH,
+                    fontSize, imgColor, TextAlign.Near, TextAlign.Center);
+                currentLine++;
+            }
+
             if (hasAlias)
             {
                 DrawText($"Also: {alias}".AsSpan(), fontPath,
-                    rect.X + padding, rect.Y + lineH * 2f, rect.Width - padding * 2f, lineH,
+                    rect.X + padding, rect.Y + lineH * currentLine, rect.Width - padding * 2f, lineH,
                     fontSize * 0.9f, DimText, TextAlign.Near, TextAlign.Center);
+                currentLine++;
             }
 
-            // Line 3/4: log-scale rating
+            // Rating
             var maxScore = state.TonightsBest.Count > 0 ? state.TonightsBest[0].CombinedScore : 1.0;
             var rating = PlannerActions.ScoreToRating(scored.CombinedScore, maxScore);
             DrawText($"Rating: {rating:F1}\u2605".AsSpan(), fontPath,
-                rect.X + padding, rect.Y + lineH * (lineCount - 1), rect.Width - padding * 2f, lineH,
+                rect.X + padding, rect.Y + lineH * currentLine, rect.Width - padding * 2f, lineH,
                 fontSize, DetailsInfoText, TextAlign.Near, TextAlign.Center);
         }
 
