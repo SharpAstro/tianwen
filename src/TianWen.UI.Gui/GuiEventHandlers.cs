@@ -54,23 +54,26 @@ namespace TianWen.UI.Gui
         {
             _appState.MouseScreenPosition = (px, py);
 
-            // Sidebar
-            var tab = _guiRenderer.HitTestSidebar(px, py, _appState);
-            if (tab.HasValue)
-            {
-                _appState.ActiveTab = tab.Value;
-                _appState.NeedsRedraw = true;
+            // Hit test the GUI chrome (sidebar, status bar) first — OnClick handles tab switching
+            var hit = _guiRenderer.HitTestAndDispatch(px, py);
 
-                if (tab.Value is GuiTab.Equipment && _guiRenderer.EquipmentTab.State.DiscoveredDevices.Count == 0)
+            // Auto-discover on tab switch to Equipment
+            if (hit is HitResult.ButtonHit { Action: var action } && action.StartsWith("Tab:"))
+            {
+                if (action == "Tab:Equipment" && _guiRenderer.EquipmentTab.State.DiscoveredDevices.Count == 0)
                 {
                     HandleEquipmentAction("Discover");
                 }
+                _appState.NeedsRedraw = true;
                 return true;
             }
 
-            // Hit test the active tab — dispatches OnClick for self-contained handlers
-            var currentTab = _guiRenderer.ActiveTab;
-            var hit = currentTab?.HitTestAndDispatch(px, py);
+            // If chrome didn't handle it, try the active tab
+            if (hit is null)
+            {
+                var currentTab = _guiRenderer.ActiveTab;
+                hit = currentTab?.HitTestAndDispatch(px, py);
+            }
 
             // Text input focus management (needs SDL StartTextInput/StopTextInput)
             if (hit is HitResult.TextInputHit { Input: { } clickedInput })

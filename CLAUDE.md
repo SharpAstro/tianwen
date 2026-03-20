@@ -23,9 +23,10 @@ src/
 ├── TianWen.Lib.Tests/             # Unit tests (xUnit v3)
 ├── TianWen.Lib.CLI/               # CLI application (AOT-published)
 ├── TianWen.Lib.Hosting/           # IHostedService extensions
-├── TianWen.UI.Abstractions/       # Viewer state, document model, shared types
-├── TianWen.UI.OpenGL/             # OpenGL renderer (Silk.NET)
-├── TianWen.UI.FitsViewer/         # FITS viewer application
+├── TianWen.UI.Abstractions/       # Widget system, layout, state, shared types
+├── TianWen.UI.Vulkan/             # Vulkan FITS pipeline (VkImageRenderer)
+├── TianWen.UI.Gui/                # N.I.N.A.-style integrated GUI (SDL3 + Vulkan)
+├── TianWen.UI.FitsViewer/         # Standalone FITS viewer application
 └── TianWen.UI.Benchmarks/         # BenchmarkDotNet performance tests
 ```
 
@@ -310,6 +311,66 @@ the parent `CatalogIndex` propagated, producing per-panel subdirectories for FIT
   (normalize → subtract pedestal → rescale → MTF), used by CPU stretch, background computation, and tests
 - WCS coordinate grid overlay rendered in the fragment shader with per-pixel TAN deprojection
 - Grid labels placed at viewport edges where RA/Dec lines cross, with corner exclusion zones
+
+### GUI Widget System
+
+The GUI uses a unified widget system built on `PixelWidgetBase<TSurface>` in
+`TianWen.UI.Abstractions`. This is renderer-agnostic (works with VkRenderer and
+RgbaImageRenderer).
+
+**Core types** (all in `TianWen.UI.Abstractions`):
+- `PixelRect` — float layout rectangle with `Contains`, `Inset`
+- `PixelLayout` + `PixelDockStyle` — dock-based layout engine (Top/Bottom/Left/Right/Fill)
+- `PixelWidgetBase<TSurface>` — base class with `RegisterClickable`, `HitTest`,
+  `HitTestAndDispatch`, `RenderButton`, `RenderTextInput`, `FillRect`, `DrawText`
+- `ClickableRegion(X, Y, W, H, HitResult, Action? OnClick)` — registered during render
+- `HitResult` — discriminated union: `TextInputHit`, `ButtonHit`, `ListItemHit`,
+  `SlotHit`, `SliderHit`
+- `IPixelWidget` — interface for hit testing and text input discovery
+
+**Click handling pattern**:
+1. Widgets call `RegisterClickable(x, y, w, h, hitResult, onClick)` during render
+2. Self-contained actions (filter cycling, list selection) pass an `OnClick` delegate
+3. `HitTestAndDispatch(px, py)` invokes `OnClick` and returns the `HitResult`
+4. SDL-dependent actions (text input focus, device discovery) are handled in
+   `GuiEventHandlers` based on the returned `HitResult`
+
+**Inheritance hierarchy**:
+```
+PixelWidgetBase<TSurface>   (Abstractions — renderer-agnostic)
+  └─ VkTabBase              (Gui — pins TSurface = VulkanContext)
+       ├─ VkGuiRenderer     (sidebar, status bar, content dispatch)
+       ├─ VkPlannerTab      (planner with autocomplete, scheduling viz)
+       └─ VkEquipmentTab    (profile/device management)
+  └─ VkImageRenderer        (Vulkan — FITS viewer toolbar, file list, histogram)
+```
+
+`VkGuiRenderer` extends `VkTabBase` so the sidebar tabs and status bar participate
+in the same `RegisterClickable` / `HitTestAndDispatch` system as tab content.
+`HandleMouseDown` in `GuiEventHandlers` first hit-tests the chrome (sidebar/status bar),
+then falls through to the active tab.
+
+**Event handling** (`GuiEventHandlers`):
+- Centralized SDL-dependent actions (StartTextInput, device discovery, profile saves)
+- `Program.cs` is a thin ~280-line event loop + composition root
+- Text input focus tracked via `GuiAppState.ActiveTextInput` (single source of truth)
+
+### Planner Features
+
+- **Autocomplete search**: fuzzy matching on `CreateAutoCompleteList()`, dropdown with
+  arrow key navigation, `CommitSuggestion` resolves exact entry via `TryResolveCommonName`
+- **Planet support**: VSOP87 ephemeris for solar system object positions and altitude
+  curves (`ComputeFineAltitudeProfile` uses `VSOP87a.Reduce` per time step)
+- **Pin/unpin targets**: `[+]`/`[-]` buttons, sorted by peak altitude time, separator
+  between pinned and unpinned sections
+- **Scheduling visualization**: colored viable window fills between altitude curve and
+  min-altitude line, bounded by draggable handoff sliders at curve intersections
+- **Handoff sliders**: draggable vertical lines between adjacent pinned targets,
+  monotonically increasing with 15min minimum gaps, HH:mm labels
+- **Conflict detection**: yellow warning when peak times < 1h apart or allocated
+  window < 1.5h
+- **Cross-index aliases**: details panel shows all common names + catalog designations
+- `CelestialObject.DisplayName` picks longest common name with alphabetical tiebreak
 
 ### Star Detection
 
