@@ -61,6 +61,12 @@ public class PlannerState
     /// <summary>Minimum star rating filter (0 = show all, 3 = 3★+, 4 = 4★+, 5 = 5★ only).</summary>
     public float MinRatingFilter { get; set; } = 0f;
 
+    /// <summary>Search input state for target name search.</summary>
+    public TextInputState SearchInput { get; } = new() { Placeholder = "Search target..." };
+
+    /// <summary>Manually searched/added targets (exempt from rating filter).</summary>
+    public List<ScoredTarget> SearchResults { get; set; } = [];
+
     /// <summary>Site timezone offset (from GeoTimeZone). Used for display instead of machine local time.</summary>
     public TimeSpan SiteTimeZone { get; set; }
 

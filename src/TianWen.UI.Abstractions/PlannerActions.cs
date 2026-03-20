@@ -82,17 +82,38 @@ public static class PlannerActions
     /// </summary>
     public static IReadOnlyList<ScoredTarget> GetFilteredTargets(PlannerState state)
     {
-        if (state.MinRatingFilter <= 0f)
-        {
-            return state.TonightsBest;
-        }
+        var proposedTargets = new HashSet<Target>(state.Proposals.Select(p => p.Target));
+        var searchTargets = new HashSet<Target>(state.SearchResults.Select(s => s.Target));
 
         var maxScore = state.TonightsBest.Count > 0 ? state.TonightsBest[0].CombinedScore : 1.0;
-        var proposedTargets = new HashSet<Target>(state.Proposals.Select(p => p.Target));
 
-        return state.TonightsBest
-            .Where(s => proposedTargets.Contains(s.Target) || ScoreToRating(s.CombinedScore, maxScore) >= state.MinRatingFilter)
-            .ToList();
+        // Start with tonight's best (filtered by rating, but always include proposed)
+        var result = new List<ScoredTarget>();
+        var seen = new HashSet<Target>();
+
+        foreach (var s in state.TonightsBest)
+        {
+            var passesFilter = state.MinRatingFilter <= 0f
+                || proposedTargets.Contains(s.Target)
+                || searchTargets.Contains(s.Target)
+                || ScoreToRating(s.CombinedScore, maxScore) >= state.MinRatingFilter;
+
+            if (passesFilter && seen.Add(s.Target))
+            {
+                result.Add(s);
+            }
+        }
+
+        // Append search results that aren't already in tonight's best
+        foreach (var s in state.SearchResults)
+        {
+            if (seen.Add(s.Target))
+            {
+                result.Add(s);
+            }
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -107,6 +128,112 @@ public static class PlannerActions
             _ => 0f
         };
         state.NeedsRedraw = true;
+    }
+
+    /// <summary>
+    /// Searches the catalog for targets matching the query and scores them.
+    /// Results are stored in state.SearchResults and are exempt from filtering.
+    /// </summary>
+    /// <summary>
+    /// Searches the catalog for targets matching the query. If the target is already
+    /// in the list, selects it (resetting filter if needed). Otherwise adds it as a
+    /// search result (exempt from rating filter).
+    /// Returns the index in the filtered list to select, or -1.
+    /// </summary>
+    public static int SearchTargets(
+        PlannerState state,
+        ICelestialObjectDB objectDb,
+        Transform transform,
+        string query)
+    {
+        state.SearchResults.Clear();
+
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            state.NeedsRedraw = true;
+            return -1;
+        }
+
+        // Check if query matches an existing target in TonightsBest first
+        for (var i = 0; i < state.TonightsBest.Count; i++)
+        {
+            if (state.TonightsBest[i].Target.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
+            {
+                // Found in existing list — reset filter to ensure it's visible
+                state.MinRatingFilter = 0f;
+                var filtered = GetFilteredTargets(state);
+                // Find index in filtered list
+                for (var j = 0; j < filtered.Count; j++)
+                {
+                    if (filtered[j].Target == state.TonightsBest[i].Target)
+                    {
+                        state.NeedsRedraw = true;
+                        return j;
+                    }
+                }
+            }
+        }
+
+        // Not in TonightsBest — search catalog by common name AND catalog designation
+        var catalogMatches = new List<CatalogIndex>();
+
+        // Try common name (e.g. "Andromeda", "Orion Nebula")
+        if (objectDb.TryResolveCommonName(query, out var nameMatches))
+        {
+            catalogMatches.AddRange(nameMatches);
+        }
+
+        // Try catalog designation (e.g. "M31", "NGC 3132", "Messier 31")
+        if (objectDb.TryLookupByIndex(query, out var directObj))
+        {
+            var idx = directObj.Index;
+            if (!catalogMatches.Contains(idx))
+            {
+                catalogMatches.Insert(0, idx);
+            }
+        }
+
+        foreach (var match in catalogMatches.Take(5))
+        {
+            if (objectDb.TryLookupByIndex(match, out var obj))
+            {
+                var name = obj.CommonNames.Count > 0 ? obj.CommonNames.First() : match.ToCanonical();
+                var target = new Target(obj.RA, obj.Dec, name, match);
+
+                if (state.TonightsBest.Any(s => s.Target.Name == target.Name))
+                {
+                    continue;
+                }
+
+                var scored = ObservationScheduler.ScoreTarget(target, transform,
+                    state.AstroDark, state.AstroTwilight, state.MinHeightAboveHorizon);
+
+                if (!state.AltitudeProfiles.ContainsKey(target))
+                {
+                    state.AltitudeProfiles[target] = ComputeFineAltitudeProfile(transform, target, state);
+                }
+
+                state.ScoredTargets[target] = scored;
+                state.SearchResults.Add(scored);
+            }
+        }
+
+        state.NeedsRedraw = true;
+
+        // Return index of first search result in filtered list
+        if (state.SearchResults.Count > 0)
+        {
+            var filtered = GetFilteredTargets(state);
+            for (var i = 0; i < filtered.Count; i++)
+            {
+                if (filtered[i].Target == state.SearchResults[0].Target)
+                {
+                    return i;
+                }
+            }
+        }
+
+        return -1;
     }
 
     /// <summary>
