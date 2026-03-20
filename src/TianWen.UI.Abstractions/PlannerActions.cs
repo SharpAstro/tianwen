@@ -66,7 +66,7 @@ public static class PlannerActions
         Report("Computing altitude profiles...");
 
         state.AltitudeProfiles.Clear();
-        var targets = tonightsBest.Take(20).Select(s => s.Target).ToArray();
+        var targets = tonightsBest.Select(s => s.Target).ToArray();
         foreach (var target in targets)
         {
             state.AltitudeProfiles[target] = ComputeFineAltitudeProfile(
