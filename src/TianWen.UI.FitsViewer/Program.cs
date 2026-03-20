@@ -156,12 +156,12 @@ while (running)
 
                 case EventType.MouseMotion:
                     needsRedraw = true;
-                    HandleMouseMove(evt.Motion.X * dpiScale, evt.Motion.Y * dpiScale);
+                    HandleMouseMove(evt.Motion.X, evt.Motion.Y);
                     break;
 
                 case EventType.MouseButtonDown:
                     needsRedraw = true;
-                    HandleMouseDown(evt.Button.Button, evt.Button.X * dpiScale, evt.Button.Y * dpiScale);
+                    HandleMouseDown(evt.Button.Button, evt.Button.X, evt.Button.Y);
                     break;
 
                 case EventType.MouseButtonUp:
