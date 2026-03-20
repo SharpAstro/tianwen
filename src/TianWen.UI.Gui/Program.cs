@@ -204,10 +204,8 @@ while (running)
                 case EventType.TextInput:
                     needsRedraw = true;
                     var textStr = Marshal.PtrToStringUTF8(evt.Text.Text);
-                    if (textStr is not null)
+                    if (textStr is not null && guiRenderer.EquipmentTab.State.ActiveTextInput is { IsActive: true } activeInput)
                     {
-                        var activeInput = guiRenderer.EquipmentTab.State.ActiveTextInput
-                            ?? guiRenderer.EquipmentTab.State.ProfileNameInput;
                         activeInput.InsertText(textStr);
                     }
                     break;
@@ -270,7 +268,7 @@ void HandleKeyDown(Scancode scancode, Keymod keymod)
 {
     // Route to text input if active
     var eqState = guiRenderer.EquipmentTab.State;
-    var eqInput = eqState.ActiveTextInput ?? (eqState.ProfileNameInput.IsActive ? eqState.ProfileNameInput : null);
+    var eqInput = eqState.ActiveTextInput;
     if (eqInput is { IsActive: true })
     {
         var inputKey = scancode switch
@@ -496,22 +494,15 @@ void HandleEquipmentClick(EquipmentHitResult hit)
             }
             break;
 
-        case EquipmentHitType.TextInput:
-            if (eqState.IsEditingSite)
+        case EquipmentHitType.TextInput when hit.TextInput is { } clickedInput:
+            // Deactivate previous input if different
+            if (eqState.ActiveTextInput is { } prev && prev != clickedInput)
             {
-                // Cycle focus: if no active input, activate latitude
-                if (eqState.ActiveTextInput is null)
-                {
-                    eqState.ActiveTextInput = eqState.LatitudeInput;
-                }
-                StartTextInput(sdlWindow.Handle);
+                prev.Deactivate();
             }
-            else if (!eqState.ProfileNameInput.IsActive)
-            {
-                eqState.ProfileNameInput.Activate();
-                eqState.ActiveTextInput = eqState.ProfileNameInput;
-                StartTextInput(sdlWindow.Handle);
-            }
+            clickedInput.Activate();
+            eqState.ActiveTextInput = clickedInput;
+            StartTextInput(sdlWindow.Handle);
             break;
 
         case EquipmentHitType.ProfileSlot when hit.Slot is not null:

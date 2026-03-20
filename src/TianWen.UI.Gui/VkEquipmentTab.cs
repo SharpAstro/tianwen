@@ -26,7 +26,7 @@ namespace TianWen.UI.Gui
     /// <summary>
     /// Describes what was hit during <see cref="VkEquipmentTab.HitTest"/>.
     /// </summary>
-    public record EquipmentHitResult(EquipmentHitType Type, AssignTarget? Slot = null, int DeviceIndex = -1);
+    public record EquipmentHitResult(EquipmentHitType Type, AssignTarget? Slot = null, int DeviceIndex = -1, TextInputState? TextInput = null);
 
     /// <summary>
     /// Renders the Equipment / Profile tab for the TianWen N.I.N.A.-style GUI.
@@ -195,7 +195,7 @@ namespace TianWen.UI.Gui
                 State.ProfileNameInput,
                 (int)fieldX, inputY, (int)fieldW, (int)fieldH,
                 fontPath, fontSize, FrameCount);
-            RegisterClickable(fieldX, inputY, fieldW, fieldH, new EquipmentHitResult(EquipmentHitType.TextInput));
+            RegisterClickable(fieldX, inputY, fieldW, fieldH, new EquipmentHitResult(EquipmentHitType.TextInput, TextInput: State.ProfileNameInput));
 
             // Create button
             var btnY = inputY + (int)fieldH + (int)padding;
@@ -302,17 +302,17 @@ namespace TianWen.UI.Gui
 
                     DrawText("  Lat:".AsSpan(), fontPath, x + padding, cursor, 50f * dpiScale, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
                     TextInputRenderer.Render(_renderer, State.LatitudeInput, fieldX + (int)(50f * dpiScale), (int)cursor, fieldW - (int)(50f * dpiScale), fieldH, fontPath, fontSize * 0.9f, FrameCount);
-                    RegisterClickable(fieldX + 50f * dpiScale, cursor, fieldW - 50f * dpiScale, fieldH, new EquipmentHitResult(EquipmentHitType.TextInput));
+                    RegisterClickable(fieldX + 50f * dpiScale, cursor, fieldW - 50f * dpiScale, fieldH, new EquipmentHitResult(EquipmentHitType.TextInput, TextInput: State.LatitudeInput));
                     cursor += fieldH + 2;
 
                     DrawText("  Lon:".AsSpan(), fontPath, x + padding, cursor, 50f * dpiScale, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
                     TextInputRenderer.Render(_renderer, State.LongitudeInput, fieldX + (int)(50f * dpiScale), (int)cursor, fieldW - (int)(50f * dpiScale), fieldH, fontPath, fontSize * 0.9f, FrameCount);
-                    RegisterClickable(fieldX + 50f * dpiScale, cursor, fieldW - 50f * dpiScale, fieldH, new EquipmentHitResult(EquipmentHitType.TextInput));
+                    RegisterClickable(fieldX + 50f * dpiScale, cursor, fieldW - 50f * dpiScale, fieldH, new EquipmentHitResult(EquipmentHitType.TextInput, TextInput: State.LongitudeInput));
                     cursor += fieldH + 2;
 
                     DrawText("  Elev:".AsSpan(), fontPath, x + padding, cursor, 50f * dpiScale, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
                     TextInputRenderer.Render(_renderer, State.ElevationInput, fieldX + (int)(50f * dpiScale), (int)cursor, fieldW - (int)(50f * dpiScale), fieldH, fontPath, fontSize * 0.9f, FrameCount);
-                    RegisterClickable(fieldX + 50f * dpiScale, cursor, fieldW - 50f * dpiScale, fieldH, new EquipmentHitResult(EquipmentHitType.TextInput));
+                    RegisterClickable(fieldX + 50f * dpiScale, cursor, fieldW - 50f * dpiScale, fieldH, new EquipmentHitResult(EquipmentHitType.TextInput, TextInput: State.ElevationInput));
                     cursor += fieldH + 2;
 
                     // Save button
