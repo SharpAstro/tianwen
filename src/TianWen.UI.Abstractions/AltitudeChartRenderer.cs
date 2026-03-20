@@ -62,30 +62,45 @@ public static class AltitudeChartRenderer
     /// <param name="highlightTargetIndex">
     ///     When set, that target's curve is drawn with a thicker/brighter line.
     /// </param>
+    /// <summary>
+    /// Renders the chart filling the entire renderer surface.
+    /// </summary>
     public static void Render<TSurface>(
         Renderer<TSurface> renderer,
         PlannerState state,
         string fontFamily = DefaultFontFamily,
         int? highlightTargetIndex = null)
-    {
-        var w = (int)renderer.Width;
-        var h = (int)renderer.Height;
+        => Render(renderer, state, fontFamily, 0, 0, (int)renderer.Width, (int)renderer.Height, highlightTargetIndex);
 
+    /// <summary>
+    /// Renders the chart within a specific area of the renderer surface.
+    /// Use this when the chart is embedded in a tab layout with surrounding panels.
+    /// </summary>
+    public static void Render<TSurface>(
+        Renderer<TSurface> renderer,
+        PlannerState state,
+        string fontFamily,
+        int areaX, int areaY, int areaW, int areaH,
+        int? highlightTargetIndex = null)
+    {
         // Guard: no data loaded yet (AstroDark is default = 0001-01-01)
         if (state.AstroDark == default)
         {
-            FillRect(renderer, 0, 0, w, h, BackgroundColor);
+            FillRect(renderer, areaX, areaY, areaW, areaH, BackgroundColor);
             return;
         }
 
-        // --- Layout (proportional to renderer size) ---
-        var xMargin     = Math.Max(60, w / 14);
-        var yMarginTop  = Math.Max(36, h / 22);
-        var yMarginBot  = Math.Max(56, h / 14);
-        var legendH     = Math.Max(24, h / 33);
+        var w = areaW;
+        var h = areaH;
 
-        var plotX = xMargin;
-        var plotY = yMarginTop;
+        // --- Layout (proportional to area size, offset by areaX/areaY) ---
+        var xMargin     = Math.Max(48, w / 14);
+        var yMarginTop  = Math.Max(30, h / 22);
+        var yMarginBot  = Math.Max(44, h / 14);
+        var legendH     = Math.Max(20, h / 33);
+
+        var plotX = areaX + xMargin;
+        var plotY = areaY + yMarginTop;
         var plotW = w - xMargin * 2;
         var plotH = h - yMarginTop - yMarginBot - legendH;
 
@@ -102,7 +117,7 @@ public static class AltitudeChartRenderer
             (plotY + plotH) - (int)Math.Round(alt / 90.0 * plotH);
 
         // --- Background ---
-        FillRect(renderer, 0, 0, w, h, BackgroundColor);
+        FillRect(renderer, areaX, areaY, w, h, BackgroundColor);
 
         // --- Twilight zones ---
         DrawTwilightZones(renderer, state, tStart, tEnd, TimeToX, plotX, plotY, plotW, plotH, fontFamily);
@@ -266,7 +281,7 @@ public static class AltitudeChartRenderer
             var y = altToY(alt);
             DrawHLine(renderer, plotX, plotX + plotW, y, GridColor);
 
-            var labelRect = MakeRect(0, y - 8, plotX - 4, 16);
+            var labelRect = MakeRect(plotX - 44, y - 8, 40, 16);
             renderer.DrawText($"{alt}°", fontFamily, FontSize(h, 10), TextColor,
                 labelRect, TextAlign.Far, TextAlign.Center);
         }
