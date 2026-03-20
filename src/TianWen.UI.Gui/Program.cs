@@ -301,12 +301,12 @@ void HandleKeyDown(Scancode scancode, Keymod keymod)
                 if (eqState.IsEditingSite)
                 {
                     // Enter in site field → save site
-                    HandleEquipmentClick(new EquipmentHitResult(EquipmentHitType.SaveSiteButton));
+                    HandleEquipmentClick(new HitResult.ButtonHit("SaveSite"));
                 }
                 else if (eqInput.Text.Length > 0)
                 {
                     // Trigger profile creation
-                    HandleEquipmentClick(new EquipmentHitResult(EquipmentHitType.CreateButton));
+                    HandleEquipmentClick(new HitResult.ButtonHit("CreateProfile"));
                 }
             }
             else if (eqInput.IsCancelled)
@@ -414,7 +414,7 @@ void HandleMouseDown(byte button, float px, float py)
             // Auto-discover devices when switching to Equipment tab
             if (tab.Value is GuiTab.Equipment && guiRenderer.EquipmentTab.State.DiscoveredDevices.Count == 0)
             {
-                HandleEquipmentClick(new EquipmentHitResult(EquipmentHitType.DiscoverButton));
+                HandleEquipmentClick(new HitResult.ButtonHit("Discover"));
             }
 
             return;
@@ -434,7 +434,7 @@ void HandleMouseDown(byte button, float px, float py)
         }
         else if (appState.ActiveTab is GuiTab.Equipment)
         {
-            var hit = guiRenderer.EquipmentTab.HitTest(px, py, cl, ct2, guiRenderer.DpiScale);
+            var hit = guiRenderer.EquipmentTab.HitTest(px, py);
             if (hit is not null)
             {
                 HandleEquipmentClick(hit);
@@ -462,14 +462,14 @@ void HandleMouseWheel(float scrollY)
 
 // --- Equipment tab click handling ---
 
-void HandleEquipmentClick(EquipmentHitResult hit)
+void HandleEquipmentClick(HitResult hit)
 {
     var eqTab = guiRenderer.EquipmentTab;
     var eqState = eqTab.State;
 
-    switch (hit.Type)
+    switch (hit)
     {
-        case EquipmentHitType.CreateButton:
+        case HitResult.ButtonHit { Action: "CreateProfile" }:
             if (!eqState.IsCreatingProfile)
             {
                 // Enter creation mode
@@ -494,7 +494,7 @@ void HandleEquipmentClick(EquipmentHitResult hit)
             }
             break;
 
-        case EquipmentHitType.TextInput when hit.TextInput is { } clickedInput:
+        case HitResult.TextInputHit { Input: { } clickedInput }:
             // Deactivate previous input if different
             if (eqState.ActiveTextInput is { } prev && prev != clickedInput)
             {
@@ -505,16 +505,16 @@ void HandleEquipmentClick(EquipmentHitResult hit)
             StartTextInput(sdlWindow.Handle);
             break;
 
-        case EquipmentHitType.ProfileSlot when hit.Slot is not null:
+        case HitResult.SlotHit { Slot: { } slot }:
             // Toggle assignment mode
-            eqState.ActiveAssignment = eqState.ActiveAssignment == hit.Slot ? null : hit.Slot;
+            eqState.ActiveAssignment = eqState.ActiveAssignment == slot ? null : slot;
             appState.NeedsRedraw = true;
             break;
 
-        case EquipmentHitType.DeviceRow when hit.DeviceIndex >= 0 && hit.DeviceIndex < eqState.DiscoveredDevices.Count:
+        case HitResult.ListItemHit { ListId: "Devices", Index: var deviceIndex } when deviceIndex >= 0 && deviceIndex < eqState.DiscoveredDevices.Count:
             if (eqState.ActiveAssignment is { } target && appState.ActiveProfile is { } profile)
             {
-                var device = eqState.DiscoveredDevices[hit.DeviceIndex];
+                var device = eqState.DiscoveredDevices[deviceIndex];
                 var data = profile.Data ?? ProfileData.Empty;
 
                 var newData = target switch
@@ -539,7 +539,7 @@ void HandleEquipmentClick(EquipmentHitResult hit)
             }
             break;
 
-        case EquipmentHitType.DiscoverButton:
+        case HitResult.ButtonHit { Action: "Discover" }:
             if (!eqState.IsDiscovering)
             {
                 eqState.IsDiscovering = true;
@@ -572,7 +572,7 @@ void HandleEquipmentClick(EquipmentHitResult hit)
             }
             break;
 
-        case EquipmentHitType.AddOtaButton when appState.ActiveProfile is { } p:
+        case HitResult.ButtonHit { Action: "AddOta" } when appState.ActiveProfile is { } p:
             var d = p.Data ?? ProfileData.Empty;
             var newOta = new OTAData(
                 Name: $"Telescope #{d.OTAs.Length}",
@@ -591,30 +591,30 @@ void HandleEquipmentClick(EquipmentHitResult hit)
             });
             break;
 
-        case EquipmentHitType.EditSiteButton:
+        case HitResult.ButtonHit { Action: "EditSite" }:
             var eqSt = guiRenderer.EquipmentTab.State;
             eqSt.IsEditingSite = true;
-            // Pre-fill with existing site values if available
+            // Pre-fill all fields but only focus the first one
             if (appState.ActiveProfile?.Data is { } pd2)
             {
                 var existingSite = EquipmentActions.GetSiteFromMount(pd2.Mount);
                 if (existingSite.HasValue)
                 {
-                    eqSt.LatitudeInput.Activate(existingSite.Value.Lat.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                    eqSt.LongitudeInput.Activate(existingSite.Value.Lon.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                    eqSt.ElevationInput.Activate(existingSite.Value.Elev?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "");
-                }
-                else
-                {
-                    eqSt.LatitudeInput.Activate();
-                    eqSt.LongitudeInput.Activate();
-                    eqSt.ElevationInput.Activate();
+                    eqSt.LatitudeInput.Text = existingSite.Value.Lat.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    eqSt.LatitudeInput.CursorPos = eqSt.LatitudeInput.Text.Length;
+                    eqSt.LongitudeInput.Text = existingSite.Value.Lon.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    eqSt.LongitudeInput.CursorPos = eqSt.LongitudeInput.Text.Length;
+                    eqSt.ElevationInput.Text = existingSite.Value.Elev?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "";
+                    eqSt.ElevationInput.CursorPos = eqSt.ElevationInput.Text.Length;
                 }
             }
+            // Activate only latitude — Tab cycles to lon/elev
+            eqSt.LatitudeInput.Activate();
+            eqSt.ActiveTextInput = eqSt.LatitudeInput;
             StartTextInput(sdlWindow.Handle);
             break;
 
-        case EquipmentHitType.SaveSiteButton when appState.ActiveProfile is { } siteProfile:
+        case HitResult.ButtonHit { Action: "SaveSite" } when appState.ActiveProfile is { } siteProfile:
             var eqSt2 = guiRenderer.EquipmentTab.State;
             if (double.TryParse(eqSt2.LatitudeInput.Text, System.Globalization.CultureInfo.InvariantCulture, out var sLat) &&
                 double.TryParse(eqSt2.LongitudeInput.Text, System.Globalization.CultureInfo.InvariantCulture, out var sLon))
