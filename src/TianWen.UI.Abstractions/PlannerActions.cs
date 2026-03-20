@@ -52,12 +52,11 @@ public static class PlannerActions
 
         ComputeTwilightBoundaries(state, transform, astroDark, astroTwilight);
 
-        // Precompute the astrometry grid ONCE for the new night (the expensive part)
-        var (astroms, times) = ObservationScheduler.PrecomputeAstromGrid(
-            astroDark, astroTwilight,
-            transform.SiteLatitude, transform.SiteLongitude, transform.SiteElevation);
+        // Invalidate cached grid (date changed) and recompute
+        state.CachedAstromGrid = null;
+        var (astroms, times) = EnsureAstromGrid(state, transform);
 
-        // Re-score all existing targets using the shared grid
+        // Re-score all existing targets using the shared grids
         var rescored = new List<ScoredTarget>();
         state.AltitudeProfiles.Clear();
 
@@ -67,7 +66,8 @@ public static class PlannerActions
                 astroDark, astroTwilight, state.MinHeightAboveHorizon, transform.SiteLongitude);
             rescored.Add(scored);
             state.ScoredTargets[old.Target] = scored;
-            state.AltitudeProfiles[old.Target] = ComputeFineAltitudeProfile(transform, old.Target, state);
+            state.AltitudeProfiles[old.Target] = ComputeFineAltitudeProfileFast(
+                old.Target, astroms, times, transform.SiteLatitude, transform.SiteLongitude);
         }
 
         // Also recompute profiles for search results / proposals not in TonightsBest
@@ -78,7 +78,8 @@ public static class PlannerActions
                 var scored = ObservationScheduler.ScoreTarget(s.Target, astroms, times,
                     astroDark, astroTwilight, state.MinHeightAboveHorizon, transform.SiteLongitude);
                 state.ScoredTargets[s.Target] = scored;
-                state.AltitudeProfiles[s.Target] = ComputeFineAltitudeProfile(transform, s.Target, state);
+                state.AltitudeProfiles[s.Target] = ComputeFineAltitudeProfileFast(
+                    s.Target, astroms, times, transform.SiteLatitude, transform.SiteLongitude);
             }
         }
 
@@ -139,12 +140,15 @@ public static class PlannerActions
         // Compute fine altitude profiles and cross-index aliases for the top targets
         Report("Computing altitude profiles...");
 
+        var (gridAstroms, gridTimes) = EnsureAstromGrid(state, transform);
+
         state.AltitudeProfiles.Clear();
         state.TargetAliases.Clear();
         foreach (var scored in tonightsBest)
         {
-            state.AltitudeProfiles[scored.Target] = ComputeFineAltitudeProfile(
-                transform, scored.Target, state);
+            state.AltitudeProfiles[scored.Target] = ComputeFineAltitudeProfileFast(
+                scored.Target, gridAstroms, gridTimes,
+                transform.SiteLatitude, transform.SiteLongitude);
             PopulateTargetAlias(state, objectDb, scored.Target);
         }
 
@@ -402,7 +406,9 @@ public static class PlannerActions
 
             if (!state.AltitudeProfiles.ContainsKey(target))
             {
-                state.AltitudeProfiles[target] = ComputeFineAltitudeProfile(transform, target, state);
+                var (ga, gt) = EnsureAstromGrid(state, transform);
+                state.AltitudeProfiles[target] = ComputeFineAltitudeProfileFast(
+                    target, ga, gt, transform.SiteLatitude, transform.SiteLongitude);
             }
 
             state.ScoredTargets[target] = scored;
@@ -514,7 +520,9 @@ public static class PlannerActions
 
         if (!state.AltitudeProfiles.ContainsKey(target))
         {
-            state.AltitudeProfiles[target] = ComputeFineAltitudeProfile(transform, target, state);
+            var (ga2, gt2) = EnsureAstromGrid(state, transform);
+            state.AltitudeProfiles[target] = ComputeFineAltitudeProfileFast(
+                target, ga2, gt2, transform.SiteLatitude, transform.SiteLongitude);
         }
 
         state.ScoredTargets[target] = scored;
@@ -1051,36 +1059,50 @@ public static class PlannerActions
         }
     }
 
-    private static List<(DateTimeOffset Time, double Alt)> ComputeFineAltitudeProfile(
-        Transform transform, Target target, PlannerState state)
+    private static (Astrom[] Astroms, DateTimeOffset[] Times) EnsureAstromGrid(PlannerState state, Transform transform)
+    {
+        return state.CachedAstromGrid ??= ComputeAstromGrid(state, transform);
+    }
+
+    private static (Astrom[] Astroms, DateTimeOffset[] Times) ComputeAstromGrid(PlannerState state, Transform transform)
     {
         var start = state.CivilSet ?? state.AstroDark - TimeSpan.FromHours(1);
         var end = state.CivilRise ?? state.AstroTwilight + TimeSpan.FromHours(1);
         start -= TimeSpan.FromMinutes(15);
         end += TimeSpan.FromMinutes(15);
+        return ObservationScheduler.PrecomputeAstromGrid(
+            start, end, transform.SiteLatitude, transform.SiteLongitude, transform.SiteElevation);
+    }
 
-        var step = TimeSpan.FromMinutes(10);
-        var profile = new List<(DateTimeOffset Time, double Alt)>();
+    /// <summary>
+    /// Fast altitude profile using precomputed Astrom grid — no per-sample SOFA overhead.
+    /// </summary>
+    private static List<(DateTimeOffset Time, double Alt)> ComputeFineAltitudeProfileFast(
+        Target target, Astrom[] astroms, DateTimeOffset[] times,
+        double siteLat, double siteLong)
+    {
+        var profile = new List<(DateTimeOffset Time, double Alt)>(astroms.Length);
 
-        for (var t = start; t <= end; t += step)
+        // For planets, fall back to VSOP87 (they move)
+        if (target.CatalogIndex is { } catIdx
+            && VSOP87a.GetBody(catIdx, 0, stackalloc double[3]))
         {
-            // For planets, Reduce recomputes position at each time step; returns false for non-planets
-            if (target.CatalogIndex is { } catIdx
-                && VSOP87a.Reduce(catIdx, t, transform.SiteLatitude, transform.SiteLongitude,
+            foreach (var t in times)
+            {
+                if (VSOP87a.Reduce(catIdx, t, siteLat, siteLong,
                     out _, out _, out _, out var planetAlt, out _))
-            {
-                profile.Add((t, planetAlt));
-            }
-            else
-            {
-                transform.SetJ2000(target.RA, target.Dec);
-                transform.JulianDateUTC = t.ToJulian();
-
-                if (transform.ElevationTopocentric is double alt)
                 {
-                    profile.Add((t, alt));
+                    profile.Add((t, planetAlt));
                 }
             }
+            return profile;
+        }
+
+        // Fixed objects: use precomputed Astrom for fast altitude calculation
+        for (var i = 0; i < astroms.Length; i++)
+        {
+            var alt = SOFAHelpers.AltitudeFromAstrom(target.RA, target.Dec, in astroms[i]);
+            profile.Add((times[i], alt));
         }
 
         return profile;
