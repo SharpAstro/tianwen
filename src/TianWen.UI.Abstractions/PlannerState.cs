@@ -103,6 +103,12 @@ public class PlannerState
     /// <summary>Site timezone offset (from GeoTimeZone). Used for display instead of machine local time.</summary>
     public TimeSpan SiteTimeZone { get; set; }
 
+    /// <summary>
+    /// The date to plan for. Null = tonight (uses current time).
+    /// Changing this triggers recomputation of the night window and targets.
+    /// </summary>
+    public DateTimeOffset? PlanningDate { get; set; }
+
     /// <summary>Whether the display needs a redraw.</summary>
     public bool NeedsRedraw { get; set; }
 
