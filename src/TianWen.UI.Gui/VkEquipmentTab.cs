@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using DIR.Lib;
 using SdlVulkan.Renderer;
 using TianWen.Lib.Devices;
@@ -9,34 +8,11 @@ using TianWen.UI.Abstractions;
 namespace TianWen.UI.Gui
 {
     /// <summary>
-    /// Identifies the kind of region that was hit during a click test.
-    /// </summary>
-    public enum EquipmentHitType
-    {
-        ProfileSlot,
-        DeviceRow,
-        CreateButton,
-        AddOtaButton,
-        DiscoverButton,
-        TextInput,
-        EditSiteButton,
-        SaveSiteButton
-    }
-
-    /// <summary>
-    /// Describes what was hit during <see cref="VkEquipmentTab.HitTest"/>.
-    /// </summary>
-    public record EquipmentHitResult(EquipmentHitType Type, AssignTarget? Slot = null, int DeviceIndex = -1, TextInputState? TextInput = null);
-
-    /// <summary>
     /// Renders the Equipment / Profile tab for the TianWen N.I.N.A.-style GUI.
     /// Handles profile summary, discovered devices, and device assignment.
     /// </summary>
-    public sealed class VkEquipmentTab
+    public sealed class VkEquipmentTab : VkTabBase
     {
-        private readonly VkRenderer _renderer;
-        private readonly List<(float X, float Y, float W, float H, EquipmentHitResult Result)> _clickableRegions = [];
-
         // Layout constants (at 1x scale)
         private const float BaseProfilePanelWidth = 360f;
         private const float BaseFontSize          = 14f;
@@ -73,20 +49,8 @@ namespace TianWen.UI.Gui
         /// <summary>Tab state (scroll offsets, discovery results, assignment mode).</summary>
         public EquipmentTabState State { get; } = new EquipmentTabState();
 
-        /// <summary>
-        /// Registers a clickable region during rendering. Hit testing walks this list.
-        /// </summary>
-        private void RegisterClickable(float x, float y, float w, float h, EquipmentHitResult result)
+        public VkEquipmentTab(VkRenderer renderer) : base(renderer)
         {
-            _clickableRegions.Add((x, y, w, h, result));
-        }
-
-        /// <summary>Frame counter for text input cursor blink.</summary>
-        public long FrameCount { get; set; }
-
-        public VkEquipmentTab(VkRenderer renderer)
-        {
-            _renderer = renderer;
         }
 
         // -----------------------------------------------------------------------
@@ -103,7 +67,7 @@ namespace TianWen.UI.Gui
             string fontPath)
         {
             // Clear clickable regions from previous frame
-            _clickableRegions.Clear();
+            BeginFrame();
 
             // Clear the whole content area first
             FillRect(left, top, width, height, ContentBg);
@@ -148,13 +112,7 @@ namespace TianWen.UI.Gui
             var btnX = centerX - buttonW / 2f;
             var btnY = centerY + padding;
 
-            FillRect(btnX, btnY, buttonW, buttonH, CreateButton);
-            RegisterClickable(btnX, btnY, buttonW, buttonH, new EquipmentHitResult(EquipmentHitType.CreateButton));
-            DrawText(
-                "Create Profile".AsSpan(),
-                fontPath,
-                btnX, btnY, buttonW, buttonH,
-                fontSize, BodyText, TextAlign.Center, TextAlign.Center);
+            RenderButton("Create Profile", btnX, btnY, buttonW, buttonH, fontPath, fontSize, CreateButton, BodyText, "CreateProfile");
         }
 
         // -----------------------------------------------------------------------
@@ -190,23 +148,12 @@ namespace TianWen.UI.Gui
                 fontSize, BodyText, TextAlign.Near, TextAlign.Near);
 
             var inputY = (int)(fieldY + fontSize * 1.6f);
-            TextInputRenderer.Render(
-                _renderer,
-                State.ProfileNameInput,
-                (int)fieldX, inputY, (int)fieldW, (int)fieldH,
-                fontPath, fontSize, FrameCount);
-            RegisterClickable(fieldX, inputY, fieldW, fieldH, new EquipmentHitResult(EquipmentHitType.TextInput, TextInput: State.ProfileNameInput));
+            RenderTextInput(State.ProfileNameInput, (int)fieldX, inputY, (int)fieldW, (int)fieldH, fontPath, fontSize);
 
             // Create button
             var btnY = inputY + (int)fieldH + (int)padding;
             var btnW = 120f * dpiScale;
-            FillRect(fieldX, btnY, btnW, buttonH, CreateButton);
-            RegisterClickable(fieldX, btnY, btnW, buttonH, new EquipmentHitResult(EquipmentHitType.CreateButton));
-            DrawText(
-                "Create".AsSpan(),
-                fontPath,
-                fieldX, btnY, btnW, buttonH,
-                fontSize, BodyText, TextAlign.Center, TextAlign.Center);
+            RenderButton("Create", fieldX, btnY, btnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "CreateProfile");
 
             // Bottom status
             var statusY = top + height - bottomBarH;
@@ -301,25 +248,20 @@ namespace TianWen.UI.Gui
                     var fieldX = (int)(x + padding);
 
                     DrawText("  Lat:".AsSpan(), fontPath, x + padding, cursor, 50f * dpiScale, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-                    TextInputRenderer.Render(_renderer, State.LatitudeInput, fieldX + (int)(50f * dpiScale), (int)cursor, fieldW - (int)(50f * dpiScale), fieldH, fontPath, fontSize * 0.9f, FrameCount);
-                    RegisterClickable(fieldX + 50f * dpiScale, cursor, fieldW - 50f * dpiScale, fieldH, new EquipmentHitResult(EquipmentHitType.TextInput, TextInput: State.LatitudeInput));
+                    RenderTextInput(State.LatitudeInput, fieldX + (int)(50f * dpiScale), (int)cursor, fieldW - (int)(50f * dpiScale), fieldH, fontPath, fontSize * 0.9f);
                     cursor += fieldH + 2;
 
                     DrawText("  Lon:".AsSpan(), fontPath, x + padding, cursor, 50f * dpiScale, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-                    TextInputRenderer.Render(_renderer, State.LongitudeInput, fieldX + (int)(50f * dpiScale), (int)cursor, fieldW - (int)(50f * dpiScale), fieldH, fontPath, fontSize * 0.9f, FrameCount);
-                    RegisterClickable(fieldX + 50f * dpiScale, cursor, fieldW - 50f * dpiScale, fieldH, new EquipmentHitResult(EquipmentHitType.TextInput, TextInput: State.LongitudeInput));
+                    RenderTextInput(State.LongitudeInput, fieldX + (int)(50f * dpiScale), (int)cursor, fieldW - (int)(50f * dpiScale), fieldH, fontPath, fontSize * 0.9f);
                     cursor += fieldH + 2;
 
                     DrawText("  Elev:".AsSpan(), fontPath, x + padding, cursor, 50f * dpiScale, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-                    TextInputRenderer.Render(_renderer, State.ElevationInput, fieldX + (int)(50f * dpiScale), (int)cursor, fieldW - (int)(50f * dpiScale), fieldH, fontPath, fontSize * 0.9f, FrameCount);
-                    RegisterClickable(fieldX + 50f * dpiScale, cursor, fieldW - 50f * dpiScale, fieldH, new EquipmentHitResult(EquipmentHitType.TextInput, TextInput: State.ElevationInput));
+                    RenderTextInput(State.ElevationInput, fieldX + (int)(50f * dpiScale), (int)cursor, fieldW - (int)(50f * dpiScale), fieldH, fontPath, fontSize * 0.9f);
                     cursor += fieldH + 2;
 
                     // Save button
-                    var saveBtnW = _renderer.MeasureText("Save Site".AsSpan(), fontPath, fontSize).Width + padding * 4f;
-                    FillRect(x + padding, cursor, saveBtnW, buttonH, CreateButton);
-                    RegisterClickable(x + padding, cursor, saveBtnW, buttonH, new EquipmentHitResult(EquipmentHitType.SaveSiteButton));
-                    DrawText("Save Site".AsSpan(), fontPath, x + padding, cursor, saveBtnW, buttonH, fontSize, BodyText, TextAlign.Center, TextAlign.Center);
+                    var saveBtnW = Renderer.MeasureText("Save Site".AsSpan(), fontPath, fontSize).Width + padding * 4f;
+                    RenderButton("Save Site", x + padding, cursor, saveBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "SaveSite");
                     cursor += buttonH + padding;
                 }
                 else if (site.HasValue)
@@ -332,7 +274,7 @@ namespace TianWen.UI.Gui
 
                     var siteBtnW = w - padding * 2f;
                     FillRect(x + padding, cursor, siteBtnW, itemH, SlotNormal);
-                    RegisterClickable(x + padding, cursor, siteBtnW, itemH, new EquipmentHitResult(EquipmentHitType.EditSiteButton));
+                    RegisterClickable(x + padding, cursor, siteBtnW, itemH, new HitResult.ButtonHit("EditSite"));
                     DrawText(siteStr.AsSpan(), fontPath, x + padding, cursor, siteBtnW - arrowW, itemH, fontSize * 0.9f, SiteText, TextAlign.Near, TextAlign.Center);
                     DrawText("[>]".AsSpan(), fontPath, x + w - padding - arrowW, cursor, arrowW, itemH, fontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center);
                     cursor += itemH;
@@ -340,10 +282,8 @@ namespace TianWen.UI.Gui
                 else
                 {
                     // No site configured — show "Set Site" button
-                    var setSiteBtnW = _renderer.MeasureText("Set Site".AsSpan(), fontPath, fontSize).Width + padding * 4f;
-                    FillRect(x + padding, cursor, setSiteBtnW, buttonH, CreateButton);
-                    RegisterClickable(x + padding, cursor, setSiteBtnW, buttonH, new EquipmentHitResult(EquipmentHitType.EditSiteButton));
-                    DrawText("Set Site".AsSpan(), fontPath, x + padding, cursor, setSiteBtnW, buttonH, fontSize, BodyText, TextAlign.Center, TextAlign.Center);
+                    var setSiteBtnW = Renderer.MeasureText("Set Site".AsSpan(), fontPath, fontSize).Width + padding * 4f;
+                    RenderButton("Set Site", x + padding, cursor, setSiteBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "EditSite");
                     cursor += buttonH;
                 }
 
@@ -404,13 +344,7 @@ namespace TianWen.UI.Gui
                 var addOtaBtnW = 120f * dpiScale;
                 if (addOtaBtnY + buttonH < y + h - padding)
                 {
-                    FillRect(x + padding, addOtaBtnY, addOtaBtnW, buttonH, CreateButton);
-                    RegisterClickable(x + padding, addOtaBtnY, addOtaBtnW, buttonH, new EquipmentHitResult(EquipmentHitType.AddOtaButton));
-                    DrawText(
-                        "+ Add OTA".AsSpan(),
-                        fontPath,
-                        x + padding, addOtaBtnY, addOtaBtnW, buttonH,
-                        fontSize, BodyText, TextAlign.Center, TextAlign.Center);
+                    RenderButton("+ Add OTA", x + padding, addOtaBtnY, addOtaBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "AddOta");
                 }
             }
             else
@@ -438,7 +372,7 @@ namespace TianWen.UI.Gui
             var bgColor = isActive ? SlotActive : SlotNormal;
 
             FillRect(x, y, w, itemH, bgColor);
-            RegisterClickable(x, y, w, itemH, new EquipmentHitResult(EquipmentHitType.ProfileSlot, slot));
+            RegisterClickable(x, y, w, itemH, new HitResult.SlotHit(slot));
 
             // Separator line at bottom of slot
             FillRect(x, y + itemH - 1f, w, 1f, SeparatorColor);
@@ -521,7 +455,7 @@ namespace TianWen.UI.Gui
 
                 // Row background
                 FillRect(x, rowY, w, itemH, DeviceRowBg);
-                RegisterClickable(x, rowY, w, itemH, new EquipmentHitResult(EquipmentHitType.DeviceRow, DeviceIndex: i));
+                RegisterClickable(x, rowY, w, itemH, new HitResult.ListItemHit("Devices", i));
                 FillRect(x, rowY + itemH - 1f, w, 1f, SeparatorColor);
 
                 // Type badge
@@ -558,16 +492,10 @@ namespace TianWen.UI.Gui
             // [Discover] button at the bottom of the list area
             var discoverBtnY = y + h - buttonH - padding;
             var discoverLabel = State.IsDiscovering ? "Discovering..." : "Discover";
-            var discoverBtnW = _renderer.MeasureText("Discovering...".AsSpan(), fontPath, fontSize).Width + padding * 4f;
+            var discoverBtnW = Renderer.MeasureText("Discovering...".AsSpan(), fontPath, fontSize).Width + padding * 4f;
             var discoverBtnX = x + padding;
 
-            FillRect(discoverBtnX, discoverBtnY, discoverBtnW, buttonH, CreateButton);
-            RegisterClickable(discoverBtnX, discoverBtnY, discoverBtnW, buttonH, new EquipmentHitResult(EquipmentHitType.DiscoverButton));
-            DrawText(
-                discoverLabel.AsSpan(),
-                fontPath,
-                discoverBtnX, discoverBtnY, discoverBtnW, buttonH,
-                fontSize, BodyText, TextAlign.Center, TextAlign.Center);
+            RenderButton(discoverLabel, discoverBtnX, discoverBtnY, discoverBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "Discover");
         }
 
         // -----------------------------------------------------------------------
@@ -610,27 +538,6 @@ namespace TianWen.UI.Gui
         }
 
         // -----------------------------------------------------------------------
-        // Hit testing
-        // -----------------------------------------------------------------------
-
-        /// <summary>
-        /// Hit-tests the Equipment tab content area using regions registered during the last Render call.
-        /// </summary>
-        public EquipmentHitResult? HitTest(float x, float y, float contentLeft, float contentTop, float dpiScale)
-        {
-            // Walk registered clickable regions from last render — single source of truth
-            foreach (var (rx, ry, rw, rh, result) in _clickableRegions)
-            {
-                if (x >= rx && x < rx + rw && y >= ry && y < ry + rh)
-                {
-                    return result;
-                }
-            }
-
-            return null;
-        }
-
-        // -----------------------------------------------------------------------
         // Badge helpers
         // -----------------------------------------------------------------------
 
@@ -646,47 +553,5 @@ namespace TianWen.UI.Gui
                 DeviceType.Profile        => "Profile",
                 _                         => "?"
             };
-
-        // -----------------------------------------------------------------------
-        // Drawing helpers (mirror VkPlannerTab pattern)
-        // -----------------------------------------------------------------------
-
-        private void FillRect(float x, float y, float w, float h, RGBAColor32 color)
-        {
-            if (w <= 0 || h <= 0)
-            {
-                return;
-            }
-
-            var ix = (int)x;
-            var iy = (int)y;
-            var iw = (int)w;
-            var ih = (int)h;
-            _renderer.FillRectangle(
-                new RectInt(new PointInt(ix + iw, iy + ih), new PointInt(ix, iy)),
-                color);
-        }
-
-        private void DrawText(
-            ReadOnlySpan<char> text,
-            string fontPath,
-            float x, float y, float w, float h,
-            float fontSize,
-            RGBAColor32 color,
-            TextAlign horizAlign = TextAlign.Near,
-            TextAlign vertAlign  = TextAlign.Near)
-        {
-            if (text.IsEmpty || w <= 0 || h <= 0)
-            {
-                return;
-            }
-
-            var ix = (int)x;
-            var iy = (int)y;
-            var iw = (int)w;
-            var ih = Math.Max(1, (int)h);
-            var layout = new RectInt(new PointInt(ix + iw, iy + ih), new PointInt(ix, iy));
-            _renderer.DrawText(text, fontPath, fontSize, color, layout, horizAlign, vertAlign);
-        }
     }
 }
