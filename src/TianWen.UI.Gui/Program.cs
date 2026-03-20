@@ -213,7 +213,9 @@ while (running)
         } while (PollEvent(out evt));
     }
 
-    if (appState.NeedsRedraw || plannerState.NeedsRedraw)
+    // Force continuous redraw when text input is active (for cursor blink)
+    if (appState.NeedsRedraw || plannerState.NeedsRedraw
+        || guiRenderer.EquipmentTab.State.ActiveTextInput is { IsActive: true })
     {
         needsRedraw = true;
     }
