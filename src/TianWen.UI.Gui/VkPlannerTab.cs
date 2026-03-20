@@ -30,8 +30,10 @@ namespace TianWen.UI.Gui
         private static readonly RGBAColor32 ItemText        = new RGBAColor32(0xcc, 0xcc, 0xcc, 0xff);
         private static readonly RGBAColor32 SelectedBg      = new RGBAColor32(0x20, 0x30, 0x50, 0xff);
         private static readonly RGBAColor32 SelectedText    = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
-        private static readonly RGBAColor32 ProposedMarker  = new RGBAColor32(0x00, 0xdd, 0xcc, 0xff);
-        private static readonly RGBAColor32 ProposedBg      = new RGBAColor32(0x18, 0x2a, 0x28, 0xff);
+        private static readonly RGBAColor32 PinnedBg        = new RGBAColor32(0x18, 0x2a, 0x28, 0xff);
+        private static readonly RGBAColor32 PinnedText      = new RGBAColor32(0x66, 0xdd, 0xcc, 0xff);
+        private static readonly RGBAColor32 RemoveBtnBg     = new RGBAColor32(0x55, 0x22, 0x22, 0xff);
+        private static readonly RGBAColor32 RemoveBtnText   = new RGBAColor32(0xff, 0x88, 0x88, 0xff);
         private static readonly RGBAColor32 DimText         = new RGBAColor32(0x77, 0x77, 0x88, 0xff);
         private static readonly RGBAColor32 DetailsBg       = new RGBAColor32(0x14, 0x14, 0x1e, 0xff);
         private static readonly RGBAColor32 DetailsNameText = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
@@ -206,9 +208,21 @@ namespace TianWen.UI.Gui
             if (ScrollOffset < 0)       ScrollOffset = 0;
             if (ScrollOffset > maxScroll) ScrollOffset = maxScroll;
 
+            var pinnedCount = state.PinnedCount;
+            var removeBtnW = fontSize * 1.5f;
+            var drawnSeparator = false;
+
             for (var i = ScrollOffset; i < totalItems; i++)
             {
                 var rowY = _listItemsRect.Y + (i - ScrollOffset) * itemHeight;
+
+                // Draw separator line between pinned and unpinned sections
+                if (!drawnSeparator && i >= pinnedCount && pinnedCount > 0)
+                {
+                    FillRect(rect.X + padding, rowY - 1f, listW - padding * 2f, 1f, SeparatorColor);
+                    drawnSeparator = true;
+                }
+
                 if (rowY + itemHeight > _listItemsRect.Bottom)
                 {
                     break;
@@ -216,40 +230,74 @@ namespace TianWen.UI.Gui
 
                 var scored     = filtered[i];
                 var isSelected = i == state.SelectedTargetIndex;
-                var isProposed = state.Proposals.Any(p => p.Target == scored.Target);
+                var isPinned   = i < pinnedCount;
 
                 var rowBg = isSelected ? SelectedBg
-                          : isProposed ? ProposedBg
+                          : isPinned   ? PinnedBg
                                        : PanelBgOpaque;
-                var rowTextColor = isSelected ? SelectedText : ItemText;
+                var rowTextColor = isSelected ? SelectedText
+                                 : isPinned   ? PinnedText
+                                              : ItemText;
 
                 FillRect(rect.X, rowY, listW, itemHeight, rowBg);
                 var capturedIdx = i;
-                RegisterClickable(rect.X, rowY, listW, itemHeight, new HitResult.ListItemHit("TargetList", i),
+                RegisterClickable(rect.X, rowY, listW - removeBtnW, itemHeight,
+                    new HitResult.ListItemHit("TargetList", i),
                     () => { state.SelectedTargetIndex = capturedIdx; state.NeedsRedraw = true; });
 
-                // Proposed marker "*" in cyan on left
-                if (isProposed)
+                // Pin/unpin button on the right
+                var btnX = rect.X + listW - removeBtnW;
+                if (isPinned)
                 {
-                    var markerW = padding * 2f;
-                    DrawText("*".AsSpan(), fontPath,
-                        rect.X + 1f, rowY, markerW, itemHeight,
-                        fontSize, ProposedMarker, TextAlign.Near, TextAlign.Center);
+                    FillRect(btnX, rowY, removeBtnW, itemHeight, RemoveBtnBg);
+                    DrawText("\u2212".AsSpan(), fontPath,
+                        btnX, rowY, removeBtnW, itemHeight,
+                        fontSize, RemoveBtnText, TextAlign.Center, TextAlign.Center);
+
+                    var capturedPinIdx = state.Proposals.FindIndex(p => p.Target == scored.Target);
+                    if (capturedPinIdx >= 0)
+                    {
+                        RegisterClickable(btnX, rowY, removeBtnW, itemHeight,
+                            new HitResult.ButtonHit("RemoveProposal"),
+                            () =>
+                            {
+                                PlannerActions.RemoveProposal(state, capturedPinIdx);
+                                if (state.SelectedTargetIndex >= state.PinnedCount)
+                                {
+                                    state.SelectedTargetIndex = Math.Max(0, state.SelectedTargetIndex - 1);
+                                }
+                            });
+                    }
+                }
+                else
+                {
+                    // Unpinned: [+] pin button
+                    FillRect(btnX, rowY, removeBtnW, itemHeight, PinnedBg);
+                    DrawText("+".AsSpan(), fontPath,
+                        btnX, rowY, removeBtnW, itemHeight,
+                        fontSize, PinnedText, TextAlign.Center, TextAlign.Center);
+
+                    var capturedTarget = scored.Target;
+                    RegisterClickable(btnX, rowY, removeBtnW, itemHeight,
+                        new HitResult.ButtonHit("AddProposal"),
+                        () => { PlannerActions.ToggleProposal(state, capturedTarget); });
                 }
 
                 // Target name
-                var nameX = rect.X + padding * 2f;
+                var nameX = rect.X + padding;
                 var nameW = listW * 0.60f;
                 DrawText(scored.Target.Name.AsSpan(), fontPath,
                     nameX, rowY, nameW, itemHeight,
                     fontSize, rowTextColor, TextAlign.Near, TextAlign.Center);
 
-                // Altitude right-aligned
-                var altStr = $"{scored.OptimalAltitude:F0}°";
-                var altX   = rect.X + padding * 2f + nameW;
-                var altW   = listW - nameW - padding * 3f;
-                DrawText(altStr.AsSpan(), fontPath,
-                    altX, rowY, altW, itemHeight,
+                // Altitude / peak time right-aligned
+                var infoStr = isPinned
+                    ? scored.OptimalStart.ToOffset(state.SiteTimeZone).ToString("HH:mm")
+                    : $"{scored.OptimalAltitude:F0}°";
+                var infoX = rect.X + padding + nameW;
+                var infoW = listW - nameW - padding * 2f - removeBtnW;
+                DrawText(infoStr.AsSpan(), fontPath,
+                    infoX, rowY, infoW, itemHeight,
                     fontSize, isSelected ? SelectedText : DimText, TextAlign.Far, TextAlign.Center);
             }
 

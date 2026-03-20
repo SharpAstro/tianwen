@@ -90,14 +90,52 @@ public static class PlannerActions
 
         var maxScore = state.TonightsBest.Count > 0 ? state.TonightsBest[0].CombinedScore : 1.0;
 
-        // Start with tonight's best (filtered by rating, but always include proposed)
         var result = new List<ScoredTarget>();
         var seen = new HashSet<Target>();
 
+        // Pinned targets first, sorted by peak time ascending
+        var pinnedScored = new List<ScoredTarget>();
+        foreach (var p in state.Proposals)
+        {
+            // Look up the scored target from TonightsBest, SearchResults, or ScoredTargets
+            var scored = state.TonightsBest.FirstOrDefault(s => s.Target == p.Target);
+            if (scored.Target == default)
+            {
+                scored = state.SearchResults.FirstOrDefault(s => s.Target == p.Target);
+            }
+            if (scored.Target == default && state.ScoredTargets.TryGetValue(p.Target, out var fromCache))
+            {
+                scored = fromCache;
+            }
+            if (scored.Target != default)
+            {
+                pinnedScored.Add(scored);
+            }
+        }
+
+        // Sort pinned by optimal start time (peak time ascending)
+        pinnedScored.Sort((a, b) => a.OptimalStart.CompareTo(b.OptimalStart));
+
+        foreach (var s in pinnedScored)
+        {
+            if (seen.Add(s.Target))
+            {
+                result.Add(s);
+            }
+        }
+
+        // Track where pinned section ends (for rendering separator)
+        state.PinnedCount = result.Count;
+
+        // Unpinned: tonight's best filtered by rating, excluding already-pinned
         foreach (var s in state.TonightsBest)
         {
+            if (seen.Contains(s.Target))
+            {
+                continue;
+            }
+
             var passesFilter = state.MinRatingFilter <= 0f
-                || proposedTargets.Contains(s.Target)
                 || searchTargets.Contains(s.Target)
                 || ScoreToRating(s.CombinedScore, maxScore) >= state.MinRatingFilter;
 
@@ -107,7 +145,7 @@ public static class PlannerActions
             }
         }
 
-        // Append search results that aren't already in tonight's best
+        // Append search results that aren't already shown
         foreach (var s in state.SearchResults)
         {
             if (seen.Add(s.Target))
