@@ -13,7 +13,7 @@ namespace TianWen.UI.Vulkan;
 /// Vulkan renderer for the FITS viewer. Renders the image via <see cref="VkFitsImagePipeline"/>
 /// and overlays UI panels using <see cref="VkRenderer"/>.
 /// </summary>
-public sealed class VkImageRenderer : IDisposable
+public sealed class VkImageRenderer : PixelWidgetBase<VulkanContext>, IDisposable
 {
     private readonly VkRenderer _renderer;
     private readonly VkFitsImagePipeline _fitsPipeline;
@@ -112,7 +112,7 @@ public sealed class VkImageRenderer : IDisposable
     /// </summary>
     public DotNext.Threading.AsyncLazy<ICelestialObjectDB>? CelestialObjectDB { get; set; }
 
-    public VkImageRenderer(VkRenderer renderer, uint width, uint height)
+    public VkImageRenderer(VkRenderer renderer, uint width, uint height) : base(renderer)
     {
         _renderer = renderer;
         _width = width;
@@ -170,6 +170,8 @@ public sealed class VkImageRenderer : IDisposable
 
     public void Render(AstroImageDocument? document, ViewerState state)
     {
+        BeginFrame();
+
         // Draw image FIRST so UI chrome paints on top of it
         if (_imageWidth > 0 && _imageHeight > 0)
         {
@@ -281,6 +283,13 @@ public sealed class VkImageRenderer : IDisposable
             // Button text (dimmed when disabled)
             var textBrightness = enabled ? 0.9f : 0.45f;
             DrawText(displayLabel, x + ButtonPaddingH, textY, ToolbarFontSize, textBrightness, textBrightness, textBrightness);
+
+            // Register clickable region for this button
+            if (enabled)
+            {
+                var capturedAction = action;
+                RegisterClickable(x, btnY, btnW, btnH, new HitResult.ButtonHit(action.ToString()));
+            }
 
             x += btnW + ButtonSpacing;
         }
@@ -453,6 +462,8 @@ public sealed class VkImageRenderer : IDisposable
 
             var textColor = isSelected ? (R: 1f, G: 1f, B: 1f) : (R: 0.8f, G: 0.8f, B: 0.8f);
             DrawText(displayName, PanelPadding, itemY + 2f, FontSize, textColor.R, textColor.G, textColor.B);
+
+            RegisterClickable(0, itemY, FileListWidth, itemHeight, new HitResult.ListItemHit("FileList", fileIndex));
         }
 
         // Scroll indicator
@@ -1177,6 +1188,9 @@ public sealed class VkImageRenderer : IDisposable
 
             var textY = by + (bh - ToolbarFontSize) / 2f;
             DrawText("LOG", bx + ButtonPaddingH / 2f, textY, ToolbarFontSize, 0.9f, 0.9f, 0.9f);
+
+            RegisterClickable(bx, by, bw, bh, new HitResult.ButtonHit("HistogramLog"),
+                () => { state.HistogramLogScale = !state.HistogramLogScale; });
         }
     }
 

@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using System.Runtime.Versioning;
 using DIR.Lib;
 using SdlVulkan.Renderer;
 using TianWen.Lib.Devices;
@@ -83,12 +82,6 @@ sdlWindow.GetSizeInPixels(out var pixW, out var pixH);
 
 var ctx = VulkanContext.Create(sdlWindow.Instance, sdlWindow.Surface, (uint)pixW, (uint)pixH);
 var renderer = new VkRenderer(ctx, (uint)pixW, (uint)pixH);
-
-// Enable dark title bar on Windows 11+
-if (OperatingSystem.IsWindows())
-{
-    EnableDarkTitleBarIfPossible(sdlWindow.Handle);
-}
 
 // Compute DPI scale from window size vs pixel size
 var dpiScale = sdlWindow.DisplayScale;
@@ -413,39 +406,26 @@ void HandleMouseDown(byte button, float px, float py)
     mouseY = py;
     state.MouseScreenPosition = (px, py);
 
-    if (button == 1) // Left
+    if (button is 1 or 3)
     {
-        // Toolbar hit test
-        var toolbarAction = imageRenderer.HitTestToolbar(px, py, document, state);
-        if (toolbarAction.HasValue)
+        // Unified hit test — OnClick handlers fire for self-contained actions (e.g. HistogramLog)
+        var hit = imageRenderer.HitTestAndDispatch(px, py);
+
+        if (hit is HitResult.ButtonHit { Action: var action } && Enum.TryParse<ToolbarAction>(action, out var toolbarAction))
         {
-            HandleToolbarAction(toolbarAction.Value);
+            HandleToolbarAction(toolbarAction, reverse: button == 3);
             return;
         }
 
-        // Histogram LOG button hit test
-        if (imageRenderer.HitTestHistogramLog(px, py, state))
-        {
-            state.HistogramLogScale = !state.HistogramLogScale;
-            return;
-        }
-
-        // File list hit test
-        var fileIndex = imageRenderer.HitTestFileList(px, py, state);
-        if (fileIndex >= 0)
+        if (hit is HitResult.ListItemHit { ListId: "FileList", Index: var fileIndex })
         {
             ViewerActions.SelectFile(state, fileIndex);
             return;
         }
-    }
 
-    if (button == 3) // Right
-    {
-        var toolbarAction = imageRenderer.HitTestToolbar(px, py, document, state);
-        if (toolbarAction.HasValue)
+        if (hit is not null)
         {
-            HandleToolbarAction(toolbarAction.Value, reverse: true);
-            return;
+            return; // OnClick already handled it (e.g. HistogramLog)
         }
     }
 
@@ -734,16 +714,3 @@ void HandleToolbarAction(ToolbarAction action, bool reverse = false)
     }
 }
 
-// --- Windows dark title bar ---
-
-[SupportedOSPlatform("windows")]
-static void EnableDarkTitleBarIfPossible(nint sdlWindowHandle)
-{
-    // Get the HWND from SDL window
-    var props = GetWindowProperties(sdlWindowHandle);
-    var hwnd = GetPointerProperty(props, Props.WindowWin32HWNDPointer, nint.Zero);
-    if (hwnd != nint.Zero)
-    {
-        WindowHelper.EnableDarkTitleBar(hwnd);
-    }
-}
