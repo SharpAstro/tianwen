@@ -247,30 +247,29 @@ public static class AltitudeChartRenderer
             }
         }
 
-        // Draw zone boundary markers and labels above the plot
-        var labelY = plotY - 10;
+        // Draw zone boundary markers and labels above the plot (staggered two-row layout)
+        var fs = FontSize((int)renderer.Height, 10);
+        var labelRow0Y = plotY - 24; // top row (even zones)
+        var labelRow1Y = plotY - 10; // bottom row (odd zones)
 
-        foreach (var (x1, x2, _, label) in zones)
+        for (var zi = 0; zi < zones.Count; zi++)
         {
+            var (x1, x2, _, label) = zones[zi];
             var bandW = x2 - x1;
 
             // Thin boundary lines (even for narrow zones)
             if (bandW > 3)
             {
-                DrawVLine(renderer, x1, labelY + 4, plotY, ZoneLabelColor);
-                DrawVLine(renderer, x2, labelY + 4, plotY, ZoneLabelColor);
+                DrawVLine(renderer, x1, labelRow0Y + 4, plotY, ZoneLabelColor);
+                DrawVLine(renderer, x2, labelRow0Y + 4, plotY, ZoneLabelColor);
             }
 
-            // Only draw label if the zone is wide enough for the text
-            var fs = FontSize((int)renderer.Height, 10);
-            var textW = renderer.MeasureText(label, fontFamily, fs).Width;
-            if (bandW < textW + 8)
-            {
-                continue;
-            }
+            if (bandW < 10) continue;
 
+            // Stagger: even zones on top row, odd on bottom row
+            var labelY = (zi % 2 == 0) ? labelRow0Y : labelRow1Y;
             var cx = (x1 + x2) / 2;
-            var lRect = MakeRect(cx - bandW / 2, labelY - 14, bandW, 14);
+            var lRect = MakeRect(cx - 60, labelY - 14, 120, 14);
             renderer.DrawText(label, fontFamily, fs, ZoneLabelColor, lRect, TextAlign.Center, TextAlign.Far);
         }
     }
