@@ -44,6 +44,7 @@ public static class AltitudeChartRenderer
     // Min-altitude threshold line colour
     private static readonly RGBAColor32 MinAltColor        = new RGBAColor32(255, 107, 107, 200);   // #FF6B6BC8
     private static readonly RGBAColor32 MinAltLabelColor   = new RGBAColor32(255, 107, 107, 255);
+    private static readonly RGBAColor32 MinAltShade        = new RGBAColor32(255, 60, 60, 30);     // subtle red shade
 
     // Default font family — callers may prefer to pass one via fontPath parameter
     private const string DefaultFontFamily = "monospace";
@@ -125,15 +126,24 @@ public static class AltitudeChartRenderer
         // --- Grid ---
         DrawGrid(renderer, state, tStart, tEnd, TimeToX, AltToY, plotX, plotY, plotW, plotH, fontFamily);
 
-        // --- Min altitude threshold (dashed red) ---
+        // --- Min altitude threshold (dashed red line + shaded area below) ---
         var minAltY = AltToY(state.MinHeightAboveHorizon);
+
+        // Shade the area below minimum altitude
+        var shadeH = (plotY + plotH) - minAltY;
+        if (shadeH > 0)
+        {
+            FillRect(renderer, plotX, minAltY, plotW, shadeH, MinAltShade);
+        }
+
         DrawDashedHLine(renderer, plotX, plotX + plotW, minAltY, MinAltColor, dashLen: 6, gapLen: 4);
 
-        var minAltLabelRect = MakeRect(plotX - xMargin, minAltY - 8, xMargin - 4, 16);
+        // Label on the RIGHT side (avoids overlap with grid's degree scale on the left)
+        var minAltLabelRect = MakeRect(plotX + plotW + 4, minAltY - 8, 40, 16);
         renderer.DrawText(
             $"{state.MinHeightAboveHorizon}°",
             fontFamily, FontSize(h, 10), MinAltLabelColor,
-            minAltLabelRect, TextAlign.Far, TextAlign.Center);
+            minAltLabelRect, TextAlign.Near, TextAlign.Center);
 
         // --- Scheduled observation windows ---
         var allTargets = BuildTargetList(state);
@@ -157,9 +167,12 @@ public static class AltitudeChartRenderer
             fontFamily, FontSize(h, 16), WhiteColor,
             titleRect, TextAlign.Center, TextAlign.Near);
 
-        // --- Legend ---
-        DrawLegend(renderer, allTargets, targetColorMap, state.Schedule,
-            plotX, h - legendH - 4, legendH, fontFamily, h, w);
+        // --- Legend (sorted by score, highest first) ---
+        var legendTargets = allTargets
+            .OrderByDescending(t => state.ScoredTargets.TryGetValue(t, out var s) ? s.CombinedScore : 0)
+            .ToArray();
+        DrawLegend(renderer, legendTargets, targetColorMap, state.Schedule,
+            plotX, areaY + h - legendH - 4, legendH, fontFamily, h, areaX + w);
     }
 
     // -----------------------------------------------------------------------
@@ -462,12 +475,12 @@ public static class AltitudeChartRenderer
         var availW   = rendererW - plotX * 2;
 
         // Reserve space for Primary/Spare labels at the end
-        var suffixW  = 200;
+        var suffixW  = 180;
         var targetW  = availW - suffixW;
 
-        // Measure each target name and only show those that fit
-        var maxTargets = Math.Min(allTargets.Length, 8); // cap at 8 for readability
-        var itemW = maxTargets > 0 ? Math.Max(80, targetW / maxTargets) : 80;
+        // Show top-scored targets that fit (max 6 for readability)
+        var maxTargets = Math.Min(allTargets.Length, 6);
+        var itemW = maxTargets > 0 ? Math.Max(100, targetW / maxTargets) : 100;
 
         for (var i = 0; i < maxTargets; i++)
         {
