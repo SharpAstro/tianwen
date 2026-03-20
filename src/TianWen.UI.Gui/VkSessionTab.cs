@@ -63,6 +63,7 @@ namespace TianWen.UI.Gui
         // -----------------------------------------------------------------------
 
         public void Render(
+            GuiAppState appState,
             PlannerState plannerState,
             PixelRect contentRect,
             float dpiScale,
@@ -73,10 +74,10 @@ namespace TianWen.UI.Gui
 
             ScrollLineHeight = BaseItemHeight * dpiScale;
 
-            // Ensure per-OTA settings are initialized from profile
-            if (State.CameraSettings.Count == 0 && plannerState.ActiveProfile is not null)
+            // Ensure per-OTA settings are initialized from the active profile
+            if (State.CameraSettings.Count == 0 && appState.ActiveProfile is not null)
             {
-                State.InitializeFromProfile(plannerState.ActiveProfile);
+                State.InitializeFromProfile(appState.ActiveProfile);
             }
 
             var layout = new PixelLayout(contentRect);
