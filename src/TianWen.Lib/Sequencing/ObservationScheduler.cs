@@ -553,7 +553,7 @@ internal static class ObservationScheduler
     /// and can be reused across all targets at the same time point.
     /// The dense grid naturally captures meridian transit detail.
     /// </summary>
-    private static (Astrom[] Astroms, DateTimeOffset[] Times) PrecomputeAstromGrid(
+    internal static (Astrom[] Astroms, DateTimeOffset[] Times) PrecomputeAstromGrid(
         DateTimeOffset astroDark,
         DateTimeOffset astroTwilight,
         double siteLat,
