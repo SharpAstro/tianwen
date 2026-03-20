@@ -1,4 +1,3 @@
-using System.Runtime.Versioning;
 using DIR.Lib;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -67,12 +66,6 @@ sdlWindow.GetSizeInPixels(out var pixW, out var pixH);
 
 var ctx = VulkanContext.Create(sdlWindow.Instance, sdlWindow.Surface, (uint)pixW, (uint)pixH);
 var renderer = new VkRenderer(ctx, (uint)pixW, (uint)pixH);
-
-// Dark title bar on Windows
-if (OperatingSystem.IsWindows())
-{
-    EnableDarkTitleBar(sdlWindow.Handle);
-}
 
 var dpiScale = sdlWindow.DisplayScale;
 
@@ -153,9 +146,8 @@ var running = true;
 
 while (running)
 {
-    Event evt;
     var hadEvent = needsRedraw
-        ? PollEvent(out evt)
+        ? PollEvent(out Event evt)
         : WaitEventTimeout(out evt, 16);
 
     if (hadEvent)
@@ -286,19 +278,6 @@ if (plannerTask is not null)
 }
 
 return 0;
-
-// --- Windows dark title bar ---
-
-[SupportedOSPlatform("windows")]
-static void EnableDarkTitleBar(nint sdlWindowHandle)
-{
-    var props = GetWindowProperties(sdlWindowHandle);
-    var hwnd = GetPointerProperty(props, Props.WindowWin32HWNDPointer, nint.Zero);
-    if (hwnd != nint.Zero)
-    {
-        WindowHelper.EnableDarkTitleBar(hwnd);
-    }
-}
 
 // --- Helper extension ---
 static class TaskExtensions
