@@ -318,7 +318,7 @@ namespace TianWen.UI.Gui
                     break;
 
                 case GuiTab.Session:
-                    _sessionTab.Render(plannerState, contentRect, DpiScale,
+                    _sessionTab.Render(appState, plannerState, contentRect, DpiScale,
                         _fontPath ?? "monospace");
                     break;
 
