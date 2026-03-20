@@ -141,9 +141,10 @@ namespace TianWen.UI.Gui
             var targetListWidth = BaseTargetListWidth * dpiScale;
             var headerHeight    = BaseHeaderHeight * dpiScale;
             var itemHeight      = BaseItemHeight * dpiScale;
+            var searchH         = itemHeight * 1.1f + 4f; // matches render: searchH + 4 gap
 
             var listLeft = contentLeft;
-            var listTop  = contentTop + headerHeight;
+            var listTop  = contentTop + headerHeight + searchH;
             var listRight = contentLeft + targetListWidth;
 
             if (x < listLeft || x >= listRight || y < listTop)
