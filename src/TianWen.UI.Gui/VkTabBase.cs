@@ -69,6 +69,23 @@ public abstract class VkTabBase
     }
 
     /// <summary>
+    /// Returns all TextInputState instances registered during the last Render call,
+    /// in registration order. Used for Tab/Shift+Tab cycling.
+    /// </summary>
+    public List<TextInputState> GetRegisteredTextInputs()
+    {
+        var result = new List<TextInputState>();
+        foreach (var r in _clickableRegions)
+        {
+            if (r.Result is HitResult.TextInputHit { Input: { } input } && !result.Contains(input))
+            {
+                result.Add(input);
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
     /// Hit-tests using regions registered during the last Render call.
     /// Returns the last (topmost) matching region.
     /// </summary>

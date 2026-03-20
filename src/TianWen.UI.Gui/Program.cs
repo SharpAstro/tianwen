@@ -285,13 +285,26 @@ void HandleKeyDown(Scancode scancode, Keymod keymod)
         };
 
         // Tab cycles between site fields
-        if (scancode == Scancode.Tab && eqState.IsEditingSite)
+        // Tab / Shift+Tab cycles through registered text input fields
+        if (scancode == Scancode.Tab)
         {
-            eqState.ActiveTextInput = eqState.ActiveTextInput == eqState.LatitudeInput ? eqState.LongitudeInput
-                : eqState.ActiveTextInput == eqState.LongitudeInput ? eqState.ElevationInput
-                : eqState.LatitudeInput;
-            appState.NeedsRedraw = true;
-            return;
+            var shift = (keymod & Keymod.Shift) != 0;
+            var inputs = guiRenderer.EquipmentTab.GetRegisteredTextInputs();
+            if (inputs.Count > 1 && eqState.ActiveTextInput is { } current)
+            {
+                var idx = inputs.IndexOf(current);
+                if (idx >= 0)
+                {
+                    var next = shift
+                        ? inputs[(idx - 1 + inputs.Count) % inputs.Count]
+                        : inputs[(idx + 1) % inputs.Count];
+                    current.Deactivate();
+                    next.Activate();
+                    eqState.ActiveTextInput = next;
+                    appState.NeedsRedraw = true;
+                    return;
+                }
+            }
         }
 
         if (inputKey.HasValue && eqInput.HandleKey(inputKey.Value))
