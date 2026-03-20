@@ -413,7 +413,7 @@ public static class AltitudeChartRenderer
             }
 
             // Smooth with Catmull-Rom
-            var smoothed = CatmullRomSpline.Interpolate(visibleRaw, segmentsPerSpan: 8);
+            var smoothed = CatmullRomSpline.Interpolate(visibleRaw, segmentsPerSpan: 16);
 
             // Determine if this target is spare-only
             var isSpare = true;
@@ -614,13 +614,44 @@ public static class AltitudeChartRenderer
         Renderer<TSurface> renderer,
         (double X, double Y)[] points,
         RGBAColor32 color,
-        int dotSize)
+        int lineWidth)
     {
-        foreach (var (px, py) in points)
+        for (var i = 0; i < points.Length - 1; i++)
         {
-            var ix = (int)Math.Round(px);
-            var iy = (int)Math.Round(py);
-            FillRect(renderer, ix - dotSize / 2, iy - dotSize / 2, dotSize, dotSize, color);
+            var x1 = (int)Math.Round(points[i].X);
+            var y1 = (int)Math.Round(points[i].Y);
+            var x2 = (int)Math.Round(points[i + 1].X);
+            var y2 = (int)Math.Round(points[i + 1].Y);
+
+            // Bresenham-style: draw connected line segments as thin rects
+            var dx = Math.Abs(x2 - x1);
+            var dy = Math.Abs(y2 - y1);
+
+            if (dx >= dy)
+            {
+                // More horizontal — step in X, draw a short vertical rect per column
+                var xStart = Math.Min(x1, x2);
+                var xEnd = Math.Max(x1, x2);
+                if (xEnd == xStart) xEnd = xStart + 1;
+                for (var x = xStart; x <= xEnd; x++)
+                {
+                    var t = dx > 0 ? (float)(x - x1) / (x2 - x1) : 0f;
+                    var y = (int)Math.Round(y1 + t * (y2 - y1));
+                    FillRect(renderer, x, y - lineWidth / 2, 1, lineWidth, color);
+                }
+            }
+            else
+            {
+                // More vertical — step in Y
+                var yStart = Math.Min(y1, y2);
+                var yEnd = Math.Max(y1, y2);
+                for (var y = yStart; y <= yEnd; y++)
+                {
+                    var t = dy > 0 ? (float)(y - y1) / (y2 - y1) : 0f;
+                    var x = (int)Math.Round(x1 + t * (x2 - x1));
+                    FillRect(renderer, x - lineWidth / 2, y, lineWidth, 1, color);
+                }
+            }
         }
     }
 

@@ -50,7 +50,7 @@ public static class PlannerActions
         await objectDb.InitDBAsync(ct);
 
         var tonightsBest = ObservationScheduler.TonightsBest(objectDb, transform, minHeightAboveHorizon)
-            .Take(100)
+            .Take(20)
             .ToList();
 
         state.TonightsBest = tonightsBest;
@@ -66,11 +66,10 @@ public static class PlannerActions
         Report("Computing altitude profiles...");
 
         state.AltitudeProfiles.Clear();
-        var targets = tonightsBest.Select(s => s.Target).ToArray();
-        foreach (var target in targets)
+        foreach (var scored in tonightsBest)
         {
-            state.AltitudeProfiles[target] = ComputeFineAltitudeProfile(
-                transform, target, state);
+            state.AltitudeProfiles[scored.Target] = ComputeFineAltitudeProfile(
+                transform, scored.Target, state);
         }
 
         Report("");
