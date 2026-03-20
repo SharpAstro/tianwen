@@ -220,12 +220,13 @@ internal class PlanSubCommand(
             topBar.RightText($"{plannerState.ActiveProfile?.DisplayName ?? "No profile"} ");
 
             // Update target list
+            var maxScore = plannerState.TonightsBest.Count > 0 ? plannerState.TonightsBest[0].CombinedScore : 1.0;
             var items = new TargetListItem[plannerState.TonightsBest.Count];
             for (var i = 0; i < items.Length; i++)
             {
                 var scored = plannerState.TonightsBest[i];
                 var isProposed = plannerState.Proposals.Any(p => p.Target == scored.Target);
-                items[i] = new TargetListItem(scored, isProposed, i == plannerState.SelectedTargetIndex);
+                items[i] = new TargetListItem(scored, isProposed, i == plannerState.SelectedTargetIndex, maxScore);
             }
             targetList.Items(items).Header("Tonight's Best").ScrollTo(
                 Math.Max(0, plannerState.SelectedTargetIndex - targetList.VisibleRows / 2));

@@ -191,11 +191,26 @@ public static class PlannerActions
     /// <summary>
     /// Formats the TonightsBest list as lines for non-interactive output.
     /// </summary>
+    /// <summary>
+    /// Normalizes a score to a 0.5–5.0★ rating using log-scale compression.
+    /// Preserves relative differences while compressing the steep drop-off
+    /// typical of astronomical target scoring.
+    /// </summary>
+    public static float ScoreToRating(double score, double maxScore)
+    {
+        if (maxScore <= 0 || score <= 0) return 0.5f;
+        // Log-scale: ratio in log space, mapped to 0.5–5.0
+        var logRatio = Math.Log(1 + score) / Math.Log(1 + maxScore);
+        return Math.Max(0.5f, (float)(logRatio * 4.5 + 0.5));
+    }
+
     public static IReadOnlyList<string> FormatTonightsBestLines(PlannerState state, int maxLines = 30)
     {
+        var maxScore = state.TonightsBest.Count > 0 ? state.TonightsBest[0].CombinedScore : 1.0;
+
         var lines = new List<string>
         {
-            $" # | {"Target",-20} | {"Type",-10} | {"Alt",4} | {"Window",-13} | {"Score",6}",
+            $" # | {"Target",-20} | {"Type",-10} | {"Alt",4} | {"Window",-13} | {"Rating",5}",
             new string('-', 72)
         };
 
@@ -207,8 +222,9 @@ public static class PlannerActions
             if (typeName.Length > 10) typeName = typeName[..10];
 
             var window = $"{s.OptimalStart.ToOffset(state.SiteTimeZone):HH:mm}-{(s.OptimalStart + s.OptimalDuration).ToOffset(state.SiteTimeZone):HH:mm}";
+            var rating = ScoreToRating(s.CombinedScore, maxScore);
 
-            lines.Add($"{proposed}{i + 1,2} | {s.Target.Name,-20} | {typeName,-10} | {s.OptimalAltitude,3:F0}° | {window,-13} | {s.CombinedScore,6:F0}");
+            lines.Add($"{proposed}{i + 1,2} | {s.Target.Name,-20} | {typeName,-10} | {s.OptimalAltitude,3:F0}° | {window,-13} | {rating,4:F1}\u2605");
         }
 
         return lines;
