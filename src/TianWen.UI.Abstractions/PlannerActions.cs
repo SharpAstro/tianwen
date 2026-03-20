@@ -50,7 +50,7 @@ public static class PlannerActions
         await objectDb.InitDBAsync(ct);
 
         var tonightsBest = ObservationScheduler.TonightsBest(objectDb, transform, minHeightAboveHorizon)
-            .Take(20)
+            .Take(100)
             .ToList();
 
         state.TonightsBest = tonightsBest;
@@ -74,6 +74,39 @@ public static class PlannerActions
 
         Report("");
         state.StatusMessage = null;
+    }
+
+    /// <summary>
+    /// Returns the filtered target list: applies the star rating filter but always
+    /// includes proposed targets regardless of rating.
+    /// </summary>
+    public static IReadOnlyList<ScoredTarget> GetFilteredTargets(PlannerState state)
+    {
+        if (state.MinRatingFilter <= 0f)
+        {
+            return state.TonightsBest;
+        }
+
+        var maxScore = state.TonightsBest.Count > 0 ? state.TonightsBest[0].CombinedScore : 1.0;
+        var proposedTargets = new HashSet<Target>(state.Proposals.Select(p => p.Target));
+
+        return state.TonightsBest
+            .Where(s => proposedTargets.Contains(s.Target) || ScoreToRating(s.CombinedScore, maxScore) >= state.MinRatingFilter)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Cycles the rating filter: All → 3★+ → 4★+ → All.
+    /// </summary>
+    public static void CycleRatingFilter(PlannerState state)
+    {
+        state.MinRatingFilter = state.MinRatingFilter switch
+        {
+            0f => 3f,
+            3f => 4f,
+            _ => 0f
+        };
+        state.NeedsRedraw = true;
     }
 
     /// <summary>

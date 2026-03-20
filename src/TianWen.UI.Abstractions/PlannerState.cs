@@ -58,6 +58,9 @@ public class PlannerState
     /// <summary>Scored targets keyed by Target (for elevation profile access).</summary>
     public Dictionary<Target, ScoredTarget> ScoredTargets { get; set; } = [];
 
+    /// <summary>Minimum star rating filter (0 = show all, 3 = 3★+, 4 = 4★+, 5 = 5★ only).</summary>
+    public float MinRatingFilter { get; set; } = 0f;
+
     /// <summary>Site timezone offset (from GeoTimeZone). Used for display instead of machine local time.</summary>
     public TimeSpan SiteTimeZone { get; set; }
 

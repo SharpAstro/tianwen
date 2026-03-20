@@ -146,7 +146,7 @@ public static class AltitudeChartRenderer
             minAltLabelRect, TextAlign.Near, TextAlign.Center);
 
         // --- Scheduled observation windows ---
-        var allTargets = BuildTargetList(state);
+        var allTargets = BuildTargetList(state, highlightTargetIndex);
         var targetColorMap = BuildColorMap(allTargets);
 
         if (state.Schedule is { } tree)
@@ -705,12 +705,14 @@ public static class AltitudeChartRenderer
     // Data helpers
     // -----------------------------------------------------------------------
 
-    private static Target[] BuildTargetList(PlannerState state)
+    private static Target[] BuildTargetList(PlannerState state, int? highlightTargetIndex)
     {
-        // Collect all distinct targets: from proposals + those appearing only in the schedule tree
+        // Show only: proposed targets + the currently selected target
+        // This keeps the chart clean and focused on the user's plan
         var seen = new HashSet<Target>();
         var result = new List<Target>();
 
+        // Proposed targets always shown
         foreach (var p in state.Proposals)
         {
             if (seen.Add(p.Target))
@@ -719,6 +721,7 @@ public static class AltitudeChartRenderer
             }
         }
 
+        // Scheduled targets (from schedule tree)
         if (state.Schedule is { } tree)
         {
             for (var i = 0; i < tree.Count; i++)
@@ -738,12 +741,15 @@ public static class AltitudeChartRenderer
             }
         }
 
-        // Also include any target that has an altitude profile
-        foreach (var kv in state.AltitudeProfiles)
+        // Currently selected target (so user can preview before proposing)
+        if (highlightTargetIndex.HasValue
+            && highlightTargetIndex.Value >= 0
+            && highlightTargetIndex.Value < state.TonightsBest.Count)
         {
-            if (seen.Add(kv.Key))
+            var selectedTarget = state.TonightsBest[highlightTargetIndex.Value].Target;
+            if (seen.Add(selectedTarget))
             {
-                result.Add(kv.Key);
+                result.Add(selectedTarget);
             }
         }
 
