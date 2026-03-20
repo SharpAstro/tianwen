@@ -52,14 +52,19 @@ public static class PlannerActions
 
         ComputeTwilightBoundaries(state, transform, astroDark, astroTwilight);
 
-        // Re-score existing targets for the new night and recompute profiles
+        // Precompute the astrometry grid ONCE for the new night (the expensive part)
+        var (astroms, times) = ObservationScheduler.PrecomputeAstromGrid(
+            astroDark, astroTwilight,
+            transform.SiteLatitude, transform.SiteLongitude, transform.SiteElevation);
+
+        // Re-score all existing targets using the shared grid
         var rescored = new List<ScoredTarget>();
         state.AltitudeProfiles.Clear();
 
         foreach (var old in state.TonightsBest)
         {
-            var scored = ObservationScheduler.ScoreTarget(old.Target, transform,
-                astroDark, astroTwilight, state.MinHeightAboveHorizon);
+            var scored = ObservationScheduler.ScoreTarget(old.Target, astroms, times,
+                astroDark, astroTwilight, state.MinHeightAboveHorizon, transform.SiteLongitude);
             rescored.Add(scored);
             state.ScoredTargets[old.Target] = scored;
             state.AltitudeProfiles[old.Target] = ComputeFineAltitudeProfile(transform, old.Target, state);
@@ -70,8 +75,8 @@ public static class PlannerActions
         {
             if (!state.AltitudeProfiles.ContainsKey(s.Target))
             {
-                var scored = ObservationScheduler.ScoreTarget(s.Target, transform,
-                    astroDark, astroTwilight, state.MinHeightAboveHorizon);
+                var scored = ObservationScheduler.ScoreTarget(s.Target, astroms, times,
+                    astroDark, astroTwilight, state.MinHeightAboveHorizon, transform.SiteLongitude);
                 state.ScoredTargets[s.Target] = scored;
                 state.AltitudeProfiles[s.Target] = ComputeFineAltitudeProfile(transform, s.Target, state);
             }
