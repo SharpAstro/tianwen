@@ -112,6 +112,12 @@ public class PlannerState
     /// <summary>Whether the display needs a redraw.</summary>
     public bool NeedsRedraw { get; set; }
 
+    /// <summary>Whether the target list needs recomputation (date changed, etc.).</summary>
+    public bool NeedsRecompute { get; set; }
+
+    /// <summary>Whether a recomputation is currently in progress.</summary>
+    public bool IsRecomputing { get; set; }
+
     /// <summary>Status message to display.</summary>
     public string? StatusMessage { get; set; }
 }

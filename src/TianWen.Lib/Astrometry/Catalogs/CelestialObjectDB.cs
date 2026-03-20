@@ -242,7 +242,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     {
         if (_isInitialized)
         {
-            throw new InvalidOperationException("Already initialized!");
+            return (0, 0);
         }
 
         var assembly = typeof(CelestialObjectDB).Assembly;
