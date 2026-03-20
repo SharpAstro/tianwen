@@ -45,10 +45,6 @@
     <PackageVersion Include="SdlVulkan.Renderer" Version="1.1.55" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
-    <!-- Silk.NET packages (kept for TianWen.UI.OpenGL, to be removed when that project is deleted) -->
-    <PackageVersion Include="Silk.NET.Input" Version="2.23.0" />
-    <PackageVersion Include="Silk.NET.OpenGL" Version="2.23.0" />
-    <PackageVersion Include="Silk.NET.Windowing" Version="2.23.0" />
     <!-- Other packages -->
     <PackageVersion Include="ZWOptical.SDK" Version="4.1.561" />
   </ItemGroup>
