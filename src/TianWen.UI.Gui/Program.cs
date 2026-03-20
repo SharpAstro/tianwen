@@ -232,6 +232,64 @@ while (running)
         } while (PollEvent(out evt));
     }
 
+    // Recompute targets when planning date changes (debounced — skip if already running)
+    if (plannerState.NeedsRecompute && appState.ActiveProfile is not null && !plannerState.IsRecomputing)
+    {
+        plannerState.NeedsRecompute = false;
+        plannerState.IsRecomputing = true;
+        appState.StatusMessage = "Recomputing...";
+        appState.NeedsRedraw = true;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var objectDb = sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
+                var transform = TransformFactory.FromProfile(
+                    appState.ActiveProfile, external.TimeProvider, out _);
+
+                if (transform is not null)
+                {
+                    // Override transform date if planning for a different night
+                    // Use noon of the target day so CalculateNightWindow finds the correct evening
+                    if (plannerState.PlanningDate is { } pd)
+                    {
+                        var noon = new DateTimeOffset(pd.Date, pd.Offset).AddHours(12);
+                        transform.DateTimeOffset = noon;
+                    }
+
+                    plannerState.SiteLatitude = transform.SiteLatitude;
+                    plannerState.SiteLongitude = transform.SiteLongitude;
+                    plannerState.SiteTimeZone = transform.SiteTimeZone;
+
+                    // Fast path: if we already have targets, just recompute night window + profiles
+                    // Full rescan only needed on first load
+                    if (plannerState.TonightsBest.Count > 0)
+                    {
+                        PlannerActions.RecomputeForDate(plannerState, transform);
+                    }
+                    else
+                    {
+                        await PlannerActions.ComputeTonightsBestAsync(
+                            plannerState, objectDb, transform,
+                            plannerState.MinHeightAboveHorizon, cts.Token);
+                        handlers.AutoCompleteCache = objectDb.CreateAutoCompleteList();
+                    }
+                    appState.StatusMessage = null;
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to recompute targets");
+                appState.StatusMessage = "Failed to recompute";
+            }
+            finally
+            {
+                plannerState.IsRecomputing = false;
+                appState.NeedsRedraw = true;
+            }
+        }, cts.Token);
+    }
+
     // Force continuous redraw when text input is active (for cursor blink)
     if (appState.NeedsRedraw || plannerState.NeedsRedraw
         || appState.ActiveTextInput is { IsActive: true })

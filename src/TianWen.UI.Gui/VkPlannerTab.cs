@@ -134,6 +134,9 @@ namespace TianWen.UI.Gui
 
             var now = timeProvider.GetLocalNow();
             _currentTime = now;
+
+            // Only pass current time to chart if planning for tonight
+            var chartCurrentTime = state.PlanningDate.HasValue ? (DateTimeOffset?)null : now;
             // Only show mouse follower when not dragging and mouse is inside the chart area
             (float, float)? mousePos = null;
             if (state.DraggingSliderIndex < 0 && _appMousePosition is var (mx, my)
@@ -144,7 +147,7 @@ namespace TianWen.UI.Gui
 
             AltitudeChartRenderer.Render(Renderer, state, fontPath,
                 (int)_chartRect.X, (int)_chartRect.Y, (int)_chartRect.Width, (int)_chartRect.Height,
-                selectedIndex, now, mousePos);
+                selectedIndex, chartCurrentTime, mousePos);
 
             // Register slider hit regions for drag interaction
             RegisterSliderHitRegions(state, dpiScale);

@@ -18,6 +18,74 @@ namespace TianWen.UI.Abstractions;
 public static class PlannerActions
 {
     /// <summary>
+    /// Shifts the planning date by the given number of days (+1 = tomorrow, -1 = yesterday).
+    /// Sets <see cref="PlannerState.PlanningDate"/> and flags for recomputation.
+    /// </summary>
+    public static void ShiftPlanningDate(PlannerState state, TimeProvider timeProvider, int days)
+    {
+        var current = state.PlanningDate ?? timeProvider.GetLocalNow();
+        state.PlanningDate = current.AddDays(days);
+        state.NeedsRecompute = true;
+        state.NeedsRedraw = true;
+    }
+
+    /// <summary>
+    /// Resets planning to tonight (current date).
+    /// </summary>
+    public static void ResetPlanningDate(PlannerState state)
+    {
+        state.PlanningDate = null;
+        state.NeedsRecompute = true;
+        state.NeedsRedraw = true;
+    }
+
+    /// <summary>
+    /// Fast path: recomputes only the night window, twilight boundaries, altitude profiles,
+    /// and scores for the existing target list. Does NOT rescan the catalog.
+    /// Used when changing the planning date.
+    /// </summary>
+    public static void RecomputeForDate(PlannerState state, Transform transform)
+    {
+        var (astroDark, astroTwilight) = ObservationScheduler.CalculateNightWindow(transform);
+        state.AstroDark = astroDark;
+        state.AstroTwilight = astroTwilight;
+
+        ComputeTwilightBoundaries(state, transform, astroDark, astroTwilight);
+
+        // Re-score existing targets for the new night and recompute profiles
+        var rescored = new List<ScoredTarget>();
+        state.AltitudeProfiles.Clear();
+
+        foreach (var old in state.TonightsBest)
+        {
+            var scored = ObservationScheduler.ScoreTarget(old.Target, transform,
+                astroDark, astroTwilight, state.MinHeightAboveHorizon);
+            rescored.Add(scored);
+            state.ScoredTargets[old.Target] = scored;
+            state.AltitudeProfiles[old.Target] = ComputeFineAltitudeProfile(transform, old.Target, state);
+        }
+
+        // Also recompute profiles for search results / proposals not in TonightsBest
+        foreach (var s in state.SearchResults)
+        {
+            if (!state.AltitudeProfiles.ContainsKey(s.Target))
+            {
+                var scored = ObservationScheduler.ScoreTarget(s.Target, transform,
+                    astroDark, astroTwilight, state.MinHeightAboveHorizon);
+                state.ScoredTargets[s.Target] = scored;
+                state.AltitudeProfiles[s.Target] = ComputeFineAltitudeProfile(transform, s.Target, state);
+            }
+        }
+
+        // Sort by score descending (same as TonightsBest ordering)
+        rescored.Sort((a, b) => b.TotalScore.CompareTo(a.TotalScore));
+        state.TonightsBest = rescored;
+
+        RecomputeHandoffSliders(state);
+        state.NeedsRedraw = true;
+    }
+
+    /// <summary>
     /// Computes tonight's best targets and populates the planner state with
     /// ranked targets, night window, twilight boundaries, and altitude profiles.
     /// </summary>
@@ -74,6 +142,9 @@ public static class PlannerActions
                 transform, scored.Target, state);
             PopulateTargetAlias(state, objectDb, scored.Target);
         }
+
+        // Recompute handoff sliders for any existing proposals
+        RecomputeHandoffSliders(state);
 
         Report("");
         state.StatusMessage = null;

@@ -215,15 +215,60 @@ namespace TianWen.UI.Gui
                 SidebarWidth + 6f, 0, w * 0.35f, sbh,
                 FontSize, StatusText, TextAlign.Near, TextAlign.Center);
 
-            // Night window (center) — will become clickable for date navigation
-            if (plannerState.AstroDark != default)
+            // Date navigation with night window: [<] date (HH:mm – HH:mm) [>]
             {
-                var dark = plannerState.AstroDark.ToOffset(plannerState.SiteTimeZone);
-                var twilight = plannerState.AstroTwilight.ToOffset(plannerState.SiteTimeZone);
-                var nightText = $"{dark:HH:mm} – {twilight:HH:mm}";
-                DrawText(nightText.AsSpan(), _fontPath,
-                    w * 0.35f, 0, w * 0.35f, sbh,
-                    FontSize, StatusText, TextAlign.Center, TextAlign.Center);
+                var centerX = w * 0.35f;
+                var centerW = w * 0.35f;
+                var arrowW = sbh; // square arrow buttons
+                var arrowFontSize = FontSize * 0.9f;
+                var arrowBg = new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
+
+                // [<] previous day
+                RenderButton("\u25C0", centerX, 0, arrowW, sbh, _fontPath, arrowFontSize,
+                    arrowBg, StatusText, "DatePrev",
+                    () => { PlannerActions.ShiftPlanningDate(plannerState, timeProvider, -1); });
+
+                // [>] next day
+                RenderButton("\u25B6", centerX + centerW - arrowW, 0, arrowW, sbh, _fontPath, arrowFontSize,
+                    arrowBg, StatusText, "DateNext",
+                    () => { PlannerActions.ShiftPlanningDate(plannerState, timeProvider, +1); });
+
+                // Date + night window label between arrows
+                var labelX = centerX + arrowW;
+                var labelW = centerW - arrowW * 2;
+                var planDate = plannerState.PlanningDate ?? now;
+                var isTonight = !plannerState.PlanningDate.HasValue || planDate.Date == now.Date;
+                string dateStr;
+
+                if (isTonight && plannerState.AstroDark != default)
+                {
+                    var dark = plannerState.AstroDark.ToOffset(plannerState.SiteTimeZone);
+                    var twilight = plannerState.AstroTwilight.ToOffset(plannerState.SiteTimeZone);
+                    dateStr = $"Tonight {dark:HH:mm}\u2013{twilight:HH:mm}";
+                }
+                else if (plannerState.AstroDark != default)
+                {
+                    var dark = plannerState.AstroDark.ToOffset(plannerState.SiteTimeZone);
+                    var twilight = plannerState.AstroTwilight.ToOffset(plannerState.SiteTimeZone);
+                    dateStr = $"{planDate:ddd d MMM} {dark:HH:mm}\u2013{twilight:HH:mm}";
+                }
+                else
+                {
+                    dateStr = isTonight ? "Tonight" : planDate.ToString("ddd d MMM");
+                }
+
+                var dateColor = plannerState.PlanningDate.HasValue ? new RGBAColor32(0x88, 0xcc, 0xff, 0xff) : StatusText;
+                DrawText(dateStr.AsSpan(), _fontPath,
+                    labelX, 0, labelW, sbh,
+                    FontSize, dateColor, TextAlign.Center, TextAlign.Center);
+
+                // Click on date label resets to tonight
+                if (plannerState.PlanningDate.HasValue)
+                {
+                    RegisterClickable(labelX, 0, labelW, sbh,
+                        new HitResult.ButtonHit("DateTonight"),
+                        () => { PlannerActions.ResetPlanningDate(plannerState); });
+                }
             }
 
             // Clock (right)
@@ -231,12 +276,14 @@ namespace TianWen.UI.Gui
                 w * 0.7f, 0, w * 0.3f - 4f, sbh,
                 FontSize, StatusText, TextAlign.Far, TextAlign.Center);
 
-            // Status message overlay (replaces night window if set)
+            // Status message — shown to the right of the profile name, left of the date area
             if (appState.StatusMessage is { Length: > 0 } msg)
             {
+                var msgX = SidebarWidth + 6f + w * 0.15f;
+                var msgW = w * 0.20f;
                 DrawText(msg.AsSpan(), _fontPath,
-                    SidebarWidth + 6f, 0, w - SidebarWidth - 6f, sbh,
-                    FontSize, StatusText, TextAlign.Center, TextAlign.Center);
+                    msgX, 0, msgW, sbh,
+                    FontSize * 0.85f, new RGBAColor32(0xff, 0xcc, 0x66, 0xff), TextAlign.Center, TextAlign.Center);
             }
         }
 
