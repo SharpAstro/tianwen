@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 
@@ -117,6 +118,9 @@ public class PlannerState
 
     /// <summary>Whether a recomputation is currently in progress.</summary>
     public bool IsRecomputing { get; set; }
+
+    /// <summary>Cached precomputed astrometry grid for fast altitude profile computation.</summary>
+    internal (Astrom[] Astroms, DateTimeOffset[] Times)? CachedAstromGrid { get; set; }
 
     /// <summary>Status message to display.</summary>
     public string? StatusMessage { get; set; }
