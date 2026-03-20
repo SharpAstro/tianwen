@@ -62,7 +62,7 @@ namespace TianWen.UI.Gui
         /// </summary>
         public void Render(
             GuiAppState appState,
-            VkRect contentRect,
+            PixelRect contentRect,
             float dpiScale,
             string fontPath)
         {
@@ -92,7 +92,7 @@ namespace TianWen.UI.Gui
         // -----------------------------------------------------------------------
 
         private void RenderNoProfile(
-            VkRect rect,
+            PixelRect rect,
             float dpiScale, string fontPath)
         {
             var fontSize    = BaseFontSize * dpiScale;
@@ -120,7 +120,7 @@ namespace TianWen.UI.Gui
         // -----------------------------------------------------------------------
 
         private void RenderProfileCreation(
-            VkRect rect,
+            PixelRect rect,
             float dpiScale, string fontPath)
         {
             var fontSize    = BaseFontSize * dpiScale;
@@ -129,8 +129,8 @@ namespace TianWen.UI.Gui
             var buttonH     = BaseButtonHeight * dpiScale;
             var bottomBarH  = BaseBottomBarHeight * dpiScale;
 
-            var layout = new VkLayout(rect);
-            var bottomBarRect = layout.Dock(VkDockStyle.Bottom, bottomBarH);
+            var layout = new PixelLayout(rect);
+            var bottomBarRect = layout.Dock(PixelDockStyle.Bottom, bottomBarH);
             var mainRect = layout.Fill();
 
             // Header
@@ -174,15 +174,15 @@ namespace TianWen.UI.Gui
 
         private void RenderProfileView(
             GuiAppState appState,
-            VkRect contentRect,
+            PixelRect contentRect,
             float dpiScale, string fontPath)
         {
             var profilePanelW = BaseProfilePanelWidth * dpiScale;
             var bottomBarH    = BaseBottomBarHeight * dpiScale;
 
-            var layout = new VkLayout(contentRect);
-            var bottomBarRect = layout.Dock(VkDockStyle.Bottom, bottomBarH);
-            var profileRect = layout.Dock(VkDockStyle.Left, profilePanelW);
+            var layout = new PixelLayout(contentRect);
+            var bottomBarRect = layout.Dock(PixelDockStyle.Bottom, bottomBarH);
+            var profileRect = layout.Dock(PixelDockStyle.Left, profilePanelW);
             var deviceListRect = layout.Fill();
 
             // Left: profile panel
@@ -207,7 +207,7 @@ namespace TianWen.UI.Gui
 
         private void RenderProfilePanel(
             GuiAppState appState,
-            VkRect rect,
+            PixelRect rect,
             float dpiScale, string fontPath)
         {
             var fontSize   = BaseFontSize * dpiScale;
@@ -421,7 +421,7 @@ namespace TianWen.UI.Gui
 
         private void RenderDeviceList(
             GuiAppState appState,
-            VkRect rect,
+            PixelRect rect,
             float dpiScale, string fontPath)
         {
             var fontSize   = BaseFontSize * dpiScale;
@@ -517,7 +517,7 @@ namespace TianWen.UI.Gui
 
         private void RenderBottomBar(
             GuiAppState appState,
-            VkRect rect,
+            PixelRect rect,
             float dpiScale, string fontPath)
         {
             var fontSize = BaseFontSize * dpiScale;

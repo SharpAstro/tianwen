@@ -63,14 +63,16 @@ public static class PlannerActions
             state.ScoredTargets[scored.Target] = scored;
         }
 
-        // Compute fine altitude profiles for the top targets
+        // Compute fine altitude profiles and cross-index aliases for the top targets
         Report("Computing altitude profiles...");
 
         state.AltitudeProfiles.Clear();
+        state.TargetAliases.Clear();
         foreach (var scored in tonightsBest)
         {
             state.AltitudeProfiles[scored.Target] = ComputeFineAltitudeProfile(
                 transform, scored.Target, state);
+            PopulateTargetAlias(state, objectDb, scored.Target);
         }
 
         Report("");
@@ -232,7 +234,7 @@ public static class PlannerActions
                     }
                 }
 
-                name = obj.CommonNames.Count > 0 ? obj.CommonNames.First() : match.ToCanonical();
+                name = obj.DisplayName;
             }
             else if (transform.TryGetOrbitalPositionRaDec(match, state.AstroDark, out ra, out dec))
             {
@@ -283,6 +285,7 @@ public static class PlannerActions
 
             state.ScoredTargets[target] = scored;
             state.SearchResults.Add(scored);
+            PopulateTargetAlias(state, objectDb, target);
         }
 
         state.NeedsRedraw = true;
@@ -342,10 +345,7 @@ public static class PlannerActions
         {
             ra = obj.RA;
             dec = obj.Dec;
-            if (obj.CommonNames.Count > 0)
-            {
-                name = obj.CommonNames.First();
-            }
+            name = obj.DisplayName;
 
             if (double.IsNaN(ra) || double.IsNaN(dec))
             {
@@ -397,6 +397,7 @@ public static class PlannerActions
 
         state.ScoredTargets[target] = scored;
         state.SearchResults.Add(scored);
+        PopulateTargetAlias(state, objectDb, target);
         state.NeedsRedraw = true;
 
         var filteredList = GetFilteredTargets(state);
@@ -515,6 +516,57 @@ public static class PlannerActions
         }
 
         return prev[b.Length];
+    }
+
+    private static void PopulateTargetAlias(PlannerState state, ICelestialObjectDB objectDb, Target target)
+    {
+        if (state.TargetAliases.ContainsKey(target) || target.CatalogIndex is not { } catIdx)
+        {
+            return;
+        }
+
+        var parts = new List<string>();
+
+        // Add the canonical catalog designation (e.g. "NGC 3372")
+        var canonical = catIdx.ToCanonical();
+        if (!canonical.Equals(target.Name, StringComparison.OrdinalIgnoreCase))
+        {
+            parts.Add(canonical);
+        }
+
+        // Add all other common names
+        if (objectDb.TryLookupByIndex(catIdx, out var obj))
+        {
+            foreach (var cn in obj.CommonNames.OrderByDescending(n => n.Length))
+            {
+                if (!cn.Equals(target.Name, StringComparison.OrdinalIgnoreCase)
+                    && !parts.Contains(cn))
+                {
+                    parts.Add(cn);
+                }
+            }
+        }
+
+        // Add cross-referenced catalog designations
+        if (objectDb.TryGetCrossIndices(catIdx, out var crossIndices))
+        {
+            foreach (var cross in crossIndices)
+            {
+                if (cross != catIdx)
+                {
+                    var crossCanonical = cross.ToCanonical();
+                    if (!parts.Contains(crossCanonical))
+                    {
+                        parts.Add(crossCanonical);
+                    }
+                }
+            }
+        }
+
+        if (parts.Count > 0)
+        {
+            state.TargetAliases[target] = string.Join(", ", parts.Take(8));
+        }
     }
 
     /// <summary>

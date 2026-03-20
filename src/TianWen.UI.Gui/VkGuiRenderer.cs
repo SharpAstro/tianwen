@@ -28,6 +28,9 @@ namespace TianWen.UI.Gui
         /// <summary>Exposes the equipment tab for external hit testing and input routing.</summary>
         public VkEquipmentTab EquipmentTab => _equipmentTab;
 
+        /// <summary>The currently active tab as an <see cref="IPixelWidget"/> for generic hit testing.</summary>
+        public IPixelWidget? ActiveTab { get; private set; }
+
         // Base layout constants (at 1x scale)
         private const float BaseSidebarWidth = 52f;
         private const float BaseStatusBarHeight = 28f;
@@ -97,6 +100,13 @@ namespace TianWen.UI.Gui
             _equipmentTab.FrameCount++;
             _plannerTab.FrameCount++;
 
+            ActiveTab = appState.ActiveTab switch
+            {
+                GuiTab.Planner => _plannerTab,
+                GuiTab.Equipment => _equipmentTab,
+                _ => null
+            };
+
             var contentRect = GetContentArea();
 
             // Render the active tab content first (it may fill the full renderer surface)
@@ -110,9 +120,9 @@ namespace TianWen.UI.Gui
         /// <summary>
         /// Returns the content area rectangle in pixels (excluding sidebar and status bar).
         /// </summary>
-        public VkRect GetContentArea()
+        public PixelRect GetContentArea()
         {
-            return new VkRect(SidebarWidth, StatusBarHeight, (float)_width - SidebarWidth, (float)_height - StatusBarHeight);
+            return new PixelRect(SidebarWidth, StatusBarHeight, (float)_width - SidebarWidth, (float)_height - StatusBarHeight);
         }
 
         /// <summary>
@@ -258,7 +268,7 @@ namespace TianWen.UI.Gui
             PlannerState plannerState,
             ViewerState viewerState,
             TimeProvider timeProvider,
-            VkRect contentRect)
+            PixelRect contentRect)
         {
             switch (appState.ActiveTab)
             {
@@ -278,7 +288,7 @@ namespace TianWen.UI.Gui
             }
         }
 
-        private void RenderComingSoonPlaceholder(VkRect rect, GuiTab tab)
+        private void RenderComingSoonPlaceholder(PixelRect rect, GuiTab tab)
         {
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, ContentBg);
 

@@ -18,7 +18,6 @@ public class EquipmentTabState
     public TextInputState LatitudeInput { get; } = new() { Placeholder = "Latitude (e.g. 48.2)" };
     public TextInputState LongitudeInput { get; } = new() { Placeholder = "Longitude (e.g. 16.3)" };
     public TextInputState ElevationInput { get; } = new() { Placeholder = "Elevation m (e.g. 200)" };
-    // ActiveTextInput moved to GuiAppState — single source of truth across all tabs
 
     // Device discovery
     public IReadOnlyList<DeviceBase> DiscoveredDevices { get; set; } = [];
@@ -33,30 +32,4 @@ public class EquipmentTabState
 
     // Profile list (for multi-profile picker)
     public IReadOnlyList<Profile> AllProfiles { get; set; } = [];
-}
-
-/// <summary>
-/// Identifies a slot in a profile that a device can be assigned to.
-/// </summary>
-public abstract record AssignTarget
-{
-    /// <summary>A profile-level slot (Mount, Guider, GuiderCamera, GuiderFocuser).</summary>
-    public sealed record ProfileLevel(string Field) : AssignTarget;
-
-    /// <summary>A per-OTA slot (Camera, Focuser, FilterWheel, Cover).</summary>
-    public sealed record OTALevel(int OtaIndex, string Field) : AssignTarget;
-
-    /// <summary>Returns the DeviceType expected for this slot.</summary>
-    public DeviceType ExpectedDeviceType => this switch
-    {
-        ProfileLevel { Field: "Mount" } => DeviceType.Mount,
-        ProfileLevel { Field: "Guider" } => DeviceType.Guider,
-        ProfileLevel { Field: "GuiderCamera" } => DeviceType.Camera,
-        ProfileLevel { Field: "GuiderFocuser" } => DeviceType.Focuser,
-        OTALevel { Field: "Camera" } => DeviceType.Camera,
-        OTALevel { Field: "Focuser" } => DeviceType.Focuser,
-        OTALevel { Field: "FilterWheel" } => DeviceType.FilterWheel,
-        OTALevel { Field: "Cover" } => DeviceType.CoverCalibrator,
-        _ => DeviceType.Unknown
-    };
 }

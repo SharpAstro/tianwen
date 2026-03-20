@@ -49,8 +49,8 @@ namespace TianWen.UI.Gui
         private IReadOnlyList<ScoredTarget> _lastFilteredTargets = [];
 
         // Layout rects computed during Render, used by hit testing
-        private VkRect _targetListRect;
-        private VkRect _listItemsRect;
+        private PixelRect _targetListRect;
+        private PixelRect _listItemsRect;
         private float _itemHeight;
         private float _searchBarBottom;
         private float _searchBarLeft;
@@ -60,7 +60,7 @@ namespace TianWen.UI.Gui
         public IReadOnlyList<ScoredTarget> FilteredTargets => _lastFilteredTargets;
 
         /// <summary>The target list panel rect from the last render pass (for scroll wheel detection).</summary>
-        public VkRect TargetListRect => _targetListRect;
+        public PixelRect TargetListRect => _targetListRect;
 
         /// <summary>Current scroll offset (in items) for the target list.</summary>
         public int ScrollOffset { get; set; }
@@ -93,7 +93,7 @@ namespace TianWen.UI.Gui
         /// </summary>
         public void Render(
             PlannerState state,
-            VkRect contentRect,
+            PixelRect contentRect,
             float dpiScale,
             string fontPath,
             TimeProvider timeProvider)
@@ -114,9 +114,9 @@ namespace TianWen.UI.Gui
             _lastFilteredTargets = filteredTargets;
 
             // Layout: target list left, details bottom-right, chart fills remainder
-            var layout = new VkLayout(contentRect);
-            _targetListRect = layout.Dock(VkDockStyle.Left, targetListWidth);
-            var detailsRect = layout.Dock(VkDockStyle.Bottom, detailsHeight);
+            var layout = new PixelLayout(contentRect);
+            _targetListRect = layout.Dock(PixelDockStyle.Left, targetListWidth);
+            var detailsRect = layout.Dock(PixelDockStyle.Bottom, detailsHeight);
             var chartRect = layout.Fill();
 
             // --- 1. Altitude chart ---
@@ -146,7 +146,7 @@ namespace TianWen.UI.Gui
             PlannerState state,
             string fontPath,
             float dpiScale,
-            VkRect rect,
+            PixelRect rect,
             float headerHeight, float itemHeight, float fontSize, float padding)
         {
             var scrollBarWidth = 6f * dpiScale;
@@ -154,9 +154,9 @@ namespace TianWen.UI.Gui
             var searchH = (int)(itemHeight * 1.1f);
 
             // Sub-layout: header top, search strip below, items fill remainder
-            var listLayout = new VkLayout(rect);
-            var headerRect = listLayout.Dock(VkDockStyle.Top, headerHeight);
-            var searchStripRect = listLayout.Dock(VkDockStyle.Top, searchH + 4f);
+            var listLayout = new PixelLayout(rect);
+            var headerRect = listLayout.Dock(PixelDockStyle.Top, headerHeight);
+            var searchStripRect = listLayout.Dock(PixelDockStyle.Top, searchH + 4f);
             _listItemsRect = listLayout.Fill();
 
             // Save search bar geometry for dropdown overlay
@@ -183,7 +183,13 @@ namespace TianWen.UI.Gui
             var filterBtnY = headerRect.Y + (headerRect.Height - filterBtnH) / 2f;
             var filterBtnBg = state.MinRatingFilter > 0f ? ActiveFilterBg : FilterBtnBg;
             RenderButton(filterBtnLabel, filterBtnX, filterBtnY, filterBtnW, filterBtnH,
-                fontPath, fontSize * 0.9f, filterBtnBg, FilterBtnText, "CycleFilter");
+                fontPath, fontSize * 0.9f, filterBtnBg, FilterBtnText, "CycleFilter",
+                () =>
+                {
+                    PlannerActions.CycleRatingFilter(state);
+                    state.SelectedTargetIndex = 0;
+                    ScrollOffset = 0;
+                });
 
             // Search input below header (within the search strip, with 2px top gap)
             RenderTextInput(state.SearchInput,
@@ -218,7 +224,9 @@ namespace TianWen.UI.Gui
                 var rowTextColor = isSelected ? SelectedText : ItemText;
 
                 FillRect(rect.X, rowY, listW, itemHeight, rowBg);
-                RegisterClickable(rect.X, rowY, listW, itemHeight, new HitResult.ListItemHit("TargetList", i));
+                var capturedIdx = i;
+                RegisterClickable(rect.X, rowY, listW, itemHeight, new HitResult.ListItemHit("TargetList", i),
+                    () => { state.SelectedTargetIndex = capturedIdx; state.NeedsRedraw = true; });
 
                 // Proposed marker "*" in cyan on left
                 if (isProposed)
@@ -317,7 +325,7 @@ namespace TianWen.UI.Gui
         private void RenderDetailsPanel(
             PlannerState state,
             string fontPath,
-            VkRect rect,
+            PixelRect rect,
             float fontSize, float padding)
         {
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, DetailsBg);
@@ -338,7 +346,9 @@ namespace TianWen.UI.Gui
             var scored      = filtered[idx];
             var isProposed  = state.Proposals.Any(p => p.Target == scored.Target);
             var statusSuffix = isProposed ? " [Proposed]" : "";
-            var lineH       = rect.Height / 3f;
+            var hasAlias = state.TargetAliases.TryGetValue(scored.Target, out var alias);
+            var lineCount = hasAlias ? 4 : 3;
+            var lineH = rect.Height / lineCount;
 
             // Line 1: target name (larger font)
             var nameText = scored.Target.Name + statusSuffix;
@@ -354,12 +364,19 @@ namespace TianWen.UI.Gui
                 rect.X + padding, rect.Y + lineH, rect.Width - padding * 2f, lineH,
                 fontSize, DetailsInfoText, TextAlign.Near, TextAlign.Center);
 
-            // Line 3: log-scale rating (0.5-5.0 stars)
+            // Line 3: cross indices / aliases
+            if (hasAlias)
+            {
+                DrawText($"Also: {alias}".AsSpan(), fontPath,
+                    rect.X + padding, rect.Y + lineH * 2f, rect.Width - padding * 2f, lineH,
+                    fontSize * 0.9f, DimText, TextAlign.Near, TextAlign.Center);
+            }
+
+            // Line 3/4: log-scale rating
             var maxScore = state.TonightsBest.Count > 0 ? state.TonightsBest[0].CombinedScore : 1.0;
             var rating = PlannerActions.ScoreToRating(scored.CombinedScore, maxScore);
-            var line3 = $"Rating: {rating:F1}\u2605";
-            DrawText(line3.AsSpan(), fontPath,
-                rect.X + padding, rect.Y + lineH * 2f, rect.Width - padding * 2f, lineH,
+            DrawText($"Rating: {rating:F1}\u2605".AsSpan(), fontPath,
+                rect.X + padding, rect.Y + lineH * (lineCount - 1), rect.Width - padding * 2f, lineH,
                 fontSize, DetailsInfoText, TextAlign.Near, TextAlign.Center);
         }
 

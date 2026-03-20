@@ -787,10 +787,7 @@ internal static class ObservationScheduler
             var quickAlt = SOFAHelpers.AltitudeFromAstrom(obj.RA, obj.Dec, in midAstrom);
             if (quickAlt < minHeightAboveHorizon - 10) continue; // 10° margin for objects rising/setting
 
-            var name = obj.CommonNames.Count > 0
-                ? obj.CommonNames.First()
-                : idx.ToCanonical();
-            var target = new Target(obj.RA, obj.Dec, name, idx);
+            var target = new Target(obj.RA, obj.Dec, obj.DisplayName, idx);
             var scored = ScoreTarget(target, astroms, times, astroDark, astroTwilight, minHeightAboveHorizon, siteLong);
             if (scored.TotalScore <= Half.Zero) continue;
 
