@@ -215,7 +215,8 @@ while (running)
 
     // Force continuous redraw when text input is active (for cursor blink)
     if (appState.NeedsRedraw || plannerState.NeedsRedraw
-        || guiRenderer.EquipmentTab.State.ActiveTextInput is { IsActive: true })
+        || guiRenderer.EquipmentTab.State.ActiveTextInput is { IsActive: true }
+        || plannerState.SearchInput.IsActive)
     {
         needsRedraw = true;
     }
@@ -268,9 +269,14 @@ return 0;
 
 void HandleKeyDown(Scancode scancode, Keymod keymod)
 {
-    // Route to text input if active (only on Equipment tab)
+    // Route to text input if active (any tab)
     var eqState = guiRenderer.EquipmentTab.State;
-    var eqInput = appState.ActiveTab is GuiTab.Equipment ? eqState.ActiveTextInput : null;
+    var eqInput = appState.ActiveTab switch
+    {
+        GuiTab.Equipment => eqState.ActiveTextInput,
+        GuiTab.Planner when plannerState.SearchInput.IsActive => plannerState.SearchInput,
+        _ => null
+    };
     if (eqInput is { IsActive: true })
     {
         var inputKey = scancode switch
@@ -313,7 +319,27 @@ void HandleKeyDown(Scancode scancode, Keymod keymod)
         {
             if (eqInput.IsCommitted)
             {
-                if (eqState.IsEditingSite)
+                if (eqInput == plannerState.SearchInput)
+                {
+                    // Search committed — execute search
+                    if (appState.ActiveProfile is not null && eqInput.Text.Length > 0)
+                    {
+                        var transform = TransformFactory.FromProfile(appState.ActiveProfile, external.TimeProvider, out _);
+                        if (transform is not null)
+                        {
+                            var db = sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
+                            var resultIdx = PlannerActions.SearchTargets(plannerState, db, transform, eqInput.Text);
+                            if (resultIdx >= 0)
+                            {
+                                plannerState.SelectedTargetIndex = resultIdx;
+                                guiRenderer.PlannerTab.EnsureVisible(resultIdx);
+                            }
+                        }
+                    }
+                    eqInput.IsCommitted = false;
+                    // Keep search active for next query
+                }
+                else if (eqState.IsEditingSite)
                 {
                     // Enter in site field → save site
                     HandleEquipmentClick(new HitResult.ButtonHit("SaveSite"));
@@ -481,7 +507,6 @@ void HandleMouseDown(byte button, float px, float py)
 
         if (appState.ActiveTab is GuiTab.Planner)
         {
-            // Check planner tab buttons (filter, etc.)
             var plannerHit = guiRenderer.PlannerTab.HitTest(px, py);
             if (plannerHit is HitResult.ButtonHit { Action: "CycleFilter" })
             {
@@ -489,9 +514,15 @@ void HandleMouseDown(byte button, float px, float py)
                 plannerState.SelectedTargetIndex = 0;
                 guiRenderer.PlannerTab.ScrollOffset = 0;
             }
+            else if (plannerHit is HitResult.TextInputHit { Input: { } searchInput })
+            {
+                searchInput.Activate();
+                plannerState.SearchInput.Activate();
+                StartTextInput(sdlWindow.Handle);
+                appState.NeedsRedraw = true;
+            }
             else
             {
-                // Target list hit test
                 var targetIdx = guiRenderer.PlannerTab.HitTestTargetList(px, py, cl, ct2, guiRenderer.DpiScale);
                 if (targetIdx >= 0)
                 {

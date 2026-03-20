@@ -190,9 +190,14 @@ namespace TianWen.UI.Gui
             RenderButton(filterBtnLabel, filterBtnX, filterBtnY, filterBtnW, filterBtnH,
                 fontPath, fontSize * 0.9f, filterBtnBg, FilterBtnText, "CycleFilter");
 
+            // Search input below header
+            var searchH = (int)(itemHeight * 1.1f);
+            RenderTextInput(state.SearchInput, (int)(x + padding), (int)(y + headerHeight + 2),
+                (int)(listW - padding * 2f), searchH, fontPath, fontSize * 0.9f);
+
             var filtered = _lastFilteredTargets;
             var totalItems = filtered.Count;
-            var listTop      = y + headerHeight;
+            var listTop      = y + headerHeight + searchH + 4;
             var listH        = h - headerHeight;
             var visibleRows  = Math.Max(1, (int)(listH / itemHeight));
             VisibleRows = visibleRows;
