@@ -88,13 +88,18 @@ namespace TianWen.UI.Gui
             var fontSize         = BaseFontSize * dpiScale;
             var padding          = BasePadding * dpiScale;
 
-            // --- 1. Altitude chart fills the full renderer surface (drawn beneath everything) ---
+            // --- 1. Altitude chart in the right portion of the content area ---
             var selectedIndex = state.SelectedTargetIndex >= 0
                                 && state.SelectedTargetIndex < state.TonightsBest.Count
                 ? state.SelectedTargetIndex
                 : (int?)null;
 
-            AltitudeChartRenderer.Render(_renderer, state, fontPath, selectedIndex);
+            var chartX = (int)(contentLeft + targetListWidth);
+            var chartY = (int)contentTop;
+            var chartW = (int)(contentWidth - targetListWidth);
+            var chartH = (int)(contentHeight - detailsHeight);
+
+            AltitudeChartRenderer.Render(_renderer, state, fontPath, chartX, chartY, chartW, chartH, selectedIndex);
 
             // --- 2. Target list panel (opaque background, left side of content area) ---
             RenderTargetList(
