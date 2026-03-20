@@ -62,7 +62,7 @@ namespace TianWen.UI.Gui
         /// </summary>
         public void Render(
             GuiAppState appState,
-            float left, float top, float width, float height,
+            VkRect contentRect,
             float dpiScale,
             string fontPath)
         {
@@ -70,21 +70,21 @@ namespace TianWen.UI.Gui
             BeginFrame();
 
             // Clear the whole content area first
-            FillRect(left, top, width, height, ContentBg);
+            FillRect(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height, ContentBg);
 
             if (appState.ActiveProfile is null && !State.IsCreatingProfile)
             {
-                RenderNoProfile(left, top, width, height, dpiScale, fontPath);
+                RenderNoProfile(contentRect, dpiScale, fontPath);
                 return;
             }
 
             if (State.IsCreatingProfile)
             {
-                RenderProfileCreation(left, top, width, height, dpiScale, fontPath);
+                RenderProfileCreation(contentRect, dpiScale, fontPath);
                 return;
             }
 
-            RenderProfileView(appState, left, top, width, height, dpiScale, fontPath);
+            RenderProfileView(appState, contentRect, dpiScale, fontPath);
         }
 
         // -----------------------------------------------------------------------
@@ -92,7 +92,7 @@ namespace TianWen.UI.Gui
         // -----------------------------------------------------------------------
 
         private void RenderNoProfile(
-            float left, float top, float width, float height,
+            VkRect rect,
             float dpiScale, string fontPath)
         {
             var fontSize    = BaseFontSize * dpiScale;
@@ -100,13 +100,13 @@ namespace TianWen.UI.Gui
             var buttonH     = BaseButtonHeight * dpiScale;
             var buttonW     = 160f * dpiScale;
 
-            var centerX = left + width / 2f;
-            var centerY = top + height / 2f;
+            var centerX = rect.X + rect.Width / 2f;
+            var centerY = rect.Y + rect.Height / 2f;
 
             DrawText(
                 "No equipment profile configured.".AsSpan(),
                 fontPath,
-                left, top, width, height - buttonH - padding * 2f,
+                rect.X, rect.Y, rect.Width, rect.Height - buttonH - padding * 2f,
                 fontSize, DimText, TextAlign.Center, TextAlign.Far);
 
             var btnX = centerX - buttonW / 2f;
@@ -120,7 +120,7 @@ namespace TianWen.UI.Gui
         // -----------------------------------------------------------------------
 
         private void RenderProfileCreation(
-            float left, float top, float width, float height,
+            VkRect rect,
             float dpiScale, string fontPath)
         {
             var fontSize    = BaseFontSize * dpiScale;
@@ -129,17 +129,21 @@ namespace TianWen.UI.Gui
             var buttonH     = BaseButtonHeight * dpiScale;
             var bottomBarH  = BaseBottomBarHeight * dpiScale;
 
+            var layout = new VkLayout(rect);
+            var bottomBarRect = layout.Dock(VkDockStyle.Bottom, bottomBarH);
+            var mainRect = layout.Fill();
+
             // Header
             DrawText(
                 "New Equipment Profile".AsSpan(),
                 fontPath,
-                left + padding, top + padding, width - padding * 2f, BaseHeaderHeight * dpiScale,
+                mainRect.X + padding, mainRect.Y + padding, mainRect.Width - padding * 2f, BaseHeaderHeight * dpiScale,
                 fontSize * 1.2f, HeaderText, TextAlign.Near, TextAlign.Center);
 
             // Name input field
-            var fieldY = top + padding + BaseHeaderHeight * dpiScale + padding;
-            var fieldW = Math.Min(360f * dpiScale, width - padding * 2f);
-            var fieldX = left + padding;
+            var fieldY = mainRect.Y + padding + BaseHeaderHeight * dpiScale + padding;
+            var fieldW = Math.Min(360f * dpiScale, mainRect.Width - padding * 2f);
+            var fieldX = mainRect.X + padding;
 
             DrawText(
                 "Profile name:".AsSpan(),
@@ -156,12 +160,11 @@ namespace TianWen.UI.Gui
             RenderButton("Create", fieldX, btnY, btnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "CreateProfile");
 
             // Bottom status
-            var statusY = top + height - bottomBarH;
-            FillRect(left, statusY, width, bottomBarH, BottomBarBg);
+            FillRect(bottomBarRect.X, bottomBarRect.Y, bottomBarRect.Width, bottomBarRect.Height, BottomBarBg);
             DrawText(
                 "Enter a name for the new profile and press Create or Enter.".AsSpan(),
                 fontPath,
-                left + padding, statusY, width - padding * 2f, bottomBarH,
+                bottomBarRect.X + padding, bottomBarRect.Y, bottomBarRect.Width - padding * 2f, bottomBarRect.Height,
                 fontSize, DimText, TextAlign.Near, TextAlign.Center);
         }
 
@@ -171,31 +174,31 @@ namespace TianWen.UI.Gui
 
         private void RenderProfileView(
             GuiAppState appState,
-            float left, float top, float width, float height,
+            VkRect contentRect,
             float dpiScale, string fontPath)
         {
             var profilePanelW = BaseProfilePanelWidth * dpiScale;
             var bottomBarH    = BaseBottomBarHeight * dpiScale;
 
-            var mainH         = height - bottomBarH;
-            var deviceListLeft = left + profilePanelW;
-            var deviceListW   = width - profilePanelW;
+            var layout = new VkLayout(contentRect);
+            var bottomBarRect = layout.Dock(VkDockStyle.Bottom, bottomBarH);
+            var profileRect = layout.Dock(VkDockStyle.Left, profilePanelW);
+            var deviceListRect = layout.Fill();
 
             // Left: profile panel
-            FillRect(left, top, profilePanelW, mainH, ProfilePanelBg);
-            RenderProfilePanel(appState, left, top, profilePanelW, mainH, dpiScale, fontPath);
+            FillRect(profileRect.X, profileRect.Y, profileRect.Width, profileRect.Height, ProfilePanelBg);
+            RenderProfilePanel(appState, profileRect, dpiScale, fontPath);
 
             // Vertical separator
-            FillRect(deviceListLeft, top, 1f, mainH, SeparatorColor);
+            FillRect(deviceListRect.X, deviceListRect.Y, 1f, deviceListRect.Height, SeparatorColor);
 
             // Right: device list
-            FillRect(deviceListLeft, top, deviceListW, mainH, DeviceListBg);
-            RenderDeviceList(appState, deviceListLeft, top, deviceListW, mainH, dpiScale, fontPath);
+            FillRect(deviceListRect.X, deviceListRect.Y, deviceListRect.Width, deviceListRect.Height, DeviceListBg);
+            RenderDeviceList(appState, deviceListRect, dpiScale, fontPath);
 
             // Bottom bar
-            var statusY = top + mainH;
-            FillRect(left, statusY, width, bottomBarH, BottomBarBg);
-            RenderBottomBar(appState, left, statusY, width, bottomBarH, dpiScale, fontPath);
+            FillRect(bottomBarRect.X, bottomBarRect.Y, bottomBarRect.Width, bottomBarRect.Height, BottomBarBg);
+            RenderBottomBar(appState, bottomBarRect, dpiScale, fontPath);
         }
 
         // -----------------------------------------------------------------------
@@ -204,7 +207,7 @@ namespace TianWen.UI.Gui
 
         private void RenderProfilePanel(
             GuiAppState appState,
-            float x, float y, float w, float h,
+            VkRect rect,
             float dpiScale, string fontPath)
         {
             var fontSize   = BaseFontSize * dpiScale;
@@ -213,6 +216,11 @@ namespace TianWen.UI.Gui
             var arrowW     = BaseArrowWidth * dpiScale;
             var headerH    = BaseHeaderHeight * dpiScale;
             var buttonH    = BaseButtonHeight * dpiScale;
+
+            var x = rect.X;
+            var y = rect.Y;
+            var w = rect.Width;
+            var h = rect.Height;
 
             var profile = appState.ActiveProfile!;
             var data = profile.Data;
@@ -413,7 +421,7 @@ namespace TianWen.UI.Gui
 
         private void RenderDeviceList(
             GuiAppState appState,
-            float x, float y, float w, float h,
+            VkRect rect,
             float dpiScale, string fontPath)
         {
             var fontSize   = BaseFontSize * dpiScale;
@@ -423,6 +431,11 @@ namespace TianWen.UI.Gui
             var badgeW     = BaseBadgeWidth * dpiScale;
             var checkW     = BaseCheckmarkWidth * dpiScale;
             var buttonH    = BaseButtonHeight * dpiScale;
+
+            var x = rect.X;
+            var y = rect.Y;
+            var w = rect.Width;
+            var h = rect.Height;
 
             // Header
             DrawText(
@@ -504,11 +517,16 @@ namespace TianWen.UI.Gui
 
         private void RenderBottomBar(
             GuiAppState appState,
-            float x, float y, float w, float h,
+            VkRect rect,
             float dpiScale, string fontPath)
         {
             var fontSize = BaseFontSize * dpiScale;
             var padding  = BasePadding * dpiScale;
+
+            var x = rect.X;
+            var y = rect.Y;
+            var w = rect.Width;
+            var h = rect.Height;
 
             string message;
             RGBAColor32 textColor;

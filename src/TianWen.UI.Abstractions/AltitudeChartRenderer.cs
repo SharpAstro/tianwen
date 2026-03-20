@@ -742,14 +742,16 @@ public static class AltitudeChartRenderer
         }
 
         // Currently selected target (so user can preview before proposing)
-        if (highlightTargetIndex.HasValue
-            && highlightTargetIndex.Value >= 0
-            && highlightTargetIndex.Value < state.TonightsBest.Count)
+        if (highlightTargetIndex.HasValue && highlightTargetIndex.Value >= 0)
         {
-            var selectedTarget = state.TonightsBest[highlightTargetIndex.Value].Target;
-            if (seen.Add(selectedTarget))
+            var filtered = PlannerActions.GetFilteredTargets(state);
+            if (highlightTargetIndex.Value < filtered.Count)
             {
-                result.Add(selectedTarget);
+                var selectedTarget = filtered[highlightTargetIndex.Value].Target;
+                if (seen.Add(selectedTarget))
+                {
+                    result.Add(selectedTarget);
+                }
             }
         }
 

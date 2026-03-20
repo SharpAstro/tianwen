@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
+using TianWen.Lib.Astrometry.VSOP87;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 
@@ -154,68 +155,134 @@ public static class PlannerActions
             return -1;
         }
 
-        // Check if query matches an existing target in TonightsBest first
-        for (var i = 0; i < state.TonightsBest.Count; i++)
+        // Search catalog by fuzzy name match and catalog designation
+        var catalogMatches = new List<CatalogIndex>();
+
+        // Try catalog designation first (exact, e.g. "M31", "NGC 3132", "Messier 31")
+        if (objectDb.TryLookupByIndex(query, out var directObj))
         {
-            if (state.TonightsBest[i].Target.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
+            catalogMatches.Add(directObj.Index);
+        }
+
+        // Fuzzy search: match autocomplete entries by substring, then Levenshtein on common names
+        var autoComplete = objectDb.CreateAutoCompleteList();
+        var bestMatches = new List<(string Entry, int Score)>();
+
+        foreach (var entry in autoComplete)
+        {
+            var score = FuzzyMatchScore(query, entry);
+            if (score > 0)
             {
-                // Found in existing list — reset filter to ensure it's visible
-                state.MinRatingFilter = 0f;
-                var filtered = GetFilteredTargets(state);
-                // Find index in filtered list
-                for (var j = 0; j < filtered.Count; j++)
+                bestMatches.Add((entry, score));
+            }
+        }
+
+        // Levenshtein fallback on common names if no substring matches
+        if (bestMatches.Count == 0)
+        {
+            foreach (var name in objectDb.CommonNames)
+            {
+                var dist = LevenshteinDistance(query, name);
+                if (dist <= 3 && dist < name.Length / 2)
                 {
-                    if (filtered[j].Target == state.TonightsBest[i].Target)
-                    {
-                        state.NeedsRedraw = true;
-                        return j;
-                    }
+                    bestMatches.Add((name, 100 - dist * 20));
                 }
             }
         }
 
-        // Not in TonightsBest — search catalog by common name AND catalog designation
-        var catalogMatches = new List<CatalogIndex>();
+        bestMatches.Sort((a, b) => b.Score.CompareTo(a.Score));
 
-        // Try common name (e.g. "Andromeda", "Orion Nebula")
-        if (objectDb.TryResolveCommonName(query, out var nameMatches))
+        foreach (var (entry, _) in bestMatches.Take(10))
         {
-            catalogMatches.AddRange(nameMatches);
-        }
-
-        // Try catalog designation (e.g. "M31", "NGC 3132", "Messier 31")
-        if (objectDb.TryLookupByIndex(query, out var directObj))
-        {
-            var idx = directObj.Index;
-            if (!catalogMatches.Contains(idx))
+            if (objectDb.TryResolveCommonName(entry, out var nameMatches))
             {
-                catalogMatches.Insert(0, idx);
+                foreach (var match in nameMatches)
+                {
+                    if (!catalogMatches.Contains(match))
+                    {
+                        catalogMatches.Add(match);
+                    }
+                }
+            }
+            else if (objectDb.TryLookupByIndex(entry, out var entryObj))
+            {
+                if (!catalogMatches.Contains(entryObj.Index))
+                {
+                    catalogMatches.Add(entryObj.Index);
+                }
             }
         }
 
         foreach (var match in catalogMatches.Take(5))
         {
+            double ra, dec;
+            string name;
+
             if (objectDb.TryLookupByIndex(match, out var obj))
             {
-                var name = obj.CommonNames.Count > 0 ? obj.CommonNames.First() : match.ToCanonical();
-                var target = new Target(obj.RA, obj.Dec, name, match);
+                ra = obj.RA;
+                dec = obj.Dec;
 
-                if (state.TonightsBest.Any(s => s.Target.Name == target.Name))
+                // For solar system objects (NaN coordinates), compute position via VSOP87 ephemeris
+                if (double.IsNaN(ra) || double.IsNaN(dec))
                 {
-                    continue;
+                    if (!transform.TryGetOrbitalPositionRaDec(match, state.AstroDark, out ra, out dec))
+                    {
+                        continue;
+                    }
                 }
 
-                var scored = ObservationScheduler.ScoreTarget(target, transform,
-                    state.AstroDark, state.AstroTwilight, state.MinHeightAboveHorizon);
-
-                if (!state.AltitudeProfiles.ContainsKey(target))
-                {
-                    state.AltitudeProfiles[target] = ComputeFineAltitudeProfile(transform, target, state);
-                }
-
-                state.ScoredTargets[target] = scored;
-                state.SearchResults.Add(scored);
+                name = obj.CommonNames.Count > 0 ? obj.CommonNames.First() : match.ToCanonical();
             }
+            else if (transform.TryGetOrbitalPositionRaDec(match, state.AstroDark, out ra, out dec))
+            {
+                // Planet/solar system object not in main DB — use query as name since
+                // it came from the autocomplete list which contains the common name
+                name = query;
+            }
+            else
+            {
+                continue;
+            }
+
+            var target = new Target(ra, dec, name, match);
+
+            // If already in TonightsBest, select it there instead of re-adding
+            var existingIdx = -1;
+            for (var i = 0; i < state.TonightsBest.Count; i++)
+            {
+                if (state.TonightsBest[i].Target.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+                {
+                    existingIdx = i;
+                    break;
+                }
+            }
+
+            if (existingIdx >= 0)
+            {
+                state.MinRatingFilter = 0f;
+                state.NeedsRedraw = true;
+                var filtered = GetFilteredTargets(state);
+                for (var j = 0; j < filtered.Count; j++)
+                {
+                    if (filtered[j].Target == state.TonightsBest[existingIdx].Target)
+                    {
+                        return j;
+                    }
+                }
+                continue;
+            }
+
+            var scored = ObservationScheduler.ScoreTarget(target, transform,
+                state.AstroDark, state.AstroTwilight, state.MinHeightAboveHorizon);
+
+            if (!state.AltitudeProfiles.ContainsKey(target))
+            {
+                state.AltitudeProfiles[target] = ComputeFineAltitudeProfile(transform, target, state);
+            }
+
+            state.ScoredTargets[target] = scored;
+            state.SearchResults.Add(scored);
         }
 
         state.NeedsRedraw = true;
@@ -234,6 +301,220 @@ public static class PlannerActions
         }
 
         return -1;
+    }
+
+    /// <summary>
+    /// Resolves a single exact autocomplete entry (common name or catalog designation)
+    /// and adds it as a search result, or selects it in TonightsBest if already present.
+    /// Unlike <see cref="SearchTargets"/>, this does NOT re-search — it trusts the caller's selection.
+    /// </summary>
+    public static int CommitSuggestion(
+        PlannerState state,
+        ICelestialObjectDB objectDb,
+        Transform transform,
+        string suggestion)
+    {
+        state.SearchResults.Clear();
+
+        // Resolve the suggestion to a CatalogIndex
+        CatalogIndex? resolved = null;
+
+        if (objectDb.TryResolveCommonName(suggestion, out var nameMatches) && nameMatches.Count > 0)
+        {
+            resolved = nameMatches[0];
+        }
+        else if (objectDb.TryLookupByIndex(suggestion, out var directObj))
+        {
+            resolved = directObj.Index;
+        }
+
+        if (resolved is not { } catIdx)
+        {
+            state.NeedsRedraw = true;
+            return -1;
+        }
+
+        // Get RA/Dec — from DB or VSOP87 for planets
+        double ra, dec;
+        string name = suggestion;
+
+        if (objectDb.TryLookupByIndex(catIdx, out var obj))
+        {
+            ra = obj.RA;
+            dec = obj.Dec;
+            if (obj.CommonNames.Count > 0)
+            {
+                name = obj.CommonNames.First();
+            }
+
+            if (double.IsNaN(ra) || double.IsNaN(dec))
+            {
+                if (!transform.TryGetOrbitalPositionRaDec(catIdx, state.AstroDark, out ra, out dec))
+                {
+                    state.NeedsRedraw = true;
+                    return -1;
+                }
+            }
+        }
+        else if (transform.TryGetOrbitalPositionRaDec(catIdx, state.AstroDark, out ra, out dec))
+        {
+            // Planet fallback
+        }
+        else
+        {
+            state.NeedsRedraw = true;
+            return -1;
+        }
+
+        var target = new Target(ra, dec, name, catIdx);
+
+        // Check if already in TonightsBest — select it there
+        for (var i = 0; i < state.TonightsBest.Count; i++)
+        {
+            if (state.TonightsBest[i].Target.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
+            {
+                state.MinRatingFilter = 0f;
+                state.NeedsRedraw = true;
+                var filtered = GetFilteredTargets(state);
+                for (var j = 0; j < filtered.Count; j++)
+                {
+                    if (filtered[j].Target == state.TonightsBest[i].Target)
+                    {
+                        return j;
+                    }
+                }
+            }
+        }
+
+        // Not in TonightsBest — add as search result
+        var scored = ObservationScheduler.ScoreTarget(target, transform,
+            state.AstroDark, state.AstroTwilight, state.MinHeightAboveHorizon);
+
+        if (!state.AltitudeProfiles.ContainsKey(target))
+        {
+            state.AltitudeProfiles[target] = ComputeFineAltitudeProfile(transform, target, state);
+        }
+
+        state.ScoredTargets[target] = scored;
+        state.SearchResults.Add(scored);
+        state.NeedsRedraw = true;
+
+        var filteredList = GetFilteredTargets(state);
+        for (var i = 0; i < filteredList.Count; i++)
+        {
+            if (filteredList[i].Target == target)
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>
+    /// Updates the autocomplete suggestions based on the current search query.
+    /// Runs synchronously — ~200K string comparisons takes ~2ms.
+    /// </summary>
+    public static void UpdateSuggestions(PlannerState state, string[] autoCompleteList, string query)
+    {
+        if (query == state.LastSuggestionQuery)
+        {
+            return;
+        }
+
+        state.LastSuggestionQuery = query;
+        state.Suggestions.Clear();
+        state.SuggestionIndex = -1;
+
+        if (query.Length < 2)
+        {
+            state.NeedsRedraw = true;
+            return;
+        }
+
+        var candidates = new List<(string Entry, int Score)>();
+        var minScore = 0;
+
+        for (var i = 0; i < autoCompleteList.Length; i++)
+        {
+            var entry = autoCompleteList[i];
+            var score = FuzzyMatchScore(query, entry);
+            if (score <= minScore)
+            {
+                continue;
+            }
+
+            candidates.Add((entry, score));
+
+            // Once we have enough candidates, raise the bar to avoid sorting a huge list
+            if (candidates.Count >= PlannerState.MaxSuggestions * 4)
+            {
+                candidates.Sort(static (a, b) => b.Score.CompareTo(a.Score));
+                candidates.RemoveRange(PlannerState.MaxSuggestions, candidates.Count - PlannerState.MaxSuggestions);
+                minScore = candidates[^1].Score;
+            }
+        }
+
+        candidates.Sort(static (a, b) => b.Score.CompareTo(a.Score));
+
+        var count = Math.Min(candidates.Count, PlannerState.MaxSuggestions);
+        for (var i = 0; i < count; i++)
+        {
+            state.Suggestions.Add(candidates[i].Entry);
+        }
+
+        state.NeedsRedraw = true;
+    }
+
+    private static int FuzzyMatchScore(string query, string entry)
+    {
+        if (entry.Equals(query, StringComparison.OrdinalIgnoreCase))
+        {
+            return 100;
+        }
+
+        if (entry.StartsWith(query, StringComparison.OrdinalIgnoreCase))
+        {
+            return 80;
+        }
+
+        if (entry.Contains(query, StringComparison.OrdinalIgnoreCase))
+        {
+            return 40;
+        }
+
+        return 0;
+    }
+
+    private static int LevenshteinDistance(string a, string b)
+    {
+        if (a.Length == 0) return b.Length;
+        if (b.Length == 0) return a.Length;
+
+        var prev = new int[b.Length + 1];
+        var curr = new int[b.Length + 1];
+
+        for (var j = 0; j <= b.Length; j++)
+        {
+            prev[j] = j;
+        }
+
+        for (var i = 1; i <= a.Length; i++)
+        {
+            curr[0] = i;
+            var ca = char.ToLowerInvariant(a[i - 1]);
+
+            for (var j = 1; j <= b.Length; j++)
+            {
+                var cb = char.ToLowerInvariant(b[j - 1]);
+                var cost = ca == cb ? 0 : 1;
+                curr[j] = Math.Min(Math.Min(curr[j - 1] + 1, prev[j] + 1), prev[j - 1] + cost);
+            }
+
+            (prev, curr) = (curr, prev);
+        }
+
+        return prev[b.Length];
     }
 
     /// <summary>
@@ -480,12 +761,22 @@ public static class PlannerActions
 
         for (var t = start; t <= end; t += step)
         {
-            transform.SetJ2000(target.RA, target.Dec);
-            transform.JulianDateUTC = t.ToJulian();
-
-            if (transform.ElevationTopocentric is double alt)
+            // For planets, Reduce recomputes position at each time step; returns false for non-planets
+            if (target.CatalogIndex is { } catIdx
+                && VSOP87a.Reduce(catIdx, t, transform.SiteLatitude, transform.SiteLongitude,
+                    out _, out _, out _, out var planetAlt, out _))
             {
-                profile.Add((t, alt));
+                profile.Add((t, planetAlt));
+            }
+            else
+            {
+                transform.SetJ2000(target.RA, target.Dec);
+                transform.JulianDateUTC = t.ToJulian();
+
+                if (transform.ElevationTopocentric is double alt)
+                {
+                    profile.Add((t, alt));
+                }
             }
         }
 

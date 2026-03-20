@@ -95,12 +95,12 @@ namespace TianWen.UI.Gui
             }
 
             _equipmentTab.FrameCount++;
+            _plannerTab.FrameCount++;
 
-            var (contentLeft, contentTop, contentWidth, contentHeight) = GetContentArea();
+            var contentRect = GetContentArea();
 
             // Render the active tab content first (it may fill the full renderer surface)
-            RenderContent(appState, plannerState, viewerState, timeProvider,
-                contentLeft, contentTop, contentWidth, contentHeight);
+            RenderContent(appState, plannerState, viewerState, timeProvider, contentRect);
 
             // Paint sidebar and status bar on top
             RenderSidebar(appState);
@@ -108,15 +108,11 @@ namespace TianWen.UI.Gui
         }
 
         /// <summary>
-        /// Returns (Left, Top, Width, Height) of the content area in pixels.
+        /// Returns the content area rectangle in pixels (excluding sidebar and status bar).
         /// </summary>
-        public (float Left, float Top, float Width, float Height) GetContentArea()
+        public VkRect GetContentArea()
         {
-            var left = SidebarWidth;
-            var top = StatusBarHeight;
-            var width = (float)_width - SidebarWidth;
-            var height = (float)_height - StatusBarHeight;
-            return (left, top, width, height);
+            return new VkRect(SidebarWidth, StatusBarHeight, (float)_width - SidebarWidth, (float)_height - StatusBarHeight);
         }
 
         /// <summary>
@@ -262,32 +258,32 @@ namespace TianWen.UI.Gui
             PlannerState plannerState,
             ViewerState viewerState,
             TimeProvider timeProvider,
-            float left, float top, float width, float height)
+            VkRect contentRect)
         {
             switch (appState.ActiveTab)
             {
                 case GuiTab.Planner:
-                    _plannerTab.Render(plannerState, left, top, width, height, DpiScale,
+                    _plannerTab.Render(plannerState, contentRect, DpiScale,
                         _fontPath ?? "monospace", timeProvider);
                     break;
 
                 case GuiTab.Equipment:
-                    _equipmentTab.Render(appState, left, top, width, height, DpiScale,
+                    _equipmentTab.Render(appState, contentRect, DpiScale,
                         _fontPath ?? "monospace");
                     break;
 
                 default:
-                    RenderComingSoonPlaceholder(left, top, width, height, appState.ActiveTab);
+                    RenderComingSoonPlaceholder(contentRect, appState.ActiveTab);
                     break;
             }
         }
 
-        private void RenderComingSoonPlaceholder(float left, float top, float width, float height, GuiTab tab)
+        private void RenderComingSoonPlaceholder(VkRect rect, GuiTab tab)
         {
-            FillRect(left, top, width, height, ContentBg);
+            FillRect(rect.X, rect.Y, rect.Width, rect.Height, ContentBg);
 
             var msg = $"{tab} — Coming soon";
-            DrawText(msg.AsSpan(), left, top, width, height, FontSize * 1.5f, PlaceholderText,
+            DrawText(msg.AsSpan(), rect.X, rect.Y, rect.Width, rect.Height, FontSize * 1.5f, PlaceholderText,
                 TextAlign.Center, TextAlign.Center);
         }
 

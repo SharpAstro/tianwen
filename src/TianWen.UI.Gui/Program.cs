@@ -84,6 +84,7 @@ var guiRenderer = new VkGuiRenderer(renderer, (uint)pixW, (uint)pixH)
 // Kick off planner computation in the background
 var cts = new CancellationTokenSource();
 Task? plannerTask = null;
+string[]? autoCompleteCache = null;
 
 if (appState.ActiveProfile is not null)
 {
@@ -104,6 +105,8 @@ if (appState.ActiveProfile is not null)
                 await PlannerActions.ComputeTonightsBestAsync(
                     plannerState, objectDb, transform,
                     plannerState.MinHeightAboveHorizon, cts.Token);
+
+                autoCompleteCache = objectDb.CreateAutoCompleteList();
             }
         }
         catch (Exception ex)
@@ -193,7 +196,7 @@ while (running)
 
                 case EventType.MouseButtonDown:
                     needsRedraw = true;
-                    HandleMouseDown(evt.Button.Button, evt.Button.X, evt.Button.Y);
+                    HandleMouseDown(evt.Button.Button, evt.Button.X, evt.Button.Y, evt.Button.Clicks);
                     break;
 
                 case EventType.MouseWheel:
@@ -204,9 +207,14 @@ while (running)
                 case EventType.TextInput:
                     needsRedraw = true;
                     var textStr = Marshal.PtrToStringUTF8(evt.Text.Text);
-                    if (textStr is not null && guiRenderer.EquipmentTab.State.ActiveTextInput is { IsActive: true } activeInput)
+                    if (textStr is not null && appState.ActiveTextInput is { IsActive: true } textTarget)
                     {
-                        activeInput.InsertText(textStr);
+                        textTarget.InsertText(textStr);
+                        // Update autocomplete if this is the planner search input
+                        if (textTarget == plannerState.SearchInput && autoCompleteCache is not null)
+                        {
+                            PlannerActions.UpdateSuggestions(plannerState, autoCompleteCache, textTarget.Text);
+                        }
                     }
                     break;
             }
@@ -215,8 +223,7 @@ while (running)
 
     // Force continuous redraw when text input is active (for cursor blink)
     if (appState.NeedsRedraw || plannerState.NeedsRedraw
-        || guiRenderer.EquipmentTab.State.ActiveTextInput is { IsActive: true }
-        || plannerState.SearchInput.IsActive)
+        || appState.ActiveTextInput is { IsActive: true })
     {
         needsRedraw = true;
     }
@@ -271,14 +278,43 @@ void HandleKeyDown(Scancode scancode, Keymod keymod)
 {
     // Route to text input if active (any tab)
     var eqState = guiRenderer.EquipmentTab.State;
-    var eqInput = appState.ActiveTab switch
+    var activeInput = appState.ActiveTextInput;
+    if (activeInput is { IsActive: true })
     {
-        GuiTab.Equipment => eqState.ActiveTextInput,
-        GuiTab.Planner when plannerState.SearchInput.IsActive => plannerState.SearchInput,
-        _ => null
-    };
-    if (eqInput is { IsActive: true })
-    {
+        // Autocomplete dropdown navigation (planner search only)
+        if (activeInput == plannerState.SearchInput && plannerState.Suggestions.Count > 0)
+        {
+            if (scancode == Scancode.Down)
+            {
+                plannerState.SuggestionIndex = Math.Min(
+                    plannerState.SuggestionIndex + 1, plannerState.Suggestions.Count - 1);
+                appState.NeedsRedraw = true;
+                return;
+            }
+
+            if (scancode == Scancode.Up && plannerState.SuggestionIndex >= 0)
+            {
+                plannerState.SuggestionIndex--;
+                appState.NeedsRedraw = true;
+                return;
+            }
+
+            if (scancode == Scancode.Return && plannerState.SuggestionIndex >= 0)
+            {
+                CommitSuggestion(plannerState.Suggestions[plannerState.SuggestionIndex]);
+                return;
+            }
+
+            if (scancode == Scancode.Escape)
+            {
+                plannerState.Suggestions.Clear();
+                plannerState.SuggestionIndex = -1;
+                plannerState.LastSuggestionQuery = "";
+                appState.NeedsRedraw = true;
+                return;
+            }
+        }
+
         var inputKey = scancode switch
         {
             Scancode.Backspace => TextInputKey.Backspace,
@@ -289,6 +325,7 @@ void HandleKeyDown(Scancode scancode, Keymod keymod)
             Scancode.End => TextInputKey.End,
             Scancode.Return => TextInputKey.Enter,
             Scancode.Escape => TextInputKey.Escape,
+            Scancode.A when (keymod & Keymod.Ctrl) != 0 => TextInputKey.SelectAll,
             _ => (TextInputKey?)null
         };
 
@@ -298,7 +335,7 @@ void HandleKeyDown(Scancode scancode, Keymod keymod)
         {
             var shift = (keymod & Keymod.Shift) != 0;
             var inputs = guiRenderer.EquipmentTab.GetRegisteredTextInputs();
-            if (inputs.Count > 1 && eqState.ActiveTextInput is { } current)
+            if (inputs.Count > 1 && appState.ActiveTextInput is { } current)
             {
                 var idx = inputs.IndexOf(current);
                 if (idx >= 0)
@@ -308,27 +345,39 @@ void HandleKeyDown(Scancode scancode, Keymod keymod)
                         : inputs[(idx + 1) % inputs.Count];
                     current.Deactivate();
                     next.Activate();
-                    eqState.ActiveTextInput = next;
+                    appState.ActiveTextInput = next;
                     appState.NeedsRedraw = true;
                     return;
                 }
             }
         }
 
-        if (inputKey.HasValue && eqInput.HandleKey(inputKey.Value))
+        if (inputKey.HasValue && activeInput.HandleKey(inputKey.Value))
         {
-            if (eqInput.IsCommitted)
+            // Update suggestions after text-modifying keys (Backspace, Delete)
+            if (activeInput == plannerState.SearchInput && autoCompleteCache is not null
+                && inputKey.Value is TextInputKey.Backspace or TextInputKey.Delete)
             {
-                if (eqInput == plannerState.SearchInput)
+                PlannerActions.UpdateSuggestions(plannerState, autoCompleteCache, activeInput.Text);
+            }
+
+            if (activeInput.IsCommitted)
+            {
+                if (activeInput == plannerState.SearchInput)
                 {
+                    // Clear suggestions on commit
+                    plannerState.Suggestions.Clear();
+                    plannerState.SuggestionIndex = -1;
+                    plannerState.LastSuggestionQuery = "";
+
                     // Search committed — execute search
-                    if (appState.ActiveProfile is not null && eqInput.Text.Length > 0)
+                    if (appState.ActiveProfile is not null && activeInput.Text.Length > 0)
                     {
                         var transform = TransformFactory.FromProfile(appState.ActiveProfile, external.TimeProvider, out _);
                         if (transform is not null)
                         {
                             var db = sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
-                            var resultIdx = PlannerActions.SearchTargets(plannerState, db, transform, eqInput.Text);
+                            var resultIdx = PlannerActions.SearchTargets(plannerState, db, transform, activeInput.Text);
                             if (resultIdx >= 0)
                             {
                                 plannerState.SelectedTargetIndex = resultIdx;
@@ -336,7 +385,7 @@ void HandleKeyDown(Scancode scancode, Keymod keymod)
                             }
                         }
                     }
-                    eqInput.IsCommitted = false;
+                    activeInput.IsCommitted = false;
                     // Keep search active for next query
                 }
                 else if (eqState.IsEditingSite)
@@ -344,19 +393,22 @@ void HandleKeyDown(Scancode scancode, Keymod keymod)
                     // Enter in site field → save site
                     HandleEquipmentClick(new HitResult.ButtonHit("SaveSite"));
                 }
-                else if (eqInput.Text.Length > 0)
+                else if (activeInput.Text.Length > 0)
                 {
                     // Trigger profile creation
                     HandleEquipmentClick(new HitResult.ButtonHit("CreateProfile"));
                 }
             }
-            else if (eqInput.IsCancelled)
+            else if (activeInput.IsCancelled)
             {
-                if (eqInput == plannerState.SearchInput)
+                if (activeInput == plannerState.SearchInput)
                 {
                     plannerState.SearchInput.Deactivate();
                     plannerState.SearchInput.Clear();
                     plannerState.SearchResults.Clear();
+                    plannerState.Suggestions.Clear();
+                    plannerState.SuggestionIndex = -1;
+                    plannerState.LastSuggestionQuery = "";
                     StopTextInput(sdlWindow.Handle);
                     plannerState.NeedsRedraw = true;
                 }
@@ -366,14 +418,14 @@ void HandleKeyDown(Scancode scancode, Keymod keymod)
                     eqState.LatitudeInput.Deactivate();
                     eqState.LongitudeInput.Deactivate();
                     eqState.ElevationInput.Deactivate();
-                    eqState.ActiveTextInput = null;
+                    appState.ActiveTextInput = null;
                 }
                 else
                 {
                     eqState.IsCreatingProfile = false;
                     eqState.ProfileNameInput.Clear();
                 }
-                eqInput.Deactivate();
+                activeInput.Deactivate();
                 StopTextInput(sdlWindow.Handle);
             }
             appState.NeedsRedraw = true;
@@ -475,6 +527,32 @@ void CycleMinAltitude()
     plannerState.NeedsRedraw = true;
 }
 
+void CommitSuggestion(string suggestion)
+{
+    plannerState.SearchInput.Text = suggestion;
+    plannerState.SearchInput.CursorPos = suggestion.Length;
+    plannerState.Suggestions.Clear();
+    plannerState.SuggestionIndex = -1;
+    plannerState.LastSuggestionQuery = suggestion;
+
+    // Resolve the exact suggestion — no re-searching
+    if (appState.ActiveProfile is not null)
+    {
+        var transform = TransformFactory.FromProfile(appState.ActiveProfile, external.TimeProvider, out _);
+        if (transform is not null)
+        {
+            var db = sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
+            var resultIdx = PlannerActions.CommitSuggestion(plannerState, db, transform, suggestion);
+            if (resultIdx >= 0)
+            {
+                plannerState.SelectedTargetIndex = resultIdx;
+                guiRenderer.PlannerTab.EnsureVisible(resultIdx);
+            }
+        }
+    }
+    appState.NeedsRedraw = true;
+}
+
 void BuildScheduleFromProfile()
 {
     if (appState.ActiveProfile is null) return;
@@ -488,7 +566,7 @@ void BuildScheduleFromProfile()
     }
 }
 
-void HandleMouseDown(byte button, float px, float py)
+void HandleMouseDown(byte button, float px, float py, byte clicks = 1)
 {
     appState.MouseScreenPosition = (px, py);
 
@@ -510,48 +588,83 @@ void HandleMouseDown(byte button, float px, float py)
             return;
         }
 
-        // Tab-specific hit testing
-        var (cl, ct2, cw, ch) = guiRenderer.GetContentArea();
-
-        if (appState.ActiveTab is GuiTab.Planner)
+        // Hit test the active tab
+        VkTabBase? currentTab = appState.ActiveTab switch
         {
-            var plannerHit = guiRenderer.PlannerTab.HitTest(px, py);
-            if (plannerHit is HitResult.ButtonHit { Action: "CycleFilter" })
-            {
-                PlannerActions.CycleRatingFilter(plannerState);
-                plannerState.SelectedTargetIndex = 0;
-                guiRenderer.PlannerTab.ScrollOffset = 0;
-            }
-            else if (plannerHit is HitResult.TextInputHit { Input: { } clickedSearchInput })
-            {
-                clickedSearchInput.Activate();
-                StartTextInput(sdlWindow.Handle);
-                appState.NeedsRedraw = true;
-            }
-            else
-            {
-                // Clicking anywhere else deactivates the search input
-                if (plannerState.SearchInput.IsActive)
-                {
-                    plannerState.SearchInput.Deactivate();
-                    StopTextInput(sdlWindow.Handle);
-                }
+            GuiTab.Planner => guiRenderer.PlannerTab,
+            GuiTab.Equipment => guiRenderer.EquipmentTab,
+            _ => null
+        };
 
-                var targetIdx = guiRenderer.PlannerTab.HitTestTargetList(px, py, cl, ct2, guiRenderer.DpiScale);
-                if (targetIdx >= 0)
-                {
-                    plannerState.SelectedTargetIndex = targetIdx;
-                    plannerState.NeedsRedraw = true;
-                }
+        var hit = currentTab?.HitTest(px, py);
+
+        // --- Generic: text input focus management ---
+        if (hit is HitResult.TextInputHit { Input: { } clickedInput })
+        {
+            // Deactivate previous input if different
+            if (appState.ActiveTextInput is { } prev && prev != clickedInput)
+            {
+                prev.Deactivate();
+            }
+            clickedInput.Activate();
+            appState.ActiveTextInput = clickedInput;
+            if (clicks >= 2 && clickedInput.Text.Length > 0)
+            {
+                clickedInput.SelectAll();
+            }
+            StartTextInput(sdlWindow.Handle);
+            appState.NeedsRedraw = true;
+            return;
+        }
+
+        // Clicking outside a text input deactivates the current one
+        if (appState.ActiveTextInput is { IsActive: true } activeInput && hit is not HitResult.TextInputHit)
+        {
+            activeInput.Deactivate();
+            appState.ActiveTextInput = null;
+            StopTextInput(sdlWindow.Handle);
+            // Clear planner suggestions when deactivating search
+            if (activeInput == plannerState.SearchInput)
+            {
+                plannerState.Suggestions.Clear();
+                plannerState.SuggestionIndex = -1;
+                plannerState.LastSuggestionQuery = "";
             }
         }
-        else if (appState.ActiveTab is GuiTab.Equipment)
+
+        // --- Generic: list item clicks ---
+        if (hit is HitResult.ListItemHit listHit)
         {
-            var hit = guiRenderer.EquipmentTab.HitTest(px, py);
-            if (hit is not null)
+            switch (listHit.ListId)
             {
-                HandleEquipmentClick(hit);
+                case "Suggestion" when listHit.Index >= 0 && listHit.Index < plannerState.Suggestions.Count:
+                    CommitSuggestion(plannerState.Suggestions[listHit.Index]);
+                    return;
+
+                case "TargetList":
+                    plannerState.SelectedTargetIndex = listHit.Index;
+                    plannerState.NeedsRedraw = true;
+                    return;
             }
+        }
+
+        // --- Generic: button clicks ---
+        if (hit is HitResult.ButtonHit { Action: var action })
+        {
+            switch (action)
+            {
+                case "CycleFilter":
+                    PlannerActions.CycleRatingFilter(plannerState);
+                    plannerState.SelectedTargetIndex = 0;
+                    guiRenderer.PlannerTab.ScrollOffset = 0;
+                    return;
+            }
+        }
+
+        // --- Tab-specific: equipment tab (slots, devices, etc.) ---
+        if (appState.ActiveTab is GuiTab.Equipment && hit is not null)
+        {
+            HandleEquipmentClick(hit);
         }
     }
 }
@@ -560,11 +673,9 @@ void HandleMouseWheel(float scrollY)
 {
     if (appState.ActiveTab is GuiTab.Planner)
     {
-        var (cl, _, _, _) = guiRenderer.GetContentArea();
         var pos = appState.MouseScreenPosition;
-        var listWidth = 300f * guiRenderer.DpiScale;
 
-        if (pos.X >= cl && pos.X < cl + listWidth)
+        if (guiRenderer.PlannerTab.TargetListRect.Contains(pos.X, pos.Y))
         {
             guiRenderer.PlannerTab.ScrollOffset = Math.Max(0,
                 guiRenderer.PlannerTab.ScrollOffset - (int)scrollY * 3);
@@ -601,23 +712,14 @@ void HandleEquipmentClick(HitResult hit)
                     eqState.IsCreatingProfile = false;
                     eqState.ProfileNameInput.Deactivate();
                     eqState.ProfileNameInput.Clear();
-                    eqState.ActiveTextInput = null;
+                    appState.ActiveTextInput = null;
                     StopTextInput(sdlWindow.Handle);
                     appState.NeedsRedraw = true;
                 });
             }
             break;
 
-        case HitResult.TextInputHit { Input: { } clickedInput }:
-            // Deactivate previous input if different
-            if (eqState.ActiveTextInput is { } prev && prev != clickedInput)
-            {
-                prev.Deactivate();
-            }
-            clickedInput.Activate();
-            eqState.ActiveTextInput = clickedInput;
-            StartTextInput(sdlWindow.Handle);
-            break;
+        // TextInputHit is handled generically in HandleMouseDown — not here
 
         case HitResult.SlotHit { Slot: { } slot }:
             // Toggle assignment mode
@@ -724,7 +826,7 @@ void HandleEquipmentClick(HitResult hit)
             }
             // Activate only latitude — Tab cycles to lon/elev
             eqSt.LatitudeInput.Activate();
-            eqSt.ActiveTextInput = eqSt.LatitudeInput;
+            appState.ActiveTextInput = eqSt.LatitudeInput;
             StartTextInput(sdlWindow.Handle);
             break;
 
@@ -745,7 +847,7 @@ void HandleEquipmentClick(HitResult hit)
                     eqSt2.LatitudeInput.Deactivate();
                     eqSt2.LongitudeInput.Deactivate();
                     eqSt2.ElevationInput.Deactivate();
-                    eqSt2.ActiveTextInput = null;
+                    appState.ActiveTextInput = null;
                     StopTextInput(sdlWindow.Handle);
                     appState.NeedsRedraw = true;
                 });

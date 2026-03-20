@@ -16,6 +16,7 @@ public static class TextInputRenderer
     private static readonly RGBAColor32 TextColor = new(220, 220, 220, 255);
     private static readonly RGBAColor32 PlaceholderColor = new(120, 120, 140, 255);
     private static readonly RGBAColor32 CursorColor = new(200, 200, 255, 255);
+    private static readonly RGBAColor32 SelectionColor = new(60, 90, 150, 180);
 
     /// <summary>
     /// Renders a text input field at the specified position.
@@ -73,6 +74,21 @@ public static class TextInputRenderer
                 layoutRect,
                 TextAlign.Near,
                 TextAlign.Center);
+        }
+
+        // Selection highlight
+        if (state.IsActive && state.HasSelection)
+        {
+            var selStartText = state.Text[..state.SelectionStart];
+            var selEndText = state.Text[..state.SelectionEnd];
+            var selStartX = textX + (int)renderer.MeasureText(selStartText.AsSpan(), fontFamily, fontSize).Width;
+            var selEndX = textX + (int)renderer.MeasureText(selEndText.AsSpan(), fontFamily, fontSize).Width;
+            var selY = y + (int)(height * 0.1f);
+            var selH = (int)(height * 0.8f);
+
+            renderer.FillRectangle(
+                new RectInt(new PointInt(selEndX, selY + selH), new PointInt(selStartX, selY)),
+                SelectionColor);
         }
 
         // Cursor (blinking)

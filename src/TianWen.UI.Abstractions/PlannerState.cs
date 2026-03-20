@@ -67,6 +67,18 @@ public class PlannerState
     /// <summary>Manually searched/added targets (exempt from rating filter).</summary>
     public List<ScoredTarget> SearchResults { get; set; } = [];
 
+    /// <summary>Current autocomplete suggestions for the search bar (max <see cref="MaxSuggestions"/>).</summary>
+    public List<string> Suggestions { get; } = [];
+
+    /// <summary>Index of the highlighted suggestion (-1 = none).</summary>
+    public int SuggestionIndex { get; set; } = -1;
+
+    /// <summary>The query that produced the current <see cref="Suggestions"/> list (avoids re-scanning on arrow keys).</summary>
+    public string LastSuggestionQuery { get; set; } = "";
+
+    /// <summary>Maximum number of autocomplete suggestions to show.</summary>
+    public const int MaxSuggestions = 8;
+
     /// <summary>Site timezone offset (from GeoTimeZone). Used for display instead of machine local time.</summary>
     public TimeSpan SiteTimeZone { get; set; }
 

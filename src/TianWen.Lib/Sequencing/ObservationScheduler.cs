@@ -622,13 +622,17 @@ internal static class ObservationScheduler
         profile[RaDecEventTime.AstroDark] = profile[RaDecEventTime.Balance]; // first sample ≈ astroDark
         profile[RaDecEventTime.AstroTwilight] = profile[RaDecEventTime.Balance + astroms.Length - 1]; // last ≈ astroTwilight
 
-        // Estimate meridian crossing from RA and LST
+        // Estimate meridian crossing from RA and LST (skip for targets with unknown RA, e.g. solar system objects)
         var siderealTimeAtAstroDark = Transform.CalculateLocalSiderealTime(astroDark.UtcDateTime, siteLong);
-        var hourAngle = TimeSpan.FromHours(CoordinateUtils.ConditionHA(siderealTimeAtAstroDark - target.RA));
-        var crossMeridianTime = astroDark - hourAngle;
-        // Find the closest precomputed sample to the meridian time
-        var meridianIdx = FindClosestTimeIndex(times, crossMeridianTime);
-        profile[RaDecEventTime.Meridian] = new RaDecEventInfo(crossMeridianTime, profile[RaDecEventTime.Balance + meridianIdx].Alt);
+        var conditionedHA = CoordinateUtils.ConditionHA(siderealTimeAtAstroDark - target.RA);
+        if (!double.IsNaN(conditionedHA))
+        {
+            var hourAngle = TimeSpan.FromHours(conditionedHA);
+            var crossMeridianTime = astroDark - hourAngle;
+            // Find the closest precomputed sample to the meridian time
+            var meridianIdx = FindClosestTimeIndex(times, crossMeridianTime);
+            profile[RaDecEventTime.Meridian] = new RaDecEventInfo(crossMeridianTime, profile[RaDecEventTime.Balance + meridianIdx].Alt);
+        }
 
         var optimalStart = windowStart ?? astroDark;
         var optimalDuration = windowEnd.HasValue && windowStart.HasValue

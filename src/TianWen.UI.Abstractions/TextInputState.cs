@@ -18,6 +18,21 @@ public class TextInputState
     /// <summary>Cursor position (character index, 0 = before first char).</summary>
     public int CursorPos { get; set; }
 
+    /// <summary>
+    /// Selection anchor position, or -1 if no selection.
+    /// Selection range is between <see cref="SelectionStart"/> and <see cref="CursorPos"/>.
+    /// </summary>
+    public int SelectionAnchor { get; set; } = -1;
+
+    /// <summary>Start of the selection range (min of anchor and cursor).</summary>
+    public int SelectionStart => HasSelection ? Math.Min(SelectionAnchor, CursorPos) : CursorPos;
+
+    /// <summary>End of the selection range (max of anchor and cursor).</summary>
+    public int SelectionEnd => HasSelection ? Math.Max(SelectionAnchor, CursorPos) : CursorPos;
+
+    /// <summary>Whether there is an active text selection.</summary>
+    public bool HasSelection => SelectionAnchor >= 0 && SelectionAnchor != CursorPos;
+
     /// <summary>Optional placeholder text shown when empty and not active.</summary>
     public string Placeholder { get; set; } = "";
 
@@ -29,7 +44,7 @@ public class TextInputState
 
     /// <summary>
     /// Handles a text input event (from SDL3 TextInput or Console.Lib TryReadInput).
-    /// Inserts the text at the cursor position.
+    /// Replaces selection (if any) with the input, then inserts at cursor.
     /// </summary>
     public void InsertText(string input)
     {
@@ -38,6 +53,7 @@ public class TextInputState
             return;
         }
 
+        DeleteSelection();
         Text = Text.Insert(CursorPos, input);
         CursorPos += input.Length;
         IsCommitted = false;
@@ -52,7 +68,11 @@ public class TextInputState
         switch (key)
         {
             case TextInputKey.Backspace:
-                if (CursorPos > 0)
+                if (HasSelection)
+                {
+                    DeleteSelection();
+                }
+                else if (CursorPos > 0)
                 {
                     Text = Text.Remove(CursorPos - 1, 1);
                     CursorPos--;
@@ -60,45 +80,114 @@ public class TextInputState
                 return true;
 
             case TextInputKey.Delete:
-                if (CursorPos < Text.Length)
+                if (HasSelection)
+                {
+                    DeleteSelection();
+                }
+                else if (CursorPos < Text.Length)
                 {
                     Text = Text.Remove(CursorPos, 1);
                 }
                 return true;
 
             case TextInputKey.Left:
-                if (CursorPos > 0)
+                if (HasSelection)
+                {
+                    CursorPos = SelectionStart;
+                    ClearSelection();
+                }
+                else if (CursorPos > 0)
                 {
                     CursorPos--;
                 }
                 return true;
 
             case TextInputKey.Right:
-                if (CursorPos < Text.Length)
+                if (HasSelection)
+                {
+                    CursorPos = SelectionEnd;
+                    ClearSelection();
+                }
+                else if (CursorPos < Text.Length)
                 {
                     CursorPos++;
                 }
                 return true;
 
             case TextInputKey.Home:
+                ClearSelection();
                 CursorPos = 0;
                 return true;
 
             case TextInputKey.End:
+                ClearSelection();
                 CursorPos = Text.Length;
                 return true;
 
             case TextInputKey.Enter:
+                ClearSelection();
                 IsCommitted = true;
                 return true;
 
             case TextInputKey.Escape:
+                ClearSelection();
                 IsCancelled = true;
+                return true;
+
+            case TextInputKey.SelectAll:
+                SelectAll();
                 return true;
 
             default:
                 return false;
         }
+    }
+
+    /// <summary>
+    /// Selects all text.
+    /// </summary>
+    public void SelectAll()
+    {
+        if (Text.Length > 0)
+        {
+            SelectionAnchor = 0;
+            CursorPos = Text.Length;
+        }
+    }
+
+    /// <summary>
+    /// Selects the word at the given character position.
+    /// </summary>
+    public void SelectWordAt(int position)
+    {
+        if (Text.Length == 0)
+        {
+            return;
+        }
+
+        position = Math.Clamp(position, 0, Text.Length - 1);
+
+        // Find word boundaries (alphanumeric + underscore)
+        var start = position;
+        while (start > 0 && IsWordChar(Text[start - 1]))
+        {
+            start--;
+        }
+
+        var end = position;
+        while (end < Text.Length && IsWordChar(Text[end]))
+        {
+            end++;
+        }
+
+        // If we clicked on a non-word char, select just that char
+        if (start == end && position < Text.Length)
+        {
+            end = position + 1;
+        }
+
+        SelectionAnchor = start;
+        CursorPos = end;
     }
 
     /// <summary>
@@ -108,6 +197,7 @@ public class TextInputState
     {
         Text = "";
         CursorPos = 0;
+        SelectionAnchor = -1;
         IsCommitted = false;
         IsCancelled = false;
     }
@@ -133,7 +223,29 @@ public class TextInputState
     public void Deactivate()
     {
         IsActive = false;
+        ClearSelection();
     }
+
+    private void DeleteSelection()
+    {
+        if (!HasSelection)
+        {
+            return;
+        }
+
+        var start = SelectionStart;
+        var end = SelectionEnd;
+        Text = Text.Remove(start, end - start);
+        CursorPos = start;
+        ClearSelection();
+    }
+
+    private void ClearSelection()
+    {
+        SelectionAnchor = -1;
+    }
+
+    private static bool IsWordChar(char c) => char.IsLetterOrDigit(c) || c == '_' || c == '-';
 }
 
 /// <summary>
@@ -148,5 +260,6 @@ public enum TextInputKey
     Home,
     End,
     Enter,
-    Escape
+    Escape,
+    SelectAll
 }

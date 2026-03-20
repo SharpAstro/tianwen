@@ -42,11 +42,25 @@ namespace TianWen.UI.Gui
         private static readonly RGBAColor32 FilterBtnBg     = new RGBAColor32(0x35, 0x35, 0x48, 0xff);
         private static readonly RGBAColor32 ActiveFilterBg  = new RGBAColor32(0x30, 0x50, 0x30, 0xff);
         private static readonly RGBAColor32 FilterBtnText   = new RGBAColor32(0xdd, 0xdd, 0xdd, 0xff);
+        private static readonly RGBAColor32 DropdownBg       = new RGBAColor32(0x22, 0x22, 0x35, 0xff);
+        private static readonly RGBAColor32 DropdownSelBg    = new RGBAColor32(0x20, 0x30, 0x50, 0xff);
+        private static readonly RGBAColor32 DropdownBorder   = new RGBAColor32(0x44, 0x44, 0x60, 0xff);
 
         private IReadOnlyList<ScoredTarget> _lastFilteredTargets = [];
 
+        // Layout rects computed during Render, used by hit testing
+        private VkRect _targetListRect;
+        private VkRect _listItemsRect;
+        private float _itemHeight;
+        private float _searchBarBottom;
+        private float _searchBarLeft;
+        private float _searchBarWidth;
+
         /// <summary>The filtered target list from the last render pass.</summary>
         public IReadOnlyList<ScoredTarget> FilteredTargets => _lastFilteredTargets;
+
+        /// <summary>The target list panel rect from the last render pass (for scroll wheel detection).</summary>
+        public VkRect TargetListRect => _targetListRect;
 
         /// <summary>Current scroll offset (in items) for the target list.</summary>
         public int ScrollOffset { get; set; }
@@ -79,10 +93,7 @@ namespace TianWen.UI.Gui
         /// </summary>
         public void Render(
             PlannerState state,
-            float contentLeft,
-            float contentTop,
-            float contentWidth,
-            float contentHeight,
+            VkRect contentRect,
             float dpiScale,
             string fontPath,
             TimeProvider timeProvider)
@@ -94,66 +105,37 @@ namespace TianWen.UI.Gui
             var fontSize         = BaseFontSize * dpiScale;
             var padding          = BasePadding * dpiScale;
 
+            _itemHeight = itemHeight;
+
             BeginFrame();
 
             // Compute filtered target list (respects rating filter, always includes proposed)
             var filteredTargets = PlannerActions.GetFilteredTargets(state);
             _lastFilteredTargets = filteredTargets;
 
-            // --- 1. Altitude chart in the right portion of the content area ---
+            // Layout: target list left, details bottom-right, chart fills remainder
+            var layout = new VkLayout(contentRect);
+            _targetListRect = layout.Dock(VkDockStyle.Left, targetListWidth);
+            var detailsRect = layout.Dock(VkDockStyle.Bottom, detailsHeight);
+            var chartRect = layout.Fill();
+
+            // --- 1. Altitude chart ---
             var selectedIndex = state.SelectedTargetIndex >= 0
                                 && state.SelectedTargetIndex < filteredTargets.Count
                 ? state.SelectedTargetIndex
                 : (int?)null;
 
-            var chartX = (int)(contentLeft + targetListWidth);
-            var chartY = (int)contentTop;
-            var chartW = (int)(contentWidth - targetListWidth);
-            var chartH = (int)(contentHeight - detailsHeight);
-
-            AltitudeChartRenderer.Render(Renderer, state, fontPath, chartX, chartY, chartW, chartH, selectedIndex);
+            AltitudeChartRenderer.Render(Renderer, state, fontPath,
+                (int)chartRect.X, (int)chartRect.Y, (int)chartRect.Width, (int)chartRect.Height,
+                selectedIndex);
 
             // --- 2. Target list panel (opaque background, left side of content area) ---
             RenderTargetList(
-                state, fontPath, dpiScale,
-                contentLeft, contentTop, targetListWidth, contentHeight,
+                state, fontPath, dpiScale, _targetListRect,
                 headerHeight, itemHeight, fontSize, padding);
 
             // --- 3. Details panel (opaque background, bottom-right of content area) ---
-            RenderDetailsPanel(
-                state, fontPath,
-                contentLeft + targetListWidth,
-                contentTop + contentHeight - detailsHeight,
-                contentWidth - targetListWidth,
-                detailsHeight,
-                fontSize, padding);
-        }
-
-        /// <summary>
-        /// Hit-tests the target list for a click.
-        /// Returns the index in <see cref="PlannerState.TonightsBest"/>, or -1 if outside the list.
-        /// </summary>
-        public int HitTestTargetList(
-            float x, float y,
-            float contentLeft, float contentTop,
-            float dpiScale)
-        {
-            var targetListWidth = BaseTargetListWidth * dpiScale;
-            var headerHeight    = BaseHeaderHeight * dpiScale;
-            var itemHeight      = BaseItemHeight * dpiScale;
-            var searchH         = itemHeight * 1.1f + 4f; // matches render: searchH + 4 gap
-
-            var listLeft = contentLeft;
-            var listTop  = contentTop + headerHeight + searchH;
-            var listRight = contentLeft + targetListWidth;
-
-            if (x < listLeft || x >= listRight || y < listTop)
-            {
-                return -1;
-            }
-
-            var relY = y - listTop;
-            return (int)(relY / itemHeight) + ScrollOffset;
+            RenderDetailsPanel(state, fontPath, detailsRect, fontSize, padding);
         }
 
         // -----------------------------------------------------------------------
@@ -164,19 +146,31 @@ namespace TianWen.UI.Gui
             PlannerState state,
             string fontPath,
             float dpiScale,
-            float x, float y, float w, float h,
+            VkRect rect,
             float headerHeight, float itemHeight, float fontSize, float padding)
         {
             var scrollBarWidth = 6f * dpiScale;
-            var listW = w - scrollBarWidth;
+            var listW = rect.Width - scrollBarWidth;
+            var searchH = (int)(itemHeight * 1.1f);
+
+            // Sub-layout: header top, search strip below, items fill remainder
+            var listLayout = new VkLayout(rect);
+            var headerRect = listLayout.Dock(VkDockStyle.Top, headerHeight);
+            var searchStripRect = listLayout.Dock(VkDockStyle.Top, searchH + 4f);
+            _listItemsRect = listLayout.Fill();
+
+            // Save search bar geometry for dropdown overlay
+            _searchBarBottom = searchStripRect.Bottom;
+            _searchBarLeft = rect.X + padding;
+            _searchBarWidth = listW - padding * 2f;
 
             // Opaque background covers the chart behind the list
-            FillRect(x, y, w, h, PanelBgOpaque);
+            FillRect(rect.X, rect.Y, rect.Width, rect.Height, PanelBgOpaque);
 
             // Header row with clickable filter button
-            FillRect(x, y, w, headerHeight, HeaderBg);
+            FillRect(headerRect.X, headerRect.Y, headerRect.Width, headerRect.Height, HeaderBg);
             DrawText("Tonight's Best".AsSpan(), fontPath,
-                x + padding, y, listW * 0.6f, headerHeight,
+                headerRect.X + padding, headerRect.Y, listW * 0.6f, headerRect.Height,
                 fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
 
             // Filter button on the right side of header
@@ -184,23 +178,21 @@ namespace TianWen.UI.Gui
                 ? $"\u2605{state.MinRatingFilter:F0}+"
                 : "All";
             var filterBtnW = MeasureButtonWidth(filterBtnLabel, fontPath, fontSize * 0.9f, padding * 1.5f);
-            var filterBtnH = headerHeight * 0.75f;
-            var filterBtnX = x + listW - filterBtnW - padding;
-            var filterBtnY = y + (headerHeight - filterBtnH) / 2f;
+            var filterBtnH = headerRect.Height * 0.75f;
+            var filterBtnX = headerRect.X + listW - filterBtnW - padding;
+            var filterBtnY = headerRect.Y + (headerRect.Height - filterBtnH) / 2f;
             var filterBtnBg = state.MinRatingFilter > 0f ? ActiveFilterBg : FilterBtnBg;
             RenderButton(filterBtnLabel, filterBtnX, filterBtnY, filterBtnW, filterBtnH,
                 fontPath, fontSize * 0.9f, filterBtnBg, FilterBtnText, "CycleFilter");
 
-            // Search input below header
-            var searchH = (int)(itemHeight * 1.1f);
-            RenderTextInput(state.SearchInput, (int)(x + padding), (int)(y + headerHeight + 2),
+            // Search input below header (within the search strip, with 2px top gap)
+            RenderTextInput(state.SearchInput,
+                (int)(rect.X + padding), (int)(searchStripRect.Y + 2),
                 (int)(listW - padding * 2f), searchH, fontPath, fontSize * 0.9f);
 
             var filtered = _lastFilteredTargets;
             var totalItems = filtered.Count;
-            var listTop      = y + headerHeight + searchH + 4;
-            var listH        = h - headerHeight;
-            var visibleRows  = Math.Max(1, (int)(listH / itemHeight));
+            var visibleRows  = Math.Max(1, (int)(_listItemsRect.Height / itemHeight));
             VisibleRows = visibleRows;
             var maxScroll    = Math.Max(0, totalItems - visibleRows);
 
@@ -210,8 +202,8 @@ namespace TianWen.UI.Gui
 
             for (var i = ScrollOffset; i < totalItems; i++)
             {
-                var rowY = listTop + (i - ScrollOffset) * itemHeight;
-                if (rowY + itemHeight > y + h)
+                var rowY = _listItemsRect.Y + (i - ScrollOffset) * itemHeight;
+                if (rowY + itemHeight > _listItemsRect.Bottom)
                 {
                     break;
                 }
@@ -225,19 +217,20 @@ namespace TianWen.UI.Gui
                                        : PanelBgOpaque;
                 var rowTextColor = isSelected ? SelectedText : ItemText;
 
-                FillRect(x, rowY, listW, itemHeight, rowBg);
+                FillRect(rect.X, rowY, listW, itemHeight, rowBg);
+                RegisterClickable(rect.X, rowY, listW, itemHeight, new HitResult.ListItemHit("TargetList", i));
 
                 // Proposed marker "*" in cyan on left
                 if (isProposed)
                 {
                     var markerW = padding * 2f;
                     DrawText("*".AsSpan(), fontPath,
-                        x + 1f, rowY, markerW, itemHeight,
+                        rect.X + 1f, rowY, markerW, itemHeight,
                         fontSize, ProposedMarker, TextAlign.Near, TextAlign.Center);
                 }
 
                 // Target name
-                var nameX = x + padding * 2f;
+                var nameX = rect.X + padding * 2f;
                 var nameW = listW * 0.60f;
                 DrawText(scored.Target.Name.AsSpan(), fontPath,
                     nameX, rowY, nameW, itemHeight,
@@ -245,7 +238,7 @@ namespace TianWen.UI.Gui
 
                 // Altitude right-aligned
                 var altStr = $"{scored.OptimalAltitude:F0}°";
-                var altX   = x + padding * 2f + nameW;
+                var altX   = rect.X + padding * 2f + nameW;
                 var altW   = listW - nameW - padding * 3f;
                 DrawText(altStr.AsSpan(), fontPath,
                     altX, rowY, altW, itemHeight,
@@ -255,12 +248,65 @@ namespace TianWen.UI.Gui
             // Scrollbar thumb
             if (totalItems > visibleRows && maxScroll > 0)
             {
-                var sbX    = x + listW;
-                FillRect(sbX, listTop, scrollBarWidth, listH, ScrollBarBg);
+                var sbX = rect.X + listW;
+                FillRect(sbX, _listItemsRect.Y, scrollBarWidth, _listItemsRect.Height, ScrollBarBg);
 
-                var thumbH = Math.Max(20f * dpiScale, listH * visibleRows / (float)totalItems);
-                var thumbY = listTop + (listH - thumbH) * ScrollOffset / (float)maxScroll;
+                var thumbH = Math.Max(20f * dpiScale, _listItemsRect.Height * visibleRows / (float)totalItems);
+                var thumbY = _listItemsRect.Y + (_listItemsRect.Height - thumbH) * ScrollOffset / (float)maxScroll;
                 FillRect(sbX + 1f, thumbY, scrollBarWidth - 2f, thumbH, ScrollBarFg);
+            }
+
+            // Autocomplete dropdown (overlay, painted last so it's on top)
+            if (state.Suggestions.Count > 0 && state.SearchInput.IsActive)
+            {
+                RenderSuggestionDropdown(state, fontPath, itemHeight, fontSize, padding);
+            }
+        }
+
+        // -----------------------------------------------------------------------
+        // Autocomplete dropdown
+        // -----------------------------------------------------------------------
+
+        private void RenderSuggestionDropdown(
+            PlannerState state,
+            string fontPath,
+            float itemHeight, float fontSize, float padding)
+        {
+            var suggestions = state.Suggestions;
+            var dropdownH = suggestions.Count * itemHeight;
+            var dropdownY = _searchBarBottom;
+
+            // Clamp to not extend past the target list panel
+            var maxH = _targetListRect.Bottom - dropdownY;
+            if (dropdownH > maxH)
+            {
+                dropdownH = maxH;
+            }
+
+            // Background + border
+            FillRect(_searchBarLeft - 1f, dropdownY - 1f, _searchBarWidth + 2f, dropdownH + 2f, DropdownBorder);
+            FillRect(_searchBarLeft, dropdownY, _searchBarWidth, dropdownH, DropdownBg);
+
+            for (var i = 0; i < suggestions.Count; i++)
+            {
+                var rowY = dropdownY + i * itemHeight;
+                if (rowY + itemHeight > dropdownY + dropdownH)
+                {
+                    break;
+                }
+
+                var isHighlighted = i == state.SuggestionIndex;
+                if (isHighlighted)
+                {
+                    FillRect(_searchBarLeft, rowY, _searchBarWidth, itemHeight, DropdownSelBg);
+                }
+
+                DrawText(suggestions[i].AsSpan(), fontPath,
+                    _searchBarLeft + padding, rowY, _searchBarWidth - padding * 2f, itemHeight,
+                    fontSize * 0.9f, isHighlighted ? SelectedText : ItemText, TextAlign.Near, TextAlign.Center);
+
+                RegisterClickable(_searchBarLeft, rowY, _searchBarWidth, itemHeight,
+                    new HitResult.ListItemHit("Suggestion", i));
             }
         }
 
@@ -271,20 +317,20 @@ namespace TianWen.UI.Gui
         private void RenderDetailsPanel(
             PlannerState state,
             string fontPath,
-            float x, float y, float w, float h,
+            VkRect rect,
             float fontSize, float padding)
         {
-            FillRect(x, y, w, h, DetailsBg);
+            FillRect(rect.X, rect.Y, rect.Width, rect.Height, DetailsBg);
 
             // Separator line at top
-            FillRect(x, y, w, 1f, SeparatorColor);
+            FillRect(rect.X, rect.Y, rect.Width, 1f, SeparatorColor);
 
             var idx = state.SelectedTargetIndex;
             var filtered = _lastFilteredTargets;
             if (idx < 0 || idx >= filtered.Count)
             {
                 DrawText("Select a target to see details.".AsSpan(), fontPath,
-                    x + padding, y, w - padding * 2f, h,
+                    rect.X + padding, rect.Y, rect.Width - padding * 2f, rect.Height,
                     fontSize, DimText, TextAlign.Near, TextAlign.Center);
                 return;
             }
@@ -292,12 +338,12 @@ namespace TianWen.UI.Gui
             var scored      = filtered[idx];
             var isProposed  = state.Proposals.Any(p => p.Target == scored.Target);
             var statusSuffix = isProposed ? " [Proposed]" : "";
-            var lineH       = h / 3f;
+            var lineH       = rect.Height / 3f;
 
             // Line 1: target name (larger font)
             var nameText = scored.Target.Name + statusSuffix;
             DrawText(nameText.AsSpan(), fontPath,
-                x + padding, y, w - padding * 2f, lineH,
+                rect.X + padding, rect.Y, rect.Width - padding * 2f, lineH,
                 fontSize * 1.25f, DetailsNameText, TextAlign.Near, TextAlign.Center);
 
             // Line 2: coordinates + altitude + window
@@ -305,7 +351,7 @@ namespace TianWen.UI.Gui
             var line2 = $"RA {scored.Target.RA:F3}h  Dec {scored.Target.Dec:+0.0;-0.0}°" +
                         $"  Alt {scored.OptimalAltitude:F0}°  Window {window}";
             DrawText(line2.AsSpan(), fontPath,
-                x + padding, y + lineH, w - padding * 2f, lineH,
+                rect.X + padding, rect.Y + lineH, rect.Width - padding * 2f, lineH,
                 fontSize, DetailsInfoText, TextAlign.Near, TextAlign.Center);
 
             // Line 3: log-scale rating (0.5-5.0 stars)
@@ -313,7 +359,7 @@ namespace TianWen.UI.Gui
             var rating = PlannerActions.ScoreToRating(scored.CombinedScore, maxScore);
             var line3 = $"Rating: {rating:F1}\u2605";
             DrawText(line3.AsSpan(), fontPath,
-                x + padding, y + lineH * 2f, w - padding * 2f, lineH,
+                rect.X + padding, rect.Y + lineH * 2f, rect.Width - padding * 2f, lineH,
                 fontSize, DetailsInfoText, TextAlign.Near, TextAlign.Center);
         }
 
