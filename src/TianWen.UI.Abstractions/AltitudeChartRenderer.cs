@@ -456,39 +456,67 @@ public static class AltitudeChartRenderer
         int rendererH,
         int rendererW)
     {
-        var fs       = FontSize(rendererH, 11);
-        var itemW    = Math.Max(90, (rendererW - plotX * 2) / Math.Max(1, allTargets.Length + 2));
+        var fs       = FontSize(rendererH, 10);
         var cursorX  = plotX;
         var lineY    = legendY + legendH / 2;
+        var availW   = rendererW - plotX * 2;
 
-        for (var i = 0; i < allTargets.Length; i++)
+        // Reserve space for Primary/Spare labels at the end
+        var suffixW  = 200;
+        var targetW  = availW - suffixW;
+
+        // Measure each target name and only show those that fit
+        var maxTargets = Math.Min(allTargets.Length, 8); // cap at 8 for readability
+        var itemW = maxTargets > 0 ? Math.Max(80, targetW / maxTargets) : 80;
+
+        for (var i = 0; i < maxTargets; i++)
         {
+            if (cursorX + itemW > plotX + targetW)
+            {
+                break;
+            }
+
             var colorIdx = targetColorMap.GetValueOrDefault(allTargets[i], 0) % TargetColors.Length;
             var color    = TargetColors[colorIdx];
 
             // Short coloured sample line (3px tall rect)
             FillRect(renderer, cursorX, lineY - 1, 20, 3, color);
 
-            var labelRect = MakeRect(cursorX + 22, legendY, itemW - 22, legendH);
-            renderer.DrawText(allTargets[i].Name, fontFamily, fs, color,
+            // Truncate long names
+            var name = allTargets[i].Name;
+            if (name.Length > 12)
+            {
+                name = name[..11] + ".";
+            }
+
+            var labelRect = MakeRect(cursorX + 22, legendY, itemW - 24, legendH);
+            renderer.DrawText(name, fontFamily, fs, color,
                 labelRect, TextAlign.Near, TextAlign.Center);
 
             cursorX += itemW;
         }
 
+        if (maxTargets < allTargets.Length)
+        {
+            var moreRect = MakeRect(cursorX, legendY, 60, legendH);
+            renderer.DrawText($"+{allTargets.Length - maxTargets}", fontFamily, fs, GrayColor,
+                moreRect, TextAlign.Near, TextAlign.Center);
+            cursorX += 60;
+        }
+
         // "Primary (solid)" sample
         cursorX += 10;
         FillRect(renderer, cursorX, lineY - 1, 20, 3, GrayColor);
-        var primRect = MakeRect(cursorX + 22, legendY, 100, legendH);
+        var primRect = MakeRect(cursorX + 22, legendY, 70, legendH);
         renderer.DrawText("Primary", fontFamily, fs, GrayColor, primRect, TextAlign.Near, TextAlign.Center);
-        cursorX += 120;
+        cursorX += 90;
 
         // "Spare (dashed)" sample — dots to suggest dashes
         for (var d = 0; d < 20; d += 5)
         {
             FillRect(renderer, cursorX + d, lineY - 1, 3, 3, GrayColor);
         }
-        var spareRect = MakeRect(cursorX + 22, legendY, 100, legendH);
+        var spareRect = MakeRect(cursorX + 22, legendY, 60, legendH);
         renderer.DrawText("Spare", fontFamily, fs, GrayColor, spareRect, TextAlign.Near, TextAlign.Center);
     }
 
