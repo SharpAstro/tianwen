@@ -397,6 +397,34 @@ void HandleKeyDown(Scancode scancode, Keymod keymod)
                     }
                 }
                 break;
+            case Scancode.M:
+                // Cycle minimum altitude: 15 → 20 → 25 → 30 → 35 → 15
+                plannerState.MinHeightAboveHorizon = plannerState.MinHeightAboveHorizon switch
+                {
+                    15 => 20,
+                    20 => 25,
+                    25 => 30,
+                    30 => 35,
+                    _ => 15
+                };
+                // Recompute with new minimum — need to rescore targets
+                if (appState.ActiveProfile is not null)
+                {
+                    var mTransform = TransformFactory.FromProfile(
+                        appState.ActiveProfile, external.TimeProvider, out _);
+                    if (mTransform is not null)
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            var objectDb2 = sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
+                            await PlannerActions.ComputeTonightsBestAsync(
+                                plannerState, objectDb2, mTransform,
+                                plannerState.MinHeightAboveHorizon, cts.Token);
+                        });
+                    }
+                }
+                plannerState.NeedsRedraw = true;
+                break;
             case Scancode.S:
                 if (appState.ActiveProfile is not null)
                 {
