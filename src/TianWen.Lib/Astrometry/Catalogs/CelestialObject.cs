@@ -30,9 +30,12 @@ public readonly record struct CelestialObject(
 )
 {
     /// <summary>
-    /// Returns the preferred display name: first common name if available, otherwise the canonical catalog designation.
+    /// Returns the preferred display name: longest common name if available, otherwise the canonical catalog designation.
+    /// Longest name is typically the most descriptive (e.g. "Eta Carinae Nebula" over "Keyhole Nebula").
     /// </summary>
-    public readonly string DisplayName => CommonNames.Count > 0 ? CommonNames.First() : Index.ToCanonical();
+    public readonly string DisplayName => CommonNames.Count > 0
+        ? CommonNames.OrderByDescending(n => n.Length).ThenBy(n => n).First()
+        : Index.ToCanonical();
 
     private readonly string DebuggerDisplay()
         => $"{Index.ToCanonical()} [{string.Join(",", CommonNames.OrderByDescending(p => p.Length))}] {Constellation.ToIAUAbbreviation()} {ObjectType.ToAbbreviation()} " +

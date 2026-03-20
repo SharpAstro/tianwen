@@ -58,6 +58,9 @@ public class PlannerState
     /// <summary>Scored targets keyed by Target (for elevation profile access).</summary>
     public Dictionary<Target, ScoredTarget> ScoredTargets { get; set; } = [];
 
+    /// <summary>Cross-index aliases for targets (e.g. "Also: NGC 224, UGC 454").</summary>
+    public Dictionary<Target, string> TargetAliases { get; set; } = [];
+
     /// <summary>Minimum star rating filter (0 = show all, 3 = 3★+, 4 = 4★+, 5 = 5★ only).</summary>
     public float MinRatingFilter { get; set; } = 0f;
 
