@@ -1,4 +1,5 @@
 using TianWen.Lib.Devices;
+using TianWen.UI.Abstractions;
 
 namespace TianWen.UI.Gui;
 
@@ -17,4 +18,7 @@ public class GuiAppState
     public bool NeedsRedraw { get; set; } = true;
     public (float X, float Y) MouseScreenPosition { get; set; }
     public string? StatusMessage { get; set; }
+
+    /// <summary>The currently focused text input across all tabs. Single source of truth.</summary>
+    public TextInputState? ActiveTextInput { get; set; }
 }

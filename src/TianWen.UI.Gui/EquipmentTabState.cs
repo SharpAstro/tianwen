@@ -18,7 +18,7 @@ public class EquipmentTabState
     public TextInputState LatitudeInput { get; } = new() { Placeholder = "Latitude (e.g. 48.2)" };
     public TextInputState LongitudeInput { get; } = new() { Placeholder = "Longitude (e.g. 16.3)" };
     public TextInputState ElevationInput { get; } = new() { Placeholder = "Elevation m (e.g. 200)" };
-    public TextInputState? ActiveTextInput { get; set; } // which field is currently focused
+    // ActiveTextInput moved to GuiAppState — single source of truth across all tabs
 
     // Device discovery
     public IReadOnlyList<DeviceBase> DiscoveredDevices { get; set; } = [];
