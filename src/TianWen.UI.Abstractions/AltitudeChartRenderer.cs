@@ -17,8 +17,8 @@ public static class AltitudeChartRenderer
     // Target colors — same palette as ObservationScheduleVisualizationTests
     private static readonly RGBAColor32[] TargetColors =
     [
-        new RGBAColor32(230,  57,  70, 255),  // Red
         new RGBAColor32( 69, 123, 157, 255),  // Steel blue
+        new RGBAColor32(200, 100, 200, 255),  // Magenta/purple
         new RGBAColor32( 42, 157, 143, 255),  // Teal
         new RGBAColor32(233, 196, 106, 255),  // Gold
         new RGBAColor32(244, 162,  97, 255),  // Orange
@@ -623,17 +623,17 @@ public static class AltitudeChartRenderer
                 DrawSolidCurve(renderer, smoothed, curveColor, dotSize);
             }
 
-            // Label at the peak altitude point: name + peak time
+            // Label at the peak altitude point: name above, peak time below
             var peak     = profile.MaxBy(p => p.Alt);
             var peakX    = timeToX(peak.Time);
             var peakY    = altToY(peak.Alt);
-            var nameRect = MakeRect(peakX - 60, peakY - 28, 120, 14);
+            var nameRect = MakeRect(peakX - 60, peakY - 18, 120, 14);
             renderer.DrawText(target.Name, fontFamily, FontSize(rendererH, 12), curveColor,
                 nameRect, TextAlign.Center, TextAlign.Far);
             var peakTimeStr = peak.Time.ToOffset(state.SiteTimeZone).ToString("HH:mm");
-            var timeRect = MakeRect(peakX - 30, peakY - 14, 60, 12);
+            var timeRect = MakeRect(peakX - 30, peakY + 4, 60, 12);
             renderer.DrawText(peakTimeStr, fontFamily, FontSize(rendererH, 9), GrayColor,
-                timeRect, TextAlign.Center, TextAlign.Far);
+                timeRect, TextAlign.Center, TextAlign.Near);
         }
     }
 
@@ -891,12 +891,13 @@ public static class AltitudeChartRenderer
         var seen = new HashSet<Target>();
         var result = new List<Target>();
 
-        // Proposed targets always shown
-        foreach (var p in state.Proposals)
+        // Pinned targets in peak-time sorted order (matches GetFilteredTargets and slider windows)
+        var filtered = PlannerActions.GetFilteredTargets(state);
+        for (var i = 0; i < state.PinnedCount && i < filtered.Count; i++)
         {
-            if (seen.Add(p.Target))
+            if (seen.Add(filtered[i].Target))
             {
-                result.Add(p.Target);
+                result.Add(filtered[i].Target);
             }
         }
 
@@ -923,7 +924,6 @@ public static class AltitudeChartRenderer
         // Currently selected target (so user can preview before proposing)
         if (highlightTargetIndex.HasValue && highlightTargetIndex.Value >= 0)
         {
-            var filtered = PlannerActions.GetFilteredTargets(state);
             if (highlightTargetIndex.Value < filtered.Count)
             {
                 var selectedTarget = filtered[highlightTargetIndex.Value].Target;
