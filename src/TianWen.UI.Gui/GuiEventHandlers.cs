@@ -195,6 +195,17 @@ namespace TianWen.UI.Gui
                     _plannerState.NeedsRedraw = true;
                 }
             }
+            else if (_appState.ActiveTab is GuiTab.Session)
+            {
+                var pos = _appState.MouseScreenPosition;
+                var sessionTab = _guiRenderer.SessionTab;
+                if (sessionTab.ConfigPanelRect.Contains(pos.X, pos.Y))
+                {
+                    sessionTab.State.ConfigScrollOffset = Math.Max(0,
+                        sessionTab.State.ConfigScrollOffset - (int)(scrollY * sessionTab.ScrollLineHeight));
+                    _appState.NeedsRedraw = true;
+                }
+            }
         }
 
         /// <summary>

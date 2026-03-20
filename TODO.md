@@ -99,6 +99,7 @@
 ## ASCOM Drivers
 
 - [ ] Implement axis rates for telescope (`AscomTelescopeDriver.cs:320`)
+- [ ] Support ASCOM `Setup()` method — call the driver's native setup dialog for device-specific configuration
 
 ## Mount / Meade LX200 Protocol
 
@@ -215,6 +216,10 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 
 - [ ] Move `FileDialogHelper` to DIR.Lib — cross-platform native file picker (comdlg32/zenity/osascript), zero TianWen dependencies
 - [ ] Move `Stat/` DSP suite to DIR.Lib — 12 files: FFT, DFT, 25+ window functions, Catmull-Rom splines, StatisticsHelper, AggregationMethod; all pure math with no astro imports (note: DFT/FFT missing namespace declarations)
+
+## SdlVulkan.Renderer
+
+- [ ] Intermittent font atlas corruption — characters appear "drizzled on top", trigger unknown (possibly resize or atlas grow/evict). Known hazards: `Grow()` destroys `VkImageView` without `vkDeviceWaitIdle`; `Flush` runs before `DrawText` rasterizes new glyphs after eviction; `Grow()` calls `ExecuteOneShot` while a render pass is active. Add logging to `Grow()`, `EvictAll()`, and `Flush()` to capture the trigger next time it reproduces.
 
 ## Vulkan Migration / HDR Display Output
 
