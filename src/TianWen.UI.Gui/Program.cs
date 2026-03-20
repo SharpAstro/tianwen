@@ -481,11 +481,23 @@ void HandleMouseDown(byte button, float px, float py)
 
         if (appState.ActiveTab is GuiTab.Planner)
         {
-            var targetIdx = guiRenderer.PlannerTab.HitTestTargetList(px, py, cl, ct2, guiRenderer.DpiScale);
-            if (targetIdx >= 0)
+            // Check planner tab buttons (filter, etc.)
+            var plannerHit = guiRenderer.PlannerTab.HitTest(px, py);
+            if (plannerHit is HitResult.ButtonHit { Action: "CycleFilter" })
             {
-                plannerState.SelectedTargetIndex = targetIdx;
-                plannerState.NeedsRedraw = true;
+                PlannerActions.CycleRatingFilter(plannerState);
+                plannerState.SelectedTargetIndex = 0;
+                guiRenderer.PlannerTab.ScrollOffset = 0;
+            }
+            else
+            {
+                // Target list hit test
+                var targetIdx = guiRenderer.PlannerTab.HitTestTargetList(px, py, cl, ct2, guiRenderer.DpiScale);
+                if (targetIdx >= 0)
+                {
+                    plannerState.SelectedTargetIndex = targetIdx;
+                    plannerState.NeedsRedraw = true;
+                }
             }
         }
         else if (appState.ActiveTab is GuiTab.Equipment)
