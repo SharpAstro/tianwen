@@ -114,6 +114,30 @@ internal sealed class AlpacaClient(HttpClient httpClient)
     }
 
     /// <summary>
+    /// GET a string array property (e.g. filterwheel/filternames).
+    /// </summary>
+    public async Task<string[]?> GetStringArrayAsync(string baseUrl, string deviceType, int deviceNumber, string endpoint, CancellationToken cancellationToken = default)
+    {
+        var url = BuildGetUrl(baseUrl, deviceType, deviceNumber, endpoint);
+        using var response = await httpClient.GetAsync(url, cancellationToken);
+        var result = await DeserializeResponseAsync(response, AlpacaJsonSerializerContext.Default.AlpacaResponseStringArray, cancellationToken);
+        ThrowOnError(result.ErrorNumber, result.ErrorMessage);
+        return result.Value;
+    }
+
+    /// <summary>
+    /// GET an integer array property (e.g. filterwheel/focusoffsets).
+    /// </summary>
+    public async Task<int[]?> GetIntArrayAsync(string baseUrl, string deviceType, int deviceNumber, string endpoint, CancellationToken cancellationToken = default)
+    {
+        var url = BuildGetUrl(baseUrl, deviceType, deviceNumber, endpoint);
+        using var response = await httpClient.GetAsync(url, cancellationToken);
+        var result = await DeserializeResponseAsync(response, AlpacaJsonSerializerContext.Default.AlpacaResponseInt32Array, cancellationToken);
+        ThrowOnError(result.ErrorNumber, result.ErrorMessage);
+        return result.Value;
+    }
+
+    /// <summary>
     /// PUT (invoke a method) on an Alpaca device endpoint with form-encoded parameters.
     /// </summary>
     public async Task PutAsync(string baseUrl, string deviceType, int deviceNumber, string endpoint, IEnumerable<KeyValuePair<string, string>>? parameters = null, CancellationToken cancellationToken = default)

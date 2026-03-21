@@ -41,12 +41,23 @@ internal class AscomFilterWheelDriver : AscomDeviceDriverBase, IFilterWheelDrive
     {
         get
         {
+            var query = _device.Query;
+
+            // Determine slot count: COM driver is authoritative, URI params as fallback
             var names = Names;
             var offsets = FocusOffsets;
-            var filters = new List<InstalledFilter>(names.Length);
-            for (var i = 0; i < names.Length; i++)
+            var slotCount = names.Length;
+
+            var filters = new List<InstalledFilter>(slotCount);
+            for (var i = 0; i < slotCount; i++)
             {
-                filters.Add(new InstalledFilter(names[i], i < offsets.Length ? offsets[i] : 0));
+                // URI query params override COM values per slot (profile is source of truth)
+                var uriName = query[DeviceQueryKeyExtensions.FilterKey(i + 1)];
+                var name = uriName ?? names[i];
+                var offset = int.TryParse(query[DeviceQueryKeyExtensions.FilterOffsetKey(i + 1)], out var o)
+                    ? o
+                    : (i < offsets.Length ? offsets[i] : 0);
+                filters.Add(new InstalledFilter(name, offset));
             }
 
             return filters;

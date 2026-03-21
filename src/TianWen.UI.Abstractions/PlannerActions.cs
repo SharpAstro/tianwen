@@ -916,7 +916,9 @@ public static class PlannerActions
         int defaultGain,
         int defaultOffset,
         TimeSpan defaultSubExposure,
-        TimeSpan defaultObservationTime)
+        TimeSpan defaultObservationTime,
+        IReadOnlyList<InstalledFilter>? availableFilters = null,
+        OpticalDesign opticalDesign = OpticalDesign.Unknown)
     {
         if (state.Proposals.Count == 0)
         {
@@ -934,7 +936,9 @@ public static class PlannerActions
             defaultGain,
             defaultOffset,
             defaultSubExposure,
-            defaultObservationTime);
+            defaultObservationTime,
+            availableFilters: availableFilters,
+            opticalDesign: opticalDesign);
 
         state.NeedsRedraw = true;
     }

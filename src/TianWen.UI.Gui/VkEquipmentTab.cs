@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Globalization;
 using System.Threading.Tasks;
 using DIR.Lib;
 using SdlVulkan.Renderer;
@@ -46,6 +48,12 @@ namespace TianWen.UI.Gui
         private static readonly RGBAColor32 ContentBg        = new RGBAColor32(0x16, 0x16, 0x1e, 0xff);
         private static readonly RGBAColor32 BottomBarBg      = new RGBAColor32(0x14, 0x14, 0x1c, 0xff);
         private static readonly RGBAColor32 AccentInstruct   = new RGBAColor32(0x88, 0xcc, 0xff, 0xff);
+        private static readonly RGBAColor32 FilterTableBg    = new RGBAColor32(0x1a, 0x1a, 0x26, 0xff);
+        private static readonly RGBAColor32 FilterRowAlt     = new RGBAColor32(0x20, 0x20, 0x2e, 0xff);
+        private static readonly RGBAColor32 EditButtonBg     = new RGBAColor32(0x2a, 0x40, 0x5a, 0xff);
+        private static readonly RGBAColor32 RemoveButtonBg   = new RGBAColor32(0x5a, 0x2a, 0x2a, 0xff);
+
+        private const int MaxFilterSlots = 8;
 
         /// <summary>Tab state (scroll offsets, discovery results, assignment mode).</summary>
         public EquipmentTabState State { get; } = new EquipmentTabState();
@@ -67,6 +75,9 @@ namespace TianWen.UI.Gui
 
         /// <summary>Callback for assigning a device to the active slot. Set by the host.</summary>
         public Func<int, Task>? OnAssignDevice { get; set; }
+
+        /// <summary>Callback for updating profile data (filter config, OTA props). Set by the host.</summary>
+        public Func<ProfileData, Task>? OnUpdateProfile { get; set; }
 
         public VkEquipmentTab(VkRenderer renderer) : base(renderer)
         {
@@ -345,14 +356,56 @@ namespace TianWen.UI.Gui
                 {
                     var ota = pd.OTAs[i];
 
-                    // OTA header
+                    // OTA header with [Edit] button
                     FillRect(x, cursor, w, itemH, OtaHeaderBg);
+                    var isEditingOta = State.EditingOtaIndex == i;
+                    var editBtnW = 50f * dpiScale;
                     DrawText(
                         $"Telescope #{i}: {ota.Name}".AsSpan(),
                         fontPath,
-                        x + padding, cursor, w - padding * 2f, itemH,
+                        x + padding, cursor, w - padding * 2f - editBtnW, itemH,
                         fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
+
+                    // [Edit]/[Done] toggle button
+                    var editLabel = isEditingOta ? "Done" : "Edit";
+                    var capturedI = i;
+                    RenderButton(editLabel, x + w - padding - editBtnW, cursor, editBtnW, itemH, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, $"EditOta{i}",
+                        () =>
+                        {
+                            if (isEditingOta)
+                            {
+                                // Commit OTA property edits
+                                if (appState.ActiveProfile is { } prof && prof.Data is { } editData)
+                                {
+                                    var newName = State.OtaNameInput.Text is { Length: > 0 } n ? n : null;
+                                    int? newFl = int.TryParse(State.FocalLengthInput.Text, out var fl) && fl > 0 ? fl : null;
+                                    int? newAp = int.TryParse(State.ApertureInput.Text, out var ap) ? ap : null;
+                                    var newData = EquipmentActions.UpdateOTA(editData, capturedI,
+                                        name: newName, focalLength: newFl, aperture: newAp);
+                                    if (OnUpdateProfile is { } update)
+                                    {
+                                        Tracker?.Run(() => update(newData), "Update OTA properties");
+                                    }
+                                }
+                                State.StopEditingOta();
+                            }
+                            else
+                            {
+                                State.BeginEditingOta(capturedI, ota);
+                            }
+                        });
                     cursor += itemH;
+
+                    // OTA property editors (when editing)
+                    if (isEditingOta)
+                    {
+                        cursor = RenderOtaPropertyEditors(appState, i, ota, x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, buttonH);
+                    }
+                    else
+                    {
+                        // Show OTA properties summary
+                        cursor = RenderOtaPropertiesSummary(ota, x, cursor, w, itemH, fontPath, fontSize, padding);
+                    }
 
                     // OTA sub-slots
                     cursor = RenderProfileSlot(
@@ -364,6 +417,13 @@ namespace TianWen.UI.Gui
                     cursor = RenderProfileSlot(
                         "  Filter Wheel", ota.FilterWheel, new AssignTarget.OTALevel(i, "FilterWheel"),
                         x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW);
+
+                    // Filter table (shown when a filter wheel is assigned)
+                    if (ota.FilterWheel is not null && ota.FilterWheel != NoneDevice.Instance.DeviceUri)
+                    {
+                        cursor = RenderFilterTable(appState, i, pd, x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, buttonH);
+                    }
+
                     cursor = RenderProfileSlot(
                         "  Cover", ota.Cover, new AssignTarget.OTALevel(i, "Cover"),
                         x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW);
@@ -589,6 +649,273 @@ namespace TianWen.UI.Gui
                 fontPath,
                 x + padding, y, w - padding * 2f, h,
                 fontSize * 0.9f, textColor, TextAlign.Near, TextAlign.Center);
+        }
+
+        // -----------------------------------------------------------------------
+        // OTA property editors
+        // -----------------------------------------------------------------------
+
+        private float RenderOtaPropertiesSummary(
+            OTAData ota,
+            float x, float cursor, float w, float itemH,
+            string fontPath, float fontSize, float padding)
+        {
+            var fRatio = ota.Aperture is > 0 ? $"f/{(double)ota.FocalLength / ota.Aperture.Value:F1}" : "";
+            var designStr = ota.OpticalDesign != OpticalDesign.Unknown ? ota.OpticalDesign.ToString() : "";
+            var parts = new List<string>(3);
+            if (ota.FocalLength > 0) parts.Add($"{ota.FocalLength}mm");
+            if (ota.Aperture is > 0) parts.Add($"\u00d8{ota.Aperture}mm");
+            if (fRatio.Length > 0) parts.Add(fRatio);
+            if (designStr.Length > 0) parts.Add(designStr);
+
+            if (parts.Count > 0)
+            {
+                var summary = string.Join("  ", parts);
+                DrawText(
+                    summary.AsSpan(),
+                    fontPath,
+                    x + padding * 2f, cursor, w - padding * 3f, itemH * 0.8f,
+                    fontSize * 0.8f, DimText, TextAlign.Near, TextAlign.Center);
+                cursor += itemH * 0.8f;
+            }
+
+            return cursor;
+        }
+
+        private float RenderOtaPropertyEditors(
+            GuiAppState appState,
+            int otaIndex, OTAData ota,
+            float x, float cursor, float w, float itemH,
+            float dpiScale, string fontPath, float fontSize, float padding, float buttonH)
+        {
+            var fieldH = (int)(itemH * 1.1f);
+            var labelW = 80f * dpiScale;
+            var fieldW = (int)(w - padding * 2f - labelW);
+            var fieldX = (int)(x + padding + labelW);
+
+            // Name
+            DrawText("  Name:".AsSpan(), fontPath, x + padding, cursor, labelW, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
+            RenderTextInput(State.OtaNameInput, fieldX, (int)cursor, fieldW, fieldH, fontPath, fontSize * 0.9f);
+            cursor += fieldH + 2;
+
+            // Focal length
+            DrawText("  FL (mm):".AsSpan(), fontPath, x + padding, cursor, labelW, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
+            RenderTextInput(State.FocalLengthInput, fieldX, (int)cursor, fieldW, fieldH, fontPath, fontSize * 0.9f);
+            cursor += fieldH + 2;
+
+            // Aperture
+            DrawText("  Aper (mm):".AsSpan(), fontPath, x + padding, cursor, labelW, itemH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
+            RenderTextInput(State.ApertureInput, fieldX, (int)cursor, fieldW, fieldH, fontPath, fontSize * 0.9f);
+            cursor += fieldH + 2;
+
+            // Optical design cycle button
+            var designLabel = $"  Design: {ota.OpticalDesign}";
+            var designBtnW = Renderer.MeasureText(designLabel.AsSpan(), fontPath, fontSize * 0.9f).Width + padding * 4f;
+            var capturedIdx = otaIndex;
+            RenderButton(designLabel, x + padding, cursor, designBtnW, buttonH, fontPath, fontSize * 0.9f, EditButtonBg, BodyText, $"CycleDesign{otaIndex}",
+                () =>
+                {
+                    if (appState.ActiveProfile is { } prof && prof.Data is { } data)
+                    {
+                        var currentOta = data.OTAs[capturedIdx];
+                        var nextDesign = (OpticalDesign)(((int)currentOta.OpticalDesign + 1) % 8);
+                        var newData = EquipmentActions.UpdateOTA(data, capturedIdx, opticalDesign: nextDesign);
+                        if (OnUpdateProfile is { } update)
+                        {
+                            Tracker?.Run(() => update(newData), "Cycle optical design");
+                        }
+                    }
+                });
+            cursor += buttonH + padding;
+
+            return cursor;
+        }
+
+        // -----------------------------------------------------------------------
+        // Filter table
+        // -----------------------------------------------------------------------
+
+        private float RenderFilterTable(
+            GuiAppState appState,
+            int otaIndex, ProfileData pd,
+            float x, float cursor, float w, float itemH,
+            float dpiScale, string fontPath, float fontSize, float padding, float buttonH)
+        {
+            var filters = EquipmentActions.GetFilterConfig(pd, otaIndex);
+            var isExpanded = State.ExpandedFilterOtaIndex == otaIndex;
+            var rowH = itemH * 0.85f;
+            var capturedOtaIdx = otaIndex;
+
+            // Toggle header
+            var headerLabel = isExpanded
+                ? $"    Filters ({filters.Count}) [-]"
+                : $"    Filters ({filters.Count}) [+]";
+            FillRect(x + padding, cursor, w - padding * 2f, rowH, FilterTableBg);
+            RegisterClickable(x + padding, cursor, w - padding * 2f, rowH, new HitResult.ButtonHit($"ToggleFilters{otaIndex}"),
+                () => { State.ExpandedFilterOtaIndex = isExpanded ? -1 : capturedOtaIdx; });
+            DrawText(
+                headerLabel.AsSpan(),
+                fontPath,
+                x + padding * 2f, cursor, w - padding * 4f, rowH,
+                fontSize * 0.85f, HeaderText, TextAlign.Near, TextAlign.Center);
+            cursor += rowH;
+
+            if (!isExpanded)
+            {
+                return cursor;
+            }
+
+            // Column headers
+            var nameColW = (w - padding * 4f) * 0.55f;
+            var offsetColW = (w - padding * 4f) * 0.3f;
+            var btnColW = (w - padding * 4f) * 0.15f;
+
+            FillRect(x + padding, cursor, w - padding * 2f, rowH, FilterTableBg);
+            DrawText("#".AsSpan(), fontPath, x + padding * 2f, cursor, padding * 2f, rowH, fontSize * 0.75f, DimText, TextAlign.Near, TextAlign.Center);
+            DrawText("Name".AsSpan(), fontPath, x + padding * 4f, cursor, nameColW, rowH, fontSize * 0.75f, DimText, TextAlign.Near, TextAlign.Center);
+            DrawText("Offset".AsSpan(), fontPath, x + padding * 4f + nameColW, cursor, offsetColW, rowH, fontSize * 0.75f, DimText, TextAlign.Near, TextAlign.Center);
+            cursor += rowH;
+
+            // Filter rows
+            for (var f = 0; f < filters.Count; f++)
+            {
+                var filter = filters[f];
+                var rowBg = f % 2 == 0 ? FilterTableBg : FilterRowAlt;
+                FillRect(x + padding, cursor, w - padding * 2f, rowH, rowBg);
+
+                // Slot number
+                DrawText(
+                    (f + 1).ToString().AsSpan(),
+                    fontPath,
+                    x + padding * 2f, cursor, padding * 2f, rowH,
+                    fontSize * 0.8f, DimText, TextAlign.Near, TextAlign.Center);
+
+                // Filter name (clickable to edit)
+                var capturedF = f;
+                var filterNameBtnW = nameColW;
+                RenderButton(filter.Filter.Name, x + padding * 4f, cursor, filterNameBtnW, rowH, fontPath, fontSize * 0.8f, rowBg, BodyText, $"FilterName{otaIndex}_{f}",
+                    () =>
+                    {
+                        if (appState.ActiveProfile is { } prof && prof.Data is { } data)
+                        {
+                            var currentFilters = new List<InstalledFilter>(EquipmentActions.GetFilterConfig(data, capturedOtaIdx));
+                            if (capturedF < currentFilters.Count)
+                            {
+                                // Cycle through common filter names
+                                var nextName = CycleFilterName(currentFilters[capturedF].Filter.Name);
+                                currentFilters[capturedF] = new InstalledFilter(nextName, currentFilters[capturedF].Position);
+                                var newData = EquipmentActions.SetFilterConfig(data, capturedOtaIdx, currentFilters);
+                                if (OnUpdateProfile is { } update)
+                                {
+                                    Tracker?.Run(() => update(newData), "Cycle filter name");
+                                }
+                            }
+                        }
+                    });
+
+                // Offset (clickable to step)
+                var offsetStr = filter.Position >= 0 ? $"+{filter.Position}" : filter.Position.ToString();
+                var offsetBtnW = offsetColW / 2f;
+
+                // [-] button
+                RenderButton("-", x + padding * 4f + nameColW, cursor, offsetBtnW * 0.4f, rowH, fontPath, fontSize * 0.8f, EditButtonBg, BodyText, $"FilterOffDec{otaIndex}_{f}",
+                    () => StepFilterOffset(appState, capturedOtaIdx, capturedF, -1));
+
+                // Offset value
+                DrawText(
+                    offsetStr.AsSpan(),
+                    fontPath,
+                    x + padding * 4f + nameColW + offsetBtnW * 0.4f, cursor, offsetBtnW * 1.2f, rowH,
+                    fontSize * 0.8f, BodyText, TextAlign.Center, TextAlign.Center);
+
+                // [+] button
+                RenderButton("+", x + padding * 4f + nameColW + offsetBtnW * 1.6f, cursor, offsetBtnW * 0.4f, rowH, fontPath, fontSize * 0.8f, EditButtonBg, BodyText, $"FilterOffInc{otaIndex}_{f}",
+                    () => StepFilterOffset(appState, capturedOtaIdx, capturedF, +1));
+
+                // [x] remove button
+                RenderButton("x", x + w - padding * 2f - btnColW, cursor, btnColW, rowH, fontPath, fontSize * 0.8f, RemoveButtonBg, BodyText, $"FilterDel{otaIndex}_{f}",
+                    () =>
+                    {
+                        if (appState.ActiveProfile is { } prof && prof.Data is { } data)
+                        {
+                            var currentFilters = new List<InstalledFilter>(EquipmentActions.GetFilterConfig(data, capturedOtaIdx));
+                            if (capturedF < currentFilters.Count)
+                            {
+                                currentFilters.RemoveAt(capturedF);
+                                var newData = EquipmentActions.SetFilterConfig(data, capturedOtaIdx, currentFilters);
+                                if (OnUpdateProfile is { } update)
+                                {
+                                    Tracker?.Run(() => update(newData), "Remove filter slot");
+                                }
+                            }
+                        }
+                    });
+
+                cursor += rowH;
+            }
+
+            // [+ Add Filter] button (capped at MaxFilterSlots)
+            if (filters.Count < MaxFilterSlots)
+            {
+                var addBtnW = Renderer.MeasureText("+ Add Filter".AsSpan(), fontPath, fontSize * 0.85f).Width + padding * 3f;
+                RenderButton("+ Add Filter", x + padding * 2f, cursor, addBtnW, buttonH * 0.85f, fontPath, fontSize * 0.85f, CreateButton, BodyText, $"AddFilter{otaIndex}",
+                    () =>
+                    {
+                        if (appState.ActiveProfile is { } prof && prof.Data is { } data)
+                        {
+                            var currentFilters = new List<InstalledFilter>(EquipmentActions.GetFilterConfig(data, capturedOtaIdx));
+                            if (currentFilters.Count < MaxFilterSlots)
+                            {
+                                currentFilters.Add(new InstalledFilter($"Filter {currentFilters.Count + 1}"));
+                                var newData = EquipmentActions.SetFilterConfig(data, capturedOtaIdx, currentFilters);
+                                if (OnUpdateProfile is { } update)
+                                {
+                                    Tracker?.Run(() => update(newData), "Add filter slot");
+                                }
+                            }
+                        }
+                    });
+                cursor += buttonH * 0.85f + padding / 2f;
+            }
+
+            return cursor;
+        }
+
+        private void StepFilterOffset(GuiAppState appState, int otaIndex, int filterIndex, int delta)
+        {
+            if (appState.ActiveProfile is { } prof && prof.Data is { } data)
+            {
+                var currentFilters = new List<InstalledFilter>(EquipmentActions.GetFilterConfig(data, otaIndex));
+                if (filterIndex < currentFilters.Count)
+                {
+                    var f = currentFilters[filterIndex];
+                    currentFilters[filterIndex] = new InstalledFilter(f.Filter.Name, f.Position + delta);
+                    var newData = EquipmentActions.SetFilterConfig(data, otaIndex, currentFilters);
+                    if (OnUpdateProfile is { } update)
+                    {
+                        Tracker?.Run(() => update(newData), "Step filter offset");
+                    }
+                }
+            }
+        }
+
+        private static readonly string[] CommonFilterNames =
+        [
+            "Luminance", "Red", "Green", "Blue",
+            "H-Alpha", "OIII", "SII", "H-Beta",
+            "H-Alpha + OIII", "UV/IR Cut", "Clear"
+        ];
+
+        private static string CycleFilterName(string current)
+        {
+            for (var i = 0; i < CommonFilterNames.Length; i++)
+            {
+                if (string.Equals(CommonFilterNames[i], current, StringComparison.OrdinalIgnoreCase))
+                {
+                    return CommonFilterNames[(i + 1) % CommonFilterNames.Length];
+                }
+            }
+            return CommonFilterNames[0];
         }
 
         // -----------------------------------------------------------------------
