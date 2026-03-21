@@ -548,6 +548,7 @@ namespace TianWen.UI.Gui
                             eqState.ProfileNameInput.Clear();
                             _appState.ActiveTextInput = null;
                             StopTextInput(_sdlWindowHandle);
+                            _plannerState.NeedsRecompute = true;
                             _appState.NeedsRedraw = true;
                         });
                     }
@@ -635,18 +636,17 @@ namespace TianWen.UI.Gui
                         var sData = siteProfile.Data ?? ProfileData.Empty;
                         var newSiteData = EquipmentActions.SetSite(sData, sLat, sLon, sElev);
                         var updatedSite = siteProfile.WithData(newSiteData);
-                        _ = Task.Run(async () =>
-                        {
-                            await updatedSite.SaveAsync(_external, _cts.Token);
-                            _appState.ActiveProfile = updatedSite;
-                            st2.IsEditingSite = false;
-                            st2.LatitudeInput.Deactivate();
-                            st2.LongitudeInput.Deactivate();
-                            st2.ElevationInput.Deactivate();
-                            _appState.ActiveTextInput = null;
-                            StopTextInput(_sdlWindowHandle);
-                            _appState.NeedsRedraw = true;
-                        });
+                        // Update UI immediately, save in background
+                        _appState.ActiveProfile = updatedSite;
+                        st2.IsEditingSite = false;
+                        st2.LatitudeInput.Deactivate();
+                        st2.LongitudeInput.Deactivate();
+                        st2.ElevationInput.Deactivate();
+                        _appState.ActiveTextInput = null;
+                        StopTextInput(_sdlWindowHandle);
+                        _plannerState.NeedsRecompute = true;
+                        _appState.NeedsRedraw = true;
+                        _ = Task.Run(async () => await updatedSite.SaveAsync(_external, _cts.Token));
                     }
                     else
                     {
@@ -669,7 +669,18 @@ namespace TianWen.UI.Gui
             if (eqState.ActiveAssignment is { } target && _appState.ActiveProfile is { } profile)
             {
                 var device = eqState.DiscoveredDevices[deviceIndex];
+
+                // Type guard: only allow devices matching the slot's expected type
+                if (device.DeviceType != target.ExpectedDeviceType)
+                {
+                    _appState.StatusMessage = $"Expected {target.ExpectedDeviceType}, got {device.DeviceType}";
+                    return;
+                }
+
                 var data = profile.Data ?? ProfileData.Empty;
+
+                // Remove from any existing slot first to prevent duplicates
+                data = EquipmentActions.UnassignDevice(data, device.DeviceUri);
 
                 var newData = target switch
                 {
@@ -683,13 +694,11 @@ namespace TianWen.UI.Gui
                 };
 
                 var updated = profile.WithData(newData);
-                _ = Task.Run(async () =>
-                {
-                    await updated.SaveAsync(_external, _cts.Token);
-                    _appState.ActiveProfile = updated;
-                    eqState.ActiveAssignment = null;
-                    _appState.NeedsRedraw = true;
-                });
+                // Update UI immediately (optimistic), save to disk in background
+                _appState.ActiveProfile = updated;
+                eqState.ActiveAssignment = null;
+                _appState.NeedsRedraw = true;
+                _ = Task.Run(async () => await updated.SaveAsync(_external, _cts.Token));
             }
         }
 
