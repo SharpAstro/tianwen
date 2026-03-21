@@ -10,6 +10,7 @@ using TianWen.Lib.Logging;
 using TianWen.UI.Abstractions;
 using TianWen.UI.Abstractions.Extensions;
 using TianWen.UI.Gui;
+using TianWen.UI.Shared;
 using static SDL3.SDL;
 
 // DI setup
@@ -213,9 +214,8 @@ while (running)
                                 break;
                             default:
                                 // Route to active tab's keyboard handler
-                                var inputKey = MapScancode(evt.Key.Scancode);
-                                var inputMod = MapModifiers(evt.Key.Mod);
-                                guiRenderer.ActiveTab?.HandleKeyDown(inputKey, inputMod);
+                                guiRenderer.ActiveTab?.HandleKeyDown(
+                                    evt.Key.Scancode.ToInputKey, evt.Key.Mod.ToInputModifier);
                                 break;
                         }
                     }
@@ -364,40 +364,6 @@ if (plannerTask is not null)
 }
 
 return 0;
-
-// --- SDL3 → InputKey mapping ---
-static InputKey MapScancode(Scancode scancode) => scancode switch
-{
-    Scancode.Up => InputKey.Up,
-    Scancode.Down => InputKey.Down,
-    Scancode.Left => InputKey.Left,
-    Scancode.Right => InputKey.Right,
-    Scancode.Home => InputKey.Home,
-    Scancode.End => InputKey.End,
-    Scancode.Pageup => InputKey.PageUp,
-    Scancode.Pagedown => InputKey.PageDown,
-    Scancode.Return => InputKey.Enter,
-    Scancode.Escape => InputKey.Escape,
-    Scancode.Tab => InputKey.Tab,
-    Scancode.Space => InputKey.Space,
-    Scancode.Backspace => InputKey.Backspace,
-    Scancode.Delete => InputKey.Delete,
-    >= Scancode.A and <= Scancode.Z => (InputKey)((int)InputKey.A + (scancode - Scancode.A)),
-    >= Scancode.Alpha1 and <= Scancode.Alpha0 => (InputKey)((int)InputKey.D1 + (scancode - Scancode.Alpha1)),
-    >= Scancode.F1 and <= Scancode.F12 => (InputKey)((int)InputKey.F1 + (scancode - Scancode.F1)),
-    Scancode.Equals => InputKey.Plus,
-    Scancode.Minus => InputKey.Minus,
-    _ => InputKey.None,
-};
-
-static InputModifier MapModifiers(Keymod keymod)
-{
-    var mod = InputModifier.None;
-    if ((keymod & Keymod.Shift) != 0) mod |= InputModifier.Shift;
-    if ((keymod & Keymod.Ctrl) != 0) mod |= InputModifier.Ctrl;
-    if ((keymod & Keymod.Alt) != 0) mod |= InputModifier.Alt;
-    return mod;
-}
 
 // --- Helper extension ---
 static class TaskExtensions
