@@ -222,61 +222,6 @@ namespace TianWen.UI.Gui
             return false; // Not consumed — let caller handle global keys
         }
 
-        /// <summary>
-        /// Handles planner-specific keyboard shortcuts.
-        /// </summary>
-        public void HandlePlannerKey(Scancode scancode)
-        {
-            var tab = _guiRenderer.PlannerTab;
-            var filtered = tab.FilteredTargets;
-
-            switch (scancode)
-            {
-                case Scancode.Up:
-                    if (_plannerState.SelectedTargetIndex > 0)
-                    {
-                        _plannerState.SelectedTargetIndex--;
-                        tab.EnsureVisible(_plannerState.SelectedTargetIndex);
-                        _plannerState.NeedsRedraw = true;
-                    }
-                    break;
-
-                case Scancode.Down:
-                    if (_plannerState.SelectedTargetIndex < filtered.Count - 1)
-                    {
-                        _plannerState.SelectedTargetIndex++;
-                        tab.EnsureVisible(_plannerState.SelectedTargetIndex);
-                        _plannerState.NeedsRedraw = true;
-                    }
-                    break;
-
-                case Scancode.Return when _plannerState.SelectedTargetIndex >= 0 && _plannerState.SelectedTargetIndex < filtered.Count:
-                    PlannerActions.ToggleProposal(_plannerState, filtered[_plannerState.SelectedTargetIndex].Target);
-                    break;
-
-                case Scancode.P when _plannerState.SelectedTargetIndex >= 0 && _plannerState.SelectedTargetIndex < filtered.Count:
-                    var propIdx = _plannerState.Proposals.FindIndex(p => p.Target == filtered[_plannerState.SelectedTargetIndex].Target);
-                    if (propIdx >= 0)
-                    {
-                        PlannerActions.CyclePriority(_plannerState, propIdx);
-                    }
-                    break;
-
-                case Scancode.F:
-                    PlannerActions.CycleRatingFilter(_plannerState);
-                    _plannerState.SelectedTargetIndex = 0;
-                    tab.ScrollOffset = 0;
-                    break;
-
-                case Scancode.M:
-                    CycleMinAltitude();
-                    break;
-
-                case Scancode.S:
-                    BuildScheduleFromProfile();
-                    break;
-            }
-        }
 
         public void CommitSuggestion(string suggestion)
         {
@@ -702,40 +647,5 @@ namespace TianWen.UI.Gui
             }
         }
 
-        private void CycleMinAltitude()
-        {
-            _plannerState.MinHeightAboveHorizon = _plannerState.MinHeightAboveHorizon switch
-            {
-                15 => 20, 20 => 25, 25 => 30, 30 => 35, _ => 15
-            };
-
-            if (_appState.ActiveProfile is not null)
-            {
-                var transform = TransformFactory.FromProfile(_appState.ActiveProfile, _external.TimeProvider, out _);
-                if (transform is not null)
-                {
-                    _ = Task.Run(async () =>
-                    {
-                        var db = _sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
-                        await PlannerActions.ComputeTonightsBestAsync(_plannerState, db, transform,
-                            _plannerState.MinHeightAboveHorizon, _cts.Token);
-                    });
-                }
-            }
-            _plannerState.NeedsRedraw = true;
-        }
-
-        private void BuildScheduleFromProfile()
-        {
-            if (_appState.ActiveProfile is null) return;
-            var transform = TransformFactory.FromProfile(_appState.ActiveProfile, _external.TimeProvider, out _);
-            if (transform is not null)
-            {
-                PlannerActions.BuildSchedule(_plannerState, transform,
-                    defaultGain: 120, defaultOffset: 10,
-                    defaultSubExposure: TimeSpan.FromSeconds(120),
-                    defaultObservationTime: TimeSpan.FromMinutes(60));
-            }
-        }
     }
 }

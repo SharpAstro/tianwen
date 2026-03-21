@@ -79,6 +79,20 @@ var cts = new CancellationTokenSource();
 var handlers = new GuiEventHandlers(sp, appState, plannerState, guiRenderer, sdlWindow.Handle, cts, external);
 Task? plannerTask = null;
 
+// Wire tab callbacks that need DI/profile access
+guiRenderer.PlannerTab.OnBuildSchedule = () =>
+{
+    if (appState.ActiveProfile is null) return;
+    var transform = TransformFactory.FromProfile(appState.ActiveProfile, external.TimeProvider, out _);
+    if (transform is not null)
+    {
+        PlannerActions.BuildSchedule(plannerState, transform,
+            defaultGain: 120, defaultOffset: 10,
+            defaultSubExposure: TimeSpan.FromSeconds(120),
+            defaultObservationTime: TimeSpan.FromMinutes(60));
+    }
+};
+
 if (appState.ActiveProfile is not null)
 {
     plannerTask = Task.Run(async () =>
@@ -198,10 +212,10 @@ while (running)
                                 sdlWindow.ToggleFullscreen();
                                 break;
                             default:
-                                if (appState.ActiveTab is GuiTab.Planner)
-                                {
-                                    handlers.HandlePlannerKey(evt.Key.Scancode);
-                                }
+                                // Route to active tab's keyboard handler
+                                var inputKey = MapScancode(evt.Key.Scancode);
+                                var inputMod = MapModifiers(evt.Key.Mod);
+                                guiRenderer.ActiveTab?.HandleKeyDown(inputKey, inputMod);
                                 break;
                         }
                     }
@@ -350,6 +364,40 @@ if (plannerTask is not null)
 }
 
 return 0;
+
+// --- SDL3 → InputKey mapping ---
+static InputKey MapScancode(Scancode scancode) => scancode switch
+{
+    Scancode.Up => InputKey.Up,
+    Scancode.Down => InputKey.Down,
+    Scancode.Left => InputKey.Left,
+    Scancode.Right => InputKey.Right,
+    Scancode.Home => InputKey.Home,
+    Scancode.End => InputKey.End,
+    Scancode.Pageup => InputKey.PageUp,
+    Scancode.Pagedown => InputKey.PageDown,
+    Scancode.Return => InputKey.Enter,
+    Scancode.Escape => InputKey.Escape,
+    Scancode.Tab => InputKey.Tab,
+    Scancode.Space => InputKey.Space,
+    Scancode.Backspace => InputKey.Backspace,
+    Scancode.Delete => InputKey.Delete,
+    >= Scancode.A and <= Scancode.Z => (InputKey)((int)InputKey.A + (scancode - Scancode.A)),
+    >= Scancode.Alpha1 and <= Scancode.Alpha0 => (InputKey)((int)InputKey.D1 + (scancode - Scancode.Alpha1)),
+    >= Scancode.F1 and <= Scancode.F12 => (InputKey)((int)InputKey.F1 + (scancode - Scancode.F1)),
+    Scancode.Equals => InputKey.Plus,
+    Scancode.Minus => InputKey.Minus,
+    _ => InputKey.None,
+};
+
+static InputModifier MapModifiers(Keymod keymod)
+{
+    var mod = InputModifier.None;
+    if ((keymod & Keymod.Shift) != 0) mod |= InputModifier.Shift;
+    if ((keymod & Keymod.Ctrl) != 0) mod |= InputModifier.Ctrl;
+    if ((keymod & Keymod.Alt) != 0) mod |= InputModifier.Alt;
+    return mod;
+}
 
 // --- Helper extension ---
 static class TaskExtensions

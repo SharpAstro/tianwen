@@ -15,6 +15,12 @@ namespace TianWen.UI.Abstractions
         /// <summary>Hit-tests and invokes the <see cref="ClickableRegion.OnClick"/> handler if present.</summary>
         HitResult? HitTestAndDispatch(float x, float y);
 
+        /// <summary>
+        /// Handles a key press while this widget/tab is active. Returns true if consumed.
+        /// Override in tabs to implement tab-specific keyboard shortcuts.
+        /// </summary>
+        bool HandleKeyDown(InputKey key, InputModifier modifiers) => false;
+
         /// <summary>Returns all registered text inputs in order (for Tab cycling).</summary>
         List<TextInputState> GetRegisteredTextInputs();
     }

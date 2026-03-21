@@ -50,6 +50,12 @@ namespace TianWen.UI.Gui
 
         private IReadOnlyList<ScoredTarget> _lastFilteredTargets = [];
 
+        /// <summary>Reference to the planner state from the last Render call.</summary>
+        private PlannerState? _state;
+
+        /// <summary>Callback for building the schedule (needs profile/transform). Set by the host.</summary>
+        public Action? OnBuildSchedule { get; set; }
+
         // Layout rects computed during Render, used by hit testing
         private PixelRect _targetListRect;
         private PixelRect _listItemsRect;
@@ -104,6 +110,7 @@ namespace TianWen.UI.Gui
             TimeProvider timeProvider,
             (float X, float Y) mouseScreenPosition = default)
         {
+            _state = state;
             var targetListWidth  = BaseTargetListWidth * dpiScale;
             var detailsHeight    = BaseDetailsPanelHeight * dpiScale;
             var headerHeight     = BaseHeaderHeight * dpiScale;
@@ -524,6 +531,79 @@ namespace TianWen.UI.Gui
             var start = scored.OptimalStart.ToOffset(state.SiteTimeZone);
             var end   = (scored.OptimalStart + scored.OptimalDuration).ToOffset(state.SiteTimeZone);
             return $"{start:HH:mm}\u2013{end:HH:mm}";
+        }
+
+        // -----------------------------------------------------------------------
+        // Keyboard handling
+        // -----------------------------------------------------------------------
+
+        /// <summary>
+        /// Handles planner-specific keyboard shortcuts.
+        /// </summary>
+        public bool HandleKeyDown(InputKey key, InputModifier modifiers)
+        {
+            if (_state is not { } state)
+            {
+                return false;
+            }
+
+            var filtered = _lastFilteredTargets;
+
+            switch (key)
+            {
+                case InputKey.Up:
+                    if (state.SelectedTargetIndex > 0)
+                    {
+                        state.SelectedTargetIndex--;
+                        EnsureVisible(state.SelectedTargetIndex);
+                        state.NeedsRedraw = true;
+                    }
+                    return true;
+
+                case InputKey.Down:
+                    if (state.SelectedTargetIndex < filtered.Count - 1)
+                    {
+                        state.SelectedTargetIndex++;
+                        EnsureVisible(state.SelectedTargetIndex);
+                        state.NeedsRedraw = true;
+                    }
+                    return true;
+
+                case InputKey.Enter when state.SelectedTargetIndex >= 0 && state.SelectedTargetIndex < filtered.Count:
+                    PlannerActions.ToggleProposal(state, filtered[state.SelectedTargetIndex].Target);
+                    return true;
+
+                case InputKey.P when state.SelectedTargetIndex >= 0 && state.SelectedTargetIndex < filtered.Count:
+                    var propIdx = state.Proposals.FindIndex(p => p.Target == filtered[state.SelectedTargetIndex].Target);
+                    if (propIdx >= 0)
+                    {
+                        PlannerActions.CyclePriority(state, propIdx);
+                    }
+                    return true;
+
+                case InputKey.F:
+                    PlannerActions.CycleRatingFilter(state);
+                    state.SelectedTargetIndex = 0;
+                    ScrollOffset = 0;
+                    return true;
+
+                case InputKey.M:
+                    // Cycle min altitude and trigger recompute via the existing loop
+                    state.MinHeightAboveHorizon = state.MinHeightAboveHorizon switch
+                    {
+                        15 => 20, 20 => 25, 25 => 30, 30 => 35, _ => 15
+                    };
+                    state.NeedsRecompute = true;
+                    state.NeedsRedraw = true;
+                    return true;
+
+                case InputKey.S:
+                    OnBuildSchedule?.Invoke();
+                    return true;
+
+                default:
+                    return false;
+            }
         }
 
         // Drawing helpers inherited from VkTabBase: FillRect, DrawText, RenderButton, RegisterClickable, etc.

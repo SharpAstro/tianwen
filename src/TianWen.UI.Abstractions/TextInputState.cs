@@ -43,6 +43,23 @@ public class TextInputState
     public bool IsCancelled { get; set; }
 
     /// <summary>
+    /// Called when Enter is pressed to commit the value. Set by the owning tab
+    /// so the central event handler doesn't need tab-specific commit logic.
+    /// </summary>
+    public Action<string>? OnCommit { get; set; }
+
+    /// <summary>
+    /// Called when Escape is pressed to cancel editing. Set by the owning tab.
+    /// </summary>
+    public Action? OnCancel { get; set; }
+
+    /// <summary>
+    /// Called on every text change (insert, backspace, delete). Set by the owning tab
+    /// for live-search / autocomplete scenarios.
+    /// </summary>
+    public Action<string>? OnTextChanged { get; set; }
+
+    /// <summary>
     /// Handles a text input event (from SDL3 TextInput or Console.Lib TryReadInput).
     /// Replaces selection (if any) with the input, then inserts at cursor.
     /// </summary>
