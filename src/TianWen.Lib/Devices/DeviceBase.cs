@@ -95,6 +95,15 @@ public abstract record class DeviceBase(Uri DeviceUri)
         return null;
     }
 
+    /// <summary>
+    /// Compares two device URIs by identity (scheme + authority + path), ignoring
+    /// query parameters and fragment. Query params carry runtime config (e.g. site
+    /// coordinates on a mount URI) that should not affect device identity.
+    /// </summary>
+    public static bool SameDevice(Uri? a, Uri? b) =>
+        a is not null && b is not null
+        && a.GetLeftPart(UriPartial.Path) == b.GetLeftPart(UriPartial.Path);
+
     internal static bool IsValidHost(string host) => Uri.CheckHostName(host) switch
     {
         UriHostNameType.Dns or

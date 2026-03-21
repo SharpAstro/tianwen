@@ -2,7 +2,6 @@ using DIR.Lib;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using SdlVulkan.Renderer;
-using System.Runtime.InteropServices;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Extensions;
 using TianWen.Lib.Sequencing;
@@ -10,8 +9,6 @@ using TianWen.Lib.Logging;
 using TianWen.UI.Abstractions;
 using TianWen.UI.Abstractions.Extensions;
 using TianWen.UI.Gui;
-using TianWen.UI.Shared;
-using static SDL3.SDL;
 
 // DI setup
 var services = new ServiceCollection();
@@ -68,11 +65,9 @@ sdlWindow.GetSizeInPixels(out var pixW, out var pixH);
 var ctx = VulkanContext.Create(sdlWindow.Instance, sdlWindow.Surface, (uint)pixW, (uint)pixH);
 var renderer = new VkRenderer(ctx, (uint)pixW, (uint)pixH);
 
-var dpiScale = sdlWindow.DisplayScale;
-
 var guiRenderer = new VkGuiRenderer(renderer, (uint)pixW, (uint)pixH)
 {
-    DpiScale = dpiScale
+    DpiScale = sdlWindow.DisplayScale
 };
 
 // Event handler setup
@@ -136,201 +131,129 @@ if (guiRenderer.EquipmentTab.OnDiscover is { } startupDiscover)
     tracker.Run(startupDiscover, "Startup device discovery");
 }
 
-// --- Main event loop ---
+// --- Main event loop via SdlEventLoop ---
 
-var needsRedraw = true;
-var running = true;
-
-while (running)
+var loop = new SdlEventLoop(sdlWindow, renderer)
 {
-    var hadEvent = needsRedraw
-        ? PollEvent(out Event evt)
-        : WaitEventTimeout(out evt, 16);
+    BackgroundColor = new RGBAColor32(0x12, 0x12, 0x18, 0xff),
 
-    if (hadEvent)
+    OnResize = (rw, rh) =>
     {
-        do
-        {
-            switch ((EventType)evt.Type)
-            {
-                case EventType.Quit:
-                    running = false;
-                    break;
+        guiRenderer.DpiScale = sdlWindow.DisplayScale;
+        guiRenderer.Resize(rw, rh);
+    },
 
-                case EventType.WindowResized:
-                case EventType.WindowPixelSizeChanged:
-                    sdlWindow.GetSizeInPixels(out var rw, out var rh);
-                    if (rw > 0 && rh > 0)
-                    {
-                        var newDpiScale = GetWindowDisplayScale(sdlWindow.Handle);
-                        if (newDpiScale <= 0f) newDpiScale = 1f;
-                        Console.Error.WriteLine($"[Program] Resize event: pixels={rw}x{rh}, dpiScale={dpiScale:F3} -> {newDpiScale:F3}");
-                        dpiScale = newDpiScale;
-                        renderer.Resize((uint)rw, (uint)rh);
-                        guiRenderer.DpiScale = dpiScale;
-                        guiRenderer.Resize((uint)rw, (uint)rh);
-                    }
-                    needsRedraw = true;
-                    break;
-
-                case EventType.WindowExposed:
-                    needsRedraw = true;
-                    break;
-
-                case EventType.KeyDown:
-                    needsRedraw = true;
-                    if (!handlers.HandleKeyDown(evt.Key.Scancode, evt.Key.Mod))
-                    {
-                        // Global keys (not consumed by text input)
-                        switch (evt.Key.Scancode)
-                        {
-                            case Scancode.Escape:
-                                running = false;
-                                break;
-                            case Scancode.F11:
-                                sdlWindow.ToggleFullscreen();
-                                break;
-                            default:
-                                // Route to active tab's keyboard handler
-                                guiRenderer.ActiveTab?.HandleKeyDown(
-                                    evt.Key.Scancode.ToInputKey, evt.Key.Mod.ToInputModifier);
-                                break;
-                        }
-                    }
-                    break;
-
-                case EventType.MouseMotion:
-                    needsRedraw = true;
-                    handlers.HandleMouseMove(evt.Motion.X, evt.Motion.Y);
-                    break;
-
-                case EventType.MouseButtonDown:
-                    needsRedraw = true;
-                    handlers.HandleMouseDown(evt.Button.X, evt.Button.Y, evt.Button.Clicks);
-                    break;
-
-                case EventType.MouseButtonUp:
-                    handlers.HandleMouseUp();
-                    break;
-
-                case EventType.MouseWheel:
-                    needsRedraw = true;
-                    handlers.HandleMouseWheel(evt.Wheel.Y);
-                    break;
-
-                case EventType.TextInput:
-                    needsRedraw = true;
-                    var textStr = Marshal.PtrToStringUTF8(evt.Text.Text);
-                    if (textStr is not null)
-                    {
-                        handlers.HandleTextInput(textStr);
-                    }
-                    break;
-            }
-        } while (PollEvent(out evt));
-    }
-
-    // Recompute targets when planning date changes (debounced — skip if already running)
-    if (plannerState.NeedsRecompute && appState.ActiveProfile is not null && !plannerState.IsRecomputing)
+    OnMouseDown = (x, y) =>
     {
-        plannerState.NeedsRecompute = false;
-        plannerState.IsRecomputing = true;
-        appState.StatusMessage = "Recomputing...";
-        appState.NeedsRedraw = true;
-        tracker.Run(async () =>
-        {
-            try
-            {
-                var objectDb = sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
-                var transform = TransformFactory.FromProfile(
-                    appState.ActiveProfile, external.TimeProvider, out _);
+        handlers.HandleMouseDown(x, y);
+        return true;
+    },
 
-                if (transform is not null)
+    OnMouseMove = (x, y) => handlers.HandleMouseMove(x, y),
+
+    OnMouseUp = () => handlers.HandleMouseUp(),
+
+    OnMouseWheel = (scrollY, _, _) =>
+    {
+        handlers.HandleMouseWheel(scrollY);
+        return true;
+    },
+
+    OnTextInput = text => handlers.HandleTextInput(text),
+
+    CheckNeedsRedraw = () =>
+    {
+        // Recompute targets when planning date changes (debounced — skip if already running)
+        if (plannerState.NeedsRecompute && appState.ActiveProfile is not null && !plannerState.IsRecomputing)
+        {
+            plannerState.NeedsRecompute = false;
+            plannerState.IsRecomputing = true;
+            appState.StatusMessage = "Recomputing...";
+            appState.NeedsRedraw = true;
+            tracker.Run(async () =>
+            {
+                try
                 {
-                    // Override transform date if planning for a different night
-                    // Use noon of the target day so CalculateNightWindow finds the correct evening
-                    if (plannerState.PlanningDate is { } pd)
-                    {
-                        var noon = new DateTimeOffset(pd.Date, pd.Offset).AddHours(12);
-                        transform.DateTimeOffset = noon;
-                    }
+                    var objectDb = sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
+                    var transform = TransformFactory.FromProfile(
+                        appState.ActiveProfile, external.TimeProvider, out _);
 
-                    plannerState.SiteLatitude = transform.SiteLatitude;
-                    plannerState.SiteLongitude = transform.SiteLongitude;
-                    plannerState.SiteTimeZone = transform.SiteTimeZone;
-
-                    // Fast path: if we already have targets, just recompute night window + profiles
-                    // Full rescan only needed on first load
-                    if (plannerState.TonightsBest.Count > 0)
+                    if (transform is not null)
                     {
-                        PlannerActions.RecomputeForDate(plannerState, transform);
+                        // Override transform date if planning for a different night
+                        // Use noon of the target day so CalculateNightWindow finds the correct evening
+                        if (plannerState.PlanningDate is { } pd)
+                        {
+                            var noon = new DateTimeOffset(pd.Date, pd.Offset).AddHours(12);
+                            transform.DateTimeOffset = noon;
+                        }
+
+                        plannerState.SiteLatitude = transform.SiteLatitude;
+                        plannerState.SiteLongitude = transform.SiteLongitude;
+                        plannerState.SiteTimeZone = transform.SiteTimeZone;
+
+                        // Fast path: if we already have targets, just recompute night window + profiles
+                        // Full rescan only needed on first load
+                        if (plannerState.TonightsBest.Count > 0)
+                        {
+                            PlannerActions.RecomputeForDate(plannerState, transform);
+                        }
+                        else
+                        {
+                            await PlannerActions.ComputeTonightsBestAsync(
+                                plannerState, objectDb, transform,
+                                plannerState.MinHeightAboveHorizon, cts.Token);
+                            handlers.SetAutoCompleteCache(objectDb.CreateAutoCompleteList());
+                        }
+                        appState.StatusMessage = null;
                     }
                     else
                     {
-                        await PlannerActions.ComputeTonightsBestAsync(
-                            plannerState, objectDb, transform,
-                            plannerState.MinHeightAboveHorizon, cts.Token);
-                        handlers.SetAutoCompleteCache(objectDb.CreateAutoCompleteList());
+                        appState.StatusMessage = "Set site coordinates in Equipment tab";
                     }
-                    appState.StatusMessage = null;
                 }
-                else
+                finally
                 {
-                    appState.StatusMessage = "Set site coordinates in Equipment tab";
+                    plannerState.IsRecomputing = false;
+                    appState.NeedsRedraw = true;
                 }
-            }
-            finally
-            {
-                plannerState.IsRecomputing = false;
-                appState.NeedsRedraw = true;
-            }
-        }, "Recompute targets");
-    }
-
-    // Force continuous redraw when text input is active (for cursor blink)
-    if (appState.NeedsRedraw || plannerState.NeedsRedraw
-        || appState.ActiveTextInput is { IsActive: true })
-    {
-        needsRedraw = true;
-    }
-
-    if (!needsRedraw)
-    {
-        continue;
-    }
-    needsRedraw = false;
-
-    var bgColor = new RGBAColor32(0x12, 0x12, 0x18, 0xff);
-    if (!renderer.BeginFrame(bgColor))
-    {
-        sdlWindow.GetSizeInPixels(out var sw, out var sh);
-        if (sw > 0 && sh > 0)
-        {
-            renderer.Resize((uint)sw, (uint)sh);
-            guiRenderer.Resize((uint)sw, (uint)sh);
+            }, "Recompute targets");
         }
-        needsRedraw = true;
-        continue;
-    }
 
-    guiRenderer.Render(appState, plannerState, viewerState, external.TimeProvider);
+        return appState.NeedsRedraw || plannerState.NeedsRedraw
+            || appState.ActiveTextInput is { IsActive: true };
+    },
 
-    renderer.EndFrame();
+    OnRender = () => guiRenderer.Render(appState, plannerState, viewerState, external.TimeProvider),
 
-    if (renderer.FontAtlasDirty)
+    OnPostFrame = () =>
     {
-        needsRedraw = true;
+        tracker.ProcessCompletions(logger);
+        appState.NeedsRedraw = false;
+        plannerState.NeedsRedraw = false;
     }
+};
 
-    // Check for completed background tasks (profile saves, discovery, etc.)
-    if (tracker.ProcessCompletions(logger))
+// OnKeyDown set separately to allow loop.Stop() self-reference
+loop.OnKeyDown = (inputKey, inputModifier) =>
+{
+    if (handlers.HandleKeyDown(inputKey, inputModifier))
     {
-        needsRedraw = true;
+        return true;
     }
 
-    appState.NeedsRedraw = false;
-    plannerState.NeedsRedraw = false;
-}
+    // Global keys (not consumed by text input)
+    if (inputKey == InputKey.Escape)
+    {
+        loop.Stop();
+        return true;
+    }
+
+    guiRenderer.ActiveTab?.HandleKeyDown(inputKey, inputModifier);
+    return true;
+};
+
+loop.Run(cts.Token);
 
 // Cleanup
 cts.Cancel();

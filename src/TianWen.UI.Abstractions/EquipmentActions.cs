@@ -83,19 +83,19 @@ public static class EquipmentActions
     /// </summary>
     public static bool IsDeviceAssigned(ProfileData data, Uri deviceUri)
     {
-        if (data.Mount == deviceUri || data.Guider == deviceUri)
+        if (DeviceBase.SameDevice(data.Mount, deviceUri) || DeviceBase.SameDevice(data.Guider, deviceUri))
         {
             return true;
         }
-        if (data.GuiderCamera == deviceUri || data.GuiderFocuser == deviceUri)
+        if (DeviceBase.SameDevice(data.GuiderCamera, deviceUri) || DeviceBase.SameDevice(data.GuiderFocuser, deviceUri))
         {
             return true;
         }
 
         foreach (var ota in data.OTAs)
         {
-            if (ota.Camera == deviceUri || ota.Focuser == deviceUri ||
-                ota.FilterWheel == deviceUri || ota.Cover == deviceUri)
+            if (DeviceBase.SameDevice(ota.Camera, deviceUri) || DeviceBase.SameDevice(ota.Focuser, deviceUri) ||
+                DeviceBase.SameDevice(ota.FilterWheel, deviceUri) || DeviceBase.SameDevice(ota.Cover, deviceUri))
             {
                 return true;
             }
@@ -112,21 +112,21 @@ public static class EquipmentActions
     {
         var none = NoneDevice.Instance.DeviceUri;
 
-        if (data.Mount == deviceUri)
+        if (DeviceBase.SameDevice(data.Mount, deviceUri))
         {
             // Preserve site query params when clearing mount
-            var builder = new UriBuilder(none) { Query = data.Mount.Query };
+            var builder = new UriBuilder(none) { Query = data.Mount!.Query };
             data = data with { Mount = builder.Uri };
         }
-        if (data.Guider == deviceUri)
+        if (DeviceBase.SameDevice(data.Guider, deviceUri))
         {
             data = data with { Guider = none };
         }
-        if (data.GuiderCamera == deviceUri)
+        if (DeviceBase.SameDevice(data.GuiderCamera, deviceUri))
         {
             data = data with { GuiderCamera = null };
         }
-        if (data.GuiderFocuser == deviceUri)
+        if (DeviceBase.SameDevice(data.GuiderFocuser, deviceUri))
         {
             data = data with { GuiderFocuser = null };
         }
@@ -136,10 +136,10 @@ public static class EquipmentActions
             var ota = data.OTAs[i];
             var changed = false;
 
-            if (ota.Camera == deviceUri) { ota = ota with { Camera = none }; changed = true; }
-            if (ota.Focuser == deviceUri) { ota = ota with { Focuser = null }; changed = true; }
-            if (ota.FilterWheel == deviceUri) { ota = ota with { FilterWheel = null }; changed = true; }
-            if (ota.Cover == deviceUri) { ota = ota with { Cover = null }; changed = true; }
+            if (DeviceBase.SameDevice(ota.Camera, deviceUri)) { ota = ota with { Camera = none }; changed = true; }
+            if (DeviceBase.SameDevice(ota.Focuser, deviceUri)) { ota = ota with { Focuser = null }; changed = true; }
+            if (DeviceBase.SameDevice(ota.FilterWheel, deviceUri)) { ota = ota with { FilterWheel = null }; changed = true; }
+            if (DeviceBase.SameDevice(ota.Cover, deviceUri)) { ota = ota with { Cover = null }; changed = true; }
 
             if (changed)
             {
