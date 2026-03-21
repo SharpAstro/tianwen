@@ -104,6 +104,19 @@ Task? starDetectionTask = null;
 var needsRedraw = true;
 var running = true;
 
+// Wire app-level callbacks (after variable declarations they capture)
+imageRenderer.OnExit = () => running = false;
+imageRenderer.OnToggleFullscreen = () => sdlWindow.ToggleFullscreen();
+imageRenderer.OnPlateSolve = () =>
+{
+    if (document is not null && !state.IsPlateSolving && !document.IsPlateSolved)
+    {
+        var factory = sp.GetRequiredService<TianWen.Lib.Astrometry.PlateSolve.IPlateSolverFactory>();
+        backgroundTask = ViewerActions.PlateSolveAsync(document, state, factory, cts.Token);
+    }
+    return Task.CompletedTask;
+};
+
 // Track mouse position
 var mouseX = 0f;
 var mouseY = 0f;
@@ -144,7 +157,7 @@ while (running)
 
                 case EventType.KeyDown:
                     needsRedraw = true;
-                    HandleKeyDown(evt.Key.Scancode, evt.Key.Mod);
+                    imageRenderer.HandleKeyDown(evt.Key.Scancode.ToInputKey, evt.Key.Mod.ToInputModifier);
                     break;
 
                 case EventType.MouseMotion:
@@ -164,7 +177,7 @@ while (running)
 
                 case EventType.MouseWheel:
                     needsRedraw = true;
-                    HandleMouseWheel(evt.Wheel.Y);
+                    imageRenderer.HandleMouseWheel(evt.Wheel.Y, state.MouseScreenPosition.X, state.MouseScreenPosition.Y);
                     break;
 
                 case EventType.DropFile:
@@ -244,118 +257,7 @@ return 0;
 
 // --- Event handlers ---
 
-void HandleKeyDown(Scancode scancode, Keymod keymod)
-{
-    var ctrl = (keymod & Keymod.Ctrl) != 0;
-    var shift = (keymod & Keymod.Shift) != 0;
-
-    if (ctrl)
-    {
-        switch (scancode)
-        {
-            case Scancode.Equals:
-                ViewerActions.ZoomIn(state);
-                return;
-            case Scancode.Minus:
-                ViewerActions.ZoomOut(state);
-                return;
-            case Scancode.Alpha0:
-                ViewerActions.ZoomToFit(state);
-                return;
-            case Scancode.Alpha1:
-                ViewerActions.ZoomToActual(state);
-                return;
-            case >= Scancode.Alpha2 and <= Scancode.Alpha9:
-                ViewerActions.ZoomTo(state, 1f / (scancode - Scancode.Alpha0));
-                return;
-        }
-    }
-
-    switch (scancode)
-    {
-        case Scancode.Escape:
-            running = false;
-            break;
-        case Scancode.F11:
-            sdlWindow.ToggleFullscreen();
-            break;
-        case Scancode.T:
-            ViewerActions.ToggleStretch(state);
-            break;
-        case Scancode.S:
-            state.ShowStarOverlay = !state.ShowStarOverlay;
-            break;
-        case Scancode.C:
-            if (document is not null)
-            {
-                ViewerActions.CycleChannelView(state, document.UnstretchedImage.ChannelCount);
-            }
-            break;
-        case Scancode.D:
-            ViewerActions.CycleDebayerAlgorithm(state);
-            break;
-        case Scancode.I:
-            state.ShowInfoPanel = !state.ShowInfoPanel;
-            break;
-        case Scancode.L:
-            state.ShowFileList = !state.ShowFileList;
-            break;
-        case Scancode.Equals:
-            ViewerActions.CycleStretchPreset(state);
-            break;
-        case Scancode.Minus:
-            ViewerActions.CycleStretchPreset(state, reverse: true);
-            break;
-        case Scancode.B:
-            ViewerActions.CycleCurvesBoost(state);
-            break;
-        case Scancode.G:
-            state.ShowGrid = !state.ShowGrid;
-            break;
-        case Scancode.O:
-            state.ShowOverlays = !state.ShowOverlays;
-            state.NeedsRedraw = true;
-            break;
-        case Scancode.H:
-            ViewerActions.CycleHdr(state);
-            break;
-        case Scancode.V:
-            if (shift)
-            {
-                state.HistogramLogScale = !state.HistogramLogScale;
-            }
-            else
-            {
-                state.ShowHistogram = !state.ShowHistogram;
-            }
-            break;
-        case Scancode.P:
-            if (document is not null && !state.IsPlateSolving && !document.IsPlateSolved)
-            {
-                var factory = sp.GetRequiredService<TianWen.Lib.Astrometry.PlateSolve.IPlateSolverFactory>();
-                backgroundTask = ViewerActions.PlateSolveAsync(document, state, factory, cts.Token);
-            }
-            break;
-        case Scancode.F:
-            ViewerActions.ZoomToFit(state);
-            break;
-        case Scancode.R:
-            ViewerActions.ZoomToActual(state);
-            break;
-        case Scancode.Up:
-            if (state.SelectedFileIndex > 0)
-            {
-                ViewerActions.SelectFile(state, state.SelectedFileIndex - 1);
-            }
-            break;
-        case Scancode.Down:
-            if (state.SelectedFileIndex < state.ImageFileNames.Count - 1)
-            {
-                ViewerActions.SelectFile(state, state.SelectedFileIndex + 1);
-            }
-            break;
-    }
-}
+// Keyboard and mouse wheel handling moved to VkImageRenderer.HandleKeyDown / HandleMouseWheel
 
 void HandleMouseMove(float px, float py)
 {
@@ -445,45 +347,6 @@ void HandleMouseUp(byte button)
     }
 }
 
-void HandleMouseWheel(float scrollY)
-{
-    var pos = state.MouseScreenPosition;
-
-    // Scroll file list when hovering over it
-    if (state.ShowFileList && pos.X >= 0 && pos.X < imageRenderer.ScaledFileListWidth && pos.Y > imageRenderer.ScaledToolbarHeight)
-    {
-        ViewerActions.ScrollFileList(state, -(int)scrollY * 3);
-        return;
-    }
-
-    // Zoom: Ctrl+scroll anywhere, or bare scroll inside the image viewport
-    var modState = GetModState();
-    var ctrlHeld = (modState & Keymod.Ctrl) != 0;
-    var fileListW = state.ShowFileList ? imageRenderer.ScaledFileListWidth : 0;
-    var toolbarH = imageRenderer.ScaledToolbarHeight;
-    var (areaW, areaH) = imageRenderer.GetImageAreaSize(state);
-    var inImageViewport = pos.X >= fileListW && pos.X < fileListW + areaW
-                       && pos.Y >= toolbarH && pos.Y < toolbarH + areaH;
-
-    if (ctrlHeld || inImageViewport)
-    {
-        var zoomFactor = scrollY > 0 ? 1.15f : 1f / 1.15f;
-        var oldZoom = state.Zoom;
-        var newZoom = MathF.Max(0.01f, oldZoom * zoomFactor);
-
-        // Adjust pan so the point under the cursor stays fixed
-        var cx = pos.X - fileListW - areaW / 2f - state.PanOffset.X;
-        var cy = pos.Y - toolbarH - areaH / 2f - state.PanOffset.Y;
-
-        state.PanOffset = (
-            state.PanOffset.X - cx * (newZoom / oldZoom - 1f),
-            state.PanOffset.Y - cy * (newZoom / oldZoom - 1f)
-        );
-
-        state.ZoomToFit = false;
-        state.Zoom = newZoom;
-    }
-}
 
 void HandleFileDrop(string? path)
 {
