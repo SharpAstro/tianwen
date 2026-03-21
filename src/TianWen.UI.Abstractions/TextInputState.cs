@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 
 namespace TianWen.UI.Abstractions;
 
@@ -45,8 +46,9 @@ public class TextInputState
     /// <summary>
     /// Called when Enter is pressed to commit the value. Set by the owning tab
     /// so the central event handler doesn't need tab-specific commit logic.
+    /// Async — the returned Task is tracked by <see cref="BackgroundTaskTracker"/>.
     /// </summary>
-    public Action<string>? OnCommit { get; set; }
+    public Func<string, Task>? OnCommit { get; set; }
 
     /// <summary>
     /// Called when Escape is pressed to cancel editing. Set by the owning tab.

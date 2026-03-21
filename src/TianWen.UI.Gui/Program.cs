@@ -77,7 +77,8 @@ var guiRenderer = new VkGuiRenderer(renderer, (uint)pixW, (uint)pixH)
 
 // Event handler setup
 var cts = new CancellationTokenSource();
-var handlers = new GuiEventHandlers(sp, appState, plannerState, guiRenderer, sdlWindow.Handle, cts, external);
+var tracker = new BackgroundTaskTracker();
+var handlers = new GuiEventHandlers(sp, appState, plannerState, guiRenderer, sdlWindow.Handle, cts, external, tracker);
 Task? plannerTask = null;
 
 // Wire tab callbacks that need DI/profile access
@@ -129,33 +130,10 @@ if (appState.ActiveProfile is not null)
     }, cts.Token);
 }
 
-// Auto-discover devices on startup
-if (appState.ActiveProfile is null)
+// Auto-discover devices on startup (uses tracker via the wired OnDiscover callback)
+if (guiRenderer.EquipmentTab.OnDiscover is { } startupDiscover)
 {
-    var eqSt = guiRenderer.EquipmentTab.State;
-    eqSt.IsDiscovering = true;
-    _ = Task.Run(async () =>
-    {
-        try
-        {
-            var dm = sp.GetRequiredService<ICombinedDeviceManager>();
-            await dm.CheckSupportAsync(cts.Token);
-            await dm.DiscoverAsync(cts.Token);
-            eqSt.DiscoveredDevices = [.. dm.RegisteredDeviceTypes
-                .Where(t => t is not DeviceType.Profile and not DeviceType.None)
-                .SelectMany(dm.RegisteredDevices)
-                .OrderBy(d => d.DeviceType).ThenBy(d => d.DisplayName)];
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Device discovery failed");
-        }
-        finally
-        {
-            eqSt.IsDiscovering = false;
-            appState.NeedsRedraw = true;
-        }
-    });
+    tracker.Run(startupDiscover, "Startup device discovery");
 }
 
 // --- Main event loop ---
@@ -259,7 +237,7 @@ while (running)
         plannerState.IsRecomputing = true;
         appState.StatusMessage = "Recomputing...";
         appState.NeedsRedraw = true;
-        _ = Task.Run(async () =>
+        tracker.Run(async () =>
         {
             try
             {
@@ -301,17 +279,12 @@ while (running)
                     appState.StatusMessage = "Set site coordinates in Equipment tab";
                 }
             }
-            catch (Exception ex)
-            {
-                logger.LogWarning(ex, "Failed to recompute targets");
-                appState.StatusMessage = "Failed to recompute";
-            }
             finally
             {
                 plannerState.IsRecomputing = false;
                 appState.NeedsRedraw = true;
             }
-        }, cts.Token);
+        }, "Recompute targets");
     }
 
     // Force continuous redraw when text input is active (for cursor blink)
@@ -348,6 +321,13 @@ while (running)
     {
         needsRedraw = true;
     }
+
+    // Check for completed background tasks (profile saves, discovery, etc.)
+    if (tracker.ProcessCompletions(logger))
+    {
+        needsRedraw = true;
+    }
+
     appState.NeedsRedraw = false;
     plannerState.NeedsRedraw = false;
 }
@@ -362,6 +342,7 @@ if (plannerTask is not null)
 {
     try { await plannerTask; } catch (OperationCanceledException) { }
 }
+await tracker.DrainAsync();
 
 return 0;
 
