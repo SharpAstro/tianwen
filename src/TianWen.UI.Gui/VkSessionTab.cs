@@ -74,8 +74,8 @@ namespace TianWen.UI.Gui
 
             ScrollLineHeight = BaseItemHeight * dpiScale;
 
-            // Ensure per-OTA settings are initialized from the active profile
-            if (State.CameraSettings.Count == 0 && appState.ActiveProfile is not null)
+            // Reinitialize per-OTA settings when the profile changes
+            if (State.NeedsReinitialization(appState.ActiveProfile))
             {
                 State.InitializeFromProfile(appState.ActiveProfile);
             }

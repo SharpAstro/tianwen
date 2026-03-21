@@ -66,13 +66,13 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
 
     public bool UsesOffsetMode { get; } = false;
 
-    public double PixelSizeX { get; } = 3.7;
+    public double PixelSizeX { get; } = GetPreset(fakeDevice).PixelSize;
 
-    public double PixelSizeY { get; } = 3.7;
+    public double PixelSizeY { get; } = GetPreset(fakeDevice).PixelSize;
 
-    public short MaxBinX { get; } = 2;
+    public short MaxBinX { get; } = GetPreset(fakeDevice).MaxBin;
 
-    public short MaxBinY { get; } = 2;
+    public short MaxBinY { get; } = GetPreset(fakeDevice).MaxBin;
 
     public int BinX
     {
@@ -206,9 +206,9 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
         }
     }
 
-    public int CameraXSize { get; } = 1024;
+    public int CameraXSize { get; } = GetPreset(fakeDevice).Width;
 
-    public int CameraYSize { get; } = 768;
+    public int CameraYSize { get; } = GetPreset(fakeDevice).Height;
 
     public ValueTask<string?> GetReadoutModeAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult<string?>("Normal");
@@ -276,9 +276,9 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
         return ValueTask.CompletedTask;
     }
 
-    public short GainMin { get; } = 0;
+    public short GainMin { get; } = GetPreset(fakeDevice).GainMin;
 
-    public short GainMax { get; } = 256;
+    public short GainMax { get; } = GetPreset(fakeDevice).GainMax;
 
     public IReadOnlyList<string> Gains { get; } = [];
 
@@ -312,7 +312,7 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
 
     public double ExposureResolution { get; } = 0.01d;
 
-    public int MaxADU { get; } = 4096;
+    public int MaxADU { get; } = GetPreset(fakeDevice).MaxADU;
 
     public double FullWellCapacity => throw new NotImplementedException();
 
@@ -351,7 +351,7 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
         }
     }
 
-    public SensorType SensorType { get; } = SensorType.Monochrome;
+    public SensorType SensorType { get; } = GetPreset(fakeDevice).SensorType;
 
     public int BayerOffsetX { get; } = 0;
 
@@ -584,5 +584,48 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
         base.Dispose(disposing);
 
         Interlocked.Exchange(ref _exposureTimer, null)?.Dispose();
+    }
+
+    /// <summary>
+    /// Sensor preset for a fake camera. Each fake device ID maps to a real sensor model.
+    /// </summary>
+    internal readonly record struct SensorPreset(
+        string SensorName,
+        int Width,
+        int Height,
+        double PixelSize,
+        SensorType SensorType,
+        short MaxBin,
+        short GainMin,
+        short GainMax,
+        int MaxADU);
+
+    /// <summary>
+    /// Sensor presets indexed by fake device ID (mod table length).
+    /// </summary>
+    private static readonly SensorPreset[] Presets =
+    [
+        // ID 0: Sony IMX178M — small mono, high-res planetary/guiding
+        new SensorPreset("IMX178M", 3096, 2080, 2.4, SensorType.Monochrome, 4, 0, 570, 16383),
+        // ID 1: Sony IMX294C — large color, deep sky workhorse
+        new SensorPreset("IMX294C", 4144, 2822, 4.63, SensorType.RGGB, 4, 0, 570, 65535),
+        // ID 2: Sony IMX571C — APS-C color, wide-field
+        new SensorPreset("IMX571C", 6248, 4176, 3.76, SensorType.RGGB, 4, 0, 100, 65535),
+        // ID 3: Sony IMX533M — square mono, narrowband
+        new SensorPreset("IMX533M", 3008, 3008, 3.76, SensorType.Monochrome, 4, 0, 460, 65535),
+        // ID 4: Sony IMX455M — full-frame mono, premium
+        new SensorPreset("IMX455M", 9576, 6388, 3.76, SensorType.Monochrome, 4, 0, 100, 65535),
+    ];
+
+    private static SensorPreset GetPreset(FakeDevice device)
+    {
+        // Extract the numeric ID from the device URI path (e.g. "FakeCamera1" → 1)
+        var path = device.DeviceUri.AbsolutePath.TrimStart('/');
+        var id = 0;
+        for (var i = path.Length - 1; i >= 0 && char.IsAsciiDigit(path[i]); i--)
+        {
+            id += (path[i] - '0') * (int)Math.Pow(10, path.Length - 1 - i);
+        }
+        return Presets[id % Presets.Length];
     }
 }

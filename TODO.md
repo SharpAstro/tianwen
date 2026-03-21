@@ -219,7 +219,8 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 
 ## SdlVulkan.Renderer
 
-- [ ] Intermittent font atlas corruption — characters appear "drizzled on top", trigger unknown (possibly resize or atlas grow/evict). Known hazards: `Grow()` destroys `VkImageView` without `vkDeviceWaitIdle`; `Flush` runs before `DrawText` rasterizes new glyphs after eviction; `Grow()` calls `ExecuteOneShot` while a render pass is active. Add logging to `Grow()`, `EvictAll()`, and `Flush()` to capture the trigger next time it reproduces.
+- [x] Font atlas corruption — root cause: shared upload buffer race with `MaxFramesInFlight=2`. Frame N+1's `Flush` overwrites the upload buffer while frame N's `vkCmdCopyBufferToImage` is still reading it. Fixed with `vkDeviceWaitIdle()` before upload buffer reuse.
+- [ ] Replace `vkDeviceWaitIdle` in font atlas `Flush` with per-frame upload buffers (like `_vertexBuffers`) to avoid GPU stall on every glyph upload. The current fix blocks the GPU pipeline unnecessarily after startup.
 
 ## Vulkan Migration / HDR Display Output
 
