@@ -114,7 +114,7 @@ if (appState.ActiveProfile is not null)
                     plannerState, objectDb, transform,
                     plannerState.MinHeightAboveHorizon, cts.Token);
 
-                handlers.AutoCompleteCache = objectDb.CreateAutoCompleteList();
+                handlers.SetAutoCompleteCache(objectDb.CreateAutoCompleteList());
             }
             else
             {
@@ -292,7 +292,7 @@ while (running)
                         await PlannerActions.ComputeTonightsBestAsync(
                             plannerState, objectDb, transform,
                             plannerState.MinHeightAboveHorizon, cts.Token);
-                        handlers.AutoCompleteCache = objectDb.CreateAutoCompleteList();
+                        handlers.SetAutoCompleteCache(objectDb.CreateAutoCompleteList());
                     }
                     appState.StatusMessage = null;
                 }

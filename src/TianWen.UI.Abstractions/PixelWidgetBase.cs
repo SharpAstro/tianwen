@@ -21,6 +21,12 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         bool HandleKeyDown(InputKey key, InputModifier modifiers) => false;
 
+        /// <summary>
+        /// Handles a mouse wheel event. Returns true if consumed.
+        /// Override in tabs to implement scroll zones.
+        /// </summary>
+        bool HandleMouseWheel(float scrollY, float mouseX, float mouseY) => false;
+
         /// <summary>Returns all registered text inputs in order (for Tab cycling).</summary>
         List<TextInputState> GetRegisteredTextInputs();
     }

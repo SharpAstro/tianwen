@@ -534,6 +534,24 @@ namespace TianWen.UI.Gui
         }
 
         // -----------------------------------------------------------------------
+        // Mouse wheel handling
+        // -----------------------------------------------------------------------
+
+        public bool HandleMouseWheel(float scrollY, float mouseX, float mouseY)
+        {
+            if (_targetListRect.Contains(mouseX, mouseY))
+            {
+                ScrollOffset = Math.Max(0, ScrollOffset - (int)scrollY * 3);
+                if (_state is not null)
+                {
+                    _state.NeedsRedraw = true;
+                }
+                return true;
+            }
+            return false;
+        }
+
+        // -----------------------------------------------------------------------
         // Keyboard handling
         // -----------------------------------------------------------------------
 

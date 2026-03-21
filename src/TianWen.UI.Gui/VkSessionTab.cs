@@ -99,6 +99,22 @@ namespace TianWen.UI.Gui
         }
 
         // -----------------------------------------------------------------------
+        // Mouse wheel handling
+        // -----------------------------------------------------------------------
+
+        public bool HandleMouseWheel(float scrollY, float mouseX, float mouseY)
+        {
+            if (ConfigPanelRect.Contains(mouseX, mouseY))
+            {
+                State.ConfigScrollOffset = Math.Max(0,
+                    State.ConfigScrollOffset - (int)(scrollY * ScrollLineHeight));
+                State.NeedsRedraw = true;
+                return true;
+            }
+            return false;
+        }
+
+        // -----------------------------------------------------------------------
         // Right panel: camera settings (top) + observation list (bottom)
         // -----------------------------------------------------------------------
 
