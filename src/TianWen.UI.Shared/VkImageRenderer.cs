@@ -941,9 +941,9 @@ public sealed class VkImageRenderer : PixelWidgetBase<VulkanContext>, IDisposabl
             var cy = offsetY + star.YCentroid * state.Zoom;
             var radius = MathF.Max(star.HFD * 0.5f * state.Zoom, 6f);
 
-            // Use a filled semi-transparent ellipse for star circles.
-            // This is visually different from the GL outline but functionally acceptable.
-            DrawEllipse(cx, cy, radius, radius, 0f, 0f, 0.2f, 0.8f, 0.2f, 0.6f);
+            // Alpha scales with zoom: faint when zoomed out (many circles), solid when zoomed in
+            var alpha = MathF.Min(1.0f, 0.3f + state.Zoom * 0.7f);
+            DrawEllipse(cx, cy, radius, radius, 0f, 0f, 0.8f, 0.2f, alpha, 1.5f);
         }
     }
 
@@ -996,13 +996,13 @@ public sealed class VkImageRenderer : PixelWidgetBase<VulkanContext>, IDisposabl
             switch (item.Marker)
             {
                 case OverlayMarker.Ellipse ellipse:
-                    DrawEllipse(cx, cy, ellipse.SemiMajorPx, ellipse.SemiMinorPx, ellipse.AngleRad, r, g, b, 1.0f);
+                    DrawEllipse(cx, cy, ellipse.SemiMajorPx, ellipse.SemiMinorPx, ellipse.AngleRad, r, g, b, 1.0f, thickness: 1.5f);
                     break;
                 case OverlayMarker.Cross cross:
                     DrawCross(cx, cy, cross.ArmPx, r, g, b, 1.0f);
                     break;
                 case OverlayMarker.Circle circle:
-                    DrawEllipse(cx, cy, circle.RadiusPx, circle.RadiusPx, 0f, r, g, b, 0.9f);
+                    DrawEllipse(cx, cy, circle.RadiusPx, circle.RadiusPx, 0f, r, g, b, 0.9f, thickness: 1.5f);
                     break;
             }
 
@@ -1077,13 +1077,9 @@ public sealed class VkImageRenderer : PixelWidgetBase<VulkanContext>, IDisposabl
     /// </summary>
     private void DrawEllipse(float cx, float cy, float semiMajor, float semiMinor, float angle, float r, float g, float b, float a, float thickness = 0f)
     {
-        // For a rotation-aligned ellipse we approximate with a filled ellipse.
-        // The angle parameter is handled for axis-aligned cases only (angle == 0).
-        // For non-zero angles we use the axis-aligned bounding box as an approximation.
+        // Compute axis-aligned bounding box of the rotated ellipse
         var cosA = MathF.Cos(angle);
         var sinA = MathF.Sin(angle);
-
-        // Compute axis-aligned bounding box of the rotated ellipse
         var bboxW = MathF.Sqrt(semiMajor * semiMajor * cosA * cosA + semiMinor * semiMinor * sinA * sinA);
         var bboxH = MathF.Sqrt(semiMajor * semiMajor * sinA * sinA + semiMinor * semiMinor * cosA * cosA);
 
@@ -1091,7 +1087,15 @@ public sealed class VkImageRenderer : PixelWidgetBase<VulkanContext>, IDisposabl
         var rect = new RectInt(
             new PointInt((int)(cx + bboxW), (int)(cy + bboxH)),
             new PointInt((int)(cx - bboxW), (int)(cy - bboxH)));
-        _renderer.FillEllipse(rect, color);
+
+        if (thickness > 0f)
+        {
+            _renderer.DrawEllipseOutline(rect, color, thickness * DpiScale);
+        }
+        else
+        {
+            _renderer.FillEllipse(rect, color);
+        }
     }
 
     private void DrawCross(float cx, float cy, float arm, float r, float g, float b, float a)
