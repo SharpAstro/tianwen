@@ -453,6 +453,10 @@ namespace TianWen.UI.Gui
             var data     = appState.ActiveProfile?.Data;
 
             var expectedType = State.ActiveAssignment?.ExpectedDeviceType;
+            // URI of the device currently assigned to the active slot (for highlighting)
+            var activeSlotUri = State.ActiveAssignment is { } activeSlot && data is { } slotData
+                ? EquipmentActions.GetAssignedDevice(slotData, activeSlot)
+                : null;
 
             for (var i = State.DeviceScrollOffset; i < devices.Count; i++)
             {
@@ -465,9 +469,11 @@ namespace TianWen.UI.Gui
                 var device  = devices[i];
                 var isAssigned = data is { } assignData && EquipmentActions.IsDeviceAssigned(assignData, device.DeviceUri);
                 var isWrongType = expectedType.HasValue && device.DeviceType != expectedType.Value;
+                // Highlight the device currently in the active slot
+                var isCurrentForSlot = activeSlotUri is not null && device.DeviceUri == activeSlotUri;
 
                 // Row background
-                FillRect(x, rowY, w, itemH, DeviceRowBg);
+                FillRect(x, rowY, w, itemH, isCurrentForSlot ? SlotActive : DeviceRowBg);
                 RegisterClickable(x, rowY, w, itemH, new HitResult.ListItemHit("Devices", i));
                 FillRect(x, rowY + itemH - 1f, w, 1f, SeparatorColor);
 

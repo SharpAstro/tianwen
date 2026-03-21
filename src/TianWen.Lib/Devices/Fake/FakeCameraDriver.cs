@@ -603,29 +603,62 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
     /// <summary>
     /// Sensor presets indexed by fake device ID (mod table length).
     /// </summary>
+    /// <summary>Guide camera preset (IMX178M). Not in the main list — used only for FakeGuideCam.</summary>
+    internal static readonly SensorPreset GuideCameraPreset =
+        new SensorPreset("IMX178M", 3096, 2080, 2.4, SensorType.Monochrome, 4, 0, 570, 16383);
+
+    /// <summary>
+    /// Imaging camera presets indexed by (deviceId - 1) mod length.
+    /// Alternates color/mono: odd IDs = color, even IDs = mono.
+    /// </summary>
     private static readonly SensorPreset[] Presets =
     [
-        // ID 0: Sony IMX178M — small mono, high-res planetary/guiding
-        new SensorPreset("IMX178M", 3096, 2080, 2.4, SensorType.Monochrome, 4, 0, 570, 16383),
         // ID 1: Sony IMX294C — large color, deep sky workhorse
         new SensorPreset("IMX294C", 4144, 2822, 4.63, SensorType.RGGB, 4, 0, 570, 65535),
-        // ID 2: Sony IMX571C — APS-C color, wide-field
-        new SensorPreset("IMX571C", 6248, 4176, 3.76, SensorType.RGGB, 4, 0, 100, 65535),
-        // ID 3: Sony IMX533M — square mono, narrowband
+        // ID 2: Sony IMX533M — square mono, narrowband
         new SensorPreset("IMX533M", 3008, 3008, 3.76, SensorType.Monochrome, 4, 0, 460, 65535),
+        // ID 3: Sony IMX571C — APS-C color, wide-field
+        new SensorPreset("IMX571C", 6248, 4176, 3.76, SensorType.RGGB, 4, 0, 100, 65535),
         // ID 4: Sony IMX455M — full-frame mono, premium
         new SensorPreset("IMX455M", 9576, 6388, 3.76, SensorType.Monochrome, 4, 0, 100, 65535),
+        // ID 5: Sony IMX585C — color, fast planetary/EAA
+        new SensorPreset("IMX585C", 3856, 2180, 2.9, SensorType.RGGB, 4, 0, 570, 65535),
+        // ID 6: Sony IMX411M — medium-format mono
+        new SensorPreset("IMX411M", 14208, 10656, 3.76, SensorType.Monochrome, 4, 0, 100, 65535),
+        // ID 7: Sony IMX410C — full-frame color
+        new SensorPreset("IMX410C", 6072, 4042, 3.76, SensorType.RGGB, 4, 0, 100, 65535),
+        // ID 8: Sony IMX464M — compact mono, planetary
+        new SensorPreset("IMX464M", 2712, 1538, 2.9, SensorType.Monochrome, 4, 0, 570, 65535),
+        // ID 9: Sony IMX678C — small color, high QE
+        new SensorPreset("IMX678C", 3856, 2180, 2.0, SensorType.RGGB, 4, 0, 570, 65535),
     ];
 
     private static SensorPreset GetPreset(FakeDevice device)
     {
-        // Extract the numeric ID from the device URI path (e.g. "FakeCamera1" → 1)
-        var path = device.DeviceUri.AbsolutePath.TrimStart('/');
+        // Guide camera uses a dedicated preset (IMX178M)
+        if (device.DeviceUri.AbsolutePath.Contains("GuideCam", StringComparison.OrdinalIgnoreCase))
+        {
+            return GuideCameraPreset;
+        }
+        return GetPresetForId(ExtractId(device.DeviceUri));
+    }
+
+    /// <summary>
+    /// Returns the sensor preset for a given device ID (1-based, maps to 0-based index mod preset count).
+    /// </summary>
+    internal static SensorPreset GetPresetForId(int id) => Presets[(id - 1) % Presets.Length];
+
+    /// <summary>
+    /// Extracts the numeric ID from a fake device URI path (e.g. "FakeCamera1" → 1).
+    /// </summary>
+    internal static int ExtractId(Uri deviceUri)
+    {
+        var path = deviceUri.AbsolutePath.TrimStart('/');
         var id = 0;
         for (var i = path.Length - 1; i >= 0 && char.IsAsciiDigit(path[i]); i--)
         {
             id += (path[i] - '0') * (int)Math.Pow(10, path.Length - 1 - i);
         }
-        return Presets[id % Presets.Length];
+        return id;
     }
 }

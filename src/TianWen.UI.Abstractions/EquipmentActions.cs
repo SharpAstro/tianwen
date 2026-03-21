@@ -105,6 +105,78 @@ public static class EquipmentActions
     }
 
     /// <summary>
+    /// Removes a device URI from all slots in the profile (mount, guider, OTAs, etc.).
+    /// Call before assigning the device to a new slot to prevent duplicates.
+    /// </summary>
+    public static ProfileData UnassignDevice(ProfileData data, Uri deviceUri)
+    {
+        var none = NoneDevice.Instance.DeviceUri;
+
+        if (data.Mount == deviceUri)
+        {
+            // Preserve site query params when clearing mount
+            var builder = new UriBuilder(none) { Query = data.Mount.Query };
+            data = data with { Mount = builder.Uri };
+        }
+        if (data.Guider == deviceUri)
+        {
+            data = data with { Guider = none };
+        }
+        if (data.GuiderCamera == deviceUri)
+        {
+            data = data with { GuiderCamera = null };
+        }
+        if (data.GuiderFocuser == deviceUri)
+        {
+            data = data with { GuiderFocuser = null };
+        }
+
+        for (var i = 0; i < data.OTAs.Length; i++)
+        {
+            var ota = data.OTAs[i];
+            var changed = false;
+
+            if (ota.Camera == deviceUri) { ota = ota with { Camera = none }; changed = true; }
+            if (ota.Focuser == deviceUri) { ota = ota with { Focuser = null }; changed = true; }
+            if (ota.FilterWheel == deviceUri) { ota = ota with { FilterWheel = null }; changed = true; }
+            if (ota.Cover == deviceUri) { ota = ota with { Cover = null }; changed = true; }
+
+            if (changed)
+            {
+                data = data with { OTAs = data.OTAs.SetItem(i, ota) };
+            }
+        }
+
+        return data;
+    }
+
+    /// <summary>
+    /// Returns the device URI currently assigned to the given slot, or null.
+    /// </summary>
+    public static Uri? GetAssignedDevice(ProfileData data, AssignTarget slot)
+    {
+        var uri = slot switch
+        {
+            AssignTarget.ProfileLevel { Field: "Mount" } => data.Mount,
+            AssignTarget.ProfileLevel { Field: "Guider" } => data.Guider,
+            AssignTarget.ProfileLevel { Field: "GuiderCamera" } => data.GuiderCamera,
+            AssignTarget.ProfileLevel { Field: "GuiderFocuser" } => data.GuiderFocuser,
+            AssignTarget.OTALevel { OtaIndex: var idx, Field: "Camera" } when idx >= 0 && idx < data.OTAs.Length
+                => data.OTAs[idx].Camera,
+            AssignTarget.OTALevel { OtaIndex: var idx, Field: "Focuser" } when idx >= 0 && idx < data.OTAs.Length
+                => data.OTAs[idx].Focuser,
+            AssignTarget.OTALevel { OtaIndex: var idx, Field: "FilterWheel" } when idx >= 0 && idx < data.OTAs.Length
+                => data.OTAs[idx].FilterWheel,
+            AssignTarget.OTALevel { OtaIndex: var idx, Field: "Cover" } when idx >= 0 && idx < data.OTAs.Length
+                => data.OTAs[idx].Cover,
+            _ => null
+        };
+
+        // NoneDevice means empty slot
+        return uri == NoneDevice.Instance.DeviceUri ? null : uri;
+    }
+
+    /// <summary>
     /// Returns a human-readable label for a device URI, using the registry if available.
     /// </summary>
     public static string DeviceLabel(Uri? uri, IDeviceUriRegistry? registry)
@@ -119,7 +191,13 @@ public static class EquipmentActions
             return device.DisplayName;
         }
 
-        // Fallback: extract from URI path
+        // Fallback: use URI fragment (display name) if available, else path
+        var fragment = Uri.UnescapeDataString(uri.Fragment.TrimStart('#'));
+        if (fragment.Length > 0)
+        {
+            return fragment;
+        }
+
         var path = uri.AbsolutePath.TrimStart('/');
         return path.Length > 0 ? path : uri.ToString();
     }

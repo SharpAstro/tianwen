@@ -278,6 +278,10 @@ while (running)
                     }
                     appState.StatusMessage = null;
                 }
+                else
+                {
+                    appState.StatusMessage = "Set site coordinates in Equipment tab";
+                }
             }
             catch (Exception ex)
             {
