@@ -401,7 +401,9 @@ namespace TianWen.UI.Gui
             var bgColor = isActive ? SlotActive : SlotNormal;
 
             FillRect(x, y, w, itemH, bgColor);
-            RegisterClickable(x, y, w, itemH, new HitResult.SlotHit(slot));
+            var capturedSlot = slot;
+            RegisterClickable(x, y, w, itemH, new HitResult.SlotHit(slot),
+                () => { State.ActiveAssignment = State.ActiveAssignment == capturedSlot ? null : capturedSlot; });
 
             // Separator line at bottom of slot
             FillRect(x, y + itemH - 1f, w, 1f, SeparatorColor);

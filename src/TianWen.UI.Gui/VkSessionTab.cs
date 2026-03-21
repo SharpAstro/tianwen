@@ -102,7 +102,7 @@ namespace TianWen.UI.Gui
         // Mouse wheel handling
         // -----------------------------------------------------------------------
 
-        public bool HandleMouseWheel(float scrollY, float mouseX, float mouseY)
+        public override bool HandleMouseWheel(float scrollY, float mouseX, float mouseY)
         {
             if (ConfigPanelRect.Contains(mouseX, mouseY))
             {

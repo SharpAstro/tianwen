@@ -537,7 +537,7 @@ namespace TianWen.UI.Gui
         // Mouse wheel handling
         // -----------------------------------------------------------------------
 
-        public bool HandleMouseWheel(float scrollY, float mouseX, float mouseY)
+        public override bool HandleMouseWheel(float scrollY, float mouseX, float mouseY)
         {
             if (_targetListRect.Contains(mouseX, mouseY))
             {
@@ -558,7 +558,7 @@ namespace TianWen.UI.Gui
         /// <summary>
         /// Handles planner-specific keyboard shortcuts.
         /// </summary>
-        public bool HandleKeyDown(InputKey key, InputModifier modifiers)
+        public override bool HandleKeyDown(InputKey key, InputModifier modifiers)
         {
             if (_state is not { } state)
             {
