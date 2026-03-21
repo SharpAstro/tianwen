@@ -16,6 +16,21 @@ namespace TianWen.UI.Abstractions;
 /// </summary>
 public static class EquipmentActions
 {
+    /// <summary>
+    /// Common filter names for the equipment tab dropdown and CLI.
+    /// </summary>
+    public static readonly IReadOnlyList<string> CommonFilterNames =
+    [
+        "Luminance", "Red", "Green", "Blue",
+        "H-Alpha", "OIII", "SII", "H-Beta",
+        "H-Alpha + OIII"
+    ];
+
+    /// <summary>
+    /// Returns the display-friendly name for a filter.
+    /// </summary>
+    public static string FilterDisplayName(InstalledFilter filter) => filter.DisplayName;
+
     public static async Task<Profile> CreateProfileAsync(string name, IExternal external, CancellationToken ct)
     {
         var profile = new Profile(Guid.NewGuid(), name, ProfileData.Empty);
@@ -273,7 +288,7 @@ public static class EquipmentActions
         // Write new filter/offset params
         for (var i = 0; i < filters.Count; i++)
         {
-            query[DeviceQueryKeyExtensions.FilterKey(i + 1)] = filters[i].Filter.Name;
+            query[DeviceQueryKeyExtensions.FilterKey(i + 1)] = filters[i].DisplayName;
             query[DeviceQueryKeyExtensions.FilterOffsetKey(i + 1)] = filters[i].Position.ToString(CultureInfo.InvariantCulture);
         }
 
