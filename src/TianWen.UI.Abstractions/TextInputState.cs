@@ -60,6 +60,12 @@ public class TextInputState
     public Action<string>? OnTextChanged { get; set; }
 
     /// <summary>
+    /// Optional key override handler. Gets first crack at keys when this input is active.
+    /// Return true to consume the key (e.g. for autocomplete navigation).
+    /// </summary>
+    public Func<TextInputKey, bool>? OnKeyOverride { get; set; }
+
+    /// <summary>
     /// Handles a text input event (from SDL3 TextInput or Console.Lib TryReadInput).
     /// Replaces selection (if any) with the input, then inserts at cursor.
     /// </summary>

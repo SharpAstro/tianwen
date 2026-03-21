@@ -12,21 +12,17 @@ using static SDL3.SDL;
 namespace TianWen.UI.Gui
 {
     /// <summary>
-    /// Centralized event handling for the GUI. Owns all SDL-dependent and DI-dependent
-    /// actions — tabs handle pure state mutations via OnClick delegates.
+    /// Centralized event handling for the GUI. Bridges SDL input events to the
+    /// widget/tab system. Tab-specific logic lives in the tabs themselves via
+    /// callbacks (<see cref="TextInputState.OnCommit"/>, <see cref="TextInputState.OnKeyOverride"/>,
+    /// <see cref="IPixelWidget.HandleKeyDown"/>, <see cref="IPixelWidget.HandleMouseWheel"/>).
     /// </summary>
     public sealed class GuiEventHandlers
     {
-        private readonly IServiceProvider _sp;
         private readonly GuiAppState _appState;
         private readonly PlannerState _plannerState;
         private readonly VkGuiRenderer _guiRenderer;
         private readonly nint _sdlWindowHandle;
-        private readonly CancellationTokenSource _cts;
-        private readonly IExternal _external;
-        private readonly ILogger _logger;
-
-        public string[]? AutoCompleteCache { get; set; }
 
         public GuiEventHandlers(
             IServiceProvider sp,
@@ -37,15 +33,344 @@ namespace TianWen.UI.Gui
             CancellationTokenSource cts,
             IExternal external)
         {
-            _sp = sp;
             _appState = appState;
             _plannerState = plannerState;
             _guiRenderer = guiRenderer;
             _sdlWindowHandle = sdlWindowHandle;
-            _cts = cts;
-            _external = external;
-            _logger = external.AppLogger;
+
+            var logger = external.AppLogger;
+
+            // ---------------------------------------------------------------
+            // Wire planner search input callbacks
+            // ---------------------------------------------------------------
+            string[]? autoCompleteCache = null;
+
+            plannerState.SearchInput.OnCommit = text =>
+            {
+                plannerState.Suggestions.Clear();
+                plannerState.SuggestionIndex = -1;
+                plannerState.LastSuggestionQuery = "";
+
+                if (appState.ActiveProfile is not null && text.Length > 0)
+                {
+                    var transform = TransformFactory.FromProfile(appState.ActiveProfile, external.TimeProvider, out _);
+                    if (transform is not null)
+                    {
+                        var db = sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
+                        var resultIdx = PlannerActions.SearchTargets(plannerState, db, transform, text);
+                        if (resultIdx >= 0)
+                        {
+                            plannerState.SelectedTargetIndex = resultIdx;
+                            guiRenderer.PlannerTab.EnsureVisible(resultIdx);
+                        }
+                    }
+                }
+            };
+
+            plannerState.SearchInput.OnCancel = () =>
+            {
+                plannerState.SearchInput.Clear();
+                plannerState.SearchResults.Clear();
+                plannerState.Suggestions.Clear();
+                plannerState.SuggestionIndex = -1;
+                plannerState.LastSuggestionQuery = "";
+                appState.ActiveTextInput = null;
+                StopTextInput(sdlWindowHandle);
+                plannerState.NeedsRedraw = true;
+            };
+
+            plannerState.SearchInput.OnTextChanged = text =>
+            {
+                if (autoCompleteCache is not null)
+                {
+                    PlannerActions.UpdateSuggestions(plannerState, autoCompleteCache, text);
+                }
+            };
+
+            // Autocomplete navigation: Up/Down/Return/Escape when suggestions are visible
+            plannerState.SearchInput.OnKeyOverride = key =>
+            {
+                if (plannerState.Suggestions.Count == 0)
+                {
+                    return false;
+                }
+
+                switch (key)
+                {
+                    case TextInputKey.Backspace or TextInputKey.Delete:
+                        return false; // Let the text input handle it, OnTextChanged will update suggestions
+
+                    case TextInputKey.Enter when plannerState.SuggestionIndex >= 0:
+                        CommitSuggestion(plannerState.Suggestions[plannerState.SuggestionIndex]);
+                        return true;
+
+                    case TextInputKey.Escape:
+                        plannerState.Suggestions.Clear();
+                        plannerState.SuggestionIndex = -1;
+                        plannerState.LastSuggestionQuery = "";
+                        appState.NeedsRedraw = true;
+                        return true;
+
+                    default:
+                        return false;
+                }
+
+                // Down/Up are TextInputKey.Left/Right-adjacent but not in the enum.
+                // They're handled via raw scancode below in HandleTextInputKey.
+            };
+
+            // ---------------------------------------------------------------
+            // Wire equipment text input callbacks
+            // ---------------------------------------------------------------
+            var eqState = guiRenderer.EquipmentTab.State;
+
+            eqState.ProfileNameInput.OnCommit = text =>
+            {
+                if (text.Length > 0)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        var profile = await EquipmentActions.CreateProfileAsync(text, external, cts.Token);
+                        appState.ActiveProfile = profile;
+                        eqState.IsCreatingProfile = false;
+                        eqState.ProfileNameInput.Deactivate();
+                        eqState.ProfileNameInput.Clear();
+                        appState.ActiveTextInput = null;
+                        StopTextInput(sdlWindowHandle);
+                        plannerState.NeedsRecompute = true;
+                        appState.NeedsRedraw = true;
+                    });
+                }
+            };
+
+            eqState.ProfileNameInput.OnCancel = () =>
+            {
+                eqState.IsCreatingProfile = false;
+                eqState.ProfileNameInput.Clear();
+            };
+
+            // Site inputs share a commit: save site on Enter from any of the three fields
+            Action saveSite = () =>
+            {
+                if (appState.ActiveProfile is not { } siteProfile)
+                {
+                    return;
+                }
+
+                if (double.TryParse(eqState.LatitudeInput.Text, System.Globalization.CultureInfo.InvariantCulture, out var sLat) &&
+                    double.TryParse(eqState.LongitudeInput.Text, System.Globalization.CultureInfo.InvariantCulture, out var sLon))
+                {
+                    double? sElev = double.TryParse(eqState.ElevationInput.Text, System.Globalization.CultureInfo.InvariantCulture, out var e) ? e : null;
+                    var sData = siteProfile.Data ?? ProfileData.Empty;
+                    var newSiteData = EquipmentActions.SetSite(sData, sLat, sLon, sElev);
+                    var updatedSite = siteProfile.WithData(newSiteData);
+                    // Update UI immediately, save in background
+                    appState.ActiveProfile = updatedSite;
+                    eqState.IsEditingSite = false;
+                    eqState.LatitudeInput.Deactivate();
+                    eqState.LongitudeInput.Deactivate();
+                    eqState.ElevationInput.Deactivate();
+                    appState.ActiveTextInput = null;
+                    StopTextInput(sdlWindowHandle);
+                    plannerState.NeedsRecompute = true;
+                    appState.NeedsRedraw = true;
+                    _ = Task.Run(async () => await updatedSite.SaveAsync(external, cts.Token));
+                }
+                else
+                {
+                    appState.StatusMessage = "Invalid latitude or longitude";
+                }
+            };
+
+            Action cancelSite = () =>
+            {
+                eqState.IsEditingSite = false;
+                eqState.LatitudeInput.Deactivate();
+                eqState.LongitudeInput.Deactivate();
+                eqState.ElevationInput.Deactivate();
+                appState.ActiveTextInput = null;
+            };
+
+            eqState.LatitudeInput.OnCommit = _ => saveSite();
+            eqState.LongitudeInput.OnCommit = _ => saveSite();
+            eqState.ElevationInput.OnCommit = _ => saveSite();
+            eqState.LatitudeInput.OnCancel = cancelSite;
+            eqState.LongitudeInput.OnCancel = cancelSite;
+            eqState.ElevationInput.OnCancel = cancelSite;
+
+            // ---------------------------------------------------------------
+            // Wire equipment action callbacks (DI-dependent)
+            // ---------------------------------------------------------------
+            guiRenderer.EquipmentTab.OnDiscover = () =>
+            {
+                if (eqState.IsDiscovering)
+                {
+                    return;
+                }
+
+                eqState.IsDiscovering = true;
+                appState.StatusMessage = "Discovering devices...";
+                appState.NeedsRedraw = true;
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var dm = sp.GetRequiredService<ICombinedDeviceManager>();
+                        await dm.CheckSupportAsync(cts.Token);
+                        await dm.DiscoverAsync(cts.Token);
+                        eqState.DiscoveredDevices = [.. dm.RegisteredDeviceTypes
+                            .Where(t => t is not DeviceType.Profile and not DeviceType.None)
+                            .SelectMany(dm.RegisteredDevices)
+                            .OrderBy(d => d.DeviceType).ThenBy(d => d.DisplayName)];
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Device discovery failed");
+                        appState.StatusMessage = "Discovery failed";
+                    }
+                    finally
+                    {
+                        eqState.IsDiscovering = false;
+                        appState.StatusMessage = null;
+                        appState.NeedsRedraw = true;
+                    }
+                });
+            };
+
+            guiRenderer.EquipmentTab.OnAddOta = () =>
+            {
+                if (appState.ActiveProfile is not { } p)
+                {
+                    return;
+                }
+
+                var data = p.Data ?? ProfileData.Empty;
+                var newOta = new OTAData(
+                    Name: $"Telescope #{data.OTAs.Length}",
+                    FocalLength: 1000,
+                    Camera: NoneDevice.Instance.DeviceUri,
+                    Cover: null, Focuser: null, FilterWheel: null,
+                    PreferOutwardFocus: null, OutwardIsPositive: null,
+                    Aperture: null, OpticalDesign: OpticalDesign.Unknown);
+                var updated = p.WithData(EquipmentActions.AddOTA(data, newOta));
+                appState.ActiveProfile = updated;
+                appState.NeedsRedraw = true;
+                _ = Task.Run(async () => await updated.SaveAsync(external, cts.Token));
+            };
+
+            guiRenderer.EquipmentTab.OnEditSite = () =>
+            {
+                eqState.IsEditingSite = true;
+                if (appState.ActiveProfile?.Data is { } pd)
+                {
+                    var existingSite = EquipmentActions.GetSiteFromMount(pd.Mount);
+                    if (existingSite.HasValue)
+                    {
+                        eqState.LatitudeInput.Text = existingSite.Value.Lat.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                        eqState.LatitudeInput.CursorPos = eqState.LatitudeInput.Text.Length;
+                        eqState.LongitudeInput.Text = existingSite.Value.Lon.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                        eqState.LongitudeInput.CursorPos = eqState.LongitudeInput.Text.Length;
+                        eqState.ElevationInput.Text = existingSite.Value.Elev?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "";
+                        eqState.ElevationInput.CursorPos = eqState.ElevationInput.Text.Length;
+                    }
+                }
+                eqState.LatitudeInput.Activate();
+                appState.ActiveTextInput = eqState.LatitudeInput;
+                StartTextInput(sdlWindowHandle);
+            };
+
+            guiRenderer.EquipmentTab.OnCreateProfile = () =>
+            {
+                if (!eqState.IsCreatingProfile)
+                {
+                    eqState.IsCreatingProfile = true;
+                    eqState.ProfileNameInput.Activate();
+                    appState.ActiveTextInput = eqState.ProfileNameInput;
+                    StartTextInput(sdlWindowHandle);
+                }
+            };
+
+            guiRenderer.EquipmentTab.OnAssignDevice = (deviceIndex) =>
+            {
+                if (deviceIndex < 0 || deviceIndex >= eqState.DiscoveredDevices.Count)
+                {
+                    return;
+                }
+
+                if (eqState.ActiveAssignment is { } target && appState.ActiveProfile is { } profile)
+                {
+                    var device = eqState.DiscoveredDevices[deviceIndex];
+
+                    // Type guard: only allow devices matching the slot's expected type
+                    if (device.DeviceType != target.ExpectedDeviceType)
+                    {
+                        appState.StatusMessage = $"Expected {target.ExpectedDeviceType}, got {device.DeviceType}";
+                        return;
+                    }
+
+                    var data = profile.Data ?? ProfileData.Empty;
+
+                    // Remove from any existing slot first to prevent duplicates
+                    data = EquipmentActions.UnassignDevice(data, device.DeviceUri);
+
+                    var newData = target switch
+                    {
+                        AssignTarget.ProfileLevel { Field: "Mount" } => EquipmentActions.AssignMount(data, device.DeviceUri),
+                        AssignTarget.ProfileLevel { Field: "Guider" } => EquipmentActions.AssignGuider(data, device.DeviceUri),
+                        AssignTarget.ProfileLevel { Field: "GuiderCamera" } => EquipmentActions.AssignGuiderCamera(data, device.DeviceUri),
+                        AssignTarget.ProfileLevel { Field: "GuiderFocuser" } => EquipmentActions.AssignGuiderFocuser(data, device.DeviceUri),
+                        AssignTarget.OTALevel otaTarget => EquipmentActions.AssignDeviceToOTA(data, otaTarget.OtaIndex,
+                            device.DeviceType, device.DeviceUri),
+                        _ => data
+                    };
+
+                    var updated = profile.WithData(newData);
+                    // Update UI immediately (optimistic), save to disk in background
+                    appState.ActiveProfile = updated;
+                    eqState.ActiveAssignment = null;
+                    appState.NeedsRedraw = true;
+                    _ = Task.Run(async () => await updated.SaveAsync(external, cts.Token));
+                }
+            };
+
+            // ---------------------------------------------------------------
+            // Local helpers captured by closures above
+            // ---------------------------------------------------------------
+            void CommitSuggestion(string suggestion)
+            {
+                plannerState.SearchInput.Text = suggestion;
+                plannerState.SearchInput.CursorPos = suggestion.Length;
+                plannerState.Suggestions.Clear();
+                plannerState.SuggestionIndex = -1;
+                plannerState.LastSuggestionQuery = suggestion;
+
+                if (appState.ActiveProfile is not null)
+                {
+                    var transform = TransformFactory.FromProfile(appState.ActiveProfile, external.TimeProvider, out _);
+                    if (transform is not null)
+                    {
+                        var db = sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
+                        var resultIdx = PlannerActions.CommitSuggestion(plannerState, db, transform, suggestion);
+                        if (resultIdx >= 0)
+                        {
+                            plannerState.SelectedTargetIndex = resultIdx;
+                            guiRenderer.PlannerTab.EnsureVisible(resultIdx);
+                        }
+                    }
+                }
+                appState.NeedsRedraw = true;
+            }
+
+            // Store autocComplete cache setter as a public action
+            SetAutoCompleteCache = cache => autoCompleteCache = cache;
         }
+
+        /// <summary>Set by Program.cs after catalog load to enable autocomplete.</summary>
+        public Action<string[]> SetAutoCompleteCache { get; }
+
+        // ===================================================================
+        // Event routing — generic, no tab-specific logic
+        // ===================================================================
 
         /// <summary>
         /// Handles a mouse click. Returns true if the event was consumed.
@@ -62,7 +387,7 @@ namespace TianWen.UI.Gui
             {
                 if (action == "Tab:Equipment" && _guiRenderer.EquipmentTab.State.DiscoveredDevices.Count == 0)
                 {
-                    HandleEquipmentAction("Discover");
+                    _guiRenderer.EquipmentTab.OnDiscover?.Invoke();
                 }
                 _appState.NeedsRedraw = true;
                 return true;
@@ -71,8 +396,7 @@ namespace TianWen.UI.Gui
             // If chrome didn't handle it, try the active tab
             if (hit is null)
             {
-                var currentTab = _guiRenderer.ActiveTab;
-                hit = currentTab?.HitTestAndDispatch(px, py);
+                hit = _guiRenderer.ActiveTab?.HitTestAndDispatch(px, py);
             }
 
             // Text input focus management (needs SDL StartTextInput/StopTextInput)
@@ -95,15 +419,9 @@ namespace TianWen.UI.Gui
             }
 
             // Clicking outside text input → deactivate
-            if (_appState.ActiveTextInput is { IsActive: true } active && hit is not HitResult.TextInputHit)
+            if (_appState.ActiveTextInput is { IsActive: true } && hit is not HitResult.TextInputHit)
             {
                 DeactivateTextInput();
-            }
-
-            // Equipment tab actions that need DI/SDL
-            if (_appState.ActiveTab is GuiTab.Equipment && hit is not null)
-            {
-                HandleEquipmentHit(hit);
             }
 
             _appState.NeedsRedraw = true;
@@ -121,12 +439,7 @@ namespace TianWen.UI.Gui
             }
 
             target.InsertText(text);
-
-            // Update autocomplete if this is the planner search input
-            if (target == _plannerState.SearchInput && AutoCompleteCache is not null)
-            {
-                PlannerActions.UpdateSuggestions(_plannerState, AutoCompleteCache, target.Text);
-            }
+            target.OnTextChanged?.Invoke(target.Text);
         }
 
         /// <summary>
@@ -181,35 +494,19 @@ namespace TianWen.UI.Gui
         }
 
         /// <summary>
-        /// Handles mouse wheel scroll.
+        /// Handles mouse wheel scroll — delegates to the active tab.
         /// </summary>
         public void HandleMouseWheel(float scrollY)
         {
-            if (_appState.ActiveTab is GuiTab.Planner)
+            var pos = _appState.MouseScreenPosition;
+            if (_guiRenderer.ActiveTab?.HandleMouseWheel(scrollY, pos.X, pos.Y) == true)
             {
-                var pos = _appState.MouseScreenPosition;
-                if (_guiRenderer.PlannerTab.TargetListRect.Contains(pos.X, pos.Y))
-                {
-                    _guiRenderer.PlannerTab.ScrollOffset = Math.Max(0,
-                        _guiRenderer.PlannerTab.ScrollOffset - (int)scrollY * 3);
-                    _plannerState.NeedsRedraw = true;
-                }
-            }
-            else if (_appState.ActiveTab is GuiTab.Session)
-            {
-                var pos = _appState.MouseScreenPosition;
-                var sessionTab = _guiRenderer.SessionTab;
-                if (sessionTab.ConfigPanelRect.Contains(pos.X, pos.Y))
-                {
-                    sessionTab.State.ConfigScrollOffset = Math.Max(0,
-                        sessionTab.State.ConfigScrollOffset - (int)(scrollY * sessionTab.ScrollLineHeight));
-                    _appState.NeedsRedraw = true;
-                }
+                _appState.NeedsRedraw = true;
             }
         }
 
         /// <summary>
-        /// Handles a key down event. Returns true if consumed.
+        /// Handles a key down event. Returns true if consumed by the text input layer.
         /// </summary>
         public bool HandleKeyDown(Scancode scancode, Keymod keymod)
         {
@@ -219,36 +516,12 @@ namespace TianWen.UI.Gui
                 return HandleTextInputKey(activeInput, scancode, keymod);
             }
 
-            return false; // Not consumed — let caller handle global keys
+            return false; // Not consumed — let caller route to active tab
         }
 
-
-        public void CommitSuggestion(string suggestion)
-        {
-            _plannerState.SearchInput.Text = suggestion;
-            _plannerState.SearchInput.CursorPos = suggestion.Length;
-            _plannerState.Suggestions.Clear();
-            _plannerState.SuggestionIndex = -1;
-            _plannerState.LastSuggestionQuery = suggestion;
-
-            if (_appState.ActiveProfile is not null)
-            {
-                var transform = TransformFactory.FromProfile(_appState.ActiveProfile, _external.TimeProvider, out _);
-                if (transform is not null)
-                {
-                    var db = _sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
-                    var resultIdx = PlannerActions.CommitSuggestion(_plannerState, db, transform, suggestion);
-                    if (resultIdx >= 0)
-                    {
-                        _plannerState.SelectedTargetIndex = resultIdx;
-                        _guiRenderer.PlannerTab.EnsureVisible(resultIdx);
-                    }
-                }
-            }
-            _appState.NeedsRedraw = true;
-        }
-
-        // --- Private helpers ---
+        // ===================================================================
+        // Text input handling — generic with callbacks
+        // ===================================================================
 
         private void ActivateTextInput(TextInputState input)
         {
@@ -272,18 +545,11 @@ namespace TianWen.UI.Gui
             active.Deactivate();
             _appState.ActiveTextInput = null;
             StopTextInput(_sdlWindowHandle);
-
-            if (active == _plannerState.SearchInput)
-            {
-                _plannerState.Suggestions.Clear();
-                _plannerState.SuggestionIndex = -1;
-                _plannerState.LastSuggestionQuery = "";
-            }
         }
 
         private bool HandleTextInputKey(TextInputState activeInput, Scancode scancode, Keymod keymod)
         {
-            // Autocomplete navigation
+            // Autocomplete arrow navigation (not in TextInputKey — handled via raw scancode)
             if (activeInput == _plannerState.SearchInput && _plannerState.Suggestions.Count > 0)
             {
                 if (scancode == Scancode.Down)
@@ -297,21 +563,6 @@ namespace TianWen.UI.Gui
                 if (scancode == Scancode.Up && _plannerState.SuggestionIndex >= 0)
                 {
                     _plannerState.SuggestionIndex--;
-                    _appState.NeedsRedraw = true;
-                    return true;
-                }
-
-                if (scancode == Scancode.Return && _plannerState.SuggestionIndex >= 0)
-                {
-                    CommitSuggestion(_plannerState.Suggestions[_plannerState.SuggestionIndex]);
-                    return true;
-                }
-
-                if (scancode == Scancode.Escape)
-                {
-                    _plannerState.Suggestions.Clear();
-                    _plannerState.SuggestionIndex = -1;
-                    _plannerState.LastSuggestionQuery = "";
                     _appState.NeedsRedraw = true;
                     return true;
                 }
@@ -331,12 +582,12 @@ namespace TianWen.UI.Gui
                 _ => (TextInputKey?)null
             };
 
-            // Tab cycling through text inputs
+            // Tab cycling through text inputs on the active tab
             if (scancode == Scancode.Tab)
             {
                 var shift = (keymod & Keymod.Shift) != 0;
-                var inputs = _guiRenderer.EquipmentTab.GetRegisteredTextInputs();
-                if (inputs.Count > 1 && _appState.ActiveTextInput is { } current)
+                var inputs = _guiRenderer.ActiveTab?.GetRegisteredTextInputs();
+                if (inputs is { Count: > 1 } && _appState.ActiveTextInput is { } current)
                 {
                     var idx = inputs.IndexOf(current);
                     if (idx >= 0)
@@ -353,22 +604,32 @@ namespace TianWen.UI.Gui
                 }
             }
 
+            // Let the input's OnKeyOverride handle it first (autocomplete, etc.)
+            if (inputKey.HasValue && activeInput.OnKeyOverride?.Invoke(inputKey.Value) == true)
+            {
+                _appState.NeedsRedraw = true;
+                return true;
+            }
+
             if (inputKey.HasValue && activeInput.HandleKey(inputKey.Value))
             {
-                // Update suggestions on text-modifying keys
-                if (activeInput == _plannerState.SearchInput && AutoCompleteCache is not null
-                    && inputKey.Value is TextInputKey.Backspace or TextInputKey.Delete)
+                // Notify text change on modifying keys
+                if (inputKey.Value is TextInputKey.Backspace or TextInputKey.Delete)
                 {
-                    PlannerActions.UpdateSuggestions(_plannerState, AutoCompleteCache, activeInput.Text);
+                    activeInput.OnTextChanged?.Invoke(activeInput.Text);
                 }
 
                 if (activeInput.IsCommitted)
                 {
-                    HandleTextInputCommit(activeInput);
+                    activeInput.OnCommit?.Invoke(activeInput.Text);
+                    activeInput.IsCommitted = false;
                 }
                 else if (activeInput.IsCancelled)
                 {
-                    HandleTextInputCancel(activeInput);
+                    activeInput.OnCancel?.Invoke();
+                    activeInput.IsCancelled = false;
+                    activeInput.Deactivate();
+                    StopTextInput(_sdlWindowHandle);
                 }
 
                 _appState.NeedsRedraw = true;
@@ -377,275 +638,5 @@ namespace TianWen.UI.Gui
 
             return true; // Swallow all keys when text input active
         }
-
-        private void HandleTextInputCommit(TextInputState input)
-        {
-            var eqState = _guiRenderer.EquipmentTab.State;
-
-            if (input == _plannerState.SearchInput)
-            {
-                _plannerState.Suggestions.Clear();
-                _plannerState.SuggestionIndex = -1;
-                _plannerState.LastSuggestionQuery = "";
-
-                if (_appState.ActiveProfile is not null && input.Text.Length > 0)
-                {
-                    var transform = TransformFactory.FromProfile(_appState.ActiveProfile, _external.TimeProvider, out _);
-                    if (transform is not null)
-                    {
-                        var db = _sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
-                        var resultIdx = PlannerActions.SearchTargets(_plannerState, db, transform, input.Text);
-                        if (resultIdx >= 0)
-                        {
-                            _plannerState.SelectedTargetIndex = resultIdx;
-                            _guiRenderer.PlannerTab.EnsureVisible(resultIdx);
-                        }
-                    }
-                }
-                input.IsCommitted = false;
-            }
-            else if (eqState.IsEditingSite)
-            {
-                HandleEquipmentAction("SaveSite");
-            }
-            else if (input.Text.Length > 0)
-            {
-                HandleEquipmentAction("CreateProfile");
-            }
-        }
-
-        private void HandleTextInputCancel(TextInputState input)
-        {
-            var eqState = _guiRenderer.EquipmentTab.State;
-
-            if (input == _plannerState.SearchInput)
-            {
-                _plannerState.SearchInput.Deactivate();
-                _plannerState.SearchInput.Clear();
-                _plannerState.SearchResults.Clear();
-                _plannerState.Suggestions.Clear();
-                _plannerState.SuggestionIndex = -1;
-                _plannerState.LastSuggestionQuery = "";
-                _appState.ActiveTextInput = null;
-                StopTextInput(_sdlWindowHandle);
-                _plannerState.NeedsRedraw = true;
-            }
-            else if (eqState.IsEditingSite)
-            {
-                eqState.IsEditingSite = false;
-                eqState.LatitudeInput.Deactivate();
-                eqState.LongitudeInput.Deactivate();
-                eqState.ElevationInput.Deactivate();
-                _appState.ActiveTextInput = null;
-            }
-            else
-            {
-                eqState.IsCreatingProfile = false;
-                eqState.ProfileNameInput.Clear();
-            }
-            input.Deactivate();
-            StopTextInput(_sdlWindowHandle);
-        }
-
-        private void HandleEquipmentHit(HitResult hit)
-        {
-            switch (hit)
-            {
-                case HitResult.ButtonHit { Action: var action }:
-                    HandleEquipmentAction(action);
-                    break;
-
-                case HitResult.SlotHit { Slot: { } slot }:
-                    var eqState = _guiRenderer.EquipmentTab.State;
-                    eqState.ActiveAssignment = eqState.ActiveAssignment == slot ? null : slot;
-                    _appState.NeedsRedraw = true;
-                    break;
-
-                case HitResult.ListItemHit { ListId: "Devices", Index: var deviceIndex }:
-                    HandleDeviceAssignment(deviceIndex);
-                    break;
-            }
-        }
-
-        private void HandleEquipmentAction(string action)
-        {
-            var eqState = _guiRenderer.EquipmentTab.State;
-
-            switch (action)
-            {
-                case "CreateProfile":
-                    if (!eqState.IsCreatingProfile)
-                    {
-                        eqState.IsCreatingProfile = true;
-                        eqState.ProfileNameInput.Activate();
-                        _appState.ActiveTextInput = eqState.ProfileNameInput;
-                        StartTextInput(_sdlWindowHandle);
-                    }
-                    else if (eqState.ProfileNameInput.Text.Length > 0)
-                    {
-                        var name = eqState.ProfileNameInput.Text;
-                        _ = Task.Run(async () =>
-                        {
-                            var profile = await EquipmentActions.CreateProfileAsync(name, _external, _cts.Token);
-                            _appState.ActiveProfile = profile;
-                            eqState.IsCreatingProfile = false;
-                            eqState.ProfileNameInput.Deactivate();
-                            eqState.ProfileNameInput.Clear();
-                            _appState.ActiveTextInput = null;
-                            StopTextInput(_sdlWindowHandle);
-                            _plannerState.NeedsRecompute = true;
-                            _appState.NeedsRedraw = true;
-                        });
-                    }
-                    break;
-
-                case "Discover":
-                    if (!eqState.IsDiscovering)
-                    {
-                        eqState.IsDiscovering = true;
-                        _appState.StatusMessage = "Discovering devices...";
-                        _appState.NeedsRedraw = true;
-                        _ = Task.Run(async () =>
-                        {
-                            try
-                            {
-                                var dm = _sp.GetRequiredService<ICombinedDeviceManager>();
-                                await dm.CheckSupportAsync(_cts.Token);
-                                await dm.DiscoverAsync(_cts.Token);
-                                eqState.DiscoveredDevices = [.. dm.RegisteredDeviceTypes
-                                    .Where(t => t is not DeviceType.Profile and not DeviceType.None)
-                                    .SelectMany(dm.RegisteredDevices)
-                                    .OrderBy(d => d.DeviceType).ThenBy(d => d.DisplayName)];
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogWarning(ex, "Device discovery failed");
-                                _appState.StatusMessage = "Discovery failed";
-                            }
-                            finally
-                            {
-                                eqState.IsDiscovering = false;
-                                _appState.StatusMessage = null;
-                                _appState.NeedsRedraw = true;
-                            }
-                        });
-                    }
-                    break;
-
-                case "AddOta" when _appState.ActiveProfile is { } p:
-                    var d = p.Data ?? ProfileData.Empty;
-                    var newOta = new OTAData(
-                        Name: $"Telescope #{d.OTAs.Length}",
-                        FocalLength: 1000,
-                        Camera: NoneDevice.Instance.DeviceUri,
-                        Cover: null, Focuser: null, FilterWheel: null,
-                        PreferOutwardFocus: null, OutwardIsPositive: null,
-                        Aperture: null, OpticalDesign: OpticalDesign.Unknown);
-                    var newD = EquipmentActions.AddOTA(d, newOta);
-                    var updatedP = p.WithData(newD);
-                    _ = Task.Run(async () =>
-                    {
-                        await updatedP.SaveAsync(_external, _cts.Token);
-                        _appState.ActiveProfile = updatedP;
-                        _appState.NeedsRedraw = true;
-                    });
-                    break;
-
-                case "EditSite":
-                    var st = _guiRenderer.EquipmentTab.State;
-                    st.IsEditingSite = true;
-                    if (_appState.ActiveProfile?.Data is { } pd)
-                    {
-                        var existingSite = EquipmentActions.GetSiteFromMount(pd.Mount);
-                        if (existingSite.HasValue)
-                        {
-                            st.LatitudeInput.Text = existingSite.Value.Lat.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                            st.LatitudeInput.CursorPos = st.LatitudeInput.Text.Length;
-                            st.LongitudeInput.Text = existingSite.Value.Lon.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                            st.LongitudeInput.CursorPos = st.LongitudeInput.Text.Length;
-                            st.ElevationInput.Text = existingSite.Value.Elev?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "";
-                            st.ElevationInput.CursorPos = st.ElevationInput.Text.Length;
-                        }
-                    }
-                    st.LatitudeInput.Activate();
-                    _appState.ActiveTextInput = st.LatitudeInput;
-                    StartTextInput(_sdlWindowHandle);
-                    break;
-
-                case "SaveSite" when _appState.ActiveProfile is { } siteProfile:
-                    var st2 = _guiRenderer.EquipmentTab.State;
-                    if (double.TryParse(st2.LatitudeInput.Text, System.Globalization.CultureInfo.InvariantCulture, out var sLat) &&
-                        double.TryParse(st2.LongitudeInput.Text, System.Globalization.CultureInfo.InvariantCulture, out var sLon))
-                    {
-                        double? sElev = double.TryParse(st2.ElevationInput.Text, System.Globalization.CultureInfo.InvariantCulture, out var e) ? e : null;
-                        var sData = siteProfile.Data ?? ProfileData.Empty;
-                        var newSiteData = EquipmentActions.SetSite(sData, sLat, sLon, sElev);
-                        var updatedSite = siteProfile.WithData(newSiteData);
-                        // Update UI immediately, save in background
-                        _appState.ActiveProfile = updatedSite;
-                        st2.IsEditingSite = false;
-                        st2.LatitudeInput.Deactivate();
-                        st2.LongitudeInput.Deactivate();
-                        st2.ElevationInput.Deactivate();
-                        _appState.ActiveTextInput = null;
-                        StopTextInput(_sdlWindowHandle);
-                        _plannerState.NeedsRecompute = true;
-                        _appState.NeedsRedraw = true;
-                        _ = Task.Run(async () => await updatedSite.SaveAsync(_external, _cts.Token));
-                    }
-                    else
-                    {
-                        _appState.StatusMessage = "Invalid latitude or longitude";
-                    }
-                    break;
-            }
-
-            _appState.NeedsRedraw = true;
-        }
-
-        private void HandleDeviceAssignment(int deviceIndex)
-        {
-            var eqState = _guiRenderer.EquipmentTab.State;
-            if (deviceIndex < 0 || deviceIndex >= eqState.DiscoveredDevices.Count)
-            {
-                return;
-            }
-
-            if (eqState.ActiveAssignment is { } target && _appState.ActiveProfile is { } profile)
-            {
-                var device = eqState.DiscoveredDevices[deviceIndex];
-
-                // Type guard: only allow devices matching the slot's expected type
-                if (device.DeviceType != target.ExpectedDeviceType)
-                {
-                    _appState.StatusMessage = $"Expected {target.ExpectedDeviceType}, got {device.DeviceType}";
-                    return;
-                }
-
-                var data = profile.Data ?? ProfileData.Empty;
-
-                // Remove from any existing slot first to prevent duplicates
-                data = EquipmentActions.UnassignDevice(data, device.DeviceUri);
-
-                var newData = target switch
-                {
-                    AssignTarget.ProfileLevel { Field: "Mount" } => EquipmentActions.AssignMount(data, device.DeviceUri),
-                    AssignTarget.ProfileLevel { Field: "Guider" } => EquipmentActions.AssignGuider(data, device.DeviceUri),
-                    AssignTarget.ProfileLevel { Field: "GuiderCamera" } => EquipmentActions.AssignGuiderCamera(data, device.DeviceUri),
-                    AssignTarget.ProfileLevel { Field: "GuiderFocuser" } => EquipmentActions.AssignGuiderFocuser(data, device.DeviceUri),
-                    AssignTarget.OTALevel otaTarget => EquipmentActions.AssignDeviceToOTA(data, otaTarget.OtaIndex,
-                        device.DeviceType, device.DeviceUri),
-                    _ => data
-                };
-
-                var updated = profile.WithData(newData);
-                // Update UI immediately (optimistic), save to disk in background
-                _appState.ActiveProfile = updated;
-                eqState.ActiveAssignment = null;
-                _appState.NeedsRedraw = true;
-                _ = Task.Run(async () => await updated.SaveAsync(_external, _cts.Token));
-            }
-        }
-
     }
 }

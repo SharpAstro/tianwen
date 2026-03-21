@@ -49,6 +49,21 @@ namespace TianWen.UI.Gui
         /// <summary>Tab state (scroll offsets, discovery results, assignment mode).</summary>
         public EquipmentTabState State { get; } = new EquipmentTabState();
 
+        /// <summary>Callback for device discovery (needs DI). Set by the host.</summary>
+        public Action? OnDiscover { get; set; }
+
+        /// <summary>Callback for adding a new OTA to the profile. Set by the host.</summary>
+        public Action? OnAddOta { get; set; }
+
+        /// <summary>Callback for starting site coordinate editing. Set by the host.</summary>
+        public Action? OnEditSite { get; set; }
+
+        /// <summary>Callback for creating a new profile. Set by the host.</summary>
+        public Action? OnCreateProfile { get; set; }
+
+        /// <summary>Callback for assigning a device to the active slot. Set by the host.</summary>
+        public Action<int>? OnAssignDevice { get; set; }
+
         public VkEquipmentTab(VkRenderer renderer) : base(renderer)
         {
         }
@@ -112,7 +127,8 @@ namespace TianWen.UI.Gui
             var btnX = centerX - buttonW / 2f;
             var btnY = centerY + padding;
 
-            RenderButton("Create Profile", btnX, btnY, buttonW, buttonH, fontPath, fontSize, CreateButton, BodyText, "CreateProfile");
+            RenderButton("Create Profile", btnX, btnY, buttonW, buttonH, fontPath, fontSize, CreateButton, BodyText, "CreateProfile",
+                () => OnCreateProfile?.Invoke());
         }
 
         // -----------------------------------------------------------------------
@@ -157,7 +173,8 @@ namespace TianWen.UI.Gui
             // Create button
             var btnY = inputY + (int)fieldH + (int)padding;
             var btnW = 120f * dpiScale;
-            RenderButton("Create", fieldX, btnY, btnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "CreateProfile");
+            RenderButton("Create", fieldX, btnY, btnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "CreateProfile",
+                () => { if (State.ProfileNameInput.Text.Length > 0) State.ProfileNameInput.OnCommit?.Invoke(State.ProfileNameInput.Text); });
 
             // Bottom status
             FillRect(bottomBarRect.X, bottomBarRect.Y, bottomBarRect.Width, bottomBarRect.Height, BottomBarBg);
@@ -269,7 +286,8 @@ namespace TianWen.UI.Gui
 
                     // Save button
                     var saveBtnW = Renderer.MeasureText("Save Site".AsSpan(), fontPath, fontSize).Width + padding * 4f;
-                    RenderButton("Save Site", x + padding, cursor, saveBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "SaveSite");
+                    RenderButton("Save Site", x + padding, cursor, saveBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "SaveSite",
+                        () => State.LatitudeInput.OnCommit?.Invoke(State.LatitudeInput.Text));
                     cursor += buttonH + padding;
                 }
                 else if (site.HasValue)
@@ -282,7 +300,8 @@ namespace TianWen.UI.Gui
 
                     var siteBtnW = w - padding * 2f;
                     FillRect(x + padding, cursor, siteBtnW, itemH, SlotNormal);
-                    RegisterClickable(x + padding, cursor, siteBtnW, itemH, new HitResult.ButtonHit("EditSite"));
+                    RegisterClickable(x + padding, cursor, siteBtnW, itemH, new HitResult.ButtonHit("EditSite"),
+                        () => OnEditSite?.Invoke());
                     DrawText(siteStr.AsSpan(), fontPath, x + padding, cursor, siteBtnW - arrowW, itemH, fontSize * 0.9f, SiteText, TextAlign.Near, TextAlign.Center);
                     DrawText("[>]".AsSpan(), fontPath, x + w - padding - arrowW, cursor, arrowW, itemH, fontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center);
                     cursor += itemH;
@@ -291,7 +310,8 @@ namespace TianWen.UI.Gui
                 {
                     // No site configured — show "Set Site" button
                     var setSiteBtnW = Renderer.MeasureText("Set Site".AsSpan(), fontPath, fontSize).Width + padding * 4f;
-                    RenderButton("Set Site", x + padding, cursor, setSiteBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "EditSite");
+                    RenderButton("Set Site", x + padding, cursor, setSiteBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "EditSite",
+                        () => OnEditSite?.Invoke());
                     cursor += buttonH;
                 }
 
@@ -352,7 +372,8 @@ namespace TianWen.UI.Gui
                 var addOtaBtnW = 120f * dpiScale;
                 if (addOtaBtnY + buttonH < y + h - padding)
                 {
-                    RenderButton("+ Add OTA", x + padding, addOtaBtnY, addOtaBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "AddOta");
+                    RenderButton("+ Add OTA", x + padding, addOtaBtnY, addOtaBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "AddOta",
+                        () => OnAddOta?.Invoke());
                 }
             }
             else
@@ -474,7 +495,9 @@ namespace TianWen.UI.Gui
 
                 // Row background
                 FillRect(x, rowY, w, itemH, isCurrentForSlot ? SlotActive : DeviceRowBg);
-                RegisterClickable(x, rowY, w, itemH, new HitResult.ListItemHit("Devices", i));
+                var capturedIdx = i;
+                RegisterClickable(x, rowY, w, itemH, new HitResult.ListItemHit("Devices", i),
+                    () => OnAssignDevice?.Invoke(capturedIdx));
                 FillRect(x, rowY + itemH - 1f, w, 1f, SeparatorColor);
 
                 // Type badge
@@ -514,7 +537,8 @@ namespace TianWen.UI.Gui
             var discoverBtnW = Renderer.MeasureText("Discovering...".AsSpan(), fontPath, fontSize).Width + padding * 4f;
             var discoverBtnX = x + padding;
 
-            RenderButton(discoverLabel, discoverBtnX, discoverBtnY, discoverBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "Discover");
+            RenderButton(discoverLabel, discoverBtnX, discoverBtnY, discoverBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "Discover",
+                () => OnDiscover?.Invoke());
         }
 
         // -----------------------------------------------------------------------
