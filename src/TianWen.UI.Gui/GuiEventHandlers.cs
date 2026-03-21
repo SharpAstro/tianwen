@@ -411,7 +411,7 @@ namespace TianWen.UI.Gui
             }
 
             // Slider drag start
-            if (hit is AppHitResults.SliderHit { SliderIndex: var sliderIdx })
+            if (hit is HitResult.SliderHit { SliderIndex: var sliderIdx })
             {
                 _plannerState.DraggingSliderIndex = sliderIdx;
                 _appState.NeedsRedraw = true;

@@ -131,9 +131,9 @@ namespace TianWen.UI.Gui
         /// <summary>
         /// Returns the content area rectangle in pixels (excluding sidebar and status bar).
         /// </summary>
-        public PixelRect GetContentArea()
+        public RectF32 GetContentArea()
         {
-            return new PixelRect(SidebarWidth, StatusBarHeight, (float)_width - SidebarWidth, (float)_height - StatusBarHeight);
+            return new RectF32(SidebarWidth, StatusBarHeight, (float)_width - SidebarWidth, (float)_height - StatusBarHeight);
         }
 
         public void Dispose()
@@ -303,7 +303,7 @@ namespace TianWen.UI.Gui
             PlannerState plannerState,
             ViewerState viewerState,
             TimeProvider timeProvider,
-            PixelRect contentRect)
+            RectF32 contentRect)
         {
             switch (appState.ActiveTab)
             {
@@ -328,7 +328,7 @@ namespace TianWen.UI.Gui
             }
         }
 
-        private void RenderComingSoonPlaceholder(PixelRect rect, GuiTab tab)
+        private void RenderComingSoonPlaceholder(RectF32 rect, GuiTab tab)
         {
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, ContentBg);
 
