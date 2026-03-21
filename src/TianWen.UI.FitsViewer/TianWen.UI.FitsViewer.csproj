@@ -25,7 +25,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\TianWen.UI.Vulkan\TianWen.UI.Vulkan.csproj" />
+    <ProjectReference Include="..\TianWen.UI.Shared\TianWen.UI.Shared.csproj" />
   </ItemGroup>
 
 </Project>

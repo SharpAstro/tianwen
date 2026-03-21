@@ -30,7 +30,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TianWen.UI.Benchmarks", "Ti
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TianWen.Lib.Tests.Functional", "TianWen.Lib.Tests.Functional\TianWen.Lib.Tests.Functional.csproj", "{0AC80804-3B31-40B8-97EC-F7D6F9BCB28E}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TianWen.UI.Vulkan", "TianWen.UI.Vulkan\TianWen.UI.Vulkan.csproj", "{276A4228-7153-475A-9D44-163E0EC773E1}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TianWen.UI.Shared", "TianWen.UI.Shared\TianWen.UI.Shared.csproj", "{276A4228-7153-475A-9D44-163E0EC773E1}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TianWen.UI.Gui", "TianWen.UI.Gui\TianWen.UI.Gui.csproj", "{74DF2B35-B3BB-419B-BB6B-7159C565F894}"
 EndProject

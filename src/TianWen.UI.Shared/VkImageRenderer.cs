@@ -7,7 +7,7 @@ using TianWen.UI.Abstractions;
 using TianWen.UI.Abstractions.Overlays;
 using Vortice.Vulkan;
 
-namespace TianWen.UI.Vulkan;
+namespace TianWen.UI.Shared;
 
 /// <summary>
 /// Vulkan renderer for the FITS viewer. Renders the image via <see cref="VkFitsImagePipeline"/>

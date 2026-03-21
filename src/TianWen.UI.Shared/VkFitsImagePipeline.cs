@@ -3,7 +3,7 @@ using Vortice.ShaderCompiler;
 using Vortice.Vulkan;
 using static Vortice.Vulkan.Vulkan;
 
-namespace TianWen.UI.Vulkan;
+namespace TianWen.UI.Shared;
 
 /// <summary>
 /// Vulkan side-car pipeline for the FITS image viewer.
