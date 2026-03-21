@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using DIR.Lib;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
