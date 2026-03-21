@@ -333,6 +333,17 @@ namespace TianWen.UI.Gui
                 }
             };
 
+            guiRenderer.EquipmentTab.OnUpdateProfile = async (newData) =>
+            {
+                if (appState.ActiveProfile is { } profile)
+                {
+                    var updated = profile.WithData(newData);
+                    appState.ActiveProfile = updated;
+                    appState.NeedsRedraw = true;
+                    await updated.SaveAsync(external, cts.Token);
+                }
+            };
+
             // ---------------------------------------------------------------
             // Local helpers captured by closures above
             // ---------------------------------------------------------------

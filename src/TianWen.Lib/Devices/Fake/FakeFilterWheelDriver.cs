@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -6,24 +7,44 @@ namespace TianWen.Lib.Devices.Fake;
 
 internal sealed class FakeFilterWheelDriver(FakeDevice fakeDevice, IExternal external) : FakePositionBasedDriver(fakeDevice, external), IFilterWheelDriver
 {
-    private static readonly IReadOnlyList<InstalledFilter> DefaultFilters =
+    // Per-device-ID presets (1-based ID, mod 3)
+    private static readonly IReadOnlyList<InstalledFilter> LrgbFilters =
     [
         new InstalledFilter("Luminance"),
-        new InstalledFilter("H-Alpha + OIII", +11),
         new InstalledFilter("Red", +20),
         new InstalledFilter("Green"),
-        new InstalledFilter("Blue", -15),
-        new InstalledFilter("SII", +25),
-        new InstalledFilter("H-Alpha", +21),
-        new InstalledFilter("OIII", -3)
+        new InstalledFilter("Blue", -15)
     ];
+
+    private static readonly IReadOnlyList<InstalledFilter> NarrowbandFilters =
+    [
+        new InstalledFilter("Luminance"),
+        new InstalledFilter("H-Alpha", +21),
+        new InstalledFilter("OIII", -3),
+        new InstalledFilter("SII", +25),
+        new InstalledFilter("Red", +20),
+        new InstalledFilter("Green"),
+        new InstalledFilter("Blue", -15)
+    ];
+
+    private static readonly IReadOnlyList<InstalledFilter> SimpleFilters =
+    [
+        new InstalledFilter("Luminance"),
+        new InstalledFilter("Red", +20),
+        new InstalledFilter("Green")
+    ];
+
+    private static readonly IReadOnlyList<IReadOnlyList<InstalledFilter>> Presets = [LrgbFilters, NarrowbandFilters, SimpleFilters];
+
+    internal const int MaxSlots = 8;
+
+    internal static IReadOnlyList<InstalledFilter> GetDefaultFiltersForId(int id) => Presets[(id - 1) % Presets.Count];
 
     private IReadOnlyList<InstalledFilter>? _filters;
 
     /// <summary>
-    /// Reads filter names and focus offsets from the device URI query parameters
-    /// (filter1, offset1, filter2, offset2, ...), same as the ZWO driver.
-    /// Falls back to a default 8-slot wheel when no query params are present.
+    /// Slot count is determined by the per-device-ID preset (max 8 slots).
+    /// URI query params (filter1, offset1, ...) override names and offsets per slot.
     /// </summary>
     public IReadOnlyList<InstalledFilter> Filters
     {
@@ -35,21 +56,18 @@ internal sealed class FakeFilterWheelDriver(FakeDevice fakeDevice, IExternal ext
             }
 
             var query = _fakeDevice.Query;
-            var filters = new List<InstalledFilter>();
+            var defaults = GetDefaultFiltersForId(Math.Max(1, FakeCameraDriver.ExtractId(_fakeDevice.DeviceUri)));
+            var slotCount = defaults.Count;
+            var filters = new List<InstalledFilter>(slotCount);
 
-            for (var i = 1; ; i++)
+            for (var i = 0; i < slotCount; i++)
             {
-                var name = query[DeviceQueryKeyExtensions.FilterKey(i)];
-                if (name is null)
-                {
-                    break;
-                }
-
-                var offset = int.TryParse(query[DeviceQueryKeyExtensions.FilterOffsetKey(i)], out var o) ? o : 0;
+                var name = query[DeviceQueryKeyExtensions.FilterKey(i + 1)] ?? defaults[i].Filter.Name;
+                var offset = int.TryParse(query[DeviceQueryKeyExtensions.FilterOffsetKey(i + 1)], out var o) ? o : defaults[i].Position;
                 filters.Add(new InstalledFilter(name, offset));
             }
 
-            _filters = filters.Count > 0 ? filters : DefaultFilters;
+            _filters = filters;
             return _filters;
         }
     }

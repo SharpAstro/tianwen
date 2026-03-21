@@ -2,8 +2,10 @@
 
 ## Next Up
 
-- [ ] Fake filter wheels should have pre-installed filters (realistic filter sets per device ID)
+- [x] Fake filter wheels should have pre-installed filters (realistic filter sets per device ID)
 - [ ] Pinned items in planner should persist to disk (`<CommonDataRoot>/Sessions/Uncommitted.json`) so they survive app restarts while not yet committed to a planned session
+- [ ] Seed focuser `MaxStep` from hardware during ZWO EAF discovery (same `seedQueryParams` pattern as EFW slot count)
+- [ ] Remember last focus position in profile URI after auto-focus (save after every auto-focus attempt, whether successful or not) so the focuser can start near the last known good position on next session
 
 ## Observation Scheduler (PLAN-SessionTests.md)
 
@@ -95,7 +97,7 @@
 
 - [ ] Query tracking rates from Alpaca when endpoint supports enumeration (`AlpacaTelescopeDriver.cs:46`)
 - [ ] Parse axis rates from Alpaca response (`AlpacaTelescopeDriver.cs:315`)
-- [ ] Implement string[] and int[] typed getters for filter names and focus offsets (`AlpacaFilterWheelDriver.cs:30`)
+- [x] Implement string[] and int[] typed getters for filter names and focus offsets (`AlpacaClient.cs`)
 - [ ] Parse string[] from Alpaca for `Offsets` (`AlpacaCameraDriver.cs:238`)
 - [ ] Parse string[] from Alpaca for `Gains` (`AlpacaCameraDriver.cs:248`)
 - [ ] Alpaca `imagearray` endpoint requires special binary handling (`AlpacaCameraDriver.cs:258`)
@@ -154,7 +156,7 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 - [x] Annotation overlay (object names from catalogs when plate-solved)
 - [x] Star detection overlay: `FitsDocument.DetectStarsAsync()` runs as background task,
       draws HFD-sized green circles, shows count/HFR/FWHM in status bar (S key toggle)
-- [ ] Clip star overlay circles to image viewport (currently drawn over toolbar, file list, and info panel)
+- [x] Clip star overlay circles to image viewport + fix centroid alignment (+0.5px offset)
 - [ ] Remember last opened folder and recent images across sessions
 - [ ] Continuous image advance when holding arrow keys (advance every ~1 second while pressed)
 - [ ] Display original bit depth before normalization (e.g. "16-bit" in status bar) when available from FITS header

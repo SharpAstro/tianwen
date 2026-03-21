@@ -83,10 +83,21 @@ guiRenderer.PlannerTab.OnBuildSchedule = () =>
     var transform = TransformFactory.FromProfile(appState.ActiveProfile, external.TimeProvider, out _);
     if (transform is not null)
     {
+        // Pass filter config and optical design from the first OTA in the active profile
+        var profileData = appState.ActiveProfile.Data ?? ProfileData.Empty;
+        var availableFilters = profileData.OTAs.Length > 0
+            ? EquipmentActions.GetFilterConfig(profileData, 0)
+            : null;
+        var opticalDesign = profileData.OTAs.Length > 0
+            ? profileData.OTAs[0].OpticalDesign
+            : OpticalDesign.Unknown;
+
         PlannerActions.BuildSchedule(plannerState, transform,
             defaultGain: 120, defaultOffset: 10,
             defaultSubExposure: TimeSpan.FromSeconds(120),
-            defaultObservationTime: TimeSpan.FromMinutes(60));
+            defaultObservationTime: TimeSpan.FromMinutes(60),
+            availableFilters: availableFilters is { Count: > 0 } ? availableFilters : null,
+            opticalDesign: opticalDesign);
     }
 };
 

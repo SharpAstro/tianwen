@@ -15,7 +15,17 @@ internal sealed class ManualFilterWheelDriver(ManualFilterWheelDevice device, IE
 {
     private bool _connected;
 
-    public IReadOnlyList<InstalledFilter> Filters => [new InstalledFilter(device.InstalledFilter)];
+    public IReadOnlyList<InstalledFilter> Filters
+    {
+        get
+        {
+            // Single slot — name and offset from URI query params (profile is source of truth)
+            var query = device.Query;
+            var name = query[DeviceQueryKeyExtensions.FilterKey(1)] ?? device.InstalledFilter.Name;
+            var offset = int.TryParse(query[DeviceQueryKeyExtensions.FilterOffsetKey(1)], out var o) ? o : 0;
+            return [new InstalledFilter(name, offset)];
+        }
+    }
 
     public ValueTask<int> GetPositionAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(0);

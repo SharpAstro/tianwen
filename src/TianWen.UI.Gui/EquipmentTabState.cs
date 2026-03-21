@@ -1,6 +1,7 @@
 using DIR.Lib;
 using System.Collections.Generic;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
 
 namespace TianWen.UI.Gui;
@@ -33,4 +34,32 @@ public class EquipmentTabState
 
     // Profile list (for multi-profile picker)
     public IReadOnlyList<Profile> AllProfiles { get; set; } = [];
+
+    // Filter editing: which OTA's filter table is expanded (-1 = none)
+    public int ExpandedFilterOtaIndex { get; set; } = -1;
+
+    // OTA property editing: which OTA is being edited (-1 = none)
+    public int EditingOtaIndex { get; set; } = -1;
+    public TextInputState OtaNameInput { get; } = new() { Placeholder = "OTA name" };
+    public TextInputState FocalLengthInput { get; } = new() { Placeholder = "Focal length (mm)" };
+    public TextInputState ApertureInput { get; } = new() { Placeholder = "Aperture (mm)" };
+
+    /// <summary>
+    /// Initializes the OTA editing state from the given OTA data.
+    /// </summary>
+    public void BeginEditingOta(int otaIndex, OTAData ota)
+    {
+        EditingOtaIndex = otaIndex;
+        OtaNameInput.Text = ota.Name;
+        FocalLengthInput.Text = ota.FocalLength.ToString();
+        ApertureInput.Text = ota.Aperture?.ToString() ?? "";
+    }
+
+    /// <summary>
+    /// Stops OTA property editing.
+    /// </summary>
+    public void StopEditingOta()
+    {
+        EditingOtaIndex = -1;
+    }
 }
