@@ -23,6 +23,7 @@ namespace TianWen.UI.Gui
         private readonly PlannerState _plannerState;
         private readonly VkGuiRenderer _guiRenderer;
         private readonly nint _sdlWindowHandle;
+        private readonly BackgroundTaskTracker _tracker;
 
         public GuiEventHandlers(
             IServiceProvider sp,
@@ -31,14 +32,17 @@ namespace TianWen.UI.Gui
             VkGuiRenderer guiRenderer,
             nint sdlWindowHandle,
             CancellationTokenSource cts,
-            IExternal external)
+            IExternal external,
+            BackgroundTaskTracker tracker)
         {
             _appState = appState;
             _plannerState = plannerState;
             _guiRenderer = guiRenderer;
             _sdlWindowHandle = sdlWindowHandle;
+            _tracker = tracker;
 
             var logger = external.AppLogger;
+            guiRenderer.EquipmentTab.Tracker = tracker;
 
             // ---------------------------------------------------------------
             // Wire planner search input callbacks
@@ -65,6 +69,7 @@ namespace TianWen.UI.Gui
                         }
                     }
                 }
+                return Task.CompletedTask;
             };
 
             plannerState.SearchInput.OnCancel = () =>
@@ -124,22 +129,19 @@ namespace TianWen.UI.Gui
             // ---------------------------------------------------------------
             var eqState = guiRenderer.EquipmentTab.State;
 
-            eqState.ProfileNameInput.OnCommit = text =>
+            eqState.ProfileNameInput.OnCommit = async text =>
             {
                 if (text.Length > 0)
                 {
-                    _ = Task.Run(async () =>
-                    {
-                        var profile = await EquipmentActions.CreateProfileAsync(text, external, cts.Token);
-                        appState.ActiveProfile = profile;
-                        eqState.IsCreatingProfile = false;
-                        eqState.ProfileNameInput.Deactivate();
-                        eqState.ProfileNameInput.Clear();
-                        appState.ActiveTextInput = null;
-                        StopTextInput(sdlWindowHandle);
-                        plannerState.NeedsRecompute = true;
-                        appState.NeedsRedraw = true;
-                    });
+                    var profile = await EquipmentActions.CreateProfileAsync(text, external, cts.Token);
+                    appState.ActiveProfile = profile;
+                    eqState.IsCreatingProfile = false;
+                    eqState.ProfileNameInput.Deactivate();
+                    eqState.ProfileNameInput.Clear();
+                    appState.ActiveTextInput = null;
+                    StopTextInput(sdlWindowHandle);
+                    plannerState.NeedsRecompute = true;
+                    appState.NeedsRedraw = true;
                 }
             };
 
@@ -150,7 +152,7 @@ namespace TianWen.UI.Gui
             };
 
             // Site inputs share a commit: save site on Enter from any of the three fields
-            Action saveSite = () =>
+            Func<Task> saveSite = async () =>
             {
                 if (appState.ActiveProfile is not { } siteProfile)
                 {
@@ -174,7 +176,7 @@ namespace TianWen.UI.Gui
                     StopTextInput(sdlWindowHandle);
                     plannerState.NeedsRecompute = true;
                     appState.NeedsRedraw = true;
-                    _ = Task.Run(async () => await updatedSite.SaveAsync(external, cts.Token));
+                    await updatedSite.SaveAsync(external, cts.Token);
                 }
                 else
                 {
@@ -201,7 +203,7 @@ namespace TianWen.UI.Gui
             // ---------------------------------------------------------------
             // Wire equipment action callbacks (DI-dependent)
             // ---------------------------------------------------------------
-            guiRenderer.EquipmentTab.OnDiscover = () =>
+            guiRenderer.EquipmentTab.OnDiscover = async () =>
             {
                 if (eqState.IsDiscovering)
                 {
@@ -211,33 +213,30 @@ namespace TianWen.UI.Gui
                 eqState.IsDiscovering = true;
                 appState.StatusMessage = "Discovering devices...";
                 appState.NeedsRedraw = true;
-                _ = Task.Run(async () =>
+                try
                 {
-                    try
-                    {
-                        var dm = sp.GetRequiredService<ICombinedDeviceManager>();
-                        await dm.CheckSupportAsync(cts.Token);
-                        await dm.DiscoverAsync(cts.Token);
-                        eqState.DiscoveredDevices = [.. dm.RegisteredDeviceTypes
-                            .Where(t => t is not DeviceType.Profile and not DeviceType.None)
-                            .SelectMany(dm.RegisteredDevices)
-                            .OrderBy(d => d.DeviceType).ThenBy(d => d.DisplayName)];
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogWarning(ex, "Device discovery failed");
-                        appState.StatusMessage = "Discovery failed";
-                    }
-                    finally
-                    {
-                        eqState.IsDiscovering = false;
-                        appState.StatusMessage = null;
-                        appState.NeedsRedraw = true;
-                    }
-                });
+                    var dm = sp.GetRequiredService<ICombinedDeviceManager>();
+                    await dm.CheckSupportAsync(cts.Token);
+                    await dm.DiscoverAsync(cts.Token);
+                    eqState.DiscoveredDevices = [.. dm.RegisteredDeviceTypes
+                        .Where(t => t is not DeviceType.Profile and not DeviceType.None)
+                        .SelectMany(dm.RegisteredDevices)
+                        .OrderBy(d => d.DeviceType).ThenBy(d => d.DisplayName)];
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Device discovery failed");
+                    appState.StatusMessage = "Discovery failed";
+                }
+                finally
+                {
+                    eqState.IsDiscovering = false;
+                    appState.StatusMessage = null;
+                    appState.NeedsRedraw = true;
+                }
             };
 
-            guiRenderer.EquipmentTab.OnAddOta = () =>
+            guiRenderer.EquipmentTab.OnAddOta = async () =>
             {
                 if (appState.ActiveProfile is not { } p)
                 {
@@ -255,7 +254,7 @@ namespace TianWen.UI.Gui
                 var updated = p.WithData(EquipmentActions.AddOTA(data, newOta));
                 appState.ActiveProfile = updated;
                 appState.NeedsRedraw = true;
-                _ = Task.Run(async () => await updated.SaveAsync(external, cts.Token));
+                await updated.SaveAsync(external, cts.Token);
             };
 
             guiRenderer.EquipmentTab.OnEditSite = () =>
@@ -290,7 +289,7 @@ namespace TianWen.UI.Gui
                 }
             };
 
-            guiRenderer.EquipmentTab.OnAssignDevice = (deviceIndex) =>
+            guiRenderer.EquipmentTab.OnAssignDevice = async (deviceIndex) =>
             {
                 if (deviceIndex < 0 || deviceIndex >= eqState.DiscoveredDevices.Count)
                 {
@@ -329,7 +328,7 @@ namespace TianWen.UI.Gui
                     appState.ActiveProfile = updated;
                     eqState.ActiveAssignment = null;
                     appState.NeedsRedraw = true;
-                    _ = Task.Run(async () => await updated.SaveAsync(external, cts.Token));
+                    await updated.SaveAsync(external, cts.Token);
                 }
             };
 
@@ -621,7 +620,11 @@ namespace TianWen.UI.Gui
 
                 if (activeInput.IsCommitted)
                 {
-                    activeInput.OnCommit?.Invoke(activeInput.Text);
+                    if (activeInput.OnCommit is { } onCommit)
+                    {
+                        var text = activeInput.Text;
+                        _tracker.Run(() => onCommit(text), "Text input commit");
+                    }
                     activeInput.IsCommitted = false;
                 }
                 else if (activeInput.IsCancelled)

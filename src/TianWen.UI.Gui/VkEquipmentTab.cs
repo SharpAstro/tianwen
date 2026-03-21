@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using DIR.Lib;
 using SdlVulkan.Renderer;
 using TianWen.Lib.Devices;
@@ -49,11 +50,14 @@ namespace TianWen.UI.Gui
         /// <summary>Tab state (scroll offsets, discovery results, assignment mode).</summary>
         public EquipmentTabState State { get; } = new EquipmentTabState();
 
+        /// <summary>Background task tracker for async operations. Set by the host.</summary>
+        public BackgroundTaskTracker? Tracker { get; set; }
+
         /// <summary>Callback for device discovery (needs DI). Set by the host.</summary>
-        public Action? OnDiscover { get; set; }
+        public Func<Task>? OnDiscover { get; set; }
 
         /// <summary>Callback for adding a new OTA to the profile. Set by the host.</summary>
-        public Action? OnAddOta { get; set; }
+        public Func<Task>? OnAddOta { get; set; }
 
         /// <summary>Callback for starting site coordinate editing. Set by the host.</summary>
         public Action? OnEditSite { get; set; }
@@ -62,7 +66,7 @@ namespace TianWen.UI.Gui
         public Action? OnCreateProfile { get; set; }
 
         /// <summary>Callback for assigning a device to the active slot. Set by the host.</summary>
-        public Action<int>? OnAssignDevice { get; set; }
+        public Func<int, Task>? OnAssignDevice { get; set; }
 
         public VkEquipmentTab(VkRenderer renderer) : base(renderer)
         {
@@ -373,7 +377,7 @@ namespace TianWen.UI.Gui
                 if (addOtaBtnY + buttonH < y + h - padding)
                 {
                     RenderButton("+ Add OTA", x + padding, addOtaBtnY, addOtaBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "AddOta",
-                        () => OnAddOta?.Invoke());
+                        () => { if (OnAddOta is { } addOta) Tracker?.Run(addOta, "Add OTA"); });
                 }
             }
             else
@@ -499,7 +503,7 @@ namespace TianWen.UI.Gui
                 FillRect(x, rowY, w, itemH, isCurrentForSlot ? SlotActive : DeviceRowBg);
                 var capturedIdx = i;
                 RegisterClickable(x, rowY, w, itemH, new HitResult.ListItemHit("Devices", i),
-                    () => OnAssignDevice?.Invoke(capturedIdx));
+                    () => { if (OnAssignDevice is { } assign) Tracker?.Run(() => assign(capturedIdx), "Assign device"); });
                 FillRect(x, rowY + itemH - 1f, w, 1f, SeparatorColor);
 
                 // Type badge
@@ -540,7 +544,7 @@ namespace TianWen.UI.Gui
             var discoverBtnX = x + padding;
 
             RenderButton(discoverLabel, discoverBtnX, discoverBtnY, discoverBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "Discover",
-                () => OnDiscover?.Invoke());
+                () => { if (OnDiscover is { } discover) Tracker?.Run(discover, "Discover devices"); });
         }
 
         // -----------------------------------------------------------------------
