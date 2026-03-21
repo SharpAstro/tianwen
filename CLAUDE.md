@@ -24,7 +24,7 @@ src/
 ├── TianWen.Lib.CLI/               # CLI application (AOT-published)
 ├── TianWen.Lib.Hosting/           # IHostedService extensions
 ├── TianWen.UI.Abstractions/       # Widget system, layout, state, shared types
-├── TianWen.UI.Vulkan/             # Vulkan FITS pipeline (VkImageRenderer)
+├── TianWen.UI.Shared/             # SDL→InputKey mapping, Vulkan FITS pipeline, VkImageRenderer
 ├── TianWen.UI.Gui/                # N.I.N.A.-style integrated GUI (SDL3 + Vulkan)
 ├── TianWen.UI.FitsViewer/         # Standalone FITS viewer application
 └── TianWen.UI.Benchmarks/         # BenchmarkDotNet performance tests
@@ -322,18 +322,41 @@ RgbaImageRenderer).
 - `PixelRect` — float layout rectangle with `Contains`, `Inset`
 - `PixelLayout` + `PixelDockStyle` — dock-based layout engine (Top/Bottom/Left/Right/Fill)
 - `PixelWidgetBase<TSurface>` — base class with `RegisterClickable`, `HitTest`,
-  `HitTestAndDispatch`, `RenderButton`, `RenderTextInput`, `FillRect`, `DrawText`
+  `HitTestAndDispatch`, `HandleKeyDown`, `HandleMouseWheel`, `RenderButton`,
+  `RenderTextInput`, `FillRect`, `DrawText`
 - `ClickableRegion(X, Y, W, H, HitResult, Action? OnClick)` — registered during render
 - `HitResult` — discriminated union: `TextInputHit`, `ButtonHit`, `ListItemHit`,
   `SlotHit`, `SliderHit`
-- `IPixelWidget` — interface for hit testing and text input discovery
+- `IPixelWidget` — interface for hit testing, keyboard, mouse wheel, text input discovery
+- `InputKey` + `InputModifier` — renderer-agnostic key codes and modifier flags
+- `BackgroundTaskTracker` — tracks async operations, checks completions per frame, logs errors
+- `TextInputState` — single-line text input with `OnCommit` (async), `OnCancel`,
+  `OnTextChanged`, `OnKeyOverride` callbacks
 
 **Click handling pattern**:
 1. Widgets call `RegisterClickable(x, y, w, h, hitResult, onClick)` during render
 2. Self-contained actions (filter cycling, list selection) pass an `OnClick` delegate
 3. `HitTestAndDispatch(px, py)` invokes `OnClick` and returns the `HitResult`
-4. SDL-dependent actions (text input focus, device discovery) are handled in
-   `GuiEventHandlers` based on the returned `HitResult`
+4. SDL-dependent actions (text input focus) are handled by `GuiEventHandlers`
+
+**Keyboard handling pattern**:
+1. `Program.cs` maps SDL scancodes to `InputKey` via `SdlInputMapping` (in `TianWen.UI.Shared`)
+2. `GuiEventHandlers.HandleKeyDown` routes to active text input first
+3. If not consumed, `Program.cs` routes to `ActiveTab.HandleKeyDown(inputKey, modifiers)`
+4. Each tab overrides `HandleKeyDown` for tab-specific shortcuts (pure state mutations)
+5. DI-dependent actions use `Action`/`Func<Task>` callbacks set by the host at wiring time
+
+**Mouse wheel pattern**:
+- `GuiEventHandlers.HandleMouseWheel` delegates to `ActiveTab.HandleMouseWheel(scrollY, x, y)`
+- Each tab overrides to handle its own scroll zones (target list, config panel, etc.)
+
+**Async operations**:
+- All background work goes through `BackgroundTaskTracker.Run(Func<Task>, description)`
+- `Program.cs` calls `tracker.ProcessCompletions(logger)` each frame — logs errors, triggers redraw
+- `TextInputState.OnCommit` is `Func<string, Task>?` — submitted to tracker on Enter
+- Tab callbacks (`OnDiscover`, `OnAddOta`, `OnAssignDevice`) are `Func<Task>` — submitted via tracker
+- Shutdown: `tracker.DrainAsync()` awaits all pending tasks
+- Zero fire-and-forget `_ = Task.Run(...)` in the codebase
 
 **Inheritance hierarchy**:
 ```
@@ -341,8 +364,9 @@ PixelWidgetBase<TSurface>   (Abstractions — renderer-agnostic)
   └─ VkTabBase              (Gui — pins TSurface = VulkanContext)
        ├─ VkGuiRenderer     (sidebar, status bar, content dispatch)
        ├─ VkPlannerTab      (planner with autocomplete, scheduling viz)
-       └─ VkEquipmentTab    (profile/device management)
-  └─ VkImageRenderer        (Vulkan — FITS viewer toolbar, file list, histogram)
+       ├─ VkEquipmentTab    (profile/device management)
+       └─ VkSessionTab      (session config + observation list)
+  └─ VkImageRenderer        (Shared — FITS viewer toolbar, file list, histogram)
 ```
 
 `VkGuiRenderer` extends `VkTabBase` so the sidebar tabs and status bar participate
@@ -351,9 +375,59 @@ in the same `RegisterClickable` / `HitTestAndDispatch` system as tab content.
 then falls through to the active tab.
 
 **Event handling** (`GuiEventHandlers`):
-- Centralized SDL-dependent actions (StartTextInput, device discovery, profile saves)
-- `Program.cs` is a thin ~280-line event loop + composition root
+- Generic event routing only — zero tab-specific logic in the routing methods
+- Constructor wires all callbacks (OnCommit, OnDiscover, etc.) with DI-dependent closures
+- SDL bridge: `StartTextInput`/`StopTextInput` for IME lifecycle
+- `Program.cs` is a thin event loop + composition root
 - Text input focus tracked via `GuiAppState.ActiveTextInput` (single source of truth)
+
+**SDL input mapping** (`TianWen.UI.Shared/SdlInputMapping.cs`):
+- C# 14 extension blocks on `Scancode` and `Keymod`
+- `scancode.ToInputKey` and `keymod.ToInputModifier` — used by both GUI and FitsViewer
+
+### Session Configuration Tab
+
+The session tab (🎯) sits between Planner and Viewer in the sidebar. It configures
+the session before launching.
+
+**Layout**: left panel = scrollable `SessionConfiguration` form, right panel = per-OTA
+camera settings + observation list with frame estimates.
+
+**Key types** (in `TianWen.UI.Abstractions`):
+- `SessionTabState` — mutable `SessionConfiguration`, per-OTA `PerOtaCameraSettings`,
+  scroll offset. Detects profile changes via `NeedsReinitialization`/`InitializeFromProfile`.
+- `SessionConfigGroups` — renderer-agnostic field groupings (Cooling Ramps, Guiding,
+  Horizon, Focusing, Imaging, Mosaic, Conditions) with per-field label, kind, format,
+  increment/decrement lambdas
+- `ConfigFieldKind` — `IntStepper`, `FloatStepper`, `TimeSpanStepper`,
+  `NullableTimeSpanStepper`, `BoolToggle`, `EnumCycle`
+- `PerOtaCameraSettings` — per-OTA setpoint temp, gain (numeric or mode), offset.
+  Profile provides defaults, session tab allows per-session override.
+
+**Features**:
+- Smart exposure stepping: 10s below 1min, 30s for 1-2min, 60s above 2min
+- Default exposure from f-ratio: `5 × f²` seconds, clamped [10, 600]
+- Estimated frame count per target: `windowSeconds / (subExposure + 10s overhead)`
+
+### Fake Camera Sensor Presets
+
+`FakeCameraDriver` selects sensor specs by device ID (1-based, mod 9), alternating
+color/mono:
+
+| ID | Sensor  | Resolution    | Pixel  | Type |
+|----|---------|---------------|--------|------|
+| 1  | IMX294C | 4144×2822     | 4.63µm | RGGB |
+| 2  | IMX533M | 3008×3008     | 3.76µm | Mono |
+| 3  | IMX571C | 6248×4176     | 3.76µm | RGGB |
+| 4  | IMX455M | 9576×6388     | 3.76µm | Mono |
+| 5  | IMX585C | 3856×2180     | 2.9µm  | RGGB |
+| 6  | IMX411M | 14208×10656   | 3.76µm | Mono |
+| 7  | IMX410C | 6072×4042     | 3.76µm | RGGB |
+| 8  | IMX464M | 2712×1538     | 2.9µm  | Mono |
+| 9  | IMX678C | 3856×2180     | 2.0µm  | RGGB |
+
+Guide camera (`FakeGuideCam`): IMX178M (3096×2080, 2.4µm, mono).
+IDs 10+ wrap (mod 9), enabling dual-rig testing with identical sensors.
 
 ### Planner Features
 
