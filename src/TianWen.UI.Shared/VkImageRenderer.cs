@@ -1,3 +1,5 @@
+using System;
+using System.Threading.Tasks;
 using DIR.Lib;
 using SdlVulkan.Renderer;
 using TianWen.Lib.Astrometry;
@@ -33,6 +35,21 @@ public sealed class VkImageRenderer : PixelWidgetBase<VulkanContext>, IDisposabl
     public uint Height => _height;
 
     public int ChannelTextureCount { get; set; } = 0;
+
+    /// <summary>Reference to the viewer state from the last Render call.</summary>
+    private ViewerState? _state;
+
+    /// <summary>Reference to the document from the last Render call.</summary>
+    private AstroImageDocument? _document;
+
+    /// <summary>Callback for plate solving (needs DI). Set by the host.</summary>
+    public Func<Task>? OnPlateSolve { get; set; }
+
+    /// <summary>Callback for app exit. Set by the host.</summary>
+    public Action? OnExit { get; set; }
+
+    /// <summary>Callback for fullscreen toggle. Set by the host.</summary>
+    public Action? OnToggleFullscreen { get; set; }
 
     /// <summary>
     /// DPI scale factor. Set from framebuffer size / window size ratio.
@@ -170,6 +187,8 @@ public sealed class VkImageRenderer : PixelWidgetBase<VulkanContext>, IDisposabl
 
     public void Render(AstroImageDocument? document, ViewerState state)
     {
+        _state = state;
+        _document = document;
         BeginFrame();
 
         // Draw image FIRST so UI chrome paints on top of it
@@ -1457,6 +1476,175 @@ public sealed class VkImageRenderer : PixelWidgetBase<VulkanContext>, IDisposabl
                 return;
             }
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Keyboard handling
+    // -----------------------------------------------------------------------
+
+    public override bool HandleKeyDown(InputKey key, InputModifier modifiers)
+    {
+        if (_state is not { } state)
+        {
+            return false;
+        }
+
+        var ctrl = (modifiers & InputModifier.Ctrl) != 0;
+        var shift = (modifiers & InputModifier.Shift) != 0;
+
+        // Ctrl+key shortcuts
+        if (ctrl)
+        {
+            switch (key)
+            {
+                case InputKey.Plus:
+                    ViewerActions.ZoomIn(state);
+                    return true;
+                case InputKey.Minus:
+                    ViewerActions.ZoomOut(state);
+                    return true;
+                case InputKey.D0:
+                    ViewerActions.ZoomToFit(state);
+                    return true;
+                case InputKey.D1:
+                    ViewerActions.ZoomToActual(state);
+                    return true;
+                case >= InputKey.D2 and <= InputKey.D9:
+                    ViewerActions.ZoomTo(state, 1f / (key - InputKey.D0));
+                    return true;
+            }
+        }
+
+        switch (key)
+        {
+            case InputKey.Escape:
+                OnExit?.Invoke();
+                return true;
+            case InputKey.F11:
+                OnToggleFullscreen?.Invoke();
+                return true;
+            case InputKey.T:
+                ViewerActions.ToggleStretch(state);
+                return true;
+            case InputKey.S:
+                state.ShowStarOverlay = !state.ShowStarOverlay;
+                return true;
+            case InputKey.C:
+                if (_document is not null)
+                {
+                    ViewerActions.CycleChannelView(state, _document.UnstretchedImage.ChannelCount);
+                }
+                return true;
+            case InputKey.D:
+                ViewerActions.CycleDebayerAlgorithm(state);
+                return true;
+            case InputKey.I:
+                state.ShowInfoPanel = !state.ShowInfoPanel;
+                return true;
+            case InputKey.L:
+                state.ShowFileList = !state.ShowFileList;
+                return true;
+            case InputKey.Plus:
+                ViewerActions.CycleStretchPreset(state);
+                return true;
+            case InputKey.Minus:
+                ViewerActions.CycleStretchPreset(state, reverse: true);
+                return true;
+            case InputKey.B:
+                ViewerActions.CycleCurvesBoost(state);
+                return true;
+            case InputKey.G:
+                state.ShowGrid = !state.ShowGrid;
+                return true;
+            case InputKey.O:
+                state.ShowOverlays = !state.ShowOverlays;
+                state.NeedsRedraw = true;
+                return true;
+            case InputKey.H:
+                ViewerActions.CycleHdr(state);
+                return true;
+            case InputKey.V:
+                if (shift)
+                {
+                    state.HistogramLogScale = !state.HistogramLogScale;
+                }
+                else
+                {
+                    state.ShowHistogram = !state.ShowHistogram;
+                }
+                return true;
+            case InputKey.P:
+                OnPlateSolve?.Invoke();
+                return true;
+            case InputKey.F:
+                ViewerActions.ZoomToFit(state);
+                return true;
+            case InputKey.R:
+                ViewerActions.ZoomToActual(state);
+                return true;
+            case InputKey.Up:
+                if (state.SelectedFileIndex > 0)
+                {
+                    ViewerActions.SelectFile(state, state.SelectedFileIndex - 1);
+                }
+                return true;
+            case InputKey.Down:
+                if (state.SelectedFileIndex < state.ImageFileNames.Count - 1)
+                {
+                    ViewerActions.SelectFile(state, state.SelectedFileIndex + 1);
+                }
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Mouse wheel handling
+    // -----------------------------------------------------------------------
+
+    public override bool HandleMouseWheel(float scrollY, float mouseX, float mouseY)
+    {
+        if (_state is not { } state)
+        {
+            return false;
+        }
+
+        // Scroll file list when hovering over it
+        if (state.ShowFileList && mouseX >= 0 && mouseX < ScaledFileListWidth && mouseY > ScaledToolbarHeight)
+        {
+            ViewerActions.ScrollFileList(state, -(int)scrollY * 3);
+            return true;
+        }
+
+        // Zoom: inside the image viewport
+        var fileListW = state.ShowFileList ? ScaledFileListWidth : 0;
+        var toolbarH = ScaledToolbarHeight;
+        var (areaW, areaH) = GetImageAreaSize(state);
+        var inImageViewport = mouseX >= fileListW && mouseX < fileListW + areaW
+                           && mouseY >= toolbarH && mouseY < toolbarH + areaH;
+
+        if (inImageViewport)
+        {
+            var zoomFactor = scrollY > 0 ? 1.15f : 1f / 1.15f;
+            var oldZoom = state.Zoom;
+            var newZoom = MathF.Max(0.01f, oldZoom * zoomFactor);
+
+            // Adjust pan so the point under the cursor stays fixed
+            var cx = mouseX - fileListW - areaW / 2f - state.PanOffset.X;
+            var cy = mouseY - toolbarH - areaH / 2f - state.PanOffset.Y;
+
+            state.PanOffset = (
+                state.PanOffset.X - cx * (newZoom / oldZoom - 1f),
+                state.PanOffset.Y - cy * (newZoom / oldZoom - 1f)
+            );
+
+            state.ZoomToFit = false;
+            state.Zoom = newZoom;
+            return true;
+        }
+
+        return false;
     }
 
     public void Dispose()
