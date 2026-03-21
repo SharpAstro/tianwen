@@ -287,20 +287,25 @@ public class PlateSolverTests(ITestOutputHelper output)
     }
 
     [Theory]
-    [InlineData(5.59, -5.39, "M42", 200, 0.05)]   // Orion Nebula — galactic plane, star-rich
-    [InlineData(6.75, 16.7, "M35", 200, 0.05)]     // M35 open cluster — dense star field
-    [InlineData(18.87, 33.03, "M57", 400, 0.05)]   // Ring Nebula — sparser but enough Tycho-2 stars
-    [InlineData(5.60, -1.12, "OrionBelt", 50, 0.05)]  // Orion's Belt (Alnitak/Alnilam/Mintaka) — wide field
-    [InlineData(3.79, 24.12, "M45", 100, 0.05)]    // Pleiades — all bright stars visible
+    [InlineData(5.59, -5.39, "M42", 200, 0.05, 1)]   // Orion Nebula — IMX294C
+    [InlineData(5.59, -5.39, "M42", 200, 0.05, 2)]   // Orion Nebula — IMX533M
+    [InlineData(6.75, 16.7, "M35", 200, 0.05, 1)]     // M35 — IMX294C
+    [InlineData(6.75, 16.7, "M35", 200, 0.05, 2)]     // M35 — IMX533M
+    [InlineData(18.87, 33.03, "M57", 400, 0.05, 1)]   // Ring Nebula — IMX294C
+    [InlineData(18.87, 33.03, "M57", 400, 0.05, 2)]   // Ring Nebula — IMX533M
+    [InlineData(5.60, -1.12, "OrionBelt", 50, 0.05, 1)]  // Orion's Belt wide field — IMX294C
+    [InlineData(5.60, -1.12, "OrionBelt", 50, 0.05, 2)]  // Orion's Belt wide field — IMX533M
+    [InlineData(3.79, 24.12, "M45", 100, 0.05, 1)]    // Pleiades — IMX294C
+    [InlineData(3.79, 24.12, "M45", 100, 0.05, 2)]    // Pleiades — IMX533M
     public async Task GivenSyntheticCatalogImageWhenCatalogPlateSolvingThenSolutionMatchesTarget(
-        double targetRA, double targetDec, string targetName, int focalLengthMm, double accuracy)
+        double targetRA, double targetDec, string targetName, int focalLengthMm, double accuracy, int cameraDeviceId)
     {
         // given — set up fake camera with catalog DB
         var cancellationToken = TestContext.Current.CancellationToken;
         var db = await InitDBAsync(cancellationToken);
 
         var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
-        var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
+        var cameraDevice = new FakeDevice(DeviceType.Camera, cameraDeviceId);
         var camera = new FakeCameraDriver(cameraDevice, external);
         await camera.ConnectAsync(cancellationToken);
 

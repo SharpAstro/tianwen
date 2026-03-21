@@ -1,5 +1,10 @@
 # TODOs
 
+## Next Up
+
+- [ ] Fake filter wheels should have pre-installed filters (realistic filter sets per device ID)
+- [ ] Pinned items in planner should persist to disk (`<CommonDataRoot>/Sessions/Uncommitted.json`) so they survive app restarts while not yet committed to a planned session
+
 ## Observation Scheduler (PLAN-SessionTests.md)
 
 ### Done
@@ -221,6 +226,15 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 
 - [x] Font atlas corruption — root cause: shared upload buffer race with `MaxFramesInFlight=2`. Frame N+1's `Flush` overwrites the upload buffer while frame N's `vkCmdCopyBufferToImage` is still reading it. Fixed with `vkDeviceWaitIdle()` before upload buffer reuse.
 - [ ] Replace `vkDeviceWaitIdle` in font atlas `Flush` with per-frame upload buffers (like `_vertexBuffers`) to avoid GPU stall on every glyph upload. The current fix blocks the GPU pipeline unnecessarily after startup.
+
+### SdlEventLoop extensions (HIGH PRIORITY — needed for FitsViewer migration)
+- [ ] Add `DropFile` event support (`EventType.DropFile`) — `Action<string>? OnFileDrop`
+- [ ] Multi-button mouse: `OnMouseDown` should pass button ID (byte) — currently only fires for left button (button==1)
+- [ ] `OnMouseUp` should pass button ID (byte) — currently parameterless `Action?`
+- [ ] `OnMouseDown` should pass click count (byte) — needed for double-click-to-select-all in text inputs
+- [ ] `OnMouseWheel` should pass actual mouse position — currently hardcodes (0, 0) for mouseX/mouseY
+- [ ] Expose `SdlVulkanWindow.Handle` or add `SetTitle(string)` method — FitsViewer updates title per file
+- [ ] Once above are done, migrate `TianWen.UI.FitsViewer/Program.cs` to use `SdlEventLoop`
 
 ## Vulkan Migration / HDR Display Output
 

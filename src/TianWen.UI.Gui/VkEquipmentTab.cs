@@ -497,7 +497,7 @@ namespace TianWen.UI.Gui
                 var isAssigned = data is { } assignData && EquipmentActions.IsDeviceAssigned(assignData, device.DeviceUri);
                 var isWrongType = expectedType.HasValue && device.DeviceType != expectedType.Value;
                 // Highlight the device currently in the active slot
-                var isCurrentForSlot = activeSlotUri is not null && device.DeviceUri == activeSlotUri;
+                var isCurrentForSlot = DeviceBase.SameDevice(device.DeviceUri, activeSlotUri);
 
                 // Row background
                 FillRect(x, rowY, w, itemH, isCurrentForSlot ? SlotActive : DeviceRowBg);

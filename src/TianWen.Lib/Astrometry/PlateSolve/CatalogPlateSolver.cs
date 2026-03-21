@@ -187,26 +187,40 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
                 return MakeResult(null);
             }
 
-            // Match tolerance shrinks with each iteration
+            // Match tolerance shrinks with each iteration.
+            // Scale by average inter-star spacing to avoid false matches in dense fields.
             var diagonal = Math.Sqrt(dim.Width * dim.Width + dim.Height * dim.Height);
-            var matchTolerance = (float)(diagonal * (iteration == 0 ? 0.1 : 0.03));
+            var avgSpacing = Math.Sqrt((double)dim.Width * dim.Height / Math.Max(projected.Count, 1));
+            var matchTolerance = (float)Math.Min(
+                diagonal * (iteration == 0 ? 0.1 : 0.03),
+                avgSpacing * (iteration == 0 ? 3.0 : 2.0));
 
             // Rank detected stars by flux (brightest first) for brightness-aware matching.
             var rankedDetected = new List<ImagedStar>(detectedStars);
             rankedDetected.Sort((a, b) => b.Flux.CompareTo(a.Flux));
+
+            // In dense fields (>500 projected), limit early iterations to brightest
+            // stars where spatial matching is least ambiguous.
+            var isDense = projected.Count > 500;
+            var maxDetectedForMatching = isDense && iteration < 2
+                ? Math.Min(iteration == 0 ? 50 : 100, rankedDetected.Count)
+                : rankedDetected.Count;
+            var maxProjectedForMatching = isDense && iteration < 2
+                ? Math.Min(iteration == 0 ? 50 : 100, projected.Count)
+                : projected.Count;
 
             var rankPenaltyScale = projected.Count > 0 ? matchTolerance * 0.25f / projected.Count : 0f;
 
             var matchedDetected = new List<Vector2>();
             var matchedProjected = new List<Vector2>();
 
-            for (int detRank = 0; detRank < rankedDetected.Count; detRank++)
+            for (int detRank = 0; detRank < maxDetectedForMatching; detRank++)
             {
                 var det = rankedDetected[detRank];
                 var bestScore = matchTolerance;
                 ImagedStar? bestMatch = null;
 
-                for (int catRank = 0; catRank < projected.Count; catRank++)
+                for (int catRank = 0; catRank < maxProjectedForMatching; catRank++)
                 {
                     var cat = projected[catRank];
                     var dx = det.XCentroid - cat.XCentroid;
@@ -273,6 +287,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
                 rmsResidual = Math.Sqrt(sumSqResidual / matchedDetected.Count);
             }
 
+
             var centerInProjected = Vector2.Transform(new Vector2((float)cx, (float)cy), Minv);
             var refined = InverseTanProject(centerInProjected, currentOrigin, pixelScaleRad, cx, cy, xSign);
 
@@ -284,6 +299,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db) : IPlateSolver
             // Check convergence
             var dRA = Math.Abs(refinedWcs.CenterRA - currentOrigin.CenterRA) * 15.0;
             var dDec = Math.Abs(refinedWcs.CenterDec - currentOrigin.CenterDec);
+
 
             currentOrigin = refinedWcs;
 

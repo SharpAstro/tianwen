@@ -375,7 +375,7 @@ namespace TianWen.UI.Gui
         /// <summary>
         /// Handles a mouse click. Returns true if the event was consumed.
         /// </summary>
-        public bool HandleMouseDown(float px, float py, byte clicks)
+        public bool HandleMouseDown(float px, float py, byte clicks = 1)
         {
             _appState.MouseScreenPosition = (px, py);
 
@@ -508,12 +508,12 @@ namespace TianWen.UI.Gui
         /// <summary>
         /// Handles a key down event. Returns true if consumed by the text input layer.
         /// </summary>
-        public bool HandleKeyDown(Scancode scancode, Keymod keymod)
+        public bool HandleKeyDown(InputKey inputKey, InputModifier inputModifier)
         {
             var activeInput = _appState.ActiveTextInput;
             if (activeInput is { IsActive: true })
             {
-                return HandleTextInputKey(activeInput, scancode, keymod);
+                return HandleTextInputKey(activeInput, inputKey, inputModifier);
             }
 
             return false; // Not consumed — let caller route to active tab
@@ -547,12 +547,12 @@ namespace TianWen.UI.Gui
             StopTextInput(_sdlWindowHandle);
         }
 
-        private bool HandleTextInputKey(TextInputState activeInput, Scancode scancode, Keymod keymod)
+        private bool HandleTextInputKey(TextInputState activeInput, InputKey key, InputModifier modifiers)
         {
-            // Autocomplete arrow navigation (not in TextInputKey — handled via raw scancode)
+            // Autocomplete arrow navigation
             if (activeInput == _plannerState.SearchInput && _plannerState.Suggestions.Count > 0)
             {
-                if (scancode == Scancode.Down)
+                if (key == InputKey.Down)
                 {
                     _plannerState.SuggestionIndex = Math.Min(
                         _plannerState.SuggestionIndex + 1, _plannerState.Suggestions.Count - 1);
@@ -560,7 +560,7 @@ namespace TianWen.UI.Gui
                     return true;
                 }
 
-                if (scancode == Scancode.Up && _plannerState.SuggestionIndex >= 0)
+                if (key == InputKey.Up && _plannerState.SuggestionIndex >= 0)
                 {
                     _plannerState.SuggestionIndex--;
                     _appState.NeedsRedraw = true;
@@ -568,24 +568,12 @@ namespace TianWen.UI.Gui
                 }
             }
 
-            var inputKey = scancode switch
-            {
-                Scancode.Backspace => TextInputKey.Backspace,
-                Scancode.Delete => TextInputKey.Delete,
-                Scancode.Left => TextInputKey.Left,
-                Scancode.Right => TextInputKey.Right,
-                Scancode.Home => TextInputKey.Home,
-                Scancode.End => TextInputKey.End,
-                Scancode.Return => TextInputKey.Enter,
-                Scancode.Escape => TextInputKey.Escape,
-                Scancode.A when (keymod & Keymod.Ctrl) != 0 => TextInputKey.SelectAll,
-                _ => (TextInputKey?)null
-            };
+            var textKey = key.ToTextInputKey(modifiers);
 
             // Tab cycling through text inputs on the active tab
-            if (scancode == Scancode.Tab)
+            if (key == InputKey.Tab)
             {
-                var shift = (keymod & Keymod.Shift) != 0;
+                var shift = (modifiers & InputModifier.Shift) != 0;
                 var inputs = _guiRenderer.ActiveTab?.GetRegisteredTextInputs();
                 if (inputs is { Count: > 1 } && _appState.ActiveTextInput is { } current)
                 {
@@ -605,16 +593,16 @@ namespace TianWen.UI.Gui
             }
 
             // Let the input's OnKeyOverride handle it first (autocomplete, etc.)
-            if (inputKey.HasValue && activeInput.OnKeyOverride?.Invoke(inputKey.Value) == true)
+            if (textKey.HasValue && activeInput.OnKeyOverride?.Invoke(textKey.Value) == true)
             {
                 _appState.NeedsRedraw = true;
                 return true;
             }
 
-            if (inputKey.HasValue && activeInput.HandleKey(inputKey.Value))
+            if (textKey.HasValue && activeInput.HandleKey(textKey.Value))
             {
                 // Notify text change on modifying keys
-                if (inputKey.Value is TextInputKey.Backspace or TextInputKey.Delete)
+                if (textKey.Value is TextInputKey.Backspace or TextInputKey.Delete)
                 {
                     activeInput.OnTextChanged?.Invoke(activeInput.Text);
                 }
