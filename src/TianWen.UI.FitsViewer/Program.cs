@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using DIR.Lib;
 using SdlVulkan.Renderer;
 using TianWen.Lib.Devices;
@@ -83,12 +82,9 @@ sdlWindow.GetSizeInPixels(out var pixW, out var pixH);
 var ctx = VulkanContext.Create(sdlWindow.Instance, sdlWindow.Surface, (uint)pixW, (uint)pixH);
 var renderer = new VkRenderer(ctx, (uint)pixW, (uint)pixH);
 
-// Compute DPI scale from window size vs pixel size
-var dpiScale = sdlWindow.DisplayScale;
-
 var imageRenderer = new VkImageRenderer(renderer, (uint)pixW, (uint)pixH)
 {
-    DpiScale = dpiScale,
+    DpiScale = sdlWindow.DisplayScale,
     CelestialObjectDB = celestialObjectDB
 };
 
@@ -101,11 +97,65 @@ Task? backgroundTask = null;
 CancellationTokenSource? starDetectionCts = null;
 Task? starDetectionTask = null;
 
-var needsRedraw = true;
-var running = true;
+// --- Main event loop via SdlEventLoop ---
 
-// Wire app-level callbacks (after variable declarations they capture)
-imageRenderer.OnExit = () => running = false;
+var loop = new SdlEventLoop(sdlWindow, renderer)
+{
+    BackgroundColor = new RGBAColor32(0x1a, 0x1a, 0x1a, 0xff),
+
+    OnResize = (rw, rh) =>
+    {
+        imageRenderer.DpiScale = sdlWindow.DisplayScale;
+        imageRenderer.Resize(rw, rh);
+    },
+
+    OnMouseDown = (button, x, y, _) =>
+    {
+        HandleMouseDown(button, x, y);
+        return true;
+    },
+
+    OnMouseMove = (x, y) => HandleMouseMove(x, y),
+
+    OnMouseUp = (button) => HandleMouseUp(button),
+
+    OnMouseWheel = (scrollY, mouseX, mouseY) =>
+    {
+        imageRenderer.HandleMouseWheel(scrollY, mouseX, mouseY);
+        return true;
+    },
+
+    OnDropFile = (path) => HandleFileDrop(path),
+
+    CheckNeedsRedraw = () =>
+        state.NeedsRedraw || state.NeedsTextureUpdate || state.RequestedFilePath is not null
+        || (reprocessTask is not null && !reprocessTask.IsCompleted),
+
+    OnRender = () =>
+    {
+        // Handle file switch request (load on background thread)
+        HandleFileRequest();
+
+        // Handle reprocess flag
+        if (state.NeedsReprocess)
+        {
+            ViewerActions.Reprocess(state);
+        }
+
+        // Upload textures when needed
+        HandleTextureUpload();
+
+        imageRenderer.Render(document, state);
+    },
+
+    OnPostFrame = () =>
+    {
+        state.NeedsRedraw = false;
+    }
+};
+
+// Wire app-level callbacks that need loop/window references
+imageRenderer.OnExit = () => loop.Stop();
 imageRenderer.OnToggleFullscreen = () => sdlWindow.ToggleFullscreen();
 imageRenderer.OnPlateSolve = () =>
 {
@@ -117,126 +167,14 @@ imageRenderer.OnPlateSolve = () =>
     return Task.CompletedTask;
 };
 
-// Track mouse position
-var mouseX = 0f;
-var mouseY = 0f;
-
-while (running)
+// OnKeyDown wired separately — imageRenderer.HandleKeyDown handles F11 via OnToggleFullscreen
+loop.OnKeyDown = (inputKey, inputModifier) =>
 {
-    Event evt;
-    var hadEvent = needsRedraw
-        ? PollEvent(out evt)
-        : WaitEventTimeout(out evt, 16);
+    imageRenderer.HandleKeyDown(inputKey, inputModifier);
+    return true;
+};
 
-    if (hadEvent)
-    {
-        do
-        {
-            switch ((EventType)evt.Type)
-            {
-                case EventType.Quit:
-                    running = false;
-                    break;
-
-                case EventType.WindowResized:
-                case EventType.WindowPixelSizeChanged:
-                    sdlWindow.GetSizeInPixels(out var rw, out var rh);
-                    if (rw > 0 && rh > 0)
-                    {
-                        dpiScale = sdlWindow.DisplayScale;
-                        renderer.Resize((uint)rw, (uint)rh);
-                        imageRenderer.DpiScale = dpiScale;
-                        imageRenderer.Resize((uint)rw, (uint)rh);
-                    }
-                    needsRedraw = true;
-                    break;
-
-                case EventType.WindowExposed:
-                    needsRedraw = true;
-                    break;
-
-                case EventType.KeyDown:
-                    needsRedraw = true;
-                    imageRenderer.HandleKeyDown(evt.Key.Scancode.ToInputKey, evt.Key.Mod.ToInputModifier);
-                    break;
-
-                case EventType.MouseMotion:
-                    needsRedraw = true;
-                    HandleMouseMove(evt.Motion.X, evt.Motion.Y);
-                    break;
-
-                case EventType.MouseButtonDown:
-                    needsRedraw = true;
-                    HandleMouseDown(evt.Button.Button, evt.Button.X, evt.Button.Y);
-                    break;
-
-                case EventType.MouseButtonUp:
-                    needsRedraw = true;
-                    HandleMouseUp(evt.Button.Button);
-                    break;
-
-                case EventType.MouseWheel:
-                    needsRedraw = true;
-                    imageRenderer.HandleMouseWheel(evt.Wheel.Y, state.MouseScreenPosition.X, state.MouseScreenPosition.Y);
-                    break;
-
-                case EventType.DropFile:
-                    needsRedraw = true;
-                    HandleFileDrop(Marshal.PtrToStringUTF8(evt.Drop.Data));
-                    break;
-            }
-        } while (PollEvent(out evt));
-    }
-
-    // Check if background tasks completed
-    if (state.NeedsRedraw || state.NeedsTextureUpdate || state.RequestedFilePath is not null
-        || (reprocessTask is not null && !reprocessTask.IsCompleted))
-    {
-        needsRedraw = true;
-    }
-
-    if (!needsRedraw)
-    {
-        continue;
-    }
-    needsRedraw = false;
-
-    // Handle file switch request (load on background thread)
-    HandleFileRequest();
-
-    // Handle reprocess flag
-    if (state.NeedsReprocess)
-    {
-        ViewerActions.Reprocess(state);
-    }
-
-    // Upload textures when needed
-    HandleTextureUpload();
-
-    // --- Render frame ---
-    var bgColor = new RGBAColor32(0x1a, 0x1a, 0x1a, 0xff);
-    if (!renderer.BeginFrame(bgColor))
-    {
-        sdlWindow.GetSizeInPixels(out var sw, out var sh);
-        if (sw > 0 && sh > 0)
-        {
-            renderer.Resize((uint)sw, (uint)sh);
-            imageRenderer.Resize((uint)sw, (uint)sh);
-        }
-        needsRedraw = true;
-        continue;
-    }
-
-    imageRenderer.Render(document, state);
-
-    renderer.EndFrame();
-
-    if (renderer.FontAtlasDirty)
-    {
-        needsRedraw = true;
-    }
-    state.NeedsRedraw = false;
-}
+loop.Run(cts.Token);
 
 // Cleanup
 cts.Cancel();
@@ -261,8 +199,6 @@ return 0;
 
 void HandleMouseMove(float px, float py)
 {
-    mouseX = px;
-    mouseY = py;
     state.MouseScreenPosition = (px, py);
 
     // Handle panning
@@ -304,8 +240,6 @@ void HandleMouseMove(float px, float py)
 
 void HandleMouseDown(byte button, float px, float py)
 {
-    mouseX = px;
-    mouseY = py;
     state.MouseScreenPosition = (px, py);
 
     if (button is 1 or 3)
@@ -576,4 +510,3 @@ void HandleToolbarAction(ToolbarAction action, bool reverse = false)
             break;
     }
 }
-

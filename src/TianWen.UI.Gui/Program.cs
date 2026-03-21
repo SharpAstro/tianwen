@@ -143,15 +143,15 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         guiRenderer.Resize(rw, rh);
     },
 
-    OnMouseDown = (x, y) =>
+    OnMouseDown = (button, x, y, clicks) =>
     {
-        handlers.HandleMouseDown(x, y);
+        if (button == 1) handlers.HandleMouseDown(x, y, clicks);
         return true;
     },
 
     OnMouseMove = (x, y) => handlers.HandleMouseMove(x, y),
 
-    OnMouseUp = () => handlers.HandleMouseUp(),
+    OnMouseUp = (_) => handlers.HandleMouseUp(),
 
     OnMouseWheel = (scrollY, _, _) =>
     {
@@ -243,10 +243,14 @@ loop.OnKeyDown = (inputKey, inputModifier) =>
     }
 
     // Global keys (not consumed by text input)
-    if (inputKey == InputKey.Escape)
+    switch (inputKey)
     {
-        loop.Stop();
-        return true;
+        case InputKey.Escape:
+            loop.Stop();
+            return true;
+        case InputKey.F11:
+            sdlWindow.ToggleFullscreen();
+            return true;
     }
 
     guiRenderer.ActiveTab?.HandleKeyDown(inputKey, inputModifier);
