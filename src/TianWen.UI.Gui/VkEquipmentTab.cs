@@ -81,7 +81,7 @@ namespace TianWen.UI.Gui
         /// </summary>
         public void Render(
             GuiAppState appState,
-            PixelRect contentRect,
+            RectF32 contentRect,
             float dpiScale,
             string fontPath)
         {
@@ -111,7 +111,7 @@ namespace TianWen.UI.Gui
         // -----------------------------------------------------------------------
 
         private void RenderNoProfile(
-            PixelRect rect,
+            RectF32 rect,
             float dpiScale, string fontPath)
         {
             var fontSize    = BaseFontSize * dpiScale;
@@ -140,7 +140,7 @@ namespace TianWen.UI.Gui
         // -----------------------------------------------------------------------
 
         private void RenderProfileCreation(
-            PixelRect rect,
+            RectF32 rect,
             float dpiScale, string fontPath)
         {
             var fontSize    = BaseFontSize * dpiScale;
@@ -195,7 +195,7 @@ namespace TianWen.UI.Gui
 
         private void RenderProfileView(
             GuiAppState appState,
-            PixelRect contentRect,
+            RectF32 contentRect,
             float dpiScale, string fontPath)
         {
             var profilePanelW = BaseProfilePanelWidth * dpiScale;
@@ -228,7 +228,7 @@ namespace TianWen.UI.Gui
 
         private void RenderProfilePanel(
             GuiAppState appState,
-            PixelRect rect,
+            RectF32 rect,
             float dpiScale, string fontPath)
         {
             var fontSize   = BaseFontSize * dpiScale;
@@ -406,7 +406,7 @@ namespace TianWen.UI.Gui
 
             FillRect(x, y, w, itemH, bgColor);
             var capturedSlot = slot;
-            RegisterClickable(x, y, w, itemH, new AppHitResults.SlotHit(slot),
+            RegisterClickable(x, y, w, itemH, new HitResult.SlotHit<AssignTarget>(slot),
                 () => { State.ActiveAssignment = State.ActiveAssignment == capturedSlot ? null : capturedSlot; });
 
             // Separator line at bottom of slot
@@ -448,7 +448,7 @@ namespace TianWen.UI.Gui
 
         private void RenderDeviceList(
             GuiAppState appState,
-            PixelRect rect,
+            RectF32 rect,
             float dpiScale, string fontPath)
         {
             var fontSize   = BaseFontSize * dpiScale;
@@ -553,7 +553,7 @@ namespace TianWen.UI.Gui
 
         private void RenderBottomBar(
             GuiAppState appState,
-            PixelRect rect,
+            RectF32 rect,
             float dpiScale, string fontPath)
         {
             var fontSize = BaseFontSize * dpiScale;

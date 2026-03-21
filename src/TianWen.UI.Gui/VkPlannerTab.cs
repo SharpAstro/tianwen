@@ -57,9 +57,9 @@ namespace TianWen.UI.Gui
         public Action? OnBuildSchedule { get; set; }
 
         // Layout rects computed during Render, used by hit testing
-        private PixelRect _targetListRect;
-        private PixelRect _listItemsRect;
-        private PixelRect _chartRect;
+        private RectF32 _targetListRect;
+        private RectF32 _listItemsRect;
+        private RectF32 _chartRect;
         private (float X, float Y)? _appMousePosition;
         private DateTimeOffset? _currentTime;
         private float _itemHeight;
@@ -71,7 +71,7 @@ namespace TianWen.UI.Gui
         public IReadOnlyList<ScoredTarget> FilteredTargets => _lastFilteredTargets;
 
         /// <summary>The target list panel rect from the last render pass (for scroll wheel detection).</summary>
-        public PixelRect TargetListRect => _targetListRect;
+        public RectF32 TargetListRect => _targetListRect;
 
         /// <summary>Current scroll offset (in items) for the target list.</summary>
         public int ScrollOffset { get; set; }
@@ -104,7 +104,7 @@ namespace TianWen.UI.Gui
         /// </summary>
         public void Render(
             PlannerState state,
-            PixelRect contentRect,
+            RectF32 contentRect,
             float dpiScale,
             string fontPath,
             TimeProvider timeProvider,
@@ -169,7 +169,7 @@ namespace TianWen.UI.Gui
         }
 
         /// <summary>Chart rect from last render (for slider drag coordinate conversion).</summary>
-        public PixelRect ChartRect => _chartRect;
+        public RectF32 ChartRect => _chartRect;
 
         private void RegisterSliderHitRegions(PlannerState state, float dpiScale)
         {
@@ -190,7 +190,7 @@ namespace TianWen.UI.Gui
 
                 var capturedIdx = i;
                 RegisterClickable(sliderX - hitW / 2, _chartRect.Y, hitW, _chartRect.Height,
-                    new AppHitResults.SliderHit(i));
+                    new HitResult.SliderHit(i));
             }
         }
 
@@ -202,7 +202,7 @@ namespace TianWen.UI.Gui
             PlannerState state,
             string fontPath,
             float dpiScale,
-            PixelRect rect,
+            RectF32 rect,
             float headerHeight, float itemHeight, float fontSize, float padding)
         {
             var scrollBarWidth = 6f * dpiScale;
@@ -438,7 +438,7 @@ namespace TianWen.UI.Gui
         private void RenderDetailsPanel(
             PlannerState state,
             string fontPath,
-            PixelRect rect,
+            RectF32 rect,
             float fontSize, float padding)
         {
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, DetailsBg);

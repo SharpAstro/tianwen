@@ -49,7 +49,7 @@ namespace TianWen.UI.Gui
         public SessionTabState State { get; } = new SessionTabState();
 
         /// <summary>Bounding rect of the scrollable config panel (set during render).</summary>
-        public PixelRect ConfigPanelRect { get; private set; }
+        public RectF32 ConfigPanelRect { get; private set; }
 
         /// <summary>Scroll line height in pixels (for mouse wheel step size).</summary>
         public float ScrollLineHeight { get; private set; }
@@ -65,7 +65,7 @@ namespace TianWen.UI.Gui
         public void Render(
             GuiAppState appState,
             PlannerState plannerState,
-            PixelRect contentRect,
+            RectF32 contentRect,
             float dpiScale,
             string fontPath)
         {
@@ -120,7 +120,7 @@ namespace TianWen.UI.Gui
 
         private void RenderRightPanel(
             PlannerState plannerState,
-            PixelRect rect,
+            RectF32 rect,
             float dpiScale,
             string fontPath)
         {
@@ -151,7 +151,7 @@ namespace TianWen.UI.Gui
         // -----------------------------------------------------------------------
 
         private void RenderCameraSettings(
-            PixelRect rect,
+            RectF32 rect,
             float dpiScale,
             string fontPath)
         {
@@ -263,7 +263,7 @@ namespace TianWen.UI.Gui
 
         private void RenderObservationList(
             PlannerState plannerState,
-            PixelRect rect,
+            RectF32 rect,
             float dpiScale,
             string fontPath)
         {
@@ -429,7 +429,7 @@ namespace TianWen.UI.Gui
         // -----------------------------------------------------------------------
 
         private void RenderConfigForm(
-            PixelRect rect,
+            RectF32 rect,
             float dpiScale,
             string fontPath)
         {
