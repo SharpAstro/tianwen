@@ -7,23 +7,17 @@ namespace TianWen.UI.Abstractions
     /// <summary>
     /// Renderer-agnostic widget for hit testing and click dispatch.
     /// </summary>
-    public interface IPixelWidget
+    /// <summary>
+    /// Pixel-coordinate widget interface. Extends <see cref="IWidget"/> with
+    /// hit testing, click dispatch, and text input discovery.
+    /// </summary>
+    public interface IPixelWidget : IWidget
     {
         /// <summary>Hit-tests the last rendered frame. Returns null for no hit.</summary>
         HitResult? HitTest(float x, float y);
 
         /// <summary>Hit-tests and invokes the <see cref="ClickableRegion.OnClick"/> handler if present.</summary>
         HitResult? HitTestAndDispatch(float x, float y);
-
-        /// <summary>
-        /// Handles a key press while this widget/tab is active. Returns true if consumed.
-        /// </summary>
-        bool HandleKeyDown(InputKey key, InputModifier modifiers);
-
-        /// <summary>
-        /// Handles a mouse wheel event. Returns true if consumed.
-        /// </summary>
-        bool HandleMouseWheel(float scrollY, float mouseX, float mouseY);
 
         /// <summary>Returns all registered text inputs in order (for Tab cycling).</summary>
         List<TextInputState> GetRegisteredTextInputs();
