@@ -38,6 +38,35 @@ public class EquipmentTabState
     // Filter editing: which OTA's filter table is expanded (-1 = none)
     public int ExpandedFilterOtaIndex { get; set; } = -1;
 
+    // Mutable filter list for in-memory editing (saved on explicit Save)
+    public List<InstalledFilter>? EditingFilters { get; set; }
+    public bool FiltersDirty { get; set; }
+
+    /// <summary>
+    /// Loads filters into the mutable editing list from the profile.
+    /// </summary>
+    public void BeginEditingFilters(IReadOnlyList<InstalledFilter> filters)
+    {
+        EditingFilters = new List<InstalledFilter>(filters);
+        FiltersDirty = false;
+    }
+
+    /// <summary>
+    /// Discards the mutable filter list.
+    /// </summary>
+    public void StopEditingFilters()
+    {
+        EditingFilters = null;
+        FiltersDirty = false;
+    }
+
+    // Filter name dropdown
+    public DropdownMenuState FilterNameDropdown { get; } = new();
+
+    // Custom filter name input (shared across all slots, activated by "Custom..." entry)
+    public int CustomFilterSlotIndex { get; set; } = -1;
+    public TextInputState CustomFilterNameInput { get; } = new() { Placeholder = "Filter name..." };
+
     // OTA property editing: which OTA is being edited (-1 = none)
     public int EditingOtaIndex { get; set; } = -1;
     public TextInputState OtaNameInput { get; } = new() { Placeholder = "OTA name" };

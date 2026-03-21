@@ -344,6 +344,12 @@ namespace TianWen.UI.Gui
                 }
             };
 
+            guiRenderer.EquipmentTab.OnActivateTextInput = (textInput) =>
+            {
+                appState.ActiveTextInput = textInput;
+                StartTextInput(sdlWindowHandle);
+            };
+
             // ---------------------------------------------------------------
             // Local helpers captured by closures above
             // ---------------------------------------------------------------
@@ -404,6 +410,9 @@ namespace TianWen.UI.Gui
                 return true;
             }
 
+            // Remember active text input before dispatch — callbacks may activate a new one
+            var previousActiveTextInput = _appState.ActiveTextInput;
+
             // If chrome didn't handle it, try the active tab
             if (hit is null)
             {
@@ -429,8 +438,16 @@ namespace TianWen.UI.Gui
                 return true;
             }
 
-            // Clicking outside text input → deactivate
-            if (_appState.ActiveTextInput is { IsActive: true } && hit is not HitResult.TextInputHit)
+            // If a callback activated a new text input during dispatch, ensure SDL focus
+            if (_appState.ActiveTextInput is { IsActive: true } newInput
+                && newInput != previousActiveTextInput)
+            {
+                StartTextInput(_sdlWindowHandle);
+            }
+            // Clicking outside text input → deactivate (unless a callback just activated a new one)
+            else if (_appState.ActiveTextInput is { IsActive: true } activeInput
+                && activeInput == previousActiveTextInput
+                && hit is not HitResult.TextInputHit)
             {
                 DeactivateTextInput();
             }

@@ -51,9 +51,7 @@ namespace TianWen.UI.Gui
         private static readonly RGBAColor32 FilterTableBg    = new RGBAColor32(0x1a, 0x1a, 0x26, 0xff);
         private static readonly RGBAColor32 FilterRowAlt     = new RGBAColor32(0x20, 0x20, 0x2e, 0xff);
         private static readonly RGBAColor32 EditButtonBg     = new RGBAColor32(0x2a, 0x40, 0x5a, 0xff);
-        private static readonly RGBAColor32 RemoveButtonBg   = new RGBAColor32(0x5a, 0x2a, 0x2a, 0xff);
-
-        private const int MaxFilterSlots = 8;
+        private static readonly RGBAColor32 SavedIndicator   = new RGBAColor32(0x40, 0x80, 0x40, 0xff);
 
         /// <summary>Tab state (scroll offsets, discovery results, assignment mode).</summary>
         public EquipmentTabState State { get; } = new EquipmentTabState();
@@ -79,8 +77,22 @@ namespace TianWen.UI.Gui
         /// <summary>Callback for updating profile data (filter config, OTA props). Set by the host.</summary>
         public Func<ProfileData, Task>? OnUpdateProfile { get; set; }
 
+        /// <summary>Callback to activate a text input with SDL focus. Set by the host.</summary>
+        public Action<TextInputState>? OnActivateTextInput { get; set; }
+
         public VkEquipmentTab(VkRenderer renderer) : base(renderer)
         {
+        }
+
+        public override bool HandleKeyDown(InputKey key, InputModifier modifiers)
+        {
+            // Route to dropdown if open
+            if (State.FilterNameDropdown.HandleKeyDown(key))
+            {
+                return true;
+            }
+
+            return base.HandleKeyDown(key, modifiers);
         }
 
         // -----------------------------------------------------------------------
@@ -115,6 +127,13 @@ namespace TianWen.UI.Gui
             }
 
             RenderProfileView(appState, contentRect, dpiScale, fontPath);
+
+            // Dropdown overlay — rendered absolutely last so it paints on top of everything
+            var fontSize = BaseFontSize * dpiScale;
+            RenderDropdownMenu(State.FilterNameDropdown, fontPath, fontSize * 0.85f,
+                FilterTableBg, SlotActive, BodyText, SeparatorColor,
+                viewportWidth: contentRect.X + contentRect.Width,
+                viewportHeight: contentRect.Y + contentRect.Height);
         }
 
         // -----------------------------------------------------------------------
@@ -366,8 +385,8 @@ namespace TianWen.UI.Gui
                         x + padding, cursor, w - padding * 2f - editBtnW, itemH,
                         fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
 
-                    // [Edit]/[Done] toggle button
-                    var editLabel = isEditingOta ? "Done" : "Edit";
+                    // [Edit]/[Save] toggle button
+                    var editLabel = isEditingOta ? "Save" : "Edit";
                     var capturedI = i;
                     RenderButton(editLabel, x + w - padding - editBtnW, cursor, editBtnW, itemH, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, $"EditOta{i}",
                         () =>
@@ -741,18 +760,30 @@ namespace TianWen.UI.Gui
             float x, float cursor, float w, float itemH,
             float dpiScale, string fontPath, float fontSize, float padding, float buttonH)
         {
-            var filters = EquipmentActions.GetFilterConfig(pd, otaIndex);
+            var savedFilters = EquipmentActions.GetFilterConfig(pd, otaIndex);
             var isExpanded = State.ExpandedFilterOtaIndex == otaIndex;
-            var rowH = itemH * 0.85f;
+            var rowH = itemH * 0.9f;
             var capturedOtaIdx = otaIndex;
 
-            // Toggle header
+            // Toggle header — clicking expands/collapses and loads/discards editing state
             var headerLabel = isExpanded
-                ? $"    Filters ({filters.Count}) [-]"
-                : $"    Filters ({filters.Count}) [+]";
+                ? $"    Filters ({savedFilters.Count}) [-]"
+                : $"    Filters ({savedFilters.Count}) [+]";
             FillRect(x + padding, cursor, w - padding * 2f, rowH, FilterTableBg);
             RegisterClickable(x + padding, cursor, w - padding * 2f, rowH, new HitResult.ButtonHit($"ToggleFilters{otaIndex}"),
-                () => { State.ExpandedFilterOtaIndex = isExpanded ? -1 : capturedOtaIdx; });
+                () =>
+                {
+                    if (isExpanded)
+                    {
+                        State.ExpandedFilterOtaIndex = -1;
+                        State.StopEditingFilters();
+                    }
+                    else
+                    {
+                        State.ExpandedFilterOtaIndex = capturedOtaIdx;
+                        State.BeginEditingFilters(savedFilters);
+                    }
+                });
             DrawText(
                 headerLabel.AsSpan(),
                 fontPath,
@@ -760,20 +791,25 @@ namespace TianWen.UI.Gui
                 fontSize * 0.85f, HeaderText, TextAlign.Near, TextAlign.Center);
             cursor += rowH;
 
-            if (!isExpanded)
+            if (!isExpanded || State.EditingFilters is not { } filters)
             {
                 return cursor;
             }
 
-            // Column headers
-            var nameColW = (w - padding * 4f) * 0.55f;
-            var offsetColW = (w - padding * 4f) * 0.3f;
-            var btnColW = (w - padding * 4f) * 0.15f;
+            // Layout columns: [#][Name                ][- offset +]
+            var slotNumW = 20f * dpiScale;
+            var contentW = w - padding * 4f;
+            var offsetGroupW = 100f * dpiScale;  // [-] value [+] grouped
+            var nameColW = contentW - slotNumW - offsetGroupW;
+            var stepBtnW = 24f * dpiScale;
+            var offsetValueW = offsetGroupW - stepBtnW * 2f;
+            var colStartX = x + padding * 2f;
 
+            // Column headers
             FillRect(x + padding, cursor, w - padding * 2f, rowH, FilterTableBg);
-            DrawText("#".AsSpan(), fontPath, x + padding * 2f, cursor, padding * 2f, rowH, fontSize * 0.75f, DimText, TextAlign.Near, TextAlign.Center);
-            DrawText("Name".AsSpan(), fontPath, x + padding * 4f, cursor, nameColW, rowH, fontSize * 0.75f, DimText, TextAlign.Near, TextAlign.Center);
-            DrawText("Offset".AsSpan(), fontPath, x + padding * 4f + nameColW, cursor, offsetColW, rowH, fontSize * 0.75f, DimText, TextAlign.Near, TextAlign.Center);
+            DrawText("#".AsSpan(), fontPath, colStartX, cursor, slotNumW, rowH, fontSize * 0.75f, DimText, TextAlign.Center, TextAlign.Center);
+            DrawText("Name".AsSpan(), fontPath, colStartX + slotNumW, cursor, nameColW, rowH, fontSize * 0.75f, DimText, TextAlign.Near, TextAlign.Center);
+            DrawText("Offset".AsSpan(), fontPath, colStartX + slotNumW + nameColW, cursor, offsetGroupW, rowH, fontSize * 0.75f, DimText, TextAlign.Center, TextAlign.Center);
             cursor += rowH;
 
             // Filter rows
@@ -787,135 +823,136 @@ namespace TianWen.UI.Gui
                 DrawText(
                     (f + 1).ToString().AsSpan(),
                     fontPath,
-                    x + padding * 2f, cursor, padding * 2f, rowH,
-                    fontSize * 0.8f, DimText, TextAlign.Near, TextAlign.Center);
+                    colStartX, cursor, slotNumW, rowH,
+                    fontSize * 0.8f, DimText, TextAlign.Center, TextAlign.Center);
 
-                // Filter name (clickable to edit)
+                // Filter name — inline text input if custom editing, otherwise clickable to open dropdown
                 var capturedF = f;
-                var filterNameBtnW = nameColW;
-                RenderButton(filter.Filter.Name, x + padding * 4f, cursor, filterNameBtnW, rowH, fontPath, fontSize * 0.8f, rowBg, BodyText, $"FilterName{otaIndex}_{f}",
+                var nameCellX = colStartX + slotNumW;
+                var nameCellY = cursor;
+
+                if (State.CustomFilterSlotIndex == f)
+                {
+                    RenderTextInput(State.CustomFilterNameInput, (int)nameCellX, (int)cursor, (int)nameColW, (int)rowH, fontPath, fontSize * 0.8f);
+                }
+                else
+                {
+                RenderButton(EquipmentActions.FilterDisplayName(filter), nameCellX, cursor, nameColW, rowH, fontPath, fontSize * 0.8f, rowBg, BodyText, $"FilterName{otaIndex}_{f}",
                     () =>
                     {
-                        if (appState.ActiveProfile is { } prof && prof.Data is { } data)
-                        {
-                            var currentFilters = new List<InstalledFilter>(EquipmentActions.GetFilterConfig(data, capturedOtaIdx));
-                            if (capturedF < currentFilters.Count)
+                        var existingCustom = capturedF < filters.Count ? filters[capturedF].CustomName : null;
+                        State.FilterNameDropdown.Open(
+                            nameCellX, nameCellY + rowH, nameColW,
+                            EquipmentActions.CommonFilterNames,
+                            (idx, name) =>
                             {
-                                // Cycle through common filter names
-                                var nextName = CycleFilterName(currentFilters[capturedF].Filter.Name);
-                                currentFilters[capturedF] = new InstalledFilter(nextName, currentFilters[capturedF].Position);
-                                var newData = EquipmentActions.SetFilterConfig(data, capturedOtaIdx, currentFilters);
-                                if (OnUpdateProfile is { } update)
+                                if (capturedF < filters.Count)
                                 {
-                                    Tracker?.Run(() => update(newData), "Cycle filter name");
+                                    filters[capturedF] = new InstalledFilter(name, filters[capturedF].Position);
+                                    State.FiltersDirty = true;
                                 }
-                            }
+                            },
+                            hasCustomEntry: true,
+                            onCustom: () =>
+                            {
+                                State.CustomFilterSlotIndex = capturedF;
+                                // Preserve existing custom name if re-selecting Custom...
+                                var preservedName = capturedF < filters.Count && filters[capturedF].CustomName is { } cn ? cn : "";
+                                State.CustomFilterNameInput.Text = preservedName;
+                                State.CustomFilterNameInput.CursorPos = preservedName.Length;
+                                State.CustomFilterNameInput.Activate();
+                                // Signal to host that this text input needs SDL focus
+                                OnActivateTextInput?.Invoke(State.CustomFilterNameInput);
+                            },
+                            customEntryLabel: existingCustom is { Length: > 0 } ? $"Custom: {existingCustom}" : null);
+                    });
+                }
+
+                // Offset group: [-] value [+]
+                var offsetX = colStartX + slotNumW + nameColW;
+                var offsetStr = filter.Position >= 0 ? $"+{filter.Position}" : filter.Position.ToString();
+
+                RenderButton("-", offsetX, cursor, stepBtnW, rowH, fontPath, fontSize * 0.8f, EditButtonBg, BodyText, $"FilterOffDec{otaIndex}_{f}",
+                    () =>
+                    {
+                        if (capturedF < filters.Count)
+                        {
+                            var cur = filters[capturedF];
+                            filters[capturedF] = new InstalledFilter(cur.Filter.Name, cur.Position - 1);
+                            State.FiltersDirty = true;
                         }
                     });
 
-                // Offset (clickable to step)
-                var offsetStr = filter.Position >= 0 ? $"+{filter.Position}" : filter.Position.ToString();
-                var offsetBtnW = offsetColW / 2f;
-
-                // [-] button
-                RenderButton("-", x + padding * 4f + nameColW, cursor, offsetBtnW * 0.4f, rowH, fontPath, fontSize * 0.8f, EditButtonBg, BodyText, $"FilterOffDec{otaIndex}_{f}",
-                    () => StepFilterOffset(appState, capturedOtaIdx, capturedF, -1));
-
-                // Offset value
                 DrawText(
                     offsetStr.AsSpan(),
                     fontPath,
-                    x + padding * 4f + nameColW + offsetBtnW * 0.4f, cursor, offsetBtnW * 1.2f, rowH,
+                    offsetX + stepBtnW, cursor, offsetValueW, rowH,
                     fontSize * 0.8f, BodyText, TextAlign.Center, TextAlign.Center);
 
-                // [+] button
-                RenderButton("+", x + padding * 4f + nameColW + offsetBtnW * 1.6f, cursor, offsetBtnW * 0.4f, rowH, fontPath, fontSize * 0.8f, EditButtonBg, BodyText, $"FilterOffInc{otaIndex}_{f}",
-                    () => StepFilterOffset(appState, capturedOtaIdx, capturedF, +1));
-
-                // [x] remove button
-                RenderButton("x", x + w - padding * 2f - btnColW, cursor, btnColW, rowH, fontPath, fontSize * 0.8f, RemoveButtonBg, BodyText, $"FilterDel{otaIndex}_{f}",
+                RenderButton("+", offsetX + stepBtnW + offsetValueW, cursor, stepBtnW, rowH, fontPath, fontSize * 0.8f, EditButtonBg, BodyText, $"FilterOffInc{otaIndex}_{f}",
                     () =>
                     {
-                        if (appState.ActiveProfile is { } prof && prof.Data is { } data)
+                        if (capturedF < filters.Count)
                         {
-                            var currentFilters = new List<InstalledFilter>(EquipmentActions.GetFilterConfig(data, capturedOtaIdx));
-                            if (capturedF < currentFilters.Count)
-                            {
-                                currentFilters.RemoveAt(capturedF);
-                                var newData = EquipmentActions.SetFilterConfig(data, capturedOtaIdx, currentFilters);
-                                if (OnUpdateProfile is { } update)
-                                {
-                                    Tracker?.Run(() => update(newData), "Remove filter slot");
-                                }
-                            }
+                            var cur = filters[capturedF];
+                            filters[capturedF] = new InstalledFilter(cur.Filter.Name, cur.Position + 1);
+                            State.FiltersDirty = true;
                         }
                     });
 
                 cursor += rowH;
             }
 
-            // [+ Add Filter] button (capped at MaxFilterSlots)
-            if (filters.Count < MaxFilterSlots)
+            // Save / Cancel buttons (only shown when dirty)
+            if (State.FiltersDirty)
             {
-                var addBtnW = Renderer.MeasureText("+ Add Filter".AsSpan(), fontPath, fontSize * 0.85f).Width + padding * 3f;
-                RenderButton("+ Add Filter", x + padding * 2f, cursor, addBtnW, buttonH * 0.85f, fontPath, fontSize * 0.85f, CreateButton, BodyText, $"AddFilter{otaIndex}",
+                var saveBtnW = Renderer.MeasureText("Save".AsSpan(), fontPath, fontSize * 0.85f).Width + padding * 3f;
+                var cancelBtnW = Renderer.MeasureText("Cancel".AsSpan(), fontPath, fontSize * 0.85f).Width + padding * 3f;
+
+                RenderButton("Save", x + padding * 2f, cursor, saveBtnW, buttonH * 0.85f, fontPath, fontSize * 0.85f, CreateButton, BodyText, $"SaveFilters{otaIndex}",
                     () =>
                     {
-                        if (appState.ActiveProfile is { } prof && prof.Data is { } data)
+                        if (appState.ActiveProfile is { } prof && prof.Data is { } data && State.EditingFilters is { } editFilters)
                         {
-                            var currentFilters = new List<InstalledFilter>(EquipmentActions.GetFilterConfig(data, capturedOtaIdx));
-                            if (currentFilters.Count < MaxFilterSlots)
+                            var newData = EquipmentActions.SetFilterConfig(data, capturedOtaIdx, editFilters);
+                            if (OnUpdateProfile is { } update)
                             {
-                                currentFilters.Add(new InstalledFilter($"Filter {currentFilters.Count + 1}"));
-                                var newData = EquipmentActions.SetFilterConfig(data, capturedOtaIdx, currentFilters);
-                                if (OnUpdateProfile is { } update)
-                                {
-                                    Tracker?.Run(() => update(newData), "Add filter slot");
-                                }
+                                Tracker?.Run(() => update(newData), "Save filter config");
                             }
+                            State.FiltersDirty = false;
                         }
                     });
+
+                RenderButton("Cancel", x + padding * 2f + saveBtnW + padding, cursor, cancelBtnW, buttonH * 0.85f, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, $"CancelFilters{otaIndex}",
+                    () =>
+                    {
+                        // Reload from profile
+                        State.BeginEditingFilters(savedFilters);
+                    });
+
                 cursor += buttonH * 0.85f + padding / 2f;
             }
 
+            // Wire commit for custom filter name — on Enter, apply the name.
+            // Always re-wire to avoid stale captures after list replacement.
+            State.CustomFilterNameInput.OnCommit = (text) =>
+            {
+                if (text is { Length: > 0 } && State.EditingFilters is { } ef
+                    && State.CustomFilterSlotIndex >= 0 && State.CustomFilterSlotIndex < ef.Count)
+                {
+                    ef[State.CustomFilterSlotIndex] = new InstalledFilter(text, ef[State.CustomFilterSlotIndex].Position);
+                    State.FiltersDirty = true;
+                }
+                State.CustomFilterSlotIndex = -1;
+                State.CustomFilterNameInput.Deactivate();
+                return Task.CompletedTask;
+            };
+            State.CustomFilterNameInput.OnCancel = () =>
+            {
+                State.CustomFilterSlotIndex = -1;
+            };
+
             return cursor;
-        }
-
-        private void StepFilterOffset(GuiAppState appState, int otaIndex, int filterIndex, int delta)
-        {
-            if (appState.ActiveProfile is { } prof && prof.Data is { } data)
-            {
-                var currentFilters = new List<InstalledFilter>(EquipmentActions.GetFilterConfig(data, otaIndex));
-                if (filterIndex < currentFilters.Count)
-                {
-                    var f = currentFilters[filterIndex];
-                    currentFilters[filterIndex] = new InstalledFilter(f.Filter.Name, f.Position + delta);
-                    var newData = EquipmentActions.SetFilterConfig(data, otaIndex, currentFilters);
-                    if (OnUpdateProfile is { } update)
-                    {
-                        Tracker?.Run(() => update(newData), "Step filter offset");
-                    }
-                }
-            }
-        }
-
-        private static readonly string[] CommonFilterNames =
-        [
-            "Luminance", "Red", "Green", "Blue",
-            "H-Alpha", "OIII", "SII", "H-Beta",
-            "H-Alpha + OIII", "UV/IR Cut", "Clear"
-        ];
-
-        private static string CycleFilterName(string current)
-        {
-            for (var i = 0; i < CommonFilterNames.Length; i++)
-            {
-                if (string.Equals(CommonFilterNames[i], current, StringComparison.OrdinalIgnoreCase))
-                {
-                    return CommonFilterNames[(i + 1) % CommonFilterNames.Length];
-                }
-            }
-            return CommonFilterNames[0];
         }
 
         // -----------------------------------------------------------------------
