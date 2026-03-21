@@ -165,8 +165,10 @@ while (running)
                     sdlWindow.GetSizeInPixels(out var rw, out var rh);
                     if (rw > 0 && rh > 0)
                     {
-                        dpiScale = GetWindowDisplayScale(sdlWindow.Handle);
-                        if (dpiScale <= 0f) dpiScale = 1f;
+                        var newDpiScale = GetWindowDisplayScale(sdlWindow.Handle);
+                        if (newDpiScale <= 0f) newDpiScale = 1f;
+                        Console.Error.WriteLine($"[Program] Resize event: pixels={rw}x{rh}, dpiScale={dpiScale:F3} -> {newDpiScale:F3}");
+                        dpiScale = newDpiScale;
                         renderer.Resize((uint)rw, (uint)rh);
                         guiRenderer.DpiScale = dpiScale;
                         guiRenderer.Resize((uint)rw, (uint)rh);
