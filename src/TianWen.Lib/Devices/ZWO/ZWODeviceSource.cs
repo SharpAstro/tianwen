@@ -68,32 +68,48 @@ internal class ZWODeviceSource : IDeviceSource<ZWODevice>
 
     static IEnumerable<ZWODevice> ListEAFs() => ListDevice<EAF_INFO>(DeviceType.Focuser);
 
-    static IEnumerable<ZWODevice> ListEFWs() => ListDevice<EFW_INFO>(DeviceType.FilterWheel);
+    static IEnumerable<ZWODevice> ListEFWs() => ListDevice<EFW_INFO>(DeviceType.FilterWheel, SeedFilterParams);
 
-    static IEnumerable<ZWODevice> ListDevice<TDeviceInfo>(DeviceType deviceType) where TDeviceInfo : struct, INativeDeviceInfo
+    /// <summary>
+    /// Builds query params seeding default filter names from the hardware slot count
+    /// (available while the EFW is open during discovery).
+    /// </summary>
+    private static string? SeedFilterParams(EFW_INFO efwInfo)
+    {
+        var slotCount = efwInfo.NumberOfSlots;
+        if (slotCount <= 0)
+        {
+            return null;
+        }
+
+        var parts = new string[slotCount];
+        for (var i = 0; i < slotCount; i++)
+        {
+            parts[i] = $"{DeviceQueryKeyExtensions.FilterKey(i + 1)}={Uri.EscapeDataString($"Filter {i + 1}")}";
+        }
+        return string.Join("&", parts);
+    }
+
+    static IEnumerable<ZWODevice> ListDevice<TDeviceInfo>(DeviceType deviceType, Func<TDeviceInfo, string?>? seedQueryParams = null) where TDeviceInfo : struct, INativeDeviceInfo
     {
         var ids = new HashSet<int>();
 
-        var cameraIterator = new DeviceIterator<TDeviceInfo>();
+        var iterator = new DeviceIterator<TDeviceInfo>();
 
-        foreach (var deviceInfo in cameraIterator)
+        foreach (var deviceInfo in iterator)
         {
             if (!ids.Contains(deviceInfo.ID) && deviceInfo.Open())
             {
                 try
                 {
-                    if (deviceInfo.SerialNumber is { Length: > 0 } serialNumber)
-                    {
-                        yield return new ZWODevice(deviceType, serialNumber, deviceInfo.Name);
-                    }
-                    else if (deviceInfo.IsUSB3Device && deviceInfo.CustomId is { Length: > 0 } customId)
-                    {
-                        yield return new ZWODevice(deviceType, customId, deviceInfo.Name);
-                    }
-                    else
-                    {
-                        yield return new ZWODevice(deviceType, deviceInfo.Name, deviceInfo.Name);
-                    }
+                    var deviceId = deviceInfo.SerialNumber is { Length: > 0 } sn ? sn
+                        : deviceInfo.IsUSB3Device && deviceInfo.CustomId is { Length: > 0 } cid ? cid
+                        : deviceInfo.Name;
+
+                    var extraQuery = seedQueryParams?.Invoke(deviceInfo);
+                    var queryPart = extraQuery is { Length: > 0 } ? $"?{extraQuery}" : "";
+                    var uri = new Uri($"{deviceType}://{typeof(ZWODevice).Name}/{deviceId}{queryPart}#{deviceInfo.Name}");
+                    yield return new ZWODevice(uri);
 
                     ids.Add(deviceInfo.ID);
                 }
