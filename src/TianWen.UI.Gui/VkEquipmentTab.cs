@@ -406,7 +406,7 @@ namespace TianWen.UI.Gui
 
             FillRect(x, y, w, itemH, bgColor);
             var capturedSlot = slot;
-            RegisterClickable(x, y, w, itemH, new HitResult.SlotHit(slot),
+            RegisterClickable(x, y, w, itemH, new AppHitResults.SlotHit(slot),
                 () => { State.ActiveAssignment = State.ActiveAssignment == capturedSlot ? null : capturedSlot; });
 
             // Separator line at bottom of slot

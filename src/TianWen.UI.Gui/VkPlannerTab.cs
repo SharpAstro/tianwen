@@ -190,7 +190,7 @@ namespace TianWen.UI.Gui
 
                 var capturedIdx = i;
                 RegisterClickable(sliderX - hitW / 2, _chartRect.Y, hitW, _chartRect.Height,
-                    new HitResult.SliderHit(i));
+                    new AppHitResults.SliderHit(i));
             }
         }
 
