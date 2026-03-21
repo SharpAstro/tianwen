@@ -935,11 +935,26 @@ public sealed class VkImageRenderer : PixelWidgetBase<VulkanContext>, IDisposabl
         var offsetX = fileListW + (areaW - drawW) / 2f + state.PanOffset.X;
         var offsetY = ToolbarHeight + (areaH - drawH) / 2f + state.PanOffset.Y;
 
+        // Clip to image viewport area
+        var clipLeft = fileListW;
+        var clipTop = (float)ToolbarHeight;
+        var clipRight = fileListW + areaW;
+        var clipBottom = ToolbarHeight + areaH;
+
         foreach (var star in stars)
         {
-            var cx = offsetX + star.XCentroid * state.Zoom;
-            var cy = offsetY + star.YCentroid * state.Zoom;
+            // Centroids are 0-based with integer = pixel center; texture maps pixel N
+            // from offsetX + N*zoom to offsetX + (N+1)*zoom, so center is at +0.5*zoom
+            var cx = offsetX + (star.XCentroid + 0.5f) * state.Zoom;
+            var cy = offsetY + (star.YCentroid + 0.5f) * state.Zoom;
             var radius = MathF.Max(star.HFD * 0.5f * state.Zoom, 6f);
+
+            // Skip stars outside the viewport
+            if (cx + radius < clipLeft || cx - radius > clipRight ||
+                cy + radius < clipTop || cy - radius > clipBottom)
+            {
+                continue;
+            }
 
             // Alpha scales with zoom: faint when zoomed out (many circles), solid when zoomed in
             var alpha = MathF.Min(1.0f, 0.3f + state.Zoom * 0.7f);
