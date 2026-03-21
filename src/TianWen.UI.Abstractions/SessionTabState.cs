@@ -60,6 +60,12 @@ namespace TianWen.UI.Abstractions
         /// <summary>Per-OTA camera settings for this session. One entry per OTA in the profile.</summary>
         public List<PerOtaCameraSettings> CameraSettings { get; set; } = [];
 
+        /// <summary>Tracks the profile identity to detect when reinitialisation is needed.</summary>
+        private Uri? _lastProfileUri;
+
+        /// <summary>Tracks the OTA count to detect profile structure changes.</summary>
+        private int _lastOtaCount;
+
         /// <summary>Scroll offset in pixels for the configuration form panel.</summary>
         public int ConfigScrollOffset { get; set; }
 
@@ -80,6 +86,21 @@ namespace TianWen.UI.Abstractions
         );
 
         /// <summary>
+        /// Returns true if the profile has changed since the last initialization
+        /// (different profile ID or different OTA count).
+        /// </summary>
+        public bool NeedsReinitialization(Profile? profile)
+        {
+            if (profile is null)
+            {
+                return CameraSettings.Count > 0;
+            }
+
+            return profile.DeviceUri != _lastProfileUri
+                || (profile.Data?.OTAs.Length ?? 0) != _lastOtaCount;
+        }
+
+        /// <summary>
         /// Initializes <see cref="CameraSettings"/> from the active profile's OTAs.
         /// Computes default gain and exposure from f-ratio.
         /// </summary>
@@ -89,8 +110,13 @@ namespace TianWen.UI.Abstractions
 
             if (profile?.Data is not { } data)
             {
+                _lastProfileUri = null;
+                _lastOtaCount = 0;
                 return;
             }
+
+            _lastProfileUri = profile.DeviceUri;
+            _lastOtaCount = data.OTAs.Length;
 
             foreach (var ota in data.OTAs)
             {
