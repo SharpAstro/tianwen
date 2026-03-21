@@ -154,6 +154,7 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 - [x] Annotation overlay (object names from catalogs when plate-solved)
 - [x] Star detection overlay: `FitsDocument.DetectStarsAsync()` runs as background task,
       draws HFD-sized green circles, shows count/HFR/FWHM in status bar (S key toggle)
+- [ ] Clip star overlay circles to image viewport (currently drawn over toolbar, file list, and info panel)
 - [ ] Remember last opened folder and recent images across sessions
 - [ ] Continuous image advance when holding arrow keys (advance every ~1 second while pressed)
 - [ ] Display original bit depth before normalization (e.g. "16-bit" in status bar) when available from FITS header
@@ -227,14 +228,14 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 - [x] Font atlas corruption — root cause: shared upload buffer race with `MaxFramesInFlight=2`. Frame N+1's `Flush` overwrites the upload buffer while frame N's `vkCmdCopyBufferToImage` is still reading it. Fixed with `vkDeviceWaitIdle()` before upload buffer reuse.
 - [ ] Replace `vkDeviceWaitIdle` in font atlas `Flush` with per-frame upload buffers (like `_vertexBuffers`) to avoid GPU stall on every glyph upload. The current fix blocks the GPU pipeline unnecessarily after startup.
 
-### SdlEventLoop extensions (HIGH PRIORITY — needed for FitsViewer migration)
-- [ ] Add `DropFile` event support (`EventType.DropFile`) — `Action<string>? OnFileDrop`
-- [ ] Multi-button mouse: `OnMouseDown` should pass button ID (byte) — currently only fires for left button (button==1)
-- [ ] `OnMouseUp` should pass button ID (byte) — currently parameterless `Action?`
-- [ ] `OnMouseDown` should pass click count (byte) — needed for double-click-to-select-all in text inputs
-- [ ] `OnMouseWheel` should pass actual mouse position — currently hardcodes (0, 0) for mouseX/mouseY
-- [ ] Expose `SdlVulkanWindow.Handle` or add `SetTitle(string)` method — FitsViewer updates title per file
-- [ ] Once above are done, migrate `TianWen.UI.FitsViewer/Program.cs` to use `SdlEventLoop`
+### SdlEventLoop (DONE — all consumers now use the shared loop)
+- [x] Add `DropFile` event support (`EventType.DropFile`) — `Action<string>? OnDropFile`
+- [x] Multi-button mouse: `OnMouseDown` passes button ID + click count (`Func<byte, float, float, byte, bool>?`)
+- [x] `OnMouseUp` passes button ID (`Action<byte>?`)
+- [x] `OnMouseWheel` passes tracked mouse position (no more hardcoded 0, 0)
+- [x] F11 fullscreen removed from loop — each consumer handles it in `OnKeyDown`
+- [x] Migrated `TianWen.UI.FitsViewer/Program.cs` to use `SdlEventLoop`
+- [ ] Touch input: pinch-to-zoom via `SDL_EVENT_FINGER_*` or `SDL_EVENT_MULTIGESTURE` events (single-finger drag works as mouse emulation)
 
 ## Vulkan Migration / HDR Display Output
 
