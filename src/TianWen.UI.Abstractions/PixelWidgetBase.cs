@@ -17,15 +17,13 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>
         /// Handles a key press while this widget/tab is active. Returns true if consumed.
-        /// Override in tabs to implement tab-specific keyboard shortcuts.
         /// </summary>
-        bool HandleKeyDown(InputKey key, InputModifier modifiers) => false;
+        bool HandleKeyDown(InputKey key, InputModifier modifiers);
 
         /// <summary>
         /// Handles a mouse wheel event. Returns true if consumed.
-        /// Override in tabs to implement scroll zones.
         /// </summary>
-        bool HandleMouseWheel(float scrollY, float mouseX, float mouseY) => false;
+        bool HandleMouseWheel(float scrollY, float mouseX, float mouseY);
 
         /// <summary>Returns all registered text inputs in order (for Tab cycling).</summary>
         List<TextInputState> GetRegisteredTextInputs();
@@ -139,6 +137,18 @@ namespace TianWen.UI.Abstractions
             }
             return null;
         }
+
+        /// <summary>
+        /// Handles a key press while this widget/tab is active. Returns true if consumed.
+        /// Override in tabs to implement tab-specific keyboard shortcuts.
+        /// </summary>
+        public virtual bool HandleKeyDown(InputKey key, InputModifier modifiers) => false;
+
+        /// <summary>
+        /// Handles a mouse wheel event. Returns true if consumed.
+        /// Override in tabs to implement scroll zones.
+        /// </summary>
+        public virtual bool HandleMouseWheel(float scrollY, float mouseX, float mouseY) => false;
 
         // --- Drawing helpers ---
 
