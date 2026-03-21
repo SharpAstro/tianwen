@@ -101,6 +101,10 @@ if (appState.ActiveProfile is not null)
 
                 handlers.AutoCompleteCache = objectDb.CreateAutoCompleteList();
             }
+            else
+            {
+                appState.StatusMessage = "Set site coordinates in Equipment tab";
+            }
         }
         catch (Exception ex)
         {
