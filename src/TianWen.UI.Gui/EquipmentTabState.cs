@@ -67,6 +67,9 @@ public class EquipmentTabState
     public int CustomFilterSlotIndex { get; set; } = -1;
     public TextInputState CustomFilterNameInput { get; } = new() { Placeholder = "Filter name..." };
 
+    /// <summary>When true, the next render frame should activate the custom filter name input.</summary>
+    public bool PendingCustomActivation { get; set; }
+
     // OTA property editing: which OTA is being edited (-1 = none)
     public int EditingOtaIndex { get; set; } = -1;
     public TextInputState OtaNameInput { get; } = new() { Placeholder = "OTA name" };
