@@ -195,7 +195,7 @@ public static class EquipmentActions
     /// <summary>
     /// Returns a human-readable label for a device URI, using the registry if available.
     /// </summary>
-    public static string DeviceLabel(Uri? uri, IDeviceUriRegistry? registry)
+    public static string DeviceLabel(Uri? uri, IDeviceUriRegistry? registry = null)
     {
         if (uri is null || uri == NoneDevice.Instance.DeviceUri)
         {
