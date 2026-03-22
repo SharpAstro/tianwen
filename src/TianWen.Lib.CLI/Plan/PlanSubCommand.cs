@@ -70,34 +70,17 @@ internal class PlanSubCommand(
         var twLocal = plannerState.AstroTwilight.ToOffset(plannerState.SiteTimeZone);
         var nightHours = (plannerState.AstroTwilight - plannerState.AstroDark).TotalHours;
 
-        if (consoleHost.Terminal.ColorMode is Console.Lib.ColorMode.None)
-        {
-            consoleHost.WriteScrollable($"\nTonight's Best Targets ({darkLocal:yyyy-MM-dd}, {siteLabel})");
-            consoleHost.WriteScrollable($"Astro dark: {darkLocal:HH:mm} - Astro twilight: {twLocal:HH:mm} ({nightHours:F1}h)");
-            consoleHost.WriteScrollable($"Profile: {plannerState.ActiveProfile?.DisplayName ?? "none"}\n");
-        }
-        else
-        {
-            WriteMarkdown(
-                $"## Tonight's Best Targets ({darkLocal:yyyy-MM-dd}, {siteLabel})\n\n" +
-                $"**Astro dark:** {darkLocal:HH:mm} \u2014 **Astro twilight:** {twLocal:HH:mm} ({nightHours:F1}h)  \n" +
-                $"**Profile:** {plannerState.ActiveProfile?.DisplayName ?? "none"}");
-        }
+        // MarkdownRenderer with ColorMode.None produces clean plain text (no VT codes)
+        WriteMarkdown(
+            $"## Tonight's Best Targets ({darkLocal:yyyy-MM-dd}, {siteLabel})\n\n" +
+            $"**Astro dark:** {darkLocal:HH:mm} \u2014 **Astro twilight:** {twLocal:HH:mm} ({nightHours:F1}h)  \n" +
+            $"**Profile:** {plannerState.ActiveProfile?.DisplayName ?? "none"}");
     }
 
     private void PrintTargetTable()
     {
-        if (consoleHost.Terminal.ColorMode is Console.Lib.ColorMode.None)
-        {
-            foreach (var line in PlannerActions.FormatTonightsBestLines(plannerState))
-            {
-                consoleHost.WriteScrollable(line);
-            }
-        }
-        else
-        {
-            WriteMarkdown(FormatTargetTableMarkdown());
-        }
+        // Markdown table renders as aligned plain text when ColorMode is None
+        WriteMarkdown(FormatTargetTableMarkdown());
     }
 
     private string FormatTargetTableMarkdown(int maxLines = 30)
@@ -141,11 +124,48 @@ internal class PlanSubCommand(
         {
             RenderSixelChart(terminal);
         }
-        else
+        else if (terminal.ColorMode is not Console.Lib.ColorMode.None)
         {
             foreach (var line in AsciiAltitudeChart.Render(plannerState))
             {
                 consoleHost.WriteScrollable(line);
+            }
+        }
+        else
+        {
+            // NO_COLOR or piped — show text summary of proposed observations
+            PrintProposalSummary();
+        }
+    }
+
+    private void PrintProposalSummary()
+    {
+        if (plannerState.Proposals.Count == 0)
+        {
+            consoleHost.WriteScrollable("No targets proposed yet.");
+            return;
+        }
+
+        consoleHost.WriteScrollable("Proposed observations:");
+        var pinnedCount = plannerState.PinnedCount;
+        for (var i = 0; i < pinnedCount; i++)
+        {
+            var target = plannerState.Proposals[i].Target;
+            var scored = plannerState.TonightsBest.FirstOrDefault(t => t.Target == target);
+            if (scored is { Target: not null })
+            {
+                var start = i == 0 ? plannerState.AstroDark
+                    : i - 1 < plannerState.HandoffSliders.Count ? plannerState.HandoffSliders[i - 1] : scored.OptimalStart;
+                var end = i >= pinnedCount - 1 || i >= plannerState.HandoffSliders.Count
+                    ? plannerState.AstroTwilight : plannerState.HandoffSliders[i];
+                var duration = end - start;
+                var durationStr = duration.TotalHours >= 1.0
+                    ? $"{(int)duration.TotalHours}h {duration.Minutes:D2}m"
+                    : $"{(int)duration.TotalMinutes}m";
+                var startStr = start.ToOffset(plannerState.SiteTimeZone).ToString("HH:mm");
+                var endStr = end.ToOffset(plannerState.SiteTimeZone).ToString("HH:mm");
+
+                consoleHost.WriteScrollable($"  {i + 1}. {startStr}-{endStr}  {target.Name,-22} ({durationStr}, peak {scored.OptimalAltitude:F0}\u00b0)");
             }
         }
     }
