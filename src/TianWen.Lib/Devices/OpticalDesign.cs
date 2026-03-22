@@ -1,4 +1,4 @@
-namespace TianWen.Lib.Sequencing;
+namespace TianWen.Lib.Devices;
 
 public enum OpticalDesign
 {

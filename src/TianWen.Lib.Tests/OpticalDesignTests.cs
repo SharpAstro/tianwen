@@ -1,5 +1,5 @@
 using Shouldly;
-using TianWen.Lib.Sequencing;
+using TianWen.Lib.Devices;
 using Xunit;
 
 namespace TianWen.Lib.Tests;

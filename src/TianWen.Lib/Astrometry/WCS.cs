@@ -1,9 +1,8 @@
 using nom.tam.fits;
 using System;
 using System.Globalization;
-using TianWen.Lib.Astrometry;
 
-namespace TianWen.Lib.Imaging;
+namespace TianWen.Lib.Astrometry;
 
 /// <summary>
 /// Represents a FITS World Coordinate System (WCS) solution in the TAN (gnomonic) projection.

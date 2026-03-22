@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Shouldly;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions.Overlays;

@@ -203,41 +203,12 @@ void HandleMouseMove(float px, float py)
 {
     state.MouseScreenPosition = (px, py);
 
-    // Handle panning
-    if (state.IsPanning)
-    {
-        var dx = px - state.PanStart.X;
-        var dy = py - state.PanStart.Y;
-        state.PanOffset = (state.PanOffset.X + dx, state.PanOffset.Y + dy);
-        state.PanStart = (px, py);
-    }
+    ViewerActions.UpdatePan(state, px, py);
 
-    if (document?.UnstretchedImage is { } image)
-    {
-        // Convert screen position to image coordinates
-        var (areaW, areaH) = imageRenderer.GetImageAreaSize(state);
-        var fileListW = state.ShowFileList ? imageRenderer.ScaledFileListWidth : 0;
-        var toolbarH = imageRenderer.ScaledToolbarHeight;
-
-        var scale = state.Zoom;
-        var drawW = image.Width * scale;
-        var drawH = image.Height * scale;
-        var offsetX = fileListW + (areaW - drawW) / 2f + state.PanOffset.X;
-        var offsetY = toolbarH + (areaH - drawH) / 2f + state.PanOffset.Y;
-
-        var imgX = (int)((px - offsetX) / scale);
-        var imgY = (int)((py - offsetY) / scale);
-
-        if (imgX >= 0 && imgX < image.Width && imgY >= 0 && imgY < image.Height)
-        {
-            ViewerActions.UpdateCursorInfo(document, state, imgX, imgY);
-        }
-        else
-        {
-            state.CursorImagePosition = null;
-            state.CursorPixelInfo = null;
-        }
-    }
+    var fileListW = state.ShowFileList ? imageRenderer.ScaledFileListWidth : 0;
+    var toolbarH = imageRenderer.ScaledToolbarHeight;
+    var (areaW, areaH) = imageRenderer.GetImageAreaSize(state);
+    ViewerActions.UpdateCursorFromScreenPosition(document, state, px, py, fileListW, toolbarH, areaW, areaH);
 }
 
 void HandleMouseDown(byte button, float px, float py)
@@ -270,8 +241,7 @@ void HandleMouseDown(byte button, float px, float py)
     // Left or middle mouse button starts panning
     if (button is 1 or 2) // SDL: 1=left, 2=middle, 3=right
     {
-        state.IsPanning = true;
-        state.PanStart = (px, py);
+        ViewerActions.BeginPan(state, px, py);
     }
 }
 
@@ -279,7 +249,7 @@ void HandleMouseUp(byte button)
 {
     if (button is 1 or 2)
     {
-        state.IsPanning = false;
+        ViewerActions.EndPan(state);
     }
 }
 

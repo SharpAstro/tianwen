@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Linq;
-using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Imaging;
 
@@ -22,7 +21,7 @@ public enum SensorType
     RGGB,
 
     /// <summary>
-    /// Indicates unknown sensor type, e.g. if camera was not initalised or <see cref="ICameraDriver.CanFastReadout"/> is <code>false</code>.
+    /// Indicates unknown sensor type, e.g. if camera was not initialised or ICameraDriver.CanFastReadout is false.
     /// </summary>
     Unknown = int.MaxValue
 }

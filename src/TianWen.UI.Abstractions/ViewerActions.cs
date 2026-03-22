@@ -259,4 +259,71 @@ public static class ViewerActions
         var maxScroll = Math.Max(0, state.ImageFileNames.Count - 1);
         state.FileListScrollOffset = Math.Clamp(state.FileListScrollOffset + delta, 0, maxScroll);
     }
+
+    /// <summary>
+    /// Begins a pan drag at the given screen position.
+    /// </summary>
+    public static void BeginPan(ViewerState state, float px, float py)
+    {
+        state.IsPanning = true;
+        state.PanStart = (px, py);
+    }
+
+    /// <summary>
+    /// Updates pan offset during a drag.
+    /// </summary>
+    public static void UpdatePan(ViewerState state, float px, float py)
+    {
+        if (!state.IsPanning)
+        {
+            return;
+        }
+
+        var dx = px - state.PanStart.X;
+        var dy = py - state.PanStart.Y;
+        state.PanOffset = (state.PanOffset.X + dx, state.PanOffset.Y + dy);
+        state.PanStart = (px, py);
+    }
+
+    /// <summary>
+    /// Ends a pan drag.
+    /// </summary>
+    public static void EndPan(ViewerState state)
+    {
+        state.IsPanning = false;
+    }
+
+    /// <summary>
+    /// Updates cursor pixel info from a screen position, converting to image coordinates.
+    /// Returns true if the cursor is over the image.
+    /// </summary>
+    public static bool UpdateCursorFromScreenPosition(
+        AstroImageDocument? document, ViewerState state,
+        float px, float py,
+        float fileListW, float toolbarH, float areaW, float areaH)
+    {
+        if (document?.UnstretchedImage is not { } image)
+        {
+            return false;
+        }
+
+        var scale = state.Zoom;
+        var drawW = image.Width * scale;
+        var drawH = image.Height * scale;
+        var offsetX = fileListW + (areaW - drawW) / 2f + state.PanOffset.X;
+        var offsetY = toolbarH + (areaH - drawH) / 2f + state.PanOffset.Y;
+
+        var imgX = (int)((px - offsetX) / scale);
+        var imgY = (int)((py - offsetY) / scale);
+
+        if (imgX >= 0 && imgX < image.Width && imgY >= 0 && imgY < image.Height)
+        {
+            UpdateCursorInfo(document, state, imgX, imgY);
+            return true;
+        }
+
+        state.CursorImagePosition = null;
+        state.CursorPixelInfo = null;
+        return false;
+    }
 }

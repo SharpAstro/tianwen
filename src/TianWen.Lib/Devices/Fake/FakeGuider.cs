@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Astrometry;
+using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Imaging;
 
