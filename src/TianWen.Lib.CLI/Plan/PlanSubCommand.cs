@@ -219,33 +219,28 @@ internal class PlanSubCommand(
             topBar.Text($" {siteLabel} | Dark: {darkLocal:HH:mm}-{twLocal:HH:mm} | Proposals: {plannerState.Proposals.Count}");
             topBar.RightText($"{plannerState.ActiveProfile?.DisplayName ?? "No profile"} ");
 
-            // Update target list
-            var maxScore = plannerState.TonightsBest.Count > 0 ? plannerState.TonightsBest[0].CombinedScore : 1.0;
-            var items = new TargetListItem[plannerState.TonightsBest.Count];
+            // Update target list using shared content model
+            var filteredTargets = PlannerActions.GetFilteredTargets(plannerState);
+            var targetRows = PlannerTargetList.GetItems(plannerState, filteredTargets);
+            var items = new TargetListItem[targetRows.Count];
             for (var i = 0; i < items.Length; i++)
             {
-                var scored = plannerState.TonightsBest[i];
-                var isProposed = plannerState.Proposals.Any(p => p.Target == scored.Target);
-                items[i] = new TargetListItem(scored, isProposed, i == plannerState.SelectedTargetIndex, maxScore);
+                items[i] = new TargetListItem(targetRows[i]);
             }
             targetList.Items(items).Header("Tonight's Best").ScrollTo(
                 Math.Max(0, plannerState.SelectedTargetIndex - targetList.VisibleRows / 2));
 
-            // Update detail panel
-            if (plannerState.SelectedTargetIndex >= 0 && plannerState.SelectedTargetIndex < plannerState.TonightsBest.Count)
+            // Update detail panel using shared content model
+            var detailLines = PlannerDetails.GetLines(plannerState, filteredTargets);
+            if (detailLines.Count > 0)
             {
-                var selected = plannerState.TonightsBest[plannerState.SelectedTargetIndex];
-                var isProposed = plannerState.Proposals.Any(p => p.Target == selected.Target);
-                var proposedMark = isProposed ? " **[PROPOSED]**" : "";
-                var optStart = selected.OptimalStart.ToOffset(plannerState.SiteTimeZone);
-                var optEnd = (selected.OptimalStart + selected.OptimalDuration).ToOffset(plannerState.SiteTimeZone);
-                detailWidget.Markdown(
-                    $"## {selected.Target.Name}{proposedMark}\n\n" +
-                    $"**RA**: {selected.Target.RA:F3}h  **Dec**: {selected.Target.Dec:F2}°\n\n" +
-                    $"**Peak altitude**: {selected.OptimalAltitude:F0}°  " +
-                    $"**Window**: {optStart:HH:mm}–{optEnd:HH:mm}  " +
-                    $"**Score**: {selected.CombinedScore:F0}\n\n" +
-                    $"*Enter* to add/remove | *P* priority | *S* schedule | *Q* quit");
+                var md = $"## {detailLines[0]}\n\n";
+                for (var i = 1; i < detailLines.Count; i++)
+                {
+                    md += detailLines[i] + "\n\n";
+                }
+                md += "*Enter* to add/remove | *P* priority | *S* schedule | *Q* quit";
+                detailWidget.Markdown(md);
             }
 
             // Render altitude chart

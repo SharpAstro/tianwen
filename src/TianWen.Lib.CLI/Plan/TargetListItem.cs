@@ -1,45 +1,41 @@
 using Console.Lib;
-using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
 
 namespace TianWen.Lib.CLI.Plan;
 
 /// <summary>
 /// A target entry for the planner's scrollable target list.
+/// Constructed from a <see cref="PlannerTargetRow"/> (shared content model).
 /// </summary>
-internal sealed class TargetListItem(ScoredTarget scored, bool isProposed, bool isSelected, double maxScore) : IRowFormatter
+internal sealed class TargetListItem(PlannerTargetRow row) : IRowFormatter
 {
-    public ScoredTarget Scored { get; } = scored;
-    public bool IsProposed { get; } = isProposed;
-    public bool IsSelected { get; } = isSelected;
+    public PlannerTargetRow Row { get; } = row;
 
     public string FormatRow(int width, ColorMode colorMode)
     {
-        var marker = IsProposed ? "* " : "  ";
-        var name = Scored.Target.Name;
-        var nameWidth = width - 14; // marker(2) + alt(4) + score(6) + spaces(2)
+        var marker = Row.IsPinned ? "* " : "  ";
+        var name = Row.Name;
+        var nameWidth = width - 14; // marker(2) + info(4) + rating(6) + spaces(2)
         if (name.Length > nameWidth)
         {
             name = name[..(nameWidth - 1)] + ".";
         }
 
-        var alt = $"{Scored.OptimalAltitude:F0}°";
-        var rating = PlannerActions.ScoreToRating(Scored.CombinedScore, maxScore);
-        var ratingStr = $"{rating:F1}\u2605";
+        var ratingStr = $"{Row.Rating:F1}\u2605";
 
-        var line = $"{marker}{name.PadRight(nameWidth)} {alt,4} {ratingStr,5}";
+        var line = $"{marker}{name.PadRight(nameWidth)} {Row.Info,4} {ratingStr,5}";
 
-        if (IsSelected && IsProposed)
+        if (Row.IsSelected && Row.IsPinned)
         {
             var style = new VtStyle(SgrColor.BrightWhite, SgrColor.Blue);
             return $"{style.Apply(colorMode)}{line.PadRight(width)}{VtStyle.Reset}";
         }
-        if (IsSelected)
+        if (Row.IsSelected)
         {
             var style = new VtStyle(SgrColor.BrightWhite, SgrColor.BrightBlack);
             return $"{style.Apply(colorMode)}{line.PadRight(width)}{VtStyle.Reset}";
         }
-        if (IsProposed)
+        if (Row.IsPinned)
         {
             var style = new VtStyle(SgrColor.BrightCyan, SgrColor.Black);
             return $"{style.Apply(colorMode)}{line.PadRight(width)}{VtStyle.Reset}";
