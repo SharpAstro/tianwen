@@ -67,32 +67,32 @@ var selectedProfileOption = new Option<string?>("--active", "-a")
     Recursive = true
 };
 
-var interactiveOption = new Option<bool>("--interactive", "-i")
+var inlineOption = new Option<bool>("--inline", "-i")
 {
-    Description = "Enter alternate-screen interactive mode",
+    Description = "Use inline scrollback mode instead of full-screen TUI",
     Recursive = true
 };
 
 // Implicit path argument on root command — bare file/dir arg opens the viewer interactively
 var implicitPathArg = new Argument<string?>("path")
 {
-    Description = "FITS file or directory to view (shorthand for 'view <path> -i')",
+    Description = "FITS file or directory to view (shorthand for 'view <path>')",
     Arity = ArgumentArity.ZeroOrOne
 };
 
 var profileSelector = new ProfileSelector(consoleHost, selectedProfileOption);
-var viewSubCommand = new ViewSubCommand(consoleHost, viewerState, documentCache, interactiveOption);
+var viewSubCommand = new ViewSubCommand(consoleHost, viewerState, documentCache, inlineOption);
 
 var rootCommand = new RootCommand
 {
     Arguments = { implicitPathArg },
-    Options = { selectedProfileOption, interactiveOption },
+    Options = { selectedProfileOption, inlineOption },
     Subcommands =
     {
         new ProfileSubCommand(consoleHost, selectedProfileOption).Build(),
         new DeviceSubCommand(consoleHost).Build(),
         viewSubCommand.Build(),
-        new PlanSubCommand(consoleHost, plannerState, services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(), profileSelector, interactiveOption).Build()
+        new PlanSubCommand(consoleHost, plannerState, services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(), profileSelector, inlineOption).Build()
     }
 };
 

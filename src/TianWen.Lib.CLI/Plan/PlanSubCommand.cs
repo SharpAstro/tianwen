@@ -13,7 +13,7 @@ internal class PlanSubCommand(
     PlannerState plannerState,
     ICelestialObjectDB objectDb,
     ProfileSelector profileSelector,
-    Option<bool> interactiveOption
+    Option<bool> inlineOption
 )
 {
     public Command Build()
@@ -26,10 +26,10 @@ internal class PlanSubCommand(
 
     internal async Task PlanActionAsync(ParseResult parseResult, CancellationToken ct)
     {
-        var interactive = parseResult.GetValue(interactiveOption);
+        var inline = parseResult.GetValue(inlineOption);
 
         // Profile is required — it provides the site location via mount URI
-        var profile = await profileSelector.ResolveProfileAsync(parseResult, interactive, ct);
+        var profile = await profileSelector.ResolveProfileAsync(parseResult, !inline, ct);
         if (profile is null)
         {
             return;
@@ -51,15 +51,15 @@ internal class PlanSubCommand(
         await PlannerActions.ComputeTonightsBestAsync(
             plannerState, objectDb, transform,
             plannerState.MinHeightAboveHorizon, ct,
-            onProgress: msg => System.Console.Error.Write($"\r{msg.PadRight(60)}"));
+            onProgress: inline ? msg => System.Console.Error.Write($"\r{msg.PadRight(60)}") : null);
 
-        if (interactive)
+        if (inline)
         {
-            await RunTuiAsync(transform, ct);
+            await RunInlineAsync(transform, ct);
         }
         else
         {
-            await RunInlineAsync(transform, ct);
+            await RunTuiAsync(transform, ct);
         }
     }
 
@@ -70,14 +70,64 @@ internal class PlanSubCommand(
         var twLocal = plannerState.AstroTwilight.ToOffset(plannerState.SiteTimeZone);
         var nightHours = (plannerState.AstroTwilight - plannerState.AstroDark).TotalHours;
 
-        consoleHost.WriteScrollable($"\nTonight's Best Targets ({darkLocal:yyyy-MM-dd}, {siteLabel})");
-        consoleHost.WriteScrollable($"Astro dark: {darkLocal:HH:mm} \u2014 Astro twilight: {twLocal:HH:mm} ({nightHours:F1}h)");
-        consoleHost.WriteScrollable($"Profile: {plannerState.ActiveProfile?.DisplayName ?? "none"}\n");
+        if (consoleHost.Terminal.ColorMode is Console.Lib.ColorMode.None)
+        {
+            consoleHost.WriteScrollable($"\nTonight's Best Targets ({darkLocal:yyyy-MM-dd}, {siteLabel})");
+            consoleHost.WriteScrollable($"Astro dark: {darkLocal:HH:mm} - Astro twilight: {twLocal:HH:mm} ({nightHours:F1}h)");
+            consoleHost.WriteScrollable($"Profile: {plannerState.ActiveProfile?.DisplayName ?? "none"}\n");
+        }
+        else
+        {
+            WriteMarkdown(
+                $"## Tonight's Best Targets ({darkLocal:yyyy-MM-dd}, {siteLabel})\n\n" +
+                $"**Astro dark:** {darkLocal:HH:mm} \u2014 **Astro twilight:** {twLocal:HH:mm} ({nightHours:F1}h)  \n" +
+                $"**Profile:** {plannerState.ActiveProfile?.DisplayName ?? "none"}");
+        }
     }
 
     private void PrintTargetTable()
     {
-        foreach (var line in PlannerActions.FormatTonightsBestLines(plannerState))
+        if (consoleHost.Terminal.ColorMode is Console.Lib.ColorMode.None)
+        {
+            foreach (var line in PlannerActions.FormatTonightsBestLines(plannerState))
+            {
+                consoleHost.WriteScrollable(line);
+            }
+        }
+        else
+        {
+            WriteMarkdown(FormatTargetTableMarkdown());
+        }
+    }
+
+    private string FormatTargetTableMarkdown(int maxLines = 30)
+    {
+        var maxScore = plannerState.TonightsBest.Count > 0 ? plannerState.TonightsBest[0].CombinedScore : 1.0;
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("| # | Target | Type | Alt | Window | Rating |");
+        sb.AppendLine("|--:|--------|------|----:|--------|-------:|");
+
+        for (var i = 0; i < Math.Min(plannerState.TonightsBest.Count, maxLines); i++)
+        {
+            var s = plannerState.TonightsBest[i];
+            var pin = plannerState.Proposals.Any(p => p.Target == s.Target) ? "\u2605" : "";
+            var typeName = s.Target.CatalogIndex?.ToCatalog().ToString() ?? "?";
+            var window = $"{s.OptimalStart.ToOffset(plannerState.SiteTimeZone):HH:mm}\u2013{(s.OptimalStart + s.OptimalDuration).ToOffset(plannerState.SiteTimeZone):HH:mm}";
+            var rating = PlannerActions.ScoreToRating(s.CombinedScore, maxScore);
+
+            sb.AppendLine($"| {pin}{i + 1} | {s.Target.Name} | {typeName} | {s.OptimalAltitude:F0}\u00b0 | {window} | {rating:F1}\u2605 |");
+        }
+
+        return sb.ToString();
+    }
+
+    private void WriteMarkdown(string markdown)
+    {
+        var terminal = consoleHost.Terminal;
+        var width = terminal.Size.Width;
+        var lines = Console.Lib.MarkdownRenderer.RenderLines(markdown, width, terminal.ColorMode);
+        foreach (var line in lines)
         {
             consoleHost.WriteScrollable(line);
         }
@@ -108,18 +158,18 @@ internal class PlanSubCommand(
     private async Task RunInlineAsync(TianWen.Lib.Astrometry.SOFA.Transform transform, CancellationToken ct)
     {
         var terminal = consoleHost.Terminal;
-        if (!System.Console.IsInputRedirected)
+        if (!consoleHost.Terminal.IsInputRedirected)
         {
             await terminal.InitAsync();
         }
 
         PrintHeader();
         PrintTargetTable();
-        PrintChart(terminal);
 
-        // If piped, just exit after printing
-        if (System.Console.IsInputRedirected)
+        // If piped, also print chart and exit
+        if (consoleHost.Terminal.IsInputRedirected)
         {
+            PrintChart(terminal);
             return;
         }
 
@@ -277,7 +327,7 @@ internal class PlanSubCommand(
     {
         var pixelSize = terminal.PixelSize;
         var chartW = (int)pixelSize.Width;
-        var chartH = Math.Min((int)(pixelSize.Height / 2), 400);
+        var chartH = Math.Min((int)(pixelSize.Height * 2 / 3), 600);
 
         if (chartW < 100 || chartH < 50)
         {
