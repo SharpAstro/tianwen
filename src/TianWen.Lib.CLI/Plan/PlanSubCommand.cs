@@ -58,13 +58,17 @@ internal class PlanSubCommand(
         }
         else
         {
-            RunNonInteractive();
+            await RunNonInteractiveAsync();
         }
     }
 
-    private void RunNonInteractive()
+    private async Task RunNonInteractiveAsync()
     {
         var terminal = consoleHost.Terminal;
+        if (!System.Console.IsInputRedirected)
+        {
+            await terminal.InitAsync();
+        }
 
         // Header
         var siteLabel = $"{plannerState.SiteLatitude:F1}°{(plannerState.SiteLatitude >= 0 ? "N" : "S")}, {plannerState.SiteLongitude:F1}°{(plannerState.SiteLongitude >= 0 ? "E" : "W")}";
