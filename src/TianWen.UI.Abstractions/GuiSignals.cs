@@ -19,3 +19,12 @@ public readonly record struct AssignDeviceSignal(int DeviceIndex);
 
 /// <summary>Update profile data (filter config, OTA props, etc.).</summary>
 public readonly record struct UpdateProfileSignal(ProfileData Data);
+
+/// <summary>Build the observation schedule from pinned targets.</summary>
+public readonly record struct BuildScheduleSignal;
+
+/// <summary>Toggle fullscreen mode.</summary>
+public readonly record struct ToggleFullscreenSignal;
+
+/// <summary>Request plate solving the current image.</summary>
+public readonly record struct PlateSolveSignal;
