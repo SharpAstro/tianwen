@@ -53,8 +53,6 @@ namespace TianWen.UI.Gui
         /// <summary>Reference to the planner state from the last Render call.</summary>
         private PlannerState? _state;
 
-        /// <summary>Callback for building the schedule (needs profile/transform). Set by the host.</summary>
-        public Action? OnBuildSchedule { get; set; }
 
         // Layout rects computed during Render, used by hit testing
         private RectF32 _targetListRect;
@@ -616,7 +614,7 @@ namespace TianWen.UI.Gui
                     return true;
 
                 case InputKey.S:
-                    OnBuildSchedule?.Invoke();
+                    PostSignal(new BuildScheduleSignal());
                     return true;
 
                 default:

@@ -42,14 +42,6 @@ public sealed class VkImageRenderer : PixelWidgetBase<VulkanContext>, IDisposabl
     /// <summary>Reference to the document from the last Render call.</summary>
     private AstroImageDocument? _document;
 
-    /// <summary>Callback for plate solving (needs DI). Set by the host.</summary>
-    public Func<Task>? OnPlateSolve { get; set; }
-
-    /// <summary>Callback for app exit. Set by the host.</summary>
-    public Action? OnExit { get; set; }
-
-    /// <summary>Callback for fullscreen toggle. Set by the host.</summary>
-    public Action? OnToggleFullscreen { get; set; }
 
     /// <summary>
     /// DPI scale factor. Set from framebuffer size / window size ratio.
@@ -1537,10 +1529,10 @@ public sealed class VkImageRenderer : PixelWidgetBase<VulkanContext>, IDisposabl
         switch (key)
         {
             case InputKey.Escape:
-                OnExit?.Invoke();
+                PostSignal(new RequestExitSignal());
                 return true;
             case InputKey.F11:
-                OnToggleFullscreen?.Invoke();
+                PostSignal(new ToggleFullscreenSignal());
                 return true;
             case InputKey.T:
                 ViewerActions.ToggleStretch(state);
@@ -1593,7 +1585,7 @@ public sealed class VkImageRenderer : PixelWidgetBase<VulkanContext>, IDisposabl
                 }
                 return true;
             case InputKey.P:
-                OnPlateSolve?.Invoke();
+                PostSignal(new PlateSolveSignal());
                 return true;
             case InputKey.F:
                 ViewerActions.ZoomToFit(state);

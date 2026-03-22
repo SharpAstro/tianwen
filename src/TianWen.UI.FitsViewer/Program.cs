@@ -82,8 +82,10 @@ sdlWindow.GetSizeInPixels(out var pixW, out var pixH);
 var ctx = VulkanContext.Create(sdlWindow.Instance, sdlWindow.Surface, (uint)pixW, (uint)pixH);
 var renderer = new VkRenderer(ctx, (uint)pixW, (uint)pixH);
 
+var bus = new SignalBus();
 var imageRenderer = new VkImageRenderer(renderer, (uint)pixW, (uint)pixH)
 {
+    Bus = bus,
     DpiScale = sdlWindow.DisplayScale,
     CelestialObjectDB = celestialObjectDB
 };
@@ -150,24 +152,24 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 
     OnPostFrame = () =>
     {
+        bus.ProcessPending();
         state.NeedsRedraw = false;
     }
 };
 
-// Wire app-level callbacks that need loop/window references
-imageRenderer.OnExit = () => loop.Stop();
-imageRenderer.OnToggleFullscreen = () => sdlWindow.ToggleFullscreen();
-imageRenderer.OnPlateSolve = () =>
+// Signal subscriptions for app-level actions
+bus.Subscribe<RequestExitSignal>(_ => loop.Stop());
+bus.Subscribe<ToggleFullscreenSignal>(_ => sdlWindow.ToggleFullscreen());
+bus.Subscribe<PlateSolveSignal>(_ =>
 {
     if (document is not null && !state.IsPlateSolving && !document.IsPlateSolved)
     {
         var factory = sp.GetRequiredService<TianWen.Lib.Astrometry.PlateSolve.IPlateSolverFactory>();
         backgroundTask = ViewerActions.PlateSolveAsync(document, state, factory, cts.Token);
     }
-    return Task.CompletedTask;
-};
+});
 
-// OnKeyDown wired separately — imageRenderer.HandleKeyDown handles F11 via OnToggleFullscreen
+// OnKeyDown wired separately — imageRenderer.HandleKeyDown handles F11 via signal bus
 loop.OnKeyDown = (inputKey, inputModifier) =>
 {
     imageRenderer.HandleKeyDown(inputKey, inputModifier);

@@ -102,8 +102,8 @@ bus.Subscribe<DeactivateTextInputSignal>(_ =>
 });
 Task? plannerTask = null;
 
-// Wire tab callbacks that need DI/profile access
-guiRenderer.PlannerTab.OnBuildSchedule = () =>
+// Signal subscription for building the schedule
+bus.Subscribe<BuildScheduleSignal>(signal =>
 {
     if (appState.ActiveProfile is null) return;
     var transform = TransformFactory.FromProfile(appState.ActiveProfile, external.TimeProvider, out _);
@@ -125,7 +125,7 @@ guiRenderer.PlannerTab.OnBuildSchedule = () =>
             availableFilters: availableFilters is { Count: > 0 } ? availableFilters : null,
             opticalDesign: opticalDesign);
     }
-};
+});
 
 if (appState.ActiveProfile is not null)
 {
