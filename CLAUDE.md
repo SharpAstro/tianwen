@@ -332,19 +332,34 @@ RgbaImageRenderer).
 - `BackgroundTaskTracker` — tracks async operations, checks completions per frame, logs errors
 - `TextInputState` — single-line text input with `OnCommit` (async), `OnCancel`,
   `OnTextChanged`, `OnKeyOverride` callbacks
+- `SignalBus` — thread-safe typed deferred signal bus; widgets `PostSignal<T>()` during
+  event handling, hosts `Subscribe<T>()` at startup, `ProcessPending()` delivers once per frame
+- `DropdownMenuState` — generic popup dropdown menu with keyboard navigation, custom entry
+  support, and full-screen backdrop dismiss
+
+**Signal bus pattern** (replaces callback properties):
+1. Widget calls `PostSignal(new SomeSignal(...))` during click/key handling — just enqueues
+2. `OnPostFrame` calls `bus.ProcessPending(tracker)` — delivers all pending signals
+3. Sync handlers run inline; async handlers submitted to `BackgroundTaskTracker`
+4. Signals are `readonly record struct` value types defined in `GuiSignals.cs`
+5. Built-in signals in DIR.Lib: `ActivateTextInputSignal`, `DeactivateTextInputSignal`,
+   `RequestExitSignal`, `RequestRedrawSignal`
+6. App signals in Abstractions: `DiscoverDevicesSignal`, `AddOtaSignal`, `EditSiteSignal`,
+   `CreateProfileSignal`, `AssignDeviceSignal`, `UpdateProfileSignal`, `BuildScheduleSignal`,
+   `ToggleFullscreenSignal`, `PlateSolveSignal`
 
 **Click handling pattern**:
 1. Widgets call `RegisterClickable(x, y, w, h, hitResult, onClick)` during render
-2. Self-contained actions (filter cycling, list selection) pass an `OnClick` delegate
+2. Self-contained actions (offset stepping, list selection) pass an `OnClick` delegate
 3. `HitTestAndDispatch(px, py)` invokes `OnClick` and returns the `HitResult`
-4. SDL-dependent actions (text input focus) are handled by `GuiEventHandlers`
+4. Cross-component actions use `PostSignal` (text input focus, profile save, discovery)
 
 **Keyboard handling pattern**:
 1. `Program.cs` maps SDL scancodes to `InputKey` via `SdlInputMapping` (in `TianWen.UI.Shared`)
 2. `GuiEventHandlers.HandleKeyDown` routes to active text input first
 3. If not consumed, `Program.cs` routes to `ActiveTab.HandleKeyDown(inputKey, modifiers)`
 4. Each tab overrides `HandleKeyDown` for tab-specific shortcuts (pure state mutations)
-5. DI-dependent actions use `Action`/`Func<Task>` callbacks set by the host at wiring time
+5. Cross-component actions use `PostSignal` (delivered in `OnPostFrame`)
 
 **Mouse wheel pattern**:
 - `GuiEventHandlers.HandleMouseWheel` delegates to `ActiveTab.HandleMouseWheel(scrollY, x, y)`
@@ -352,19 +367,19 @@ RgbaImageRenderer).
 
 **Async operations**:
 - All background work goes through `BackgroundTaskTracker.Run(Func<Task>, description)`
-- `Program.cs` calls `tracker.ProcessCompletions(logger)` each frame — logs errors, triggers redraw
+- `Program.cs` calls `bus.ProcessPending(tracker)` then `tracker.ProcessCompletions(logger)`
+  each frame — async signal handlers are submitted to tracker automatically
 - `TextInputState.OnCommit` is `Func<string, Task>?` — submitted to tracker on Enter
-- Tab callbacks (`OnDiscover`, `OnAddOta`, `OnAssignDevice`) are `Func<Task>` — submitted via tracker
 - Shutdown: `tracker.DrainAsync()` awaits all pending tasks
 - Zero fire-and-forget `_ = Task.Run(...)` in the codebase
 
 **Inheritance hierarchy**:
 ```
-PixelWidgetBase<TSurface>   (Abstractions — renderer-agnostic)
+PixelWidgetBase<TSurface>   (DIR.Lib — renderer-agnostic, has Bus + PostSignal)
   └─ VkTabBase              (Gui — pins TSurface = VulkanContext)
        ├─ VkGuiRenderer     (sidebar, status bar, content dispatch)
        ├─ VkPlannerTab      (planner with autocomplete, scheduling viz)
-       ├─ VkEquipmentTab    (profile/device management)
+       ├─ VkEquipmentTab    (profile/device management, filter editing)
        └─ VkSessionTab      (session config + observation list)
   └─ VkImageRenderer        (Shared — FITS viewer toolbar, file list, histogram)
 ```
@@ -376,10 +391,10 @@ then falls through to the active tab.
 
 **Event handling** (`GuiEventHandlers`):
 - Generic event routing only — zero tab-specific logic in the routing methods
-- Constructor wires all callbacks (OnCommit, OnDiscover, etc.) with DI-dependent closures
-- SDL bridge: `StartTextInput`/`StopTextInput` for IME lifecycle
+- Constructor subscribes DI-dependent signal handlers on the `SignalBus`
+- Per-field `TextInputState` callbacks wired for planner search, site editing, profile creation
 - `Program.cs` is a thin event loop + composition root
-- Text input focus tracked via `GuiAppState.ActiveTextInput` (single source of truth)
+- Text input focus managed via `ActivateTextInputSignal` / `DeactivateTextInputSignal`
 
 **SDL input mapping** (`TianWen.UI.Shared/SdlInputMapping.cs`):
 - C# 14 extension blocks on `Scancode` and `Keymod`
@@ -408,6 +423,42 @@ camera settings + observation list with frame estimates.
 - Smart exposure stepping: 10s below 1min, 30s for 1-2min, 60s above 2min
 - Default exposure from f-ratio: `5 × f²` seconds, clamped [10, 600]
 - Estimated frame count per target: `windowSeconds / (subExposure + 10s overhead)`
+
+### Filter Wheel Configuration
+
+**Design principle**: Seed on discovery, TianWen owns the data, sync back on connect.
+Filter names and focus offsets are stored as URI query params (`filter1`, `offset1`, ...)
+on the filter wheel device URI in the profile. All drivers read from URI params first,
+with driver-specific fallbacks per slot.
+
+| Driver | Slot count source | Name/offset fallback |
+|--------|------------------|---------------------|
+| ASCOM | `Names.Length` (COM) | COM `Names[i]` / `FocusOffsets[i]` |
+| ZWO | `NumberOfSlots` (hardware) | `"Filter {N}"` / `0` (seeded at discovery) |
+| Alpaca | REST API `names` array | API values |
+| Fake | preset count (LRGB/Narrowband/Simple by device ID, max 8) | preset values |
+| Manual | always 1 | `InstalledFilter.Name` |
+
+**`Filter` type** (`TianWen.Lib/Imaging/Filter.cs`):
+- `readonly record struct Filter(string Name, string ShortName, string DisplayName, Bandpass)`
+- `Name`: code name (`HydrogenAlpha`), `ShortName`: abbreviation (`Hα`), `DisplayName`: user-friendly (`H-Alpha`)
+- `FromName()` uses `[GeneratedRegex]` patterns, supports unicode α/β, handles dual-band filters
+- `InstalledFilter.CustomName` preserves unknown filter names (e.g. "Optolong L-Ultimate")
+
+**Equipment tab filter editing** (`VkEquipmentTab`):
+- Filter table below filter wheel slot (expand/collapse via `[+]`/`[-]` header)
+- Filter name: click opens `DropdownMenuState` with `CommonFilterNames` + "Custom..." entry
+- Custom entry shows inline `TextInputState` for arbitrary names
+- Focus offset: `[-]` / `[+]` stepper buttons
+- All edits are in-memory (`EquipmentTabState.EditingFilters`); Save/Cancel buttons appear when dirty
+- Save commits via `UpdateProfileSignal` through the signal bus
+
+**`EquipmentActions`** (`TianWen.UI.Abstractions/EquipmentActions.cs`):
+- `GetFilterConfig(ProfileData, otaIndex)` — reads filters from URI params
+- `SetFilterConfig(ProfileData, otaIndex, filters)` — writes filters to URI params
+- `UpdateOTA(ProfileData, otaIndex, ...)` — updates OTA name/focal length/aperture/optical design
+- `FilterDisplayName(InstalledFilter)` — returns `DisplayName` (custom name for unknowns)
+- `CommonFilterNames` — shared list used by dropdown and CLI
 
 ### Fake Camera Sensor Presets
 
