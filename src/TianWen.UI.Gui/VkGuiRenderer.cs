@@ -72,14 +72,15 @@ namespace TianWen.UI.Gui
         private static readonly RGBAColor32 ContentBg     = new RGBAColor32(0x16, 0x16, 0x1e, 0xff);
         private static readonly RGBAColor32 PlaceholderText = new RGBAColor32(0x55, 0x55, 0x66, 0xff);
 
-        public VkGuiRenderer(VkRenderer renderer, uint width, uint height) : base(renderer)
+        public VkGuiRenderer(VkRenderer renderer, uint width, uint height, SignalBus? bus = null) : base(renderer)
         {
+            Bus = bus;
             _renderer = renderer;
             _width = width;
             _height = height;
-            _plannerTab = new VkPlannerTab(renderer);
-            _equipmentTab = new VkEquipmentTab(renderer);
-            _sessionTab = new VkSessionTab(renderer);
+            _plannerTab = new VkPlannerTab(renderer) { Bus = bus };
+            _equipmentTab = new VkEquipmentTab(renderer) { Bus = bus };
+            _sessionTab = new VkSessionTab(renderer) { Bus = bus };
             ResolveFontPath();
         }
 

@@ -2,6 +2,7 @@ using DIR.Lib;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using SdlVulkan.Renderer;
+using static SDL3.SDL;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Extensions;
 using TianWen.Lib.Sequencing;
@@ -65,7 +66,8 @@ sdlWindow.GetSizeInPixels(out var pixW, out var pixH);
 var ctx = VulkanContext.Create(sdlWindow.Instance, sdlWindow.Surface, (uint)pixW, (uint)pixH);
 var renderer = new VkRenderer(ctx, (uint)pixW, (uint)pixH);
 
-var guiRenderer = new VkGuiRenderer(renderer, (uint)pixW, (uint)pixH)
+var bus = new SignalBus();
+var guiRenderer = new VkGuiRenderer(renderer, (uint)pixW, (uint)pixH, bus)
 {
     DpiScale = sdlWindow.DisplayScale
 };
@@ -74,6 +76,30 @@ var guiRenderer = new VkGuiRenderer(renderer, (uint)pixW, (uint)pixH)
 var cts = new CancellationTokenSource();
 var tracker = new BackgroundTaskTracker();
 var handlers = new GuiEventHandlers(sp, appState, plannerState, guiRenderer, sdlWindow.Handle, cts, external, tracker);
+
+// Signal subscriptions — text input activation/deactivation via SDL
+bus.Subscribe<ActivateTextInputSignal>(sig =>
+{
+    if (appState.ActiveTextInput is { } prev && prev != sig.Input)
+    {
+        prev.Deactivate();
+    }
+    sig.Input.Activate();
+    appState.ActiveTextInput = sig.Input;
+    StartTextInput(sdlWindow.Handle);
+    appState.NeedsRedraw = true;
+});
+
+bus.Subscribe<DeactivateTextInputSignal>(_ =>
+{
+    if (appState.ActiveTextInput is { IsActive: true } active)
+    {
+        active.Deactivate();
+        appState.ActiveTextInput = null;
+        StopTextInput(sdlWindow.Handle);
+        appState.NeedsRedraw = true;
+    }
+});
 Task? plannerTask = null;
 
 // Wire tab callbacks that need DI/profile access
@@ -239,6 +265,7 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 
     OnPostFrame = () =>
     {
+        bus.ProcessPending(tracker);
         tracker.ProcessCompletions(logger);
         appState.NeedsRedraw = false;
         plannerState.NeedsRedraw = false;
