@@ -12,8 +12,7 @@ internal class PlanSubCommand(
     IConsoleHost consoleHost,
     PlannerState plannerState,
     ICelestialObjectDB objectDb,
-    ProfileSelector profileSelector,
-    Option<bool> tuiOption
+    ProfileSelector profileSelector
 )
 {
     public Command Build()
@@ -26,10 +25,8 @@ internal class PlanSubCommand(
 
     internal async Task PlanActionAsync(ParseResult parseResult, CancellationToken ct)
     {
-        var tui = parseResult.GetValue(tuiOption);
-
         // Profile is required — it provides the site location via mount URI
-        var profile = await profileSelector.ResolveProfileAsync(parseResult, tui, ct);
+        var profile = await profileSelector.ResolveProfileAsync(parseResult, false, ct);
         if (profile is null)
         {
             return;
@@ -51,16 +48,9 @@ internal class PlanSubCommand(
         await PlannerActions.ComputeTonightsBestAsync(
             plannerState, objectDb, transform,
             plannerState.MinHeightAboveHorizon, ct,
-            onProgress: tui ? null : msg => System.Console.Error.Write($"\r{msg.PadRight(60)}"));
+            onProgress: msg => System.Console.Error.Write($"\r{msg.PadRight(60)}"));
 
-        if (tui)
-        {
-            await RunTuiAsync(transform, ct);
-        }
-        else
-        {
-            await RunInlineAsync(transform, ct);
-        }
+        await RunInlineAsync(transform, ct);
     }
 
     private void PrintHeader()

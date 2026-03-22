@@ -9,8 +9,7 @@ namespace TianWen.Lib.CLI.View;
 internal class ViewSubCommand(
     IConsoleHost consoleHost,
     ViewerState state,
-    DocumentCache documentCache,
-    Option<bool> tuiOption
+    DocumentCache documentCache
 )
 {
     private readonly Argument<string> pathArg = new Argument<string>("path") { Description = "FITS file or directory to view" };
@@ -29,16 +28,7 @@ internal class ViewSubCommand(
     internal async Task ViewActionAsync(ParseResult parseResult, CancellationToken ct)
     {
         var path = parseResult.GetRequiredValue(pathArg);
-        var tui = parseResult.GetValue(tuiOption);
-
-        if (tui)
-        {
-            await RunInteractiveAsync(path, ct);
-        }
-        else
-        {
-            await RunNonInteractiveAsync(path, ct);
-        }
+        await RunNonInteractiveAsync(path, ct);
     }
 
     private async Task EnsureTerminalInitAsync()

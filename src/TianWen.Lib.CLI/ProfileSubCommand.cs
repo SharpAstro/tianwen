@@ -12,8 +12,7 @@ namespace TianWen.Lib.CLI;
 internal class ProfileSubCommand(
     IConsoleHost consoleHost,
     Option<string?> selectedProfileOption,
-    ProfileSelector profileSelector,
-    Option<bool> tuiOption)
+    ProfileSelector profileSelector)
 {
     private readonly Argument<string> profileNameOrIdArg = new("profileNameOrId") { Description = "Name or ID of the profile" };
     private readonly Argument<string> profileNameArg = new("profileName") { Description = "Name of the new profile" };
@@ -197,10 +196,8 @@ internal class ProfileSubCommand(
 
     internal async Task ProfileDefaultActionAsync(ParseResult parseResult, CancellationToken ct)
     {
-        var tui = parseResult.GetValue(tuiOption);
-
         // Resolve profile (interactive picker if multiple, auto if one, create if none)
-        var profile = await profileSelector.ResolveProfileAsync(parseResult, tui, ct);
+        var profile = await profileSelector.ResolveProfileAsync(parseResult, false, ct);
         if (profile is null)
         {
             return;
