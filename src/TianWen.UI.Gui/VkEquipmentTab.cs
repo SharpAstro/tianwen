@@ -77,8 +77,7 @@ namespace TianWen.UI.Gui
         /// <summary>Callback for updating profile data (filter config, OTA props). Set by the host.</summary>
         public Func<ProfileData, Task>? OnUpdateProfile { get; set; }
 
-        /// <summary>Callback to activate a text input with SDL focus. Set by the host.</summary>
-        public Action<TextInputState>? OnActivateTextInput { get; set; }
+        // OnActivateTextInput removed — use PostSignal(new ActivateTextInputSignal(...)) instead
 
         public VkEquipmentTab(VkRenderer renderer) : base(renderer)
         {
@@ -834,13 +833,6 @@ namespace TianWen.UI.Gui
                 if (State.CustomFilterSlotIndex == f)
                 {
                     RenderTextInput(State.CustomFilterNameInput, (int)nameCellX, (int)cursor, (int)nameColW, (int)rowH, fontPath, fontSize * 0.8f);
-                    // Deferred activation — happens on the first render frame after Custom... was clicked
-                    if (State.PendingCustomActivation)
-                    {
-                        State.PendingCustomActivation = false;
-                        State.CustomFilterNameInput.Activate();
-                        OnActivateTextInput?.Invoke(State.CustomFilterNameInput);
-                    }
                 }
                 else
                 {
@@ -867,8 +859,8 @@ namespace TianWen.UI.Gui
                                 var preservedName = capturedF < filters.Count && filters[capturedF].CustomName is { } cn ? cn : "";
                                 State.CustomFilterNameInput.Text = preservedName;
                                 State.CustomFilterNameInput.CursorPos = preservedName.Length;
-                                // Defer activation to next render frame to avoid HandleMouseDown interference
-                                State.PendingCustomActivation = true;
+                                // Signal deferred text input activation (processed in OnPostFrame)
+                                PostSignal(new ActivateTextInputSignal(State.CustomFilterNameInput));
                             },
                             customEntryLabel: existingCustom is { Length: > 0 } ? $"Custom: {existingCustom}" : null);
                     });
