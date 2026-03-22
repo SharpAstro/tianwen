@@ -87,7 +87,7 @@ var rootCommand = new RootCommand
         new DeviceSubCommand(consoleHost).Build(),
         viewSubCommand.Build(),
         new PlanSubCommand(consoleHost, plannerState, services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(), profileSelector).Build(),
-        new TuiSubCommand(services, consoleHost, plannerState, viewerState, profileSelector).Build()
+        new TuiSubCommand(services, consoleHost, plannerState, profileSelector).Build()
     }
 };
 
@@ -96,7 +96,7 @@ rootCommand.SetAction(async (parseResult, ct) =>
     var path = parseResult.GetValue(implicitPathArg);
     if (path is not null)
     {
-        // Bare path argument → interactive view
+        // Bare path argument → inline view
         await viewSubCommand.RunNonInteractiveAsync(path, ct);
     }
     // No path and no subcommand → show help (default behavior)

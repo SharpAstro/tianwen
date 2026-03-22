@@ -1,6 +1,5 @@
 using Console.Lib;
 using DIR.Lib;
-using TianWen.Lib.Devices;
 using TianWen.UI.Abstractions;
 
 namespace TianWen.Lib.CLI.Tui;
@@ -10,7 +9,6 @@ namespace TianWen.Lib.CLI.Tui;
 /// with keyboard commands for device discovery and management.
 /// </summary>
 internal sealed class TuiEquipmentTab(
-    IConsoleHost consoleHost,
     GuiAppState appState,
     EquipmentContent equipmentContent) : ITuiTab
 {

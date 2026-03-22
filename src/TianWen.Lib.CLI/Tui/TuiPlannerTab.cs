@@ -1,8 +1,6 @@
 using Console.Lib;
 using DIR.Lib;
-using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
-using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
 using TianWen.Lib.CLI.Plan;
@@ -14,7 +12,6 @@ namespace TianWen.Lib.CLI.Tui;
 /// Shows tonight's best targets with altitude chart, target list, and details panel.
 /// </summary>
 internal sealed class TuiPlannerTab(
-    IConsoleHost consoleHost,
     PlannerState plannerState,
     Transform transform,
     string fontPath) : ITuiTab

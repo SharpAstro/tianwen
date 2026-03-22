@@ -15,7 +15,8 @@ internal sealed class TargetListItem(PlannerTargetRow row) : IRowFormatter
     {
         var marker = Row.IsPinned ? "* " : "  ";
         var name = Row.Name;
-        var nameWidth = width - 14; // marker(2) + info(4) + rating(6) + spaces(2)
+        var objType = Row.ObjectType.Length > 4 ? Row.ObjectType[..4] : Row.ObjectType;
+        var nameWidth = width - 19; // marker(2) + type(5) + info(4) + rating(6) + spaces(2)
         if (name.Length > nameWidth)
         {
             name = name[..(nameWidth - 1)] + ".";
@@ -23,7 +24,7 @@ internal sealed class TargetListItem(PlannerTargetRow row) : IRowFormatter
 
         var ratingStr = $"{Row.Rating:F1}\u2605";
 
-        var line = $"{marker}{name.PadRight(nameWidth)} {Row.Info,4} {ratingStr,5}";
+        var line = $"{marker}{name.PadRight(nameWidth)} {objType,-4} {Row.Info,4} {ratingStr,5}";
 
         if (Row.IsSelected && Row.IsPinned)
         {

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.UI.Abstractions;
@@ -13,6 +14,7 @@ namespace TianWen.UI.Abstractions;
 public readonly record struct PlannerTargetRow(
     string Name,
     string Info,
+    string ObjectType,
     bool IsPinned,
     bool IsSelected,
     bool HasConflict,
@@ -62,6 +64,7 @@ public static class PlannerTargetList
             rows.Add(new PlannerTargetRow(
                 Name: scored.Target.Name,
                 Info: info,
+                ObjectType: scored.ObjectType.ToAbbreviation(),
                 IsPinned: isPinned,
                 IsSelected: isSelected,
                 HasConflict: false, // TODO: conflict detection from PlannerState
