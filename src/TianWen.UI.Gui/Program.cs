@@ -162,11 +162,8 @@ if (appState.ActiveProfile is not null)
     }, cts.Token);
 }
 
-// Auto-discover devices on startup (uses tracker via the wired OnDiscover callback)
-if (guiRenderer.EquipmentTab.OnDiscover is { } startupDiscover)
-{
-    tracker.Run(startupDiscover, "Startup device discovery");
-}
+// Auto-discover devices on startup via signal bus
+bus.Post(new DiscoverDevicesSignal());
 
 // --- Main event loop via SdlEventLoop ---
 
