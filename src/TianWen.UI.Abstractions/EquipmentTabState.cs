@@ -2,9 +2,8 @@ using DIR.Lib;
 using System.Collections.Generic;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
-using TianWen.UI.Abstractions;
 
-namespace TianWen.UI.Gui;
+namespace TianWen.UI.Abstractions;
 
 /// <summary>
 /// State for the Equipment/Profile tab.

@@ -7,11 +7,11 @@ namespace TianWen.UI.Gui
 {
     /// <summary>
     /// Top-level GPU renderer for the N.I.N.A.-style integrated GUI.
-    /// Extends <see cref="VkTabBase"/> so the sidebar, status bar, and chrome
+    /// Extends <see cref="PixelWidgetBase{TSurface}"/> so the sidebar, status bar, and chrome
     /// participate in the unified <see cref="PixelWidgetBase{TSurface}.RegisterClickable"/>
     /// / <see cref="PixelWidgetBase{TSurface}.HitTestAndDispatch"/> system.
     /// </summary>
-    public sealed class VkGuiRenderer : VkTabBase, IDisposable
+    public sealed class VkGuiRenderer : PixelWidgetBase<VulkanContext>, IDisposable
     {
         private readonly VkRenderer _renderer;
         private readonly VkPlannerTab _plannerTab;
