@@ -11,7 +11,7 @@ namespace TianWen.UI.Gui
     /// participate in the unified <see cref="PixelWidgetBase{TSurface}.RegisterClickable"/>
     /// / <see cref="PixelWidgetBase{TSurface}.HitTestAndDispatch"/> system.
     /// </summary>
-    public sealed class VkGuiRenderer : PixelWidgetBase<VulkanContext>, IDisposable
+    public sealed class VkGuiRenderer : PixelWidgetBase<VulkanContext>, IGuiChrome, IDisposable
     {
         private readonly VkRenderer _renderer;
         private readonly VkPlannerTab _plannerTab;
@@ -36,6 +36,15 @@ namespace TianWen.UI.Gui
 
         /// <summary>The currently active tab as an <see cref="IPixelWidget"/> for tab-specific hit testing.</summary>
         public IPixelWidget? ActiveTab { get; private set; }
+
+        /// <inheritdoc/>
+        public EquipmentTabState EquipmentState => _equipmentTab.State;
+
+        /// <inheritdoc/>
+        public RectF32 PlannerChartRect => _plannerTab.ChartRect;
+
+        /// <inheritdoc/>
+        public void PlannerEnsureVisible(int index) => _plannerTab.EnsureVisible(index);
 
         // Base layout constants (at 1x scale)
         private const float BaseSidebarWidth = 52f;
