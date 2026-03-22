@@ -140,6 +140,8 @@ public static class PlannerActions
         // Compute fine altitude profiles and cross-index aliases for the top targets
         Report("Computing altitude profiles...");
 
+        // Invalidate cached grid (site or date may have changed)
+        state.CachedAstromGrid = null;
         var (gridAstroms, gridTimes) = EnsureAstromGrid(state, transform);
 
         state.AltitudeProfiles.Clear();
