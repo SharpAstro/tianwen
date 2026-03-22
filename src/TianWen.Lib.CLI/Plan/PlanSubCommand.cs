@@ -13,7 +13,7 @@ internal class PlanSubCommand(
     PlannerState plannerState,
     ICelestialObjectDB objectDb,
     ProfileSelector profileSelector,
-    Option<bool> inlineOption
+    Option<bool> tuiOption
 )
 {
     public Command Build()
@@ -26,10 +26,10 @@ internal class PlanSubCommand(
 
     internal async Task PlanActionAsync(ParseResult parseResult, CancellationToken ct)
     {
-        var inline = parseResult.GetValue(inlineOption);
+        var tui = parseResult.GetValue(tuiOption);
 
         // Profile is required — it provides the site location via mount URI
-        var profile = await profileSelector.ResolveProfileAsync(parseResult, !inline, ct);
+        var profile = await profileSelector.ResolveProfileAsync(parseResult, tui, ct);
         if (profile is null)
         {
             return;
@@ -51,15 +51,15 @@ internal class PlanSubCommand(
         await PlannerActions.ComputeTonightsBestAsync(
             plannerState, objectDb, transform,
             plannerState.MinHeightAboveHorizon, ct,
-            onProgress: inline ? msg => System.Console.Error.Write($"\r{msg.PadRight(60)}") : null);
+            onProgress: tui ? null : msg => System.Console.Error.Write($"\r{msg.PadRight(60)}"));
 
-        if (inline)
+        if (tui)
         {
-            await RunInlineAsync(transform, ct);
+            await RunTuiAsync(transform, ct);
         }
         else
         {
-            await RunTuiAsync(transform, ct);
+            await RunInlineAsync(transform, ct);
         }
     }
 

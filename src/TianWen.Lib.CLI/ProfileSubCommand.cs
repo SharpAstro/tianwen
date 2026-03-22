@@ -1,13 +1,19 @@
+using Console.Lib;
 using System.CommandLine;
 using System.Globalization;
 using System.Web;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
+using TianWen.UI.Abstractions;
 
 namespace TianWen.Lib.CLI;
 
-internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selectedProfileOption)
+internal class ProfileSubCommand(
+    IConsoleHost consoleHost,
+    Option<string?> selectedProfileOption,
+    ProfileSelector profileSelector,
+    Option<bool> tuiOption)
 {
     private readonly Argument<string> profileNameOrIdArg = new("profileNameOrId") { Description = "Name or ID of the profile" };
     private readonly Argument<string> profileNameArg = new("profileName") { Description = "Name of the new profile" };
@@ -159,7 +165,7 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
         };
         setMountPortCommand.SetAction(SetMountPortActionAsync);
 
-        return new Command("profile", "Manage profiles")
+        var profileCommand = new Command("profile", "Manage profiles")
         {
             Subcommands =
             {
@@ -182,6 +188,96 @@ internal class ProfileSubCommand(IConsoleHost consoleHost, Option<string?> selec
                 setMountPortCommand
             }
         };
+
+        // Default: run TUI when no subcommand given
+        profileCommand.SetAction(ProfileDefaultActionAsync);
+
+        return profileCommand;
+    }
+
+    internal async Task ProfileDefaultActionAsync(ParseResult parseResult, CancellationToken ct)
+    {
+        var tui = parseResult.GetValue(tuiOption);
+
+        // Resolve profile (interactive picker if multiple, auto if one, create if none)
+        var profile = await profileSelector.ResolveProfileAsync(parseResult, tui, ct);
+        if (profile is null)
+        {
+            return;
+        }
+
+        var terminal = consoleHost.Terminal;
+        if (!terminal.IsInputRedirected)
+        {
+            await terminal.InitAsync();
+        }
+
+        // Print profile summary as markdown
+        var md = new EquipmentContent(consoleHost.DeviceUriRegistry).FormatProfileMarkdown(profile);
+        var width = terminal.Size.Width;
+        var lines = MarkdownRenderer.RenderLines(md, width, terminal.ColorMode);
+        foreach (var line in lines)
+        {
+            consoleHost.WriteScrollable(line);
+        }
+
+        // If piped, just print and exit
+        if (terminal.IsInputRedirected)
+        {
+            return;
+        }
+
+        consoleHost.WriteScrollable("");
+        consoleHost.WriteScrollable("D:discover  A:assign  S:set-site  F:filters  O:add-ota  Q:quit");
+
+        // Inline input loop
+        while (!ct.IsCancellationRequested)
+        {
+            if (!terminal.HasInput())
+            {
+                await Task.Delay(16, ct);
+                continue;
+            }
+
+            var rawEvt = terminal.TryReadInput();
+            if (rawEvt.ToInputEvent is not { } evt)
+            {
+                continue;
+            }
+
+            if (evt is DIR.Lib.InputEvent.KeyDown(var key, _))
+            {
+                switch (key)
+                {
+                    case DIR.Lib.InputKey.Q or DIR.Lib.InputKey.Escape:
+                        return;
+
+                    case DIR.Lib.InputKey.D:
+                        consoleHost.WriteScrollable("\nDiscovering devices...");
+                        var devices = await consoleHost.ListAllDevicesAsync(DeviceDiscoveryOption.Force, ct);
+                        var deviceList = devices.Where(d => d.DeviceType is not DeviceType.Profile and not DeviceType.None).ToArray();
+                        consoleHost.WriteScrollable($"Found {deviceList.Length} devices:");
+                        for (var i = 0; i < deviceList.Length; i++)
+                        {
+                            consoleHost.WriteScrollable($"  [{i}] {deviceList[i].DeviceType}: {deviceList[i].DisplayName}");
+                        }
+                        break;
+
+                    case DIR.Lib.InputKey.R:
+                        // Refresh profile display
+                        profile = (await consoleHost.ListDevicesAsync<Profile>(DeviceType.Profile, DeviceDiscoveryOption.Force, ct))
+                            .FirstOrDefault(p => p.ProfileId == profile.ProfileId) ?? profile;
+                        md = new EquipmentContent(consoleHost.DeviceUriRegistry).FormatProfileMarkdown(profile);
+                        lines = MarkdownRenderer.RenderLines(md, width, terminal.ColorMode);
+                        consoleHost.WriteScrollable("");
+                        foreach (var line in lines)
+                        {
+                            consoleHost.WriteScrollable(line);
+                        }
+                        break;
+                }
+            }
+        }
     }
 
     internal async Task CreateProfileActionAsync(ParseResult parseResult, CancellationToken cancellationToken)

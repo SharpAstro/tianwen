@@ -67,9 +67,9 @@ var selectedProfileOption = new Option<string?>("--active", "-a")
     Recursive = true
 };
 
-var inlineOption = new Option<bool>("--inline", "-i")
+var tuiOption = new Option<bool>("--tui")
 {
-    Description = "Use inline scrollback mode instead of full-screen TUI",
+    Description = "Use full-screen TUI (alternate screen) instead of inline mode",
     Recursive = true
 };
 
@@ -81,18 +81,18 @@ var implicitPathArg = new Argument<string?>("path")
 };
 
 var profileSelector = new ProfileSelector(consoleHost, selectedProfileOption);
-var viewSubCommand = new ViewSubCommand(consoleHost, viewerState, documentCache, inlineOption);
+var viewSubCommand = new ViewSubCommand(consoleHost, viewerState, documentCache, tuiOption);
 
 var rootCommand = new RootCommand
 {
     Arguments = { implicitPathArg },
-    Options = { selectedProfileOption, inlineOption },
+    Options = { selectedProfileOption, tuiOption },
     Subcommands =
     {
-        new ProfileSubCommand(consoleHost, selectedProfileOption).Build(),
+        new ProfileSubCommand(consoleHost, selectedProfileOption, profileSelector, tuiOption).Build(),
         new DeviceSubCommand(consoleHost).Build(),
         viewSubCommand.Build(),
-        new PlanSubCommand(consoleHost, plannerState, services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(), profileSelector, inlineOption).Build()
+        new PlanSubCommand(consoleHost, plannerState, services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(), profileSelector, tuiOption).Build()
     }
 };
 

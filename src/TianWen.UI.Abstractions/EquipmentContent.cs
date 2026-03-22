@@ -32,30 +32,30 @@ public readonly record struct FilterSlotRow(
     int FocusOffset);
 
 /// <summary>
-/// Static content helper for the equipment/profile tab.
+/// Content helper for the equipment/profile tab.
 /// Produces display-ready models from profile data, consumed by both
 /// GPU (PixelWidgetBase) and terminal (Console.Lib) hosts.
 /// </summary>
-public static class EquipmentContent
+public class EquipmentContent(IDeviceUriRegistry? registry = null)
 {
     /// <summary>
     /// Returns the profile-level device slots (mount, guider, guider camera, guider focuser).
     /// </summary>
-    public static List<DeviceSlotRow> GetProfileSlots(ProfileData data)
+    public List<DeviceSlotRow> GetProfileSlots(ProfileData data)
     {
         return
         [
-            new DeviceSlotRow("Mount", EquipmentActions.DeviceLabel(data.Mount), IsAssignedDevice(data.Mount), new AssignTarget.ProfileLevel("Mount")),
-            new DeviceSlotRow("Guider", EquipmentActions.DeviceLabel(data.Guider), IsAssignedDevice(data.Guider), new AssignTarget.ProfileLevel("Guider")),
-            new DeviceSlotRow("Guider Cam", EquipmentActions.DeviceLabel(data.GuiderCamera), IsAssignedDevice(data.GuiderCamera), new AssignTarget.ProfileLevel("GuiderCamera")),
-            new DeviceSlotRow("Guider Foc", EquipmentActions.DeviceLabel(data.GuiderFocuser), IsAssignedDevice(data.GuiderFocuser), new AssignTarget.ProfileLevel("GuiderFocuser")),
+            new DeviceSlotRow("Mount", DeviceLabel(data.Mount), IsAssignedDevice(data.Mount), new AssignTarget.ProfileLevel("Mount")),
+            new DeviceSlotRow("Guider", DeviceLabel(data.Guider), IsAssignedDevice(data.Guider), new AssignTarget.ProfileLevel("Guider")),
+            new DeviceSlotRow("Guider Cam", DeviceLabel(data.GuiderCamera), IsAssignedDevice(data.GuiderCamera), new AssignTarget.ProfileLevel("GuiderCamera")),
+            new DeviceSlotRow("Guider Foc", DeviceLabel(data.GuiderFocuser), IsAssignedDevice(data.GuiderFocuser), new AssignTarget.ProfileLevel("GuiderFocuser")),
         ];
     }
 
     /// <summary>
     /// Returns the site info string, or null if no site is configured.
     /// </summary>
-    public static string? GetSiteLabel(ProfileData data)
+    public string? GetSiteLabel(ProfileData data)
     {
         var site = EquipmentActions.GetSiteFromMount(data.Mount ?? NoneDevice.Instance.DeviceUri);
         if (!site.HasValue)
@@ -73,7 +73,7 @@ public static class EquipmentContent
     /// <summary>
     /// Returns OTA summary rows for all OTAs in the profile.
     /// </summary>
-    public static List<OtaSummaryRow> GetOtaSummaries(ProfileData data)
+    public List<OtaSummaryRow> GetOtaSummaries(ProfileData data)
     {
         var rows = new List<OtaSummaryRow>(data.OTAs.Length);
         for (var i = 0; i < data.OTAs.Length; i++)
@@ -93,10 +93,10 @@ public static class EquipmentContent
 
             var slots = new List<DeviceSlotRow>
             {
-                new DeviceSlotRow("Camera", EquipmentActions.DeviceLabel(ota.Camera), IsAssignedDevice(ota.Camera), new AssignTarget.OTALevel(i, "Camera")),
-                new DeviceSlotRow("Focuser", EquipmentActions.DeviceLabel(ota.Focuser), IsAssignedDevice(ota.Focuser), new AssignTarget.OTALevel(i, "Focuser")),
-                new DeviceSlotRow("Filter Wheel", EquipmentActions.DeviceLabel(ota.FilterWheel), IsAssignedDevice(ota.FilterWheel), new AssignTarget.OTALevel(i, "FilterWheel")),
-                new DeviceSlotRow("Cover", EquipmentActions.DeviceLabel(ota.Cover), IsAssignedDevice(ota.Cover), new AssignTarget.OTALevel(i, "Cover")),
+                new DeviceSlotRow("Camera", DeviceLabel(ota.Camera), IsAssignedDevice(ota.Camera), new AssignTarget.OTALevel(i, "Camera")),
+                new DeviceSlotRow("Focuser", DeviceLabel(ota.Focuser), IsAssignedDevice(ota.Focuser), new AssignTarget.OTALevel(i, "Focuser")),
+                new DeviceSlotRow("Filter Wheel", DeviceLabel(ota.FilterWheel), IsAssignedDevice(ota.FilterWheel), new AssignTarget.OTALevel(i, "FilterWheel")),
+                new DeviceSlotRow("Cover", DeviceLabel(ota.Cover), IsAssignedDevice(ota.Cover), new AssignTarget.OTALevel(i, "Cover")),
             };
 
             List<FilterSlotRow>? filters = null;
@@ -119,7 +119,7 @@ public static class EquipmentContent
     /// <summary>
     /// Formats a complete profile summary as markdown.
     /// </summary>
-    public static string FormatProfileMarkdown(Profile profile)
+    public string FormatProfileMarkdown(Profile profile)
     {
         var data = profile.Data;
         if (data is null)
@@ -183,6 +183,8 @@ public static class EquipmentContent
 
         return sb.ToString();
     }
+
+    private string DeviceLabel(Uri? uri) => EquipmentActions.DeviceLabel(uri, registry);
 
     private static bool IsAssignedDevice(Uri? uri)
         => uri is not null && uri != NoneDevice.Instance.DeviceUri;
