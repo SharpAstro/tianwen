@@ -10,7 +10,7 @@ internal class ViewSubCommand(
     IConsoleHost consoleHost,
     ViewerState state,
     DocumentCache documentCache,
-    Option<bool> interactiveOption
+    Option<bool> inlineOption
 )
 {
     private readonly Argument<string> pathArg = new Argument<string>("path") { Description = "FITS file or directory to view" };
@@ -29,15 +29,15 @@ internal class ViewSubCommand(
     internal async Task ViewActionAsync(ParseResult parseResult, CancellationToken ct)
     {
         var path = parseResult.GetRequiredValue(pathArg);
-        var interactive = parseResult.GetValue(interactiveOption);
+        var inline = parseResult.GetValue(inlineOption);
 
-        if (interactive)
+        if (inline)
         {
-            await RunInteractiveAsync(path, ct);
+            await RunNonInteractiveAsync(path, ct);
         }
         else
         {
-            await RunNonInteractiveAsync(path, ct);
+            await RunInteractiveAsync(path, ct);
         }
     }
 
