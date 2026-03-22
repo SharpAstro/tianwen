@@ -385,7 +385,7 @@ internal class PlanSubCommand(
             new RectInt(new PointInt(chartW, chartH), new PointInt(0, 0)),
             new RGBAColor32(0x1a, 0x1a, 0x2e, 0xff));
 
-        var fontPath = ResolveFontPath();
+        var fontPath = Tui.TuiFontPath.Resolve();
         AltitudeChartRenderer.Render(renderer, plannerState, fontPath);
 
         var surface = (RgbaImage)renderer.Surface;

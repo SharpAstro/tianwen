@@ -13,7 +13,6 @@ internal class TuiSubCommand(
     IServiceProvider sp,
     IConsoleHost consoleHost,
     PlannerState plannerState,
-    ViewerState viewerState,
     ProfileSelector profileSelector)
 {
     public Command Build()
@@ -78,8 +77,8 @@ internal class TuiSubCommand(
 
         var tabs = new Dictionary<GuiTab, ITuiTab>
         {
-            [GuiTab.Equipment] = new TuiEquipmentTab(consoleHost, appState, equipmentContent),
-            [GuiTab.Planner] = new TuiPlannerTab(consoleHost, plannerState,
+            [GuiTab.Equipment] = new TuiEquipmentTab(appState, equipmentContent),
+            [GuiTab.Planner] = new TuiPlannerTab(plannerState,
                 transform ?? new TianWen.Lib.Astrometry.SOFA.Transform(external.TimeProvider), fontPath),
         };
 
