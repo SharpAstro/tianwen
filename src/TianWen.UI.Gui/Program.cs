@@ -222,13 +222,17 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
                             transform.DateTimeOffset = noon;
                         }
 
+                        // Detect significant site change (>1°) — requires full rescan, not just recompute
+                        var siteChanged = Math.Abs(transform.SiteLatitude - plannerState.SiteLatitude) > 1.0
+                            || Math.Abs(transform.SiteLongitude - plannerState.SiteLongitude) > 1.0;
+
                         plannerState.SiteLatitude = transform.SiteLatitude;
                         plannerState.SiteLongitude = transform.SiteLongitude;
                         plannerState.SiteTimeZone = transform.SiteTimeZone;
 
-                        // Fast path: if we already have targets, just recompute night window + profiles
-                        // Full rescan only needed on first load
-                        if (plannerState.TonightsBest.Count > 0)
+                        // Fast path: if we already have targets and site didn't change significantly,
+                        // just recompute night window + altitude profiles
+                        if (plannerState.TonightsBest.Count > 0 && !siteChanged)
                         {
                             PlannerActions.RecomputeForDate(plannerState, transform);
                         }

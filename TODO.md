@@ -3,6 +3,8 @@
 ## Next Up
 
 - [x] Fake filter wheels should have pre-installed filters (realistic filter sets per device ID)
+- [ ] Planner: full rescan when site coordinates change significantly (>1°) instead of fast-path recompute — currently changing lat from -37 to 50 keeps southern-hemisphere targets with 0° altitude
+- [ ] Extract VkImageRenderer UI layout to Abstractions — toolbar, file list, status bar, hit testing are renderer-agnostic; image rendering + texture upload stay Vulkan-specific in Shared
 - [ ] Pinned items in planner should persist to disk (`<CommonDataRoot>/Sessions/Uncommitted.json`) so they survive app restarts while not yet committed to a planned session
 - [ ] Seed focuser `MaxStep` from hardware during ZWO EAF discovery (same `seedQueryParams` pattern as EFW slot count)
 - [ ] Remember last focus position in profile URI after auto-focus (save after every auto-focus attempt, whether successful or not) so the focuser can start near the last known good position on next session
