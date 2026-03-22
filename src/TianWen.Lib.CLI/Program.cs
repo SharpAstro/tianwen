@@ -86,7 +86,8 @@ var rootCommand = new RootCommand
         new ProfileSubCommand(consoleHost, selectedProfileOption, profileSelector).Build(),
         new DeviceSubCommand(consoleHost).Build(),
         viewSubCommand.Build(),
-        new PlanSubCommand(consoleHost, plannerState, services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(), profileSelector).Build()
+        new PlanSubCommand(consoleHost, plannerState, services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(), profileSelector).Build(),
+        new TuiSubCommand(services, consoleHost, plannerState, viewerState, profileSelector).Build()
     }
 };
 
