@@ -202,14 +202,13 @@ namespace TianWen.UI.Gui
             eqState.ElevationInput.OnCancel = cancelSite;
 
             // ---------------------------------------------------------------
-            // Wire equipment action callbacks (DI-dependent)
+            // Equipment action signal subscriptions (DI-dependent handlers)
             // ---------------------------------------------------------------
-            guiRenderer.EquipmentTab.OnDiscover = async () =>
+            var bus = guiRenderer.Bus!;
+
+            bus.Subscribe<DiscoverDevicesSignal>(async _ =>
             {
-                if (eqState.IsDiscovering)
-                {
-                    return;
-                }
+                if (eqState.IsDiscovering) return;
 
                 eqState.IsDiscovering = true;
                 appState.StatusMessage = "Discovering devices...";
@@ -235,14 +234,11 @@ namespace TianWen.UI.Gui
                     appState.StatusMessage = null;
                     appState.NeedsRedraw = true;
                 }
-            };
+            });
 
-            guiRenderer.EquipmentTab.OnAddOta = async () =>
+            bus.Subscribe<AddOtaSignal>(async _ =>
             {
-                if (appState.ActiveProfile is not { } p)
-                {
-                    return;
-                }
+                if (appState.ActiveProfile is not { } p) return;
 
                 var data = p.Data ?? ProfileData.Empty;
                 var newOta = new OTAData(
@@ -256,9 +252,9 @@ namespace TianWen.UI.Gui
                 appState.ActiveProfile = updated;
                 appState.NeedsRedraw = true;
                 await updated.SaveAsync(external, cts.Token);
-            };
+            });
 
-            guiRenderer.EquipmentTab.OnEditSite = () =>
+            bus.Subscribe<EditSiteSignal>(_ =>
             {
                 eqState.IsEditingSite = true;
                 if (appState.ActiveProfile?.Data is { } pd)
@@ -274,34 +270,27 @@ namespace TianWen.UI.Gui
                         eqState.ElevationInput.CursorPos = eqState.ElevationInput.Text.Length;
                     }
                 }
-                eqState.LatitudeInput.Activate();
-                appState.ActiveTextInput = eqState.LatitudeInput;
-                StartTextInput(sdlWindowHandle);
-            };
+                bus.Post(new ActivateTextInputSignal(eqState.LatitudeInput));
+            });
 
-            guiRenderer.EquipmentTab.OnCreateProfile = () =>
+            bus.Subscribe<CreateProfileSignal>(_ =>
             {
                 if (!eqState.IsCreatingProfile)
                 {
                     eqState.IsCreatingProfile = true;
-                    eqState.ProfileNameInput.Activate();
-                    appState.ActiveTextInput = eqState.ProfileNameInput;
-                    StartTextInput(sdlWindowHandle);
+                    bus.Post(new ActivateTextInputSignal(eqState.ProfileNameInput));
                 }
-            };
+            });
 
-            guiRenderer.EquipmentTab.OnAssignDevice = async (deviceIndex) =>
+            bus.Subscribe<AssignDeviceSignal>(async sig =>
             {
-                if (deviceIndex < 0 || deviceIndex >= eqState.DiscoveredDevices.Count)
-                {
-                    return;
-                }
+                var deviceIndex = sig.DeviceIndex;
+                if (deviceIndex < 0 || deviceIndex >= eqState.DiscoveredDevices.Count) return;
 
                 if (eqState.ActiveAssignment is { } target && appState.ActiveProfile is { } profile)
                 {
                     var device = eqState.DiscoveredDevices[deviceIndex];
 
-                    // Type guard: only allow devices matching the slot's expected type
                     if (device.DeviceType != target.ExpectedDeviceType)
                     {
                         appState.StatusMessage = $"Expected {target.ExpectedDeviceType}, got {device.DeviceType}";
@@ -309,8 +298,6 @@ namespace TianWen.UI.Gui
                     }
 
                     var data = profile.Data ?? ProfileData.Empty;
-
-                    // Remove from any existing slot first to prevent duplicates
                     data = EquipmentActions.UnassignDevice(data, device.DeviceUri);
 
                     var newData = target switch
@@ -325,24 +312,23 @@ namespace TianWen.UI.Gui
                     };
 
                     var updated = profile.WithData(newData);
-                    // Update UI immediately (optimistic), save to disk in background
                     appState.ActiveProfile = updated;
                     eqState.ActiveAssignment = null;
                     appState.NeedsRedraw = true;
                     await updated.SaveAsync(external, cts.Token);
                 }
-            };
+            });
 
-            guiRenderer.EquipmentTab.OnUpdateProfile = async (newData) =>
+            bus.Subscribe<UpdateProfileSignal>(async sig =>
             {
                 if (appState.ActiveProfile is { } profile)
                 {
-                    var updated = profile.WithData(newData);
+                    var updated = profile.WithData(sig.Data);
                     appState.ActiveProfile = updated;
                     appState.NeedsRedraw = true;
                     await updated.SaveAsync(external, cts.Token);
                 }
-            };
+            });
 
             // ---------------------------------------------------------------
             // Local helpers captured by closures above
@@ -398,7 +384,7 @@ namespace TianWen.UI.Gui
             {
                 if (action == "Tab:Equipment" && _guiRenderer.EquipmentTab.State.DiscoveredDevices.Count == 0)
                 {
-                    _guiRenderer.EquipmentTab.OnDiscover?.Invoke();
+                    _guiRenderer.Bus?.Post(new DiscoverDevicesSignal());
                 }
                 _appState.NeedsRedraw = true;
                 return true;

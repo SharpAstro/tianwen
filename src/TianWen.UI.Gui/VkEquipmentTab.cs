@@ -59,26 +59,6 @@ namespace TianWen.UI.Gui
         /// <summary>Background task tracker for async operations. Set by the host.</summary>
         public BackgroundTaskTracker? Tracker { get; set; }
 
-        /// <summary>Callback for device discovery (needs DI). Set by the host.</summary>
-        public Func<Task>? OnDiscover { get; set; }
-
-        /// <summary>Callback for adding a new OTA to the profile. Set by the host.</summary>
-        public Func<Task>? OnAddOta { get; set; }
-
-        /// <summary>Callback for starting site coordinate editing. Set by the host.</summary>
-        public Action? OnEditSite { get; set; }
-
-        /// <summary>Callback for creating a new profile. Set by the host.</summary>
-        public Action? OnCreateProfile { get; set; }
-
-        /// <summary>Callback for assigning a device to the active slot. Set by the host.</summary>
-        public Func<int, Task>? OnAssignDevice { get; set; }
-
-        /// <summary>Callback for updating profile data (filter config, OTA props). Set by the host.</summary>
-        public Func<ProfileData, Task>? OnUpdateProfile { get; set; }
-
-        // OnActivateTextInput removed — use PostSignal(new ActivateTextInputSignal(...)) instead
-
         public VkEquipmentTab(VkRenderer renderer) : base(renderer)
         {
         }
@@ -161,7 +141,7 @@ namespace TianWen.UI.Gui
             var btnY = centerY + padding;
 
             RenderButton("Create Profile", btnX, btnY, buttonW, buttonH, fontPath, fontSize, CreateButton, BodyText, "CreateProfile",
-                () => OnCreateProfile?.Invoke());
+                () => PostSignal(new CreateProfileSignal()));
         }
 
         // -----------------------------------------------------------------------
@@ -334,7 +314,7 @@ namespace TianWen.UI.Gui
                     var siteBtnW = w - padding * 2f;
                     FillRect(x + padding, cursor, siteBtnW, itemH, SlotNormal);
                     RegisterClickable(x + padding, cursor, siteBtnW, itemH, new HitResult.ButtonHit("EditSite"),
-                        () => OnEditSite?.Invoke());
+                        () => PostSignal(new EditSiteSignal()));
                     DrawText(siteStr.AsSpan(), fontPath, x + padding, cursor, siteBtnW - arrowW, itemH, fontSize * 0.9f, SiteText, TextAlign.Near, TextAlign.Center);
                     DrawText("[>]".AsSpan(), fontPath, x + w - padding - arrowW, cursor, arrowW, itemH, fontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center);
                     cursor += itemH;
@@ -344,7 +324,7 @@ namespace TianWen.UI.Gui
                     // No site configured — show "Set Site" button
                     var setSiteBtnW = Renderer.MeasureText("Set Site".AsSpan(), fontPath, fontSize).Width + padding * 4f;
                     RenderButton("Set Site", x + padding, cursor, setSiteBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "EditSite",
-                        () => OnEditSite?.Invoke());
+                        () => PostSignal(new EditSiteSignal()));
                     cursor += buttonH;
                 }
 
@@ -400,10 +380,7 @@ namespace TianWen.UI.Gui
                                     int? newAp = int.TryParse(State.ApertureInput.Text, out var ap) ? ap : null;
                                     var newData = EquipmentActions.UpdateOTA(editData, capturedI,
                                         name: newName, focalLength: newFl, aperture: newAp);
-                                    if (OnUpdateProfile is { } update)
-                                    {
-                                        Tracker?.Run(() => update(newData), "Update OTA properties");
-                                    }
+                                    PostSignal(new UpdateProfileSignal(newData));
                                 }
                                 State.StopEditingOta();
                             }
@@ -455,7 +432,7 @@ namespace TianWen.UI.Gui
                 if (addOtaBtnY + buttonH < y + h - padding)
                 {
                     RenderButton("+ Add OTA", x + padding, addOtaBtnY, addOtaBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "AddOta",
-                        () => { if (OnAddOta is { } addOta) Tracker?.Run(addOta, "Add OTA"); });
+                        () => PostSignal(new AddOtaSignal()));
                 }
             }
             else
@@ -581,7 +558,7 @@ namespace TianWen.UI.Gui
                 FillRect(x, rowY, w, itemH, isCurrentForSlot ? SlotActive : DeviceRowBg);
                 var capturedIdx = i;
                 RegisterClickable(x, rowY, w, itemH, new HitResult.ListItemHit("Devices", i),
-                    () => { if (OnAssignDevice is { } assign) Tracker?.Run(() => assign(capturedIdx), "Assign device"); });
+                    () => PostSignal(new AssignDeviceSignal(capturedIdx)));
                 FillRect(x, rowY + itemH - 1f, w, 1f, SeparatorColor);
 
                 // Type badge
@@ -622,7 +599,7 @@ namespace TianWen.UI.Gui
             var discoverBtnX = x + padding;
 
             RenderButton(discoverLabel, discoverBtnX, discoverBtnY, discoverBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "Discover",
-                () => { if (OnDiscover is { } discover) Tracker?.Run(discover, "Discover devices"); });
+                () => PostSignal(new DiscoverDevicesSignal()));
         }
 
         // -----------------------------------------------------------------------
@@ -738,10 +715,7 @@ namespace TianWen.UI.Gui
                         var currentOta = data.OTAs[capturedIdx];
                         var nextDesign = (OpticalDesign)(((int)currentOta.OpticalDesign + 1) % 8);
                         var newData = EquipmentActions.UpdateOTA(data, capturedIdx, opticalDesign: nextDesign);
-                        if (OnUpdateProfile is { } update)
-                        {
-                            Tracker?.Run(() => update(newData), "Cycle optical design");
-                        }
+                        PostSignal(new UpdateProfileSignal(newData));
                     }
                 });
             cursor += buttonH + padding;
@@ -913,10 +887,7 @@ namespace TianWen.UI.Gui
                         if (appState.ActiveProfile is { } prof && prof.Data is { } data && State.EditingFilters is { } editFilters)
                         {
                             var newData = EquipmentActions.SetFilterConfig(data, capturedOtaIdx, editFilters);
-                            if (OnUpdateProfile is { } update)
-                            {
-                                Tracker?.Run(() => update(newData), "Save filter config");
-                            }
+                            PostSignal(new UpdateProfileSignal(newData));
                             State.FiltersDirty = false;
                         }
                     });
