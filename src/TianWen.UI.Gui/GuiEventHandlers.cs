@@ -1,8 +1,4 @@
 using DIR.Lib;
-using System;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using TianWen.Lib.Devices;
@@ -14,9 +10,11 @@ namespace TianWen.UI.Gui
 {
     /// <summary>
     /// Centralized event handling for the GUI. Bridges SDL input events to the
-    /// widget/tab system. Tab-specific logic lives in the tabs themselves via
-    /// callbacks (<see cref="TextInputState.OnCommit"/>, <see cref="TextInputState.OnKeyOverride"/>,
-    /// <see cref="IPixelWidget.HandleKeyDown"/>, <see cref="IPixelWidget.HandleMouseWheel"/>).
+    /// widget/tab system. Action signals are subscribed on the <see cref="SignalBus"/>
+    /// (via <see cref="PixelWidgetBase{TSurface}.PostSignal{T}"/>); per-field callbacks
+    /// remain on <see cref="TextInputState"/> (<see cref="TextInputState.OnCommit"/>,
+    /// <see cref="TextInputState.OnKeyOverride"/>). Tab-specific keyboard/mouse handling
+    /// uses <see cref="IWidget.HandleKeyDown"/> and <see cref="IWidget.HandleMouseWheel"/>.
     /// </summary>
     public sealed class GuiEventHandlers
     {
