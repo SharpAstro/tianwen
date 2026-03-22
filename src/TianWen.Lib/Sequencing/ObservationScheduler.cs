@@ -587,7 +587,9 @@ internal static class ObservationScheduler
         DateTimeOffset astroDark,
         DateTimeOffset astroTwilight,
         byte minHeightAboveHorizon,
-        double siteLong)
+        double siteLong,
+        ObjectType objectType = ObjectType.Unknown,
+        double objectBonus = 1.0)
     {
         var profile = new Dictionary<RaDecEventTime, RaDecEventInfo>(astroms.Length + 4);
         var totalScore = 0d;
@@ -639,7 +641,7 @@ internal static class ObservationScheduler
             ? windowEnd.Value - windowStart.Value
             : TimeSpan.Zero;
 
-        return new ScoredTarget(target, (Half)totalScore, Half.One, profile, optimalStart, optimalDuration, bestAlt == double.MinValue ? 0 : bestAlt);
+        return new ScoredTarget(target, (Half)totalScore, (Half)objectBonus, profile, optimalStart, optimalDuration, bestAlt == double.MinValue ? 0 : bestAlt, objectType);
     }
 
     private static int FindClosestTimeIndex(ReadOnlySpan<DateTimeOffset> times, DateTimeOffset target)
@@ -744,10 +746,11 @@ internal static class ObservationScheduler
                 MarkCrossIndicesSeen(objectDb, idx, seen);
 
                     var target = new Target(obj.RA, obj.Dec, obj.DisplayName, idx);
-                var scored = ScoreTarget(target, astroms, times, astroDark, astroTwilight, minHeightAboveHorizon, transform.SiteLongitude);
+                var scored = ScoreTarget(target, astroms, times, astroDark, astroTwilight, minHeightAboveHorizon,
+                    transform.SiteLongitude, obj.ObjectType, objectBonus);
                 if (scored.TotalScore <= Half.Zero) continue;
 
-                candidates.Add(scored with { ObjectBonus = (Half)objectBonus });
+                candidates.Add(scored);
             }
         }
 
@@ -788,10 +791,11 @@ internal static class ObservationScheduler
             if (quickAlt < minHeightAboveHorizon - 10) continue; // 10° margin for objects rising/setting
 
             var target = new Target(obj.RA, obj.Dec, obj.DisplayName, idx);
-            var scored = ScoreTarget(target, astroms, times, astroDark, astroTwilight, minHeightAboveHorizon, siteLong);
+            var scored = ScoreTarget(target, astroms, times, astroDark, astroTwilight, minHeightAboveHorizon,
+                siteLong, obj.ObjectType, objectBonus);
             if (scored.TotalScore <= Half.Zero) continue;
 
-            candidates.Add(scored with { ObjectBonus = (Half)objectBonus });
+            candidates.Add(scored);
         }
     }
 
