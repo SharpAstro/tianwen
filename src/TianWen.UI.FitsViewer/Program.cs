@@ -117,9 +117,9 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         return true;
     },
 
-    OnMouseMove = (x, y) => HandleMouseMove(x, y),
+    OnMouseMove = (x, y) => imageRenderer.HandleMouseMove(x, y),
 
-    OnMouseUp = (button) => HandleMouseUp(button),
+    OnMouseUp = (_) => imageRenderer.HandleMouseUp(),
 
     OnMouseWheel = (scrollY, mouseX, mouseY) =>
     {
@@ -127,7 +127,7 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         return true;
     },
 
-    OnDropFile = (path) => HandleFileDrop(path),
+    OnDropFile = (path) => { if (path is not null) ViewerActions.HandleFileDrop(state, path); },
 
     CheckNeedsRedraw = () =>
         state.NeedsRedraw || state.NeedsTextureUpdate || state.RequestedFilePath is not null
@@ -145,7 +145,10 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         }
 
         // Upload textures when needed
-        HandleTextureUpload();
+        if (document is not null && state.NeedsTextureUpdate)
+        {
+            imageRenderer.UploadDocumentTextures(document, state);
+        }
 
         imageRenderer.Render(document, state);
     },
@@ -197,32 +200,22 @@ return 0;
 
 // --- Event handlers ---
 
-// Keyboard and mouse wheel handling moved to VkImageRenderer.HandleKeyDown / HandleMouseWheel
-
-void HandleMouseMove(float px, float py)
-{
-    state.MouseScreenPosition = (px, py);
-
-    ViewerActions.UpdatePan(state, px, py);
-
-    var fileListW = state.ShowFileList ? imageRenderer.ScaledFileListWidth : 0;
-    var toolbarH = imageRenderer.ScaledToolbarHeight;
-    var (areaW, areaH) = imageRenderer.GetImageAreaSize(state);
-    ViewerActions.UpdateCursorFromScreenPosition(document, state, px, py, fileListW, toolbarH, areaW, areaH);
-}
-
 void HandleMouseDown(byte button, float px, float py)
 {
     state.MouseScreenPosition = (px, py);
 
     if (button is 1 or 3)
     {
-        // Unified hit test — OnClick handlers fire for self-contained actions (e.g. HistogramLog)
+        // Hit test — base class handles pure state actions (file list, toggles)
         var hit = imageRenderer.HitTestAndDispatch(px, py);
 
         if (hit is HitResult.ButtonHit { Action: var action } && Enum.TryParse<ToolbarAction>(action, out var toolbarAction))
         {
-            HandleToolbarAction(toolbarAction, reverse: button == 3);
+            // Base handles pure state; we handle DI-dependent + right-click reverse
+            if (!ViewerActions.HandleToolbarAction(state, document, toolbarAction, reverse: button == 3))
+            {
+                HandleToolbarAction(toolbarAction);
+            }
             return;
         }
 
@@ -242,45 +235,6 @@ void HandleMouseDown(byte button, float px, float py)
     if (button is 1 or 2) // SDL: 1=left, 2=middle, 3=right
     {
         ViewerActions.BeginPan(state, px, py);
-    }
-}
-
-void HandleMouseUp(byte button)
-{
-    if (button is 1 or 2)
-    {
-        ViewerActions.EndPan(state);
-    }
-}
-
-
-void HandleFileDrop(string? path)
-{
-    if (path is null)
-    {
-        return;
-    }
-
-    if (Directory.Exists(path))
-    {
-        ViewerActions.ScanFolder(state, path);
-        if (state.ImageFileNames.Count > 0)
-        {
-            ViewerActions.SelectFile(state, 0);
-        }
-        state.NeedsRedraw = true;
-        return;
-    }
-
-    if (File.Exists(path) && AstroImageDocument.IsSupportedExtension(Path.GetExtension(path)))
-    {
-        var dir = Path.GetDirectoryName(path);
-        if (dir is not null)
-        {
-            ViewerActions.ScanFolder(state, dir, Path.GetFileName(path));
-        }
-        state.RequestedFilePath = path;
-        state.NeedsRedraw = true;
     }
 }
 
@@ -352,51 +306,14 @@ void HandleFileRequest()
     SetWindowTitle(sdlWindow.Handle, $"TianWen Image Viewer - {Path.GetFileName(requestedPath)}");
 }
 
-void HandleTextureUpload()
+void HandleToolbarAction(ToolbarAction action, bool reverse = false)
 {
-    if (document is null || !state.NeedsTextureUpdate)
+    if (ViewerActions.HandleToolbarAction(state, document, action, reverse))
     {
         return;
     }
 
-    state.NeedsTextureUpdate = false;
-    state.StatusMessage = "Preparing display...";
-    var doc = document;
-    var channelView = state.ChannelView;
-
-    var image = doc.UnstretchedImage;
-    var pixelWidth = image.Width;
-    var pixelHeight = image.Height;
-    if (channelView is ChannelView.Composite && image.ChannelCount >= 3)
-    {
-        imageRenderer.ChannelTextureCount = 3;
-
-        for (var i = 0; i < 3; i++)
-        {
-            imageRenderer.UploadChannelTexture(image.GetChannelSpan(i), i, pixelWidth, pixelHeight);
-        }
-    }
-    else
-    {
-        imageRenderer.ChannelTextureCount = 1;
-
-        var channelIndex = channelView switch
-        {
-            ChannelView.Composite or ChannelView.Channel0 or ChannelView.Red => 0,
-            ChannelView.Channel1 or ChannelView.Green => Math.Min(1, image.ChannelCount - 1),
-            ChannelView.Channel2 or ChannelView.Blue => Math.Min(2, image.ChannelCount - 1),
-            var cv => throw new InvalidOperationException($"Invalid channel view {cv}")
-        };
-
-        imageRenderer.UploadChannelTexture(image.GetChannelSpan(channelIndex), 0, pixelWidth, pixelHeight);
-    }
-
-    imageRenderer.UploadHistogramData(doc);
-    state.StatusMessage = null;
-}
-
-void HandleToolbarAction(ToolbarAction action, bool reverse = false)
-{
+    // DI-dependent actions not handled by ViewerActions
     switch (action)
     {
         case ToolbarAction.Open:
@@ -430,48 +347,6 @@ void HandleToolbarAction(ToolbarAction action, bool reverse = false)
                     state.RequestedFilePath = picked;
                 }
             }, cts.Token);
-            break;
-        case ToolbarAction.StretchToggle:
-            ViewerActions.ToggleStretch(state);
-            break;
-        case ToolbarAction.StretchLink:
-            ViewerActions.CycleStretchLink(state, reverse);
-            break;
-        case ToolbarAction.StretchParams:
-            ViewerActions.CycleStretchPreset(state, reverse);
-            break;
-        case ToolbarAction.Channel:
-            if (document is not null)
-            {
-                ViewerActions.CycleChannelView(state, document.UnstretchedImage.ChannelCount);
-            }
-            break;
-        case ToolbarAction.Debayer:
-            ViewerActions.CycleDebayerAlgorithm(state, reverse);
-            break;
-        case ToolbarAction.CurvesBoost:
-            ViewerActions.CycleCurvesBoost(state, reverse);
-            break;
-        case ToolbarAction.Hdr:
-            ViewerActions.CycleHdr(state, reverse);
-            break;
-        case ToolbarAction.Grid:
-            state.ShowGrid = !state.ShowGrid;
-            state.NeedsRedraw = true;
-            break;
-        case ToolbarAction.Overlays:
-            state.ShowOverlays = !state.ShowOverlays;
-            state.NeedsRedraw = true;
-            break;
-        case ToolbarAction.Stars:
-            state.ShowStarOverlay = !state.ShowStarOverlay;
-            state.NeedsRedraw = true;
-            break;
-        case ToolbarAction.ZoomFit:
-            ViewerActions.ZoomToFit(state);
-            break;
-        case ToolbarAction.ZoomActual:
-            ViewerActions.ZoomToActual(state);
             break;
         case ToolbarAction.PlateSolve:
             if (document is not null && !state.IsPlateSolving)

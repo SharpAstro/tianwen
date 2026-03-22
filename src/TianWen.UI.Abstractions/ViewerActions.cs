@@ -326,4 +326,89 @@ public static class ViewerActions
         state.CursorPixelInfo = null;
         return false;
     }
+
+    /// <summary>
+    /// Handles a file or folder drop. Scans the folder and optionally selects the dropped file.
+    /// </summary>
+    public static void HandleFileDrop(ViewerState state, string path)
+    {
+        if (Directory.Exists(path))
+        {
+            ScanFolder(state, path);
+            if (state.ImageFileNames.Count > 0)
+            {
+                SelectFile(state, 0);
+            }
+            state.NeedsRedraw = true;
+            return;
+        }
+
+        if (File.Exists(path) && AstroImageDocument.IsSupportedExtension(Path.GetExtension(path)))
+        {
+            var dir = Path.GetDirectoryName(path);
+            if (dir is not null)
+            {
+                ScanFolder(state, dir, Path.GetFileName(path));
+            }
+            state.RequestedFilePath = path;
+            state.NeedsRedraw = true;
+        }
+    }
+
+    /// <summary>
+    /// Handles a toolbar action by dispatching to the appropriate state mutation.
+    /// Returns <c>true</c> if the action was fully handled, <c>false</c> if the caller
+    /// must handle it (e.g. <see cref="ToolbarAction.Open"/> or <see cref="ToolbarAction.PlateSolve"/>
+    /// which require DI services).
+    /// </summary>
+    public static bool HandleToolbarAction(ViewerState state, AstroImageDocument? document, ToolbarAction action, bool reverse = false)
+    {
+        switch (action)
+        {
+            case ToolbarAction.StretchToggle:
+                ToggleStretch(state);
+                return true;
+            case ToolbarAction.StretchLink:
+                CycleStretchLink(state, reverse);
+                return true;
+            case ToolbarAction.StretchParams:
+                CycleStretchPreset(state, reverse);
+                return true;
+            case ToolbarAction.Channel:
+                if (document is not null)
+                {
+                    CycleChannelView(state, document.UnstretchedImage.ChannelCount);
+                }
+                return true;
+            case ToolbarAction.Debayer:
+                CycleDebayerAlgorithm(state, reverse);
+                return true;
+            case ToolbarAction.CurvesBoost:
+                CycleCurvesBoost(state, reverse);
+                return true;
+            case ToolbarAction.Hdr:
+                CycleHdr(state, reverse);
+                return true;
+            case ToolbarAction.Grid:
+                state.ShowGrid = !state.ShowGrid;
+                state.NeedsRedraw = true;
+                return true;
+            case ToolbarAction.Overlays:
+                state.ShowOverlays = !state.ShowOverlays;
+                state.NeedsRedraw = true;
+                return true;
+            case ToolbarAction.Stars:
+                state.ShowStarOverlay = !state.ShowStarOverlay;
+                state.NeedsRedraw = true;
+                return true;
+            case ToolbarAction.ZoomFit:
+                ZoomToFit(state);
+                return true;
+            case ToolbarAction.ZoomActual:
+                ZoomToActual(state);
+                return true;
+            default:
+                return false;
+        }
+    }
 }

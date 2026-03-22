@@ -197,6 +197,46 @@ namespace TianWen.UI.Abstractions
             UploadImageTexture(data, channel, imageWidth, imageHeight);
         }
 
+        /// <summary>
+        /// Uploads document textures based on the current channel view.
+        /// Call when <see cref="ViewerState.NeedsTextureUpdate"/> is true.
+        /// </summary>
+        public void UploadDocumentTextures(AstroImageDocument document, ViewerState state)
+        {
+            state.NeedsTextureUpdate = false;
+            state.StatusMessage = "Preparing display...";
+
+            var image = document.UnstretchedImage;
+            var pixelWidth = image.Width;
+            var pixelHeight = image.Height;
+            if (state.ChannelView is ChannelView.Composite && image.ChannelCount >= 3)
+            {
+                ChannelTextureCount = 3;
+
+                for (var i = 0; i < 3; i++)
+                {
+                    UploadChannelTexture(image.GetChannelSpan(i), i, pixelWidth, pixelHeight);
+                }
+            }
+            else
+            {
+                ChannelTextureCount = 1;
+
+                var channelIndex = state.ChannelView switch
+                {
+                    ChannelView.Composite or ChannelView.Channel0 or ChannelView.Red => 0,
+                    ChannelView.Channel1 or ChannelView.Green => Math.Min(1, image.ChannelCount - 1),
+                    ChannelView.Channel2 or ChannelView.Blue => Math.Min(2, image.ChannelCount - 1),
+                    var cv => throw new InvalidOperationException($"Invalid channel view {cv}")
+                };
+
+                UploadChannelTexture(image.GetChannelSpan(channelIndex), 0, pixelWidth, pixelHeight);
+            }
+
+            UploadHistogramData(document);
+            state.StatusMessage = null;
+        }
+
         // -----------------------------------------------------------------------
         // Font resolution
         // -----------------------------------------------------------------------
@@ -1475,6 +1515,81 @@ namespace TianWen.UI.Abstractions
                     return true;
                 default:
                     return false;
+            }
+        }
+
+        // -----------------------------------------------------------------------
+        // Mouse handling
+        // -----------------------------------------------------------------------
+
+        /// <summary>
+        /// Handles mouse down: hit-tests toolbar/file list, then starts panning.
+        /// Returns <c>true</c> if the event was consumed by hit-test, <c>false</c>
+        /// if panning was started (caller may need to handle toolbar actions via
+        /// <see cref="ViewerActions.HandleToolbarAction"/>).
+        /// </summary>
+        public override bool HandleMouseDown(float px, float py)
+        {
+            if (_state is not { } state)
+            {
+                return false;
+            }
+
+            state.MouseScreenPosition = (px, py);
+
+            // Unified hit test — OnClick handlers fire for self-contained actions (e.g. HistogramLog)
+            var hit = HitTestAndDispatch(px, py);
+
+            if (hit is HitResult.ButtonHit { Action: var action } && Enum.TryParse<ToolbarAction>(action, out var toolbarAction))
+            {
+                ViewerActions.HandleToolbarAction(state, _document, toolbarAction);
+                return true;
+            }
+
+            if (hit is HitResult.ListItemHit { ListId: "FileList", Index: var fileIndex })
+            {
+                ViewerActions.SelectFile(state, fileIndex);
+                return true;
+            }
+
+            if (hit is not null)
+            {
+                return true; // OnClick already handled it (e.g. HistogramLog)
+            }
+
+            // No hit — start panning
+            ViewerActions.BeginPan(state, px, py);
+            return false;
+        }
+
+        /// <summary>
+        /// Handles mouse move: updates pan and cursor position.
+        /// </summary>
+        public void HandleMouseMove(float px, float py)
+        {
+            if (_state is not { } state)
+            {
+                return;
+            }
+
+            state.MouseScreenPosition = (px, py);
+
+            ViewerActions.UpdatePan(state, px, py);
+
+            var fileListW = state.ShowFileList ? ScaledFileListWidth : 0;
+            var toolbarH = ScaledToolbarHeight;
+            var (areaW, areaH) = GetImageAreaSize(state);
+            ViewerActions.UpdateCursorFromScreenPosition(_document, state, px, py, fileListW, toolbarH, areaW, areaH);
+        }
+
+        /// <summary>
+        /// Handles mouse up: ends panning.
+        /// </summary>
+        public void HandleMouseUp()
+        {
+            if (_state is { } state)
+            {
+                ViewerActions.EndPan(state);
             }
         }
 
