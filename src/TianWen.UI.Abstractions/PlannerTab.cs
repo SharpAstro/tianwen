@@ -438,9 +438,8 @@ namespace TianWen.UI.Abstractions
             // Separator line at top
             FillRect(rect.X, rect.Y, rect.Width, 1f, SeparatorColor);
 
-            var idx = state.SelectedTargetIndex;
-            var filtered = _lastFilteredTargets;
-            if (idx < 0 || idx >= filtered.Count)
+            var lines = PlannerDetails.GetLines(state, _lastFilteredTargets, _currentTime);
+            if (lines.Count == 0)
             {
                 DrawText("Select a target to see details.".AsSpan(), fontPath,
                     rect.X + padding, rect.Y, rect.Width - padding * 2f, rect.Height,
@@ -448,81 +447,25 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            var scored      = filtered[idx];
-            var isProposed  = state.Proposals.Any(p => p.Target == scored.Target);
-            var statusSuffix = isProposed ? " [Proposed]" : "";
-            var hasAlias = state.TargetAliases.TryGetValue(scored.Target, out var alias);
-            var hasImagingTime = isProposed && idx < state.PinnedCount;
-            var lineCount = 2 + (hasImagingTime ? 1 : 0) + (hasAlias ? 1 : 0) + 1; // name + coords + [imaging] + [alias] + rating
-            var lineH = rect.Height / lineCount;
+            var lineH = rect.Height / lines.Count;
 
-            // Line 1: target name (larger font)
-            var nameText = scored.Target.Name + statusSuffix;
-            DrawText(nameText.AsSpan(), fontPath,
-                rect.X + padding, rect.Y, rect.Width - padding * 2f, lineH,
-                fontSize * 1.25f, DetailsNameText, TextAlign.Near, TextAlign.Center);
-
-            // Line 2: coordinates + altitude + peak time + window
-            var window = FormatWindow(scored, state);
-            var peakTime = state.AltitudeProfiles.TryGetValue(scored.Target, out var prof) && prof.Count > 0
-                ? prof.MaxBy(p => p.Alt).Time.ToOffset(state.SiteTimeZone).ToString("HH:mm")
-                : "?";
-            var line2 = $"RA {scored.Target.RA:F3}h  Dec {scored.Target.Dec:+0.0;-0.0}°" +
-                        $"  Alt {scored.OptimalAltitude:F0}°  Peak {peakTime}  Window {window}";
-            DrawText(line2.AsSpan(), fontPath,
-                rect.X + padding, rect.Y + lineH, rect.Width - padding * 2f, lineH,
-                fontSize, DetailsInfoText, TextAlign.Near, TextAlign.Center);
-
-            // Line 3: allocated imaging time (for pinned targets) or aliases
-            var currentLine = 2;
-            if (isProposed && idx < state.PinnedCount)
+            for (var i = 0; i < lines.Count; i++)
             {
-                var imgStart = idx == 0 ? state.AstroDark
-                    : idx - 1 < state.HandoffSliders.Count ? state.HandoffSliders[idx - 1] : state.AstroDark;
-                var imgEnd = idx >= state.PinnedCount - 1 || idx >= state.HandoffSliders.Count
-                    ? state.AstroTwilight : state.HandoffSliders[idx];
+                var line = lines[i];
+                var y = rect.Y + lineH * i;
 
-                // Effective start accounts for elapsed time
-                var effectiveStart = imgStart;
-                if (_currentTime is { } ct && ct > imgStart && ct < imgEnd)
-                {
-                    effectiveStart = ct;
-                }
-                var imgDuration = imgEnd - effectiveStart;
-                var imgStartStr = imgStart.ToOffset(state.SiteTimeZone).ToString("HH:mm");
-                var imgEndStr = imgEnd.ToOffset(state.SiteTimeZone).ToString("HH:mm");
+                // First line is the name (larger, white), rest are info (normal, grey)
+                var fs = i == 0 ? fontSize * 1.25f : fontSize;
+                var color = i == 0 ? DetailsNameText
+                    : line.StartsWith("Imaging:") && line.Contains("m)") && !line.Contains("h ")
+                        ? new RGBAColor32(0xff, 0xd7, 0x00, 0xff) // warning color for short imaging windows
+                        : line.StartsWith("Also:") ? DimText
+                        : DetailsInfoText;
 
-                var durationStr = imgDuration.TotalHours >= 1.0
-                    ? $"{(int)imgDuration.TotalHours}h {imgDuration.Minutes:D2}m"
-                    : $"{(int)imgDuration.TotalMinutes}m";
-                var imgColor = imgDuration.TotalHours < 1.5 ? new RGBAColor32(0xff, 0xd7, 0x00, 0xff) : DetailsInfoText;
-                DrawText($"Imaging: {imgStartStr}\u2013{imgEndStr} ({durationStr})".AsSpan(), fontPath,
-                    rect.X + padding, rect.Y + lineH * currentLine, rect.Width - padding * 2f, lineH,
-                    fontSize, imgColor, TextAlign.Near, TextAlign.Center);
-                currentLine++;
+                DrawText(line.AsSpan(), fontPath,
+                    rect.X + padding, y, rect.Width - padding * 2f, lineH,
+                    fs, color, TextAlign.Near, TextAlign.Center);
             }
-
-            if (hasAlias)
-            {
-                DrawText($"Also: {alias}".AsSpan(), fontPath,
-                    rect.X + padding, rect.Y + lineH * currentLine, rect.Width - padding * 2f, lineH,
-                    fontSize * 0.9f, DimText, TextAlign.Near, TextAlign.Center);
-                currentLine++;
-            }
-
-            // Rating
-            var maxScore = state.TonightsBest.Count > 0 ? state.TonightsBest[0].CombinedScore : 1.0;
-            var rating = PlannerActions.ScoreToRating(scored.CombinedScore, maxScore);
-            DrawText($"Rating: {rating:F1}\u2605".AsSpan(), fontPath,
-                rect.X + padding, rect.Y + lineH * currentLine, rect.Width - padding * 2f, lineH,
-                fontSize, DetailsInfoText, TextAlign.Near, TextAlign.Center);
-        }
-
-        private static string FormatWindow(ScoredTarget scored, PlannerState state)
-        {
-            var start = scored.OptimalStart.ToOffset(state.SiteTimeZone);
-            var end   = (scored.OptimalStart + scored.OptimalDuration).ToOffset(state.SiteTimeZone);
-            return $"{start:HH:mm}\u2013{end:HH:mm}";
         }
 
         // -----------------------------------------------------------------------
