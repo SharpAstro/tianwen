@@ -1,8 +1,7 @@
 using DIR.Lib;
 using TianWen.Lib.Devices;
-using TianWen.UI.Abstractions;
 
-namespace TianWen.UI.Gui;
+namespace TianWen.UI.Abstractions;
 
 public enum GuiTab
 {
