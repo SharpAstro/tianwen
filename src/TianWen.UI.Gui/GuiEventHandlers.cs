@@ -4,7 +4,6 @@ using Microsoft.Extensions.Logging;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
-using static SDL3.SDL;
 
 namespace TianWen.UI.Gui
 {
@@ -21,7 +20,6 @@ namespace TianWen.UI.Gui
         private readonly GuiAppState _appState;
         private readonly PlannerState _plannerState;
         private readonly VkGuiRenderer _guiRenderer;
-        private readonly nint _sdlWindowHandle;
         private readonly BackgroundTaskTracker _tracker;
 
         public GuiEventHandlers(
@@ -29,7 +27,6 @@ namespace TianWen.UI.Gui
             GuiAppState appState,
             PlannerState plannerState,
             VkGuiRenderer guiRenderer,
-            nint sdlWindowHandle,
             CancellationTokenSource cts,
             IExternal external,
             BackgroundTaskTracker tracker)
@@ -37,10 +34,10 @@ namespace TianWen.UI.Gui
             _appState = appState;
             _plannerState = plannerState;
             _guiRenderer = guiRenderer;
-            _sdlWindowHandle = sdlWindowHandle;
             _tracker = tracker;
 
             var logger = external.AppLogger;
+            var bus = guiRenderer.Bus!;
             guiRenderer.EquipmentTab.Tracker = tracker;
 
             // ---------------------------------------------------------------
@@ -78,8 +75,7 @@ namespace TianWen.UI.Gui
                 plannerState.Suggestions.Clear();
                 plannerState.SuggestionIndex = -1;
                 plannerState.LastSuggestionQuery = "";
-                appState.ActiveTextInput = null;
-                StopTextInput(sdlWindowHandle);
+                bus.Post(new DeactivateTextInputSignal());
                 plannerState.NeedsRedraw = true;
             };
 
@@ -135,10 +131,8 @@ namespace TianWen.UI.Gui
                     var profile = await EquipmentActions.CreateProfileAsync(text, external, cts.Token);
                     appState.ActiveProfile = profile;
                     eqState.IsCreatingProfile = false;
-                    eqState.ProfileNameInput.Deactivate();
                     eqState.ProfileNameInput.Clear();
-                    appState.ActiveTextInput = null;
-                    StopTextInput(sdlWindowHandle);
+                    bus.Post(new DeactivateTextInputSignal());
                     plannerState.NeedsRecompute = true;
                     appState.NeedsRedraw = true;
                 }
@@ -168,11 +162,7 @@ namespace TianWen.UI.Gui
                     // Update UI immediately, save in background
                     appState.ActiveProfile = updatedSite;
                     eqState.IsEditingSite = false;
-                    eqState.LatitudeInput.Deactivate();
-                    eqState.LongitudeInput.Deactivate();
-                    eqState.ElevationInput.Deactivate();
-                    appState.ActiveTextInput = null;
-                    StopTextInput(sdlWindowHandle);
+                    bus.Post(new DeactivateTextInputSignal());
                     plannerState.NeedsRecompute = true;
                     appState.NeedsRedraw = true;
                     await updatedSite.SaveAsync(external, cts.Token);
@@ -202,7 +192,6 @@ namespace TianWen.UI.Gui
             // ---------------------------------------------------------------
             // Equipment action signal subscriptions (DI-dependent handlers)
             // ---------------------------------------------------------------
-            var bus = guiRenderer.Bus!;
 
             bus.Subscribe<DiscoverDevicesSignal>(async _ =>
             {
@@ -394,7 +383,7 @@ namespace TianWen.UI.Gui
                 hit = _guiRenderer.ActiveTab?.HitTestAndDispatch(px, py);
             }
 
-            // Text input focus management (needs SDL StartTextInput/StopTextInput)
+            // Text input focus management (via ActivateTextInputSignal/DeactivateTextInputSignal)
             if (hit is HitResult.TextInputHit { Input: { } clickedInput })
             {
                 ActivateTextInput(clickedInput);
@@ -519,28 +508,10 @@ namespace TianWen.UI.Gui
         // ===================================================================
 
         private void ActivateTextInput(TextInputState input)
-        {
-            if (_appState.ActiveTextInput is { } prev && prev != input)
-            {
-                prev.Deactivate();
-            }
-            input.Activate();
-            _appState.ActiveTextInput = input;
-            StartTextInput(_sdlWindowHandle);
-            _appState.NeedsRedraw = true;
-        }
+            => _guiRenderer.Bus?.Post(new ActivateTextInputSignal(input));
 
         private void DeactivateTextInput()
-        {
-            if (_appState.ActiveTextInput is not { IsActive: true } active)
-            {
-                return;
-            }
-
-            active.Deactivate();
-            _appState.ActiveTextInput = null;
-            StopTextInput(_sdlWindowHandle);
-        }
+            => _guiRenderer.Bus?.Post(new DeactivateTextInputSignal());
 
         private bool HandleTextInputKey(TextInputState activeInput, InputKey key, InputModifier modifiers)
         {
@@ -615,8 +586,7 @@ namespace TianWen.UI.Gui
                 {
                     activeInput.OnCancel?.Invoke();
                     activeInput.IsCancelled = false;
-                    activeInput.Deactivate();
-                    StopTextInput(_sdlWindowHandle);
+                    DeactivateTextInput();
                 }
 
                 _appState.NeedsRedraw = true;

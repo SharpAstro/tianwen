@@ -75,7 +75,7 @@ var guiRenderer = new VkGuiRenderer(renderer, (uint)pixW, (uint)pixH, bus)
 // Event handler setup
 var cts = new CancellationTokenSource();
 var tracker = new BackgroundTaskTracker();
-var handlers = new GuiEventHandlers(sp, appState, plannerState, guiRenderer, sdlWindow.Handle, cts, external, tracker);
+var handlers = new GuiEventHandlers(sp, appState, plannerState, guiRenderer, cts, external, tracker);
 
 // Signal subscriptions — text input activation/deactivation via SDL
 bus.Subscribe<ActivateTextInputSignal>(sig =>
