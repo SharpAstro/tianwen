@@ -2,7 +2,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
-using TianWen.Lib.Sequencing;
 
 namespace TianWen.Lib.Astrometry.Focus;
 

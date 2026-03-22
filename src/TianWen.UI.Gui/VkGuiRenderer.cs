@@ -17,6 +17,7 @@ namespace TianWen.UI.Gui
         private readonly VkPlannerTab _plannerTab;
         private readonly VkEquipmentTab _equipmentTab;
         private readonly VkSessionTab _sessionTab;
+        private readonly VkViewerTab _viewerTab;
         private string? _fontPath;
         private string? _emojiFontPath;
         private uint _width;
@@ -33,6 +34,9 @@ namespace TianWen.UI.Gui
 
         /// <summary>Exposes the session tab for scroll control and state access.</summary>
         public VkSessionTab SessionTab => _sessionTab;
+
+        /// <summary>Exposes the viewer tab for file loading and texture upload.</summary>
+        public VkViewerTab ViewerTab => _viewerTab;
 
         /// <summary>The currently active tab as an <see cref="IPixelWidget"/> for tab-specific hit testing.</summary>
         public IPixelWidget? ActiveTab { get; private set; }
@@ -90,6 +94,7 @@ namespace TianWen.UI.Gui
             _plannerTab = new VkPlannerTab(renderer) { Bus = bus };
             _equipmentTab = new VkEquipmentTab(renderer) { Bus = bus };
             _sessionTab = new VkSessionTab(renderer) { Bus = bus };
+            _viewerTab = new VkViewerTab(renderer, width, height) { Bus = bus };
             ResolveFontPath();
         }
 
@@ -119,12 +124,14 @@ namespace TianWen.UI.Gui
             _equipmentTab.FrameCount++;
             _plannerTab.FrameCount++;
             _sessionTab.FrameCount++;
+            _viewerTab.FrameCount++;
 
             ActiveTab = appState.ActiveTab switch
             {
                 GuiTab.Planner => _plannerTab,
                 GuiTab.Equipment => _equipmentTab,
                 GuiTab.Session => _sessionTab,
+                GuiTab.Viewer => _viewerTab,
                 _ => null
             };
 
@@ -148,6 +155,7 @@ namespace TianWen.UI.Gui
 
         public void Dispose()
         {
+            _viewerTab.Dispose();
             // VkRenderer is owned by the caller; do not dispose here.
         }
 
@@ -330,6 +338,12 @@ namespace TianWen.UI.Gui
                 case GuiTab.Session:
                     _sessionTab.Render(appState, plannerState, contentRect, DpiScale,
                         _fontPath ?? "monospace");
+                    break;
+
+                case GuiTab.Viewer:
+                    _viewerTab.DpiScale = DpiScale;
+                    _viewerTab.Resize((uint)contentRect.Width, (uint)contentRect.Height);
+                    _viewerTab.Render(null, viewerState);
                     break;
 
                 default:

@@ -8,6 +8,7 @@ using System.Linq;
 using System.Numerics;
 using System.Numerics.Tensors;
 using System.Runtime.InteropServices;
+using TianWen.Lib.Astrometry;
 
 namespace TianWen.Lib.Imaging;
 

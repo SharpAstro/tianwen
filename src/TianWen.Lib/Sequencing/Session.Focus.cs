@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
@@ -421,7 +422,7 @@ internal partial record Session
         // Plate solve using mount's current position as search origin
         var mountRa = await mount.Driver.GetRightAscensionAsync(cancellationToken);
         var mountDec = await mount.Driver.GetDeclinationAsync(cancellationToken);
-        var searchOrigin = new Imaging.WCS(mountRa, mountDec);
+        var searchOrigin = new WCS(mountRa, mountDec);
 
         var result = await PlateSolver.SolveImageAsync(image, searchOrigin: searchOrigin, searchRadius: 10, cancellationToken: cancellationToken);
 

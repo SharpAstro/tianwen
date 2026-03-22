@@ -1,4 +1,4 @@
-namespace TianWen.Lib.Sequencing;
+namespace TianWen.Lib.Astrometry.Focus;
 
 /// <summary>
 /// Describes the preferred approach direction for a focuser, accounting for the

@@ -4,15 +4,15 @@ using SdlVulkan.Renderer;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
+using TianWen.UI.Shared;
 
-namespace TianWen.UI.Shared;
+namespace TianWen.UI.Gui;
 
 /// <summary>
-/// Vulkan implementation of the FITS image viewer.
-/// Extends <see cref="ImageRendererBase{TSurface}"/> with Vulkan-specific GPU rendering
-/// via <see cref="VkFitsImagePipeline"/>.
+/// Vulkan-pinned Viewer tab for the GUI. Reuses <see cref="ImageRendererBase{TSurface}"/>
+/// with a <see cref="VkFitsImagePipeline"/> for GPU rendering.
 /// </summary>
-public sealed class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
+public sealed class VkViewerTab : ImageRendererBase<VulkanContext>, IDisposable
 {
     private readonly VkRenderer _renderer;
     private readonly VkFitsImagePipeline _fitsPipeline;
@@ -23,16 +23,15 @@ public sealed class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposa
 
     /// <summary>
     /// Grid spacing options in arcseconds, from fine to coarse.
-    /// Must match the base class for WCS grid shader parameters.
     /// </summary>
     private static readonly double[] GridSpacingsArcsec =
     [
-        1, 2, 5, 10, 15, 30,                           // sub-arcminute
-        60, 120, 300, 600, 900, 1800,                   // arcminutes
-        3600, 7200, 18000, 36000, 90000, 180000,        // degrees
+        1, 2, 5, 10, 15, 30,
+        60, 120, 300, 600, 900, 1800,
+        3600, 7200, 18000, 36000, 90000, 180000,
     ];
 
-    public VkImageRenderer(VkRenderer renderer, uint width, uint height) : base(renderer)
+    public VkViewerTab(VkRenderer renderer, uint width, uint height) : base(renderer)
     {
         _renderer = renderer;
         Width = width;
@@ -43,7 +42,7 @@ public sealed class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposa
 
     protected override void OnResize(uint width, uint height)
     {
-        _renderer.Resize(width, height);
+        // VkRenderer is resized by the main VkGuiRenderer; we only update our dimensions
     }
 
     public override void UploadImageTexture(ReadOnlySpan<float> data, int channel, int imageWidth, int imageHeight)
@@ -54,14 +53,11 @@ public sealed class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposa
     public override void UploadHistogramData(AstroImageDocument document)
     {
         _histogramDisplay = new HistogramDisplay(document.ChannelStatistics);
-        _histogramLastStretchMode = null; // force re-upload on next render
+        _histogramLastStretchMode = null;
     }
 
     protected override HistogramDisplay? GetHistogramDisplay() => _histogramDisplay;
 
-    /// <summary>
-    /// Recomputes display bins via <see cref="HistogramDisplay"/> and uploads to Vulkan textures.
-    /// </summary>
     private void UpdateHistogramTextures(StretchUniforms stretch)
     {
         if (_histogramDisplay is null) return;
@@ -87,7 +83,6 @@ public sealed class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposa
             ? stretch.ComputePostStretchBackground(doc.PerChannelBackground, doc.LumaBackground)
             : 0.15f;
 
-        // WCS grid parameters
         bool gridEnabled = gridWcs is not null;
         float gridSpacingRA = 0f, gridSpacingDec = 0f, gridLineWidth = 0f;
         float crPix1 = 0f, crPix2 = 0f, crValRA = 0f, crValDec = 0f;
@@ -175,7 +170,6 @@ public sealed class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposa
         HistogramDisplay histogram, ViewerState state,
         float left, float top, float right, float bottom, uint projW, uint projH)
     {
-        // Recompute histogram textures when stretch mode changes
         if (stretch.Mode != _histogramLastStretchMode || stretch.NormFactor != _histogramLastNormFactor)
         {
             UpdateHistogramTextures(stretch);
@@ -227,13 +221,11 @@ public sealed class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposa
     {
         var thickness = Math.Max(1, (int)DpiScale);
 
-        // Horizontal arm
         var hRect = new RectInt(
             new PointInt((int)(cx + armLength), (int)(cy + thickness)),
             new PointInt((int)(cx - armLength), (int)(cy - thickness)));
         _renderer.FillRectangle(hRect, color);
 
-        // Vertical arm
         var vRect = new RectInt(
             new PointInt((int)(cx + thickness), (int)(cy + armLength)),
             new PointInt((int)(cx - thickness), (int)(cy - armLength)));

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging;
 

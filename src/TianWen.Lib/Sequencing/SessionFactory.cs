@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
