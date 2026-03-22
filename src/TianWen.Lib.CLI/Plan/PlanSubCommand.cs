@@ -180,8 +180,8 @@ internal class PlanSubCommand(
         {
             if (terminal.HasInput())
             {
-                var evt = terminal.TryReadInput();
-                if (HandleInput(evt, transform))
+                var rawEvt = terminal.TryReadInput();
+                if (rawEvt.ToInputEvent is { } evt && HandleInput(evt, transform, targetList))
                 {
                     return;
                 }
@@ -268,76 +268,111 @@ internal class PlanSubCommand(
         }
     }
 
-    private bool HandleInput(ConsoleInputEvent evt, TianWen.Lib.Astrometry.SOFA.Transform transform)
+    private bool HandleInput(DIR.Lib.InputEvent evt, TianWen.Lib.Astrometry.SOFA.Transform transform,
+        ScrollableList<TargetListItem> targetList)
     {
-        // Clear transient status message on any keypress
-        if (plannerState.StatusMessage is not null)
+        switch (evt)
         {
-            plannerState.StatusMessage = null;
-            plannerState.NeedsRedraw = true;
-        }
-
-        switch (evt.Key)
-        {
-            case ConsoleKey.Q or ConsoleKey.Escape:
-                return true;
-
-            case ConsoleKey.UpArrow:
-                if (plannerState.SelectedTargetIndex > 0)
+            // Mouse click — select target from list
+            case DIR.Lib.InputEvent.MouseUp(var x, var y, DIR.Lib.MouseButton.Left):
+            {
+                var cell = targetList.HitTest((int)x, (int)y);
+                if (cell is { Row: var row } && row >= 0)
                 {
-                    plannerState.SelectedTargetIndex--;
-                    plannerState.NeedsRedraw = true;
-                }
-                break;
-
-            case ConsoleKey.DownArrow:
-                if (plannerState.SelectedTargetIndex < plannerState.TonightsBest.Count - 1)
-                {
-                    plannerState.SelectedTargetIndex++;
-                    plannerState.NeedsRedraw = true;
-                }
-                break;
-
-            case ConsoleKey.Enter:
-                if (plannerState.SelectedTargetIndex >= 0 && plannerState.SelectedTargetIndex < plannerState.TonightsBest.Count)
-                {
-                    var target = plannerState.TonightsBest[plannerState.SelectedTargetIndex].Target;
-                    PlannerActions.ToggleProposal(plannerState, target);
-                }
-                break;
-
-            case ConsoleKey.P:
-                if (plannerState.SelectedTargetIndex >= 0 && plannerState.SelectedTargetIndex < plannerState.TonightsBest.Count)
-                {
-                    var target = plannerState.TonightsBest[plannerState.SelectedTargetIndex].Target;
-                    var propIdx = plannerState.Proposals.FindIndex(p => p.Target == target);
-                    if (propIdx >= 0)
+                    var scrollOffset = Math.Max(0, plannerState.SelectedTargetIndex - targetList.VisibleRows / 2);
+                    var itemIndex = row - 1 + scrollOffset; // row 0 = header
+                    if (itemIndex >= 0 && itemIndex < plannerState.TonightsBest.Count)
                     {
-                        PlannerActions.CyclePriority(plannerState, propIdx);
+                        plannerState.SelectedTargetIndex = itemIndex;
+                        plannerState.NeedsRedraw = true;
                     }
                 }
-                break;
+                return false;
+            }
 
-            case ConsoleKey.S:
-                PlannerActions.BuildSchedule(plannerState, transform,
-                    defaultGain: 120, defaultOffset: 10,
-                    defaultSubExposure: TimeSpan.FromSeconds(120),
-                    defaultObservationTime: TimeSpan.FromMinutes(60));
-                break;
+            // Scroll wheel — navigate target list
+            case DIR.Lib.InputEvent.Scroll(var delta, _, _, _):
+            {
+                var step = delta > 0 ? -3 : 3;
+                plannerState.SelectedTargetIndex = Math.Clamp(
+                    plannerState.SelectedTargetIndex + step, 0, plannerState.TonightsBest.Count - 1);
+                plannerState.NeedsRedraw = true;
+                return false;
+            }
 
-            case ConsoleKey.R:
-                if (plannerState.Schedule is { Count: > 0 })
+            // Keyboard
+            case DIR.Lib.InputEvent.KeyDown(var key, _):
+            {
+                // Clear transient status message on any keypress
+                if (plannerState.StatusMessage is not null)
                 {
-                    // TODO: transition to session mode — create ISession from schedule and hand off
-                    plannerState.StatusMessage = "Session start not yet implemented. Schedule is ready.";
+                    plannerState.StatusMessage = null;
                     plannerState.NeedsRedraw = true;
                 }
-                else
+
+                switch (key)
                 {
-                    plannerState.StatusMessage = "No schedule. Press S to build one first.";
-                    plannerState.NeedsRedraw = true;
+                    case DIR.Lib.InputKey.Q or DIR.Lib.InputKey.Escape:
+                        return true;
+
+                    case DIR.Lib.InputKey.Up:
+                        if (plannerState.SelectedTargetIndex > 0)
+                        {
+                            plannerState.SelectedTargetIndex--;
+                            plannerState.NeedsRedraw = true;
+                        }
+                        break;
+
+                    case DIR.Lib.InputKey.Down:
+                        if (plannerState.SelectedTargetIndex < plannerState.TonightsBest.Count - 1)
+                        {
+                            plannerState.SelectedTargetIndex++;
+                            plannerState.NeedsRedraw = true;
+                        }
+                        break;
+
+                    case DIR.Lib.InputKey.Enter:
+                        if (plannerState.SelectedTargetIndex >= 0 && plannerState.SelectedTargetIndex < plannerState.TonightsBest.Count)
+                        {
+                            var target = plannerState.TonightsBest[plannerState.SelectedTargetIndex].Target;
+                            PlannerActions.ToggleProposal(plannerState, target);
+                        }
+                        break;
+
+                    case DIR.Lib.InputKey.P:
+                        if (plannerState.SelectedTargetIndex >= 0 && plannerState.SelectedTargetIndex < plannerState.TonightsBest.Count)
+                        {
+                            var target = plannerState.TonightsBest[plannerState.SelectedTargetIndex].Target;
+                            var propIdx = plannerState.Proposals.FindIndex(p => p.Target == target);
+                            if (propIdx >= 0)
+                            {
+                                PlannerActions.CyclePriority(plannerState, propIdx);
+                            }
+                        }
+                        break;
+
+                    case DIR.Lib.InputKey.S:
+                        PlannerActions.BuildSchedule(plannerState, transform,
+                            defaultGain: 120, defaultOffset: 10,
+                            defaultSubExposure: TimeSpan.FromSeconds(120),
+                            defaultObservationTime: TimeSpan.FromMinutes(60));
+                        break;
+
+                    case DIR.Lib.InputKey.R:
+                        if (plannerState.Schedule is { Count: > 0 })
+                        {
+                            plannerState.StatusMessage = "Session start not yet implemented. Schedule is ready.";
+                            plannerState.NeedsRedraw = true;
+                        }
+                        else
+                        {
+                            plannerState.StatusMessage = "No schedule. Press S to build one first.";
+                            plannerState.NeedsRedraw = true;
+                        }
+                        break;
                 }
                 break;
+            }
         }
 
         return false;
