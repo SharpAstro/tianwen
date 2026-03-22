@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
 
@@ -12,7 +13,8 @@ public readonly record struct ScoredTarget(
     IReadOnlyDictionary<RaDecEventTime, RaDecEventInfo> ElevationProfile,
     DateTimeOffset OptimalStart,
     TimeSpan OptimalDuration,
-    double OptimalAltitude = 0
+    double OptimalAltitude = 0,
+    ObjectType ObjectType = ObjectType.Unknown
 ) : IComparable<ScoredTarget>
 {
     /// <summary>
