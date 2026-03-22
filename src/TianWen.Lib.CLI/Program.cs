@@ -67,12 +67,6 @@ var selectedProfileOption = new Option<string?>("--active", "-a")
     Recursive = true
 };
 
-var tuiOption = new Option<bool>("--tui")
-{
-    Description = "Use full-screen TUI (alternate screen) instead of inline mode",
-    Recursive = true
-};
-
 // Implicit path argument on root command — bare file/dir arg opens the viewer interactively
 var implicitPathArg = new Argument<string?>("path")
 {
@@ -81,18 +75,18 @@ var implicitPathArg = new Argument<string?>("path")
 };
 
 var profileSelector = new ProfileSelector(consoleHost, selectedProfileOption);
-var viewSubCommand = new ViewSubCommand(consoleHost, viewerState, documentCache, tuiOption);
+var viewSubCommand = new ViewSubCommand(consoleHost, viewerState, documentCache);
 
 var rootCommand = new RootCommand
 {
     Arguments = { implicitPathArg },
-    Options = { selectedProfileOption, tuiOption },
+    Options = { selectedProfileOption },
     Subcommands =
     {
-        new ProfileSubCommand(consoleHost, selectedProfileOption, profileSelector, tuiOption).Build(),
+        new ProfileSubCommand(consoleHost, selectedProfileOption, profileSelector).Build(),
         new DeviceSubCommand(consoleHost).Build(),
         viewSubCommand.Build(),
-        new PlanSubCommand(consoleHost, plannerState, services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(), profileSelector, tuiOption).Build()
+        new PlanSubCommand(consoleHost, plannerState, services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(), profileSelector).Build()
     }
 };
 
