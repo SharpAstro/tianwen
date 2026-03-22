@@ -170,6 +170,28 @@ internal class PlanSubCommand(
         }
     }
 
+    private void PrintConflictWarnings()
+    {
+        var filtered = PlannerActions.GetFilteredTargets(plannerState);
+        var pinnedCount = plannerState.PinnedCount;
+
+        for (var i = 0; i < pinnedCount; i++)
+        {
+            var windowStart = i == 0 ? plannerState.AstroDark
+                : i - 1 < plannerState.HandoffSliders.Count ? plannerState.HandoffSliders[i - 1] : plannerState.AstroDark;
+            var windowEnd = i >= pinnedCount - 1 || i >= plannerState.HandoffSliders.Count
+                ? plannerState.AstroTwilight : plannerState.HandoffSliders[i];
+            var hours = (windowEnd - windowStart).TotalHours;
+
+            if (hours < 1.5)
+            {
+                var target = filtered[i].Target;
+                var mins = (int)((windowEnd - windowStart).TotalMinutes);
+                consoleHost.WriteScrollable($"  \u26a0 {target.Name}: only {mins}m allocated");
+            }
+        }
+    }
+
     /// <summary>
     /// Inline REPL mode — prints table + chart to scrollback, then accepts input
     /// at a prompt line. Works over SSH without alternate screen.
@@ -289,6 +311,7 @@ internal class PlanSubCommand(
                             PlannerActions.ToggleProposal(plannerState, target);
                             var action = wasPinned ? "-" : "+";
                             consoleHost.WriteScrollable($"  {action} {target.Name} ({plannerState.Proposals.Count} proposed)");
+                            PrintConflictWarnings();
                             WritePrompt(terminal);
                         }
                         return false;
@@ -312,7 +335,15 @@ internal class PlanSubCommand(
                             {
                                 var start = obs.Start.ToOffset(plannerState.SiteTimeZone).ToString("HH:mm");
                                 var end = (obs.Start + obs.Duration).ToOffset(plannerState.SiteTimeZone).ToString("HH:mm");
-                                consoleHost.WriteScrollable($"  {start}\u2013{end}  {obs.Target.Name}");
+                                var flipStr = "";
+                                if (obs.AcrossMeridian
+                                    && plannerState.AltitudeProfiles.TryGetValue(obs.Target, out var prof)
+                                    && prof.Count > 0)
+                                {
+                                    var peakTime = prof.MaxBy(p => p.Alt).Time.ToOffset(plannerState.SiteTimeZone);
+                                    flipStr = $"  [flip {peakTime:HH:mm}]";
+                                }
+                                consoleHost.WriteScrollable($"  {start}\u2013{end}  {obs.Target.Name}{flipStr}");
                             }
                         }
                         else
