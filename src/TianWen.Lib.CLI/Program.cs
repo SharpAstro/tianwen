@@ -97,7 +97,7 @@ rootCommand.SetAction(async (parseResult, ct) =>
     if (path is not null)
     {
         // Bare path argument → interactive view
-        await viewSubCommand.RunInteractiveAsync(path, ct);
+        await viewSubCommand.RunNonInteractiveAsync(path, ct);
     }
     // No path and no subcommand → show help (default behavior)
 });
