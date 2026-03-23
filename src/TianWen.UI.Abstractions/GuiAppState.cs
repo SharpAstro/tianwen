@@ -23,4 +23,10 @@ public class GuiAppState
 
     /// <summary>The currently focused text input across all tabs. Single source of truth.</summary>
     public TextInputState? ActiveTextInput { get; set; }
+
+    /// <summary>
+    /// True when the user has requested exit but background tasks (session Finalise) are still running.
+    /// The render loop continues during this phase, showing shutdown progress.
+    /// </summary>
+    public bool ShuttingDown { get; set; }
 }
