@@ -8,6 +8,7 @@ using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Connections;
 using TianWen.Lib.Imaging;
 
@@ -170,6 +171,12 @@ public interface IExternal
     /// Time provider that should be used for all time operations
     /// </summary>
     TimeProvider TimeProvider { get; }
+
+    /// <summary>
+    /// Lazily initialized celestial object database. The DB is initialized on first access
+    /// and cached for subsequent calls. Thread-safe.
+    /// </summary>
+    ValueTask<ICelestialObjectDB> GetCelestialObjectDBAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Atomically writes to a file by writing to a temporary file first, then renaming.

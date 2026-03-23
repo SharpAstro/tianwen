@@ -14,9 +14,11 @@ namespace TianWen.Lib.Devices;
 
 internal class External(
     IUtf8TextBasedConnectionFactory textBasedConnectionFactory,
-    ILoggerFactory loggerFactory
+    ILoggerFactory loggerFactory,
+    Astrometry.Catalogs.ICelestialObjectDB celestialObjectDB
 ) : IExternal, IDisposable
 {
+    private Task? _dbInitTask;
     private readonly SemaphoreSlim _serialPortEnumerationSemaphore = new SemaphoreSlim(1, 1);
     private readonly ConcurrentDictionary<string, ISerialConnection> _serialConnections = [];
     private bool disposedValue;
@@ -36,6 +38,17 @@ internal class External(
     public DirectoryInfo ProfileFolder { get; } = SharedStaticData.CommonDataRoot.CreateSubdirectory("Profiles");
 
     public ILogger AppLogger => loggerFactory.CreateLogger("App");
+
+    public async ValueTask<Astrometry.Catalogs.ICelestialObjectDB> GetCelestialObjectDBAsync(CancellationToken cancellationToken = default)
+    {
+        // Double-checked lazy init — InitDBAsync is idempotent but expensive
+        if (_dbInitTask is null or { IsCompleted: false })
+        {
+            _dbInitTask ??= celestialObjectDB.InitDBAsync(cancellationToken);
+            await _dbInitTask;
+        }
+        return celestialObjectDB;
+    }
 
     public IReadOnlyList<string> EnumerateAvailableSerialPorts(ResourceLock resourceLock)
     {
