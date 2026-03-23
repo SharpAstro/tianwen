@@ -72,15 +72,13 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         // Cool camera down first using thresPower=80 (same as RunAsync) to fully ramp
         await ctx.Session.CoolCamerasToSetpointAsync(
             new SetpointTemp(-10, SetpointTempKind.Normal),
-            TimeSpan.FromSeconds(1), 80, SetupointDirection.Down, ct);
+            TimeSpan.FromSeconds(60), 80, SetupointDirection.Down, ct);
 
         var tempAfterCooldown = await ctx.Camera.GetCCDTemperatureAsync(ct);
         tempAfterCooldown.ShouldBeLessThan(0, "camera should be cooled below 0°C");
 
-        // CoolCamerasToAmbientAsync uses SetpointTempKind.Ambient which targets current CCD temp
-        // (stepwise warmup approach — each iteration sets setpoint = ccdTemp, warming happens
-        // naturally as the cooler reduces power). It should complete successfully.
-        var result = await ctx.Session.CoolCamerasToAmbientAsync(TimeSpan.FromSeconds(1));
+        // CoolCamerasToAmbientAsync warms back to heatsink temp (20°C)
+        var result = await ctx.Session.CoolCamerasToAmbientAsync(TimeSpan.FromSeconds(60));
 
         result.ShouldBeTrue("ambient warmup should report success");
 

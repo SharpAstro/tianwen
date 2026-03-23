@@ -29,17 +29,19 @@ internal partial record Session
         => CoolCamerasToSetpointAsync(new SetpointTemp(sbyte.MinValue, SetpointTempKind.Ambient), rampTime, 0.1, SetupointDirection.Up, CancellationToken.None);
 
     /// <summary>
-    /// Assumes that power is on (c.f. <see cref="CoolCamerasToSensorTempAsync(TimeSpan, CancellationToken)"/>).
+    /// Ramps camera cooling/warming to the target temperature over a total time budget.
+    /// Each step adjusts the setpoint by ~1°C, with the sleep interval computed from
+    /// <paramref name="totalRampTime"/> / estimated step count.
     /// </summary>
     /// <param name="desiredSetpointTemp">Desired degrees Celcius setpoint temperature,
     /// if <paramref name="desiredSetpointTemp"/>'s <see cref="SetpointTemp.Kind"/> is <see cref="SetpointTempKind.CCD" /> then sensor temperature is chosen,
     /// if its <see cref="SetpointTempKind.Normal" /> then the temp value is chosen
     /// or else ambient temperature is chosen (if available)</param>
-    /// <param name="rampInterval">interval to wait until further adjusting setpoint.</param>
+    /// <param name="totalRampTime">Total time budget for the ramp (not per-step).</param>
     /// <returns>True if setpoint temperature was reached.</returns>
     internal async ValueTask<bool> CoolCamerasToSetpointAsync(
         SetpointTemp desiredSetpointTemp,
-        TimeSpan rampInterval,
+        TimeSpan totalRampTime,
         double thresPower,
         SetupointDirection direction,
         CancellationToken cancellationToken
@@ -47,6 +49,32 @@ internal partial record Session
     {
         var scopes = Setup.Telescopes.Length;
         var coolingStates = new CameraCoolingState[scopes];
+
+        // Estimate step count from initial temperature delta to compute per-step sleep.
+        // CoolToSetpointAsync adjusts by ~1°C per call, so steps ≈ |delta|.
+        // Clamp to reasonable bounds: at least 1s per step, at most totalRampTime.
+        var maxDelta = 1.0;
+        for (var i = 0; i < scopes; i++)
+        {
+            var camera = Setup.Telescopes[i].Camera;
+            var ccdTemp = await External.CatchAsync(camera.Driver.GetCCDTemperatureAsync, cancellationToken, double.NaN);
+            if (!double.IsNaN(ccdTemp))
+            {
+                var target = desiredSetpointTemp.Kind switch
+                {
+                    SetpointTempKind.Normal => (double)desiredSetpointTemp.TempC,
+                    _ => ccdTemp // CCD/Ambient: target will be resolved later, estimate delta = 0
+                };
+                maxDelta = Math.Max(maxDelta, Math.Abs(ccdTemp - target));
+            }
+        }
+        // For CCD/Ambient kinds, estimate ~30°C delta as a safe default
+        if (desiredSetpointTemp.Kind is not SetpointTempKind.Normal && maxDelta <= 1)
+        {
+            maxDelta = 30;
+        }
+        var stepCount = Math.Max((int)Math.Ceiling(maxDelta), 1);
+        var rampInterval = TimeSpan.FromTicks(Math.Max(totalRampTime.Ticks / stepCount, TimeSpan.TicksPerSecond));
 
         var accSleep = TimeSpan.Zero;
         do
@@ -77,8 +105,9 @@ internal partial record Session
             }
 
             accSleep += rampInterval;
-            if (accSleep >= rampInterval * 100)
+            if (accSleep >= totalRampTime * 2)
             {
+                // Safety cap: don't exceed 2x the total ramp budget
                 break;
             }
 
