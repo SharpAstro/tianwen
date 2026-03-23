@@ -160,12 +160,9 @@ internal partial record Session(
         }
         finally
         {
-            if (_phase is not SessionPhase.Complete and not SessionPhase.Failed and not SessionPhase.Aborted)
-            {
-                SetPhase(SessionPhase.Finalising);
-            }
-            // Use CancellationToken.None for finalise — we must park the mount, warm cameras, etc.
-            // even when the session was aborted. The original token is already cancelled.
+            // Finalise must complete — park mount, warm cameras, close covers.
+            // Uses CancellationToken.None because interrupting warmup could damage hardware.
+            SetPhase(SessionPhase.Finalising);
             await Finalise(CancellationToken.None).ConfigureAwait(false);
         }
     }

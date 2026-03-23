@@ -311,17 +311,24 @@ loop.OnKeyDown = (inputKey, inputModifier) =>
 
 loop.Run(cts.Token);
 
-// Cleanup
+// Cleanup — cancel running session first so Finalise starts while we drain
+if (guiRenderer.LiveSessionState is { IsRunning: true, SessionCts: { } sessionCts })
+{
+    sessionCts.Cancel();
+}
 cts.Cancel();
-guiRenderer.Dispose();
-renderer.Dispose();
-ctx.Dispose();
 
 if (plannerTask is not null)
 {
     try { await plannerTask; } catch (OperationCanceledException) { }
 }
+
+// Wait for session Finalise (warmup, park) to complete — cannot skip this
 await tracker.DrainAsync();
+
+guiRenderer.Dispose();
+renderer.Dispose();
+ctx.Dispose();
 
 return 0;
 
