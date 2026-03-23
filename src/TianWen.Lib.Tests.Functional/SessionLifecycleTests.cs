@@ -45,12 +45,23 @@ public class SessionLifecycleTests(ITestOutputHelper output)
     // --- WaitUntilTenMinutesBeforeAmateurAstroTwilightEndsAsync ---
 
     [Fact(Timeout = 120_000)]
-    public async Task GivenTwilightAlreadyEndedWhenWaitForTwilightThenReturnsImmediately()
+    public async Task GivenObservationAlreadyStartedWhenWaitForDarkThenReturnsImmediately()
     {
-        // Dec 15, 22:00 UTC from Vienna — amateur astronomical twilight ends ~17:00 UTC in winter
-        // At 22:00 UTC it has long ended
+        // Observation started 30 minutes before the session's "now" — should skip immediately
         var ct = TestContext.Current.CancellationToken;
-        var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
+        var observations = new[]
+        {
+            new ScheduledObservation(
+                new Target(3.7886, 24.1167, "M45", null),
+                WinterNight - TimeSpan.FromMinutes(30), // started 30 min ago
+                TimeSpan.FromMinutes(60),
+                AcrossMeridian: false,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(TimeSpan.FromSeconds(120)),
+                Gain: 0,
+                Offset: 0
+            )
+        };
+        var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, observations: observations, cancellationToken: ct);
 
         var timeBefore = ctx.External.TimeProvider.GetUtcNow();
 
@@ -58,7 +69,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
         var timeAfter = ctx.External.TimeProvider.GetUtcNow();
         var elapsed = timeAfter - timeBefore;
-        elapsed.TotalSeconds.ShouldBeLessThan(1, "should return immediately when twilight has already ended");
+        elapsed.TotalSeconds.ShouldBeLessThan(1, "should return immediately when observation already started");
     }
 
     // --- CoolCamerasToAmbientAsync ---

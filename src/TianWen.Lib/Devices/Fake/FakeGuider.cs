@@ -10,7 +10,7 @@ using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Devices.Fake;
 
-internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDeviceDriverBase(fakeDevice, external), IGuider
+internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDeviceDriverBase(fakeDevice, external), IDeviceDependentGuider
 {
 
     private const double DefaultPixelScale = 1.5;
@@ -18,16 +18,29 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
     private const int GuideHeight = 240;
 
     /// <summary>
-    /// Current pointing RA in hours (J2000). Set by the test or by connecting to a mount.
-    /// Used by <see cref="SaveImageAsync"/> to generate a FITS file with correct WCS headers.
+    /// Mount driver for reading current RA/Dec. Set via <see cref="LinkDevices"/>.
+    /// </summary>
+    private IMountDriver? _mount;
+
+    /// <summary>
+    /// Current pointing RA in hours (J2000). Set by the test or read from the mount driver.
     /// </summary>
     internal double PointingRA { get; set; } = double.NaN;
 
     /// <summary>
-    /// Current pointing Dec in degrees (J2000). Set by the test or by connecting to a mount.
-    /// Used by <see cref="SaveImageAsync"/> to generate a FITS file with correct WCS headers.
+    /// Current pointing Dec in degrees (J2000). Set by the test or read from the mount driver.
     /// </summary>
     internal double PointingDec { get; set; } = double.NaN;
+
+    /// <inheritdoc/>
+    public void LinkDevices(IMountDriver mount, ICameraDriver camera)
+    {
+        _mount = mount;
+        // camera stored for compatibility but not used — fake guider generates synthetic images
+    }
+
+    /// <summary>Whether a guider camera is required for <see cref="LinkDevices"/>. False for fake guiders.</summary>
+    public bool RequiresCamera => false;
 
     private int _state = (int)GuiderState.Idle;
     private bool _equipmentConnected;
@@ -263,8 +276,15 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
     public ValueTask<double> PixelScaleAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(DefaultPixelScale);
 
-    public ValueTask<string?> SaveImageAsync(string outputFolder, CancellationToken cancellationToken = default)
+    public async ValueTask<string?> SaveImageAsync(string outputFolder, CancellationToken cancellationToken = default)
     {
+        // Read RA/Dec from mount if linked and not set explicitly
+        if (double.IsNaN(PointingRA) && _mount is { Connected: true } mount)
+        {
+            PointingRA = await mount.GetRightAscensionAsync(cancellationToken);
+            PointingDec = await mount.GetDeclinationAsync(cancellationToken);
+        }
+
         Directory.CreateDirectory(outputFolder);
         var path = Path.Combine(outputFolder, $"guider_{External.TimeProvider.GetUtcNow().UtcDateTime:yyyyMMdd_HHmmss}.fits");
 
@@ -290,7 +310,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
         var image = new Image([array], BitDepth.Float32, dataMax, dataMin, 0f, default);
         image.WriteToFitsFile(path, wcs);
 
-        return ValueTask.FromResult<string?>(path);
+        return path;
     }
 
     public ValueTask StopCaptureAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
