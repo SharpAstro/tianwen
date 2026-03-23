@@ -271,17 +271,23 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
     public ValueTask<bool> AtHomeAsync(CancellationToken cancellationToken)
         => ValueTask.FromResult(false);
 
+    private bool _isParked;
+
     public ValueTask<bool> AtParkAsync(CancellationToken cancellationToken)
-        => ValueTask.FromResult(false);
+        => ValueTask.FromResult(_isParked);
 
     public ValueTask ParkAsync(CancellationToken cancellationToken)
     {
         _isTracking = false;
+        _isParked = true;
         return ValueTask.CompletedTask;
     }
 
     public ValueTask UnparkAsync(CancellationToken cancellationToken)
-        => ValueTask.CompletedTask;
+    {
+        _isParked = false;
+        return ValueTask.CompletedTask;
+    }
 
     // --- Coordinates (computed on-demand with sidereal tracking + error injection) ---
 
