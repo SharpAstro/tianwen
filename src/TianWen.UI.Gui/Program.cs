@@ -303,6 +303,15 @@ void RequestQuit()
     }
 
     var liveState = guiRenderer.LiveSessionState;
+
+    // During Finalising, can't do anything — just wait (warmup must complete)
+    if (liveState.Phase is SessionPhase.Finalising)
+    {
+        appState.StatusMessage = "Warming cameras\u2026 please wait";
+        appState.NeedsRedraw = true;
+        return;
+    }
+
     if (liveState.IsRunning && !liveState.ShowAbortConfirm)
     {
         // Session running — show abort confirmation (same as pressing Escape in Live Session tab)

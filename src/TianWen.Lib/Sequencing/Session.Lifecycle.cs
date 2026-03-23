@@ -182,7 +182,9 @@ internal partial record Session
             camera.Driver.Longitude ??= await mount.Driver.GetSiteLongitudeAsync(cancellationToken);
         }
 
-        if (!await CoolCamerasToSensorTempAsync(TimeSpan.FromSeconds(10), cancellationToken).ConfigureAwait(false))
+        // Short interval — confirming camera is at sensor temp, not a full ramp.
+        // 5 seconds allows cameras to settle after initial power-on.
+        if (!await CoolCamerasToSensorTempAsync(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false))
         {
             External.AppLogger.LogError("Failed to set camera cooler setpoint to current CCD temperature, aborting session.");
             return false;
