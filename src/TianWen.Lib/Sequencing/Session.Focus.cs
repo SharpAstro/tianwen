@@ -41,6 +41,7 @@ internal partial record Session
         await mount.Driver.BeginSlewToZenithAsync(distMeridian, cancellationToken).ConfigureAwait(false);
         var slewTime = await GetMountUtcNowAsync(cancellationToken);
 
+        _currentActivity = "Waiting for slew to complete\u2026";
         External.AppLogger.LogInformation("RoughFocus: waiting for slew to complete...");
         if (!await mount.Driver.WaitForSlewCompleteAsync(cancellationToken).ConfigureAwait(false))
         {
@@ -49,6 +50,7 @@ internal partial record Session
             return false;
         }
 
+        _currentActivity = "Guider plate-solve (60s timeout)\u2026";
         External.AppLogger.LogInformation("RoughFocus: slew complete, starting guider plate-solve loop (1 min timeout)...");
         if (!await GuiderFocusLoopAsync(TimeSpan.FromMinutes(1), cancellationToken))
         {
@@ -105,6 +107,7 @@ internal partial record Session
                 {
                     var stars = await image.FindStarsAsync(0, snrMin: 15, cancellationToken: cancellationToken);
 
+                    _currentActivity = $"Stars: {stars.Count}/15 (exposure {expTimesSec[i]}s)";
                     External.AppLogger.LogInformation("RoughFocus: telescope #{TelescopeNumber} exposure {ExpTime}s → {StarCount} stars detected (need ≥15)",
                         i + 1, expTimesSec[i], stars.Count);
 
@@ -331,6 +334,7 @@ internal partial record Session
         for (var i = 0; i < stepCount && !cancellationToken.IsCancellationRequested; i++)
         {
             var targetPos = startPos + i * stepSize;
+            _currentActivity = $"#{telescopeIndex + 1} V-curve {i + 1}/{stepCount} pos={targetPos}";
             await focuser.BeginMoveAsync(targetPos, cancellationToken);
             while (await focuser.GetIsMovingAsync(cancellationToken) && !cancellationToken.IsCancellationRequested)
             {
@@ -368,11 +372,13 @@ internal partial record Session
         }
 
         // Fit hyperbola
+        _currentActivity = $"#{telescopeIndex + 1} Fitting hyperbola\u2026";
         if (sampleMap.TryGetBestFocusSolution(out var solution, out _, out _))
         {
             var bestPos = (int)Math.Round(solution.Value.BestFocus);
             var currentPosNow = await focuser.GetPositionAsync(cancellationToken);
 
+            _currentActivity = $"#{telescopeIndex + 1} Moving to best focus ({bestPos})";
             External.AppLogger.LogInformation("Auto-focus telescope #{TelescopeNumber}: best focus at position {BestFocus} (A={A:F2}, B={B:F2}, error={Error:F4}).",
                 telescopeIndex + 1, bestPos, solution.Value.A, solution.Value.B, solution.Value.Error);
 

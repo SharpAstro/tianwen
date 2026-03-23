@@ -54,6 +54,9 @@ namespace TianWen.UI.Abstractions
         /// <summary>Cooling ramp samples for the cooling graph.</summary>
         public IReadOnlyList<CoolingSample> CoolingSamples { get; set; } = [];
 
+        /// <summary>Fine-grained activity description within the current phase.</summary>
+        public string? CurrentActivity { get; set; }
+
         // --- UI state ---
 
         /// <summary>Needs redraw flag for TUI integration.</summary>
@@ -89,6 +92,7 @@ namespace TianWen.UI.Abstractions
             FocusHistory = session.FocusHistory;
             ExposureLog = session.ExposureLog;
             CoolingSamples = session.CoolingSamples;
+            CurrentActivity = session.CurrentActivity;
         }
     }
 }

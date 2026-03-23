@@ -53,6 +53,7 @@ internal partial record Session
         var maybeCoversClosed = null as bool?;
         var maybeCooledCamerasToAmbient = null as bool?;
 
+        _currentActivity = "Stopping guider\u2026";
         External.AppLogger.LogInformation("Finalise: stopping guider...");
         var guiderStopped = await CatchAsync(async cancellationToken =>
         {
@@ -60,6 +61,7 @@ internal partial record Session
             return !await guider.Driver.IsGuidingAsync(cancellationToken).ConfigureAwait(false);
         }, cancellationToken).ConfigureAwait(false);
 
+        _currentActivity = "Stopping tracking\u2026";
         External.AppLogger.LogInformation("Finalise: stopping tracking...");
         var trackingStopped = await CatchAsync(async cancellationToken => mount.Driver.CanSetTracking && !await mount.Driver.IsTrackingAsync(cancellationToken), cancellationToken).ConfigureAwait(false);
 
@@ -69,9 +71,11 @@ internal partial record Session
             maybeCooledCamerasToAmbient ??= await CatchAsync(TurnOffCameraCoolingAsync, cancellationToken).ConfigureAwait(false);
         }
 
+        _currentActivity = "Disconnecting guider\u2026";
         External.AppLogger.LogInformation("Finalise: disconnecting guider...");
         var guiderDisconnected = await CatchAsync(guider.Driver.DisconnectAsync, cancellationToken).ConfigureAwait(false);
 
+        _currentActivity = "Parking mount\u2026";
         External.AppLogger.LogInformation("Finalise: parking mount...");
         bool parkInitiated = Catch(() => mount.Driver.CanPark) && await CatchAsync(mount.Driver.ParkAsync, cancellationToken).ConfigureAwait(false);
 
@@ -92,10 +96,12 @@ internal partial record Session
             maybeCooledCamerasToAmbient ??= await CatchAsync(TurnOffCameraCoolingAsync, cancellationToken).ConfigureAwait(false);
         }
 
+        _currentActivity = "Closing covers + warming cameras\u2026";
         External.AppLogger.LogInformation("Finalise: closing covers and warming cameras...");
         var coversClosed = maybeCoversClosed ??= await CatchAsync(CloseCoversAsync, cancellationToken).ConfigureAwait(false);
         var cooledCamerasToAmbient = maybeCooledCamerasToAmbient ??= await CatchAsync(TurnOffCameraCoolingAsync, cancellationToken).ConfigureAwait(false);
 
+        _currentActivity = "Disconnecting mount\u2026";
         External.AppLogger.LogInformation("Finalise: disconnecting mount...");
         var mountDisconnected = await CatchAsync(mount.Driver.DisconnectAsync, cancellationToken).ConfigureAwait(false);
 
@@ -159,7 +165,9 @@ internal partial record Session
         var mount = Setup.Mount;
         var guider = Setup.Guider;
 
+        _currentActivity = "Connecting mount\u2026";
         await mount.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
+        _currentActivity = "Connecting guider\u2026";
         await guider.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
 
         if (await mount.Driver.AtParkAsync(cancellationToken)
@@ -177,6 +185,7 @@ internal partial record Session
         {
             var telescope = Setup.Telescopes[i];
             var camera = telescope.Camera;
+            _currentActivity = $"Connecting camera {telescope.Name}\u2026";
             await camera.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
 
             // copy over denormalised properties if required
@@ -189,6 +198,7 @@ internal partial record Session
             camera.Driver.Longitude ??= await mount.Driver.GetSiteLongitudeAsync(cancellationToken);
         }
 
+        _currentActivity = "Checking cooler sensor temp\u2026";
         // Short interval — confirming camera is at sensor temp, not a full ramp.
         // 5 seconds allows cameras to settle after initial power-on.
         if (!await CoolCamerasToSensorTempAsync(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false))
@@ -197,6 +207,7 @@ internal partial record Session
             return false;
         }
 
+        _currentActivity = "Opening telescope covers\u2026";
         if (await MoveTelescopeCoversToStateAsync(CoverStatus.Open, CancellationToken.None))
         {
             External.AppLogger.LogInformation("All covers opened, and calibrator turned off.");
@@ -207,6 +218,7 @@ internal partial record Session
             return false;
         }
 
+        _currentActivity = "Connecting guider equipment\u2026";
         guider.Driver.GuiderStateChangedEvent += (_, e) => _guiderEvents.Enqueue(e);
         guider.Driver.GuidingErrorEvent +=  (_, e) => _guiderEvents.Enqueue(e);
         await guider.Driver.ConnectEquipmentAsync(cancellationToken).ConfigureAwait(false);

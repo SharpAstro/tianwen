@@ -56,6 +56,12 @@ namespace TianWen.UI.Abstractions
         /// <summary>Phase-specific status text with countdowns and context.</summary>
         public static string PhaseStatusText(LiveSessionState state, TimeProvider timeProvider)
         {
+            // Use CurrentActivity if available — it's more specific than the phase-level text
+            if (state.CurrentActivity is { Length: > 0 } activity)
+            {
+                return activity;
+            }
+
             var obs = state.ActiveSession?.Observations;
             var first = obs is { Count: > 0 } ? obs[0] : (ScheduledObservation?)null;
             var utcNow = timeProvider.GetUtcNow();

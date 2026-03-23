@@ -91,6 +91,7 @@ internal partial record Session
                 if (!double.IsNaN(ccdTemp))
                 {
                     _coolingSamples.Enqueue(new CoolingSample(External.TimeProvider.GetUtcNow(), i, ccdTemp, double.IsNaN(setpoint) ? 0 : setpoint, double.IsNaN(power) ? 0 : power));
+                    _currentActivity = $"{ccdTemp:F0}\u00B0C \u2192 {(double.IsNaN(setpoint) ? 0 : setpoint):F0}\u00B0C ({(double.IsNaN(power) ? 0 : power):F0}% power)";
                 }
             }
 
