@@ -43,7 +43,7 @@ public static class TransformFactory
             ? elev
             : 0.0;
 
-        return new Transform(timeProvider)
+        var transform = new Transform(timeProvider)
         {
             SiteLatitude = lat,
             SiteLongitude = lon,
@@ -51,5 +51,15 @@ public static class TransformFactory
             SiteTemperature = 15,
             DateTimeOffset = timeProvider.GetLocalNow()
         };
+
+        // Re-express "now" in the site's timezone so CalculateNightWindow computes
+        // the correct evening for the site, not for the machine's local timezone.
+        // The UTC instant is the same — only the offset changes.
+        if (transform.TryGetSiteTimeZone(out var siteOffset, out _))
+        {
+            transform.DateTimeOffset = timeProvider.GetUtcNow().ToOffset(siteOffset);
+        }
+
+        return transform;
     }
 }
