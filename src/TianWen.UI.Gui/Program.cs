@@ -406,7 +406,8 @@ loop.OnKeyDown = (inputKey, inputModifier) =>
 loop.OnQuit = () =>
 {
     RequestQuit();
-    return appState.ShuttingDown; // true = intercepted (keep loop alive), false = stop
+    // Intercept if session is running (showing abort confirm) or shutting down (draining)
+    return appState.ShuttingDown || appState.QuitRequested;
 };
 
 loop.Run(cts.Token);
