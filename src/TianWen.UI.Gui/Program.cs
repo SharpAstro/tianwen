@@ -270,39 +270,26 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
             }, "Recompute targets");
         }
 
+        // During shutdown, show progress and signal ready to stop
+        if (appState.ShuttingDown)
+        {
+            if (!tracker.HasPending)
+            {
+                appState.ShutdownComplete = true;
+            }
+            else
+            {
+                appState.StatusMessage = $"Shutting down\u2026 ({tracker.PendingCount} task{(tracker.PendingCount == 1 ? "" : "s")})";
+            }
+            return true; // always redraw during shutdown
+        }
+
         return appState.NeedsRedraw || plannerState.NeedsRedraw
             || appState.ActiveTextInput is { IsActive: true };
     },
 
     OnRender = () => guiRenderer.Render(appState, plannerState, viewerState, external.TimeProvider),
 
-    OnPostFrame = () =>
-    {
-        bus.ProcessPending(tracker);
-        if (tracker.ProcessCompletions(logger))
-        {
-            appState.NeedsRedraw = true;
-        }
-
-        // During shutdown, keep rendering until all background tasks (Finalise) complete
-        if (appState.ShuttingDown)
-        {
-            if (!tracker.HasPending)
-            {
-                loop.Stop();
-            }
-            else
-            {
-                appState.StatusMessage = $"Shutting down\u2026 ({tracker.PendingCount} task{(tracker.PendingCount == 1 ? "" : "s")})";
-                appState.NeedsRedraw = true;
-            }
-        }
-        else
-        {
-            appState.NeedsRedraw = false;
-        }
-        plannerState.NeedsRedraw = false;
-    }
 };
 
 // Graceful shutdown: cancel session (triggers Finalise), keep loop alive until drained
@@ -315,17 +302,17 @@ void BeginGracefulShutdown()
         return;
     }
 
-    // Cancel running session so Finalise starts
+    // Cancel running session so Finalise starts (don't cancel cts — that would stop the loop)
     if (guiRenderer.LiveSessionState is { IsRunning: true, SessionCts: { } sessionCts2 })
     {
         sessionCts2.Cancel();
     }
-    cts.Cancel();
 
     if (tracker.HasPending)
     {
         // Keep loop alive to show Finalise progress
         appState.ShuttingDown = true;
+        appState.ShutdownComplete = false;
         appState.StatusMessage = "Shutting down\u2026";
         appState.NeedsRedraw = true;
     }
@@ -335,7 +322,29 @@ void BeginGracefulShutdown()
     }
 }
 
-// OnKeyDown set separately to allow loop.Stop() self-reference
+// Set separately to allow loop.Stop() self-reference
+loop.OnPostFrame = () =>
+{
+    bus.ProcessPending(tracker);
+    if (tracker.ProcessCompletions(logger))
+    {
+        appState.NeedsRedraw = true;
+    }
+
+    // During shutdown, stop the loop once all tasks (Finalise) have completed
+    if (appState.ShutdownComplete)
+    {
+        loop.Stop();
+        return;
+    }
+
+    if (!appState.ShuttingDown)
+    {
+        appState.NeedsRedraw = false;
+    }
+    plannerState.NeedsRedraw = false;
+};
+
 loop.OnKeyDown = (inputKey, inputModifier) =>
 {
     if (appState.ShuttingDown) return false; // ignore keys during shutdown
