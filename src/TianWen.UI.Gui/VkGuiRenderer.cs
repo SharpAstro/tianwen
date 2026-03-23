@@ -244,7 +244,7 @@ namespace TianWen.UI.Gui
             }
 
             var now = timeProvider.GetLocalNow().ToOffset(plannerState.SiteTimeZone);
-            var clockText = now.ToString("HH:mm:ss");
+            var clockText = now.ToString("ddd d MMM HH:mm:ss");
 
             // Profile name (left)
             var profileName = appState.ActiveProfile?.DisplayName ?? "No profile";
