@@ -15,11 +15,5 @@ public interface IDeviceDependentGuider : IGuider
     /// </summary>
     /// <param name="mount">Mount driver for position queries and optional pulse guiding.</param>
     /// <param name="camera">Guider camera for frame capture and optional ST-4 pulse guiding.</param>
-    /// <summary>
-    /// Whether this guider requires a dedicated camera driver. Built-in guiders need a camera
-    /// for frame capture; fake/external guiders may not.
-    /// </summary>
-    bool RequiresCamera => true;
-
-    void LinkDevices(IMountDriver mount, ICameraDriver camera);
+    void LinkDevices(IMountDriver mount, ICameraDriver? camera);
 }

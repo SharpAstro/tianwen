@@ -76,6 +76,13 @@ internal partial record Session
         var stepCount = Math.Max((int)Math.Ceiling(maxDelta), 1);
         var rampInterval = TimeSpan.FromTicks(Math.Max(totalRampTime.Ticks / stepCount, TimeSpan.TicksPerSecond));
 
+        var targetLabel = desiredSetpointTemp.Kind switch
+        {
+            SetpointTempKind.Normal => $"{desiredSetpointTemp.TempC}\u00B0C",
+            SetpointTempKind.Ambient => "ambient",
+            _ => "sensor"
+        };
+
         var accSleep = TimeSpan.Zero;
         do
         {
@@ -91,7 +98,7 @@ internal partial record Session
                 if (!double.IsNaN(ccdTemp))
                 {
                     _coolingSamples.Enqueue(new CoolingSample(External.TimeProvider.GetUtcNow(), i, ccdTemp, double.IsNaN(setpoint) ? 0 : setpoint, double.IsNaN(power) ? 0 : power));
-                    _currentActivity = $"{ccdTemp:F0}\u00B0C \u2192 {(double.IsNaN(setpoint) ? 0 : setpoint):F0}\u00B0C ({(double.IsNaN(power) ? 0 : power):F0}% power)";
+                    _currentActivity = $"{ccdTemp:F0}\u00B0C \u2192 {targetLabel} ({(double.IsNaN(power) ? 0 : power):F0}% power)";
                 }
             }
 

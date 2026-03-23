@@ -38,14 +38,11 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
     private ICameraDriver? _camera;
 
     /// <inheritdoc/>
-    public void LinkDevices(IMountDriver mount, ICameraDriver camera)
+    public void LinkDevices(IMountDriver mount, ICameraDriver? camera)
     {
         _mount = mount;
         _camera = camera;
     }
-
-    /// <summary>Whether a guider camera is required for <see cref="LinkDevices"/>. False for fake guiders.</summary>
-    public bool RequiresCamera => false;
 
     private int _state = (int)GuiderState.Idle;
     private bool _equipmentConnected;
@@ -293,9 +290,9 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
         Directory.CreateDirectory(outputFolder);
         var path = Path.Combine(outputFolder, $"guider_{External.TimeProvider.GetUtcNow().UtcDateTime:yyyyMMdd_HHmmss}.fits");
 
-        // Use linked camera dimensions if available, otherwise default
-        var width = _camera is { NumX: > 0 } cam ? cam.NumX : GuideWidth;
-        var height = _camera is { NumY: > 0 } cam2 ? cam2.NumY : GuideHeight;
+        // Use linked camera dimensions if available and connected, otherwise default
+        var width = _camera is { Connected: true, NumX: > 0 } cam ? cam.NumX : GuideWidth;
+        var height = _camera is { Connected: true, NumY: > 0 } cam2 ? cam2.NumY : GuideHeight;
 
         // Render a synthetic star field with proper WCS headers
         var array = SyntheticStarFieldRenderer.Render(width, height, defocusSteps: 0, exposureSeconds: 2, noiseSeed: 42);

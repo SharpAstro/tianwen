@@ -84,19 +84,7 @@ internal class SessionFactory(
         // Wire mount and camera into guiders that need device access.
         if (guider.Driver is IDeviceDependentGuider deviceDependentGuider)
         {
-            if (guiderCamera?.Driver is { } guideCamera)
-            {
-                deviceDependentGuider.LinkDevices(mount.Driver, guideCamera);
-            }
-            else if (deviceDependentGuider is { RequiresCamera: true })
-            {
-                throw new InvalidOperationException("Built-in guider requires a dedicated guider camera.");
-            }
-            else
-            {
-                // Guider doesn't need a camera (e.g. FakeGuider) — link mount only
-                deviceDependentGuider.LinkDevices(mount.Driver, null!);
-            }
+            deviceDependentGuider.LinkDevices(mount.Driver, guiderCamera?.Driver);
         }
 
         var guiderSetup = new GuiderSetup(guiderCamera, guiderFocuser, guiderIsOAGOfOTA);
