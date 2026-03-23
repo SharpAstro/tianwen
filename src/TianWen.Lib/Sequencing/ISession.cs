@@ -44,6 +44,9 @@ public interface ISession : IAsyncDisposable
     /// <summary>Fired when the session transitions to a new phase.</summary>
     event EventHandler<SessionPhaseChangedEventArgs>? PhaseChanged;
 
+    /// <summary>Recorded phase start timestamps for timeline visualization.</summary>
+    IReadOnlyList<PhaseTimestamp> PhaseTimeline { get; }
+
     /// <summary>
     /// Fine-grained activity description within the current phase.
     /// Updated at each sub-step (e.g. "V-curve step 3/9", "Warming -5°C → ambient").
