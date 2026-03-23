@@ -31,6 +31,12 @@ public class GuiAppState
     public bool ShuttingDown { get; set; }
 
     /// <summary>
+    /// True when the user pressed X/Escape to quit while a session was running.
+    /// After abort is confirmed, shutdown proceeds automatically.
+    /// </summary>
+    public bool QuitRequested { get; set; }
+
+    /// <summary>
     /// Set by CheckNeedsRedraw when ShuttingDown and no pending tasks remain.
     /// The loop checks this to call Stop() (since CheckNeedsRedraw can't reference loop).
     /// </summary>

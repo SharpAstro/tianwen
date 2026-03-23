@@ -292,18 +292,29 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 
 };
 
-// Graceful shutdown: cancel session (triggers Finalise), keep loop alive until drained
-void BeginGracefulShutdown()
+// Request quit — shows abort confirmation if session is running, otherwise shuts down
+void RequestQuit()
 {
     if (appState.ShuttingDown)
     {
-        // Second press — force quit
+        // Already shutting down, second press — force quit
         loop.Stop();
         return;
     }
 
-    // Cancel running session so Finalise starts (don't cancel cts — that would stop the loop)
-    if (guiRenderer.LiveSessionState is { IsRunning: true, SessionCts: { } sessionCts2 })
+    var liveState = guiRenderer.LiveSessionState;
+    if (liveState.IsRunning && !liveState.ShowAbortConfirm)
+    {
+        // Session running — show abort confirmation (same as pressing Escape in Live Session tab)
+        liveState.ShowAbortConfirm = true;
+        appState.QuitRequested = true;
+        appState.ActiveTab = GuiTab.LiveSession;
+        appState.NeedsRedraw = true;
+        return;
+    }
+
+    // No session running, or abort already confirmed — proceed with shutdown
+    if (liveState is { SessionCts: { } sessionCts2 })
     {
         sessionCts2.Cancel();
     }
@@ -338,6 +349,13 @@ loop.OnPostFrame = () =>
         return;
     }
 
+    // After abort confirmation, if quit was requested, proceed to shutdown
+    if (appState.QuitRequested && !guiRenderer.LiveSessionState.IsRunning && !appState.ShuttingDown)
+    {
+        appState.QuitRequested = false;
+        RequestQuit();
+    }
+
     if (!appState.ShuttingDown)
     {
         appState.NeedsRedraw = false;
@@ -359,7 +377,7 @@ loop.OnKeyDown = (inputKey, inputModifier) =>
     switch (inputKey)
     {
         case InputKey.Escape:
-            BeginGracefulShutdown();
+            RequestQuit();
             return true;
         case InputKey.F11:
             sdlWindow.ToggleFullscreen();
@@ -373,7 +391,7 @@ loop.OnKeyDown = (inputKey, inputModifier) =>
 // Intercept window close button — behave like abort when session is active
 loop.OnQuit = () =>
 {
-    BeginGracefulShutdown();
+    RequestQuit();
     return appState.ShuttingDown; // true = intercepted (keep loop alive), false = stop
 };
 
