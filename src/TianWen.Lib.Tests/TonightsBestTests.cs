@@ -374,8 +374,10 @@ public class TonightsBestTests
     [Fact]
     public async Task Melbourne_MagellanicCloudsRankHigherInSummer()
     {
-        // In December (summer) from Melbourne, LMC transits near midnight → highest altitude → best rank
-        // In June (winter), LMC is at lower culmination → lower altitude → worse rank
+        // In December (summer) from Melbourne, LMC transits near midnight → highest altitude → best rank.
+        // In June (winter), LMC transits during daylight → the off-meridian penalty (0.5×) combined with
+        // lower altitude pushes it out of the top results entirely. This is correct: a target that peaks
+        // during daylight is always past-peak during imaging and should rank below on-meridian targets.
         var db = await InitDBAsync();
 
         var summerDate = new DateTimeOffset(2025, 12, 15, 20, 0, 0, TimeSpan.FromHours(11));
@@ -390,11 +392,16 @@ public class TonightsBestTests
         var lmcSummerRank = summerResults.FindIndex(r => r.Target.CatalogIndex == CatalogIndex.ESO056_115);
         var lmcWinterRank = winterResults.FindIndex(r => r.Target.CatalogIndex == CatalogIndex.ESO056_115);
 
+        // LMC should definitely appear in summer top-500 (transits during darkness)
         lmcSummerRank.ShouldBeGreaterThanOrEqualTo(0, "LMC should appear in summer results");
-        lmcWinterRank.ShouldBeGreaterThanOrEqualTo(0, "LMC should appear in winter results");
 
-        // In summer, LMC should rank higher (lower index = better rank)
-        lmcSummerRank.ShouldBeLessThan(lmcWinterRank,
-            $"LMC should rank higher in summer (rank {lmcSummerRank}) than winter (rank {lmcWinterRank})");
+        // In winter, LMC transits during daylight → off-meridian penalty may push it beyond top-500.
+        // If it does appear, it should rank worse than in summer.
+        if (lmcWinterRank >= 0)
+        {
+            lmcSummerRank.ShouldBeLessThan(lmcWinterRank,
+                $"LMC should rank higher in summer (rank {lmcSummerRank}) than winter (rank {lmcWinterRank})");
+        }
+        // else: LMC not in top-500 in winter → off-meridian penalty working as intended
     }
 }

@@ -118,7 +118,7 @@ bus.Subscribe<BuildScheduleSignal>(signal =>
             ? profileData.OTAs[0].OpticalDesign
             : OpticalDesign.Unknown;
 
-        PlannerActions.BuildSchedule(plannerState, transform,
+        PlannerActions.BuildSchedule(plannerState, guiRenderer.SessionState, transform,
             defaultGain: 120, defaultOffset: 10,
             defaultSubExposure: TimeSpan.FromSeconds(120),
             defaultObservationTime: TimeSpan.FromMinutes(60),

@@ -18,6 +18,9 @@ public class MetricSampleMap(SampleKind kind, AggregationMethod aggregationMetho
 
     public SampleKind Kind { get; } = kind;
 
+    /// <summary>Returns all focus positions that have at least one sample.</summary>
+    public int[] Keys() => [.. _samples.Keys];
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public ConcurrentBag<float> Samples(int focusPos) => _samples.GetOrAdd(focusPos, pFocusPos => []);
 

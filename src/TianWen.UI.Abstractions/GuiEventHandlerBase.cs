@@ -36,7 +36,7 @@ namespace TianWen.UI.Abstractions
 
             // Create shared signal handler (all business logic)
             _signalHandler = new AppSignalHandler(sp, appState, plannerState,
-                chrome.SessionState, chrome.EquipmentState, bus, cts, external);
+                chrome.SessionState, chrome.EquipmentState, chrome.LiveSessionState, bus, tracker, cts, external);
 
             // Wire the ensure-visible callback to the pixel widget's scroll mechanism
             _signalHandler.OnPlannerEnsureVisible = index => chrome.PlannerEnsureVisible(index);

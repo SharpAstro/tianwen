@@ -314,11 +314,12 @@ internal class PlanSubCommand(
 
                     case DIR.Lib.InputKey.S:
                         consoleHost.WriteScrollable(""); // newline past prompt
-                        PlannerActions.BuildSchedule(plannerState, transform,
+                        var cliSessionState = new SessionTabState();
+                        PlannerActions.BuildSchedule(plannerState, cliSessionState, transform,
                             defaultGain: 120, defaultOffset: 10,
                             defaultSubExposure: TimeSpan.FromSeconds(120),
                             defaultObservationTime: TimeSpan.FromMinutes(60));
-                        if (plannerState.Schedule is { Count: > 0 } schedule)
+                        if (cliSessionState.Schedule is { Count: > 0 } schedule)
                         {
                             consoleHost.WriteScrollable($"Schedule: {schedule.Count} observations built");
                             foreach (var obs in schedule)

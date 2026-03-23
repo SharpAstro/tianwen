@@ -21,9 +21,6 @@ public class PlannerState
     /// <summary>User's proposed observations (selected from TonightsBest or manually added).</summary>
     public List<ProposedObservation> Proposals { get; set; } = [];
 
-    /// <summary>The computed schedule from proposals. Null until scheduling is run.</summary>
-    public ScheduledObservationTree? Schedule { get; set; }
-
     /// <summary>Index of the currently selected target in the merged target list.</summary>
     public int SelectedTargetIndex { get; set; }
 

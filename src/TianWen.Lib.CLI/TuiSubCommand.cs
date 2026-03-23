@@ -66,8 +66,10 @@ internal class TuiSubCommand(
             await SessionPersistence.TryLoadAsync(sessionState, profile, external, cts.Token);
         }, "Load session config");
 
+        var liveSessionState = new LiveSessionState();
+
         // Wire shared business logic
-        var signalHandler = new AppSignalHandler(sp, appState, plannerState, sessionState, eqState, bus, cts, external);
+        var signalHandler = new AppSignalHandler(sp, appState, plannerState, sessionState, eqState, liveSessionState, bus, tracker, cts, external);
         signalHandler.OnPlannerEnsureVisible = index =>
         {
             plannerState.SelectedTargetIndex = index;
@@ -93,7 +95,8 @@ internal class TuiSubCommand(
             [GuiTab.Equipment] = new TuiEquipmentTab(appState, eqState, equipmentContent, bus),
             [GuiTab.Planner] = new TuiPlannerTab(plannerState,
                 transform ?? new TianWen.Lib.Astrometry.SOFA.Transform(external.TimeProvider), fontPath, bus),
-            [GuiTab.Session] = new TuiSessionTab(appState, sessionState, plannerState),
+            [GuiTab.Session] = new TuiSessionTab(appState, sessionState, plannerState, bus),
+            [GuiTab.LiveSession] = new TuiLiveSessionTab(appState, liveSessionState, bus),
         };
 
         // Subscribe to BuildScheduleSignal (same logic as GPU Program.cs)
@@ -108,7 +111,7 @@ internal class TuiSubCommand(
                 ? profileData.OTAs[0].OpticalDesign
                 : OpticalDesign.Unknown;
 
-            PlannerActions.BuildSchedule(plannerState, transform,
+            PlannerActions.BuildSchedule(plannerState, sessionState, transform,
                 defaultGain: 120, defaultOffset: 10,
                 defaultSubExposure: TimeSpan.FromSeconds(120),
                 defaultObservationTime: TimeSpan.FromMinutes(60),
@@ -186,11 +189,12 @@ internal class TuiSubCommand(
             }
 
             // Propagate state-level redraw flags to the active tab
-            if (plannerState.NeedsRedraw || sessionState.NeedsRedraw)
+            if (plannerState.NeedsRedraw || sessionState.NeedsRedraw || liveSessionState.NeedsRedraw)
             {
                 activeTab.NeedsRedraw = true;
                 plannerState.NeedsRedraw = false;
                 sessionState.NeedsRedraw = false;
+                liveSessionState.NeedsRedraw = false;
             }
 
             if (!appState.NeedsRedraw && !activeTab.NeedsRedraw)
@@ -238,7 +242,8 @@ internal class TuiSubCommand(
             ConsoleKey.D1 or ConsoleKey.F1 => GuiTab.Equipment,
             ConsoleKey.D2 or ConsoleKey.F2 => GuiTab.Planner,
             ConsoleKey.D3 or ConsoleKey.F3 => GuiTab.Session,
-            ConsoleKey.D4 or ConsoleKey.F4 => GuiTab.Viewer,
+            ConsoleKey.D4 or ConsoleKey.F4 => GuiTab.LiveSession,
+            ConsoleKey.D5 or ConsoleKey.F5 => GuiTab.Viewer,
             _ => (GuiTab?)null
         };
 

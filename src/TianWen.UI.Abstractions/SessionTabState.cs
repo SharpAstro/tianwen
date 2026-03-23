@@ -55,6 +55,9 @@ namespace TianWen.UI.Abstractions
     /// </summary>
     public class SessionTabState
     {
+        /// <summary>The computed schedule from proposals. Null until scheduling is run from this tab.</summary>
+        public ScheduledObservationTree? Schedule { get; set; }
+
         /// <summary>The session configuration being edited.</summary>
         public SessionConfiguration Configuration { get; set; } = DefaultConfiguration;
 
