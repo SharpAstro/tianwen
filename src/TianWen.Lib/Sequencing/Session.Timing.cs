@@ -31,15 +31,15 @@ internal partial record Session
         var (_, _, set) = transform.EventTimes(Astrometry.SOFA.EventType.AmateurAstronomicalTwilight);
         if (set is { Count: 1 })
         {
-            var now = External.TimeProvider.GetUtcNow().UtcDateTime;
-            var localNow = new DateTimeOffset(now, TimeSpan.Zero).ToOffset(transform.SiteTimeZone);
-            var localDayStart = LocalStartOfDay(now, transform.SiteTimeZone);
+            var utcNow = External.TimeProvider.GetUtcNow();
+            var localNow = utcNow.ToOffset(transform.SiteTimeZone);
+            var localDayStart = new DateTimeOffset(localNow.Date, localNow.Offset);
             var localAstroTwilightSet = localDayStart + set[0];
             var local10MinBeforeAstroTwilightSet = localAstroTwilightSet - TimeSpan.FromMinutes(10);
-            var diff = local10MinBeforeAstroTwilightSet - now;
+            var diff = local10MinBeforeAstroTwilightSet - utcNow;
 
-            External.AppLogger.LogInformation("WaitForDark: now={Now}, localDayStart={LocalDayStart}, set[0]={SetOffset}, twilightSet={TwilightSet}, 10minBefore={Before10}, diff={Diff}",
-                now, localDayStart, set[0], localAstroTwilightSet, local10MinBeforeAstroTwilightSet, diff);
+            External.AppLogger.LogInformation("WaitForDark: utcNow={UtcNow}, localNow={LocalNow}, localDayStart={LocalDayStart}, set[0]={SetOffset}, twilightSet={TwilightSet}, 10minBefore={Before10}, diff={Diff}",
+                utcNow, localNow, localDayStart, set[0], localAstroTwilightSet, local10MinBeforeAstroTwilightSet, diff);
 
             if (diff > TimeSpan.Zero)
             {
