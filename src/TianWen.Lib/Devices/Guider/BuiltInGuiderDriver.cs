@@ -80,13 +80,13 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     /// </summary>
     internal ICameraDriver? CameraDriver => _camera;
 
-    public void LinkDevices(IMountDriver mount, ICameraDriver camera)
+    public void LinkDevices(IMountDriver mount, ICameraDriver? camera)
     {
         _mount = mount;
-        _camera = camera;
+        _camera = camera ?? throw new InvalidOperationException("Built-in guider requires a dedicated guider camera.");
 
         var pulseGuideSource = _device.PulseGuideSource;
-        _pulseTarget = new PulseGuideRouter(pulseGuideSource, camera, mount);
+        _pulseTarget = new PulseGuideRouter(pulseGuideSource, _camera, mount);
     }
 
     public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
