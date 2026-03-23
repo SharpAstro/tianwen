@@ -160,10 +160,16 @@ internal partial record Session(
         }
         finally
         {
+            // Remember terminal state so we can restore it after Finalise
+            var terminalPhase = _phase;
+
             // Finalise must complete — park mount, warm cameras, close covers.
             // Uses CancellationToken.None because interrupting warmup could damage hardware.
             SetPhase(SessionPhase.Finalising);
             await Finalise(CancellationToken.None).ConfigureAwait(false);
+
+            // Restore the terminal state so the UI shows Complete/Aborted/Failed, not Finalising
+            SetPhase(terminalPhase);
         }
     }
 
