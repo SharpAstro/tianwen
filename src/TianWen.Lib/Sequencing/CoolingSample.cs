@@ -10,4 +10,5 @@ public readonly record struct CoolingSample(
     DateTimeOffset Timestamp,
     int CameraIndex,
     double TemperatureC,
+    double SetpointTempC,
     double CoolerPowerPercent);

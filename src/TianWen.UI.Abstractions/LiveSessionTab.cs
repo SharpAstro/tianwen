@@ -569,6 +569,39 @@ namespace TianWen.UI.Abstractions
                 hasLast[cam] = true;
             }
 
+            // Setpoint line — dashed, from the latest sample's setpoint per camera
+            for (var cam = 0; cam < cameraCount; cam++)
+            {
+                // Find last sample for this camera
+                var lastSetpoint = double.NaN;
+                for (var i = samples.Count - 1; i >= 0; i--)
+                {
+                    if (samples[i].CameraIndex == cam)
+                    {
+                        lastSetpoint = samples[i].SetpointTempC;
+                        break;
+                    }
+                }
+
+                if (!double.IsNaN(lastSetpoint) && lastSetpoint != 0)
+                {
+                    var spNorm = (float)((lastSetpoint - minTemp) / (maxTemp - minTemp));
+                    if (spNorm is >= 0 and <= 1)
+                    {
+                        var spY = graphY + graphH - spNorm * graphH;
+                        var col = CameraTempColors[cam % CameraTempColors.Length];
+                        // Dashed line
+                        for (var dx = graphX; dx < graphX + graphW; dx += 8)
+                        {
+                            FillRect(dx, spY, 4, 1, col);
+                        }
+                        DrawText($"{lastSetpoint:F0}\u00B0".AsSpan(), fontPath,
+                            rect.X + rect.Width - pad * 6, spY - fontSize / 2, pad * 5, fontSize,
+                            fontSize * 0.65f, col, TextAlign.Near, TextAlign.Center);
+                    }
+                }
+            }
+
             // Zero line for temperature reference
             var zeroNorm = (float)((0 - minTemp) / (maxTemp - minTemp));
             if (zeroNorm is >= 0 and <= 1)
