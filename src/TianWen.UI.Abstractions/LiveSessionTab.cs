@@ -91,7 +91,7 @@ namespace TianWen.UI.Abstractions
             var centerW = contentRect.Width - leftW - rightW;
             if (centerW > 0)
             {
-                if (state.Phase is SessionPhase.Cooling && state.CoolingSamples.Count > 0)
+                if (state.Phase is SessionPhase.Cooling or SessionPhase.Finalising && state.CoolingSamples.Count > 0)
                 {
                     // During cooling: show cooling graph (full center area)
                     var coolingRect = new RectF32(centerX, mainY, centerW, mainH);

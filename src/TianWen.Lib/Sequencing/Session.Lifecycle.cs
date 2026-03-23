@@ -53,12 +53,14 @@ internal partial record Session
         var maybeCoversClosed = null as bool?;
         var maybeCooledCamerasToAmbient = null as bool?;
 
+        External.AppLogger.LogInformation("Finalise: stopping guider...");
         var guiderStopped = await CatchAsync(async cancellationToken =>
         {
             await guider.Driver.StopCaptureAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
             return !await guider.Driver.IsGuidingAsync(cancellationToken).ConfigureAwait(false);
         }, cancellationToken).ConfigureAwait(false);
 
+        External.AppLogger.LogInformation("Finalise: stopping tracking...");
         var trackingStopped = await CatchAsync(async cancellationToken => mount.Driver.CanSetTracking && !await mount.Driver.IsTrackingAsync(cancellationToken), cancellationToken).ConfigureAwait(false);
 
         if (trackingStopped)
@@ -67,7 +69,10 @@ internal partial record Session
             maybeCooledCamerasToAmbient ??= await CatchAsync(TurnOffCameraCoolingAsync, cancellationToken).ConfigureAwait(false);
         }
 
+        External.AppLogger.LogInformation("Finalise: disconnecting guider...");
         var guiderDisconnected = await CatchAsync(guider.Driver.DisconnectAsync, cancellationToken).ConfigureAwait(false);
+
+        External.AppLogger.LogInformation("Finalise: parking mount...");
         bool parkInitiated = Catch(() => mount.Driver.CanPark) && await CatchAsync(mount.Driver.ParkAsync, cancellationToken).ConfigureAwait(false);
 
         var parkCompleted = parkInitiated && await CatchAsync(async cancellationToken =>
@@ -87,9 +92,11 @@ internal partial record Session
             maybeCooledCamerasToAmbient ??= await CatchAsync(TurnOffCameraCoolingAsync, cancellationToken).ConfigureAwait(false);
         }
 
+        External.AppLogger.LogInformation("Finalise: closing covers and warming cameras...");
         var coversClosed = maybeCoversClosed ??= await CatchAsync(CloseCoversAsync, cancellationToken).ConfigureAwait(false);
         var cooledCamerasToAmbient = maybeCooledCamerasToAmbient ??= await CatchAsync(TurnOffCameraCoolingAsync, cancellationToken).ConfigureAwait(false);
 
+        External.AppLogger.LogInformation("Finalise: disconnecting mount...");
         var mountDisconnected = await CatchAsync(mount.Driver.DisconnectAsync, cancellationToken).ConfigureAwait(false);
 
         var shutdownReport = new Dictionary<string, bool>
