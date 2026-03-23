@@ -39,6 +39,7 @@ internal partial record Session(
 
     // --- Observable session surface ---
     private volatile SessionPhase _phase;
+    private volatile string? _currentActivity;
     private readonly ConcurrentQueue<FocusRunRecord> _focusHistory = [];
     private readonly CircularBuffer<GuideErrorSample> _guideSamples = new CircularBuffer<GuideErrorSample>(300);
     private volatile GuideStats? _lastGuideStats;
@@ -46,6 +47,7 @@ internal partial record Session(
     private readonly ConcurrentQueue<CoolingSample> _coolingSamples = [];
 
     public SessionPhase Phase => _phase;
+    public string? CurrentActivity => _currentActivity;
     public int TotalFramesWritten => _totalFramesWritten;
     public TimeSpan TotalExposureTime => TimeSpan.FromTicks(Interlocked.Read(ref _totalExposureTimeTicks));
     public int CurrentObservationIndex => _activeObservation;
@@ -82,6 +84,7 @@ internal partial record Session(
     {
         var old = _phase;
         _phase = newPhase;
+        _currentActivity = null; // reset on phase change
         External.AppLogger.LogInformation("Session phase: {OldPhase} → {NewPhase}", old, newPhase);
         PhaseChanged?.Invoke(this, new SessionPhaseChangedEventArgs(old, newPhase));
     }

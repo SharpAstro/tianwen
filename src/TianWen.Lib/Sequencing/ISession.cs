@@ -44,6 +44,13 @@ public interface ISession : IAsyncDisposable
     /// <summary>Fired when the session transitions to a new phase.</summary>
     event EventHandler<SessionPhaseChangedEventArgs>? PhaseChanged;
 
+    /// <summary>
+    /// Fine-grained activity description within the current phase.
+    /// Updated at each sub-step (e.g. "V-curve step 3/9", "Warming -5°C → ambient").
+    /// Null when no activity is in progress.
+    /// </summary>
+    string? CurrentActivity { get; }
+
     /// <summary>Fired after a frame is written to disk.</summary>
     event EventHandler<FrameWrittenEventArgs>? FrameWritten;
 
