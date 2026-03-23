@@ -629,11 +629,18 @@ internal static class ObservationScheduler
         var conditionedHA = CoordinateUtils.ConditionHA(siderealTimeAtAstroDark - target.RA);
         if (!double.IsNaN(conditionedHA))
         {
-            var hourAngle = TimeSpan.FromHours(conditionedHA);
-            var crossMeridianTime = astroDark - hourAngle;
+            var crossMeridianTime = astroDark - TimeSpan.FromHours(conditionedHA);
             // Find the closest precomputed sample to the meridian time
             var meridianIdx = FindClosestTimeIndex(times, crossMeridianTime);
             profile[RaDecEventTime.Meridian] = new RaDecEventInfo(crossMeridianTime, profile[RaDecEventTime.Balance + meridianIdx].Alt);
+
+            // Penalise targets whose meridian transit falls outside the dark window.
+            // A target that transits during daylight is always past-peak during imaging —
+            // apply a 0.5× multiplier so it ranks below targets that peak during darkness.
+            if (totalScore > 0 && (crossMeridianTime < astroDark || crossMeridianTime > astroTwilight))
+            {
+                totalScore *= 0.5;
+            }
         }
 
         var optimalStart = windowStart ?? astroDark;
