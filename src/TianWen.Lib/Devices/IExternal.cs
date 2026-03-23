@@ -172,6 +172,56 @@ public interface IExternal
     TimeProvider TimeProvider { get; }
 
     /// <summary>
+    /// Atomically writes to a file by writing to a temporary file first, then renaming.
+    /// Prevents data loss if the process is interrupted (e.g. Ctrl+C) during write.
+    /// </summary>
+    public async Task AtomicWriteAsync(string filePath, Func<Stream, CancellationToken, Task> writeAction, CancellationToken ct = default)
+    {
+        var dir = Path.GetDirectoryName(filePath);
+        if (dir is not null)
+        {
+            Directory.CreateDirectory(dir);
+        }
+
+        var tmpPath = filePath + ".tmp";
+        using (var stream = new FileStream(tmpPath, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            await writeAction(stream, ct);
+        }
+        File.Move(tmpPath, filePath, overwrite: true);
+    }
+
+    /// <summary>
+    /// Atomically writes a JSON-serializable value to a file using source-generated serialization.
+    /// </summary>
+    public Task AtomicWriteJsonAsync<T>(string filePath, T value, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> jsonTypeInfo, CancellationToken ct = default)
+        => AtomicWriteAsync(filePath, (stream, token) =>
+            System.Text.Json.JsonSerializer.SerializeAsync(stream, value, jsonTypeInfo, token), ct);
+
+    /// <summary>
+    /// Reads and deserializes a JSON file using source-generated serialization.
+    /// Returns <c>null</c> if the file does not exist or deserialization fails.
+    /// </summary>
+    public async Task<T?> TryReadJsonAsync<T>(string filePath, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> jsonTypeInfo, CancellationToken ct = default) where T : class
+    {
+        if (!File.Exists(filePath))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            return await System.Text.Json.JsonSerializer.DeserializeAsync(stream, jsonTypeInfo, ct);
+        }
+        catch (Exception ex)
+        {
+            AppLogger.LogWarning(ex, "Failed to read JSON from {FilePath}", filePath);
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Creates or returns a sub folder under the <see cref="OutputFolder"/>.
     /// </summary>
     /// <returns></returns>

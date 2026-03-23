@@ -55,16 +55,11 @@ namespace TianWen.UI.Abstractions
         public BackgroundTaskTracker? Tracker { get; set; }
 
 
-        public override bool HandleKeyDown(InputKey key, InputModifier modifiers)
+        public override bool HandleInput(InputEvent evt) => evt switch
         {
-            // Route to dropdown if open
-            if (State.FilterNameDropdown.HandleKeyDown(key))
-            {
-                return true;
-            }
-
-            return base.HandleKeyDown(key, modifiers);
-        }
+            InputEvent.KeyDown(var key, _) when State.FilterNameDropdown.HandleKeyDown(key) => true,
+            _ => base.HandleInput(evt)
+        };
 
         // -----------------------------------------------------------------------
         // Public entry points
@@ -133,7 +128,7 @@ namespace TianWen.UI.Abstractions
             var btnY = centerY + padding;
 
             RenderButton("Create Profile", btnX, btnY, buttonW, buttonH, fontPath, fontSize, CreateButton, BodyText, "CreateProfile",
-                () => PostSignal(new CreateProfileSignal()));
+                _ => PostSignal(new CreateProfileSignal()));
         }
 
         // -----------------------------------------------------------------------
@@ -179,7 +174,7 @@ namespace TianWen.UI.Abstractions
             var btnY = inputY + (int)fieldH + (int)padding;
             var btnW = 120f * dpiScale;
             RenderButton("Create", fieldX, btnY, btnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "CreateProfile",
-                () => { if (State.ProfileNameInput.Text.Length > 0) State.ProfileNameInput.OnCommit?.Invoke(State.ProfileNameInput.Text); });
+                _ => { if (State.ProfileNameInput.Text.Length > 0) State.ProfileNameInput.OnCommit?.Invoke(State.ProfileNameInput.Text); });
 
             // Bottom status
             FillRect(bottomBarRect.X, bottomBarRect.Y, bottomBarRect.Width, bottomBarRect.Height, BottomBarBg);
@@ -292,7 +287,7 @@ namespace TianWen.UI.Abstractions
                     // Save button
                     var saveBtnW = Renderer.MeasureText("Save Site".AsSpan(), fontPath, fontSize).Width + padding * 4f;
                     RenderButton("Save Site", x + padding, cursor, saveBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "SaveSite",
-                        () => State.LatitudeInput.OnCommit?.Invoke(State.LatitudeInput.Text));
+                        _ => State.LatitudeInput.OnCommit?.Invoke(State.LatitudeInput.Text));
                     cursor += buttonH + padding;
                 }
                 else if (site.HasValue)
@@ -306,7 +301,7 @@ namespace TianWen.UI.Abstractions
                     var siteBtnW = w - padding * 2f;
                     FillRect(x + padding, cursor, siteBtnW, itemH, SlotNormal);
                     RegisterClickable(x + padding, cursor, siteBtnW, itemH, new HitResult.ButtonHit("EditSite"),
-                        () => PostSignal(new EditSiteSignal()));
+                        _ => PostSignal(new EditSiteSignal()));
                     DrawText(siteStr.AsSpan(), fontPath, x + padding, cursor, siteBtnW - arrowW, itemH, fontSize * 0.9f, SiteText, TextAlign.Near, TextAlign.Center);
                     DrawText("[>]".AsSpan(), fontPath, x + w - padding - arrowW, cursor, arrowW, itemH, fontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center);
                     cursor += itemH;
@@ -316,7 +311,7 @@ namespace TianWen.UI.Abstractions
                     // No site configured — show "Set Site" button
                     var setSiteBtnW = Renderer.MeasureText("Set Site".AsSpan(), fontPath, fontSize).Width + padding * 4f;
                     RenderButton("Set Site", x + padding, cursor, setSiteBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "EditSite",
-                        () => PostSignal(new EditSiteSignal()));
+                        _ => PostSignal(new EditSiteSignal()));
                     cursor += buttonH;
                 }
 
@@ -360,7 +355,7 @@ namespace TianWen.UI.Abstractions
                     var editLabel = isEditingOta ? "Save" : "Edit";
                     var capturedI = i;
                     RenderButton(editLabel, x + w - padding - editBtnW, cursor, editBtnW, itemH, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, $"EditOta{i}",
-                        () =>
+                        _ =>
                         {
                             if (isEditingOta)
                             {
@@ -424,7 +419,7 @@ namespace TianWen.UI.Abstractions
                 if (addOtaBtnY + buttonH < y + h - padding)
                 {
                     RenderButton("+ Add OTA", x + padding, addOtaBtnY, addOtaBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "AddOta",
-                        () => PostSignal(new AddOtaSignal()));
+                        _ => PostSignal(new AddOtaSignal()));
                 }
             }
             else
@@ -454,7 +449,7 @@ namespace TianWen.UI.Abstractions
             FillRect(x, y, w, itemH, bgColor);
             var capturedSlot = slot;
             RegisterClickable(x, y, w, itemH, new HitResult.SlotHit<AssignTarget>(slot),
-                () => { State.ActiveAssignment = State.ActiveAssignment == capturedSlot ? null : capturedSlot; });
+                _ => { State.ActiveAssignment = State.ActiveAssignment == capturedSlot ? null : capturedSlot; });
 
             // Separator line at bottom of slot
             FillRect(x, y + itemH - 1f, w, 1f, SeparatorColor);
@@ -550,7 +545,7 @@ namespace TianWen.UI.Abstractions
                 FillRect(x, rowY, w, itemH, isCurrentForSlot ? SlotActive : DeviceRowBg);
                 var capturedIdx = i;
                 RegisterClickable(x, rowY, w, itemH, new HitResult.ListItemHit("Devices", i),
-                    () => PostSignal(new AssignDeviceSignal(capturedIdx)));
+                    _ => PostSignal(new AssignDeviceSignal(capturedIdx)));
                 FillRect(x, rowY + itemH - 1f, w, 1f, SeparatorColor);
 
                 // Type badge
@@ -591,7 +586,7 @@ namespace TianWen.UI.Abstractions
             var discoverBtnX = x + padding;
 
             RenderButton(discoverLabel, discoverBtnX, discoverBtnY, discoverBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "Discover",
-                () => PostSignal(new DiscoverDevicesSignal()));
+                mods => PostSignal(new DiscoverDevicesSignal(IncludeFake: (mods & InputModifier.Shift) != 0)));
         }
 
         // -----------------------------------------------------------------------
@@ -700,7 +695,7 @@ namespace TianWen.UI.Abstractions
             var designBtnW = Renderer.MeasureText(designLabel.AsSpan(), fontPath, fontSize * 0.9f).Width + padding * 4f;
             var capturedIdx = otaIndex;
             RenderButton(designLabel, x + padding, cursor, designBtnW, buttonH, fontPath, fontSize * 0.9f, EditButtonBg, BodyText, $"CycleDesign{otaIndex}",
-                () =>
+                _ =>
                 {
                     if (appState.ActiveProfile is { } prof && prof.Data is { } data)
                     {
@@ -736,7 +731,7 @@ namespace TianWen.UI.Abstractions
                 : $"    Filters ({savedFilters.Count}) [+]";
             FillRect(x + padding, cursor, w - padding * 2f, rowH, FilterTableBg);
             RegisterClickable(x + padding, cursor, w - padding * 2f, rowH, new HitResult.ButtonHit($"ToggleFilters{otaIndex}"),
-                () =>
+                _ =>
                 {
                     if (isExpanded)
                     {
@@ -803,7 +798,7 @@ namespace TianWen.UI.Abstractions
                 else
                 {
                 RenderButton(EquipmentActions.FilterDisplayName(filter), nameCellX, cursor, nameColW, rowH, fontPath, fontSize * 0.8f, rowBg, BodyText, $"FilterName{otaIndex}_{f}",
-                    () =>
+                    _ =>
                     {
                         var existingCustom = capturedF < filters.Count ? filters[capturedF].CustomName : null;
                         State.FilterNameDropdown.Open(
@@ -837,7 +832,7 @@ namespace TianWen.UI.Abstractions
                 var offsetStr = filter.Position >= 0 ? $"+{filter.Position}" : filter.Position.ToString();
 
                 RenderButton("-", offsetX, cursor, stepBtnW, rowH, fontPath, fontSize * 0.8f, EditButtonBg, BodyText, $"FilterOffDec{otaIndex}_{f}",
-                    () =>
+                    _ =>
                     {
                         if (capturedF < filters.Count)
                         {
@@ -854,7 +849,7 @@ namespace TianWen.UI.Abstractions
                     fontSize * 0.8f, BodyText, TextAlign.Center, TextAlign.Center);
 
                 RenderButton("+", offsetX + stepBtnW + offsetValueW, cursor, stepBtnW, rowH, fontPath, fontSize * 0.8f, EditButtonBg, BodyText, $"FilterOffInc{otaIndex}_{f}",
-                    () =>
+                    _ =>
                     {
                         if (capturedF < filters.Count)
                         {
@@ -874,7 +869,7 @@ namespace TianWen.UI.Abstractions
                 var cancelBtnW = Renderer.MeasureText("Cancel".AsSpan(), fontPath, fontSize * 0.85f).Width + padding * 3f;
 
                 RenderButton("Save", x + padding * 2f, cursor, saveBtnW, buttonH * 0.85f, fontPath, fontSize * 0.85f, CreateButton, BodyText, $"SaveFilters{otaIndex}",
-                    () =>
+                    _ =>
                     {
                         if (appState.ActiveProfile is { } prof && prof.Data is { } data && State.EditingFilters is { } editFilters)
                         {
@@ -885,7 +880,7 @@ namespace TianWen.UI.Abstractions
                     });
 
                 RenderButton("Cancel", x + padding * 2f + saveBtnW + padding, cursor, cancelBtnW, buttonH * 0.85f, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, $"CancelFilters{otaIndex}",
-                    () =>
+                    _ =>
                     {
                         // Reload from profile
                         State.BeginEditingFilters(savedFilters);

@@ -10,7 +10,7 @@ namespace TianWen.Lib.Tests.Functional;
 
 public class SessionCoolingTests(ITestOutputHelper output)
 {
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenCoolableCameraWhenCoolDownThenReachesSetpoint()
     {
         // given — camera starts at 20°C, target is -10°C
@@ -45,7 +45,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
         power.ShouldBeGreaterThan(0, "cooler should be drawing power");
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenCooledCameraWhenWarmUpThenReachesHigherTemp()
     {
         // given — cool camera down first
@@ -82,7 +82,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
         finalTemp.ShouldBeGreaterThan(cooledTemp, "temperature should have risen from cooled state");
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenCoolableCameraWhenCoolDownThenCoolerTurnsOn()
     {
         // given
@@ -106,7 +106,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
         coolerAfter.ShouldBeTrue("cooler should be on after cooldown started");
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenCoolableCameraWhenCoolDownCancelledThenStopsEarly()
     {
         // given
@@ -135,7 +135,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
         temp.ShouldBeGreaterThan(-10, "should not have reached setpoint when cancelled early");
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenCoolableCameraWhenCoolToSensorTempThenUsesCurrentCCDTemp()
     {
         // given — camera at 20°C
@@ -153,7 +153,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
         temp.ShouldBe(20.0, 1.0, "should stay near initial temperature");
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenCooldownWhenTemperatureRampsThenPowerIncreasesGradually()
     {
         // given

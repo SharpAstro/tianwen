@@ -29,7 +29,7 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
 
     #region Connect / Disconnect
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenSgpMountWhenConnectedThenIsConnectedAndFirmwareAvailable()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -44,7 +44,7 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
         driverInfo.ShouldContain("FW");
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenConnectedSgpMountWhenDisconnectedThenIsNotConnected()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -61,7 +61,7 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
 
     #region Tracking Rates
 
-    [Theory]
+    [Theory(Timeout = 60_000)]
     [InlineData(TrackingSpeed.Sidereal)]
     [InlineData(TrackingSpeed.Lunar)]
     [InlineData(TrackingSpeed.Solar)]
@@ -77,7 +77,7 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
         reported.ShouldBe(speed);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenConnectedSgpMountWhenTrackingEnabledThenIsTrackingReturnsTrue()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -89,7 +89,7 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
         (await mount.IsTrackingAsync(ct)).ShouldBeTrue();
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenConnectedSgpMountThenTrackingSpeedsContainExpectedValues()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -105,7 +105,7 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
 
     #region Hemisphere
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenNorthernHemisphereSgpMountThenDecIs90()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -118,7 +118,7 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
         dec.ShouldBe(90.0);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenSouthernHemisphereSgpMountThenDecIsMinus90()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -131,7 +131,7 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
         dec.ShouldBe(-90.0);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenSgpMountWhenHemisphereSwitchedThenDecUpdates()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -149,7 +149,7 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
 
     #region RA MoveAxis
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenSgpMountWhenMoveAxisPrimaryThenIsSlewing()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -167,7 +167,7 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
         (await mount.IsSlewingAsync(ct)).ShouldBeFalse();
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenSgpMountWhenMoveAxisSecondaryThenThrows()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -178,7 +178,7 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
             () => mount.MoveAxisAsync(TelescopeAxis.Seconary, 1.0, ct).AsTask());
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenSgpMountWhenMoveAxisTertiaryThenThrows()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -189,7 +189,7 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
             () => mount.MoveAxisAsync(TelescopeAxis.Tertiary, 1.0, ct).AsTask());
     }
 
-    [Theory]
+    [Theory(Timeout = 60_000)]
     [InlineData(1)]
     [InlineData(2)]
     [InlineData(3)]
@@ -218,7 +218,7 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
 
     #region Pulse Guide (not supported — requires ST-4)
 
-    [Theory]
+    [Theory(Timeout = 60_000)]
     [InlineData(GuideDirection.East)]
     [InlineData(GuideDirection.West)]
     [InlineData(GuideDirection.North)]
@@ -233,7 +233,7 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
             () => mount.PulseGuideAsync(direction, TimeSpan.FromMilliseconds(500), ct).AsTask());
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenSgpMountThenIsPulseGuidingAlwaysFalse()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -247,7 +247,7 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
 
     #region Camera Snap
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenSgpMountWhenCameraSnapTriggeredThenSettingsReadBack()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -268,7 +268,7 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
         readBack.Value.ShotCount.ShouldBe(5);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenSgpMountWhenCameraSnapSettingsQueriedBeforeSnapThenDefaultsReturned()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -287,7 +287,7 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
 
     #region Sync
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenSgpMountWhenSyncedThenRaDecUpdated()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -303,7 +303,7 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
         dec.ShouldBe(45.0, 0.001);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenSgpMountWhenSyncedMultipleTimesThenLatestValueUsed()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -321,7 +321,7 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
 
     #region Capabilities
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenSgpMountThenCapabilitiesReflectRaOnlyMount()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -346,7 +346,7 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
         mount.CanMoveAxis(TelescopeAxis.Tertiary).ShouldBeFalse();
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenSgpMountWhenSlewAttemptedThenThrows()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -357,7 +357,7 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
             () => mount.BeginSlewRaDecAsync(12.0, 45.0, ct).AsTask());
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenSgpMountWhenSetDecGuideRateThenThrows()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -372,7 +372,7 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
 
     #region Guide Rate
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenSgpMountWhenGuideRateSetThenReadBackMatches()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -393,7 +393,7 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
 
     #region Site
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenSgpMountWithLatLongInUriThenSiteReturnsThem()
     {
         var ct = TestContext.Current.CancellationToken;

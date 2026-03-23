@@ -225,7 +225,7 @@ internal class ProfileSubCommand(
         }
 
         consoleHost.WriteScrollable("");
-        consoleHost.WriteScrollable("D:discover  A:assign  S:set-site  F:filters  O:add-ota  Q:quit");
+        consoleHost.WriteScrollable("D:discover  A:assign  E:edit-site  F:filters  O:add-ota  Q:quit");
 
         // Inline input loop
         while (!ct.IsCancellationRequested)
@@ -257,6 +257,44 @@ internal class ProfileSubCommand(
                         for (var i = 0; i < deviceList.Length; i++)
                         {
                             consoleHost.WriteScrollable($"  [{i}] {deviceList[i].DeviceType}: {deviceList[i].DisplayName}");
+                        }
+                        break;
+
+                    case DIR.Lib.InputKey.E:
+                        // Inline site editing: prompt for lat, lon, elevation
+                        var existingSite = profile.Data?.Mount is { } siteMount
+                            ? EquipmentActions.GetSiteFromMount(siteMount)
+                            : null;
+
+                        var latDefault = existingSite?.Lat.ToString(CultureInfo.InvariantCulture) ?? "";
+                        var lonDefault = existingSite?.Lon.ToString(CultureInfo.InvariantCulture) ?? "";
+                        var elevDefault = existingSite?.Elev?.ToString(CultureInfo.InvariantCulture) ?? "";
+
+                        consoleHost.WriteScrollable($"Latitude [{latDefault}]: ", newLine: false);
+                        var latStr = consoleHost.ReadLine()?.Trim();
+                        if (string.IsNullOrEmpty(latStr)) latStr = latDefault;
+
+                        consoleHost.WriteScrollable($"Longitude [{lonDefault}]: ", newLine: false);
+                        var lonStr = consoleHost.ReadLine()?.Trim();
+                        if (string.IsNullOrEmpty(lonStr)) lonStr = lonDefault;
+
+                        consoleHost.WriteScrollable($"Elevation m [{elevDefault}]: ", newLine: false);
+                        var elevStr = consoleHost.ReadLine()?.Trim();
+                        if (string.IsNullOrEmpty(elevStr)) elevStr = elevDefault;
+
+                        if (double.TryParse(latStr, CultureInfo.InvariantCulture, out var newLat)
+                            && double.TryParse(lonStr, CultureInfo.InvariantCulture, out var newLon))
+                        {
+                            double? newElev = double.TryParse(elevStr, CultureInfo.InvariantCulture, out var e) ? e : null;
+                            var pData = profile.Data ?? ProfileData.Empty;
+                            var newData = EquipmentActions.SetSite(pData, newLat, newLon, newElev);
+                            profile = profile.WithData(newData);
+                            await profile.SaveAsync(consoleHost.External, ct);
+                            consoleHost.WriteScrollable($"Site set to {newLat:F4}, {newLon:F4}{(newElev.HasValue ? $", {newElev.Value:F0}m" : "")}");
+                        }
+                        else
+                        {
+                            consoleHost.WriteScrollable("Invalid input \u2014 site not changed.");
                         }
                         break;
 

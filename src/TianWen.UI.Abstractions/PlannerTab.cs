@@ -232,7 +232,7 @@ namespace TianWen.UI.Abstractions
             var filterBtnBg = state.MinRatingFilter > 0f ? ActiveFilterBg : FilterBtnBg;
             RenderButton(filterBtnLabel, filterBtnX, filterBtnY, filterBtnW, filterBtnH,
                 fontPath, fontSize * 0.9f, filterBtnBg, FilterBtnText, "CycleFilter",
-                () =>
+                _ =>
                 {
                     PlannerActions.CycleRatingFilter(state);
                     state.SelectedTargetIndex = 0;
@@ -289,7 +289,7 @@ namespace TianWen.UI.Abstractions
                 var capturedIdx = i;
                 RegisterClickable(rect.X, rowY, listW - removeBtnW, itemHeight,
                     new HitResult.ListItemHit("TargetList", i),
-                    () => { state.SelectedTargetIndex = capturedIdx; state.NeedsRedraw = true; });
+                    _ => { state.SelectedTargetIndex = capturedIdx; state.NeedsRedraw = true; });
 
                 // Pin/unpin button on the right
                 var btnX = rect.X + listW - removeBtnW;
@@ -305,7 +305,7 @@ namespace TianWen.UI.Abstractions
                     {
                         RegisterClickable(btnX, rowY, removeBtnW, itemHeight,
                             new HitResult.ButtonHit("RemoveProposal"),
-                            () =>
+                            _ =>
                             {
                                 PlannerActions.RemoveProposal(state, capturedPinIdx);
                                 if (state.SelectedTargetIndex >= state.PinnedCount)
@@ -326,7 +326,7 @@ namespace TianWen.UI.Abstractions
                     var capturedTarget = scored.Target;
                     RegisterClickable(btnX, rowY, removeBtnW, itemHeight,
                         new HitResult.ButtonHit("AddProposal"),
-                        () => { PlannerActions.ToggleProposal(state, capturedTarget); });
+                        _ => { PlannerActions.ToggleProposal(state, capturedTarget); });
                 }
 
                 // Target name
@@ -469,35 +469,38 @@ namespace TianWen.UI.Abstractions
         }
 
         // -----------------------------------------------------------------------
-        // Mouse wheel handling
+        // Input handling
         // -----------------------------------------------------------------------
 
-        public override bool HandleMouseWheel(float scrollY, float mouseX, float mouseY)
+        public override bool HandleInput(InputEvent evt) => evt switch
         {
-            if (_targetListRect.Contains(mouseX, mouseY))
+            InputEvent.Scroll(var scrollY, var mouseX, var mouseY, _)
+                when _targetListRect.Contains(mouseX, mouseY) => HandleTargetListScroll(scrollY),
+            InputEvent.KeyDown(var key, var modifiers) => HandlePlannerKey(key, modifiers),
+            _ => false
+        };
+
+        private bool HandleTargetListScroll(float scrollY)
+        {
+            ScrollOffset = Math.Max(0, ScrollOffset - (int)scrollY * 3);
+            if (_state is not null)
             {
-                ScrollOffset = Math.Max(0, ScrollOffset - (int)scrollY * 3);
-                if (_state is not null)
-                {
-                    _state.NeedsRedraw = true;
-                }
-                return true;
+                _state.NeedsRedraw = true;
             }
-            return false;
+            return true;
         }
 
-        // -----------------------------------------------------------------------
-        // Keyboard handling
-        // -----------------------------------------------------------------------
-
-        /// <summary>
-        /// Handles planner-specific keyboard shortcuts.
-        /// </summary>
-        public override bool HandleKeyDown(InputKey key, InputModifier modifiers)
+        private bool HandlePlannerKey(InputKey key, InputModifier modifiers)
         {
             if (_state is not { } state)
             {
                 return false;
+            }
+
+            // Slider keyboard takes priority (Left/Right/Enter/Escape/Tab when a slider is selected)
+            if (PlannerActions.HandleSliderKeyboard(state, key, modifiers))
+            {
+                return true;
             }
 
             var filtered = _lastFilteredTargets;

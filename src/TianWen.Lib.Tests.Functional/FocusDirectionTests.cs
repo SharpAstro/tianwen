@@ -12,7 +12,7 @@ namespace TianWen.Lib.Tests.Functional;
 
 public class FocusDirectionTests(ITestOutputHelper output)
 {
-    [Theory]
+    [Theory(Timeout = 60_000)]
     [InlineData(true, true, true, 1)]
     [InlineData(true, false, false, -1)]
     [InlineData(false, true, false, -1)]
@@ -27,7 +27,7 @@ public class FocusDirectionTests(ITestOutputHelper output)
         dir.PreferredSign.ShouldBe(expectedSign);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenPreferPositiveWhenMovingNegativeThenOvershoots()
     {
         // given — prefer positive direction (outward=+, prefer outward), currently at 1000, target 800
@@ -54,7 +54,7 @@ public class FocusDirectionTests(ITestOutputHelper output)
         output.WriteLine($"Final position: {finalPos}");
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenPreferPositiveWhenMovingPositiveThenNoBaclashCompensation()
     {
         // given — prefer positive, currently at 800, target 1000
@@ -77,7 +77,7 @@ public class FocusDirectionTests(ITestOutputHelper output)
         finalPos.ShouldBe(1000);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenPreferNegativeWhenMovingPositiveThenOvershoots()
     {
         // given — refractor: outward=+, prefer inward (with gravity) → preferred direction is negative
@@ -101,7 +101,7 @@ public class FocusDirectionTests(ITestOutputHelper output)
         finalPos.ShouldBe(1000);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenPreferNegativeWhenMovingNegativeThenNoBaclashCompensation()
     {
         // given — refractor: outward=+, prefer inward → preferred = negative
@@ -124,7 +124,7 @@ public class FocusDirectionTests(ITestOutputHelper output)
         finalPos.ShouldBe(800);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenReversedFocuserPreferOutwardWhenMovingPositiveThenOvershoots()
     {
         // given — reversed focuser: outward=−, prefer outward → preferred = negative
@@ -148,7 +148,7 @@ public class FocusDirectionTests(ITestOutputHelper output)
         finalPos.ShouldBe(1000);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenZeroBacklashWhenMovingAgainstPreferredThenNoOvershoot()
     {
         // given — no backlash configured
@@ -171,7 +171,7 @@ public class FocusDirectionTests(ITestOutputHelper output)
         finalPos.ShouldBe(800);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenTargetNearZeroWhenOveshootingThenClampedToZero()
     {
         // given — target near 0, backlash would overshoot below 0

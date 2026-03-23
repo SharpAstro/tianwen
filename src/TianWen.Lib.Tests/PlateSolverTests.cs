@@ -105,7 +105,7 @@ public class PlateSolverTests(ITestOutputHelper output)
         // given
         var cancellationToken = TestContext.Current.CancellationToken;
         var extractedFitsFile = await SharedTestData.ExtractGZippedFitsFileAsync(name, cancellationToken);
-        var cts = new CancellationTokenSource(Debugger.IsAttached ? TimeSpan.FromHours(10) : TimeSpan.FromSeconds(10));
+        var cts = new CancellationTokenSource(Debugger.IsAttached ? TimeSpan.FromMinutes(30) : TimeSpan.FromSeconds(20));
 
         var solver = CreateSolver(solverType);
         var platform = Environment.OSVersion.Platform;

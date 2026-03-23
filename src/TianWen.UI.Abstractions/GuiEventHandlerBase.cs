@@ -36,7 +36,7 @@ namespace TianWen.UI.Abstractions
 
             // Create shared signal handler (all business logic)
             _signalHandler = new AppSignalHandler(sp, appState, plannerState,
-                chrome.EquipmentState, bus, cts, external);
+                chrome.SessionState, chrome.EquipmentState, bus, cts, external);
 
             // Wire the ensure-visible callback to the pixel widget's scroll mechanism
             _signalHandler.OnPlannerEnsureVisible = index => chrome.PlannerEnsureVisible(index);
@@ -49,18 +49,34 @@ namespace TianWen.UI.Abstractions
         public AppSignalHandler SignalHandler => _signalHandler;
 
         // ===================================================================
-        // Event routing — generic, no tab-specific logic
+        // Unified input routing
         // ===================================================================
 
         /// <summary>
-        /// Handles a mouse click. Returns true if the event was consumed.
+        /// Routes an input event through the GUI chrome and tab system.
+        /// Returns true if the event was consumed.
         /// </summary>
-        public bool HandleMouseDown(float px, float py, byte clicks = 1)
+        public bool HandleInput(InputEvent evt) => evt switch
+        {
+            InputEvent.KeyDown(var key, var modifiers) => HandleKeyDown(key, modifiers),
+            InputEvent.MouseDown(var px, var py, _, var mods, var clicks) => HandleMouseDown(px, py, mods, (byte)clicks),
+            InputEvent.MouseMove(var px, var py) => HandleMouseMove(px, py),
+            InputEvent.MouseUp(_, _, _) => HandleMouseUp(),
+            InputEvent.Scroll(var scrollY, _, _, _) => HandleMouseWheel(scrollY),
+            InputEvent.TextInput(var text) => HandleTextInput(text),
+            _ => false
+        };
+
+        // ===================================================================
+        // Event routing — generic, no tab-specific logic
+        // ===================================================================
+
+        private bool HandleMouseDown(float px, float py, InputModifier modifiers = InputModifier.None, byte clicks = 1)
         {
             _appState.MouseScreenPosition = (px, py);
 
             // Hit test the GUI chrome (sidebar, status bar) first — OnClick handles tab switching
-            var hit = _chrome.HitTestAndDispatch(px, py);
+            var hit = _chrome.HitTestAndDispatch(px, py, modifiers);
 
             // Auto-discover on tab switch to Equipment
             if (hit is HitResult.ButtonHit { Action: var action } && action.StartsWith("Tab:"))
@@ -76,7 +92,7 @@ namespace TianWen.UI.Abstractions
             // If chrome didn't handle it, try the active tab
             if (hit is null)
             {
-                hit = _chrome.ActiveTab?.HitTestAndDispatch(px, py);
+                hit = _chrome.ActiveTab?.HitTestAndDispatch(px, py, modifiers);
             }
 
             // Text input focus management (via ActivateTextInputSignal/DeactivateTextInputSignal)
@@ -90,12 +106,18 @@ namespace TianWen.UI.Abstractions
                 return true;
             }
 
-            // Slider drag start
+            // Slider drag start + selection
             if (hit is HitResult.SliderHit { SliderIndex: var sliderIdx })
             {
                 _plannerState.DraggingSliderIndex = sliderIdx;
-                _appState.NeedsRedraw = true;
+                PlannerActions.SelectSlider(_plannerState, sliderIdx);
                 return true;
+            }
+
+            // Clicking outside a slider → deselect
+            if (_plannerState.SelectedSliderIndex >= 0)
+            {
+                PlannerActions.SelectSlider(_plannerState, -1);
             }
 
             // Clicking outside text input → deactivate
@@ -108,37 +130,32 @@ namespace TianWen.UI.Abstractions
             return hit is not null;
         }
 
-        /// <summary>
-        /// Handles a text character input event.
-        /// </summary>
-        public void HandleTextInput(string text)
+        private bool HandleTextInput(string text)
         {
             if (_appState.ActiveTextInput is not { IsActive: true } target)
             {
-                return;
+                return false;
             }
 
             target.InsertText(text);
             target.OnTextChanged?.Invoke(target.Text);
+            return true;
         }
 
-        /// <summary>
-        /// Handles mouse motion — updates slider position during drag.
-        /// </summary>
-        public void HandleMouseMove(float px, float py)
+        private bool HandleMouseMove(float px, float py)
         {
             _appState.MouseScreenPosition = (px, py);
 
-            if (_plannerState.DraggingSliderIndex < 0)
+            var idx = _plannerState.DraggingSliderIndex;
+            if (idx < 0)
             {
-                return;
+                return false;
             }
 
-            var idx = _plannerState.DraggingSliderIndex;
             if (idx >= _plannerState.HandoffSliders.Count)
             {
                 _plannerState.DraggingSliderIndex = -1;
-                return;
+                return false;
             }
 
             var chartRect = _chrome.PlannerChartRect;
@@ -146,49 +163,33 @@ namespace TianWen.UI.Abstractions
                 _plannerState, (int)chartRect.X, (int)chartRect.Width);
 
             var newTime = AltitudeChartRenderer.XToTime(px, tStart, tEnd, plotX, plotW);
-            var minSlot = TimeSpan.FromMinutes(15);
-
-            // Clamp between adjacent sliders (or dark/twilight boundaries)
-            var minTime = idx > 0 ? _plannerState.HandoffSliders[idx - 1] + minSlot : _plannerState.AstroDark + minSlot;
-            var maxTime = idx < _plannerState.HandoffSliders.Count - 1
-                ? _plannerState.HandoffSliders[idx + 1] - minSlot
-                : _plannerState.AstroTwilight - minSlot;
-
-            if (newTime < minTime) newTime = minTime;
-            if (newTime > maxTime) newTime = maxTime;
-
-            _plannerState.HandoffSliders[idx] = newTime;
-            _appState.NeedsRedraw = true;
+            PlannerActions.MoveSlider(_plannerState, idx, newTime);
+            return true;
         }
 
-        /// <summary>
-        /// Handles mouse button release — ends slider drag.
-        /// </summary>
-        public void HandleMouseUp()
+        private bool HandleMouseUp()
         {
             if (_plannerState.DraggingSliderIndex >= 0)
             {
                 _plannerState.DraggingSliderIndex = -1;
                 _appState.NeedsRedraw = true;
+                return true;
             }
+            return false;
         }
 
-        /// <summary>
-        /// Handles mouse wheel scroll — delegates to the active tab.
-        /// </summary>
-        public void HandleMouseWheel(float scrollY)
+        private bool HandleMouseWheel(float scrollY)
         {
             var pos = _appState.MouseScreenPosition;
-            if (_chrome.ActiveTab?.HandleMouseWheel(scrollY, pos.X, pos.Y) == true)
+            if (_chrome.ActiveTab?.HandleInput(new InputEvent.Scroll(scrollY, pos.X, pos.Y)) == true)
             {
                 _appState.NeedsRedraw = true;
+                return true;
             }
+            return false;
         }
 
-        /// <summary>
-        /// Handles a key down event. Returns true if consumed by the text input layer.
-        /// </summary>
-        public bool HandleKeyDown(InputKey inputKey, InputModifier inputModifier)
+        private bool HandleKeyDown(InputKey inputKey, InputModifier inputModifier)
         {
             var activeInput = _appState.ActiveTextInput;
             if (activeInput is { IsActive: true })

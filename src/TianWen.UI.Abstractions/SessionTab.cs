@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using DIR.Lib;
 using TianWen.Lib.Sequencing;
 
@@ -40,8 +41,12 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 HintText       = new RGBAColor32(0x55, 0x55, 0x66, 0xff);
         private static readonly RGBAColor32 OtaHeaderBg    = new RGBAColor32(0x24, 0x24, 0x32, 0xff);
         private static readonly RGBAColor32 FrameCountText = new RGBAColor32(0x88, 0xdd, 0x88, 0xff);
+        private static readonly RGBAColor32 SelectedRowBg  = new RGBAColor32(0x20, 0x30, 0x50, 0xff);
 
         private float _totalConfigHeight;
+
+        /// <summary>Y positions (relative to scroll origin) of each config field, for scroll-to-visible.</summary>
+        private readonly List<float> _fieldYPositions = [];
 
         /// <summary>Tab state (configuration values, per-OTA camera settings, scroll offset).</summary>
         public SessionTabState State { get; } = new SessionTabState();
@@ -94,19 +99,83 @@ namespace TianWen.UI.Abstractions
         }
 
         // -----------------------------------------------------------------------
-        // Mouse wheel handling
+        // Input handling
         // -----------------------------------------------------------------------
 
-        public override bool HandleMouseWheel(float scrollY, float mouseX, float mouseY)
+        public override bool HandleInput(InputEvent evt) => evt switch
         {
-            if (ConfigPanelRect.Contains(mouseX, mouseY))
+            InputEvent.Scroll(var scrollY, var mouseX, var mouseY, _)
+                when ConfigPanelRect.Contains(mouseX, mouseY) => HandleConfigScroll(scrollY),
+            InputEvent.KeyDown(var key, _) => HandleConfigKey(key),
+            _ => false
+        };
+
+        private bool HandleConfigScroll(float scrollY)
+        {
+            State.ConfigScrollOffset = Math.Max(0,
+                State.ConfigScrollOffset - (int)(scrollY * ScrollLineHeight));
+            State.NeedsRedraw = true;
+            return true;
+        }
+
+        private bool HandleConfigKey(InputKey key)
+        {
+            switch (key)
             {
-                State.ConfigScrollOffset = Math.Max(0,
-                    State.ConfigScrollOffset - (int)(scrollY * ScrollLineHeight));
-                State.NeedsRedraw = true;
-                return true;
+                case InputKey.Up:
+                    if (State.SelectedFieldIndex > 0)
+                    {
+                        State.SelectedFieldIndex--;
+                        EnsureFieldVisible();
+                        State.NeedsRedraw = true;
+                    }
+                    return true;
+
+                case InputKey.Down:
+                    if (State.SelectedFieldIndex < State.FieldCount - 1)
+                    {
+                        State.SelectedFieldIndex++;
+                        EnsureFieldVisible();
+                        State.NeedsRedraw = true;
+                    }
+                    return true;
+
+                case InputKey.Left:
+                    State.DecrementSelectedField();
+                    return true;
+
+                case InputKey.Right:
+                case InputKey.Enter:
+                    State.IncrementSelectedField();
+                    return true;
+
+                default:
+                    return false;
             }
-            return false;
+        }
+
+        /// <summary>
+        /// Scrolls the config panel so the selected field is visible.
+        /// </summary>
+        private void EnsureFieldVisible()
+        {
+            var itemH = BaseItemHeight; // unscaled — scroll offset is in pixels
+            // Approximate: each field is one row, groups add header + gap
+            // Use the stored _fieldYPositions if available, otherwise estimate
+            if (State.SelectedFieldIndex >= 0 && _fieldYPositions.Count > State.SelectedFieldIndex)
+            {
+                var fieldY = _fieldYPositions[State.SelectedFieldIndex];
+                var scaledItemH = ScrollLineHeight;
+
+                if (fieldY < State.ConfigScrollOffset)
+                {
+                    State.ConfigScrollOffset = (int)fieldY;
+                }
+                else if (fieldY + scaledItemH > State.ConfigScrollOffset + ConfigPanelRect.Height)
+                {
+                    State.ConfigScrollOffset = (int)(fieldY + scaledItemH - ConfigPanelRect.Height);
+                }
+            }
         }
 
         // -----------------------------------------------------------------------
@@ -201,13 +270,13 @@ namespace TianWen.UI.Abstractions
 
                 RenderButton("\u2212", controlX, cursor, stepperBtnW, itemH, fontPath, fontSize,
                     StepperBg, BodyText, $"Dec:Setpoint:{i}",
-                    () => { State.CameraSettings[capturedI].SetpointTempC = (sbyte)Math.Max(State.CameraSettings[capturedI].SetpointTempC - 1, -40); State.NeedsRedraw = true; });
+                    _ => { State.CameraSettings[capturedI].SetpointTempC = (sbyte)Math.Max(State.CameraSettings[capturedI].SetpointTempC - 1, -40); State.IsDirty = true; State.NeedsRedraw = true; });
                 DrawText($"{cam.SetpointTempC}°C".AsSpan(), fontPath,
                     controlX + stepperBtnW, cursor, valueW, itemH,
                     fontSize, BodyText, TextAlign.Center, TextAlign.Center);
                 RenderButton("+", controlX + stepperBtnW + valueW, cursor, stepperBtnW, itemH, fontPath, fontSize,
                     StepperBg, BodyText, $"Inc:Setpoint:{i}",
-                    () => { State.CameraSettings[capturedI].SetpointTempC = (sbyte)Math.Min(State.CameraSettings[capturedI].SetpointTempC + 1, 30); State.NeedsRedraw = true; });
+                    _ => { State.CameraSettings[capturedI].SetpointTempC = (sbyte)Math.Min(State.CameraSettings[capturedI].SetpointTempC + 1, 30); State.IsDirty = true; State.NeedsRedraw = true; });
                 cursor += itemH;
 
                 // Gain row
@@ -225,10 +294,11 @@ namespace TianWen.UI.Abstractions
                     var cycleBtnW = 120f * dpiScale;
                     RenderButton($"{modeName} \u25B6", controlX, cursor, cycleBtnW, itemH, fontPath, fontSize * 0.9f,
                         CycleBg, BodyText, $"Cycle:Gain:{i}",
-                        () =>
+                        _ =>
                         {
                             var c = State.CameraSettings[capturedI];
                             c.Gain = (c.Gain + 1) % c.GainModes.Count;
+                            State.IsDirty = true;
                             State.NeedsRedraw = true;
                         });
                 }
@@ -237,13 +307,13 @@ namespace TianWen.UI.Abstractions
                     // Numeric gain
                     RenderButton("\u2212", controlX, cursor, stepperBtnW, itemH, fontPath, fontSize,
                         StepperBg, BodyText, $"Dec:Gain:{i}",
-                        () => { State.CameraSettings[capturedI].Gain = Math.Max(State.CameraSettings[capturedI].Gain - 10, 0); State.NeedsRedraw = true; });
+                        _ => { State.CameraSettings[capturedI].Gain = Math.Max(State.CameraSettings[capturedI].Gain - 10, 0); State.IsDirty = true; State.NeedsRedraw = true; });
                     DrawText($"{cam.Gain}".AsSpan(), fontPath,
                         controlX + stepperBtnW, cursor, valueW, itemH,
                         fontSize, BodyText, TextAlign.Center, TextAlign.Center);
                     RenderButton("+", controlX + stepperBtnW + valueW, cursor, stepperBtnW, itemH, fontPath, fontSize,
                         StepperBg, BodyText, $"Inc:Gain:{i}",
-                        () => { State.CameraSettings[capturedI].Gain = Math.Min(State.CameraSettings[capturedI].Gain + 10, 600); State.NeedsRedraw = true; });
+                        _ => { State.CameraSettings[capturedI].Gain = Math.Min(State.CameraSettings[capturedI].Gain + 10, 600); State.IsDirty = true; State.NeedsRedraw = true; });
                 }
                 cursor += itemH;
 
@@ -345,13 +415,13 @@ namespace TianWen.UI.Abstractions
                     fontSize, BodyText, TextAlign.Near, TextAlign.Center);
 
                 // Exposure stepper
-                var expStr = FormatExposure(subExp);
+                var expStr = SessionContent.FormatExposure(subExp);
                 var expBtnW = stepperBtnW;
                 var expValW = colExpW - expBtnW * 2;
 
                 RenderButton("\u2212", colExpX, cursor, expBtnW, rowH, fontPath, fontSize * 0.85f,
                     StepperBg, BodyText, $"Dec:Exp:{i}",
-                    () =>
+                    _ =>
                     {
                         var p = plannerState.Proposals[capturedI];
                         var cur = p.SubExposure ?? TimeSpan.FromSeconds(defaultExpSec);
@@ -362,7 +432,7 @@ namespace TianWen.UI.Abstractions
                     fontSize * 0.9f, BodyText, TextAlign.Center, TextAlign.Center);
                 RenderButton("+", colExpX + expBtnW + expValW, cursor, expBtnW, rowH, fontPath, fontSize * 0.85f,
                     StepperBg, BodyText, $"Inc:Exp:{i}",
-                    () =>
+                    _ =>
                     {
                         var p = plannerState.Proposals[capturedI];
                         var cur = p.SubExposure ?? TimeSpan.FromSeconds(defaultExpSec);
@@ -410,15 +480,6 @@ namespace TianWen.UI.Abstractions
         // Helpers
         // -----------------------------------------------------------------------
 
-        private static string FormatExposure(TimeSpan ts)
-        {
-            if (ts.TotalMinutes >= 1 && ts.TotalSeconds % 60 == 0)
-            {
-                return $"{(int)ts.TotalMinutes}min";
-            }
-            return $"{(int)ts.TotalSeconds}s";
-        }
-
         // -----------------------------------------------------------------------
         // Configuration form panel (left side, scrollable)
         // -----------------------------------------------------------------------
@@ -438,8 +499,10 @@ namespace TianWen.UI.Abstractions
 
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, ContentBg);
 
+            _fieldYPositions.Clear();
             var cursor = rect.Y - State.ConfigScrollOffset;
             var groups = SessionConfigGroups.Groups;
+            var globalFieldIdx = 0;
 
             for (var gi = 0; gi < groups.Length; gi++)
             {
@@ -459,6 +522,10 @@ namespace TianWen.UI.Abstractions
                 for (var fi = 0; fi < group.Fields.Length; fi++)
                 {
                     var field = group.Fields[fi];
+                    var fieldIdx = globalFieldIdx++;
+
+                    // Track Y position relative to scroll origin (for EnsureFieldVisible)
+                    _fieldYPositions.Add(cursor - rect.Y + State.ConfigScrollOffset);
 
                     // Skip rows completely outside the visible area
                     if (cursor + itemH <= rect.Y || cursor >= rect.Y + rect.Height)
@@ -467,9 +534,17 @@ namespace TianWen.UI.Abstractions
                         continue;
                     }
 
-                    // Row background
-                    var rowBg = fi % 2 == 0 ? ContentBg : RowAltBg;
+                    // Row background — highlight selected
+                    var isSelected = fieldIdx == State.SelectedFieldIndex;
+                    var rowBg = isSelected ? SelectedRowBg
+                        : fi % 2 == 0 ? ContentBg : RowAltBg;
                     FillRect(rect.X, cursor, rect.Width, itemH, rowBg);
+
+                    // Clickable row — selects the field
+                    var capturedIdx = fieldIdx;
+                    RegisterClickable(rect.X, cursor, labelW + padding, itemH,
+                        new HitResult.ListItemHit("ConfigField", fieldIdx),
+                        _ => { State.SelectedFieldIndex = capturedIdx; State.NeedsRedraw = true; });
 
                     // Label
                     DrawText(field.Label.AsSpan(), fontPath,
@@ -501,6 +576,8 @@ namespace TianWen.UI.Abstractions
                 cursor += padding * 0.5f;
             }
 
+            State.FieldCount = globalFieldIdx;
+
             _totalConfigHeight = cursor - (rect.Y - State.ConfigScrollOffset);
 
             // Clamp scroll offset
@@ -527,7 +604,7 @@ namespace TianWen.UI.Abstractions
 
             RenderButton("\u2212", x, y, btnW, h, fontPath, fontSize,
                 StepperBg, BodyText, $"Dec:{field.Label}",
-                () => { State.Configuration = field.Decrement(State.Configuration); State.NeedsRedraw = true; });
+                _ => { State.Configuration = field.Decrement(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; });
 
             DrawText(displayStr.AsSpan(), fontPath,
                 x + btnW, y, valW, h,
@@ -535,7 +612,7 @@ namespace TianWen.UI.Abstractions
 
             RenderButton("+", x + btnW + valW, y, btnW, h, fontPath, fontSize,
                 StepperBg, BodyText, $"Inc:{field.Label}",
-                () => { State.Configuration = field.Increment(State.Configuration); State.NeedsRedraw = true; });
+                _ => { State.Configuration = field.Increment(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; });
         }
 
         // -----------------------------------------------------------------------
@@ -553,7 +630,7 @@ namespace TianWen.UI.Abstractions
 
             RenderButton(valueStr, x, y, btnW, h, fontPath, fontSize,
                 isOn ? ToggleOnBg : ToggleOffBg, BodyText, $"Toggle:{field.Label}",
-                () => { State.Configuration = field.Increment(State.Configuration); State.NeedsRedraw = true; });
+                _ => { State.Configuration = field.Increment(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; });
         }
 
         // -----------------------------------------------------------------------
@@ -570,7 +647,7 @@ namespace TianWen.UI.Abstractions
 
             RenderButton($"{valueStr} \u25B6", x, y, btnW, h, fontPath, fontSize * 0.9f,
                 CycleBg, BodyText, $"Cycle:{field.Label}",
-                () => { State.Configuration = field.Increment(State.Configuration); State.NeedsRedraw = true; });
+                _ => { State.Configuration = field.Increment(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; });
         }
     }
 }

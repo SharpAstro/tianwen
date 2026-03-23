@@ -243,19 +243,10 @@ namespace TianWen.UI.Abstractions
 
         protected void ResolveFontPath()
         {
-            string[] candidates = OperatingSystem.IsWindows()
-                ? [@"C:\Windows\Fonts\consola.ttf", @"C:\Windows\Fonts\cour.ttf"]
-                : OperatingSystem.IsMacOS()
-                    ? ["/System/Library/Fonts/Menlo.ttc", "/System/Library/Fonts/Monaco.dfont"]
-                    : ["/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", "/usr/share/fonts/TTF/DejaVuSansMono.ttf"];
-
-            foreach (var path in candidates)
+            var resolved = FontResolver.ResolveSystemFont();
+            if (resolved.Length > 0)
             {
-                if (System.IO.File.Exists(path))
-                {
-                    _fontPath = path;
-                    return;
-                }
+                _fontPath = resolved;
             }
         }
 
@@ -1142,7 +1133,7 @@ namespace TianWen.UI.Abstractions
                 DrawText("LOG", bx + ButtonPaddingH / 2f, textY, ToolbarFontSize, 0.9f, 0.9f, 0.9f);
 
                 RegisterClickable(bx, by, bw, bh, new HitResult.ButtonHit("HistogramLog"),
-                    () => { state.HistogramLogScale = !state.HistogramLogScale; });
+                    _ => { state.HistogramLogScale = !state.HistogramLogScale; });
             }
         }
 
@@ -1399,10 +1390,20 @@ namespace TianWen.UI.Abstractions
         }
 
         // -----------------------------------------------------------------------
-        // Keyboard handling
+        // Input handling
         // -----------------------------------------------------------------------
 
-        public override bool HandleKeyDown(InputKey key, InputModifier modifiers)
+        public override bool HandleInput(InputEvent evt) => evt switch
+        {
+            InputEvent.KeyDown(var key, var modifiers) => HandleViewerKey(key, modifiers),
+            InputEvent.MouseDown(var px, var py, _, _, _) => HandleViewerMouseDown(px, py),
+            InputEvent.MouseMove(var px, var py) => HandleViewerMouseMove(px, py),
+            InputEvent.MouseUp(_, _, _) => HandleViewerMouseUp(),
+            InputEvent.Scroll(var delta, var mx, var my, _) => HandleViewerScroll(delta, mx, my),
+            _ => false
+        };
+
+        private bool HandleViewerKey(InputKey key, InputModifier modifiers)
         {
             if (_state is not { } state)
             {
@@ -1528,7 +1529,7 @@ namespace TianWen.UI.Abstractions
         /// if panning was started (caller may need to handle toolbar actions via
         /// <see cref="ViewerActions.HandleToolbarAction"/>).
         /// </summary>
-        public override bool HandleMouseDown(float px, float py)
+        private bool HandleViewerMouseDown(float px, float py)
         {
             if (_state is not { } state)
             {
@@ -1562,14 +1563,11 @@ namespace TianWen.UI.Abstractions
             return false;
         }
 
-        /// <summary>
-        /// Handles mouse move: updates pan and cursor position.
-        /// </summary>
-        public void HandleMouseMove(float px, float py)
+        private bool HandleViewerMouseMove(float px, float py)
         {
             if (_state is not { } state)
             {
-                return;
+                return false;
             }
 
             state.MouseScreenPosition = (px, py);
@@ -1580,24 +1578,20 @@ namespace TianWen.UI.Abstractions
             var toolbarH = ScaledToolbarHeight;
             var (areaW, areaH) = GetImageAreaSize(state);
             ViewerActions.UpdateCursorFromScreenPosition(_document, state, px, py, fileListW, toolbarH, areaW, areaH);
+            return true;
         }
 
-        /// <summary>
-        /// Handles mouse up: ends panning.
-        /// </summary>
-        public void HandleMouseUp()
+        private bool HandleViewerMouseUp()
         {
             if (_state is { } state)
             {
                 ViewerActions.EndPan(state);
+                return true;
             }
+            return false;
         }
 
-        // -----------------------------------------------------------------------
-        // Mouse wheel handling
-        // -----------------------------------------------------------------------
-
-        public override bool HandleMouseWheel(float scrollY, float mouseX, float mouseY)
+        private bool HandleViewerScroll(float scrollY, float mouseX, float mouseY)
         {
             if (_state is not { } state)
             {

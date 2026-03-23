@@ -11,7 +11,7 @@ namespace TianWen.Lib.Tests.Functional;
 
 public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
 {
-    [Theory]
+    [Theory(Timeout = 60_000)]
     [InlineData(-37.8743502, 145.1668205)]
     [InlineData(25.28022, 110.29639)]
     public async Task GivenMountWhenConnectingItOpensSerialPort(double siteLat, double siteLong)
@@ -31,7 +31,7 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
         (await mount.IsTrackingAsync(cancellationToken)).ShouldBe(false);
     }
 
-    [Theory]
+    [Theory(Timeout = 60_000)]
     [InlineData(-37.8743502, 145.1668205)]
     [InlineData(25.28022, 110.29639)]
     public async Task GivenMountWhenConnectingAndDisconnectingThenSerialPortIsClosed(double siteLat, double siteLong)
@@ -77,7 +77,7 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
         await Should.ThrowAsync(async () => await mount.GetSiderealTimeAsync(cancellationToken), typeof(InvalidOperationException));
     }
 
-    [Theory]
+    [Theory(Timeout = 60_000)]
     [InlineData(-37.8743502, 145.1668205, 11.11d, -45.125d, null)]
     [InlineData(25.28022, 110.29639, 15.58d, 0.15d, null)]
     [InlineData(51.38333333d, 8.08333333d, 8.85d, 11.8d, "2024-10-29T06:58:00Z")]

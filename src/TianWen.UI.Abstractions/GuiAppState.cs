@@ -17,6 +17,7 @@ public class GuiAppState
     public Profile? ActiveProfile { get; set; }
     public bool NeedsRedraw { get; set; } = true;
     public (float X, float Y) MouseScreenPosition { get; set; }
+    public InputModifier LastClickModifiers { get; set; }
     public string? StatusMessage { get; set; }
 
     /// <summary>The currently focused text input across all tabs. Single source of truth.</summary>

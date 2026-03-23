@@ -14,6 +14,9 @@ public interface IGuiChrome : IPixelWidget
     /// <summary>Equipment tab state (for auto-discover on tab switch).</summary>
     EquipmentTabState EquipmentState { get; }
 
+    /// <summary>Session tab state (for persistence).</summary>
+    SessionTabState SessionState { get; }
+
     /// <summary>Chart layout rectangle from the planner tab (for slider dragging).</summary>
     RectF32 PlannerChartRect { get; }
 

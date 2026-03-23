@@ -14,7 +14,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
 {
     private const double PixelScaleArcsec = 1.5;
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenFakeMountWhenCalibrateThenRatesAndAngleCorrect()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -78,7 +78,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
             "camera angle should be near 0 for aligned camera");
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenSavedCalibrationWhenValidateThenValid()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -130,7 +130,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         result.ShouldBe(CalibrationValidationResult.Valid);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenCalibrationResultWhenTransformThenMountAxesSeparated()
     {
         // Given a 45° camera rotation
@@ -155,7 +155,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         dec2.ShouldBe(Math.Cos(Math.PI / 4), 0.01);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenDecBacklashWhenAdaptiveClearThenDetectsMovementAfterBacklashConsumed()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -212,7 +212,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         result.StepsUsed.ShouldBeGreaterThan(1, "should need more than 1 step to consume 25 arcsec backlash");
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenNoBacklashWhenAdaptiveClearThenDetectsMovementImmediately()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -268,7 +268,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         result.StepsUsed.ShouldBe(1, "should detect movement on the very first step");
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenMaxStepsExceededWhenClearThenReturnsMovementNotDetected()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -324,7 +324,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         result.StepsUsed.ShouldBe(3);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenDecBacklashWhenFullCalibrationThenRatesAccurate()
     {
         var ct = TestContext.Current.CancellationToken;

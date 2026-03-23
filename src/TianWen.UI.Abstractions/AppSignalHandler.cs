@@ -31,6 +31,7 @@ namespace TianWen.UI.Abstractions
             IServiceProvider sp,
             GuiAppState appState,
             PlannerState plannerState,
+            SessionTabState sessionState,
             EquipmentTabState eqState,
             SignalBus bus,
             CancellationTokenSource cts,
@@ -187,12 +188,12 @@ namespace TianWen.UI.Abstractions
             // Equipment action signal subscriptions (DI-dependent handlers)
             // ---------------------------------------------------------------
 
-            bus.Subscribe<DiscoverDevicesSignal>(async _ =>
+            bus.Subscribe<DiscoverDevicesSignal>(async sig =>
             {
                 if (eqState.IsDiscovering) return;
 
                 eqState.IsDiscovering = true;
-                appState.StatusMessage = "Discovering devices...";
+                appState.StatusMessage = sig.IncludeFake ? "Discovering devices (+ fake)..." : "Discovering devices...";
                 appState.NeedsRedraw = true;
                 try
                 {
@@ -202,6 +203,7 @@ namespace TianWen.UI.Abstractions
                     eqState.DiscoveredDevices = [.. dm.RegisteredDeviceTypes
                         .Where(t => t is not DeviceType.Profile and not DeviceType.None)
                         .SelectMany(dm.RegisteredDevices)
+                        .Where(d => sig.IncludeFake || d is not TianWen.Lib.Devices.Fake.FakeDevice)
                         .OrderBy(d => d.DeviceType).ThenBy(d => d.DisplayName)];
                 }
                 catch (Exception ex)
@@ -212,7 +214,9 @@ namespace TianWen.UI.Abstractions
                 finally
                 {
                     eqState.IsDiscovering = false;
-                    appState.StatusMessage = null;
+                    appState.StatusMessage = eqState.DiscoveredDevices.Count > 0
+                        ? $"Found {eqState.DiscoveredDevices.Count} devices"
+                        : null;
                     appState.NeedsRedraw = true;
                 }
             });
@@ -310,6 +314,30 @@ namespace TianWen.UI.Abstractions
                     await updated.SaveAsync(external, cts.Token);
                 }
             });
+
+            bus.Subscribe<SavePlannerSessionSignal>(async _ =>
+            {
+                if (!plannerState.IsDirty || appState.ActiveProfile is not { } profile)
+                {
+                    return;
+                }
+                plannerState.IsDirty = false;
+                await PlannerPersistence.SaveAsync(plannerState, profile, external, cts.Token);
+            });
+
+            bus.Subscribe<SaveSessionConfigSignal>(async _ =>
+            {
+                if (!sessionState.IsDirty || appState.ActiveProfile is not { } profile)
+                {
+                    return;
+                }
+                sessionState.IsDirty = false;
+                await SessionPersistence.SaveAsync(sessionState, profile, external, cts.Token);
+            });
+
+            // Wire signal bus into state objects for auto-posting on dirty
+            plannerState.Bus = bus;
+            sessionState.Bus = bus;
 
             // ---------------------------------------------------------------
             // Local helpers captured by closures above

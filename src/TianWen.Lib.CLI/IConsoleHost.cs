@@ -19,7 +19,9 @@ public interface IConsoleHost
 
     IExternal External { get; }
 
-    void WriteScrollable(string content);
+    void WriteScrollable(string content, bool newLine = true);
+
+    string? ReadLine();
 
     void WriteError(string error);
 

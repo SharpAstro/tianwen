@@ -3,7 +3,7 @@ using TianWen.Lib.Devices;
 namespace TianWen.UI.Abstractions;
 
 /// <summary>Request device discovery.</summary>
-public readonly record struct DiscoverDevicesSignal;
+public readonly record struct DiscoverDevicesSignal(bool IncludeFake = false);
 
 /// <summary>Add a new OTA to the active profile.</summary>
 public readonly record struct AddOtaSignal;
@@ -28,3 +28,9 @@ public readonly record struct ToggleFullscreenSignal;
 
 /// <summary>Request plate solving the current image.</summary>
 public readonly record struct PlateSolveSignal;
+
+/// <summary>Planner session state changed (proposals, sliders, settings). Triggers auto-save.</summary>
+public readonly record struct SavePlannerSessionSignal;
+
+/// <summary>Session configuration changed. Triggers auto-save.</summary>
+public readonly record struct SaveSessionConfigSignal;

@@ -55,11 +55,24 @@ internal class TuiSubCommand(
         // Shared state
         var appState = new GuiAppState { ActiveProfile = profile, ActiveTab = GuiTab.Equipment };
         var eqState = new EquipmentTabState();
+        var sessionState = new SessionTabState();
+        sessionState.InitializeFromProfile(profile);
         var bus = new SignalBus();
         var tracker = new BackgroundTaskTracker();
 
+        // Load saved session configuration for the active profile
+        tracker.Run(async () =>
+        {
+            await SessionPersistence.TryLoadAsync(sessionState, profile, external, cts.Token);
+        }, "Load session config");
+
         // Wire shared business logic
-        var signalHandler = new AppSignalHandler(sp, appState, plannerState, eqState, bus, cts, external);
+        var signalHandler = new AppSignalHandler(sp, appState, plannerState, sessionState, eqState, bus, cts, external);
+        signalHandler.OnPlannerEnsureVisible = index =>
+        {
+            plannerState.SelectedTargetIndex = index;
+            plannerState.NeedsRedraw = true;
+        };
 
         // Resolve location from profile
         var transform = Plan.LocationResolver.ResolveFromProfile(consoleHost, profile, external.TimeProvider);
@@ -77,10 +90,31 @@ internal class TuiSubCommand(
 
         var tabs = new Dictionary<GuiTab, ITuiTab>
         {
-            [GuiTab.Equipment] = new TuiEquipmentTab(appState, equipmentContent),
+            [GuiTab.Equipment] = new TuiEquipmentTab(appState, eqState, equipmentContent, bus),
             [GuiTab.Planner] = new TuiPlannerTab(plannerState,
-                transform ?? new TianWen.Lib.Astrometry.SOFA.Transform(external.TimeProvider), fontPath),
+                transform ?? new TianWen.Lib.Astrometry.SOFA.Transform(external.TimeProvider), fontPath, bus),
+            [GuiTab.Session] = new TuiSessionTab(appState, sessionState, plannerState),
         };
+
+        // Subscribe to BuildScheduleSignal (same logic as GPU Program.cs)
+        bus.Subscribe<BuildScheduleSignal>(_ =>
+        {
+            if (appState.ActiveProfile is null || transform is null) return;
+            var profileData = appState.ActiveProfile.Data ?? ProfileData.Empty;
+            var availableFilters = profileData.OTAs.Length > 0
+                ? EquipmentActions.GetFilterConfig(profileData, 0)
+                : null;
+            var opticalDesign = profileData.OTAs.Length > 0
+                ? profileData.OTAs[0].OpticalDesign
+                : OpticalDesign.Unknown;
+
+            PlannerActions.BuildSchedule(plannerState, transform,
+                defaultGain: 120, defaultOffset: 10,
+                defaultSubExposure: TimeSpan.FromSeconds(120),
+                defaultObservationTime: TimeSpan.FromMinutes(60),
+                availableFilters: availableFilters is { Count: > 0 } ? availableFilters : null,
+                opticalDesign: opticalDesign);
+        });
 
         // Kick off planner computation in background
         if (transform is not null)
@@ -93,8 +127,9 @@ internal class TuiSubCommand(
                 await PlannerActions.ComputeTonightsBestAsync(
                     plannerState, objectDb, transform,
                     plannerState.MinHeightAboveHorizon, cts.Token);
+                await PlannerPersistence.TryLoadAsync(plannerState, appState.ActiveProfile, external, cts.Token);
                 plannerState.SelectedTargetIndex = 0;
-                tabs[GuiTab.Planner].NeedsRedraw = true;
+                plannerState.NeedsRedraw = true;
             }, "Compute tonight's best targets");
         }
 
@@ -112,30 +147,53 @@ internal class TuiSubCommand(
         // Main loop
         while (!cts.Token.IsCancellationRequested)
         {
-            // Input
-            if (terminal.HasInput())
+            // Drain all pending input before rendering
+            var quit = false;
+            while (terminal.HasInput())
             {
                 var rawEvt = terminal.TryReadInput();
 
-                // Tab switching: 1-4 or F1-F4
-                if (TrySwitchTab(rawEvt, appState, tabs, ref activeTab, terminal))
+                // Tab switching: 1-4 or F1-F4 (skip when editing site — digits go to text input)
+                if (!eqState.IsEditingSite && TrySwitchTab(rawEvt, appState, tabs, ref activeTab, terminal))
                 {
                     continue;
                 }
 
-                // Q/Escape at top level → quit
-                if (rawEvt.ToInputEvent is InputEvent.KeyDown(InputKey.Q or InputKey.Escape, _))
+                // Delegate to active tab first (e.g. Escape deselects slider before quitting)
+                var tabConsumed = false;
+                if (rawEvt.ToInputEvent is { } evt)
                 {
-                    break;
+                    var redrawBefore = activeTab.NeedsRedraw;
+                    if (activeTab.HandleInput(evt))
+                    {
+                        quit = true;
+                        break;
+                    }
+                    tabConsumed = !redrawBefore && activeTab.NeedsRedraw;
                 }
 
-                // Delegate to active tab
-                if (rawEvt.ToInputEvent is { } evt && activeTab.HandleInput(evt))
+                // Q/Escape at top level → quit (only if tab didn't consume it)
+                if (!tabConsumed && rawEvt.ToInputEvent is InputEvent.KeyDown(InputKey.Q or InputKey.Escape, _))
                 {
+                    quit = true;
                     break;
                 }
             }
-            else
+
+            if (quit)
+            {
+                break;
+            }
+
+            // Propagate state-level redraw flags to the active tab
+            if (plannerState.NeedsRedraw || sessionState.NeedsRedraw)
+            {
+                activeTab.NeedsRedraw = true;
+                plannerState.NeedsRedraw = false;
+                sessionState.NeedsRedraw = false;
+            }
+
+            if (!appState.NeedsRedraw && !activeTab.NeedsRedraw)
             {
                 await Task.Delay(16, cts.Token);
             }
@@ -183,6 +241,18 @@ internal class TuiSubCommand(
             ConsoleKey.D4 or ConsoleKey.F4 => GuiTab.Viewer,
             _ => (GuiTab?)null
         };
+
+        // Mouse click on tab bar (row 0)
+        if (newTab is null && rawEvt.Mouse is { IsRelease: true } mouse)
+        {
+            var cellH = terminal.CellSize.Height;
+            if (cellH > 0 && mouse.Y / cellH == 0)
+            {
+                var cellW = terminal.CellSize.Width;
+                var col = cellW > 0 ? mouse.X / cellW : 0;
+                newTab = TuiTabBar.HitTestTab(col);
+            }
+        }
 
         if (newTab is not { } tab || tab == appState.ActiveTab || !tabs.ContainsKey(tab))
         {

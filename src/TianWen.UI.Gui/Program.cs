@@ -127,6 +127,15 @@ bus.Subscribe<BuildScheduleSignal>(signal =>
     }
 });
 
+// Load saved session configuration for the active profile
+if (appState.ActiveProfile is not null)
+{
+    tracker.Run(async () =>
+    {
+        await SessionPersistence.TryLoadAsync(guiRenderer.SessionState, appState.ActiveProfile, external, cts.Token);
+    }, "Load session config");
+}
+
 if (appState.ActiveProfile is not null)
 {
     plannerTask = Task.Run(async () =>
@@ -146,6 +155,8 @@ if (appState.ActiveProfile is not null)
                 await PlannerActions.ComputeTonightsBestAsync(
                     plannerState, objectDb, transform,
                     plannerState.MinHeightAboveHorizon, cts.Token);
+
+                await PlannerPersistence.TryLoadAsync(plannerState, appState.ActiveProfile, external, cts.Token);
 
                 handlers.SetAutoCompleteCache(objectDb.CreateAutoCompleteList());
             }
@@ -177,23 +188,23 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         guiRenderer.Resize(rw, rh);
     },
 
-    OnMouseDown = (button, x, y, clicks) =>
+    OnMouseDown = (button, x, y, clicks, mods) =>
     {
-        if (button == 1) handlers.HandleMouseDown(x, y, clicks);
+        if (button == 1) handlers.HandleInput(new InputEvent.MouseDown(x, y, Modifiers: mods, ClickCount: clicks));
         return true;
     },
 
-    OnMouseMove = (x, y) => handlers.HandleMouseMove(x, y),
+    OnMouseMove = (x, y) => handlers.HandleInput(new InputEvent.MouseMove(x, y)),
 
-    OnMouseUp = (_) => handlers.HandleMouseUp(),
+    OnMouseUp = (button) => handlers.HandleInput(new InputEvent.MouseUp(0, 0)),
 
     OnMouseWheel = (scrollY, _, _) =>
     {
-        handlers.HandleMouseWheel(scrollY);
+        handlers.HandleInput(new InputEvent.Scroll(scrollY, 0, 0));
         return true;
     },
 
-    OnTextInput = text => handlers.HandleTextInput(text),
+    OnTextInput = text => handlers.HandleInput(new InputEvent.TextInput(text)),
 
     CheckNeedsRedraw = () =>
     {
@@ -241,6 +252,7 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
                             await PlannerActions.ComputeTonightsBestAsync(
                                 plannerState, objectDb, transform,
                                 plannerState.MinHeightAboveHorizon, cts.Token);
+                            await PlannerPersistence.TryLoadAsync(plannerState, appState.ActiveProfile, external, cts.Token);
                             handlers.SetAutoCompleteCache(objectDb.CreateAutoCompleteList());
                         }
                         appState.StatusMessage = null;
@@ -276,7 +288,8 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 // OnKeyDown set separately to allow loop.Stop() self-reference
 loop.OnKeyDown = (inputKey, inputModifier) =>
 {
-    if (handlers.HandleKeyDown(inputKey, inputModifier))
+    var evt = new InputEvent.KeyDown(inputKey, inputModifier);
+    if (handlers.HandleInput(evt))
     {
         return true;
     }
@@ -292,7 +305,7 @@ loop.OnKeyDown = (inputKey, inputModifier) =>
             return true;
     }
 
-    guiRenderer.ActiveTab?.HandleKeyDown(inputKey, inputModifier);
+    guiRenderer.ActiveTab?.HandleInput(evt);
     return true;
 };
 
