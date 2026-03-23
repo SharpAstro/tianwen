@@ -65,17 +65,24 @@ internal partial record Session
                 }
             }
 
-            accSleep += rampInterval;
-            if (cancellationToken.IsCancellationRequested)
+            // Check exit condition before sleeping — avoid unnecessary 10s wait when already at target
+            if (!coolingStates.Any(state => state.IsRamping) || cancellationToken.IsCancellationRequested)
             {
-                External.AppLogger.LogWarning("Cancellation requested, quitting cooldown loop");
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    External.AppLogger.LogWarning("Cancellation requested, quitting cooldown loop");
+                }
                 break;
             }
-            else
+
+            accSleep += rampInterval;
+            if (accSleep >= rampInterval * 100)
             {
-                await External.SleepAsync(rampInterval, cancellationToken).ConfigureAwait(false);
+                break;
             }
-        } while (coolingStates.Any(state => state.IsRamping) && accSleep < rampInterval * 100 && !cancellationToken.IsCancellationRequested);
+
+            await External.SleepAsync(rampInterval, cancellationToken).ConfigureAwait(false);
+        } while (true);
 
         return coolingStates.All(state => !(state.IsCoolable ?? false) || (state.TargetSetpointReached ?? false));
     }
