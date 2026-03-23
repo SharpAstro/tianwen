@@ -68,7 +68,7 @@ namespace TianWen.UI.Abstractions
 
             // Top strip
             var topRect = new RectF32(contentRect.X, contentRect.Y, contentRect.Width, topH);
-            RenderTopStrip(state, topRect, fontPath, fs, dpiScale);
+            RenderTopStrip(state, topRect, fontPath, fs, dpiScale, timeProvider);
 
             // Bottom strip
             var botRect = new RectF32(contentRect.X, contentRect.Y + contentRect.Height - botH, contentRect.Width, botH);
@@ -163,7 +163,7 @@ namespace TianWen.UI.Abstractions
         // Top strip: [Phase pill]  Target: ...   [progress]
         // -----------------------------------------------------------------------
 
-        private void RenderTopStrip(LiveSessionState state, RectF32 rect, string fontPath, float fontSize, float dpiScale)
+        private void RenderTopStrip(LiveSessionState state, RectF32 rect, string fontPath, float fontSize, float dpiScale, TimeProvider timeProvider)
         {
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, HeaderBg);
 
@@ -179,23 +179,8 @@ namespace TianWen.UI.Abstractions
                 rect.X + pad, rect.Y, pillW, rect.Height,
                 fontSize * 0.9f, AbortText, TextAlign.Center, TextAlign.Center);
 
-            // Target: show current during observing, "Next up" during setup phases
-            string targetLabel;
-            if (state.Phase is SessionPhase.Observing && state.ActiveObservation is { } obs)
-            {
-                targetLabel = $"Target: {obs.Target.Name}";
-            }
-            else if (state.Phase is SessionPhase.Initialising or SessionPhase.WaitingForDark or SessionPhase.Cooling
-                     or SessionPhase.RoughFocus or SessionPhase.AutoFocus or SessionPhase.CalibratingGuider
-                     && state.ActiveSession?.Observations is { Count: > 0 } observations)
-            {
-                var first = observations[0];
-                targetLabel = $"Next up: {first.Target.Name} ({first.Start:HH:mm})";
-            }
-            else
-            {
-                targetLabel = "";
-            }
+            // Phase-specific status with countdowns and details
+            var targetLabel = LiveSessionActions.PhaseStatusText(state, timeProvider);
             DrawText(targetLabel.AsSpan(), fontPath,
                 rect.X + pillW + pad * 2, rect.Y, rect.Width * 0.4f, rect.Height,
                 fontSize, BodyText, TextAlign.Near, TextAlign.Center);

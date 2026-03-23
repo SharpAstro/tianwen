@@ -177,6 +177,7 @@ if (appState.ActiveProfile is not null)
 bus.Post(new DiscoverDevicesSignal());
 
 // --- Main event loop via SdlEventLoop ---
+var _lastSessionRedrawTimestamp = external.TimeProvider.GetTimestamp();
 
 var loop = new SdlEventLoop(sdlWindow, renderer)
 {
@@ -282,6 +283,17 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
                 appState.StatusMessage = $"Shutting down\u2026 ({tracker.PendingCount} task{(tracker.PendingCount == 1 ? "" : "s")})";
             }
             return true; // always redraw during shutdown
+        }
+
+        // Redraw periodically (every ~500ms) when session is running on the Live tab
+        if (guiRenderer.LiveSessionState.IsRunning && appState.ActiveTab == GuiTab.LiveSession)
+        {
+            var now = external.TimeProvider.GetTimestamp();
+            if (external.TimeProvider.GetElapsedTime(_lastSessionRedrawTimestamp, now) >= TimeSpan.FromMilliseconds(500))
+            {
+                _lastSessionRedrawTimestamp = now;
+                return true;
+            }
         }
 
         return appState.NeedsRedraw || plannerState.NeedsRedraw

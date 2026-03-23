@@ -53,6 +53,53 @@ namespace TianWen.UI.Abstractions
             return $"{(int)ts.TotalSeconds}s";
         }
 
+        /// <summary>Phase-specific status text with countdowns and context.</summary>
+        public static string PhaseStatusText(LiveSessionState state, TimeProvider timeProvider)
+        {
+            var obs = state.ActiveSession?.Observations;
+            var first = obs is { Count: > 0 } ? obs[0] : (ScheduledObservation?)null;
+            var utcNow = timeProvider.GetUtcNow();
+
+            return state.Phase switch
+            {
+                SessionPhase.Initialising => "Connecting devices\u2026",
+
+                SessionPhase.WaitingForDark when first is { } f =>
+                    utcNow < f.Start - TimeSpan.FromMinutes(10)
+                        ? $"Next: {f.Target.Name} at {f.Start:HH:mm} (in {FormatDuration(f.Start - TimeSpan.FromMinutes(10) - utcNow)})"
+                        : $"Next: {f.Target.Name} \u2014 starting soon",
+
+                SessionPhase.WaitingForDark => "Waiting for dark\u2026",
+
+                SessionPhase.Cooling =>
+                    $"Cooling to {state.ActiveSession?.Setup.Telescopes[0].Camera.Driver.FocalLength}\u2026"
+                    is var _ // placeholder — show temp from cooling samples
+                    && state.CoolingSamples is { Count: > 0 } samples
+                        ? $"Cooling: {samples[^1].TemperatureC:F0}\u00B0C \u2192 setpoint {samples[^1].SetpointTempC:F0}\u00B0C"
+                        : "Cooling cameras\u2026",
+
+                SessionPhase.RoughFocus => "Rough focus: slewing to zenith, detecting stars\u2026",
+                SessionPhase.AutoFocus => state.FocusHistory is { Count: > 0 } fh
+                    ? $"Auto-focus: last HFD {fh[^1].BestHfd:F1}\" @ pos {fh[^1].BestPosition}"
+                    : "Auto-focus: scanning V-curve\u2026",
+                SessionPhase.CalibratingGuider => "Calibrating guider\u2026",
+
+                SessionPhase.Observing when state.ActiveObservation is { } ao =>
+                    $"Imaging: {ao.Target.Name} ({state.TotalFramesWritten} frames, {FormatDuration(state.TotalExposureTime)})",
+
+                SessionPhase.Finalising =>
+                    state.CoolingSamples is { Count: > 0 } ws
+                        ? $"Finalising: warming {ws[^1].TemperatureC:F0}\u00B0C \u2192 ambient"
+                        : "Finalising: parking mount, warming cameras\u2026",
+
+                SessionPhase.Complete => $"Session complete: {state.TotalFramesWritten} frames, {FormatDuration(state.TotalExposureTime)}",
+                SessionPhase.Aborted => "Session aborted",
+                SessionPhase.Failed => "Session failed",
+
+                _ => ""
+            };
+        }
+
         /// <summary>Format guide RMS as a compact string (e.g. "Total: 1.2\" Ra: 0.8\" Dec: 0.9\"").</summary>
         public static string FormatGuideRms(TianWen.Lib.Devices.Guider.GuideStats? stats)
         {

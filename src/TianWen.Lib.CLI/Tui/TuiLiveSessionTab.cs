@@ -47,23 +47,9 @@ internal sealed class TuiLiveSessionTab(
 
         // Top bar: phase + target
         var phaseLabel = LiveSessionActions.PhaseLabel(liveState.Phase);
-        string targetName;
-        if (liveState.Phase is SessionPhase.Observing && liveState.ActiveObservation is { } obs)
-        {
-            targetName = $"Target: {obs.Target.Name}";
-        }
-        else if (liveState.Phase is SessionPhase.Initialising or SessionPhase.WaitingForDark or SessionPhase.Cooling
-                 or SessionPhase.RoughFocus or SessionPhase.AutoFocus or SessionPhase.CalibratingGuider
-                 && liveState.ActiveSession?.Observations is { Count: > 0 } observations)
-        {
-            var first = observations[0];
-            targetName = $"Next up: {first.Target.Name} ({first.Start:HH:mm})";
-        }
-        else
-        {
-            targetName = "";
-        }
-        _topBar.Text($" [{phaseLabel}]  {targetName}");
+        // TUI doesn't have TimeProvider access — use system time
+        var statusText = LiveSessionActions.PhaseStatusText(liveState, TimeProvider.System);
+        _topBar.Text($" [{phaseLabel}]  {statusText}");
         _topBar.RightText($"Frames: {liveState.TotalFramesWritten}  Exp: {LiveSessionActions.FormatDuration(liveState.TotalExposureTime)}");
 
         // Guide RMS bar
