@@ -257,7 +257,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
     }
 
     [Fact(Timeout = 60_000)]
-    public void GivenProfileWithProposedObservationsWhenCreateThenSessionIsScheduled()
+    public void GivenProfileWithScheduledObservationsWhenCreateThenSessionIsCreated()
     {
         // given
         var mountDevice = CreateMountDevice();
@@ -272,39 +272,14 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
 
         var (factory, _) = CreateFactory(profileData);
 
-        var proposals = new[]
-        {
-            new ProposedObservation(new Target(6.75, 16.7, "M42", null))
-        };
+        var observations = new[] { CreateDefaultObservation() };
 
         // when
-        var session = factory.Create(TestProfileId, SessionTestHelper.DefaultConfiguration, new ReadOnlySpan<ProposedObservation>(proposals));
+        var session = factory.Create(TestProfileId, SessionTestHelper.DefaultConfiguration, new ReadOnlySpan<ScheduledObservation>(observations));
 
         // then
         session.ShouldNotBeNull();
-    }
-
-    [Fact(Timeout = 60_000)]
-    public void GivenProfileWithNoLatLongWhenCreateWithProposalsThenThrowsInvalidOperationException()
-    {
-        // given — mount without latitude/longitude query params
-        var mountDevice = new FakeDevice(DeviceType.Mount, 1);
-        var cameraDevice = CreateCameraDevice();
-        var guiderDevice = CreateGuiderDevice();
-
-        var profileData = new ProfileData(
-            Mount: mountDevice.DeviceUri,
-            Guider: guiderDevice.DeviceUri,
-            OTAs: [new OTAData("Test Scope", 1000, cameraDevice.DeviceUri, null, null, null, null, null)]
-        );
-
-        var (factory, _) = CreateFactory(profileData);
-        var proposals = new[] { new ProposedObservation(new Target(6.75, 16.7, "M42", null)) };
-
-        // when/then
-        Should.Throw<InvalidOperationException>(() =>
-            factory.Create(TestProfileId, SessionTestHelper.DefaultConfiguration, new ReadOnlySpan<ProposedObservation>(proposals))
-        );
+        session.Observations.Count.ShouldBe(1);
     }
 
     [Fact(Timeout = 60_000)]
@@ -652,9 +627,9 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
     }
 
     [Fact(Timeout = 60_000)]
-    public void GivenExplicitDefaultSubExposureWhenCreateWithProposalsThenUsedInSchedule()
+    public void GivenScheduleWithCustomSubExposureWhenCreateThenPreserved()
     {
-        // given
+        // given — schedule with 60s sub-exposure
         var mountDevice = CreateMountDevice();
         var cameraDevice = CreateCameraDevice();
         var guiderDevice = CreateGuiderDevice();
@@ -665,24 +640,26 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
             OTAs: [new OTAData("Test Scope", 1000, cameraDevice.DeviceUri, null, null, null, null, null)]
         );
 
-        var config = SessionTestHelper.DefaultConfiguration with { DefaultSubExposure = TimeSpan.FromSeconds(60) };
         var (factory, _) = CreateFactory(profileData);
 
-        var proposals = new[]
+        var observations = new[]
         {
-            new ProposedObservation(new Target(6.75, 16.7, "M42", null))
+            new ScheduledObservation(
+                new Target(6.75, 16.7, "M42", null),
+                DateTimeOffset.UtcNow,
+                TimeSpan.FromMinutes(30),
+                AcrossMeridian: false,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(TimeSpan.FromSeconds(60)),
+                Gain: 0,
+                Offset: 0
+            )
         };
 
         // when
-        var session = factory.Create(TestProfileId, config, new ReadOnlySpan<ProposedObservation>(proposals));
+        var session = factory.Create(TestProfileId, SessionTestHelper.DefaultConfiguration, new ReadOnlySpan<ScheduledObservation>(observations));
 
         // then
-        var internalSession = session.ShouldBeOfType<Session>();
-        // The scheduled observation should use the explicit 60s default, not the 120s fallback
-        if (internalSession.Observations.Count > 0)
-        {
-            internalSession.Observations[0].SubExposure.ShouldBe(TimeSpan.FromSeconds(60));
-        }
+        session.Observations[0].SubExposure.ShouldBe(TimeSpan.FromSeconds(60));
     }
 
     private static ScheduledObservation CreateDefaultObservation() => new ScheduledObservation(

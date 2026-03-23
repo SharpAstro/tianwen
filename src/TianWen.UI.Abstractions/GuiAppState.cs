@@ -29,4 +29,10 @@ public class GuiAppState
     /// The render loop continues during this phase, showing shutdown progress.
     /// </summary>
     public bool ShuttingDown { get; set; }
+
+    /// <summary>
+    /// Set by CheckNeedsRedraw when ShuttingDown and no pending tasks remain.
+    /// The loop checks this to call Stop() (since CheckNeedsRedraw can't reference loop).
+    /// </summary>
+    public bool ShutdownComplete { get; set; }
 }
