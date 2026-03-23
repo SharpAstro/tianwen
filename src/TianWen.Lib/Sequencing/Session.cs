@@ -45,6 +45,7 @@ internal partial record Session(
     private volatile GuideStats? _lastGuideStats;
     private readonly ConcurrentQueue<ExposureLogEntry> _exposureLog = [];
     private readonly ConcurrentQueue<CoolingSample> _coolingSamples = [];
+    private readonly ConcurrentQueue<PhaseTimestamp> _phaseTimeline = [];
 
     public SessionPhase Phase => _phase;
     public string? CurrentActivity => _currentActivity;
@@ -56,6 +57,7 @@ internal partial record Session(
     public GuideStats? LastGuideStats => _lastGuideStats;
     public IReadOnlyList<ExposureLogEntry> ExposureLog => [.. _exposureLog];
     public IReadOnlyList<CoolingSample> CoolingSamples => [.. _coolingSamples];
+    public IReadOnlyList<PhaseTimestamp> PhaseTimeline => [.. _phaseTimeline];
 
     public event EventHandler<SessionPhaseChangedEventArgs>? PhaseChanged;
     public event EventHandler<FrameWrittenEventArgs>? FrameWritten;
@@ -85,6 +87,7 @@ internal partial record Session(
         var old = _phase;
         _phase = newPhase;
         _currentActivity = null; // reset on phase change
+        _phaseTimeline.Enqueue(new PhaseTimestamp(newPhase, External.TimeProvider.GetUtcNow()));
         External.AppLogger.LogInformation("Session phase: {OldPhase} → {NewPhase}", old, newPhase);
         PhaseChanged?.Invoke(this, new SessionPhaseChangedEventArgs(old, newPhase));
     }
