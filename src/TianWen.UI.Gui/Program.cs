@@ -373,7 +373,13 @@ loop.OnKeyDown = (inputKey, inputModifier) =>
         return true;
     }
 
-    // Global keys (not consumed by text input)
+    // Route to active tab first — tab may consume Escape (e.g. dismiss abort confirm)
+    if (guiRenderer.ActiveTab?.HandleInput(evt) == true)
+    {
+        return true;
+    }
+
+    // Global keys (not consumed by active tab or text input)
     switch (inputKey)
     {
         case InputKey.Escape:
@@ -384,7 +390,6 @@ loop.OnKeyDown = (inputKey, inputModifier) =>
             return true;
     }
 
-    guiRenderer.ActiveTab?.HandleInput(evt);
     return true;
 };
 
