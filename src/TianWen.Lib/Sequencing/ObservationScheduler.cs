@@ -40,6 +40,28 @@ internal static class ObservationScheduler
         var dto = transform.DateTimeOffset;
         var localDayStart = new DateTimeOffset(dto.Date, dto.Offset);
 
+        // First try computing tonight's window from today's date.
+        var (dark, twilight) = CalculateNightWindowForDay(transform, localDayStart);
+
+        // If the evening hasn't started yet but we're in the early morning (before the
+        // upcoming evening), we might be in last night's dark window. Check if the
+        // previous day's twilight is still in the future — if so, use that night instead.
+        if (dark > dto && dto.TimeOfDay.TotalHours < 12)
+        {
+            var prevDayStart = localDayStart.AddDays(-1);
+            var (prevDark, prevTwilight) = CalculateNightWindowForDay(transform, prevDayStart);
+            if (prevTwilight > dto)
+            {
+                // We're still within last night's window
+                return (prevDark, prevTwilight);
+            }
+        }
+
+        return (dark, twilight);
+    }
+
+    private static (DateTimeOffset AstroDark, DateTimeOffset AstroTwilight) CalculateNightWindowForDay(Transform transform, DateTimeOffset localDayStart)
+    {
         // Check for polar night: if the sun never rises, the entire day is available for observation.
         transform.DateTimeOffset = localDayStart;
         var (_, sunRise, _) = transform.EventTimes(EventType.SunRiseSunset);

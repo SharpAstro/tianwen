@@ -54,17 +54,9 @@ public static class TransformFactory
 
         // Re-express "now" in the site's timezone so CalculateNightWindow computes
         // the correct evening for the site, not for the machine's local timezone.
-        // If site-local time is before noon, use the previous day — we're still in
-        // last night's session (e.g. 00:30 CET is part of the March 23 evening session).
         if (transform.TryGetSiteTimeZone(out var siteOffset, out _))
         {
-            var siteNow = timeProvider.GetUtcNow().ToOffset(siteOffset);
-            if (siteNow.Hour < 12)
-            {
-                // Use noon of the previous day — CalculateNightWindow finds that day's evening
-                siteNow = new DateTimeOffset(siteNow.Date.AddDays(-1), siteOffset).AddHours(12);
-            }
-            transform.DateTimeOffset = siteNow;
+            transform.DateTimeOffset = timeProvider.GetUtcNow().ToOffset(siteOffset);
         }
 
         return transform;
