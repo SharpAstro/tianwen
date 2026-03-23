@@ -38,7 +38,7 @@ internal partial record Session
             var local10MinBeforeAstroTwilightSet = localAstroTwilightSet - TimeSpan.FromMinutes(10);
             var diff = local10MinBeforeAstroTwilightSet - now;
 
-            External.AppLogger.LogDebug("WaitForDark: now={Now}, localDayStart={LocalDayStart}, set[0]={SetOffset}, twilightSet={TwilightSet}, 10minBefore={Before10}, diff={Diff}",
+            External.AppLogger.LogInformation("WaitForDark: now={Now}, localDayStart={LocalDayStart}, set[0]={SetOffset}, twilightSet={TwilightSet}, 10minBefore={Before10}, diff={Diff}",
                 now, localDayStart, set[0], localAstroTwilightSet, local10MinBeforeAstroTwilightSet, diff);
 
             if (diff > TimeSpan.Zero)
