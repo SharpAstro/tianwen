@@ -20,10 +20,11 @@ internal partial record Session
 
 
     /// <summary>
-    /// Attention: Cannot be cancelled (as it would possibly destroy the cameras)
+    /// Warms cameras back to ambient temperature. Not cancellable — abruptly cutting power
+    /// to a cooled sensor risks thermal shock and condensation damage.
     /// </summary>
     /// <param name="rampTime">Interval between temperature checks</param>
-    /// <returns>True if setpoint temperature was reached.</returns>
+    /// <returns>True if ambient temperature was reached.</returns>
     internal ValueTask<bool> CoolCamerasToAmbientAsync(TimeSpan rampTime)
         => CoolCamerasToSetpointAsync(new SetpointTemp(sbyte.MinValue, SetpointTempKind.Ambient), rampTime, 0.1, SetupointDirection.Up, CancellationToken.None);
 
