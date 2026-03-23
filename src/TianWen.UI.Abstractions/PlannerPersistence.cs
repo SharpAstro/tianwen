@@ -108,7 +108,8 @@ public static class PlannerPersistence
         state.MinHeightAboveHorizon = dto.MinHeightAboveHorizon;
         state.MinRatingFilter = dto.MinRatingFilter;
 
-        // Recompute sliders from restored proposals first (to get correct PinnedCount)
+        // Sort proposals by peak altitude time and recompute sliders
+        PlannerActions.SortProposalsByPeakTime(state);
         PlannerActions.RecomputeHandoffSliders(state);
 
         // Restore saved slider positions if count matches

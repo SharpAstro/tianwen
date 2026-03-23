@@ -880,6 +880,22 @@ public static class PlannerActions
     /// <summary>
     /// Adds a target from TonightsBest to the proposals list.
     /// </summary>
+    /// <summary>
+    /// Sorts proposals in-place by peak altitude time so all consumers
+    /// (session tab, chart, scheduler) see the same order as the planner target list.
+    /// </summary>
+    public static void SortProposalsByPeakTime(PlannerState state)
+    {
+        state.Proposals.Sort((a, b) =>
+        {
+            var peakA = state.AltitudeProfiles.TryGetValue(a.Target, out var profA) && profA.Count > 0
+                ? profA.MaxBy(p => p.Alt).Time : DateTimeOffset.MaxValue;
+            var peakB = state.AltitudeProfiles.TryGetValue(b.Target, out var profB) && profB.Count > 0
+                ? profB.MaxBy(p => p.Alt).Time : DateTimeOffset.MaxValue;
+            return peakA.CompareTo(peakB);
+        });
+    }
+
     public static void AddProposal(PlannerState state, int tonightsBestIndex, ObservationPriority priority = ObservationPriority.Normal)
     {
         if (tonightsBestIndex < 0 || tonightsBestIndex >= state.TonightsBest.Count)
@@ -896,7 +912,7 @@ public static class PlannerActions
         }
 
         state.Proposals.Add(new ProposedObservation(target, Priority: priority));
-        // Schedule (on SessionTabState) becomes stale — rebuilt on demand via "Build Schedule"
+        SortProposalsByPeakTime(state);
         RecomputeHandoffSliders(state);
         state.IsDirty = true;
         state.NeedsRedraw = true;
@@ -913,7 +929,7 @@ public static class PlannerActions
         }
 
         state.Proposals.RemoveAt(proposalIndex);
-        // Schedule (on SessionTabState) becomes stale — rebuilt on demand via "Build Schedule"
+        // No sort needed after removal — order is preserved
         RecomputeHandoffSliders(state);
         state.IsDirty = true;
         state.NeedsRedraw = true;
@@ -932,8 +948,8 @@ public static class PlannerActions
         else
         {
             state.Proposals.Add(new ProposedObservation(target, Priority: priority));
+            SortProposalsByPeakTime(state);
         }
-        // Schedule (on SessionTabState) becomes stale — rebuilt on demand via "Build Schedule"
         RecomputeHandoffSliders(state);
 
         // Selection follows the target to its new position in the reordered list

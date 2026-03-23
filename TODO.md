@@ -101,6 +101,10 @@
 - [ ] Exposure log thumbnails: 128px height, preserve aspect ratio
 - [ ] Finalise as background task — keep UI responsive during park/warmup after abort/complete
 
+## Flaky Tests
+
+- [ ] `SessionObservationLoopTests.GivenRefocusOnNewTargetWhenSwitchingTargetsThenBaselineStoredPerTarget` — intermittently fails, passes on re-run. Likely timing-sensitive fake time pumping race between test thread and session background task. Investigate whether the `Task.Delay` yield is insufficient or whether `FakeTimeProvider.Advance` interleaving causes non-deterministic ordering.
+
 ## Camera / ICameraDriver
 
 - [ ] Consider using external temp sensor if no heatsink temp is available (`ICameraDriver.cs:314`)
