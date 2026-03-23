@@ -24,7 +24,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
         // when — cool down to -10°C
         var reached = await ctx.Session.CoolCamerasToSetpointAsync(
             new SetpointTemp(-10, SetpointTempKind.Normal),
-            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(60),
             80,
             SetupointDirection.Down,
             ct
@@ -54,7 +54,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
 
         await ctx.Session.CoolCamerasToSetpointAsync(
             new SetpointTemp(-10, SetpointTempKind.Normal),
-            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(60),
             80,
             SetupointDirection.Down,
             ct
@@ -67,7 +67,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
         // when — warm up toward 0°C (a concrete target above cooled temp)
         var reached = await ctx.Session.CoolCamerasToSetpointAsync(
             new SetpointTemp(0, SetpointTempKind.Normal),
-            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(60),
             0.1,
             SetupointDirection.Up,
             ct
@@ -95,7 +95,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
         // when — start cooling
         await ctx.Session.CoolCamerasToSetpointAsync(
             new SetpointTemp(-10, SetpointTempKind.Normal),
-            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(60),
             80,
             SetupointDirection.Down,
             ct
@@ -113,17 +113,17 @@ public class SessionCoolingTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
 
-        // when — cancel after 3 fake-time seconds via timer on the FakeTimeProvider.
-        // Each SleepAsync(1s) inside the cooling loop calls Advance(1s), which fires
-        // pending timers synchronously — so after 3 ramp steps the cancel timer fires
+        // when — cancel after 10 fake-time seconds via timer on the FakeTimeProvider.
+        // With totalRampTime=60s for 30°C delta, each step sleeps ~2s of fake time.
+        // 10s allows ~5 steps (5°C cooled) before the cancel timer fires
         // deterministically inside the loop's own Advance call. No Task.Run race.
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         using var cancelTimer = ctx.External.TimeProvider.CreateTimer(
-            _ => cts.Cancel(), null, TimeSpan.FromSeconds(3), Timeout.InfiniteTimeSpan);
+            _ => cts.Cancel(), null, TimeSpan.FromSeconds(10), Timeout.InfiniteTimeSpan);
 
         await ctx.Session.CoolCamerasToSetpointAsync(
             new SetpointTemp(-10, SetpointTempKind.Normal),
-            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(60),
             80,
             SetupointDirection.Down,
             cts.Token
@@ -163,7 +163,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
         // when — cool to -10°C
         var reached = await ctx.Session.CoolCamerasToSetpointAsync(
             new SetpointTemp(-10, SetpointTempKind.Normal),
-            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(60),
             80,
             SetupointDirection.Down,
             ct

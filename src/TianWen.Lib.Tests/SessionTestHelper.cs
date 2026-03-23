@@ -22,8 +22,8 @@ internal static class SessionTestHelper
 {
     public static readonly SessionConfiguration DefaultConfiguration = new SessionConfiguration(
         SetpointCCDTemperature: new SetpointTemp(-10, SetpointTempKind.Normal),
-        CooldownRampInterval: TimeSpan.FromSeconds(1),
-        WarmupRampInterval: TimeSpan.FromSeconds(1),
+        CooldownRampInterval: TimeSpan.FromSeconds(60),
+        WarmupRampInterval: TimeSpan.FromSeconds(60),
         MinHeightAboveHorizon: 20,
         DitherPixel: 1.5,
         SettlePixel: 0.3,
