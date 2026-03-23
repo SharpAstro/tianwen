@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Console.Lib;
 using DIR.Lib;
 using TianWen.Lib.Astrometry.SOFA;
@@ -14,9 +15,9 @@ namespace TianWen.Lib.CLI.Tui;
 internal sealed class TuiPlannerTab(
     PlannerState plannerState,
     Transform transform,
-    string fontPath) : ITuiTab
+    string fontPath,
+    SignalBus? bus = null) : TuiTabBase
 {
-    private Panel? _panel;
     private TextBar? _topBar;
     private TextBar? _statusBar;
     private ScrollableList<TargetListItem>? _targetList;
@@ -24,19 +25,19 @@ internal sealed class TuiPlannerTab(
     private Canvas<RgbaImage>? _canvas;
     private RgbaImageRenderer? _canvasRenderer;
 
-    public bool NeedsRedraw { get; set; } = true;
+    [MemberNotNullWhen(true, nameof(_topBar), nameof(_statusBar), nameof(_targetList),
+        nameof(_detailWidget), nameof(_canvas), nameof(_canvasRenderer))]
+    protected override bool IsReady =>
+        _topBar is not null && _statusBar is not null && _targetList is not null
+        && _detailWidget is not null && _canvas is not null && _canvasRenderer is not null;
 
-    public void BuildPanel(IVirtualTerminal terminal, int topRows = 1, int bottomRows = 1)
+    protected override void CreateWidgets(Panel panel)
     {
-        _panel = new Panel(terminal);
-        // Reserve space for the TUI host's tab bar and status bar
-        _panel.Dock(DockStyle.Top, topRows);
-        _panel.Dock(DockStyle.Bottom, bottomRows);
-        var topVp = _panel.Dock(DockStyle.Top, 1);
-        var bottomVp = _panel.Dock(DockStyle.Bottom, 1);
-        var detailVp = _panel.Dock(DockStyle.Bottom, 8);
-        var leftVp = _panel.Dock(DockStyle.Left, 32);
-        var fillVp = _panel.Fill();
+        var topVp = panel.Dock(DockStyle.Top, 1);
+        var bottomVp = panel.Dock(DockStyle.Bottom, 1);
+        var detailVp = panel.Dock(DockStyle.Bottom, 8);
+        var leftVp = panel.Dock(DockStyle.Left, 32);
+        var fillVp = panel.Fill();
 
         _topBar = new TextBar(topVp);
         _statusBar = new TextBar(bottomVp);
@@ -47,20 +48,11 @@ internal sealed class TuiPlannerTab(
         _canvasRenderer = new RgbaImageRenderer((uint)canvasPixelSize.Width, (uint)canvasPixelSize.Height);
         _canvas = new Canvas<RgbaImage>(fillVp, _canvasRenderer);
 
-        _panel.Add(_topBar).Add(_statusBar).Add(_targetList).Add(_detailWidget).Add(_canvas);
-        NeedsRedraw = true;
+        panel.Add(_topBar).Add(_statusBar).Add(_targetList).Add(_detailWidget).Add(_canvas);
     }
 
-    public void Render()
+    protected override void RenderContent()
     {
-        if (_panel is null || _topBar is null || _statusBar is null ||
-            _targetList is null || _detailWidget is null || _canvas is null || _canvasRenderer is null)
-        {
-            return;
-        }
-
-        NeedsRedraw = false;
-
         // Top bar
         var siteLabel = $"{plannerState.SiteLatitude:F1}\u00b0N {plannerState.SiteLongitude:F1}\u00b0E";
         var darkLocal = plannerState.AstroDark.ToOffset(plannerState.SiteTimeZone);
@@ -109,28 +101,55 @@ internal sealed class TuiPlannerTab(
             : " \u2191\u2193:nav Enter:toggle P:priority S:schedule Q:quit";
         _statusBar.Text(statusText);
         _statusBar.RightText($"{scheduleStatus} ");
-
-        _panel.RenderAll();
     }
 
-    public bool HandleInput(InputEvent evt)
+    protected override void RegisterClickableRegions()
+    {
+        if (_targetList is not { } targetList)
+        {
+            return;
+        }
+
+        var cellSize = targetList.Viewport.CellSize;
+        var offset = targetList.Viewport.Offset;
+        var baseX = (float)(offset.Column * cellSize.Width);
+        var baseY = (float)(offset.Row * cellSize.Height);
+        var rowW = (float)(targetList.Viewport.Size.Width * cellSize.Width);
+        var rowH = (float)cellSize.Height;
+        var scrollOffset = Math.Max(0, plannerState.SelectedTargetIndex - targetList.VisibleRows / 2);
+
+        for (var i = 0; i < targetList.VisibleRows && scrollOffset + i < plannerState.TonightsBest.Count; i++)
+        {
+            var capturedIdx = scrollOffset + i;
+            var y = baseY + (1 + i) * rowH; // +1 for header
+            Tracker.Register(baseX, y, rowW, rowH,
+                new HitResult.ListItemHit("TargetList", capturedIdx),
+                _ => { plannerState.SelectedTargetIndex = capturedIdx; });
+        }
+    }
+
+    public override bool HandleInput(InputEvent evt)
     {
         switch (evt)
         {
             case InputEvent.MouseUp(var x, var y, MouseButton.Left):
-                if (_targetList is not null)
+                // Slider hit test (uses chart time-layout math directly)
+                if (HitTestSliderOnCanvas(x, y))
                 {
-                    var cell = _targetList.HitTest((int)x, (int)y);
-                    if (cell is { Row: var row } && row >= 0)
-                    {
-                        var scrollOffset = Math.Max(0, plannerState.SelectedTargetIndex - _targetList.VisibleRows / 2);
-                        var itemIndex = row - 1 + scrollOffset;
-                        if (itemIndex >= 0 && itemIndex < plannerState.TonightsBest.Count)
-                        {
-                            plannerState.SelectedTargetIndex = itemIndex;
-                            NeedsRedraw = true;
-                        }
-                    }
+                    NeedsRedraw = true;
+                    return false;
+                }
+
+                // Target list and other regions via tracker
+                if (Tracker.HitTestAndDispatch(x, y) is not null)
+                {
+                    NeedsRedraw = true;
+                }
+                else if (plannerState.SelectedSliderIndex >= 0)
+                {
+                    // Click outside any region → deselect slider
+                    PlannerActions.SelectSlider(plannerState, -1);
+                    NeedsRedraw = true;
                 }
                 return false;
 
@@ -141,11 +160,18 @@ internal sealed class TuiPlannerTab(
                 NeedsRedraw = true;
                 return false;
 
-            case InputEvent.KeyDown(var key, _):
+            case InputEvent.KeyDown(var key, var modifiers):
                 if (plannerState.StatusMessage is not null)
                 {
                     plannerState.StatusMessage = null;
                     NeedsRedraw = true;
+                }
+
+                // Slider keyboard control (shared with GPU)
+                if (PlannerActions.HandleSliderKeyboard(plannerState, key, modifiers))
+                {
+                    NeedsRedraw = true;
+                    return false;
                 }
 
                 switch (key)
@@ -189,14 +215,45 @@ internal sealed class TuiPlannerTab(
                         return false;
 
                     case InputKey.S:
-                        PlannerActions.BuildSchedule(plannerState, transform,
-                            defaultGain: 120, defaultOffset: 10,
-                            defaultSubExposure: TimeSpan.FromSeconds(120),
-                            defaultObservationTime: TimeSpan.FromMinutes(60));
+                        bus?.Post(new BuildScheduleSignal());
                         NeedsRedraw = true;
                         return false;
                 }
                 break;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Hit-tests sliders on the chart canvas using chart time-layout math.
+    /// Returns true if a slider was hit and selected.
+    /// </summary>
+    private bool HitTestSliderOnCanvas(float x, float y)
+    {
+        if (_canvas is null)
+        {
+            return false;
+        }
+
+        var canvasCell = _canvas.Viewport.CellSize;
+        var canvasOffset = _canvas.Viewport.Offset;
+        var canvasPixelSize = _canvas.PixelSize;
+        var localX = x - canvasOffset.Column * canvasCell.Width;
+        var localY = y - canvasOffset.Row * canvasCell.Height;
+
+        if (localX < 0 || localX >= canvasPixelSize.Width ||
+            localY < 0 || localY >= canvasPixelSize.Height)
+        {
+            return false;
+        }
+
+        var sliderIdx = PlannerActions.HitTestSlider(
+            plannerState, localX, 0, canvasPixelSize.Width);
+        if (sliderIdx >= 0)
+        {
+            PlannerActions.SelectSlider(plannerState, sliderIdx);
+            return true;
         }
 
         return false;

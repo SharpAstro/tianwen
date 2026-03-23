@@ -13,7 +13,7 @@ namespace TianWen.Lib.Tests.Functional;
 
 public class BuiltInGuiderDriverTests(ITestOutputHelper output)
 {
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenBuiltInGuiderDeviceWhenCreatedThenDefaultPulseGuideSourceIsAuto()
     {
         var device = new BuiltInGuiderDevice();
@@ -21,7 +21,7 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
         device.PulseGuideSource.ShouldBe(PulseGuideSource.Auto);
     }
 
-    [Theory]
+    [Theory(Timeout = 60_000)]
     [InlineData("Auto", PulseGuideSource.Auto)]
     [InlineData("Camera", PulseGuideSource.Camera)]
     [InlineData("Mount", PulseGuideSource.Mount)]
@@ -36,7 +36,7 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
         device.PulseGuideSource.ShouldBe(expected);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenBuiltInGuiderDeviceWithInvalidQueryParamWhenCreatedThenDefaultsToAuto()
     {
         var uri = new Uri("guider://BuiltInGuiderDevice/builtin?pulseGuideSource=invalid#Built-in Guider");
@@ -45,7 +45,7 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
         device.PulseGuideSource.ShouldBe(PulseGuideSource.Auto);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenLinkedDriverWhenConnectAndLoopThenStateIsLooping()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -59,7 +59,7 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
         (await driver.IsLoopingAsync(ct)).ShouldBeTrue();
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenUnlinkedDriverWhenGuideThenThrows()
     {
         var external = new FakeExternal(output);
@@ -71,7 +71,7 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
         );
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenLinkedDriverWhenStopCaptureThenStateIsIdle()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -85,7 +85,7 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
         (await driver.IsGuidingAsync(ct)).ShouldBeFalse();
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenPulseGuideRouterWithCameraSourceAndNonSt4CameraThenThrows()
     {
         // FakeCameraDriver has CanPulseGuide = false
@@ -100,7 +100,7 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
         );
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenPulseGuideRouterWithMountSourceThenRoutesToMount()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -120,7 +120,7 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
         output.WriteLine($"Is pulse guiding after send: {isPulseGuiding}");
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenPulseGuideRouterWithAutoSourceAndNeitherSupportsThenThrows()
     {
         var external = new FakeExternal(output);
@@ -134,7 +134,7 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
         );
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenMountPulseGuideTargetWhenPulseGuideThenDelegatesToMount()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -159,7 +159,7 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
         raAfter.ShouldNotBe(raBefore, "pulse guide should move the mount");
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenBuiltInGuiderDriverWhenLinkDevicesThenMountAndCameraAreStored()
     {
         var ct = TestContext.Current.CancellationToken;

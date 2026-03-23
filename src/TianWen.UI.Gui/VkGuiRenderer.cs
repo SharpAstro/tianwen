@@ -45,6 +45,9 @@ namespace TianWen.UI.Gui
         public EquipmentTabState EquipmentState => _equipmentTab.State;
 
         /// <inheritdoc/>
+        public SessionTabState SessionState => _sessionTab.State;
+
+        /// <inheritdoc/>
         public RectF32 PlannerChartRect => _plannerTab.ChartRect;
 
         /// <inheritdoc/>
@@ -210,7 +213,7 @@ namespace TianWen.UI.Gui
                     var capturedTab = tab;
                     RegisterClickable(0, btnY, sw, buttonSize,
                         new HitResult.ButtonHit($"Tab:{tab}"),
-                        () => { appState.ActiveTab = capturedTab; appState.NeedsRedraw = true; });
+                        _ => { appState.ActiveTab = capturedTab; appState.NeedsRedraw = true; });
                 }
             }
         }
@@ -251,12 +254,12 @@ namespace TianWen.UI.Gui
                 // [<] previous day
                 RenderButton("\u25C0", centerX, 0, arrowW, sbh, _fontPath, arrowFontSize,
                     arrowBg, StatusText, "DatePrev",
-                    () => { PlannerActions.ShiftPlanningDate(plannerState, timeProvider, -1); });
+                    _ => { PlannerActions.ShiftPlanningDate(plannerState, timeProvider, -1); });
 
                 // [>] next day
                 RenderButton("\u25B6", centerX + centerW - arrowW, 0, arrowW, sbh, _fontPath, arrowFontSize,
                     arrowBg, StatusText, "DateNext",
-                    () => { PlannerActions.ShiftPlanningDate(plannerState, timeProvider, +1); });
+                    _ => { PlannerActions.ShiftPlanningDate(plannerState, timeProvider, +1); });
 
                 // Date + night window label between arrows
                 var labelX = centerX + arrowW;
@@ -292,7 +295,7 @@ namespace TianWen.UI.Gui
                 {
                     RegisterClickable(labelX, 0, labelW, sbh,
                         new HitResult.ButtonHit("DateTonight"),
-                        () => { PlannerActions.ResetPlanningDate(plannerState); });
+                        _ => { PlannerActions.ResetPlanningDate(plannerState); });
                 }
             }
 
@@ -390,19 +393,11 @@ namespace TianWen.UI.Gui
                 return;
             }
 
-            string[] candidates = OperatingSystem.IsWindows()
-                ? [@"C:\Windows\Fonts\consola.ttf", @"C:\Windows\Fonts\cour.ttf"]
-                : OperatingSystem.IsMacOS()
-                    ? ["/System/Library/Fonts/Menlo.ttc", "/System/Library/Fonts/Monaco.dfont"]
-                    : ["/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", "/usr/share/fonts/TTF/DejaVuSansMono.ttf"];
-
-            foreach (var path in candidates)
+            // Fall back to system fonts
+            var resolved = FontResolver.ResolveSystemFont();
+            if (resolved.Length > 0)
             {
-                if (File.Exists(path))
-                {
-                    _fontPath = path;
-                    return;
-                }
+                _fontPath = resolved;
             }
         }
     }

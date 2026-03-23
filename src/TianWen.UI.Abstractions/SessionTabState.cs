@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using DIR.Lib;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 
@@ -68,6 +69,30 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>Scroll offset in pixels for the configuration form panel.</summary>
         public int ConfigScrollOffset { get; set; }
+
+        /// <summary>Currently selected config field index (-1 = none).</summary>
+        public int SelectedFieldIndex { get; set; } = -1;
+
+        /// <summary>Total number of editable config fields (computed during render).</summary>
+        public int FieldCount { get; set; }
+
+        /// <summary>Signal bus for posting session config events. Set by the host during initialization.</summary>
+        public SignalBus? Bus { get; set; }
+
+        /// <summary>Whether the session configuration has unsaved changes.</summary>
+        public bool IsDirty
+        {
+            get => _isDirty;
+            internal set
+            {
+                _isDirty = value;
+                if (value)
+                {
+                    Bus?.Post(new SaveSessionConfigSignal());
+                }
+            }
+        }
+        private bool _isDirty;
 
         /// <summary>Whether the display needs a redraw.</summary>
         public bool NeedsRedraw { get; set; }
@@ -196,6 +221,53 @@ namespace TianWen.UI.Abstractions
             const double overheadSeconds = 10.0;
             var cycleSeconds = subExposure.TotalSeconds + overheadSeconds;
             return Math.Max(0, (int)(window.TotalSeconds / cycleSeconds));
+        }
+
+        /// <summary>
+        /// Finds the <see cref="ConfigFieldDescriptor"/> at the given flat field index
+        /// across all config groups. Returns null if out of range.
+        /// </summary>
+        public static ConfigFieldDescriptor? FindField(int targetIndex)
+        {
+            var idx = 0;
+            foreach (var group in SessionConfigGroups.Groups)
+            {
+                foreach (var field in group.Fields)
+                {
+                    if (idx == targetIndex)
+                    {
+                        return field;
+                    }
+                    idx++;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Increments the selected field's value.
+        /// </summary>
+        public void IncrementSelectedField()
+        {
+            if (FindField(SelectedFieldIndex) is { } field)
+            {
+                Configuration = field.Increment(Configuration);
+                IsDirty = true;
+                NeedsRedraw = true;
+            }
+        }
+
+        /// <summary>
+        /// Decrements the selected field's value.
+        /// </summary>
+        public void DecrementSelectedField()
+        {
+            if (FindField(SelectedFieldIndex) is { } field)
+            {
+                Configuration = field.Decrement(Configuration);
+                IsDirty = true;
+                NeedsRedraw = true;
+            }
         }
 
         private static bool TryParseQueryInt(string query, string key, out int value)

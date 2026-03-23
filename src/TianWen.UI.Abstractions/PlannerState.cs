@@ -78,6 +78,12 @@ public class PlannerState
     /// <summary>Index of the slider currently being dragged (-1 = none).</summary>
     public int DraggingSliderIndex { get; set; } = -1;
 
+    /// <summary>Index of the slider currently selected for keyboard stepping (-1 = none).</summary>
+    public int SelectedSliderIndex { get; set; } = -1;
+
+    /// <summary>Original slider time when selection started, for Escape-to-revert.</summary>
+    public DateTimeOffset? SelectedSliderOriginalTime { get; set; }
+
     /// <summary>Cross-index aliases for targets (e.g. "Also: NGC 224, UGC 454").</summary>
     public Dictionary<Target, string> TargetAliases { get; set; } = [];
 
@@ -110,6 +116,24 @@ public class PlannerState
     /// Changing this triggers recomputation of the night window and targets.
     /// </summary>
     public DateTimeOffset? PlanningDate { get; set; }
+
+    /// <summary>Signal bus for posting planner events. Set by the host during initialization.</summary>
+    public SignalBus? Bus { get; set; }
+
+    /// <summary>Whether the planner session has unsaved changes (proposals, sliders, settings).</summary>
+    public bool IsDirty
+    {
+        get => _isDirty;
+        internal set
+        {
+            _isDirty = value;
+            if (value)
+            {
+                Bus?.Post(new SavePlannerSessionSignal());
+            }
+        }
+    }
+    private bool _isDirty;
 
     /// <summary>Whether the display needs a redraw.</summary>
     public bool NeedsRedraw { get; set; }

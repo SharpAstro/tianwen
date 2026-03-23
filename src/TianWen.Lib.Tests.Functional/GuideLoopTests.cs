@@ -23,7 +23,7 @@ public class GuideLoopTests(ITestOutputHelper output)
     private static int IterationsForPeCycles(double pePeriodSeconds, double cycles = 0.5)
         => (int)Math.Ceiling(cycles * pePeriodSeconds / GuideIntervalSeconds);
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenCalibratedLoopWhenGuidingThenErrorDecreases()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -126,7 +126,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         guideLoop.IsGuiding.ShouldBeFalse("loop should have stopped");
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenCalibratedLoopWithOnlineLearningWhenGuidingThenExperienceRecorded()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -256,7 +256,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         }
     }
 
-    [Theory]
+    [Theory(Timeout = 60_000)]
     [InlineData(2.0, "good seeing")]
     [InlineData(4.0, "poor seeing")]
     public async Task GivenAtmosphericSeeingWhenGuidingThenRmsBounded(double seeingArcsec, string label)
@@ -365,7 +365,7 @@ public class GuideLoopTests(ITestOutputHelper output)
             $"guiding should keep total RMS bounded even with {label}");
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenSeeingJitterWhenRenderThenCentroidVaries()
     {
         // Same seed, same offset, but different jitter RNG state → different centroids
@@ -394,7 +394,7 @@ public class GuideLoopTests(ITestOutputHelper output)
             "seeing jitter should produce different centroid positions between frames");
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenNoSeeingWhenRenderThenCentroidStable()
     {
         // Without jitter RNG, same parameters should produce identical frames
@@ -434,7 +434,7 @@ public class GuideLoopTests(ITestOutputHelper output)
     }
 
 
-    [Theory]
+    [Theory(Timeout = 60_000)]
     [InlineData(2.0, "good seeing")]
     [InlineData(4.0, "poor seeing")]
     public async Task GivenOnlineLearningWithSeeingWhenGuidingThenModelConverges(double seeingArcsec, string label)
@@ -577,7 +577,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenUncalibratedLoopWhenRunThenThrows()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -596,7 +596,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         });
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenWindGustsWhenNeuralGuidingThenRmsBounded()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -620,7 +620,7 @@ public class GuideLoopTests(ITestOutputHelper output)
             "guiding with PE + wind should keep RMS bounded");
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenCableSnagWhenNeuralGuidingThenRecovers()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -643,7 +643,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         guideLoop.ErrorTracker.TotalSamples.ShouldBeGreaterThan(0u);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenCombinedDisturbancesWhenNeuralGuidingThenRmsBounded()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -667,7 +667,7 @@ public class GuideLoopTests(ITestOutputHelper output)
             "combined disturbances should keep RMS bounded with guiding");
     }
 
-    [Theory]
+    [Theory(Timeout = 60_000)]
     [InlineData(2.0, "good seeing")]
     [InlineData(4.0, "poor seeing")]
     public async Task GivenSameScenarioWhenNeuralPlusPVsPOnlyThenNeuralIsNotWorse(double seeingArcsec, string label)

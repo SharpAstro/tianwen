@@ -111,19 +111,19 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         imageRenderer.Resize(rw, rh);
     },
 
-    OnMouseDown = (button, x, y, _) =>
+    OnMouseDown = (button, x, y, clicks, _) =>
     {
         HandleMouseDown(button, x, y);
         return true;
     },
 
-    OnMouseMove = (x, y) => imageRenderer.HandleMouseMove(x, y),
+    OnMouseMove = (x, y) => imageRenderer.HandleInput(new InputEvent.MouseMove(x, y)),
 
-    OnMouseUp = (_) => imageRenderer.HandleMouseUp(),
+    OnMouseUp = (button) => imageRenderer.HandleInput(new InputEvent.MouseUp(0, 0)),
 
     OnMouseWheel = (scrollY, mouseX, mouseY) =>
     {
-        imageRenderer.HandleMouseWheel(scrollY, mouseX, mouseY);
+        imageRenderer.HandleInput(new InputEvent.Scroll(scrollY, mouseX, mouseY));
         return true;
     },
 
@@ -172,10 +172,10 @@ bus.Subscribe<PlateSolveSignal>(_ =>
     }
 });
 
-// OnKeyDown wired separately — imageRenderer.HandleKeyDown handles F11 via signal bus
+// OnKeyDown wired separately — imageRenderer.HandleInput handles F11 via signal bus
 loop.OnKeyDown = (inputKey, inputModifier) =>
 {
-    imageRenderer.HandleKeyDown(inputKey, inputModifier);
+    imageRenderer.HandleInput(new InputEvent.KeyDown(inputKey, inputModifier));
     return true;
 };
 

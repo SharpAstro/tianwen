@@ -11,7 +11,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
 {
     // --- FakeGuider State Machine Tests (Phase 1) ---
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenFakeGuiderWhenGuideAsyncThenItTransitionsThroughCalibrationToGuiding()
     {
         // given
@@ -37,7 +37,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
         (await guider.IsSettlingAsync(ct)).ShouldBeFalse("should not be settling after guiding started");
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenGuidingFakeGuiderWhenDitherAsyncThenItSettlesBackToGuiding()
     {
         // given — guider in Guiding state
@@ -70,7 +70,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
         doneProgress.Done.ShouldBeTrue();
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenGuidingFakeGuiderWhenStopCaptureThenItReturnsToIdle()
     {
         // given
@@ -96,7 +96,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
 
     // --- FakeCamera Cooling Tests (Phase 2) ---
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenCoolerOnWhenPollingTemperatureThenItRampsToSetpoint()
     {
         // given
@@ -134,7 +134,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
         power.ShouldBeGreaterThan(0);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenCoolerOffWhenGetTemperatureThenItStaysAtAmbient()
     {
         // given
@@ -155,7 +155,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
 
     // --- FakeFocuser Temperature + Backlash Tests (Phase 3) ---
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenFakeFocuserWhenTimeAdvancesThenTemperatureDrifts()
     {
         // given
@@ -178,7 +178,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
         t1.ShouldBe(t0 - 1.0, 0.01);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenFakeFocuserWhenTemperatureDriftsThenTrueBestFocusShifts()
     {
         // given
@@ -200,7 +200,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
         ((double)(shiftedBestFocus - initialBestFocus)).ShouldBe(-10.0, 1.0);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenFakeFocuserWhenDirectionReversedThenBacklashEngages()
     {
         // given
@@ -235,7 +235,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
         posAfterInward.ShouldBe(480);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenFakeFocuserWhenMovingInSameDirectionThenNoBacklash()
     {
         // given
@@ -262,7 +262,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
 
     // --- FakeCamera Exposure Lifecycle Test ---
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenFakeCameraWhenExposingThenImageIsProduced()
     {
         // given

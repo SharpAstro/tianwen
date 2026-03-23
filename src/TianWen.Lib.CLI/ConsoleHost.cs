@@ -26,10 +26,19 @@ internal class ConsoleHost(
 
     public IExternal External { get; } = external;
 
-    public void WriteScrollable(string content)
+    public void WriteScrollable(string content, bool newLine = true)
     {
-        System.Console.WriteLine(content);
+        if (newLine)
+        {
+            System.Console.WriteLine(content);
+        }
+        else
+        {
+            System.Console.Write(content);
+        }
     }
+
+    public string? ReadLine() => System.Console.ReadLine();
 
     public void WriteError(string error)
     {

@@ -24,7 +24,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
     // --- SessionEndTimeAsync ---
 
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenWinterNightWhenSessionEndTimeThenReturnsNextMorningTwilight()
     {
         // Dec 15, 22:00 UTC from Vienna — astronomical twilight rise on Dec 16 ~05:00–06:00 UTC
@@ -44,7 +44,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
     // --- WaitUntilTenMinutesBeforeAmateurAstroTwilightEndsAsync ---
 
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenTwilightAlreadyEndedWhenWaitForTwilightThenReturnsImmediately()
     {
         // Dec 15, 22:00 UTC from Vienna — amateur astronomical twilight ends ~17:00 UTC in winter
@@ -63,7 +63,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
     // --- CoolCamerasToAmbientAsync ---
 
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenCooledCameraWhenCoolToAmbientThenReturnsSuccess()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -90,7 +90,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
     // --- CalibrateGuiderAsync ---
 
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenConnectedMountWhenCalibrateGuiderThenSlewsAndStartsGuiding()
     {
         // Use winter night when dec=0 near meridian is well above horizon from Vienna
@@ -122,7 +122,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
     // --- InitialisationAsync ---
 
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenFreshSessionWhenInitialisationThenAllDevicesConnected()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -154,7 +154,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
     // --- Finalise ---
 
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenActiveSessionWhenFinaliseThenShutdownCompletes()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -245,7 +245,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         return (session, external, coverDriver);
     }
 
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenClosedCoverWhenOpenThenCoverOpens()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -273,7 +273,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         output.WriteLine("Cover opened successfully");
     }
 
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenOpenCoverWhenCloseThenCoverCloses()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -303,7 +303,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         output.WriteLine("Cover closed successfully");
     }
 
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenCalibratorOnWhenOpenCoverThenCalibratorTurnedOffFirst()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -336,7 +336,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
     // --- GuiderFocusLoopAsync ---
 
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenConnectedGuiderWhenGuiderFocusLoopThenPlateSolveSucceeds()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -362,7 +362,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
     // --- InitialRoughFocusAsync ---
 
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenSyntheticStarsWhenInitialRoughFocusThenDetectsStars()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -404,7 +404,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
     // --- RunAsync (full end-to-end) ---
 
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenWinterNightWithSingleTargetWhenRunAsyncThenFullSessionCompletes()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -499,7 +499,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
     // --- GetMountUtcNowAsync ---
 
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenConnectedMountWhenGetMountUtcNowThenReturnsTimeProviderTime()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -521,7 +521,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
     // --- WriteImageToFitsFileAsync ---
 
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenImageWhenWriteToFitsThenFileCreatedOnDisk()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -553,7 +553,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
     // --- EstimateTimeUntilTargetRisesAsync ---
 
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenRisingTargetWhenEstimateRiseTimeThenReturnsPositiveTimeSpan()
     {
         // At Dec 15 22:00 UTC from Vienna, Seagull Nebula (RA=7.06, Dec=-10.45) is low and rising.
@@ -571,7 +571,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         output.WriteLine($"Seagull Nebula rises above 20° in {result.Value.TotalMinutes:F0} minutes");
     }
 
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenSettingTargetWhenEstimateRiseTimeThenReturnsNull()
     {
         // At Dec 15 22:00 UTC from Vienna, M45 (RA=3.79, Dec=24.12) is at alt ~64° and setting.

@@ -46,7 +46,7 @@ public class SessionImagingTests(ITestOutputHelper output)
         return ctx;
     }
 
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenHighAltitudeTargetWhenImagingLoopThenHighUtilization()
     {
         // given — M13 (RA=16.695h, Dec=+36.46) near zenith from Vienna in June
@@ -119,7 +119,7 @@ public class SessionImagingTests(ITestOutputHelper output)
         ctx.CleanupOutputFolder();
     }
 
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenHighMinAltitudeWhenTargetDropsBelowThenImagingStopsEarly()
     {
         // given — M13 max altitude from Vienna ~78°, set min to 70° so it drops below quickly
@@ -191,7 +191,7 @@ public class SessionImagingTests(ITestOutputHelper output)
         ctx.CleanupOutputFolder();
     }
 
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenObservationLoopWhenSingleTargetThenFramesWrittenAndAdvanced()
     {
         // given
@@ -250,7 +250,7 @@ public class SessionImagingTests(ITestOutputHelper output)
         ctx.CleanupOutputFolder();
     }
 
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenFocusDriftWhenHFDExceedsThresholdThenAutoRefocusTriggered()
     {
         // given — start at best focus, then defocus mid-session to trigger drift detection
@@ -341,7 +341,7 @@ public class SessionImagingTests(ITestOutputHelper output)
         ctx.CleanupOutputFolder();
     }
 
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenDitherEveryNthFrameWhenEnoughFramesCapturedThenDitheringTriggered()
     {
         // given — DitherEveryNthFrame=5 (default config), 30s subs, 10 min observation
@@ -412,7 +412,7 @@ public class SessionImagingTests(ITestOutputHelper output)
         ctx.CleanupOutputFolder();
     }
 
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenCloudsRollingInWhenStarCountDropsThenConditionDetected()
     {
         // given — clear sky initially, clouds roll in after baseline is established,

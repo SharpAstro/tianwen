@@ -58,13 +58,12 @@ public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
 
     internal FileInfo ProfileFullPath(IExternal external) => new FileInfo(Path.Combine(external.ProfileFolder.FullName, DeviceIdFromUUID(ProfileId) + ProfileExt));
 
-    public async Task SaveAsync(IExternal external, CancellationToken cancellationToken)
-    {
-        var file = ProfileFullPath(external);
-
-        using var stream = file.Open(file.Exists ? FileMode.Truncate : FileMode.CreateNew, FileAccess.Write, FileShare.None);
-        await JsonSerializer.SerializeAsync(stream, new ProfileDto(ProfileId, DisplayName, Data ?? ProfileData.Empty), ProfileJsonSerializerContextIndented.ProfileDto, cancellationToken);
-    }
+    public Task SaveAsync(IExternal external, CancellationToken cancellationToken)
+        => external.AtomicWriteJsonAsync(
+            ProfileFullPath(external).FullName,
+            new ProfileDto(ProfileId, DisplayName, Data ?? ProfileData.Empty),
+            ProfileJsonSerializerContextIndented.ProfileDto,
+            cancellationToken);
 
     public void Delete(IExternal external)
     {

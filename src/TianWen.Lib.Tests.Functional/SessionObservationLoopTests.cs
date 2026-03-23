@@ -86,7 +86,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
         await loopTask;
     }
 
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenTargetBelowHorizonWhenObservationLoopThenSkippedAndNextTargetImaged()
     {
         // given — Sagittarius region (RA=18h, Dec=-30°) is well below horizon in December nights
@@ -142,7 +142,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
         ctx.CleanupOutputFolder();
     }
 
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenThreeWinterTargetsWhenAllVisibleThenAllObservationsAdvanced()
     {
         // given — all three targets visible at 22:00 UTC Dec 15 from Vienna (min alt 10°)
@@ -206,7 +206,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
         ctx.CleanupOutputFolder();
     }
 
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenM42WhenAltitudeDropsBelowMinThenImagingStopsEarly()
     {
         // given — M42 transit altitude from Vienna ≈ 36.4°. With min alt 30°, M42 is above 30°
@@ -255,7 +255,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
         ctx.CleanupOutputFolder();
     }
 
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenRefocusOnNewTargetWhenSwitchingTargetsThenBaselineStoredPerTarget()
     {
         // given — two targets with AlwaysRefocusOnNewTarget enabled
@@ -320,7 +320,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
     /// At Dec 15 22:00 UTC from Vienna, LST ≈ 4.74h.
     /// Target RA = 4.89h → initial HA = LST - RA = -0.15h (east of meridian).
     /// </summary>
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenAcrossMeridianTargetWhenHACrossesDeadbandThenFlipAndContinueImaging()
     {
         var ct = TestContext.Current.CancellationToken;

@@ -45,6 +45,7 @@
   <ItemGroup>
     <ProjectReference Include="..\TianWen.Lib\TianWen.Lib.csproj" />
     <ProjectReference Include="..\TianWen.UI.Abstractions\TianWen.UI.Abstractions.csproj" />
+    <PackageReference Include="Console.Lib" />
   </ItemGroup>
 
   <ItemGroup>

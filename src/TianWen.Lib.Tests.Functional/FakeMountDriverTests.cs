@@ -21,7 +21,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         return (mount, external);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenConnectedMountWhenSetPositionThenCoordinatesMatch()
     {
         var (mount, _) = CreateMount();
@@ -37,7 +37,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         dec.ShouldBe(36.46, 0.001);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenTrackingMountWhenTimeAdvancesThenRaTracksCorrectly()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -63,7 +63,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         delta.ShouldBe(1.0027, 0.01);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenMountWhenPulseGuideEastThenRaDecreases()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -86,7 +86,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         delta.ShouldBeLessThan(0);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenMountWhenPulseGuideNorthThenDecIncreases()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -104,7 +104,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         decAfter.ShouldBeGreaterThan(decBefore);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenPeriodicErrorWhenTrackingThenRaDrifts()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -138,7 +138,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         peakToPeak.ShouldBeLessThanOrEqualTo(30.0);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenPolarDriftWhenTrackingThenDecDrifts()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -161,7 +161,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         driftArcsec.ShouldBe(30.0, 2.0);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenDecBacklashWhenDirectionReversedThenDeadZoneApplied()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -190,7 +190,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         southMove.ShouldBe(5.0, 1.0);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenDecBacklashWhenSameDirectionThenNoDeadZone()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -215,7 +215,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         secondMove.ShouldBe(firstMove, 0.01);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenMountWhenSlewThenReachesTarget()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -240,7 +240,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         dec.ShouldBe(50.0, 0.001);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenPerfectMountWhenTrackingThenNoError()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -257,7 +257,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         (await mount.GetTrackingErrorDecArcsecAsync(ct)).ShouldBe(0.0, 0.01);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenMountWhenIsPulseGuidingThenReturnsCorrectState()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -281,7 +281,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         (await mount.IsPulseGuidingAsync(ct)).ShouldBeFalse();
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenSyntheticRendererWhenOffsetAppliedThenStarsShift()
     {
         // Render same field with and without offset
@@ -302,7 +302,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         ((double)(maxY1 - maxY0)).ShouldBe(3.0, 1.5);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenSyntheticRendererWhenHotPixelsInjectedThenMaxADUPresent()
     {
         var data = SyntheticStarFieldRenderer.Render(320, 240, 0,
@@ -322,7 +322,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         hotCount.ShouldBeGreaterThanOrEqualTo(3);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenSyntheticRendererWhenSeeingAppliedThenPsfWidens()
     {
         // No seeing
@@ -344,7 +344,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         peakWithSeeing.ShouldBeLessThan(peakNoSeeing);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenMountWhenGetAxisPositionThenReturnsEncoderTicks()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -394,7 +394,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
 
     // --- Wind gust tests ---
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenWindGustsWhenTrackingThenPositionFluctuates()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -431,7 +431,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         }
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenWindGustsWithSameSeedThenDeterministic()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -469,7 +469,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
 
     // --- Cable snag tests ---
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenCableSnagWhenTimeReachedThenStepApplied()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -499,7 +499,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         decDeltaArcsec.ShouldBe(-5.0 / 3600.0 * 3600.0, 1.0);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenCableSnagWhenTimeNotReachedThenNoEffect()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -521,7 +521,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
 
     // --- Flexure drift tests ---
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenFlexureDriftWhenTrackingThenDecDriftsWithHA()
     {
         var ct = TestContext.Current.CancellationToken;

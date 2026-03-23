@@ -71,7 +71,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         return (factory, external);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenProfileWithOneOTAWhenCreateWithScheduledObservationsThenSessionIsCreated()
     {
         // given
@@ -115,7 +115,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         session.Setup.GuiderSetup.HasFocuser.ShouldBeFalse();
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenProfileWithMultipleOTAsWhenCreatedThenAllTelescopesArePopulated()
     {
         // given
@@ -150,7 +150,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         session.Setup.Telescopes[1].FocalLength.ShouldBe(1200);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenProfileWithOAGWhenCreatedThenGuiderSetupReferencesCorrectOTA()
     {
         // given
@@ -182,7 +182,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         session.Setup.GuiderSetup.OAG.ShouldBeSameAs(session.Setup.Telescopes[0]);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenProfileWithGuiderCameraWhenCreatedThenGuiderSetupHasCamera()
     {
         // given
@@ -209,7 +209,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         session.Setup.GuiderSetup.Camera.ShouldNotBeNull();
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenProfileWithGuiderFocuserWhenCreatedThenGuiderSetupHasFocuser()
     {
         // given
@@ -236,7 +236,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         session.Setup.GuiderSetup.Focuser.ShouldNotBeNull();
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenUnknownProfileIdWhenCreateThenThrowsArgumentException()
     {
         // given
@@ -256,7 +256,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         );
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenProfileWithProposedObservationsWhenCreateThenSessionIsScheduled()
     {
         // given
@@ -284,7 +284,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         session.ShouldNotBeNull();
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenProfileWithNoLatLongWhenCreateWithProposalsThenThrowsInvalidOperationException()
     {
         // given — mount without latitude/longitude query params
@@ -307,7 +307,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         );
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenPlateSolverNotSupportedWhenInitializeThenThrowsInvalidOperationException()
     {
         // given
@@ -328,7 +328,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         );
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenPlateSolverSupportedWhenInitializeThenDiscoverAsyncCalled()
     {
         // given
@@ -352,7 +352,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         await deviceManager.Received(1).DiscoverAsync(Arg.Any<CancellationToken>());
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenProfileWithFocusDirectionOverridesWhenCreatedThenFocusDirectionIsSet()
     {
         // given
@@ -378,7 +378,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         session.Setup.Telescopes[0].FocusDirection.OutwardIsPositive.ShouldBeFalse();
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenDeviceDependentGuiderWhenCreatedWithGuiderCameraThenGuiderReceivesMountAndCamera()
     {
         // given — use BuiltInGuiderDevice which implements IDeviceDependentGuider
@@ -410,7 +410,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         builtInDriver.CameraDriver.ShouldBeSameAs(s.Setup.GuiderSetup.Camera!.Driver);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenDeviceDependentGuiderWhenCreatedWithoutGuiderCameraThenThrows()
     {
         // given — BuiltInGuiderDevice with no guider camera configured
@@ -433,7 +433,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         );
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenProfileWithZeroOTAsWhenCreateThenThrowsArgumentException()
     {
         // given
@@ -452,7 +452,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         ).Message.ShouldContain("at least one OTA");
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenProfileWithApertureAndOpticalDesignWhenCreatedThenOTAHasValues()
     {
         // given
@@ -478,7 +478,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         telescope.OpticalDesign.NeedsFocusAdjustmentPerFilter.ShouldBeFalse();
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenProfileWithRefractorWhenCreatedThenNeedsFocusAdjustmentPerFilter()
     {
         // given
@@ -504,7 +504,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         telescope.OpticalDesign.NeedsFocusAdjustmentPerFilter.ShouldBeTrue();
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenProfileWithFilterWheelWhenCreatedThenOTAHasFilterWheel()
     {
         // given
@@ -532,7 +532,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         telescope.Focuser.ShouldNotBeNull();
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenProfileWithCoverWhenCreatedThenOTAHasCover()
     {
         // given
@@ -560,7 +560,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         telescope.FilterWheel.ShouldBeNull();
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenProfileWithFullOTAWhenCreatedThenAllDevicesWired()
     {
         // given — OTA with camera, focuser, filter wheel, cover, aperture, and optical design
@@ -598,7 +598,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         telescope.FocusDirection.OutwardIsPositive.ShouldBeTrue();
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenUnresolvableDeviceUriInProfileWhenCreateThenThrowsArgumentException()
     {
         // given — camera URI uses an unknown scheme that the registry won't resolve
@@ -620,7 +620,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         ).Message.ShouldContain("failed to instantiate");
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenOAGOnSecondOTAWhenCreatedThenGuiderReferencesSecondTelescope()
     {
         // given — two OTAs, OAG on the second (index 1)
@@ -651,7 +651,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         session.Setup.GuiderSetup.OAG.ShouldBeSameAs(session.Setup.Telescopes[1]);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public void GivenExplicitDefaultSubExposureWhenCreateWithProposalsThenUsedInSchedule()
     {
         // given

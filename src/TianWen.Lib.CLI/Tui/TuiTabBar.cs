@@ -33,4 +33,26 @@ internal sealed class TuiTabBar(ITerminalViewport viewport)
         _bar.Text($" {tabText}").RightText($"{profileName}  {clock} ");
         _bar.Render();
     }
+
+    /// <summary>
+    /// Returns the <see cref="GuiTab"/> at the given column, or null if outside any tab label.
+    /// Column ranges are computed from the tab label layout to stay in sync with <see cref="Render"/>.
+    /// </summary>
+    public static GuiTab? HitTestTab(int column)
+    {
+        // Layout: " [1:Equip]  2:Plan   3:Session   4:View  ..."
+        // Each tab is rendered as "[label]" (active, len+2) or " label " (inactive, len+2),
+        // separated by " ". Leading " " offset = 1.
+        var col = 1; // leading space
+        foreach (var (label, tab) in Tabs)
+        {
+            var width = label.Length + 2; // brackets or spaces around label
+            if (column >= col && column < col + width)
+            {
+                return tab;
+            }
+            col += width + 1; // +1 for separator space
+        }
+        return null;
+    }
 }

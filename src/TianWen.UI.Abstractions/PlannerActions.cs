@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using DIR.Lib;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
@@ -260,6 +261,180 @@ public static class PlannerActions
             _ => 0f
         };
         state.NeedsRedraw = true;
+    }
+
+    /// <summary>
+    /// Steps the currently selected handoff slider by <paramref name="minutesDelta"/> minutes.
+    /// Clamps to maintain 15-minute minimum gaps between adjacent sliders (or dark/twilight boundaries).
+    /// Returns true if the slider was moved.
+    /// </summary>
+    public static bool StepSelectedSlider(PlannerState state, int minutesDelta)
+    {
+        var idx = state.SelectedSliderIndex;
+        if (idx < 0 || idx >= state.HandoffSliders.Count)
+        {
+            return false;
+        }
+
+        var newTime = state.HandoffSliders[idx] + TimeSpan.FromMinutes(minutesDelta);
+        ClampSlider(state, idx, ref newTime);
+
+        state.HandoffSliders[idx] = newTime;
+        state.IsDirty = true;
+        state.NeedsRedraw = true;
+        return true;
+    }
+
+    /// <summary>
+    /// Moves a handoff slider to an absolute time, clamped to maintain 15-minute gaps.
+    /// Used by mouse drag in both GUI and TUI.
+    /// </summary>
+    public static void MoveSlider(PlannerState state, int idx, DateTimeOffset newTime)
+    {
+        if (idx < 0 || idx >= state.HandoffSliders.Count)
+        {
+            return;
+        }
+
+        ClampSlider(state, idx, ref newTime);
+
+        state.HandoffSliders[idx] = newTime;
+        state.IsDirty = true;
+        state.NeedsRedraw = true;
+    }
+
+    /// <summary>
+    /// Sets the selected slider index. Pass -1 to deselect (confirms current position).
+    /// Saves the original time on selection for Escape-to-revert.
+    /// </summary>
+    public static void SelectSlider(PlannerState state, int index)
+    {
+        if (index >= 0 && index < state.HandoffSliders.Count)
+        {
+            state.SelectedSliderOriginalTime = state.HandoffSliders[index];
+        }
+        else
+        {
+            state.SelectedSliderOriginalTime = null;
+        }
+        state.SelectedSliderIndex = index;
+        state.NeedsRedraw = true;
+    }
+
+    /// <summary>
+    /// Cycles the selected slider index forward: -1 → 0 → 1 → ... → -1.
+    /// Returns true if there are sliders to cycle through.
+    /// </summary>
+    public static bool CycleSelectedSlider(PlannerState state)
+    {
+        if (state.HandoffSliders.Count == 0)
+        {
+            return false;
+        }
+
+        state.SelectedSliderIndex =
+            state.SelectedSliderIndex < state.HandoffSliders.Count - 1
+                ? state.SelectedSliderIndex + 1
+                : -1;
+        state.NeedsRedraw = true;
+        return true;
+    }
+
+    /// <summary>
+    /// Handles slider-related keyboard input. Returns true if the key was consumed.
+    /// Shared between GPU PlannerTab and TUI TuiPlannerTab.
+    /// </summary>
+    public static bool HandleSliderKeyboard(PlannerState state, InputKey key, InputModifier modifiers = default)
+    {
+        var fineStep = (modifiers & InputModifier.Shift) != 0;
+
+        switch (key)
+        {
+            case InputKey.Left when state.SelectedSliderIndex >= 0:
+                return StepSelectedSlider(state, fineStep ? -1 : -5);
+
+            case InputKey.Right when state.SelectedSliderIndex >= 0:
+                return StepSelectedSlider(state, fineStep ? 1 : 5);
+
+            case InputKey.Enter when state.SelectedSliderIndex >= 0:
+                // Confirm current position and deselect
+                state.SelectedSliderOriginalTime = null;
+                state.SelectedSliderIndex = -1;
+                state.NeedsRedraw = true;
+                return true;
+
+            case InputKey.Escape when state.SelectedSliderIndex >= 0:
+                // Revert to original position and deselect
+                if (state.SelectedSliderOriginalTime is { } originalTime)
+                {
+                    var idx = state.SelectedSliderIndex;
+                    if (idx >= 0 && idx < state.HandoffSliders.Count)
+                    {
+                        state.HandoffSliders[idx] = originalTime;
+                    }
+                }
+                state.SelectedSliderOriginalTime = null;
+                state.SelectedSliderIndex = -1;
+                state.NeedsRedraw = true;
+                return true;
+
+            case InputKey.Tab:
+                return CycleSelectedSlider(state);
+
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Hit-tests a pixel X coordinate against handoff slider positions in the chart.
+    /// Returns the index of the nearest slider within the plot area, or -1 if no sliders exist
+    /// or the click is outside the plot area.
+    /// </summary>
+    public static int HitTestSlider(PlannerState state, float pixelX, float chartX, float chartW)
+    {
+        if (state.HandoffSliders.Count == 0)
+        {
+            return -1;
+        }
+
+        var (tStart, tEnd, plotX, plotW) = AltitudeChartRenderer.GetChartTimeLayout(state, (int)chartX, (int)chartW);
+
+        // Click must be within the plot area
+        if (pixelX < plotX || pixelX > plotX + plotW)
+        {
+            return -1;
+        }
+
+        var bestIdx = -1;
+        var bestDist = double.MaxValue;
+
+        for (var i = 0; i < state.HandoffSliders.Count; i++)
+        {
+            var fraction = (state.HandoffSliders[i] - tStart).TotalSeconds / (tEnd - tStart).TotalSeconds;
+            var sliderPixelX = plotX + fraction * plotW;
+            var dist = Math.Abs(pixelX - sliderPixelX);
+            if (dist < bestDist)
+            {
+                bestDist = dist;
+                bestIdx = i;
+            }
+        }
+
+        return bestIdx;
+    }
+
+    private static void ClampSlider(PlannerState state, int idx, ref DateTimeOffset newTime)
+    {
+        var minSlot = TimeSpan.FromMinutes(15);
+
+        var minTime = idx > 0 ? state.HandoffSliders[idx - 1] + minSlot : state.AstroDark + minSlot;
+        var maxTime = idx < state.HandoffSliders.Count - 1
+            ? state.HandoffSliders[idx + 1] - minSlot
+            : state.AstroTwilight - minSlot;
+
+        if (newTime < minTime) newTime = minTime;
+        if (newTime > maxTime) newTime = maxTime;
     }
 
     /// <summary>
@@ -723,6 +898,7 @@ public static class PlannerActions
         state.Proposals.Add(new ProposedObservation(target, Priority: priority));
         state.Schedule = null;
         RecomputeHandoffSliders(state);
+        state.IsDirty = true;
         state.NeedsRedraw = true;
     }
 
@@ -739,6 +915,7 @@ public static class PlannerActions
         state.Proposals.RemoveAt(proposalIndex);
         state.Schedule = null;
         RecomputeHandoffSliders(state);
+        state.IsDirty = true;
         state.NeedsRedraw = true;
     }
 
@@ -770,6 +947,7 @@ public static class PlannerActions
             }
         }
 
+        state.IsDirty = true;
         state.NeedsRedraw = true;
     }
 
@@ -793,6 +971,7 @@ public static class PlannerActions
         };
         state.Proposals[proposalIndex] = p with { Priority = nextPriority };
         state.Schedule = null;
+        state.IsDirty = true;
         state.NeedsRedraw = true;
     }
 

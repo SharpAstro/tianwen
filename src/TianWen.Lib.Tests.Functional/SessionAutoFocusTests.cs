@@ -41,7 +41,7 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
         return ctx;
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenSyntheticStarsWhenAutoFocusThenFindsCorrectBestFocusPosition()
     {
         // given
@@ -63,7 +63,7 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
         Math.Abs(finalPos - TrueBestFocusPosition).ShouldBeLessThan(30, "focuser should be within 30 steps of true best focus");
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenAutoFocusWhenBacklashConfiguredThenApproachesFromBelow()
     {
         // given — focuser starts above best focus, backlash = 20
@@ -81,7 +81,7 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
         Math.Abs(finalPos - TrueBestFocusPosition).ShouldBeLessThan(30);
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenSyntheticStarsWhenAutoFocusAllTelescopesThenBaselineHfdStored()
     {
         // given
@@ -105,7 +105,7 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
         output.WriteLine($"Baseline HFD: {baselines[0].MedianHfd:F2}, FWHM: {baselines[0].MedianFwhm:F2}, Stars: {baselines[0].StarCount}");
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenSyntheticStarFieldWhenImageTakenAtBestFocusThenStarsDetectedWithGoodHFD()
     {
         // given — camera at best focus
@@ -139,7 +139,7 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
         medianHfd.ShouldBeLessThan(10.0f, "HFD at best focus should be small");
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenSyntheticStarFieldWhenDefocusedThenHFDIncreases()
     {
         // given
@@ -182,7 +182,7 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
         defocusedHfd.ShouldBeGreaterThan(focusedHfd, "defocused image should have larger HFD");
     }
 
-    [Fact]
+    [Fact(Timeout = 60_000)]
     public async Task GivenVCurveSamplesWhenHyperbolaFitThenBestFocusMatchesTruePosition()
     {
         // given — collect V-curve data from synthetic images at known positions
