@@ -32,11 +32,16 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
     /// </summary>
     internal double PointingDec { get; set; } = double.NaN;
 
+    /// <summary>
+    /// Guider camera for reading sensor dimensions. Set via <see cref="LinkDevices"/>.
+    /// </summary>
+    private ICameraDriver? _camera;
+
     /// <inheritdoc/>
     public void LinkDevices(IMountDriver mount, ICameraDriver camera)
     {
         _mount = mount;
-        // camera stored for compatibility but not used — fake guider generates synthetic images
+        _camera = camera;
     }
 
     /// <summary>Whether a guider camera is required for <see cref="LinkDevices"/>. False for fake guiders.</summary>
@@ -288,8 +293,12 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
         Directory.CreateDirectory(outputFolder);
         var path = Path.Combine(outputFolder, $"guider_{External.TimeProvider.GetUtcNow().UtcDateTime:yyyyMMdd_HHmmss}.fits");
 
+        // Use linked camera dimensions if available, otherwise default
+        var width = _camera is { NumX: > 0 } cam ? cam.NumX : GuideWidth;
+        var height = _camera is { NumY: > 0 } cam2 ? cam2.NumY : GuideHeight;
+
         // Render a synthetic star field with proper WCS headers
-        var array = SyntheticStarFieldRenderer.Render(GuideWidth, GuideHeight, defocusSteps: 0, exposureSeconds: 2, noiseSeed: 42);
+        var array = SyntheticStarFieldRenderer.Render(width, height, defocusSteps: 0, exposureSeconds: 2, noiseSeed: 42);
 
         var dataMax = 0f;
         var dataMin = float.MaxValue;
