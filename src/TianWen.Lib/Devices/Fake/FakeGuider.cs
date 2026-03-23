@@ -294,8 +294,32 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
         var width = _camera is { Connected: true, NumX: > 0 } cam ? cam.NumX : GuideWidth;
         var height = _camera is { Connected: true, NumY: > 0 } cam2 ? cam2.NumY : GuideHeight;
 
-        // Render a synthetic star field with proper WCS headers
-        var array = SyntheticStarFieldRenderer.Render(width, height, defocusSteps: 0, exposureSeconds: 2, noiseSeed: 42);
+        // Try to render with real catalog stars for plate-solvable images
+        float[,] array;
+        if (!double.IsNaN(PointingRA) && !double.IsNaN(PointingDec))
+        {
+            try
+            {
+                var db = await External.GetCelestialObjectDBAsync(cancellationToken);
+                var pixelScale = _camera is { Connected: true, PixelSizeX: > 0 } c ? c.PixelSizeX : 2.4; // IMX178M default
+                var focalLength = _camera is { Connected: true, FocalLength: > 0 } c2 ? (double)c2.FocalLength : 200.0;
+                var magCutoff = 10.0;
+                var stars = SyntheticStarFieldRenderer.ProjectCatalogStars(
+                    PointingRA, PointingDec, focalLength, pixelScale, width, height, db, magCutoff);
+                array = SyntheticStarFieldRenderer.Render(width, height, defocusSteps: 0,
+                    stars: System.Runtime.InteropServices.CollectionsMarshal.AsSpan(stars),
+                    exposureSeconds: 2, noiseSeed: 42);
+            }
+            catch
+            {
+                // Fallback to random stars if DB not available
+                array = SyntheticStarFieldRenderer.Render(width, height, defocusSteps: 0, exposureSeconds: 2, noiseSeed: 42);
+            }
+        }
+        else
+        {
+            array = SyntheticStarFieldRenderer.Render(width, height, defocusSteps: 0, exposureSeconds: 2, noiseSeed: 42);
+        }
 
         var dataMax = 0f;
         var dataMin = float.MaxValue;

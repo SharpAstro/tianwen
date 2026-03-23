@@ -49,6 +49,14 @@ public class FakeExternal : IExternal
 
     public ILogger AppLogger { get; }
 
+    /// <summary>Optional catalog DB for tests. Set explicitly when catalog-based star rendering is needed.</summary>
+    public TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB? CelestialObjectDB { get; set; }
+
+    public ValueTask<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB> GetCelestialObjectDBAsync(CancellationToken cancellationToken = default)
+        => CelestialObjectDB is { } db
+            ? ValueTask.FromResult(db)
+            : throw new InvalidOperationException("CelestialObjectDB not configured in FakeExternal");
+
     public virtual Task<IUtf8TextBasedConnection> ConnectGuiderAsync(EndPoint address, CommunicationProtocol protocol = CommunicationProtocol.JsonRPC, CancellationToken cancellationToken = default)
         => throw new ArgumentException($"No guider connection defined for address={address}", nameof(address));
 

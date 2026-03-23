@@ -494,13 +494,22 @@ internal partial record Session
 
         var plateSolveTimeout = timeoutAfter > TimeSpan.FromSeconds(5) ? timeoutAfter - TimeSpan.FromSeconds(3) : timeoutAfter;
 
-        var result = await guider.Driver.PlateSolveGuiderImageAsync(PlateSolver,
-            await mount.Driver.GetRightAscensionAsync(cancellationToken),
-            await mount.Driver.GetDeclinationAsync(cancellationToken),
-            plateSolveTimeout,
-            10d,
-            cancellationToken
-        );
+        Astrometry.PlateSolve.PlateSolveResult result;
+        try
+        {
+            result = await guider.Driver.PlateSolveGuiderImageAsync(PlateSolver,
+                await mount.Driver.GetRightAscensionAsync(cancellationToken),
+                await mount.Driver.GetDeclinationAsync(cancellationToken),
+                plateSolveTimeout,
+                10d,
+                cancellationToken
+            );
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            External.AppLogger.LogWarning(ex, "Guider plate-solve failed");
+            return false;
+        }
 
         if (result.Solution is var (solvedRa, solvedDec))
         {
