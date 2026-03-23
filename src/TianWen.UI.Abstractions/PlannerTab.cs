@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using DIR.Lib;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.UI.Abstractions
@@ -14,7 +15,7 @@ namespace TianWen.UI.Abstractions
     {
 
         // Layout constants (at 1x scale)
-        private const float BaseTargetListWidth    = 300f;
+        private const float BaseTargetListWidth    = 330f;
         private const float BaseDetailsPanelHeight = 120f;
         private const float BaseFontSize           = 14f;
         private const float BaseHeaderHeight       = 28f;
@@ -331,10 +332,17 @@ namespace TianWen.UI.Abstractions
 
                 // Target name
                 var nameX = rect.X + padding;
-                var nameW = listW * 0.60f;
+                var typeW = fontSize * 3.2f; // fixed width for 3-4 char abbreviations
+                var nameW = listW - typeW - padding * 2f - removeBtnW - fontSize * 3.5f; // remainder after type + info + button
                 DrawText(scored.Target.Name.AsSpan(), fontPath,
                     nameX, rowY, nameW, itemHeight,
                     fontSize, rowTextColor, TextAlign.Near, TextAlign.Center);
+
+                // Object type abbreviation (Gx, OC, PN, etc.)
+                var typeX = nameX + nameW;
+                DrawText(scored.ObjectType.ToAbbreviation().AsSpan(), fontPath,
+                    typeX, rowY, typeW, itemHeight,
+                    fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
 
                 // Altitude / peak time right-aligned
                 string infoStr;
@@ -351,8 +359,8 @@ namespace TianWen.UI.Abstractions
                 {
                     infoStr = $"{scored.OptimalAltitude:F0}°";
                 }
-                var infoX = rect.X + padding + nameW;
-                var infoW = listW - nameW - padding * 2f - removeBtnW;
+                var infoX = typeX + typeW;
+                var infoW = listW - nameW - typeW - padding * 2f - removeBtnW;
                 DrawText(infoStr.AsSpan(), fontPath,
                     infoX, rowY, infoW, itemHeight,
                     fontSize, isSelected ? SelectedText : DimText, TextAlign.Far, TextAlign.Center);
