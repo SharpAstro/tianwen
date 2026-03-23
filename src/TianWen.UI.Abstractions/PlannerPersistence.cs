@@ -182,7 +182,10 @@ public static class PlannerPersistence
 
     private static string GetSessionFilePath(Profile profile, PlannerState state, IExternal external)
     {
-        var date = state.PlanningDate?.Date ?? external.TimeProvider.GetLocalNow().Date;
+        // Use the site's local date (not the machine's) so the file key matches
+        // the "tonight" definition from TransformFactory (site-timezone-aware).
+        var siteNow = external.TimeProvider.GetUtcNow().ToOffset(state.SiteTimeZone);
+        var date = state.PlanningDate?.Date ?? siteNow.Date;
         var profileId = profile.ProfileId.ToString("D");
         var dateStr = date.ToString("yyyy-MM-dd");
 
