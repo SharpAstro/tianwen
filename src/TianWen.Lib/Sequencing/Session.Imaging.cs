@@ -590,9 +590,21 @@ internal partial record Session
             {
                 try
                 {
-                    await WriteImageToFitsFileAsync(imageWrite);
+                    var filePath = await WriteImageToFitsFileAsync(imageWrite);
                     Interlocked.Increment(ref _totalFramesWritten);
                     Interlocked.Add(ref _totalExposureTimeTicks, imageWrite.ActualSubExposure.Ticks);
+
+                    // Append to exposure log and fire event
+                    var entry = new ExposureLogEntry(
+                        Timestamp: imageWrite.ExpStartTime,
+                        TargetName: imageWrite.Observation.Target.Name,
+                        FilterName: imageWrite.Image.ImageMeta.Filter.Name,
+                        Exposure: imageWrite.ActualSubExposure,
+                        FrameNumber: imageWrite.FrameNumber,
+                        MedianHfd: 0f, // HFD computed during drift detection, not here
+                        FilePath: filePath);
+                    _exposureLog.Enqueue(entry);
+                    FrameWritten?.Invoke(this, new FrameWrittenEventArgs(entry));
                 }
                 catch (Exception ex)
                 {

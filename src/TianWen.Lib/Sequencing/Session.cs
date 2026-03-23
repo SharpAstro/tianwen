@@ -37,9 +37,26 @@ internal partial record Session(
     private int _totalFramesWritten;
     private long _totalExposureTimeTicks;
 
-    internal int TotalFramesWritten => _totalFramesWritten;
-    internal TimeSpan TotalExposureTime => TimeSpan.FromTicks(Interlocked.Read(ref _totalExposureTimeTicks));
-    internal int CurrentObservationIndex => _activeObservation;
+    // --- Observable session surface ---
+    private volatile SessionPhase _phase;
+    private readonly ConcurrentQueue<FocusRunRecord> _focusHistory = [];
+    private readonly CircularBuffer<GuideErrorSample> _guideSamples = new CircularBuffer<GuideErrorSample>(300);
+    private volatile GuideStats? _lastGuideStats;
+    private readonly ConcurrentQueue<ExposureLogEntry> _exposureLog = [];
+    private readonly ConcurrentQueue<CoolingSample> _coolingSamples = [];
+
+    public SessionPhase Phase => _phase;
+    public int TotalFramesWritten => _totalFramesWritten;
+    public TimeSpan TotalExposureTime => TimeSpan.FromTicks(Interlocked.Read(ref _totalExposureTimeTicks));
+    public int CurrentObservationIndex => _activeObservation;
+    public IReadOnlyList<FocusRunRecord> FocusHistory => [.. _focusHistory];
+    public IReadOnlyList<GuideErrorSample> GuideSamples => _guideSamples.ToList();
+    public GuideStats? LastGuideStats => _lastGuideStats;
+    public IReadOnlyList<ExposureLogEntry> ExposureLog => [.. _exposureLog];
+    public IReadOnlyList<CoolingSample> CoolingSamples => [.. _coolingSamples];
+
+    public event EventHandler<SessionPhaseChangedEventArgs>? PhaseChanged;
+    public event EventHandler<FrameWrittenEventArgs>? FrameWritten;
 
     /// <summary>
     /// Per-observation, per-telescope baseline metrics for focus drift and environmental anomaly detection.
@@ -61,6 +78,24 @@ internal partial record Session(
     /// </summary>
     internal int AdvanceObservationForTest() => AdvanceObservation();
 
+    private void SetPhase(SessionPhase newPhase)
+    {
+        var old = _phase;
+        _phase = newPhase;
+        External.AppLogger.LogInformation("Session phase: {OldPhase} → {NewPhase}", old, newPhase);
+        PhaseChanged?.Invoke(this, new SessionPhaseChangedEventArgs(old, newPhase));
+    }
+
+    internal void AppendGuideErrorSample(GuideErrorSample sample)
+    {
+        _guideSamples.Add(sample);
+    }
+
+    internal void UpdateGuideStats(GuideStats stats)
+    {
+        _lastGuideStats = stats;
+    }
+
     public async Task RunAsync(CancellationToken cancellationToken)
     {
         try
@@ -69,46 +104,69 @@ internal partial record Session(
             // run initialisation code
             if (active == 0)
             {
+                SetPhase(SessionPhase.Initialising);
                 if (!await InitialisationAsync(cancellationToken))
                 {
                     External.AppLogger.LogError("Initialization failed, aborting session.");
+                    SetPhase(SessionPhase.Failed);
                     return;
                 }
             }
             else if (ActiveObservation is null)
             {
                 External.AppLogger.LogInformation("Session complete, finished {ObservationCount} observations, finalizing.", _activeObservation);
+                SetPhase(SessionPhase.Complete);
                 return;
             }
 
+            SetPhase(SessionPhase.WaitingForDark);
             await WaitUntilTenMinutesBeforeAmateurAstroTwilightEndsAsync(cancellationToken).ConfigureAwait(false);
 
+            SetPhase(SessionPhase.Cooling);
             await CoolCamerasToSetpointAsync(Configuration.SetpointCCDTemperature, Configuration.CooldownRampInterval, 80, SetupointDirection.Down, cancellationToken).ConfigureAwait(false);
 
             // TODO wait until 5 min to astro dark, and/or implement IExternal.IsPolarAligned
 
+            SetPhase(SessionPhase.RoughFocus);
             if (!await InitialRoughFocusAsync(cancellationToken))
             {
                 External.AppLogger.LogError("Failed to focus cameras (first time), aborting session.");
+                SetPhase(SessionPhase.Failed);
                 return;
             }
 
+            SetPhase(SessionPhase.AutoFocus);
             if (!await AutoFocusAllTelescopesAsync(cancellationToken))
             {
                 External.AppLogger.LogWarning("Auto-focus did not converge for all telescopes, proceeding with rough focus.");
             }
 
+            SetPhase(SessionPhase.CalibratingGuider);
             await CalibrateGuiderAsync(cancellationToken).ConfigureAwait(false);
 
+            SetPhase(SessionPhase.Observing);
             await ObservationLoopAsync(cancellationToken).ConfigureAwait(false);
+
+            SetPhase(SessionPhase.Complete);
+        }
+        catch (OperationCanceledException)
+        {
+            SetPhase(SessionPhase.Aborted);
         }
         catch (Exception e)
         {
             External.AppLogger.LogError(e, "Exception while in main run loop, unrecoverable, aborting session.");
+            SetPhase(SessionPhase.Failed);
         }
         finally
         {
-            await Finalise(cancellationToken).ConfigureAwait(false);
+            if (_phase is not SessionPhase.Complete and not SessionPhase.Failed and not SessionPhase.Aborted)
+            {
+                SetPhase(SessionPhase.Finalising);
+            }
+            // Use CancellationToken.None for finalise — we must park the mount, warm cameras, etc.
+            // even when the session was aborted. The original token is already cancelled.
+            await Finalise(CancellationToken.None).ConfigureAwait(false);
         }
     }
 

@@ -34,3 +34,12 @@ public readonly record struct SavePlannerSessionSignal;
 
 /// <summary>Session configuration changed. Triggers auto-save.</summary>
 public readonly record struct SaveSessionConfigSignal;
+
+/// <summary>Start a new session from the current profile, config, and schedule.</summary>
+public readonly record struct StartSessionSignal;
+
+/// <summary>Request abort — shows confirmation strip in the live session tab.</summary>
+public readonly record struct RequestAbortSessionSignal;
+
+/// <summary>Confirmed abort — cancels the running session.</summary>
+public readonly record struct ConfirmAbortSessionSignal;

@@ -896,7 +896,7 @@ public static class PlannerActions
         }
 
         state.Proposals.Add(new ProposedObservation(target, Priority: priority));
-        state.Schedule = null;
+        // Schedule (on SessionTabState) becomes stale — rebuilt on demand via "Build Schedule"
         RecomputeHandoffSliders(state);
         state.IsDirty = true;
         state.NeedsRedraw = true;
@@ -913,7 +913,7 @@ public static class PlannerActions
         }
 
         state.Proposals.RemoveAt(proposalIndex);
-        state.Schedule = null;
+        // Schedule (on SessionTabState) becomes stale — rebuilt on demand via "Build Schedule"
         RecomputeHandoffSliders(state);
         state.IsDirty = true;
         state.NeedsRedraw = true;
@@ -933,7 +933,7 @@ public static class PlannerActions
         {
             state.Proposals.Add(new ProposedObservation(target, Priority: priority));
         }
-        state.Schedule = null;
+        // Schedule (on SessionTabState) becomes stale — rebuilt on demand via "Build Schedule"
         RecomputeHandoffSliders(state);
 
         // Selection follows the target to its new position in the reordered list
@@ -970,7 +970,7 @@ public static class PlannerActions
             _ => ObservationPriority.High
         };
         state.Proposals[proposalIndex] = p with { Priority = nextPriority };
-        state.Schedule = null;
+        // Schedule (on SessionTabState) becomes stale — rebuilt on demand via "Build Schedule"
         state.IsDirty = true;
         state.NeedsRedraw = true;
     }
@@ -1090,10 +1090,11 @@ public static class PlannerActions
     }
 
     /// <summary>
-    /// Runs the scheduler on current proposals and stores the result.
+    /// Runs the scheduler on current proposals and stores the result on <paramref name="sessionState"/>.
     /// </summary>
     public static void BuildSchedule(
         PlannerState state,
+        SessionTabState sessionState,
         Transform transform,
         int defaultGain,
         int defaultOffset,
@@ -1104,7 +1105,7 @@ public static class PlannerActions
     {
         if (state.Proposals.Count == 0)
         {
-            state.Schedule = null;
+            sessionState.Schedule = null;
             state.NeedsRedraw = true;
             return;
         }
@@ -1141,13 +1142,14 @@ public static class PlannerActions
                     proposal.Priority));
             }
 
-            state.Schedule = new ScheduledObservationTree(observations.MoveToImmutable());
+            sessionState.Schedule = new ScheduledObservationTree(observations.MoveToImmutable());
             state.NeedsRedraw = true;
+            sessionState.NeedsRedraw = true;
             return;
         }
 
         // Fallback: automatic scheduling via ObservationScheduler
-        state.Schedule = ObservationScheduler.Schedule(
+        sessionState.Schedule = ObservationScheduler.Schedule(
             state.Proposals.ToArray(),
             transform,
             state.AstroDark,
@@ -1161,6 +1163,7 @@ public static class PlannerActions
             opticalDesign: opticalDesign);
 
         state.NeedsRedraw = true;
+        sessionState.NeedsRedraw = true;
     }
 
     /// <summary>
@@ -1208,11 +1211,11 @@ public static class PlannerActions
     /// <summary>
     /// Formats the schedule as lines for non-interactive output.
     /// </summary>
-    public static IReadOnlyList<string> FormatScheduleLines(PlannerState state)
+    public static IReadOnlyList<string> FormatScheduleLines(SessionTabState sessionState, TimeSpan siteTimeZone)
     {
-        if (state.Schedule is not { Count: > 0 } schedule)
+        if (sessionState.Schedule is not { Count: > 0 } schedule)
         {
-            return ["No schedule computed. Add proposals and press S to schedule."];
+            return ["No schedule computed. Build schedule from the Session tab."];
         }
 
         var lines = new List<string>
@@ -1227,7 +1230,7 @@ public static class PlannerActions
             var obs = schedule[i];
             var end = obs.Start + obs.Duration;
             var flip = obs.AcrossMeridian ? "yes" : "no";
-            lines.Add($"{i + 1,2} | {obs.Target.Name,-20} | {obs.Priority,-8} | {obs.Start.ToOffset(state.SiteTimeZone):HH:mm} | {end.ToOffset(state.SiteTimeZone):HH:mm} | {obs.Duration.TotalMinutes,3:F0}m | {flip}");
+            lines.Add($"{i + 1,2} | {obs.Target.Name,-20} | {obs.Priority,-8} | {obs.Start.ToOffset(siteTimeZone):HH:mm} | {end.ToOffset(siteTimeZone):HH:mm} | {obs.Duration.TotalMinutes,3:F0}m | {flip}");
 
             var spares = schedule.GetSparesForSlot(i);
             if (!spares.IsEmpty)

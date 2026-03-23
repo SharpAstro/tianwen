@@ -3,12 +3,14 @@ using System.Globalization;
 using System.IO;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Imaging;
+using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Sequencing;
 
 internal partial record Session
 {
-    internal ValueTask WriteImageToFitsFileAsync(QueuedImageWrite imageWrite)
+    internal async ValueTask<string> WriteImageToFitsFileAsync(QueuedImageWrite imageWrite)
     {
         var targetName = imageWrite.Observation.Target.Name;
         var dateFolderUtc = imageWrite.ExpStartTime.ToString("yyyy-MM-dd", DateTimeFormatInfo.InvariantInfo);
@@ -25,7 +27,9 @@ internal partial record Session
         var fitsFilePath = Path.Combine(frameFolder, fitsFileName);
 
         External.AppLogger.LogInformation("Writing FITS file {FitsFilePath}", fitsFilePath);
-        return External.WriteFitsFileAsync(imageWrite.Image, fitsFilePath);
+        await External.WriteFitsFileAsync(imageWrite.Image, fitsFilePath);
+
+        return fitsFilePath;
     }
 
 

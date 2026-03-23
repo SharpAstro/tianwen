@@ -66,6 +66,10 @@
 
 ## Sequencing / Session
 
+- [ ] Baseline HFD per-target: key by observation index (not telescope index), smart refocus-on-target-change — skip refocus when recent focus is good, establish new baseline from median of first N frames; `AlwaysRefocusOnNewTarget` config option
+- [ ] FOV obstruction detection: compare first-frame metrics against previous target's baseline; if anomalous, nudge mount up by one frame radius — if metrics recover, exit imaging loop for this target (tree/building in FOV)
+- [ ] OnStep mount driver: extend `MeadeLX200ProtocolMountDriverBase` with `:GX`/`:SX` commands, native pier side, park/unpark, `FakeOnStepSerialDevice` for testing
+- [ ] Faster imaging loop tick: reduce to `GCD/6` clamped `[1s, 5s]` — fix `FakeMeadeLX200SerialDevice` slew timer interleaving (immediate axis positioning instead of 100ms step timer)
 - [ ] Gracefully stop a session (`HostedSession.cs:39`)
 - [ ] Wait until 5 min to astro dark, and/or implement `IExternal.IsPolarAligned` (`Session.cs:61`)
 - [ ] Maybe slew slightly above/below 0 declination to avoid trees, etc. (`Session.cs:235`)
@@ -85,6 +89,17 @@
 - [x] Write `FOCALLEN` and `FOCUSPOS` to FITS output headers (currently read on load but never written)
 - [x] Write `DATAMIN` to FITS output headers (only `DATAMAX` was written)
 - [x] `FocusDriftThreshold` default changed from 1.3 (30%) to 1.07 (7%); already a `SessionConfiguration` setting
+
+## Live Session Tab (Phase 2 — Polish)
+
+- [ ] Guide star profile bitmap from guider
+- [ ] Inline V-curve charts in focus history panel
+- [ ] Per-filter frame count breakdown in stats
+- [ ] Meridian flip countdown indicator
+- [ ] Dither event markers on guide graph
+- [ ] Click exposure log entry → open in Viewer tab
+- [ ] Exposure log thumbnails: 128px height, preserve aspect ratio
+- [ ] Finalise as background task — keep UI responsive during park/warmup after abort/complete
 
 ## Camera / ICameraDriver
 
@@ -127,6 +142,12 @@
 ## Device Management
 
 - [ ] Try to parse URI manually in Profile fallback (`Profile.cs:130`)
+
+## Code Quality / Architecture
+
+- [ ] Replace `IReadOnlyList<T>` in parameters with `ReadOnlySpan<T>`, return types with `ImmutableArray<T>` — gradual migration for better perf semantics and thread safety
+- [ ] Abstract redraw flag propagation in TUI main loop — register `INeedsRedraw` state objects instead of listing `plannerState.NeedsRedraw || sessionState.NeedsRedraw || ...` manually
+- [ ] Live Session tab: `RollingGraphWidget<TSurface>` extracted to DIR.Lib (reusable for guide graph, cooling graph, future charts)
 
 ## External / Infrastructure
 

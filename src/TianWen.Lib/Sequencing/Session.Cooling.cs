@@ -54,6 +54,14 @@ internal partial record Session
             {
                 var camera = Setup.Telescopes[i].Camera;
                 coolingStates[i] = await camera.Driver.CoolToSetpointAsync(desiredSetpointTemp, thresPower, direction, coolingStates[i], cancellationToken);
+
+                // Record cooling sample for the live session graph
+                var ccdTemp = await External.CatchAsync(camera.Driver.GetCCDTemperatureAsync, cancellationToken, double.NaN);
+                var power = await External.CatchAsyncIf(camera.Driver.CanGetCoolerPower, camera.Driver.GetCoolerPowerAsync, cancellationToken, double.NaN);
+                if (!double.IsNaN(ccdTemp))
+                {
+                    _coolingSamples.Enqueue(new CoolingSample(External.TimeProvider.GetUtcNow(), i, ccdTemp, double.IsNaN(power) ? 0 : power));
+                }
             }
 
             accSleep += rampInterval;

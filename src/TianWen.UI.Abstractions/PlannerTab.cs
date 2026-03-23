@@ -561,10 +561,6 @@ namespace TianWen.UI.Abstractions
                     state.NeedsRedraw = true;
                     return true;
 
-                case InputKey.S:
-                    PostSignal(new BuildScheduleSignal());
-                    return true;
-
                 default:
                     return false;
             }

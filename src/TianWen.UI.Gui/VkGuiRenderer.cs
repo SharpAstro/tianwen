@@ -18,6 +18,7 @@ namespace TianWen.UI.Gui
         private readonly VkEquipmentTab _equipmentTab;
         private readonly VkSessionTab _sessionTab;
         private readonly VkViewerTab _viewerTab;
+        private readonly VkLiveSessionTab _liveSessionTab;
         private string? _fontPath;
         private string? _emojiFontPath;
         private uint _width;
@@ -48,6 +49,9 @@ namespace TianWen.UI.Gui
         public SessionTabState SessionState => _sessionTab.State;
 
         /// <inheritdoc/>
+        public LiveSessionState LiveSessionState { get; } = new LiveSessionState();
+
+        /// <inheritdoc/>
         public RectF32 PlannerChartRect => _plannerTab.ChartRect;
 
         /// <inheritdoc/>
@@ -69,6 +73,7 @@ namespace TianWen.UI.Gui
             ("\U0001F52D", GuiTab.Equipment),   // 🔭 Telescope
             ("\U0001F4C5", GuiTab.Planner),     // 📅 Calendar
             ("\U0001F3AF", GuiTab.Session),     // 🎯 Session
+            ("\U0001F4F7", GuiTab.LiveSession),  // 📷 Live Session
             ("\U0001F30C", GuiTab.Viewer),      // 🌌 Milky Way
         ];
 
@@ -98,6 +103,7 @@ namespace TianWen.UI.Gui
             _equipmentTab = new VkEquipmentTab(renderer) { Bus = bus };
             _sessionTab = new VkSessionTab(renderer) { Bus = bus };
             _viewerTab = new VkViewerTab(renderer, width, height) { Bus = bus };
+            _liveSessionTab = new VkLiveSessionTab(renderer) { Bus = bus };
             ResolveFontPath();
         }
 
@@ -128,12 +134,14 @@ namespace TianWen.UI.Gui
             _plannerTab.FrameCount++;
             _sessionTab.FrameCount++;
             _viewerTab.FrameCount++;
+            _liveSessionTab.FrameCount++;
 
             ActiveTab = appState.ActiveTab switch
             {
                 GuiTab.Planner => _plannerTab,
                 GuiTab.Equipment => _equipmentTab,
                 GuiTab.Session => _sessionTab,
+                GuiTab.LiveSession => _liveSessionTab,
                 GuiTab.Viewer => _viewerTab,
                 _ => null
             };
@@ -186,7 +194,8 @@ namespace TianWen.UI.Gui
                 var (icon, tab) = SidebarTabs[i];
                 var btnY = startY + i * buttonSize;
                 var isActive = appState.ActiveTab == tab;
-                var isLocked = noProfile && tab is not GuiTab.Equipment;
+                var isLocked = (noProfile && tab is not GuiTab.Equipment)
+                            || (LiveSessionState.IsRunning && tab is GuiTab.Equipment or GuiTab.Session);
                 var isHover = !isLocked && mouseX >= 0 && mouseX < sw
                            && mouseY >= btnY && mouseY < btnY + buttonSize;
 
@@ -244,22 +253,27 @@ namespace TianWen.UI.Gui
                 FontSize, StatusText, TextAlign.Near, TextAlign.Center);
 
             // Date navigation with night window: [<] date (HH:mm – HH:mm) [>]
+            // Locked during a running session to prevent confusion
             {
                 var centerX = w * 0.35f;
                 var centerW = w * 0.35f;
                 var arrowW = sbh; // square arrow buttons
                 var arrowFontSize = FontSize * 0.9f;
                 var arrowBg = new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
+                var sessionRunning = LiveSessionState.IsRunning;
 
-                // [<] previous day
-                RenderButton("\u25C0", centerX, 0, arrowW, sbh, _fontPath, arrowFontSize,
-                    arrowBg, StatusText, "DatePrev",
-                    _ => { PlannerActions.ShiftPlanningDate(plannerState, timeProvider, -1); });
+                if (!sessionRunning)
+                {
+                    // [<] previous day
+                    RenderButton("\u25C0", centerX, 0, arrowW, sbh, _fontPath, arrowFontSize,
+                        arrowBg, StatusText, "DatePrev",
+                        _ => { PlannerActions.ShiftPlanningDate(plannerState, timeProvider, -1); });
 
-                // [>] next day
-                RenderButton("\u25B6", centerX + centerW - arrowW, 0, arrowW, sbh, _fontPath, arrowFontSize,
-                    arrowBg, StatusText, "DateNext",
-                    _ => { PlannerActions.ShiftPlanningDate(plannerState, timeProvider, +1); });
+                    // [>] next day
+                    RenderButton("\u25B6", centerX + centerW - arrowW, 0, arrowW, sbh, _fontPath, arrowFontSize,
+                        arrowBg, StatusText, "DateNext",
+                        _ => { PlannerActions.ShiftPlanningDate(plannerState, timeProvider, +1); });
+                }
 
                 // Date + night window label between arrows
                 var labelX = centerX + arrowW;
@@ -290,8 +304,8 @@ namespace TianWen.UI.Gui
                     labelX, 0, labelW, sbh,
                     FontSize, dateColor, TextAlign.Center, TextAlign.Center);
 
-                // Click on date label resets to tonight
-                if (plannerState.PlanningDate.HasValue)
+                // Click on date label resets to tonight (disabled during session)
+                if (plannerState.PlanningDate.HasValue && !sessionRunning)
                 {
                     RegisterClickable(labelX, 0, labelW, sbh,
                         new HitResult.ButtonHit("DateTonight"),
@@ -341,6 +355,11 @@ namespace TianWen.UI.Gui
                 case GuiTab.Session:
                     _sessionTab.Render(appState, plannerState, contentRect, DpiScale,
                         _fontPath ?? "monospace");
+                    break;
+
+                case GuiTab.LiveSession:
+                    _liveSessionTab.Render(LiveSessionState, contentRect, DpiScale,
+                        _fontPath ?? "monospace", timeProvider);
                     break;
 
                 case GuiTab.Viewer:

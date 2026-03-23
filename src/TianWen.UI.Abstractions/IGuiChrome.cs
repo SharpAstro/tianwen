@@ -23,6 +23,9 @@ public interface IGuiChrome : IPixelWidget
     /// <summary>Scroll the planner target list so that the item at the given index is visible.</summary>
     void PlannerEnsureVisible(int index);
 
+    /// <summary>Live session state (for session monitoring).</summary>
+    LiveSessionState LiveSessionState { get; }
+
     /// <summary>The signal bus.</summary>
     SignalBus? Bus { get; }
 }

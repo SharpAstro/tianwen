@@ -162,15 +162,8 @@ public static class AltitudeChartRenderer
                 TimeToX, AltToY, plotX, plotY, plotW, plotH, fontFamily, h);
         }
 
-        // --- Scheduled observation windows ---
-
-        if (state.Schedule is { } tree)
-        {
-            DrawScheduledWindows(renderer, tree, targetColorMap, TimeToX, plotX, plotY, plotH);
-        }
-
         // --- Altitude curves ---
-        DrawAltitudeCurves(renderer, state, allTargets, targetColorMap, tree: state.Schedule,
+        DrawAltitudeCurves(renderer, state, allTargets, targetColorMap,
             TimeToX, AltToY, fontFamily, h, highlightTargetIndex);
 
         // --- Title ---
@@ -209,7 +202,7 @@ public static class AltitudeChartRenderer
         var legendTargets = allTargets
             .OrderByDescending(t => state.ScoredTargets.TryGetValue(t, out var s) ? s.CombinedScore : 0)
             .ToArray();
-        DrawLegend(renderer, legendTargets, targetColorMap, state.Schedule,
+        DrawLegend(renderer, legendTargets, targetColorMap,
             plotX, areaY + h - legendH - 4, legendH, fontFamily, h, areaX + w);
     }
 
@@ -437,8 +430,8 @@ public static class AltitudeChartRenderer
             if (sliderX >= plotX && sliderX <= plotX + plotW)
             {
                 // Vertical line
-                var isDragging = state.DraggingSliderIndex == i;
-                var lineColor = isDragging
+                var isHighlighted = state.DraggingSliderIndex == i || state.SelectedSliderIndex == i;
+                var lineColor = isHighlighted
                     ? WhiteColor
                     : SliderColor;
 
@@ -508,46 +501,6 @@ public static class AltitudeChartRenderer
     // Scheduled observation windows
     // -----------------------------------------------------------------------
 
-    private static void DrawScheduledWindows<TSurface>(
-        Renderer<TSurface> renderer,
-        ScheduledObservationTree tree,
-        Dictionary<Target, int> targetColorMap,
-        Func<DateTimeOffset, int> timeToX,
-        int plotX,
-        int plotY,
-        int plotH)
-    {
-        for (var i = 0; i < tree.Count; i++)
-        {
-            var obs      = tree[i];
-            var colorIdx = targetColorMap.GetValueOrDefault(obs.Target, 0) % TargetColors.Length;
-            var color    = TargetColors[colorIdx];
-            var fill     = color.WithAlpha(64);  // ~25% alpha
-
-            var x1 = timeToX(obs.Start);
-            var x2 = timeToX(obs.Start + obs.Duration);
-            if (x2 <= x1)
-            {
-                x2 = x1 + 1;
-            }
-
-            FillRect(renderer, x1, plotY, x2 - x1, plotH, fill);
-            // Stroke: draw a 1px border rectangle
-            renderer.DrawRectangle(MakeRect(x1, plotY, x2 - x1, plotH), color, 1);
-
-            // Spare windows as dashed outline (simulate by drawing corner ticks)
-            var spares = tree.GetSparesForSlot(i);
-            foreach (var spare in spares)
-            {
-                var spareColorIdx = targetColorMap.GetValueOrDefault(spare.Target, 0) % TargetColors.Length;
-                var spareColor    = TargetColors[spareColorIdx];
-
-                // Inner dashed rectangle approximated with 4 corner L-shapes
-                DrawDashedRect(renderer, x1 + 2, plotY + 2, x2 - x1 - 4, plotH - 4, spareColor);
-            }
-        }
-    }
-
     // -----------------------------------------------------------------------
     // Altitude curves
     // -----------------------------------------------------------------------
@@ -557,7 +510,6 @@ public static class AltitudeChartRenderer
         PlannerState state,
         Target[] allTargets,
         Dictionary<Target, int> targetColorMap,
-        ScheduledObservationTree? tree,
         Func<DateTimeOffset, int> timeToX,
         Func<double, int> altToY,
         string fontFamily,
@@ -589,20 +541,6 @@ public static class AltitudeChartRenderer
             // Smooth with Catmull-Rom
             var smoothed = CatmullRomSpline.Interpolate(visibleRaw, segmentsPerSpan: 16);
 
-            // Determine if this target is spare-only
-            var isSpare = true;
-            if (tree is not null)
-            {
-                for (var j = 0; j < tree.Count; j++)
-                {
-                    if (tree[j].Target == target)
-                    {
-                        isSpare = false;
-                        break;
-                    }
-                }
-            }
-
             var isHighlight = highlightTargetIndex.HasValue && highlightTargetIndex.Value == i;
             var dotSize     = isHighlight ? 3 : 2;
             var curveColor  = isHighlight
@@ -613,15 +551,7 @@ public static class AltitudeChartRenderer
                     255)
                 : color;
 
-            if (isSpare)
-            {
-                // Dashed: draw every other dot cluster
-                DrawDashedCurve(renderer, smoothed, curveColor, dotSize);
-            }
-            else
-            {
-                DrawSolidCurve(renderer, smoothed, curveColor, dotSize);
-            }
+            DrawSolidCurve(renderer, smoothed, curveColor, dotSize);
 
             // Label at the peak altitude point: name above, peak time below
             var peak     = profile.MaxBy(p => p.Alt);
@@ -645,7 +575,6 @@ public static class AltitudeChartRenderer
         Renderer<TSurface> renderer,
         Target[] allTargets,
         Dictionary<Target, int> targetColorMap,
-        ScheduledObservationTree? tree,
         int plotX,
         int legendY,
         int legendH,
@@ -701,20 +630,6 @@ public static class AltitudeChartRenderer
             cursorX += 60;
         }
 
-        // "Primary (solid)" sample
-        cursorX += 10;
-        FillRect(renderer, cursorX, lineY - 1, 20, 3, GrayColor);
-        var primRect = MakeRect(cursorX + 22, legendY, 70, legendH);
-        renderer.DrawText("Primary", fontFamily, fs, GrayColor, primRect, TextAlign.Near, TextAlign.Center);
-        cursorX += 90;
-
-        // "Spare (dashed)" sample — dots to suggest dashes
-        for (var d = 0; d < 20; d += 5)
-        {
-            FillRect(renderer, cursorX + d, lineY - 1, 3, 3, GrayColor);
-        }
-        var spareRect = MakeRect(cursorX + 22, legendY, 60, legendH);
-        renderer.DrawText("Spare", fontFamily, fs, GrayColor, spareRect, TextAlign.Near, TextAlign.Center);
     }
 
     // -----------------------------------------------------------------------
@@ -758,31 +673,6 @@ public static class AltitudeChartRenderer
                 FillRect(renderer, x, y, segEnd - x, 1, color);
             }
             x    = segEnd;
-            draw = !draw;
-        }
-    }
-
-    /// <summary>Draws a dashed rectangle outline using short filled rectangles.</summary>
-    private static void DrawDashedRect<TSurface>(
-        Renderer<TSurface> renderer, int x, int y, int w, int h, RGBAColor32 color,
-        int dashLen = 4, int gapLen = 4)
-    {
-        // Top and bottom
-        DrawDashedHLine(renderer, x, x + w, y, color, dashLen, gapLen);
-        DrawDashedHLine(renderer, x, x + w, y + h, color, dashLen, gapLen);
-
-        // Left and right (vertical dashes)
-        var curY = y;
-        var draw = true;
-        while (curY < y + h)
-        {
-            var segEnd = Math.Min(curY + (draw ? dashLen : gapLen), y + h);
-            if (draw)
-            {
-                FillRect(renderer, x, curY, 1, segEnd - curY, color);
-                FillRect(renderer, x + w - 1, curY, 1, segEnd - curY, color);
-            }
-            curY = segEnd;
             draw = !draw;
         }
     }
@@ -833,34 +723,7 @@ public static class AltitudeChartRenderer
         }
     }
 
-    /// <summary>Renders spline points as a dashed dot trail (every other cluster).</summary>
-    private static void DrawDashedCurve<TSurface>(
-        Renderer<TSurface> renderer,
-        (double X, double Y)[] points,
-        RGBAColor32 color,
-        int dotSize,
-        int dashDots = 6,
-        int gapDots  = 3)
-    {
-        var counter = 0;
-        var draw    = true;
-        foreach (var (px, py) in points)
-        {
-            if (draw)
-            {
-                var ix = (int)Math.Round(px);
-                var iy = (int)Math.Round(py);
-                FillRect(renderer, ix - dotSize / 2, iy - dotSize / 2, dotSize, dotSize, color);
-            }
 
-            counter++;
-            if (counter >= (draw ? dashDots : gapDots))
-            {
-                draw    = !draw;
-                counter = 0;
-            }
-        }
-    }
 
     /// <summary>Convenience wrapper that fills a rect given top-left + size.</summary>
     private static void FillRect<TSurface>(
@@ -898,26 +761,6 @@ public static class AltitudeChartRenderer
             if (seen.Add(filtered[i].Target))
             {
                 result.Add(filtered[i].Target);
-            }
-        }
-
-        // Scheduled targets (from schedule tree)
-        if (state.Schedule is { } tree)
-        {
-            for (var i = 0; i < tree.Count; i++)
-            {
-                if (seen.Add(tree[i].Target))
-                {
-                    result.Add(tree[i].Target);
-                }
-
-                foreach (var spare in tree.GetSparesForSlot(i))
-                {
-                    if (seen.Add(spare.Target))
-                    {
-                        result.Add(spare.Target);
-                    }
-                }
             }
         }
 

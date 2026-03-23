@@ -93,14 +93,11 @@ internal sealed class TuiPlannerTab(
             highlightTargetIndex: plannerState.SelectedTargetIndex);
 
         // Status bar
-        var scheduleStatus = plannerState.Schedule is { Count: > 0 } s
-            ? $"Schedule: {s.Count} obs"
-            : "";
         var statusText = plannerState.StatusMessage is { } msg
             ? $" {msg}"
             : " \u2191\u2193:nav Enter:toggle P:priority S:schedule Q:quit";
         _statusBar.Text(statusText);
-        _statusBar.RightText($"{scheduleStatus} ");
+        _statusBar.RightText(plannerState.StatusMessage ?? "");
     }
 
     protected override void RegisterClickableRegions()
@@ -214,10 +211,6 @@ internal sealed class TuiPlannerTab(
                         }
                         return false;
 
-                    case InputKey.S:
-                        bus?.Post(new BuildScheduleSignal());
-                        NeedsRedraw = true;
-                        return false;
                 }
                 break;
         }

@@ -182,6 +182,12 @@ namespace TianWen.UI.Abstractions
         // Right panel: camera settings (top) + observation list (bottom)
         // -----------------------------------------------------------------------
 
+        // Button colors
+        private static readonly RGBAColor32 StartBtnBg      = new RGBAColor32(0x22, 0x66, 0x22, 0xff);
+        private static readonly RGBAColor32 StartBtnText     = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
+        private static readonly RGBAColor32 DisabledBtnBg    = new RGBAColor32(0x33, 0x33, 0x3a, 0xff);
+        private static readonly RGBAColor32 DisabledBtnText  = new RGBAColor32(0x66, 0x66, 0x77, 0xff);
+
         private void RenderRightPanel(
             PlannerState plannerState,
             RectF32 rect,
@@ -203,6 +209,33 @@ namespace TianWen.UI.Abstractions
             var cameraRect = rightLayout.Dock(PixelDockStyle.Top, cameraSectionH);
             var sepRect = rightLayout.Dock(PixelDockStyle.Top, BaseSeparatorW * dpiScale);
             FillRect(sepRect.X, sepRect.Y, sepRect.Width, sepRect.Height, SeparatorColor);
+
+            // Start Session button: enabled when proposals exist and date is tonight
+            var hasPinned = plannerState.Proposals.Count > 0;
+            var isTonight = !plannerState.PlanningDate.HasValue;
+
+            if (hasPinned)
+            {
+                var btnH = 36f * dpiScale;
+                var btnRect = rightLayout.Dock(PixelDockStyle.Bottom, btnH + padding * 2);
+                var btnW = btnRect.Width - padding * 4;
+                var btnX = btnRect.X + padding * 2;
+                var btnY = btnRect.Y + padding;
+                var fs = BaseFontSize * dpiScale;
+
+                if (isTonight)
+                {
+                    RenderButton("\u25B6 Start Session", btnX, btnY, btnW, btnH,
+                        fontPath, fs, StartBtnBg, StartBtnText, "StartSession",
+                        _ => PostSignal(new StartSessionSignal()));
+                }
+                else
+                {
+                    FillRect(btnX, btnY, btnW, btnH, DisabledBtnBg);
+                    DrawText("Start (tonight only)".AsSpan(), fontPath,
+                        btnX, btnY, btnW, btnH, fs, DisabledBtnText, TextAlign.Center, TextAlign.Center);
+                }
+            }
 
             var obsRect = rightLayout.Fill();
 

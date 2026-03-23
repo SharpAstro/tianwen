@@ -33,7 +33,9 @@ namespace TianWen.UI.Abstractions
             PlannerState plannerState,
             SessionTabState sessionState,
             EquipmentTabState eqState,
+            LiveSessionState liveSessionState,
             SignalBus bus,
+            BackgroundTaskTracker tracker,
             CancellationTokenSource cts,
             IExternal external)
         {
@@ -338,6 +340,106 @@ namespace TianWen.UI.Abstractions
             // Wire signal bus into state objects for auto-posting on dirty
             plannerState.Bus = bus;
             sessionState.Bus = bus;
+
+            // ---------------------------------------------------------------
+            // Live session signals
+            // ---------------------------------------------------------------
+
+            bus.Subscribe<StartSessionSignal>(async _ =>
+            {
+                if (liveSessionState.IsRunning)
+                {
+                    appState.StatusMessage = "Session already running";
+                    return;
+                }
+
+                if (appState.ActiveProfile is not { } profile)
+                {
+                    appState.StatusMessage = "No profile selected";
+                    return;
+                }
+
+                if (plannerState.Proposals is not { Count: > 0 })
+                {
+                    appState.StatusMessage = "No targets — pin targets in the Planner first";
+                    return;
+                }
+
+                try
+                {
+                    var factory = sp.GetRequiredService<ISessionFactory>();
+                    var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
+                    liveSessionState.SessionCts = sessionCts;
+
+                    appState.StatusMessage = "Initialising session...";
+                    appState.NeedsRedraw = true;
+                    await factory.InitializeAsync(sessionCts.Token);
+
+                    // Create session from proposals — factory handles scheduling internally
+                    var proposals = plannerState.Proposals.ToArray();
+                    var session = factory.Create(
+                        profile.ProfileId,
+                        sessionState.Configuration,
+                        proposals.AsSpan());
+
+                    liveSessionState.ActiveSession = session;
+                    liveSessionState.IsRunning = true;
+                    liveSessionState.Phase = SessionPhase.NotStarted;
+                    liveSessionState.ShowAbortConfirm = false;
+                    liveSessionState.ExposureLogScrollOffset = 0;
+                    liveSessionState.FocusHistoryScrollOffset = 0;
+                    appState.ActiveTab = GuiTab.LiveSession;
+                    appState.StatusMessage = "Session started";
+                    appState.NeedsRedraw = true;
+
+                    // RunAsync includes Finalise — run as tracked background task so:
+                    // 1. UI stays responsive (signal handler returns immediately)
+                    // 2. DrainAsync at shutdown waits for Finalise to complete
+                    tracker.Run(async () =>
+                    {
+                        try
+                        {
+                            await session.RunAsync(sessionCts.Token);
+                        }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            logger.LogError(ex, "Session run failed");
+                        }
+                        finally
+                        {
+                            liveSessionState.IsRunning = false;
+                            liveSessionState.NeedsRedraw = true;
+                            appState.StatusMessage = liveSessionState.Phase switch
+                            {
+                                SessionPhase.Complete => "Session complete",
+                                SessionPhase.Aborted => "Session aborted",
+                                SessionPhase.Failed => "Session failed",
+                                _ => null
+                            };
+                            appState.NeedsRedraw = true;
+                        }
+                    }, "Session run");
+                }
+                catch (OperationCanceledException)
+                {
+                    appState.StatusMessage = "Session cancelled";
+                    liveSessionState.IsRunning = false;
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Failed to start session");
+                    appState.StatusMessage = $"Session failed: {ex.Message}";
+                    liveSessionState.IsRunning = false;
+                }
+            });
+
+            bus.Subscribe<ConfirmAbortSessionSignal>(_ =>
+            {
+                liveSessionState.SessionCts?.Cancel();
+                liveSessionState.ShowAbortConfirm = false;
+                liveSessionState.NeedsRedraw = true;
+                appState.NeedsRedraw = true;
+            });
 
             // ---------------------------------------------------------------
             // Local helpers captured by closures above
