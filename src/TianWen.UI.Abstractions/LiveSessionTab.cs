@@ -190,7 +190,7 @@ namespace TianWen.UI.Abstractions
                      && state.ActiveSession?.Observations is { Count: > 0 } observations)
             {
                 var first = observations[0];
-                targetLabel = $"Next up: {first.Target.Name} ({first.Start:HH:mm}\u2013{first.Start + first.Duration:HH:mm})";
+                targetLabel = $"Next up: {first.Target.Name} ({first.Start:HH:mm})";
             }
             else
             {
@@ -518,27 +518,55 @@ namespace TianWen.UI.Abstractions
                 rect.X + rect.Width - pad * 5, graphY + graphH - fontSize, pad * 4, fontSize,
                 fontSize * 0.7f, firstPowCol, TextAlign.Near, TextAlign.Center);
 
-            // Plot samples — each camera gets its own color
-            var dotW = Math.Max(graphW / Math.Max(samples.Count / Math.Max(cameraCount, 1), 1), 2);
+            // Plot samples — connect consecutive same-camera points with filled segments
+            // Track last position per camera for line drawing
+            var lastTempX = new float[cameraCount];
+            var lastTempY = new float[cameraCount];
+            var lastPowX = new float[cameraCount];
+            var lastPowY = new float[cameraCount];
+            var hasLast = new bool[cameraCount];
+
             for (var i = 0; i < samples.Count; i++)
             {
                 var s = samples[i];
                 var cam = s.CameraIndex;
+                if (cam >= cameraCount) continue;
                 var tempCol = CameraTempColors[cam % CameraTempColors.Length];
                 var powCol = CameraPowerColors[cam % CameraPowerColors.Length];
 
                 var tNorm = (float)((s.Timestamp - firstTime).TotalSeconds / timeRange);
                 var x = graphX + tNorm * graphW;
 
-                // Temperature dot
+                // Temperature
                 var tempNorm = (float)((s.TemperatureC - minTemp) / (maxTemp - minTemp));
                 var tempPixY = graphY + graphH - tempNorm * graphH;
-                FillRect(x, tempPixY, dotW, 2, tempCol);
 
-                // Power dot
+                // Power
                 var powerNorm = (float)(s.CoolerPowerPercent / 100.0);
                 var powerPixY = graphY + graphH - powerNorm * graphH;
-                FillRect(x, powerPixY, dotW, 2, powCol);
+
+                if (hasLast[cam])
+                {
+                    // Draw horizontal then vertical segment to connect (step-style)
+                    var segW = Math.Max(x - lastTempX[cam], 1);
+                    FillRect(lastTempX[cam], lastTempY[cam], segW, 2, tempCol);
+                    FillRect(x, Math.Min(lastTempY[cam], tempPixY), 2, Math.Abs(tempPixY - lastTempY[cam]) + 2, tempCol);
+
+                    FillRect(lastPowX[cam], lastPowY[cam], segW, 2, powCol);
+                    FillRect(x, Math.Min(lastPowY[cam], powerPixY), 2, Math.Abs(powerPixY - lastPowY[cam]) + 2, powCol);
+                }
+                else
+                {
+                    // First point — just a dot
+                    FillRect(x, tempPixY, 3, 3, tempCol);
+                    FillRect(x, powerPixY, 3, 3, powCol);
+                }
+
+                lastTempX[cam] = x;
+                lastTempY[cam] = tempPixY;
+                lastPowX[cam] = x;
+                lastPowY[cam] = powerPixY;
+                hasLast[cam] = true;
             }
 
             // Zero line for temperature reference

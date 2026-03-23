@@ -371,16 +371,49 @@ namespace TianWen.UI.Abstractions
                     var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
                     liveSessionState.SessionCts = sessionCts;
 
+                    // Build schedule from proposals using planner's window allocation
+                    var profileData = profile.Data ?? ProfileData.Empty;
+                    var transform = TransformFactory.FromProfile(profile, external.TimeProvider, out var transformError);
+                    if (transform is null)
+                    {
+                        appState.StatusMessage = "Cannot determine site location from profile";
+                        return;
+                    }
+
+                    var availableFilters = profileData.OTAs.Length > 0
+                        ? EquipmentActions.GetFilterConfig(profileData, 0)
+                        : null;
+                    var opticalDesign = profileData.OTAs.Length > 0
+                        ? profileData.OTAs[0].OpticalDesign
+                        : OpticalDesign.Unknown;
+
+                    PlannerActions.BuildSchedule(plannerState, sessionState, transform,
+                        defaultGain: 120, defaultOffset: 10,
+                        defaultSubExposure: sessionState.Configuration.DefaultSubExposure ?? TimeSpan.FromSeconds(120),
+                        defaultObservationTime: TimeSpan.FromMinutes(60),
+                        availableFilters: availableFilters is { Count: > 0 } ? availableFilters : null,
+                        opticalDesign: opticalDesign);
+
+                    if (sessionState.Schedule is not { Count: > 0 } schedule)
+                    {
+                        appState.StatusMessage = "Failed to build schedule from proposals";
+                        return;
+                    }
+
                     appState.StatusMessage = "Initialising session...";
                     appState.NeedsRedraw = true;
                     await factory.InitializeAsync(sessionCts.Token);
 
-                    // Create session from proposals — factory handles scheduling internally
-                    var proposals = plannerState.Proposals.ToArray();
+                    // Create session from pre-built schedule with proper time windows
+                    var observations = new ScheduledObservation[schedule.Count];
+                    for (var i = 0; i < schedule.Count; i++)
+                    {
+                        observations[i] = schedule[i];
+                    }
                     var session = factory.Create(
                         profile.ProfileId,
                         sessionState.Configuration,
-                        proposals.AsSpan());
+                        observations.AsSpan());
 
                     liveSessionState.ActiveSession = session;
                     liveSessionState.IsRunning = true;

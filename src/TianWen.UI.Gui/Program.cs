@@ -279,15 +279,67 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
     OnPostFrame = () =>
     {
         bus.ProcessPending(tracker);
-        tracker.ProcessCompletions(logger);
-        appState.NeedsRedraw = false;
+        if (tracker.ProcessCompletions(logger))
+        {
+            appState.NeedsRedraw = true;
+        }
+
+        // During shutdown, keep rendering until all background tasks (Finalise) complete
+        if (appState.ShuttingDown)
+        {
+            if (!tracker.HasPending)
+            {
+                loop.Stop();
+            }
+            else
+            {
+                appState.StatusMessage = $"Shutting down\u2026 ({tracker.PendingCount} task{(tracker.PendingCount == 1 ? "" : "s")})";
+                appState.NeedsRedraw = true;
+            }
+        }
+        else
+        {
+            appState.NeedsRedraw = false;
+        }
         plannerState.NeedsRedraw = false;
     }
 };
 
+// Graceful shutdown: cancel session (triggers Finalise), keep loop alive until drained
+void BeginGracefulShutdown()
+{
+    if (appState.ShuttingDown)
+    {
+        // Second press — force quit
+        loop.Stop();
+        return;
+    }
+
+    // Cancel running session so Finalise starts
+    if (guiRenderer.LiveSessionState is { IsRunning: true, SessionCts: { } sessionCts2 })
+    {
+        sessionCts2.Cancel();
+    }
+    cts.Cancel();
+
+    if (tracker.HasPending)
+    {
+        // Keep loop alive to show Finalise progress
+        appState.ShuttingDown = true;
+        appState.StatusMessage = "Shutting down\u2026";
+        appState.NeedsRedraw = true;
+    }
+    else
+    {
+        loop.Stop();
+    }
+}
+
 // OnKeyDown set separately to allow loop.Stop() self-reference
 loop.OnKeyDown = (inputKey, inputModifier) =>
 {
+    if (appState.ShuttingDown) return false; // ignore keys during shutdown
+
     var evt = new InputEvent.KeyDown(inputKey, inputModifier);
     if (handlers.HandleInput(evt))
     {
@@ -298,7 +350,7 @@ loop.OnKeyDown = (inputKey, inputModifier) =>
     switch (inputKey)
     {
         case InputKey.Escape:
-            loop.Stop();
+            BeginGracefulShutdown();
             return true;
         case InputKey.F11:
             sdlWindow.ToggleFullscreen();
@@ -309,21 +361,22 @@ loop.OnKeyDown = (inputKey, inputModifier) =>
     return true;
 };
 
+// Intercept window close button — behave like abort when session is active
+loop.OnQuit = () =>
+{
+    BeginGracefulShutdown();
+    return appState.ShuttingDown; // true = intercepted (keep loop alive), false = stop
+};
+
 loop.Run(cts.Token);
 
-// Cleanup — cancel running session first so Finalise starts while we drain
-if (guiRenderer.LiveSessionState is { IsRunning: true, SessionCts: { } sessionCts })
-{
-    sessionCts.Cancel();
-}
+// Final cleanup — drain should complete quickly since we already waited in the loop
 cts.Cancel();
 
 if (plannerTask is not null)
 {
     try { await plannerTask; } catch (OperationCanceledException) { }
 }
-
-// Wait for session Finalise (warmup, park) to complete — cannot skip this
 await tracker.DrainAsync();
 
 guiRenderer.Dispose();
