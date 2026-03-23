@@ -23,39 +23,32 @@ internal partial record Session
 
     internal async ValueTask WaitUntilTenMinutesBeforeAmateurAstroTwilightEndsAsync(CancellationToken cancellationToken)
     {
-        if (await Setup.Mount.Driver.TryGetTransformAsync(cancellationToken) is not { } transform)
+        // Wait until 10 minutes before the first scheduled observation starts.
+        // The schedule already encodes the correct start times computed by the planner
+        // using CalculateNightWindow, so we don't need to recompute twilight here.
+        if (Observations.Count == 0)
         {
-            throw new InvalidOperationException("Failed to retrieve time transformation from mount");
+            return;
         }
 
-        var (_, _, set) = transform.EventTimes(Astrometry.SOFA.EventType.AmateurAstronomicalTwilight);
-        if (set is { Count: 1 })
+        var firstStart = Observations[0].Start;
+        var waitUntil = firstStart - TimeSpan.FromMinutes(10);
+        var utcNow = External.TimeProvider.GetUtcNow();
+        var diff = waitUntil - utcNow;
+
+        External.AppLogger.LogInformation("WaitForDark: utcNow={UtcNow}, firstObservationStart={FirstStart}, waitUntil={WaitUntil}, diff={Diff}",
+            utcNow, firstStart, waitUntil, diff);
+
+        if (diff > TimeSpan.Zero)
         {
-            var utcNow = External.TimeProvider.GetUtcNow();
-            var localNow = utcNow.ToOffset(transform.SiteTimeZone);
-            var localDayStart = new DateTimeOffset(localNow.Date, localNow.Offset);
-            var localAstroTwilightSet = localDayStart + set[0];
-            var local10MinBeforeAstroTwilightSet = localAstroTwilightSet - TimeSpan.FromMinutes(10);
-            var diff = local10MinBeforeAstroTwilightSet - utcNow;
-
-            External.AppLogger.LogInformation("WaitForDark: utcNow={UtcNow}, localNow={LocalNow}, localDayStart={LocalDayStart}, set[0]={SetOffset}, twilightSet={TwilightSet}, 10minBefore={Before10}, diff={Diff}",
-                utcNow, localNow, localDayStart, set[0], localAstroTwilightSet, local10MinBeforeAstroTwilightSet, diff);
-
-            if (diff > TimeSpan.Zero)
-            {
-                External.AppLogger.LogInformation("Current time {CurrentTimeLocal}, twilight ends {AmateurTwilightEndsLocal}, which is in {Diff}",
-                    localNow, localAstroTwilightSet, diff);
-                await External.SleepAsync(diff, cancellationToken).ConfigureAwait(false);
-            }
-            else
-            {
-                External.AppLogger.LogWarning("Current time {CurrentTimeLocal}, twilight ends {AmateurTwilightEndsLocal}, ended {Diff} ago",
-                    localNow, localAstroTwilightSet, -diff);
-            }
+            External.AppLogger.LogInformation("Waiting {Diff} until 10 minutes before first observation at {FirstStart}",
+                diff, firstStart);
+            await External.SleepAsync(diff, cancellationToken).ConfigureAwait(false);
         }
         else
         {
-            throw new InvalidOperationException($"Failed to retrieve astro event time for {transform.DateTime}");
+            External.AppLogger.LogInformation("First observation at {FirstStart} already started or starting soon (diff={Diff})",
+                firstStart, diff);
         }
     }
 
