@@ -41,16 +41,18 @@ internal partial record Session
         await mount.Driver.BeginSlewToZenithAsync(distMeridian, cancellationToken).ConfigureAwait(false);
         var slewTime = await GetMountUtcNowAsync(cancellationToken);
 
+        External.AppLogger.LogInformation("RoughFocus: waiting for slew to complete...");
         if (!await mount.Driver.WaitForSlewCompleteAsync(cancellationToken).ConfigureAwait(false))
         {
             External.AppLogger.LogError("Failed to complete slewing of mount {Mount}", mount);
 
             return false;
         }
-        
+
+        External.AppLogger.LogInformation("RoughFocus: slew complete, starting guider plate-solve loop (1 min timeout)...");
         if (!await GuiderFocusLoopAsync(TimeSpan.FromMinutes(1), cancellationToken))
         {
-            return false;
+            External.AppLogger.LogWarning("RoughFocus: guider focus loop timed out or failed, continuing with rough focus detection.");
         }
 
         var count = Setup.Telescopes.Length;
@@ -102,6 +104,9 @@ internal partial record Session
                 if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } image)
                 {
                     var stars = await image.FindStarsAsync(0, snrMin: 15, cancellationToken: cancellationToken);
+
+                    External.AppLogger.LogInformation("RoughFocus: telescope #{TelescopeNumber} exposure {ExpTime}s → {StarCount} stars detected (need ≥15)",
+                        i + 1, expTimesSec[i], stars.Count);
 
                     if (stars.Count < 15)
                     {
