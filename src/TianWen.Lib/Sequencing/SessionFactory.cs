@@ -81,12 +81,22 @@ internal class SessionFactory(
         var guiderCamera = profileData.GuiderCamera is { } guiderCameraUri ? new Camera(DeviceFromUri(guiderCameraUri), external) : null;
         var guiderFocuser = profileData.GuiderFocuser is { } guiderFocuserUri ? new Focuser(DeviceFromUri(guiderFocuserUri), external) : null;
 
-        // Wire mount and camera into built-in guiders that need them for pulse guide corrections.
+        // Wire mount and camera into guiders that need device access.
         if (guider.Driver is IDeviceDependentGuider deviceDependentGuider)
         {
-            var guideCamera = guiderCamera?.Driver
-                ?? throw new InvalidOperationException("Built-in guider requires a dedicated guider camera.");
-            deviceDependentGuider.LinkDevices(mount.Driver, guideCamera);
+            if (guiderCamera?.Driver is { } guideCamera)
+            {
+                deviceDependentGuider.LinkDevices(mount.Driver, guideCamera);
+            }
+            else if (deviceDependentGuider is { RequiresCamera: true })
+            {
+                throw new InvalidOperationException("Built-in guider requires a dedicated guider camera.");
+            }
+            else
+            {
+                // Guider doesn't need a camera (e.g. FakeGuider) — link mount only
+                deviceDependentGuider.LinkDevices(mount.Driver, null!);
+            }
         }
 
         var guiderSetup = new GuiderSetup(guiderCamera, guiderFocuser, guiderIsOAGOfOTA);
