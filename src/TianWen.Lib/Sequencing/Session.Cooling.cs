@@ -58,10 +58,11 @@ internal partial record Session
 
                 // Record cooling sample for the live session graph
                 var ccdTemp = await External.CatchAsync(camera.Driver.GetCCDTemperatureAsync, cancellationToken, double.NaN);
+                var setpoint = await External.CatchAsyncIf(camera.Driver.CanSetCCDTemperature, camera.Driver.GetSetCCDTemperatureAsync, cancellationToken, double.NaN);
                 var power = await External.CatchAsyncIf(camera.Driver.CanGetCoolerPower, camera.Driver.GetCoolerPowerAsync, cancellationToken, double.NaN);
                 if (!double.IsNaN(ccdTemp))
                 {
-                    _coolingSamples.Enqueue(new CoolingSample(External.TimeProvider.GetUtcNow(), i, ccdTemp, double.IsNaN(power) ? 0 : power));
+                    _coolingSamples.Enqueue(new CoolingSample(External.TimeProvider.GetUtcNow(), i, ccdTemp, double.IsNaN(setpoint) ? 0 : setpoint, double.IsNaN(power) ? 0 : power));
                 }
             }
 
