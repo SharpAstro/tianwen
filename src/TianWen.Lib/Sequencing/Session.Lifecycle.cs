@@ -218,6 +218,28 @@ internal partial record Session
             return false;
         }
 
+        // Connect guider camera + focuser if present
+        if (Setup.GuiderSetup.Camera is { } guiderCam)
+        {
+            _currentActivity = "Connecting guider camera\u2026";
+            await guiderCam.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
+
+            // Guide scope focal length: explicit profile setting wins (covers OAG-before-reducer
+            // and dedicated guide scopes), then OAG parent OTA as fallback
+            if (Setup.GuiderSetup.FocalLength is > 0)
+            {
+                guiderCam.Driver.FocalLength = Setup.GuiderSetup.FocalLength.Value;
+            }
+            else if (Setup.GuiderSetup.OAG is { FocalLength: > 0 } oag)
+            {
+                guiderCam.Driver.FocalLength = oag.FocalLength;
+            }
+        }
+        if (Setup.GuiderSetup.Focuser is { } guiderFocuser)
+        {
+            await guiderFocuser.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         _currentActivity = "Connecting guider equipment\u2026";
         guider.Driver.GuiderStateChangedEvent += (_, e) => _guiderEvents.Enqueue(e);
         guider.Driver.GuidingErrorEvent +=  (_, e) => _guiderEvents.Enqueue(e);

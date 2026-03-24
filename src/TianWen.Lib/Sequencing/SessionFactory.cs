@@ -87,7 +87,7 @@ internal class SessionFactory(
             deviceDependentGuider.LinkDevices(mount.Driver, guiderCamera?.Driver);
         }
 
-        var guiderSetup = new GuiderSetup(guiderCamera, guiderFocuser, guiderIsOAGOfOTA);
+        var guiderSetup = new GuiderSetup(guiderCamera, guiderFocuser, guiderIsOAGOfOTA, profileData.GuiderFocalLength);
 
         var setup = new Setup(mount, guider, guiderSetup, [.. otas]);
 

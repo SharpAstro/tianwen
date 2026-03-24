@@ -1,6 +1,6 @@
 namespace TianWen.Lib.Sequencing;
 
-public record GuiderSetup(Camera? Camera = null, Focuser? Focuser = null, OTA? OAG = null)
+public record GuiderSetup(Camera? Camera = null, Focuser? Focuser = null, OTA? OAG = null, int? FocalLength = null)
 {
     /// <summary>
     /// Whether the guider is an Off-Axis Guider mounted on one of the imaging OTAs.
