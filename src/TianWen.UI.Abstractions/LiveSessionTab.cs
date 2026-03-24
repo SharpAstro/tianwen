@@ -126,15 +126,24 @@ namespace TianWen.UI.Abstractions
             // Center: mini viewer — rendered FIRST so panels paint over any overflow
             if (viewerW > 100 && MiniViewer is { } viewer)
             {
-                // Check if a new frame arrived
+                // Check if a new frame arrived for the selected camera
                 var images = state.LastCapturedImages;
+                var selectedIdx = viewer.State.SelectedCameraIndex;
                 Image? latestImage = null;
-                for (var i = 0; i < images.Length; i++)
+                if (selectedIdx >= 0 && selectedIdx < images.Length)
                 {
-                    if (images[i] is { } img)
+                    latestImage = images[selectedIdx];
+                }
+                else
+                {
+                    // Auto: show first available
+                    for (var i = 0; i < images.Length; i++)
                     {
-                        latestImage = img;
-                        break;
+                        if (images[i] is { } img)
+                        {
+                            latestImage = img;
+                            break;
+                        }
                     }
                 }
 
@@ -245,14 +254,35 @@ namespace TianWen.UI.Abstractions
                 _ => { vs.CycleBoost(); });
             x += btnW * 0.8f + pad;
 
+            // OTA selector buttons (right-aligned) — only for multi-OTA setups
+            var otaButtonCount = State?.ActiveSession?.Setup.Telescopes.Length ?? 0;
+            if (otaButtonCount > 1)
+            {
+                var otaBtnX = rect.X + rect.Width - (btnW * 0.8f + pad) * otaButtonCount - pad;
+                for (var oi = 0; oi < otaButtonCount; oi++)
+                {
+                    var idx = oi; // capture
+                    var isSelected = vs.SelectedCameraIndex == idx;
+                    RenderButton($"#{idx + 1}", otaBtnX, btnY, btnW * 0.8f, btnH, fontPath, btnFs,
+                        isSelected ? activeBg : inactiveBg, BodyText, $"ViewerOTA{idx}",
+                        _ => { vs.SelectedCameraIndex = vs.SelectedCameraIndex == idx ? -1 : idx; });
+                    otaBtnX += btnW * 0.8f + pad;
+                }
+            }
+
             // Status text: stretch info
             var infoText = $"{vs.StretchMode} {vs.StretchParameters}";
             if (vs.CurvesBoost > 0)
             {
                 infoText += $" Boost:{vs.CurvesBoost:F2}";
             }
+            var infoW = rect.X + rect.Width - x - pad;
+            if (otaButtonCount > 1)
+            {
+                infoW -= (btnW * 0.8f + pad) * otaButtonCount;
+            }
             DrawText(infoText.AsSpan(), fontPath,
-                x, rect.Y, rect.X + rect.Width - x - pad, rect.Height,
+                x, rect.Y, infoW, rect.Height,
                 fontSize * 0.7f, DimText, TextAlign.Near, TextAlign.Center);
         }
 
@@ -654,13 +684,13 @@ namespace TianWen.UI.Abstractions
                     y += pad;
                 }
 
-                // Focuser position
+                // Focuser position (larger font)
                 if (ota.Focuser is not null)
                 {
                     var focusPos = (i < cameraStates.Count) ? cameraStates[i].FocusPosition : 0;
                     DrawText($"Foc: {focusPos}".AsSpan(), fontPath,
                         px + pad, y, textW, rowH,
-                        smallFs, BodyText, TextAlign.Near, TextAlign.Center);
+                        fontSize, BodyText, TextAlign.Near, TextAlign.Center);
                     y += rowH;
                 }
 
@@ -687,6 +717,32 @@ namespace TianWen.UI.Abstractions
                         px + pad, y, textW, rowH,
                         smallFs, DimText, TextAlign.Near, TextAlign.Center);
                 }
+            }
+
+            // Mount status section (below OTAs, full width)
+            var mountY = rect.Y + rect.Height - rowH * 3 - pad;
+            if (mountY > rect.Y + rect.Height * 0.5f) // only show if there's room
+            {
+                FillRect(rect.X, mountY, rect.Width, 1, SeparatorColor);
+                mountY += pad;
+
+                // Mount name + target
+                var mountName = session.Setup.Mount.Device.DisplayName;
+                var targetName = state.ActiveObservation?.Target.Name ?? "--";
+                DrawText($"\u2316 {mountName}  \u2192 {targetName}".AsSpan(), fontPath,
+                    rect.X + pad, mountY, rect.Width - pad * 2, rowH,
+                    smallFs, HeaderText, TextAlign.Near, TextAlign.Center);
+                mountY += rowH;
+
+                // Observation counter + guider status
+                var obsIdx = state.CurrentObservationIndex;
+                var obsCount = session.Observations.Count;
+                var guideStatus = state.LastGuideStats is { } gs
+                    ? $"RMS {gs.TotalRMS:F1}\""
+                    : "Guide: --";
+                DrawText($"Obs: {(obsIdx >= 0 ? obsIdx + 1 : 0)}/{obsCount}  {guideStatus}".AsSpan(), fontPath,
+                    rect.X + pad, mountY, rect.Width - pad * 2, rowH,
+                    smallFs, BodyText, TextAlign.Near, TextAlign.Center);
             }
         }
 
