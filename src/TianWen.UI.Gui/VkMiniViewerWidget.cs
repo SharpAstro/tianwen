@@ -5,6 +5,7 @@ using SdlVulkan.Renderer;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
 using TianWen.UI.Shared;
+using Vortice.Vulkan;
 
 namespace TianWen.UI.Gui;
 
@@ -12,7 +13,7 @@ namespace TianWen.UI.Gui;
 /// Vulkan-backed mini viewer widget for the live session tab.
 /// Renders the last captured frame with auto-stretch into an arbitrary rect.
 /// </summary>
-public sealed class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
+public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
 {
     private readonly VkRenderer _renderer;
     private readonly VkFitsImagePipeline _fitsPipeline;
@@ -145,6 +146,15 @@ public sealed class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
             drawY = rect.Y + (rect.Height - drawH) / 2 + State.PanOffset.Y;
         }
 
+        // Set scissor to clip image to the viewport rect
+        var api = _renderer.Surface.DeviceApi;
+        var scissor = new VkRect2D
+        {
+            offset = new VkOffset2D { x = (int)rect.X, y = (int)rect.Y },
+            extent = new VkExtent2D { width = (uint)rect.Width, height = (uint)rect.Height }
+        };
+        api.vkCmdSetScissor(cmd, 0, 1, &scissor);
+
         _fitsPipeline.RecordImageDraw(
             cmd,
             _renderer.Surface,
@@ -154,6 +164,14 @@ public sealed class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
             bottom: drawY + drawH,
             projW: windowWidth,
             projH: windowHeight);
+
+        // Restore full-window scissor
+        var fullScissor = new VkRect2D
+        {
+            offset = default,
+            extent = new VkExtent2D { width = windowWidth, height = windowHeight }
+        };
+        api.vkCmdSetScissor(cmd, 0, 1, &fullScissor);
     }
 
     public void Dispose()
