@@ -10,7 +10,7 @@ namespace TianWen.Lib.Devices.Fake;
 /// <param name="PixelX">X position on the sensor in pixels.</param>
 /// <param name="PixelY">Y position on the sensor in pixels.</param>
 /// <param name="Magnitude">Visual magnitude (Johnson V).</param>
-internal readonly record struct ProjectedStar(double PixelX, double PixelY, double Magnitude, double RA = 0, double Dec = 0);
+internal readonly record struct ProjectedStar(double PixelX, double PixelY, double Magnitude, double RA = 0, double Dec = 0, double BMinusV = 0.65);
 
 /// <summary>
 /// Generates synthetic star field images with defocus-dependent PSF.
@@ -466,7 +466,8 @@ internal static class SyntheticStarFieldRenderer
             // Keep stars within sensor bounds (with small margin for PSF)
             if (pixelX >= -20 && pixelX < width + 20 && pixelY >= -20 && pixelY < height + 20)
             {
-                result.Add(new ProjectedStar(pixelX, pixelY, mag, obj.RA, (double)obj.Dec));
+                var bv = Half.IsNaN(obj.BMinusV) ? 0.65 : (double)obj.BMinusV;
+                result.Add(new ProjectedStar(pixelX, pixelY, mag, obj.RA, (double)obj.Dec, bv));
             }
         }
 
@@ -590,4 +591,130 @@ internal static class SyntheticStarFieldRenderer
     }
 
     private static double Asinh(double x) => Math.Log(x + Math.Sqrt(x * x + 1));
+
+    /// <summary>
+    /// Converts B-V color index to relative (R, G, B) flux ratios using
+    /// the Ballesteros (2012) temperature approximation + Planck function at RGGB band centers.
+    /// </summary>
+    internal static (double R, double G, double B) BMinusVToRGB(double bv)
+    {
+        // Ballesteros 2012: T = 4600 × (1/(0.92×BV + 1.7) + 1/(0.92×BV + 0.62))
+        var t = 4600.0 * (1.0 / (0.92 * bv + 1.7) + 1.0 / (0.92 * bv + 0.62));
+        t = Math.Clamp(t, 2000, 40000);
+
+        // Planck function ratio at band center wavelengths relative to V band (550nm)
+        // B(λ,T) ∝ 1/(λ⁵ × (exp(hc/λkT) - 1))
+        // We only need ratios, so the constant cancels
+        var r = PlanckRatio(670e-9, 550e-9, t); // R band ~670nm
+        var g = 1.0;                             // G band ~550nm (= V band)
+        var b = PlanckRatio(450e-9, 550e-9, t); // B band ~450nm
+
+        // Normalize so max channel = 1.0
+        var max = Math.Max(r, Math.Max(g, b));
+        return (r / max, g / max, b / max);
+    }
+
+    /// <summary>Ratio of Planck function at wavelength λ vs reference λ_ref.</summary>
+    private static double PlanckRatio(double lambda, double lambdaRef, double temperature)
+    {
+        const double hc_over_k = 0.014387768775; // hc/k in m·K
+        var expRef = Math.Exp(hc_over_k / (lambdaRef * temperature)) - 1.0;
+        var expLam = Math.Exp(hc_over_k / (lambda * temperature)) - 1.0;
+        var lambdaRatio = lambdaRef / lambda;
+        // B(λ)/B(λ_ref) = (λ_ref/λ)^5 × (exp(hc/λ_ref·kT)-1) / (exp(hc/λ·kT)-1)
+        return Math.Pow(lambdaRatio, 5) * expRef / expLam;
+    }
+
+    /// <summary>
+    /// Renders a Bayer-encoded (RGGB) synthetic star field. Each pixel stores only one
+    /// color channel based on its position in the 2x2 Bayer tile. The output is a single-channel
+    /// float array that can be debayered by <see cref="Imaging.Image.DebayerAsync"/>.
+    /// </summary>
+    public static float[,] RenderBayer(
+        int width,
+        int height,
+        double defocusSteps,
+        ReadOnlySpan<ProjectedStar> stars,
+        double exposureSeconds = 1.0,
+        int noiseSeed = 42,
+        double skyBackground = 100.0,
+        double readNoise = 5.0,
+        double hyperbolaA = 2.0,
+        double hyperbolaB = 50.0,
+        int bayerOffsetX = 0,
+        int bayerOffsetY = 0)
+    {
+        var data = new float[height, width];
+
+        // FWHM from defocus
+        var fwhm = hyperbolaA * Math.Cosh(Asinh(defocusSteps / hyperbolaB));
+        var sigma = fwhm / 2.3548;
+        var sigma2x2 = 2.0 * sigma * sigma;
+        var psfRadius = (int)Math.Ceiling(sigma * 4);
+
+        // RGGB Bayer pattern: [R, G1] / [G2, B]
+        // channel 0=R, 1=G, 2=B
+        int BayerChannel(int x, int y)
+        {
+            var bx = (x + bayerOffsetX) & 1;
+            var by = (y + bayerOffsetY) & 1;
+            if (bx == 0 && by == 0) return 0; // R
+            if (bx == 1 && by == 1) return 2; // B
+            return 1; // G (both G1 and G2)
+        }
+
+        // Sky background with per-channel color (slightly blue sky)
+        var bgRng = new Random(noiseSeed);
+        var skyLevel = skyBackground * exposureSeconds;
+        // Sky RGB ratios: slightly blue-shifted (moonless sky is bluer than green)
+        const double skyR = 0.8, skyG = 1.0, skyB = 1.1;
+        ReadOnlySpan<double> skyChannelRatios = [skyR, skyG, skyB];
+
+        for (var y = 0; y < height; y++)
+        {
+            for (var x = 0; x < width; x++)
+            {
+                var ch = BayerChannel(x, y);
+                data[y, x] = (float)(skyLevel * skyChannelRatios[ch] + bgRng.NextDouble() * readNoise);
+            }
+        }
+
+        // Render stars with Bayer-modulated PSF
+        var shotRng = new Random(noiseSeed + 1);
+
+        for (var s = 0; s < stars.Length; s++)
+        {
+            var star = stars[s];
+            var flux = 10000.0 * Math.Pow(10, -0.4 * (star.Magnitude - 5.0)) * exposureSeconds;
+            var normalization = flux / (Math.PI * sigma2x2);
+            var (rRatio, gRatio, bRatio) = BMinusVToRGB(star.BMinusV);
+            ReadOnlySpan<double> channelRatios = [rRatio, gRatio, bRatio];
+
+            var xMin = Math.Max(0, (int)(star.PixelX - psfRadius));
+            var xMax = Math.Min(width - 1, (int)(star.PixelX + psfRadius));
+            var yMin = Math.Max(0, (int)(star.PixelY - psfRadius));
+            var yMax = Math.Min(height - 1, (int)(star.PixelY + psfRadius));
+
+            for (var y = yMin; y <= yMax; y++)
+            {
+                var dy = y - star.PixelY;
+                for (var x = xMin; x <= xMax; x++)
+                {
+                    var dx = x - star.PixelX;
+                    var r2 = dx * dx + dy * dy;
+                    var value = normalization * Math.Exp(-r2 / sigma2x2);
+
+                    // Modulate by Bayer channel color ratio
+                    var ch = BayerChannel(x, y);
+                    var coloredValue = value * channelRatios[ch];
+
+                    // Shot noise
+                    var noisy = coloredValue + Math.Sqrt(Math.Max(0, coloredValue)) * shotRng.NextDouble() * 0.5;
+                    data[y, x] += (float)noisy;
+                }
+            }
+        }
+
+        return data;
+    }
 }

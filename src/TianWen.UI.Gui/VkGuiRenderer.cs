@@ -19,6 +19,7 @@ namespace TianWen.UI.Gui
         private readonly VkSessionTab _sessionTab;
         private readonly VkViewerTab _viewerTab;
         private readonly VkLiveSessionTab _liveSessionTab;
+        private readonly VkMiniViewerWidget _miniViewer;
         private string? _fontPath;
         private string? _emojiFontPath;
         private uint _width;
@@ -103,7 +104,8 @@ namespace TianWen.UI.Gui
             _equipmentTab = new VkEquipmentTab(renderer) { Bus = bus };
             _sessionTab = new VkSessionTab(renderer) { Bus = bus };
             _viewerTab = new VkViewerTab(renderer, width, height) { Bus = bus };
-            _liveSessionTab = new VkLiveSessionTab(renderer) { Bus = bus };
+            _miniViewer = new VkMiniViewerWidget(renderer);
+            _liveSessionTab = new VkLiveSessionTab(renderer) { Bus = bus, MiniViewer = _miniViewer };
             ResolveFontPath();
         }
 
@@ -166,6 +168,7 @@ namespace TianWen.UI.Gui
 
         public void Dispose()
         {
+            _miniViewer.Dispose();
             _viewerTab.Dispose();
             // VkRenderer is owned by the caller; do not dispose here.
         }

@@ -26,6 +26,7 @@ public readonly record struct CelestialObject(
     Constellation Constellation,
     Half V_Mag,
     Half SurfaceBrightness,
+    Half BMinusV,
     IReadOnlySet<string> CommonNames
 )
 {

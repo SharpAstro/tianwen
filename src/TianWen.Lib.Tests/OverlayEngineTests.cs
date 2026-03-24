@@ -172,6 +172,7 @@ public class OverlayEngineTests
             Constellation: Constellation.Orion,
             V_Mag: (Half)8.0,
             SurfaceBrightness: Half.NaN,
+            BMinusV: Half.NaN,
             CommonNames: commonNames ?? new HashSet<string>()
         );
     }
@@ -350,7 +351,7 @@ public class OverlayEngineTests
         var names = new HashSet<string> { "Betelgeuse" };
         var obj = new CelestialObject(
             CatalogIndex.HIP025281, ObjectType.Star, 5.0, -2.0,
-            Constellation.Orion, (Half)0.5, Half.NaN, names);
+            Constellation.Orion, (Half)0.5, Half.NaN, (Half)0.65, names);
         var db = new FakeDB(obj, gridRA: 5.0, gridDec: -2.0);
 
         var layout = new ViewportLayout(1920, 1080, 1000, 1000, 0.5f, (0, 0), 0, 40, 1920, 1000, 1.0f);
@@ -385,7 +386,7 @@ public class OverlayEngineTests
         var wcs = MakeSimpleWCS();
         var obj = new CelestialObject(
             CatalogIndex.HIP025281, ObjectType.Star, 5.0, -2.0,
-            Constellation.Orion, (Half)5.0, Half.NaN, new HashSet<string>());
+            Constellation.Orion, (Half)5.0, Half.NaN, (Half)0.65, new HashSet<string>());
         var db = new FakeDB(obj, gridRA: 5.0, gridDec: -2.0);
 
         // Very small zoom = very wide FOV → star mag cutoff is ~1.0
@@ -421,10 +422,10 @@ public class OverlayEngineTests
         // Two catalog entries for the same star, cross-referenced
         var obj1 = new CelestialObject(
             CatalogIndex.HIP025281, ObjectType.Star, 5.0, -2.0,
-            Constellation.Orion, (Half)2.0, Half.NaN, new HashSet<string> { "eta Ori" });
+            Constellation.Orion, (Half)2.0, Half.NaN, (Half)0.65, new HashSet<string> { "eta Ori" });
         var obj2 = new CelestialObject(
             CatalogIndex.HD035411, ObjectType.Star, 5.0, -2.0,
-            Constellation.Orion, (Half)2.0, Half.NaN, new HashSet<string> { "eta Ori" });
+            Constellation.Orion, (Half)2.0, Half.NaN, (Half)0.65, new HashSet<string> { "eta Ori" });
 
         var crossIndices = new HashSet<CatalogIndex> { CatalogIndex.HIP025281, CatalogIndex.HD035411 };
         var db = new FakeDB();
@@ -447,11 +448,11 @@ public class OverlayEngineTests
         // Faint object
         var faint = new CelestialObject(
             CatalogIndex.NGC1976, ObjectType.Galaxy, 5.0, -2.0,
-            Constellation.Orion, (Half)12.0, Half.NaN, new HashSet<string>());
+            Constellation.Orion, (Half)12.0, Half.NaN, Half.NaN, new HashSet<string>());
         // Bright object
         var bright = new CelestialObject(
             CatalogIndex.M042, ObjectType.Galaxy, 5.001, -2.001,
-            Constellation.Orion, (Half)4.0, Half.NaN, new HashSet<string> { "Orion Nebula" });
+            Constellation.Orion, (Half)4.0, Half.NaN, Half.NaN, new HashSet<string> { "Orion Nebula" });
 
         var db = new FakeDB();
         db.AddObject(faint, gridRA: 5.0, gridDec: -2.0);
@@ -472,7 +473,7 @@ public class OverlayEngineTests
         var wcs = MakeSimpleWCS();
         var obj = new CelestialObject(
             CatalogIndex.HIP025281, ObjectType.Star, 5.0, -2.0,
-            Constellation.Orion, (Half)0.5, Half.NaN, new HashSet<string> { "Betelgeuse" });
+            Constellation.Orion, (Half)0.5, Half.NaN, (Half)0.65, new HashSet<string> { "Betelgeuse" });
         var db = new FakeDB(obj, gridRA: 5.0, gridDec: -2.0);
 
         var layout = new ViewportLayout(1920, 1080, 1000, 1000, 0.5f, (0, 0), 0, 40, 1920, 1000, 1.0f);

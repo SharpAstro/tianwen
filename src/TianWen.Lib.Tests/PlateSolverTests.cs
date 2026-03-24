@@ -420,4 +420,82 @@ public class PlateSolverTests(ITestOutputHelper output)
         solvedRA.ShouldBeInRange(targetRA - accuracy, targetRA + accuracy, $"RA should be within {accuracy}h for {targetName}");
         solvedDec.ShouldBeInRange(targetDec - accuracy, targetDec + accuracy, $"Dec should be within {accuracy}° for {targetName}");
     }
+
+    [Fact(Timeout = 30_000)]
+    public async Task GivenRGGBCameraWhenRenderingThenBayerImageDebayersToColor()
+    {
+        // given — IMX294C (RGGB) pointing at M42
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var db = await InitDBAsync(cancellationToken);
+
+        var targetRA = 5.59;
+        var targetDec = -5.39;
+        var focalLengthMm = 200;
+        var pixelSizeUm = 4.63; // IMX294C
+        var width = 1024; // smaller for speed
+        var height = 768;
+        var magCutoff = 10.0;
+
+        var stars = SyntheticStarFieldRenderer.ProjectCatalogStars(
+            targetRA, targetDec, focalLengthMm, pixelSizeUm, width, height, db, magCutoff);
+        output.WriteLine($"Projected stars: {stars.Count}");
+
+        // Check B-V distribution
+        var bvValues = stars.Select(s => s.BMinusV).OrderBy(v => v).ToList();
+        output.WriteLine($"B-V range: [{bvValues.First():F2}, {bvValues.Last():F2}]");
+        bvValues.Count.ShouldBeGreaterThan(0);
+
+        // when — render as Bayer
+        var bayerData = SyntheticStarFieldRenderer.RenderBayer(width, height, defocusSteps: 0,
+            System.Runtime.InteropServices.CollectionsMarshal.AsSpan(stars),
+            exposureSeconds: 30, noiseSeed: 42);
+
+        var dataMax = 0f;
+        var dataMin = float.MaxValue;
+        foreach (var v in bayerData)
+        {
+            if (v > dataMax) dataMax = v;
+            if (v < dataMin) dataMin = v;
+        }
+        var bayerImage = new Image([bayerData], BitDepth.Float32, dataMax, dataMin, 0f,
+            default(ImageMeta) with { SensorType = SensorType.RGGB, BayerOffsetX = 0, BayerOffsetY = 0 });
+
+        bayerImage.ChannelCount.ShouldBe(1, "Bayer image should be single-channel");
+        bayerImage.ImageMeta.SensorType.ShouldBe(SensorType.RGGB);
+
+        // Save Bayer FITS
+        var outputDir = SharedTestData.CreateTempTestOutputDir("BayerRGGB");
+        var bayerPath = System.IO.Path.Combine(outputDir, "bayer_m42.fits");
+        bayerImage.WriteToFitsFile(bayerPath, null);
+        output.WriteLine($"Bayer FITS: {bayerPath} ({new System.IO.FileInfo(bayerPath).Length} bytes)");
+
+        // then — debayer should produce 3-channel color image
+        var colorImage = await bayerImage.ScaleFloatValuesToUnit().DebayerAsync(DebayerAlgorithm.AHD, normalizeToUnit: false, cancellationToken);
+        colorImage.ChannelCount.ShouldBe(3, "Debayered image should have 3 channels");
+        colorImage.Width.ShouldBe(width);
+        colorImage.Height.ShouldBe(height);
+
+        // Save debayered FITS (as 3-channel)
+        var colorPath = System.IO.Path.Combine(outputDir, "debayered_m42.fits");
+        colorImage.WriteToFitsFile(colorPath, null);
+        output.WriteLine($"Color FITS: {colorPath} ({new System.IO.FileInfo(colorPath).Length} bytes)");
+
+        // Verify channels differ — a mono image would have identical channels
+        var rMedian = Median(colorImage.GetChannelSpan(0));
+        var gMedian = Median(colorImage.GetChannelSpan(1));
+        var bMedian = Median(colorImage.GetChannelSpan(2));
+        output.WriteLine($"Channel medians: R={rMedian:F4} G={gMedian:F4} B={bMedian:F4}");
+
+        // At least one channel should differ meaningfully from the others
+        var maxDiff = Math.Max(Math.Abs(rMedian - gMedian), Math.Max(Math.Abs(rMedian - bMedian), Math.Abs(gMedian - bMedian)));
+        output.WriteLine($"Max channel median difference: {maxDiff:F4}");
+        ((double)maxDiff).ShouldBeGreaterThan(0.0001, "Debayered channels should differ for a color star field");
+    }
+
+    private static float Median(ReadOnlySpan<float> values)
+    {
+        var sorted = values.ToArray();
+        Array.Sort(sorted);
+        return sorted[sorted.Length / 2];
+    }
 }
