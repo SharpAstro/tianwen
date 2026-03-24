@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using TianWen.Lib.Devices.Guider;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.UI.Abstractions
@@ -63,6 +64,15 @@ namespace TianWen.UI.Abstractions
         /// <summary>Fine-grained activity description within the current phase.</summary>
         public string? CurrentActivity { get; set; }
 
+        /// <summary>Path to the most recently written FITS frame for mini viewer.</summary>
+        public string? LastFramePath { get; set; }
+
+        /// <summary>The most recently captured images per camera for live preview. Null entries until first frame per camera.</summary>
+        public Image?[] LastCapturedImages { get; set; } = [];
+
+        /// <summary>Site timezone offset for displaying times in local site time.</summary>
+        public TimeSpan SiteTimeZone { get; set; }
+
         // --- UI state ---
 
         /// <summary>Needs redraw flag for TUI integration.</summary>
@@ -101,6 +111,8 @@ namespace TianWen.UI.Abstractions
             PhaseTimeline = session.PhaseTimeline;
             CameraStates = session.CameraStates;
             CurrentActivity = session.CurrentActivity;
+            LastFramePath = session.LastFramePath;
+            LastCapturedImages = session.LastCapturedImages;
         }
     }
 }

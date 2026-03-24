@@ -496,7 +496,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         output.WriteLine($"Full session completed: {session.TotalFramesWritten} frames, {session.TotalExposureTime} exposure time");
 
         // Cleanup
-        var outputDir = external.OutputFolder;
+        var outputDir = external.AppDataFolder;
         if (outputDir.Exists)
         {
             foreach (var file in outputDir.GetFiles("*", System.IO.SearchOption.AllDirectories))
@@ -547,17 +547,17 @@ public class SessionLifecycleTests(ITestOutputHelper output)
             WinterNight, TimeSpan.FromMinutes(5),
             AcrossMeridian: false, FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(TimeSpan.FromSeconds(30)), Gain: 0, Offset: 0);
 
-        var imageWrite = new QueuedImageWrite(image, observation, WinterNight, 1, TimeSpan.FromSeconds(30));
+        var imageWrite = new QueuedImageWrite(image, observation, WinterNight, 1, TimeSpan.FromSeconds(30), CameraIndex: 0);
         await ctx.Session.WriteImageToFitsFileAsync(imageWrite);
 
         // Verify the FITS file was created
-        var outputDir = ctx.External.OutputFolder;
+        var outputDir = ctx.External.ImageOutputFolder;
         var fitsFiles = outputDir.GetFiles("*.fits", System.IO.SearchOption.AllDirectories);
         fitsFiles.Length.ShouldBeGreaterThan(0, "should have written at least one FITS file");
 
         output.WriteLine($"FITS written: {fitsFiles[0].FullName} ({fitsFiles[0].Length} bytes)");
 
-        ctx.CleanupOutputFolder();
+        ctx.CleanupImageOutputFolder();
     }
 
     // --- EstimateTimeUntilTargetRisesAsync ---

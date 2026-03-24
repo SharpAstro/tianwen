@@ -369,7 +369,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
 
         output.WriteLine($"Total frames: {log.Count}, first: {firstEntry.TargetName} {firstEntry.FilterName} {firstEntry.FilePath}");
 
-        ctx.CleanupOutputFolder();
+        ctx.CleanupImageOutputFolder();
     }
 
     /// <summary>

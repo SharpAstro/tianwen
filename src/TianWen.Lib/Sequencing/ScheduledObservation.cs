@@ -10,8 +10,8 @@ public record ScheduledObservation(
     TimeSpan Duration,
     bool AcrossMeridian,
     ImmutableArray<FilterExposure> FilterPlan,
-    int Gain,
-    int Offset,
+    int? Gain,
+    int? Offset,
     ObservationPriority Priority = ObservationPriority.Normal
 )
 {

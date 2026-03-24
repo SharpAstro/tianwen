@@ -50,6 +50,25 @@ internal partial record Session
         var mount = Setup.Mount;
         var guider = Setup.Guider;
 
+        // Abort any in-progress exposures immediately
+        _currentActivity = "Aborting exposures\u2026";
+        for (var i = 0; i < Setup.Telescopes.Length; i++)
+        {
+            var cam = Setup.Telescopes[i].Camera.Driver;
+            if (await CatchAsync(cam.GetCameraStateAsync, cancellationToken) is CameraState.Exposing)
+            {
+                External.AppLogger.LogInformation("Finalise: aborting exposure on camera #{CameraNumber} {CameraName}", i + 1, cam.Name);
+                if (cam.CanAbortExposure)
+                {
+                    await CatchAsync(cam.AbortExposureAsync, cancellationToken).ConfigureAwait(false);
+                }
+                else if (cam.CanStopExposure)
+                {
+                    await CatchAsync(cam.StopExposureAsync, cancellationToken).ConfigureAwait(false);
+                }
+            }
+        }
+
         var maybeCoversClosed = null as bool?;
         var maybeCooledCamerasToAmbient = null as bool?;
 
@@ -181,12 +200,35 @@ internal partial record Session
         // try set the time to our time if supported
         await mount.Driver.SetUTCDateAsync(External.TimeProvider.GetUtcNow().UtcDateTime, cancellationToken);
 
+        // Sync site coordinates from session configuration to mount
+        if (!double.IsNaN(Configuration.SiteLatitude) && !double.IsNaN(Configuration.SiteLongitude))
+        {
+            await mount.Driver.SetSiteLatitudeAsync(Configuration.SiteLatitude, cancellationToken);
+            await mount.Driver.SetSiteLongitudeAsync(Configuration.SiteLongitude, cancellationToken);
+            External.AppLogger.LogInformation("Mount site synced to lat={Latitude:F4}, lon={Longitude:F4}", Configuration.SiteLatitude, Configuration.SiteLongitude);
+        }
+
         for (var i = 0; i < Setup.Telescopes.Length; i++)
         {
             var telescope = Setup.Telescopes[i];
             var camera = telescope.Camera;
-            _currentActivity = $"Connecting camera {telescope.Name}\u2026";
+            _currentActivity = $"Connecting {telescope.Name}\u2026";
             await camera.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
+
+            if (telescope.Focuser is { } focuser)
+            {
+                await focuser.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            if (telescope.FilterWheel is { } filterWheel)
+            {
+                await filterWheel.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            if (telescope.Cover is { } cover)
+            {
+                await cover.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
+            }
 
             // copy over denormalised properties if required
             camera.Driver.Telescope ??= telescope.Name;

@@ -13,6 +13,8 @@ public record struct SessionConfiguration(
     int DitherEveryNthFrame,
     TimeSpan SettleTime,
     int GuidingTries,
+    double SiteLatitude = double.NaN,
+    double SiteLongitude = double.NaN,
     bool MeasureBacklashIfUnknown = true,
     int AutoFocusRange = 200,
     int AutoFocusStepCount = 9,

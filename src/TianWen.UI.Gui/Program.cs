@@ -421,8 +421,8 @@ loop.OnKeyDown = (inputKey, inputModifier) =>
 loop.OnQuit = () =>
 {
     RequestQuit();
-    // Intercept if session is running (showing abort confirm) or shutting down (draining)
-    return appState.ShuttingDown || appState.QuitRequested;
+    // Intercept if session is running (including Finalise), showing abort confirm, or shutting down
+    return appState.ShuttingDown || appState.QuitRequested || guiRenderer.LiveSessionState.IsRunning;
 };
 
 loop.Run(cts.Token);

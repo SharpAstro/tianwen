@@ -15,8 +15,6 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
 {
 
     private const double DefaultPixelScale = 1.5;
-    private const int GuideWidth = 320;
-    private const int GuideHeight = 240;
 
     /// <summary>
     /// Mount driver for reading current RA/Dec. Set via <see cref="LinkDevices"/>.
@@ -91,7 +89,9 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
     }
 
     public ValueTask<(int Width, int Height)?> CameraFrameSizeAsync(CancellationToken cancellationToken = default)
-        => ValueTask.FromResult<(int Width, int Height)?>((GuideWidth, GuideHeight));
+        => ValueTask.FromResult(_camera is { Connected: true, NumX: > 0, NumY: > 0 } cam
+                ? ((int Width, int Height)?)(cam.NumX, cam.NumY)
+                : null);
 
     public ValueTask ConnectEquipmentAsync(CancellationToken cancellationToken = default)
     {
@@ -277,7 +277,10 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
     }
 
     public ValueTask<double> PixelScaleAsync(CancellationToken cancellationToken = default)
-        => ValueTask.FromResult(DefaultPixelScale);
+        => ValueTask.FromResult(
+            _camera is { Connected: true, PixelSizeX: > 0, FocalLength: > 0 }
+                ? 206.265 * _camera.PixelSizeX / _camera.FocalLength
+                : DefaultPixelScale);
 
     public async ValueTask<string?> SaveImageAsync(string outputFolder, CancellationToken cancellationToken = default)
     {
@@ -291,9 +294,14 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
         Directory.CreateDirectory(outputFolder);
         var path = Path.Combine(outputFolder, $"guider_{External.TimeProvider.GetUtcNow().UtcDateTime:yyyyMMdd_HHmmss}.fits");
 
-        // Use linked camera dimensions if available and connected, otherwise default
-        var width = _camera is { Connected: true, NumX: > 0 } cam ? cam.NumX : GuideWidth;
-        var height = _camera is { Connected: true, NumY: > 0 } cam2 ? cam2.NumY : GuideHeight;
+        if (_camera is not { Connected: true, NumX: > 0, NumY: > 0 })
+        {
+            External.AppLogger.LogWarning("FakeGuider: no connected camera, cannot save image");
+            return null;
+        }
+
+        var width = _camera.NumX;
+        var height = _camera.NumY;
 
         // Try to render with real catalog stars for plate-solvable images
         float[,] array;

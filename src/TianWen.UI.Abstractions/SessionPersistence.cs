@@ -10,7 +10,7 @@ namespace TianWen.UI.Abstractions;
 
 /// <summary>
 /// Persists and restores session configuration state keyed by profile.
-/// Files stored under {OutputFolder}/Session/{profileId}.json.
+/// Files stored under {AppDataFolder}/Session/{profileId}.json.
 /// </summary>
 public static class SessionPersistence
 {
@@ -38,6 +38,9 @@ public static class SessionPersistence
         {
             return false;
         }
+
+        // Ensure per-OTA camera settings are populated before restoring saved values
+        state.InitializeFromProfile(profile);
 
         var dto = await external.TryReadJsonAsync(
             GetSessionFilePath(profile, external),
@@ -146,7 +149,7 @@ public static class SessionPersistence
     private static string GetSessionFilePath(Profile profile, IExternal external)
     {
         var profileId = profile.ProfileId.ToString("D");
-        return Path.Combine(external.OutputFolder.FullName, "Session", profileId + ".json");
+        return Path.Combine(external.AppDataFolder.FullName, "Session", profileId + ".json");
     }
 }
 

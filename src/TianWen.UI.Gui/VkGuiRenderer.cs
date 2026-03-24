@@ -313,10 +313,13 @@ namespace TianWen.UI.Gui
                 }
             }
 
-            // Clock (right)
-            DrawText(clockText.AsSpan(), _fontPath,
-                w * 0.7f, 0, w * 0.3f - 4f, sbh,
-                FontSize, StatusText, TextAlign.Far, TextAlign.Center);
+            // Clock (right) — only on Live Session tab (which polls at 500ms)
+            if (appState.ActiveTab == GuiTab.LiveSession)
+            {
+                DrawText(clockText.AsSpan(), _fontPath,
+                    w * 0.7f, 0, w * 0.3f - 4f, sbh,
+                    FontSize, StatusText, TextAlign.Far, TextAlign.Center);
+            }
 
             // Status message — shown to the right of the profile name, left of the date area
             if (appState.StatusMessage is { Length: > 0 } msg)

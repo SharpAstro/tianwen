@@ -83,6 +83,9 @@ namespace TianWen.UI.Abstractions
             return result < TimeSpan.Zero ? TimeSpan.Zero : result;
         }
 
+        private static TimeSpan ClampMin(TimeSpan ts, TimeSpan min)
+            => ts < min ? min : ts;
+
         private static TimeSpan? StepNullableTimeSpan(TimeSpan? ts, TimeSpan step, TimeSpan initial, bool up)
         {
             if (!ts.HasValue)
@@ -109,13 +112,13 @@ namespace TianWen.UI.Abstractions
                     new ConfigFieldDescriptor(
                         "Cooldown Ramp", ConfigFieldKind.TimeSpanStepper, "",
                         c => FormatTimeSpan(c.CooldownRampInterval),
-                        c => c with { CooldownRampInterval = StepTimeSpan(c.CooldownRampInterval, TimeSpan.FromMinutes(1), true) },
-                        c => c with { CooldownRampInterval = StepTimeSpan(c.CooldownRampInterval, TimeSpan.FromMinutes(1), false) }),
+                        c => c with { CooldownRampInterval = StepTimeSpan(c.CooldownRampInterval, TimeSpan.FromSeconds(30), true) },
+                        c => c with { CooldownRampInterval = ClampMin(StepTimeSpan(c.CooldownRampInterval, TimeSpan.FromSeconds(30), false), TimeSpan.FromSeconds(20)) }),
                     new ConfigFieldDescriptor(
                         "Warmup Ramp", ConfigFieldKind.TimeSpanStepper, "",
                         c => FormatTimeSpan(c.WarmupRampInterval),
-                        c => c with { WarmupRampInterval = StepTimeSpan(c.WarmupRampInterval, TimeSpan.FromMinutes(1), true) },
-                        c => c with { WarmupRampInterval = StepTimeSpan(c.WarmupRampInterval, TimeSpan.FromMinutes(1), false) }),
+                        c => c with { WarmupRampInterval = StepTimeSpan(c.WarmupRampInterval, TimeSpan.FromSeconds(30), true) },
+                        c => c with { WarmupRampInterval = ClampMin(StepTimeSpan(c.WarmupRampInterval, TimeSpan.FromSeconds(30), false), TimeSpan.FromSeconds(20)) }),
                 ]),
 
                 new ConfigGroup("Guiding",

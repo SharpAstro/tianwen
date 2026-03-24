@@ -158,9 +158,16 @@ public interface IExternal
     ValueTask SleepAsync(TimeSpan duration, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Folder root where images/flats/logs/... are stored
+    /// Folder root where app data (logs, planner state, session config) is stored.
+    /// Typically <c>%LOCALAPPDATA%/TianWen</c>.
     /// </summary>
-    DirectoryInfo OutputFolder { get; }
+    DirectoryInfo AppDataFolder { get; }
+
+    /// <summary>
+    /// Default folder where captured FITS images are stored.
+    /// Defaults to <c>Pictures/TianWen</c>. Can be overridden per session.
+    /// </summary>
+    DirectoryInfo ImageOutputFolder { get; }
 
     /// <summary>
     /// Folder where profiles are stored
@@ -229,10 +236,10 @@ public interface IExternal
     }
 
     /// <summary>
-    /// Creates or returns a sub folder under the <see cref="OutputFolder"/>.
+    /// Creates or returns a sub folder under the <see cref="AppDataFolder"/>.
     /// </summary>
     /// <returns></returns>
-    public DirectoryInfo CreateSubDirectoryInOutputFolder(params string[] subFolders)
+    public DirectoryInfo CreateSubDirectoryInAppDataFolder(params string[] subFolders)
     {
         if (subFolders.Length is 0)
         {
@@ -246,7 +253,7 @@ public interface IExternal
 
         var subFolderPath = Path.Combine([.. subFolders.Select(GetSafeFileName)]);
 
-        return Directory.CreateDirectory(Path.Combine(OutputFolder.FullName, subFolderPath));
+        return Directory.CreateDirectory(Path.Combine(AppDataFolder.FullName, subFolderPath));
     }
 
     public string GetSafeFileName(string name)
