@@ -113,29 +113,18 @@ namespace TianWen.UI.Abstractions
             var mainY = contentRect.Y + topH + timelineH;
             var mainH = contentRect.Height - topH - timelineH - botH;
 
-            // Left: per-OTA panels (fixed width per OTA)
+            // Layout dimensions
             var otaCount = state.ActiveSession?.Setup.Telescopes.Length ?? 1;
             var otaTotalW = BaseOtaPanelW * dpiScale * otaCount;
-            var otaRect = new RectF32(contentRect.X, mainY, otaTotalW, mainH);
-            RenderOTAPanels(state, otaRect, fontPath, fs, dpiScale, pad, rowH, timeProvider);
-
-            // Right: exposure log (fixed width)
             var logW = BaseRightPanelW * dpiScale;
-            var logX = contentRect.X + contentRect.Width - logW;
-            if (logW > 0)
-            {
-                var rightRect = new RectF32(logX, mainY, logW, mainH);
-                RenderExposureLog(state, rightRect, fontPath, fs, pad, rowH);
-            }
-
-            // Center: mini viewer (between OTA panels and exposure log)
             var viewerX = contentRect.X + otaTotalW;
             var viewerW = contentRect.Width - otaTotalW - logW;
+
+            // Center: mini viewer — rendered FIRST so panels paint over any overflow
             if (viewerW > 100 && MiniViewer is { } viewer)
             {
                 // Check if a new frame arrived
                 var images = state.LastCapturedImages;
-                // Show first available camera image (TODO: allow cycling with keyboard)
                 Image? latestImage = null;
                 for (var i = 0; i < images.Length; i++)
                 {
@@ -152,18 +141,13 @@ namespace TianWen.UI.Abstractions
                     viewer.QueueImage(latestImage);
                 }
 
-                // Toolbar at top of viewer area
+                // Image area (below where toolbar will go)
                 var toolbarH = BaseRowHeight * dpiScale;
-                var toolbarRect = new RectF32(viewerX, mainY, viewerW, toolbarH);
-                RenderMiniViewerToolbar(viewer.State, toolbarRect, fontPath, fs, dpiScale);
-
-                // Image below toolbar
                 var imageRect = new RectF32(viewerX, mainY + toolbarH, viewerW, mainH - toolbarH);
                 viewer.Render(imageRect, Renderer.Width, Renderer.Height);
             }
             else if (viewerW > 0)
             {
-                // Placeholder when no viewer or no image
                 FillRect(viewerX, mainY, viewerW, mainH, GraphBg);
                 if (state.Phase is SessionPhase.Observing)
                 {
@@ -171,6 +155,26 @@ namespace TianWen.UI.Abstractions
                         viewerX, mainY, viewerW, mainH,
                         fs, DimText, TextAlign.Center, TextAlign.Center);
                 }
+            }
+
+            // Left: per-OTA panels (paints over viewer overflow on the left)
+            var otaRect = new RectF32(contentRect.X, mainY, otaTotalW, mainH);
+            RenderOTAPanels(state, otaRect, fontPath, fs, dpiScale, pad, rowH, timeProvider);
+
+            // Right: exposure log (paints over viewer overflow on the right)
+            var logX = contentRect.X + contentRect.Width - logW;
+            if (logW > 0)
+            {
+                var rightRect = new RectF32(logX, mainY, logW, mainH);
+                RenderExposureLog(state, rightRect, fontPath, fs, pad, rowH);
+            }
+
+            // Mini viewer toolbar (on top of the image, after panels)
+            if (viewerW > 100 && MiniViewer is { } viewer2)
+            {
+                var toolbarH = BaseRowHeight * dpiScale;
+                var toolbarRect = new RectF32(viewerX, mainY, viewerW, toolbarH);
+                RenderMiniViewerToolbar(viewer2.State, toolbarRect, fontPath, fs, dpiScale);
             }
 
             // Abort confirmation overlay
