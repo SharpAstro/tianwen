@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -112,8 +113,9 @@ public static class PlannerPersistence
         PlannerActions.SortProposalsByPeakTime(state);
         PlannerActions.RecomputeHandoffSliders(state);
 
-        // Restore saved slider positions if count matches
-        if (dto.Sliders.Length == state.HandoffSliders.Count)
+        // Restore saved slider positions if count matches and they fall within the current night window
+        if (dto.Sliders.Length == state.HandoffSliders.Count
+            && dto.Sliders.All(s => s >= state.AstroDark && s <= state.AstroTwilight))
         {
             for (var i = 0; i < dto.Sliders.Length; i++)
             {
