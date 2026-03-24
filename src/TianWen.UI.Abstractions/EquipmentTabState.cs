@@ -73,6 +73,9 @@ public class EquipmentTabState
     public TextInputState FocalLengthInput { get; } = new() { Placeholder = "Focal length (mm)" };
     public TextInputState ApertureInput { get; } = new() { Placeholder = "Aperture (mm)" };
 
+    // Guider focal length editing
+    public TextInputState GuiderFocalLengthInput { get; } = new() { Placeholder = "Guide scope FL (mm)" };
+
     /// <summary>
     /// Initializes the OTA editing state from the given OTA data.
     /// </summary>
