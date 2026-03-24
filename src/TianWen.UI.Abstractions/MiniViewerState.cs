@@ -7,6 +7,9 @@ namespace TianWen.UI.Abstractions;
 /// </summary>
 public sealed class MiniViewerState
 {
+    /// <summary>Which camera index to display (0-based). -1 = auto (first available).</summary>
+    public int SelectedCameraIndex { get; set; } = -1;
+
     public bool ZoomToFit { get; set; } = true;
     public float Zoom { get; set; } = 1.0f;
     public (float X, float Y) PanOffset { get; set; }

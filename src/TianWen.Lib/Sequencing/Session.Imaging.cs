@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Imaging;
 using static TianWen.Lib.Stat.StatisticsHelper;
 
@@ -33,6 +34,7 @@ internal partial record Session
                 return;
             }
 
+            _currentActivity = $"Slewing to {observation.Target.Name}\u2026";
             External.AppLogger.LogInformation("Stop guiding to start slewing mount to target {Observation}.", observation);
             await guider.Driver.StopCaptureAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
 
@@ -96,6 +98,7 @@ internal partial record Session
                     hourAngleAtSlewTime = await mount.Driver.GetHourAngleAsync(cancellationToken);
 
                     // Plate solve main camera and sync mount for accurate pointing
+                    _currentActivity = $"Plate solving {observation.Target.Name}\u2026";
                     if (!await PlateSolveAndSyncAsync(0, TimeSpan.FromSeconds(5), cancellationToken))
                     {
                         External.AppLogger.LogWarning("Plate solve after slew to {Target} failed, continuing with uncorrected pointing.", observation.Target);
@@ -112,6 +115,7 @@ internal partial record Session
                 continue;
             }
 
+            _currentActivity = $"Starting guider on {observation.Target.Name}\u2026";
             var guidingSuccess = await guider.Driver.StartGuidingLoopAsync(Configuration.GuidingTries, cancellationToken).ConfigureAwait(false);
 
             if (cancellationToken.IsCancellationRequested)
@@ -237,6 +241,7 @@ internal partial record Session
         ImageLoopNextAction? next = null;
         var maxTicks = (int)(observation.Duration.TotalSeconds / tickSec);
 
+        _currentActivity = null; // clear — PhaseStatusText takes over for imaging
         External.AppLogger.LogInformation(
             "ImagingLoop starting for {Target}: {FilterCount} filters, direction={Direction}, tick={TickSec}s, duration={Duration}, GCD={GCD}s.",
             observation.Target, observation.FilterPlan.Length,
@@ -253,6 +258,24 @@ internal partial record Session
             tickCount++;
 
             var isGuiding = await CatchAsync(guider.Driver.IsGuidingAsync, cancellationToken).ConfigureAwait(false);
+
+            // Poll guide stats each tick for the guide graph
+            if (isGuiding)
+            {
+                GuideStats? guideStats = null;
+                try { guideStats = await guider.Driver.GetStatsAsync(cancellationToken); } catch { /* ignore */ }
+                if (guideStats is { } gs)
+                {
+                    UpdateGuideStats(gs);
+                    // Synthetic sample from RMS stats (random within ±RMS)
+                    var sampleRng = new Random(tickCount);
+                    AppendGuideErrorSample(new GuideErrorSample(
+                        External.TimeProvider.GetUtcNow(),
+                        gs.RaRMS * (sampleRng.NextDouble() * 2 - 1),
+                        gs.DecRMS * (sampleRng.NextDouble() * 2 - 1)));
+                }
+            }
+
             if (!isGuiding)
             {
                 var guiderRestartedSuccess =
