@@ -61,8 +61,16 @@ internal abstract class FakeDeviceDriverBase(FakeDevice fakeDevice, IExternal ex
     {
         Volatile.Write(ref _connected, connected);
 
+        if (connected)
+        {
+            OnConnected();
+        }
+
         DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(connected));
     }
+
+    /// <summary>Called after the device transitions to connected. Override to initialize state.</summary>
+    protected virtual void OnConnected() { }
 
     public async ValueTask DisposeAsync() => await DisconnectAsync();
 }
