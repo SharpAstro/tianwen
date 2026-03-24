@@ -152,8 +152,14 @@ namespace TianWen.UI.Abstractions
                     viewer.QueueImage(latestImage);
                 }
 
-                var viewerRect = new RectF32(viewerX, mainY, viewerW, mainH);
-                viewer.Render(viewerRect, Renderer.Width, Renderer.Height);
+                // Toolbar at top of viewer area
+                var toolbarH = BaseRowHeight * dpiScale;
+                var toolbarRect = new RectF32(viewerX, mainY, viewerW, toolbarH);
+                RenderMiniViewerToolbar(viewer.State, toolbarRect, fontPath, fs, dpiScale);
+
+                // Image below toolbar
+                var imageRect = new RectF32(viewerX, mainY + toolbarH, viewerW, mainH - toolbarH);
+                viewer.Render(imageRect, Renderer.Width, Renderer.Height);
             }
             else if (viewerW > 0)
             {
@@ -172,6 +178,75 @@ namespace TianWen.UI.Abstractions
             {
                 RenderAbortConfirm(contentRect, fontPath, fs * 1.1f, dpiScale);
             }
+        }
+
+        // -----------------------------------------------------------------------
+        // Mini viewer toolbar: [Fit] [1:1] [T] [S] [B]
+        // -----------------------------------------------------------------------
+
+        private void RenderMiniViewerToolbar(MiniViewerState vs, RectF32 rect, string fontPath, float fontSize, float dpiScale)
+        {
+            FillRect(rect.X, rect.Y, rect.Width, rect.Height, HeaderBg);
+
+            var pad = BasePadding * dpiScale;
+            var btnW = 36f * dpiScale;
+            var btnH = rect.Height - 4 * dpiScale;
+            var btnY = rect.Y + 2 * dpiScale;
+            var btnFs = fontSize * 0.8f;
+            var x = rect.X + pad;
+
+            var activeBg = new RGBAColor32(0x44, 0x66, 0x99, 0xff);
+            var inactiveBg = new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
+
+            // [Fit] — zoom to fit
+            RenderButton("Fit", x, btnY, btnW, btnH, fontPath, btnFs,
+                vs.ZoomToFit ? activeBg : inactiveBg, BodyText, "ViewerFit",
+                _ => { vs.ZoomToFit = true; });
+            x += btnW + pad;
+
+            // [1:1] — actual pixels
+            RenderButton("1:1", x, btnY, btnW, btnH, fontPath, btnFs,
+                !vs.ZoomToFit && MathF.Abs(vs.Zoom - 1f) < 0.01f ? activeBg : inactiveBg, BodyText, "Viewer1to1",
+                _ => { vs.ZoomToFit = false; vs.Zoom = 1f; vs.PanOffset = (0, 0); });
+            x += btnW + pad;
+
+            // [T] — cycle stretch mode
+            var stretchLabel = vs.StretchMode switch
+            {
+                StretchMode.None => "Raw",
+                StretchMode.Linked => "Lnk",
+                StretchMode.Unlinked => "Unl",
+                StretchMode.Luma => "Lum",
+                _ => "T"
+            };
+            RenderButton(stretchLabel, x, btnY, btnW, btnH, fontPath, btnFs,
+                vs.StretchMode is not StretchMode.None ? activeBg : inactiveBg, BodyText, "ViewerStretch",
+                _ => { vs.CycleStretch(); });
+            x += btnW + pad;
+
+            // [S] — cycle stretch preset
+            var presetLabel = $"{vs.StretchParameters}";
+            RenderButton("S", x, btnY, btnW * 0.8f, btnH, fontPath, btnFs,
+                inactiveBg, BodyText, "ViewerPreset",
+                _ => { vs.CycleStretchPreset(); });
+            x += btnW * 0.8f + pad;
+
+            // [B] — cycle boost
+            var boostActive = vs.CurvesBoost > 0;
+            RenderButton("B", x, btnY, btnW * 0.8f, btnH, fontPath, btnFs,
+                boostActive ? activeBg : inactiveBg, BodyText, "ViewerBoost",
+                _ => { vs.CycleBoost(); });
+            x += btnW * 0.8f + pad;
+
+            // Status text: stretch info
+            var infoText = $"{vs.StretchMode} {vs.StretchParameters}";
+            if (vs.CurvesBoost > 0)
+            {
+                infoText += $" Boost:{vs.CurvesBoost:F2}";
+            }
+            DrawText(infoText.AsSpan(), fontPath,
+                x, rect.Y, rect.X + rect.Width - x - pad, rect.Height,
+                fontSize * 0.7f, DimText, TextAlign.Near, TextAlign.Center);
         }
 
         /// <inheritdoc/>
@@ -202,6 +277,34 @@ namespace TianWen.UI.Abstractions
 
                 case InputEvent.Scroll(var scrollY, _, _, _):
                     state.ExposureLogScrollOffset = Math.Max(0, state.ExposureLogScrollOffset + (scrollY > 0 ? -1 : 1));
+                    state.NeedsRedraw = true;
+                    return true;
+
+                // Mini viewer keyboard shortcuts
+                case InputEvent.KeyDown(InputKey.F, _) when MiniViewer is { State: { } vs }:
+                    vs.ZoomToFit = true;
+                    state.NeedsRedraw = true;
+                    return true;
+
+                case InputEvent.KeyDown(InputKey.R, _) when MiniViewer is { State: { } vs }:
+                    vs.ZoomToFit = false;
+                    vs.Zoom = 1f;
+                    vs.PanOffset = (0, 0);
+                    state.NeedsRedraw = true;
+                    return true;
+
+                case InputEvent.KeyDown(InputKey.T, _) when MiniViewer is { State: { } vs }:
+                    vs.CycleStretch();
+                    state.NeedsRedraw = true;
+                    return true;
+
+                case InputEvent.KeyDown(InputKey.B, _) when MiniViewer is { State: { } vs }:
+                    vs.CycleBoost();
+                    state.NeedsRedraw = true;
+                    return true;
+
+                case InputEvent.KeyDown(InputKey.S, _) when MiniViewer is { State: { } vs }:
+                    vs.CycleStretchPreset();
                     state.NeedsRedraw = true;
                     return true;
 
