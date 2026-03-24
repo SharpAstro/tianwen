@@ -357,11 +357,14 @@ void RequestQuit()
 // Set separately to allow loop.Stop() self-reference
 loop.OnPostFrame = () =>
 {
+    var redrawBefore = appState.NeedsRedraw;
     bus.ProcessPending(tracker);
     if (tracker.ProcessCompletions(logger))
     {
         appState.NeedsRedraw = true;
     }
+    // If a signal handler set NeedsRedraw during ProcessPending, don't clear it
+    var signalSetRedraw = !redrawBefore && appState.NeedsRedraw;
 
     // During shutdown, stop the loop once all tasks (Finalise) have completed
     if (appState.ShutdownComplete)
@@ -377,7 +380,7 @@ loop.OnPostFrame = () =>
         RequestQuit();
     }
 
-    if (!appState.ShuttingDown)
+    if (!appState.ShuttingDown && !signalSetRedraw)
     {
         appState.NeedsRedraw = false;
     }
