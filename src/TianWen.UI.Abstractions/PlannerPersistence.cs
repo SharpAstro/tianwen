@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
@@ -44,19 +45,25 @@ public static class PlannerPersistence
             return false;
         }
 
+        var filePath = GetSessionFilePath(profile, state, external);
         var dto = await external.TryReadJsonAsync(
-            GetSessionFilePath(profile, state, external),
+            filePath,
             PlannerJsonContext.Default.PlannerSessionDto, ct);
 
         if (dto is null)
         {
+            external.AppLogger.LogInformation("PlannerPersistence: no saved session at {FilePath}", filePath);
             return false;
         }
+
+        external.AppLogger.LogInformation("PlannerPersistence: loaded {Count} proposals from {FilePath}", dto.Proposals.Length, filePath);
 
         // Site invalidation: if saved site differs by >1° from current, discard
         if (Math.Abs(dto.SiteLatitude - state.SiteLatitude) > SiteInvalidationThreshold
             || Math.Abs(dto.SiteLongitude - state.SiteLongitude) > SiteInvalidationThreshold)
         {
+            external.AppLogger.LogWarning("PlannerPersistence: discarding saved session — site moved ({SavedLat:F1},{SavedLon:F1}) → ({CurrentLat:F1},{CurrentLon:F1})",
+                dto.SiteLatitude, dto.SiteLongitude, state.SiteLatitude, state.SiteLongitude);
             return false;
         }
 
@@ -96,10 +103,16 @@ public static class PlannerPersistence
                     ObservationTime: p.ObservationTimeMinutes.HasValue ? TimeSpan.FromMinutes(p.ObservationTimeMinutes.Value) : null,
                     MosaicGroupId: p.MosaicGroupId));
             }
+            else
+            {
+                external.AppLogger.LogWarning("PlannerPersistence: could not match saved target '{Name}' (RA={RA:F3}h Dec={Dec:F1}°) to any current target",
+                    p.Name, p.RA, p.Dec);
+            }
         }
 
         if (restoredProposals.Count == 0)
         {
+            external.AppLogger.LogWarning("PlannerPersistence: no proposals could be matched — discarding saved session");
             return false;
         }
 
@@ -113,6 +126,9 @@ public static class PlannerPersistence
         PlannerActions.SortProposalsByPeakTime(state);
         PlannerActions.RecomputeHandoffSliders(state);
 
+        external.AppLogger.LogInformation("PlannerPersistence: restored {Restored}/{Total} proposals",
+            restoredProposals.Count, dto.Proposals.Length);
+
         // Restore saved slider positions if count matches and they fall within the current night window
         if (dto.Sliders.Length == state.HandoffSliders.Count
             && dto.Sliders.All(s => s >= state.AstroDark && s <= state.AstroTwilight))
@@ -121,6 +137,12 @@ public static class PlannerPersistence
             {
                 state.HandoffSliders[i] = dto.Sliders[i];
             }
+            external.AppLogger.LogInformation("PlannerPersistence: restored {Count} slider positions", dto.Sliders.Length);
+        }
+        else if (dto.Sliders.Length > 0)
+        {
+            external.AppLogger.LogWarning("PlannerPersistence: discarding {Count} saved sliders (count mismatch or outside night window {Dark}–{Twilight})",
+                dto.Sliders.Length, state.AstroDark, state.AstroTwilight);
         }
 
         state.NeedsRedraw = true;

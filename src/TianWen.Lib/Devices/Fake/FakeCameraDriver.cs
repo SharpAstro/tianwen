@@ -178,7 +178,7 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
                 throw new InvalidOperationException("Camera is not connected");
             }
 
-            return _cameraSettings.Height;
+            return _cameraSettings.Width;
         }
 
         set
