@@ -88,7 +88,7 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// Builds display-ready observation rows from session and planner state.
         /// </summary>
-        public static List<ObservationRow> GetObservationRows(SessionTabState sessionState, PlannerState plannerState)
+        public static List<ObservationRow> GetObservationRows(SessionTabState sessionState, PlannerState plannerState, TimeProvider? timeProvider = null)
         {
             var proposals = plannerState.Proposals;
             var sliders = plannerState.HandoffSliders;
@@ -103,11 +103,20 @@ namespace TianWen.UI.Abstractions
             {
                 var proposal = proposals[i];
 
-                // Compute window
+                // Compute window, clipped to "now" for remaining time estimate
                 var windowStart = i > 0 && i - 1 < sliders.Count ? sliders[i - 1] : dark;
                 var windowEnd = i < sliders.Count ? sliders[i] : twilight;
-                var window = windowStart != default && windowEnd != default
-                    ? windowEnd - windowStart
+                var effectiveStart = windowStart;
+                if (timeProvider is not null)
+                {
+                    var utcNow = timeProvider.GetUtcNow();
+                    if (utcNow > windowStart && utcNow < windowEnd)
+                    {
+                        effectiveStart = utcNow;
+                    }
+                }
+                var window = effectiveStart != default && windowEnd != default
+                    ? windowEnd - effectiveStart
                     : TimeSpan.Zero;
 
                 var subExp = proposal.SubExposure ?? TimeSpan.FromSeconds(defaultExpSec);
@@ -148,7 +157,7 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// Formats the right panel (camera settings + observation list) as markdown for the TUI.
         /// </summary>
-        public static string FormatRightPanelMarkdown(SessionTabState sessionState, PlannerState plannerState)
+        public static string FormatRightPanelMarkdown(SessionTabState sessionState, PlannerState plannerState, TimeProvider? timeProvider = null)
         {
             var sb = new StringBuilder();
 
@@ -176,7 +185,7 @@ namespace TianWen.UI.Abstractions
             sb.AppendLine("## Observations");
             sb.AppendLine();
 
-            var obsRows = GetObservationRows(sessionState, plannerState);
+            var obsRows = GetObservationRows(sessionState, plannerState, timeProvider);
             if (obsRows.Count == 0)
             {
                 sb.AppendLine("*No targets pinned.*");

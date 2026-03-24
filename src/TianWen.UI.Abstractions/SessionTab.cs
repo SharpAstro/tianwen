@@ -429,11 +429,17 @@ namespace TianWen.UI.Abstractions
                 var capturedI = i;
                 var bgColor = i % 2 == 0 ? PanelBg : RowAltBg;
 
-                // Compute window
+                // Compute remaining window (clipped to now)
                 var windowStart = i > 0 && i - 1 < sliders.Count ? sliders[i - 1] : dark;
                 var windowEnd = i < sliders.Count ? sliders[i] : twilight;
-                var window = windowStart != default && windowEnd != default
-                    ? windowEnd - windowStart
+                var effectiveStart = windowStart;
+                var utcNow = TimeProvider.System.GetUtcNow();
+                if (utcNow > windowStart && utcNow < windowEnd)
+                {
+                    effectiveStart = utcNow;
+                }
+                var window = effectiveStart != default && windowEnd != default
+                    ? windowEnd - effectiveStart
                     : TimeSpan.Zero;
 
                 // Current sub-exposure (per-target or default from f-ratio)
