@@ -35,10 +35,6 @@ internal partial record Session
         await External.WriteFitsFileAsync(imageWrite.Image, fitsFilePath);
 
         _lastFramePath = fitsFilePath;
-        if (imageWrite.CameraIndex < _lastCapturedImages.Length)
-        {
-            _lastCapturedImages[imageWrite.CameraIndex] = imageWrite.Image;
-        }
         return fitsFilePath;
     }
 

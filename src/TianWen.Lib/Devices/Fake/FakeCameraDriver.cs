@@ -542,14 +542,18 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
                             var stars = SyntheticStarFieldRenderer.ProjectCatalogStars(
                                 target.RA, target.Dec, FocalLength, PixelSizeX, imgWidth, imgHeight, db, magCutoff);
                             var cloudSeed = _frameRng.Next();
-                            array = SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocus,
-                                stars: System.Runtime.InteropServices.CollectionsMarshal.AsSpan(stars),
-                                exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(),
-                                cloudCoverage: CloudCoverage, cloudSeed: cloudSeed);
+                            var starSpan = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(stars);
+                            array = SensorType is Imaging.SensorType.RGGB
+                                ? SyntheticStarFieldRenderer.RenderBayer(imgWidth, imgHeight, defocus, starSpan,
+                                    exposureSeconds: exposureSec, noiseSeed: _frameRng.Next())
+                                : SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocus,
+                                    stars: starSpan, exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(),
+                                    cloudCoverage: CloudCoverage, cloudSeed: cloudSeed);
                         }
                         else
                         {
                             var cloudSeed = _frameRng.Next();
+                            // No catalog — random stars, can't do meaningful Bayer colors
                             array = SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocus,
                                 exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(),
                                 cloudCoverage: CloudCoverage, cloudSeed: cloudSeed);

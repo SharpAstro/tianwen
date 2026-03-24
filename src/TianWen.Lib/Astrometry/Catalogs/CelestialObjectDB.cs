@@ -258,7 +258,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
             var commonNames = new HashSet<string>(predefined.Value.CommonNames);
             commonNames.TrimExcess();
-            _objectsByIndex[predefined.Key] = new CelestialObject(predefined.Key, predefined.Value.ObjType, double.NaN, double.NaN, 0, HalfUndefined, HalfUndefined, commonNames);
+            _objectsByIndex[predefined.Key] = new CelestialObject(predefined.Key, predefined.Value.ObjType, double.NaN, double.NaN, 0, HalfUndefined, HalfUndefined, HalfUndefined, commonNames);
             AddCommonNameIndex(predefined.Key, commonNames);
             totalProcessed++;
         }
@@ -373,10 +373,10 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                 var hdIndex = PrefixedNumericToASCIIPackedInt<CatalogIndex>((ulong)Catalog.HD, i + 1, Catalog.HD.GetNumericalIndexSize());
 
                 // Ensure HD entry is in _objectsByIndex with TYC coordinates for spatial indexing
-                if (!_objectsByIndex.ContainsKey(hdIndex) && TryGetTycho2RaDec(tycIndex, out var ra, out var dec, out var vMag)
+                if (!_objectsByIndex.ContainsKey(hdIndex) && TryGetTycho2RaDec(tycIndex, out var ra, out var dec, out var vMag, out var bv)
                     && ConstellationBoundary.TryFindConstellation(ra, dec, out var constellation))
                 {
-                    var hdObj = new CelestialObject(hdIndex, ObjectType.Star, ra, dec, constellation, vMag, HalfUndefined, EmptyNameSet);
+                    var hdObj = new CelestialObject(hdIndex, ObjectType.Star, ra, dec, constellation, vMag, HalfUndefined, (Half)bv, EmptyNameSet);
                     _objectsByIndex[hdIndex] = hdObj;
                     AddCommonNameAndPosIndices(hdObj);
                 }
@@ -409,7 +409,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                 if (!_objectsByIndex.ContainsKey(id)
                     && ConstellationBoundary.TryFindConstellation(raInH, dec, out var constellation))
                 {
-                    var obj = new CelestialObject(id, ObjectType.Star, raInH, dec, constellation, HalfUndefined, HalfUndefined, EmptyNameSet);
+                    var obj = new CelestialObject(id, ObjectType.Star, raInH, dec, constellation, HalfUndefined, HalfUndefined, HalfUndefined, EmptyNameSet);
                     _objectsByIndex[id] = obj;
                     AddCommonNameAndPosIndices(obj);
                 }
@@ -493,10 +493,11 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
     }
 
-    private bool TryGetTycho2RaDec(CatalogIndex tycIndex, out double ra, out double dec, out Half vMag)
+    private bool TryGetTycho2RaDec(CatalogIndex tycIndex, out double ra, out double dec, out Half vMag, out double bMinusV)
     {
         ra = dec = 0;
         vMag = HalfUndefined;
+        bMinusV = 0.65;
         if (_tycho2Data is null)
         {
             return false;
@@ -509,7 +510,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
 
         var (tyc1, tyc2, tyc3) = DecodeTyc2CatalogIndex(value);
-        return TryGetTycho2RaDec(tyc1, (ushort)tyc2, tyc3, out ra, out dec, out vMag);
+        return TryGetTycho2RaDec(tyc1, (ushort)tyc2, tyc3, out ra, out dec, out vMag, out bMinusV);
     }
 
     /// <summary>
@@ -536,10 +537,11 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// at the start of the binary file (int32 LE per stream).
     /// </para>
     /// </summary>
-    private bool TryGetTycho2RaDec(ushort tyc1, ushort tyc2, byte tyc3, out double ra, out double dec, out Half vMag)
+    private bool TryGetTycho2RaDec(ushort tyc1, ushort tyc2, byte tyc3, out double ra, out double dec, out Half vMag, out double bMinusV)
     {
         ra = dec = 0;
         vMag = HalfUndefined;
+        bMinusV = 0.65; // solar-type default
         if (_tycho2Data is null || tyc1 == 0 || tyc1 > _tycho2StreamCount)
         {
             return false;
@@ -566,7 +568,16 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             {
                 ra = BinaryPrimitives.ReadSingleLittleEndian(entry[3..]);
                 dec = BinaryPrimitives.ReadSingleLittleEndian(entry[7..]);
-                vMag = DecodeJohnsonVFromDecimags(entry[11], entry[12]);
+                var vtDecimag = entry[11];
+                var btDecimag = entry[12];
+                vMag = DecodeJohnsonVFromDecimags(vtDecimag, btDecimag);
+                // B-V = 0.850 × (BT - VT), or default if BT missing
+                if (vtDecimag != 0xFF && btDecimag != 0xFF)
+                {
+                    var vt = (vtDecimag - 20) / 10.0;
+                    var bt = (btDecimag - 20) / 10.0;
+                    bMinusV = 0.850 * (bt - vt);
+                }
                 return true;
             }
         }
@@ -612,10 +623,10 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         if (_hipToTyc is not null && hipNumber > 0 && hipNumber <= _hipToTyc.Length)
         {
             var tycIndex = _hipToTyc[hipNumber - 1];
-            if (tycIndex != 0 && TryGetTycho2RaDec(tycIndex, out var ra, out var dec, out var vMag)
+            if (tycIndex != 0 && TryGetTycho2RaDec(tycIndex, out var ra, out var dec, out var vMag, out var bv)
                 && ConstellationBoundary.TryFindConstellation(ra, dec, out var constellation))
             {
-                celestialObject = new CelestialObject(hipIndex, ObjectType.Star, ra, dec, constellation, vMag, HalfUndefined, EmptyNameSet);
+                celestialObject = new CelestialObject(hipIndex, ObjectType.Star, ra, dec, constellation, vMag, HalfUndefined, (Half)bv, EmptyNameSet);
                 return true;
             }
         }
@@ -631,10 +642,10 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         if (_hdToTyc is not null && hdNumber > 0 && hdNumber <= _hdToTyc.Length)
         {
             var tycIndex = _hdToTyc[hdNumber - 1];
-            if (tycIndex != 0 && TryGetTycho2RaDec(tycIndex, out var ra, out var dec, out var vMag)
+            if (tycIndex != 0 && TryGetTycho2RaDec(tycIndex, out var ra, out var dec, out var vMag, out var bv)
                 && ConstellationBoundary.TryFindConstellation(ra, dec, out var constellation))
             {
-                celestialObject = new CelestialObject(hdIndex, ObjectType.Star, ra, dec, constellation, vMag, HalfUndefined, EmptyNameSet);
+                celestialObject = new CelestialObject(hdIndex, ObjectType.Star, ra, dec, constellation, vMag, HalfUndefined, (Half)bv, EmptyNameSet);
                 return true;
             }
         }
@@ -647,10 +658,10 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         celestialObject = default;
         var (tyc1, tyc2, tyc3) = DecodeTyc2CatalogIndex(decodedValue);
 
-        if (TryGetTycho2RaDec(tyc1, (ushort)tyc2, (byte)tyc3, out var ra, out var dec, out var vMag)
+        if (TryGetTycho2RaDec(tyc1, (ushort)tyc2, (byte)tyc3, out var ra, out var dec, out var vMag, out var bv)
             && ConstellationBoundary.TryFindConstellation(ra, dec, out var constellation))
         {
-            celestialObject = new CelestialObject(tycIndex, ObjectType.Star, ra, dec, constellation, vMag, HalfUndefined, EmptyNameSet);
+            celestialObject = new CelestialObject(tycIndex, ObjectType.Star, ra, dec, constellation, vMag, HalfUndefined, (Half)bv, EmptyNameSet);
             return true;
         }
 
@@ -734,6 +745,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                     @const,
                     vmag,
                     surfaceBrightness,
+                    HalfUndefined,
                     commonNames
                 );
 
@@ -959,7 +971,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                         {
                             var objType = AbbreviationToEnumMember<ObjectType>(record.ObjType);
                             var setOrEmpty = commonNames.Count > 0 ? new HashSet<string>(commonNames) : EmptyNameSet;
-                            var obj = _objectsByIndex[catToAddIdx] = new CelestialObject(catToAddIdx, objType, raInH, record.Dec, constellation, HalfUndefined, HalfUndefined, setOrEmpty);
+                            var obj = _objectsByIndex[catToAddIdx] = new CelestialObject(catToAddIdx, objType, raInH, record.Dec, constellation, HalfUndefined, HalfUndefined, HalfUndefined, setOrEmpty);
 
                             AddCommonNameAndPosIndices(obj);
                         }
@@ -995,6 +1007,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                 obj.Constellation,
                 obj.V_Mag,
                 obj.SurfaceBrightness,
+                obj.BMinusV,
                 commonNames.UnionWithAsReadOnlyCopy(obj.CommonNames)
             );
 

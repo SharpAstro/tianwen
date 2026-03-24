@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using DIR.Lib;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.UI.Abstractions
@@ -14,6 +15,12 @@ namespace TianWen.UI.Abstractions
     {
         /// <summary>The live session state for keyboard handling. Set during Render.</summary>
         public LiveSessionState? State { get; set; }
+
+        /// <summary>Optional mini viewer widget for showing the last captured frame. Set by the host.</summary>
+        public IMiniViewerWidget? MiniViewer { get; set; }
+
+        /// <summary>Tracks which image reference is currently displayed to avoid redundant uploads.</summary>
+        private Image? _displayedImage;
 
         // Layout constants (at 1x scale)
         private const float BaseFontSize       = 14f;
@@ -112,13 +119,52 @@ namespace TianWen.UI.Abstractions
             var otaRect = new RectF32(contentRect.X, mainY, otaTotalW, mainH);
             RenderOTAPanels(state, otaRect, fontPath, fs, dpiScale, pad, rowH, timeProvider);
 
-            // Right: exposure log fills the remaining space
-            var logX = contentRect.X + otaTotalW;
-            var logW = contentRect.Width - otaTotalW;
+            // Right: exposure log (fixed width)
+            var logW = BaseRightPanelW * dpiScale;
+            var logX = contentRect.X + contentRect.Width - logW;
             if (logW > 0)
             {
                 var rightRect = new RectF32(logX, mainY, logW, mainH);
                 RenderExposureLog(state, rightRect, fontPath, fs, pad, rowH);
+            }
+
+            // Center: mini viewer (between OTA panels and exposure log)
+            var viewerX = contentRect.X + otaTotalW;
+            var viewerW = contentRect.Width - otaTotalW - logW;
+            if (viewerW > 100 && MiniViewer is { } viewer)
+            {
+                // Check if a new frame arrived
+                var images = state.LastCapturedImages;
+                // Show first available camera image (TODO: allow cycling with keyboard)
+                Image? latestImage = null;
+                for (var i = 0; i < images.Length; i++)
+                {
+                    if (images[i] is { } img)
+                    {
+                        latestImage = img;
+                        break;
+                    }
+                }
+
+                if (latestImage is not null && !ReferenceEquals(latestImage, _displayedImage))
+                {
+                    _displayedImage = latestImage;
+                    viewer.QueueImage(latestImage);
+                }
+
+                var viewerRect = new RectF32(viewerX, mainY, viewerW, mainH);
+                viewer.Render(viewerRect, Renderer.Width, Renderer.Height);
+            }
+            else if (viewerW > 0)
+            {
+                // Placeholder when no viewer or no image
+                FillRect(viewerX, mainY, viewerW, mainH, GraphBg);
+                if (state.Phase is SessionPhase.Observing)
+                {
+                    DrawText("Waiting for first frame\u2026".AsSpan(), fontPath,
+                        viewerX, mainY, viewerW, mainH,
+                        fs, DimText, TextAlign.Center, TextAlign.Center);
+                }
             }
 
             // Abort confirmation overlay

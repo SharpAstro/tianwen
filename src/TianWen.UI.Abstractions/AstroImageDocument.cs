@@ -115,6 +115,43 @@ public sealed class AstroImageDocument
     }
 
     /// <summary>
+    /// Creates a document from an in-memory <see cref="Image"/> (e.g. from the live session capture).
+    /// The image data is used directly — no file I/O, no debayering.
+    /// </summary>
+    public static async Task<AstroImageDocument> CreateFromImageAsync(Image image, DebayerAlgorithm algorithm = DebayerAlgorithm.AHD, WCS? wcs = null, string filePath = "", CancellationToken cancellationToken = default)
+    {
+        // Normalize to [0,1] if needed
+        var viewImage = image.MaxValue > 1.0f + float.Epsilon
+            ? image.ScaleFloatValuesToUnit()
+            : image;
+
+        // Debayer RGGB raw Bayer data into 3-channel color
+        DebayerAlgorithm actualAlgorithm;
+        if (viewImage.ImageMeta.SensorType is SensorType.RGGB && algorithm is not DebayerAlgorithm.None)
+        {
+            viewImage = await viewImage.DebayerAsync(algorithm, normalizeToUnit: false, cancellationToken);
+            actualAlgorithm = algorithm;
+        }
+        else
+        {
+            actualAlgorithm = DebayerAlgorithm.None;
+        }
+
+        var (perChannelStats, lumaStats, perChannelBg, lumaBg) = await ComputeStretchStatsAsync(viewImage, cancellationToken);
+
+        return new AstroImageDocument(
+            filePath,
+            viewImage,
+            actualAlgorithm,
+            perChannelStats,
+            lumaStats,
+            perChannelBg,
+            lumaBg,
+            wcs,
+            isPreStretched: false);
+    }
+
+    /// <summary>
     /// Opens an image file (FITS or TIFF), applies debayering if needed, and caches stretch statistics.
     /// The debayer result becomes the permanent base image; stretch is done on the GPU.
     /// </summary>
@@ -137,22 +174,6 @@ public sealed class AstroImageDocument
             return null;
         }
 
-        Image processedRawImage;
-        DebayerAlgorithm actualAlgorithm;
-
-        if (rawImage.ImageMeta.SensorType is SensorType.RGGB && algorithm is not DebayerAlgorithm.None)
-        {
-            processedRawImage = await rawImage.DebayerAsync(algorithm, normalizeToUnit: true, cancellationToken);
-            actualAlgorithm = algorithm;
-        }
-        else
-        {
-            processedRawImage = rawImage.ScaleFloatValuesToUnitInPlace();
-            actualAlgorithm = DebayerAlgorithm.None;
-        }
-
-        var (perChannelStats, lumaStats, perChannelBg, lumaBg) = await ComputeStretchStatsAsync(processedRawImage, cancellationToken);
-
         // If the FITS header didn't have a full CD matrix, try companion ASTAP .ini file
         if (fileWcs is not { HasCDMatrix: true } || fileWcs.Value.IsApproximate)
         {
@@ -163,7 +184,7 @@ public sealed class AstroImageDocument
             }
         }
 
-        return new AstroImageDocument(filePath, processedRawImage, actualAlgorithm, perChannelStats, lumaStats, perChannelBg, lumaBg, fileWcs, isPreStretched: false);
+        return await CreateFromImageAsync(rawImage, algorithm, fileWcs, filePath, cancellationToken);
     }
 
     private static async Task<AstroImageDocument?> OpenTiffAsync(string filePath, CancellationToken cancellationToken)

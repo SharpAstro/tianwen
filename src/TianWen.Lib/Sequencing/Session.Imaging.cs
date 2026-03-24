@@ -346,10 +346,16 @@ internal partial record Session
                     var polled = TimeSpan.Zero;
                     do // wait for image loop
                     {
-                        if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } image)
+                        if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } rawImage)
                         {
+                            // Normalize to [0,1] once — both FITS writer and viewer use the same data
+                            var image = rawImage.ScaleFloatValuesToUnitInPlace();
                             imageFetchSuccess[i] = true;
                             _cameraStates[i] = _cameraStates[i] with { State = Devices.CameraState.Download };
+                            if (i < _lastCapturedImages.Length)
+                            {
+                                _lastCapturedImages[i] = image;
+                            }
                             External.AppLogger.LogInformation("Camera #{CameraNumber} {CameraName} finished {ExposureStartTime} exposure of frame #{FrameNo}",
                                 i + 1, camDriver.Name, frameExpTime, frameNo);
 
@@ -438,8 +444,9 @@ internal partial record Session
                             // Nearly done — wait for it to finish and save the frame
                             External.AppLogger.LogInformation("Waiting for exposure on camera #{CameraNumber} to finish ({Remaining:F0}s remaining).", i + 1, remaining.TotalSeconds);
                             await External.SleepAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, cancellationToken);
-                            if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } image)
+                            if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } rawFlipImage)
                             {
+                                var image = rawFlipImage.ScaleFloatValuesToUnitInPlace();
                                 imageWriteQueue.Enqueue(new QueuedImageWrite(image, observation, expStartTimes[i], frameNumbers[i], total, i));
                             }
                             await WriteQueuedImagesToFitsFilesAsync();
