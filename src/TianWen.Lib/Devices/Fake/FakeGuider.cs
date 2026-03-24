@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices.Guider;
@@ -306,18 +307,22 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
                 var magCutoff = 10.0;
                 var stars = SyntheticStarFieldRenderer.ProjectCatalogStars(
                     PointingRA, PointingDec, focalLength, pixelScale, width, height, db, magCutoff);
+                External.AppLogger.LogInformation("FakeGuider: rendering {StarCount} catalog stars at RA={RA:F3}h Dec={Dec:F1}° FL={FL}mm pixel={Pixel}µm {Width}x{Height}",
+                    stars.Count, PointingRA, PointingDec, focalLength, pixelScale, width, height);
                 array = SyntheticStarFieldRenderer.Render(width, height, defocusSteps: 0,
                     stars: System.Runtime.InteropServices.CollectionsMarshal.AsSpan(stars),
                     exposureSeconds: 2, noiseSeed: 42);
             }
-            catch
+            catch (Exception ex)
             {
                 // Fallback to random stars if DB not available
+                External.AppLogger.LogWarning(ex, "FakeGuider: catalog star projection failed, falling back to random stars");
                 array = SyntheticStarFieldRenderer.Render(width, height, defocusSteps: 0, exposureSeconds: 2, noiseSeed: 42);
             }
         }
         else
         {
+            External.AppLogger.LogInformation("FakeGuider: no pointing coordinates, rendering random stars {Width}x{Height}", width, height);
             array = SyntheticStarFieldRenderer.Render(width, height, defocusSteps: 0, exposureSeconds: 2, noiseSeed: 42);
         }
 
