@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using DIR.Lib;
 using SdlVulkan.Renderer;
 using TianWen.Lib.Imaging;
@@ -18,6 +19,7 @@ public sealed class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
 
     private AstroImageDocument? _document;
     private Image? _pendingImage;
+    private Task<AstroImageDocument>? _pendingDoc;
     private int _uploadedImageWidth;
     private int _uploadedImageHeight;
     private int _uploadedChannelCount;
@@ -29,6 +31,8 @@ public sealed class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
     }
 
     public bool HasImage => _document is not null || _pendingImage is not null;
+
+    public MiniViewerState State { get; } = new MiniViewerState();
 
     public void QueueImage(Image image)
     {
@@ -66,8 +70,6 @@ public sealed class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
         }
     }
 
-    private Task<AstroImageDocument>? _pendingDoc;
-
     public void Render(RectF32 rect, uint windowWidth, uint windowHeight)
     {
         ProcessPendingImage();
@@ -77,19 +79,21 @@ public sealed class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
             return;
         }
 
-        // Compute auto-stretch uniforms (linked mode, default params)
-        var stretch = doc.ComputeStretchUniforms(StretchMode.Unlinked, StretchParameters.Default);
+        // Compute stretch from state
+        var stretch = doc.ComputeStretchUniforms(State.StretchMode, State.StretchParameters);
+
+        // Background level for boost midpoint
+        var bgLevel = doc.PerChannelBackground.Length > 0 ? doc.PerChannelBackground[0] : 0.25f;
 
         var cmd = _renderer.CurrentCommandBuffer;
 
-        // Update stretch UBO — no grid, no boost, no HDR for the mini viewer
         _fitsPipeline.UpdateStretchUBO(
             cmd,
             channelCount: _uploadedChannelCount,
             stretchMode: (int)stretch.Mode,
             normFactor: stretch.NormFactor,
-            curvesBoost: 0f,
-            curvesMidpoint: 0.25f,
+            curvesBoost: State.CurvesBoost,
+            curvesMidpoint: bgLevel,
             hdrAmount: 0f,
             hdrKnee: 0.5f,
             pedestal: (stretch.Pedestal.R, stretch.Pedestal.G, stretch.Pedestal.B),
@@ -109,24 +113,37 @@ public sealed class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
             crValDec: 0f,
             cdMatrix: ReadOnlySpan<float>.Empty);
 
-        // Compute quad coords preserving aspect ratio, fitting within rect
-        var imgAspect = (float)_uploadedImageWidth / _uploadedImageHeight;
-        var rectAspect = rect.Width / rect.Height;
+        // Compute draw rect based on zoom mode
+        float drawX, drawY, drawW, drawH;
 
-        float drawW, drawH;
-        if (imgAspect > rectAspect)
+        if (State.ZoomToFit)
         {
-            drawW = rect.Width;
-            drawH = rect.Width / imgAspect;
+            // Fit to rect preserving aspect ratio
+            var imgAspect = (float)_uploadedImageWidth / _uploadedImageHeight;
+            var rectAspect = rect.Width / rect.Height;
+
+            if (imgAspect > rectAspect)
+            {
+                drawW = rect.Width;
+                drawH = rect.Width / imgAspect;
+            }
+            else
+            {
+                drawH = rect.Height;
+                drawW = rect.Height * imgAspect;
+            }
+
+            drawX = rect.X + (rect.Width - drawW) / 2;
+            drawY = rect.Y + (rect.Height - drawH) / 2;
         }
         else
         {
-            drawH = rect.Height;
-            drawW = rect.Height * imgAspect;
+            // 1:1 or custom zoom — image pixels × zoom, centered + pan
+            drawW = _uploadedImageWidth * State.Zoom;
+            drawH = _uploadedImageHeight * State.Zoom;
+            drawX = rect.X + (rect.Width - drawW) / 2 + State.PanOffset.X;
+            drawY = rect.Y + (rect.Height - drawH) / 2 + State.PanOffset.Y;
         }
-
-        var drawX = rect.X + (rect.Width - drawW) / 2;
-        var drawY = rect.Y + (rect.Height - drawH) / 2;
 
         _fitsPipeline.RecordImageDraw(
             cmd,

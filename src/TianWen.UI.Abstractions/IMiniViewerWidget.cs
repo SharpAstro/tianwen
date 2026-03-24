@@ -1,5 +1,3 @@
-using System.Threading;
-using System.Threading.Tasks;
 using DIR.Lib;
 using TianWen.Lib.Imaging;
 
@@ -7,7 +5,7 @@ namespace TianWen.UI.Abstractions;
 
 /// <summary>
 /// Renderer-agnostic interface for a mini image preview widget.
-/// The live session tab calls <see cref="UpdateImageAsync"/> when a new frame arrives,
+/// The live session tab calls <see cref="QueueImage"/> when a new frame arrives,
 /// and <see cref="Render"/> each frame to draw into the given rect.
 /// The GUI provides a Vulkan implementation; TUI can provide a no-op or sixel version.
 /// </summary>
@@ -18,6 +16,9 @@ public interface IMiniViewerWidget
     /// </summary>
     bool HasImage { get; }
 
+    /// <summary>Widget state (zoom, stretch, boost).</summary>
+    MiniViewerState State { get; }
+
     /// <summary>
     /// Queues a new image for display. The widget will compute stretch stats and
     /// upload textures on the next <see cref="Render"/> call or asynchronously.
@@ -25,7 +26,7 @@ public interface IMiniViewerWidget
     void QueueImage(Image image);
 
     /// <summary>
-    /// Renders the current image into the given rectangle.
+    /// Renders the current image with toolbar into the given rectangle.
     /// No-op if <see cref="HasImage"/> is false.
     /// </summary>
     /// <param name="rect">Target rectangle in window coordinates.</param>
