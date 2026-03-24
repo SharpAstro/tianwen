@@ -298,6 +298,7 @@ public class PlateSolverTests(ITestOutputHelper output)
     [InlineData(5.60, -1.12, "OrionBelt", 50, 0.05, 2)]  // Orion's Belt wide field — IMX533M
     [InlineData(3.79, 24.12, "M45", 100, 0.05, 1)]    // Pleiades — IMX294C
     [InlineData(3.79, 24.12, "M45", 100, 0.05, 2)]    // Pleiades — IMX533M
+    [InlineData(20.04, 48.2, "Zenith", 130, 0.1, -1)]  // Zenith from lat=48.2 — Guide camera IMX178M at 130mm
     public async Task GivenSyntheticCatalogImageWhenCatalogPlateSolvingThenSolutionMatchesTarget(
         double targetRA, double targetDec, string targetName, int focalLengthMm, double accuracy, int cameraDeviceId)
     {
@@ -306,13 +307,12 @@ public class PlateSolverTests(ITestOutputHelper output)
         var db = await InitDBAsync(cancellationToken);
 
         var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
-        var cameraDevice = new FakeDevice(DeviceType.Camera, cameraDeviceId);
+        // cameraDeviceId == -1 means use the guide camera (FakeGuideCam IMX178M)
+        var cameraDevice = cameraDeviceId >= 0
+            ? new FakeDevice(DeviceType.Camera, cameraDeviceId)
+            : new FakeDevice(new Uri("Camera://FakeDevice/FakeGuideCam#Fake Guide Cam (IMX178M)"));
         var camera = new FakeCameraDriver(cameraDevice, external);
         await camera.ConnectAsync(cancellationToken);
-
-        camera.BinX = 1;
-        camera.NumX = camera.CameraXSize - 1;
-        camera.NumY = camera.CameraYSize - 1;
         camera.TrueBestFocus = 1000;
         camera.FocusPosition = 1000; // at perfect focus
         camera.FocalLength = focalLengthMm;
