@@ -234,6 +234,12 @@ internal partial record Session
             {
                 guiderCam.Driver.FocalLength = oag.FocalLength;
             }
+
+            var guidePixelScale = guiderCam.Driver.FocalLength is > 0 and var fl && guiderCam.Driver.PixelSizeX is > 0 and var px
+                ? 206.265 * px / fl
+                : double.NaN;
+            External.AppLogger.LogInformation("Guider camera: {Name}, FL={FL}mm, pixel={PixelSize}\u00b5m, scale={PixelScale:F2}\"/px",
+                guiderCam.Driver.Name, guiderCam.Driver.FocalLength, guiderCam.Driver.PixelSizeX, guidePixelScale);
         }
         if (Setup.GuiderSetup.Focuser is { } guiderFocuser)
         {
