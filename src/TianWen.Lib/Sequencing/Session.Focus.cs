@@ -50,6 +50,15 @@ internal partial record Session
             return false;
         }
 
+        // Update camera targets with current mount position for FITS headers and synthetic star rendering
+        var zenithRa = await mount.Driver.GetRightAscensionAsync(cancellationToken);
+        var zenithDec = await mount.Driver.GetDeclinationAsync(cancellationToken);
+        var zenithTarget = new Target(zenithRa, zenithDec, "Zenith", null);
+        for (var i = 0; i < Setup.Telescopes.Length; i++)
+        {
+            Setup.Telescopes[i].Camera.Driver.Target = zenithTarget;
+        }
+
         _currentActivity = "Guider plate-solve (60s timeout)\u2026";
         External.AppLogger.LogInformation("RoughFocus: slew complete, starting guider plate-solve loop (1 min timeout)...");
         if (!await GuiderFocusLoopAsync(TimeSpan.FromMinutes(1), cancellationToken))
