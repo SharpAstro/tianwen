@@ -57,6 +57,9 @@ namespace TianWen.UI.Abstractions
         /// <summary>Phase start timestamps for timeline rendering.</summary>
         public IReadOnlyList<PhaseTimestamp> PhaseTimeline { get; set; } = [];
 
+        /// <summary>Per-camera exposure state for countdown display.</summary>
+        public IReadOnlyList<CameraExposureState> CameraStates { get; set; } = [];
+
         /// <summary>Fine-grained activity description within the current phase.</summary>
         public string? CurrentActivity { get; set; }
 
@@ -96,6 +99,7 @@ namespace TianWen.UI.Abstractions
             ExposureLog = session.ExposureLog;
             CoolingSamples = session.CoolingSamples;
             PhaseTimeline = session.PhaseTimeline;
+            CameraStates = session.CameraStates;
             CurrentActivity = session.CurrentActivity;
         }
     }

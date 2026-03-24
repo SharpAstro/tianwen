@@ -308,6 +308,9 @@ internal partial record Session
                     filterFrameCounters[i]++;
                     var frameNo = ++frameNumbers[i];
 
+                    _cameraStates[i] = new CameraExposureState(i, expStartTimes[i], frameExpTime, frameNo,
+                        camerDriver.Filter.DisplayName, camerDriver.FocusPosition, Devices.CameraState.Exposing);
+
                     External.AppLogger.LogInformation("Camera #{CameraNumber} {CamerName} starting {ExposureStartTime} exposure of frame #{FrameNo} (filter: {Filter}).",
                         i + 1, camerDriver.Name, frameExpTime, frameNo, camerDriver.Filter);
                 }
@@ -340,6 +343,7 @@ internal partial record Session
                         if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } image)
                         {
                             imageFetchSuccess[i] = true;
+                            _cameraStates[i] = _cameraStates[i] with { State = Devices.CameraState.Download };
                             External.AppLogger.LogInformation("Camera #{CameraNumber} {CameraName} finished {ExposureStartTime} exposure of frame #{FrameNo}",
                                 i + 1, camDriver.Name, frameExpTime, frameNo);
 

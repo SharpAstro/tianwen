@@ -47,6 +47,9 @@ public interface ISession : IAsyncDisposable
     /// <summary>Recorded phase start timestamps for timeline visualization.</summary>
     IReadOnlyList<PhaseTimestamp> PhaseTimeline { get; }
 
+    /// <summary>Per-camera exposure state for live countdown display. One entry per OTA.</summary>
+    IReadOnlyList<CameraExposureState> CameraStates { get; }
+
     /// <summary>
     /// Fine-grained activity description within the current phase.
     /// Updated at each sub-step (e.g. "V-curve step 3/9", "Warming -5°C → ambient").

@@ -46,6 +46,7 @@ internal partial record Session(
     private readonly ConcurrentQueue<ExposureLogEntry> _exposureLog = [];
     private readonly ConcurrentQueue<CoolingSample> _coolingSamples = [];
     private readonly ConcurrentQueue<PhaseTimestamp> _phaseTimeline = [];
+    private CameraExposureState[] _cameraStates = [];
 
     public SessionPhase Phase => _phase;
     public string? CurrentActivity => _currentActivity;
@@ -58,6 +59,7 @@ internal partial record Session(
     public IReadOnlyList<ExposureLogEntry> ExposureLog => [.. _exposureLog];
     public IReadOnlyList<CoolingSample> CoolingSamples => [.. _coolingSamples];
     public IReadOnlyList<PhaseTimestamp> PhaseTimeline => [.. _phaseTimeline];
+    public IReadOnlyList<CameraExposureState> CameraStates => [.. _cameraStates];
 
     public event EventHandler<SessionPhaseChangedEventArgs>? PhaseChanged;
     public event EventHandler<FrameWrittenEventArgs>? FrameWritten;
@@ -106,6 +108,7 @@ internal partial record Session(
     {
         try
         {
+            _cameraStates = new CameraExposureState[Setup.Telescopes.Length];
             var active = AdvanceObservation();
             // run initialisation code
             if (active == 0)
