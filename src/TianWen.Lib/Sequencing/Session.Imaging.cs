@@ -173,6 +173,12 @@ internal partial record Session
         var guider = Setup.Guider;
         var mount = Setup.Mount;
         var scopes = Setup.Telescopes.Length;
+
+        // Ensure camera states array is initialized (tests may call ImagingLoopAsync directly)
+        if (_cameraStates.Length != scopes)
+        {
+            _cameraStates = new CameraExposureState[scopes];
+        }
         var frameNumbers = new int[scopes];
 
         // Per-telescope filter plan state

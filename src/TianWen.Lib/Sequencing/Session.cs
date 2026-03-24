@@ -46,7 +46,7 @@ internal partial record Session(
     private readonly ConcurrentQueue<ExposureLogEntry> _exposureLog = [];
     private readonly ConcurrentQueue<CoolingSample> _coolingSamples = [];
     private readonly ConcurrentQueue<PhaseTimestamp> _phaseTimeline = [];
-    private CameraExposureState[] _cameraStates = [];
+    private volatile CameraExposureState[] _cameraStates = [];
 
     public SessionPhase Phase => _phase;
     public string? CurrentActivity => _currentActivity;
