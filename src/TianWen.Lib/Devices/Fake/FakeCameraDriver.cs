@@ -13,6 +13,27 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
     private readonly Lock _lock = new Lock();
     private readonly Random _frameRng = new Random(42);
 
+    protected override void OnConnected()
+    {
+        // Initialize sensor readout area to full frame on first connect.
+        // BinX must be set first — NumX/NumY setters validate against binned size.
+        lock (_lock)
+        {
+            if (_cameraSettings.BinX <= 0)
+            {
+                _cameraSettings = _cameraSettings with { BinX = 1 };
+            }
+            if (_cameraSettings.Width <= 0)
+            {
+                _cameraSettings = _cameraSettings with { Width = (ushort)CameraXSize };
+            }
+            if (_cameraSettings.Height <= 0)
+            {
+                _cameraSettings = _cameraSettings with { Height = (ushort)CameraYSize };
+            }
+        }
+    }
+
     private Float32HxWImageData? _lastImageData;
     private CameraSettings _cameraSettings;
     private CameraSettings _exposureSettings;
