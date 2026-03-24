@@ -186,6 +186,19 @@ namespace TianWen.UI.Abstractions
             eqState.LongitudeInput.OnCancel = cancelSite;
             eqState.ElevationInput.OnCancel = cancelSite;
 
+            // Guide scope focal length — commit on Enter
+            eqState.GuiderFocalLengthInput.OnCommit = async text =>
+            {
+                if (appState.ActiveProfile is { } profile && profile.Data is { } pd)
+                {
+                    int? guiderFl = int.TryParse(text, out var fl) && fl > 0 ? fl : null;
+                    var updated = profile.WithData(pd with { GuiderFocalLength = guiderFl });
+                    appState.ActiveProfile = updated;
+                    appState.NeedsRedraw = true;
+                    await updated.SaveAsync(external, cts.Token);
+                }
+            };
+
             // ---------------------------------------------------------------
             // Equipment action signal subscriptions (DI-dependent handlers)
             // ---------------------------------------------------------------

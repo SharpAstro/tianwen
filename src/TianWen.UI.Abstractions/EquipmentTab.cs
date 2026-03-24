@@ -332,6 +332,26 @@ namespace TianWen.UI.Abstractions
                     "Guider Foc", pd.GuiderFocuser, new AssignTarget.ProfileLevel("GuiderFocuser"),
                     x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW);
 
+                // Guide scope focal length
+                {
+                    var labelW = w * 0.35f;
+                    var fieldW = (int)(w - padding * 2f - labelW);
+                    var fieldX = (int)(x + padding + labelW);
+                    var fieldH = (int)(itemH * 0.9f);
+
+                    // Initialize from profile if not already set
+                    if (State.GuiderFocalLengthInput.Text.Length == 0 && pd.GuiderFocalLength is > 0)
+                    {
+                        State.GuiderFocalLengthInput.Text = pd.GuiderFocalLength.Value.ToString();
+                        State.GuiderFocalLengthInput.CursorPos = State.GuiderFocalLengthInput.Text.Length;
+                    }
+
+                    DrawText("Guide FL (mm):".AsSpan(), fontPath, x + padding, cursor, labelW, itemH,
+                        fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
+                    RenderTextInput(State.GuiderFocalLengthInput, fieldX, (int)cursor, fieldW, fieldH, fontPath, fontSize * 0.9f);
+                    cursor += fieldH + 2;
+                }
+
                 cursor += padding;
                 FillRect(x + padding, cursor, w - padding * 2f, 1f, SeparatorColor);
                 cursor += padding;
