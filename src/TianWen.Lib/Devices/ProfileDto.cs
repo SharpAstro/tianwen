@@ -11,7 +11,8 @@ public readonly record struct ProfileData(
     ImmutableArray<OTAData> OTAs,
     Uri? GuiderCamera = null,
     Uri? GuiderFocuser = null,
-    int? OAG_OTA_Index = null
+    int? OAG_OTA_Index = null,
+    int? GuiderFocalLength = null
 )
 {
     public static readonly ProfileData Empty = new ProfileData(NoneDevice.Instance.DeviceUri, NoneDevice.Instance.DeviceUri, []);
