@@ -108,12 +108,16 @@ internal partial record Session
 
         while (!cancellationToken.IsCancellationRequested)
         {
-            for (var i = 0; i < count; i++)
+            for (var i = 0; i < count && !cancellationToken.IsCancellationRequested; i++)
             {
                 var camDriver = Setup.Telescopes[i].Camera.Driver;
 
+                if (cancellationToken.IsCancellationRequested) break;
+
                 if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } image)
                 {
+                    if (cancellationToken.IsCancellationRequested) break;
+
                     var stars = await image.FindStarsAsync(0, snrMin: 15, cancellationToken: cancellationToken);
 
                     _currentActivity = $"Stars: {stars.Count}/15 (exposure {expTimesSec[i]}s)";
@@ -140,6 +144,8 @@ internal partial record Session
                     }
                 }
             }
+
+            if (cancellationToken.IsCancellationRequested) break;
 
             // slew back to start position
             if (await GetMountUtcNowAsync(cancellationToken) - slewTime > distMeridian)
