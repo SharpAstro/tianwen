@@ -108,7 +108,7 @@ public class SessionFilterTests(ITestOutputHelper output)
         output.WriteLine($"Total frames written: {ctx.Session.TotalFramesWritten}");
         output.WriteLine($"Total exposure time: {ctx.Session.TotalExposureTime}");
 
-        ctx.CleanupOutputFolder();
+        ctx.CleanupImageOutputFolder();
     }
 
     /// <summary>
@@ -205,6 +205,6 @@ public class SessionFilterTests(ITestOutputHelper output)
         ctx.Session.TotalFramesWritten.ShouldBeGreaterThan(0, "should have written frames with single-filter plan");
         output.WriteLine($"Frames written: {ctx.Session.TotalFramesWritten}");
 
-        ctx.CleanupOutputFolder();
+        ctx.CleanupImageOutputFolder();
     }
 }

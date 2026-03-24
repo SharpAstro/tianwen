@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices.Guider;
+using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Sequencing;
 
@@ -56,6 +57,19 @@ public interface ISession : IAsyncDisposable
     /// Null when no activity is in progress.
     /// </summary>
     string? CurrentActivity { get; }
+
+    /// <summary>
+    /// Path to the most recently written FITS file, or null if no frames written yet.
+    /// Used by the UI to show a preview of the last captured frame.
+    /// </summary>
+    string? LastFramePath { get; }
+
+    /// <summary>
+    /// The most recently captured image per camera (in memory). Replaced on each new frame.
+    /// Used by the UI to show a live preview without re-reading from disk.
+    /// Index matches <see cref="CameraStates"/>. Length equals telescope count.
+    /// </summary>
+    Image?[] LastCapturedImages { get; }
 
     /// <summary>Fired after a frame is written to disk.</summary>
     event EventHandler<FrameWrittenEventArgs>? FrameWritten;

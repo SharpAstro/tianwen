@@ -388,7 +388,7 @@ public interface IGuider : IDeviceDriver
     )
     {
         await LoopAsync(timeout, cancellationToken).ConfigureAwait(false);
-        var outputFolder = External.CreateSubDirectoryInOutputFolder("Guider").FullName;
+        var outputFolder = External.CreateSubDirectoryInAppDataFolder("Guider").FullName;
         if (await SaveImageAsync(outputFolder, cancellationToken) is { Length: > 0 } file)
         {
             var dim = await GetImageDimAsync(cancellationToken).ConfigureAwait(false);

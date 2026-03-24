@@ -14,7 +14,7 @@ namespace TianWen.UI.Abstractions;
 
 /// <summary>
 /// Persists and restores planner session state (pinned targets, sliders, settings)
-/// keyed by profile + date. Files stored under {OutputFolder}/Planner/{profileId}/{date}.json.
+/// keyed by profile + date. Files stored under {AppDataFolder}/Planner/{profileId}/{date}.json.
 /// </summary>
 public static class PlannerPersistence
 {
@@ -213,7 +213,7 @@ public static class PlannerPersistence
         var profileId = profile.ProfileId.ToString("D");
         var dateStr = date.ToString("yyyy-MM-dd");
 
-        return Path.Combine(external.OutputFolder.FullName, "Planner", profileId, dateStr + ".json");
+        return Path.Combine(external.AppDataFolder.FullName, "Planner", profileId, dateStr + ".json");
     }
 }
 

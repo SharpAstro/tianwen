@@ -353,7 +353,7 @@ internal partial record Session
                             External.AppLogger.LogInformation("Camera #{CameraNumber} {CameraName} finished {ExposureStartTime} exposure of frame #{FrameNo}",
                                 i + 1, camDriver.Name, frameExpTime, frameNo);
 
-                            imageWriteQueue.Enqueue(new QueuedImageWrite(image, observation, expStartTimes[i], frameNo, frameExpTime));
+                            imageWriteQueue.Enqueue(new QueuedImageWrite(image, observation, expStartTimes[i], frameNo, frameExpTime, i));
                             break;
                         }
                         else
@@ -440,7 +440,7 @@ internal partial record Session
                             await External.SleepAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, cancellationToken);
                             if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } image)
                             {
-                                imageWriteQueue.Enqueue(new QueuedImageWrite(image, observation, expStartTimes[i], frameNumbers[i], total));
+                                imageWriteQueue.Enqueue(new QueuedImageWrite(image, observation, expStartTimes[i], frameNumbers[i], total, i));
                             }
                             await WriteQueuedImagesToFitsFilesAsync();
                         }

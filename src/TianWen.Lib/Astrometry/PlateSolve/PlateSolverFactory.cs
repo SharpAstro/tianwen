@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Astrometry.PlateSolve;
@@ -13,7 +14,7 @@ public interface IPlateSolverFactory : IPlateSolver
     IPlateSolver? SelectedPlateSolver { get; }
 }
 
-internal sealed class PlateSolverFactory(IEnumerable<IPlateSolver> solvers) : IPlateSolverFactory
+internal sealed class PlateSolverFactory(IEnumerable<IPlateSolver> solvers, ILogger<PlateSolverFactory> logger) : IPlateSolverFactory
 {
     private readonly SemaphoreSlim _initSem = new SemaphoreSlim(1, 1);
 
@@ -62,19 +63,29 @@ internal sealed class PlateSolverFactory(IEnumerable<IPlateSolver> solvers) : IP
 
     public async Task<PlateSolveResult> SolveFileAsync(string fitsFile, ImageDim? imageDim = null, float range = 0.03F, WCS? searchOrigin = null, double? searchRadius = null, CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("PlateSolve file: {File}, imageDim={ImageDim}, searchOrigin={SearchOrigin}, searchRadius={SearchRadius}",
+            fitsFile, imageDim, searchOrigin, searchRadius);
+
         foreach (var solver in await EnsureSolversAsync(cancellationToken).ConfigureAwait(false))
         {
             try
             {
+                logger.LogDebug("Trying solver: {SolverName} (priority={Priority})", solver.Name, solver.Priority);
                 var result = await solver.SolveFileAsync(fitsFile, imageDim, range, searchOrigin, searchRadius, cancellationToken);
                 if (result.Solution is not null)
                 {
+                    logger.LogInformation("Solved by {SolverName} in {Elapsed}ms: RA={RA:F4}h Dec={Dec:F2}°",
+                        solver.Name, result.Elapsed.TotalMilliseconds, result.Solution.Value.CenterRA, result.Solution.Value.CenterDec);
                     return result;
                 }
+                else
+                {
+                    logger.LogDebug("Solver {SolverName} returned no solution", solver.Name);
+                }
             }
-            catch (PlateSolverException)
+            catch (PlateSolverException ex)
             {
-                // try next solver
+                logger.LogDebug(ex, "Solver {SolverName} failed", solver.Name);
             }
         }
 
@@ -83,19 +94,29 @@ internal sealed class PlateSolverFactory(IEnumerable<IPlateSolver> solvers) : IP
 
     public async Task<PlateSolveResult> SolveImageAsync(Image image, ImageDim? imageDim = null, float range = 0.03F, WCS? searchOrigin = null, double? searchRadius = null, CancellationToken cancellationToken = default)
     {
+        logger.LogInformation("PlateSolve image: {Width}x{Height}, imageDim={ImageDim}, searchOrigin={SearchOrigin}, searchRadius={SearchRadius}",
+            image.Width, image.Height, imageDim, searchOrigin, searchRadius);
+
         foreach (var solver in await EnsureSolversAsync(cancellationToken).ConfigureAwait(false))
         {
             try
             {
+                logger.LogDebug("Trying solver: {SolverName} (priority={Priority})", solver.Name, solver.Priority);
                 var result = await solver.SolveImageAsync(image, imageDim, range, searchOrigin, searchRadius, cancellationToken);
                 if (result.Solution is not null)
                 {
+                    logger.LogInformation("Solved by {SolverName} in {Elapsed}ms: RA={RA:F4}h Dec={Dec:F2}°",
+                        solver.Name, result.Elapsed.TotalMilliseconds, result.Solution.Value.CenterRA, result.Solution.Value.CenterDec);
                     return result;
                 }
+                else
+                {
+                    logger.LogDebug("Solver {SolverName} returned no solution", solver.Name);
+                }
             }
-            catch (PlateSolverException)
+            catch (PlateSolverException ex)
             {
-                // try next solver
+                logger.LogDebug(ex, "Solver {SolverName} failed", solver.Name);
             }
         }
 

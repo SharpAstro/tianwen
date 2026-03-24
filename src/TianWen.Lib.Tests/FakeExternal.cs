@@ -34,7 +34,8 @@ public class FakeExternal : IExternal
 
         var testRoot = root ?? new DirectoryInfo(SharedTestData.CreateTempTestOutputDir(callerName));
         ProfileFolder = testRoot.CreateSubdirectory("profiles");
-        OutputFolder = testRoot.CreateSubdirectory("output");
+        AppDataFolder = testRoot.CreateSubdirectory("output");
+        ImageOutputFolder = testRoot.CreateSubdirectory("images");
 
         AppLogger = CreateLogger(testOutputHelper);
     }
@@ -43,7 +44,9 @@ public class FakeExternal : IExternal
 
     public DirectoryInfo ProfileFolder { get; private set; }
 
-    public DirectoryInfo OutputFolder { get; private set; }
+    public DirectoryInfo AppDataFolder { get; private set; }
+
+    public DirectoryInfo ImageOutputFolder { get; private set; }
 
     public TimeProvider TimeProvider => _timeProvider;
 

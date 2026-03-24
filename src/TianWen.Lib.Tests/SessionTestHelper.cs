@@ -100,17 +100,24 @@ internal static class SessionTestHelper
         }
         var mountDevice = new FakeDevice(DeviceType.Mount, 1, mountQuery);
         var guiderDevice = new FakeDevice(DeviceType.Guider, 1);
+        var guiderCamDevice = new FakeDevice(new Uri($"Camera://{nameof(FakeDevice)}/FakeGuideCam#Fake Guide Cam ({FakeCameraDriver.GuideCameraPreset.SensorName})"));
         var mount = new Mount(mountDevice, external);
         var guider = new Guider(guiderDevice, external);
+        var guiderCam = new Camera(guiderCamDevice, external);
 
         await mount.Driver.ConnectAsync(cancellationToken);
         await guider.Driver.ConnectAsync(cancellationToken);
+        await guiderCam.Driver.ConnectAsync(cancellationToken);
+        guiderCam.Driver.FocalLength = 130; // typical guide scope
         await ((FakeGuider)guider.Driver).ConnectEquipmentAsync(cancellationToken);
+
+        // Link mount + guide camera into the fake guider
+        ((FakeGuider)guider.Driver).LinkDevices(mount.Driver, guiderCam.Driver);
 
         // Set UTC date on mount so TryGetTransformAsync works
         await mount.Driver.SetUTCDateAsync(external.TimeProvider.GetUtcNow().UtcDateTime, cancellationToken);
 
-        var setup = new Setup(mount, guider, new GuiderSetup(), [ota]);
+        var setup = new Setup(mount, guider, new GuiderSetup(guiderCam, FocalLength: 130), [ota]);
         var plateSolver = new FakePlateSolver();
 
         var config = configuration ?? DefaultConfiguration;
@@ -217,15 +224,20 @@ internal static class SessionTestHelper
             { "longitude", "16.3" }
         });
         var guiderDevice = new FakeDevice(DeviceType.Guider, 1);
+        var guiderCamDevice = new FakeDevice(new Uri($"Camera://{nameof(FakeDevice)}/FakeGuideCam#Fake Guide Cam ({FakeCameraDriver.GuideCameraPreset.SensorName})"));
         var mount = new Mount(mountDevice, external);
         var guider = new Guider(guiderDevice, external);
+        var guiderCam = new Camera(guiderCamDevice, external);
 
         await mount.Driver.ConnectAsync(cancellationToken);
         await guider.Driver.ConnectAsync(cancellationToken);
+        await guiderCam.Driver.ConnectAsync(cancellationToken);
+        guiderCam.Driver.FocalLength = 130;
         await ((FakeGuider)guider.Driver).ConnectEquipmentAsync(cancellationToken);
+        ((FakeGuider)guider.Driver).LinkDevices(mount.Driver, guiderCam.Driver);
         await mount.Driver.SetUTCDateAsync(external.TimeProvider.GetUtcNow().UtcDateTime, cancellationToken);
 
-        var setup = new Setup(mount, guider, new GuiderSetup(), [ota1, ota2]);
+        var setup = new Setup(mount, guider, new GuiderSetup(guiderCam, FocalLength: 130), [ota1, ota2]);
         var plateSolver = new FakePlateSolver();
 
         var config = configuration ?? DefaultConfiguration;
@@ -263,14 +275,14 @@ internal record DualOTATestContext(
     IMountDriver Mount
 )
 {
-    internal void CleanupOutputFolder()
+    internal void CleanupImageOutputFolder()
     {
         if (Environment.GetEnvironmentVariable("TIANWEN_TESTS_DISABLE_CLEANUP") == "1")
         {
             return;
         }
 
-        var outputDir = External.OutputFolder;
+        var outputDir = External.ImageOutputFolder;
         if (!outputDir.Exists)
         {
             return;
@@ -305,14 +317,14 @@ internal record SessionTestContext(
     /// Deletes the test output directory, keeping only the first FITS file as a sample.
     /// Call after assertions pass to avoid accumulating large test artifacts.
     /// </summary>
-    internal void CleanupOutputFolder()
+    internal void CleanupImageOutputFolder()
     {
         if (Environment.GetEnvironmentVariable("TIANWEN_TESTS_DISABLE_CLEANUP") == "1")
         {
             return;
         }
 
-        var outputDir = External.OutputFolder;
+        var outputDir = External.ImageOutputFolder;
         if (!outputDir.Exists)
         {
             return;

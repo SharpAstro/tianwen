@@ -50,6 +50,11 @@ internal partial record Session(
 
     public SessionPhase Phase => _phase;
     public string? CurrentActivity => _currentActivity;
+    public string? LastFramePath => _lastFramePath;
+    private volatile string? _lastFramePath;
+
+    public Image?[] LastCapturedImages => _lastCapturedImages;
+    private volatile Image?[] _lastCapturedImages = [];
     public int TotalFramesWritten => _totalFramesWritten;
     public TimeSpan TotalExposureTime => TimeSpan.FromTicks(Interlocked.Read(ref _totalExposureTimeTicks));
     public int CurrentObservationIndex => _activeObservation;
@@ -89,6 +94,12 @@ internal partial record Session(
         var old = _phase;
         _phase = newPhase;
         _currentActivity = null; // reset on phase change
+
+        // Reset camera states when leaving Observing (abort/complete/fail)
+        if (old is SessionPhase.Observing && newPhase is not SessionPhase.Observing)
+        {
+            _cameraStates = new CameraExposureState[_cameraStates.Length];
+        }
         _phaseTimeline.Enqueue(new PhaseTimestamp(newPhase, External.TimeProvider.GetUtcNow()));
         External.AppLogger.LogInformation("Session phase: {OldPhase} → {NewPhase}", old, newPhase);
         PhaseChanged?.Invoke(this, new SessionPhaseChangedEventArgs(old, newPhase));
@@ -109,6 +120,7 @@ internal partial record Session(
         try
         {
             _cameraStates = new CameraExposureState[Setup.Telescopes.Length];
+                _lastCapturedImages = new Image?[Setup.Telescopes.Length];
             var active = AdvanceObservation();
             // run initialisation code
             if (active == 0)

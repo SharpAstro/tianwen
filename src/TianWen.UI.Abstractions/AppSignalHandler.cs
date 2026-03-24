@@ -380,6 +380,15 @@ namespace TianWen.UI.Abstractions
 
                 try
                 {
+                    // Switch to live session tab immediately so user sees progress
+                    liveSessionState.Phase = SessionPhase.NotStarted;
+                    liveSessionState.ShowAbortConfirm = false;
+                    liveSessionState.ExposureLogScrollOffset = 0;
+                    liveSessionState.FocusHistoryScrollOffset = 0;
+                    appState.ActiveTab = GuiTab.LiveSession;
+                    appState.StatusMessage = "Building schedule\u2026";
+                    appState.NeedsRedraw = true;
+
                     var factory = sp.GetRequiredService<ISessionFactory>();
                     var sessionCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
                     liveSessionState.SessionCts = sessionCts;
@@ -401,7 +410,7 @@ namespace TianWen.UI.Abstractions
                         : OpticalDesign.Unknown;
 
                     PlannerActions.BuildSchedule(plannerState, sessionState, transform,
-                        defaultGain: 120, defaultOffset: 10,
+                        defaultGain: null, defaultOffset: null,
                         defaultSubExposure: sessionState.Configuration.DefaultSubExposure ?? TimeSpan.FromSeconds(120),
                         defaultObservationTime: TimeSpan.FromMinutes(60),
                         availableFilters: availableFilters is { Count: > 0 } ? availableFilters : null,
@@ -423,18 +432,25 @@ namespace TianWen.UI.Abstractions
                     {
                         observations[i] = schedule[i];
                     }
+                    // Inject site coordinates and per-OTA setpoint into session configuration
+                    var setpointTempC = sessionState.CameraSettings is { Count: > 0 }
+                        ? sessionState.CameraSettings[0].SetpointTempC
+                        : sessionState.Configuration.SetpointCCDTemperature.TempC;
+                    var config = sessionState.Configuration with
+                    {
+                        SiteLatitude = plannerState.SiteLatitude,
+                        SiteLongitude = plannerState.SiteLongitude,
+                        SetpointCCDTemperature = new SetpointTemp(setpointTempC, SetpointTempKind.Normal)
+                    };
+
                     var session = factory.Create(
                         profile.ProfileId,
-                        sessionState.Configuration,
+                        config,
                         observations.AsSpan());
 
                     liveSessionState.ActiveSession = session;
                     liveSessionState.IsRunning = true;
-                    liveSessionState.Phase = SessionPhase.NotStarted;
-                    liveSessionState.ShowAbortConfirm = false;
-                    liveSessionState.ExposureLogScrollOffset = 0;
-                    liveSessionState.FocusHistoryScrollOffset = 0;
-                    appState.ActiveTab = GuiTab.LiveSession;
+                    liveSessionState.SiteTimeZone = plannerState.SiteTimeZone;
                     appState.StatusMessage = "Session started";
                     appState.NeedsRedraw = true;
 
