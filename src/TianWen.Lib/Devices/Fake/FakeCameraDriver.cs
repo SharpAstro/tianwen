@@ -557,7 +557,14 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
                     }
                     else
                     {
-                        array = new float[imgHeight, imgWidth];
+                        // No TrueBestFocus set — render in-focus stars (defocus=0) so the
+                        // camera always produces a detectable image, even in the GUI where
+                        // TrueBestFocus isn't set by tests.
+                        var exposureSec = current.IntendedDuration.TotalSeconds;
+                        var cloudSeed = _frameRng.Next();
+                        array = SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocusSteps: 0,
+                            exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(),
+                            cloudCoverage: CloudCoverage, cloudSeed: cloudSeed);
                     }
 
                     // Compute actual min/max of the rendered data
