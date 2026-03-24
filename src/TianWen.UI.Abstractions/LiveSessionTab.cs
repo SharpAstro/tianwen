@@ -22,6 +22,9 @@ namespace TianWen.UI.Abstractions
         /// <summary>Tracks which image reference is currently displayed to avoid redundant uploads.</summary>
         private Image? _displayedImage;
 
+        /// <summary>Last mouse position for drag panning.</summary>
+        private (float X, float Y)? _dragStart;
+
         // Layout constants (at 1x scale)
         private const float BaseFontSize       = 14f;
         private const float BaseTopStripHeight = 36f;
@@ -279,10 +282,38 @@ namespace TianWen.UI.Abstractions
                     state.NeedsRedraw = true;
                     return true;
 
-                case InputEvent.Scroll(var scrollY, _, _, _):
-                    state.ExposureLogScrollOffset = Math.Max(0, state.ExposureLogScrollOffset + (scrollY > 0 ? -1 : 1));
+                case InputEvent.Scroll(var scrollY, _, _, _) when MiniViewer is { State: { ZoomToFit: false } vs }:
+                    // Scroll to zoom in the mini viewer
+                    var zoomFactor = scrollY > 0 ? 1.15f : 1f / 1.15f;
+                    vs.Zoom = MathF.Max(0.1f, MathF.Min(vs.Zoom * zoomFactor, 16f));
                     state.NeedsRedraw = true;
                     return true;
+
+                case InputEvent.Scroll(var scrollY2, _, _, _):
+                    state.ExposureLogScrollOffset = Math.Max(0, state.ExposureLogScrollOffset + (scrollY2 > 0 ? -1 : 1));
+                    state.NeedsRedraw = true;
+                    return true;
+
+                // Mini viewer mouse drag for panning
+                case InputEvent.MouseDown(var mx, var my, _, _, _) when MiniViewer is { State: { ZoomToFit: false } }:
+                    _dragStart = (mx, my);
+                    return true;
+
+                case InputEvent.MouseMove(var mx, var my) when _dragStart is { } drag && MiniViewer is { State: { } vs }:
+                    var dx = mx - drag.X;
+                    var dy = my - drag.Y;
+                    vs.PanOffset = (vs.PanOffset.X + dx, vs.PanOffset.Y + dy);
+                    _dragStart = (mx, my);
+                    state.NeedsRedraw = true;
+                    return true;
+
+                case InputEvent.MouseUp(_, _, _):
+                    if (_dragStart is not null)
+                    {
+                        _dragStart = null;
+                        return true;
+                    }
+                    return false;
 
                 // Mini viewer keyboard shortcuts
                 case InputEvent.KeyDown(InputKey.F, _) when MiniViewer is { State: { } vs }:
