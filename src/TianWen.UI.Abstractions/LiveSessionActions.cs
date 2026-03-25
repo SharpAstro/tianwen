@@ -80,12 +80,12 @@ namespace TianWen.UI.Abstractions
                 SessionPhase.Cooling =>
                     $"Cooling to {state.ActiveSession?.Setup.Telescopes[0].Camera.Driver.FocalLength}\u2026"
                     is var _ // placeholder — show temp from cooling samples
-                    && state.CoolingSamples is { Count: > 0 } samples
+                    && state.CoolingSamples is { Length: > 0 } samples
                         ? $"Cooling: {samples[^1].TemperatureC:F0}\u00B0C \u2192 setpoint {samples[^1].SetpointTempC:F0}\u00B0C"
                         : "Cooling cameras\u2026",
 
                 SessionPhase.RoughFocus => "Rough focus: slewing to zenith, detecting stars\u2026",
-                SessionPhase.AutoFocus => state.FocusHistory is { Count: > 0 } fh
+                SessionPhase.AutoFocus => state.FocusHistory is { Length: > 0 } fh
                     ? $"Auto-focus: last HFD {fh[^1].BestHfd:F1}\" @ pos {fh[^1].BestPosition}"
                     : "Auto-focus: scanning V-curve\u2026",
                 SessionPhase.CalibratingGuider => "Calibrating guider\u2026",
@@ -94,7 +94,7 @@ namespace TianWen.UI.Abstractions
                     $"Imaging: {ao.Target.Name} ({state.TotalFramesWritten} frames, {FormatDuration(state.TotalExposureTime)})",
 
                 SessionPhase.Finalising =>
-                    state.CoolingSamples is { Count: > 0 } ws
+                    state.CoolingSamples is { Length: > 0 } ws
                         ? $"Finalising: warming {ws[^1].TemperatureC:F0}\u00B0C \u2192 ambient"
                         : "Finalising: parking mount, warming cameras\u2026",
 

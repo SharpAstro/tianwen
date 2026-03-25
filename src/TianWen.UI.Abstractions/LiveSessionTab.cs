@@ -1,5 +1,5 @@
 using System;
-using System.Collections.Generic;
+using System.Collections.Immutable;
 using DIR.Lib;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
@@ -432,7 +432,7 @@ namespace TianWen.UI.Abstractions
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, TimelineBg);
 
             var timeline = state.PhaseTimeline;
-            if (timeline.Count == 0)
+            if (timeline.Length == 0)
             {
                 DrawText("No timeline data", fontPath,
                     rect.X, rect.Y, rect.Width, rect.Height,
@@ -461,10 +461,10 @@ namespace TianWen.UI.Abstractions
             }
 
             // Draw phase bars
-            for (var i = 0; i < timeline.Count; i++)
+            for (var i = 0; i < timeline.Length; i++)
             {
                 var phaseStart = timeline[i].StartTime;
-                var phaseEnd = i + 1 < timeline.Count ? timeline[i + 1].StartTime : now;
+                var phaseEnd = i + 1 < timeline.Length ? timeline[i + 1].StartTime : now;
                 var color = LiveSessionActions.PhaseColor(timeline[i].Phase);
 
                 var x1 = Math.Max(TimeToX(phaseStart), rect.X + pad);
@@ -592,7 +592,7 @@ namespace TianWen.UI.Abstractions
             // Zero line (brighter)
             FillRect(rect.X, zeroY, rect.Width, 1, TimelineTickColor);
 
-            if (samples.Count < 2)
+            if (samples.Length < 2)
             {
                 return;
             }
@@ -601,8 +601,8 @@ namespace TianWen.UI.Abstractions
             // Each sample gets a fixed pixel width — when full, oldest scroll off left
             var sampleSpacing = Math.Max(2f * dpiScale, 3f);
             var maxVisible = (int)(rect.Width / sampleSpacing);
-            var startIdx = Math.Max(0, samples.Count - maxVisible);
-            var visibleCount = samples.Count - startIdx;
+            var startIdx = Math.Max(0, samples.Length - maxVisible);
+            var visibleCount = samples.Length - startIdx;
 
             float ErrorToY(double error)
             {
@@ -693,7 +693,7 @@ namespace TianWen.UI.Abstractions
                 var lastPower = double.NaN;
                 var lastSetpoint = double.NaN;
                 var coolingSamples = state.CoolingSamples;
-                for (var j = coolingSamples.Count - 1; j >= 0; j--)
+                for (var j = coolingSamples.Length - 1; j >= 0; j--)
                 {
                     if (coolingSamples[j].CameraIndex == i)
                     {
@@ -869,7 +869,7 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>Tiny sparkline of temperature + power for a single camera.</summary>
-        private void RenderMiniSparkline(IReadOnlyList<CoolingSample> allSamples, int cameraIndex, RectF32 rect, RGBAColor32 tempColor, float dpiScale)
+        private void RenderMiniSparkline(ImmutableArray<CoolingSample> allSamples, int cameraIndex, RectF32 rect, RGBAColor32 tempColor, float dpiScale)
         {
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, GraphBg);
 
@@ -963,7 +963,7 @@ namespace TianWen.UI.Abstractions
                 fontSize * 0.75f, DimText, TextAlign.Near, TextAlign.Center);
 
             var log = state.ExposureLog;
-            if (log.Count == 0)
+            if (log.Length == 0)
             {
                 DrawText("No frames yet", fontPath,
                     rect.X, colY + rowH, rect.Width, rowH * 2,
@@ -979,13 +979,13 @@ namespace TianWen.UI.Abstractions
                 state.ExposureLogScrollOffset = 0;
             }
 
-            var startIdx = Math.Max(0, log.Count - visibleRows - state.ExposureLogScrollOffset);
+            var startIdx = Math.Max(0, log.Length - visibleRows - state.ExposureLogScrollOffset);
             if (startIdx < 0)
             {
                 startIdx = 0;
             }
 
-            for (var i = startIdx; i < log.Count && y < rect.Y + rect.Height - rowH; i++)
+            for (var i = startIdx; i < log.Length && y < rect.Y + rect.Height - rowH; i++)
             {
                 var row = LiveSessionActions.FormatExposureLogRow(log[i]);
                 var bg = (i % 2 == 0) ? PanelBg : RowAltBg;
@@ -1009,8 +1009,8 @@ namespace TianWen.UI.Abstractions
                 y += rowH;
 
                 var history = state.FocusHistory;
-                var focusStartIdx = Math.Max(0, history.Count - (int)((remainH - rowH * 2) / rowH));
-                for (var i = focusStartIdx; i < history.Count && y < rect.Y + rect.Height - rowH; i++)
+                var focusStartIdx = Math.Max(0, history.Length - (int)((remainH - rowH * 2) / rowH));
+                for (var i = focusStartIdx; i < history.Length && y < rect.Y + rect.Height - rowH; i++)
                 {
                     var row = LiveSessionActions.FormatFocusHistoryRow(history[i]);
                     var bg = (i % 2 == 0) ? PanelBg : RowAltBg;

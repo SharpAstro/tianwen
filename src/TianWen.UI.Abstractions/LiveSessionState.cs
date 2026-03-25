@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Threading;
 using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Imaging;
@@ -41,25 +42,25 @@ namespace TianWen.UI.Abstractions
         public ScheduledObservation? ActiveObservation { get; set; }
 
         /// <summary>Recent guide error samples for the guide graph.</summary>
-        public IReadOnlyList<GuideErrorSample> GuideSamples { get; set; } = [];
+        public ImmutableArray<GuideErrorSample> GuideSamples { get; set; } = [];
 
         /// <summary>Most recent guide RMS stats.</summary>
         public GuideStats? LastGuideStats { get; set; }
 
         /// <summary>Completed auto-focus run snapshots.</summary>
-        public IReadOnlyList<FocusRunRecord> FocusHistory { get; set; } = [];
+        public ImmutableArray<FocusRunRecord> FocusHistory { get; set; } = [];
 
         /// <summary>All frames written during this session.</summary>
-        public IReadOnlyList<ExposureLogEntry> ExposureLog { get; set; } = [];
+        public ImmutableArray<ExposureLogEntry> ExposureLog { get; set; } = [];
 
         /// <summary>Cooling ramp samples for the cooling graph.</summary>
-        public IReadOnlyList<CoolingSample> CoolingSamples { get; set; } = [];
+        public ImmutableArray<CoolingSample> CoolingSamples { get; set; } = [];
 
         /// <summary>Phase start timestamps for timeline rendering.</summary>
-        public IReadOnlyList<PhaseTimestamp> PhaseTimeline { get; set; } = [];
+        public ImmutableArray<PhaseTimestamp> PhaseTimeline { get; set; } = [];
 
         /// <summary>Per-camera exposure state for countdown display.</summary>
-        public IReadOnlyList<CameraExposureState> CameraStates { get; set; } = [];
+        public ImmutableArray<CameraExposureState> CameraStates { get; set; } = [];
 
         /// <summary>Polled mount state (RA, Dec, HA, pier side, slewing, tracking).</summary>
         public MountState MountState { get; set; }
