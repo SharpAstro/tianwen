@@ -191,6 +191,9 @@ internal partial record Session(
                 return;
             }
 
+            // Initial device state poll after all devices are connected
+            await PollDeviceStatesAsync(cancellationToken);
+
             SetPhase(SessionPhase.WaitingForDark);
             await WaitUntilTenMinutesBeforeAmateurAstroTwilightEndsAsync(cancellationToken).ConfigureAwait(false);
 

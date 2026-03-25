@@ -353,6 +353,7 @@ internal partial record Session
             await focuser.BeginMoveAsync(targetPos, cancellationToken);
             while (await focuser.GetIsMovingAsync(cancellationToken) && !cancellationToken.IsCancellationRequested)
             {
+                await PollDeviceStatesAsync(cancellationToken);
                 await External.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
             }
 
