@@ -409,9 +409,12 @@ namespace TianWen.UI.Abstractions
                         ? profileData.OTAs[0].OpticalDesign
                         : OpticalDesign.Unknown;
 
+                    var subExposure = sessionState.Configuration.DefaultSubExposure ?? TimeSpan.FromSeconds(120);
+                    external.AppLogger.LogInformation("BuildSchedule: DefaultSubExposure={SubExposure} (config={Config})",
+                        subExposure, sessionState.Configuration.DefaultSubExposure);
                     PlannerActions.BuildSchedule(plannerState, sessionState, transform,
                         defaultGain: null, defaultOffset: null,
-                        defaultSubExposure: sessionState.Configuration.DefaultSubExposure ?? TimeSpan.FromSeconds(120),
+                        defaultSubExposure: subExposure,
                         defaultObservationTime: TimeSpan.FromMinutes(60),
                         availableFilters: availableFilters is { Count: > 0 } ? availableFilters : null,
                         opticalDesign: opticalDesign);
