@@ -1,10 +1,14 @@
 using System;
 using System.Diagnostics.CodeAnalysis;
+using System.IO;
 using System.Text;
+using System.Threading.Tasks;
 using Console.Lib;
 using DIR.Lib;
 using TianWen.Lib.Astrometry;
+using TianWen.Lib.CLI.View;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
 
@@ -12,17 +16,23 @@ namespace TianWen.Lib.CLI.Tui;
 
 /// <summary>
 /// TUI live session monitor tab. Shows session phase, per-OTA status,
-/// mount state, guide RMS, focus history, and exposure log.
+/// mount state, guide RMS, focus history, exposure log, and Sixel preview.
 /// </summary>
 internal sealed class TuiLiveSessionTab(
     GuiAppState appState,
     LiveSessionState liveState,
+    IVirtualTerminal terminal,
     SignalBus bus) : TuiTabBase
 {
     private TextBar? _topBar;
     private TextBar? _guideBar;
     private MarkdownWidget? _mainContent;
     private TextBar? _statusBar;
+
+    // Sixel preview state
+    private Image? _displayedImage;
+    private Task<byte[]?>? _pendingSixel;
+    private byte[]? _sixelBytes;
 
     [MemberNotNullWhen(true, nameof(_topBar), nameof(_guideBar), nameof(_mainContent), nameof(_statusBar))]
     protected override bool IsReady => _topBar is not null && _guideBar is not null && _mainContent is not null && _statusBar is not null;
@@ -178,7 +188,63 @@ internal sealed class TuiLiveSessionTab(
             sb.AppendLine("```");
         }
 
+        // Sixel preview: check for new frame, kick off encoding, render when ready
+        if (terminal.HasSixelSupport)
+        {
+            var images = liveState.LastCapturedImages;
+            Image? latestImage = null;
+            for (var i = 0; i < images.Length; i++)
+            {
+                if (images[i] is { } img)
+                {
+                    latestImage = img;
+                    break;
+                }
+            }
+
+            // New frame arrived — kick off async Sixel encoding
+            if (latestImage is not null && !ReferenceEquals(latestImage, _displayedImage) && _pendingSixel is null)
+            {
+                _displayedImage = latestImage;
+                _pendingSixel = Task.Run(async () =>
+                {
+                    var doc = await AstroImageDocument.CreateFromImageAsync(latestImage);
+                    var pixW = Math.Min(320, (int)terminal.PixelSize.Width / 2);
+                    var pixH = (int)(pixW * ((double)doc.UnstretchedImage.Height / doc.UnstretchedImage.Width));
+                    var renderer = new ConsoleImageRenderer(pixW, pixH);
+                    renderer.RenderImage(doc, new ViewerState());
+                    using var ms = new MemoryStream();
+                    renderer.EncodeSixel(ms);
+                    return ms.ToArray();
+                });
+            }
+
+            // Check if encoding completed
+            if (_pendingSixel is { IsCompleted: true } task)
+            {
+                _pendingSixel = null;
+                if (task.IsCompletedSuccessfully && task.Result is { } bytes)
+                {
+                    _sixelBytes = bytes;
+                }
+            }
+
+            // Append Sixel to content if available
+            if (_sixelBytes is not null)
+            {
+                sb.AppendLine();
+                sb.AppendLine("## Preview");
+            }
+        }
+
         _mainContent.Markdown(sb.ToString());
+
+        // Write Sixel directly to terminal after markdown render (Sixel bypasses the widget system)
+        if (_sixelBytes is not null && terminal.HasSixelSupport)
+        {
+            terminal.OutputStream.Write(_sixelBytes);
+            terminal.Flush();
+        }
 
         // Status bar
         _statusBar.Text(liveState.ShowAbortConfirm
