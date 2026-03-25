@@ -536,14 +536,6 @@ namespace TianWen.UI.Abstractions
                 rect.X + guideW + pad * 2, rect.Y, rmsW, rect.Height,
                 fontSize * 0.9f, BodyText, TextAlign.Center, TextAlign.Center);
 
-            // Observation counter
-            var obsIdx = state.CurrentObservationIndex;
-            var obsCount = state.ActiveSession?.Observations.Count ?? 0;
-            var obsText = $"Obs: {(obsIdx >= 0 ? obsIdx + 1 : 0)}/{obsCount}";
-            DrawText(obsText.AsSpan(), fontPath,
-                rect.X + guideW + pad * 2, rect.Y, rmsW, rect.Height * 0.4f,
-                fontSize * 0.75f, DimText, TextAlign.Far, TextAlign.Near);
-
             // ABORT button (right)
             if (state.IsRunning)
             {
@@ -773,13 +765,17 @@ namespace TianWen.UI.Abstractions
                     mountY += rowH;
                 }
 
-                // Observation counter + guider status
+                // Obs counter + frame count / projected
                 var obsIdx = state.CurrentObservationIndex;
                 var obsCount = session.Observations.Count;
-                var guideStatus = state.LastGuideStats is { } gs
-                    ? $"RMS {gs.TotalRMS:F1}\""
-                    : "Guide: --";
-                DrawText($"Obs: {(obsIdx >= 0 ? obsIdx + 1 : 0)}/{obsCount}  {guideStatus}".AsSpan(), fontPath,
+                var frameInfo = $"Obs: {(obsIdx >= 0 ? obsIdx + 1 : 0)}/{obsCount}";
+                if (state.ActiveObservation is { } obs)
+                {
+                    var subSec = obs.SubExposure.TotalSeconds;
+                    var estimatedFrames = subSec > 0 ? (int)(obs.Duration.TotalSeconds / (subSec + 10)) : 0;
+                    frameInfo += $"  Frames: {state.TotalFramesWritten}/~{estimatedFrames}";
+                }
+                DrawText(frameInfo.AsSpan(), fontPath,
                     rect.X + pad, mountY, rect.Width - pad * 2, rowH,
                     smallFs, BodyText, TextAlign.Near, TextAlign.Center);
             }
