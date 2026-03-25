@@ -115,8 +115,6 @@ public class SessionImagingTests(ITestOutputHelper output)
 
         // With 30s subs over 30 min, each frame takes 2 ticks (start + fetch) → 30 frames = 50%.
         utilization.ShouldBeGreaterThanOrEqualTo(0.45, "imaging utilization should be at least 45%");
-
-        ctx.CleanupImageOutputFolder();
     }
 
     [Fact(Timeout = 120_000)]
@@ -187,8 +185,6 @@ public class SessionImagingTests(ITestOutputHelper output)
         // With 70° min altitude, imaging should stop well before the full 4 hours
         ctx.Session.TotalExposureTime.ShouldBeLessThan(scheduledDuration * 0.5,
             "imaging should stop early when target drops below minimum altitude");
-
-        ctx.CleanupImageOutputFolder();
     }
 
     [Fact(Timeout = 120_000)]
@@ -246,8 +242,6 @@ public class SessionImagingTests(ITestOutputHelper output)
         output.WriteLine($"Frames written: {ctx.Session.TotalFramesWritten}");
         output.WriteLine($"Total exposure time: {ctx.Session.TotalExposureTime}");
         output.WriteLine($"Final observation index: {ctx.Session.CurrentObservationIndex}");
-
-        ctx.CleanupImageOutputFolder();
     }
 
     [Fact(Timeout = 120_000)]
@@ -337,8 +331,6 @@ public class SessionImagingTests(ITestOutputHelper output)
         baselines[0].IsValid.ShouldBeTrue("baseline should be valid after auto-refocus");
 
         output.WriteLine($"Final baseline HFD: {baselines[0].MedianHfd:F2}");
-
-        ctx.CleanupImageOutputFolder();
     }
 
     [Fact(Timeout = 120_000)]
@@ -408,8 +400,6 @@ public class SessionImagingTests(ITestOutputHelper output)
 
         // The guider's DitherCount tracks how many times DitherAsync was called
         guider.DitherCount.ShouldBeGreaterThan(0, "dithering should have been triggered at least once");
-
-        ctx.CleanupImageOutputFolder();
     }
 
     [Fact(Timeout = 120_000)]
@@ -497,7 +487,5 @@ public class SessionImagingTests(ITestOutputHelper output)
         output.WriteLine($"Frames written: {ctx.Session.TotalFramesWritten}");
         output.WriteLine($"Total exposure time: {ctx.Session.TotalExposureTime}");
         output.WriteLine($"Result: {result}");
-
-        ctx.CleanupImageOutputFolder();
     }
 }

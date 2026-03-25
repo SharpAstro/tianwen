@@ -367,8 +367,6 @@ public class SessionPhaseTests(ITestOutputHelper output)
         firstEntry.Exposure.ShouldBeGreaterThan(TimeSpan.Zero, "exposure should be positive");
 
         output.WriteLine($"Total frames: {log.Length}, first: {firstEntry.TargetName} {firstEntry.FilterName} HFD={firstEntry.MedianHfd:F2} stars={firstEntry.StarCount}");
-
-        ctx.CleanupImageOutputFolder();
     }
 
     /// <summary>

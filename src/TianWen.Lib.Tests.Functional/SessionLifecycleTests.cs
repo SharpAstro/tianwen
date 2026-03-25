@@ -556,8 +556,6 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         fitsFiles.Length.ShouldBeGreaterThan(0, "should have written at least one FITS file");
 
         output.WriteLine($"FITS written: {fitsFiles[0].FullName} ({fitsFiles[0].Length} bytes)");
-
-        ctx.CleanupImageOutputFolder();
     }
 
     // --- EstimateTimeUntilTargetRisesAsync ---
