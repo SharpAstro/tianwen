@@ -556,8 +556,19 @@ namespace TianWen.UI.Abstractions
 
             var samples = state.GuideSamples;
 
-            // Fixed Y scale: ±4 arcsec (covers typical guiding error range)
-            const double yScale = 4.0;
+            // Dynamic Y scale: based on peak error with headroom, minimum ±1"
+            var peakErr = 1.0;
+            if (state.LastGuideStats is { } guideStats)
+            {
+                peakErr = Math.Max(guideStats.PeakRa, guideStats.PeakDec);
+            }
+            // Round up to next nice value: 0.5, 1, 2, 3, 4, 5, 8, 10...
+            var yScale = peakErr < 0.3 ? 0.5
+                : peakErr < 0.7 ? 1.0
+                : peakErr < 1.5 ? 2.0
+                : peakErr < 3.0 ? 4.0
+                : peakErr < 6.0 ? 8.0
+                : 12.0;
             var halfH = rect.Height / 2;
             var zeroY = rect.Y + halfH;
 
