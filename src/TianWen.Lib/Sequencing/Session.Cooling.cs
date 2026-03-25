@@ -74,7 +74,11 @@ internal partial record Session
             maxDelta = 30;
         }
         var stepCount = Math.Max((int)Math.Ceiling(maxDelta), 1);
-        var rampInterval = TimeSpan.FromTicks(Math.Max(totalRampTime.Ticks / stepCount, TimeSpan.TicksPerSecond));
+        // Clamp interval: min(1min, max(15s, totalRampTime / stepCount))
+        var rawInterval = totalRampTime / stepCount;
+        var rampInterval = rawInterval < TimeSpan.FromSeconds(15) ? TimeSpan.FromSeconds(15)
+            : rawInterval > TimeSpan.FromMinutes(1) ? TimeSpan.FromMinutes(1)
+            : rawInterval;
 
         var targetLabel = desiredSetpointTemp.Kind switch
         {
