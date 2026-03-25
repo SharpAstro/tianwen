@@ -391,8 +391,15 @@ internal partial record Session
                         {
                             imageFetchSuccess[i] = true;
                             _cameraStates[i] = _cameraStates[i] with { State = Devices.CameraState.Download };
-                            // Prepare viewer copy + run star detection once (shared by viewer + drift checker)
-                            // Raw image goes to FITS queue untouched
+
+                            External.AppLogger.LogInformation("Camera #{CameraNumber} {CameraName} finished {ExposureStartTime} exposure of frame #{FrameNo}",
+                                i + 1, camDriver.Name, frameExpTime, frameNo);
+
+                            // 1. Enqueue raw image for FITS write
+                            imageWriteQueue.Enqueue(new QueuedImageWrite(image, observation, expStartTimes[i], frameNo, frameExpTime, i));
+
+                            // 2. Normalize + debayer + star detection → viewer + metrics
+                            FrameMetrics metrics = default;
                             if (i < _lastCapturedImages.Length)
                             {
                                 var viewerImage = image.ImageMeta.SensorType is Imaging.SensorType.RGGB
@@ -400,18 +407,26 @@ internal partial record Session
                                     : image.ScaleFloatValuesToUnit();
                                 _lastCapturedImages[i] = viewerImage;
 
-                                // Star detection for drift check + exposure log HFD
                                 var stars = await viewerImage.FindStarsAsync(0, snrMin: 10, maxStars: 1000, cancellationToken: cancellationToken);
                                 var currentGain = await camDriver.GetGainAsync(cancellationToken);
-                                var metrics = FrameMetrics.FromStarList(stars, frameExpTime, currentGain);
+                                metrics = FrameMetrics.FromStarList(stars, frameExpTime, currentGain);
                                 _lastFrameMetrics[i] = metrics;
                                 _frameMetricsHistory[i].Add(metrics);
                             }
-                            External.AppLogger.LogInformation("Camera #{CameraNumber} {CameraName} finished {ExposureStartTime} exposure of frame #{FrameNo}",
-                                i + 1, camDriver.Name, frameExpTime, frameNo);
 
-                            // Enqueue raw image for FITS write (not normalized, not debayered)
-                            imageWriteQueue.Enqueue(new QueuedImageWrite(image, observation, expStartTimes[i], frameNo, frameExpTime, i));
+                            // 3. Add to exposure log + frame history with metrics
+                            Interlocked.Increment(ref _totalFramesWritten);
+                            Interlocked.Add(ref _totalExposureTimeTicks, frameExpTime.Ticks);
+                            var logEntry = new ExposureLogEntry(
+                                Timestamp: expStartTimes[i],
+                                TargetName: observation.Target.Name,
+                                FilterName: camDriver.Filter.DisplayName,
+                                Exposure: frameExpTime,
+                                FrameNumber: frameNo,
+                                MedianHfd: metrics.MedianHfd,
+                                StarCount: metrics.StarCount);
+                            _exposureLog.Enqueue(logEntry);
+                            FrameWritten?.Invoke(this, new FrameWrittenEventArgs(logEntry));
                             break;
                         }
                         else
@@ -685,21 +700,7 @@ internal partial record Session
             {
                 try
                 {
-                    var filePath = await WriteImageToFitsFileAsync(imageWrite);
-                    Interlocked.Increment(ref _totalFramesWritten);
-                    Interlocked.Add(ref _totalExposureTimeTicks, imageWrite.ActualSubExposure.Ticks);
-
-                    // Append to exposure log and fire event
-                    var entry = new ExposureLogEntry(
-                        Timestamp: imageWrite.ExpStartTime,
-                        TargetName: imageWrite.Observation.Target.Name,
-                        FilterName: imageWrite.Image.ImageMeta.Filter.Name,
-                        Exposure: imageWrite.ActualSubExposure,
-                        FrameNumber: imageWrite.FrameNumber,
-                        MedianHfd: 0f, // HFD computed during drift detection, not here
-                        FilePath: filePath);
-                    _exposureLog.Enqueue(entry);
-                    FrameWritten?.Invoke(this, new FrameWrittenEventArgs(entry));
+                    await WriteImageToFitsFileAsync(imageWrite);
                 }
                 catch (Exception ex)
                 {

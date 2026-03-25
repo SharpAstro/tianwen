@@ -12,4 +12,4 @@ public readonly record struct ExposureLogEntry(
     TimeSpan Exposure,
     int FrameNumber,
     float MedianHfd,
-    string FilePath);
+    int StarCount);

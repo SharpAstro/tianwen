@@ -774,7 +774,7 @@ namespace TianWen.UI.Abstractions
             }
 
             // Mount status section (below OTAs, full width)
-            var mountY = rect.Y + rect.Height - rowH * 4 - pad;
+            var mountY = rect.Y + rect.Height - rowH * 5 - pad;
             if (mountY > rect.Y + rect.Height * 0.35f) // only show if there's room
             {
                 FillRect(rect.X, mountY, rect.Width, 1, SeparatorColor);
@@ -795,11 +795,17 @@ namespace TianWen.UI.Abstractions
                     smallFs, HeaderText, TextAlign.Near, TextAlign.Center);
                 mountY += rowH;
 
-                // Live RA/Dec + HA from polled mount state
+                // RA + HA on one row
                 var raStr = TianWen.Lib.Astrometry.CoordinateUtils.HoursToHMS(ms.RightAscension, withFrac: false);
-                var decStr = TianWen.Lib.Astrometry.CoordinateUtils.DegreesToDMS(ms.Declination, withFrac: false);
                 var haStr = $"HA {ms.HourAngle:+0.00;-0.00}h";
-                DrawText($"RA {raStr}  Dec {decStr}  {haStr}".AsSpan(), fontPath,
+                DrawText($"RA {raStr}  {haStr}".AsSpan(), fontPath,
+                    rect.X + pad, mountY, rect.Width - pad * 2, rowH,
+                    smallFs, BodyText, TextAlign.Near, TextAlign.Center);
+                mountY += rowH;
+
+                // Dec on separate row
+                var decStr = TianWen.Lib.Astrometry.CoordinateUtils.DegreesToDMS(ms.Declination, withFrac: false);
+                DrawText($"Dec {decStr}".AsSpan(), fontPath,
                     rect.X + pad, mountY, rect.Width - pad * 2, rowH,
                     smallFs, BodyText, TextAlign.Near, TextAlign.Center);
                 mountY += rowH;
@@ -953,7 +959,7 @@ namespace TianWen.UI.Abstractions
             // Column headers
             var colY = rect.Y + rowH;
             FillRect(rect.X, colY, rect.Width, rowH, HeaderBg);
-            DrawText("Time  Target       Filter  HFD".AsSpan(), fontPath,
+            DrawText("Time  Target       Filter  HFD  \u2605".AsSpan(), fontPath,
                 rect.X + pad, colY, rect.Width - pad * 2, rowH,
                 fontSize * 0.75f, DimText, TextAlign.Near, TextAlign.Center);
 

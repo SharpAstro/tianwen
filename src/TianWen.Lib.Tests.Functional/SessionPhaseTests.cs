@@ -364,10 +364,9 @@ public class SessionPhaseTests(ITestOutputHelper output)
 
         var firstEntry = log[0];
         firstEntry.TargetName.ShouldNotBeNullOrEmpty("target name should be set");
-        firstEntry.FilePath.ShouldNotBeNullOrEmpty("file path should be set");
         firstEntry.Exposure.ShouldBeGreaterThan(TimeSpan.Zero, "exposure should be positive");
 
-        output.WriteLine($"Total frames: {log.Count}, first: {firstEntry.TargetName} {firstEntry.FilterName} {firstEntry.FilePath}");
+        output.WriteLine($"Total frames: {log.Count}, first: {firstEntry.TargetName} {firstEntry.FilterName} HFD={firstEntry.MedianHfd:F2} stars={firstEntry.StarCount}");
 
         ctx.CleanupImageOutputFolder();
     }
