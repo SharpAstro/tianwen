@@ -546,45 +546,74 @@ namespace TianWen.UI.Abstractions
             }
         }
 
-        /// <summary>Compact guide graph — just RA/Dec lines, no labels.</summary>
+        /// <summary>
+        /// PHD2-style guide graph: connected lines for RA (blue) and Dec (orange),
+        /// fixed ±4" Y scale, scrolling window, grid lines at integer arcsec.
+        /// </summary>
         private void RenderCompactGuideGraph(LiveSessionState state, RectF32 rect, float dpiScale)
         {
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, GraphBg);
 
             var samples = state.GuideSamples;
+
+            // Fixed Y scale: ±4 arcsec (covers typical guiding error range)
+            const double yScale = 4.0;
+            var halfH = rect.Height / 2;
+            var zeroY = rect.Y + halfH;
+
+            // Grid lines at each integer arcsec
+            for (var arcsec = 1; arcsec < (int)yScale; arcsec++)
+            {
+                var gridY = (float)(arcsec / yScale) * halfH;
+                FillRect(rect.X, zeroY - gridY, rect.Width, 1, SeparatorColor);
+                FillRect(rect.X, zeroY + gridY, rect.Width, 1, SeparatorColor);
+            }
+
+            // Zero line (brighter)
+            FillRect(rect.X, zeroY, rect.Width, 1, TimelineTickColor);
+
             if (samples.Count < 2)
             {
                 return;
             }
 
-            // Find max error for scaling (clamped to at least ±2 arcsec)
-            var maxErr = 2.0;
-            for (var i = 0; i < samples.Count; i++)
+            // Show last N samples that fit the width (scrolling window)
+            // Each sample gets a fixed pixel width — when full, oldest scroll off left
+            var sampleSpacing = Math.Max(2f * dpiScale, 3f);
+            var maxVisible = (int)(rect.Width / sampleSpacing);
+            var startIdx = Math.Max(0, samples.Count - maxVisible);
+            var visibleCount = samples.Count - startIdx;
+
+            float ErrorToY(double error)
             {
-                var s = samples[i];
-                maxErr = Math.Max(maxErr, Math.Max(Math.Abs(s.RaError), Math.Abs(s.DecError)));
+                var clamped = Math.Clamp(error, -yScale, yScale);
+                return zeroY - (float)(clamped / yScale * halfH);
             }
 
-            var zeroY = rect.Y + rect.Height / 2;
-            FillRect(rect.X, zeroY, rect.Width, 1, SeparatorColor);
-
-            var count = samples.Count;
-            var stepX = rect.Width / Math.Max(count - 1, 1);
-
-            for (var i = 0; i < count; i++)
+            // Draw connected lines: RA then Dec
+            // RA (blue)
+            for (var i = 1; i < visibleCount; i++)
             {
-                var s = samples[i];
-                var x = rect.X + i * stepX;
+                var x1 = rect.X + (i - 1) * sampleSpacing;
+                var x2 = rect.X + i * sampleSpacing;
+                var y1 = ErrorToY(samples[startIdx + i - 1].RaError);
+                var y2 = ErrorToY(samples[startIdx + i].RaError);
 
-                // RA (blue)
-                var raYNorm = (float)(s.RaError / maxErr);
-                var raPixY = zeroY - raYNorm * (rect.Height / 2);
-                FillRect(x, Math.Min(raPixY, zeroY), Math.Max(stepX, 1), Math.Max(Math.Abs(raPixY - zeroY), 1), RaColor);
+                // Line segment: horizontal then vertical (step style like PHD2)
+                FillRect(x1, y1, x2 - x1, Math.Max(dpiScale, 1), RaColor);
+                FillRect(x2, Math.Min(y1, y2), Math.Max(dpiScale, 1), Math.Abs(y2 - y1) + dpiScale, RaColor);
+            }
 
-                // Dec (orange)
-                var decYNorm = (float)(s.DecError / maxErr);
-                var decPixY = zeroY - decYNorm * (rect.Height / 2);
-                FillRect(x + stepX * 0.3f, Math.Min(decPixY, zeroY), Math.Max(stepX * 0.4f, 1), Math.Max(Math.Abs(decPixY - zeroY), 1), DecColor);
+            // Dec (orange)
+            for (var i = 1; i < visibleCount; i++)
+            {
+                var x1 = rect.X + (i - 1) * sampleSpacing;
+                var x2 = rect.X + i * sampleSpacing;
+                var y1 = ErrorToY(samples[startIdx + i - 1].DecError);
+                var y2 = ErrorToY(samples[startIdx + i].DecError);
+
+                FillRect(x1, y1, x2 - x1, Math.Max(dpiScale, 1), DecColor);
+                FillRect(x2, Math.Min(y1, y2), Math.Max(dpiScale, 1), Math.Abs(y2 - y1) + dpiScale, DecColor);
             }
         }
 
