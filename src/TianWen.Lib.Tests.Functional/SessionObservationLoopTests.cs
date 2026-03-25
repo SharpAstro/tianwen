@@ -138,8 +138,6 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
         output.WriteLine($"Final observation index: {ctx.Session.CurrentObservationIndex}");
         output.WriteLine($"Frames written: {ctx.Session.TotalFramesWritten}");
         output.WriteLine($"Total exposure time: {ctx.Session.TotalExposureTime}");
-
-        ctx.CleanupImageOutputFolder();
     }
 
     [Fact(Timeout = 120_000)]
@@ -202,8 +200,6 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
         output.WriteLine($"Final observation index: {ctx.Session.CurrentObservationIndex}");
         output.WriteLine($"Frames written: {ctx.Session.TotalFramesWritten}");
         output.WriteLine($"Total exposure time: {ctx.Session.TotalExposureTime}");
-
-        ctx.CleanupImageOutputFolder();
     }
 
     [Fact(Timeout = 120_000)]
@@ -251,8 +247,6 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
         output.WriteLine($"Frames written: {ctx.Session.TotalFramesWritten}");
         output.WriteLine($"Total exposure time: {ctx.Session.TotalExposureTime}");
         output.WriteLine($"Scheduled duration: {scheduledDuration}");
-
-        ctx.CleanupImageOutputFolder();
     }
 
     [Fact(Timeout = 120_000)]
@@ -308,8 +302,6 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
         output.WriteLine($"Final observation index: {ctx.Session.CurrentObservationIndex}");
         output.WriteLine($"Frames written: {ctx.Session.TotalFramesWritten}");
         output.WriteLine($"Baseline observations: {string.Join(", ", ctx.Session.BaselineByObservation.Keys)}");
-
-        ctx.CleanupImageOutputFolder();
     }
 
     /// <summary>
@@ -356,7 +348,5 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
 
         output.WriteLine($"Frames written: {ctx.Session.TotalFramesWritten}");
         output.WriteLine($"Total exposure: {ctx.Session.TotalExposureTime}");
-
-        ctx.CleanupImageOutputFolder();
     }
 }

@@ -73,20 +73,29 @@ public class FakeExternal : IExternal
         return ValueTask.CompletedTask;
     }
 
+    /// <summary>Maximum number of FITS files to write to disk. Default 1 to reduce test I/O.</summary>
+    public int MaxFitsWrites { get; set; } = 1;
+
+    private int _fitsWriteCount;
+
     /// <summary>
-    /// Advance fake time to match time spent writing <paramref name="image"/> to <paramref name="fileName"/>,
-    /// as this is a potentially expensive operation
+    /// Writes FITS to disk (up to <see cref="MaxFitsWrites"/>), then skips disk I/O for subsequent frames.
+    /// Always advances fake time to simulate write duration.
     /// </summary>
-    /// <param name="image"></param>
-    /// <param name="fileName"></param>
     public async ValueTask WriteFitsFileAsync(Image image, string fileName)
     {
-        // use wall clock time
-        var sw = Stopwatch.StartNew();
-        await Task.Run(() => image.WriteToFitsFile(fileName)).ConfigureAwait(false);
-        sw.Stop();
-
-        _timeProvider.Advance(sw.Elapsed);
+        if (Interlocked.Increment(ref _fitsWriteCount) <= MaxFitsWrites)
+        {
+            var sw = Stopwatch.StartNew();
+            await Task.Run(() => image.WriteToFitsFile(fileName)).ConfigureAwait(false);
+            sw.Stop();
+            _timeProvider.Advance(sw.Elapsed);
+        }
+        else
+        {
+            // Skip disk I/O but still advance time (~50ms simulated write)
+            _timeProvider.Advance(TimeSpan.FromMilliseconds(50));
+        }
     }
 
     public IReadOnlyList<string> EnumerateAvailableSerialPorts(ResourceLock resourceLock) => [];
