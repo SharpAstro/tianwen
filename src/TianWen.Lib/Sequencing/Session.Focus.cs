@@ -504,6 +504,9 @@ internal partial record Session
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns><c>true</c> if plate solve succeeded and mount was synced.</returns>
     internal async ValueTask<bool> PlateSolveAndSyncAsync(int telescopeIndex, TimeSpan exposureTime, CancellationToken cancellationToken)
+        => (await PlateSolveAndSyncCoreAsync(telescopeIndex, exposureTime, cancellationToken)).Solved;
+
+    internal async ValueTask<(bool Solved, double RaJ2000, double DecJ2000)> PlateSolveAndSyncCoreAsync(int telescopeIndex, TimeSpan exposureTime, CancellationToken cancellationToken)
     {
         var mount = Setup.Mount;
         var camDriver = Setup.Telescopes[telescopeIndex].Camera.Driver;
@@ -531,7 +534,7 @@ internal partial record Session
         if (image is null)
         {
             External.AppLogger.LogWarning("Plate solve: failed to capture image from camera #{CameraNumber}.", telescopeIndex + 1);
-            return false;
+            return (false, double.NaN, double.NaN);
         }
 
         // Plate solve using mount's current position as search origin
@@ -544,7 +547,7 @@ internal partial record Session
         if (result.Solution is not { } wcs)
         {
             External.AppLogger.LogWarning("Plate solve: failed to solve image from camera #{CameraNumber}.", telescopeIndex + 1);
-            return false;
+            return (false, double.NaN, double.NaN);
         }
 
         External.AppLogger.LogInformation(
@@ -557,7 +560,7 @@ internal partial record Session
         await mount.Driver.SyncRaDecJ2000Async(wcs.CenterRA, wcs.CenterDec, cancellationToken);
 
         External.AppLogger.LogInformation("Plate solve: mount synced to solved position.");
-        return true;
+        return (true, wcs.CenterRA, wcs.CenterDec);
     }
 
     /// <summary>
@@ -573,16 +576,14 @@ internal partial record Session
         {
             _currentActivity = $"Centering {target.Name} (attempt {attempt}/{maxAttempts})\u2026";
 
-            if (!await PlateSolveAndSyncAsync(telescopeIndex, TimeSpan.FromSeconds(5), cancellationToken))
+            var (solved, solvedRa, solvedDec) = await PlateSolveAndSyncCoreAsync(telescopeIndex, TimeSpan.FromSeconds(5), cancellationToken);
+            if (!solved)
             {
                 External.AppLogger.LogWarning("Centering: plate solve failed on attempt {Attempt}/{Max}", attempt, maxAttempts);
                 continue;
             }
 
-            // Check offset after sync
-            var solvedRa = await mount.Driver.GetRightAscensionAsync(cancellationToken);
-            var solvedDec = await mount.Driver.GetDeclinationAsync(cancellationToken);
-
+            // Compare plate solve result (J2000) directly against target (J2000) — no coordinate system mismatch
             var cosDec = Math.Cos(double.DegreesToRadians(target.Dec));
             var deltaRaArcmin = Math.Abs(solvedRa - target.RA) * 15.0 * cosDec * 60.0;
             var deltaDecArcmin = Math.Abs(solvedDec - target.Dec) * 60.0;
