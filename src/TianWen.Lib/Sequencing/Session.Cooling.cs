@@ -90,11 +90,9 @@ internal partial record Session
             maxDelta = 30;
         }
         var stepCount = Math.Max((int)Math.Ceiling(maxDelta), 1);
-        // Clamp interval: min(1min, max(15s, totalRampTime / stepCount))
-        var rawInterval = totalRampTime / stepCount;
-        var rampInterval = rawInterval < TimeSpan.FromSeconds(15) ? TimeSpan.FromSeconds(15)
-            : rawInterval > TimeSpan.FromMinutes(1) ? TimeSpan.FromMinutes(1)
-            : rawInterval;
+        // Fixed 15-second step interval (like NINA). Total ramp time = max(user config, steps × 15s).
+        var rampInterval = TimeSpan.FromSeconds(15);
+        var actualRampTime = TimeSpan.FromTicks(Math.Max(totalRampTime.Ticks, stepCount * rampInterval.Ticks));
 
         var targetLabel = desiredSetpointTemp.Kind switch
         {
@@ -134,11 +132,10 @@ internal partial record Session
 
             accSleep += rampInterval;
             var estimatedRampTime = stepCount * rampInterval;
-            var safetyCapTime = TimeSpan.FromTicks(Math.Max(totalRampTime.Ticks, (long)(estimatedRampTime.Ticks * 1.5)));
-            if (accSleep >= safetyCapTime)
+            if (accSleep >= actualRampTime * 2)
             {
-                External.AppLogger.LogWarning("Cooling: safety cap reached ({AccSleep} >= {SafetyCap}), exiting ramp loop.",
-                    accSleep, safetyCapTime);
+                External.AppLogger.LogWarning("Cooling: safety cap reached ({AccSleep} >= 2x {ActualRamp}), exiting ramp loop.",
+                    accSleep, actualRampTime);
                 break;
             }
 
