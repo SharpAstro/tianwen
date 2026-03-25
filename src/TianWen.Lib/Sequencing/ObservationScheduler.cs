@@ -46,7 +46,7 @@ internal static class ObservationScheduler
         // If the evening hasn't started yet but we're in the early morning (before the
         // upcoming evening), we might be in last night's dark window. Check if the
         // previous day's twilight is still in the future — if so, use that night instead.
-        if (dark > dto && dto.TimeOfDay.TotalHours < 12)
+        if (dark > dto && CoordinateUtils.AstronomicalEveningDate(dto).Date < dto.Date)
         {
             var prevDayStart = localDayStart.AddDays(-1);
             var (prevDark, prevTwilight) = CalculateNightWindowForDay(transform, prevDayStart);

@@ -7,6 +7,16 @@ namespace TianWen.Lib.Astrometry;
 public static class CoordinateUtils
 {
     /// <summary>
+    /// Returns the astronomical "evening date" for the given site-local time.
+    /// Before noon → previous calendar day (we're in last night's session).
+    /// After noon → today (tonight's session hasn't started yet or is underway).
+    /// </summary>
+    public static DateTime AstronomicalEveningDate(DateTimeOffset siteLocalTime)
+        => siteLocalTime.TimeOfDay.TotalHours < 12
+            ? siteLocalTime.Date.AddDays(-1)
+            : siteLocalTime.Date;
+
+    /// <summary>
     /// Flexible routine to range a number into a given range between a lower and an higher bound.
     /// </summary>
     /// <param name="value">Value to be ranged</param>
