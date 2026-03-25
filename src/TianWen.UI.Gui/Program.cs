@@ -61,6 +61,8 @@ else if (args.Length >= 2 && args[0] is "--active" or "-a")
 
 // SDL3 + Vulkan init
 using var sdlWindow = SdlVulkanWindow.Create("TianWen", 1280, 900);
+
+
 sdlWindow.GetSizeInPixels(out var pixW, out var pixH);
 
 var ctx = VulkanContext.Create(sdlWindow.Instance, sdlWindow.Surface, (uint)pixW, (uint)pixH);
