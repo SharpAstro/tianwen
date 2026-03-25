@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Collections.Specialized;
 using System.Globalization;
 using System.IO;
@@ -68,13 +69,13 @@ internal partial record Session(
     public int TotalFramesWritten => _totalFramesWritten;
     public TimeSpan TotalExposureTime => TimeSpan.FromTicks(Interlocked.Read(ref _totalExposureTimeTicks));
     public int CurrentObservationIndex => _activeObservation;
-    public IReadOnlyList<FocusRunRecord> FocusHistory => [.. _focusHistory];
-    public IReadOnlyList<GuideErrorSample> GuideSamples => _guideSamples.ToList();
+    public ImmutableArray<FocusRunRecord> FocusHistory => [.. _focusHistory];
+    public ImmutableArray<GuideErrorSample> GuideSamples => [.. _guideSamples];
     public GuideStats? LastGuideStats => _lastGuideStats;
-    public IReadOnlyList<ExposureLogEntry> ExposureLog => [.. _exposureLog];
-    public IReadOnlyList<CoolingSample> CoolingSamples => [.. _coolingSamples];
-    public IReadOnlyList<PhaseTimestamp> PhaseTimeline => [.. _phaseTimeline];
-    public IReadOnlyList<CameraExposureState> CameraStates => [.. _cameraStates];
+    public ImmutableArray<ExposureLogEntry> ExposureLog => [.. _exposureLog];
+    public ImmutableArray<CoolingSample> CoolingSamples => [.. _coolingSamples];
+    public ImmutableArray<PhaseTimestamp> PhaseTimeline => [.. _phaseTimeline];
+    public ImmutableArray<CameraExposureState> CameraStates => [.. _cameraStates];
 
     public event EventHandler<SessionPhaseChangedEventArgs>? PhaseChanged;
     public event EventHandler<FrameWrittenEventArgs>? FrameWritten;

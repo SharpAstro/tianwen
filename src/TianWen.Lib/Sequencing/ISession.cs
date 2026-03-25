@@ -1,5 +1,5 @@
 using System;
-using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices.Guider;
@@ -28,28 +28,28 @@ public interface ISession : IAsyncDisposable
     int CurrentObservationIndex { get; }
 
     /// <summary>Snapshot of completed auto-focus runs.</summary>
-    IReadOnlyList<FocusRunRecord> FocusHistory { get; }
+    ImmutableArray<FocusRunRecord> FocusHistory { get; }
 
     /// <summary>Rolling circular buffer of recent guide error samples (~5 min window).</summary>
-    IReadOnlyList<GuideErrorSample> GuideSamples { get; }
+    ImmutableArray<GuideErrorSample> GuideSamples { get; }
 
     /// <summary>Most recent guide stats (RMS, peak errors), or null if guiding hasn't started.</summary>
     GuideStats? LastGuideStats { get; }
 
     /// <summary>All frames written during this session.</summary>
-    IReadOnlyList<ExposureLogEntry> ExposureLog { get; }
+    ImmutableArray<ExposureLogEntry> ExposureLog { get; }
 
     /// <summary>Cooling ramp samples (temp + power per camera over time).</summary>
-    IReadOnlyList<CoolingSample> CoolingSamples { get; }
+    ImmutableArray<CoolingSample> CoolingSamples { get; }
 
     /// <summary>Fired when the session transitions to a new phase.</summary>
     event EventHandler<SessionPhaseChangedEventArgs>? PhaseChanged;
 
     /// <summary>Recorded phase start timestamps for timeline visualization.</summary>
-    IReadOnlyList<PhaseTimestamp> PhaseTimeline { get; }
+    ImmutableArray<PhaseTimestamp> PhaseTimeline { get; }
 
     /// <summary>Per-camera exposure state for live countdown display. One entry per OTA.</summary>
-    IReadOnlyList<CameraExposureState> CameraStates { get; }
+    ImmutableArray<CameraExposureState> CameraStates { get; }
 
     /// <summary>
     /// Fine-grained activity description within the current phase.
@@ -66,13 +66,11 @@ public interface ISession : IAsyncDisposable
 
     /// <summary>
     /// Path to the most recently written FITS file, or null if no frames written yet.
-    /// Used by the UI to show a preview of the last captured frame.
     /// </summary>
     string? LastFramePath { get; }
 
     /// <summary>
     /// The most recently captured image per camera (in memory). Replaced on each new frame.
-    /// Used by the UI to show a live preview without re-reading from disk.
     /// Index matches <see cref="CameraStates"/>. Length equals telescope count.
     /// </summary>
     Image?[] LastCapturedImages { get; }
