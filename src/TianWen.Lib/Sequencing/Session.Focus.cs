@@ -357,7 +357,16 @@ internal partial record Session
             }
 
             camera.FocusPosition = targetPos;
-            await camera.StartExposureAsync(TimeSpan.FromSeconds(2), cancellationToken: cancellationToken);
+
+            // Update camera state for the UI
+            if (telescopeIndex < _cameraStates.Length)
+            {
+                _cameraStates[telescopeIndex] = new CameraExposureState(
+                    telescopeIndex, External.TimeProvider.GetUtcNow(), autoFocusExposure,
+                    i + 1, $"Focus {i + 1}/{stepCount}", targetPos, Devices.CameraState.Exposing);
+            }
+
+            await camera.StartExposureAsync(autoFocusExposure, cancellationToken: cancellationToken);
 
             Image? image = null;
             var retries = 0;
@@ -372,6 +381,17 @@ internal partial record Session
 
             if (image is { Width: > 0, Height: > 0 })
             {
+                // Update state: downloading / processing
+                if (telescopeIndex < _cameraStates.Length)
+                {
+                    _cameraStates[telescopeIndex] = _cameraStates[telescopeIndex] with { State = Devices.CameraState.Download };
+                }
+                // Make focus image available for the mini viewer
+                if (telescopeIndex < _lastCapturedImages.Length)
+                {
+                    _lastCapturedImages[telescopeIndex] = image.ScaleFloatValuesToUnitInPlace();
+                }
+
                 var stars = await image.FindStarsAsync(0, snrMin: 10, cancellationToken: cancellationToken);
                 if (stars.Count > 3)
                 {
@@ -384,6 +404,12 @@ internal partial record Session
                     External.AppLogger.LogDebug("Auto-focus pos={Position} too few stars ({StarCount})", targetPos, stars.Count);
                 }
             }
+        }
+
+        // Reset camera state after V-curve loop
+        if (telescopeIndex < _cameraStates.Length)
+        {
+            _cameraStates[telescopeIndex] = default;
         }
 
         // Fit hyperbola
