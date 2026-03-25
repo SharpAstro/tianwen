@@ -388,13 +388,19 @@ internal partial record Session
                 {
                     _cameraStates[telescopeIndex] = _cameraStates[telescopeIndex] with { State = Devices.CameraState.Download };
                 }
-                // Make focus image available for the mini viewer
+                // For RGGB: debayer once to mono, use for both viewer and star detection
+                // For mono: normalize in place (no FITS to protect)
+                var viewerImage = image.ImageMeta.SensorType is Imaging.SensorType.RGGB
+                    ? await image.DebayerAsync(Imaging.DebayerAlgorithm.BilinearMono, normalizeToUnit: true, cancellationToken)
+                    : image.ScaleFloatValuesToUnitInPlace();
+
                 if (telescopeIndex < _lastCapturedImages.Length)
                 {
-                    _lastCapturedImages[telescopeIndex] = image.ScaleFloatValuesToUnitInPlace();
+                    _lastCapturedImages[telescopeIndex] = viewerImage;
                 }
 
-                var stars = await image.FindStarsAsync(0, snrMin: 10, cancellationToken: cancellationToken);
+                // Star detection on the mono/normalized image (no second debayer)
+                var stars = await viewerImage.FindStarsAsync(0, snrMin: 10, cancellationToken: cancellationToken);
                 if (stars.Count > 3)
                 {
                     var hfd = stars.MapReduceStarProperty(SampleKind.HFD, AggregationMethod.Median);
