@@ -29,7 +29,7 @@ namespace TianWen.UI.Abstractions
         private const float BaseFontSize       = 14f;
         private const float BaseTopStripHeight = 36f;
         private const float BaseTimelineHeight = 60f;
-        private const float BaseBotStripHeight = 56f;
+        private const float BaseBotStripHeight = 100f;
         private const float BaseOtaPanelW       = 240f;
         private const float BaseRightPanelW    = 260f;
         private const float BaseGuideRmsH      = 20f;
