@@ -407,11 +407,7 @@ namespace TianWen.UI.Abstractions
                 rect.X + pillW + pad * 2, rect.Y, rect.Width * 0.45f, rect.Height,
                 fontSize, BodyText, TextAlign.Near, TextAlign.Center);
 
-            // Progress: frames + exposure time
-            var progressText = $"Frames: {state.TotalFramesWritten}  Exp: {LiveSessionActions.FormatDuration(state.TotalExposureTime)}";
-            DrawText(progressText.AsSpan(), fontPath,
-                rect.X + rect.Width * 0.55f, rect.Y, rect.Width * 0.4f, rect.Height,
-                fontSize, DimText, TextAlign.Far, TextAlign.Center);
+            // (Frame count + exposure time moved to mount section)
         }
 
         // -----------------------------------------------------------------------
@@ -805,7 +801,7 @@ namespace TianWen.UI.Abstractions
                     mountY += rowH;
                 }
 
-                // Obs counter + frame count / projected
+                // Obs counter + frame count / projected + total exposure
                 var obsIdx = state.CurrentObservationIndex;
                 var obsCount = session.Observations.Count;
                 var frameInfo = $"Obs: {(obsIdx >= 0 ? obsIdx + 1 : 0)}/{obsCount}";
@@ -815,6 +811,7 @@ namespace TianWen.UI.Abstractions
                     var estimatedFrames = subSec > 0 ? (int)(obs.Duration.TotalSeconds / (subSec + 10)) : 0;
                     frameInfo += $"  Frames: {state.TotalFramesWritten}/~{estimatedFrames}";
                 }
+                frameInfo += $"  Exp: {LiveSessionActions.FormatDuration(state.TotalExposureTime)}";
                 DrawText(frameInfo.AsSpan(), fontPath,
                     rect.X + pad, mountY, rect.Width - pad * 2, rowH,
                     smallFs, BodyText, TextAlign.Near, TextAlign.Center);
