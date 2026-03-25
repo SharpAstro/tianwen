@@ -43,7 +43,7 @@ internal partial record Session
 
         _currentActivity = "Waiting for slew to complete\u2026";
         External.AppLogger.LogInformation("RoughFocus: waiting for slew to complete...");
-        if (!await mount.Driver.WaitForSlewCompleteAsync(cancellationToken).ConfigureAwait(false))
+        if (!await mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, cancellationToken).ConfigureAwait(false))
         {
             External.AppLogger.LogError("Failed to complete slewing of mount {Mount}", mount);
 
@@ -154,7 +154,7 @@ internal partial record Session
                 
                 slewTime = await GetMountUtcNowAsync(cancellationToken);
 
-                if (!await mount.Driver.WaitForSlewCompleteAsync(cancellationToken).ConfigureAwait(false))
+                if (!await mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, cancellationToken).ConfigureAwait(false))
                 {
                     External.AppLogger.LogError("Failed to complete slewing of mount {Mount}", mount);
 
@@ -602,7 +602,7 @@ internal partial record Session
             var (postCondition, _) = await mount.Driver.BeginSlewToTargetAsync(target, Configuration.MinHeightAboveHorizon, cancellationToken).ConfigureAwait(false);
             if (postCondition is SlewPostCondition.Slewing)
             {
-                await mount.Driver.WaitForSlewCompleteAsync(cancellationToken).ConfigureAwait(false);
+                await mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, cancellationToken).ConfigureAwait(false);
             }
         }
 

@@ -507,7 +507,10 @@ public interface IMountDriver : IDeviceDriver
         return new SlewResult(SlewPostCondition.Slewing, hourAngle);
     }
 
-    public async ValueTask<bool> WaitForSlewCompleteAsync(CancellationToken cancellationToken)
+    public ValueTask<bool> WaitForSlewCompleteAsync(CancellationToken cancellationToken)
+        => WaitForSlewCompleteAsync(null, cancellationToken);
+
+    public async ValueTask<bool> WaitForSlewCompleteAsync(Func<CancellationToken, ValueTask>? onPoll, CancellationToken cancellationToken)
     {
         var period = TimeSpan.FromMilliseconds(251);
         var maxSlewTime = TimeSpan.FromSeconds(MAX_FAILSAFE);
@@ -523,6 +526,10 @@ public interface IMountDriver : IDeviceDriver
             && now - slewStartTime < maxSlewTime
         )
         {
+            if (onPoll is not null)
+            {
+                await onPoll(cancellationToken);
+            }
             await External.SleepAsync(period, cancellationToken);
         }
 

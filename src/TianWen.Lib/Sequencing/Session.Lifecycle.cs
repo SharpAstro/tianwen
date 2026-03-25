@@ -20,7 +20,7 @@ internal partial record Session
         var dec = 0;
         await mount.Driver.BeginSlewHourAngleDecAsync(TimeSpan.FromMinutes(30).TotalHours, dec, cancellationToken).ConfigureAwait(false);
 
-        if (!await mount.Driver.WaitForSlewCompleteAsync(cancellationToken).ConfigureAwait(false))
+        if (!await mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, cancellationToken).ConfigureAwait(false))
         {
             throw new InvalidOperationException($"Failed to slew mount {mount} to guider calibration position (near meridian, {DegreesToDMS(dec)} declination)");
         }

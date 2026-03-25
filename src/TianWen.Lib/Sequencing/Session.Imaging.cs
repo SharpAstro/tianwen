@@ -86,7 +86,7 @@ internal partial record Session
                 }
                 else if (postCondition is SlewPostCondition.Slewing)
                 {
-                    if (!await mount.Driver.WaitForSlewCompleteAsync(cancellationToken).ConfigureAwait(false))
+                    if (!await mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, cancellationToken).ConfigureAwait(false))
                     {
                         External.AppLogger.LogError("Failed to complete slewing of mount {Mount}", mount);
 
@@ -847,7 +847,7 @@ internal partial record Session
             // Ensure no slew is in progress before starting the flip slew
             if (await CatchAsync(mount.Driver.IsSlewingAsync, cancellationToken))
             {
-                await mount.Driver.WaitForSlewCompleteAsync(cancellationToken).ConfigureAwait(false);
+                await mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, cancellationToken).ConfigureAwait(false);
             }
 
             var (postCondition, _) = await mount.Driver.BeginSlewToTargetAsync(
@@ -859,7 +859,7 @@ internal partial record Session
                 continue;
             }
 
-            if (!await mount.Driver.WaitForSlewCompleteAsync(cancellationToken).ConfigureAwait(false))
+            if (!await mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, cancellationToken).ConfigureAwait(false))
             {
                 External.AppLogger.LogError("Meridian flip: slew did not complete on attempt {Attempt}.", attempt);
                 continue;
