@@ -122,7 +122,8 @@ namespace TianWen.UI.Abstractions
             var target = entry.TargetName.Length > 12 ? entry.TargetName[..12] : entry.TargetName;
             var filter = entry.FilterName.Length > 6 ? entry.FilterName[..6] : entry.FilterName;
             var hfd = entry.MedianHfd > 0 ? $"{entry.MedianHfd:F1}\"" : "--";
-            return $"{entry.Timestamp:HH:mm} {target,-12} {filter,-6} {hfd,5}";
+            var stars = entry.StarCount > 0 ? $"{entry.StarCount}" : "--";
+            return $"{entry.Timestamp:HH:mm} {target,-12} {filter,-6} {hfd,5} {stars,4}\u2605";
         }
 
         /// <summary>Format focus history entry as a compact row.</summary>
