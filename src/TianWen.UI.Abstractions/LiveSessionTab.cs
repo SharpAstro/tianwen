@@ -728,7 +728,7 @@ namespace TianWen.UI.Abstractions
                 }
 
                 // Focuser position + temperature + moving state
-                if (ota.Focuser is not null && i < cameraStates.Count)
+                if (ota.Focuser is not null && i < cameraStates.Length)
                 {
                     var cs = cameraStates[i];
                     var focLabel = $"Foc: {cs.FocusPosition}";
@@ -750,7 +750,7 @@ namespace TianWen.UI.Abstractions
                 // Filter
                 if (ota.FilterWheel is not null)
                 {
-                    var filterName = (i < cameraStates.Count && cameraStates[i].FilterName is { Length: > 0 } fn) ? fn : "--";
+                    var filterName = (i < cameraStates.Length && cameraStates[i].FilterName is { Length: > 0 } fn) ? fn : "--";
                     DrawText($"FW: {filterName}", fontPath,
                         px + pad, y, textW, rowH,
                         smallFs, BodyText, TextAlign.Near, TextAlign.Center);
@@ -759,7 +759,7 @@ namespace TianWen.UI.Abstractions
 
                 // Exposure state + progress bar
                 y += pad;
-                if (i < cameraStates.Count)
+                if (i < cameraStates.Length)
                 {
                     var cs = cameraStates[i];
                     RenderExposureState(cs, px + pad, y, textW, progressH, rowH, fontPath, fontSize, smallFs, dpiScale, timeProvider);
@@ -880,7 +880,7 @@ namespace TianWen.UI.Abstractions
             Span<float> temps = stackalloc float[maxPoints];
             Span<float> powers = stackalloc float[maxPoints];
             var count = 0;
-            for (var i = allSamples.Count - 1; i >= 0 && count < maxPoints; i--)
+            for (var i = allSamples.Length - 1; i >= 0 && count < maxPoints; i--)
             {
                 if (allSamples[i].CameraIndex == cameraIndex)
                 {
@@ -998,7 +998,7 @@ namespace TianWen.UI.Abstractions
 
             // Focus history below exposure log if space allows
             var remainH = rect.Y + rect.Height - y;
-            if (remainH > rowH * 3 && state.FocusHistory.Count > 0)
+            if (remainH > rowH * 3 && state.FocusHistory.Length > 0)
             {
                 FillRect(rect.X, y, rect.Width, 1, SeparatorColor);
                 y += pad;

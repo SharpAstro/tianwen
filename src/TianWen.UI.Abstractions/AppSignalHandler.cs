@@ -1,10 +1,13 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 
@@ -17,6 +20,14 @@ namespace TianWen.UI.Abstractions
     /// </summary>
     public class AppSignalHandler
     {
+        private readonly IServiceProvider _sp;
+        private readonly GuiAppState _appState;
+        private readonly PlannerState _plannerState;
+        private readonly SessionTabState _sessionState;
+        private readonly BackgroundTaskTracker _tracker;
+        private readonly CancellationTokenSource _cts;
+        private readonly IExternal _external;
+
         /// <summary>Set by the host after catalog load to enable autocomplete.</summary>
         public Action<string[]> SetAutoCompleteCache { get; }
 
@@ -26,6 +37,64 @@ namespace TianWen.UI.Abstractions
         /// list widget's scroll mechanism.
         /// </summary>
         public Action<int>? OnPlannerEnsureVisible { get; set; }
+
+        /// <summary>
+        /// Extracts filter configuration and optical design from the first OTA in the profile.
+        /// Shared between BuildScheduleSignal, StartSessionSignal, and host setup.
+        /// </summary>
+        public static (IReadOnlyList<InstalledFilter>? Filters, OpticalDesign Design) GetFirstOtaFilterConfig(ProfileData profileData)
+        {
+            var filters = profileData.OTAs.Length > 0
+                ? EquipmentActions.GetFilterConfig(profileData, 0)
+                : null;
+            var design = profileData.OTAs.Length > 0
+                ? profileData.OTAs[0].OpticalDesign
+                : OpticalDesign.Unknown;
+            return (filters is { Count: > 0 } ? filters : null, design);
+        }
+
+        /// <summary>
+        /// Applies site coordinates from a transform to the planner state.
+        /// </summary>
+        public static void ApplySiteFromTransform(PlannerState plannerState, Transform transform)
+        {
+            plannerState.SiteLatitude = transform.SiteLatitude;
+            plannerState.SiteLongitude = transform.SiteLongitude;
+            plannerState.SiteTimeZone = transform.SiteTimeZone;
+        }
+
+        /// <summary>
+        /// Initializes the planner: loads catalog, computes tonight's best targets,
+        /// restores persisted pins, and populates autocomplete.
+        /// Call via <see cref="BackgroundTaskTracker.Run"/> from the host.
+        /// </summary>
+        public async Task InitializePlannerAsync(Transform transform, CancellationToken cancellationToken)
+        {
+            var objectDb = _sp.GetRequiredService<ICelestialObjectDB>();
+            await objectDb.InitDBAsync(cancellationToken);
+            SetAutoCompleteCache(objectDb.CreateAutoCompleteList());
+            await PlannerActions.ComputeTonightsBestAsync(
+                _plannerState, objectDb, transform,
+                _plannerState.MinHeightAboveHorizon, cancellationToken);
+            if (_appState.ActiveProfile is { } profile)
+            {
+                await PlannerPersistence.TryLoadAsync(_plannerState, profile, _external, cancellationToken);
+            }
+            _plannerState.SelectedTargetIndex = 0;
+            _plannerState.NeedsRedraw = true;
+        }
+
+        /// <summary>
+        /// Loads saved session configuration for the active profile.
+        /// Call via <see cref="BackgroundTaskTracker.Run"/> from the host.
+        /// </summary>
+        public async Task LoadSessionConfigAsync(CancellationToken cancellationToken)
+        {
+            if (_appState.ActiveProfile is { } profile)
+            {
+                await SessionPersistence.TryLoadAsync(_sessionState, profile, _external, cancellationToken);
+            }
+        }
 
         public AppSignalHandler(
             IServiceProvider sp,
@@ -39,6 +108,14 @@ namespace TianWen.UI.Abstractions
             CancellationTokenSource cts,
             IExternal external)
         {
+            _sp = sp;
+            _appState = appState;
+            _plannerState = plannerState;
+            _sessionState = sessionState;
+            _tracker = tracker;
+            _cts = cts;
+            _external = external;
+
             var logger = external.AppLogger;
 
             // ---------------------------------------------------------------
@@ -355,6 +432,25 @@ namespace TianWen.UI.Abstractions
             sessionState.Bus = bus;
 
             // ---------------------------------------------------------------
+            // Schedule building (shared between planner preview and session start)
+            // ---------------------------------------------------------------
+            bus.Subscribe<BuildScheduleSignal>(signal =>
+            {
+                if (appState.ActiveProfile is not { } profile) return;
+                var transform = TransformFactory.FromProfile(profile, external.TimeProvider, out _);
+                if (transform is null) return;
+
+                var profileData = profile.Data ?? ProfileData.Empty;
+                var (filters, design) = GetFirstOtaFilterConfig(profileData);
+                PlannerActions.BuildSchedule(plannerState, sessionState, transform,
+                    defaultGain: 120, defaultOffset: 10,
+                    defaultSubExposure: TimeSpan.FromSeconds(120),
+                    defaultObservationTime: TimeSpan.FromMinutes(60),
+                    availableFilters: filters,
+                    opticalDesign: design);
+            });
+
+            // ---------------------------------------------------------------
             // Live session signals
             // ---------------------------------------------------------------
 
@@ -405,12 +501,7 @@ namespace TianWen.UI.Abstractions
                         return;
                     }
 
-                    var availableFilters = profileData.OTAs.Length > 0
-                        ? EquipmentActions.GetFilterConfig(profileData, 0)
-                        : null;
-                    var opticalDesign = profileData.OTAs.Length > 0
-                        ? profileData.OTAs[0].OpticalDesign
-                        : OpticalDesign.Unknown;
+                    var (filters, design) = GetFirstOtaFilterConfig(profileData);
 
                     var subExposure = sessionState.Configuration.DefaultSubExposure ?? TimeSpan.FromSeconds(120);
                     external.AppLogger.LogInformation("BuildSchedule: DefaultSubExposure={SubExposure} (config={Config})",
@@ -419,8 +510,8 @@ namespace TianWen.UI.Abstractions
                         defaultGain: null, defaultOffset: null,
                         defaultSubExposure: subExposure,
                         defaultObservationTime: TimeSpan.FromMinutes(60),
-                        availableFilters: availableFilters is { Count: > 0 } ? availableFilters : null,
-                        opticalDesign: opticalDesign);
+                        availableFilters: filters,
+                        opticalDesign: design);
 
                     if (sessionState.Schedule is not { Count: > 0 } schedule)
                     {

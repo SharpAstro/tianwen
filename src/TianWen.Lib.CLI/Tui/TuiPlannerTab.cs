@@ -1,8 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using Console.Lib;
 using DIR.Lib;
-using TianWen.Lib.Astrometry.SOFA;
-using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
 using TianWen.Lib.CLI.Plan;
 
@@ -14,9 +12,7 @@ namespace TianWen.Lib.CLI.Tui;
 /// </summary>
 internal sealed class TuiPlannerTab(
     PlannerState plannerState,
-    Transform transform,
-    string fontPath,
-    SignalBus? bus = null) : TuiTabBase
+    string fontPath) : TuiTabBase
 {
     private TextBar? _topBar;
     private TextBar? _statusBar;
@@ -53,6 +49,8 @@ internal sealed class TuiPlannerTab(
 
     protected override void RenderContent()
     {
+        if (!IsReady) return;
+
         // Top bar
         var siteLabel = $"{plannerState.SiteLatitude:F1}\u00b0N {plannerState.SiteLongitude:F1}\u00b0E";
         var darkLocal = plannerState.AstroDark.ToOffset(plannerState.SiteTimeZone);

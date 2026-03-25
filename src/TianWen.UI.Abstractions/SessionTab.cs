@@ -159,7 +159,6 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private void EnsureFieldVisible()
         {
-            var itemH = BaseItemHeight; // unscaled — scroll offset is in pixels
             // Approximate: each field is one row, groups add header + gap
             // Use the stored _fieldYPositions if available, otherwise estimate
             if (State.SelectedFieldIndex >= 0 && _fieldYPositions.Count > State.SelectedFieldIndex)

@@ -106,12 +106,10 @@ public class SessionPhaseTests(ITestOutputHelper output)
 
         // Cancel once we've been in Cooling for a few ramp steps
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var coolingEntered = false;
         ctx.Session.PhaseChanged += (_, e) =>
         {
             if (e.NewPhase == SessionPhase.Cooling)
             {
-                coolingEntered = true;
                 // Schedule cancellation 3 seconds into cooling (after a few ramp steps)
                 ctx.External.TimeProvider.CreateTimer(
                     _ => cts.Cancel(), null, TimeSpan.FromSeconds(3), Timeout.InfiniteTimeSpan);

@@ -54,6 +54,8 @@ internal sealed class TuiLiveSessionTab(
 
     protected override void RenderContent()
     {
+        if (!IsReady) return;
+
         liveState.PollSession();
 
         // Top bar: phase + activity
@@ -206,7 +208,7 @@ internal sealed class TuiLiveSessionTab(
             if (latestImage is not null && !ReferenceEquals(latestImage, _displayedImage) && _pendingSixel is null)
             {
                 _displayedImage = latestImage;
-                _pendingSixel = Task.Run(async () =>
+                _pendingSixel = Task.Run<byte[]?>(async () =>
                 {
                     var doc = await AstroImageDocument.CreateFromImageAsync(latestImage);
                     var pixW = Math.Min(320, (int)terminal.PixelSize.Width / 2);

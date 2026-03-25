@@ -1,8 +1,6 @@
 using Console.Lib;
 using DIR.Lib;
-using Microsoft.Extensions.DependencyInjection;
 using System.CommandLine;
-using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.CLI.Tui;
 using TianWen.Lib.Devices;
 using TianWen.UI.Abstractions;
@@ -59,13 +57,6 @@ internal class TuiSubCommand(
         sessionState.InitializeFromProfile(profile);
         var bus = new SignalBus();
         var tracker = new BackgroundTaskTracker();
-
-        // Load saved session configuration for the active profile
-        tracker.Run(async () =>
-        {
-            await SessionPersistence.TryLoadAsync(sessionState, profile, external, cts.Token);
-        }, "Load session config");
-
         var liveSessionState = new LiveSessionState();
 
         // Wire shared business logic
@@ -76,13 +67,14 @@ internal class TuiSubCommand(
             plannerState.NeedsRedraw = true;
         };
 
+        // Load saved session configuration for the active profile
+        tracker.Run(() => signalHandler.LoadSessionConfigAsync(cts.Token), "Load session config");
+
         // Resolve location from profile
         var transform = Plan.LocationResolver.ResolveFromProfile(consoleHost, profile, external.TimeProvider);
         if (transform is not null)
         {
-            plannerState.SiteLatitude = transform.SiteLatitude;
-            plannerState.SiteLongitude = transform.SiteLongitude;
-            plannerState.SiteTimeZone = transform.SiteTimeZone;
+            AppSignalHandler.ApplySiteFromTransform(plannerState, transform);
             plannerState.ActiveProfile = profile;
         }
 
@@ -93,47 +85,17 @@ internal class TuiSubCommand(
         var tabs = new Dictionary<GuiTab, ITuiTab>
         {
             [GuiTab.Equipment] = new TuiEquipmentTab(appState, eqState, equipmentContent, bus),
-            [GuiTab.Planner] = new TuiPlannerTab(plannerState,
-                transform ?? new TianWen.Lib.Astrometry.SOFA.Transform(external.TimeProvider), fontPath, bus),
+            [GuiTab.Planner] = new TuiPlannerTab(plannerState, fontPath),
             [GuiTab.Session] = new TuiSessionTab(appState, sessionState, plannerState, bus),
             [GuiTab.LiveSession] = new TuiLiveSessionTab(appState, liveSessionState, terminal, bus),
         };
 
-        // Subscribe to BuildScheduleSignal (same logic as GPU Program.cs)
-        bus.Subscribe<BuildScheduleSignal>(_ =>
-        {
-            if (appState.ActiveProfile is null || transform is null) return;
-            var profileData = appState.ActiveProfile.Data ?? ProfileData.Empty;
-            var availableFilters = profileData.OTAs.Length > 0
-                ? EquipmentActions.GetFilterConfig(profileData, 0)
-                : null;
-            var opticalDesign = profileData.OTAs.Length > 0
-                ? profileData.OTAs[0].OpticalDesign
-                : OpticalDesign.Unknown;
-
-            PlannerActions.BuildSchedule(plannerState, sessionState, transform,
-                defaultGain: 120, defaultOffset: 10,
-                defaultSubExposure: TimeSpan.FromSeconds(120),
-                defaultObservationTime: TimeSpan.FromMinutes(60),
-                availableFilters: availableFilters is { Count: > 0 } ? availableFilters : null,
-                opticalDesign: opticalDesign);
-        });
+        // BuildScheduleSignal is now handled inside AppSignalHandler — no host-level subscription needed
 
         // Kick off planner computation in background
         if (transform is not null)
         {
-            var objectDb = sp.GetRequiredService<ICelestialObjectDB>();
-            tracker.Run(async () =>
-            {
-                await objectDb.InitDBAsync(cts.Token);
-                signalHandler.SetAutoCompleteCache(objectDb.CreateAutoCompleteList());
-                await PlannerActions.ComputeTonightsBestAsync(
-                    plannerState, objectDb, transform,
-                    plannerState.MinHeightAboveHorizon, cts.Token);
-                await PlannerPersistence.TryLoadAsync(plannerState, appState.ActiveProfile, external, cts.Token);
-                plannerState.SelectedTargetIndex = 0;
-                plannerState.NeedsRedraw = true;
-            }, "Compute tonight's best targets");
+            tracker.Run(() => signalHandler.InitializePlannerAsync(transform, cts.Token), "Compute tonight's best targets");
         }
 
         // Build top-level chrome (tab bar + status bar)

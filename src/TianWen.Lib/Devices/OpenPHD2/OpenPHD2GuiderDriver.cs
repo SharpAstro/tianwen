@@ -25,6 +25,7 @@ SOFTWARE.
 */
 
 using DotNext.Threading;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Buffers;
 using System.Collections.Concurrent;
@@ -102,16 +103,24 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
 
     public async ValueTask DiscoverAsync(CancellationToken cancellationToken)
     {
-        if (!Connected)
+        try
         {
-            await ConnectAsync(cancellationToken).ConfigureAwait(false);
+            if (!Connected)
+            {
+                await ConnectAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            var profileNames = await GetEquipmentProfilesAsync(cancellationToken).ConfigureAwait(false);
+
+            var equipmentProfiles = profileNames.Select(_guiderDevice.WithProfile).ToList();
+
+            Interlocked.Exchange(ref _equipmentProfiles, equipmentProfiles);
         }
-
-        var profileNames = await GetEquipmentProfilesAsync(cancellationToken).ConfigureAwait(false);
-
-        var equipmentProfiles = profileNames.Select(_guiderDevice.WithProfile).ToList();
-
-        Interlocked.Exchange(ref _equipmentProfiles, equipmentProfiles);
+        catch (Exception ex) when (ex is System.Net.Sockets.SocketException or System.IO.IOException)
+        {
+            // PHD2 not running — not an error during discovery, just means no guider available
+            External.AppLogger.LogDebug(ex, "PHD2 not reachable during discovery");
+        }
     }
 
     /// <summary>

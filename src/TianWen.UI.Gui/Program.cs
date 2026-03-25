@@ -102,77 +102,24 @@ bus.Subscribe<DeactivateTextInputSignal>(_ =>
         appState.NeedsRedraw = true;
     }
 });
-Task? plannerTask = null;
+// BuildScheduleSignal is now handled inside AppSignalHandler — no host-level subscription needed
 
-// Signal subscription for building the schedule
-bus.Subscribe<BuildScheduleSignal>(signal =>
+// Load saved session configuration + initialize planner (shared logic in AppSignalHandler)
+var signalHandler = handlers.SignalHandler;
+tracker.Run(() => signalHandler.LoadSessionConfigAsync(cts.Token), "Load session config");
+
+if (appState.ActiveProfile is not null)
 {
-    if (appState.ActiveProfile is null) return;
     var transform = TransformFactory.FromProfile(appState.ActiveProfile, external.TimeProvider, out _);
     if (transform is not null)
     {
-        // Pass filter config and optical design from the first OTA in the active profile
-        var profileData = appState.ActiveProfile.Data ?? ProfileData.Empty;
-        var availableFilters = profileData.OTAs.Length > 0
-            ? EquipmentActions.GetFilterConfig(profileData, 0)
-            : null;
-        var opticalDesign = profileData.OTAs.Length > 0
-            ? profileData.OTAs[0].OpticalDesign
-            : OpticalDesign.Unknown;
-
-        PlannerActions.BuildSchedule(plannerState, guiRenderer.SessionState, transform,
-            defaultGain: 120, defaultOffset: 10,
-            defaultSubExposure: TimeSpan.FromSeconds(120),
-            defaultObservationTime: TimeSpan.FromMinutes(60),
-            availableFilters: availableFilters is { Count: > 0 } ? availableFilters : null,
-            opticalDesign: opticalDesign);
+        AppSignalHandler.ApplySiteFromTransform(plannerState, transform);
+        tracker.Run(() => signalHandler.InitializePlannerAsync(transform, cts.Token), "Compute tonight's best targets");
     }
-});
-
-// Load saved session configuration for the active profile
-if (appState.ActiveProfile is not null)
-{
-    tracker.Run(async () =>
+    else
     {
-        await SessionPersistence.TryLoadAsync(guiRenderer.SessionState, appState.ActiveProfile, external, cts.Token);
-    }, "Load session config");
-}
-
-if (appState.ActiveProfile is not null)
-{
-    plannerTask = Task.Run(async () =>
-    {
-        try
-        {
-            var objectDb = sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
-            var transform = TransformFactory.FromProfile(
-                appState.ActiveProfile, external.TimeProvider, out _);
-
-            if (transform is not null)
-            {
-                plannerState.SiteLatitude = transform.SiteLatitude;
-                plannerState.SiteLongitude = transform.SiteLongitude;
-                plannerState.SiteTimeZone = transform.SiteTimeZone;
-
-                await PlannerActions.ComputeTonightsBestAsync(
-                    plannerState, objectDb, transform,
-                    plannerState.MinHeightAboveHorizon, cts.Token);
-
-                await PlannerPersistence.TryLoadAsync(plannerState, appState.ActiveProfile, external, cts.Token);
-
-                handlers.SetAutoCompleteCache(objectDb.CreateAutoCompleteList());
-            }
-            else
-            {
-                appState.StatusMessage = "Set site coordinates in Equipment tab";
-            }
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Failed to compute tonight's best");
-            appState.StatusMessage = "Failed to load catalog";
-        }
-    }, cts.Token);
+        appState.StatusMessage = "Set site coordinates in Equipment tab";
+    }
 }
 
 // Auto-discover devices on startup via signal bus
@@ -237,12 +184,11 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
                         }
 
                         // Detect significant site change (>1°) — requires full rescan, not just recompute
-                        var siteChanged = Math.Abs(transform.SiteLatitude - plannerState.SiteLatitude) > 1.0
+                        var siteChanged = double.IsNaN(plannerState.SiteLatitude)
+                            || Math.Abs(transform.SiteLatitude - plannerState.SiteLatitude) > 1.0
                             || Math.Abs(transform.SiteLongitude - plannerState.SiteLongitude) > 1.0;
 
-                        plannerState.SiteLatitude = transform.SiteLatitude;
-                        plannerState.SiteLongitude = transform.SiteLongitude;
-                        plannerState.SiteTimeZone = transform.SiteTimeZone;
+                        AppSignalHandler.ApplySiteFromTransform(plannerState, transform);
 
                         // Fast path: if we already have targets and site didn't change significantly,
                         // just recompute night window + altitude profiles
@@ -256,7 +202,7 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
                                 plannerState, objectDb, transform,
                                 plannerState.MinHeightAboveHorizon, cts.Token);
                             await PlannerPersistence.TryLoadAsync(plannerState, appState.ActiveProfile, external, cts.Token);
-                            handlers.SetAutoCompleteCache(objectDb.CreateAutoCompleteList());
+                            signalHandler.SetAutoCompleteCache(objectDb.CreateAutoCompleteList());
                         }
                         appState.StatusMessage = null;
                     }
@@ -432,10 +378,6 @@ loop.Run(cts.Token);
 // Final cleanup — drain should complete quickly since we already waited in the loop
 cts.Cancel();
 
-if (plannerTask is not null)
-{
-    try { await plannerTask; } catch (OperationCanceledException) { }
-}
 await tracker.DrainAsync();
 
 guiRenderer.Dispose();

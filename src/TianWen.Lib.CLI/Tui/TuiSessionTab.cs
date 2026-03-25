@@ -39,6 +39,8 @@ internal sealed class TuiSessionTab(
 
     protected override void RenderContent()
     {
+        if (!IsReady) return;
+
         // Reinitialize per-OTA settings when the profile changes
         if (sessionState.NeedsReinitialization(appState.ActiveProfile))
         {
