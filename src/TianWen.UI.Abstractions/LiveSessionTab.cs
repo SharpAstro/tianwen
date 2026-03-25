@@ -733,8 +733,8 @@ namespace TianWen.UI.Abstractions
             }
 
             // Mount status section (below OTAs, full width)
-            var mountY = rect.Y + rect.Height - rowH * 4 - pad;
-            if (mountY > rect.Y + rect.Height * 0.4f) // only show if there's room
+            var mountY = rect.Y + rect.Height - rowH * 5 - pad;
+            if (mountY > rect.Y + rect.Height * 0.35f) // only show if there's room
             {
                 FillRect(rect.X, mountY, rect.Width, 1, SeparatorColor);
                 mountY += pad;
@@ -756,14 +756,20 @@ namespace TianWen.UI.Abstractions
                     smallFs, HeaderText, TextAlign.Near, TextAlign.Center);
                 mountY += rowH;
 
-                // Target RA/Dec (from scheduled observation — mount tracks this during imaging)
+                // Target name
                 if (state.ActiveObservation is { Target: var target })
                 {
-                    var raStr = TianWen.Lib.Astrometry.CoordinateUtils.HoursToHMS(target.RA, withFrac: false);
-                    var decStr = TianWen.Lib.Astrometry.CoordinateUtils.DegreesToDMS(target.Dec, withFrac: false);
-                    DrawText($"\u2609 {target.Name}  RA {raStr}  Dec {decStr}".AsSpan(), fontPath,
+                    DrawText($"\u2609 {target.Name}".AsSpan(), fontPath,
                         rect.X + pad, mountY, rect.Width - pad * 2, rowH,
                         smallFs, BodyText, TextAlign.Near, TextAlign.Center);
+                    mountY += rowH;
+
+                    // RA/Dec on separate line
+                    var raStr = TianWen.Lib.Astrometry.CoordinateUtils.HoursToHMS(target.RA, withFrac: false);
+                    var decStr = TianWen.Lib.Astrometry.CoordinateUtils.DegreesToDMS(target.Dec, withFrac: false);
+                    DrawText($"  RA {raStr}  Dec {decStr}".AsSpan(), fontPath,
+                        rect.X + pad, mountY, rect.Width - pad * 2, rowH,
+                        smallFs, DimText, TextAlign.Near, TextAlign.Center);
                     mountY += rowH;
                 }
 
