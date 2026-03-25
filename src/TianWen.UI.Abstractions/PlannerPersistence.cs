@@ -6,6 +6,7 @@ using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
@@ -207,9 +208,9 @@ public static class PlannerPersistence
     private static string GetSessionFilePath(Profile profile, PlannerState state, IExternal external)
     {
         // Use the site's local date (not the machine's) so the file key matches
-        // the "tonight" definition from TransformFactory (site-timezone-aware).
+        // the "tonight" definition from CalculateNightWindow (site-timezone-aware).
         var siteNow = external.TimeProvider.GetUtcNow().ToOffset(state.SiteTimeZone);
-        var date = state.PlanningDate?.Date ?? siteNow.Date;
+        var date = state.PlanningDate?.Date ?? CoordinateUtils.AstronomicalEveningDate(siteNow);
         var profileId = profile.ProfileId.ToString("D");
         var dateStr = date.ToString("yyyy-MM-dd");
 
