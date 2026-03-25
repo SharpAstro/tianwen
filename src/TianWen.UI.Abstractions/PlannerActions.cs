@@ -1126,46 +1126,7 @@ public static class PlannerActions
             return;
         }
 
-        var pinnedCount = state.PinnedCount;
-
-        // When handoff sliders are set, use them to define the schedule windows
-        // (the user manually positioned them in the altitude chart)
-        if (pinnedCount > 0 && state.HandoffSliders.Count == pinnedCount - 1)
-        {
-            var siderealTimeAtDark = Transform.CalculateLocalSiderealTime(
-                state.AstroDark.UtcDateTime, transform.SiteLongitude);
-
-            var observations = ImmutableArray.CreateBuilder<ScheduledObservation>(pinnedCount);
-            for (var i = 0; i < pinnedCount; i++)
-            {
-                var proposal = state.Proposals[i];
-                var start = i == 0 ? state.AstroDark : state.HandoffSliders[i - 1];
-                var end = i >= pinnedCount - 1 ? state.AstroTwilight : state.HandoffSliders[i];
-                var duration = end - start;
-
-                // AcrossMeridian: target transits during this observation window
-                var hourAngle = CoordinateUtils.ConditionHA(siderealTimeAtDark - proposal.Target.RA);
-                var transitTime = state.AstroDark - TimeSpan.FromHours(hourAngle);
-                var acrossMeridian = transitTime >= start && transitTime <= end;
-
-                var subExposure = proposal.SubExposure ?? defaultSubExposure;
-                var filterPlan = availableFilters is { Count: > 0 }
-                    ? FilterPlanBuilder.BuildAutoFilterPlan(availableFilters, subExposure, subExposure * 3)
-                    : FilterPlanBuilder.BuildSingleFilterPlan(subExposure);
-
-                observations.Add(new ScheduledObservation(
-                    proposal.Target, start, duration, acrossMeridian,
-                    filterPlan, proposal.Gain ?? defaultGain, proposal.Offset ?? defaultOffset,
-                    proposal.Priority));
-            }
-
-            sessionState.Schedule = new ScheduledObservationTree(observations.MoveToImmutable());
-            state.NeedsRedraw = true;
-            sessionState.NeedsRedraw = true;
-            return;
-        }
-
-        // Fallback: automatic scheduling via ObservationScheduler
+        // Schedule all pinned proposals via the automatic scheduler
         sessionState.Schedule = ObservationScheduler.Schedule(
             state.Proposals.ToArray(),
             transform,
