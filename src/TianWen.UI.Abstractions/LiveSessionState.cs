@@ -61,6 +61,9 @@ namespace TianWen.UI.Abstractions
         /// <summary>Per-camera exposure state for countdown display.</summary>
         public IReadOnlyList<CameraExposureState> CameraStates { get; set; } = [];
 
+        /// <summary>Polled mount state (RA, Dec, HA, pier side, slewing, tracking).</summary>
+        public MountState MountState { get; set; }
+
         /// <summary>Fine-grained activity description within the current phase.</summary>
         public string? CurrentActivity { get; set; }
 
@@ -110,6 +113,7 @@ namespace TianWen.UI.Abstractions
             CoolingSamples = session.CoolingSamples;
             PhaseTimeline = session.PhaseTimeline;
             CameraStates = session.CameraStates;
+            MountState = session.MountState;
             CurrentActivity = session.CurrentActivity;
             LastFramePath = session.LastFramePath;
             LastCapturedImages = session.LastCapturedImages;

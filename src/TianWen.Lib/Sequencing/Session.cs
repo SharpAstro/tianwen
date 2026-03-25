@@ -50,6 +50,9 @@ internal partial record Session(
 
     public SessionPhase Phase => _phase;
     public string? CurrentActivity => _currentActivity;
+    public MountState MountState => _mountState;
+    private MountState _mountState;
+
     public string? LastFramePath => _lastFramePath;
     private volatile string? _lastFramePath;
 
@@ -103,6 +106,54 @@ internal partial record Session(
         _phaseTimeline.Enqueue(new PhaseTimestamp(newPhase, External.TimeProvider.GetUtcNow()));
         External.AppLogger.LogInformation("Session phase: {OldPhase} → {NewPhase}", old, newPhase);
         PhaseChanged?.Invoke(this, new SessionPhaseChangedEventArgs(old, newPhase));
+    }
+
+    /// <summary>
+    /// Polls focuser position, temperature, and moving state for all OTAs.
+    /// Updates <see cref="_cameraStates"/> in place. Called each imaging tick.
+    /// </summary>
+    internal async ValueTask PollDeviceStatesAsync(CancellationToken cancellationToken)
+    {
+        // Poll focuser state per OTA
+        for (var i = 0; i < Setup.Telescopes.Length && i < _cameraStates.Length; i++)
+        {
+            var telescope = Setup.Telescopes[i];
+            var current = _cameraStates[i];
+
+            var focPos = current.FocusPosition;
+            var focTemp = current.FocuserTemperature;
+            var focMoving = current.FocuserIsMoving;
+
+            if (telescope.Focuser?.Driver is { Connected: true } focuser)
+            {
+                focPos = await CatchAsync(focuser.GetPositionAsync, cancellationToken, focPos);
+                focTemp = await CatchAsync(focuser.GetTemperatureAsync, cancellationToken, focTemp);
+                focMoving = await CatchAsync(focuser.GetIsMovingAsync, cancellationToken, focMoving);
+            }
+
+            if (focPos != current.FocusPosition || focTemp != current.FocuserTemperature || focMoving != current.FocuserIsMoving)
+            {
+                _cameraStates[i] = current with
+                {
+                    FocusPosition = focPos,
+                    FocuserTemperature = focTemp,
+                    FocuserIsMoving = focMoving
+                };
+            }
+        }
+
+        // Poll mount state
+        var mount = Setup.Mount.Driver;
+        if (mount.Connected)
+        {
+            _mountState = new MountState(
+                RightAscension: await CatchAsync(mount.GetRightAscensionAsync, cancellationToken, _mountState.RightAscension),
+                Declination: await CatchAsync(mount.GetDeclinationAsync, cancellationToken, _mountState.Declination),
+                HourAngle: await CatchAsync(mount.GetHourAngleAsync, cancellationToken, _mountState.HourAngle),
+                PierSide: await CatchAsync(mount.GetSideOfPierAsync, cancellationToken, _mountState.PierSide),
+                IsSlewing: await CatchAsync(mount.IsSlewingAsync, cancellationToken, _mountState.IsSlewing),
+                IsTracking: await CatchAsync(mount.IsTrackingAsync, cancellationToken, _mountState.IsTracking));
+        }
     }
 
     internal void AppendGuideErrorSample(GuideErrorSample sample)
