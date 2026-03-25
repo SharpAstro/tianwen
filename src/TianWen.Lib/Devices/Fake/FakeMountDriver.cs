@@ -25,8 +25,8 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
 
     // --- Mount state (guarded by _sem) ---
     private readonly SemaphoreSlim _sem = new SemaphoreSlim(1, 1);
-    private double _ra; // hours (0..24) — base RA without sidereal tracking
-    private double _dec; // degrees (-90..90)
+    private double _ra = 6; // hours (0..24) — base RA; overridden on unpark/connect
+    private double _dec; // degrees (-90..90); set to site latitude on unpark/connect
     private double _targetRa;
     private double _targetDec;
     private bool _isTracking;
@@ -283,10 +283,16 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
         return ValueTask.CompletedTask;
     }
 
-    public ValueTask UnparkAsync(CancellationToken cancellationToken)
+    public async ValueTask UnparkAsync(CancellationToken cancellationToken)
     {
         _isParked = false;
-        return ValueTask.CompletedTask;
+        // Home position: on the meridian at site latitude
+        _dec = _siteLatitude;
+        IMountDriver self = this;
+        if (await self.TryGetTransformAsync(cancellationToken) is { } transform)
+        {
+            _ra = transform.LocalSiderealTime;
+        }
     }
 
     // --- Coordinates (computed on-demand with sidereal tracking + error injection) ---
