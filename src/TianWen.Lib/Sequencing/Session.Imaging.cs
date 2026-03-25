@@ -257,6 +257,9 @@ internal partial record Session
         {
             tickCount++;
 
+            // Poll all device states (focuser temp/pos/moving, mount RA/Dec/HA/pier)
+            await PollDeviceStatesAsync(cancellationToken);
+
             var isGuiding = await CatchAsync(guider.Driver.IsGuidingAsync, cancellationToken).ConfigureAwait(false);
 
             // Poll guide stats each tick for the guide graph

@@ -407,7 +407,20 @@ namespace TianWen.UI.Abstractions
                 rect.X + pillW + pad * 2, rect.Y, rect.Width * 0.45f, rect.Height,
                 fontSize, BodyText, TextAlign.Near, TextAlign.Center);
 
-            // (Frame count + exposure time moved to mount section)
+            // Obs / frame count / exposure time (top right)
+            var obsIdx = state.CurrentObservationIndex;
+            var obsCount = state.ActiveSession?.Observations.Count ?? 0;
+            var progressParts = $"Obs: {(obsIdx >= 0 ? obsIdx + 1 : 0)}/{obsCount}";
+            if (state.ActiveObservation is { } topObs)
+            {
+                var subSec = topObs.SubExposure.TotalSeconds;
+                var estimatedFrames = subSec > 0 ? (int)(topObs.Duration.TotalSeconds / (subSec + 10)) : 0;
+                progressParts += $"  Frames: {state.TotalFramesWritten}/~{estimatedFrames}";
+            }
+            progressParts += $"  Exp: {LiveSessionActions.FormatDuration(state.TotalExposureTime)}";
+            DrawText(progressParts.AsSpan(), fontPath,
+                rect.X + rect.Width * 0.5f, rect.Y, rect.Width * 0.45f, rect.Height,
+                fontSize, DimText, TextAlign.Far, TextAlign.Center);
         }
 
         // -----------------------------------------------------------------------
@@ -761,60 +774,43 @@ namespace TianWen.UI.Abstractions
             }
 
             // Mount status section (below OTAs, full width)
-            var mountY = rect.Y + rect.Height - rowH * 5 - pad;
+            var mountY = rect.Y + rect.Height - rowH * 4 - pad;
             if (mountY > rect.Y + rect.Height * 0.35f) // only show if there's room
             {
                 FillRect(rect.X, mountY, rect.Width, 1, SeparatorColor);
                 mountY += pad;
 
-                // Mount name + status dot (green=tracking, yellow=slewing, grey=idle)
+                // Mount name + status dot
                 var mountName = session.Setup.Mount.Device.DisplayName;
-                var isSlewing = state.CurrentActivity is { } act && act.Contains("Slew", StringComparison.OrdinalIgnoreCase);
-                var isPlateSolving = state.CurrentActivity is { } act2 && act2.Contains("Plate", StringComparison.OrdinalIgnoreCase);
-                var isGuiding = state.LastGuideStats is not null;
-                var dotColor = isSlewing ? StatusSlewing
-                    : isPlateSolving ? StatusSolving
-                    : isGuiding ? StatusTracking
+                var ms = state.MountState;
+                var dotColor = ms.IsSlewing ? StatusSlewing
+                    : ms.IsTracking ? StatusTracking
                     : DimText;
                 var dotSize = rowH * 0.4f;
                 FillRect(rect.X + pad, mountY + (rowH - dotSize) / 2, dotSize, dotSize, dotColor);
-                var mountStatus = isSlewing ? "Slewing" : isPlateSolving ? "Solving" : isGuiding ? "Tracking" : "Idle";
-                DrawText($"{mountName}  {mountStatus}".AsSpan(), fontPath,
+                var pierLabel = ms.PierSide is Lib.Devices.PointingState.Normal ? "E" : ms.PierSide is Lib.Devices.PointingState.ThroughThePole ? "W" : "";
+                var mountStatus = ms.IsSlewing ? "Slewing" : ms.IsTracking ? "Tracking" : "Idle";
+                DrawText($"{mountName}  {mountStatus}  {pierLabel}".AsSpan(), fontPath,
                     rect.X + pad + dotSize + pad, mountY, rect.Width - pad * 3 - dotSize, rowH,
                     smallFs, HeaderText, TextAlign.Near, TextAlign.Center);
                 mountY += rowH;
 
-                // Target name
+                // Live RA/Dec + HA from polled mount state
+                var raStr = TianWen.Lib.Astrometry.CoordinateUtils.HoursToHMS(ms.RightAscension, withFrac: false);
+                var decStr = TianWen.Lib.Astrometry.CoordinateUtils.DegreesToDMS(ms.Declination, withFrac: false);
+                var haStr = $"HA {ms.HourAngle:+0.00;-0.00}h";
+                DrawText($"RA {raStr}  Dec {decStr}  {haStr}".AsSpan(), fontPath,
+                    rect.X + pad, mountY, rect.Width - pad * 2, rowH,
+                    smallFs, BodyText, TextAlign.Near, TextAlign.Center);
+                mountY += rowH;
+
+                // Target name (if observing)
                 if (state.ActiveObservation is { Target: var target })
                 {
                     DrawText($"\u2609 {target.Name}".AsSpan(), fontPath,
                         rect.X + pad, mountY, rect.Width - pad * 2, rowH,
-                        smallFs, BodyText, TextAlign.Near, TextAlign.Center);
-                    mountY += rowH;
-
-                    // RA/Dec on separate line
-                    var raStr = TianWen.Lib.Astrometry.CoordinateUtils.HoursToHMS(target.RA, withFrac: false);
-                    var decStr = TianWen.Lib.Astrometry.CoordinateUtils.DegreesToDMS(target.Dec, withFrac: false);
-                    DrawText($"  RA {raStr}  Dec {decStr}".AsSpan(), fontPath,
-                        rect.X + pad, mountY, rect.Width - pad * 2, rowH,
                         smallFs, DimText, TextAlign.Near, TextAlign.Center);
-                    mountY += rowH;
                 }
-
-                // Obs counter + frame count / projected + total exposure
-                var obsIdx = state.CurrentObservationIndex;
-                var obsCount = session.Observations.Count;
-                var frameInfo = $"Obs: {(obsIdx >= 0 ? obsIdx + 1 : 0)}/{obsCount}";
-                if (state.ActiveObservation is { } obs)
-                {
-                    var subSec = obs.SubExposure.TotalSeconds;
-                    var estimatedFrames = subSec > 0 ? (int)(obs.Duration.TotalSeconds / (subSec + 10)) : 0;
-                    frameInfo += $"  Frames: {state.TotalFramesWritten}/~{estimatedFrames}";
-                }
-                frameInfo += $"  Exp: {LiveSessionActions.FormatDuration(state.TotalExposureTime)}";
-                DrawText(frameInfo.AsSpan(), fontPath,
-                    rect.X + pad, mountY, rect.Width - pad * 2, rowH,
-                    smallFs, BodyText, TextAlign.Near, TextAlign.Center);
             }
         }
 
