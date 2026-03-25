@@ -58,6 +58,9 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 NowNeedleColor   = new RGBAColor32(0xff, 0xff, 0xff, 0xcc);
         private static readonly RGBAColor32 TimelineBg       = new RGBAColor32(0x18, 0x18, 0x22, 0xff);
         private static readonly RGBAColor32 TimelineTickColor = new RGBAColor32(0x55, 0x55, 0x66, 0xff);
+        private static readonly RGBAColor32 StatusSlewing    = new RGBAColor32(0xcc, 0xcc, 0x44, 0xff); // yellow
+        private static readonly RGBAColor32 StatusSolving    = new RGBAColor32(0x44, 0xaa, 0xcc, 0xff); // cyan
+        private static readonly RGBAColor32 StatusTracking   = new RGBAColor32(0x44, 0xcc, 0x44, 0xff); // green
 
         // Per-camera color palette (temp = solid, power = same hue lighter)
         private static readonly RGBAColor32[] CameraTempColors =
@@ -720,19 +723,39 @@ namespace TianWen.UI.Abstractions
             }
 
             // Mount status section (below OTAs, full width)
-            var mountY = rect.Y + rect.Height - rowH * 3 - pad;
-            if (mountY > rect.Y + rect.Height * 0.5f) // only show if there's room
+            var mountY = rect.Y + rect.Height - rowH * 4 - pad;
+            if (mountY > rect.Y + rect.Height * 0.4f) // only show if there's room
             {
                 FillRect(rect.X, mountY, rect.Width, 1, SeparatorColor);
                 mountY += pad;
 
-                // Mount name + target
+                // Mount name + status dot (green=tracking, yellow=slewing, grey=idle)
                 var mountName = session.Setup.Mount.Device.DisplayName;
-                var targetName = state.ActiveObservation?.Target.Name ?? "--";
-                DrawText($"\u2316 {mountName}  \u2192 {targetName}".AsSpan(), fontPath,
-                    rect.X + pad, mountY, rect.Width - pad * 2, rowH,
+                var isSlewing = state.CurrentActivity is { } act && act.Contains("Slew", StringComparison.OrdinalIgnoreCase);
+                var isPlateSolving = state.CurrentActivity is { } act2 && act2.Contains("Plate", StringComparison.OrdinalIgnoreCase);
+                var isGuiding = state.LastGuideStats is not null;
+                var dotColor = isSlewing ? StatusSlewing
+                    : isPlateSolving ? StatusSolving
+                    : isGuiding ? StatusTracking
+                    : DimText;
+                var dotSize = rowH * 0.4f;
+                FillRect(rect.X + pad, mountY + (rowH - dotSize) / 2, dotSize, dotSize, dotColor);
+                var mountStatus = isSlewing ? "Slewing" : isPlateSolving ? "Solving" : isGuiding ? "Tracking" : "Idle";
+                DrawText($"{mountName}  {mountStatus}".AsSpan(), fontPath,
+                    rect.X + pad + dotSize + pad, mountY, rect.Width - pad * 3 - dotSize, rowH,
                     smallFs, HeaderText, TextAlign.Near, TextAlign.Center);
                 mountY += rowH;
+
+                // Target RA/Dec (from scheduled observation — mount tracks this during imaging)
+                if (state.ActiveObservation is { Target: var target })
+                {
+                    var raStr = TianWen.Lib.Astrometry.CoordinateUtils.HoursToHMS(target.RA, withFrac: false);
+                    var decStr = TianWen.Lib.Astrometry.CoordinateUtils.DegreesToDMS(target.Dec, withFrac: false);
+                    DrawText($"\u2609 {target.Name}  RA {raStr}  Dec {decStr}".AsSpan(), fontPath,
+                        rect.X + pad, mountY, rect.Width - pad * 2, rowH,
+                        smallFs, BodyText, TextAlign.Near, TextAlign.Center);
+                    mountY += rowH;
+                }
 
                 // Observation counter + guider status
                 var obsIdx = state.CurrentObservationIndex;
