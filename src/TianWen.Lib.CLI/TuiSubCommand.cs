@@ -96,7 +96,7 @@ internal class TuiSubCommand(
             [GuiTab.Planner] = new TuiPlannerTab(plannerState,
                 transform ?? new TianWen.Lib.Astrometry.SOFA.Transform(external.TimeProvider), fontPath, bus),
             [GuiTab.Session] = new TuiSessionTab(appState, sessionState, plannerState, bus),
-            [GuiTab.LiveSession] = new TuiLiveSessionTab(appState, liveSessionState, bus),
+            [GuiTab.LiveSession] = new TuiLiveSessionTab(appState, liveSessionState, terminal, bus),
         };
 
         // Subscribe to BuildScheduleSignal (same logic as GPU Program.cs)
