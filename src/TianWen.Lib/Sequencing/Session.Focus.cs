@@ -361,9 +361,11 @@ internal partial record Session
             // Update camera state for the UI
             if (telescopeIndex < _cameraStates.Length)
             {
+                var focTemp = await CatchAsync(focuser.GetTemperatureAsync, cancellationToken, double.NaN);
                 _cameraStates[telescopeIndex] = new CameraExposureState(
                     telescopeIndex, External.TimeProvider.GetUtcNow(), autoFocusExposure,
-                    i + 1, $"Focus {i + 1}/{stepCount}", targetPos, Devices.CameraState.Exposing);
+                    i + 1, $"Focus {i + 1}/{stepCount}", targetPos, Devices.CameraState.Exposing,
+                    focTemp, FocuserIsMoving: false);
             }
 
             await camera.StartExposureAsync(autoFocusExposure, cancellationToken: cancellationToken);

@@ -337,8 +337,11 @@ internal partial record Session
                     filterFrameCounters[i]++;
                     var frameNo = ++frameNumbers[i];
 
+                    var focuserTemp = await CatchAsync(async ct => telescope.Focuser?.Driver is { Connected: true } f ? await f.GetTemperatureAsync(ct) : double.NaN, cancellationToken, double.NaN);
+                    var focuserMoving = await CatchAsync(async ct => telescope.Focuser?.Driver is { Connected: true } f && await f.GetIsMovingAsync(ct), cancellationToken, false);
                     _cameraStates[i] = new CameraExposureState(i, expStartTimes[i], frameExpTime, frameNo,
-                        camerDriver.Filter.DisplayName, camerDriver.FocusPosition, Devices.CameraState.Exposing);
+                        camerDriver.Filter.DisplayName, camerDriver.FocusPosition, Devices.CameraState.Exposing,
+                        focuserTemp, focuserMoving);
 
                     External.AppLogger.LogInformation("Camera #{CameraNumber} {CamerName} starting {ExposureStartTime} exposure of frame #{FrameNo} (filter: {Filter}).",
                         i + 1, camerDriver.Name, frameExpTime, frameNo, camerDriver.Filter);
