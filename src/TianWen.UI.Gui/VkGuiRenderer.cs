@@ -73,9 +73,8 @@ namespace TianWen.UI.Gui
         [
             ("\U0001F52D", GuiTab.Equipment),   // 🔭 Telescope
             ("\U0001F4C5", GuiTab.Planner),     // 📅 Calendar
-            ("\U0001F3AF", GuiTab.Session),     // 🎯 Session
-            ("\U0001F4F7", GuiTab.LiveSession),  // 📷 Live Session
-            ("\U0001F30C", GuiTab.Viewer),      // 🌌 Milky Way
+            ("\U0001F4F7", GuiTab.Session),     // 📷 Session Config
+            ("\U0001F30C", GuiTab.LiveSession),  // 🌌 Live Session
         ];
 
         // Sidebar colors
@@ -144,7 +143,6 @@ namespace TianWen.UI.Gui
                 GuiTab.Equipment => _equipmentTab,
                 GuiTab.Session => _sessionTab,
                 GuiTab.LiveSession => _liveSessionTab,
-                GuiTab.Viewer => _viewerTab,
                 _ => null
             };
 
@@ -198,7 +196,7 @@ namespace TianWen.UI.Gui
                 var btnY = startY + i * buttonSize;
                 var isActive = appState.ActiveTab == tab;
                 var isLocked = (noProfile && tab is not GuiTab.Equipment)
-                            || (LiveSessionState.IsRunning && tab is GuiTab.Equipment or GuiTab.Session);
+                            || (LiveSessionState.IsRunning && tab is GuiTab.Equipment);
                 var isHover = !isLocked && mouseX >= 0 && mouseX < sw
                            && mouseY >= btnY && mouseY < btnY + buttonSize;
 
@@ -264,6 +262,7 @@ namespace TianWen.UI.Gui
                 var arrowFontSize = FontSize * 0.9f;
                 var arrowBg = new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
                 var sessionRunning = LiveSessionState.IsRunning;
+                SessionState.IsSessionRunning = sessionRunning;
 
                 if (!sessionRunning)
                 {
@@ -366,12 +365,6 @@ namespace TianWen.UI.Gui
                 case GuiTab.LiveSession:
                     _liveSessionTab.Render(LiveSessionState, contentRect, DpiScale,
                         _fontPath ?? "monospace", timeProvider);
-                    break;
-
-                case GuiTab.Viewer:
-                    _viewerTab.DpiScale = DpiScale;
-                    _viewerTab.Resize((uint)contentRect.Width, (uint)contentRect.Height);
-                    _viewerTab.Render(null, viewerState);
                     break;
 
                 default:

@@ -6,7 +6,6 @@ namespace TianWen.UI.Abstractions;
 public enum GuiTab
 {
     Planner,
-    Viewer,
     Session,
     Equipment,
     LiveSession

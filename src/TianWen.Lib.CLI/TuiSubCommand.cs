@@ -243,7 +243,6 @@ internal class TuiSubCommand(
             ConsoleKey.D2 or ConsoleKey.F2 => GuiTab.Planner,
             ConsoleKey.D3 or ConsoleKey.F3 => GuiTab.Session,
             ConsoleKey.D4 or ConsoleKey.F4 => GuiTab.LiveSession,
-            ConsoleKey.D5 or ConsoleKey.F5 => GuiTab.Viewer,
             _ => (GuiTab?)null
         };
 
