@@ -61,6 +61,9 @@ public interface ISession : IAsyncDisposable
     /// <summary>Polled mount state (RA, Dec, HA, pier side, slewing, tracking).</summary>
     MountState MountState { get; }
 
+    /// <summary>Per-camera latest frame metrics (star count, HFD, FWHM). One per OTA.</summary>
+    FrameMetrics[] LastFrameMetrics { get; }
+
     /// <summary>
     /// Path to the most recently written FITS file, or null if no frames written yet.
     /// Used by the UI to show a preview of the last captured frame.

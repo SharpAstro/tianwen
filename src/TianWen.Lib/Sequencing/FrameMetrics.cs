@@ -11,7 +11,7 @@ namespace TianWen.Lib.Sequencing;
 /// acquisition settings (e.g., short high-gain auto-focus exposures vs. longer imaging exposures).
 /// Already keyed per-telescope since each OTA has different optics and thus different HFD/FWHM.
 /// </summary>
-internal readonly record struct FrameMetrics(int StarCount, float MedianHfd, float MedianFwhm, TimeSpan Exposure, short Gain)
+public readonly record struct FrameMetrics(int StarCount, float MedianHfd, float MedianFwhm, TimeSpan Exposure, short Gain)
 {
     public readonly bool IsValid => StarCount > 3 && MedianHfd > 0 && !float.IsNaN(MedianHfd);
 

@@ -73,6 +73,9 @@ namespace TianWen.UI.Abstractions
         /// <summary>The most recently captured images per camera for live preview. Null entries until first frame per camera.</summary>
         public Image?[] LastCapturedImages { get; set; } = [];
 
+        /// <summary>Per-camera latest frame analysis result (star count, HFD, frame number).</summary>
+        public FrameMetrics[] LastFrameMetrics { get; set; } = [];
+
         /// <summary>Site timezone offset for displaying times in local site time.</summary>
         public TimeSpan SiteTimeZone { get; set; }
 
@@ -117,6 +120,7 @@ namespace TianWen.UI.Abstractions
             CurrentActivity = session.CurrentActivity;
             LastFramePath = session.LastFramePath;
             LastCapturedImages = session.LastCapturedImages;
+            LastFrameMetrics = session.LastFrameMetrics;
         }
     }
 }
