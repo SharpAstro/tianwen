@@ -226,7 +226,7 @@ namespace TianWen.UI.Abstractions
                 if (State.IsSessionRunning)
                 {
                     FillRect(btnX, btnY, btnW, btnH, DisabledBtnBg);
-                    DrawText("Session running\u2026".AsSpan(), fontPath,
+                    DrawText("Session running\u2026", fontPath,
                         btnX, btnY, btnW, btnH,
                         fs, DisabledBtnText, TextAlign.Center, TextAlign.Center);
                 }
@@ -239,7 +239,7 @@ namespace TianWen.UI.Abstractions
                 else
                 {
                     FillRect(btnX, btnY, btnW, btnH, DisabledBtnBg);
-                    DrawText("Start (tonight only)".AsSpan(), fontPath,
+                    DrawText("Start (tonight only)", fontPath,
                         btnX, btnY, btnW, btnH, fs, DisabledBtnText, TextAlign.Center, TextAlign.Center);
                 }
             }
@@ -270,7 +270,7 @@ namespace TianWen.UI.Abstractions
             var headerRect = camLayout.Dock(PixelDockStyle.Top, headerH);
 
             FillRect(headerRect.X, headerRect.Y, headerRect.Width, headerRect.Height, HeaderBg);
-            DrawText("Camera Settings".AsSpan(), fontPath,
+            DrawText("Camera Settings", fontPath,
                 headerRect.X + padding, headerRect.Y, headerRect.Width - padding * 2, headerRect.Height,
                 fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
 
@@ -278,7 +278,7 @@ namespace TianWen.UI.Abstractions
 
             if (State.CameraSettings.Count == 0)
             {
-                DrawText("No cameras configured.".AsSpan(), fontPath,
+                DrawText("No cameras configured.", fontPath,
                     listRect.X + padding, listRect.Y, listRect.Width - padding * 2, itemH,
                     fontSize * 0.9f, HintText, TextAlign.Center, TextAlign.Center);
                 return;
@@ -294,7 +294,7 @@ namespace TianWen.UI.Abstractions
                 // OTA header: name + f-ratio
                 FillRect(listRect.X, cursor, listRect.Width, itemH, OtaHeaderBg);
                 var fRatioStr = !double.IsNaN(cam.FRatio) ? $"  f/{cam.FRatio:0.#}" : "";
-                DrawText($"{cam.OtaName}{fRatioStr}".AsSpan(), fontPath,
+                DrawText($"{cam.OtaName}{fRatioStr}", fontPath,
                     listRect.X + padding, cursor, listRect.Width - padding * 2, itemH,
                     fontSize, BodyText, TextAlign.Near, TextAlign.Center);
                 cursor += itemH;
@@ -304,14 +304,14 @@ namespace TianWen.UI.Abstractions
                 var controlX = listRect.X + padding + labelW;
 
                 FillRect(listRect.X, cursor, listRect.Width, itemH, PanelBg);
-                DrawText("Setpoint".AsSpan(), fontPath,
+                DrawText("Setpoint", fontPath,
                     listRect.X + padding, cursor, labelW, itemH,
                     fontSize * 0.9f, DimText, TextAlign.Near, TextAlign.Center);
 
                 RenderButton("\u2212", controlX, cursor, stepperBtnW, itemH, fontPath, fontSize,
                     StepperBg, BodyText, $"Dec:Setpoint:{i}",
                     _ => { State.CameraSettings[capturedI].SetpointTempC = (sbyte)Math.Max(State.CameraSettings[capturedI].SetpointTempC - 1, -40); State.IsDirty = true; State.NeedsRedraw = true; });
-                DrawText($"{cam.SetpointTempC}°C".AsSpan(), fontPath,
+                DrawText($"{cam.SetpointTempC}°C", fontPath,
                     controlX + stepperBtnW, cursor, valueW, itemH,
                     fontSize, BodyText, TextAlign.Center, TextAlign.Center);
                 RenderButton("+", controlX + stepperBtnW + valueW, cursor, stepperBtnW, itemH, fontPath, fontSize,
@@ -321,7 +321,7 @@ namespace TianWen.UI.Abstractions
 
                 // Gain row
                 FillRect(listRect.X, cursor, listRect.Width, itemH, RowAltBg);
-                DrawText("Gain".AsSpan(), fontPath,
+                DrawText("Gain", fontPath,
                     listRect.X + padding, cursor, labelW, itemH,
                     fontSize * 0.9f, DimText, TextAlign.Near, TextAlign.Center);
 
@@ -348,7 +348,7 @@ namespace TianWen.UI.Abstractions
                     RenderButton("\u2212", controlX, cursor, stepperBtnW, itemH, fontPath, fontSize,
                         StepperBg, BodyText, $"Dec:Gain:{i}",
                         _ => { State.CameraSettings[capturedI].Gain = Math.Max(State.CameraSettings[capturedI].Gain - 10, 0); State.IsDirty = true; State.NeedsRedraw = true; });
-                    DrawText($"{cam.Gain}".AsSpan(), fontPath,
+                    DrawText($"{cam.Gain}", fontPath,
                         controlX + stepperBtnW, cursor, valueW, itemH,
                         fontSize, BodyText, TextAlign.Center, TextAlign.Center);
                     RenderButton("+", controlX + stepperBtnW + valueW, cursor, stepperBtnW, itemH, fontPath, fontSize,
@@ -382,7 +382,7 @@ namespace TianWen.UI.Abstractions
             var headerRect = obsLayout.Dock(PixelDockStyle.Top, headerH);
 
             FillRect(headerRect.X, headerRect.Y, headerRect.Width, headerRect.Height, HeaderBg);
-            DrawText("Observations".AsSpan(), fontPath,
+            DrawText("Observations", fontPath,
                 headerRect.X + padding, headerRect.Y, headerRect.Width - padding * 2, headerRect.Height,
                 fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
 
@@ -390,10 +390,10 @@ namespace TianWen.UI.Abstractions
 
             if (plannerState.Proposals.Count == 0)
             {
-                DrawText("No targets pinned.".AsSpan(), fontPath,
+                DrawText("No targets pinned.", fontPath,
                     listRect.X + padding, listRect.Y, listRect.Width - padding * 2, rowH,
                     fontSize * 0.9f, HintText, TextAlign.Center, TextAlign.Center);
-                DrawText("Use the Planner tab to add targets.".AsSpan(), fontPath,
+                DrawText("Use the Planner tab to add targets.", fontPath,
                     listRect.X + padding, listRect.Y + rowH, listRect.Width - padding * 2, rowH,
                     fontSize * 0.9f, HintText, TextAlign.Center, TextAlign.Center);
                 return;
@@ -411,10 +411,10 @@ namespace TianWen.UI.Abstractions
 
             // Column headers
             var cursor = listRect.Y;
-            DrawText("#".AsSpan(), fontPath, colNumX, cursor, colNumW, rowH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-            DrawText("Target".AsSpan(), fontPath, colTargetX, cursor, colTargetW, rowH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-            DrawText("Exp".AsSpan(), fontPath, colExpX, cursor, colExpW, rowH, fontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center);
-            DrawText("~N".AsSpan(), fontPath, colFrameX, cursor, colFrameW, rowH, fontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center);
+            DrawText("#", fontPath, colNumX, cursor, colNumW, rowH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
+            DrawText("Target", fontPath, colTargetX, cursor, colTargetW, rowH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
+            DrawText("Exp", fontPath, colExpX, cursor, colExpW, rowH, fontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center);
+            DrawText("~N", fontPath, colFrameX, cursor, colFrameW, rowH, fontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center);
             cursor += rowH;
 
             FillRect(listRect.X, cursor, listRect.Width, BaseSeparatorW * dpiScale, SeparatorColor);
@@ -455,9 +455,9 @@ namespace TianWen.UI.Abstractions
                 // Row 1: # / target / exposure stepper / frame count
                 FillRect(listRect.X, cursor, listRect.Width, rowH, bgColor);
 
-                DrawText($"{i + 1}".AsSpan(), fontPath, colNumX, cursor, colNumW, rowH,
+                DrawText($"{i + 1}", fontPath, colNumX, cursor, colNumW, rowH,
                     fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-                DrawText(proposal.Target.Name.AsSpan(), fontPath, colTargetX, cursor, colTargetW, rowH,
+                DrawText(proposal.Target.Name, fontPath, colTargetX, cursor, colTargetW, rowH,
                     fontSize, BodyText, TextAlign.Near, TextAlign.Center);
 
                 // Exposure stepper
@@ -474,7 +474,7 @@ namespace TianWen.UI.Abstractions
                         plannerState.Proposals[capturedI] = p with { SubExposure = SessionTabState.StepExposure(cur, false) };
                         State.NeedsRedraw = true;
                     });
-                DrawText(expStr.AsSpan(), fontPath, colExpX + expBtnW, cursor, expValW, rowH,
+                DrawText(expStr, fontPath, colExpX + expBtnW, cursor, expValW, rowH,
                     fontSize * 0.9f, BodyText, TextAlign.Center, TextAlign.Center);
                 RenderButton("+", colExpX + expBtnW + expValW, cursor, expBtnW, rowH, fontPath, fontSize * 0.85f,
                     StepperBg, BodyText, $"Inc:Exp:{i}",
@@ -491,7 +491,7 @@ namespace TianWen.UI.Abstractions
                     ? SessionTabState.EstimateFrameCount(window, subExp)
                     : 0;
                 var frameStr = frameCount > 0 ? $"~{frameCount}" : "—";
-                DrawText(frameStr.AsSpan(), fontPath, colFrameX, cursor, colFrameW, rowH,
+                DrawText(frameStr, fontPath, colFrameX, cursor, colFrameW, rowH,
                     fontSize * 0.9f, FrameCountText, TextAlign.Center, TextAlign.Center);
 
                 cursor += rowH;
@@ -509,7 +509,7 @@ namespace TianWen.UI.Abstractions
                         ? $"{window.TotalHours:0.0}h"
                         : $"{window.TotalMinutes:0}min";
 
-                    DrawText($"  {startStr}\u2013{endStr}  ({durStr})".AsSpan(), fontPath,
+                    DrawText($"  {startStr}\u2013{endStr}  ({durStr})", fontPath,
                         colTargetX, cursor, listRect.Width - colNumW - padding * 2, rowH * 0.8f,
                         fontSize * 0.85f, durColor, TextAlign.Near, TextAlign.Center);
                 }
@@ -559,7 +559,7 @@ namespace TianWen.UI.Abstractions
                 {
                     var visibleY = Math.Max(cursor, rect.Y);
                     FillRect(rect.X, visibleY, rect.Width, headerH, HeaderBg);
-                    DrawText(group.Name.AsSpan(), fontPath,
+                    DrawText(group.Name, fontPath,
                         rect.X + padding, visibleY, rect.Width - padding * 2, headerH,
                         fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
                 }
@@ -593,7 +593,7 @@ namespace TianWen.UI.Abstractions
                         _ => { State.SelectedFieldIndex = capturedIdx; State.NeedsRedraw = true; });
 
                     // Label
-                    DrawText(field.Label.AsSpan(), fontPath,
+                    DrawText(field.Label, fontPath,
                         rect.X + padding, cursor, labelW, itemH,
                         fontSize, BodyText, TextAlign.Near, TextAlign.Center);
 
@@ -652,7 +652,7 @@ namespace TianWen.UI.Abstractions
                 StepperBg, $"Dec:{field.Label}",
                 _ => { State.Configuration = field.Decrement(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; });
 
-            DrawText(displayStr.AsSpan(), fontPath,
+            DrawText(displayStr, fontPath,
                 x + btnW, y, valW, h,
                 fontSize, State.IsSessionRunning ? DimText : BodyText, TextAlign.Center, TextAlign.Center);
 

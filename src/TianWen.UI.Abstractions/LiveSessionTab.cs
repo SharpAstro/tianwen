@@ -166,7 +166,7 @@ namespace TianWen.UI.Abstractions
                 FillRect(viewerX, mainY, viewerW, mainH, GraphBg);
                 if (state.Phase is SessionPhase.Observing)
                 {
-                    DrawText("Waiting for first frame\u2026".AsSpan(), fontPath,
+                    DrawText("Waiting for first frame\u2026", fontPath,
                         viewerX, mainY, viewerW, mainH,
                         fs, DimText, TextAlign.Center, TextAlign.Center);
                 }
@@ -284,7 +284,7 @@ namespace TianWen.UI.Abstractions
             {
                 infoW -= (btnW * 0.8f + pad) * otaButtonCount;
             }
-            DrawText(infoText.AsSpan(), fontPath,
+            DrawText(infoText, fontPath,
                 x, rect.Y, infoW, rect.Height,
                 fontSize * 0.7f, DimText, TextAlign.Near, TextAlign.Center);
         }
@@ -397,13 +397,13 @@ namespace TianWen.UI.Abstractions
 
             // Phase pill
             FillRect(rect.X + pad, rect.Y + pad, pillW, pillH, pillColor);
-            DrawText(label.AsSpan(), fontPath,
+            DrawText(label, fontPath,
                 rect.X + pad, rect.Y, pillW, rect.Height,
                 fontSize * 0.9f, AbortText, TextAlign.Center, TextAlign.Center);
 
             // Activity text
             var targetLabel = LiveSessionActions.PhaseStatusText(state, timeProvider);
-            DrawText(targetLabel.AsSpan(), fontPath,
+            DrawText(targetLabel, fontPath,
                 rect.X + pillW + pad * 2, rect.Y, rect.Width * 0.45f, rect.Height,
                 fontSize, BodyText, TextAlign.Near, TextAlign.Center);
 
@@ -418,7 +418,7 @@ namespace TianWen.UI.Abstractions
                 progressParts += $"  Frames: {state.TotalFramesWritten}/~{estimatedFrames}";
             }
             progressParts += $"  Exp: {LiveSessionActions.FormatDuration(state.TotalExposureTime)}";
-            DrawText(progressParts.AsSpan(), fontPath,
+            DrawText(progressParts, fontPath,
                 rect.X + rect.Width * 0.5f, rect.Y, rect.Width * 0.45f, rect.Height,
                 fontSize, DimText, TextAlign.Far, TextAlign.Center);
         }
@@ -434,7 +434,7 @@ namespace TianWen.UI.Abstractions
             var timeline = state.PhaseTimeline;
             if (timeline.Count == 0)
             {
-                DrawText("No timeline data".AsSpan(), fontPath,
+                DrawText("No timeline data", fontPath,
                     rect.X, rect.Y, rect.Width, rect.Height,
                     fontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center);
                 return;
@@ -483,7 +483,7 @@ namespace TianWen.UI.Abstractions
                         {
                             phaseLabel = phaseLabel[..7] + "\u2026";
                         }
-                        DrawText(phaseLabel.AsSpan(), fontPath,
+                        DrawText(phaseLabel, fontPath,
                             x1 + 2, barY, w - 4, barH,
                             fontSize * 0.8f, BrightText, TextAlign.Center, TextAlign.Center);
                     }
@@ -512,7 +512,7 @@ namespace TianWen.UI.Abstractions
                     if (tx < rect.X + pad || tx > rect.X + rect.Width - pad) continue;
 
                     FillRect(tx, axisY, 1, axisH * 0.5f, TimelineTickColor);
-                    DrawText(t.ToOffset(state.SiteTimeZone).ToString("HH:mm").AsSpan(), fontPath,
+                    DrawText(t.ToOffset(state.SiteTimeZone).ToString("HH:mm"), fontPath,
                         tx - 25 * dpiScale, axisY + axisH * 0.4f, 50 * dpiScale, axisH * 0.6f,
                         fontSize * 0.8f, DimText, TextAlign.Center, TextAlign.Center);
                 }
@@ -541,7 +541,7 @@ namespace TianWen.UI.Abstractions
 
             // RMS stats (center)
             var rmsText = LiveSessionActions.FormatGuideRms(state.LastGuideStats);
-            DrawText(rmsText.AsSpan(), fontPath,
+            DrawText(rmsText, fontPath,
                 rect.X + guideW + pad * 2, rect.Y, rmsW, rect.Height,
                 fontSize * 0.9f, BodyText, TextAlign.Center, TextAlign.Center);
 
@@ -648,7 +648,7 @@ namespace TianWen.UI.Abstractions
 
             if (state.ActiveSession is not { } session)
             {
-                DrawText("No session".AsSpan(), fontPath,
+                DrawText("No session", fontPath,
                     rect.X, rect.Y, rect.Width, rect.Height,
                     fontSize, DimText, TextAlign.Center, TextAlign.Center);
                 return;
@@ -667,7 +667,6 @@ namespace TianWen.UI.Abstractions
             var panelW = rect.Width / otaCount;
             var progressH = BaseProgressBarH * dpiScale;
             var smallFs = fontSize * 0.85f;
-            var tinyFs = fontSize * 0.7f;
 
             for (var i = 0; i < otaCount; i++)
             {
@@ -684,7 +683,7 @@ namespace TianWen.UI.Abstractions
                 var textW = panelW - pad * 2;
 
                 // OTA header (camera name)
-                DrawText(ota.Camera.Device.DisplayName.AsSpan(), fontPath,
+                DrawText(ota.Camera.Device.DisplayName, fontPath,
                     px + pad, y, textW, rowH,
                     fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
                 y += rowH;
@@ -713,7 +712,7 @@ namespace TianWen.UI.Abstractions
                     {
                         tempText += $"  \u2192 {lastSetpoint:F0}\u00B0C";
                     }
-                    DrawText(tempText.AsSpan(), fontPath,
+                    DrawText(tempText, fontPath,
                         px + pad, y, textW, rowH,
                         smallFs, tempColor, TextAlign.Near, TextAlign.Center);
                     y += rowH;
@@ -742,7 +741,7 @@ namespace TianWen.UI.Abstractions
                         focLabel += "  \u21C4 Moving";
                     }
                     var focColor = cs.FocuserIsMoving ? StatusSlewing : BodyText;
-                    DrawText(focLabel.AsSpan(), fontPath,
+                    DrawText(focLabel, fontPath,
                         px + pad, y, textW, rowH,
                         fontSize, focColor, TextAlign.Near, TextAlign.Center);
                     y += rowH;
@@ -752,7 +751,7 @@ namespace TianWen.UI.Abstractions
                 if (ota.FilterWheel is not null)
                 {
                     var filterName = (i < cameraStates.Count && cameraStates[i].FilterName is { Length: > 0 } fn) ? fn : "--";
-                    DrawText($"FW: {filterName}".AsSpan(), fontPath,
+                    DrawText($"FW: {filterName}", fontPath,
                         px + pad, y, textW, rowH,
                         smallFs, BodyText, TextAlign.Near, TextAlign.Center);
                     y += rowH;
@@ -767,7 +766,7 @@ namespace TianWen.UI.Abstractions
                 }
                 else
                 {
-                    DrawText("Idle".AsSpan(), fontPath,
+                    DrawText("Idle", fontPath,
                         px + pad, y, textW, rowH,
                         smallFs, DimText, TextAlign.Near, TextAlign.Center);
                 }
@@ -790,22 +789,22 @@ namespace TianWen.UI.Abstractions
                 FillRect(rect.X + pad, mountY + (rowH - dotSize) / 2, dotSize, dotSize, dotColor);
                 var pierLabel = ms.PierSide is Lib.Devices.PointingState.Normal ? "E" : ms.PierSide is Lib.Devices.PointingState.ThroughThePole ? "W" : "";
                 var mountStatus = ms.IsSlewing ? "Slewing" : ms.IsTracking ? "Tracking" : "Idle";
-                DrawText($"{mountName}  {mountStatus}  {pierLabel}".AsSpan(), fontPath,
+                DrawText($"{mountName}  {mountStatus}  {pierLabel}", fontPath,
                     rect.X + pad + dotSize + pad, mountY, rect.Width - pad * 3 - dotSize, rowH,
                     smallFs, HeaderText, TextAlign.Near, TextAlign.Center);
                 mountY += rowH;
 
                 // RA + HA on one row
-                var raStr = TianWen.Lib.Astrometry.CoordinateUtils.HoursToHMS(ms.RightAscension, withFrac: false);
+                var raStr = Lib.Astrometry.CoordinateUtils.HoursToHMS(ms.RightAscension, withFrac: false);
                 var haStr = $"HA {ms.HourAngle:+0.00;-0.00}h";
-                DrawText($"RA {raStr}  {haStr}".AsSpan(), fontPath,
+                DrawText($"RA {raStr}  {haStr}", fontPath,
                     rect.X + pad, mountY, rect.Width - pad * 2, rowH,
                     smallFs, BodyText, TextAlign.Near, TextAlign.Center);
                 mountY += rowH;
 
                 // Dec on separate row
-                var decStr = TianWen.Lib.Astrometry.CoordinateUtils.DegreesToDMS(ms.Declination, withFrac: false);
-                DrawText($"Dec {decStr}".AsSpan(), fontPath,
+                var decStr = Lib.Astrometry.CoordinateUtils.DegreesToDMS(ms.Declination, withFrac: false);
+                DrawText($"Dec {decStr}", fontPath,
                     rect.X + pad, mountY, rect.Width - pad * 2, rowH,
                     smallFs, BodyText, TextAlign.Near, TextAlign.Center);
                 mountY += rowH;
@@ -813,7 +812,7 @@ namespace TianWen.UI.Abstractions
                 // Target name (if observing)
                 if (state.ActiveObservation is { Target: var target })
                 {
-                    DrawText($"\u2609 {target.Name}".AsSpan(), fontPath,
+                    DrawText($"\u2609 {target.Name}", fontPath,
                         rect.X + pad, mountY, rect.Width - pad * 2, rowH,
                         smallFs, DimText, TextAlign.Near, TextAlign.Center);
                 }
@@ -825,14 +824,14 @@ namespace TianWen.UI.Abstractions
         {
             if (cs.State == CameraState.Idle)
             {
-                DrawText("Idle".AsSpan(), fontPath,
+                DrawText("Idle", fontPath,
                     x, y, w, rowH, smallFs, DimText, TextAlign.Near, TextAlign.Center);
                 return;
             }
 
             if (cs.State == CameraState.Download || cs.State == CameraState.Reading)
             {
-                DrawText($"Downloading #{cs.FrameNumber}\u2026".AsSpan(), fontPath,
+                DrawText($"Downloading #{cs.FrameNumber}\u2026", fontPath,
                     x, y, w, rowH, smallFs, HeaderText, TextAlign.Near, TextAlign.Center);
                 return;
             }
@@ -846,7 +845,7 @@ namespace TianWen.UI.Abstractions
             // Filter + frame label
             var filterLabel = cs.FilterName is { Length: > 0 } fn ? fn : "L";
             var expLabel = $"{filterLabel} #{cs.FrameNumber} ({elapsedSec:F0}/{totalSec:F0}s)";
-            DrawText(expLabel.AsSpan(), fontPath,
+            DrawText(expLabel, fontPath,
                 x, y, w, rowH, smallFs, BodyText, TextAlign.Near, TextAlign.Center);
             y += rowH;
 
@@ -863,7 +862,7 @@ namespace TianWen.UI.Abstractions
             if (remaining.TotalSeconds > 0)
             {
                 var remText = $"{remaining.TotalSeconds:F0}s";
-                DrawText(remText.AsSpan(), fontPath,
+                DrawText(remText, fontPath,
                     x, y, w, progressH,
                     fontSize * 0.65f, BrightText, TextAlign.Center, TextAlign.Center);
             }
@@ -952,21 +951,21 @@ namespace TianWen.UI.Abstractions
             FillRect(rect.X, rect.Y, 1, rect.Height, SeparatorColor);
 
             // Header
-            DrawText("Exposure Log".AsSpan(), fontPath,
+            DrawText("Exposure Log", fontPath,
                 rect.X + pad, rect.Y, rect.Width - pad * 2, rowH,
                 fontSize * 0.85f, HeaderText, TextAlign.Near, TextAlign.Center);
 
             // Column headers
             var colY = rect.Y + rowH;
             FillRect(rect.X, colY, rect.Width, rowH, HeaderBg);
-            DrawText("Time  Target       Filter  HFD  \u2605".AsSpan(), fontPath,
+            DrawText("Time  Target       Filter  HFD  \u2605", fontPath,
                 rect.X + pad, colY, rect.Width - pad * 2, rowH,
                 fontSize * 0.75f, DimText, TextAlign.Near, TextAlign.Center);
 
             var log = state.ExposureLog;
             if (log.Count == 0)
             {
-                DrawText("No frames yet".AsSpan(), fontPath,
+                DrawText("No frames yet", fontPath,
                     rect.X, colY + rowH, rect.Width, rowH * 2,
                     fontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center);
                 return;
@@ -991,7 +990,7 @@ namespace TianWen.UI.Abstractions
                 var row = LiveSessionActions.FormatExposureLogRow(log[i]);
                 var bg = (i % 2 == 0) ? PanelBg : RowAltBg;
                 FillRect(rect.X, y, rect.Width, rowH, bg);
-                DrawText(row.AsSpan(), fontPath,
+                DrawText(row, fontPath,
                     rect.X + pad, y, rect.Width - pad * 2, rowH,
                     fontSize * 0.8f, BodyText, TextAlign.Near, TextAlign.Center);
                 y += rowH;
@@ -1004,7 +1003,7 @@ namespace TianWen.UI.Abstractions
                 FillRect(rect.X, y, rect.Width, 1, SeparatorColor);
                 y += pad;
 
-                DrawText("Focus History".AsSpan(), fontPath,
+                DrawText("Focus History", fontPath,
                     rect.X + pad, y, rect.Width - pad * 2, rowH,
                     fontSize * 0.85f, HeaderText, TextAlign.Near, TextAlign.Center);
                 y += rowH;
@@ -1016,7 +1015,7 @@ namespace TianWen.UI.Abstractions
                     var row = LiveSessionActions.FormatFocusHistoryRow(history[i]);
                     var bg = (i % 2 == 0) ? PanelBg : RowAltBg;
                     FillRect(rect.X, y, rect.Width, rowH, bg);
-                    DrawText(row.AsSpan(), fontPath,
+                    DrawText(row, fontPath,
                         rect.X + pad, y, rect.Width - pad * 2, rowH,
                         fontSize * 0.75f, BodyText, TextAlign.Near, TextAlign.Center);
                     y += rowH;
@@ -1039,7 +1038,7 @@ namespace TianWen.UI.Abstractions
 
             // Confirm strip
             FillRect(contentRect.X, stripY, contentRect.Width, stripH, ConfirmStripBg);
-            DrawText("Abort session? Press Enter to confirm, Escape to cancel".AsSpan(), fontPath,
+            DrawText("Abort session? Press Enter to confirm, Escape to cancel", fontPath,
                 contentRect.X, stripY, contentRect.Width, stripH,
                 fontSize, AbortText, TextAlign.Center, TextAlign.Center);
         }
