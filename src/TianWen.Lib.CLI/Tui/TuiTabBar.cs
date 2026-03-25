@@ -14,7 +14,6 @@ internal sealed class TuiTabBar(ITerminalViewport viewport)
         ("2:Plan", GuiTab.Planner),
         ("3:Session", GuiTab.Session),
         ("4:Live", GuiTab.LiveSession),
-        ("5:View", GuiTab.Viewer),
     ];
 
     private readonly TextBar _bar = new TextBar(viewport);

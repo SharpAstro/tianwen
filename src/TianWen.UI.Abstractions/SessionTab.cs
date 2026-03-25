@@ -140,12 +140,12 @@ namespace TianWen.UI.Abstractions
                     }
                     return true;
 
-                case InputKey.Left:
+                case InputKey.Left when !State.IsSessionRunning:
                     State.DecrementSelectedField();
                     return true;
 
-                case InputKey.Right:
-                case InputKey.Enter:
+                case InputKey.Right when !State.IsSessionRunning:
+                case InputKey.Enter when !State.IsSessionRunning:
                     State.IncrementSelectedField();
                     return true;
 
@@ -223,7 +223,14 @@ namespace TianWen.UI.Abstractions
                 var btnY = btnRect.Y + padding;
                 var fs = BaseFontSize * dpiScale;
 
-                if (isTonight)
+                if (State.IsSessionRunning)
+                {
+                    FillRect(btnX, btnY, btnW, btnH, DisabledBtnBg);
+                    DrawText("Session running\u2026".AsSpan(), fontPath,
+                        btnX, btnY, btnW, btnH,
+                        fs, DisabledBtnText, TextAlign.Center, TextAlign.Center);
+                }
+                else if (isTonight)
                 {
                     RenderButton("\u25B6 Start Session", btnX, btnY, btnW, btnH,
                         fontPath, fs, StartBtnBg, StartBtnText, "StartSession",
@@ -641,16 +648,16 @@ namespace TianWen.UI.Abstractions
             var unitStr = field.Unit.Length > 0 ? $" {field.Unit}" : "";
             var displayStr = $"{valueStr}{unitStr}";
 
-            RenderButton("\u2212", x, y, btnW, h, fontPath, fontSize,
-                StepperBg, BodyText, $"Dec:{field.Label}",
+            ConfigButton("\u2212", x, y, btnW, h, fontPath, fontSize,
+                StepperBg, $"Dec:{field.Label}",
                 _ => { State.Configuration = field.Decrement(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; });
 
             DrawText(displayStr.AsSpan(), fontPath,
                 x + btnW, y, valW, h,
-                fontSize, BodyText, TextAlign.Center, TextAlign.Center);
+                fontSize, State.IsSessionRunning ? DimText : BodyText, TextAlign.Center, TextAlign.Center);
 
-            RenderButton("+", x + btnW + valW, y, btnW, h, fontPath, fontSize,
-                StepperBg, BodyText, $"Inc:{field.Label}",
+            ConfigButton("+", x + btnW + valW, y, btnW, h, fontPath, fontSize,
+                StepperBg, $"Inc:{field.Label}",
                 _ => { State.Configuration = field.Increment(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; });
         }
 
@@ -667,14 +674,28 @@ namespace TianWen.UI.Abstractions
             var isOn = valueStr == "ON";
             var btnW = 60f * dpiScale;
 
-            RenderButton(valueStr, x, y, btnW, h, fontPath, fontSize,
-                isOn ? ToggleOnBg : ToggleOffBg, BodyText, $"Toggle:{field.Label}",
+            ConfigButton(valueStr, x, y, btnW, h, fontPath, fontSize,
+                isOn ? ToggleOnBg : ToggleOffBg, $"Toggle:{field.Label}",
                 _ => { State.Configuration = field.Increment(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; });
         }
 
         // -----------------------------------------------------------------------
         // Cycle row: [Value ▶]
         // -----------------------------------------------------------------------
+
+        /// <summary>Renders a button that is disabled (dimmed, no click) when the session is running.</summary>
+        private void ConfigButton(string label, float x, float y, float w, float h,
+            string fontPath, float fontSize, RGBAColor32 bg, string hitId, Action<InputModifier>? onClick)
+        {
+            if (State.IsSessionRunning)
+            {
+                RenderButton(label, x, y, w, h, fontPath, fontSize, DisabledBtnBg, DimText, hitId, null);
+            }
+            else
+            {
+                RenderButton(label, x, y, w, h, fontPath, fontSize, bg, BodyText, hitId, onClick);
+            }
+        }
 
         private void RenderCycleRow(
             ConfigFieldDescriptor field,
@@ -684,8 +705,8 @@ namespace TianWen.UI.Abstractions
             var valueStr = field.FormatValue(State.Configuration);
             var btnW = 140f * dpiScale;
 
-            RenderButton($"{valueStr} \u25B6", x, y, btnW, h, fontPath, fontSize * 0.9f,
-                CycleBg, BodyText, $"Cycle:{field.Label}",
+            ConfigButton($"{valueStr} \u25B6", x, y, btnW, h, fontPath, fontSize * 0.9f,
+                CycleBg, $"Cycle:{field.Label}",
                 _ => { State.Configuration = field.Increment(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; });
         }
     }
