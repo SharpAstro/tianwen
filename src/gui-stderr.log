@@ -1,465 +1,2239 @@
-[Program] Resize event: pixels=1280x900, dpiScale=1.500 -> 1.500
-[VkRenderer] Resize: 1280x900 -> 1280x900
-[FontAtlas] Cache miss: 'T' size=21 cursor=(0,0) glyphs=0
-[FontAtlas] Cache miss: 'o' size=21 cursor=(15,0) glyphs=1
-[FontAtlas] Cache miss: 'n' size=21 cursor=(27,0) glyphs=2
-[FontAtlas] Cache miss: 'i' size=21 cursor=(39,0) glyphs=3
-[FontAtlas] Cache miss: 'g' size=21 cursor=(43,0) glyphs=4
-[FontAtlas] Cache miss: 'h' size=21 cursor=(55,0) glyphs=5
-[FontAtlas] Cache miss: 't' size=21 cursor=(67,0) glyphs=6
-[FontAtlas] Cache miss: ''' size=21 cursor=(76,0) glyphs=7
-[FontAtlas] Cache miss: 's' size=21 cursor=(79,0) glyphs=8
-[FontAtlas] Cache miss: ' ' size=21 cursor=(89,0) glyphs=9
-[FontAtlas] Cache miss: 'B' size=21 cursor=(89,0) glyphs=10
-[FontAtlas] Cache miss: 'e' size=21 cursor=(101,0) glyphs=11
-[FontAtlas] Cache miss: 'A' size=19 cursor=(113,0) glyphs=12
-[FontAtlas] Cache miss: 'l' size=19 cursor=(127,0) glyphs=13
-[FontAtlas] Cache miss: 'S' size=19 cursor=(131,0) glyphs=14
-[FontAtlas] Cache miss: 'e' size=19 cursor=(142,0) glyphs=15
-[FontAtlas] Cache miss: 'a' size=19 cursor=(153,0) glyphs=16
-[FontAtlas] Cache miss: 'r' size=19 cursor=(163,0) glyphs=17
-[FontAtlas] Cache miss: 'c' size=19 cursor=(171,0) glyphs=18
-[FontAtlas] Cache miss: 'h' size=19 cursor=(181,0) glyphs=19
-[FontAtlas] Cache miss: ' ' size=19 cursor=(192,0) glyphs=20
-[FontAtlas] Cache miss: 'n' size=19 cursor=(192,0) glyphs=20
-[FontAtlas] Cache miss: 't' size=19 cursor=(203,0) glyphs=22
-[FontAtlas] Cache miss: 'g' size=19 cursor=(211,0) glyphs=23
-[FontAtlas] Cache miss: '.' size=19 cursor=(222,0) glyphs=24
-[FontAtlas] Cache miss: 'S' size=21 cursor=(225,0) glyphs=25
-[FontAtlas] Cache miss: 'l' size=21 cursor=(238,0) glyphs=26
-[FontAtlas] Cache miss: 'c' size=21 cursor=(242,0) glyphs=27
-[FontAtlas] Cache miss: 'a' size=21 cursor=(253,0) glyphs=28
-[FontAtlas] Cache miss: 'r' size=21 cursor=(264,0) glyphs=29
-[FontAtlas] Cache miss: 'd' size=21 cursor=(273,0) glyphs=30
-[FontAtlas] Cache miss: '.' size=21 cursor=(285,0) glyphs=31
-[FontAtlas] Cache miss: '🔭' size=27 cursor=(289,0) glyphs=32
-[FontAtlas] Cache miss: '📅' size=27 cursor=(319,0) glyphs=33
-[FontAtlas] Cache miss: '🎯' size=27 cursor=(348,0) glyphs=34
-[FontAtlas] Cache miss: '🌌' size=27 cursor=(379,0) glyphs=35
-[FontAtlas] Cache miss: '◀' size=19 cursor=(411,0) glyphs=36
-[FontAtlas] Cache miss: '▶' size=19 cursor=(427,0) glyphs=37
-[FontAtlas] Cache miss: '0' size=21 cursor=(443,0) glyphs=38
-[FontAtlas] Cache miss: '5' size=21 cursor=(455,0) glyphs=39
-[FontAtlas] Cache miss: ':' size=21 cursor=(467,0) glyphs=40
-[FontAtlas] Cache miss: '4' size=21 cursor=(471,0) glyphs=41
-[FontAtlas] Cache miss: '2' size=21 cursor=(484,0) glyphs=42
-[FontAtlas] Flush: uploading dirty region (0,0)-(495,31) = 495x31 px, atlas 512x512
-[FontAtlas] Cache miss: '1' size=21 cursor=(496,0) glyphs=43
-[FontAtlas] Cache miss: '6' size=21 cursor=(507,0) glyphs=44
-[FontAtlas] Flush: uploading dirty region (0,0)-(506,47) = 506x47 px, atlas 512x512
-[FontAtlas] Cache miss: 'C' size=11 cursor=(13,32) glyphs=45
-[FontAtlas] Cache miss: 'i' size=11 cursor=(22,32) glyphs=46
-[FontAtlas] Cache miss: 'v' size=11 cursor=(25,32) glyphs=47
-[FontAtlas] Cache miss: 'l' size=11 cursor=(33,32) glyphs=48
-[FontAtlas] Cache miss: 'N' size=11 cursor=(36,32) glyphs=49
-[FontAtlas] Cache miss: 'a' size=11 cursor=(44,32) glyphs=50
-[FontAtlas] Cache miss: 'u' size=11 cursor=(51,32) glyphs=51
-[FontAtlas] Cache miss: 't' size=11 cursor=(58,32) glyphs=52
-[FontAtlas] Cache miss: 'c' size=11 cursor=(64,32) glyphs=53
-[FontAtlas] Cache miss: 'A' size=11 cursor=(71,32) glyphs=54
-[FontAtlas] Cache miss: 's' size=11 cursor=(80,32) glyphs=55
-[FontAtlas] Cache miss: 'r' size=11 cursor=(87,32) glyphs=56
-[FontAtlas] Cache miss: 'o' size=11 cursor=(92,32) glyphs=57
-[FontAtlas] Cache miss: 'g' size=11 cursor=(100,32) glyphs=58
-[FontAtlas] Cache miss: 'h' size=11 cursor=(107,32) glyphs=59
-[FontAtlas] Cache miss: '0' size=11 cursor=(114,32) glyphs=60
-[FontAtlas] Cache miss: '°' size=11 cursor=(122,32) glyphs=61
-[FontAtlas] Cache miss: '1' size=11 cursor=(127,32) glyphs=62
-[FontAtlas] Cache miss: '2' size=11 cursor=(133,32) glyphs=63
-[FontAtlas] Cache miss: '3' size=11 cursor=(140,32) glyphs=64
-[FontAtlas] Cache miss: '4' size=11 cursor=(148,32) glyphs=65
-[FontAtlas] Cache miss: '5' size=11 cursor=(156,32) glyphs=66
-[FontAtlas] Cache miss: '6' size=11 cursor=(164,32) glyphs=67
-[FontAtlas] Cache miss: '7' size=11 cursor=(172,32) glyphs=68
-[FontAtlas] Cache miss: '8' size=11 cursor=(180,32) glyphs=69
-[FontAtlas] Cache miss: '9' size=11 cursor=(188,32) glyphs=70
-[FontAtlas] Cache miss: ':' size=11 cursor=(196,32) glyphs=71
-[FontAtlas] Cache miss: 'L' size=14 cursor=(199,32) glyphs=72
-[FontAtlas] Cache miss: 'o' size=14 cursor=(207,32) glyphs=73
-[FontAtlas] Cache miss: 'c' size=14 cursor=(216,32) glyphs=74
-[FontAtlas] Cache miss: 'a' size=14 cursor=(224,32) glyphs=75
-[FontAtlas] Cache miss: 'l' size=14 cursor=(233,32) glyphs=76
-[FontAtlas] Cache miss: ' ' size=14 cursor=(236,32) glyphs=77
-[FontAtlas] Cache miss: 'n' size=14 cursor=(236,32) glyphs=77
-[FontAtlas] Cache miss: 'T' size=14 cursor=(244,32) glyphs=79
-[FontAtlas] Cache miss: 'i' size=14 cursor=(255,32) glyphs=80
-[FontAtlas] Cache miss: 'm' size=14 cursor=(258,32) glyphs=81
-[FontAtlas] Cache miss: 'e' size=14 cursor=(271,32) glyphs=82
-[FontAtlas] Cache miss: '2' size=8 cursor=(280,32) glyphs=83
-[FontAtlas] Cache miss: '0' size=8 cursor=(286,32) glyphs=84
-[FontAtlas] Cache miss: '°' size=8 cursor=(292,32) glyphs=85
-[FontAtlas] Cache miss: 'O' size=14 cursor=(297,32) glyphs=86
-[FontAtlas] Cache miss: 'b' size=14 cursor=(309,32) glyphs=87
-[FontAtlas] Cache miss: 's' size=14 cursor=(318,32) glyphs=88
-[FontAtlas] Cache miss: 'r' size=14 cursor=(326,32) glyphs=89
-[FontAtlas] Cache miss: 'v' size=14 cursor=(332,32) glyphs=90
-[FontAtlas] Cache miss: 't' size=14 cursor=(341,32) glyphs=91
-[FontAtlas] Cache miss: 'S' size=14 cursor=(348,32) glyphs=92
-[FontAtlas] Cache miss: 'h' size=14 cursor=(358,32) glyphs=93
-[FontAtlas] Cache miss: 'd' size=14 cursor=(366,32) glyphs=94
-[FontAtlas] Cache miss: 'u' size=14 cursor=(375,32) glyphs=95
-[FontAtlas] Cache miss: '—' size=14 cursor=(383,32) glyphs=96
-[FontAtlas] Cache miss: '3' size=14 cursor=(398,32) glyphs=97
-[FontAtlas] Cache miss: '7' size=14 cursor=(406,32) glyphs=98
-[FontAtlas] Cache miss: '.' size=14 cursor=(414,32) glyphs=99
-[FontAtlas] Cache miss: '0' size=14 cursor=(417,32) glyphs=100
-[FontAtlas] Cache miss: '°' size=14 cursor=(426,32) glyphs=101
-[FontAtlas] Cache miss: ',' size=14 cursor=(432,32) glyphs=102
-[FontAtlas] Cache miss: '1' size=14 cursor=(436,32) glyphs=103
-[FontAtlas] Cache miss: '4' size=14 cursor=(444,32) glyphs=104
-[FontAtlas] Cache miss: '5' size=14 cursor=(454,32) glyphs=105
-[FontAtlas] Cache miss: 'E' size=14 cursor=(462,32) glyphs=106
-[FontAtlas] Cache miss: 'P' size=8 cursor=(470,32) glyphs=107
-[FontAtlas] Cache miss: 'r' size=8 cursor=(476,32) glyphs=108
-[FontAtlas] Cache miss: 'i' size=8 cursor=(481,32) glyphs=109
-[FontAtlas] Cache miss: 'm' size=8 cursor=(484,32) glyphs=110
-[FontAtlas] Cache miss: 'a' size=8 cursor=(493,32) glyphs=111
-[FontAtlas] Cache miss: 'y' size=8 cursor=(499,32) glyphs=112
-[FontAtlas] Cache miss: 'S' size=8 cursor=(505,32) glyphs=113
-[FontAtlas] Cache miss: 'p' size=8 cursor=(511,32) glyphs=114
-[FontAtlas] Cache miss: 'e' size=8 cursor=(6,48) glyphs=115
-[FontAtlas] Cache miss: '–' size=21 cursor=(12,48) glyphs=116
-[FontAtlas] Cache miss: '7' size=21 cursor=(22,48) glyphs=117
-[FontAtlas] Flush: uploading dirty region (0,32)-(510,63) = 510x31 px, atlas 512x512
-[FontAtlas] Cache miss: '3' size=21 cursor=(34,48) glyphs=118
-[FontAtlas] Flush: uploading dirty region (34,48)-(45,63) = 11x15 px, atlas 512x512
-[Program] Resize event: pixels=2880x1814, dpiScale=1.500 -> 1.500
-[VkRenderer] Resize: 1280x900 -> 2880x1814
-[Program] Resize event: pixels=2880x1814, dpiScale=1.500 -> 1.500
 [VkRenderer] Resize: 2880x1814 -> 2880x1814
-[FontAtlas] Cache miss: 'C' size=23 cursor=(46,48) glyphs=119
-[FontAtlas] Cache miss: 'i' size=23 cursor=(61,48) glyphs=120
-[FontAtlas] Cache miss: 'v' size=23 cursor=(65,48) glyphs=121
-[FontAtlas] Cache miss: 'l' size=23 cursor=(79,48) glyphs=122
-[FontAtlas] Cache miss: 'N' size=23 cursor=(83,48) glyphs=123
-[FontAtlas] Cache miss: 'a' size=23 cursor=(97,48) glyphs=124
-[FontAtlas] Cache miss: 'u' size=23 cursor=(109,48) glyphs=125
-[FontAtlas] Cache miss: 't' size=23 cursor=(122,48) glyphs=126
-[FontAtlas] Cache miss: 'c' size=23 cursor=(132,48) glyphs=127
-[FontAtlas] Cache miss: 'A' size=23 cursor=(144,48) glyphs=128
-[FontAtlas] Cache miss: 's' size=23 cursor=(161,48) glyphs=129
-[FontAtlas] Cache miss: 'r' size=23 cursor=(172,48) glyphs=130
-[FontAtlas] Cache miss: 'o' size=23 cursor=(181,48) glyphs=131
-[FontAtlas] Cache miss: 'g' size=23 cursor=(194,48) glyphs=132
-[FontAtlas] Cache miss: 'h' size=23 cursor=(207,48) glyphs=133
-[FontAtlas] Cache miss: '0' size=23 cursor=(219,48) glyphs=134
-[FontAtlas] Cache miss: '°' size=23 cursor=(233,48) glyphs=135
-[FontAtlas] Cache miss: '1' size=23 cursor=(242,48) glyphs=136
-[FontAtlas] Cache miss: '2' size=23 cursor=(254,48) glyphs=137
-[FontAtlas] Cache miss: '3' size=23 cursor=(267,48) glyphs=138
-[FontAtlas] Cache miss: '4' size=23 cursor=(280,48) glyphs=139
-[FontAtlas] Cache miss: '5' size=23 cursor=(294,48) glyphs=140
-[FontAtlas] Cache miss: '6' size=23 cursor=(307,48) glyphs=141
-[FontAtlas] Cache miss: '7' size=23 cursor=(321,48) glyphs=142
-[FontAtlas] Cache miss: '8' size=23 cursor=(334,48) glyphs=143
-[FontAtlas] Cache miss: '9' size=23 cursor=(348,48) glyphs=144
-[FontAtlas] Cache miss: ':' size=23 cursor=(362,48) glyphs=145
-[FontAtlas] Cache miss: 'L' size=27 cursor=(367,48) glyphs=146
-[FontAtlas] Cache miss: 'o' size=27 cursor=(381,48) glyphs=147
-[FontAtlas] Cache miss: 'c' size=27 cursor=(397,48) glyphs=148
-[FontAtlas] Cache miss: 'a' size=27 cursor=(411,48) glyphs=149
-[FontAtlas] Cache miss: 'l' size=27 cursor=(426,48) glyphs=150
-[FontAtlas] Cache miss: ' ' size=27 cursor=(430,48) glyphs=151
-[FontAtlas] Cache miss: 'n' size=27 cursor=(430,48) glyphs=151
-[FontAtlas] Cache miss: 'T' size=27 cursor=(444,48) glyphs=153
-[FontAtlas] Cache miss: 'i' size=27 cursor=(463,48) glyphs=154
-[FontAtlas] Cache miss: 'm' size=27 cursor=(467,48) glyphs=155
-[FontAtlas] Cache miss: 'e' size=27 cursor=(490,48) glyphs=156
-[FontAtlas] Cache miss: '2' size=20 cursor=(506,48) glyphs=157
-[FontAtlas] Cache miss: '0' size=20 cursor=(11,70) glyphs=158
-[FontAtlas] Cache miss: '°' size=20 cursor=(23,70) glyphs=159
-[FontAtlas] Cache miss: 'O' size=32 cursor=(32,70) glyphs=160
-[FontAtlas] Cache miss: 'b' size=32 cursor=(56,70) glyphs=161
-[FontAtlas] Cache miss: 's' size=32 cursor=(74,70) glyphs=162
-[FontAtlas] Cache miss: 'e' size=32 cursor=(90,70) glyphs=163
-[FontAtlas] Cache miss: 'r' size=32 cursor=(108,70) glyphs=164
-[FontAtlas] Cache miss: 'v' size=32 cursor=(121,70) glyphs=165
-[FontAtlas] Cache miss: 'a' size=32 cursor=(140,70) glyphs=166
-[FontAtlas] Cache miss: 't' size=32 cursor=(157,70) glyphs=167
-[FontAtlas] Cache miss: 'i' size=32 cursor=(170,70) glyphs=168
-[FontAtlas] Cache miss: 'o' size=32 cursor=(174,70) glyphs=169
-[FontAtlas] Cache miss: 'n' size=32 cursor=(192,70) glyphs=170
-[FontAtlas] Cache miss: ' ' size=32 cursor=(209,70) glyphs=171
-[FontAtlas] Cache miss: 'S' size=32 cursor=(209,70) glyphs=172
-[FontAtlas] Cache miss: 'c' size=32 cursor=(227,70) glyphs=173
-[FontAtlas] Cache miss: 'h' size=32 cursor=(243,70) glyphs=174
-[FontAtlas] Cache miss: 'd' size=32 cursor=(260,70) glyphs=175
-[FontAtlas] Cache miss: 'u' size=32 cursor=(278,70) glyphs=176
-[FontAtlas] Cache miss: 'l' size=32 cursor=(295,70) glyphs=177
-[FontAtlas] Cache miss: '—' size=32 cursor=(299,70) glyphs=178
-[FontAtlas] Cache miss: '3' size=32 cursor=(330,70) glyphs=179
-[FontAtlas] Cache miss: '7' size=32 cursor=(347,70) glyphs=180
-[FontAtlas] Cache miss: '.' size=32 cursor=(364,70) glyphs=181
-[FontAtlas] Cache miss: '0' size=32 cursor=(369,70) glyphs=182
-[FontAtlas] Cache miss: '°' size=32 cursor=(387,70) glyphs=183
-[FontAtlas] Cache miss: ',' size=32 cursor=(398,70) glyphs=184
-[FontAtlas] Cache miss: '1' size=32 cursor=(405,70) glyphs=185
-[FontAtlas] Cache miss: '4' size=32 cursor=(421,70) glyphs=186
-[FontAtlas] Cache miss: '5' size=32 cursor=(440,70) glyphs=187
-[FontAtlas] Cache miss: 'E' size=32 cursor=(457,70) glyphs=188
-[FontAtlas] Cache miss: '3' size=20 cursor=(474,70) glyphs=189
-[FontAtlas] Cache miss: ':' size=20 cursor=(486,70) glyphs=190
-[FontAtlas] Cache miss: '5' size=20 cursor=(490,70) glyphs=191
-[FontAtlas] Cache miss: 'P' size=20 cursor=(501,70) glyphs=192
-[FontAtlas] Cache miss: 'r' size=20 cursor=(513,70) glyphs=193
-[FontAtlas] Cache miss: 'i' size=20 cursor=(9,95) glyphs=194
-[FontAtlas] Cache miss: 'm' size=20 cursor=(13,95) glyphs=195
-[FontAtlas] Cache miss: 'a' size=20 cursor=(31,95) glyphs=196
-[FontAtlas] Cache miss: 'y' size=20 cursor=(42,95) glyphs=197
-[FontAtlas] Cache miss: 'S' size=20 cursor=(55,95) glyphs=198
-[FontAtlas] Cache miss: 'p' size=20 cursor=(67,95) glyphs=199
-[FontAtlas] Cache miss: 'e' size=20 cursor=(79,95) glyphs=200
-[FontAtlas] Flush: uploading dirty region (0,48)-(512,110) = 512x62 px, atlas 512x512
-[FontAtlas] Cache miss: 'e' size=24 cursor=(91,95) glyphs=201
-[FontAtlas] Cache miss: 't' size=24 cursor=(105,95) glyphs=202
-[FontAtlas] Cache miss: 'a' size=24 cursor=(115,95) glyphs=203
-[FontAtlas] Cache miss: ' ' size=24 cursor=(128,95) glyphs=204
-[FontAtlas] Cache miss: 'n' size=24 cursor=(128,95) glyphs=204
-[FontAtlas] Cache miss: 'C' size=24 cursor=(141,95) glyphs=206
-[FontAtlas] Cache miss: 'r' size=24 cursor=(157,95) glyphs=207
-[FontAtlas] Cache miss: 'N' size=24 cursor=(166,95) glyphs=208
-[FontAtlas] Cache miss: 'b' size=24 cursor=(181,95) glyphs=209
-[FontAtlas] Cache miss: 'u' size=24 cursor=(194,95) glyphs=210
-[FontAtlas] Cache miss: 'l' size=24 cursor=(207,95) glyphs=211
-[FontAtlas] Cache miss: '0' size=18 cursor=(211,95) glyphs=212
-[FontAtlas] Cache miss: ':' size=18 cursor=(222,95) glyphs=213
-[FontAtlas] Cache miss: '1' size=18 cursor=(225,95) glyphs=214
-[FontAtlas] Cache miss: '2' size=18 cursor=(235,95) glyphs=215
-[FontAtlas] Cache miss: 't' size=20 cursor=(245,95) glyphs=216
-[FontAtlas] Cache miss: ' ' size=20 cursor=(254,95) glyphs=217
-[FontAtlas] Cache miss: 'n' size=20 cursor=(254,95) glyphs=217
-[FontAtlas] Cache miss: 'C' size=20 cursor=(265,95) glyphs=219
-[FontAtlas] Cache miss: 'N' size=20 cursor=(278,95) glyphs=220
-[FontAtlas] Cache miss: 'b' size=20 cursor=(291,95) glyphs=221
-[FontAtlas] Cache miss: '.' size=20 cursor=(303,95) glyphs=222
-[FontAtlas] Cache miss: '+' size=21 cursor=(307,95) glyphs=223
-[FontAtlas] Cache miss: 'C' size=21 cursor=(322,95) glyphs=224
-[FontAtlas] Cache miss: 'N' size=21 cursor=(336,95) glyphs=225
-[FontAtlas] Cache miss: 'b' size=21 cursor=(349,95) glyphs=226
-[FontAtlas] Cache miss: 'u' size=21 cursor=(362,95) glyphs=227
-[FontAtlas] Cache miss: '°' size=21 cursor=(374,95) glyphs=228
-[FontAtlas] Cache miss: 'P' size=21 cursor=(382,95) glyphs=229
-[FontAtlas] Cache miss: '8' size=21 cursor=(393,95) glyphs=230
-[FontAtlas] Cache miss: 'O' size=21 cursor=(405,95) glyphs=231
-[FontAtlas] Cache miss: 'p' size=21 cursor=(421,95) glyphs=232
-[FontAtlas] Cache miss: 'w' size=21 cursor=(434,95) glyphs=233
-[FontAtlas] Cache miss: 'G' size=21 cursor=(452,95) glyphs=234
-[FontAtlas] Cache miss: 'x' size=21 cursor=(467,95) glyphs=235
-[FontAtlas] Cache miss: 'y' size=21 cursor=(480,95) glyphs=236
-[FontAtlas] Cache miss: 'E' size=21 cursor=(493,95) glyphs=237
-[FontAtlas] Cache miss: '-' size=21 cursor=(504,95) glyphs=238
-[FontAtlas] Cache miss: 'v' size=21 cursor=(511,95) glyphs=239
-[FontAtlas] Cache miss: 'H' size=21 cursor=(13,114) glyphs=240
-[FontAtlas] Cache miss: '9' size=21 cursor=(26,114) glyphs=241
-[FontAtlas] Cache miss: 'J' size=21 cursor=(38,114) glyphs=242
-[FontAtlas] Cache miss: 'F' size=21 cursor=(46,114) glyphs=243
-[FontAtlas] Cache miss: 'R' size=21 cursor=(56,114) glyphs=244
-[FontAtlas] Cache miss: 'A' size=21 cursor=(69,114) glyphs=245
-[FontAtlas] Cache miss: 'I' size=21 cursor=(85,114) glyphs=246
-[FontAtlas] Cache miss: 'm' size=21 cursor=(89,114) glyphs=247
-[FontAtlas] Cache miss: 'L' size=21 cursor=(108,114) glyphs=248
-[FontAtlas] Cache miss: 'M' size=21 cursor=(119,114) glyphs=249
-[FontAtlas] Cache miss: 'W' size=21 cursor=(135,114) glyphs=250
-[FontAtlas] Cache miss: 'k' size=21 cursor=(157,114) glyphs=251
-[FontAtlas] Cache miss: 'V' size=21 cursor=(170,114) glyphs=252
-[FontAtlas] Cache miss: 'U' size=21 cursor=(186,114) glyphs=253
-[FontAtlas] Cache miss: 'e' size=26 cursor=(200,114) glyphs=254
-[FontAtlas] Cache miss: 't' size=26 cursor=(215,114) glyphs=255
-[FontAtlas] Cache miss: 'a' size=26 cursor=(226,114) glyphs=256
-[FontAtlas] Cache miss: ' ' size=26 cursor=(240,114) glyphs=257
-[FontAtlas] Cache miss: 'n' size=26 cursor=(240,114) glyphs=257
-[FontAtlas] Cache miss: 'C' size=26 cursor=(254,114) glyphs=259
-[FontAtlas] Cache miss: 'r' size=26 cursor=(271,114) glyphs=260
-[FontAtlas] Cache miss: 'N' size=26 cursor=(281,114) glyphs=261
-[FontAtlas] Cache miss: 'b' size=26 cursor=(297,114) glyphs=262
-[FontAtlas] Cache miss: 'u' size=26 cursor=(312,114) glyphs=263
-[FontAtlas] Cache miss: 'l' size=26 cursor=(326,114) glyphs=264
-[FontAtlas] Cache miss: 'D' size=21 cursor=(330,114) glyphs=265
-[FontAtlas] Cache miss: 's' size=19 cursor=(344,114) glyphs=266
-[FontAtlas] Cache miss: 'o' size=19 cursor=(353,114) glyphs=267
-[FontAtlas] Cache miss: ':' size=19 cursor=(364,114) glyphs=268
-[FontAtlas] Cache miss: 'N' size=19 cursor=(368,114) glyphs=269
-[FontAtlas] Cache miss: 'G' size=19 cursor=(381,114) glyphs=270
-[FontAtlas] Cache miss: 'C' size=19 cursor=(395,114) glyphs=271
-[FontAtlas] Cache miss: '3' size=19 cursor=(408,114) glyphs=272
-[FontAtlas] Cache miss: '7' size=19 cursor=(419,114) glyphs=273
-[FontAtlas] Cache miss: '2' size=19 cursor=(430,114) glyphs=274
-[FontAtlas] Cache miss: ',' size=19 cursor=(441,114) glyphs=275
-[FontAtlas] Cache miss: 'K' size=19 cursor=(446,114) glyphs=276
-[FontAtlas] Cache miss: 'y' size=19 cursor=(459,114) glyphs=277
-[FontAtlas] Cache miss: 'b' size=19 cursor=(471,114) glyphs=278
-[FontAtlas] Cache miss: 'u' size=19 cursor=(483,114) glyphs=279
-[FontAtlas] Cache miss: 'i' size=19 cursor=(494,114) glyphs=280
-[FontAtlas] Cache miss: '9' size=19 cursor=(498,114) glyphs=281
-[FontAtlas] Cache miss: 'U' size=19 cursor=(509,114) glyphs=282
-[FontAtlas] Cache miss: 'M' size=19 cursor=(13,135) glyphs=283
-[FontAtlas] Cache miss: 'R' size=19 cursor=(28,135) glyphs=284
-[FontAtlas] Cache miss: 'W' size=19 cursor=(41,135) glyphs=285
-[FontAtlas] Cache miss: '5' size=19 cursor=(61,135) glyphs=286
-[FontAtlas] Cache miss: '★' size=21 cursor=(72,135) glyphs=287
-[FontAtlas] Flush: uploading dirty region (0,95)-(510,152) = 510x57 px, atlas 512x512
-[FontAtlas] Cache miss: '4' size=20 cursor=(90,135) glyphs=288
-[FontAtlas] Flush: uploading dirty region (90,135)-(102,150) = 12x15 px, atlas 512x512
-[FontAtlas] Cache miss: '9' size=20 cursor=(103,135) glyphs=289
-[FontAtlas] Flush: uploading dirty region (103,135)-(114,150) = 11x15 px, atlas 512x512
-[FontAtlas] Cache miss: '6' size=20 cursor=(115,135) glyphs=290
-[FontAtlas] Flush: uploading dirty region (115,135)-(126,150) = 11x15 px, atlas 512x512
-[FontAtlas] Cache miss: '7' size=20 cursor=(127,135) glyphs=291
-[FontAtlas] Flush: uploading dirty region (127,135)-(138,150) = 11x15 px, atlas 512x512
-[FontAtlas] Cache miss: '1' size=20 cursor=(139,135) glyphs=292
-[FontAtlas] Flush: uploading dirty region (139,135)-(148,150) = 9x15 px, atlas 512x512
-[FontAtlas] Cache miss: '8' size=20 cursor=(149,135) glyphs=293
-[FontAtlas] Flush: uploading dirty region (149,135)-(160,150) = 11x15 px, atlas 512x512
-[FontAtlas] Cache miss: '−' size=21 cursor=(161,135) glyphs=294
-[FontAtlas] Cache miss: '[' size=26 cursor=(176,135) glyphs=295
-[FontAtlas] Cache miss: 'P' size=26 cursor=(183,135) glyphs=296
-[FontAtlas] Cache miss: 'o' size=26 cursor=(197,135) glyphs=297
-[FontAtlas] Cache miss: 'p' size=26 cursor=(212,135) glyphs=298
-[FontAtlas] Cache miss: 's' size=26 cursor=(227,135) glyphs=299
-[FontAtlas] Cache miss: 'd' size=26 cursor=(240,135) glyphs=300
-[FontAtlas] Cache miss: ']' size=26 cursor=(255,135) glyphs=301
-[FontAtlas] Cache miss: '(' size=21 cursor=(262,135) glyphs=302
-[FontAtlas] Cache miss: ')' size=21 cursor=(269,135) glyphs=303
-[FontAtlas] Flush: uploading dirty region (161,135)-(275,158) = 114x23 px, atlas 512x512
-[FontAtlas] Cache miss: 'P' size=24 cursor=(276,135) glyphs=304
-[FontAtlas] Cache miss: 'c' size=24 cursor=(289,135) glyphs=305
-[FontAtlas] Cache miss: 'i' size=24 cursor=(301,135) glyphs=306
-[FontAtlas] Cache miss: '6' size=18 cursor=(305,135) glyphs=307
-[FontAtlas] Cache miss: 'c' size=20 cursor=(316,135) glyphs=308
-[FontAtlas] Cache miss: 'l' size=20 cursor=(326,135) glyphs=309
-[FontAtlas] Cache miss: 'u' size=20 cursor=(330,135) glyphs=310
-[FontAtlas] Cache miss: 'c' size=26 cursor=(341,135) glyphs=311
-[FontAtlas] Cache miss: 'i' size=26 cursor=(354,135) glyphs=312
-[FontAtlas] Cache miss: '6' size=19 cursor=(358,135) glyphs=313
-[FontAtlas] Flush: uploading dirty region (276,135)-(368,155) = 92x20 px, atlas 512x512
-[FontAtlas] Cache miss: 'S' size=24 cursor=(369,135) glyphs=314
-[FontAtlas] Cache miss: 'o' size=24 cursor=(383,135) glyphs=315
-[FontAtlas] Cache miss: 'h' size=24 cursor=(397,135) glyphs=316
-[FontAtlas] Cache miss: 'w' size=24 cursor=(410,135) glyphs=317
-[FontAtlas] Cache miss: 'G' size=24 cursor=(429,135) glyphs=318
-[FontAtlas] Cache miss: 'x' size=24 cursor=(446,135) glyphs=319
-[FontAtlas] Cache miss: 'y' size=24 cursor=(461,135) glyphs=320
-[FontAtlas] Cache miss: '5' size=18 cursor=(476,135) glyphs=321
-[FontAtlas] Cache miss: '7' size=18 cursor=(486,135) glyphs=322
-[FontAtlas] Cache miss: 'o' size=20 cursor=(496,135) glyphs=323
-[FontAtlas] Cache miss: 'h' size=20 cursor=(508,135) glyphs=324
-[FontAtlas] Cache miss: 'S' size=26 cursor=(11,159) glyphs=325
-[FontAtlas] Cache miss: 'h' size=26 cursor=(27,159) glyphs=326
-[FontAtlas] Cache miss: 'w' size=26 cursor=(41,159) glyphs=327
-[FontAtlas] Cache miss: 'G' size=26 cursor=(62,159) glyphs=328
-[FontAtlas] Cache miss: 'x' size=26 cursor=(81,159) glyphs=329
-[FontAtlas] Cache miss: 'y' size=26 cursor=(97,159) glyphs=330
-[FontAtlas] Cache miss: '8' size=19 cursor=(113,159) glyphs=331
-[FontAtlas] Flush: uploading dirty region (0,135)-(507,179) = 507x44 px, atlas 512x512
-[FontAtlas] Cache miss: 'O' size=24 cursor=(124,159) glyphs=332
-[FontAtlas] Cache miss: 'p' size=24 cursor=(142,159) glyphs=333
-[FontAtlas] Cache miss: '4' size=18 cursor=(155,159) glyphs=334
-[FontAtlas] Cache miss: '3' size=18 cursor=(167,159) glyphs=335
-[FontAtlas] Cache miss: 'O' size=20 cursor=(178,159) glyphs=336
-[FontAtlas] Cache miss: 'O' size=26 cursor=(193,159) glyphs=337
-[FontAtlas] Cache miss: 'I' size=19 cursor=(212,159) glyphs=338
-[FontAtlas] Cache miss: '4' size=19 cursor=(216,159) glyphs=339
-[FontAtlas] Cache miss: '0' size=19 cursor=(229,159) glyphs=340
-[FontAtlas] Cache miss: 'd' size=19 cursor=(240,159) glyphs=341
-[FontAtlas] Cache miss: '1' size=19 cursor=(251,159) glyphs=342
-[FontAtlas] Cache miss: 'D' size=19 cursor=(261,159) glyphs=343
-[FontAtlas] Flush: uploading dirty region (124,159)-(274,178) = 150x19 px, atlas 512x512
-[FontAtlas] Cache miss: 'P' size=23 cursor=(275,159) glyphs=344
-[FontAtlas] Cache miss: 'f' size=23 cursor=(288,159) glyphs=345
-[FontAtlas] Cache miss: 'e' size=23 cursor=(298,159) glyphs=346
-[FontAtlas] Cache miss: ' ' size=23 cursor=(311,159) glyphs=347
-[FontAtlas] Cache miss: 'n' size=23 cursor=(311,159) glyphs=347
-[FontAtlas] Cache miss: 'T' size=23 cursor=(323,159) glyphs=349
-[FontAtlas] Cache miss: '>' size=21 cursor=(340,159) glyphs=350
-[FontAtlas] Cache miss: '°' size=19 cursor=(355,159) glyphs=351
-[FontAtlas] Cache miss: 'E' size=19 cursor=(363,159) glyphs=352
-[FontAtlas] Cache miss: 'm' size=19 cursor=(374,159) glyphs=353
-[FontAtlas] Cache miss: '[' size=18 cursor=(391,159) glyphs=354
-[FontAtlas] Cache miss: '>' size=18 cursor=(397,159) glyphs=355
-[FontAtlas] Cache miss: ']' size=18 cursor=(411,159) glyphs=356
-[FontAtlas] Cache miss: 'X' size=21 cursor=(417,159) glyphs=357
-[FontAtlas] Cache miss: 'F' size=19 cursor=(432,159) glyphs=358
-[FontAtlas] Cache miss: '#' size=21 cursor=(442,159) glyphs=359
-[FontAtlas] Cache miss: 'v' size=19 cursor=(458,159) glyphs=360
-[FontAtlas] Cache miss: 'D' size=22 cursor=(470,159) glyphs=361
-[FontAtlas] Cache miss: 'i' size=22 cursor=(485,159) glyphs=362
-[FontAtlas] Cache miss: 's' size=22 cursor=(489,159) glyphs=363
-[FontAtlas] Cache miss: 'c' size=22 cursor=(500,159) glyphs=364
-[FontAtlas] Cache miss: 'o' size=22 cursor=(511,159) glyphs=365
-[FontAtlas] Cache miss: 'v' size=22 cursor=(13,180) glyphs=366
-[FontAtlas] Cache miss: 'e' size=22 cursor=(27,180) glyphs=367
-[FontAtlas] Cache miss: 'r' size=22 cursor=(40,180) glyphs=368
-[FontAtlas] Cache miss: 'd' size=22 cursor=(49,180) glyphs=369
-[FontAtlas] Cache miss: ' ' size=22 cursor=(61,180) glyphs=370
-[FontAtlas] Cache miss: 'n' size=22 cursor=(61,180) glyphs=370
-[FontAtlas] Cache miss: 'D' size=18 cursor=(73,180) glyphs=372
-[FontAtlas] Cache miss: 'i' size=18 cursor=(86,180) glyphs=373
-[FontAtlas] Cache miss: 's' size=18 cursor=(90,180) glyphs=374
-[FontAtlas] Cache miss: 'c' size=18 cursor=(100,180) glyphs=375
-[FontAtlas] Cache miss: 'o' size=18 cursor=(109,180) glyphs=376
-[FontAtlas] Cache miss: 'v' size=18 cursor=(120,180) glyphs=377
-[FontAtlas] Cache miss: 'e' size=18 cursor=(132,180) glyphs=378
-[FontAtlas] Cache miss: 'r' size=18 cursor=(143,180) glyphs=379
-[FontAtlas] Cache miss: 'n' size=18 cursor=(151,180) glyphs=380
-[FontAtlas] Cache miss: 'g' size=18 cursor=(161,180) glyphs=381
-[FontAtlas] Cache miss: ' ' size=18 cursor=(171,180) glyphs=382
-[FontAtlas] Cache miss: 'd' size=18 cursor=(171,180) glyphs=383
-[FontAtlas] Cache miss: '.' size=18 cursor=(181,180) glyphs=384
-[FontAtlas] Flush: uploading dirty region (0,159)-(510,197) = 510x38 px, atlas 512x512
-[FontAtlas] Cache miss: 'f' size=19 cursor=(185,180) glyphs=385
-[FontAtlas] Cache miss: 'k' size=19 cursor=(194,180) glyphs=386
-[FontAtlas] Flush: uploading dirty region (185,180)-(204,194) = 19x14 px, atlas 512x512
-[FontAtlas] Cache miss: 'C' size=17 cursor=(205,180) glyphs=387
-[FontAtlas] Cache miss: 'a' size=17 cursor=(217,180) glyphs=388
-[FontAtlas] Cache miss: 'm' size=17 cursor=(226,180) glyphs=389
-[FontAtlas] Cache miss: 'e' size=17 cursor=(242,180) glyphs=390
-[FontAtlas] Cache miss: 'r' size=17 cursor=(253,180) glyphs=391
-[FontAtlas] Cache miss: '✓' size=21 cursor=(260,180) glyphs=392
-[FontAtlas] Cache miss: 'M' size=17 cursor=(273,180) glyphs=393
-[FontAtlas] Cache miss: 'o' size=17 cursor=(286,180) glyphs=394
-[FontAtlas] Cache miss: 'u' size=17 cursor=(297,180) glyphs=395
-[FontAtlas] Cache miss: 'n' size=17 cursor=(307,180) glyphs=396
-[FontAtlas] Cache miss: 't' size=17 cursor=(317,180) glyphs=397
-[FontAtlas] Cache miss: 'F' size=17 cursor=(325,180) glyphs=398
-[FontAtlas] Cache miss: 'c' size=17 cursor=(334,180) glyphs=399
-[FontAtlas] Cache miss: 's' size=17 cursor=(344,180) glyphs=400
-[FontAtlas] Cache miss: 'W' size=17 cursor=(354,180) glyphs=401
-[FontAtlas] Cache miss: 'G' size=17 cursor=(372,180) glyphs=402
-[FontAtlas] Cache miss: 'i' size=17 cursor=(385,180) glyphs=403
-[FontAtlas] Cache miss: 'd' size=17 cursor=(389,180) glyphs=404
-[FontAtlas] Flush: uploading dirty region (205,180)-(399,193) = 194x13 px, atlas 512x512
-[FontAtlas] Cache miss: '[' size=19 cursor=(400,180) glyphs=405
-[FontAtlas] Cache miss: '>' size=19 cursor=(406,180) glyphs=406
-[FontAtlas] Cache miss: ']' size=19 cursor=(419,180) glyphs=407
-[FontAtlas] Cache miss: 'w' size=19 cursor=(425,180) glyphs=408
-[FontAtlas] Flush: uploading dirty region (400,180)-(440,197) = 40x17 px, atlas 512x512
-[FontAtlas] Cache miss: 'z' size=21 cursor=(441,180) glyphs=409
-[FontAtlas] Cache miss: 'f' size=21 cursor=(453,180) glyphs=410
-[FontAtlas] Cache miss: 'p' size=19 cursor=(462,180) glyphs=411
-[FontAtlas] Cache miss: '#' size=18 cursor=(474,180) glyphs=412
-[FontAtlas] Cache miss: 'T' size=18 cursor=(488,180) glyphs=413
-[FontAtlas] Cache miss: 'a' size=18 cursor=(502,180) glyphs=414
-[FontAtlas] Cache miss: 't' size=18 cursor=(512,180) glyphs=415
-[FontAtlas] Cache miss: 'E' size=18 cursor=(8,198) glyphs=416
-[FontAtlas] Cache miss: 'x' size=18 cursor=(19,198) glyphs=417
-[FontAtlas] Cache miss: 'p' size=18 cursor=(31,198) glyphs=418
-[FontAtlas] Cache miss: '~' size=18 cursor=(42,198) glyphs=419
-[FontAtlas] Cache miss: 'N' size=18 cursor=(56,198) glyphs=420
-[FontAtlas] Cache miss: '−' size=18 cursor=(68,198) glyphs=421
-[FontAtlas] Cache miss: '+' size=18 cursor=(82,198) glyphs=422
-[FontAtlas] Cache miss: '~' size=19 cursor=(96,198) glyphs=423
-[FontAtlas] Cache miss: '–' size=18 cursor=(109,198) glyphs=424
-[FontAtlas] Cache miss: '8' size=18 cursor=(119,198) glyphs=425
-[FontAtlas] Cache miss: '(' size=18 cursor=(130,198) glyphs=426
-[FontAtlas] Cache miss: 'h' size=18 cursor=(136,198) glyphs=427
-[FontAtlas] Cache miss: ')' size=18 cursor=(146,198) glyphs=428
-[FontAtlas] Cache miss: '9' size=18 cursor=(152,198) glyphs=429
-[FontAtlas] Flush: uploading dirty region (0,180)-(511,214) = 511x34 px, atlas 512x512
-[Program] Resize event: pixels=1280x900, dpiScale=1.500 -> 1.500
-[VkRenderer] Resize: 2880x1814 -> 1280x900
-[Program] Resize event: pixels=1280x900, dpiScale=1.500 -> 1.500
-[VkRenderer] Resize: 1280x900 -> 1280x900
-[Program] Resize event: pixels=2880x1814, dpiScale=1.500 -> 1.500
-[VkRenderer] Resize: 1280x900 -> 2880x1814
-[Program] Resize event: pixels=2880x1814, dpiScale=1.500 -> 1.500
 [VkRenderer] Resize: 2880x1814 -> 2880x1814
+[FontAtlas] Cache miss: 'C' size=23 cursor=(0,0) glyphs=0
+[FontAtlas] Cache miss: 'i' size=23 cursor=(15,0) glyphs=1
+[FontAtlas] Cache miss: 'v' size=23 cursor=(19,0) glyphs=2
+[FontAtlas] Cache miss: 'l' size=23 cursor=(33,0) glyphs=3
+[FontAtlas] Skip unflushed (hit): 'C' size=23
+[FontAtlas] Skip unflushed (hit): 'i' size=23
+[FontAtlas] Skip unflushed (hit): 'v' size=23
+[FontAtlas] Skip unflushed (hit): 'i' size=23
+[FontAtlas] Skip unflushed (hit): 'l' size=23
+[FontAtlas] Cache miss: 'N' size=23 cursor=(37,0) glyphs=4
+[FontAtlas] Cache miss: 'a' size=23 cursor=(51,0) glyphs=5
+[FontAtlas] Cache miss: 'u' size=23 cursor=(63,0) glyphs=6
+[FontAtlas] Cache miss: 't' size=23 cursor=(76,0) glyphs=7
+[FontAtlas] Cache miss: 'c' size=23 cursor=(86,0) glyphs=8
+[FontAtlas] Skip unflushed (hit): 'N' size=23
+[FontAtlas] Skip unflushed (hit): 'a' size=23
+[FontAtlas] Skip unflushed (hit): 'u' size=23
+[FontAtlas] Skip unflushed (hit): 't' size=23
+[FontAtlas] Skip unflushed (hit): 'i' size=23
+[FontAtlas] Skip unflushed (hit): 'c' size=23
+[FontAtlas] Skip unflushed (hit): 'a' size=23
+[FontAtlas] Skip unflushed (hit): 'l' size=23
+[FontAtlas] Cache miss: 'A' size=23 cursor=(98,0) glyphs=9
+[FontAtlas] Cache miss: 's' size=23 cursor=(115,0) glyphs=10
+[FontAtlas] Cache miss: 'r' size=23 cursor=(126,0) glyphs=11
+[FontAtlas] Cache miss: 'o' size=23 cursor=(135,0) glyphs=12
+[FontAtlas] Skip unflushed (hit): 'A' size=23
+[FontAtlas] Skip unflushed (hit): 's' size=23
+[FontAtlas] Skip unflushed (hit): 't' size=23
+[FontAtlas] Skip unflushed (hit): 'r' size=23
+[FontAtlas] Skip unflushed (hit): 'o' size=23
+[FontAtlas] Cache miss: 'g' size=23 cursor=(148,0) glyphs=13
+[FontAtlas] Cache miss: 'h' size=23 cursor=(161,0) glyphs=14
+[FontAtlas] Skip unflushed (hit): 'N' size=23
+[FontAtlas] Skip unflushed (hit): 'i' size=23
+[FontAtlas] Skip unflushed (hit): 'g' size=23
+[FontAtlas] Skip unflushed (hit): 'h' size=23
+[FontAtlas] Skip unflushed (hit): 't' size=23
+[FontAtlas] Skip unflushed (hit): 'A' size=23
+[FontAtlas] Skip unflushed (hit): 's' size=23
+[FontAtlas] Skip unflushed (hit): 't' size=23
+[FontAtlas] Skip unflushed (hit): 'r' size=23
+[FontAtlas] Skip unflushed (hit): 'o' size=23
+[FontAtlas] Skip unflushed (hit): 'N' size=23
+[FontAtlas] Skip unflushed (hit): 'a' size=23
+[FontAtlas] Skip unflushed (hit): 'u' size=23
+[FontAtlas] Skip unflushed (hit): 't' size=23
+[FontAtlas] Skip unflushed (hit): 'i' size=23
+[FontAtlas] Skip unflushed (hit): 'c' size=23
+[FontAtlas] Skip unflushed (hit): 'a' size=23
+[FontAtlas] Skip unflushed (hit): 'l' size=23
+[FontAtlas] Skip unflushed (hit): 'C' size=23
+[FontAtlas] Skip unflushed (hit): 'i' size=23
+[FontAtlas] Skip unflushed (hit): 'v' size=23
+[FontAtlas] Skip unflushed (hit): 'i' size=23
+[FontAtlas] Skip unflushed (hit): 'l' size=23
+[FontAtlas] Cache miss: '0' size=23 cursor=(173,0) glyphs=15
+[FontAtlas] Cache miss: '°' size=23 cursor=(187,0) glyphs=16
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '°' size=23
+[FontAtlas] Cache miss: '1' size=23 cursor=(196,0) glyphs=17
+[FontAtlas] Skip unflushed (hit): '1' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '°' size=23
+[FontAtlas] Cache miss: '2' size=23 cursor=(208,0) glyphs=18
+[FontAtlas] Skip unflushed (hit): '2' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '°' size=23
+[FontAtlas] Cache miss: '3' size=23 cursor=(221,0) glyphs=19
+[FontAtlas] Skip unflushed (hit): '3' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '°' size=23
+[FontAtlas] Cache miss: '4' size=23 cursor=(234,0) glyphs=20
+[FontAtlas] Skip unflushed (hit): '4' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '°' size=23
+[FontAtlas] Cache miss: '5' size=23 cursor=(248,0) glyphs=21
+[FontAtlas] Skip unflushed (hit): '5' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '°' size=23
+[FontAtlas] Cache miss: '6' size=23 cursor=(261,0) glyphs=22
+[FontAtlas] Skip unflushed (hit): '6' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '°' size=23
+[FontAtlas] Cache miss: '7' size=23 cursor=(275,0) glyphs=23
+[FontAtlas] Skip unflushed (hit): '7' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '°' size=23
+[FontAtlas] Cache miss: '8' size=23 cursor=(288,0) glyphs=24
+[FontAtlas] Skip unflushed (hit): '8' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '°' size=23
+[FontAtlas] Cache miss: '9' size=23 cursor=(302,0) glyphs=25
+[FontAtlas] Skip unflushed (hit): '9' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '°' size=23
+[FontAtlas] Cache miss: ':' size=23 cursor=(316,0) glyphs=26
+[FontAtlas] Skip unflushed (hit): '2' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): ':' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '2' size=23
+[FontAtlas] Skip unflushed (hit): '1' size=23
+[FontAtlas] Skip unflushed (hit): ':' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '2' size=23
+[FontAtlas] Skip unflushed (hit): '2' size=23
+[FontAtlas] Skip unflushed (hit): ':' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '2' size=23
+[FontAtlas] Skip unflushed (hit): '3' size=23
+[FontAtlas] Skip unflushed (hit): ':' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): ':' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '1' size=23
+[FontAtlas] Skip unflushed (hit): ':' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '2' size=23
+[FontAtlas] Skip unflushed (hit): ':' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '3' size=23
+[FontAtlas] Skip unflushed (hit): ':' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '4' size=23
+[FontAtlas] Skip unflushed (hit): ':' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '5' size=23
+[FontAtlas] Skip unflushed (hit): ':' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '6' size=23
+[FontAtlas] Skip unflushed (hit): ':' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '7' size=23
+[FontAtlas] Skip unflushed (hit): ':' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Skip unflushed (hit): '0' size=23
+[FontAtlas] Cache miss: 'L' size=27 cursor=(321,0) glyphs=27
+[FontAtlas] Cache miss: 'o' size=27 cursor=(335,0) glyphs=28
+[FontAtlas] Cache miss: 'c' size=27 cursor=(351,0) glyphs=29
+[FontAtlas] Cache miss: 'a' size=27 cursor=(365,0) glyphs=30
+[FontAtlas] Cache miss: 'l' size=27 cursor=(380,0) glyphs=31
+[FontAtlas] Cache miss: ' ' size=27 cursor=(384,0) glyphs=32
+[FontAtlas] Cache miss: 'n' size=27 cursor=(384,0) glyphs=32
+[FontAtlas] Cache miss: 'T' size=27 cursor=(398,0) glyphs=34
+[FontAtlas] Cache miss: 'i' size=27 cursor=(417,0) glyphs=35
+[FontAtlas] Cache miss: 'm' size=27 cursor=(421,0) glyphs=36
+[FontAtlas] Cache miss: 'e' size=27 cursor=(444,0) glyphs=37
+[FontAtlas] Skip unflushed (hit): 'L' size=27
+[FontAtlas] Skip unflushed (hit): 'o' size=27
+[FontAtlas] Skip unflushed (hit): 'c' size=27
+[FontAtlas] Skip unflushed (hit): 'a' size=27
+[FontAtlas] Skip unflushed (hit): 'l' size=27
+[FontAtlas] Skip unflushed (hit): 'T' size=27
+[FontAtlas] Skip unflushed (hit): 'i' size=27
+[FontAtlas] Skip unflushed (hit): 'm' size=27
+[FontAtlas] Skip unflushed (hit): 'e' size=27
+[FontAtlas] Cache miss: '2' size=20 cursor=(460,0) glyphs=38
+[FontAtlas] Cache miss: '0' size=20 cursor=(471,0) glyphs=39
+[FontAtlas] Cache miss: '°' size=20 cursor=(483,0) glyphs=40
+[FontAtlas] Skip unflushed (hit): '2' size=20
+[FontAtlas] Skip unflushed (hit): '0' size=20
+[FontAtlas] Skip unflushed (hit): '°' size=20
+[FontAtlas] Cache miss: 'O' size=32 cursor=(492,0) glyphs=41
+[FontAtlas] Cache miss: 'b' size=32 cursor=(24,22) glyphs=42
+[FontAtlas] Cache miss: 's' size=32 cursor=(42,22) glyphs=43
+[FontAtlas] Cache miss: 'e' size=32 cursor=(58,22) glyphs=44
+[FontAtlas] Cache miss: 'r' size=32 cursor=(76,22) glyphs=45
+[FontAtlas] Cache miss: 'v' size=32 cursor=(89,22) glyphs=46
+[FontAtlas] Cache miss: 'a' size=32 cursor=(108,22) glyphs=47
+[FontAtlas] Cache miss: 't' size=32 cursor=(125,22) glyphs=48
+[FontAtlas] Cache miss: 'i' size=32 cursor=(138,22) glyphs=49
+[FontAtlas] Cache miss: 'o' size=32 cursor=(142,22) glyphs=50
+[FontAtlas] Cache miss: 'n' size=32 cursor=(160,22) glyphs=51
+[FontAtlas] Cache miss: ' ' size=32 cursor=(177,22) glyphs=52
+[FontAtlas] Cache miss: 'S' size=32 cursor=(177,22) glyphs=53
+[FontAtlas] Cache miss: 'c' size=32 cursor=(195,22) glyphs=54
+[FontAtlas] Cache miss: 'h' size=32 cursor=(211,22) glyphs=55
+[FontAtlas] Cache miss: 'd' size=32 cursor=(228,22) glyphs=56
+[FontAtlas] Cache miss: 'u' size=32 cursor=(246,22) glyphs=57
+[FontAtlas] Cache miss: 'l' size=32 cursor=(263,22) glyphs=58
+[FontAtlas] Cache miss: '—' size=32 cursor=(267,22) glyphs=59
+[FontAtlas] Cache miss: '3' size=32 cursor=(298,22) glyphs=60
+[FontAtlas] Cache miss: '7' size=32 cursor=(315,22) glyphs=61
+[FontAtlas] Cache miss: '.' size=32 cursor=(332,22) glyphs=62
+[FontAtlas] Cache miss: '0' size=32 cursor=(337,22) glyphs=63
+[FontAtlas] Cache miss: '°' size=32 cursor=(355,22) glyphs=64
+[FontAtlas] Cache miss: ',' size=32 cursor=(366,22) glyphs=65
+[FontAtlas] Cache miss: '1' size=32 cursor=(373,22) glyphs=66
+[FontAtlas] Cache miss: '4' size=32 cursor=(389,22) glyphs=67
+[FontAtlas] Cache miss: '5' size=32 cursor=(408,22) glyphs=68
+[FontAtlas] Cache miss: 'E' size=32 cursor=(425,22) glyphs=69
+[FontAtlas] Skip unflushed (hit): 'O' size=32
+[FontAtlas] Skip unflushed (hit): 'b' size=32
+[FontAtlas] Skip unflushed (hit): 's' size=32
+[FontAtlas] Skip unflushed (hit): 'e' size=32
+[FontAtlas] Skip unflushed (hit): 'r' size=32
+[FontAtlas] Skip unflushed (hit): 'v' size=32
+[FontAtlas] Skip unflushed (hit): 'a' size=32
+[FontAtlas] Skip unflushed (hit): 't' size=32
+[FontAtlas] Skip unflushed (hit): 'i' size=32
+[FontAtlas] Skip unflushed (hit): 'o' size=32
+[FontAtlas] Skip unflushed (hit): 'n' size=32
+[FontAtlas] Skip unflushed (hit): 'S' size=32
+[FontAtlas] Skip unflushed (hit): 'c' size=32
+[FontAtlas] Skip unflushed (hit): 'h' size=32
+[FontAtlas] Skip unflushed (hit): 'e' size=32
+[FontAtlas] Skip unflushed (hit): 'd' size=32
+[FontAtlas] Skip unflushed (hit): 'u' size=32
+[FontAtlas] Skip unflushed (hit): 'l' size=32
+[FontAtlas] Skip unflushed (hit): 'e' size=32
+[FontAtlas] Skip unflushed (hit): '—' size=32
+[FontAtlas] Skip unflushed (hit): '3' size=32
+[FontAtlas] Skip unflushed (hit): '7' size=32
+[FontAtlas] Skip unflushed (hit): '.' size=32
+[FontAtlas] Skip unflushed (hit): '0' size=32
+[FontAtlas] Skip unflushed (hit): '°' size=32
+[FontAtlas] Skip unflushed (hit): 'S' size=32
+[FontAtlas] Skip unflushed (hit): ',' size=32
+[FontAtlas] Skip unflushed (hit): '1' size=32
+[FontAtlas] Skip unflushed (hit): '4' size=32
+[FontAtlas] Skip unflushed (hit): '5' size=32
+[FontAtlas] Skip unflushed (hit): '.' size=32
+[FontAtlas] Skip unflushed (hit): '0' size=32
+[FontAtlas] Skip unflushed (hit): '°' size=32
+[FontAtlas] Skip unflushed (hit): 'E' size=32
+[FontAtlas] Cache miss: 'T' size=21 cursor=(442,22) glyphs=70
+[FontAtlas] Cache miss: 'o' size=21 cursor=(457,22) glyphs=71
+[FontAtlas] Cache miss: 'n' size=21 cursor=(469,22) glyphs=72
+[FontAtlas] Cache miss: 'i' size=21 cursor=(481,22) glyphs=73
+[FontAtlas] Cache miss: 'g' size=21 cursor=(485,22) glyphs=74
+[FontAtlas] Cache miss: 'h' size=21 cursor=(497,22) glyphs=75
+[FontAtlas] Cache miss: 't' size=21 cursor=(509,22) glyphs=76
+[FontAtlas] Cache miss: ''' size=21 cursor=(9,47) glyphs=77
+[FontAtlas] Cache miss: 's' size=21 cursor=(12,47) glyphs=78
+[FontAtlas] Cache miss: ' ' size=21 cursor=(22,47) glyphs=79
+[FontAtlas] Cache miss: 'B' size=21 cursor=(22,47) glyphs=80
+[FontAtlas] Cache miss: 'e' size=21 cursor=(34,47) glyphs=81
+[FontAtlas] Skip unflushed (hit): 'T' size=21
+[FontAtlas] Skip unflushed (hit): 'o' size=21
+[FontAtlas] Skip unflushed (hit): 'n' size=21
+[FontAtlas] Skip unflushed (hit): 'i' size=21
+[FontAtlas] Skip unflushed (hit): 'g' size=21
+[FontAtlas] Skip unflushed (hit): 'h' size=21
+[FontAtlas] Skip unflushed (hit): 't' size=21
+[FontAtlas] Skip unflushed (hit): ''' size=21
+[FontAtlas] Skip unflushed (hit): 's' size=21
+[FontAtlas] Skip unflushed (hit): 'B' size=21
+[FontAtlas] Skip unflushed (hit): 'e' size=21
+[FontAtlas] Skip unflushed (hit): 's' size=21
+[FontAtlas] Skip unflushed (hit): 't' size=21
+[FontAtlas] Cache miss: 'A' size=19 cursor=(46,47) glyphs=82
+[FontAtlas] Cache miss: 'l' size=19 cursor=(60,47) glyphs=83
+[FontAtlas] Skip unflushed (hit): 'A' size=19
+[FontAtlas] Skip unflushed (hit): 'l' size=19
+[FontAtlas] Skip unflushed (hit): 'l' size=19
+[FontAtlas] Cache miss: 'S' size=19 cursor=(64,47) glyphs=84
+[FontAtlas] Cache miss: 'e' size=19 cursor=(75,47) glyphs=85
+[FontAtlas] Cache miss: 'a' size=19 cursor=(86,47) glyphs=86
+[FontAtlas] Cache miss: 'r' size=19 cursor=(96,47) glyphs=87
+[FontAtlas] Cache miss: 'c' size=19 cursor=(104,47) glyphs=88
+[FontAtlas] Cache miss: 'h' size=19 cursor=(114,47) glyphs=89
+[FontAtlas] Cache miss: ' ' size=19 cursor=(125,47) glyphs=90
+[FontAtlas] Cache miss: 'n' size=19 cursor=(125,47) glyphs=90
+[FontAtlas] Cache miss: 't' size=19 cursor=(136,47) glyphs=92
+[FontAtlas] Cache miss: 'g' size=19 cursor=(144,47) glyphs=93
+[FontAtlas] Cache miss: '.' size=19 cursor=(155,47) glyphs=94
+[FontAtlas] Skip unflushed (hit): 'S' size=19
+[FontAtlas] Skip unflushed (hit): 'e' size=19
+[FontAtlas] Skip unflushed (hit): 'a' size=19
+[FontAtlas] Skip unflushed (hit): 'r' size=19
+[FontAtlas] Skip unflushed (hit): 'c' size=19
+[FontAtlas] Skip unflushed (hit): 'h' size=19
+[FontAtlas] Skip unflushed (hit): 't' size=19
+[FontAtlas] Skip unflushed (hit): 'a' size=19
+[FontAtlas] Skip unflushed (hit): 'r' size=19
+[FontAtlas] Skip unflushed (hit): 'g' size=19
+[FontAtlas] Skip unflushed (hit): 'e' size=19
+[FontAtlas] Skip unflushed (hit): 't' size=19
+[FontAtlas] Skip unflushed (hit): '.' size=19
+[FontAtlas] Skip unflushed (hit): '.' size=19
+[FontAtlas] Skip unflushed (hit): '.' size=19
+[FontAtlas] Cache miss: 'S' size=21 cursor=(158,47) glyphs=95
+[FontAtlas] Cache miss: 'l' size=21 cursor=(171,47) glyphs=96
+[FontAtlas] Cache miss: 'c' size=21 cursor=(175,47) glyphs=97
+[FontAtlas] Cache miss: 'a' size=21 cursor=(186,47) glyphs=98
+[FontAtlas] Cache miss: 'r' size=21 cursor=(197,47) glyphs=99
+[FontAtlas] Cache miss: 'd' size=21 cursor=(206,47) glyphs=100
+[FontAtlas] Cache miss: '.' size=21 cursor=(218,47) glyphs=101
+[FontAtlas] Skip unflushed (hit): 'S' size=21
+[FontAtlas] Skip unflushed (hit): 'e' size=21
+[FontAtlas] Skip unflushed (hit): 'l' size=21
+[FontAtlas] Skip unflushed (hit): 'e' size=21
+[FontAtlas] Skip unflushed (hit): 'c' size=21
+[FontAtlas] Skip unflushed (hit): 't' size=21
+[FontAtlas] Skip unflushed (hit): 'a' size=21
+[FontAtlas] Skip unflushed (hit): 't' size=21
+[FontAtlas] Skip unflushed (hit): 'a' size=21
+[FontAtlas] Skip unflushed (hit): 'r' size=21
+[FontAtlas] Skip unflushed (hit): 'g' size=21
+[FontAtlas] Skip unflushed (hit): 'e' size=21
+[FontAtlas] Skip unflushed (hit): 't' size=21
+[FontAtlas] Skip unflushed (hit): 't' size=21
+[FontAtlas] Skip unflushed (hit): 'o' size=21
+[FontAtlas] Skip unflushed (hit): 's' size=21
+[FontAtlas] Skip unflushed (hit): 'e' size=21
+[FontAtlas] Skip unflushed (hit): 'e' size=21
+[FontAtlas] Skip unflushed (hit): 'd' size=21
+[FontAtlas] Skip unflushed (hit): 'e' size=21
+[FontAtlas] Skip unflushed (hit): 't' size=21
+[FontAtlas] Skip unflushed (hit): 'a' size=21
+[FontAtlas] Skip unflushed (hit): 'i' size=21
+[FontAtlas] Skip unflushed (hit): 'l' size=21
+[FontAtlas] Skip unflushed (hit): 's' size=21
+[FontAtlas] Skip unflushed (hit): '.' size=21
+[FontAtlas] Cache miss: '🔭' size=27 cursor=(222,47) glyphs=102
+[FontAtlas] Skip unflushed (hit): '🔭' size=27
+[FontAtlas] Cache miss: '📅' size=27 cursor=(252,47) glyphs=103
+[FontAtlas] Skip unflushed (hit): '📅' size=27
+[FontAtlas] Cache miss: '🎯' size=27 cursor=(281,47) glyphs=104
+[FontAtlas] Skip unflushed (hit): '🎯' size=27
+[FontAtlas] Cache miss: '📷' size=27 cursor=(312,47) glyphs=105
+[FontAtlas] Skip unflushed (hit): '📷' size=27
+[FontAtlas] Cache miss: '🌌' size=27 cursor=(344,47) glyphs=106
+[FontAtlas] Skip unflushed (hit): '🌌' size=27
+[FontAtlas] Skip unflushed (hit): 'T' size=21
+[FontAtlas] Skip unflushed (hit): 'e' size=21
+[FontAtlas] Skip unflushed (hit): 's' size=21
+[FontAtlas] Skip unflushed (hit): 't' size=21
+[FontAtlas] Cache miss: '◀' size=19 cursor=(376,47) glyphs=107
+[FontAtlas] Skip unflushed (hit): '◀' size=19
+[FontAtlas] Cache miss: '▶' size=19 cursor=(392,47) glyphs=108
+[FontAtlas] Skip unflushed (hit): '▶' size=19
+[FontAtlas] Cache miss: '2' size=21 cursor=(408,47) glyphs=109
+[FontAtlas] Cache miss: '0' size=21 cursor=(420,47) glyphs=110
+[FontAtlas] Cache miss: ':' size=21 cursor=(432,47) glyphs=111
+[FontAtlas] Cache miss: '3' size=21 cursor=(436,47) glyphs=112
+[FontAtlas] Cache miss: '8' size=21 cursor=(448,47) glyphs=113
+[FontAtlas] Cache miss: '–' size=21 cursor=(460,47) glyphs=114
+[FontAtlas] Cache miss: '5' size=21 cursor=(470,47) glyphs=115
+[FontAtlas] Cache miss: '9' size=21 cursor=(482,47) glyphs=116
+[FontAtlas] Skip unflushed (hit): 'T' size=21
+[FontAtlas] Skip unflushed (hit): 'o' size=21
+[FontAtlas] Skip unflushed (hit): 'n' size=21
+[FontAtlas] Skip unflushed (hit): 'i' size=21
+[FontAtlas] Skip unflushed (hit): 'g' size=21
+[FontAtlas] Skip unflushed (hit): 'h' size=21
+[FontAtlas] Skip unflushed (hit): 't' size=21
+[FontAtlas] Skip unflushed (hit): '2' size=21
+[FontAtlas] Skip unflushed (hit): '0' size=21
+[FontAtlas] Skip unflushed (hit): ':' size=21
+[FontAtlas] Skip unflushed (hit): '3' size=21
+[FontAtlas] Skip unflushed (hit): '8' size=21
+[FontAtlas] Skip unflushed (hit): '–' size=21
+[FontAtlas] Skip unflushed (hit): '0' size=21
+[FontAtlas] Skip unflushed (hit): '5' size=21
+[FontAtlas] Skip unflushed (hit): ':' size=21
+[FontAtlas] Skip unflushed (hit): '5' size=21
+[FontAtlas] Skip unflushed (hit): '9' size=21
+[FontAtlas] Cache miss: '1' size=21 cursor=(494,47) glyphs=117
+[FontAtlas] Cache miss: '4' size=21 cursor=(505,47) glyphs=118
+[FontAtlas] Skip unflushed (hit): '2' size=21
+[FontAtlas] Skip unflushed (hit): '3' size=21
+[FontAtlas] Skip unflushed (hit): ':' size=21
+[FontAtlas] Skip unflushed (hit): '2' size=21
+[FontAtlas] Skip unflushed (hit): '0' size=21
+[FontAtlas] Skip unflushed (hit): ':' size=21
+[FontAtlas] Skip unflushed (hit): '1' size=21
+[FontAtlas] Skip unflushed (hit): '4' size=21
+[FontAtlas] Flush: uploading dirty region (0,0)-(508,94) = 508x94 px, atlas 512x512
+[FontAtlas] Cache miss: 'D' size=18 cursor=(13,79) glyphs=119
+[FontAtlas] Cache miss: 'i' size=18 cursor=(26,79) glyphs=120
+[FontAtlas] Cache miss: 's' size=18 cursor=(30,79) glyphs=121
+[FontAtlas] Cache miss: 'c' size=18 cursor=(40,79) glyphs=122
+[FontAtlas] Cache miss: 'o' size=18 cursor=(49,79) glyphs=123
+[FontAtlas] Cache miss: 'v' size=18 cursor=(60,79) glyphs=124
+[FontAtlas] Cache miss: 'e' size=18 cursor=(72,79) glyphs=125
+[FontAtlas] Cache miss: 'r' size=18 cursor=(83,79) glyphs=126
+[FontAtlas] Cache miss: 'n' size=18 cursor=(91,79) glyphs=127
+[FontAtlas] Cache miss: 'g' size=18 cursor=(101,79) glyphs=128
+[FontAtlas] Cache miss: ' ' size=18 cursor=(111,79) glyphs=129
+[FontAtlas] Cache miss: 'd' size=18 cursor=(111,79) glyphs=130
+[FontAtlas] Cache miss: '.' size=18 cursor=(121,79) glyphs=131
+[FontAtlas] Skip unflushed (hit): 'D' size=18
+[FontAtlas] Skip unflushed (hit): 'i' size=18
+[FontAtlas] Skip unflushed (hit): 's' size=18
+[FontAtlas] Skip unflushed (hit): 'c' size=18
+[FontAtlas] Skip unflushed (hit): 'o' size=18
+[FontAtlas] Skip unflushed (hit): 'v' size=18
+[FontAtlas] Skip unflushed (hit): 'e' size=18
+[FontAtlas] Skip unflushed (hit): 'r' size=18
+[FontAtlas] Skip unflushed (hit): 'i' size=18
+[FontAtlas] Skip unflushed (hit): 'n' size=18
+[FontAtlas] Skip unflushed (hit): 'g' size=18
+[FontAtlas] Skip unflushed (hit): 'd' size=18
+[FontAtlas] Skip unflushed (hit): 'e' size=18
+[FontAtlas] Skip unflushed (hit): 'v' size=18
+[FontAtlas] Skip unflushed (hit): 'i' size=18
+[FontAtlas] Skip unflushed (hit): 'c' size=18
+[FontAtlas] Skip unflushed (hit): 'e' size=18
+[FontAtlas] Skip unflushed (hit): 's' size=18
+[FontAtlas] Skip unflushed (hit): '.' size=18
+[FontAtlas] Skip unflushed (hit): '.' size=18
+[FontAtlas] Skip unflushed (hit): '.' size=18
+[FontAtlas] Flush: uploading dirty region (13,79)-(124,93) = 111x14 px, atlas 512x512
+[FontAtlas] Cache miss: 'F' size=18 cursor=(125,79) glyphs=132
+[FontAtlas] Cache miss: 'u' size=18 cursor=(135,79) glyphs=133
+[FontAtlas] Cache miss: '1' size=18 cursor=(145,79) glyphs=134
+[FontAtlas] Skip unflushed (hit): 'F' size=18
+[FontAtlas] Skip unflushed (hit): 'u' size=18
+[FontAtlas] Skip unflushed (hit): '1' size=18
+[FontAtlas] Flush: uploading dirty region (125,79)-(154,92) = 29x13 px, atlas 512x512
+[FontAtlas] Cache miss: ':' size=20 cursor=(155,79) glyphs=135
+[FontAtlas] Cache miss: '5' size=20 cursor=(159,79) glyphs=136
+[FontAtlas] Skip unflushed (hit): ':' size=20
+[FontAtlas] Skip unflushed (hit): '5' size=20
+[FontAtlas] Flush: uploading dirty region (155,79)-(169,94) = 14x15 px, atlas 512x512
+[FontAtlas] Cache miss: '1' size=20 cursor=(170,79) glyphs=137
+[FontAtlas] Cache miss: '4' size=20 cursor=(180,79) glyphs=138
+[FontAtlas] Skip unflushed (hit): '1' size=20
+[FontAtlas] Skip unflushed (hit): '4' size=20
+[FontAtlas] Flush: uploading dirty region (170,79)-(192,94) = 22x15 px, atlas 512x512
+[FontAtlas] Cache miss: '3' size=20 cursor=(193,79) glyphs=139
+[FontAtlas] Cache miss: '9' size=20 cursor=(205,79) glyphs=140
+[FontAtlas] Skip unflushed (hit): '3' size=20
+[FontAtlas] Skip unflushed (hit): '9' size=20
+[FontAtlas] Flush: uploading dirty region (193,79)-(216,94) = 23x15 px, atlas 512x512
+[FontAtlas] Cache miss: '8' size=20 cursor=(217,79) glyphs=141
+[FontAtlas] Skip unflushed (hit): '8' size=20
+[FontAtlas] Flush: uploading dirty region (217,79)-(228,94) = 11x15 px, atlas 512x512
+[FontAtlas] Cache miss: '7' size=20 cursor=(229,79) glyphs=142
+[FontAtlas] Skip unflushed (hit): '7' size=20
+[FontAtlas] Flush: uploading dirty region (229,79)-(240,94) = 11x15 px, atlas 512x512
+[FontAtlas] Cache miss: '6' size=20 cursor=(241,79) glyphs=143
+[FontAtlas] Skip unflushed (hit): '6' size=20
+[FontAtlas] Flush: uploading dirty region (241,79)-(252,94) = 11x15 px, atlas 512x512
+[FontAtlas] Cache miss: '6' size=21 cursor=(253,79) glyphs=144
+[FontAtlas] Skip unflushed (hit): '6' size=21
+[FontAtlas] Flush: uploading dirty region (253,79)-(265,94) = 12x15 px, atlas 512x512
+[FontAtlas] Cache miss: 'e' size=24 cursor=(266,79) glyphs=145
+[FontAtlas] Cache miss: 't' size=24 cursor=(280,79) glyphs=146
+[FontAtlas] Cache miss: 'a' size=24 cursor=(290,79) glyphs=147
+[FontAtlas] Cache miss: ' ' size=24 cursor=(303,79) glyphs=148
+[FontAtlas] Cache miss: 'n' size=24 cursor=(303,79) glyphs=148
+[FontAtlas] Cache miss: 'C' size=24 cursor=(316,79) glyphs=150
+[FontAtlas] Cache miss: 'r' size=24 cursor=(332,79) glyphs=151
+[FontAtlas] Cache miss: 'N' size=24 cursor=(341,79) glyphs=152
+[FontAtlas] Cache miss: 'b' size=24 cursor=(356,79) glyphs=153
+[FontAtlas] Cache miss: 'u' size=24 cursor=(369,79) glyphs=154
+[FontAtlas] Cache miss: 'l' size=24 cursor=(382,79) glyphs=155
+[FontAtlas] Skip unflushed (hit): 'e' size=24
+[FontAtlas] Skip unflushed (hit): 't' size=24
+[FontAtlas] Skip unflushed (hit): 'a' size=24
+[FontAtlas] Skip unflushed (hit): 'C' size=24
+[FontAtlas] Skip unflushed (hit): 'a' size=24
+[FontAtlas] Skip unflushed (hit): 'r' size=24
+[FontAtlas] Skip unflushed (hit): 'N' size=24
+[FontAtlas] Skip unflushed (hit): 'e' size=24
+[FontAtlas] Skip unflushed (hit): 'b' size=24
+[FontAtlas] Skip unflushed (hit): 'u' size=24
+[FontAtlas] Skip unflushed (hit): 'l' size=24
+[FontAtlas] Skip unflushed (hit): 'a' size=24
+[FontAtlas] Cache miss: '2' size=18 cursor=(386,79) glyphs=156
+[FontAtlas] Cache miss: '3' size=18 cursor=(396,79) glyphs=157
+[FontAtlas] Cache miss: ':' size=18 cursor=(407,79) glyphs=158
+[FontAtlas] Cache miss: '5' size=18 cursor=(410,79) glyphs=159
+[FontAtlas] Skip unflushed (hit): '2' size=18
+[FontAtlas] Skip unflushed (hit): '3' size=18
+[FontAtlas] Skip unflushed (hit): ':' size=18
+[FontAtlas] Skip unflushed (hit): '5' size=18
+[FontAtlas] Skip unflushed (hit): '5' size=18
+[FontAtlas] Cache miss: 'e' size=20 cursor=(420,79) glyphs=160
+[FontAtlas] Cache miss: 't' size=20 cursor=(432,79) glyphs=161
+[FontAtlas] Cache miss: 'a' size=20 cursor=(441,79) glyphs=162
+[FontAtlas] Cache miss: ' ' size=20 cursor=(452,79) glyphs=163
+[FontAtlas] Cache miss: 'n' size=20 cursor=(452,79) glyphs=163
+[FontAtlas] Cache miss: 'C' size=20 cursor=(463,79) glyphs=165
+[FontAtlas] Cache miss: 'r' size=20 cursor=(476,79) glyphs=166
+[FontAtlas] Cache miss: 'N' size=20 cursor=(485,79) glyphs=167
+[FontAtlas] Cache miss: 'b' size=20 cursor=(498,79) glyphs=168
+[FontAtlas] Cache miss: '.' size=20 cursor=(510,79) glyphs=169
+[FontAtlas] Skip unflushed (hit): 'e' size=20
+[FontAtlas] Skip unflushed (hit): 't' size=20
+[FontAtlas] Skip unflushed (hit): 'a' size=20
+[FontAtlas] Skip unflushed (hit): 'C' size=20
+[FontAtlas] Skip unflushed (hit): 'a' size=20
+[FontAtlas] Skip unflushed (hit): 'r' size=20
+[FontAtlas] Skip unflushed (hit): 'N' size=20
+[FontAtlas] Skip unflushed (hit): 'e' size=20
+[FontAtlas] Skip unflushed (hit): 'b' size=20
+[FontAtlas] Skip unflushed (hit): '.' size=20
+[FontAtlas] Cache miss: '+' size=21 cursor=(4,98) glyphs=170
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Cache miss: 'C' size=21 cursor=(19,98) glyphs=171
+[FontAtlas] Cache miss: 'N' size=21 cursor=(33,98) glyphs=172
+[FontAtlas] Cache miss: 'b' size=21 cursor=(46,98) glyphs=173
+[FontAtlas] Cache miss: 'u' size=21 cursor=(59,98) glyphs=174
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=21
+[FontAtlas] Skip unflushed (hit): 'b' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Cache miss: 'H' size=18 cursor=(71,98) glyphs=175
+[FontAtlas] Cache miss: 'I' size=18 cursor=(83,98) glyphs=176
+[FontAtlas] Skip unflushed (hit): 'H' size=18
+[FontAtlas] Skip unflushed (hit): 'I' size=18
+[FontAtlas] Skip unflushed (hit): 'I' size=18
+[FontAtlas] Cache miss: '7' size=21 cursor=(87,98) glyphs=177
+[FontAtlas] Cache miss: '°' size=21 cursor=(99,98) glyphs=178
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Cache miss: 'P' size=21 cursor=(107,98) glyphs=179
+[FontAtlas] Skip unflushed (hit): 'P' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=21
+[FontAtlas] Skip unflushed (hit): 'b' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Skip unflushed (hit): 'H' size=18
+[FontAtlas] Skip unflushed (hit): 'I' size=18
+[FontAtlas] Skip unflushed (hit): 'I' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Cache miss: 'O' size=21 cursor=(118,98) glyphs=180
+[FontAtlas] Cache miss: 'p' size=21 cursor=(134,98) glyphs=181
+[FontAtlas] Skip unflushed (hit): 'O' size=21
+[FontAtlas] Skip unflushed (hit): 'p' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=21
+[FontAtlas] Skip unflushed (hit): 'b' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Cache miss: 'G' size=18 cursor=(147,98) glyphs=182
+[FontAtlas] Cache miss: 'N' size=18 cursor=(160,98) glyphs=183
+[FontAtlas] Skip unflushed (hit): 'G' size=18
+[FontAtlas] Skip unflushed (hit): 'N' size=18
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Cache miss: 'R' size=21 cursor=(172,98) glyphs=184
+[FontAtlas] Cache miss: 'm' size=21 cursor=(185,98) glyphs=185
+[FontAtlas] Skip unflushed (hit): 'R' size=21
+[FontAtlas] Skip unflushed (hit): 'm' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=21
+[FontAtlas] Skip unflushed (hit): 'b' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=18
+[FontAtlas] Skip unflushed (hit): 'N' size=18
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Cache miss: 'w' size=21 cursor=(204,98) glyphs=186
+[FontAtlas] Cache miss: 'G' size=21 cursor=(222,98) glyphs=187
+[FontAtlas] Cache miss: 'x' size=21 cursor=(237,98) glyphs=188
+[FontAtlas] Cache miss: 'y' size=21 cursor=(250,98) glyphs=189
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Skip unflushed (hit): 'P' size=21
+[FontAtlas] Skip unflushed (hit): 'w' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=21
+[FontAtlas] Skip unflushed (hit): 'x' size=21
+[FontAtlas] Skip unflushed (hit): 'y' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Cache miss: 'E' size=21 cursor=(263,98) glyphs=190
+[FontAtlas] Cache miss: '-' size=21 cursor=(274,98) glyphs=191
+[FontAtlas] Skip unflushed (hit): 'E' size=21
+[FontAtlas] Skip unflushed (hit): '-' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=21
+[FontAtlas] Skip unflushed (hit): 'b' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Cache miss: 'P' size=18 cursor=(281,98) glyphs=192
+[FontAtlas] Skip unflushed (hit): 'P' size=18
+[FontAtlas] Skip unflushed (hit): 'N' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Skip unflushed (hit): 'P' size=21
+[FontAtlas] Skip unflushed (hit): 'y' size=21
+[FontAtlas] Skip unflushed (hit): 'P' size=18
+[FontAtlas] Skip unflushed (hit): 'N' size=18
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Cache miss: 'v' size=21 cursor=(292,98) glyphs=193
+[FontAtlas] Cache miss: 'H' size=21 cursor=(305,98) glyphs=194
+[FontAtlas] Skip unflushed (hit): 'E' size=21
+[FontAtlas] Skip unflushed (hit): 'v' size=21
+[FontAtlas] Skip unflushed (hit): 'H' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=21
+[FontAtlas] Skip unflushed (hit): 'b' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Skip unflushed (hit): 'P' size=18
+[FontAtlas] Skip unflushed (hit): 'N' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Cache miss: 'J' size=21 cursor=(318,98) glyphs=195
+[FontAtlas] Skip unflushed (hit): 'J' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Skip unflushed (hit): 'p' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=21
+[FontAtlas] Skip unflushed (hit): 'b' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Skip unflushed (hit): 'P' size=18
+[FontAtlas] Skip unflushed (hit): 'N' size=18
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Cache miss: 'F' size=21 cursor=(326,98) glyphs=196
+[FontAtlas] Skip unflushed (hit): 'F' size=21
+[FontAtlas] Skip unflushed (hit): 'R' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=21
+[FontAtlas] Skip unflushed (hit): 'b' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Skip unflushed (hit): 'P' size=18
+[FontAtlas] Skip unflushed (hit): 'N' size=18
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Cache miss: 'A' size=21 cursor=(336,98) glyphs=197
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Skip unflushed (hit): 'A' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Cache miss: 'I' size=21 cursor=(352,98) glyphs=198
+[FontAtlas] Skip unflushed (hit): 'I' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'H' size=18
+[FontAtlas] Skip unflushed (hit): 'I' size=18
+[FontAtlas] Skip unflushed (hit): 'I' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=18
+[FontAtlas] Skip unflushed (hit): 'N' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'A' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=21
+[FontAtlas] Skip unflushed (hit): 'b' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Skip unflushed (hit): 'P' size=18
+[FontAtlas] Skip unflushed (hit): 'N' size=18
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=18
+[FontAtlas] Skip unflushed (hit): 'N' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'm' size=21
+[FontAtlas] Skip unflushed (hit): 'b' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=21
+[FontAtlas] Skip unflushed (hit): 'x' size=21
+[FontAtlas] Skip unflushed (hit): 'y' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'I' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=18
+[FontAtlas] Skip unflushed (hit): 'N' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'I' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Cache miss: 'R' size=18 cursor=(356,98) glyphs=199
+[FontAtlas] Skip unflushed (hit): 'R' size=18
+[FontAtlas] Skip unflushed (hit): 'N' size=18
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'O' size=21
+[FontAtlas] Skip unflushed (hit): 'm' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Cache miss: 'l' size=18 cursor=(368,98) glyphs=200
+[FontAtlas] Cache miss: 'C' size=18 cursor=(372,98) glyphs=201
+[FontAtlas] Skip unflushed (hit): 'G' size=18
+[FontAtlas] Skip unflushed (hit): 'l' size=18
+[FontAtlas] Skip unflushed (hit): 'C' size=18
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'A' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=21
+[FontAtlas] Skip unflushed (hit): 'x' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=18
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Cache miss: 'W' size=21 cursor=(384,98) glyphs=202
+[FontAtlas] Skip unflushed (hit): 'W' size=21
+[FontAtlas] Skip unflushed (hit): 'W' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Cache miss: 'O' size=18 cursor=(406,98) glyphs=203
+[FontAtlas] Cache miss: 'p' size=18 cursor=(420,98) glyphs=204
+[FontAtlas] Skip unflushed (hit): 'O' size=18
+[FontAtlas] Skip unflushed (hit): 'p' size=18
+[FontAtlas] Skip unflushed (hit): 'C' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'A' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=21
+[FontAtlas] Skip unflushed (hit): 'x' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=18
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'H' size=21
+[FontAtlas] Skip unflushed (hit): 'J' size=21
+[FontAtlas] Skip unflushed (hit): 'w' size=21
+[FontAtlas] Skip unflushed (hit): 'x' size=21
+[FontAtlas] Skip unflushed (hit): 'O' size=18
+[FontAtlas] Skip unflushed (hit): 'p' size=18
+[FontAtlas] Skip unflushed (hit): 'C' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'P' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Skip unflushed (hit): 'O' size=18
+[FontAtlas] Skip unflushed (hit): 'p' size=18
+[FontAtlas] Skip unflushed (hit): 'C' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'I' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=18
+[FontAtlas] Skip unflushed (hit): 'N' size=18
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'm' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=21
+[FontAtlas] Skip unflushed (hit): 'b' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Cache miss: 'E' size=18 cursor=(431,98) glyphs=205
+[FontAtlas] Cache miss: 'm' size=18 cursor=(442,98) glyphs=206
+[FontAtlas] Skip unflushed (hit): 'E' size=18
+[FontAtlas] Skip unflushed (hit): 'm' size=18
+[FontAtlas] Skip unflushed (hit): 'O' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Cache miss: 'k' size=21 cursor=(458,98) glyphs=207
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'k' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Skip unflushed (hit): 'O' size=18
+[FontAtlas] Skip unflushed (hit): 'p' size=18
+[FontAtlas] Skip unflushed (hit): 'C' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'k' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=21
+[FontAtlas] Skip unflushed (hit): 'b' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'H' size=21
+[FontAtlas] Skip unflushed (hit): 'E' size=21
+[FontAtlas] Skip unflushed (hit): 'A' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'A' size=21
+[FontAtlas] Skip unflushed (hit): 'R' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Skip unflushed (hit): 'O' size=18
+[FontAtlas] Skip unflushed (hit): 'p' size=18
+[FontAtlas] Skip unflushed (hit): 'C' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'I' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=18
+[FontAtlas] Skip unflushed (hit): 'N' size=18
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): 'H' size=18
+[FontAtlas] Skip unflushed (hit): 'I' size=18
+[FontAtlas] Skip unflushed (hit): 'I' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'I' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'H' size=18
+[FontAtlas] Skip unflushed (hit): 'I' size=18
+[FontAtlas] Skip unflushed (hit): 'I' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'I' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=18
+[FontAtlas] Skip unflushed (hit): 'N' size=18
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Cache miss: 'V' size=21 cursor=(471,98) glyphs=208
+[FontAtlas] Skip unflushed (hit): 'm' size=21
+[FontAtlas] Skip unflushed (hit): 'V' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Skip unflushed (hit): 'O' size=18
+[FontAtlas] Skip unflushed (hit): 'p' size=18
+[FontAtlas] Skip unflushed (hit): 'C' size=18
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'F' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Skip unflushed (hit): '-' size=21
+[FontAtlas] Skip unflushed (hit): 'F' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=21
+[FontAtlas] Skip unflushed (hit): 'b' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Skip unflushed (hit): 'H' size=18
+[FontAtlas] Skip unflushed (hit): 'I' size=18
+[FontAtlas] Skip unflushed (hit): 'I' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Cache miss: 'M' size=21 cursor=(487,98) glyphs=209
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=21
+[FontAtlas] Skip unflushed (hit): 'M' size=21
+[FontAtlas] Skip unflushed (hit): 'M' size=21
+[FontAtlas] Cache miss: 'b' size=18 cursor=(503,98) glyphs=210
+[FontAtlas] Skip unflushed (hit): 'C' size=18
+[FontAtlas] Skip unflushed (hit): 'G' size=18
+[FontAtlas] Skip unflushed (hit): 'b' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'p' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=21
+[FontAtlas] Skip unflushed (hit): 'x' size=21
+[FontAtlas] Skip unflushed (hit): 'y' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'R' size=18
+[FontAtlas] Skip unflushed (hit): 'N' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): 'P' size=18
+[FontAtlas] Skip unflushed (hit): 'N' size=18
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Skip unflushed (hit): 'O' size=18
+[FontAtlas] Skip unflushed (hit): 'p' size=18
+[FontAtlas] Skip unflushed (hit): 'C' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'b' size=21
+[FontAtlas] Skip unflushed (hit): 'y' size=21
+[FontAtlas] Skip unflushed (hit): 'J' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=21
+[FontAtlas] Skip unflushed (hit): 'b' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Skip unflushed (hit): 'R' size=18
+[FontAtlas] Skip unflushed (hit): 'N' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'I' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'P' size=18
+[FontAtlas] Skip unflushed (hit): 'N' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'P' size=18
+[FontAtlas] Skip unflushed (hit): 'N' size=18
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'R' size=18
+[FontAtlas] Skip unflushed (hit): 'N' size=18
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): 'H' size=18
+[FontAtlas] Skip unflushed (hit): 'I' size=18
+[FontAtlas] Skip unflushed (hit): 'I' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Cache miss: 'U' size=21 cursor=(11,118) glyphs=211
+[FontAtlas] Skip unflushed (hit): 'G' size=21
+[FontAtlas] Skip unflushed (hit): 'U' size=21
+[FontAtlas] Skip unflushed (hit): 'M' size=21
+[FontAtlas] Skip unflushed (hit): 'P' size=18
+[FontAtlas] Skip unflushed (hit): 'N' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'R' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'W' size=21
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): 'P' size=18
+[FontAtlas] Skip unflushed (hit): 'N' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'I' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'R' size=18
+[FontAtlas] Skip unflushed (hit): 'N' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'P' size=18
+[FontAtlas] Skip unflushed (hit): 'N' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): '+' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): 'P' size=18
+[FontAtlas] Skip unflushed (hit): 'N' size=18
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Cache miss: 'e' size=26 cursor=(25,118) glyphs=212
+[FontAtlas] Cache miss: 't' size=26 cursor=(40,118) glyphs=213
+[FontAtlas] Cache miss: 'a' size=26 cursor=(51,118) glyphs=214
+[FontAtlas] Cache miss: ' ' size=26 cursor=(65,118) glyphs=215
+[FontAtlas] Cache miss: 'n' size=26 cursor=(65,118) glyphs=215
+[FontAtlas] Cache miss: 'C' size=26 cursor=(79,118) glyphs=217
+[FontAtlas] Cache miss: 'r' size=26 cursor=(96,118) glyphs=218
+[FontAtlas] Cache miss: 'N' size=26 cursor=(106,118) glyphs=219
+[FontAtlas] Cache miss: 'b' size=26 cursor=(122,118) glyphs=220
+[FontAtlas] Cache miss: 'u' size=26 cursor=(137,118) glyphs=221
+[FontAtlas] Cache miss: 'l' size=26 cursor=(151,118) glyphs=222
+[FontAtlas] Skip unflushed (hit): 'e' size=26
+[FontAtlas] Skip unflushed (hit): 't' size=26
+[FontAtlas] Skip unflushed (hit): 'a' size=26
+[FontAtlas] Skip unflushed (hit): 'C' size=26
+[FontAtlas] Skip unflushed (hit): 'a' size=26
+[FontAtlas] Skip unflushed (hit): 'r' size=26
+[FontAtlas] Skip unflushed (hit): 'N' size=26
+[FontAtlas] Skip unflushed (hit): 'e' size=26
+[FontAtlas] Skip unflushed (hit): 'b' size=26
+[FontAtlas] Skip unflushed (hit): 'u' size=26
+[FontAtlas] Skip unflushed (hit): 'l' size=26
+[FontAtlas] Skip unflushed (hit): 'a' size=26
+[FontAtlas] Cache miss: 'D' size=21 cursor=(155,118) glyphs=223
+[FontAtlas] Skip unflushed (hit): 'R' size=21
+[FontAtlas] Skip unflushed (hit): 'A' size=21
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): 'D' size=21
+[FontAtlas] Skip unflushed (hit): '-' size=21
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): 'A' size=21
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): '°' size=21
+[FontAtlas] Skip unflushed (hit): 'P' size=21
+[FontAtlas] Skip unflushed (hit): 'k' size=21
+[FontAtlas] Skip unflushed (hit): 'W' size=21
+[FontAtlas] Skip unflushed (hit): 'w' size=21
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Cache miss: ',' size=21 cursor=(169,118) glyphs=224
+[FontAtlas] Cache miss: 'K' size=21 cursor=(174,118) glyphs=225
+[FontAtlas] Skip unflushed (hit): 'A' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Skip unflushed (hit): ',' size=21
+[FontAtlas] Skip unflushed (hit): 'K' size=21
+[FontAtlas] Skip unflushed (hit): 'y' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=21
+[FontAtlas] Skip unflushed (hit): 'b' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Skip unflushed (hit): ',' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=21
+[FontAtlas] Skip unflushed (hit): 'b' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Skip unflushed (hit): ',' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'N' size=21
+[FontAtlas] Skip unflushed (hit): 'b' size=21
+[FontAtlas] Skip unflushed (hit): 'u' size=21
+[FontAtlas] Skip unflushed (hit): ',' size=21
+[FontAtlas] Skip unflushed (hit): 'K' size=21
+[FontAtlas] Skip unflushed (hit): 'y' size=21
+[FontAtlas] Skip unflushed (hit): ',' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): ',' size=21
+[FontAtlas] Skip unflushed (hit): 'G' size=21
+[FontAtlas] Skip unflushed (hit): 'U' size=21
+[FontAtlas] Skip unflushed (hit): 'M' size=21
+[FontAtlas] Skip unflushed (hit): ',' size=21
+[FontAtlas] Skip unflushed (hit): 'R' size=21
+[FontAtlas] Skip unflushed (hit): 'C' size=21
+[FontAtlas] Skip unflushed (hit): 'W' size=21
+[FontAtlas] Cache miss: '★' size=21 cursor=(188,118) glyphs=226
+[FontAtlas] Skip unflushed (hit): 'R' size=21
+[FontAtlas] Skip unflushed (hit): '★' size=21
+[FontAtlas] Skip unflushed (hit): '7' size=21
+[FontAtlas] Flush: uploading dirty region (0,79)-(509,138) = 509x59 px, atlas 512x512
+[FontAtlas] Cache miss: 'O' size=24 cursor=(206,118) glyphs=227
+[FontAtlas] Cache miss: 'p' size=24 cursor=(224,118) glyphs=228
+[FontAtlas] Cache miss: 'h' size=24 cursor=(237,118) glyphs=229
+[FontAtlas] Cache miss: 'i' size=24 cursor=(250,118) glyphs=230
+[FontAtlas] Cache miss: 'c' size=24 cursor=(254,118) glyphs=231
+[FontAtlas] Cache miss: 's' size=24 cursor=(266,118) glyphs=232
+[FontAtlas] Cache miss: 'M' size=24 cursor=(278,118) glyphs=233
+[FontAtlas] Cache miss: 'o' size=24 cursor=(296,118) glyphs=234
+[FontAtlas] Cache miss: 'd' size=24 cursor=(310,118) glyphs=235
+[FontAtlas] Skip unflushed (hit): 'O' size=24
+[FontAtlas] Skip unflushed (hit): 'p' size=24
+[FontAtlas] Skip unflushed (hit): 'h' size=24
+[FontAtlas] Skip unflushed (hit): 'i' size=24
+[FontAtlas] Skip unflushed (hit): 'c' size=24
+[FontAtlas] Skip unflushed (hit): 'h' size=24
+[FontAtlas] Skip unflushed (hit): 's' size=24
+[FontAtlas] Skip unflushed (hit): 'M' size=24
+[FontAtlas] Skip unflushed (hit): 'o' size=24
+[FontAtlas] Skip unflushed (hit): 'c' size=24
+[FontAtlas] Skip unflushed (hit): 'o' size=24
+[FontAtlas] Skip unflushed (hit): 'd' size=24
+[FontAtlas] Cache miss: '0' size=18 cursor=(324,118) glyphs=236
+[FontAtlas] Cache miss: '4' size=18 cursor=(335,118) glyphs=237
+[FontAtlas] Skip unflushed (hit): '0' size=18
+[FontAtlas] Skip unflushed (hit): '4' size=18
+[FontAtlas] Skip unflushed (hit): '4' size=18
+[FontAtlas] Cache miss: 'O' size=20 cursor=(347,118) glyphs=238
+[FontAtlas] Cache miss: 'p' size=20 cursor=(362,118) glyphs=239
+[FontAtlas] Cache miss: 'h' size=20 cursor=(374,118) glyphs=240
+[FontAtlas] Cache miss: 'i' size=20 cursor=(385,118) glyphs=241
+[FontAtlas] Cache miss: 'u' size=20 cursor=(389,118) glyphs=242
+[FontAtlas] Cache miss: 'c' size=20 cursor=(400,118) glyphs=243
+[FontAtlas] Cache miss: 's' size=20 cursor=(410,118) glyphs=244
+[FontAtlas] Cache miss: 'M' size=20 cursor=(420,118) glyphs=245
+[FontAtlas] Skip unflushed (hit): 'O' size=20
+[FontAtlas] Skip unflushed (hit): 'p' size=20
+[FontAtlas] Skip unflushed (hit): 'h' size=20
+[FontAtlas] Skip unflushed (hit): 'i' size=20
+[FontAtlas] Skip unflushed (hit): 'u' size=20
+[FontAtlas] Skip unflushed (hit): 'c' size=20
+[FontAtlas] Skip unflushed (hit): 'h' size=20
+[FontAtlas] Skip unflushed (hit): 'u' size=20
+[FontAtlas] Skip unflushed (hit): 's' size=20
+[FontAtlas] Skip unflushed (hit): 'M' size=20
+[FontAtlas] Cache miss: '−' size=21 cursor=(436,118) glyphs=246
+[FontAtlas] Skip unflushed (hit): '−' size=21
+[FontAtlas] Skip unflushed (hit): '−' size=21
+[FontAtlas] Cache miss: 'S' size=18 cursor=(451,118) glyphs=247
+[FontAtlas] Skip unflushed (hit): 'S' size=18
+[FontAtlas] Cache miss: '[' size=26 cursor=(462,118) glyphs=248
+[FontAtlas] Cache miss: 'P' size=26 cursor=(469,118) glyphs=249
+[FontAtlas] Cache miss: 'o' size=26 cursor=(483,118) glyphs=250
+[FontAtlas] Cache miss: 'p' size=26 cursor=(498,118) glyphs=251
+[FontAtlas] Cache miss: 's' size=26 cursor=(513,118) glyphs=252
+[FontAtlas] Cache miss: 'd' size=26 cursor=(13,142) glyphs=253
+[FontAtlas] Cache miss: ']' size=26 cursor=(28,142) glyphs=254
+[FontAtlas] Skip unflushed (hit): '[' size=26
+[FontAtlas] Skip unflushed (hit): 'P' size=26
+[FontAtlas] Skip unflushed (hit): 'o' size=26
+[FontAtlas] Skip unflushed (hit): 'p' size=26
+[FontAtlas] Skip unflushed (hit): 'o' size=26
+[FontAtlas] Skip unflushed (hit): 's' size=26
+[FontAtlas] Skip unflushed (hit): 'd' size=26
+[FontAtlas] Skip unflushed (hit): ']' size=26
+[FontAtlas] Cache miss: '(' size=21 cursor=(35,142) glyphs=255
+[FontAtlas] Cache miss: ')' size=21 cursor=(42,142) glyphs=256
+[FontAtlas] Skip unflushed (hit): '(' size=21
+[FontAtlas] Skip unflushed (hit): ')' size=21
+[FontAtlas] Flush: uploading dirty region (0,118)-(512,165) = 512x47 px, atlas 512x512
+[FontAtlas] Cache miss: 'N' size=19 cursor=(49,142) glyphs=257
+[FontAtlas] Cache miss: 'o' size=19 cursor=(62,142) glyphs=258
+[FontAtlas] Cache miss: 'd' size=19 cursor=(73,142) glyphs=259
+[FontAtlas] Skip unflushed (hit): 'N' size=19
+[FontAtlas] Skip unflushed (hit): 'o' size=19
+[FontAtlas] Skip unflushed (hit): 'd' size=19
+[FontAtlas] Cache miss: '/' size=21 cursor=(84,142) glyphs=260
+[FontAtlas] Skip unflushed (hit): '/' size=21
+[FontAtlas] Cache miss: 'x' size=18 cursor=(93,142) glyphs=261
+[FontAtlas] Cache miss: 'L' size=18 cursor=(105,142) glyphs=262
+[FontAtlas] Skip unflushed (hit): 'x' size=18
+[FontAtlas] Skip unflushed (hit): 'L' size=18
+[FontAtlas] Cache miss: 'T' size=16 cursor=(115,142) glyphs=263
+[FontAtlas] Cache miss: 'i' size=16 cursor=(127,142) glyphs=264
+[FontAtlas] Cache miss: 'm' size=16 cursor=(130,142) glyphs=265
+[FontAtlas] Cache miss: 'e' size=16 cursor=(145,142) glyphs=266
+[FontAtlas] Cache miss: ' ' size=16 cursor=(155,142) glyphs=267
+[FontAtlas] Cache miss: 'n' size=16 cursor=(155,142) glyphs=267
+[FontAtlas] Cache miss: 'a' size=16 cursor=(164,142) glyphs=269
+[FontAtlas] Cache miss: 'r' size=16 cursor=(174,142) glyphs=270
+[FontAtlas] Cache miss: 'g' size=16 cursor=(181,142) glyphs=271
+[FontAtlas] Cache miss: 't' size=16 cursor=(191,142) glyphs=272
+[FontAtlas] Cache miss: 'F' size=16 cursor=(198,142) glyphs=273
+[FontAtlas] Cache miss: 'l' size=16 cursor=(207,142) glyphs=274
+[FontAtlas] Cache miss: 'H' size=16 cursor=(210,142) glyphs=275
+[FontAtlas] Cache miss: 'D' size=16 cursor=(221,142) glyphs=276
+[FontAtlas] Skip unflushed (hit): 'T' size=16
+[FontAtlas] Skip unflushed (hit): 'i' size=16
+[FontAtlas] Skip unflushed (hit): 'm' size=16
+[FontAtlas] Skip unflushed (hit): 'e' size=16
+[FontAtlas] Skip unflushed (hit): 'T' size=16
+[FontAtlas] Skip unflushed (hit): 'a' size=16
+[FontAtlas] Skip unflushed (hit): 'r' size=16
+[FontAtlas] Skip unflushed (hit): 'g' size=16
+[FontAtlas] Skip unflushed (hit): 'e' size=16
+[FontAtlas] Skip unflushed (hit): 't' size=16
+[FontAtlas] Skip unflushed (hit): 'F' size=16
+[FontAtlas] Skip unflushed (hit): 'i' size=16
+[FontAtlas] Skip unflushed (hit): 'l' size=16
+[FontAtlas] Skip unflushed (hit): 't' size=16
+[FontAtlas] Skip unflushed (hit): 'e' size=16
+[FontAtlas] Skip unflushed (hit): 'r' size=16
+[FontAtlas] Skip unflushed (hit): 'H' size=16
+[FontAtlas] Skip unflushed (hit): 'F' size=16
+[FontAtlas] Skip unflushed (hit): 'D' size=16
+[FontAtlas] Cache miss: 'f' size=18 cursor=(233,142) glyphs=277
+[FontAtlas] Cache miss: 'a' size=18 cursor=(241,142) glyphs=278
+[FontAtlas] Cache miss: 'y' size=18 cursor=(251,142) glyphs=279
+[FontAtlas] Cache miss: 't' size=18 cursor=(263,142) glyphs=280
+[FontAtlas] Skip unflushed (hit): 'f' size=18
+[FontAtlas] Skip unflushed (hit): 'a' size=18
+[FontAtlas] Skip unflushed (hit): 'y' size=18
+[FontAtlas] Skip unflushed (hit): 't' size=18
+[FontAtlas] Cache miss: 'h' size=18 cursor=(271,142) glyphs=281
+[FontAtlas] Skip unflushed (hit): 'a' size=18
+[FontAtlas] Skip unflushed (hit): 'h' size=18
+[FontAtlas] Cache miss: 'G' size=19 cursor=(281,142) glyphs=282
+[FontAtlas] Cache miss: 'u' size=19 cursor=(295,142) glyphs=283
+[FontAtlas] Cache miss: 'i' size=19 cursor=(306,142) glyphs=284
+[FontAtlas] Cache miss: ':' size=19 cursor=(310,142) glyphs=285
+[FontAtlas] Cache miss: '-' size=19 cursor=(314,142) glyphs=286
+[FontAtlas] Skip unflushed (hit): 'G' size=19
+[FontAtlas] Skip unflushed (hit): 'u' size=19
+[FontAtlas] Skip unflushed (hit): 'i' size=19
+[FontAtlas] Skip unflushed (hit): 'd' size=19
+[FontAtlas] Skip unflushed (hit): 'i' size=19
+[FontAtlas] Skip unflushed (hit): ':' size=19
+[FontAtlas] Skip unflushed (hit): '-' size=19
+[FontAtlas] Skip unflushed (hit): '-' size=19
+[FontAtlas] Skip unflushed (hit): 't' size=18
+[FontAtlas] Skip unflushed (hit): 'y' size=18
+[FontAtlas] Skip unflushed (hit): 'f' size=18
+[FontAtlas] Flush: uploading dirty region (49,142)-(320,159) = 271x17 px, atlas 512x512
+[FontAtlas] Cache miss: 'z' size=21 cursor=(321,142) glyphs=287
+[FontAtlas] Skip unflushed (hit): 'z' size=21
+[FontAtlas] Cache miss: 'f' size=21 cursor=(333,142) glyphs=288
+[FontAtlas] Skip unflushed (hit): 'f' size=21
+[FontAtlas] Skip unflushed (hit): 'f' size=21
+[FontAtlas] Skip unflushed (hit): 'f' size=21
+[FontAtlas] Cache miss: '▶' size=21 cursor=(342,142) glyphs=289
+[FontAtlas] Skip unflushed (hit): '▶' size=21
+[FontAtlas] Cache miss: '#' size=21 cursor=(360,142) glyphs=290
+[FontAtlas] Skip unflushed (hit): '#' size=21
+[FontAtlas] Cache miss: 'p' size=19 cursor=(376,142) glyphs=291
+[FontAtlas] Skip unflushed (hit): 'p' size=19
+[FontAtlas] Cache miss: '#' size=18 cursor=(388,142) glyphs=292
+[FontAtlas] Skip unflushed (hit): '#' size=18
+[FontAtlas] Cache miss: 'T' size=18 cursor=(402,142) glyphs=293
+[FontAtlas] Skip unflushed (hit): 'T' size=18
+[FontAtlas] Cache miss: '~' size=18 cursor=(416,142) glyphs=294
+[FontAtlas] Skip unflushed (hit): '~' size=18
+[FontAtlas] Cache miss: '−' size=18 cursor=(430,142) glyphs=295
+[FontAtlas] Skip unflushed (hit): '−' size=18
+[FontAtlas] Cache miss: '2' size=19 cursor=(444,142) glyphs=296
+[FontAtlas] Cache miss: 'm' size=19 cursor=(455,142) glyphs=297
+[FontAtlas] Skip unflushed (hit): '2' size=19
+[FontAtlas] Skip unflushed (hit): 'm' size=19
+[FontAtlas] Cache miss: '+' size=18 cursor=(472,142) glyphs=298
+[FontAtlas] Skip unflushed (hit): '+' size=18
+[FontAtlas] Cache miss: '~' size=19 cursor=(486,142) glyphs=299
+[FontAtlas] Cache miss: '1' size=19 cursor=(499,142) glyphs=300
+[FontAtlas] Cache miss: '7' size=19 cursor=(509,142) glyphs=301
+[FontAtlas] Cache miss: '6' size=19 cursor=(11,166) glyphs=302
+[FontAtlas] Skip unflushed (hit): '~' size=19
+[FontAtlas] Skip unflushed (hit): '1' size=19
+[FontAtlas] Skip unflushed (hit): '7' size=19
+[FontAtlas] Skip unflushed (hit): '6' size=19
+[FontAtlas] Cache miss: '8' size=18 cursor=(22,166) glyphs=303
+[FontAtlas] Cache miss: '–' size=18 cursor=(33,166) glyphs=304
+[FontAtlas] Cache miss: '(' size=18 cursor=(43,166) glyphs=305
+[FontAtlas] Cache miss: '6' size=18 cursor=(49,166) glyphs=306
+[FontAtlas] Cache miss: ')' size=18 cursor=(60,166) glyphs=307
+[FontAtlas] Skip unflushed (hit): '8' size=18
+[FontAtlas] Skip unflushed (hit): '–' size=18
+[FontAtlas] Skip unflushed (hit): '(' size=18
+[FontAtlas] Skip unflushed (hit): '6' size=18
+[FontAtlas] Skip unflushed (hit): ')' size=18
+[FontAtlas] Skip unflushed (hit): '−' size=18
+[FontAtlas] Skip unflushed (hit): '2' size=19
+[FontAtlas] Skip unflushed (hit): 'm' size=19
+[FontAtlas] Skip unflushed (hit): '+' size=18
+[FontAtlas] Cache miss: '8' size=19 cursor=(66,166) glyphs=308
+[FontAtlas] Skip unflushed (hit): '~' size=19
+[FontAtlas] Skip unflushed (hit): '8' size=19
+[FontAtlas] Skip unflushed (hit): '2' size=19
+[FontAtlas] Cache miss: '9' size=18 cursor=(77,166) glyphs=309
+[FontAtlas] Skip unflushed (hit): '–' size=18
+[FontAtlas] Skip unflushed (hit): '9' size=18
+[FontAtlas] Skip unflushed (hit): '(' size=18
+[FontAtlas] Skip unflushed (hit): ')' size=18
+[FontAtlas] Flush: uploading dirty region (0,142)-(508,182) = 508x40 px, atlas 512x512
+[FontAtlas] Cache miss: 'I' size=19 cursor=(88,166) glyphs=310
+[FontAtlas] Cache miss: 's' size=19 cursor=(92,166) glyphs=311
+[FontAtlas] Skip unflushed (hit): 'I' size=19
+[FontAtlas] Skip unflushed (hit): 's' size=19
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(101,166) glyphs=312
+[FontAtlas] Cache miss: 'M' size=18 cursor=(101,166) glyphs=312
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(115,166) glyphs=313
+[FontAtlas] Skip unflushed (hit): 'M' size=18
+[FontAtlas] Cache miss: 'k' size=16 cursor=(115,166) glyphs=313
+[FontAtlas] Cache miss: 'M' size=16 cursor=(125,166) glyphs=314
+[FontAtlas] Cache miss: 'o' size=16 cursor=(138,166) glyphs=315
+[FontAtlas] Cache miss: 'u' size=16 cursor=(148,166) glyphs=316
+[FontAtlas] Cache miss: '1' size=16 cursor=(157,166) glyphs=317
+[FontAtlas] Skip unflushed (hit): 'k' size=16
+[FontAtlas] Skip unflushed (hit): 'M' size=16
+[FontAtlas] Skip unflushed (hit): 'o' size=16
+[FontAtlas] Skip unflushed (hit): 'u' size=16
+[FontAtlas] Skip unflushed (hit): '1' size=16
+[FontAtlas] Cache miss: '☉' size=18 cursor=(166,166) glyphs=318
+[FontAtlas] Skip unflushed (hit): '☉' size=18
+[FontAtlas] Cache miss: 'C' size=16 cursor=(181,166) glyphs=319
+[FontAtlas] Cache miss: ':' size=16 cursor=(193,166) glyphs=320
+[FontAtlas] Cache miss: '(' size=16 cursor=(197,166) glyphs=321
+[FontAtlas] Cache miss: 'I' size=16 cursor=(202,166) glyphs=322
+[FontAtlas] Cache miss: 'X' size=16 cursor=(206,166) glyphs=323
+[FontAtlas] Cache miss: '2' size=16 cursor=(218,166) glyphs=324
+[FontAtlas] Cache miss: '9' size=16 cursor=(227,166) glyphs=325
+[FontAtlas] Cache miss: '4' size=16 cursor=(237,166) glyphs=326
+[FontAtlas] Cache miss: ')' size=16 cursor=(248,166) glyphs=327
+[FontAtlas] Skip unflushed (hit): 'C' size=16
+[FontAtlas] Skip unflushed (hit): ':' size=16
+[FontAtlas] Skip unflushed (hit): 'k' size=16
+[FontAtlas] Skip unflushed (hit): 'C' size=16
+[FontAtlas] Skip unflushed (hit): '1' size=16
+[FontAtlas] Skip unflushed (hit): '(' size=16
+[FontAtlas] Skip unflushed (hit): 'I' size=16
+[FontAtlas] Skip unflushed (hit): 'M' size=16
+[FontAtlas] Skip unflushed (hit): 'X' size=16
+[FontAtlas] Skip unflushed (hit): '2' size=16
+[FontAtlas] Skip unflushed (hit): '9' size=16
+[FontAtlas] Skip unflushed (hit): '4' size=16
+[FontAtlas] Skip unflushed (hit): 'C' size=16
+[FontAtlas] Skip unflushed (hit): ')' size=16
+[FontAtlas] Cache miss: 'c' size=16 cursor=(253,166) glyphs=328
+[FontAtlas] Cache miss: 's' size=16 cursor=(262,166) glyphs=329
+[FontAtlas] Skip unflushed (hit): 'o' size=16
+[FontAtlas] Skip unflushed (hit): 'c' size=16
+[FontAtlas] Skip unflushed (hit): ':' size=16
+[FontAtlas] Skip unflushed (hit): 'k' size=16
+[FontAtlas] Skip unflushed (hit): 'o' size=16
+[FontAtlas] Skip unflushed (hit): 'c' size=16
+[FontAtlas] Skip unflushed (hit): 'u' size=16
+[FontAtlas] Skip unflushed (hit): 's' size=16
+[FontAtlas] Skip unflushed (hit): '1' size=16
+[FontAtlas] Cache miss: '✪' size=18 cursor=(271,166) glyphs=330
+[FontAtlas] Skip unflushed (hit): '✪' size=18
+[FontAtlas] Cache miss: 'G' size=16 cursor=(287,166) glyphs=331
+[FontAtlas] Cache miss: 'd' size=16 cursor=(300,166) glyphs=332
+[FontAtlas] Skip unflushed (hit): 'k' size=16
+[FontAtlas] Skip unflushed (hit): 'G' size=16
+[FontAtlas] Skip unflushed (hit): 'u' size=16
+[FontAtlas] Skip unflushed (hit): 'd' size=16
+[FontAtlas] Skip unflushed (hit): '1' size=16
+[FontAtlas] Flush: uploading dirty region (88,166)-(309,181) = 221x15 px, atlas 512x512
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(310,166) glyphs=333
+[FontAtlas] Cache miss: 'C' size=19 cursor=(310,166) glyphs=333
+[FontAtlas] Skip unflushed (hit): 'C' size=19
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(323,166) glyphs=334
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(323,166) glyphs=334
+[FontAtlas] Cache miss: 'T' size=14 cursor=(323,166) glyphs=334
+[FontAtlas] Cache miss: 'e' size=14 cursor=(334,166) glyphs=335
+[FontAtlas] Cache miss: 'm' size=14 cursor=(343,166) glyphs=336
+[FontAtlas] Cache miss: 'p' size=14 cursor=(356,166) glyphs=337
+[FontAtlas] Cache miss: ' ' size=14 cursor=(365,166) glyphs=338
+[FontAtlas] Cache miss: 'n' size=14 cursor=(365,166) glyphs=338
+[FontAtlas] Cache miss: '°' size=14 cursor=(373,166) glyphs=340
+[FontAtlas] Cache miss: 'C' size=14 cursor=(379,166) glyphs=341
+[FontAtlas] Skip unflushed (hit): 'T' size=14
+[FontAtlas] Skip unflushed (hit): 'e' size=14
+[FontAtlas] Skip unflushed (hit): 'm' size=14
+[FontAtlas] Skip unflushed (hit): 'p' size=14
+[FontAtlas] Skip unflushed (hit): '°' size=14
+[FontAtlas] Skip unflushed (hit): 'C' size=14
+[FontAtlas] Cache miss: 'P' size=14 cursor=(390,166) glyphs=342
+[FontAtlas] Cache miss: 'o' size=14 cursor=(398,166) glyphs=343
+[FontAtlas] Cache miss: 'w' size=14 cursor=(407,166) glyphs=344
+[FontAtlas] Cache miss: 'r' size=14 cursor=(419,166) glyphs=345
+[FontAtlas] Cache miss: '%' size=14 cursor=(425,166) glyphs=346
+[FontAtlas] Skip unflushed (hit): 'P' size=14
+[FontAtlas] Skip unflushed (hit): 'o' size=14
+[FontAtlas] Skip unflushed (hit): 'w' size=14
+[FontAtlas] Skip unflushed (hit): 'e' size=14
+[FontAtlas] Skip unflushed (hit): 'r' size=14
+[FontAtlas] Skip unflushed (hit): '%' size=14
+[FontAtlas] Cache miss: '2' size=15 cursor=(439,166) glyphs=347
+[FontAtlas] Cache miss: '6' size=15 cursor=(448,166) glyphs=348
+[FontAtlas] Cache miss: '°' size=15 cursor=(457,166) glyphs=349
+[FontAtlas] Skip unflushed (hit): '2' size=15
+[FontAtlas] Skip unflushed (hit): '6' size=15
+[FontAtlas] Skip unflushed (hit): '°' size=15
+[FontAtlas] Cache miss: '1' size=15 cursor=(464,166) glyphs=350
+[FontAtlas] Cache miss: '7' size=15 cursor=(473,166) glyphs=351
+[FontAtlas] Skip unflushed (hit): '1' size=15
+[FontAtlas] Skip unflushed (hit): '7' size=15
+[FontAtlas] Skip unflushed (hit): '°' size=15
+[FontAtlas] Cache miss: '0' size=15 cursor=(482,166) glyphs=352
+[FontAtlas] Cache miss: '%' size=15 cursor=(492,166) glyphs=353
+[FontAtlas] Skip unflushed (hit): '1' size=15
+[FontAtlas] Skip unflushed (hit): '0' size=15
+[FontAtlas] Skip unflushed (hit): '0' size=15
+[FontAtlas] Skip unflushed (hit): '%' size=15
+[FontAtlas] Skip unflushed (hit): '0' size=15
+[FontAtlas] Skip unflushed (hit): '%' size=15
+[FontAtlas] Cache miss: '1' size=14 cursor=(507,166) glyphs=354
+[FontAtlas] Cache miss: '9' size=14 cursor=(8,183) glyphs=355
+[FontAtlas] Skip unflushed (hit): '1' size=14
+[FontAtlas] Skip unflushed (hit): '9' size=14
+[FontAtlas] Skip unflushed (hit): '°' size=14
+[FontAtlas] Flush: uploading dirty region (0,166)-(506,193) = 506x27 px, atlas 512x512
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: 'b' size=23 cursor=(17,183) glyphs=356
+[FontAtlas] Cache miss: ' ' size=23 cursor=(30,183) glyphs=357
+[FontAtlas] Cache miss: 'n' size=23 cursor=(30,183) glyphs=357
+[FontAtlas] Cache miss: 'e' size=23 cursor=(42,183) glyphs=359
+[FontAtlas] Cache miss: '?' size=23 cursor=(55,183) glyphs=360
+[FontAtlas] Cache miss: 'P' size=23 cursor=(66,183) glyphs=361
+[FontAtlas] Cache miss: 'E' size=23 cursor=(79,183) glyphs=362
+[FontAtlas] Cache miss: 'f' size=23 cursor=(92,183) glyphs=363
+[FontAtlas] Cache miss: 'm' size=23 cursor=(102,183) glyphs=364
+[FontAtlas] Cache miss: ',' size=23 cursor=(122,183) glyphs=365
+[FontAtlas] Cache miss: 'p' size=23 cursor=(128,183) glyphs=366
+[FontAtlas] Skip unflushed (hit): 'b' size=23
+[FontAtlas] Skip unflushed (hit): 'e' size=23
+[FontAtlas] Skip unflushed (hit): 'n' size=23
+[FontAtlas] Skip unflushed (hit): '?' size=23
+[FontAtlas] Skip unflushed (hit): 'P' size=23
+[FontAtlas] Skip unflushed (hit): 'e' size=23
+[FontAtlas] Skip unflushed (hit): 'E' size=23
+[FontAtlas] Skip unflushed (hit): 'n' size=23
+[FontAtlas] Skip unflushed (hit): 'e' size=23
+[FontAtlas] Skip unflushed (hit): 'n' size=23
+[FontAtlas] Skip unflushed (hit): 'f' size=23
+[FontAtlas] Skip unflushed (hit): 'm' size=23
+[FontAtlas] Skip unflushed (hit): ',' size=23
+[FontAtlas] Skip unflushed (hit): 'E' size=23
+[FontAtlas] Skip unflushed (hit): 'p' size=23
+[FontAtlas] Skip unflushed (hit): 'e' size=23
+[FontAtlas] Skip unflushed (hit): 'n' size=23
+[FontAtlas] Skip unflushed (hit): 'e' size=23
+[FontAtlas] Flush: uploading dirty region (17,183)-(140,201) = 123x18 px, atlas 512x512
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(141,183) glyphs=367
+[FontAtlas] Cache miss: 'F' size=19 cursor=(141,183) glyphs=367
+[FontAtlas] Skip unflushed (hit): 'F' size=19
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Flush: uploading dirty region (141,183)-(150,197) = 9x14 px, atlas 512x512
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368
+[FontAtlas] Cache miss: '⌖' size=18 cursor=(151,183) glyphs=368

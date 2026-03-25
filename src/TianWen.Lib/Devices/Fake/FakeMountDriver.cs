@@ -25,8 +25,8 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
 
     // --- Mount state (guarded by _sem) ---
     private readonly SemaphoreSlim _sem = new SemaphoreSlim(1, 1);
-    private double _ra = 6; // hours (0..24) — base RA; overridden on unpark/connect
-    private double _dec; // degrees (-90..90); set to site latitude on unpark/connect
+    private double _ra = double.NaN; // hours (0..24) — NaN until site configured, then LST (home = meridian)
+    private double _dec = double.NaN; // degrees (-90..90) — NaN until site configured, then site latitude (home = pole)
     private double _targetRa;
     private double _targetDec;
     private bool _isTracking;
@@ -595,10 +595,19 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
     public ValueTask<double> GetSiteLatitudeAsync(CancellationToken cancellationToken)
         => ValueTask.FromResult(_siteLatitude);
 
-    public ValueTask SetSiteLatitudeAsync(double latitude, CancellationToken cancellationToken)
+    public async ValueTask SetSiteLatitudeAsync(double latitude, CancellationToken cancellationToken)
     {
         _siteLatitude = latitude;
-        return ValueTask.CompletedTask;
+        // Initialize home position: point at the pole (Dec = latitude), on the meridian (RA = LST)
+        if (double.IsNaN(_dec))
+        {
+            _dec = latitude;
+            IMountDriver self = this;
+            if (await self.TryGetTransformAsync(cancellationToken) is { } transform)
+            {
+                _ra = transform.LocalSiderealTime;
+            }
+        }
     }
 
     public ValueTask<double> GetSiteLongitudeAsync(CancellationToken cancellationToken)

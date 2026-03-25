@@ -177,10 +177,23 @@ internal partial record Session
         var mount = Setup.Mount;
         var scopes = Setup.Telescopes.Length;
 
-        // Ensure camera states array is initialized (tests may call ImagingLoopAsync directly)
+        // Ensure arrays are initialized (tests may call ImagingLoopAsync directly)
         if (_cameraStates.Length != scopes)
         {
             _cameraStates = new CameraExposureState[scopes];
+        }
+        if (_lastCapturedImages.Length != scopes)
+        {
+            _lastCapturedImages = new Image?[scopes];
+        }
+        if (_lastFrameMetrics.Length != scopes)
+        {
+            _lastFrameMetrics = new FrameMetrics[scopes];
+            _frameMetricsHistory = new CircularBuffer<FrameMetrics>[scopes];
+            for (var j = 0; j < scopes; j++)
+            {
+                _frameMetricsHistory[j] = new CircularBuffer<FrameMetrics>(30);
+            }
         }
         var frameNumbers = new int[scopes];
 
@@ -545,12 +558,45 @@ internal partial record Session
                             continue;
                         }
 
-                        var ratio = currentMetrics.MedianHfd / currentBaselines[i].MedianHfd;
+                        // Trend-based drift detection: use linear regression over last N frames
+                        // instead of single-frame comparison (reduces false triggers from noisy frames)
+                        var history = _frameMetricsHistory[i];
+                        var trendHfd = currentMetrics.MedianHfd;
+
+                        if (history.Count >= 5) // need at least 5 samples for a meaningful trend
+                        {
+                            // Simple linear regression: y = slope*x + intercept over frame indices
+                            var n = history.Count;
+                            double sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+                            for (var k = 0; k < n; k++)
+                            {
+                                var sample = history[k];
+                                if (sample.StarCount <= 3 || !sample.IsComparableTo(currentBaselines[i]))
+                                {
+                                    continue;
+                                }
+                                sumX += k;
+                                sumY += sample.MedianHfd;
+                                sumXY += k * sample.MedianHfd;
+                                sumX2 += k * k;
+                            }
+
+                            var denom = n * sumX2 - sumX * sumX;
+                            if (denom > 0)
+                            {
+                                var slope = (n * sumXY - sumX * sumY) / denom;
+                                var intercept = (sumY - slope * sumX) / n;
+                                // Project trend HFD at the latest point
+                                trendHfd = (float)(slope * (n - 1) + intercept);
+                            }
+                        }
+
+                        var ratio = trendHfd / currentBaselines[i].MedianHfd;
 
                         if (ratio > Configuration.FocusDriftThreshold)
                         {
-                            External.AppLogger.LogWarning("Focus drift detected on telescope #{TelescopeNumber}: HFD={CurrentHFD:F2} vs baseline={BaselineHFD:F2} (ratio={Ratio:F2}), triggering auto-refocus.",
-                                i + 1, currentMetrics.MedianHfd, currentBaselines[i].MedianHfd, ratio);
+                            External.AppLogger.LogWarning("Focus drift detected on telescope #{TelescopeNumber}: trend HFD={TrendHFD:F2} (current={CurrentHFD:F2}) vs baseline={BaselineHFD:F2} (ratio={Ratio:F2}), triggering auto-refocus.",
+                                i + 1, trendHfd, currentMetrics.MedianHfd, currentBaselines[i].MedianHfd, ratio);
 
                             // Write pending images before refocusing
                             await WriteQueuedImagesToFitsFilesAsync();
