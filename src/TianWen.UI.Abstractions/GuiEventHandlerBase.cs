@@ -126,6 +126,12 @@ namespace TianWen.UI.Abstractions
                 DeactivateTextInput();
             }
 
+            // If no clickable region was hit, forward to active tab for custom handling (e.g. drag pan)
+            if (hit is null)
+            {
+                _chrome.ActiveTab?.HandleInput(new InputEvent.MouseDown(px, py, Modifiers: modifiers, ClickCount: clicks));
+            }
+
             _appState.NeedsRedraw = true;
             return hit is not null;
         }
@@ -149,7 +155,8 @@ namespace TianWen.UI.Abstractions
             var idx = _plannerState.DraggingSliderIndex;
             if (idx < 0)
             {
-                return false;
+                // Forward to active tab (e.g. live session drag pan)
+                return _chrome.ActiveTab?.HandleInput(new InputEvent.MouseMove(px, py)) ?? false;
             }
 
             if (idx >= _plannerState.HandoffSliders.Count)
@@ -169,6 +176,9 @@ namespace TianWen.UI.Abstractions
 
         private bool HandleMouseUp()
         {
+            // Forward to active tab first (e.g. live session drag pan release)
+            _chrome.ActiveTab?.HandleInput(new InputEvent.MouseUp(0, 0));
+
             if (_plannerState.DraggingSliderIndex >= 0)
             {
                 _plannerState.DraggingSliderIndex = -1;
