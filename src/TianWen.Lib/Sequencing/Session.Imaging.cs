@@ -97,11 +97,10 @@ internal partial record Session
                     // (BeginSlewToTargetAsync returns the pre-slew HA, which may be on a different pier side)
                     hourAngleAtSlewTime = await mount.Driver.GetHourAngleAsync(cancellationToken);
 
-                    // Plate solve main camera and sync mount for accurate pointing
-                    _currentActivity = $"Plate solving {observation.Target.Name}\u2026";
-                    if (!await PlateSolveAndSyncAsync(0, TimeSpan.FromSeconds(5), cancellationToken))
+                    // Iterative plate-solve + sync + reslew centering
+                    if (!await CenterOnTargetAsync(observation.Target, 0, thresholdArcmin: 1.0, maxAttempts: 3, cancellationToken))
                     {
-                        External.AppLogger.LogWarning("Plate solve after slew to {Target} failed, continuing with uncorrected pointing.", observation.Target);
+                        External.AppLogger.LogWarning("Centering on {Target} did not converge, continuing with current pointing.", observation.Target);
                     }
                 }
                 else
@@ -823,6 +822,13 @@ internal partial record Session
             // Verify the HA is now positive (west of meridian) — the flip actually happened
             if (newHourAngle > 0)
             {
+                // Iterative plate-solve centering after flip
+                _currentActivity = $"Centering on {observation.Target.Name} after flip\u2026";
+                if (!await CenterOnTargetAsync(observation.Target, 0, thresholdArcmin: 1.0, maxAttempts: 5, cancellationToken))
+                {
+                    External.AppLogger.LogWarning("Meridian flip: centering did not converge, proceeding with current pointing.");
+                }
+
                 External.AppLogger.LogInformation("Meridian flip: restarting guiding for {Target}.", observation.Target);
                 if (!await guider.Driver.StartGuidingLoopAsync(Configuration.GuidingTries, cancellationToken).ConfigureAwait(false))
                 {
