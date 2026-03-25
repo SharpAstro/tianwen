@@ -68,9 +68,25 @@ internal partial record Session
                 maxDelta = Math.Max(maxDelta, Math.Abs(ccdTemp - target));
             }
         }
-        // For CCD/Ambient kinds, estimate ~30°C delta as a safe default
+        // For CCD/Ambient kinds: check if cooler is even on before ramping
         if (desiredSetpointTemp.Kind is not SetpointTempKind.Normal && maxDelta <= 1)
         {
+            // Check if any camera's cooler is actually on
+            var anyCoolerOn = false;
+            for (var i = 0; i < scopes; i++)
+            {
+                var power = await External.CatchAsync(Setup.Telescopes[i].Camera.Driver.GetCoolerPowerAsync, cancellationToken, 0.0);
+                if (power > 1)
+                {
+                    anyCoolerOn = true;
+                    break;
+                }
+            }
+            if (!anyCoolerOn)
+            {
+                External.AppLogger.LogInformation("Cooling: all cameras already at ambient, skipping warmup ramp.");
+                return true;
+            }
             maxDelta = 30;
         }
         var stepCount = Math.Max((int)Math.Ceiling(maxDelta), 1);

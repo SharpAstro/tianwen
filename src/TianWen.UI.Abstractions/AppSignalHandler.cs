@@ -381,6 +381,8 @@ namespace TianWen.UI.Abstractions
                 try
                 {
                     // Switch to live session tab immediately so user sees progress
+                    // Set IsRunning immediately to prevent double-start from rapid clicks
+                    liveSessionState.IsRunning = true;
                     liveSessionState.Phase = SessionPhase.NotStarted;
                     liveSessionState.ShowAbortConfirm = false;
                     liveSessionState.ExposureLogScrollOffset = 0;
@@ -399,6 +401,7 @@ namespace TianWen.UI.Abstractions
                     if (transform is null)
                     {
                         appState.StatusMessage = "Cannot determine site location from profile";
+                        liveSessionState.IsRunning = false;
                         return;
                     }
 
@@ -422,6 +425,7 @@ namespace TianWen.UI.Abstractions
                     if (sessionState.Schedule is not { Count: > 0 } schedule)
                     {
                         appState.StatusMessage = "Failed to build schedule from proposals";
+                        liveSessionState.IsRunning = false;
                         return;
                     }
 
@@ -452,7 +456,6 @@ namespace TianWen.UI.Abstractions
                         observations.AsSpan());
 
                     liveSessionState.ActiveSession = session;
-                    liveSessionState.IsRunning = true;
                     liveSessionState.SiteTimeZone = plannerState.SiteTimeZone;
                     appState.StatusMessage = "Session started";
                     appState.NeedsRedraw = true;
