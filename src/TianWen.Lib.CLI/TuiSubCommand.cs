@@ -188,6 +188,14 @@ internal class TuiSubCommand(
                 break;
             }
 
+            // Check if a signal handler changed the active tab (e.g. StartSessionSignal → LiveSession)
+            if (tabs.TryGetValue(appState.ActiveTab, out var newActiveTab) && newActiveTab != activeTab)
+            {
+                activeTab = newActiveTab;
+                activeTab.BuildPanel(terminal);
+                activeTab.NeedsRedraw = true;
+            }
+
             // Propagate state-level redraw flags to the active tab
             if (plannerState.NeedsRedraw || sessionState.NeedsRedraw || liveSessionState.NeedsRedraw)
             {
