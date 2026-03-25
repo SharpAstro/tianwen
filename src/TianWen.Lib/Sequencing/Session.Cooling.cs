@@ -133,9 +133,12 @@ internal partial record Session
             }
 
             accSleep += rampInterval;
-            if (accSleep >= totalRampTime * 2)
+            var estimatedRampTime = stepCount * rampInterval;
+            var safetyCapTime = TimeSpan.FromTicks(Math.Max(totalRampTime.Ticks, (long)(estimatedRampTime.Ticks * 1.5)));
+            if (accSleep >= safetyCapTime)
             {
-                // Safety cap: don't exceed 2x the total ramp budget
+                External.AppLogger.LogWarning("Cooling: safety cap reached ({AccSleep} >= {SafetyCap}), exiting ramp loop.",
+                    accSleep, safetyCapTime);
                 break;
             }
 

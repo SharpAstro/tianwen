@@ -192,8 +192,8 @@ public class SessionPhaseTests(ITestOutputHelper output)
 
         // Cooling samples should have been recorded during cooldown and warmup
         var samples = ctx.Session.CoolingSamples;
-        output.WriteLine($"Cooling samples: {samples.Count}");
-        samples.Count.ShouldBeGreaterThan(0, "should have recorded cooling samples");
+        output.WriteLine($"Cooling samples: {samples.Length}");
+        samples.Length.ShouldBeGreaterThan(0, "should have recorded cooling samples");
 
         // First sample should be near ambient, later samples should show temperature drop
         var firstTemp = samples[0].TemperatureC;
@@ -300,8 +300,8 @@ public class SessionPhaseTests(ITestOutputHelper output)
         if (passedAutoFocus)
         {
             var history = ctx.Session.FocusHistory;
-            output.WriteLine($"Focus history entries: {history.Count}");
-            history.Count.ShouldBeGreaterThan(0, "should have at least one focus run record");
+            output.WriteLine($"Focus history entries: {history.Length}");
+            history.Length.ShouldBeGreaterThan(0, "should have at least one focus run record");
 
             var first = history[0];
             output.WriteLine($"First focus run: OTA={first.OtaName}, Filter={first.FilterName}, Pos={first.BestPosition}, HFD={first.BestHfd:F2}, Curve points={first.Curve.Length}");
@@ -360,13 +360,13 @@ public class SessionPhaseTests(ITestOutputHelper output)
 
         // Verify exposure log matches events
         var log = ctx.Session.ExposureLog;
-        log.Count.ShouldBe(frameEvents.Count, "ExposureLog count should match FrameWritten event count");
+        log.Length.ShouldBe(frameEvents.Count, "ExposureLog count should match FrameWritten event count");
 
         var firstEntry = log[0];
         firstEntry.TargetName.ShouldNotBeNullOrEmpty("target name should be set");
         firstEntry.Exposure.ShouldBeGreaterThan(TimeSpan.Zero, "exposure should be positive");
 
-        output.WriteLine($"Total frames: {log.Count}, first: {firstEntry.TargetName} {firstEntry.FilterName} HFD={firstEntry.MedianHfd:F2} stars={firstEntry.StarCount}");
+        output.WriteLine($"Total frames: {log.Length}, first: {firstEntry.TargetName} {firstEntry.FilterName} HFD={firstEntry.MedianHfd:F2} stars={firstEntry.StarCount}");
 
         ctx.CleanupImageOutputFolder();
     }
