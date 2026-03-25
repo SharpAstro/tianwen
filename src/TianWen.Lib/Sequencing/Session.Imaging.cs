@@ -372,19 +372,22 @@ internal partial record Session
                     var polled = TimeSpan.Zero;
                     do // wait for image loop
                     {
-                        if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } rawImage)
+                        if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } image)
                         {
-                            // Normalize to [0,1] once — both FITS writer and viewer use the same data
-                            var image = rawImage.ScaleFloatValuesToUnitInPlace();
                             imageFetchSuccess[i] = true;
                             _cameraStates[i] = _cameraStates[i] with { State = Devices.CameraState.Download };
+                            // Prepare viewer copy: RGGB → debayer+normalize (1 alloc), mono → normalize (1 alloc)
+                            // Raw image goes to FITS queue untouched
                             if (i < _lastCapturedImages.Length)
                             {
-                                _lastCapturedImages[i] = image;
+                                _lastCapturedImages[i] = image.ImageMeta.SensorType is Imaging.SensorType.RGGB
+                                    ? await image.DebayerAsync(Imaging.DebayerAlgorithm.AHD, normalizeToUnit: true, cancellationToken)
+                                    : image.ScaleFloatValuesToUnit();
                             }
                             External.AppLogger.LogInformation("Camera #{CameraNumber} {CameraName} finished {ExposureStartTime} exposure of frame #{FrameNo}",
                                 i + 1, camDriver.Name, frameExpTime, frameNo);
 
+                            // Enqueue raw image for FITS write (not normalized, not debayered)
                             imageWriteQueue.Enqueue(new QueuedImageWrite(image, observation, expStartTimes[i], frameNo, frameExpTime, i));
                             break;
                         }
@@ -470,9 +473,8 @@ internal partial record Session
                             // Nearly done — wait for it to finish and save the frame
                             External.AppLogger.LogInformation("Waiting for exposure on camera #{CameraNumber} to finish ({Remaining:F0}s remaining).", i + 1, remaining.TotalSeconds);
                             await External.SleepAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, cancellationToken);
-                            if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } rawFlipImage)
+                            if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } image)
                             {
-                                var image = rawFlipImage.ScaleFloatValuesToUnitInPlace();
                                 imageWriteQueue.Enqueue(new QueuedImageWrite(image, observation, expStartTimes[i], frameNumbers[i], total, i));
                             }
                             await WriteQueuedImagesToFitsFilesAsync();
