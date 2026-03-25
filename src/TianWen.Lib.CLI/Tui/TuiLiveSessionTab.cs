@@ -3,14 +3,16 @@ using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using Console.Lib;
 using DIR.Lib;
+using TianWen.Lib.Astrometry;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
 
 namespace TianWen.Lib.CLI.Tui;
 
 /// <summary>
-/// TUI live session monitor tab. Shows session phase, guide RMS, device status,
-/// focus history, and exposure log in a simplified text layout.
+/// TUI live session monitor tab. Shows session phase, per-OTA status,
+/// mount state, guide RMS, focus history, and exposure log.
 /// </summary>
 internal sealed class TuiLiveSessionTab(
     GuiAppState appState,
@@ -42,71 +44,134 @@ internal sealed class TuiLiveSessionTab(
 
     protected override void RenderContent()
     {
-        // Poll session to update cached fields
         liveState.PollSession();
 
-        // Top bar: phase + target
+        // Top bar: phase + activity
         var phaseLabel = LiveSessionActions.PhaseLabel(liveState.Phase);
-        // TUI doesn't have TimeProvider access — use system time
         var statusText = LiveSessionActions.PhaseStatusText(liveState, TimeProvider.System);
         _topBar.Text($" [{phaseLabel}]  {statusText}");
-        _topBar.RightText($"Frames: {liveState.TotalFramesWritten}  Exp: {LiveSessionActions.FormatDuration(liveState.TotalExposureTime)}");
+
+        // Top bar right: obs/frame/exp counter
+        var obsIdx = liveState.CurrentObservationIndex;
+        var obsCount = liveState.ActiveSession?.Observations.Count ?? 0;
+        var obsInfo = $"Obs:{(obsIdx >= 0 ? obsIdx + 1 : 0)}/{obsCount}";
+        if (liveState.ActiveObservation is { } obs)
+        {
+            var subSec = obs.SubExposure.TotalSeconds;
+            var estimated = subSec > 0 ? (int)(obs.Duration.TotalSeconds / (subSec + 10)) : 0;
+            obsInfo += $" F:{liveState.TotalFramesWritten}/~{estimated}";
+        }
+        obsInfo += $" Exp:{LiveSessionActions.FormatDuration(liveState.TotalExposureTime)}";
+        _topBar.RightText(obsInfo);
 
         // Guide RMS bar
         _guideBar.Text($" {LiveSessionActions.FormatGuideRms(liveState.LastGuideStats)}");
 
-        // Main content: device status + focus history + exposure log
         var sb = new StringBuilder();
 
-        // Device status
-        sb.AppendLine("## Devices");
+        // Per-OTA status
         if (liveState.ActiveSession is { } session)
         {
-            var setup = session.Setup;
-            sb.AppendLine($"- Mount: {setup.Mount.Device.DisplayName}");
-            for (var i = 0; i < setup.Telescopes.Length; i++)
+            var cameraStates = liveState.CameraStates;
+            for (var i = 0; i < session.Setup.Telescopes.Length; i++)
             {
-                var ota = setup.Telescopes[i];
-                sb.AppendLine($"- {ota.Name}: {ota.Camera.Device.DisplayName}");
+                var ota = session.Setup.Telescopes[i];
+                sb.AppendLine($"## {ota.Camera.Device.DisplayName}");
+
+                // Cooling info
+                var coolingSamples = liveState.CoolingSamples;
+                for (var j = coolingSamples.Length - 1; j >= 0; j--)
+                {
+                    if (coolingSamples[j].CameraIndex == i)
+                    {
+                        var s = coolingSamples[j];
+                        sb.AppendLine($"  {s.TemperatureC:F0}°C  {s.CoolerPowerPercent:F0}%  → {s.SetpointTempC:F0}°C");
+                        break;
+                    }
+                }
+
+                // Focuser + exposure state
+                if (i < cameraStates.Length)
+                {
+                    var cs = cameraStates[i];
+                    var focLine = $"  Foc: {cs.FocusPosition}";
+                    if (!double.IsNaN(cs.FocuserTemperature))
+                    {
+                        focLine += $"  {cs.FocuserTemperature:F1}°C";
+                    }
+                    if (cs.FocuserIsMoving)
+                    {
+                        focLine += "  ⇄Moving";
+                    }
+                    sb.AppendLine(focLine);
+
+                    // Exposure state
+                    if (cs.State == CameraState.Exposing)
+                    {
+                        var elapsed = TimeProvider.System.GetUtcNow() - cs.ExposureStart;
+                        var total = cs.SubExposure.TotalSeconds;
+                        var elapsedSec = Math.Min(elapsed.TotalSeconds, total);
+                        sb.AppendLine($"  {cs.FilterName} #{cs.FrameNumber} ({elapsedSec:F0}/{total:F0}s)");
+                    }
+                    else if (cs.State is CameraState.Download or CameraState.Reading)
+                    {
+                        sb.AppendLine($"  Downloading #{cs.FrameNumber}...");
+                    }
+                    else
+                    {
+                        sb.AppendLine("  Idle");
+                    }
+                }
+
+                sb.AppendLine();
             }
-            sb.AppendLine($"- Guider: {setup.Guider.Device.DisplayName}");
+
+            // Mount status
+            var ms = liveState.MountState;
+            var mountStatus = ms.IsSlewing ? "Slewing" : ms.IsTracking ? "Tracking" : "Idle";
+            var pier = ms.PierSide is PointingState.Normal ? "E" : ms.PierSide is PointingState.ThroughThePole ? "W" : "";
+            sb.AppendLine($"## {session.Setup.Mount.Device.DisplayName}  {mountStatus}  {pier}");
+            var raStr = CoordinateUtils.HoursToHMS(ms.RightAscension, withFrac: false);
+            var decStr = CoordinateUtils.DegreesToDMS(ms.Declination, withFrac: false);
+            sb.AppendLine($"  RA {raStr}  HA {ms.HourAngle:+0.00;-0.00}h");
+            sb.AppendLine($"  Dec {decStr}");
+            if (liveState.ActiveObservation is { Target: var target })
+            {
+                sb.AppendLine($"  → {target.Name}");
+            }
         }
         else
         {
             sb.AppendLine("No session running");
         }
 
-        // Focus history
-        sb.AppendLine();
-        sb.AppendLine("## Focus History");
+        // Focus history (last 3)
         var focusHistory = liveState.FocusHistory;
-        if (focusHistory.Count == 0)
+        if (focusHistory.Length > 0)
         {
-            sb.AppendLine("No focus runs");
-        }
-        else
-        {
-            var startIdx = Math.Max(0, focusHistory.Count - 5);
-            for (var i = startIdx; i < focusHistory.Count; i++)
+            sb.AppendLine();
+            sb.AppendLine("## Focus");
+            var startIdx = Math.Max(0, focusHistory.Length - 3);
+            for (var i = startIdx; i < focusHistory.Length; i++)
             {
                 sb.AppendLine(LiveSessionActions.FormatFocusHistoryRow(focusHistory[i]));
             }
         }
 
-        // Exposure log (last 10)
+        // Exposure log (last 8)
         sb.AppendLine();
-        sb.AppendLine("## Exposure Log");
+        sb.AppendLine("## Exposures");
         var log = liveState.ExposureLog;
-        if (log.Count == 0)
+        if (log.Length == 0)
         {
             sb.AppendLine("No frames yet");
         }
         else
         {
             sb.AppendLine("```");
-            sb.AppendLine("Time  Target       Filter  HFD");
-            var startIdx = Math.Max(0, log.Count - 10);
-            for (var i = startIdx; i < log.Count; i++)
+            sb.AppendLine("Time  Target       Filter  HFD   ★");
+            var startIdx = Math.Max(0, log.Length - 8);
+            for (var i = startIdx; i < log.Length; i++)
             {
                 sb.AppendLine(LiveSessionActions.FormatExposureLogRow(log[i]));
             }
@@ -116,9 +181,9 @@ internal sealed class TuiLiveSessionTab(
         _mainContent.Markdown(sb.ToString());
 
         // Status bar
-        var obsIdx = liveState.CurrentObservationIndex;
-        var obsCount = liveState.ActiveSession?.Observations.Count ?? 0;
-        _statusBar.Text($" Obs: {(obsIdx >= 0 ? obsIdx + 1 : 0)}/{obsCount}  {(liveState.ShowAbortConfirm ? "Press Enter to confirm ABORT, Escape to cancel" : "Escape:abort  Q:quit")}");
+        _statusBar.Text(liveState.ShowAbortConfirm
+            ? " Press Enter to confirm ABORT, Escape to cancel"
+            : " Escape:abort  Q:quit");
         _statusBar.RightText(appState.StatusMessage ?? "");
     }
 
