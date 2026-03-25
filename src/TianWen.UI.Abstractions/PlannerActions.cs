@@ -1148,9 +1148,10 @@ public static class PlannerActions
                 var transitTime = state.AstroDark - TimeSpan.FromHours(hourAngle);
                 var acrossMeridian = transitTime >= start && transitTime <= end;
 
+                var subExposure = proposal.SubExposure ?? defaultSubExposure;
                 var filterPlan = availableFilters is { Count: > 0 }
-                    ? FilterPlanBuilder.BuildAutoFilterPlan(availableFilters, defaultSubExposure, defaultSubExposure * 3)
-                    : FilterPlanBuilder.BuildSingleFilterPlan(defaultSubExposure);
+                    ? FilterPlanBuilder.BuildAutoFilterPlan(availableFilters, subExposure, subExposure * 3)
+                    : FilterPlanBuilder.BuildSingleFilterPlan(subExposure);
 
                 observations.Add(new ScheduledObservation(
                     proposal.Target, start, duration, acrossMeridian,
