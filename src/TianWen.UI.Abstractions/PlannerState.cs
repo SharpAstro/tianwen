@@ -42,11 +42,11 @@ public class PlannerState
     /// <summary>Nautical twilight rise time (morning).</summary>
     public DateTimeOffset? NauticalRise { get; set; }
 
-    /// <summary>Site latitude in degrees.</summary>
-    public double SiteLatitude { get; set; }
+    /// <summary>Site latitude in degrees. NaN when not yet resolved from profile.</summary>
+    public double SiteLatitude { get; set; } = double.NaN;
 
-    /// <summary>Site longitude in degrees.</summary>
-    public double SiteLongitude { get; set; }
+    /// <summary>Site longitude in degrees. NaN when not yet resolved from profile.</summary>
+    public double SiteLongitude { get; set; } = double.NaN;
 
     /// <summary>Minimum altitude above horizon in degrees.</summary>
     public byte MinHeightAboveHorizon { get; set; } = 20;
