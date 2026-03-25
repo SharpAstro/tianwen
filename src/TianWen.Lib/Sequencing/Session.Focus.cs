@@ -350,7 +350,11 @@ internal partial record Session
         {
             var targetPos = startPos + i * stepSize;
             _currentActivity = $"#{telescopeIndex + 1} V-curve {i + 1}/{stepCount} pos={targetPos}";
-            await focuser.BeginMoveAsync(targetPos, cancellationToken);
+            // Move may have been started during previous iteration's download overlap
+            if (!await focuser.GetIsMovingAsync(cancellationToken))
+            {
+                await focuser.BeginMoveAsync(targetPos, cancellationToken);
+            }
             while (await focuser.GetIsMovingAsync(cancellationToken) && !cancellationToken.IsCancellationRequested)
             {
                 await PollDeviceStatesAsync(cancellationToken);
@@ -371,13 +375,22 @@ internal partial record Session
 
             await camera.StartExposureAsync(autoFocusExposure, cancellationToken: cancellationToken);
 
+            // Pipeline optimization: start moving focuser to next position while camera downloads
+            var nextPos = (i + 1 < stepCount) ? startPos + (i + 1) * stepSize : -1;
             Image? image = null;
             var retries = 0;
+            var moveStarted = false;
             while (image is null && retries++ < 100 && !cancellationToken.IsCancellationRequested)
             {
                 image = await camera.GetImageAsync(cancellationToken);
                 if (image is null)
                 {
+                    // Start moving to next position during download (overlap)
+                    if (!moveStarted && nextPos >= 0 && retries > 5)
+                    {
+                        await focuser.BeginMoveAsync(nextPos, cancellationToken);
+                        moveStarted = true;
+                    }
                     await External.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
                 }
             }
@@ -456,8 +469,18 @@ internal partial record Session
                 if (verifyStars.Count > 3)
                 {
                     var baseline = FrameMetrics.FromStarList(verifyStars, autoFocusExposure, currentGain);
-                    External.AppLogger.LogInformation("Auto-focus telescope #{TelescopeNumber}: baseline HFD={BaselineHFD:F2}, FWHM={BaselineFWHM:F2}, stars={StarCount}.",
-                        telescopeIndex + 1, baseline.MedianHfd, baseline.MedianFwhm, baseline.StarCount);
+                    var expectedHfd = solution.Value.A;
+                    var hfdRatio = baseline.MedianHfd / expectedHfd;
+
+                    External.AppLogger.LogInformation("Auto-focus telescope #{TelescopeNumber}: baseline HFD={BaselineHFD:F2} (expected={Expected:F2}, ratio={Ratio:F2}), FWHM={BaselineFWHM:F2}, stars={StarCount}.",
+                        telescopeIndex + 1, baseline.MedianHfd, expectedHfd, hfdRatio, baseline.MedianFwhm, baseline.StarCount);
+
+                    if (hfdRatio > 1.5)
+                    {
+                        External.AppLogger.LogWarning("Auto-focus telescope #{TelescopeNumber}: verification HFD is {Ratio:F0}% worse than expected, focus result may be unreliable.",
+                            telescopeIndex + 1, (hfdRatio - 1) * 100);
+                    }
+
                     AppendFocusRunRecord(telescopeIndex, telescope, filterWheelDriver, preFocusFilterPosition, bestPos, baseline.MedianHfd, sampleMap);
                     return (true, baseline);
                 }
@@ -535,6 +558,56 @@ internal partial record Session
 
         External.AppLogger.LogInformation("Plate solve: mount synced to solved position.");
         return true;
+    }
+
+    /// <summary>
+    /// Iterative plate-solve + sync + reslew centering loop.
+    /// Converges on the target until the offset is below <paramref name="thresholdArcmin"/>
+    /// or <paramref name="maxAttempts"/> is reached.
+    /// </summary>
+    internal async ValueTask<bool> CenterOnTargetAsync(Target target, int telescopeIndex, double thresholdArcmin = 1.0, int maxAttempts = 5, CancellationToken cancellationToken = default)
+    {
+        var mount = Setup.Mount;
+
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            _currentActivity = $"Centering {target.Name} (attempt {attempt}/{maxAttempts})\u2026";
+
+            if (!await PlateSolveAndSyncAsync(telescopeIndex, TimeSpan.FromSeconds(5), cancellationToken))
+            {
+                External.AppLogger.LogWarning("Centering: plate solve failed on attempt {Attempt}/{Max}", attempt, maxAttempts);
+                continue;
+            }
+
+            // Check offset after sync
+            var solvedRa = await mount.Driver.GetRightAscensionAsync(cancellationToken);
+            var solvedDec = await mount.Driver.GetDeclinationAsync(cancellationToken);
+
+            var cosDec = Math.Cos(double.DegreesToRadians(target.Dec));
+            var deltaRaArcmin = Math.Abs(solvedRa - target.RA) * 15.0 * cosDec * 60.0;
+            var deltaDecArcmin = Math.Abs(solvedDec - target.Dec) * 60.0;
+            var totalOffsetArcmin = Math.Sqrt(deltaRaArcmin * deltaRaArcmin + deltaDecArcmin * deltaDecArcmin);
+
+            External.AppLogger.LogInformation("Centering: offset={Offset:F2}' (RA={DeltaRA:F2}' Dec={DeltaDec:F2}') attempt {Attempt}/{Max}",
+                totalOffsetArcmin, deltaRaArcmin, deltaDecArcmin, attempt, maxAttempts);
+
+            if (totalOffsetArcmin <= thresholdArcmin)
+            {
+                External.AppLogger.LogInformation("Centering: converged within {Threshold}' after {Attempt} attempt(s)", thresholdArcmin, attempt);
+                return true;
+            }
+
+            // Re-slew to the target (mount model is now corrected by sync)
+            _currentActivity = $"Re-slewing to {target.Name}\u2026";
+            var (postCondition, _) = await mount.Driver.BeginSlewToTargetAsync(target, Configuration.MinHeightAboveHorizon, cancellationToken).ConfigureAwait(false);
+            if (postCondition is SlewPostCondition.Slewing)
+            {
+                await mount.Driver.WaitForSlewCompleteAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        External.AppLogger.LogWarning("Centering: did not converge within {Max} attempts for {Target}", maxAttempts, target.Name);
+        return false;
     }
 
     internal async ValueTask<bool> GuiderFocusLoopAsync(TimeSpan timeoutAfter, CancellationToken cancellationToken)
