@@ -378,13 +378,21 @@ internal partial record Session
                         {
                             imageFetchSuccess[i] = true;
                             _cameraStates[i] = _cameraStates[i] with { State = Devices.CameraState.Download };
-                            // Prepare viewer copy: RGGB → debayer+normalize (1 alloc), mono → normalize (1 alloc)
+                            // Prepare viewer copy + run star detection once (shared by viewer + drift checker)
                             // Raw image goes to FITS queue untouched
                             if (i < _lastCapturedImages.Length)
                             {
-                                _lastCapturedImages[i] = image.ImageMeta.SensorType is Imaging.SensorType.RGGB
+                                var viewerImage = image.ImageMeta.SensorType is Imaging.SensorType.RGGB
                                     ? await image.DebayerAsync(Imaging.DebayerAlgorithm.AHD, normalizeToUnit: true, cancellationToken)
                                     : image.ScaleFloatValuesToUnit();
+                                _lastCapturedImages[i] = viewerImage;
+
+                                // Star detection for drift check + exposure log HFD
+                                var stars = await viewerImage.FindStarsAsync(0, snrMin: 10, maxStars: 1000, cancellationToken: cancellationToken);
+                                var currentGain = await camDriver.GetGainAsync(cancellationToken);
+                                var metrics = FrameMetrics.FromStarList(stars, frameExpTime, currentGain);
+                                _lastFrameMetrics[i] = metrics;
+                                _frameMetricsHistory[i].Add(metrics);
                             }
                             External.AppLogger.LogInformation("Camera #{CameraNumber} {CameraName} finished {ExposureStartTime} exposure of frame #{FrameNo}",
                                 i + 1, camDriver.Name, frameExpTime, frameNo);
@@ -513,22 +521,16 @@ internal partial record Session
             }
             else if (fetchImagesSuccessAll)
             {
-                // Check for focus drift on the last fetched image from each telescope
+                // Check for focus drift using pre-computed frame results (no duplicate star detection)
                 var currentBaselines = GetBaselineForCurrentObservation();
-                if (imageWriteQueue.Count > 0)
                 {
-                    for (var i = 0; i < scopes; i++)
+                    for (var i = 0; i < scopes && i < _lastFrameMetrics.Length; i++)
                     {
-                        var lastImage = imageWriteQueue.Last().Image;
-                        var driftStars = await lastImage.FindStarsAsync(0, snrMin: 10, maxStars: 100, cancellationToken: cancellationToken);
-                        if (driftStars.Count <= 3)
+                        var currentMetrics = _lastFrameMetrics[i];
+                        if (currentMetrics.StarCount <= 3)
                         {
                             continue;
                         }
-
-                        var camera = Setup.Telescopes[i].Camera.Driver;
-                        var currentGain = await camera.GetGainAsync(cancellationToken);
-                        var currentMetrics = FrameMetrics.FromStarList(driftStars, TimeSpan.FromSeconds(currentSubExposuresSec[i]), currentGain);
 
                         // If no baseline yet for this observation, collect samples from first frames
                         if (currentBaselines is null || !currentBaselines[i].IsValid)

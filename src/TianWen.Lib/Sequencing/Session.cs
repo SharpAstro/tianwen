@@ -58,6 +58,13 @@ internal partial record Session(
 
     public Image?[] LastCapturedImages => _lastCapturedImages;
     private volatile Image?[] _lastCapturedImages = [];
+
+    public FrameMetrics[] LastFrameMetrics => _lastFrameMetrics;
+    private FrameMetrics[] _lastFrameMetrics = [];
+
+    /// <summary>Per-camera frame metrics history for drift detection regression. Last N results per OTA.</summary>
+    internal CircularBuffer<FrameMetrics>[] FrameMetricsHistory => _frameMetricsHistory;
+    private CircularBuffer<FrameMetrics>[] _frameMetricsHistory = [];
     public int TotalFramesWritten => _totalFramesWritten;
     public TimeSpan TotalExposureTime => TimeSpan.FromTicks(Interlocked.Read(ref _totalExposureTimeTicks));
     public int CurrentObservationIndex => _activeObservation;
@@ -83,6 +90,11 @@ internal partial record Session(
     private int AdvanceObservation()
     {
         _spareIndex = 0;
+        // Re-create frame history on target change — drift baseline is per-target
+        for (var i = 0; i < _frameMetricsHistory.Length; i++)
+        {
+            _frameMetricsHistory[i] = new CircularBuffer<FrameMetrics>(30);
+        }
         return Interlocked.Increment(ref _activeObservation);
     }
 
@@ -172,6 +184,12 @@ internal partial record Session(
         {
             _cameraStates = new CameraExposureState[Setup.Telescopes.Length];
                 _lastCapturedImages = new Image?[Setup.Telescopes.Length];
+                _lastFrameMetrics = new FrameMetrics[Setup.Telescopes.Length];
+                _frameMetricsHistory = new CircularBuffer<FrameMetrics>[Setup.Telescopes.Length];
+                for (var i = 0; i < Setup.Telescopes.Length; i++)
+                {
+                    _frameMetricsHistory[i] = new CircularBuffer<FrameMetrics>(30); // last 30 frames per OTA
+                }
             var active = AdvanceObservation();
             // run initialisation code
             if (active == 0)
