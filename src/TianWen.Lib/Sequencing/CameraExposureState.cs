@@ -14,4 +14,6 @@ public readonly record struct CameraExposureState(
     int FrameNumber,
     string FilterName,
     int FocusPosition,
-    CameraState State);
+    CameraState State,
+    double FocuserTemperature = double.NaN,
+    bool FocuserIsMoving = false);

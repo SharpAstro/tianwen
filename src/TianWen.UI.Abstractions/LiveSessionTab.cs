@@ -687,13 +687,23 @@ namespace TianWen.UI.Abstractions
                     y += pad;
                 }
 
-                // Focuser position (larger font)
-                if (ota.Focuser is not null)
+                // Focuser position + temperature + moving state
+                if (ota.Focuser is not null && i < cameraStates.Count)
                 {
-                    var focusPos = (i < cameraStates.Count) ? cameraStates[i].FocusPosition : 0;
-                    DrawText($"Foc: {focusPos}".AsSpan(), fontPath,
+                    var cs = cameraStates[i];
+                    var focLabel = $"Foc: {cs.FocusPosition}";
+                    if (!double.IsNaN(cs.FocuserTemperature))
+                    {
+                        focLabel += $"  {cs.FocuserTemperature:F1}\u00B0C";
+                    }
+                    if (cs.FocuserIsMoving)
+                    {
+                        focLabel += "  \u21C4 Moving";
+                    }
+                    var focColor = cs.FocuserIsMoving ? StatusSlewing : BodyText;
+                    DrawText(focLabel.AsSpan(), fontPath,
                         px + pad, y, textW, rowH,
-                        fontSize, BodyText, TextAlign.Near, TextAlign.Center);
+                        fontSize, focColor, TextAlign.Near, TextAlign.Center);
                     y += rowH;
                 }
 
