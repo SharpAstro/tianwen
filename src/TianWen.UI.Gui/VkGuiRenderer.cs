@@ -19,6 +19,7 @@ namespace TianWen.UI.Gui
         private readonly VkSessionTab _sessionTab;
         private readonly VkViewerTab _viewerTab;
         private readonly VkLiveSessionTab _liveSessionTab;
+        private readonly GuiderTab<VulkanContext> _guiderTab;
         private readonly VkMiniViewerWidget _miniViewer;
         private string? _fontPath;
         private string? _emojiFontPath;
@@ -75,6 +76,7 @@ namespace TianWen.UI.Gui
             ("\U0001F4C5", GuiTab.Planner),     // 📅 Calendar
             ("\U0001F4F7", GuiTab.Session),     // 📷 Session Config
             ("\U0001F30C", GuiTab.LiveSession),  // 🌌 Live Session
+            ("\U0001F3AF", GuiTab.Guider),        // 🎯 Guider
         ];
 
         // Sidebar colors
@@ -105,6 +107,7 @@ namespace TianWen.UI.Gui
             _viewerTab = new VkViewerTab(renderer, width, height) { Bus = bus };
             _miniViewer = new VkMiniViewerWidget(renderer);
             _liveSessionTab = new VkLiveSessionTab(renderer) { Bus = bus, MiniViewer = _miniViewer };
+            _guiderTab = new GuiderTab<VulkanContext>(renderer) { Bus = bus };
             ResolveFontPath();
         }
 
@@ -136,6 +139,7 @@ namespace TianWen.UI.Gui
             _sessionTab.FrameCount++;
             _viewerTab.FrameCount++;
             _liveSessionTab.FrameCount++;
+            _guiderTab.FrameCount++;
 
             ActiveTab = appState.ActiveTab switch
             {
@@ -143,6 +147,7 @@ namespace TianWen.UI.Gui
                 GuiTab.Equipment => _equipmentTab,
                 GuiTab.Session => _sessionTab,
                 GuiTab.LiveSession => _liveSessionTab,
+                GuiTab.Guider => _guiderTab,
                 _ => null
             };
 
@@ -364,6 +369,11 @@ namespace TianWen.UI.Gui
 
                 case GuiTab.LiveSession:
                     _liveSessionTab.Render(LiveSessionState, contentRect, DpiScale,
+                        _fontPath ?? "monospace", timeProvider);
+                    break;
+
+                case GuiTab.Guider:
+                    _guiderTab.Render(LiveSessionState, contentRect, DpiScale,
                         _fontPath ?? "monospace", timeProvider);
                     break;
 
