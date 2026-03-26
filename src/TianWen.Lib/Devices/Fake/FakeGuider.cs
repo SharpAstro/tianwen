@@ -47,19 +47,12 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
     private bool _equipmentConnected;
     private bool _paused;
     private ITimer? _settleTimer;
+    private CancellationTokenSource? _guideCts;
+    private GuideLoop? _guideLoop;
 
     private double _settlePixels;
     private double _settleTime;
     private double _ditherPixels;
-
-    private readonly GuideStats _stats = new GuideStats
-    {
-        TotalRMS = 0.3,
-        RaRMS = 0.2,
-        DecRMS = 0.2,
-        PeakRa = 0.5,
-        PeakDec = 0.4,
-    };
 
     private enum GuiderState
     {
@@ -185,7 +178,17 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
             return ValueTask.FromResult<GuideStats?>(null);
         }
 
-        return ValueTask.FromResult<GuideStats?>(_stats.Clone());
+        var tracker = _guideLoop?.ErrorTracker;
+        return ValueTask.FromResult<GuideStats?>(new GuideStats
+        {
+            TotalRMS = tracker?.TotalRmsAll ?? 0.3,
+            RaRMS = tracker?.RaRmsAll ?? 0.2,
+            DecRMS = tracker?.DecRmsAll ?? 0.2,
+            PeakRa = tracker?.PeakRa ?? 0.5,
+            PeakDec = tracker?.PeakDec ?? 0.4,
+            LastRaErr = tracker?.LastRaError,
+            LastDecErr = tracker?.LastDecError,
+        });
     }
 
     public ValueTask<(string? AppState, double AvgDist)> GetStatusAsync(CancellationToken cancellationToken = default)
@@ -227,12 +230,89 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
             throw new GuiderException($"Cannot start guiding in state {current}");
         }
 
-        // Calibration completes instantly in the fake, then settle via timer
+        // Settle via timer, then start real guide loop in background
         ForceState(GuiderState.Settling);
         StartSettleTimer(settleTime);
 
+        if (_camera is { Connected: true } camera && _mount is { Connected: true } mount)
+        {
+            _guideCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            _ = Task.Run(() => RunGuideLoopAsync(camera, mount, _guideCts.Token), _guideCts.Token);
+        }
+
         return ValueTask.CompletedTask;
     }
+
+    private async Task RunGuideLoopAsync(ICameraDriver camera, IMountDriver mount, CancellationToken ct)
+    {
+        try
+        {
+            var exposureTime = TimeSpan.FromSeconds(2);
+            var tracker = new GuiderCentroidTracker(maxStars: 1);
+
+            // Capture initial frame and acquire guide star
+            var ext = External;
+            var frame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, ct);
+            tracker.ProcessFrame(frame);
+            tracker.SetLockPosition();
+
+            // Create guide loop with a simple P-controller (no calibration needed for fake — corrections are no-ops)
+            var pulseTarget = new PulseGuideRouter(PulseGuideSource.Auto, camera, mount);
+            var pController = new ProportionalGuideController { AggressivenessRa = 0.7, AggressivenessDec = 0.7, MinPulseMs = 20 };
+            var guideLoop = new GuideLoop(pulseTarget, tracker, pController, External);
+
+            // Set a unit calibration (1:1 pixel-to-axis mapping, no rotation)
+            guideLoop.SetCalibration(new GuiderCalibrationResult(0, 1.0, 1.0, 0, 0, 0));
+            _guideLoop = guideLoop;
+
+            var declination = await mount.GetDeclinationAsync(ct);
+            var ra = await mount.GetRightAscensionAsync(ct);
+            var siderealTime = await mount.GetSiderealTimeAsync(ct);
+            var hourAngle = siderealTime - ra;
+            var siteLatitude = await mount.GetSiteLatitudeAsync(ct);
+
+            await guideLoop.RunAsync(
+                async token => await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, token),
+                exposureTime, hourAngle, declination, siteLatitude, ct);
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected on stop
+        }
+        catch (Exception ex)
+        {
+            External.AppLogger.LogError(ex, "FakeGuider guide loop error");
+        }
+        finally
+        {
+            _guideLoop = null;
+        }
+    }
+
+    /// <summary>Last guide frame as a mono Image — zero-copy wrap of the internal float[,].</summary>
+    public Image? LastGuideFrame
+    {
+        get
+        {
+            if (_guideLoop?.LastFrame is not { } frame) return null;
+            var height = frame.GetLength(0);
+            var width = frame.GetLength(1);
+            var max = 0f;
+            for (var y = 0; y < height; y++)
+                for (var x = 0; x < width; x++)
+                    if (frame[y, x] > max) max = frame[y, x];
+            return new Image([frame], BitDepth.Float32, max, 0f, 0f,
+                new ImageMeta { SensorType = SensorType.Monochrome });
+        }
+    }
+
+    /// <summary>Guide star position in frame pixels.</summary>
+    public (double X, double Y)? GuideStarPosition =>
+        _guideLoop?.LastCentroidResult is { } r ? (r.X, r.Y) : null;
+
+    /// <summary>Guide star SNR.</summary>
+    public double? GuideStarSNR =>
+        _guideLoop?.LastCentroidResult?.SNR;
 
     private void StartSettleTimer(double settleTimeSeconds)
     {
@@ -282,83 +362,42 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
                 ? 206.265 * _camera.PixelSizeX / _camera.FocalLength
                 : DefaultPixelScale);
 
-    public async ValueTask<string?> SaveImageAsync(string outputFolder, CancellationToken cancellationToken = default)
+    public ValueTask<string?> SaveImageAsync(string outputFolder, CancellationToken cancellationToken = default)
     {
-        // Read RA/Dec from mount if linked and not set explicitly
-        if (double.IsNaN(PointingRA) && _mount is { Connected: true } mount)
+        // Save the last guide frame if available
+        if (_guideLoop?.LastFrame is not { } frame)
         {
-            PointingRA = await mount.GetRightAscensionAsync(cancellationToken);
-            PointingDec = await mount.GetDeclinationAsync(cancellationToken);
+            return ValueTask.FromResult<string?>(null);
         }
 
         Directory.CreateDirectory(outputFolder);
         var path = Path.Combine(outputFolder, $"guider_{External.TimeProvider.GetUtcNow().UtcDateTime:yyyyMMdd_HHmmss}.fits");
 
-        if (_camera is not { Connected: true, NumX: > 0, NumY: > 0 })
-        {
-            External.AppLogger.LogWarning("FakeGuider: no connected camera, cannot save image");
-            return null;
-        }
-
-        var width = _camera.NumX;
-        var height = _camera.NumY;
-
-        // Try to render with real catalog stars for plate-solvable images
-        float[,] array;
-        if (!double.IsNaN(PointingRA) && !double.IsNaN(PointingDec))
-        {
-            try
-            {
-                var db = await External.GetCelestialObjectDBAsync(cancellationToken);
-                var pixelScale = _camera is { Connected: true, PixelSizeX: > 0 } c ? c.PixelSizeX : 2.4; // IMX178M default
-                var focalLength = _camera is { Connected: true, FocalLength: > 0 } c2 ? (double)c2.FocalLength : 200.0;
-                var magCutoff = 10.0;
-                var stars = SyntheticStarFieldRenderer.ProjectCatalogStars(
-                    PointingRA, PointingDec, focalLength, pixelScale, width, height, db, magCutoff);
-                External.AppLogger.LogInformation("FakeGuider: rendering {StarCount} catalog stars at RA={RA:F3}h Dec={Dec:F1}° FL={FL}mm pixel={Pixel}µm {Width}x{Height}",
-                    stars.Count, PointingRA, PointingDec, focalLength, pixelScale, width, height);
-                array = SyntheticStarFieldRenderer.Render(width, height, defocusSteps: 0,
-                    stars: System.Runtime.InteropServices.CollectionsMarshal.AsSpan(stars),
-                    exposureSeconds: 2, noiseSeed: 42);
-            }
-            catch (Exception ex)
-            {
-                // Fallback to random stars if DB not available
-                External.AppLogger.LogWarning(ex, "FakeGuider: catalog star projection failed, falling back to random stars");
-                array = SyntheticStarFieldRenderer.Render(width, height, defocusSteps: 0, exposureSeconds: 2, noiseSeed: 42);
-            }
-        }
-        else
-        {
-            External.AppLogger.LogInformation("FakeGuider: no pointing coordinates, rendering random stars {Width}x{Height}", width, height);
-            array = SyntheticStarFieldRenderer.Render(width, height, defocusSteps: 0, exposureSeconds: 2, noiseSeed: 42);
-        }
-
+        var height = frame.GetLength(0);
+        var width = frame.GetLength(1);
         var dataMax = 0f;
         var dataMin = float.MaxValue;
-        for (var y = 0; y < array.GetLength(0); y++)
+        for (var y = 0; y < height; y++)
         {
-            for (var x = 0; x < array.GetLength(1); x++)
+            for (var x = 0; x < width; x++)
             {
-                var val = array[y, x];
+                var val = frame[y, x];
                 if (val > dataMax) dataMax = val;
                 if (val < dataMin) dataMin = val;
             }
         }
 
-        var wcs = !double.IsNaN(PointingRA) && !double.IsNaN(PointingDec)
-            ? new WCS(PointingRA, PointingDec)
-            : null as WCS?;
+        var image = new Image([frame], BitDepth.Float32, dataMax, dataMin, 0f, default);
+        image.WriteToFitsFile(path);
 
-        var image = new Image([array], BitDepth.Float32, dataMax, dataMin, 0f, default);
-        image.WriteToFitsFile(path, wcs);
-
-        return path;
+        return ValueTask.FromResult<string?>(path);
     }
 
     public ValueTask StopCaptureAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
     {
         Interlocked.Exchange(ref _settleTimer, null)?.Dispose();
+        _guideCts?.Cancel();
+        _guideCts = null;
         ForceState(GuiderState.Idle);
         return ValueTask.CompletedTask;
     }
