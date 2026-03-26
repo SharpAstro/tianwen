@@ -45,6 +45,15 @@ public interface ISession : IAsyncDisposable
     /// <summary>Guide exposure duration per frame.</summary>
     TimeSpan GuideExposure { get; }
 
+    /// <summary>Last guide camera frame as a mono Image, or null. Only populated when guider tab is active.</summary>
+    Image? LastGuideFrame { get; }
+
+    /// <summary>Guide star position in frame pixels, or null if not tracking.</summary>
+    (double X, double Y)? GuideStarPosition { get; }
+
+    /// <summary>Guide star SNR, or null if not available.</summary>
+    double? GuideStarSNR { get; }
+
     /// <summary>All frames written during this session.</summary>
     ImmutableArray<ExposureLogEntry> ExposureLog { get; }
 

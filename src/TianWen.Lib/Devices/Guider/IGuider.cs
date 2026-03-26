@@ -416,4 +416,21 @@ public interface IGuider : IDeviceDriver
     /// Event that is triggered when the application state changes.
     /// </summary>
     event EventHandler<GuiderStateChangedEventArgs>? GuiderStateChangedEvent;
+
+    /// <summary>
+    /// Snapshot of the most recent guide frame as an <see cref="Image"/> (mono, [0,1] normalized).
+    /// Null if no frame available or guider doesn't expose frames (e.g., PHD2).
+    /// Zero-copy: wraps the internal float[,] buffer directly.
+    /// </summary>
+    Image? LastGuideFrame => null;
+
+    /// <summary>
+    /// Current guide star position in frame coordinates (pixels), or null if not tracking.
+    /// </summary>
+    (double X, double Y)? GuideStarPosition => null;
+
+    /// <summary>
+    /// SNR of the primary guide star, or null if not available.
+    /// </summary>
+    double? GuideStarSNR => null;
 }

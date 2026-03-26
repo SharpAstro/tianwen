@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using TianWen.Lib.Devices.Guider;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.UI.Abstractions;
@@ -32,6 +33,9 @@ public class GuiderTabState
     public string? GuiderState { get; private set; }
     public SettleProgress? GuiderSettleProgress { get; private set; }
     public TimeSpan GuideExposure { get; private set; }
+    public Image? LastGuideFrame { get; private set; }
+    public (double X, double Y)? GuideStarPosition { get; private set; }
+    public double? GuideStarSNR { get; private set; }
 
     public bool NeedsRedraw { get; set; }
 
@@ -73,5 +77,8 @@ public class GuiderTabState
         GuiderState = live.GuiderState;
         GuiderSettleProgress = live.GuiderSettleProgress;
         GuideExposure = live.GuideExposure;
+        LastGuideFrame = live.LastGuideFrame;
+        GuideStarPosition = live.GuideStarPosition;
+        GuideStarSNR = live.GuideStarSNR;
     }
 }

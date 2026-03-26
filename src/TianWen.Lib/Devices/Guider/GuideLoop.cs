@@ -26,6 +26,12 @@ internal sealed class GuideLoop
     private bool _isGuiding;
     private double _guideStartTimestamp;
 
+    /// <summary>Last captured guide frame (mono float[,]). Updated each iteration.</summary>
+    internal float[,]? LastFrame { get; private set; }
+
+    /// <summary>Last centroid result from the tracker. Null if star was lost.</summary>
+    internal GuiderCentroidResult? LastCentroidResult { get; private set; }
+
     // Online learning state
     private ExperienceReplayBuffer? _experienceBuffer;
     private NeuralGuideTrainer? _onlineTrainer;
@@ -216,7 +222,9 @@ internal sealed class GuideLoop
 
                 // Capture and process frame
                 var frame = await captureFrame(cancellationToken);
+                LastFrame = frame;
                 var result = _tracker.ProcessFrame(frame);
+                LastCentroidResult = result;
 
                 if (result is null)
                 {

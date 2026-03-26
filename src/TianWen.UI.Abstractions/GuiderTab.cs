@@ -16,6 +16,7 @@ namespace TianWen.UI.Abstractions
         private const float BasePadding = 8f;
         private const float BaseHeaderHeight = 32f;
         private const float BaseStatsWidth = 220f;
+        private const float BaseCameraFraction = 0.4f; // guide camera gets 40% of width
 
         // Colors
         private static readonly RGBAColor32 ContentBg = new RGBAColor32(0x16, 0x16, 0x1e, 0xff);
@@ -77,14 +78,102 @@ namespace TianWen.UI.Abstractions
                 headerRect.Width - 200 * dpiScale - padding * 2, headerRect.Height,
                 fontSize * 0.9f, BodyText, TextAlign.Far, TextAlign.Center);
 
-            // Layout: graph (left) + stats panel (right)
+            // Layout: camera (left) | stats (right-top) + graph (right-bottom)
             var bodyTop = contentRect.Y + headerH;
             var bodyHeight = contentRect.Height - headerH;
-            var graphRect = new RectF32(contentRect.X, bodyTop, contentRect.Width - statsW, bodyHeight);
-            var statsRect = new RectF32(contentRect.X + contentRect.Width - statsW, bodyTop, statsW, bodyHeight);
+            var cameraW = contentRect.Width * BaseCameraFraction;
+            var rightW = contentRect.Width - cameraW;
+            var statsH = Math.Min(bodyHeight * 0.45f, 280f * dpiScale);
+            var graphH = bodyHeight - statsH;
 
-            RenderGraph(graphRect, dpiScale, fontPath, fontSize);
+            var cameraRect = new RectF32(contentRect.X, bodyTop, cameraW, bodyHeight);
+            var statsRect = new RectF32(contentRect.X + cameraW, bodyTop, rightW, statsH);
+            var graphRect = new RectF32(contentRect.X + cameraW, bodyTop + statsH, rightW, graphH);
+
+            RenderGuideCamera(cameraRect, dpiScale, fontPath, fontSize);
             RenderStats(statsRect, dpiScale, fontPath, fontSize, padding);
+            RenderGraph(graphRect, dpiScale, fontPath, fontSize);
+        }
+
+        private static readonly RGBAColor32 CrosshairColor = new RGBAColor32(0x00, 0xff, 0x00, 0xaa);
+        private static readonly RGBAColor32 CameraBg = new RGBAColor32(0x0a, 0x0a, 0x0a, 0xff);
+
+        private void RenderGuideCamera(RectF32 rect, float dpiScale, string fontPath, float fontSize)
+        {
+            FillRect(rect.X, rect.Y, rect.Width, rect.Height, CameraBg);
+
+            var image = State.LastGuideFrame;
+            if (image is null)
+            {
+                DrawText(State.IsRunning ? "Waiting for guide frame\u2026" : "No guide camera",
+                    fontPath, rect.X, rect.Y, rect.Width, rect.Height,
+                    fontSize, DimText, TextAlign.Center, TextAlign.Center);
+                return;
+            }
+
+            // Render stretched guide image into the rect
+            var imgW = image.Width;
+            var imgH = image.Height;
+            var scale = Math.Min(rect.Width / imgW, rect.Height / imgH);
+            var drawW = (int)(imgW * scale);
+            var drawH = (int)(imgH * scale);
+            var offsetX = (int)(rect.X + (rect.Width - drawW) / 2);
+            var offsetY = (int)(rect.Y + (rect.Height - drawH) / 2);
+
+            // Simple auto-stretch: find min/max in the image for contrast
+            var span = image.GetChannelSpan(0);
+            var pMin = float.MaxValue;
+            var pMax = float.MinValue;
+            for (var i = 0; i < span.Length; i++)
+            {
+                var v = span[i];
+                if (v < pMin) pMin = v;
+                if (v > pMax) pMax = v;
+            }
+            var pRange = pMax - pMin;
+
+            // Draw pixels
+            for (var sy = 0; sy < drawH; sy++)
+            {
+                var imgY = (int)(sy / scale);
+                if (imgY >= imgH) imgY = imgH - 1;
+
+                for (var sx = 0; sx < drawW; sx++)
+                {
+                    var imgX = (int)(sx / scale);
+                    if (imgX >= imgW) imgX = imgW - 1;
+
+                    var raw = span[imgY * imgW + imgX];
+                    var norm = pRange > 0 ? (raw - pMin) / pRange : 0.5f;
+                    var b = (byte)(Math.Clamp(norm, 0f, 1f) * 255);
+                    FillRect(offsetX + sx, offsetY + sy, 1, 1, new RGBAColor32(b, b, b, 255));
+                }
+            }
+
+            // Crosshair on guide star position
+            if (State.GuideStarPosition is var (starX, starY))
+            {
+                var cx = (int)(offsetX + starX * scale);
+                var cy = (int)(offsetY + starY * scale);
+                var crossLen = (int)(15 * dpiScale);
+                var crossGap = (int)(4 * dpiScale);
+
+                // Horizontal arms
+                FillRect(cx - crossLen, cy, crossLen - crossGap, 1, CrosshairColor);
+                FillRect(cx + crossGap, cy, crossLen - crossGap, 1, CrosshairColor);
+                // Vertical arms
+                FillRect(cx, cy - crossLen, 1, crossLen - crossGap, CrosshairColor);
+                FillRect(cx, cy + crossGap, 1, crossLen - crossGap, CrosshairColor);
+            }
+
+            // SNR label in corner
+            if (State.GuideStarSNR is { } snr)
+            {
+                DrawText($"SNR: {snr:F0}", fontPath,
+                    rect.X + 4 * dpiScale, rect.Y + rect.Height - fontSize * 1.4f,
+                    100 * dpiScale, fontSize * 1.2f,
+                    fontSize * 0.8f, BodyText, TextAlign.Near, TextAlign.Far);
+            }
         }
 
         private void RenderGraph(RectF32 rect, float dpiScale, string fontPath, float fontSize)

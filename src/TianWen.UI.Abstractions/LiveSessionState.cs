@@ -86,6 +86,15 @@ namespace TianWen.UI.Abstractions
         /// <summary>Guide exposure duration per frame.</summary>
         public TimeSpan GuideExposure { get; set; }
 
+        /// <summary>Last guide camera frame (mono Image), or null.</summary>
+        public Image? LastGuideFrame { get; set; }
+
+        /// <summary>Guide star position in frame pixels, or null.</summary>
+        public (double X, double Y)? GuideStarPosition { get; set; }
+
+        /// <summary>Guide star SNR, or null.</summary>
+        public double? GuideStarSNR { get; set; }
+
         /// <summary>Site timezone offset for displaying times in local site time.</summary>
         public TimeSpan SiteTimeZone { get; set; }
 
@@ -134,6 +143,9 @@ namespace TianWen.UI.Abstractions
             GuiderState = session.GuiderState;
             GuiderSettleProgress = session.GuiderSettleProgress;
             GuideExposure = session.GuideExposure;
+            LastGuideFrame = session.LastGuideFrame;
+            GuideStarPosition = session.GuideStarPosition;
+            GuideStarSNR = session.GuideStarSNR;
         }
     }
 }
