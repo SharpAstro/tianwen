@@ -1,4 +1,5 @@
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.Lunar;
 using System;
 using static TianWen.Lib.Astrometry.SOFA.SofaFunctions;
 
@@ -181,10 +182,9 @@ public static class VSOP87a
                 Emb.GetBody3d(et, body);
                 return true;
             case CatalogIndex.Moon:
-                //return [0,0,0]; //Vsop87a is the only version which can compute the moon
-                Emb.GetBody3d(et, emb);
-                Earth.GetBody3d(et, earth);
-                GetMoon(earth, emb, body);
+                // Use Meeus simplified lunar ephemeris for geocentric ecliptic coordinates,
+                // then convert to heliocentric XYZ so Reduce() can subtract Earth as usual.
+                MeeusMoon.GetHeliocentricXYZ(et, body);
                 return true;
 
             default:
@@ -203,13 +203,4 @@ public static class VSOP87a
         body[2] = c;
     }
 
-    static void GetMoon(Span<double> earth, Span<double> emb, Span<double> temp)
-    {
-        temp[0] = (emb[0] - earth[0]) * (1 + 1 / 0.01230073677);
-        temp[1] = (emb[1] - earth[1]) * (1 + 1 / 0.01230073677);
-        temp[2] = (emb[2] - earth[2]) * (1 + 1 / 0.01230073677);
-        temp[0] = temp[0] + earth[0];
-        temp[1] = temp[1] + earth[1];
-        temp[2] = temp[2] + earth[2];
-    }
 }
