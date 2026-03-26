@@ -97,7 +97,7 @@ internal sealed class TuiLiveSessionTab(
                     if (coolingSamples[j].CameraIndex == i)
                     {
                         var s = coolingSamples[j];
-                        sb.AppendLine($"  {s.TemperatureC:F0}°C  {s.CoolerPowerPercent:F0}%  → {s.SetpointTempC:F0}°C");
+                        sb.AppendLine($"Sensor: {s.TemperatureC:F0}°C → {s.SetpointTempC:F0}°C  Cooler: {s.CoolerPowerPercent:F0}%");
                         break;
                     }
                 }
@@ -106,16 +106,16 @@ internal sealed class TuiLiveSessionTab(
                 if (i < cameraStates.Length)
                 {
                     var cs = cameraStates[i];
-                    var focLine = $"  Foc: {cs.FocusPosition}";
+                    var focParts = $"Focus: {cs.FocusPosition}";
                     if (!double.IsNaN(cs.FocuserTemperature))
                     {
-                        focLine += $"  {cs.FocuserTemperature:F1}°C";
+                        focParts += $"  ({cs.FocuserTemperature:F1}°C)";
                     }
                     if (cs.FocuserIsMoving)
                     {
-                        focLine += "  ⇄Moving";
+                        focParts += "  Moving";
                     }
-                    sb.AppendLine(focLine);
+                    sb.AppendLine(focParts);
 
                     // Exposure state
                     if (cs.State == CameraState.Exposing)
@@ -123,15 +123,15 @@ internal sealed class TuiLiveSessionTab(
                         var elapsed = TimeProvider.System.GetUtcNow() - cs.ExposureStart;
                         var total = cs.SubExposure.TotalSeconds;
                         var elapsedSec = Math.Min(elapsed.TotalSeconds, total);
-                        sb.AppendLine($"  {cs.FilterName} #{cs.FrameNumber} ({elapsedSec:F0}/{total:F0}s)");
+                        sb.AppendLine($"Exposing: {cs.FilterName} #{cs.FrameNumber} ({elapsedSec:F0}/{total:F0}s)");
                     }
                     else if (cs.State is CameraState.Download or CameraState.Reading)
                     {
-                        sb.AppendLine($"  Downloading #{cs.FrameNumber}...");
+                        sb.AppendLine($"Downloading: #{cs.FrameNumber}");
                     }
                     else
                     {
-                        sb.AppendLine("  Idle");
+                        sb.AppendLine("Idle");
                     }
                 }
 
@@ -269,10 +269,10 @@ internal sealed class TuiLiveSessionTab(
                 NeedsRedraw = true;
                 return false;
 
-            case InputEvent.KeyDown(InputKey.Escape, _) when liveState.IsRunning:
+            case InputEvent.KeyDown(InputKey.Escape or InputKey.Q, _) when liveState.IsRunning:
                 liveState.ShowAbortConfirm = true;
                 NeedsRedraw = true;
-                return false;
+                return false; // consumed via NeedsRedraw — don't quit
 
             default:
                 return false;

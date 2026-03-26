@@ -85,6 +85,79 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
+        /// Checks <see cref="PlannerState.NeedsRecompute"/> and triggers a background recompute
+        /// if needed. Call from the host's main loop each frame.
+        /// </summary>
+        public void CheckRecompute()
+        {
+            if (!_plannerState.NeedsRecompute || _appState.ActiveProfile is null || _plannerState.IsRecomputing)
+            {
+                return;
+            }
+
+            _plannerState.NeedsRecompute = false;
+            _plannerState.IsRecomputing = true;
+            _appState.StatusMessage = "Recomputing...";
+            _appState.NeedsRedraw = true;
+            _tracker.Run(async () =>
+            {
+                try
+                {
+                    var objectDb = _sp.GetRequiredService<ICelestialObjectDB>();
+                    var transform = TransformFactory.FromProfile(_appState.ActiveProfile, _external.TimeProvider, out _);
+
+                    if (transform is not null)
+                    {
+                        // Override transform date if planning for a different night
+                        if (_plannerState.PlanningDate is { } pd)
+                        {
+                            var noon = new DateTimeOffset(pd.Date, pd.Offset).AddHours(12);
+                            transform.DateTimeOffset = noon;
+                        }
+
+                        // Detect significant site change (>1°) — requires full rescan
+                        var siteChanged = double.IsNaN(_plannerState.SiteLatitude)
+                            || Math.Abs(transform.SiteLatitude - _plannerState.SiteLatitude) > 1.0
+                            || Math.Abs(transform.SiteLongitude - _plannerState.SiteLongitude) > 1.0;
+
+                        ApplySiteFromTransform(_plannerState, transform);
+
+                        if (_plannerState.TonightsBest.Count > 0 && !siteChanged)
+                        {
+                            PlannerActions.RecomputeForDate(_plannerState, transform);
+                        }
+                        else
+                        {
+                            await PlannerActions.ComputeTonightsBestAsync(
+                                _plannerState, objectDb, transform,
+                                _plannerState.MinHeightAboveHorizon, _cts.Token);
+                            if (_appState.ActiveProfile is { } profile)
+                            {
+                                await PlannerPersistence.TryLoadAsync(_plannerState, profile, _external, _cts.Token);
+                            }
+                            SetAutoCompleteCache(objectDb.CreateAutoCompleteList());
+                        }
+                        _appState.StatusMessage = null;
+                    }
+                    else
+                    {
+                        _appState.StatusMessage = "Set site coordinates in Equipment tab";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _external.AppLogger.LogWarning(ex, "Recompute failed");
+                    _appState.StatusMessage = $"Recompute failed: {ex.InnerException?.Message ?? ex.Message}";
+                }
+                finally
+                {
+                    _plannerState.IsRecomputing = false;
+                    _appState.NeedsRedraw = true;
+                }
+            }, "Recompute targets");
+        }
+
+        /// <summary>
         /// Loads saved session configuration for the active profile.
         /// Call via <see cref="BackgroundTaskTracker.Run"/> from the host.
         /// </summary>
@@ -227,7 +300,8 @@ namespace TianWen.UI.Abstractions
                 }
 
                 if (double.TryParse(eqState.LatitudeInput.Text, System.Globalization.CultureInfo.InvariantCulture, out var sLat) &&
-                    double.TryParse(eqState.LongitudeInput.Text, System.Globalization.CultureInfo.InvariantCulture, out var sLon))
+                    double.TryParse(eqState.LongitudeInput.Text, System.Globalization.CultureInfo.InvariantCulture, out var sLon) &&
+                    sLat is >= -90 and <= 90 && sLon is >= -180 and <= 180)
                 {
                     double? sElev = double.TryParse(eqState.ElevationInput.Text, System.Globalization.CultureInfo.InvariantCulture, out var e) ? e : null;
                     var sData = siteProfile.Data ?? ProfileData.Empty;
@@ -243,7 +317,7 @@ namespace TianWen.UI.Abstractions
                 }
                 else
                 {
-                    appState.StatusMessage = "Invalid latitude or longitude";
+                    appState.StatusMessage = "Invalid coordinates (lat: -90..90, lon: -180..180)";
                 }
             };
 
@@ -520,6 +594,7 @@ namespace TianWen.UI.Abstractions
                         return;
                     }
 
+                    logger.LogDebug("StartSession: schedule built with {Count} observations, initialising factory", schedule.Count);
                     appState.StatusMessage = "Initialising session...";
                     appState.NeedsRedraw = true;
                     await factory.InitializeAsync(sessionCts.Token);
@@ -540,11 +615,15 @@ namespace TianWen.UI.Abstractions
                         SiteLongitude = plannerState.SiteLongitude,
                         SetpointCCDTemperature = new SetpointTemp(setpointTempC, SetpointTempKind.Normal)
                     };
+                    logger.LogDebug("StartSession: site lat={Lat}, lon={Lon}, setpoint={Setpoint}°C",
+                        config.SiteLatitude, config.SiteLongitude, setpointTempC);
 
                     var session = factory.Create(
                         profile.ProfileId,
                         config,
                         observations.AsSpan());
+                    logger.LogDebug("StartSession: session created with {OtaCount} OTAs, launching RunAsync",
+                        session.Setup.Telescopes.Length);
 
                     liveSessionState.ActiveSession = session;
                     liveSessionState.SiteTimeZone = plannerState.SiteTimeZone;

@@ -11,6 +11,7 @@ namespace TianWen.Lib.CLI.Tui;
 /// Shows tonight's best targets with altitude chart, target list, and details panel.
 /// </summary>
 internal sealed class TuiPlannerTab(
+    GuiAppState appState,
     PlannerState plannerState,
     string fontPath) : TuiTabBase
 {
@@ -95,7 +96,7 @@ internal sealed class TuiPlannerTab(
             ? $" {msg}"
             : " \u2191\u2193:nav Enter:toggle P:priority S:schedule Q:quit";
         _statusBar.Text(statusText);
-        _statusBar.RightText(plannerState.StatusMessage ?? "");
+        _statusBar.RightText(appState.StatusMessage ?? "");
     }
 
     protected override void RegisterClickableRegions()
@@ -113,7 +114,8 @@ internal sealed class TuiPlannerTab(
         var rowH = (float)cellSize.Height;
         var scrollOffset = Math.Max(0, plannerState.SelectedTargetIndex - targetList.VisibleRows / 2);
 
-        for (var i = 0; i < targetList.VisibleRows && scrollOffset + i < plannerState.TonightsBest.Count; i++)
+        var filteredCount = PlannerActions.GetFilteredTargets(plannerState).Count;
+        for (var i = 0; i < targetList.VisibleRows && scrollOffset + i < filteredCount; i++)
         {
             var capturedIdx = scrollOffset + i;
             var y = baseY + (1 + i) * rowH; // +1 for header
@@ -149,9 +151,10 @@ internal sealed class TuiPlannerTab(
                 return false;
 
             case InputEvent.Scroll(var delta, _, _, _):
-                var step = delta > 0 ? -3 : 3;
+                var scrollTargets = PlannerActions.GetFilteredTargets(plannerState);
+                var scrollStep = delta > 0 ? -3 : 3;
                 plannerState.SelectedTargetIndex = Math.Clamp(
-                    plannerState.SelectedTargetIndex + step, 0, plannerState.TonightsBest.Count - 1);
+                    plannerState.SelectedTargetIndex + scrollStep, 0, scrollTargets.Count - 1);
                 NeedsRedraw = true;
                 return false;
 
@@ -169,6 +172,7 @@ internal sealed class TuiPlannerTab(
                     return false;
                 }
 
+                var filtered = PlannerActions.GetFilteredTargets(plannerState);
                 switch (key)
                 {
                     case InputKey.Up:
@@ -180,7 +184,7 @@ internal sealed class TuiPlannerTab(
                         return false;
 
                     case InputKey.Down:
-                        if (plannerState.SelectedTargetIndex < plannerState.TonightsBest.Count - 1)
+                        if (plannerState.SelectedTargetIndex < filtered.Count - 1)
                         {
                             plannerState.SelectedTargetIndex++;
                             NeedsRedraw = true;
@@ -188,19 +192,17 @@ internal sealed class TuiPlannerTab(
                         return false;
 
                     case InputKey.Enter:
-                        if (plannerState.SelectedTargetIndex >= 0 && plannerState.SelectedTargetIndex < plannerState.TonightsBest.Count)
+                        if (plannerState.SelectedTargetIndex >= 0 && plannerState.SelectedTargetIndex < filtered.Count)
                         {
-                            var target = plannerState.TonightsBest[plannerState.SelectedTargetIndex].Target;
-                            PlannerActions.ToggleProposal(plannerState, target);
+                            PlannerActions.ToggleProposal(plannerState, filtered[plannerState.SelectedTargetIndex].Target);
                             NeedsRedraw = true;
                         }
                         return false;
 
                     case InputKey.P:
-                        if (plannerState.SelectedTargetIndex >= 0 && plannerState.SelectedTargetIndex < plannerState.TonightsBest.Count)
+                        if (plannerState.SelectedTargetIndex >= 0 && plannerState.SelectedTargetIndex < filtered.Count)
                         {
-                            var target = plannerState.TonightsBest[plannerState.SelectedTargetIndex].Target;
-                            var propIdx = plannerState.Proposals.FindIndex(p => p.Target == target);
+                            var propIdx = plannerState.Proposals.FindIndex(p => p.Target == filtered[plannerState.SelectedTargetIndex].Target);
                             if (propIdx >= 0)
                             {
                                 PlannerActions.CyclePriority(plannerState, propIdx);

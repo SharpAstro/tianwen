@@ -1,5 +1,6 @@
 using Console.Lib;
 using DIR.Lib;
+using Microsoft.Extensions.Logging;
 using System.CommandLine;
 using TianWen.Lib.CLI.Tui;
 using TianWen.Lib.Devices;
@@ -37,6 +38,11 @@ internal class TuiSubCommand(
         try
         {
             await RunTuiAsync(profile, ct);
+        }
+        catch (Exception ex)
+        {
+            consoleHost.External.AppLogger.LogError(ex, "TUI crashed");
+            throw;
         }
         finally
         {
@@ -85,7 +91,7 @@ internal class TuiSubCommand(
         var tabs = new Dictionary<GuiTab, ITuiTab>
         {
             [GuiTab.Equipment] = new TuiEquipmentTab(appState, eqState, equipmentContent, bus),
-            [GuiTab.Planner] = new TuiPlannerTab(plannerState, fontPath),
+            [GuiTab.Planner] = new TuiPlannerTab(appState, plannerState, fontPath),
             [GuiTab.Session] = new TuiSessionTab(appState, sessionState, plannerState, bus),
             [GuiTab.LiveSession] = new TuiLiveSessionTab(appState, liveSessionState, terminal, bus),
         };
@@ -98,13 +104,11 @@ internal class TuiSubCommand(
             tracker.Run(() => signalHandler.InitializePlannerAsync(transform, cts.Token), "Compute tonight's best targets");
         }
 
-        // Build top-level chrome (tab bar + status bar)
+        // Build top-level chrome (tab bar only — status shown in each tab's own bar)
         var chromePanel = new Panel(terminal);
         var tabBarVp = chromePanel.Dock(DockStyle.Top, 1);
-        var statusBarVp = chromePanel.Dock(DockStyle.Bottom, 1);
 
         var tabBar = new TuiTabBar(tabBarVp);
-        var statusBar = new TextBar(statusBarVp);
 
         var activeTab = tabs[appState.ActiveTab];
         activeTab.BuildPanel(terminal);
@@ -167,13 +171,20 @@ internal class TuiSubCommand(
                 liveSessionState.NeedsRedraw = false;
             }
 
-            if (!appState.NeedsRedraw && !activeTab.NeedsRedraw)
+            // Force periodic redraw on live session tab (~2 Hz) for clock, cooling, mount updates
+            if (liveSessionState.IsRunning && appState.ActiveTab == GuiTab.LiveSession)
+            {
+                activeTab.NeedsRedraw = true;
+                await Task.Delay(500, cts.Token);
+            }
+            else if (!appState.NeedsRedraw && !activeTab.NeedsRedraw)
             {
                 await Task.Delay(16, cts.Token);
             }
 
-            // Signal bus + background tasks
+            // Signal bus + background tasks + recompute check
             bus.ProcessPending(tracker);
+            signalHandler.CheckRecompute();
             tracker.ProcessCompletions(external.AppLogger);
 
             // Resize
@@ -181,9 +192,7 @@ internal class TuiSubCommand(
             {
                 chromePanel = new Panel(terminal);
                 tabBarVp = chromePanel.Dock(DockStyle.Top, 1);
-                statusBarVp = chromePanel.Dock(DockStyle.Bottom, 1);
                 tabBar = new TuiTabBar(tabBarVp);
-                statusBar = new TextBar(statusBarVp);
                 activeTab.BuildPanel(terminal);
                 appState.NeedsRedraw = true;
             }
@@ -194,10 +203,6 @@ internal class TuiSubCommand(
                 appState.NeedsRedraw = false;
                 tabBar.Render(appState, external.TimeProvider, plannerState.SiteTimeZone);
                 activeTab.Render();
-
-                var statusMsg = appState.StatusMessage ?? "";
-                statusBar.Text($" {statusMsg}");
-                statusBar.Render();
             }
         }
 

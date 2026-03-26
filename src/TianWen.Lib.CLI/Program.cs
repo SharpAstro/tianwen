@@ -19,16 +19,23 @@ System.Console.OutputEncoding = Encoding.UTF8;
 
 ConsoleExtensions.Enable();
 
+var isTui = args.Length > 0 && string.Equals(args[0], "tui", StringComparison.OrdinalIgnoreCase);
+
 var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = args, DisableDefaults = true });
 builder.Services
-    .AddLogging(static builder => builder
-        .AddSimpleConsole(static options =>
+    .AddLogging(builder =>
+    {
+        // Console logger conflicts with TUI alternate screen — only add for non-TUI modes
+        if (!isTui)
         {
-            options.IncludeScopes = false;
-            options.SingleLine = false;
-        })
-        .AddProvider(new FileLoggerProvider("CLI"))
-    )
+            builder.AddSimpleConsole(static options =>
+            {
+                options.IncludeScopes = false;
+                options.SingleLine = false;
+            });
+        }
+        builder.AddProvider(new FileLoggerProvider("CLI"));
+    })
     .AddExternal()
     .AddAstrometry()
     .AddZWO()
@@ -45,7 +52,12 @@ builder.Services
     .AddSingleton<DocumentCache>()
     .AddSingleton<IConsoleHost, ConsoleHost>();
 
+// File logger captures Debug+; console (when present) gets Warning+ unless debugging
 builder.Logging.SetMinimumLevel(Debugger.IsAttached ? LogLevel.Debug : LogLevel.Warning);
+builder.Logging.AddFilter<FileLoggerProvider>("", LogLevel.Debug);
+builder.Logging.AddFilter("Microsoft", LogLevel.Warning);
+builder.Logging.AddFilter("System", LogLevel.Warning);
+
 
 using var host = builder.Build();
 
