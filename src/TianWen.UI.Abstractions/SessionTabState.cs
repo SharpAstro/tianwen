@@ -85,6 +85,18 @@ namespace TianWen.UI.Abstractions
         /// <summary>Signal bus for posting session config events. Set by the host during initialization.</summary>
         public SignalBus? Bus { get; set; }
 
+        /// <summary>Index of the observation whose exposure is being edited via text input, or -1 if none.</summary>
+        public int EditingExposureIndex { get; set; } = -1;
+
+        /// <summary>Text input for editing an observation's sub-exposure duration (in seconds).</summary>
+        public TextInputState ExposureInput { get; } = new() { Placeholder = "seconds" };
+
+        /// <summary>Marks the configuration as dirty and triggers a save signal.</summary>
+        public void MarkDirty()
+        {
+            IsDirty = true;
+        }
+
         /// <summary>Whether the session configuration has unsaved changes.</summary>
         public bool IsDirty
         {
@@ -201,14 +213,31 @@ namespace TianWen.UI.Abstractions
         public static TimeSpan StepExposure(TimeSpan current, bool up)
         {
             var sec = current.TotalSeconds;
-            var step = sec switch
+
+            // When stepping down, use the zone we'd enter (e.g. 60→50 uses 10s step, not 30s)
+            var refSec = up ? sec : sec - 0.001;
+            var step = refSec switch
             {
+                < 10 => 1,
                 < 60 => 10,
                 < 120 => 30,
                 _ => 60
             };
 
-            var newSec = up ? sec + step : sec - step;
+            // Snap to step grid: if not on a grid line, snap to the nearest grid line in the
+            // requested direction first; if already on a grid line, step normally.
+            double newSec;
+            if (up)
+            {
+                var snapped = Math.Ceiling(sec / step) * step;
+                newSec = snapped > sec ? snapped : snapped + step;
+            }
+            else
+            {
+                var snapped = Math.Floor(sec / step) * step;
+                newSec = snapped < sec ? snapped : snapped - step;
+            }
+
             newSec = Math.Clamp(newSec, 1, 3600);
             return TimeSpan.FromSeconds(newSec);
         }
@@ -274,6 +303,54 @@ namespace TianWen.UI.Abstractions
                 IsDirty = true;
                 NeedsRedraw = true;
             }
+        }
+
+        /// <summary>
+        /// Tries to parse a user-entered exposure string as seconds.
+        /// Accepts plain numbers (e.g. "120"), or suffixed values ("2m", "2min", "1.5m").
+        /// </summary>
+        public static bool TryParseExposureInput(string input, out TimeSpan result)
+        {
+            result = default;
+            var trimmed = input.Trim();
+            if (trimmed.Length == 0)
+            {
+                return false;
+            }
+
+            // Try "Nm" or "Nmin" suffix
+            if (trimmed.EndsWith("min", StringComparison.OrdinalIgnoreCase))
+            {
+                if (double.TryParse(trimmed.AsSpan(0, trimmed.Length - 3), out var minutes) && minutes > 0)
+                {
+                    result = TimeSpan.FromMinutes(minutes);
+                    return result.TotalSeconds is >= 1 and <= 3600;
+                }
+                return false;
+            }
+
+            if (trimmed.EndsWith('m') || trimmed.EndsWith('M'))
+            {
+                if (double.TryParse(trimmed.AsSpan(0, trimmed.Length - 1), out var minutes) && minutes > 0)
+                {
+                    result = TimeSpan.FromMinutes(minutes);
+                    return result.TotalSeconds is >= 1 and <= 3600;
+                }
+                return false;
+            }
+
+            // Try "Ns" suffix or plain number (seconds)
+            var numSpan = trimmed.EndsWith('s') || trimmed.EndsWith('S')
+                ? trimmed.AsSpan(0, trimmed.Length - 1)
+                : trimmed.AsSpan();
+
+            if (double.TryParse(numSpan, out var seconds) && seconds >= 1 && seconds <= 3600)
+            {
+                result = TimeSpan.FromSeconds(seconds);
+                return true;
+            }
+
+            return false;
         }
 
         private static bool TryParseQueryInt(string query, string key, out int value)

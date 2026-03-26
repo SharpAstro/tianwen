@@ -13,7 +13,8 @@ namespace TianWen.Lib.CLI.Tui;
 internal sealed class TuiPlannerTab(
     GuiAppState appState,
     PlannerState plannerState,
-    string fontPath) : TuiTabBase
+    string fontPath,
+    TimeProvider timeProvider) : TuiTabBase
 {
     private TextBar? _topBar;
     private TextBar? _statusBar;
@@ -54,6 +55,15 @@ internal sealed class TuiPlannerTab(
 
         // Top bar
         var siteLabel = $"{plannerState.SiteLatitude:F1}\u00b0N {plannerState.SiteLongitude:F1}\u00b0E";
+
+        // Guard: planner data not yet computed (AstroDark defaults to 0001-01-01)
+        if (plannerState.AstroDark == default)
+        {
+            _topBar.Text($" {siteLabel} | Computing...");
+            _statusBar.Text(" Waiting for planner data...");
+            return;
+        }
+
         var darkLocal = plannerState.AstroDark.ToOffset(plannerState.SiteTimeZone);
         var twLocal = plannerState.AstroTwilight.ToOffset(plannerState.SiteTimeZone);
         _topBar.Text($" {siteLabel} | Dark: {darkLocal:HH:mm}-{twLocal:HH:mm} | Proposals: {plannerState.Proposals.Count}");
@@ -88,8 +98,11 @@ internal sealed class TuiPlannerTab(
         _canvasRenderer.FillRectangle(
             new RectInt(new PointInt((int)canvasPixelSize.Width, (int)canvasPixelSize.Height), new PointInt(0, 0)),
             new RGBAColor32(0x1a, 0x1a, 0x2e, 0xff));
+        var chartCurrentTime = plannerState.PlanningDate.HasValue ? null as DateTimeOffset? : timeProvider.GetLocalNow();
         AltitudeChartRenderer.Render(_canvasRenderer, plannerState, fontPath,
-            highlightTargetIndex: plannerState.SelectedTargetIndex);
+            0, 0, (int)_canvasRenderer.Width, (int)_canvasRenderer.Height,
+            highlightTargetIndex: plannerState.SelectedTargetIndex,
+            currentTime: chartCurrentTime);
 
         // Status bar
         var statusText = plannerState.StatusMessage is { } msg

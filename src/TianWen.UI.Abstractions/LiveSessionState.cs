@@ -77,6 +77,15 @@ namespace TianWen.UI.Abstractions
         /// <summary>Per-camera latest frame analysis result (star count, HFD, frame number).</summary>
         public FrameMetrics[] LastFrameMetrics { get; set; } = [];
 
+        /// <summary>Current guider state string ("Guiding", "Calibrating", etc.).</summary>
+        public string? GuiderState { get; set; }
+
+        /// <summary>Current settle progress, or null if not settling.</summary>
+        public SettleProgress? GuiderSettleProgress { get; set; }
+
+        /// <summary>Guide exposure duration per frame.</summary>
+        public TimeSpan GuideExposure { get; set; }
+
         /// <summary>Site timezone offset for displaying times in local site time.</summary>
         public TimeSpan SiteTimeZone { get; set; }
 
@@ -122,6 +131,9 @@ namespace TianWen.UI.Abstractions
             LastFramePath = session.LastFramePath;
             LastCapturedImages = session.LastCapturedImages;
             LastFrameMetrics = session.LastFrameMetrics;
+            GuiderState = session.GuiderState;
+            GuiderSettleProgress = session.GuiderSettleProgress;
+            GuideExposure = session.GuideExposure;
         }
     }
 }

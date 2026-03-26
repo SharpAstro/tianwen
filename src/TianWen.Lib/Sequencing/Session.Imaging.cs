@@ -274,6 +274,17 @@ internal partial record Session
 
             var isGuiding = await CatchAsync(guider.Driver.IsGuidingAsync, cancellationToken).ConfigureAwait(false);
 
+            // Poll guider state, settle progress, and exposure each tick
+            try
+            {
+                var (appState, _) = await guider.Driver.GetStatusAsync(cancellationToken);
+                _guiderState = appState;
+            }
+            catch { /* ignore */ }
+
+            try { _guiderSettleProgress = await guider.Driver.GetSettleProgressAsync(cancellationToken); } catch { /* ignore */ }
+            try { _guideExposure = await guider.Driver.ExposureTimeAsync(cancellationToken); } catch { /* ignore */ }
+
             // Poll guide stats each tick for the guide graph
             if (isGuiding)
             {
@@ -282,12 +293,11 @@ internal partial record Session
                 if (guideStats is { } gs)
                 {
                     UpdateGuideStats(gs);
-                    // Synthetic sample from RMS stats (random within ±RMS)
-                    var sampleRng = new Random(tickCount);
+                    // Use real per-frame errors when available, fall back to synthetic
+                    var raErr = gs.LastRaErr ?? gs.RaRMS * (new Random(tickCount).NextDouble() * 2 - 1);
+                    var decErr = gs.LastDecErr ?? gs.DecRMS * (new Random(tickCount + 1).NextDouble() * 2 - 1);
                     AppendGuideErrorSample(new GuideErrorSample(
-                        External.TimeProvider.GetUtcNow(),
-                        gs.RaRMS * (sampleRng.NextDouble() * 2 - 1),
-                        gs.DecRMS * (sampleRng.NextDouble() * 2 - 1)));
+                        External.TimeProvider.GetUtcNow(), raErr, decErr));
                 }
             }
 

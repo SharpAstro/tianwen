@@ -1,3 +1,4 @@
+using System;
 using Console.Lib;
 using DIR.Lib;
 using Shouldly;
@@ -6,6 +7,92 @@ using Xunit;
 
 namespace TianWen.Lib.Tests
 {
+    public class StepExposureTests
+    {
+        [Theory]
+        [InlineData(1, true, 2)]      // 1s steps below 10s
+        [InlineData(5, true, 6)]
+        [InlineData(9, true, 10)]     // crosses into 10s-step zone
+        [InlineData(10, true, 20)]    // 10s steps below 60s
+        [InlineData(50, true, 60)]
+        [InlineData(60, true, 90)]    // 30s steps below 120s
+        [InlineData(90, true, 120)]
+        [InlineData(120, true, 180)]  // 60s steps above 120s
+        [InlineData(180, true, 240)]
+        [InlineData(3600, true, 3600)] // clamped at max
+        public void StepExposure_Up(double fromSec, bool up, double expectedSec)
+        {
+            var result = SessionTabState.StepExposure(TimeSpan.FromSeconds(fromSec), up);
+            result.TotalSeconds.ShouldBe(expectedSec);
+        }
+
+        [Theory]
+        [InlineData(10, false, 9)]    // crosses back into 1s-step zone
+        [InlineData(20, false, 10)]
+        [InlineData(60, false, 50)]
+        [InlineData(90, false, 60)]
+        [InlineData(120, false, 90)]  // boundary: enters <120 zone, step=30 → 90
+        [InlineData(180, false, 120)]
+        [InlineData(2, false, 1)]
+        [InlineData(1, false, 1)]     // clamped at min
+        public void StepExposure_Down(double fromSec, bool up, double expectedSec)
+        {
+            var result = SessionTabState.StepExposure(TimeSpan.FromSeconds(fromSec), up);
+            result.TotalSeconds.ShouldBe(expectedSec);
+        }
+
+        [Theory]
+        [InlineData(121, true, 180)]   // snap to grid: ceil(121/60)*60=180
+        [InlineData(121, false, 120)]  // snap to grid: floor(121/60)*60=120, 120<121 → 120
+        [InlineData(45, true, 50)]     // ceil(45/10)*10=50, 50>45 → 50
+        [InlineData(45, false, 40)]    // floor(45/10)*10=40, 40<45 → 40
+        [InlineData(91, true, 120)]    // ceil(91/30)*30=120, 120>91 → 120
+        [InlineData(91, false, 90)]    // floor(91/30)*30=90, 90<91 → 90
+        [InlineData(5.5, true, 6)]     // ceil(5.5/1)*1=6
+        [InlineData(5.5, false, 5)]    // floor(5.5/1)*1=5
+        public void StepExposure_SnapsToGrid(double fromSec, bool up, double expectedSec)
+        {
+            var result = SessionTabState.StepExposure(TimeSpan.FromSeconds(fromSec), up);
+            result.TotalSeconds.ShouldBe(expectedSec);
+        }
+    }
+
+    public class TryParseExposureInputTests
+    {
+        [Theory]
+        [InlineData("120", 120)]
+        [InlineData("30", 30)]
+        [InlineData("1", 1)]
+        [InlineData("3600", 3600)]
+        [InlineData("90s", 90)]
+        [InlineData("90S", 90)]
+        [InlineData("2m", 120)]
+        [InlineData("2M", 120)]
+        [InlineData("1.5m", 90)]
+        [InlineData("2min", 120)]
+        [InlineData("2MIN", 120)]
+        [InlineData("  60  ", 60)]
+        public void ValidInput_ReturnsExpectedSeconds(string input, double expectedSec)
+        {
+            SessionTabState.TryParseExposureInput(input, out var result).ShouldBeTrue();
+            result.TotalSeconds.ShouldBe(expectedSec);
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData("   ")]
+        [InlineData("abc")]
+        [InlineData("0")]
+        [InlineData("-10")]
+        [InlineData("3601")]    // over max
+        [InlineData("0m")]
+        [InlineData("61m")]     // 61 minutes > 3600s
+        public void InvalidInput_ReturnsFalse(string input)
+        {
+            SessionTabState.TryParseExposureInput(input, out _).ShouldBeFalse();
+        }
+    }
+
     public class SessionTabTests
     {
         private static SessionTab<RgbaImage> CreateTab(out SessionTabState state, int width = 800, int height = 600)

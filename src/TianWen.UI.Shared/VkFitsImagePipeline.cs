@@ -167,17 +167,20 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
                     float nr = r * ubo.normFactor;
                     float ng = g * ubo.normFactor;
                     float nb = b * ubo.normFactor;
-                    float Y = 0.2126 * nr + 0.7152 * ng + 0.0722 * nb;
-                    float lumaPed = ubo.pedestal.x;
-                    float Ynorm = Y - lumaPed;
+                    // Per-channel pedestal subtraction (avoids green cast from RGGB)
+                    float prr = nr - ubo.pedestal[0];
+                    float prg = ng - ubo.pedestal[1];
+                    float prb = nb - ubo.pedestal[2];
+                    // Luma from pedestal-subtracted channels
+                    float Ynorm = 0.2126 * prr + 0.7152 * prg + 0.0722 * prb;
                     float rescaled = (Ynorm - ubo.shadows.x) * ubo.rescale.x;
                     float Yp = mtf(ubo.midtones.x, rescaled);
                     float scale = Ynorm > 1e-7 ? Yp / Ynorm : 0.0;
-                    float maxCh = max(nr - lumaPed, max(ng - lumaPed, nb - lumaPed));
+                    float maxCh = max(prr, max(prg, prb));
                     if (maxCh > 1e-7) scale = min(scale, 1.0 / maxCh);
-                    r = clamp((nr - lumaPed) * scale, 0.0, 1.0);
-                    g = clamp((ng - lumaPed) * scale, 0.0, 1.0);
-                    b = clamp((nb - lumaPed) * scale, 0.0, 1.0);
+                    r = clamp(prr * scale, 0.0, 1.0);
+                    g = clamp(prg * scale, 0.0, 1.0);
+                    b = clamp(prb * scale, 0.0, 1.0);
                 }
 
                 if (ubo.curvesBoost > 0.0) {

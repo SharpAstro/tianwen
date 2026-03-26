@@ -69,6 +69,61 @@ internal sealed class TuiSessionTab(
             }
         }
 
+        // Per-OTA camera settings
+        for (var ota = 0; ota < sessionState.CameraSettings.Count; ota++)
+        {
+            var cam = sessionState.CameraSettings[ota];
+            items.Add(new SessionFieldItem { GroupName = cam.OtaName });
+
+            var capturedOta = ota;
+            items.Add(new SessionFieldItem
+            {
+                OtaLabel = "Setpoint",
+                FieldIndex = fieldIdx,
+                IsSelected = fieldIdx == sessionState.SelectedFieldIndex,
+                FormattedValue = $"{cam.SetpointTempC}°C",
+                Increment = () => { cam.SetpointTempC = (sbyte)Math.Min(cam.SetpointTempC + 1, 30); sessionState.MarkDirty(); },
+                Decrement = () => { cam.SetpointTempC = (sbyte)Math.Max(cam.SetpointTempC - 1, -40); sessionState.MarkDirty(); },
+            });
+            fieldIdx++;
+
+            items.Add(new SessionFieldItem
+            {
+                OtaLabel = "Gain",
+                FieldIndex = fieldIdx,
+                IsSelected = fieldIdx == sessionState.SelectedFieldIndex,
+                FormattedValue = cam.UsesGainMode && cam.Gain >= 0 && cam.Gain < cam.GainModes.Count
+                    ? cam.GainModes[cam.Gain]
+                    : $"{cam.Gain}",
+                Increment = () =>
+                {
+                    cam.Gain = cam.UsesGainMode && cam.GainModes.Count > 0
+                        ? (cam.Gain + 1) % cam.GainModes.Count
+                        : Math.Min(cam.Gain + 10, 600);
+                    sessionState.MarkDirty();
+                },
+                Decrement = () =>
+                {
+                    cam.Gain = cam.UsesGainMode && cam.GainModes.Count > 0
+                        ? (cam.Gain - 1 + cam.GainModes.Count) % cam.GainModes.Count
+                        : Math.Max(cam.Gain - 10, 0);
+                    sessionState.MarkDirty();
+                },
+            });
+            fieldIdx++;
+
+            items.Add(new SessionFieldItem
+            {
+                OtaLabel = "Offset",
+                FieldIndex = fieldIdx,
+                IsSelected = fieldIdx == sessionState.SelectedFieldIndex,
+                FormattedValue = $"{cam.Offset}",
+                Increment = () => { cam.Offset = Math.Min(cam.Offset + 1, 255); sessionState.MarkDirty(); },
+                Decrement = () => { cam.Offset = Math.Max(cam.Offset - 1, 0); sessionState.MarkDirty(); },
+            });
+            fieldIdx++;
+        }
+
         sessionState.FieldCount = fieldIdx;
         _lastItems = items;
         _configList.Items([.. items]).Header("Session Configuration");
@@ -139,6 +194,12 @@ internal sealed class TuiSessionTab(
         }
     }
 
+    private SessionFieldItem? FindSelectedItem()
+    {
+        var idx = sessionState.SelectedFieldIndex;
+        return idx >= 0 ? _lastItems.Find(i => i.FieldIndex == idx) : null;
+    }
+
     private bool HandleKey(InputKey key)
     {
         switch (key)
@@ -160,17 +221,27 @@ internal sealed class TuiSessionTab(
                 return false;
 
             case InputKey.Left:
-                sessionState.DecrementSelectedField();
+                if (FindSelectedItem() is { Decrement: { } dec })
+                {
+                    dec();
+                }
+                else
+                {
+                    sessionState.DecrementSelectedField();
+                }
                 NeedsRedraw = true;
                 return false;
 
             case InputKey.Right:
-                sessionState.IncrementSelectedField();
-                NeedsRedraw = true;
-                return false;
-
             case InputKey.Enter:
-                sessionState.IncrementSelectedField();
+                if (FindSelectedItem() is { Increment: { } inc })
+                {
+                    inc();
+                }
+                else
+                {
+                    sessionState.IncrementSelectedField();
+                }
                 NeedsRedraw = true;
                 return false;
 

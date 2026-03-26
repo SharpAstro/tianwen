@@ -11,7 +11,7 @@ internal sealed class SessionFieldItem : IRowFormatter
     /// <summary>Group header (non-editable separator row).</summary>
     public string? GroupName { get; init; }
 
-    /// <summary>Field descriptor (null for group headers).</summary>
+    /// <summary>Field descriptor (null for group headers and OTA fields).</summary>
     public ConfigFieldDescriptor? Field { get; init; }
 
     /// <summary>Flat index among editable fields (for selection tracking). -1 for headers.</summary>
@@ -23,6 +23,15 @@ internal sealed class SessionFieldItem : IRowFormatter
     /// <summary>Current formatted value (precomputed from SessionConfiguration).</summary>
     public string FormattedValue { get; init; } = "";
 
+    /// <summary>Label for OTA fields (when Field is null but this is still editable).</summary>
+    public string? OtaLabel { get; init; }
+
+    /// <summary>Increment callback for OTA fields.</summary>
+    public Action? Increment { get; init; }
+
+    /// <summary>Decrement callback for OTA fields.</summary>
+    public Action? Decrement { get; init; }
+
     public string FormatRow(int width, ColorMode colorMode)
     {
         if (GroupName is not null)
@@ -33,19 +42,20 @@ internal sealed class SessionFieldItem : IRowFormatter
             return $"{style.Apply(colorMode)}{header.PadRight(width)}{VtStyle.Reset}";
         }
 
-        if (Field is null)
+        if (Field is null && OtaLabel is null)
         {
             return "".PadRight(width);
         }
 
         // Field row: "  Label            [-] value [+]  unit"
-        var label = Field.Label;
+        var label = OtaLabel ?? Field!.Label;
         var value = FormattedValue;
-        var unit = Field.Unit.Length > 0 ? $" {Field.Unit}" : "";
-        var controlStr = Field.Kind switch
+        var unit = Field?.Unit is { Length: > 0 } u ? $" {u}" : "";
+        var controlStr = Field?.Kind switch
         {
             ConfigFieldKind.BoolToggle => $"  [{value}]",
             ConfigFieldKind.EnumCycle => $"  [{value}]",
+            null => $"  [\u2190] {value} [\u2192]",  // OTA field
             _ => $"  [\u2190] {value}{unit} [\u2192]",
         };
 

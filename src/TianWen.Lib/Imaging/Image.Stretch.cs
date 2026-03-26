@@ -189,16 +189,25 @@ public partial class Image
         lumaChannelData[0] = lumaData;
         var lumaImage = new Image(lumaChannelData, BitDepth.Float32, 1.0f, lumaMin, 0f, imageMeta with { SensorType = SensorType.Monochrome });
 
-        var (lumaPedestal, median, mad) = lumaImage.GetPedestralMedianAndMADScaledToUnit(0);
+        var (_, median, mad) = lumaImage.GetPedestralMedianAndMADScaledToUnit(0);
         var (shadows, midtones, highlights, rescale) = ComputeStretchParameters(median, mad, stretchFactor, shadowsClipping);
 
-        // Stretch luminance and scale RGB channels by Y'/Y ratio
+        // Compute per-channel pedestals — avoids green cast from RGGB sensors
+        // where the shared luma pedestal clips R and B to zero
+        var channelPedestals = new float[channelCount];
+        for (var c = 0; c < channelCount; c++)
+        {
+            var (ped, _, _) = GetPedestralMedianAndMADScaledToUnit(c);
+            channelPedestals[c] = ped;
+        }
+
+        // Stretch: subtract per-channel pedestal, compute luma from pedestal-subtracted values,
+        // stretch luma, scale all channels by Y'/Y
         await Parallel.ForAsync(0, height, new ParallelOptions { CancellationToken = cancellationToken, MaxDegreeOfParallelism = Environment.ProcessorCount * 4 }, async (y, ct) => await Task.Run(() =>
         {
             for (var x = 0; x < width; x++)
             {
-                var luma = lumaData[y, x];
-                if (float.IsNaN(luma))
+                if (float.IsNaN(data[0][y, x]))
                 {
                     for (var c = 0; c < channelCount; c++)
                     {
@@ -207,40 +216,43 @@ public partial class Image
                     continue;
                 }
 
-                // Subtract pedestal to align with the pedestal-subtracted statistics
-                var lumaNorm = luma - lumaPedestal;
+                // Per-channel pedestal subtraction
+                var pr = data[0][y, x];
+                var pg = data[1][y, x];
+                var pb = data[2][y, x];
+                if (needsNorm) { pr *= normFactor; pg *= normFactor; pb *= normFactor; }
+                pr -= channelPedestals[0];
+                pg -= channelPedestals[1];
+                pb -= channelPedestals[2];
+
+                // Luma from pedestal-subtracted channels
+                var lumaNorm = LumaR * pr + LumaG * pg + LumaB * pb;
 
                 // Stretch the luminance
-                var rescaled = (lumaNorm - shadows) * rescale;
-                var stretchedLuma = (float)MidtonesTransferFunction(midtones, rescaled);
+                var rescaledLuma = (lumaNorm - shadows) * rescale;
+                var stretchedLuma = (float)MidtonesTransferFunction(midtones, rescaledLuma);
 
-                // Scale factor: Y'/Y (avoid division by zero, use pedestal-subtracted luma)
+                // Scale factor: Y'/Y (avoid division by zero)
                 var scale = lumaNorm > 1e-7f ? stretchedLuma / lumaNorm : 0f;
 
-                // Cap scale to prevent channel saturation: find max pedestal-subtracted channel
-                // so that maxChannel * scale <= 1.0 (preserves chrominance ratios)
+                // Cap scale to prevent channel saturation
                 if (scale > 0f)
                 {
-                    var maxCh = 0f;
-                    for (var c = 0; c < channelCount; c++)
-                    {
-                        var v = data[c][y, x];
-                        if (needsNorm) { v *= normFactor; }
-                        v -= lumaPedestal;
-                        if (v > maxCh) maxCh = v;
-                    }
+                    var maxCh = Math.Max(pr, Math.Max(pg, pb));
                     if (maxCh > 1e-7f)
                     {
                         scale = Math.Min(scale, 1.0f / maxCh);
                     }
                 }
 
-                for (var c = 0; c < channelCount; c++)
+                destination[0][y, x] = Math.Clamp(pr * scale, 0f, 1f);
+                destination[1][y, x] = Math.Clamp(pg * scale, 0f, 1f);
+                destination[2][y, x] = Math.Clamp(pb * scale, 0f, 1f);
+
+                // Extra channels (alpha etc.) pass through
+                for (var c = 3; c < channelCount; c++)
                 {
-                    var value = data[c][y, x];
-                    if (needsNorm) { value *= normFactor; }
-                    value -= lumaPedestal;
-                    destination[c][y, x] = Math.Clamp(value * scale, 0f, 1f);
+                    destination[c][y, x] = data[c][y, x];
                 }
             }
             return ValueTask.CompletedTask;
@@ -334,5 +346,37 @@ public partial class Image
         var norm = rawValue * normFactor - pedestal;
         var rescaled = (norm - shadows) * rescale;
         return (float)MidtonesTransferFunction(midtones, rescaled);
+    }
+
+    /// <summary>
+    /// Applies a curves boost to a stretched pixel value. Lifts faint detail above the
+    /// background while preserving blacks and highlights.
+    /// Matches the GLSL <c>applyCurve</c> in the Vulkan fragment shader exactly.
+    /// </summary>
+    /// <param name="v">Stretched pixel value in [0, 1].</param>
+    /// <param name="boost">Boost amount (0 = off, typical range 0.25–1.5).</param>
+    /// <param name="backgroundLevel">Post-stretch background level (symmetry point of the curve).</param>
+    public static float ApplyBoost(float v, float boost, float backgroundLevel)
+    {
+        const float hp = 0.85f;
+        if (v <= 0f || v >= 1f || backgroundLevel <= 0f || backgroundLevel >= hp)
+        {
+            return v;
+        }
+
+        var sp = MathF.Min(backgroundLevel * (1f + 0.1f * boost), hp - 0.01f);
+        if (v <= sp)
+        {
+            var t = v / sp;
+            var darkPower = 1f + boost * 3f;
+            return sp * MathF.Pow(t, darkPower);
+        }
+        else if (v < hp)
+        {
+            var t = (v - sp) / (hp - sp);
+            return sp + (hp - sp) * MathF.Pow(t, 1f / (1f + boost));
+        }
+
+        return v;
     }
 }

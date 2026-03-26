@@ -269,11 +269,18 @@ public sealed class AstroImageDocument
         if (mode is StretchMode.Luma && LumaStats is { } luma)
         {
             var (s, m, h, r) = Image.ComputeStretchParameters(luma.Median, luma.Mad, factor, clipping);
-            // Pass the luma pedestal via Pedestal.R — the shader uses it to subtract from Y and channels
+
+            // Use per-channel pedestals for background subtraction (avoids green cast from RGGB)
+            // but luma-derived midtone/shadows/rescale for consistent stretch across channels
+            var chStats = PerChannelStats;
+            var ped0 = chStats.Length > 0 ? chStats[0].Pedestal : luma.Pedestal;
+            var ped1 = chStats.Length > 1 ? chStats[1].Pedestal : ped0;
+            var ped2 = chStats.Length > 2 ? chStats[2].Pedestal : ped0;
+
             return new StretchUniforms(
                 Mode: StretchMode.Luma,
                 NormFactor: normFactor,
-                Pedestal: (luma.Pedestal, luma.Pedestal, luma.Pedestal),
+                Pedestal: (ped0, ped1, ped2),
                 Shadows: ((float)s, (float)s, (float)s),
                 Midtones: ((float)m, (float)m, (float)m),
                 Highlights: ((float)h, (float)h, (float)h),

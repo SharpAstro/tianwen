@@ -46,6 +46,7 @@ internal class TuiSubCommand(
         }
         finally
         {
+            System.Console.TreatControlCAsInput = false;
             // VirtualTerminal.DisposeAsync handles leaving alternate screen
         }
     }
@@ -91,9 +92,10 @@ internal class TuiSubCommand(
         var tabs = new Dictionary<GuiTab, ITuiTab>
         {
             [GuiTab.Equipment] = new TuiEquipmentTab(appState, eqState, equipmentContent, bus),
-            [GuiTab.Planner] = new TuiPlannerTab(appState, plannerState, fontPath),
+            [GuiTab.Planner] = new TuiPlannerTab(appState, plannerState, fontPath, external.TimeProvider),
             [GuiTab.Session] = new TuiSessionTab(appState, sessionState, plannerState, bus),
             [GuiTab.LiveSession] = new TuiLiveSessionTab(appState, liveSessionState, terminal, bus),
+            [GuiTab.Guider] = new TuiGuiderTab(appState, liveSessionState),
         };
 
         // BuildScheduleSignal is now handled inside AppSignalHandler — no host-level subscription needed
@@ -103,6 +105,9 @@ internal class TuiSubCommand(
         {
             tracker.Run(() => signalHandler.InitializePlannerAsync(transform, cts.Token), "Compute tonight's best targets");
         }
+
+        // Prevent Ctrl+C from killing the process — it arrives as a regular key event instead
+        System.Console.TreatControlCAsInput = true;
 
         // Build top-level chrome (tab bar only — status shown in each tab's own bar)
         var chromePanel = new Panel(terminal);
@@ -141,8 +146,10 @@ internal class TuiSubCommand(
                     tabConsumed = !redrawBefore && activeTab.NeedsRedraw;
                 }
 
-                // Q/Escape at top level → quit (only if tab didn't consume it)
-                if (!tabConsumed && rawEvt.ToInputEvent is InputEvent.KeyDown(InputKey.Q or InputKey.Escape, _))
+                // Q/Escape/Ctrl+C at top level → quit (only if tab didn't consume it)
+                if (!tabConsumed && rawEvt.ToInputEvent is
+                    InputEvent.KeyDown(InputKey.Q or InputKey.Escape, _) or
+                    InputEvent.KeyDown(InputKey.C, InputModifier.Ctrl))
                 {
                     quit = true;
                     break;
@@ -172,7 +179,7 @@ internal class TuiSubCommand(
             }
 
             // Force periodic redraw on live session tab (~2 Hz) for clock, cooling, mount updates
-            if (liveSessionState.IsRunning && appState.ActiveTab == GuiTab.LiveSession)
+            if (liveSessionState.IsRunning && appState.ActiveTab is GuiTab.LiveSession or GuiTab.Guider)
             {
                 activeTab.NeedsRedraw = true;
                 await Task.Delay(500, cts.Token);
@@ -197,12 +204,32 @@ internal class TuiSubCommand(
                 appState.NeedsRedraw = true;
             }
 
-            // Render
+            // Render — catch exceptions so a render bug never kills a live imaging session
             if (appState.NeedsRedraw || activeTab.NeedsRedraw)
             {
                 appState.NeedsRedraw = false;
-                tabBar.Render(appState, external.TimeProvider, plannerState.SiteTimeZone);
-                activeTab.Render();
+                try
+                {
+                    // Terminal title: "TianWen — Profile — Tab"
+                    var tabName = appState.ActiveTab switch
+                    {
+                        GuiTab.Equipment => "Equipment",
+                        GuiTab.Planner => "Planner",
+                        GuiTab.Session => "Session",
+                        GuiTab.LiveSession => liveSessionState.IsRunning ? $"Live \u2014 {LiveSessionActions.PhaseLabel(liveSessionState.Phase)}" : "Live",
+                        GuiTab.Guider => "Guider",
+                        _ => ""
+                    };
+                    var profileName = appState.ActiveProfile?.DisplayName ?? "No profile";
+                    terminal.OutputStream.Write(System.Text.Encoding.UTF8.GetBytes($"\x1b]0;\U0001F52D {profileName} \u2014 {tabName}\x07"));
+
+                    tabBar.Render(appState, external.TimeProvider, plannerState.SiteTimeZone);
+                    activeTab.Render();
+                }
+                catch (Exception ex)
+                {
+                    external.AppLogger.LogError(ex, "Render error on {Tab}", appState.ActiveTab);
+                }
             }
         }
 
@@ -218,6 +245,7 @@ internal class TuiSubCommand(
             ConsoleKey.D2 or ConsoleKey.F2 => GuiTab.Planner,
             ConsoleKey.D3 or ConsoleKey.F3 => GuiTab.Session,
             ConsoleKey.D4 or ConsoleKey.F4 => GuiTab.LiveSession,
+            ConsoleKey.D5 or ConsoleKey.F5 => GuiTab.Guider,
             _ => (GuiTab?)null
         };
 

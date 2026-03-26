@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using DIR.Lib;
 using TianWen.Lib.Sequencing;
 
@@ -48,6 +49,12 @@ namespace TianWen.UI.Abstractions
         /// <summary>Y positions (relative to scroll origin) of each config field, for scroll-to-visible.</summary>
         private readonly List<float> _fieldYPositions = [];
 
+        /// <summary>Per-observation exposure value hit regions for double-click-to-edit.</summary>
+        private readonly List<(RectF32 Rect, int ProposalIndex)> _exposureValueRegions = [];
+
+        /// <summary>Cached reference to planner state for HandleInput access.</summary>
+        private PlannerState? _plannerState;
+
         /// <summary>Tab state (configuration values, per-OTA camera settings, scroll offset).</summary>
         public SessionTabState State { get; } = new SessionTabState();
 
@@ -70,6 +77,8 @@ namespace TianWen.UI.Abstractions
             string fontPath)
         {
             BeginFrame();
+            _plannerState = plannerState;
+            _exposureValueRegions.Clear();
             FillRect(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height, ContentBg);
 
             ScrollLineHeight = BaseItemHeight * dpiScale;
@@ -106,6 +115,8 @@ namespace TianWen.UI.Abstractions
         {
             InputEvent.Scroll(var scrollY, var mouseX, var mouseY, _)
                 when ConfigPanelRect.Contains(mouseX, mouseY) => HandleConfigScroll(scrollY),
+            InputEvent.MouseDown(var px, var py, _, _, var clicks) when clicks >= 2
+                => HandleDoubleClick(px, py),
             InputEvent.KeyDown(var key, _) => HandleConfigKey(key),
             _ => false
         };
@@ -175,6 +186,54 @@ namespace TianWen.UI.Abstractions
                     State.ConfigScrollOffset = (int)(fieldY + scaledItemH - ConfigPanelRect.Height);
                 }
             }
+        }
+
+        private bool HandleDoubleClick(float px, float py)
+        {
+            if (State.IsSessionRunning || _plannerState is null)
+            {
+                return false;
+            }
+
+            for (var i = 0; i < _exposureValueRegions.Count; i++)
+            {
+                var (rect, proposalIdx) = _exposureValueRegions[i];
+                if (!rect.Contains(px, py))
+                {
+                    continue;
+                }
+
+                var defaultExpSec = SessionContent.DefaultExposureSeconds(State);
+                var p = _plannerState.Proposals[proposalIdx];
+                var cur = p.SubExposure ?? TimeSpan.FromSeconds(defaultExpSec);
+                var capturedIdx = proposalIdx;
+
+                State.EditingExposureIndex = capturedIdx;
+                State.ExposureInput.OnCommit = text =>
+                {
+                    if (SessionTabState.TryParseExposureInput(text, out var newExp))
+                    {
+                        _plannerState.Proposals[capturedIdx] = _plannerState.Proposals[capturedIdx] with { SubExposure = newExp };
+                    }
+                    State.EditingExposureIndex = -1;
+                    PostSignal(new DeactivateTextInputSignal());
+                    State.NeedsRedraw = true;
+                    return Task.CompletedTask;
+                };
+                State.ExposureInput.OnCancel = () =>
+                {
+                    State.EditingExposureIndex = -1;
+                    PostSignal(new DeactivateTextInputSignal());
+                    State.NeedsRedraw = true;
+                };
+                State.ExposureInput.Activate($"{(int)cur.TotalSeconds}");
+                State.ExposureInput.SelectAll();
+                PostSignal(new ActivateTextInputSignal(State.ExposureInput));
+                State.NeedsRedraw = true;
+                return true;
+            }
+
+            return false;
         }
 
         // -----------------------------------------------------------------------
@@ -473,8 +532,21 @@ namespace TianWen.UI.Abstractions
                         plannerState.Proposals[capturedI] = p with { SubExposure = SessionTabState.StepExposure(cur, false) };
                         State.NeedsRedraw = true;
                     });
-                DrawText(expStr, fontPath, colExpX + expBtnW, cursor, expValW, rowH,
-                    fontSize * 0.9f, BodyText, TextAlign.Center, TextAlign.Center);
+
+                // Exposure value: text input when editing, plain text otherwise
+                var expValX = colExpX + expBtnW;
+                if (State.EditingExposureIndex == capturedI)
+                {
+                    RenderTextInput(State.ExposureInput, (int)expValX, (int)cursor, (int)expValW, (int)rowH,
+                        fontPath, fontSize * 0.9f);
+                }
+                else
+                {
+                    DrawText(expStr, fontPath, expValX, cursor, expValW, rowH,
+                        fontSize * 0.9f, BodyText, TextAlign.Center, TextAlign.Center);
+                    _exposureValueRegions.Add((new RectF32(expValX, cursor, expValW, rowH), capturedI));
+                }
+
                 RenderButton("+", colExpX + expBtnW + expValW, cursor, expBtnW, rowH, fontPath, fontSize * 0.85f,
                     StepperBg, BodyText, $"Inc:Exp:{i}",
                     _ =>
