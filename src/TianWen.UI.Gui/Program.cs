@@ -176,7 +176,7 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         }
 
         // Redraw periodically (every ~500ms) when session is running on the Live tab
-        if (guiRenderer.LiveSessionState.IsRunning && appState.ActiveTab == GuiTab.LiveSession)
+        if (guiRenderer.LiveSessionState.IsRunning && appState.ActiveTab is GuiTab.LiveSession or GuiTab.Guider)
         {
             var now = external.TimeProvider.GetTimestamp();
             if (external.TimeProvider.GetElapsedTime(_lastSessionRedrawTimestamp, now) >= TimeSpan.FromMilliseconds(500))
@@ -187,9 +187,7 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         }
 
         return appState.NeedsRedraw || plannerState.NeedsRedraw
-            || appState.ActiveTextInput is { IsActive: true }
-            || (guiRenderer.LiveSessionState.IsRunning
-                && appState.ActiveTab is GuiTab.LiveSession or GuiTab.Guider);
+            || appState.ActiveTextInput is { IsActive: true };
     },
 
     OnRender = () => guiRenderer.Render(appState, plannerState, viewerState, external.TimeProvider),
