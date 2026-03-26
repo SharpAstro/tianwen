@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
 using SdlVulkan.Renderer;
@@ -21,6 +22,7 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
     private AstroImageDocument? _document;
     private Image? _pendingImage;
     private Task<AstroImageDocument>? _pendingDoc;
+    private CancellationTokenSource? _pendingCts;
     private int _uploadedImageWidth;
     private int _uploadedImageHeight;
     private int _uploadedChannelCount;
@@ -37,6 +39,10 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
 
     public void QueueImage(Image image)
     {
+        // Cancel any in-flight doc creation to avoid holding old image data
+        _pendingCts?.Cancel();
+        _pendingCts = null;
+        _pendingDoc = null;
         _pendingImage = image;
     }
 
@@ -67,7 +73,8 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
         if (_pendingImage is { } image && _pendingDoc is null)
         {
             _pendingImage = null;
-            _pendingDoc = AstroImageDocument.CreateFromImageAsync(image);
+            _pendingCts = new CancellationTokenSource();
+            _pendingDoc = AstroImageDocument.CreateFromImageAsync(image, cancellationToken: _pendingCts.Token);
 
             // For small images (guide camera), the task may complete synchronously —
             // check immediately to avoid a 500ms delay before the image appears
