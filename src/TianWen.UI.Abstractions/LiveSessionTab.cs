@@ -556,84 +556,45 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// PHD2-style guide graph: connected lines for RA (blue) and Dec (orange),
-        /// fixed ±4" Y scale, scrolling window, grid lines at integer arcsec.
+        /// PHD2-style guide graph using shared <see cref="GuideGraphRenderer"/> helpers.
         /// </summary>
         private void RenderCompactGuideGraph(LiveSessionState state, RectF32 rect, float dpiScale)
         {
-            FillRect(rect.X, rect.Y, rect.Width, rect.Height, GraphBg);
+            FillRect(rect.X, rect.Y, rect.Width, rect.Height, GuideGraphRenderer.GraphBg);
 
             var samples = state.GuideSamples;
-
-            // Dynamic Y scale: based on peak error with headroom, minimum ±1"
-            var peakErr = 1.0;
-            if (state.LastGuideStats is { } guideStats)
-            {
-                peakErr = Math.Max(guideStats.PeakRa, guideStats.PeakDec);
-            }
-            // Round up to next nice value: 0.5, 1, 2, 3, 4, 5, 8, 10...
-            var yScale = peakErr < 0.3 ? 0.5
-                : peakErr < 0.7 ? 1.0
-                : peakErr < 1.5 ? 2.0
-                : peakErr < 3.0 ? 4.0
-                : peakErr < 6.0 ? 8.0
-                : 12.0;
+            var yScale = GuideGraphRenderer.ComputeYScale(state.LastGuideStats);
             var halfH = rect.Height / 2;
             var zeroY = rect.Y + halfH;
 
-            // Grid lines at each integer arcsec
+            // Grid lines
             for (var arcsec = 1; arcsec < (int)yScale; arcsec++)
             {
                 var gridY = (float)(arcsec / yScale) * halfH;
-                FillRect(rect.X, zeroY - gridY, rect.Width, 1, SeparatorColor);
-                FillRect(rect.X, zeroY + gridY, rect.Width, 1, SeparatorColor);
+                FillRect(rect.X, zeroY - gridY, rect.Width, 1, GuideGraphRenderer.GridColor);
+                FillRect(rect.X, zeroY + gridY, rect.Width, 1, GuideGraphRenderer.GridColor);
             }
+            FillRect(rect.X, zeroY, rect.Width, 1, GuideGraphRenderer.ZeroLineColor);
 
-            // Zero line (brighter)
-            FillRect(rect.X, zeroY, rect.Width, 1, TimelineTickColor);
+            if (samples.Length < 2) return;
 
-            if (samples.Length < 2)
-            {
-                return;
-            }
+            var (startIdx, visibleCount, spacing) = GuideGraphRenderer.ComputeWindow(samples.Length, rect.Width, dpiScale);
+            var lineW = Math.Max(dpiScale, 1f);
 
-            // Show last N samples that fit the width (scrolling window)
-            // Each sample gets a fixed pixel width — when full, oldest scroll off left
-            var sampleSpacing = Math.Max(2f * dpiScale, 3f);
-            var maxVisible = (int)(rect.Width / sampleSpacing);
-            var startIdx = Math.Max(0, samples.Length - maxVisible);
-            var visibleCount = samples.Length - startIdx;
-
-            float ErrorToY(double error)
-            {
-                var clamped = Math.Clamp(error, -yScale, yScale);
-                return zeroY - (float)(clamped / yScale * halfH);
-            }
-
-            // Draw connected lines: RA then Dec
-            // RA (blue)
             for (var i = 1; i < visibleCount; i++)
             {
-                var x1 = rect.X + (i - 1) * sampleSpacing;
-                var x2 = rect.X + i * sampleSpacing;
-                var y1 = ErrorToY(samples[startIdx + i - 1].RaError);
-                var y2 = ErrorToY(samples[startIdx + i].RaError);
+                var x1 = rect.X + (i - 1) * spacing;
+                var x2 = rect.X + i * spacing;
 
-                // Line segment: horizontal then vertical (step style like PHD2)
-                FillRect(x1, y1, x2 - x1, Math.Max(dpiScale, 1), RaColor);
-                FillRect(x2, Math.Min(y1, y2), Math.Max(dpiScale, 1), Math.Abs(y2 - y1) + dpiScale, RaColor);
-            }
+                var raY1 = GuideGraphRenderer.ErrorToY(samples[startIdx + i - 1].RaError, yScale, zeroY, halfH);
+                var raY2 = GuideGraphRenderer.ErrorToY(samples[startIdx + i].RaError, yScale, zeroY, halfH);
+                FillRect(x1, raY1, x2 - x1, lineW, GuideGraphRenderer.RaColor);
+                FillRect(x2, Math.Min(raY1, raY2), lineW, Math.Abs(raY2 - raY1) + lineW, GuideGraphRenderer.RaColor);
 
-            // Dec (orange)
-            for (var i = 1; i < visibleCount; i++)
-            {
-                var x1 = rect.X + (i - 1) * sampleSpacing;
-                var x2 = rect.X + i * sampleSpacing;
-                var y1 = ErrorToY(samples[startIdx + i - 1].DecError);
-                var y2 = ErrorToY(samples[startIdx + i].DecError);
-
-                FillRect(x1, y1, x2 - x1, Math.Max(dpiScale, 1), DecColor);
-                FillRect(x2, Math.Min(y1, y2), Math.Max(dpiScale, 1), Math.Abs(y2 - y1) + dpiScale, DecColor);
+                var decY1 = GuideGraphRenderer.ErrorToY(samples[startIdx + i - 1].DecError, yScale, zeroY, halfH);
+                var decY2 = GuideGraphRenderer.ErrorToY(samples[startIdx + i].DecError, yScale, zeroY, halfH);
+                FillRect(x1, decY1, x2 - x1, lineW, GuideGraphRenderer.DecColor);
+                FillRect(x2, Math.Min(decY1, decY2), lineW, Math.Abs(decY2 - decY1) + lineW, GuideGraphRenderer.DecColor);
             }
         }
 

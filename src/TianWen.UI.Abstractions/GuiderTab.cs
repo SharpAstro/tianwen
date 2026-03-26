@@ -24,9 +24,6 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 HeaderText = new RGBAColor32(0x88, 0xaa, 0xdd, 0xff);
         private static readonly RGBAColor32 BodyText = new RGBAColor32(0xcc, 0xcc, 0xcc, 0xff);
         private static readonly RGBAColor32 DimText = new RGBAColor32(0x88, 0x88, 0x88, 0xff);
-        private static readonly RGBAColor32 ZeroLine = new RGBAColor32(0x44, 0x44, 0x55, 0xff);
-        private static readonly RGBAColor32 RaColor = new RGBAColor32(0x44, 0x88, 0xff, 0xff);
-        private static readonly RGBAColor32 DecColor = new RGBAColor32(0xff, 0x88, 0x44, 0xff);
         private static readonly RGBAColor32 PlaceholderText = new RGBAColor32(0x66, 0x66, 0x88, 0xff);
 
         public GuiderTabState State { get; } = new GuiderTabState();
@@ -92,80 +89,74 @@ namespace TianWen.UI.Abstractions
 
         private void RenderGraph(RectF32 rect, float dpiScale, string fontPath, float fontSize)
         {
-            FillRect(rect.X, rect.Y, rect.Width, rect.Height, ContentBg);
-
             var samples = State.GuideSamples;
             if (samples.Length < 2)
             {
+                FillRect(rect.X, rect.Y, rect.Width, rect.Height, ContentBg);
                 DrawText("Waiting for guide data\u2026", fontPath,
                     rect.X, rect.Y, rect.Width, rect.Height,
                     fontSize, DimText, TextAlign.Center, TextAlign.Center);
                 return;
             }
 
+            FillRect(rect.X, rect.Y, rect.Width, rect.Height, GuideGraphRenderer.GraphBg);
+
+            var yScale = GuideGraphRenderer.ComputeYScale(State.LastGuideStats);
             var padding = BasePadding * dpiScale;
-            var plotX = rect.X + padding * 4; // room for Y-axis labels
-            var plotY = rect.Y + padding;
-            var plotW = rect.Width - padding * 5;
-            var plotH = rect.Height - padding * 3;
+            var halfH = rect.Height / 2;
+            var zeroY = rect.Y + halfH;
 
-            // Compute Y range
-            var (min, max) = GuiderActions.ComputeGraphRange(samples);
-            var range = max - min;
-
-            // Zero line
-            var zeroY = (int)(plotY + plotH * (1.0 - (0.0 - min) / range));
-            for (var x = (int)plotX; x < (int)(plotX + plotW); x += 3)
+            // Grid lines
+            for (var arcsec = 1; arcsec < (int)yScale; arcsec++)
             {
-                FillRect(x, zeroY, 1, 1, ZeroLine);
+                var gridY = (float)(arcsec / yScale) * halfH;
+                FillRect(rect.X, zeroY - gridY, rect.Width, 1, GuideGraphRenderer.GridColor);
+                FillRect(rect.X, zeroY + gridY, rect.Width, 1, GuideGraphRenderer.GridColor);
             }
+            FillRect(rect.X, zeroY, rect.Width, 1, GuideGraphRenderer.ZeroLineColor);
 
             // Y-axis labels
-            DrawText($"{max:+0.0;-0.0}\"", fontPath,
-                rect.X, plotY, padding * 4, fontSize * 1.2f,
-                fontSize * 0.75f, DimText, TextAlign.Far, TextAlign.Near);
+            var labelW = 40f * dpiScale;
+            DrawText($"+{yScale:F0}\"", fontPath,
+                rect.X, rect.Y, labelW, fontSize * 1.2f,
+                fontSize * 0.75f, GuideGraphRenderer.ZeroLineColor, TextAlign.Near, TextAlign.Near);
             DrawText("0\"", fontPath,
-                rect.X, zeroY - fontSize * 0.6f, padding * 4, fontSize * 1.2f,
-                fontSize * 0.75f, DimText, TextAlign.Far, TextAlign.Center);
-            DrawText($"{min:+0.0;-0.0}\"", fontPath,
-                rect.X, plotY + plotH - fontSize * 1.2f, padding * 4, fontSize * 1.2f,
-                fontSize * 0.75f, DimText, TextAlign.Far, TextAlign.Far);
+                rect.X, zeroY - fontSize * 0.5f, labelW, fontSize,
+                fontSize * 0.75f, GuideGraphRenderer.ZeroLineColor, TextAlign.Near, TextAlign.Center);
+            DrawText($"-{yScale:F0}\"", fontPath,
+                rect.X, rect.Y + rect.Height - fontSize * 1.2f, labelW, fontSize * 1.2f,
+                fontSize * 0.75f, GuideGraphRenderer.ZeroLineColor, TextAlign.Near, TextAlign.Far);
 
-            // Plot RA and Dec as connected polylines
-            var lineW = Math.Max(1, (int)(1.5f * dpiScale));
-            int prevRaX = 0, prevRaY = 0, prevDecX = 0, prevDecY = 0;
+            // Connected step-style lines
+            var (startIdx, visibleCount, spacing) = GuideGraphRenderer.ComputeWindow(samples.Length, rect.Width, dpiScale);
+            var lineW = Math.Max(dpiScale, 1f);
 
-            for (var i = 0; i < samples.Length; i++)
+            for (var i = 1; i < visibleCount; i++)
             {
-                var sample = samples[i];
-                var x = (int)(plotX + (float)i / samples.Length * plotW);
+                var x1 = rect.X + (i - 1) * spacing;
+                var x2 = rect.X + i * spacing;
 
-                var raNorm = (sample.RaError - min) / range;
-                var raY = (int)(plotY + plotH * (1.0 - raNorm));
+                var raY1 = GuideGraphRenderer.ErrorToY(samples[startIdx + i - 1].RaError, yScale, zeroY, halfH);
+                var raY2 = GuideGraphRenderer.ErrorToY(samples[startIdx + i].RaError, yScale, zeroY, halfH);
+                FillRect(x1, raY1, x2 - x1, lineW, GuideGraphRenderer.RaColor);
+                FillRect(x2, Math.Min(raY1, raY2), lineW, Math.Abs(raY2 - raY1) + lineW, GuideGraphRenderer.RaColor);
 
-                var decNorm = (sample.DecError - min) / range;
-                var decY = (int)(plotY + plotH * (1.0 - decNorm));
-
-                if (i > 0)
-                {
-                    DrawLineBresenham(prevRaX, prevRaY, x, raY, lineW, RaColor);
-                    DrawLineBresenham(prevDecX, prevDecY, x, decY, lineW, DecColor);
-                }
-
-                prevRaX = x; prevRaY = raY;
-                prevDecX = x; prevDecY = decY;
+                var decY1 = GuideGraphRenderer.ErrorToY(samples[startIdx + i - 1].DecError, yScale, zeroY, halfH);
+                var decY2 = GuideGraphRenderer.ErrorToY(samples[startIdx + i].DecError, yScale, zeroY, halfH);
+                FillRect(x1, decY1, x2 - x1, lineW, GuideGraphRenderer.DecColor);
+                FillRect(x2, Math.Min(decY1, decY2), lineW, Math.Abs(decY2 - decY1) + lineW, GuideGraphRenderer.DecColor);
             }
 
             // Legend
             var legendY = rect.Y + rect.Height - padding * 2;
-            FillRect((int)(plotX), (int)legendY, (int)(8 * dpiScale), (int)(3 * dpiScale), RaColor);
+            FillRect((int)(rect.X + padding), (int)legendY, (int)(8 * dpiScale), (int)(3 * dpiScale), GuideGraphRenderer.RaColor);
             DrawText("RA", fontPath,
-                plotX + 10 * dpiScale, legendY - fontSize * 0.3f, 30 * dpiScale, fontSize,
-                fontSize * 0.8f, RaColor, TextAlign.Near, TextAlign.Center);
-            FillRect((int)(plotX + 50 * dpiScale), (int)legendY, (int)(8 * dpiScale), (int)(3 * dpiScale), DecColor);
+                rect.X + padding + 10 * dpiScale, legendY - fontSize * 0.3f, 30 * dpiScale, fontSize,
+                fontSize * 0.8f, GuideGraphRenderer.RaColor, TextAlign.Near, TextAlign.Center);
+            FillRect((int)(rect.X + padding + 50 * dpiScale), (int)legendY, (int)(8 * dpiScale), (int)(3 * dpiScale), GuideGraphRenderer.DecColor);
             DrawText("Dec", fontPath,
-                plotX + 60 * dpiScale, legendY - fontSize * 0.3f, 30 * dpiScale, fontSize,
-                fontSize * 0.8f, DecColor, TextAlign.Near, TextAlign.Center);
+                rect.X + padding + 60 * dpiScale, legendY - fontSize * 0.3f, 30 * dpiScale, fontSize,
+                fontSize * 0.8f, GuideGraphRenderer.DecColor, TextAlign.Near, TextAlign.Center);
         }
 
         private void RenderStats(RectF32 rect, float dpiScale, string fontPath, float fontSize, float padding)
@@ -204,8 +195,8 @@ namespace TianWen.UI.Abstractions
             }
 
             DrawRow("Total RMS:", $"{stats.TotalRMS:F2}\"");
-            DrawRow("RA RMS:", $"{stats.RaRMS:F2}\"", RaColor);
-            DrawRow("Dec RMS:", $"{stats.DecRMS:F2}\"", DecColor);
+            DrawRow("RA RMS:", $"{stats.RaRMS:F2}\"", GuideGraphRenderer.RaColor);
+            DrawRow("Dec RMS:", $"{stats.DecRMS:F2}\"", GuideGraphRenderer.DecColor);
             cursor += lineH * 0.3f;
             DrawRow("Peak RA:", $"{stats.PeakRa:F2}\"");
             DrawRow("Peak Dec:", $"{stats.PeakDec:F2}\"");
@@ -213,8 +204,8 @@ namespace TianWen.UI.Abstractions
 
             if (stats.LastRaErr.HasValue)
             {
-                DrawRow("Last RA:", $"{stats.LastRaErr.Value:+0.00;-0.00}\"", RaColor);
-                DrawRow("Last Dec:", $"{stats.LastDecErr ?? 0:+0.00;-0.00}\"", DecColor);
+                DrawRow("Last RA:", $"{stats.LastRaErr.Value:+0.00;-0.00}\"", GuideGraphRenderer.RaColor);
+                DrawRow("Last Dec:", $"{stats.LastDecErr ?? 0:+0.00;-0.00}\"", GuideGraphRenderer.DecColor);
                 cursor += lineH * 0.3f;
             }
 
@@ -227,32 +218,6 @@ namespace TianWen.UI.Abstractions
             if (settle is { Done: false })
             {
                 DrawRow("Settle:", $"{settle.Distance:F2}\" / {settle.SettlePx:F2}\"");
-            }
-        }
-        /// <summary>
-        /// Draws a line between two points using Bresenham's algorithm with configurable thickness.
-        /// </summary>
-        private void DrawLineBresenham(int x0, int y0, int x1, int y1, int thickness, RGBAColor32 color)
-        {
-            var dx = Math.Abs(x1 - x0);
-            var dy = Math.Abs(y1 - y0);
-            var sx = x0 < x1 ? 1 : -1;
-            var sy = y0 < y1 ? 1 : -1;
-            var err = dx - dy;
-            var half = thickness / 2;
-
-            while (true)
-            {
-                FillRect(x0 - half, y0 - half, thickness, thickness, color);
-
-                if (x0 == x1 && y0 == y1)
-                {
-                    break;
-                }
-
-                var e2 = 2 * err;
-                if (e2 > -dy) { err -= dy; x0 += sx; }
-                if (e2 < dx) { err += dx; y0 += sy; }
             }
         }
     }
