@@ -5,6 +5,9 @@
 - [ ] Weather API integration — cloud cover, seeing, humidity, dew point. Auto-pause session on bad conditions. Candidates: OpenMeteo (free), ClearOutside scrape, or INDI weather device
 - [ ] Planner: show Moon phase + position — altitude curve on the chart, illumination %, angular distance from each target (flag targets < 30° from Moon). Use existing VSOP87/ELP2000 or simplified lunar ephemeris
 - [ ] Live viewer: camera switching — allow selecting which OTA's camera to preview in both GUI MiniViewer and TUI Sixel preview (currently always shows first available)
+- [ ] Guider graph: connect dots with lines (Bresenham or anti-aliased) instead of scatter dots — users expect smooth curves like PHD2
+- [ ] Guider graph: scrolling window (last N minutes) instead of compressing all history — makes activity feel live
+- [ ] Cooling graph: same scrolling window treatment
 - [ ] VSOP87 vectorization — convert 43K lines of hardcoded `amplitude * Cos(phase + frequency * t)` into coefficient arrays, evaluate with `Vector256<double>` (AVX2). Process 4 terms per iteration. Requires source generator or one-time conversion of all planet files (EarthX/Y/Z, MarsX/Y/Z, etc.)
 - [ ] Fake camera: scale synthetic background noise with exposure duration in `SyntheticStarFieldRenderer` — long subs (≥60s) have unrealistically clean backgrounds, causing per-channel stretch to produce degenerate parameters. Real cameras accumulate sky glow + dark current + read noise over time.
 
