@@ -9,8 +9,13 @@
 - [ ] Guider graph: scrolling window (last N minutes) instead of compressing all history — makes activity feel live
 - [ ] Guider graph: reuse the existing LiveSessionTab guide graph widget — the guider tab should show a larger version of the same graph, not a separate implementation. Extract shared graph rendering
 - [ ] Guider graph: show correction pulses (vertical bars) and dither events (markers/shading)
-- [ ] Guider tab: guide camera image with guide star(s) marked (crosshair on lock position). Requires `IGuider` to expose guide frames
-- [ ] Guider tab: star profile (1D intensity cross-section, HFD, SNR) — optional on `IGuider`, implement for BuiltInGuider and FakeGuider
+- [ ] Guider tab: guide camera image + crosshair + star close-up + profile. Requires plumbing:
+  - Add to `IDeviceDependentGuider`: `Image? LastGuideFrame`, `(float,float)? GuideStarPosition`, `float? GuideStarSNR`, `float? GuideStarHFD`
+  - Surface on `ISession` (on-demand: only fetch when guider tab is active)
+  - `BuiltInGuiderDriver`: expose from `GuideLoop`'s `GuiderCentroidTracker` (currently all `internal`)
+  - `FakeGuider`: generate synthetic guide frames with star field
+  - GUI: guide camera Canvas + crosshair overlay + zoomed star close-up + 1D intensity profile
+  - PHD2: no image (show placeholder), SNR/mass from event stream only
 - [ ] Live session: show dither state — "Dithering..." status with settle progress, no indicator currently visible during dither
 - [ ] Cooling graph: same scrolling window treatment
 - [ ] VSOP87 vectorization — convert 43K lines of hardcoded `amplitude * Cos(phase + frequency * t)` into coefficient arrays, evaluate with `Vector256<double>` (AVX2). Process 4 terms per iteration. Requires source generator or one-time conversion of all planet files (EarthX/Y/Z, MarsX/Y/Z, etc.)
