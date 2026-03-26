@@ -9,6 +9,7 @@
 - [ ] Guider graph: scrolling window (last N minutes) instead of compressing all history — makes activity feel live
 - [ ] Guider graph: reuse the existing LiveSessionTab guide graph widget — the guider tab should show a larger version of the same graph, not a separate implementation. Extract shared graph rendering
 - [ ] Guider graph: show correction pulses (vertical bars) and dither events (markers/shading)
+- [ ] Guider tab: keep looping guide camera frames during centering/slewing — call `LoopAsync` when not guiding so the guide camera feed stays live. Currently the guide loop stops during centering and the tab shows "Waiting for guider"
 - [ ] Guider tab: show calibration frames — render guide camera during calibration phase with star movement vectors, step count, and calibration progress
 - [ ] Guider tab: guide camera image + crosshair + star close-up + profile. Requires plumbing:
   - Add to `IDeviceDependentGuider`: `Image? LastGuideFrame`, `(float,float)? GuideStarPosition`, `float? GuideStarSNR`, `float? GuideStarHFD`
