@@ -111,12 +111,14 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            // Render stretched guide image into the rect
+            // Render guide image as downsampled blocks to avoid per-pixel FillRect
+            // (per-pixel crashes the Vulkan renderer — proper fix is texture upload like MiniViewer)
             var imgW = image.Width;
             var imgH = image.Height;
-            var scale = Math.Min(rect.Width / imgW, rect.Height / imgH);
-            var drawW = (int)(imgW * scale);
-            var drawH = (int)(imgH * scale);
+            var blockSize = Math.Max(2, (int)(2 * dpiScale));
+            var fitScale = Math.Min(rect.Width / imgW, rect.Height / imgH);
+            var drawW = (int)(imgW * fitScale);
+            var drawH = (int)(imgH * fitScale);
             var offsetX = (int)(rect.X + (rect.Width - drawW) / 2);
             var offsetY = (int)(rect.Y + (rect.Height - drawH) / 2);
 
@@ -132,29 +134,31 @@ namespace TianWen.UI.Abstractions
             }
             var pRange = pMax - pMin;
 
-            // Draw pixels
-            for (var sy = 0; sy < drawH; sy++)
+            // Draw blocks (each block samples center pixel)
+            for (var sy = 0; sy < drawH; sy += blockSize)
             {
-                var imgY = (int)(sy / scale);
+                var imgY = (int)(sy / fitScale);
                 if (imgY >= imgH) imgY = imgH - 1;
 
-                for (var sx = 0; sx < drawW; sx++)
+                for (var sx = 0; sx < drawW; sx += blockSize)
                 {
-                    var imgX = (int)(sx / scale);
+                    var imgX = (int)(sx / fitScale);
                     if (imgX >= imgW) imgX = imgW - 1;
 
                     var raw = span[imgY * imgW + imgX];
                     var norm = pRange > 0 ? (raw - pMin) / pRange : 0.5f;
                     var b = (byte)(Math.Clamp(norm, 0f, 1f) * 255);
-                    FillRect(offsetX + sx, offsetY + sy, 1, 1, new RGBAColor32(b, b, b, 255));
+                    var bw = Math.Min(blockSize, drawW - sx);
+                    var bh = Math.Min(blockSize, drawH - sy);
+                    FillRect(offsetX + sx, offsetY + sy, bw, bh, new RGBAColor32(b, b, b, 255));
                 }
             }
 
             // Crosshair on guide star position
             if (State.GuideStarPosition is var (starX, starY))
             {
-                var cx = (int)(offsetX + starX * scale);
-                var cy = (int)(offsetY + starY * scale);
+                var cx = (int)(offsetX + starX * fitScale);
+                var cy = (int)(offsetY + starY * fitScale);
                 var crossLen = (int)(15 * dpiScale);
                 var crossGap = (int)(4 * dpiScale);
 
