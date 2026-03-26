@@ -20,6 +20,7 @@ namespace TianWen.UI.Gui
         private readonly VkViewerTab _viewerTab;
         private readonly VkLiveSessionTab _liveSessionTab;
         private readonly GuiderTab<VulkanContext> _guiderTab;
+        private readonly VkMiniViewerWidget _guiderMiniViewer;
         private readonly VkMiniViewerWidget _miniViewer;
         private string? _fontPath;
         private string? _emojiFontPath;
@@ -107,7 +108,8 @@ namespace TianWen.UI.Gui
             _viewerTab = new VkViewerTab(renderer, width, height) { Bus = bus };
             _miniViewer = new VkMiniViewerWidget(renderer);
             _liveSessionTab = new VkLiveSessionTab(renderer) { Bus = bus, MiniViewer = _miniViewer };
-            _guiderTab = new GuiderTab<VulkanContext>(renderer) { Bus = bus };
+            _guiderMiniViewer = new VkMiniViewerWidget(renderer);
+            _guiderTab = new GuiderTab<VulkanContext>(renderer) { Bus = bus, GuideCameraViewer = _guiderMiniViewer };
             ResolveFontPath();
         }
 

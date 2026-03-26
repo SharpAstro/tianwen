@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using DIR.Lib;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.UI.Abstractions
@@ -28,6 +29,12 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 PlaceholderText = new RGBAColor32(0x66, 0x66, 0x88, 0xff);
 
         public GuiderTabState State { get; } = new GuiderTabState();
+
+        /// <summary>Optional mini viewer widget for the guide camera image. Set by the host.</summary>
+        public IMiniViewerWidget? GuideCameraViewer { get; set; }
+
+        /// <summary>Tracks which guide frame reference is displayed to avoid redundant uploads.</summary>
+        private Image? _displayedGuideFrame;
 
         public override bool HandleInput(InputEvent evt) => false;
 
@@ -103,81 +110,59 @@ namespace TianWen.UI.Abstractions
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, CameraBg);
 
             var image = State.LastGuideFrame;
-            if (image is null)
+
+            // Queue new guide frame to the mini viewer if changed
+            if (GuideCameraViewer is { } viewer)
             {
-                DrawText(State.IsRunning ? "Waiting for guide frame\u2026" : "No guide camera",
-                    fontPath, rect.X, rect.Y, rect.Width, rect.Height,
-                    fontSize, DimText, TextAlign.Center, TextAlign.Center);
-                return;
-            }
-
-            // Render guide image as downsampled blocks to avoid per-pixel FillRect
-            // (per-pixel crashes the Vulkan renderer — proper fix is texture upload like MiniViewer)
-            var imgW = image.Width;
-            var imgH = image.Height;
-            var blockSize = Math.Max(2, (int)(2 * dpiScale));
-            var fitScale = Math.Min(rect.Width / imgW, rect.Height / imgH);
-            var drawW = (int)(imgW * fitScale);
-            var drawH = (int)(imgH * fitScale);
-            var offsetX = (int)(rect.X + (rect.Width - drawW) / 2);
-            var offsetY = (int)(rect.Y + (rect.Height - drawH) / 2);
-
-            // Simple auto-stretch: find min/max in the image for contrast
-            var span = image.GetChannelSpan(0);
-            var pMin = float.MaxValue;
-            var pMax = float.MinValue;
-            for (var i = 0; i < span.Length; i++)
-            {
-                var v = span[i];
-                if (v < pMin) pMin = v;
-                if (v > pMax) pMax = v;
-            }
-            var pRange = pMax - pMin;
-
-            // Draw blocks (each block samples center pixel)
-            for (var sy = 0; sy < drawH; sy += blockSize)
-            {
-                var imgY = (int)(sy / fitScale);
-                if (imgY >= imgH) imgY = imgH - 1;
-
-                for (var sx = 0; sx < drawW; sx += blockSize)
+                if (image is not null && !ReferenceEquals(image, _displayedGuideFrame))
                 {
-                    var imgX = (int)(sx / fitScale);
-                    if (imgX >= imgW) imgX = imgW - 1;
+                    _displayedGuideFrame = image;
+                    viewer.QueueImage(image);
+                }
 
-                    var raw = span[imgY * imgW + imgX];
-                    var norm = pRange > 0 ? (raw - pMin) / pRange : 0.5f;
-                    var b = (byte)(Math.Clamp(norm, 0f, 1f) * 255);
-                    var bw = Math.Min(blockSize, drawW - sx);
-                    var bh = Math.Min(blockSize, drawH - sy);
-                    FillRect(offsetX + sx, offsetY + sy, bw, bh, new RGBAColor32(b, b, b, 255));
+                if (viewer.HasImage)
+                {
+                    viewer.Render(rect, Renderer.Width, Renderer.Height);
+
+                    // Crosshair overlay on guide star position
+                    if (State.GuideStarPosition is var (starX, starY) && image is not null)
+                    {
+                        var imgW = image.Width;
+                        var imgH = image.Height;
+                        var fitScale = Math.Min(rect.Width / imgW, rect.Height / imgH);
+                        var drawW = imgW * fitScale;
+                        var drawH = imgH * fitScale;
+                        var offsetX = rect.X + (rect.Width - drawW) / 2;
+                        var offsetY = rect.Y + (rect.Height - drawH) / 2;
+
+                        var cx = (int)(offsetX + starX * fitScale);
+                        var cy = (int)(offsetY + starY * fitScale);
+                        var crossLen = (int)(15 * dpiScale);
+                        var crossGap = (int)(4 * dpiScale);
+
+                        FillRect(cx - crossLen, cy, crossLen - crossGap, 1, CrosshairColor);
+                        FillRect(cx + crossGap, cy, crossLen - crossGap, 1, CrosshairColor);
+                        FillRect(cx, cy - crossLen, 1, crossLen - crossGap, CrosshairColor);
+                        FillRect(cx, cy + crossGap, 1, crossLen - crossGap, CrosshairColor);
+                    }
+
+                    // SNR label in corner
+                    if (State.GuideStarSNR is { } snr)
+                    {
+                        DrawText($"SNR: {snr:F0}", fontPath,
+                            rect.X + 4 * dpiScale, rect.Y + rect.Height - fontSize * 1.4f,
+                            100 * dpiScale, fontSize * 1.2f,
+                            fontSize * 0.8f, BodyText, TextAlign.Near, TextAlign.Far);
+                    }
+
+                    return;
                 }
             }
 
-            // Crosshair on guide star position
-            if (State.GuideStarPosition is var (starX, starY))
-            {
-                var cx = (int)(offsetX + starX * fitScale);
-                var cy = (int)(offsetY + starY * fitScale);
-                var crossLen = (int)(15 * dpiScale);
-                var crossGap = (int)(4 * dpiScale);
-
-                // Horizontal arms
-                FillRect(cx - crossLen, cy, crossLen - crossGap, 1, CrosshairColor);
-                FillRect(cx + crossGap, cy, crossLen - crossGap, 1, CrosshairColor);
-                // Vertical arms
-                FillRect(cx, cy - crossLen, 1, crossLen - crossGap, CrosshairColor);
-                FillRect(cx, cy + crossGap, 1, crossLen - crossGap, CrosshairColor);
-            }
-
-            // SNR label in corner
-            if (State.GuideStarSNR is { } snr)
-            {
-                DrawText($"SNR: {snr:F0}", fontPath,
-                    rect.X + 4 * dpiScale, rect.Y + rect.Height - fontSize * 1.4f,
-                    100 * dpiScale, fontSize * 1.2f,
-                    fontSize * 0.8f, BodyText, TextAlign.Near, TextAlign.Far);
-            }
+            // Fallback: no viewer or no image
+            DrawText(State.IsRunning ? "Waiting for guide frame\u2026" : "No guide camera",
+                fontPath, rect.X, rect.Y, rect.Width, rect.Height,
+                fontSize, DimText, TextAlign.Center, TextAlign.Center);
         }
 
         private void RenderGraph(RectF32 rect, float dpiScale, string fontPath, float fontSize)
