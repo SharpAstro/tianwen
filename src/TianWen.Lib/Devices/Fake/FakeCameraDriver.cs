@@ -499,7 +499,7 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
         }
         else
         {
-            throw new InvalidOperationException($"Failed to start exposure frame type={frameType} and duration {duration:o} due to camera state being {previousState}");
+            throw new InvalidOperationException($"Failed to start exposure frame type={frameType} and duration {duration} due to camera state being {previousState}");
         }
     }
 

@@ -82,9 +82,22 @@ public partial class Image(float[][,] data, BitDepth bitDepth, float maxValue, f
         var channels = new float[channelCount][,];
         for (var c = 0; c < channelCount; c++)
         {
-            channels[c] = new float[height, width];
+            channels[c] = Array2DPool<float>.Rent(height, width);
         }
         return channels;
+    }
+
+    /// <summary>
+    /// Returns all channel arrays to <see cref="Array2DPool{T}"/> for reuse.
+    /// After calling this, the image must not be accessed.
+    /// </summary>
+    internal void ReturnChannelData()
+    {
+        for (var c = 0; c < data.Length; c++)
+        {
+            Array2DPool<float>.Return(data[c]);
+            data[c] = null!;
+        }
     }
 
     /// <summary>

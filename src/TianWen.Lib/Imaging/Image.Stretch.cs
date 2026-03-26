@@ -106,9 +106,8 @@ public partial class Image
             var needsNorm = MaxValue > 1.0f + float.Epsilon;
             var normFactor = 1.0f / MaxValue;
 
-            var lumaData = new float[1][,];
-            lumaData[0] = new float[height, width];
-            var dst = lumaData[0];
+            using var lumaLease = Array2DPool<float>.RentScoped(height, width);
+            var lumaChannel = lumaLease.Array;
             var lumaMin = float.MaxValue;
 
             for (var y = 0; y < height; y++)
@@ -120,13 +119,13 @@ public partial class Image
                     var b = data[2][y, x];
                     if (float.IsNaN(r) || float.IsNaN(g) || float.IsNaN(b))
                     {
-                        dst[y, x] = float.NaN;
+                        lumaChannel[y, x] = float.NaN;
                     }
                     else
                     {
                         if (needsNorm) { r *= normFactor; g *= normFactor; b *= normFactor; }
                         var luma = LumaR * r + LumaG * g + LumaB * b;
-                        dst[y, x] = luma;
+                        lumaChannel[y, x] = luma;
                         if (luma < lumaMin) lumaMin = luma;
                     }
                 }
@@ -134,7 +133,7 @@ public partial class Image
 
             if (lumaMin == float.MaxValue) lumaMin = 0f;
 
-            var lumaImage = new Image(lumaData, BitDepth.Float32, 1.0f, lumaMin, 0f,
+            var lumaImage = new Image([lumaChannel], BitDepth.Float32, 1.0f, lumaMin, 0f,
                 imageMeta with { SensorType = SensorType.Monochrome });
             return lumaImage.GetPedestralMedianAndMADScaledToUnit(0);
         }, cancellationToken);
@@ -150,7 +149,8 @@ public partial class Image
         var (channelCount, width, height) = Shape;
 
         // Build luminance channel
-        var lumaData = new float[height, width];
+        using var lumaLease = Array2DPool<float>.RentScoped(height, width);
+        var lumaData = lumaLease.Array;
         var srcR = data[0];
         var srcG = data[1];
         var srcB = data[2];

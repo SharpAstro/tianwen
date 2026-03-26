@@ -48,7 +48,9 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
     private bool _paused;
     private ITimer? _settleTimer;
     private CancellationTokenSource? _guideCts;
+    private CancellationTokenSource? _loopCts;
     private GuideLoop? _guideLoop;
+    private volatile float[,]? _lastLoopFrame;
 
     private double _settlePixels;
     private double _settleTime;
@@ -346,15 +348,43 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
     public ValueTask<bool> IsSettlingAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(CurrentState is GuiderState.Settling or GuiderState.Calibrating);
 
-    public ValueTask<bool> LoopAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
+    public async ValueTask<bool> LoopAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
     {
         var current = CurrentState;
         if (current is GuiderState.Idle)
         {
             ForceState(GuiderState.Looping);
+
+            // Capture one frame immediately so SaveImageAsync has data right away (like PHD2 looping)
+            if (_camera is { Connected: true } camera)
+            {
+                var exposureTime = TimeSpan.FromSeconds(2);
+                _lastLoopFrame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, External, cancellationToken);
+
+                // Continue capturing in background
+                _loopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                _ = Task.Run(() => RunLoopCaptureAsync(camera, _loopCts.Token), _loopCts.Token);
+            }
         }
 
-        return ValueTask.FromResult(true);
+        return true;
+    }
+
+    private async Task RunLoopCaptureAsync(ICameraDriver camera, CancellationToken ct)
+    {
+        try
+        {
+            var exposureTime = TimeSpan.FromSeconds(2);
+            while (!ct.IsCancellationRequested && CurrentState is GuiderState.Looping)
+            {
+                var frame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, External, ct);
+                _lastLoopFrame = frame;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // expected on stop
+        }
     }
 
     public ValueTask PauseAsync(CancellationToken cancellationToken = default)
@@ -369,12 +399,13 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
                 ? 206.265 * _camera.PixelSizeX / _camera.FocalLength
                 : DefaultPixelScale);
 
-    public ValueTask<string?> SaveImageAsync(string outputFolder, CancellationToken cancellationToken = default)
+    public async ValueTask<string?> SaveImageAsync(string outputFolder, CancellationToken cancellationToken = default)
     {
-        // Save the last guide frame if available
-        if (_guideLoop?.LastFrame is not { } frame)
+        // Save the last guide or loop frame if available
+        var frame = _guideLoop?.LastFrame ?? _lastLoopFrame;
+        if (frame is null)
         {
-            return ValueTask.FromResult<string?>(null);
+            return null;
         }
 
         Directory.CreateDirectory(outputFolder);
@@ -395,9 +426,23 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
         }
 
         var image = new Image([frame], BitDepth.Float32, dataMax, dataMin, 0f, default);
-        image.WriteToFitsFile(path);
 
-        return ValueTask.FromResult<string?>(path);
+        // Write WCS headers from current mount pointing so FakePlateSolver can read them
+        WCS? wcs = null;
+        if (_mount is { Connected: true } mount)
+        {
+            var ra = double.IsNaN(PointingRA) ? await mount.GetRightAscensionAsync(cancellationToken) : PointingRA;
+            var dec = double.IsNaN(PointingDec) ? await mount.GetDeclinationAsync(cancellationToken) : PointingDec;
+            wcs = new WCS(ra, dec);
+        }
+        else if (!double.IsNaN(PointingRA) && !double.IsNaN(PointingDec))
+        {
+            wcs = new WCS(PointingRA, PointingDec);
+        }
+
+        image.WriteToFitsFile(path, wcs);
+
+        return path;
     }
 
     public ValueTask StopCaptureAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
@@ -405,6 +450,8 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
         Interlocked.Exchange(ref _settleTimer, null)?.Dispose();
         _guideCts?.Cancel();
         _guideCts = null;
+        _loopCts?.Cancel();
+        _loopCts = null;
         ForceState(GuiderState.Idle);
         return ValueTask.CompletedTask;
     }

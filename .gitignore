@@ -7,3 +7,4 @@ TestResults/
 tmp-data/
 *.csproj.user
 *.local.json
+*.log

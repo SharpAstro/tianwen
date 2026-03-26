@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Console.Lib;
 using DIR.Lib;
@@ -323,7 +324,7 @@ internal sealed class TuiLiveSessionTab(
             _pendingDoc = null;
             if (task.IsCompletedSuccessfully && task.Result is { } doc)
             {
-                _lastDoc = doc;
+                Interlocked.Exchange(ref _lastDoc, doc)?.Dispose();
             }
         }
 

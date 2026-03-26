@@ -663,7 +663,7 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
 
         var period = TimeSpan.FromMilliseconds(100);
 
-        var state = new SlewState(targetHA, targetDecAxis, _slewRate, period);
+        var state = new SlewState(targetHA, targetDecAxis, _slewRate, _timeProvider.GetTimestamp());
 
         var slewTimer = _timeProvider.CreateTimer(SlewTimerCallback, state, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
 
@@ -692,8 +692,11 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
     {
         if (state is SlewState slewState && IsOpen && _isSlewing)
         {
-            var slewRateHoursPerPeriod = slewState.SlewRate * DEG2HOURS * slewState.Period.TotalSeconds;
-            var slewRateDegreesPerPeriod = slewState.SlewRate * slewState.Period.TotalSeconds;
+            var now = _timeProvider.GetTimestamp();
+            var elapsedSeconds = _timeProvider.GetElapsedTime(slewState.LastTicks, now).TotalSeconds;
+            slewState.LastTicks = now;
+            var slewRateHoursPerPeriod = slewState.SlewRate * DEG2HOURS * elapsedSeconds;
+            var slewRateDegreesPerPeriod = slewState.SlewRate * elapsedSeconds;
             bool isHAReached;
             bool isDecReached;
 
@@ -756,5 +759,8 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
         return dms[..dms.LastIndexOf(':')];
     }
 
-    private record SlewState(double TargetHAAxis, double TargetDecAxis, double SlewRate, TimeSpan Period);
+    private record SlewState(double TargetHAAxis, double TargetDecAxis, double SlewRate, long LastTicks)
+    {
+        public long LastTicks { get; set; } = LastTicks;
+    }
 }

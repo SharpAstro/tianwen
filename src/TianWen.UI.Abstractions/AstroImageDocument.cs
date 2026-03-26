@@ -19,7 +19,7 @@ namespace TianWen.UI.Abstractions;
 /// and conversion to display-ready RGBA pixels.
 /// Stretch is performed entirely on the GPU via shader uniforms.
 /// </summary>
-public sealed class AstroImageDocument
+public sealed class AstroImageDocument : IDisposable
 {
     /// <summary>Supported file extensions for the image viewer.</summary>
     public static readonly ImmutableArray<string> SupportedExtensions = [".fits", ".fit", ".fts", ".tif", ".tiff"];
@@ -212,7 +212,7 @@ public sealed class AstroImageDocument
             lumaStats = new ChannelStretchStats(lumaPed, lumaMed, lumaMad);
         }
 
-        var pedestals = new float[channelCount];
+        Span<float> pedestals = stackalloc float[channelCount];
         for (var c = 0; c < channelCount; c++) { pedestals[c] = perChannelStats[c].Pedestal; }
         var (perChannelBg, lumaBg) = image.ScanBackgroundRegion(pedestals);
 
@@ -245,7 +245,7 @@ public sealed class AstroImageDocument
             lumaStats = new ChannelStretchStats(lumaPed, lumaMed, lumaMad);
         }
 
-        var pedestals = new float[channelCount];
+        Span<float> pedestals = stackalloc float[channelCount];
         for (var c = 0; c < channelCount; c++) { pedestals[c] = perChannelStats[c].Pedestal; }
         var (perChannelBg, lumaBg) = processedRawImage.ScanBackgroundRegion(pedestals);
 
@@ -348,7 +348,7 @@ public sealed class AstroImageDocument
             AverageFWHM = stars.MapReduceStarProperty(SampleKind.FWHM, AggregationMethod.Median);
 
             // Re-scan background with star mask for more accurate boost operation
-            var pedestals = new float[PerChannelStats.Length];
+            Span<float> pedestals = stackalloc float[PerChannelStats.Length];
             for (var c = 0; c < PerChannelStats.Length; c++) { pedestals[c] = PerChannelStats[c].Pedestal; }
             var (perChannelBg, lumaBg) = UnstretchedImage.ScanBackgroundRegion(pedestals, squareSize: 48, stars.StarMask);
             PerChannelBackground = perChannelBg;
@@ -387,4 +387,9 @@ public sealed class AstroImageDocument
 
         return new PixelInfo(x, y, values, ra, dec);
     }
+
+    /// <summary>
+    /// Returns image channel arrays to <see cref="Array2DPool{T}"/> for reuse.
+    /// </summary>
+    public void Dispose() => UnstretchedImage.ReturnChannelData();
 }

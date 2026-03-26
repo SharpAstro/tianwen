@@ -91,8 +91,7 @@ public sealed class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposa
         bool gridEnabled = gridWcs is not null;
         float gridSpacingRA = 0f, gridSpacingDec = 0f, gridLineWidth = 0f;
         float crPix1 = 0f, crPix2 = 0f, crValRA = 0f, crValDec = 0f;
-        ReadOnlySpan<float> cdMatrix = ReadOnlySpan<float>.Empty;
-        float[] cdMatrixArr = new float[4];
+        Span<float> cdMatrix = stackalloc float[4];
 
         if (gridWcs is { } gw)
         {
@@ -125,11 +124,10 @@ public sealed class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposa
             crValDec = (float)(gw.CenterDec * (Math.PI / 180.0));
 
             var degToRad = (float)(Math.PI / 180.0);
-            cdMatrixArr[0] = (float)gw.CD1_1 * degToRad;
-            cdMatrixArr[1] = (float)gw.CD2_1 * degToRad;
-            cdMatrixArr[2] = (float)gw.CD1_2 * degToRad;
-            cdMatrixArr[3] = (float)gw.CD2_2 * degToRad;
-            cdMatrix = cdMatrixArr;
+            cdMatrix[0] = (float)gw.CD1_1 * degToRad;
+            cdMatrix[1] = (float)gw.CD2_1 * degToRad;
+            cdMatrix[2] = (float)gw.CD1_2 * degToRad;
+            cdMatrix[3] = (float)gw.CD2_2 * degToRad;
         }
 
         var cmd = _renderer.CurrentCommandBuffer;
