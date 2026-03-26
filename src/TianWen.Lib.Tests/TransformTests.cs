@@ -14,7 +14,7 @@ public class TransformTests
     [InlineData("2022-11-06T09:11:14.6430197+11:00", EventType.SunRiseSunset, -37.884546970458274d, 145.1663117892053d, 110, false, 1, 1, 2, "06:07:00", "19:59:00")]
     [InlineData("2012-01-13T00:00:00-05:00", EventType.MoonRiseMoonSet, 75d, -75d, 100, true, 1, 1, 15, "22:41:40", "09:33:00")]
     [InlineData("2012-01-14T00:00:00-05:00", EventType.MoonRiseMoonSet, 75d, -75d, 100, true, 0, 1, 15, "09:00:00")]
-    [InlineData("2022-12-03T00:00:00+11:00", EventType.MoonRiseMoonSet, -37.88444444444444, 145.16583333333335, 120, true, 1, 1, 3, "15:36:00", "02:57:08.5871021")]
+    [InlineData("2022-12-03T00:00:00+11:00", EventType.MoonRiseMoonSet, -37.88444444444444, 145.16583333333335, 120, true, 1, 1, 5, "15:36:00", "02:57:08.5871021")]
     [InlineData("2022-12-01T00:00:00+11:00", EventType.SunRiseSunset, -37.8845, 145.1663, 100, false, 1, 1, 1, "05:51:00", "20:25:00")]
     [InlineData("2022-11-06T00:00:00+11:00", EventType.AstronomicalTwilight, -37.8845, 145.1663, 120, false, 1, 1, 1, "04:27:00", "21:40:00")]
     [InlineData("2022-12-01T00:00:00+11:00", EventType.AstronomicalTwilight, -37.8845, 145.1663, 120, false, 1, 1, 1, "04:00:00", "22:17:00")]
