@@ -44,6 +44,9 @@ internal partial record Session(
     private readonly ConcurrentQueue<FocusRunRecord> _focusHistory = [];
     private readonly CircularBuffer<GuideErrorSample> _guideSamples = new CircularBuffer<GuideErrorSample>(300);
     private volatile GuideStats? _lastGuideStats;
+    private volatile string? _guiderState;
+    private volatile SettleProgress? _guiderSettleProgress;
+    private TimeSpan _guideExposure;
     private readonly ConcurrentQueue<ExposureLogEntry> _exposureLog = [];
     private readonly ConcurrentQueue<CoolingSample> _coolingSamples = [];
     private readonly ConcurrentQueue<PhaseTimestamp> _phaseTimeline = [];
@@ -72,6 +75,9 @@ internal partial record Session(
     public ImmutableArray<FocusRunRecord> FocusHistory => [.. _focusHistory];
     public ImmutableArray<GuideErrorSample> GuideSamples => [.. _guideSamples];
     public GuideStats? LastGuideStats => _lastGuideStats;
+    public string? GuiderState => _guiderState;
+    public SettleProgress? GuiderSettleProgress => _guiderSettleProgress;
+    public TimeSpan GuideExposure => _guideExposure;
     public ImmutableArray<ExposureLogEntry> ExposureLog => [.. _exposureLog];
     public ImmutableArray<CoolingSample> CoolingSamples => [.. _coolingSamples];
     public ImmutableArray<PhaseTimestamp> PhaseTimeline => [.. _phaseTimeline];

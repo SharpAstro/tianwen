@@ -36,6 +36,15 @@ public interface ISession : IAsyncDisposable
     /// <summary>Most recent guide stats (RMS, peak errors), or null if guiding hasn't started.</summary>
     GuideStats? LastGuideStats { get; }
 
+    /// <summary>Current guider state string ("Guiding", "Calibrating", "Settling", "Looping", "Stopped", etc.).</summary>
+    string? GuiderState { get; }
+
+    /// <summary>Current settle progress, or null if not settling.</summary>
+    SettleProgress? GuiderSettleProgress { get; }
+
+    /// <summary>Guide exposure duration per frame.</summary>
+    TimeSpan GuideExposure { get; }
+
     /// <summary>All frames written during this session.</summary>
     ImmutableArray<ExposureLogEntry> ExposureLog { get; }
 

@@ -8,7 +8,8 @@ public enum GuiTab
     Planner,
     Session,
     Equipment,
-    LiveSession
+    LiveSession,
+    Guider
 }
 
 public class GuiAppState

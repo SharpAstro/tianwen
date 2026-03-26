@@ -14,6 +14,7 @@ internal sealed class TuiTabBar(ITerminalViewport viewport)
         ("2:Plan", GuiTab.Planner),
         ("3:Session", GuiTab.Session),
         ("4:Live", GuiTab.LiveSession),
+        ("5:Guider", GuiTab.Guider),
     ];
 
     private readonly TextBar _bar = new TextBar(viewport);
@@ -28,7 +29,7 @@ internal sealed class TuiTabBar(ITerminalViewport viewport)
 
         var tabText = string.Join(" ", parts);
         var profileName = appState.ActiveProfile?.DisplayName ?? "No profile";
-        var clock = timeProvider.GetLocalNow().ToOffset(siteTimeZone).ToString("HH:mm");
+        var clock = timeProvider.GetLocalNow().ToOffset(siteTimeZone).ToString("HH:mm:ss");
 
         _bar.Text($" {tabText}").RightText($"{profileName}  {clock} ");
         _bar.Render();
