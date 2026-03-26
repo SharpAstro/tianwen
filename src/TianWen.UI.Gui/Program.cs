@@ -187,7 +187,9 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         }
 
         return appState.NeedsRedraw || plannerState.NeedsRedraw
-            || appState.ActiveTextInput is { IsActive: true };
+            || appState.ActiveTextInput is { IsActive: true }
+            || (guiRenderer.LiveSessionState.IsRunning
+                && appState.ActiveTab is GuiTab.LiveSession or GuiTab.Guider);
     },
 
     OnRender = () => guiRenderer.Render(appState, plannerState, viewerState, external.TimeProvider),

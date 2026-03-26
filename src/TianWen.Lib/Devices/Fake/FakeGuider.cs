@@ -289,20 +289,27 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
         }
     }
 
-    /// <summary>Last guide frame as a mono Image — zero-copy wrap of the internal float[,].</summary>
+    private Image? _cachedGuideImage;
+    private float[,]? _cachedGuideFrame;
+
+    /// <summary>Last guide frame as a mono Image — zero-copy, cached until frame changes.</summary>
     public Image? LastGuideFrame
     {
         get
         {
             if (_guideLoop?.LastFrame is not { } frame) return null;
+            if (ReferenceEquals(frame, _cachedGuideFrame)) return _cachedGuideImage;
+
+            _cachedGuideFrame = frame;
             var height = frame.GetLength(0);
             var width = frame.GetLength(1);
             var max = 0f;
             for (var y = 0; y < height; y++)
                 for (var x = 0; x < width; x++)
                     if (frame[y, x] > max) max = frame[y, x];
-            return new Image([frame], BitDepth.Float32, max, 0f, 0f,
+            _cachedGuideImage = new Image([frame], BitDepth.Float32, max, 0f, 0f,
                 new ImageMeta { SensorType = SensorType.Monochrome });
+            return _cachedGuideImage;
         }
     }
 

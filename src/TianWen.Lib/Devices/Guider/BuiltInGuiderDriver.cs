@@ -70,8 +70,12 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
     public IExternal External { get; }
 
+    private Image? _cachedGuideImage;
+    private float[,]? _cachedGuideFrame;
+
     /// <summary>
     /// Last guide frame as a mono Image — zero-copy wrap of the internal float[,].
+    /// Cached: only creates a new Image when the underlying frame changes.
     /// </summary>
     public Image? LastGuideFrame
     {
@@ -82,10 +86,15 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                 return null;
             }
 
+            if (ReferenceEquals(frame, _cachedGuideFrame))
+            {
+                return _cachedGuideImage;
+            }
+
+            _cachedGuideFrame = frame;
             var height = frame.GetLength(0);
             var width = frame.GetLength(1);
 
-            // Find max for normalization
             var max = 0f;
             for (var y = 0; y < height; y++)
             {
@@ -95,8 +104,9 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                 }
             }
 
-            return new Image([frame], Imaging.BitDepth.Float32, max, 0f, 0f,
+            _cachedGuideImage = new Image([frame], Imaging.BitDepth.Float32, max, 0f, 0f,
                 new Imaging.ImageMeta { SensorType = Imaging.SensorType.Monochrome });
+            return _cachedGuideImage;
         }
     }
 
