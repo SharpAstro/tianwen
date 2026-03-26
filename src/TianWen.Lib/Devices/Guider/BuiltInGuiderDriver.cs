@@ -71,6 +71,44 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     public IExternal External { get; }
 
     /// <summary>
+    /// Last guide frame as a mono Image — zero-copy wrap of the internal float[,].
+    /// </summary>
+    public Image? LastGuideFrame
+    {
+        get
+        {
+            if (_guideLoop?.LastFrame is not { } frame)
+            {
+                return null;
+            }
+
+            var height = frame.GetLength(0);
+            var width = frame.GetLength(1);
+
+            // Find max for normalization
+            var max = 0f;
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    if (frame[y, x] > max) max = frame[y, x];
+                }
+            }
+
+            return new Image([frame], Imaging.BitDepth.Float32, max, 0f, 0f,
+                new Imaging.ImageMeta { SensorType = Imaging.SensorType.Monochrome });
+        }
+    }
+
+    /// <summary>Guide star position in frame pixels.</summary>
+    public (double X, double Y)? GuideStarPosition =>
+        _guideLoop?.LastCentroidResult is { } r ? (r.X, r.Y) : null;
+
+    /// <summary>Guide star SNR.</summary>
+    public double? GuideStarSNR =>
+        _guideLoop?.LastCentroidResult?.SNR;
+
+    /// <summary>
     /// The mount driver wired by <see cref="LinkDevices"/>.
     /// </summary>
     internal IMountDriver? MountDriver => _mount;

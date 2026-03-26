@@ -78,6 +78,9 @@ internal partial record Session(
     public string? GuiderState => _guiderState;
     public SettleProgress? GuiderSettleProgress => _guiderSettleProgress;
     public TimeSpan GuideExposure => _guideExposure;
+    public Image? LastGuideFrame => Setup.Guider?.Driver?.LastGuideFrame;
+    public (double X, double Y)? GuideStarPosition => Setup.Guider?.Driver?.GuideStarPosition;
+    public double? GuideStarSNR => Setup.Guider?.Driver?.GuideStarSNR;
     public ImmutableArray<ExposureLogEntry> ExposureLog => [.. _exposureLog];
     public ImmutableArray<CoolingSample> CoolingSamples => [.. _coolingSamples];
     public ImmutableArray<PhaseTimestamp> PhaseTimeline => [.. _phaseTimeline];
