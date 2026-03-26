@@ -85,17 +85,16 @@ namespace TianWen.UI.Abstractions
                 headerRect.Width - 200 * dpiScale - padding * 2, headerRect.Height,
                 fontSize * 0.9f, BodyText, TextAlign.Far, TextAlign.Center);
 
-            // Layout: camera (left) | stats (right-top) + graph (right-bottom)
+            // Layout: top row = camera (left) + stats (right), bottom = full-width graph
             var bodyTop = contentRect.Y + headerH;
             var bodyHeight = contentRect.Height - headerH;
-            var cameraW = contentRect.Width * BaseCameraFraction;
-            var rightW = contentRect.Width - cameraW;
-            var statsH = Math.Min(bodyHeight * 0.45f, 280f * dpiScale);
-            var graphH = bodyHeight - statsH;
+            var graphH = Math.Max(bodyHeight * 0.2f, 80f * dpiScale);
+            var topH = bodyHeight - graphH;
+            var cameraW = contentRect.Width - statsW;
 
-            var cameraRect = new RectF32(contentRect.X, bodyTop, cameraW, bodyHeight);
-            var statsRect = new RectF32(contentRect.X + cameraW, bodyTop, rightW, statsH);
-            var graphRect = new RectF32(contentRect.X + cameraW, bodyTop + statsH, rightW, graphH);
+            var cameraRect = new RectF32(contentRect.X, bodyTop, cameraW, topH);
+            var statsRect = new RectF32(contentRect.X + cameraW, bodyTop, statsW, topH);
+            var graphRect = new RectF32(contentRect.X, bodyTop + topH, contentRect.Width, graphH);
 
             RenderGuideCamera(cameraRect, dpiScale, fontPath, fontSize);
             RenderStats(statsRect, dpiScale, fontPath, fontSize, padding);
