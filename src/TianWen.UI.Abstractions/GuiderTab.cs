@@ -131,24 +131,29 @@ namespace TianWen.UI.Abstractions
                 rect.X, plotY + plotH - fontSize * 1.2f, padding * 4, fontSize * 1.2f,
                 fontSize * 0.75f, DimText, TextAlign.Far, TextAlign.Far);
 
-            // Plot RA and Dec as polylines (2px wide dots per sample)
-            var samplesPerPixel = Math.Max(1.0, samples.Length / plotW);
-            var dotSize = Math.Max(1, (int)(2 * dpiScale));
+            // Plot RA and Dec as connected polylines
+            var lineW = Math.Max(1, (int)(1.5f * dpiScale));
+            int prevRaX = 0, prevRaY = 0, prevDecX = 0, prevDecY = 0;
 
             for (var i = 0; i < samples.Length; i++)
             {
                 var sample = samples[i];
                 var x = (int)(plotX + (float)i / samples.Length * plotW);
 
-                // RA point
                 var raNorm = (sample.RaError - min) / range;
                 var raY = (int)(plotY + plotH * (1.0 - raNorm));
-                FillRect(x, raY, dotSize, dotSize, RaColor);
 
-                // Dec point
                 var decNorm = (sample.DecError - min) / range;
                 var decY = (int)(plotY + plotH * (1.0 - decNorm));
-                FillRect(x, decY, dotSize, dotSize, DecColor);
+
+                if (i > 0)
+                {
+                    DrawLineBresenham(prevRaX, prevRaY, x, raY, lineW, RaColor);
+                    DrawLineBresenham(prevDecX, prevDecY, x, decY, lineW, DecColor);
+                }
+
+                prevRaX = x; prevRaY = raY;
+                prevDecX = x; prevDecY = decY;
             }
 
             // Legend
@@ -222,6 +227,32 @@ namespace TianWen.UI.Abstractions
             if (settle is { Done: false })
             {
                 DrawRow("Settle:", $"{settle.Distance:F2}\" / {settle.SettlePx:F2}\"");
+            }
+        }
+        /// <summary>
+        /// Draws a line between two points using Bresenham's algorithm with configurable thickness.
+        /// </summary>
+        private void DrawLineBresenham(int x0, int y0, int x1, int y1, int thickness, RGBAColor32 color)
+        {
+            var dx = Math.Abs(x1 - x0);
+            var dy = Math.Abs(y1 - y0);
+            var sx = x0 < x1 ? 1 : -1;
+            var sy = y0 < y1 ? 1 : -1;
+            var err = dx - dy;
+            var half = thickness / 2;
+
+            while (true)
+            {
+                FillRect(x0 - half, y0 - half, thickness, thickness, color);
+
+                if (x0 == x1 && y0 == y1)
+                {
+                    break;
+                }
+
+                var e2 = 2 * err;
+                if (e2 > -dy) { err -= dy; x0 += sx; }
+                if (e2 < dx) { err += dx; y0 += sy; }
             }
         }
     }

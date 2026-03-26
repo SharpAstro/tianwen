@@ -7,6 +7,11 @@
 - [ ] Live viewer: camera switching — allow selecting which OTA's camera to preview in both GUI MiniViewer and TUI Sixel preview (currently always shows first available)
 - [ ] Guider graph: connect dots with lines (Bresenham or anti-aliased) instead of scatter dots — users expect smooth curves like PHD2
 - [ ] Guider graph: scrolling window (last N minutes) instead of compressing all history — makes activity feel live
+- [ ] Guider graph: reuse the existing LiveSessionTab guide graph widget — the guider tab should show a larger version of the same graph, not a separate implementation. Extract shared graph rendering
+- [ ] Guider graph: show correction pulses (vertical bars) and dither events (markers/shading)
+- [ ] Guider tab: guide camera image with guide star(s) marked (crosshair on lock position). Requires `IGuider` to expose guide frames
+- [ ] Guider tab: star profile (1D intensity cross-section, HFD, SNR) — optional on `IGuider`, implement for BuiltInGuider and FakeGuider
+- [ ] Live session: show dither state — "Dithering..." status with settle progress, no indicator currently visible during dither
 - [ ] Cooling graph: same scrolling window treatment
 - [ ] VSOP87 vectorization — convert 43K lines of hardcoded `amplitude * Cos(phase + frequency * t)` into coefficient arrays, evaluate with `Vector256<double>` (AVX2). Process 4 terms per iteration. Requires source generator or one-time conversion of all planet files (EarthX/Y/Z, MarsX/Y/Z, etc.)
 - [ ] Fake camera: scale synthetic background noise with exposure duration in `SyntheticStarFieldRenderer` — long subs (≥60s) have unrealistically clean backgrounds, causing per-channel stretch to produce degenerate parameters. Real cameras accumulate sky glow + dark current + read noise over time.
