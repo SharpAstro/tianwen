@@ -484,6 +484,7 @@ namespace TianWen.UI.Abstractions
         {
             InputEvent.Scroll(var scrollY, var mouseX, var mouseY, _)
                 when _targetListRect.Contains(mouseX, mouseY) => HandleTargetListScroll(scrollY),
+            InputEvent.MouseMove(var mx, var my) => _chartRect.Contains(mx, my), // redraw for mouse follower
             InputEvent.KeyDown(var key, var modifiers) => HandlePlannerKey(key, modifiers),
             _ => false
         };
