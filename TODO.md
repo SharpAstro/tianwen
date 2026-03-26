@@ -1,5 +1,9 @@
 # TODOs
 
+## High Priority
+
+- [ ] Cache altitude chart as texture — only re-render the mouse follower overlay on hover, not the entire chart. Currently 20% GPU on mouse hover due to full chart redraw per frame
+
 ## Next Up
 
 - [ ] Weather API integration — cloud cover, seeing, humidity, dew point. Auto-pause session on bad conditions. Candidates: OpenMeteo (free), ClearOutside scrape, or INDI weather device
