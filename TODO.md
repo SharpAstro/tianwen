@@ -9,6 +9,7 @@
 - [ ] Guider graph: scrolling window (last N minutes) instead of compressing all history — makes activity feel live
 - [ ] Guider graph: reuse the existing LiveSessionTab guide graph widget — the guider tab should show a larger version of the same graph, not a separate implementation. Extract shared graph rendering
 - [ ] Guider graph: show correction pulses (vertical bars) and dither events (markers/shading)
+- [ ] Guider tab: show calibration frames — render guide camera during calibration phase with star movement vectors, step count, and calibration progress
 - [ ] Guider tab: guide camera image + crosshair + star close-up + profile. Requires plumbing:
   - Add to `IDeviceDependentGuider`: `Image? LastGuideFrame`, `(float,float)? GuideStarPosition`, `float? GuideStarSNR`, `float? GuideStarHFD`
   - Surface on `ISession` (on-demand: only fetch when guider tab is active)
