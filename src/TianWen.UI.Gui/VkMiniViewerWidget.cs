@@ -68,6 +68,26 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
         {
             _pendingImage = null;
             _pendingDoc = AstroImageDocument.CreateFromImageAsync(image);
+
+            // For small images (guide camera), the task may complete synchronously —
+            // check immediately to avoid a 500ms delay before the image appears
+            if (_pendingDoc is { IsCompleted: true } newTask)
+            {
+                _pendingDoc = null;
+                if (newTask.IsCompletedSuccessfully)
+                {
+                    var doc = newTask.Result;
+                    var img = doc.UnstretchedImage;
+                    for (var c = 0; c < img.ChannelCount; c++)
+                    {
+                        _fitsPipeline.UploadChannelTexture(img.GetChannelSpan(c), c, img.Width, img.Height);
+                    }
+                    _uploadedImageWidth = img.Width;
+                    _uploadedImageHeight = img.Height;
+                    _uploadedChannelCount = img.ChannelCount;
+                    _document = doc;
+                }
+            }
         }
     }
 
