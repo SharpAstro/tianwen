@@ -39,6 +39,12 @@ public static class TransformFactory
             return null;
         }
 
+        if (lat is < -90 or > 90 || lon is < -180 or > 180)
+        {
+            error = $"Invalid coordinates in profile: lat={lat}, lon={lon}. Use Equipment tab to fix.";
+            return null;
+        }
+
         var elevation = elevStr is not null && double.TryParse(elevStr, CultureInfo.InvariantCulture, out var elev)
             ? elev
             : 0.0;

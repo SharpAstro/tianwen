@@ -84,7 +84,7 @@ internal sealed class TuiEquipmentTab(
             _siteBar.RightText("");
         }
 
-        _statusBar.Text(" D:discover  R:refresh  Q:quit");
+        _statusBar.Text(" D:discover  E:edit site  R:refresh  Q:quit");
         _statusBar.RightText(appState.StatusMessage ?? "");
     }
 

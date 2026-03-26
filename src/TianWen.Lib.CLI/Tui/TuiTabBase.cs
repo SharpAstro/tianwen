@@ -16,7 +16,7 @@ internal abstract class TuiTabBase : ITuiTab
 
     public bool NeedsRedraw { get; set; } = true;
 
-    public void BuildPanel(IVirtualTerminal terminal, int topRows = 1, int bottomRows = 1)
+    public void BuildPanel(IVirtualTerminal terminal, int topRows = 1, int bottomRows = 0)
     {
         Panel = new Panel(terminal);
         Panel.Dock(DockStyle.Top, topRows);

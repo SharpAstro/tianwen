@@ -158,66 +158,8 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 
     CheckNeedsRedraw = () =>
     {
-        // Recompute targets when planning date changes (debounced — skip if already running)
-        if (plannerState.NeedsRecompute && appState.ActiveProfile is not null && !plannerState.IsRecomputing)
-        {
-            plannerState.NeedsRecompute = false;
-            plannerState.IsRecomputing = true;
-            appState.StatusMessage = "Recomputing...";
-            appState.NeedsRedraw = true;
-            tracker.Run(async () =>
-            {
-                try
-                {
-                    var objectDb = sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
-                    var transform = TransformFactory.FromProfile(
-                        appState.ActiveProfile, external.TimeProvider, out _);
-
-                    if (transform is not null)
-                    {
-                        // Override transform date if planning for a different night
-                        // Use noon of the target day so CalculateNightWindow finds the correct evening
-                        if (plannerState.PlanningDate is { } pd)
-                        {
-                            var noon = new DateTimeOffset(pd.Date, pd.Offset).AddHours(12);
-                            transform.DateTimeOffset = noon;
-                        }
-
-                        // Detect significant site change (>1°) — requires full rescan, not just recompute
-                        var siteChanged = double.IsNaN(plannerState.SiteLatitude)
-                            || Math.Abs(transform.SiteLatitude - plannerState.SiteLatitude) > 1.0
-                            || Math.Abs(transform.SiteLongitude - plannerState.SiteLongitude) > 1.0;
-
-                        AppSignalHandler.ApplySiteFromTransform(plannerState, transform);
-
-                        // Fast path: if we already have targets and site didn't change significantly,
-                        // just recompute night window + altitude profiles
-                        if (plannerState.TonightsBest.Count > 0 && !siteChanged)
-                        {
-                            PlannerActions.RecomputeForDate(plannerState, transform);
-                        }
-                        else
-                        {
-                            await PlannerActions.ComputeTonightsBestAsync(
-                                plannerState, objectDb, transform,
-                                plannerState.MinHeightAboveHorizon, cts.Token);
-                            await PlannerPersistence.TryLoadAsync(plannerState, appState.ActiveProfile, external, cts.Token);
-                            signalHandler.SetAutoCompleteCache(objectDb.CreateAutoCompleteList());
-                        }
-                        appState.StatusMessage = null;
-                    }
-                    else
-                    {
-                        appState.StatusMessage = "Set site coordinates in Equipment tab";
-                    }
-                }
-                finally
-                {
-                    plannerState.IsRecomputing = false;
-                    appState.NeedsRedraw = true;
-                }
-            }, "Recompute targets");
-        }
+        // Recompute targets when site/date changes (shared logic in AppSignalHandler)
+        signalHandler.CheckRecompute();
 
         // During shutdown, show progress and signal ready to stop
         if (appState.ShuttingDown)

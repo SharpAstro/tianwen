@@ -952,15 +952,12 @@ public static class PlannerActions
         }
         RecomputeHandoffSliders(state);
 
-        // Selection follows the target to its new position in the reordered list
+        // Clamp selection to valid range — cursor stays at same position so the next
+        // item in the list naturally appears under it
         var filtered = GetFilteredTargets(state);
-        for (var i = 0; i < filtered.Count; i++)
+        if (state.SelectedTargetIndex >= filtered.Count)
         {
-            if (filtered[i].Target == target)
-            {
-                state.SelectedTargetIndex = i;
-                break;
-            }
+            state.SelectedTargetIndex = Math.Max(0, filtered.Count - 1);
         }
 
         state.IsDirty = true;
