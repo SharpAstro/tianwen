@@ -985,7 +985,13 @@ internal partial record Session
 
             var camera = Setup.Telescopes[telescopeIndex].Camera.Driver;
 
-            // Take a short test exposure to check conditions
+            // Abort any in-progress exposure before taking a short test exposure
+            if (await camera.GetCameraStateAsync(cancellationToken) is CameraState.Exposing)
+            {
+                await camera.AbortExposureAsync(cancellationToken);
+                await External.SleepAsync(TimeSpan.FromSeconds(1), cancellationToken);
+            }
+
             var testExposure = TimeSpan.FromSeconds(Math.Min(baseline.Exposure.TotalSeconds, 5));
             await camera.StartExposureAsync(testExposure, cancellationToken: cancellationToken);
             await External.SleepAsync(testExposure + TimeSpan.FromSeconds(2), cancellationToken);

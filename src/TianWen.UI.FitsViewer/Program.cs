@@ -257,7 +257,9 @@ void HandleFileRequest()
         var newDoc = await documentCache.GetOrLoadAsync(requestedPath, debayerAlgorithm, cts.Token);
         if (newDoc is not null)
         {
+            var oldDoc = document;
             document = newDoc;
+            oldDoc?.Dispose();
             state.NeedsTextureUpdate = true;
             state.CursorImagePosition = null;
             state.CursorPixelInfo = null;

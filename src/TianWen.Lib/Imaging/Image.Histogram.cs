@@ -349,7 +349,7 @@ public partial class Image
     /// <param name="pedestals">Per-channel pedestal values (from <see cref="GetPedestralMedianAndMADScaledToUnit(int)"/>.</param>
     /// <param name="squareSize">Size of the sampling square in pixels.</param>
     /// <returns>Per-channel background values and luminance background, both pedestal-subtracted.</returns>
-    public (float[] PerChannel, float Luma) ScanBackgroundRegion(float[] pedestals, int squareSize = 32, BitMatrix? starMask = null)
+    public (float[] PerChannel, float Luma) ScanBackgroundRegion(ReadOnlySpan<float> pedestals, int squareSize = 32, BitMatrix? starMask = null)
     {
         var step = squareSize * 4;
         var channelCount = ChannelCount;
