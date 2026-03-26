@@ -1,7 +1,9 @@
-TianWen library
-===============
+TianWen (天文)
+=============
 
-The TianWen library is a comprehensive .NET library designed for astronomical device management and image processing. It includes features for handling various devices, profiles, and image analysis.
+TianWen is a free, open-source astronomical imaging suite for .NET. It manages cameras, mounts, focusers, filter wheels, and guiders via ASCOM, Alpaca, ZWO, and Meade protocols — with first-class support for multi-OTA (dual rig) setups that are difficult or expensive to achieve with existing software.
+
+It ships as a NuGet library (`TianWen.Lib`), a cross-platform CLI with interactive TUI (`TianWen.Lib.CLI`), a standalone FITS viewer (`TianWen.UI.FitsViewer`), and an integrated N.I.N.A.-style GUI (`TianWen.UI.Gui`).
 
 ## Features
 
@@ -321,3 +323,32 @@ Pre-built native AOT binaries of `TianWen.UI.FitsViewer` are available from [Git
 | R / Ctrl+1 | Zoom 1:1 |
 | Ctrl+2..9 | Zoom 1:N |
 | Mouse wheel | Zoom in viewport |
+
+### Interactive TUI (`tianwen -i`)
+
+The interactive TUI provides a tabbed interface for the full imaging workflow:
+
+| Tab | Key | Description |
+|-----|-----|-------------|
+| Equipment | 1 / F1 | Profile management, device discovery, OTA/filter configuration |
+| Planner | 2 / F2 | Tonight's best targets with altitude chart, handoff sliders, scheduling |
+| Session | 3 / F3 | Session configuration (cooling, guiding, horizon, focus), per-OTA camera settings |
+| Live | 4 / F4 | Live session monitor: exposure progress, cooler sparklines, mount status, Sixel image preview |
+| Guider | 5 / F5 | Guide error sparklines (RA/Dec), RMS stats, settle progress |
+
+The live session tab includes a real-time Sixel image preview with viewer controls:
+
+| Key | Action |
+|-----|--------|
+| T | Cycle stretch mode (None / Unlinked / Linked / Luma) |
+| B | Cycle curves boost |
+| +/- | Cycle stretch parameter presets |
+| F | Zoom to fit |
+| R | Zoom 1:1 |
+| Escape | Abort session (with confirmation) |
+
+### GUI (`TianWen.UI.Gui`)
+
+The integrated GUI provides a N.I.N.A.-style interface with GPU-accelerated Vulkan rendering,
+including all the same tabs as the TUI plus a full FITS image viewer with real-time stretch,
+star overlay, WCS grid, and histogram.
