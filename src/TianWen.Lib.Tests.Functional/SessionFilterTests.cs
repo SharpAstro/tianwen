@@ -60,7 +60,7 @@ public class SessionFilterTests(ITestOutputHelper output)
             )
         };
 
-        var ctx = await SessionTestHelper.CreateDualOTASessionAsync(output, observations: observations, now: WinterNight, cancellationToken: ct);
+        using var ctx = await SessionTestHelper.CreateDualOTASessionAsync(output, observations: observations, now: WinterNight, cancellationToken: ct);
 
         // Set up both cameras at best focus so they produce synthetic star images
         ctx.OSCCamera.TrueBestFocus = TrueBestFocusPosition;
@@ -163,7 +163,7 @@ public class SessionFilterTests(ITestOutputHelper output)
             )
         };
 
-        var ctx = await SessionTestHelper.CreateSessionAsync(output, observations: observations, now: WinterNight, cancellationToken: ct);
+        using var ctx = await SessionTestHelper.CreateSessionAsync(output, observations: observations, now: WinterNight, cancellationToken: ct);
 
         // Set up camera at best focus
         ctx.Camera.TrueBestFocus = TrueBestFocusPosition;

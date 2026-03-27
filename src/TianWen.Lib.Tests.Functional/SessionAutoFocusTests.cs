@@ -21,7 +21,7 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
     /// </summary>
     private async Task<SessionTestContext> CreateAutoFocusSessionAsync(CancellationToken cancellationToken = default)
     {
-        var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: cancellationToken);
+        using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: cancellationToken);
 
         ctx.Camera.TrueBestFocus = TrueBestFocusPosition;
 
@@ -46,7 +46,7 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
     {
         // given
         var ct = TestContext.Current.CancellationToken;
-        var ctx = await CreateAutoFocusSessionAsync(ct);
+        using var ctx = await CreateAutoFocusSessionAsync(ct);
 
         // when
         var (converged, baseline) = await ctx.Session.AutoFocusAsync(0, ct);
@@ -68,7 +68,7 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
     {
         // given — focuser starts above best focus, backlash = 20
         var ct = TestContext.Current.CancellationToken;
-        var ctx = await CreateAutoFocusSessionAsync(ct);
+        using var ctx = await CreateAutoFocusSessionAsync(ct);
 
         // when
         var (converged, _) = await ctx.Session.AutoFocusAsync(0, ct);
@@ -86,7 +86,7 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
     {
         // given
         var ct = TestContext.Current.CancellationToken;
-        var ctx = await CreateAutoFocusSessionAsync(ct);
+        using var ctx = await CreateAutoFocusSessionAsync(ct);
 
         // when
         var allConverged = await ctx.Session.AutoFocusAllTelescopesAsync(ct);
