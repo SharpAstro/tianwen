@@ -1572,13 +1572,20 @@ namespace TianWen.UI.Abstractions
 
             state.MouseScreenPosition = (px, py);
 
-            ViewerActions.UpdatePan(state, px, py);
+            // Panning always needs a redraw (image position changes)
+            if (state.IsPanning)
+            {
+                ViewerActions.UpdatePan(state, px, py);
+                return true;
+            }
 
+            // Only redraw when cursor moves to a different image pixel
+            var prevPos = state.CursorImagePosition;
             var fileListW = state.ShowFileList ? ScaledFileListWidth : 0;
             var toolbarH = ScaledToolbarHeight;
             var (areaW, areaH) = GetImageAreaSize(state);
             ViewerActions.UpdateCursorFromScreenPosition(_document, state, px, py, fileListW, toolbarH, areaW, areaH);
-            return true;
+            return state.CursorImagePosition != prevPos;
         }
 
         private bool HandleViewerMouseUp()
