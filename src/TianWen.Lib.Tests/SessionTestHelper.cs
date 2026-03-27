@@ -271,7 +271,14 @@ internal record DualOTATestContext(
     FakeFocuserDriver MonoFocuser,
     FakeFilterWheelDriver FilterWheel,
     IMountDriver Mount
-);
+) : IDisposable
+{
+    public void Dispose()
+    {
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true);
+        GC.WaitForPendingFinalizers();
+    }
+}
 
 internal record SessionTestContext(
     Session Session,
@@ -279,4 +286,12 @@ internal record SessionTestContext(
     FakeCameraDriver Camera,
     FakeFocuserDriver Focuser,
     IMountDriver Mount
-);
+) : IDisposable
+{
+    public void Dispose()
+    {
+        // Prompt GC to finalize Image objects, returning pooled float[,] arrays
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true);
+        GC.WaitForPendingFinalizers();
+    }
+}

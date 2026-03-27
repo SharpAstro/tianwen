@@ -40,7 +40,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
             )
         };
 
-        var ctx = await CreateWinterSessionAsync(observations, ct);
+        using var ctx = await CreateWinterSessionAsync(observations, ct);
 
         // Record phase transitions
         var phases = new ConcurrentQueue<SessionPhase>();
@@ -95,7 +95,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
                 Offset: 0
             )
         };
-        var ctx = await CreateWinterSessionAsync(observations, ct);
+        using var ctx = await CreateWinterSessionAsync(observations, ct);
 
         var phases = new ConcurrentQueue<SessionPhase>();
         ctx.Session.PhaseChanged += (_, e) =>
@@ -164,7 +164,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
                 Offset: 0
             )
         };
-        var ctx = await CreateWinterSessionAsync(observations, ct);
+        using var ctx = await CreateWinterSessionAsync(observations, ct);
 
         // Cancel once we've been in Cooling for a few ramp steps
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -215,7 +215,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
                 Offset: 0
             )
         };
-        var ctx = await CreateWinterSessionAsync(observations, ct);
+        using var ctx = await CreateWinterSessionAsync(observations, ct);
 
         var transitions = new ConcurrentQueue<(SessionPhase Old, SessionPhase New)>();
         ctx.Session.PhaseChanged += (_, e) =>
@@ -267,7 +267,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
             )
         };
 
-        var ctx = await CreateWinterSessionAsync(observations, ct);
+        using var ctx = await CreateWinterSessionAsync(observations, ct);
 
         // Track when we pass AutoFocus
         var passedAutoFocus = false;
@@ -331,7 +331,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
             )
         };
 
-        var ctx = await CreateWinterSessionAsync(observations, ct);
+        using var ctx = await CreateWinterSessionAsync(observations, ct);
 
         var frameEvents = new ConcurrentQueue<ExposureLogEntry>();
         ctx.Session.FrameWritten += (_, e) =>

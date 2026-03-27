@@ -128,7 +128,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
             )
         };
 
-        var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
+        using var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
 
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
@@ -190,7 +190,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
             )
         };
 
-        var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
+        using var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
 
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
@@ -237,7 +237,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
             )
         };
 
-        var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
+        using var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
 
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
@@ -291,7 +291,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
             )
         };
 
-        var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
+        using var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
 
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
@@ -341,7 +341,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
 
         // Use plain FakeMountDriver (not LX200 serial protocol) to avoid timer interleaving
         // between the slew simulation timer and the imaging loop's faster PeriodicTimer tick.
-        var ctx = await CreateWinterSessionAsync(observations, mountPort: null, cancellationToken: ct);
+        using var ctx = await CreateWinterSessionAsync(observations, mountPort: null, cancellationToken: ct);
 
         // Run the observation loop with time pump
         await RunObservationLoopWithTimePumpAsync(ctx, subExposure, ct);

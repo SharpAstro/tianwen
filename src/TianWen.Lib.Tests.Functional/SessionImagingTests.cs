@@ -28,7 +28,7 @@ public class SessionImagingTests(ITestOutputHelper output)
 
         // Use a date/time that allows astronomical observations from Vienna (48.2N, 16.3E)
         // June 15, 22:00 UTC = ~midnight local = well into astronomical night
-        var ctx = await SessionTestHelper.CreateSessionAsync(output, config, obs, now: now, cancellationToken: cancellationToken);
+        using var ctx = await SessionTestHelper.CreateSessionAsync(output, config, obs, now: now, cancellationToken: cancellationToken);
 
         ctx.Camera.TrueBestFocus = TrueBestFocusPosition;
         ctx.Camera.FocusPosition = TrueBestFocusPosition; // at perfect focus
@@ -67,7 +67,7 @@ public class SessionImagingTests(ITestOutputHelper output)
             )
         };
 
-        var ctx = await CreateImagingSessionAsync(observations: observations, cancellationToken: ct);
+        using var ctx = await CreateImagingSessionAsync(observations: observations, cancellationToken: ct);
 
         // Enable tracking on mount
         IMountDriver mount = ctx.Mount;
@@ -143,7 +143,7 @@ public class SessionImagingTests(ITestOutputHelper output)
             )
         };
 
-        var ctx = await CreateImagingSessionAsync(configuration: config, observations: observations, cancellationToken: ct);
+        using var ctx = await CreateImagingSessionAsync(configuration: config, observations: observations, cancellationToken: ct);
 
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
@@ -208,7 +208,7 @@ public class SessionImagingTests(ITestOutputHelper output)
             )
         };
 
-        var ctx = await CreateImagingSessionAsync(observations: observations, cancellationToken: ct);
+        using var ctx = await CreateImagingSessionAsync(observations: observations, cancellationToken: ct);
 
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
@@ -273,7 +273,7 @@ public class SessionImagingTests(ITestOutputHelper output)
             )
         };
 
-        var ctx = await CreateImagingSessionAsync(configuration: config, observations: observations, cancellationToken: ct);
+        using var ctx = await CreateImagingSessionAsync(configuration: config, observations: observations, cancellationToken: ct);
 
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
@@ -356,7 +356,7 @@ public class SessionImagingTests(ITestOutputHelper output)
             )
         };
 
-        var ctx = await CreateImagingSessionAsync(observations: observations, cancellationToken: ct);
+        using var ctx = await CreateImagingSessionAsync(observations: observations, cancellationToken: ct);
 
         // Enable tracking on mount
         IMountDriver mount = ctx.Mount;
@@ -432,7 +432,7 @@ public class SessionImagingTests(ITestOutputHelper output)
             )
         };
 
-        var ctx = await CreateImagingSessionAsync(configuration: config, observations: observations, cancellationToken: ct);
+        using var ctx = await CreateImagingSessionAsync(configuration: config, observations: observations, cancellationToken: ct);
 
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
