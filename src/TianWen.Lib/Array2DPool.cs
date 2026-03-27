@@ -41,15 +41,9 @@ public static class Array2DPool<T>
     public static T[,] Rent(int height, int width)
     {
         var key = Key(height, width);
-        if (_buckets.TryGetValue(key, out var queue))
+        if (_buckets.TryGetValue(key, out var queue) && queue.TryDequeue(out var entry))
         {
-            while (queue.TryDequeue(out var entry))
-            {
-                // Return first valid entry (skip any null placeholders from concurrent trims)
-                var array = entry.Array;
-                MemoryMarshal.CreateSpan(ref array[0, 0], array.Length).Clear();
-                return array;
-            }
+            return entry.Array;
         }
         return new T[height, width];
     }

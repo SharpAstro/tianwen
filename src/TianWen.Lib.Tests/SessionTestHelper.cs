@@ -275,8 +275,7 @@ internal record DualOTATestContext(
 {
     public void Dispose()
     {
-        GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true);
-        GC.WaitForPendingFinalizers();
+        // No-op: pool arrays are returned via Image finalizer when GC collects naturally
     }
 }
 
@@ -291,7 +290,6 @@ internal record SessionTestContext(
     public void Dispose()
     {
         // Prompt GC to finalize Image objects, returning pooled float[,] arrays
-        GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true);
-        GC.WaitForPendingFinalizers();
+        // No-op: pool arrays are returned via Image finalizer when GC collects naturally
     }
 }
