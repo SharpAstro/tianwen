@@ -19,7 +19,7 @@ namespace TianWen.UI.Abstractions;
 /// and conversion to display-ready RGBA pixels.
 /// Stretch is performed entirely on the GPU via shader uniforms.
 /// </summary>
-public sealed class AstroImageDocument : IDisposable
+public sealed class AstroImageDocument
 {
     /// <summary>Supported file extensions for the image viewer.</summary>
     public static readonly ImmutableArray<string> SupportedExtensions = [".fits", ".fit", ".fts", ".tif", ".tiff"];
@@ -388,8 +388,4 @@ public sealed class AstroImageDocument : IDisposable
         return new PixelInfo(x, y, values, ra, dec);
     }
 
-    /// <summary>
-    /// Returns image channel arrays to <see cref="Array2DPool{T}"/> for reuse.
-    /// </summary>
-    public void Dispose() => UnstretchedImage.ReturnChannelData();
 }

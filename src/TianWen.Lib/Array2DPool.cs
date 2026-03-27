@@ -9,10 +9,27 @@ namespace TianWen.Lib;
 /// Thread-safe pool for <typeparamref name="T"/>[,] arrays, bucketed by exact (height, width) dimensions.
 /// Astronomical imaging uses a small number of distinct sensor resolutions, so exact-match bucketing
 /// gives near-100% hit rates without wasting memory on oversized buffers.
+/// <para>
+/// Responds to memory pressure via a Gen2 GC callback: trims stale entries under moderate pressure,
+/// clears all pools under high pressure (>90% memory load).
+/// </para>
 /// </summary>
 public static class Array2DPool<T>
 {
-    private static readonly ConcurrentDictionary<long, ConcurrentBag<T[,]>> _buckets = new();
+    private static readonly ConcurrentDictionary<long, ConcurrentQueue<PoolEntry>> _buckets = new();
+
+    /// <summary>Maximum arrays to retain per (height, width) bucket.</summary>
+    private const int MaxPerBucket = 1;
+
+    /// <summary>Arrays unused for longer than this are trimmed on Gen2 GC under moderate pressure.</summary>
+    private const long TrimAfterMs = 30_000;
+
+    private readonly record struct PoolEntry(T[,] Array, long Timestamp);
+
+    static Array2DPool()
+    {
+        Gen2GcCallback.Register(static () => Trim());
+    }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static long Key(int height, int width) => (long)height << 32 | (long)(uint)width;
@@ -24,22 +41,65 @@ public static class Array2DPool<T>
     public static T[,] Rent(int height, int width)
     {
         var key = Key(height, width);
-        if (_buckets.TryGetValue(key, out var bag) && bag.TryTake(out var array))
+        if (_buckets.TryGetValue(key, out var queue))
         {
-            MemoryMarshal.CreateSpan(ref array[0, 0], array.Length).Clear();
-            return array;
+            while (queue.TryDequeue(out var entry))
+            {
+                // Return first valid entry (skip any null placeholders from concurrent trims)
+                var array = entry.Array;
+                MemoryMarshal.CreateSpan(ref array[0, 0], array.Length).Clear();
+                return array;
+            }
         }
         return new T[height, width];
     }
 
     /// <summary>
     /// Returns a previously rented array to the pool. The array is not cleared until next <see cref="Rent"/>.
+    /// Excess arrays beyond <see cref="MaxPerBucket"/> are dropped for GC.
     /// </summary>
     public static void Return(T[,] array)
     {
         var key = Key(array.GetLength(0), array.GetLength(1));
-        var bag = _buckets.GetOrAdd(key, static _ => new ConcurrentBag<T[,]>());
-        bag.Add(array);
+        var queue = _buckets.GetOrAdd(key, static _ => new ConcurrentQueue<PoolEntry>());
+        if (queue.Count < MaxPerBucket)
+        {
+            queue.Enqueue(new PoolEntry(array, Environment.TickCount64));
+        }
+        // else: let GC collect it — pool is full for this size
+    }
+
+    /// <summary>
+    /// Trims pooled arrays based on memory pressure. Called from Gen2 GC callback.
+    /// High pressure (>90%): clear all pools. Moderate (>70%): trim entries older than 30s.
+    /// </summary>
+    private static void Trim()
+    {
+        var info = GC.GetGCMemoryInfo();
+        var pressure = info.TotalAvailableMemoryBytes > 0
+            ? (double)info.MemoryLoadBytes / info.TotalAvailableMemoryBytes
+            : 0;
+
+        if (pressure > 0.9)
+        {
+            // High pressure: drop everything
+            foreach (var queue in _buckets.Values)
+            {
+                while (queue.TryDequeue(out _)) { }
+            }
+        }
+        else if (pressure > 0.7)
+        {
+            // Moderate pressure: trim stale entries (FIFO order — oldest first)
+            var cutoff = Environment.TickCount64 - TrimAfterMs;
+            foreach (var queue in _buckets.Values)
+            {
+                while (queue.TryPeek(out var entry) && entry.Timestamp < cutoff)
+                {
+                    queue.TryDequeue(out _);
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -77,5 +137,35 @@ public static class Array2DPool<T>
         public readonly Span<T> AsMutableSpan() => MemoryMarshal.CreateSpan(ref Array[0, 0], Array.Length);
 
         public readonly void Dispose() => Return(Array);
+    }
+
+    /// <summary>
+    /// Weak-reference + destructor pattern to receive Gen2 GC notifications.
+    /// On each Gen2 collection, the finalizer fires and calls the registered callback,
+    /// then re-registers for the next collection.
+    /// </summary>
+    private sealed class Gen2GcCallback
+    {
+        private readonly Action _callback;
+
+        private Gen2GcCallback(Action callback)
+        {
+            _callback = callback;
+        }
+
+        public static void Register(Action callback)
+        {
+            new Gen2GcCallback(callback);
+        }
+
+        ~Gen2GcCallback()
+        {
+            _callback();
+
+            if (!Environment.HasShutdownStarted)
+            {
+                GC.ReRegisterForFinalize(this);
+            }
+        }
     }
 }

@@ -324,7 +324,7 @@ internal sealed class TuiLiveSessionTab(
             _pendingDoc = null;
             if (task.IsCompletedSuccessfully && task.Result is { } doc)
             {
-                Interlocked.Exchange(ref _lastDoc, doc)?.Dispose();
+                _lastDoc = doc;
             }
         }
 

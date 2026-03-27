@@ -91,13 +91,24 @@ public partial class Image(float[][,] data, BitDepth bitDepth, float maxValue, f
     /// Returns all channel arrays to <see cref="Array2DPool{T}"/> for reuse.
     /// After calling this, the image must not be accessed.
     /// </summary>
+    /// <summary>
+    /// Returns all channel arrays to <see cref="Array2DPool{T}"/> for reuse.
+    /// Call only when no other code references this image (e.g., from a finalizer or explicit cleanup).
+    /// </summary>
     internal void ReturnChannelData()
     {
         for (var c = 0; c < data.Length; c++)
         {
-            Array2DPool<float>.Return(data[c]);
-            data[c] = null!;
+            if (data[c] is { } channel)
+            {
+                Array2DPool<float>.Return(channel);
+            }
         }
+    }
+
+    ~Image()
+    {
+        ReturnChannelData();
     }
 
     /// <summary>
