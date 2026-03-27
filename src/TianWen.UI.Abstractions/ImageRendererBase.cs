@@ -1,3 +1,43 @@
+// TODO high priority: cached offscreen framebuffer for partial UI redraws
+//
+// Problem: every mouse move that changes the status bar pixel readout triggers a full
+// Vulkan render pass (image quad + stretch shader + histogram + stars + toolbar + status bar).
+// Even with the pixel-change gate and 30fps throttle, GPU usage spikes to 15-25% on mouse hover.
+//
+// Solution: two-layer rendering with a cached offscreen framebuffer.
+//
+// Layer 1 — Image content (expensive, rarely changes):
+//   Render image quad + stretch shader + star overlay + WCS grid + histogram
+//   into a VkImage offscreen framebuffer. Only re-render when:
+//   - New image loaded (NeedsTextureUpdate)
+//   - Stretch parameters changed (mode, shadows, midtones, highlights, boost, HDR)
+//   - Zoom or pan changed
+//   - Star overlay toggled
+//   - WCS grid toggled
+//   - Channel view changed
+//
+// Layer 2 — UI chrome (cheap, changes on mouse move):
+//   Each frame: blit cached Layer 1 framebuffer → render toolbar, status bar,
+//   file list, info panel on top. This is just text quads — very cheap.
+//
+// Implementation steps:
+//   1. Add offscreen VkImage + VkFramebuffer to VkFitsImagePipeline (same size as swapchain)
+//   2. Add a "blit" shader (fullscreen quad sampling the offscreen texture)
+//   3. Add ImageContentDirty flag to ViewerState — set by stretch/zoom/pan/toggle changes
+//   4. In OnRender: if ImageContentDirty → render Layer 1 to offscreen → clear flag
+//   5. Always: blit offscreen → render chrome overlay → present
+//   6. Handle resize: recreate offscreen framebuffer
+//
+// Expected impact: mouse-hover GPU usage drops from ~20% to <2% (just text rendering).
+// The full image render only runs on actual content changes (~1-5 fps during interaction).
+//
+// Files to change:
+//   - SdlVulkan.Renderer: VkRenderer needs render-to-texture support (new feature)
+//   - TianWen.UI.Shared/VkFitsImagePipeline.cs: offscreen framebuffer management
+//   - TianWen.UI.Shared/VkImageRenderer.cs: split RenderImageQuad into cached/blit paths
+//   - TianWen.UI.Abstractions/ImageRendererBase.cs: add ImageContentDirty flag logic
+//   - TianWen.UI.Abstractions/ViewerState.cs: add ImageContentDirty property
+
 using System;
 using System.Collections.Generic;
 using DIR.Lib;
