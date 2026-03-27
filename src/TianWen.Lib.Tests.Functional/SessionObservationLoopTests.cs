@@ -58,6 +58,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
 
     /// <summary>
     /// Runs the observation loop on a background task and pumps fake time from the test thread.
+    /// Uses small time increments to avoid racing ahead of the observation loop.
     /// Returns when the loop completes or the wall-clock timeout expires.
     /// </summary>
     private static async Task RunObservationLoopWithTimePumpAsync(
@@ -65,21 +66,27 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
         TimeSpan subExposure,
         CancellationToken cancellationToken)
     {
+        // Enable external time pump mode: the obs loop's SleepAsync will wait for
+        // time to advance rather than advancing it, preventing concurrent Advance races.
+        ctx.External.ExternalTimePump = true;
+
         var loopTask = Task.Run(async () => await ctx.Session.ObservationLoopAsync(cancellationToken), cancellationToken);
 
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(180));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
-        var maxTicks = (int)(TimeSpan.FromHours(24) / subExposure);
-        for (var i = 0; i < maxTicks && !loopTask.IsCompleted && !linked.IsCancellationRequested; i++)
-        {
-            await ctx.External.SleepAsync(subExposure, cancellationToken);
 
-            // Allow the observation loop to process intermediate states (slews, flips,
-            // guider restarts, filter switches) before pumping the next tick.
-            for (var spin = 0; spin < 10 && !loopTask.IsCompleted; spin++)
-            {
-                await Task.Delay(10, cancellationToken);
-            }
+        // Pump time in small increments — the obs loop yields on SleepAsync until
+        // we advance past its target time, ensuring deterministic sequencing.
+        var pumpIncrement = TimeSpan.FromSeconds(5);
+        var maxFakeTime = TimeSpan.FromHours(24);
+        var pumped = TimeSpan.Zero;
+        while (pumped < maxFakeTime && !loopTask.IsCompleted && !linked.IsCancellationRequested)
+        {
+            ctx.External.Advance(pumpIncrement);
+            pumped += pumpIncrement;
+
+            // Yield to let the observation loop process events triggered by the time advance
+            await Task.Delay(1, cancellationToken);
         }
 
         loopTask.IsCompleted.ShouldBeTrue("observation loop should have completed within timeout");
@@ -249,7 +256,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
         output.WriteLine($"Scheduled duration: {scheduledDuration}");
     }
 
-    [Fact(Timeout = 120_000)]
+    [Fact(Timeout = 300_000)]
     public async Task GivenRefocusOnNewTargetWhenSwitchingTargetsThenBaselineStoredPerTarget()
     {
         // given — two targets with AlwaysRefocusOnNewTarget enabled

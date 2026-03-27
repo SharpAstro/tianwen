@@ -66,11 +66,33 @@ public class FakeExternal : IExternal
     public virtual ISerialConnection OpenSerialDevice(string address, int baud, Encoding encoding)
         => throw new ArgumentException($"Failed to instantiate serial device at address={address}", nameof(address));
 
-    public ValueTask SleepAsync(TimeSpan duration, CancellationToken cancellationToken = default)
-    {
-        _timeProvider.Advance(duration);
+    /// <summary>
+    /// When true, SleepAsync waits for the fake time to advance (driven by an external pump)
+    /// rather than advancing time itself. This prevents concurrent Advance calls from racing.
+    /// </summary>
+    public bool ExternalTimePump { get; set; }
 
-        return ValueTask.CompletedTask;
+    /// <summary>
+    /// Advances the fake time provider by the specified duration.
+    /// Only for use by the external time pump (test thread).
+    /// </summary>
+    public void Advance(TimeSpan duration) => _timeProvider.Advance(duration);
+
+    public async ValueTask SleepAsync(TimeSpan duration, CancellationToken cancellationToken = default)
+    {
+        if (ExternalTimePump)
+        {
+            // Wait until the external pump has advanced time past our target
+            var target = _timeProvider.GetUtcNow() + duration;
+            while (_timeProvider.GetUtcNow() < target && !cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(1, cancellationToken);
+            }
+        }
+        else
+        {
+            _timeProvider.Advance(duration);
+        }
     }
 
     /// <summary>Maximum number of FITS files to write to disk. Default 1 to reduce test I/O.</summary>
