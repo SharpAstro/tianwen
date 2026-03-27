@@ -157,6 +157,11 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
     {
         bus.ProcessPending();
         state.NeedsRedraw = false;
+
+        // Release completed task closures so captured documents can be GC'd
+        if (reprocessTask is { IsCompleted: true }) reprocessTask = null;
+        if (starDetectionTask is { IsCompleted: true }) starDetectionTask = null;
+        if (backgroundTask is { IsCompleted: true }) backgroundTask = null;
     }
 };
 
@@ -257,9 +262,7 @@ void HandleFileRequest()
         var newDoc = await documentCache.GetOrLoadAsync(requestedPath, debayerAlgorithm, cts.Token);
         if (newDoc is not null)
         {
-            var oldDoc = document;
             document = newDoc;
-            oldDoc?.Dispose();
             state.NeedsTextureUpdate = true;
             state.CursorImagePosition = null;
             state.CursorPixelInfo = null;

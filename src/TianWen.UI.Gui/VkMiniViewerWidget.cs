@@ -65,7 +65,7 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
                 _uploadedImageWidth = img.Width;
                 _uploadedImageHeight = img.Height;
                 _uploadedChannelCount = img.ChannelCount;
-                Interlocked.Exchange(ref _document, doc)?.Dispose();
+                _document = doc;
             }
         }
 
@@ -92,7 +92,7 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
                     _uploadedImageWidth = img.Width;
                     _uploadedImageHeight = img.Height;
                     _uploadedChannelCount = img.ChannelCount;
-                    Interlocked.Exchange(ref _document, doc)?.Dispose();
+                    _document = doc;
                 }
             }
         }
