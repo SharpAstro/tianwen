@@ -67,7 +67,13 @@ internal class FakePlateSolver : IPlateSolver
             }
         }
 
-        // Fallback: return search origin as-is
+        // Fallback: use image target metadata if available (simulates what a real solver finds)
+        if (!double.IsNaN(image.ImageMeta.TargetRA) && !double.IsNaN(image.ImageMeta.TargetDec))
+        {
+            return new PlateSolveResult(new WCS(image.ImageMeta.TargetRA, image.ImageMeta.TargetDec), TimeSpan.Zero);
+        }
+
+        // Final fallback: return search origin as-is
         return new PlateSolveResult(searchOrigin, TimeSpan.Zero);
     }
 }

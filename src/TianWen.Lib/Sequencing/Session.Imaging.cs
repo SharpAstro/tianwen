@@ -38,6 +38,12 @@ internal partial record Session
             External.AppLogger.LogInformation("Stop guiding to start slewing mount to target {Observation}.", observation);
             await guider.Driver.StopCaptureAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
 
+            // Set camera target early so centering plate-solve has correct metadata
+            for (var i = 0; i < Setup.Telescopes.Length; i++)
+            {
+                Setup.Telescopes[i].Camera.Driver.Target = observation.Target;
+            }
+
             double hourAngleAtSlewTime;
             try
             {

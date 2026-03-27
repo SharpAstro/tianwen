@@ -925,6 +925,10 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
             throw new InvalidOperationException($"Cannot sync with unknown pointing state given {HoursToHMS(ra)},{DegreesToDMS(dec)}");
         }
 
+        // Set target coordinates before syncing — :CM# uses the last :Sr/:Sd values
+        await SetTargetRightAscensionAsync(ra, cancellationToken);
+        await SetTargetDeclinationAsync(dec, cancellationToken);
+
         var response = await SendAndReceiveAsync(CMCommand, cancellationToken);
 
         if (response is not { Length: > 0 })

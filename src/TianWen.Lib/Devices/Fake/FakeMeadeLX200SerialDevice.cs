@@ -51,6 +51,14 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
     private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
     private readonly Lock _lockObj = new Lock();
 
+    /// <summary>
+    /// Whether the mount is on the "through the pole" pier side.
+    /// NH: decAxisAngle &gt; 90, SH: decAxisAngle &lt; -90.
+    /// </summary>
+    private bool IsFlippedPierSide => _transform.SiteLatitude >= 0
+        ? _decAxisAngle > 90
+        : _decAxisAngle < -90;
+
     public FakeMeadeLX200SerialDevice(ILogger logger, Encoding encoding, TimeProvider timeProvider, double siteLatitude, double siteLongitude, bool isOpen)
     {
         _timeProvider = timeProvider;
@@ -410,16 +418,25 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
                     break;
 
                 case ":CM#":
-                    // Sync: update mount axis position to match target RA/Dec
-                    lock (_lockObj)
+                {
+                    // Sync: update mount axis position to match target RA/Dec,
+                    // preserving the current pier side so axis angles remain consistent
+                    var syncHA = ConditionHA(SiderealTime - _targetRa);
+                    var isNorth = _transform.SiteLatitude >= 0;
+                    if (IsFlippedPierSide)
                     {
-                        var targetHA = ConditionHA(SiderealTime - _targetRa);
-                        _haAxisAngle = targetHA;
-                        _decAxisAngle = _targetDec;
-                        UpdateTransformFromAxisAngles();
+                        _haAxisAngle = ConditionHA(syncHA - 12);
+                        _decAxisAngle = isNorth ? 180 - _targetDec : -180 - _targetDec;
                     }
+                    else
+                    {
+                        _haAxisAngle = syncHA;
+                        _decAxisAngle = _targetDec;
+                    }
+                    UpdateTransformFromAxisAngles();
                     _responseBuffer.Append("Synced#");
                     break;
+                }
 
                 case ":D#":
                     _responseBuffer.Append(_isSlewing ? "\x7f#" : "#");
@@ -645,20 +662,14 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
         var targetHA = ConditionHA(SiderealTime - _targetRa);
         var targetDecAxis = _targetDec;
 
-        // For GEM, determine pier side and adjust DEC axis if needed
-        // If target is west of meridian (HA > 0), mount points normally
-        // If target is east of meridian (HA < 0), may need to flip
+        // For GEM, determine pier side: when target is east of meridian (HA < 0)
+        // and Dec is on the pole side (positive in NH, negative in SH), the mount
+        // must use the "through the pole" pier side to avoid the meridian limit.
         var isNorthernHemisphere = _transform.SiteLatitude >= 0;
-        if (isNorthernHemisphere && _targetDec > 0 && targetHA < -6)
+        if (isNorthernHemisphere ? (_targetDec > 0 && targetHA < 0) : (_targetDec < 0 && targetHA < 0))
         {
-            // Flip: DEC axis goes past pole
-            targetDecAxis = 180 - _targetDec;
-            targetHA += 12;
-        }
-        else if (!isNorthernHemisphere && _targetDec < 0 && targetHA < -6)
-        {
-            targetDecAxis = -180 - _targetDec;
-            targetHA += 12;
+            targetDecAxis = isNorthernHemisphere ? 180 - _targetDec : -180 - _targetDec;
+            targetHA = ConditionHA(targetHA + 12);
         }
 
         var period = TimeSpan.FromMilliseconds(100);
