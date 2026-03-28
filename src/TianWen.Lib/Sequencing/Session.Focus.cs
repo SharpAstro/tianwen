@@ -410,6 +410,8 @@ internal partial record Session
 
                 if (telescopeIndex < _lastCapturedImages.Length)
                 {
+                    // Return previous viewer image channels to pool before overwriting
+                    _lastCapturedImages[telescopeIndex]?.ReturnChannelData();
                     _lastCapturedImages[telescopeIndex] = viewerImage;
                 }
 
@@ -427,14 +429,15 @@ internal partial record Session
                 }
 
                 External.AppLogger.LogInformation(
-                    "Memory after AF pos={Position}: working={WorkingMB:F0}MB, managed={ManagedMB:F0}MB | pool: {Pooled} pooled, {Hits}h/{Misses}m/{Returns}r",
+                    "Memory after AF pos={Position}: working={WorkingMB:F0}MB, managed={ManagedMB:F0}MB | pool: {Pooled} pooled, {Hits}h/{Misses}m/{Returns}r, {FinalizerReturns} finalizer",
                     targetPos,
                     Environment.WorkingSet / (1024.0 * 1024),
                     GC.GetTotalMemory(forceFullCollection: false) / (1024.0 * 1024),
                     Array2DPool<float>.TotalPooled,
                     Array2DPool<float>.HitCount,
                     Array2DPool<float>.MissCount,
-                    Array2DPool<float>.ReturnCount);
+                    Array2DPool<float>.ReturnCount,
+                    Image.FinalizerReturnCount);
 
                 // Return raw image channels to pool immediately — the debayered viewerImage
                 // is kept in _lastCapturedImages for the MiniViewer, but the raw data is no longer needed
