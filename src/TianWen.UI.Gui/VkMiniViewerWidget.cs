@@ -55,17 +55,7 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
             _pendingDoc = null;
             if (task.IsCompletedSuccessfully)
             {
-                var doc = task.Result;
-                var img = doc.UnstretchedImage;
-                for (var c = 0; c < img.ChannelCount; c++)
-                {
-                    _fitsPipeline.UploadChannelTexture(img.GetChannelSpan(c), c, img.Width, img.Height);
-                }
-
-                _uploadedImageWidth = img.Width;
-                _uploadedImageHeight = img.Height;
-                _uploadedChannelCount = img.ChannelCount;
-                _document = doc;
+                UploadAndSwapDocument(task.Result);
             }
         }
 
@@ -83,19 +73,31 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
                 _pendingDoc = null;
                 if (newTask.IsCompletedSuccessfully)
                 {
-                    var doc = newTask.Result;
-                    var img = doc.UnstretchedImage;
-                    for (var c = 0; c < img.ChannelCount; c++)
-                    {
-                        _fitsPipeline.UploadChannelTexture(img.GetChannelSpan(c), c, img.Width, img.Height);
-                    }
-                    _uploadedImageWidth = img.Width;
-                    _uploadedImageHeight = img.Height;
-                    _uploadedChannelCount = img.ChannelCount;
-                    _document = doc;
+                    UploadAndSwapDocument(newTask.Result);
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Uploads new document textures, then returns old document's channels to the pool.
+    /// Safe because this runs on the render thread — no concurrent access to the old image.
+    /// </summary>
+    private void UploadAndSwapDocument(AstroImageDocument doc)
+    {
+        var img = doc.UnstretchedImage;
+        for (var c = 0; c < img.ChannelCount; c++)
+        {
+            _fitsPipeline.UploadChannelTexture(img.GetChannelSpan(c), c, img.Width, img.Height);
+        }
+
+        _uploadedImageWidth = img.Width;
+        _uploadedImageHeight = img.Height;
+        _uploadedChannelCount = img.ChannelCount;
+
+        // Return old image's channels to pool before replacing reference
+        _document?.UnstretchedImage.ReturnChannelData();
+        _document = doc;
     }
 
     public void Render(RectF32 rect, uint windowWidth, uint windowHeight)

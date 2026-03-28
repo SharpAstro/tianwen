@@ -24,6 +24,9 @@ public static class Array2DPool<T>
 
     private static readonly ConcurrentDictionary<long, ConcurrentQueue<PoolEntry>> _buckets = new();
 
+    /// <summary>Number of active pool buckets (distinct array sizes).</summary>
+    public static int BucketCount => _buckets.Count;
+
     /// <summary>Maximum arrays to retain per (height, width) bucket.</summary>
     private const int MaxPerBucket = 1;
 
