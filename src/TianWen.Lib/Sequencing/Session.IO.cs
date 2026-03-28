@@ -37,11 +37,14 @@ internal partial record Session
 
         var gcInfo = GC.GetGCMemoryInfo();
         External.AppLogger.LogDebug(
-            "Memory after FITS write: working={WorkingMB:F0}MB, managed={ManagedMB:F0}MB, GC heap={HeapMB:F0}MB, pool buckets={Buckets}",
+            "Memory after FITS write: working={WorkingMB:F0}MB, managed={ManagedMB:F0}MB, GC heap={HeapMB:F0}MB | pool: {Pooled} pooled, {Hits} hits, {Misses} misses, {Returns} returns",
             Environment.WorkingSet / (1024.0 * 1024),
             GC.GetTotalMemory(forceFullCollection: false) / (1024.0 * 1024),
             gcInfo.HeapSizeBytes / (1024.0 * 1024),
-            Array2DPool<float>.BucketCount);
+            Array2DPool<float>.TotalPooled,
+            Array2DPool<float>.HitCount,
+            Array2DPool<float>.MissCount,
+            Array2DPool<float>.ReturnCount);
 
         _lastFramePath = fitsFilePath;
         return fitsFilePath;
