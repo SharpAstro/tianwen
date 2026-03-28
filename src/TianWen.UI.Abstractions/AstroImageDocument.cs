@@ -120,20 +120,20 @@ public sealed class AstroImageDocument
     /// </summary>
     public static async Task<AstroImageDocument> CreateFromImageAsync(Image image, DebayerAlgorithm algorithm = DebayerAlgorithm.AHD, WCS? wcs = null, string filePath = "", CancellationToken cancellationToken = default)
     {
-        // Normalize to [0,1] if needed
-        var viewImage = image.MaxValue > 1.0f + float.Epsilon
-            ? image.ScaleFloatValuesToUnit()
-            : image;
-
-        // Debayer RGGB raw Bayer data into 3-channel color
+        // Debayer RGGB raw Bayer data into 3-channel color, normalizing in the same pass
+        Image viewImage;
         DebayerAlgorithm actualAlgorithm;
-        if (viewImage.ImageMeta.SensorType is SensorType.RGGB && algorithm is not DebayerAlgorithm.None)
+        if (image.ImageMeta.SensorType is SensorType.RGGB && algorithm is not DebayerAlgorithm.None)
         {
-            viewImage = await viewImage.DebayerAsync(algorithm, normalizeToUnit: false, cancellationToken);
+            viewImage = await image.DebayerAsync(algorithm, normalizeToUnit: true, cancellationToken);
             actualAlgorithm = algorithm;
         }
         else
         {
+            // Mono/color: normalize in place (no extra allocation)
+            viewImage = image.MaxValue > 1.0f + float.Epsilon
+                ? image.ScaleFloatValuesToUnitInPlace()
+                : image;
             actualAlgorithm = DebayerAlgorithm.None;
         }
 

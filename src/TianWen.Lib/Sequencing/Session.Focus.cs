@@ -449,6 +449,21 @@ internal partial record Session
             }
         }
 
+        // Return last captured viewer image and reclaim V-curve intermediates
+        if (telescopeIndex < _lastCapturedImages.Length)
+        {
+            _lastCapturedImages[telescopeIndex]?.ReturnChannelData();
+            _lastCapturedImages[telescopeIndex] = null;
+        }
+        GC.Collect(2, GCCollectionMode.Aggressive, blocking: true);
+        GC.WaitForPendingFinalizers();
+        External.AppLogger.LogInformation(
+            "Memory after AF cleanup: working={WorkingMB:F0}MB, managed={ManagedMB:F0}MB | pool: {Pooled} pooled, {FinalizerReturns} finalizer",
+            Environment.WorkingSet / (1024.0 * 1024),
+            GC.GetTotalMemory(forceFullCollection: false) / (1024.0 * 1024),
+            Array2DPool<float>.TotalPooled,
+            Image.FinalizerReturnCount);
+
         // Reset camera state after V-curve loop
         if (telescopeIndex < _cameraStates.Length)
         {
