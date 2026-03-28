@@ -87,16 +87,17 @@ public partial class Image(float[][,] data, BitDepth bitDepth, float maxValue, f
         return channels;
     }
 
+    private volatile bool _channelsReturned;
+
     /// <summary>
     /// Returns all channel arrays to <see cref="Array2DPool{T}"/> for reuse.
-    /// After calling this, the image must not be accessed.
-    /// </summary>
-    /// <summary>
-    /// Returns all channel arrays to <see cref="Array2DPool{T}"/> for reuse.
-    /// Call only when no other code references this image (e.g., from a finalizer or explicit cleanup).
+    /// Safe to call multiple times — only the first call returns arrays to the pool.
     /// </summary>
     public void ReturnChannelData()
     {
+        if (_channelsReturned) return;
+        _channelsReturned = true;
+
         for (var c = 0; c < data.Length; c++)
         {
             if (data[c] is { } channel)
