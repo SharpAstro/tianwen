@@ -6,12 +6,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Focus;
-using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
-using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Stat;
-using static TianWen.Lib.Stat.StatisticsHelper;
 
 namespace TianWen.Lib.Sequencing;
 

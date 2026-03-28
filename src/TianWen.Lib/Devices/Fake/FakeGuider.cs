@@ -216,7 +216,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
     public ValueTask FlipCalibrationAsync(CancellationToken cancellationToken = default)
         => ValueTask.CompletedTask;
 
-    public ValueTask GuideAsync(double settlePixels, double settleTime, double settleTimeout, CancellationToken cancellationToken)
+    public async ValueTask GuideAsync(double settlePixels, double settleTime, double settleTimeout, CancellationToken cancellationToken)
     {
         if (!_equipmentConnected)
         {
@@ -232,9 +232,13 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
             throw new GuiderException($"Cannot start guiding in state {current}");
         }
 
-        // Stop any looping capture before transitioning to guiding
+        // Stop any looping capture and abort in-flight exposure before transitioning to guiding
         _loopCts?.Cancel();
         _loopCts = null;
+        if (_camera is { Connected: true } cam && await cam.GetCameraStateAsync(cancellationToken) is CameraState.Exposing)
+        {
+            await cam.AbortExposureAsync(cancellationToken);
+        }
 
         // Settle via timer, then start real guide loop in background
         ForceState(GuiderState.Settling);
@@ -245,8 +249,6 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
             _guideCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             _ = Task.Run(() => RunGuideLoopAsync(camera, mount, _guideCts.Token), _guideCts.Token);
         }
-
-        return ValueTask.CompletedTask;
     }
 
     private async Task RunGuideLoopAsync(ICameraDriver camera, IMountDriver mount, CancellationToken ct)
