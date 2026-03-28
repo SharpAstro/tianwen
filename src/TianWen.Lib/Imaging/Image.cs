@@ -2,6 +2,7 @@ using System;
 using System.Numerics.Tensors;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace TianWen.Lib.Imaging;
 
@@ -109,8 +110,17 @@ public partial class Image(float[][,] data, BitDepth bitDepth, float maxValue, f
 
     ~Image()
     {
+        if (!_channelsReturned)
+        {
+            Interlocked.Increment(ref _finalizerReturnCount);
+        }
         ReturnChannelData();
     }
+
+    private static long _finalizerReturnCount;
+
+    /// <summary>Number of times the finalizer had to return channels (missed eager returns).</summary>
+    public static long FinalizerReturnCount => Volatile.Read(ref _finalizerReturnCount);
 
     /// <summary>
     /// calculate image pixel value on subpixel level
