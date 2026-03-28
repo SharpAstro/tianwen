@@ -94,7 +94,7 @@ public partial class Image(float[][,] data, BitDepth bitDepth, float maxValue, f
     /// Returns all channel arrays to <see cref="Array2DPool{T}"/> for reuse.
     /// Safe to call multiple times — only the first call returns arrays to the pool.
     /// </summary>
-    public void ReturnChannelData()
+    internal void ReturnChannelData()
     {
         if (_channelsReturned) return;
         _channelsReturned = true;
