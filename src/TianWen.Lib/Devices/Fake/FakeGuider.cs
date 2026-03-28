@@ -232,6 +232,10 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
             throw new GuiderException($"Cannot start guiding in state {current}");
         }
 
+        // Stop any looping capture before transitioning to guiding
+        _loopCts?.Cancel();
+        _loopCts = null;
+
         // Settle via timer, then start real guide loop in background
         ForceState(GuiderState.Settling);
         StartSettleTimer(settleTime);
