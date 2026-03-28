@@ -77,6 +77,7 @@ var guiRenderer = new VkGuiRenderer(renderer, (uint)pixW, (uint)pixH, bus)
 // Event handler setup
 var cts = new CancellationTokenSource();
 var tracker = new BackgroundTaskTracker();
+var lastWindowTitle = "\U0001F52D TianWen";
 var handlers = new GuiEventHandlers(sp, appState, plannerState, guiRenderer, cts, external, tracker);
 
 // Signal subscriptions — text input activation/deactivation via SDL
@@ -275,6 +276,19 @@ loop.OnPostFrame = () =>
         appState.NeedsRedraw = false;
     }
     plannerState.NeedsRedraw = false;
+
+    // Update window title with session state (only when changed)
+    var ls = guiRenderer.LiveSessionState;
+    var newTitle = ls.IsRunning
+        ? ls.ActiveObservation is { Target: var target }
+            ? $"\U0001F52D {LiveSessionActions.PhaseLabel(ls.Phase)} - {target.Name}"
+            : $"\U0001F52D {LiveSessionActions.PhaseLabel(ls.Phase)}"
+        : "\U0001F52D TianWen";
+    if (newTitle != lastWindowTitle)
+    {
+        lastWindowTitle = newTitle;
+        SetWindowTitle(sdlWindow.Handle, newTitle);
+    }
 };
 
 loop.OnKeyDown = (inputKey, inputModifier) =>
