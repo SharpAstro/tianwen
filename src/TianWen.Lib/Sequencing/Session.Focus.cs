@@ -419,11 +419,29 @@ internal partial record Session
                 {
                     var hfd = stars.MapReduceStarProperty(SampleKind.HFD, AggregationMethod.Median);
                     sampleMap.AddSampleAtFocusPosition(targetPos, hfd);
-                    External.AppLogger.LogDebug("Auto-focus pos={Position} stars={StarCount} HFD={HFD:F2}", targetPos, stars.Count, hfd);
+                    External.AppLogger.LogInformation("Auto-focus pos={Position} stars={StarCount} HFD={HFD:F2}", targetPos, stars.Count, hfd);
                 }
                 else
                 {
-                    External.AppLogger.LogDebug("Auto-focus pos={Position} too few stars ({StarCount})", targetPos, stars.Count);
+                    External.AppLogger.LogInformation("Auto-focus pos={Position} too few stars ({StarCount})", targetPos, stars.Count);
+                }
+
+                External.AppLogger.LogInformation(
+                    "Memory after AF pos={Position}: working={WorkingMB:F0}MB, managed={ManagedMB:F0}MB | pool: {Pooled} pooled, {Hits}h/{Misses}m/{Returns}r",
+                    targetPos,
+                    Environment.WorkingSet / (1024.0 * 1024),
+                    GC.GetTotalMemory(forceFullCollection: false) / (1024.0 * 1024),
+                    Array2DPool<float>.TotalPooled,
+                    Array2DPool<float>.HitCount,
+                    Array2DPool<float>.MissCount,
+                    Array2DPool<float>.ReturnCount);
+
+                // Return raw image channels to pool immediately — the debayered viewerImage
+                // is kept in _lastCapturedImages for the MiniViewer, but the raw data is no longer needed
+                if (!ReferenceEquals(image, viewerImage))
+                {
+                    image.ReturnChannelData();
+                    image = null;
                 }
             }
         }

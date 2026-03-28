@@ -36,7 +36,7 @@ internal partial record Session
         await External.WriteFitsFileAsync(imageWrite.Image, fitsFilePath);
 
         var gcInfo = GC.GetGCMemoryInfo();
-        External.AppLogger.LogDebug(
+        External.AppLogger.LogInformation(
             "Memory after FITS write: working={WorkingMB:F0}MB, managed={ManagedMB:F0}MB, GC heap={HeapMB:F0}MB | pool: {Pooled} pooled, {Hits} hits, {Misses} misses, {Returns} returns",
             Environment.WorkingSet / (1024.0 * 1024),
             GC.GetTotalMemory(forceFullCollection: false) / (1024.0 * 1024),

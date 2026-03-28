@@ -265,7 +265,7 @@ internal partial record Session
             observation.Target, observation.FilterPlan.Length,
             filterAscending ? "ascending" : "descending",
             tickSec, observation.Duration, gcdSec);
-        External.AppLogger.LogDebug(
+        External.AppLogger.LogInformation(
             "Memory at ImagingLoop start: working={WorkingMB:F0}MB, managed={ManagedMB:F0}MB",
             Environment.WorkingSet / (1024.0 * 1024),
             GC.GetTotalMemory(forceFullCollection: false) / (1024.0 * 1024));
@@ -699,7 +699,7 @@ internal partial record Session
                     }
                     else
                     {
-                        External.AppLogger.LogDebug("Skipping dithering ({DitheringRound}/{DitherEveryNthFrame} ticks)",
+                        External.AppLogger.LogInformation("Skipping dithering ({DitheringRound}/{DitherEveryNthFrame} ticks)",
                             tickCount % ditherEveryNTicks, ditherEveryNTicks);
                     }
                 }
