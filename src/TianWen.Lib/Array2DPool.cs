@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace TianWen.Lib;
 
@@ -26,6 +27,30 @@ public static class Array2DPool<T>
 
     /// <summary>Number of active pool buckets (distinct array sizes).</summary>
     public static int BucketCount => _buckets.Count;
+
+    /// <summary>Total arrays currently held across all buckets.</summary>
+    public static int TotalPooled
+    {
+        get
+        {
+            var count = 0;
+            foreach (var q in _buckets.Values) count += q.Count;
+            return count;
+        }
+    }
+
+    /// <summary>Pool hit count (reused an existing array).</summary>
+    public static long HitCount => Volatile.Read(ref _hits);
+
+    /// <summary>Pool miss count (allocated a new array).</summary>
+    public static long MissCount => Volatile.Read(ref _misses);
+
+    /// <summary>Pool return count (arrays returned to pool).</summary>
+    public static long ReturnCount => Volatile.Read(ref _returns);
+
+    private static long _hits;
+    private static long _misses;
+    private static long _returns;
 
     /// <summary>Maximum arrays to retain per (height, width) bucket.</summary>
     private const int MaxPerBucket = 1;
@@ -54,9 +79,11 @@ public static class Array2DPool<T>
             var key = Key(height, width);
             if (_buckets.TryGetValue(key, out var queue) && queue.TryDequeue(out var entry))
             {
+                Interlocked.Increment(ref _hits);
                 return entry.Array;
             }
         }
+        Interlocked.Increment(ref _misses);
         return new T[height, width];
     }
 
@@ -68,6 +95,7 @@ public static class Array2DPool<T>
     {
         if (!Enabled) return;
 
+        Interlocked.Increment(ref _returns);
         var key = Key(array.GetLength(0), array.GetLength(1));
         var queue = _buckets.GetOrAdd(key, static _ => new ConcurrentQueue<PoolEntry>());
         if (queue.Count < MaxPerBucket)
