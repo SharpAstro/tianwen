@@ -1,3 +1,4 @@
+using System;
 using Microsoft.Extensions.Logging;
 using System.Globalization;
 using System.IO;
@@ -33,6 +34,14 @@ internal partial record Session
 
         External.AppLogger.LogInformation("Writing FITS file {FitsFilePath}", fitsFilePath);
         await External.WriteFitsFileAsync(imageWrite.Image, fitsFilePath);
+
+        var gcInfo = GC.GetGCMemoryInfo();
+        External.AppLogger.LogDebug(
+            "Memory after FITS write: working={WorkingMB:F0}MB, managed={ManagedMB:F0}MB, GC heap={HeapMB:F0}MB, pool buckets={Buckets}",
+            Environment.WorkingSet / (1024.0 * 1024),
+            GC.GetTotalMemory(forceFullCollection: false) / (1024.0 * 1024),
+            gcInfo.HeapSizeBytes / (1024.0 * 1024),
+            Array2DPool<float>.BucketCount);
 
         _lastFramePath = fitsFilePath;
         return fitsFilePath;

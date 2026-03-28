@@ -265,6 +265,10 @@ internal partial record Session
             observation.Target, observation.FilterPlan.Length,
             filterAscending ? "ascending" : "descending",
             tickSec, observation.Duration, gcdSec);
+        External.AppLogger.LogDebug(
+            "Memory at ImagingLoop start: working={WorkingMB:F0}MB, managed={ManagedMB:F0}MB",
+            Environment.WorkingSet / (1024.0 * 1024),
+            GC.GetTotalMemory(forceFullCollection: false) / (1024.0 * 1024));
 
         using var ticker = new PeriodicTimer(tickDuration, External.TimeProvider);
 
