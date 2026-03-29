@@ -37,10 +37,9 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
     private Float32HxWImageData? _lastImageData;
     private ChannelBuffer? _channelBuffer;
 
-    // Double-buffer: two float[,] slots. Camera renders into _freeBuffer,
-    // then swaps it to become the active frame. The old active buffer becomes
-    // free when all consumers Release() their refs (via ChannelBuffer.onRelease).
-    private float[,]? _freeBuffer;
+    // Recycled buffers returned by consumers via ChannelBuffer.onRelease.
+    // Camera picks from here before allocating fresh in Render(dest:).
+    private readonly System.Collections.Concurrent.ConcurrentBag<float[,]> _freeBuffers = new();
     private CameraSettings _cameraSettings;
     private CameraSettings _exposureSettings;
     private ExposureData? _exposureData;
@@ -547,11 +546,17 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
                     var imgHeight = lastExposureSettings.Height - lastExposureSettings.StartY;
                     var imgWidth = lastExposureSettings.Width - lastExposureSettings.StartX;
 
-                    // Double-buffer: render into _freeBuffer if available and correctly sized.
-                    // The old active frame stays intact until consumers Release() their refs.
-                    var free = Interlocked.Exchange(ref _freeBuffer, null);
-                    var dest = free is not null && free.GetLength(0) == imgHeight && free.GetLength(1) == imgWidth
-                        ? free : null;
+                    // Try to reuse a recycled buffer from the free pool
+                    float[,]? dest = null;
+                    while (_freeBuffers.TryTake(out var free))
+                    {
+                        if (free.GetLength(0) == imgHeight && free.GetLength(1) == imgWidth)
+                        {
+                            dest = free;
+                            break;
+                        }
+                        // Wrong size — drop it
+                    }
 
                     float[,] array;
                     if (TrueBestFocus is { } bestFocus)
@@ -609,14 +614,7 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
                         }
                     }
 
-                    _channelBuffer = new ChannelBuffer(array, onRelease: recycled =>
-                    {
-                        var prev = Interlocked.CompareExchange(ref _freeBuffer, recycled, null);
-                        if (prev is not null)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"ChannelBuffer onRelease: _freeBuffer already occupied, dropping {recycled.GetLength(0)}x{recycled.GetLength(1)} buffer");
-                        }
-                    });
+                    _channelBuffer = new ChannelBuffer(array, onRelease: recycled => _freeBuffers.Add(recycled));
                     _lastImageData = new Float32HxWImageData([array], dataMax, dataMin);
                 }
             }
