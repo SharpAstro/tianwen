@@ -747,6 +747,12 @@ internal partial record Session
                     // Camera's ref was already dropped by ReleaseImageData() after enqueue.
                     // When both refs are gone, onRelease fires → camera gets float[,] back.
                     imageWrite.Image.Release();
+                    GC.Collect(2, GCCollectionMode.Forced, blocking: true);
+                    GC.WaitForPendingFinalizers();
+                    External.AppLogger.LogInformation(
+                        "Memory after FITS Release+GC: working={WorkingMB:F0}MB, managed={ManagedMB:F0}MB",
+                        Environment.WorkingSet / (1024.0 * 1024),
+                        GC.GetTotalMemory(forceFullCollection: false) / (1024.0 * 1024));
                 }
             }
         }
