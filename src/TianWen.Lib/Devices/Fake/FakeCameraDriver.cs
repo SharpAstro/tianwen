@@ -542,6 +542,11 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
                     var imgHeight = lastExposureSettings.Height - lastExposureSettings.StartY;
                     var imgWidth = lastExposureSettings.Width - lastExposureSettings.StartX;
 
+                    // Try to reuse recycled buffer from previous frame's ReleaseImageData
+                    var recycled = Interlocked.Exchange(ref _recycledBuffer, null);
+                    var dest = recycled is not null && recycled.GetLength(0) == imgHeight && recycled.GetLength(1) == imgWidth
+                        ? recycled : null;
+
                     float[,] array;
                     if (TrueBestFocus is { } bestFocus)
                     {
@@ -559,10 +564,10 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
                             var starSpan = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(stars);
                             array = SensorType is Imaging.SensorType.RGGB
                                 ? SyntheticStarFieldRenderer.RenderBayer(imgWidth, imgHeight, defocus, starSpan,
-                                    exposureSeconds: exposureSec, noiseSeed: _frameRng.Next())
+                                    exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(), dest: dest)
                                 : SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocus,
                                     stars: starSpan, exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(),
-                                    cloudCoverage: CloudCoverage, cloudSeed: cloudSeed);
+                                    cloudCoverage: CloudCoverage, cloudSeed: cloudSeed, dest: dest);
                         }
                         else
                         {
@@ -570,7 +575,7 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
                             // No catalog — random stars, can't do meaningful Bayer colors
                             array = SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocus,
                                 exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(),
-                                cloudCoverage: CloudCoverage, cloudSeed: cloudSeed);
+                                cloudCoverage: CloudCoverage, cloudSeed: cloudSeed, dest: dest);
                         }
                     }
                     else
@@ -582,7 +587,7 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
                         var cloudSeed = _frameRng.Next();
                         array = SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocusSteps: 0,
                             exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(),
-                            cloudCoverage: CloudCoverage, cloudSeed: cloudSeed);
+                            cloudCoverage: CloudCoverage, cloudSeed: cloudSeed, dest: dest);
                     }
 
                     // Compute actual min/max of the rendered data

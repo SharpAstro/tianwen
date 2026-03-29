@@ -47,11 +47,12 @@ internal static class SyntheticStarFieldRenderer
         int? noiseSeed = null,
         double cloudCoverage = 0.0,
         int cloudSeed = 77,
-        double cloudGlow = 200.0)
+        double cloudGlow = 200.0,
+        float[,]? dest = null)
     {
         return Render(width, height, defocusSteps, offsetX: 0, offsetY: 0,
             hyperbolaA, hyperbolaB, exposureSeconds, skyBackground, readNoise, starCount, seed,
-            noiseSeed: noiseSeed, cloudCoverage: cloudCoverage, cloudSeed: cloudSeed, cloudGlow: cloudGlow);
+            noiseSeed: noiseSeed, cloudCoverage: cloudCoverage, cloudSeed: cloudSeed, cloudGlow: cloudGlow, dest: dest);
     }
 
     /// <summary>
@@ -104,10 +105,11 @@ internal static class SyntheticStarFieldRenderer
         int? noiseSeed = null,
         double cloudCoverage = 0.0,
         int cloudSeed = 77,
-        double cloudGlow = 200.0)
+        double cloudGlow = 200.0,
+        float[,]? dest = null)
     {
         var rng = new Random(seed);
-        var data = new float[height, width];
+        var data = dest ?? new float[height, width];
 
         // FWHM from defocus via hyperbola: fwhm = a * cosh(asinh(defocus / b))
         var opticalFwhm = hyperbolaA * Math.Cosh(Asinh(defocusSteps / hyperbolaB));
@@ -242,17 +244,18 @@ internal static class SyntheticStarFieldRenderer
         int? noiseSeed = null,
         double cloudCoverage = 0.0,
         int cloudSeed = 77,
-        double cloudGlow = 200.0)
+        double cloudGlow = 200.0,
+        float[,]? dest = null)
     {
         if (stars.IsEmpty)
         {
             return Render(width, height, defocusSteps, offsetX, offsetY,
                 hyperbolaA, hyperbolaB, exposureSeconds, skyBackground, readNoise,
                 starCount: 50, seed, hotPixelCount, maxADU, seeingArcsec, pixelScaleArcsec,
-                seeingJitterRng, noiseSeed, cloudCoverage, cloudSeed, cloudGlow);
+                seeingJitterRng, noiseSeed, cloudCoverage, cloudSeed, cloudGlow, dest: dest);
         }
 
-        var data = new float[height, width];
+        var data = dest ?? new float[height, width];
 
         // FWHM from defocus via hyperbola
         var opticalFwhm = hyperbolaA * Math.Cosh(Asinh(defocusSteps / hyperbolaB));
@@ -642,9 +645,10 @@ internal static class SyntheticStarFieldRenderer
         double hyperbolaA = 2.0,
         double hyperbolaB = 50.0,
         int bayerOffsetX = 0,
-        int bayerOffsetY = 0)
+        int bayerOffsetY = 0,
+        float[,]? dest = null)
     {
-        var data = new float[height, width];
+        var data = dest ?? new float[height, width];
 
         // FWHM from defocus
         var fwhm = hyperbolaA * Math.Cosh(Asinh(defocusSteps / hyperbolaB));
