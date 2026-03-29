@@ -40,7 +40,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
     // Initialise variables to hold values required for functionality tested by Conform
 
     private int _camImageReady = 0;
-    private Float32HxWImageData? _camImageArray;
+    private Imaging.Channel? _camImageArray;
     private float[,]? _recycledBuffer;
     private readonly ITimer?[] _pulseGuiderTimers = new ITimer?[4];
 
@@ -330,7 +330,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
 
     public double FullWellCapacity => ElectronsPerADU * MaxADU;
 
-    public Float32HxWImageData? ImageData
+    public Imaging.Channel? ImageData
     {
         get
         {
@@ -351,10 +351,11 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
 
     public void ReleaseImageData()
     {
-        var prev = Interlocked.CompareExchange(ref _camImageArray, null, _camImageArray);
-        if (prev is { Data: [{ } channel] })
+        var prev = _camImageArray;
+        _camImageArray = null;
+        if (prev is { } ch)
         {
-            Interlocked.CompareExchange(ref _recycledBuffer, channel, null);
+            Interlocked.CompareExchange(ref _recycledBuffer, ch.Data, null);
         }
     }
 
@@ -680,7 +681,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         => ValueTask.FromResult(Interlocked.CompareExchange(ref _pulseGuideDirections, 0, 0) is not 0);
 
 
-    Float32HxWImageData DownloadImage(in CameraSettings exposureSettings)
+    Imaging.Channel DownloadImage(in CameraSettings exposureSettings)
     {
         var w = exposureSettings.Width;
         var h = exposureSettings.Height;
@@ -707,9 +708,9 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         var recycled = Interlocked.Exchange(ref _recycledBuffer, null);
         float[,] channel;
         float maxValue, minValue;
-        if (cachedArray?.Data is [{ } cached] && cached.GetLength(0) == h && cached.GetLength(1) == w)
+        if (cachedArray is { } ca && ca.Data.GetLength(0) == h && ca.Data.GetLength(1) == w)
         {
-            channel = cached;
+            channel = ca.Data;
             maxValue = 0f;
             minValue = float.MaxValue;
         }
@@ -725,7 +726,6 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
             maxValue = 0f;
             minValue = float.MaxValue;
         }
-        var data = new float[][,] { channel };
         switch (exposureSettings.BitDepth.BitSize)
         {
             case 8:
@@ -761,12 +761,12 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         }
 
         // put the new array back
-        var array = new Float32HxWImageData(data, maxValue, minValue);
-        _ = Interlocked.CompareExchange(ref _camImageArray, array, null);
+        var result = new Imaging.Channel(channel, default, minValue, maxValue, 0);
+        _camImageArray = result;
         // finished downloading
         _camState = CameraState.Idle;
 
-        return array;
+        return result;
     }
 
     private void StopExposureInternal()
