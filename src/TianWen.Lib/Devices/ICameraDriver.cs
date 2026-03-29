@@ -125,6 +125,13 @@ public interface ICameraDriver : IDeviceDriver
     void ReleaseImageData();
 
     /// <summary>
+    /// Returns the ref-counted channel buffer for the current image, if the driver supports buffer reuse.
+    /// The default method <see cref="GetImageAsync"/> calls <see cref="Imaging.ChannelBuffer.AddRef"/> on this
+    /// and attaches it to the returned <see cref="Image"/>. Consumers call <see cref="Image.Release"/> when done.
+    /// </summary>
+    internal Imaging.ChannelBuffer? ChannelBuffer => null;
+
+    /// <summary>
     /// Returns bit depth, usually <see cref="BitDepth.Int8"/> or <see cref="BitDepth.Int16"/> or <see langword="null"/> if camera is not initialised.
     /// Will throw if <see cref="CanSetBitDepth"/> is <see langword="false" /> and an attempt to set value is made.
     /// </summary>
@@ -267,7 +274,7 @@ public interface ICameraDriver : IDeviceDriver
         float egain;
         try { egain = (float)ElectronsPerADU; } catch { egain = float.NaN; }
 
-        return imageData.ToImage(
+        var image = imageData.ToImage(
             bitDepth,
             pedestal: 0f,
             new ImageMeta(
@@ -300,6 +307,15 @@ public interface ICameraDriver : IDeviceDriver
                 SWCreator: External.SWCreator
             )
         );
+
+        // Attach ref-counted channel buffer so consumers can signal when done.
+        // AddRef for the consumer — camera holds its own ref until ReleaseImageData().
+        if (ChannelBuffer is { } buf)
+        {
+            image.WithChannelBuffers(buf.AddRef());
+        }
+
+        return image;
     }
 
     #region Image metadata

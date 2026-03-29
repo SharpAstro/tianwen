@@ -435,7 +435,7 @@ internal partial record Session
                     Array2DPool<float>.HitCount,
                     Array2DPool<float>.MissCount,
                     Array2DPool<float>.ReturnCount,
-                    Image.FinalizerReturnCount);
+                    0);
 
                 // Return raw image channels to pool immediately — the debayered viewerImage
                 // is kept in _lastCapturedImages for the MiniViewer, but the raw data is no longer needed
@@ -460,7 +460,7 @@ internal partial record Session
             Environment.WorkingSet / (1024.0 * 1024),
             GC.GetTotalMemory(forceFullCollection: false) / (1024.0 * 1024),
             Array2DPool<float>.TotalPooled,
-            Image.FinalizerReturnCount);
+            0);
 
         // Reset camera state after V-curve loop
         if (telescopeIndex < _cameraStates.Length)

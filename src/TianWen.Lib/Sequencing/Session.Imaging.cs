@@ -415,8 +415,11 @@ internal partial record Session
                             External.AppLogger.LogInformation("Camera #{CameraNumber} {CameraName} finished {ExposureStartTime} exposure of frame #{FrameNo}",
                                 i + 1, camDriver.Name, frameExpTime, frameNo);
 
-                            // 1. Enqueue raw image for FITS write
+                            // 1. Enqueue raw image for FITS write — image holds its own ChannelBuffer ref via AddRef in GetImageAsync
                             imageWriteQueue.Enqueue(new QueuedImageWrite(image, observation, expStartTimes[i], frameNo, frameExpTime, i));
+
+                            // Drop camera's ref — the Image's ChannelBuffer ref keeps the float[,] alive until Release()
+                            camDriver.ReleaseImageData();
 
                             // 2. Normalize + debayer + star detection → viewer + metrics
                             FrameMetrics metrics = default;
@@ -729,8 +732,10 @@ internal partial record Session
                 }
                 finally
                 {
-                    // Release raw image buffer back to camera for reuse
-                    Setup.Telescopes[imageWrite.CameraIndex].Camera.Driver.ReleaseImageData();
+                    // Release consumer's ref on the channel buffer.
+                    // Camera's ref was already dropped by ReleaseImageData() after enqueue.
+                    // When both refs are gone, onRelease fires → camera gets float[,] back.
+                    imageWrite.Image.Release();
                 }
             }
         }

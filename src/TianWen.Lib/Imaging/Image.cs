@@ -88,30 +88,36 @@ public partial class Image(float[][,] data, BitDepth bitDepth, float maxValue, f
         return channels;
     }
 
-    private volatile bool _channelsReturned;
+    /// <summary>
+    /// Ref-counted channel buffers — set when the image wraps camera-owned data.
+    /// Null for images created by debayer/normalize (those own their arrays outright).
+    /// </summary>
+    private ChannelBuffer?[]? _channelBuffers;
 
     /// <summary>
-    /// Returns all channel arrays to <see cref="Array2DPool{T}"/> for reuse.
-    /// Safe to call multiple times — only the first call returns arrays to the pool.
+    /// Attaches ref-counted channel buffers to this image. Call <see cref="Release"/> when done.
     /// </summary>
-    internal void ReturnChannelData()
+    internal Image WithChannelBuffers(params ChannelBuffer?[] buffers)
     {
-        if (_channelsReturned) return;
-        _channelsReturned = true;
+        _channelBuffers = buffers;
+        return this;
+    }
 
-        for (var c = 0; c < data.Length; c++)
+    /// <summary>
+    /// Releases all ref-counted channel buffers. When all holders release,
+    /// the backing <c>float[,]</c> returns to the camera for reuse.
+    /// Safe to call multiple times — idempotent.
+    /// </summary>
+    public void Release()
+    {
+        if (Interlocked.Exchange(ref _channelBuffers, null) is { } buffers)
         {
-            if (data[c] is { } channel)
+            for (var c = 0; c < buffers.Length; c++)
             {
-                Array2DPool<float>.Return(channel);
+                buffers[c]?.Release();
             }
         }
     }
-
-    private static long _finalizerReturnCount;
-
-    /// <summary>Number of times the finalizer had to return channels (missed eager returns).</summary>
-    public static long FinalizerReturnCount => Volatile.Read(ref _finalizerReturnCount);
 
     /// <summary>
     /// calculate image pixel value on subpixel level
