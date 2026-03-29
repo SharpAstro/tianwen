@@ -256,23 +256,29 @@ public sealed class AstroImageDocument
     /// Computes stretch shader uniforms for the current stretch mode and parameters.
     /// </summary>
     public StretchUniforms ComputeStretchUniforms(StretchMode mode, StretchParameters parameters)
+        => ComputeStretchUniforms(mode, parameters, PerChannelStats, LumaStats, UnstretchedImage.MaxValue);
+
+    /// <summary>
+    /// Computes stretch shader uniforms from stats directly — no <see cref="AstroImageDocument"/> needed.
+    /// </summary>
+    public static StretchUniforms ComputeStretchUniforms(StretchMode mode, StretchParameters parameters, ChannelStretchStats[] perChannelStats, ChannelStretchStats? lumaStats, float imageMaxValue)
     {
         if (mode is StretchMode.None)
         {
             return new StretchUniforms(StretchMode.None, 1f, default, default, default, default, default);
         }
 
-        var normFactor = UnstretchedImage.MaxValue > 1.0f + float.Epsilon ? 1f / UnstretchedImage.MaxValue : 1f;
+        var normFactor = imageMaxValue > 1.0f + float.Epsilon ? 1f / imageMaxValue : 1f;
         var factor = parameters.Factor;
         var clipping = parameters.ShadowsClipping;
 
-        if (mode is StretchMode.Luma && LumaStats is { } luma)
+        if (mode is StretchMode.Luma && lumaStats is { } luma)
         {
             var (s, m, h, r) = Image.ComputeStretchParameters(luma.Median, luma.Mad, factor, clipping);
 
             // Use per-channel pedestals for background subtraction (avoids green cast from RGGB)
             // but luma-derived midtone/shadows/rescale for consistent stretch across channels
-            var chStats = PerChannelStats;
+            var chStats = perChannelStats;
             var ped0 = chStats.Length > 0 ? chStats[0].Pedestal : luma.Pedestal;
             var ped1 = chStats.Length > 1 ? chStats[1].Pedestal : ped0;
             var ped2 = chStats.Length > 2 ? chStats[2].Pedestal : ped0;
@@ -288,7 +294,7 @@ public sealed class AstroImageDocument
         }
 
         // Linked or unlinked
-        var stats = PerChannelStats;
+        var stats = perChannelStats;
         var ch0 = stats.Length > 0 ? stats[0] : default;
         var ch1 = stats.Length > 1 ? stats[1] : ch0;
         var ch2 = stats.Length > 2 ? stats[2] : ch0;

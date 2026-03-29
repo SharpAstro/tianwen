@@ -19,13 +19,14 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
     private readonly VkRenderer _renderer;
     private readonly VkFitsImagePipeline _fitsPipeline;
 
-    private AstroImageDocument? _document;
-    private Image? _pendingImage;
-    private Task<AstroImageDocument>? _pendingDoc;
-    private CancellationTokenSource? _pendingCts;
+    private volatile Image? _pendingImage;
+    private Image? _currentImage;
     private int _uploadedImageWidth;
     private int _uploadedImageHeight;
     private int _uploadedChannelCount;
+
+    // Cached stretch stats — recomputed only when image dimensions change
+    private ChannelStretchStats[]? _cachedStretchStats;
 
     public VkMiniViewerWidget(VkRenderer renderer)
     {
@@ -33,87 +34,67 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
         _fitsPipeline = new VkFitsImagePipeline(renderer.Surface);
     }
 
-    public bool HasImage => _document is not null || _pendingImage is not null;
+    public bool HasImage => _currentImage is not null || _pendingImage is not null;
 
     public MiniViewerState State { get; } = new MiniViewerState();
 
     public void QueueImage(Image image)
     {
-        // Cancel any in-flight doc creation to avoid holding old image data
-        _pendingCts?.Cancel();
-        _pendingCts = null;
-        _pendingDoc = null;
         _pendingImage = image;
     }
 
-    /// <summary>Processes any queued image: computes stretch stats and uploads textures.</summary>
+    /// <summary>
+    /// Uploads channel data directly to GPU — no AstroImageDocument, no async task,
+    /// no debayer (image is already processed by the session).
+    /// </summary>
     private void ProcessPendingImage()
     {
-        // Check if the async stats computation completed
-        if (_pendingDoc is { IsCompleted: true } task)
+        if (_pendingImage is not { } image)
         {
-            _pendingDoc = null;
-            if (task.IsCompletedSuccessfully)
+            return;
+        }
+        _pendingImage = null;
+
+        // Upload channel spans directly to GPU textures
+        var channelCount = image.ChannelCount;
+        for (var c = 0; c < channelCount; c++)
+        {
+            _fitsPipeline.UploadChannelTexture(image.GetChannelSpan(c), c, image.Width, image.Height);
+        }
+
+        _uploadedImageWidth = image.Width;
+        _uploadedImageHeight = image.Height;
+        _uploadedChannelCount = channelCount;
+
+        // Compute stretch stats only when needed (dimensions changed or first frame)
+        if (_cachedStretchStats is null || _cachedStretchStats.Length != channelCount)
+        {
+            _cachedStretchStats = new ChannelStretchStats[channelCount];
+            for (var c = 0; c < channelCount; c++)
             {
-                UploadAndSwapDocument(task.Result);
+                var (ped, med, mad) = image.GetPedestralMedianAndMADScaledToUnit(c);
+                _cachedStretchStats[c] = new ChannelStretchStats(ped, med, mad);
             }
         }
 
-        // Kick off async stats computation for newly queued image
-        if (_pendingImage is { } image && _pendingDoc is null)
-        {
-            _pendingImage = null;
-            _pendingCts = new CancellationTokenSource();
-            _pendingDoc = AstroImageDocument.CreateFromImageAsync(image, cancellationToken: _pendingCts.Token);
-
-            // For small images (guide camera), the task may complete synchronously —
-            // check immediately to avoid a 500ms delay before the image appears
-            if (_pendingDoc is { IsCompleted: true } newTask)
-            {
-                _pendingDoc = null;
-                if (newTask.IsCompletedSuccessfully)
-                {
-                    UploadAndSwapDocument(newTask.Result);
-                }
-            }
-        }
-    }
-
-    /// <summary>
-    /// Uploads new document textures, then returns old document's channels to the pool.
-    /// Safe because this runs on the render thread — no concurrent access to the old image.
-    /// </summary>
-    private void UploadAndSwapDocument(AstroImageDocument doc)
-    {
-        var img = doc.UnstretchedImage;
-        for (var c = 0; c < img.ChannelCount; c++)
-        {
-            _fitsPipeline.UploadChannelTexture(img.GetChannelSpan(c), c, img.Width, img.Height);
-        }
-
-        _uploadedImageWidth = img.Width;
-        _uploadedImageHeight = img.Height;
-        _uploadedChannelCount = img.ChannelCount;
-
-        // Return old image's channels to pool before replacing reference
-        _document?.UnstretchedImage.ReturnChannelData();
-        _document = doc;
+        _currentImage = image;
     }
 
     public void Render(RectF32 rect, uint windowWidth, uint windowHeight)
     {
         ProcessPendingImage();
 
-        if (_document is not { } doc || _uploadedImageWidth <= 0 || _uploadedImageHeight <= 0)
+        if (_cachedStretchStats is not { } stretchStats || _uploadedImageWidth <= 0 || _uploadedImageHeight <= 0)
         {
             return;
         }
 
-        // Compute stretch from state
-        var stretch = doc.ComputeStretchUniforms(State.StretchMode, State.StretchParameters);
+        // Compute stretch from cached stats — no AstroImageDocument needed
+        var maxValue = _currentImage?.MaxValue ?? 1f;
+        var stretch = AstroImageDocument.ComputeStretchUniforms(State.StretchMode, State.StretchParameters, stretchStats, null, maxValue);
 
-        // Background level for boost midpoint
-        var bgLevel = doc.PerChannelBackground.Length > 0 ? doc.PerChannelBackground[0] : 0.25f;
+        // Use pedestal as background estimate for boost midpoint
+        var bgLevel = stretchStats.Length > 0 ? stretchStats[0].Pedestal : 0.25f;
 
         var cmd = _renderer.CurrentCommandBuffer;
 
