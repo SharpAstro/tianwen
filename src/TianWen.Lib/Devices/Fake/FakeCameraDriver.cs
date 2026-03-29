@@ -35,8 +35,12 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
     }
 
     private Float32HxWImageData? _lastImageData;
-    private ChannelBuffer? _channelBuffer; // ref-counted owner of _lastImageData.Data[0]
-    private float[,]? _recycledBuffer; // returned when ChannelBuffer refcount hits 0
+    private ChannelBuffer? _channelBuffer;
+
+    // Double-buffer: two float[,] slots. Camera renders into _freeBuffer,
+    // then swaps it to become the active frame. The old active buffer becomes
+    // free when all consumers Release() their refs (via ChannelBuffer.onRelease).
+    private float[,]? _freeBuffer;
     private CameraSettings _cameraSettings;
     private CameraSettings _exposureSettings;
     private ExposureData? _exposureData;
@@ -277,7 +281,9 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
     {
         lock (_lock)
         {
-            // Drop camera's ref — when all consumers also release, onRelease stores in _recycledBuffer
+            // Drop camera's ref — when all consumers also Release() their Image,
+            // ChannelBuffer refcount hits 0 → onRelease stores buffer in _freeBuffer
+            // for reuse by the next exposure's Render(dest:).
             Interlocked.Exchange(ref _channelBuffer, null)?.Release();
             _lastImageData = null;
         }
@@ -542,10 +548,11 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
                     var imgHeight = lastExposureSettings.Height - lastExposureSettings.StartY;
                     var imgWidth = lastExposureSettings.Width - lastExposureSettings.StartX;
 
-                    // Buffer reuse disabled — dest rendering causes data races when the
-                    // previous frame's Image is still being read by the viewer/guider.
-                    // Proper fix requires double-buffering in the camera.
-                    float[,]? dest = null;
+                    // Double-buffer: render into _freeBuffer if available and correctly sized.
+                    // The old active frame stays intact until consumers Release() their refs.
+                    var free = Interlocked.Exchange(ref _freeBuffer, null);
+                    var dest = free is not null && free.GetLength(0) == imgHeight && free.GetLength(1) == imgWidth
+                        ? free : null;
 
                     float[,] array;
                     if (TrueBestFocus is { } bestFocus)
@@ -603,7 +610,7 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
                         }
                     }
 
-                    _channelBuffer = new ChannelBuffer(array, onRelease: recycled => _recycledBuffer = recycled);
+                    _channelBuffer = new ChannelBuffer(array, onRelease: recycled => Interlocked.Exchange(ref _freeBuffer, recycled));
                     _lastImageData = new Float32HxWImageData([array], dataMax, dataMin);
                 }
             }
