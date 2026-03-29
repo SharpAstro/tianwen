@@ -609,7 +609,14 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
                         }
                     }
 
-                    _channelBuffer = new ChannelBuffer(array, onRelease: recycled => Interlocked.Exchange(ref _freeBuffer, recycled));
+                    _channelBuffer = new ChannelBuffer(array, onRelease: recycled =>
+                    {
+                        var prev = Interlocked.CompareExchange(ref _freeBuffer, recycled, null);
+                        if (prev is not null)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"ChannelBuffer onRelease: _freeBuffer already occupied, dropping {recycled.GetLength(0)}x{recycled.GetLength(1)} buffer");
+                        }
+                    });
                     _lastImageData = new Float32HxWImageData([array], dataMax, dataMin);
                 }
             }
