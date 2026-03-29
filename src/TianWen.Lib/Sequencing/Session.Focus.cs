@@ -113,9 +113,8 @@ internal partial record Session
 
                 if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } image)
                 {
-
-
                     var stars = await image.FindStarsAsync(0, snrMin: 15, cancellationToken: cancellationToken);
+                    image.Release();
 
 
                     _currentActivity = $"Stars: {stars.Count}/15 (exposure {expTimesSec[i]}s)";
@@ -437,11 +436,10 @@ internal partial record Session
                     Array2DPool<float>.ReturnCount,
                     0);
 
-                // Return raw image channels to pool immediately — the debayered viewerImage
-                // is kept in _lastCapturedImages for the MiniViewer, but the raw data is no longer needed
+                // Release raw image's ChannelBuffer — debayer already read the data into new arrays
                 if (!ReferenceEquals(image, viewerImage))
                 {
-
+                    image.Release();
                     image = null;
                 }
             }
@@ -500,7 +498,7 @@ internal partial record Session
             if (verifyImage is { Width: > 0, Height: > 0 })
             {
                 var verifyStars = await verifyImage.FindStarsAsync(0, snrMin: 10, cancellationToken: cancellationToken);
-
+                verifyImage.Release();
                 if (verifyStars.Count > 3)
                 {
                     var baseline = FrameMetrics.FromStarList(verifyStars, autoFocusExposure, currentGain);
@@ -522,7 +520,7 @@ internal partial record Session
             }
             else
             {
-
+                verifyImage?.Release();
             }
 
             // Fit converged but we couldn't measure baseline — use the hyperbola minimum as HFD estimate
@@ -582,7 +580,7 @@ internal partial record Session
         var searchOrigin = new WCS(mountRa, mountDec);
 
         var result = await PlateSolver.SolveImageAsync(image, searchOrigin: searchOrigin, searchRadius: 10, cancellationToken: cancellationToken);
-
+        image.Release();
 
         if (result.Solution is not { } wcs)
         {
