@@ -1,3 +1,4 @@
+using TianWen.Lib.Imaging;
 using Shouldly;
 using System;
 using System.IO;
@@ -39,7 +40,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         var tracker = new GuiderCentroidTracker(maxStars: 1);
 
         // Render based on mount position
-        async ValueTask<float[,]> RenderFrame(CancellationToken token)
+        async ValueTask<Image> RenderFrame(CancellationToken token)
         {
             var ra = await mount.GetRightAscensionAsync(token);
             var dec = await mount.GetDeclinationAsync(token);
@@ -47,14 +48,14 @@ public class GuideLoopTests(ITestOutputHelper output)
             var deltaDecArcsec = (dec - initialDec) * 3600.0;
             var offsetX = deltaRaArcsec / PixelScaleArcsec;
             var offsetY = deltaDecArcsec / PixelScaleArcsec;
-            return SyntheticStarFieldRenderer.Render(FrameWidth, FrameHeight, 0,
+            return Image.FromChannel(SyntheticStarFieldRenderer.Render(FrameWidth, FrameHeight, 0,
                 offsetX: offsetX, offsetY: offsetY,
                 starCount: 5, seed: 42,
-                pixelScaleArcsec: PixelScaleArcsec);
+                pixelScaleArcsec: PixelScaleArcsec));
         }
 
         // Acquire initial guide star
-        tracker.ProcessFrame(await RenderFrame(ct));
+        tracker.ProcessFrame((await RenderFrame(ct)).GetChannelArray(0));
         tracker.IsAcquired.ShouldBeTrue();
 
         // Calibrate
@@ -79,7 +80,7 @@ public class GuideLoopTests(ITestOutputHelper output)
 
         // Re-acquire after calibration
         tracker.Reset();
-        tracker.ProcessFrame(await RenderFrame(ct));
+        tracker.ProcessFrame((await RenderFrame(ct)).GetChannelArray(0));
         tracker.SetLockPosition();
 
         // Set up guide loop
@@ -97,7 +98,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var iterationCount = 0;
 
-        async ValueTask<float[,]> RenderAndCount(CancellationToken token)
+        async ValueTask<Image> RenderAndCount(CancellationToken token)
         {
             if (++iterationCount >= maxIterations)
             {
@@ -141,7 +142,7 @@ public class GuideLoopTests(ITestOutputHelper output)
 
         var tracker = new GuiderCentroidTracker(maxStars: 1);
 
-        async ValueTask<float[,]> RenderFrame(CancellationToken token)
+        async ValueTask<Image> RenderFrame(CancellationToken token)
         {
             var ra = await mount.GetRightAscensionAsync(token);
             var dec = await mount.GetDeclinationAsync(token);
@@ -149,14 +150,14 @@ public class GuideLoopTests(ITestOutputHelper output)
             var deltaDecArcsec = (dec - initialDec) * 3600.0;
             var offsetX = deltaRaArcsec / PixelScaleArcsec;
             var offsetY = deltaDecArcsec / PixelScaleArcsec;
-            return SyntheticStarFieldRenderer.Render(FrameWidth, FrameHeight, 0,
+            return Image.FromChannel(SyntheticStarFieldRenderer.Render(FrameWidth, FrameHeight, 0,
                 offsetX: offsetX, offsetY: offsetY,
                 starCount: 5, seed: 42,
-                pixelScaleArcsec: PixelScaleArcsec);
+                pixelScaleArcsec: PixelScaleArcsec));
         }
 
         // Acquire
-        tracker.ProcessFrame(await RenderFrame(ct));
+        tracker.ProcessFrame((await RenderFrame(ct)).GetChannelArray(0));
 
         // Calibrate
         var calibration = new GuiderCalibration
@@ -176,7 +177,7 @@ public class GuideLoopTests(ITestOutputHelper output)
 
         // Re-acquire
         tracker.Reset();
-        tracker.ProcessFrame(await RenderFrame(ct));
+        tracker.ProcessFrame((await RenderFrame(ct)).GetChannelArray(0));
         tracker.SetLockPosition();
 
         // Set up guide loop with neural model + online learning
@@ -213,7 +214,7 @@ public class GuideLoopTests(ITestOutputHelper output)
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             var iterationCount = 0;
 
-            async ValueTask<float[,]> RenderAndCount(CancellationToken token)
+            async ValueTask<Image> RenderAndCount(CancellationToken token)
             {
                 if (++iterationCount >= maxIterations)
                 {
@@ -276,7 +277,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         // Persistent RNG for seeing jitter — different jitter each frame
         var seeingRng = new Random(123);
 
-        async ValueTask<float[,]> RenderFrame(CancellationToken token)
+        async ValueTask<Image> RenderFrame(CancellationToken token)
         {
             var ra = await mount.GetRightAscensionAsync(token);
             var dec = await mount.GetDeclinationAsync(token);
@@ -284,16 +285,16 @@ public class GuideLoopTests(ITestOutputHelper output)
             var deltaDecArcsec = (dec - initialDec) * 3600.0;
             var offsetX = deltaRaArcsec / PixelScaleArcsec;
             var offsetY = deltaDecArcsec / PixelScaleArcsec;
-            return SyntheticStarFieldRenderer.Render(FrameWidth, FrameHeight, 0,
+            return Image.FromChannel(SyntheticStarFieldRenderer.Render(FrameWidth, FrameHeight, 0,
                 offsetX: offsetX, offsetY: offsetY,
                 starCount: 5, seed: 42,
                 pixelScaleArcsec: PixelScaleArcsec,
                 seeingArcsec: seeingArcsec,
-                seeingJitterRng: seeingRng);
+                seeingJitterRng: seeingRng));
         }
 
         // Acquire
-        tracker.ProcessFrame(await RenderFrame(ct));
+        tracker.ProcessFrame((await RenderFrame(ct)).GetChannelArray(0));
         tracker.IsAcquired.ShouldBeTrue();
 
         // Calibrate (seeing jitter is present but calibration should still succeed)
@@ -317,7 +318,7 @@ public class GuideLoopTests(ITestOutputHelper output)
 
         // Re-acquire
         tracker.Reset();
-        tracker.ProcessFrame(await RenderFrame(ct));
+        tracker.ProcessFrame((await RenderFrame(ct)).GetChannelArray(0));
         tracker.SetLockPosition();
 
         // Guide with P-controller
@@ -333,7 +334,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var iterationCount = 0;
 
-        async ValueTask<float[,]> RenderAndCount(CancellationToken token)
+        async ValueTask<Image> RenderAndCount(CancellationToken token)
         {
             if (++iterationCount >= maxIterations)
             {
@@ -452,7 +453,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         var tracker = new GuiderCentroidTracker(maxStars: 1);
         var seeingRng = new Random(123);
 
-        async ValueTask<float[,]> RenderFrame(CancellationToken token)
+        async ValueTask<Image> RenderFrame(CancellationToken token)
         {
             var ra = await mount.GetRightAscensionAsync(token);
             var dec = await mount.GetDeclinationAsync(token);
@@ -460,16 +461,16 @@ public class GuideLoopTests(ITestOutputHelper output)
             var deltaDecArcsec = (dec - initialDec) * 3600.0;
             var offsetX = deltaRaArcsec / PixelScaleArcsec;
             var offsetY = deltaDecArcsec / PixelScaleArcsec;
-            return SyntheticStarFieldRenderer.Render(FrameWidth, FrameHeight, 0,
+            return Image.FromChannel(SyntheticStarFieldRenderer.Render(FrameWidth, FrameHeight, 0,
                 offsetX: offsetX, offsetY: offsetY,
                 starCount: 5, seed: 42,
                 pixelScaleArcsec: PixelScaleArcsec,
                 seeingArcsec: seeingArcsec,
-                seeingJitterRng: seeingRng);
+                seeingJitterRng: seeingRng));
         }
 
         // Acquire
-        tracker.ProcessFrame(await RenderFrame(ct));
+        tracker.ProcessFrame((await RenderFrame(ct)).GetChannelArray(0));
         tracker.IsAcquired.ShouldBeTrue();
 
         // Calibrate (seeing jitter present during calibration too)
@@ -492,7 +493,7 @@ public class GuideLoopTests(ITestOutputHelper output)
 
         // Re-acquire
         tracker.Reset();
-        tracker.ProcessFrame(await RenderFrame(ct));
+        tracker.ProcessFrame((await RenderFrame(ct)).GetChannelArray(0));
         tracker.SetLockPosition();
 
         // Set up guide loop with neural model + online learning
@@ -528,7 +529,7 @@ public class GuideLoopTests(ITestOutputHelper output)
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             var iterationCount = 0;
 
-            async ValueTask<float[,]> RenderAndCount(CancellationToken token)
+            async ValueTask<Image> RenderAndCount(CancellationToken token)
             {
                 if (++iterationCount >= 80)
                 {
@@ -591,7 +592,7 @@ public class GuideLoopTests(ITestOutputHelper output)
 
         await Should.ThrowAsync<InvalidOperationException>(async () =>
         {
-            await guideLoop.RunAsync(_ => ValueTask.FromResult(new float[240, 320]),
+            await guideLoop.RunAsync(_ => ValueTask.FromResult(Image.FromChannel(new float[240, 320])),
                 TimeSpan.FromSeconds(1), hourAngle: 0, declination: 45.0, siteLatitude: 48.2, ct);
         });
     }
@@ -738,7 +739,7 @@ public class GuideLoopTests(ITestOutputHelper output)
     // --- Helpers ---
 
     private async Task<(FakeMountDriver mount, GuideLoop guideLoop, GuiderCentroidTracker tracker,
-        GuiderCalibrationResult calResult, Func<CancellationToken, ValueTask<float[,]>> renderFrame)>
+        GuiderCalibrationResult calResult, Func<CancellationToken, ValueTask<Image>> renderFrame)>
         SetupGuidedMount(CancellationToken ct,
             double peAmplitude = 0, double pePeriod = 480.0, double windAmplitude = 0, double flexureRate = 0,
             double cableSnagTime = 0, double cableSnagRa = 0, double cableSnagDec = 0,
@@ -756,7 +757,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         var tracker = new GuiderCentroidTracker(maxStars: 1);
         var seeingRng = seeingArcsec > 0 ? new Random(123) : null;
 
-        async ValueTask<float[,]> RenderFrame(CancellationToken token)
+        async ValueTask<Image> RenderFrame(CancellationToken token)
         {
             var ra = await mount.GetRightAscensionAsync(token);
             var dec = await mount.GetDeclinationAsync(token);
@@ -764,16 +765,16 @@ public class GuideLoopTests(ITestOutputHelper output)
             var deltaDecArcsec = (dec - initialDec) * 3600.0;
             var offsetX = deltaRaArcsec / PixelScaleArcsec;
             var offsetY = deltaDecArcsec / PixelScaleArcsec;
-            return SyntheticStarFieldRenderer.Render(FrameWidth, FrameHeight, 0,
+            return Image.FromChannel(SyntheticStarFieldRenderer.Render(FrameWidth, FrameHeight, 0,
                 offsetX: offsetX, offsetY: offsetY,
                 starCount: 5, seed: 42,
                 pixelScaleArcsec: PixelScaleArcsec,
                 seeingArcsec: seeingArcsec,
-                seeingJitterRng: seeingRng);
+                seeingJitterRng: seeingRng));
         }
 
         // Acquire initial guide star
-        tracker.ProcessFrame(await RenderFrame(ct));
+        tracker.ProcessFrame((await RenderFrame(ct)).GetChannelArray(0));
 
         // Calibrate
         var calibration = new GuiderCalibration
@@ -797,7 +798,7 @@ public class GuideLoopTests(ITestOutputHelper output)
 
         // Re-acquire
         tracker.Reset();
-        tracker.ProcessFrame(await RenderFrame(ct));
+        tracker.ProcessFrame((await RenderFrame(ct)).GetChannelArray(0));
         tracker.SetLockPosition();
 
         // Set up guide loop
@@ -815,14 +816,14 @@ public class GuideLoopTests(ITestOutputHelper output)
 
     private async Task RunGuideIterations(
         GuideLoop guideLoop,
-        Func<CancellationToken, ValueTask<float[,]>> renderFrame,
+        Func<CancellationToken, ValueTask<Image>> renderFrame,
         int maxIterations,
         CancellationToken ct)
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var iterationCount = 0;
 
-        async ValueTask<float[,]> RenderAndCount(CancellationToken token)
+        async ValueTask<Image> RenderAndCount(CancellationToken token)
         {
             if (++iterationCount >= maxIterations)
             {
