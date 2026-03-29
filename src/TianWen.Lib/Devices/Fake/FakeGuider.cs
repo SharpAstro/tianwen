@@ -338,9 +338,9 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
                     break;
                 }
 
+                _lastLoopFrame?.Release();
                 var frame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, ct);
                 _lastLoopFrame = frame;
-                camera.ReleaseImageData();
             }
 
             // Wait for settle to complete before starting guided capture
