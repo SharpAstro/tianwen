@@ -436,7 +436,11 @@ public partial class Image
     {
         var width = Width;
         var height = Height;
-        var debayered = CreateChannelData(3, height, width); // RGB intermediate (Phase 2-3 scratch)
+        // Scratch arrays for AHD phases — pooled to avoid 6 × H×W allocations per frame
+        using var debR = Array2DPool<float>.RentScoped(height, width);
+        using var debG = Array2DPool<float>.RentScoped(height, width);
+        using var debB = Array2DPool<float>.RentScoped(height, width);
+        var debayered = new float[][,] { debR.Array, debG.Array, debB.Array };
 
         var bayerOffsetX = imageMeta.BayerOffsetX;
         var bayerOffsetY = imageMeta.BayerOffsetY;
@@ -455,7 +459,10 @@ public partial class Image
 
         // Phase 1 & 2: Build horizontal and vertical full-color interpolations in parallel
         var rgbH = destination ?? CreateChannelData(3, height, width);
-        var rgbV = CreateChannelData(3, height, width);
+        using var vR = Array2DPool<float>.RentScoped(height, width);
+        using var vG = Array2DPool<float>.RentScoped(height, width);
+        using var vB = Array2DPool<float>.RentScoped(height, width);
+        var rgbV = new float[][,] { vR.Array, vG.Array, vB.Array };
 
         var srcChannel = data[0];
         var rgbH_R = rgbH[R]; var rgbH_G = rgbH[G]; var rgbH_B = rgbH[B];
