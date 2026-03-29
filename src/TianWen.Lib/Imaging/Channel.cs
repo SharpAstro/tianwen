@@ -58,12 +58,6 @@ public readonly record struct Channel(float[,] Data, Filter Filter, float MinVal
     }
 
     /// <summary>
-    /// Creates a new channel with the same dimensions, filter, and index but fresh zero-initialized data.
-    /// </summary>
-    public Channel CreateSameShape()
-        => new Channel(new float[Height, Width], Filter, 0f, 0f, Index);
-
-    /// <summary>
     /// Creates a new channel with the specified dimensions and metadata.
     /// </summary>
     public static Channel Create(int height, int width, Filter filter = default, byte index = 0)

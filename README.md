@@ -156,6 +156,80 @@ graph LR
 
 > Solid arrows = inheritance, dashed arrows = instantiates driver via `NewInstanceFromDevice`.
 
+## Image Pipeline & Buffer Lifecycle
+
+The image pipeline manages `float[,]` pixel data from camera capture through debayer, star detection, FITS writing, and GPU display — with zero-copy buffer reuse to minimize allocations.
+
+### Types
+
+| Type | Kind | Purpose |
+|------|------|---------|
+| `float[,]` | Raw array | Pixel data in H×W layout. The actual memory being managed. |
+| `Channel` | `readonly record struct` | Typed view over a `float[,]` with `Filter`, `MinValue`, `MaxValue`, `Index`. Zero overhead. Returned by `ICameraDriver.ImageData`. |
+| `ChannelBuffer` | `sealed class` (internal) | Ref-counted owner of a `float[,]`. When refcount reaches zero, `onRelease` fires → camera recycles the buffer. |
+| `Image` | `partial class` | Wraps `float[][,]` (jagged array of channel planes) + `ImageMeta`. Used by star detection, FITS write, plate solve. Holds optional `ChannelBuffer` refs — call `Release()` when done. |
+| `Array2DPool<T>` | `static class` | Separate pool for temporary scratch arrays (AHD debayer uses 6 per frame). Not used for camera buffers. |
+
+### Data Flow
+
+```mermaid
+flowchart TD
+    subgraph Camera
+        Render["SyntheticStarFieldRenderer.Render(dest?)"]
+        CB["ChannelBuffer(float[,], onRelease)"]
+        CH["Channel(float[,], Filter, min, max)"]
+        Free["_freeBuffers (ConcurrentBag)"]
+    end
+
+    subgraph GetImageAsync
+        IMG["Image([channel.Data], bitDepth, meta)"]
+        Transfer["Transfer ChannelBuffer → Image"]
+    end
+
+    subgraph Consumers
+        FITS["FITS Write (reads float[,] by ref)"]
+        Debayer["DebayerIntoAsync(persistent Channel[])"]
+        Stars["FindStarsAsync (reads pixels)"]
+        Viewer["MiniViewer GPU upload (GetChannelSpan)"]
+    end
+
+    Render --> CB
+    CB --> CH
+    CH -->|"ImageData property"| GetImageAsync
+    GetImageAsync --> IMG
+    IMG --> Transfer
+
+    Transfer --> FITS
+    Transfer --> Debayer
+    Transfer --> Stars
+    Debayer --> Viewer
+
+    FITS -->|"image.Release()"| Release["ChannelBuffer refcount → 0"]
+    Release -->|"onRelease callback"| Free
+    Free -->|"next exposure"| Render
+```
+
+### Buffer Lifecycle
+
+1. **First exposure**: `_freeBuffers` is empty → `Render()` allocates a fresh `float[,]`.
+2. **`StopExposureCore`**: Wraps the array in `ChannelBuffer(array, onRelease: bag.Add)` and stores as `Channel` in `ImageData`.
+3. **`GetImageAsync`**: Builds `Image` from `Channel.Data`, transfers `ChannelBuffer` ownership to the Image, calls `ReleaseImageData()` to clear camera state.
+4. **Consumer**: Reads pixel data (debayer, star detection, FITS write). The `float[,]` stays alive because the `Image` holds the `ChannelBuffer` ref.
+5. **`image.Release()`**: Decrements `ChannelBuffer` refcount to zero → `onRelease` fires → `float[,]` goes into `_freeBuffers`.
+6. **Next exposure**: `StopExposureCore` grabs a buffer from `_freeBuffers` via `TryTake()` and passes it as `dest` to `Render()` → **zero allocation**.
+
+### Viewer Path (Zero-Copy)
+
+The session owns persistent `Channel[]` per telescope (`_viewerChannels`). `DebayerIntoAsync` writes AHD/BilinearMono output directly into these channels — no new `float[,]` allocated per frame. The `MiniViewer` uploads the channel spans to the GPU synchronously via `UploadChannelTexture()` and computes stretch stats inline. No `AstroImageDocument` is created for live preview.
+
+### AHD Debayer Scratch
+
+AHD uses 6 temporary `float[,]` arrays (3 for `debayered`, 3 for `rgbV`). These are rented from `Array2DPool<float>` via `RentScoped()` and returned when the debayer method completes. The output channels (`rgbH`/`filtered`) are the persistent viewer channels — not pooled.
+
+### Guide Camera
+
+The guide camera follows the same `ChannelBuffer` lifecycle. `CaptureGuideFrameAsync` calls `GetImageAsync` → gets an `Image` with transferred `ChannelBuffer`. `GuideLoop.RunAsync` releases the old frame before each new capture. The double-buffer mechanism ensures the camera never overwrites pixel data still being read by the viewer.
+
 ## Installation
 
 ### Library

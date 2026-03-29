@@ -543,6 +543,27 @@ IDs 10+ wrap (mod 9), enabling dual-rig testing with identical sensors.
 - Log scale default: ON for unstretched, OFF for stretched; toggled via Shift+V
 - `MemoryMarshal.CreateReadOnlySpan` provides zero-copy row access on the internal `float[,]` arrays
 
+### Image Pipeline & Buffer Lifecycle
+
+Camera → Channel → ChannelBuffer → Image → Consumer → Release → Camera recycles.
+
+**Types**:
+- `float[,]` — raw pixel data (H×W). The actual memory.
+- `Channel` (`readonly record struct`) — typed view: `(float[,] Data, Filter, MinValue, MaxValue, Index)`. Returned by `ICameraDriver.ImageData`. Zero overhead.
+- `ChannelBuffer` (`internal sealed class`) — ref-counted owner. Born refcount=1. `GetImageAsync` transfers to Image (single owner). `image.Release()` → refcount=0 → `onRelease` → camera's `_freeBuffers.Add()`.
+- `Image` — wraps `float[][,]` + metadata. Holds optional `ChannelBuffer` refs. Call `Release()` after FITS write/processing.
+- `Array2DPool<T>` — static pool for AHD debayer scratch (6 arrays). `RentScoped()` returns `Lease` (IDisposable). Disabled in tests (`Enabled=false`).
+
+**Camera double-buffer**: `FakeCameraDriver` uses `ConcurrentBag<float[,]> _freeBuffers`. `Render(dest:)` reuses a recycled buffer. Old frame stays intact until all consumers `Release()`.
+
+**Viewer zero-copy**: Session owns persistent `Channel[] _viewerChannels` per telescope. `DebayerIntoAsync` writes directly into them. `MiniViewer` uploads channel spans to GPU — no `AstroImageDocument` for live preview.
+
+**Key rules**:
+- Camera creates `ChannelBuffer`, `GetImageAsync` transfers ownership, consumer calls `image.Release()` when done
+- Never hold an `Image` from `GetImageAsync` longer than needed — it pins the camera buffer
+- `DebayerIntoAsync` for viewer output, `DebayerAsync` only for FITS viewer (file-based)
+- `Array2DPool` is for scratch only — camera buffers use `ChannelBuffer`/`_freeBuffers`
+
 ### Code Quality Guidelines
 
 - **Reduced allocations**: prefer `MemoryMarshal`, `stackalloc`, `ArrayPool<T>`, and `Span<T>` over allocating new arrays. Use `ReadOnlySpan<T>` for read-only views.
