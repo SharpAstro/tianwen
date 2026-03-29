@@ -280,10 +280,9 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
     {
         lock (_lock)
         {
-            // Just clear camera state — buffer ownership was already transferred
-            // to the Image in GetImageAsync. No Release needed here.
+            // Clear channel buffer — ownership was transferred to the Image in GetImageAsync.
+            // Keep _lastImageData so GetImageReadyAsync still returns true until next StartExposureAsync.
             _channelBuffer = null;
-            _lastImageData = null;
         }
     }
 
