@@ -1028,7 +1028,7 @@ internal partial record Session
             }
 
             var stars = await image.FindStarsAsync(0, snrMin: 10, maxStars: 100, cancellationToken: cancellationToken);
-
+            image.Release();
             var currentGain = await camera.GetGainAsync(cancellationToken);
             var metrics = FrameMetrics.FromStarList(stars, testExposure, currentGain);
 
