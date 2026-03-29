@@ -115,7 +115,7 @@ public interface ICameraDriver : IDeviceDriver
 
     ValueTask SetFastReadoutAsync(bool value, CancellationToken cancellationToken = default);
 
-    Float32HxWImageData? ImageData { get; }
+    Imaging.Channel? ImageData { get; }
 
     /// <summary>
     /// Signals that the consumer is done with the current image data returned by <see cref="ImageData"/>.
@@ -263,7 +263,7 @@ public interface ICameraDriver : IDeviceDriver
     {
         if (!Connected) return null;
         if (!await GetImageReadyAsync(cancellationToken)) return null;
-        if (ImageData is not ({ Length: > 0 }, >= 0, >= 0) imageData) return null;
+        if (ImageData is not { } channel || channel.Length == 0) return null;
         if (await GetBitDepthAsync(cancellationToken) is not { } bitDepth || !bitDepth.IsIntegral) return null;
         if (LastExposureStartTime is not { } startTime) return null;
 
@@ -274,8 +274,11 @@ public interface ICameraDriver : IDeviceDriver
         float egain;
         try { egain = (float)ElectronsPerADU; } catch { egain = float.NaN; }
 
-        var image = imageData.ToImage(
+        var image = new Image(
+            [channel.Data],
             bitDepth,
+            channel.MaxValue,
+            channel.MinValue,
             pedestal: 0f,
             new ImageMeta(
                 Name,

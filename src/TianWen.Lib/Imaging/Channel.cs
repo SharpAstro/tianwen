@@ -68,4 +68,30 @@ public readonly record struct Channel(float[,] Data, Filter Filter, float MinVal
     /// </summary>
     public static Channel Create(int height, int width, Filter filter = default, byte index = 0)
         => new Channel(new float[height, width], filter, 0f, 0f, index);
+
+    /// <summary>
+    /// Transposes and converts W×H <c>int[,]</c> source data (ASCOM convention) to a H×W <see cref="Channel"/>.
+    /// </summary>
+    public static Channel FromWxHImageData(int[,] sourceData)
+    {
+        var width = sourceData.GetLength(0);
+        var height = sourceData.GetLength(1);
+
+        var maxValue = 0f;
+        var minValue = float.MaxValue;
+        var data = new float[height, width];
+
+        for (var h = 0; h < height; h++)
+        {
+            for (var w = 0; w < width; w++)
+            {
+                float val = sourceData[w, h];
+                data[h, w] = val;
+                if (val > maxValue) maxValue = val;
+                if (val < minValue) minValue = val;
+            }
+        }
+
+        return new Channel(data, default, minValue, maxValue, 0);
+    }
 }

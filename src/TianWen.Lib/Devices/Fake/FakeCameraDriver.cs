@@ -34,7 +34,7 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
         }
     }
 
-    private Float32HxWImageData? _lastImageData;
+    private Imaging.Channel? _lastImageData;
     private ChannelBuffer? _channelBuffer;
 
     // Recycled buffers returned by consumers via ChannelBuffer.onRelease.
@@ -258,7 +258,7 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
     public ValueTask SetFastReadoutAsync(bool value, CancellationToken cancellationToken = default)
         => throw new InvalidOperationException("Fast readout not supported");
 
-    public Float32HxWImageData? ImageData
+    public Imaging.Channel? ImageData
     {
         get
         {
@@ -615,7 +615,7 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
                     }
 
                     _channelBuffer = new ChannelBuffer(array, onRelease: recycled => _freeBuffers.Add(recycled));
-                    _lastImageData = new Float32HxWImageData([array], dataMax, dataMin);
+                    _lastImageData = new Imaging.Channel(array, Filter, dataMin, dataMax, 0);
                 }
             }
 

@@ -103,7 +103,7 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
 
                 Thread.Sleep((int)TimeSpan.FromSeconds(0.5).TotalMilliseconds);
                 (await driver.GetImageReadyAsync(cancellationToken)).ShouldBeTrue();
-                var (data, expectedMax, expectedMin) = driver.ImageData.ShouldNotBeNull();
+                var ch = driver.ImageData.ShouldNotBeNull(); var data = ch.Data; var expectedMax = ch.MaxValue; var expectedMin = ch.MinValue;
 
                 var image = (await driver.GetImageAsync(cancellationToken)).ShouldNotBeNull();
 

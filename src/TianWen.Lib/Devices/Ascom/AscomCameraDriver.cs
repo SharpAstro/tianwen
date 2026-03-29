@@ -273,7 +273,7 @@ internal class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
         return ValueTask.CompletedTask;
     }
 
-    public Float32HxWImageData? ImageData => Connected ? Float32HxWImageData.FromWxHImageData(_camera.ImageArray) : null;
+    public Imaging.Channel? ImageData => Connected ? Imaging.Channel.FromWxHImageData(_camera.ImageArray) : null;
 public void ReleaseImageData() { }
 
     public int MaxADU => Connected ? _camera.MaxADU : throw new InvalidOperationException("Camera is not connected");
