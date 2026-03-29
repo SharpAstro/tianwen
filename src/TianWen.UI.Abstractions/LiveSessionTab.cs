@@ -31,7 +31,7 @@ namespace TianWen.UI.Abstractions
         private const float BaseTimelineHeight = 60f;
         private const float BaseBotStripHeight = 100f;
         private const float BaseOtaPanelW       = 240f;
-        private const float BaseRightPanelW    = 260f;
+        private const float BaseRightPanelW    = 325f;
         private const float BaseGuideRmsH      = 20f;
         private const float BasePadding        = 6f;
         private const float BaseRowHeight      = 20f;
