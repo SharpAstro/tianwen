@@ -35,6 +35,7 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
     }
 
     private Float32HxWImageData? _lastImageData;
+    private float[,]? _recycledBuffer; // returned by consumer via ReleaseImageData for reuse
     private CameraSettings _cameraSettings;
     private CameraSettings _exposureSettings;
     private ExposureData? _exposureData;
@@ -266,6 +267,18 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
             {
                 return _lastImageData;
             }
+        }
+    }
+
+    public void ReleaseImageData()
+    {
+        lock (_lock)
+        {
+            if (_lastImageData is { Data: [{ } channel] })
+            {
+                _recycledBuffer = channel;
+            }
+            _lastImageData = null;
         }
     }
 
