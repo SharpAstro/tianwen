@@ -348,6 +348,11 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         }
     }
 
+    public void ReleaseImageData()
+    {
+        _camImageArray = null;
+    }
+
     public ValueTask<short> GetGainAsync(CancellationToken cancellationToken = default)
     {
         if (Connected

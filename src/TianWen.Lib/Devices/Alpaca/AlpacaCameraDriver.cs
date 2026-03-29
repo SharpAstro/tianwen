@@ -274,6 +274,7 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IExternal external)
     }
 
     public Float32HxWImageData? ImageData => null; // TODO: Alpaca imagearray endpoint requires special binary handling
+public void ReleaseImageData() { }
 
     public DateTimeOffset? LastExposureStartTime { get; private set; }
 
