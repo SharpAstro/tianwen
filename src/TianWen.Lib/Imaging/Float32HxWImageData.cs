@@ -18,7 +18,7 @@ public record Float32HxWImageData(float[][,] Data, float MaxValue, float MinValu
 
         var maxValue = 0f;
         var minValue = float.MaxValue;
-        var channel = Array2DPool<float>.Rent(height, width);
+        var channel = new float[height, width];
 
         for (var h = 0; h < height; h++)
         {

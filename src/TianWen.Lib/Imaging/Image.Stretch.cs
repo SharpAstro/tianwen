@@ -106,8 +106,7 @@ public partial class Image
             var needsNorm = MaxValue > 1.0f + float.Epsilon;
             var normFactor = 1.0f / MaxValue;
 
-            using var lumaLease = Array2DPool<float>.RentScoped(height, width);
-            var lumaChannel = lumaLease.Array;
+            var lumaChannel = new float[height, width];
             var lumaMin = float.MaxValue;
 
             for (var y = 0; y < height; y++)
@@ -149,8 +148,7 @@ public partial class Image
         var (channelCount, width, height) = Shape;
 
         // Build luminance channel
-        using var lumaLease = Array2DPool<float>.RentScoped(height, width);
-        var lumaData = lumaLease.Array;
+        var lumaData = new float[height, width];
         var srcR = data[0];
         var srcG = data[1];
         var srcB = data[2];

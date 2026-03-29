@@ -129,7 +129,7 @@ public partial class Image
             }
             else
             {
-                imgChannels[c] = Array2DPool<float>.Rent(height, width);
+                imgChannels[c] = new float[height, width];
                 switch (channelArray)
                 {
                     case byte[,] src: ConvertChannel(src, imgChannels[c]); break;

@@ -730,7 +730,7 @@ internal partial record Session
                 finally
                 {
                     // Return raw image channels to pool after FITS write (or error)
-                    imageWrite.Image.ReturnChannelData();
+
                 }
             }
         }
@@ -1023,7 +1023,7 @@ internal partial record Session
             }
 
             var stars = await image.FindStarsAsync(0, snrMin: 10, maxStars: 100, cancellationToken: cancellationToken);
-            image.ReturnChannelData();
+
             var currentGain = await camera.GetGainAsync(cancellationToken);
             var metrics = FrameMetrics.FromStarList(stars, testExposure, currentGain);
 
