@@ -23,7 +23,9 @@ public class FakeExternal : IExternal
 
     public FakeExternal(ITestOutputHelper testOutputHelper, DirectoryInfo? root = null, DateTimeOffset? now = null, TimeSpan? autoAdvanceAmount = null, [CallerMemberName] string? callerName = null)
     {
-        // Pool is safe for tests now — no finalizer, only deterministic RentScoped/Return
+        // Disable array pooling in tests — parallel tests share the static pool,
+        // causing cross-test data races on pooled scratch arrays.
+        Array2DPool<float>.Enabled = false;
 
         _timeProvider = now is { }
             ? new FakeTimeProvider(now.Value) { AutoAdvanceAmount = autoAdvanceAmount ?? TimeSpan.Zero }

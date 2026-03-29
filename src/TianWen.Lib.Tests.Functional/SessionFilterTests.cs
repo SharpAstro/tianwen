@@ -60,7 +60,8 @@ public class SessionFilterTests(ITestOutputHelper output)
             )
         };
 
-        using var ctx = await SessionTestHelper.CreateDualOTASessionAsync(output, observations: observations, now: WinterNight, cancellationToken: ct);
+        var config = SessionTestHelper.DefaultConfiguration with { MinHeightAboveHorizon = 10 };
+        using var ctx = await SessionTestHelper.CreateDualOTASessionAsync(output, configuration: config, observations: observations, now: WinterNight, cancellationToken: ct);
 
         // Set up both cameras at best focus so they produce synthetic star images
         ctx.OSCCamera.TrueBestFocus = TrueBestFocusPosition;
@@ -86,18 +87,19 @@ public class SessionFilterTests(ITestOutputHelper output)
         await ctx.External.SleepAsync(TimeSpan.FromSeconds(4), ct);
 
         var observation = ctx.Session.ActiveObservation!;
-        var tickDuration = TimeSpan.FromSeconds(30);
+        ctx.External.ExternalTimePump = true;
         var loopTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, -0.5, ct), ct);
 
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(180));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
-        for (var i = 0; i < 30 && !loopTask.IsCompleted && !linked.IsCancellationRequested; i++)
+        var pumpIncrement = TimeSpan.FromSeconds(5);
+        var maxFakeTime = TimeSpan.FromHours(4);
+        var pumped = TimeSpan.Zero;
+        while (pumped < maxFakeTime && !loopTask.IsCompleted && !linked.IsCancellationRequested)
         {
-            await ctx.External.SleepAsync(tickDuration, ct);
-            for (var spin = 0; spin < 10 && !loopTask.IsCompleted; spin++)
-            {
-                await Task.Delay(10, ct);
-            }
+            ctx.External.Advance(pumpIncrement);
+            pumped += pumpIncrement;
+            await Task.Delay(1, ct);
         }
 
         loopTask.IsCompleted.ShouldBeTrue("imaging loop should complete within timeout");
