@@ -66,15 +66,15 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
         _uploadedImageHeight = image.Height;
         _uploadedChannelCount = channelCount;
 
-        // Compute stretch stats only when needed (dimensions changed or first frame)
+        // Recompute stretch stats every frame — pixel data changes, stats must follow
         if (_cachedStretchStats is null || _cachedStretchStats.Length != channelCount)
         {
             _cachedStretchStats = new ChannelStretchStats[channelCount];
-            for (var c = 0; c < channelCount; c++)
-            {
-                var (ped, med, mad) = image.GetPedestralMedianAndMADScaledToUnit(c);
-                _cachedStretchStats[c] = new ChannelStretchStats(ped, med, mad);
-            }
+        }
+        for (var c = 0; c < channelCount; c++)
+        {
+            var (ped, med, mad) = image.GetPedestralMedianAndMADScaledToUnit(c);
+            _cachedStretchStats[c] = new ChannelStretchStats(ped, med, mad);
         }
 
         _currentImage = image;
