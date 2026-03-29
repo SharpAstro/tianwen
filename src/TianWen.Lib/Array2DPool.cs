@@ -47,7 +47,7 @@ public static class Array2DPool<T>
     private static long _returns;
 
     /// <summary>Maximum arrays to retain per (height, width) bucket.</summary>
-    private const int MaxPerBucket = 3;
+    private const int MaxPerBucket = 8; // AHD debayer uses 6 scratch arrays of the same size
 
     /// <summary>Arrays unused for longer than this are trimmed on Gen2 GC under moderate pressure.</summary>
     private const long TrimAfterMs = 30_000;
