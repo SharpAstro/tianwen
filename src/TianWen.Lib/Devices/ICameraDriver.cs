@@ -118,6 +118,13 @@ public interface ICameraDriver : IDeviceDriver
     Float32HxWImageData? ImageData { get; }
 
     /// <summary>
+    /// Signals that the consumer is done with the current image data returned by <see cref="ImageData"/>.
+    /// The camera driver may reuse the backing <c>float[,]</c> arrays for the next exposure.
+    /// Must be called after FITS writing and any processing that reads the raw pixel data.
+    /// </summary>
+    void ReleaseImageData() { }
+
+    /// <summary>
     /// Returns bit depth, usually <see cref="BitDepth.Int8"/> or <see cref="BitDepth.Int16"/> or <see langword="null"/> if camera is not initialised.
     /// Will throw if <see cref="CanSetBitDepth"/> is <see langword="false" /> and an attempt to set value is made.
     /// </summary>

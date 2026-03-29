@@ -729,8 +729,8 @@ internal partial record Session
                 }
                 finally
                 {
-                    // Return raw image channels to pool after FITS write (or error)
-
+                    // Release raw image buffer back to camera for reuse
+                    Setup.Telescopes[imageWrite.CameraIndex].Camera.Driver.ReleaseImageData();
                 }
             }
         }
