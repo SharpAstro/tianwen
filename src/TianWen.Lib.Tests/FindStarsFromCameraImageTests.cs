@@ -29,8 +29,8 @@ public class FindStarsFromCameraImageTests
         var imageMeta = new ImageMeta(fileName, DateTime.UtcNow, expTime, FrameType.Light, "", 2.4f, 2.4f, 190, -1, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
 
         // when
-        var imageData = Float32HxWImageData.FromWxHImageData(int16WxHData);
-        var image = imageData.ToImage(BitDepth, Pedestal, imageMeta);
+        var imageData = Channel.FromWxHImageData(int16WxHData);
+        var image = new Image([imageData.Data], BitDepth, imageData.MaxValue, imageData.MinValue, Pedestal, imageMeta);
         var stars = await image.FindStarsAsync(channel, snrMin: snr_min, cancellationToken: cancellationToken);
 
         // then
@@ -60,8 +60,8 @@ public class FindStarsFromCameraImageTests
         var imageMeta = new ImageMeta(fileName, DateTime.UtcNow, expTime, FrameType.Light, "", 2.4f, 2.4f, 190, -1, Filter.None, 1, 1, float.NaN, SensorType.Monochrome, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
 
         // when
-        var imageData = Float32HxWImageData.FromWxHImageData(int16WxHData);
-        var denormalized = imageData.ToImage(BitDepth.Int16, Pedestal, imageMeta);
+        var imageData = Channel.FromWxHImageData(int16WxHData);
+        var denormalized = new Image([imageData.Data], BitDepth.Int16, imageData.MaxValue, imageData.MinValue, Pedestal, imageMeta);
         var denormalizedStars = await denormalized.FindStarsAsync(channel, snrMin: snr_min, cancellationToken: cancellationToken);
 
         // SNR is now scale-invariant — same threshold works for normalized images
