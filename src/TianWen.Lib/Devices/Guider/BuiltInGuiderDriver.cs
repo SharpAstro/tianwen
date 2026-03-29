@@ -438,9 +438,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
             await external.SleepAsync(TimeSpan.FromMilliseconds(50), ct);
         }
 
-        var image = await camera.GetImageAsync(ct) ?? throw new GuiderException("Failed to capture guide frame — no image data");
-        camera.ReleaseImageData(); // drop camera's ref — Image holds its own via ChannelBuffer
-        return image;
+        return await camera.GetImageAsync(ct) ?? throw new GuiderException("Failed to capture guide frame — no image data");
     }
 
     public ValueTask DitherAsync(double ditherPixels, double settlePixels, double settleTime, double settleTimeout, bool raOnly = false, CancellationToken cancellationToken = default)

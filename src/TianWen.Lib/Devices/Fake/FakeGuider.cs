@@ -339,6 +339,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
                 }
 
                 _lastLoopFrame?.Release();
+                camera.ReleaseImageData(); // old frame released — camera can now reuse buffer for next capture
                 var frame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, ct);
                 _lastLoopFrame = frame;
             }
