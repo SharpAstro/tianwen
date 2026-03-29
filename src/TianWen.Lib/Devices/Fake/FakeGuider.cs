@@ -249,12 +249,13 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
     private Image? _cachedGuideImage;
     private float[,]? _cachedGuideFrame;
 
-    /// <summary>Last guide frame as a mono Image — zero-copy, cached until frame changes.</summary>
+    /// <summary>Last guide frame as a mono Image — zero-copy, cached until frame changes.
+    /// Returns the guide loop frame (when guiding) or the loop capture frame (when looping).</summary>
     public Image? LastGuideFrame
     {
         get
         {
-            if (_guideLoop?.LastFrame is not { } frame) return null;
+            if ((_guideLoop?.LastFrame ?? _lastLoopFrame) is not { } frame) return null;
             if (ReferenceEquals(frame, _cachedGuideFrame)) return _cachedGuideImage;
 
             _cachedGuideFrame = frame;
@@ -348,14 +349,27 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
                     return;
                 }
 
-                if (state is GuiderState.Guiding)
+                if (state is GuiderState.Guiding or GuiderState.Settling)
                 {
-                    break; // Transition to phase 2: guided capture
+                    // Abort any in-flight exposure before transitioning
+                    if (await camera.GetCameraStateAsync(ct) is CameraState.Exposing)
+                    {
+                        await camera.AbortExposureAsync(ct);
+                    }
+                    break;
                 }
 
                 var frame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, ct);
                 _lastLoopFrame = frame;
             }
+
+            // Wait for settle to complete before starting guided capture
+            while (CurrentState is GuiderState.Settling && !ct.IsCancellationRequested)
+            {
+                await ext.SleepAsync(TimeSpan.FromMilliseconds(100), ct);
+            }
+
+            if (ct.IsCancellationRequested || CurrentState is GuiderState.Idle) return;
 
             // Phase 2: Guided capture — acquire guide star, then run GuideLoop
             var tracker = new GuiderCentroidTracker(maxStars: 1);
