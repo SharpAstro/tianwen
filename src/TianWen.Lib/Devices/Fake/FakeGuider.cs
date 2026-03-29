@@ -378,6 +378,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
                 {
                     var f = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, token);
                     _lastLoopFrame = f;
+                    camera.ReleaseImageData(); // drop camera's ref — Image + GuideLoop.LastFrame hold consumer refs
                     return f;
                 },
                 exposureTime, hourAngle, declination, siteLatitude, ct);
