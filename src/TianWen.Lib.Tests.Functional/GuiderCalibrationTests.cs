@@ -1,3 +1,4 @@
+using TianWen.Lib.Imaging;
 using Shouldly;
 using System;
 using System.Threading;
@@ -36,7 +37,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         };
 
         // Render based on mount position change (pulse guides move the mount)
-        async ValueTask<float[,]> RenderFrame(CancellationToken token)
+        async ValueTask<Image> RenderFrame(CancellationToken token)
         {
             var ra = await mount.GetRightAscensionAsync(token);
             var dec = await mount.GetDeclinationAsync(token);
@@ -46,14 +47,14 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
             var deltaDecArcsec = (dec - initialDec) * 3600.0;
             var offsetX = deltaRaArcsec / PixelScaleArcsec;
             var offsetY = deltaDecArcsec / PixelScaleArcsec;
-            return SyntheticStarFieldRenderer.Render(320, 240, 0,
+            return Image.FromChannel(SyntheticStarFieldRenderer.Render(320, 240, 0,
                 offsetX: offsetX, offsetY: offsetY,
                 starCount: 5, seed: 42,
-                pixelScaleArcsec: PixelScaleArcsec);
+                pixelScaleArcsec: PixelScaleArcsec));
         }
 
         // Initial frame — acquire guide star
-        tracker.ProcessFrame(await RenderFrame(ct));
+        tracker.ProcessFrame((await RenderFrame(ct)).GetChannelArray(0));
         tracker.IsAcquired.ShouldBeTrue();
 
         // Calibrate
@@ -98,7 +99,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
             CalibrationSteps = 3
         };
 
-        async ValueTask<float[,]> RenderFrame(CancellationToken token)
+        async ValueTask<Image> RenderFrame(CancellationToken token)
         {
             var ra = await mount.GetRightAscensionAsync(token);
             var dec = await mount.GetDeclinationAsync(token);
@@ -106,14 +107,14 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
             var deltaDecArcsec = (dec - initialDec) * 3600.0;
             var offsetX = deltaRaArcsec / PixelScaleArcsec;
             var offsetY = deltaDecArcsec / PixelScaleArcsec;
-            return SyntheticStarFieldRenderer.Render(320, 240, 0,
+            return Image.FromChannel(SyntheticStarFieldRenderer.Render(320, 240, 0,
                 offsetX: offsetX, offsetY: offsetY,
                 starCount: 5, seed: 42,
-                pixelScaleArcsec: PixelScaleArcsec);
+                pixelScaleArcsec: PixelScaleArcsec));
         }
 
         // Full calibration first
-        tracker.ProcessFrame(await RenderFrame(ct));
+        tracker.ProcessFrame((await RenderFrame(ct)).GetChannelArray(0));
         var pulseTarget = new MountPulseGuideTarget(mount);
         var calResult = await calibration.CalibrateAsync(pulseTarget, tracker, RenderFrame, external, ct);
         calResult.ShouldNotBeNull();
@@ -122,7 +123,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
 
         // Re-acquire for validation
         tracker.Reset();
-        tracker.ProcessFrame(await RenderFrame(ct));
+        tracker.ProcessFrame((await RenderFrame(ct)).GetChannelArray(0));
 
         // Validate with same mount/conditions — should be Valid
         var result = await calibration.ValidateAsync(calResult.Value, pulseTarget, tracker, RenderFrame, external, ct);
@@ -184,7 +185,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
             BacklashMovementThresholdPx = 0.3
         };
 
-        async ValueTask<float[,]> RenderFrame(CancellationToken token)
+        async ValueTask<Image> RenderFrame(CancellationToken token)
         {
             var ra = await mount.GetRightAscensionAsync(token);
             var dec = await mount.GetDeclinationAsync(token);
@@ -192,14 +193,14 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
             var deltaDecArcsec = (dec - initialDec) * 3600.0;
             var offsetX = deltaRaArcsec / PixelScaleArcsec;
             var offsetY = deltaDecArcsec / PixelScaleArcsec;
-            return SyntheticStarFieldRenderer.Render(320, 240, 0,
+            return Image.FromChannel(SyntheticStarFieldRenderer.Render(320, 240, 0,
                 offsetX: offsetX, offsetY: offsetY,
                 starCount: 5, seed: 42,
-                pixelScaleArcsec: PixelScaleArcsec);
+                pixelScaleArcsec: PixelScaleArcsec));
         }
 
         // Acquire guide star
-        tracker.ProcessFrame(await RenderFrame(ct));
+        tracker.ProcessFrame((await RenderFrame(ct)).GetChannelArray(0));
         tracker.IsAcquired.ShouldBeTrue();
 
         // Run adaptive backlash clearing in North direction (reversal from South)
@@ -242,7 +243,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
             BacklashMovementThresholdPx = 0.3
         };
 
-        async ValueTask<float[,]> RenderFrame(CancellationToken token)
+        async ValueTask<Image> RenderFrame(CancellationToken token)
         {
             var ra = await mount.GetRightAscensionAsync(token);
             var dec = await mount.GetDeclinationAsync(token);
@@ -250,13 +251,13 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
             var deltaDecArcsec = (dec - initialDec) * 3600.0;
             var offsetX = deltaRaArcsec / PixelScaleArcsec;
             var offsetY = deltaDecArcsec / PixelScaleArcsec;
-            return SyntheticStarFieldRenderer.Render(320, 240, 0,
+            return Image.FromChannel(SyntheticStarFieldRenderer.Render(320, 240, 0,
                 offsetX: offsetX, offsetY: offsetY,
                 starCount: 5, seed: 42,
-                pixelScaleArcsec: PixelScaleArcsec);
+                pixelScaleArcsec: PixelScaleArcsec));
         }
 
-        tracker.ProcessFrame(await RenderFrame(ct));
+        tracker.ProcessFrame((await RenderFrame(ct)).GetChannelArray(0));
         tracker.IsAcquired.ShouldBeTrue();
 
         var result = await calibration.ClearBacklashAsync(
@@ -298,7 +299,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
             BacklashMovementThresholdPx = 0.3
         };
 
-        async ValueTask<float[,]> RenderFrame(CancellationToken token)
+        async ValueTask<Image> RenderFrame(CancellationToken token)
         {
             var ra = await mount.GetRightAscensionAsync(token);
             var dec = await mount.GetDeclinationAsync(token);
@@ -306,13 +307,13 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
             var deltaDecArcsec = (dec - initialDec) * 3600.0;
             var offsetX = deltaRaArcsec / PixelScaleArcsec;
             var offsetY = deltaDecArcsec / PixelScaleArcsec;
-            return SyntheticStarFieldRenderer.Render(320, 240, 0,
+            return Image.FromChannel(SyntheticStarFieldRenderer.Render(320, 240, 0,
                 offsetX: offsetX, offsetY: offsetY,
                 starCount: 5, seed: 42,
-                pixelScaleArcsec: PixelScaleArcsec);
+                pixelScaleArcsec: PixelScaleArcsec));
         }
 
-        tracker.ProcessFrame(await RenderFrame(ct));
+        tracker.ProcessFrame((await RenderFrame(ct)).GetChannelArray(0));
         tracker.IsAcquired.ShouldBeTrue();
 
         var result = await calibration.ClearBacklashAsync(
@@ -353,7 +354,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
             BacklashMovementThresholdPx = 0.3
         };
 
-        async ValueTask<float[,]> RenderFrame(CancellationToken token)
+        async ValueTask<Image> RenderFrame(CancellationToken token)
         {
             var ra = await mount.GetRightAscensionAsync(token);
             var dec = await mount.GetDeclinationAsync(token);
@@ -361,14 +362,14 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
             var deltaDecArcsec = (dec - initialDec) * 3600.0;
             var offsetX = deltaRaArcsec / PixelScaleArcsec;
             var offsetY = deltaDecArcsec / PixelScaleArcsec;
-            return SyntheticStarFieldRenderer.Render(320, 240, 0,
+            return Image.FromChannel(SyntheticStarFieldRenderer.Render(320, 240, 0,
                 offsetX: offsetX, offsetY: offsetY,
                 starCount: 5, seed: 42,
-                pixelScaleArcsec: PixelScaleArcsec);
+                pixelScaleArcsec: PixelScaleArcsec));
         }
 
         // Acquire guide star
-        tracker.ProcessFrame(await RenderFrame(ct));
+        tracker.ProcessFrame((await RenderFrame(ct)).GetChannelArray(0));
         tracker.IsAcquired.ShouldBeTrue();
 
         var result = await calibration.CalibrateAsync(
