@@ -749,10 +749,20 @@ internal partial record Session
                     imageWrite.Image.Release();
                     GC.Collect(2, GCCollectionMode.Forced, blocking: true);
                     GC.WaitForPendingFinalizers();
+                    var gcInfo = GC.GetGCMemoryInfo();
                     External.AppLogger.LogInformation(
-                        "Memory after FITS Release+GC: working={WorkingMB:F0}MB, managed={ManagedMB:F0}MB",
+                        "Memory after FITS Release+GC: working={WorkingMB:F0}MB, managed={ManagedMB:F0}MB, " +
+                        "gen0={Gen0}KB, gen1={Gen1}KB, gen2={Gen2}KB, LOH={LOH}KB, POH={POH}KB, " +
+                        "committed={CommittedMB:F0}MB, promoted={PromotedMB:F0}MB",
                         Environment.WorkingSet / (1024.0 * 1024),
-                        GC.GetTotalMemory(forceFullCollection: false) / (1024.0 * 1024));
+                        GC.GetTotalMemory(forceFullCollection: false) / (1024.0 * 1024),
+                        gcInfo.GenerationInfo[0].SizeAfterBytes / 1024,
+                        gcInfo.GenerationInfo[1].SizeAfterBytes / 1024,
+                        gcInfo.GenerationInfo[2].SizeAfterBytes / 1024,
+                        gcInfo.GenerationInfo[3].SizeAfterBytes / 1024, // LOH
+                        gcInfo.GenerationInfo[4].SizeAfterBytes / 1024, // POH
+                        gcInfo.TotalCommittedBytes / (1024.0 * 1024),
+                        gcInfo.PromotedBytes / (1024.0 * 1024));
                 }
             }
         }
