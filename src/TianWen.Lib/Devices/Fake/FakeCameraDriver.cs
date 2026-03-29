@@ -281,10 +281,9 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
     {
         lock (_lock)
         {
-            // Drop camera's ref — when all consumers also Release() their Image,
-            // ChannelBuffer refcount hits 0 → onRelease stores buffer in _freeBuffer
-            // for reuse by the next exposure's Render(dest:).
-            Interlocked.Exchange(ref _channelBuffer, null)?.Release();
+            // Just clear camera state — buffer ownership was already transferred
+            // to the Image in GetImageAsync. No Release needed here.
+            _channelBuffer = null;
             _lastImageData = null;
         }
     }

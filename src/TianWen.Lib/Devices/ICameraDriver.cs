@@ -308,11 +308,13 @@ public interface ICameraDriver : IDeviceDriver
             )
         );
 
-        // Attach ref-counted channel buffer so consumers can signal when done.
-        // AddRef for the consumer — camera holds its own ref until ReleaseImageData().
+        // Transfer ownership of the channel buffer to the consumer.
+        // Camera drops its ref — the Image is now the sole owner.
+        // When consumer calls image.Release(), onRelease fires → camera gets buffer back.
         if (ChannelBuffer is { } buf)
         {
-            image.WithChannelBuffers(buf.AddRef());
+            image.WithChannelBuffers(buf); // transfer camera's ref (no AddRef needed)
+            ReleaseImageData(); // camera drops its state — buffer lives in Image only
         }
 
         return image;

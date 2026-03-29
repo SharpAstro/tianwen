@@ -339,7 +339,6 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
                 }
 
                 _lastLoopFrame?.Release();
-                camera.ReleaseImageData(); // old frame released — camera can now reuse buffer for next capture
                 var frame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, ct);
                 _lastLoopFrame = frame;
             }
@@ -356,7 +355,6 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
             var tracker = new GuiderCentroidTracker(maxStars: 1);
             var initFrame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, ct);
             _lastLoopFrame = initFrame;
-            camera.ReleaseImageData();
             tracker.ProcessFrame(initFrame.GetChannelArray(0));
             tracker.SetLockPosition();
 
@@ -378,7 +376,6 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
                 {
                     var f = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, token);
                     _lastLoopFrame = f;
-                    camera.ReleaseImageData(); // drop camera's ref — Image + GuideLoop.LastFrame hold consumer refs
                     return f;
                 },
                 exposureTime, hourAngle, declination, siteLatitude, ct);
