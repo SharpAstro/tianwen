@@ -35,6 +35,7 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>Tracks which guide frame reference is displayed to avoid redundant uploads.</summary>
         private Image? _displayedGuideFrame;
+        private int _guideFrameCount;
 
         public override bool HandleInput(InputEvent evt) => false;
 
@@ -116,6 +117,7 @@ namespace TianWen.UI.Abstractions
                 if (image is not null && !ReferenceEquals(image, _displayedGuideFrame))
                 {
                     _displayedGuideFrame = image;
+                    _guideFrameCount++;
                     viewer.QueueImage(image);
                 }
 
@@ -145,14 +147,14 @@ namespace TianWen.UI.Abstractions
                         FillRect(cx, cy + crossGap, 1, crossLen - crossGap, CrosshairColor);
                     }
 
-                    // SNR label in corner
-                    if (State.GuideStarSNR is { } snr)
-                    {
-                        DrawText($"SNR: {snr:F0}", fontPath,
-                            rect.X + 4 * dpiScale, rect.Y + rect.Height - fontSize * 1.4f,
-                            100 * dpiScale, fontSize * 1.2f,
-                            fontSize * 0.8f, BodyText, TextAlign.Near, TextAlign.Far);
-                    }
+                    // SNR + frame count in corner
+                    var infoText = State.GuideStarSNR is { } snr
+                        ? $"SNR: {snr:F0}  #{_guideFrameCount}"
+                        : $"#{_guideFrameCount}";
+                    DrawText(infoText, fontPath,
+                        rect.X + 4 * dpiScale, rect.Y + rect.Height - fontSize * 1.4f,
+                        200 * dpiScale, fontSize * 1.2f,
+                        fontSize * 0.8f, BodyText, TextAlign.Near, TextAlign.Far);
 
                     return;
                 }
