@@ -343,10 +343,12 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
                 _lastLoopFrame = frame;
             }
 
-            // Wait for settle to complete before starting guided capture
+            // Continue capturing during settle — keeps the guider view updating
             while (CurrentState is GuiderState.Settling && !ct.IsCancellationRequested)
             {
-                await ext.SleepAsync(TimeSpan.FromMilliseconds(100), ct);
+                _lastLoopFrame?.Release();
+                var settleFrame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, ct);
+                _lastLoopFrame = settleFrame;
             }
 
             if (ct.IsCancellationRequested || CurrentState is GuiderState.Idle) return;
