@@ -49,7 +49,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
     private ITimer? _settleTimer;
     private CancellationTokenSource? _loopCts;
     private GuideLoop? _guideLoop;
-    private volatile float[,]? _lastLoopFrame;
+    private volatile Image? _lastLoopFrame;
 
     private double _settlePixels;
     private double _settleTime;
@@ -246,30 +246,9 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
         return ValueTask.CompletedTask;
     }
 
-    private Image? _cachedGuideImage;
-    private float[,]? _cachedGuideFrame;
-
-    /// <summary>Last guide frame as a mono Image — zero-copy, cached until frame changes.
+    /// <summary>Last guide frame as a mono Image.
     /// Returns the guide loop frame (when guiding) or the loop capture frame (when looping).</summary>
-    public Image? LastGuideFrame
-    {
-        get
-        {
-            if ((_guideLoop?.LastFrame ?? _lastLoopFrame) is not { } frame) return null;
-            if (ReferenceEquals(frame, _cachedGuideFrame)) return _cachedGuideImage;
-
-            _cachedGuideFrame = frame;
-            var height = frame.GetLength(0);
-            var width = frame.GetLength(1);
-            var max = 0f;
-            for (var y = 0; y < height; y++)
-                for (var x = 0; x < width; x++)
-                    if (frame[y, x] > max) max = frame[y, x];
-            _cachedGuideImage = new Image([frame], BitDepth.Float32, max, 0f, 0f,
-                new ImageMeta { SensorType = SensorType.Monochrome });
-            return _cachedGuideImage;
-        }
-    }
+    public Image? LastGuideFrame => _guideLoop?.LastFrame ?? _lastLoopFrame;
 
     /// <summary>Guide star position in frame pixels.</summary>
     public (double X, double Y)? GuideStarPosition =>
@@ -375,7 +354,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
             var tracker = new GuiderCentroidTracker(maxStars: 1);
             var initFrame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, ct);
             _lastLoopFrame = initFrame;
-            tracker.ProcessFrame(initFrame);
+            tracker.ProcessFrame(initFrame.GetChannelArray(0));
             tracker.SetLockPosition();
 
             var pulseTarget = new PulseGuideRouter(PulseGuideSource.Auto, camera, mount);
@@ -429,30 +408,14 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
     public async ValueTask<string?> SaveImageAsync(string outputFolder, CancellationToken cancellationToken = default)
     {
         // Save the last guide or loop frame if available
-        var frame = _guideLoop?.LastFrame ?? _lastLoopFrame;
-        if (frame is null)
+        var image = _guideLoop?.LastFrame ?? _lastLoopFrame;
+        if (image is null)
         {
             return null;
         }
 
         Directory.CreateDirectory(outputFolder);
         var path = Path.Combine(outputFolder, $"guider_{External.TimeProvider.GetUtcNow().UtcDateTime:yyyyMMdd_HHmmss}.fits");
-
-        var height = frame.GetLength(0);
-        var width = frame.GetLength(1);
-        var dataMax = 0f;
-        var dataMin = float.MaxValue;
-        for (var y = 0; y < height; y++)
-        {
-            for (var x = 0; x < width; x++)
-            {
-                var val = frame[y, x];
-                if (val > dataMax) dataMax = val;
-                if (val < dataMin) dataMin = val;
-            }
-        }
-
-        var image = new Image([frame], BitDepth.Float32, dataMax, dataMin, 0f, default);
 
         // Write WCS headers from current mount pointing so FakePlateSolver can read them
         WCS? wcs = null;

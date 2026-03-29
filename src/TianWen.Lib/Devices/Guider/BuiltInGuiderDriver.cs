@@ -70,45 +70,12 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
     public IExternal External { get; }
 
-    private Image? _cachedGuideImage;
-    private float[,]? _cachedGuideFrame;
 
     /// <summary>
     /// Last guide frame as a mono Image — zero-copy wrap of the internal float[,].
-    /// Cached: only creates a new Image when the underlying frame changes.
+    /// GuideLoop.LastFrame is now an Image — return directly.
     /// </summary>
-    public Image? LastGuideFrame
-    {
-        get
-        {
-            if (_guideLoop?.LastFrame is not { } frame)
-            {
-                return null;
-            }
-
-            if (ReferenceEquals(frame, _cachedGuideFrame))
-            {
-                return _cachedGuideImage;
-            }
-
-            _cachedGuideFrame = frame;
-            var height = frame.GetLength(0);
-            var width = frame.GetLength(1);
-
-            var max = 0f;
-            for (var y = 0; y < height; y++)
-            {
-                for (var x = 0; x < width; x++)
-                {
-                    if (frame[y, x] > max) max = frame[y, x];
-                }
-            }
-
-            _cachedGuideImage = new Image([frame], Imaging.BitDepth.Float32, max, 0f, 0f,
-                new Imaging.ImageMeta { SensorType = Imaging.SensorType.Monochrome });
-            return _cachedGuideImage;
-        }
-    }
+    public Image? LastGuideFrame => _guideLoop?.LastFrame;
 
     /// <summary>Guide star position in frame pixels.</summary>
     public (double X, double Y)? GuideStarPosition =>
@@ -335,16 +302,17 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
         var tracker = new GuiderCentroidTracker(maxStars: 1);
         var frame = await CaptureGuideFrameAsync(camera, exposureTime, External, ct);
-        tracker.ProcessFrame(frame);
+        tracker.ProcessFrame(frame.GetChannelArray(0));
 
         if (!tracker.IsAcquired)
         {
+            frame.Release();
             GuidingErrorEvent?.Invoke(this, new GuidingErrorEventArgs(_device, "Failed to acquire guide star"));
             return null;
         }
 
         var ext = External;
-        async ValueTask<float[,]> CaptureFrame(CancellationToken token)
+        async ValueTask<Image> CaptureFrame(CancellationToken token)
             => await CaptureGuideFrameAsync(camera, exposureTime, ext, token);
 
         var calibration = new GuiderCalibration
@@ -404,11 +372,11 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
             // Acquire guide star and set lock position
             var tracker = new GuiderCentroidTracker(maxStars: 1);
             var ext = External;
-            async ValueTask<float[,]> CaptureFrame(CancellationToken token)
+            async ValueTask<Image> CaptureFrame(CancellationToken token)
                 => await CaptureGuideFrameAsync(camera, exposureTime, ext, token);
 
             var frame = await CaptureGuideFrameAsync(camera, exposureTime, External, ct);
-            tracker.ProcessFrame(frame);
+            tracker.ProcessFrame(frame.GetChannelArray(0));
             tracker.SetLockPosition();
 
             // Build guide loop
@@ -455,7 +423,12 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     /// <summary>
     /// Captures a single guide frame: start exposure, poll until ready, return pixel data.
     /// </summary>
-    internal static async ValueTask<float[,]> CaptureGuideFrameAsync(ICameraDriver camera, TimeSpan exposure, IExternal external, CancellationToken ct)
+    /// <summary>
+    /// Captures a single guide frame via <see cref="ICameraDriver.GetImageAsync"/>.
+    /// The returned <see cref="Image"/> holds a <see cref="ChannelBuffer"/> ref —
+    /// caller must call <see cref="Image.Release"/> when done to allow buffer reuse.
+    /// </summary>
+    internal static async ValueTask<Image> CaptureGuideFrameAsync(ICameraDriver camera, TimeSpan exposure, IExternal external, CancellationToken ct)
     {
         await camera.StartExposureAsync(exposure, FrameType.Light, ct);
 
@@ -465,12 +438,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
             await external.SleepAsync(TimeSpan.FromMilliseconds(50), ct);
         }
 
-        if (camera.ImageData is not { } imageData || imageData.Data.Length == 0)
-        {
-            throw new GuiderException("Failed to capture guide frame — no image data");
-        }
-
-        return imageData.Data[0];
+        return await camera.GetImageAsync(ct) ?? throw new GuiderException("Failed to capture guide frame — no image data");
     }
 
     public ValueTask DitherAsync(double ditherPixels, double settlePixels, double settleTime, double settleTimeout, bool raOnly = false, CancellationToken cancellationToken = default)
