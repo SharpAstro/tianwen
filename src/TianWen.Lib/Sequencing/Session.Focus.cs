@@ -399,20 +399,36 @@ internal partial record Session
                 {
                     _cameraStates[telescopeIndex] = _cameraStates[telescopeIndex] with { State = Devices.CameraState.Download };
                 }
-                // For RGGB: debayer once to mono, use for both viewer and star detection
-                // For mono: normalize in place (no FITS to protect)
-                var viewerImage = image.ImageMeta.SensorType is Imaging.SensorType.RGGB
-                    ? await image.DebayerAsync(Imaging.DebayerAlgorithm.BilinearMono, normalizeToUnit: true, cancellationToken)
-                    : image.ScaleFloatValuesToUnitInPlace();
+                // Debayer into persistent viewer channels (1 channel for BilinearMono)
+                Image viewerImage;
+                var channelCount = image.ImageMeta.SensorType is Imaging.SensorType.RGGB ? 1 : image.ChannelCount;
+                if (telescopeIndex < _viewerChannels.Length)
+                {
+                    if (_viewerChannels[telescopeIndex] is not { } vc || vc.Length != channelCount || vc[0].Height != image.Height || vc[0].Width != image.Width)
+                    {
+                        vc = new Imaging.Channel[channelCount];
+                        for (var c = 0; c < channelCount; c++)
+                            vc[c] = Imaging.Channel.Create(image.Height, image.Width, image.ImageMeta.Filter, (byte)c);
+                        _viewerChannels[telescopeIndex] = vc;
+                    }
+
+                    viewerImage = await image.DebayerIntoAsync(vc,
+                        image.ImageMeta.SensorType is Imaging.SensorType.RGGB ? Imaging.DebayerAlgorithm.BilinearMono : Imaging.DebayerAlgorithm.None,
+                        normalizeToUnit: true, cancellationToken);
+                }
+                else
+                {
+                    viewerImage = image.ImageMeta.SensorType is Imaging.SensorType.RGGB
+                        ? await image.DebayerAsync(Imaging.DebayerAlgorithm.BilinearMono, normalizeToUnit: true, cancellationToken)
+                        : image.ScaleFloatValuesToUnitInPlace();
+                }
 
                 if (telescopeIndex < _lastCapturedImages.Length)
                 {
-                    // Return previous viewer image channels to pool before overwriting
-
                     _lastCapturedImages[telescopeIndex] = viewerImage;
                 }
 
-                // Star detection on the mono/normalized image (no second debayer)
+                // Star detection on the mono/normalized image
                 var stars = await viewerImage.FindStarsAsync(0, snrMin: 10, cancellationToken: cancellationToken);
                 if (stars.Count > 3)
                 {

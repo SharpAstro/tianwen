@@ -63,6 +63,10 @@ internal partial record Session(
     public Image?[] LastCapturedImages => _lastCapturedImages;
     private volatile Image?[] _lastCapturedImages = [];
 
+    // Persistent viewer channels — allocated once per telescope, reused across frames.
+    // Debayer writes directly into these. The viewer reads them for GPU upload.
+    private Channel[]?[] _viewerChannels = [];
+
     public FrameMetrics[] LastFrameMetrics => _lastFrameMetrics;
     private FrameMetrics[] _lastFrameMetrics = [];
 
@@ -194,6 +198,7 @@ internal partial record Session(
         {
             _cameraStates = new CameraExposureState[Setup.Telescopes.Length];
                 _lastCapturedImages = new Image?[Setup.Telescopes.Length];
+                _viewerChannels = new Imaging.Channel[]?[Setup.Telescopes.Length];
                 _lastFrameMetrics = new FrameMetrics[Setup.Telescopes.Length];
                 _frameMetricsHistory = new CircularBuffer<FrameMetrics>[Setup.Telescopes.Length];
                 for (var i = 0; i < Setup.Telescopes.Length; i++)

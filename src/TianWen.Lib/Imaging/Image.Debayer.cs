@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using static TianWen.Lib.Stat.StatisticsHelper;
@@ -29,16 +30,71 @@ public partial class Image
     }
 
     /// <summary>
+    /// Debayers into pre-allocated destination channels. Zero allocation on the output path —
+    /// the caller owns the <paramref name="destination"/> arrays and can reuse them across frames.
+    /// Returns an <see cref="Image"/> wrapping the destination arrays (no new arrays allocated).
+    /// </summary>
+    /// <param name="destination">Pre-allocated channel arrays: 1 for BilinearMono, 3 for AHD/VNG.
+    /// Must match this image's (Height, Width). Allocated by caller on first frame, reused thereafter.</param>
+    /// <summary>
+    /// Debayers into pre-allocated destination <see cref="Channel"/> arrays. Zero allocation on the output path —
+    /// the caller owns the channels and can reuse them across frames.
+    /// Returns an <see cref="Image"/> wrapping the channel data (no new arrays allocated).
+    /// For mono/color: copies + normalizes into destination channels instead of modifying in place.
+    /// </summary>
+    public async Task<Image> DebayerIntoAsync(Channel[] destination, DebayerAlgorithm debayerAlgorithm, bool normalizeToUnit = false, CancellationToken cancellationToken = default)
+    {
+        // Extract float[][,] from Channel[] for the internal debayer methods
+        var destArrays = new float[destination.Length][,];
+        for (var c = 0; c < destination.Length; c++) destArrays[c] = destination[c].Data;
+
+        if (imageMeta.SensorType is SensorType.Monochrome or SensorType.Color)
+        {
+            // Copy (+ normalize) into destination channels
+            var scale = normalizeToUnit && MaxValue > 1.0f + float.Epsilon ? 1.0f / MaxValue : 1.0f;
+            for (var c = 0; c < Math.Min(data.Length, destination.Length); c++)
+            {
+                var src = MemoryMarshal.CreateReadOnlySpan(ref data[c][0, 0], data[c].Length);
+                var dst = destination[c].AsMutableSpan();
+                if (scale == 1.0f)
+                {
+                    src.CopyTo(dst);
+                }
+                else
+                {
+                    MultiplyScalar(src, scale, dst);
+                }
+            }
+
+            var normalized = scale < 1.0f;
+            return new Image(destArrays, BitDepth.Float32,
+                normalized ? 1.0f : maxValue,
+                normalized ? minValue / maxValue : minValue,
+                normalized ? pedestal / maxValue : pedestal,
+                imageMeta);
+        }
+
+        var s = normalizeToUnit && MaxValue > 1.0f ? 1.0f / MaxValue : 1.0f;
+
+        return debayerAlgorithm switch
+        {
+            DebayerAlgorithm.BilinearMono => await DebayerBilinearMonoAsync(s, cancellationToken, destArrays),
+            DebayerAlgorithm.AHD => await DebayerAHDAsync(s, cancellationToken, destArrays),
+            _ => throw new NotSupportedException($"DebayerIntoAsync does not support {debayerAlgorithm}"),
+        };
+    }
+
+    /// <summary>
     /// Uses a simple 2x2 sliding window to calculate the average of 4 pixels, assumes simple 2x2 Bayer matrix.
     /// Is a no-op for monochrome fames.
     /// </summary>
     /// <returns>Debayered monochrome image</returns>
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private async Task<Image> DebayerBilinearMonoAsync(float scale, CancellationToken cancellationToken = default)
+    private async Task<Image> DebayerBilinearMonoAsync(float scale, CancellationToken cancellationToken = default, float[][,]? destination = null)
     {
         var width = Width;
         var height = Height;
-        var debayered = CreateChannelData(1, height, width);
+        var debayered = destination ?? CreateChannelData(1, height, width);
         var dstChannel = debayered[0];
         var srcChannel = data[0];
         var w1 = width - 1;
@@ -376,11 +432,11 @@ public partial class Image
         return count > 0 ? sum / count : 0;
     }
 
-    private async Task<Image> DebayerAHDAsync(float scale, CancellationToken cancellationToken)
+    private async Task<Image> DebayerAHDAsync(float scale, CancellationToken cancellationToken, float[][,]? destination = null)
     {
         var width = Width;
         var height = Height;
-        var debayered = CreateChannelData(3, height, width); // RGB output
+        var debayered = CreateChannelData(3, height, width); // RGB intermediate (Phase 2-3 scratch)
 
         var bayerOffsetX = imageMeta.BayerOffsetX;
         var bayerOffsetY = imageMeta.BayerOffsetY;
@@ -398,7 +454,7 @@ public partial class Image
         const int totalRadius = radius + homogeneityRadius;
 
         // Phase 1 & 2: Build horizontal and vertical full-color interpolations in parallel
-        var rgbH = CreateChannelData(3, height, width);
+        var rgbH = destination ?? CreateChannelData(3, height, width);
         var rgbV = CreateChannelData(3, height, width);
 
         var srcChannel = data[0];
