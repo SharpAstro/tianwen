@@ -17,12 +17,6 @@ namespace TianWen.Lib;
 /// </summary>
 public static class Array2DPool<T>
 {
-    /// <summary>
-    /// When false, Rent always allocates and Return is a no-op. Avoids finalizer
-    /// overhead in test scenarios where pool reuse provides no benefit.
-    /// </summary>
-    public static bool Enabled { get; set; } = true;
-
     private static readonly ConcurrentDictionary<long, ConcurrentQueue<PoolEntry>> _buckets = new();
 
     /// <summary>Number of active pool buckets (distinct array sizes).</summary>
@@ -74,14 +68,11 @@ public static class Array2DPool<T>
     /// </summary>
     public static T[,] Rent(int height, int width)
     {
-        if (Enabled)
+        var key = Key(height, width);
+        if (_buckets.TryGetValue(key, out var queue) && queue.TryDequeue(out var entry))
         {
-            var key = Key(height, width);
-            if (_buckets.TryGetValue(key, out var queue) && queue.TryDequeue(out var entry))
-            {
-                Interlocked.Increment(ref _hits);
-                return entry.Array;
-            }
+            Interlocked.Increment(ref _hits);
+            return entry.Array;
         }
         Interlocked.Increment(ref _misses);
         return new T[height, width];
@@ -93,8 +84,6 @@ public static class Array2DPool<T>
     /// </summary>
     public static void Return(T[,] array)
     {
-        if (!Enabled) return;
-
         Interlocked.Increment(ref _returns);
         var key = Key(array.GetLength(0), array.GetLength(1));
         var queue = _buckets.GetOrAdd(key, static _ => new ConcurrentQueue<PoolEntry>());
