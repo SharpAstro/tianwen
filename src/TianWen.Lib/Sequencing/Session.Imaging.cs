@@ -191,6 +191,7 @@ internal partial record Session
         if (_lastCapturedImages.Length != scopes)
         {
             _lastCapturedImages = new Image?[scopes];
+            _viewerChannels = new Imaging.Channel[]?[scopes];
         }
         if (_lastFrameMetrics.Length != scopes)
         {
@@ -421,13 +422,23 @@ internal partial record Session
                             // Drop camera's ref — the Image's ChannelBuffer ref keeps the float[,] alive until Release()
                             camDriver.ReleaseImageData();
 
-                            // 2. Normalize + debayer + star detection → viewer + metrics
+                            // 2. Debayer into persistent viewer channels → star detection → metrics
                             FrameMetrics metrics = default;
                             if (i < _lastCapturedImages.Length)
                             {
-                                var viewerImage = image.ImageMeta.SensorType is Imaging.SensorType.RGGB
-                                    ? await image.DebayerAsync(Imaging.DebayerAlgorithm.AHD, normalizeToUnit: true, cancellationToken)
-                                    : image.ScaleFloatValuesToUnit();
+                                var channelCount = image.ImageMeta.SensorType is Imaging.SensorType.RGGB ? 3 : image.ChannelCount;
+                                // Allocate persistent viewer channels on first frame (or if dimensions changed)
+                                if (_viewerChannels[i] is not { } vc || vc.Length != channelCount || vc[0].Height != image.Height || vc[0].Width != image.Width)
+                                {
+                                    vc = new Imaging.Channel[channelCount];
+                                    for (var c = 0; c < channelCount; c++)
+                                        vc[c] = Imaging.Channel.Create(image.Height, image.Width, image.ImageMeta.Filter, (byte)c);
+                                    _viewerChannels[i] = vc;
+                                }
+
+                                var viewerImage = await image.DebayerIntoAsync(vc,
+                                    image.ImageMeta.SensorType is Imaging.SensorType.RGGB ? Imaging.DebayerAlgorithm.AHD : Imaging.DebayerAlgorithm.None,
+                                    normalizeToUnit: true, cancellationToken);
                                 _lastCapturedImages[i] = viewerImage;
 
                                 var stars = await viewerImage.FindStarsAsync(0, snrMin: 10, maxStars: 1000, cancellationToken: cancellationToken);
