@@ -542,10 +542,10 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
                     var imgHeight = lastExposureSettings.Height - lastExposureSettings.StartY;
                     var imgWidth = lastExposureSettings.Width - lastExposureSettings.StartX;
 
-                    // Try to reuse recycled buffer from previous frame's ReleaseImageData
-                    var recycled = Interlocked.Exchange(ref _recycledBuffer, null);
-                    var dest = recycled is not null && recycled.GetLength(0) == imgHeight && recycled.GetLength(1) == imgWidth
-                        ? recycled : null;
+                    // Buffer reuse disabled — dest rendering causes data races when the
+                    // previous frame's Image is still being read by the viewer/guider.
+                    // Proper fix requires double-buffering in the camera.
+                    float[,]? dest = null;
 
                     float[,] array;
                     if (TrueBestFocus is { } bestFocus)
