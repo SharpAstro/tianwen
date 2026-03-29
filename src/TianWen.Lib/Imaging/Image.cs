@@ -67,6 +67,19 @@ public partial class Image(float[][,] data, BitDepth bitDepth, float maxValue, f
         => MemoryMarshal.CreateReadOnlySpan(ref data[channel][0, 0], data[channel].Length);
 
     /// <summary>
+    /// Returns the raw backing <c>float[,]</c> for a channel. Internal — use for low-level
+    /// interop (guider tracker, FITS write) where span access is insufficient.
+    /// </summary>
+    internal float[,] GetChannelArray(int channel) => data[channel];
+
+    /// <summary>
+    /// Wraps a single mono <c>float[,]</c> channel in an <see cref="Image"/> with default metadata.
+    /// Convenience for guider frames and test helpers.
+    /// </summary>
+    public static Image FromChannel(float[,] channel, float maxValue = float.NaN, float minValue = float.NaN)
+        => new Image([channel], BitDepth.Float32, maxValue, minValue, 0f, new ImageMeta { SensorType = SensorType.Monochrome });
+
+    /// <summary>
     /// SIMD-accelerated element-wise multiply: <c>dst[i] = src[i] * scalar</c>.
     /// Supports in-place operation (src and dst may alias).
     /// </summary>

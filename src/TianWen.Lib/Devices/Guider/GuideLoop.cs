@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
+using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Devices.Guider;
 
@@ -26,8 +27,8 @@ internal sealed class GuideLoop
     private bool _isGuiding;
     private double _guideStartTimestamp;
 
-    /// <summary>Last captured guide frame (mono float[,]). Updated each iteration.</summary>
-    internal float[,]? LastFrame { get; private set; }
+    /// <summary>Last captured guide frame. Updated each iteration. Caller must Release() when replacing.</summary>
+    internal Image? LastFrame { get; private set; }
 
     /// <summary>Last centroid result from the tracker. Null if star was lost.</summary>
     internal GuiderCentroidResult? LastCentroidResult { get; private set; }
@@ -187,7 +188,7 @@ internal sealed class GuideLoop
     /// <param name="siteLatitude">Observer latitude in degrees (for altitude computation).</param>
     /// <param name="cancellationToken">Cancellation token to stop guiding.</param>
     public async ValueTask RunAsync(
-        Func<CancellationToken, ValueTask<float[,]>> captureFrame,
+        Func<CancellationToken, ValueTask<Image>> captureFrame,
         TimeSpan exposureInterval,
         double hourAngle,
         double declination,
@@ -220,10 +221,11 @@ internal sealed class GuideLoop
             {
                 var frameStart = GetTimestamp();
 
-                // Capture and process frame
+                // Capture and process frame — release previous frame's ChannelBuffer
+                LastFrame?.Release();
                 var frame = await captureFrame(cancellationToken);
                 LastFrame = frame;
-                var result = _tracker.ProcessFrame(frame);
+                var result = _tracker.ProcessFrame(frame.GetChannelArray(0));
                 LastCentroidResult = result;
 
                 if (result is null)
