@@ -420,7 +420,6 @@ internal partial record Session
                             imageWriteQueue.Enqueue(new QueuedImageWrite(image, observation, expStartTimes[i], frameNo, frameExpTime, i));
 
                             // Drop camera's ref — the Image's ChannelBuffer ref keeps the float[,] alive until Release()
-                            camDriver.ReleaseImageData();
 
                             // 2. Debayer into persistent viewer channels → star detection → metrics
                             FrameMetrics metrics = default;
