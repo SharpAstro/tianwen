@@ -122,7 +122,7 @@ public interface ICameraDriver : IDeviceDriver
     /// The camera driver may reuse the backing <c>float[,]</c> arrays for the next exposure.
     /// Must be called after FITS writing and any processing that reads the raw pixel data.
     /// </summary>
-    void ReleaseImageData() { }
+    void ReleaseImageData();
 
     /// <summary>
     /// Returns bit depth, usually <see cref="BitDepth.Int8"/> or <see cref="BitDepth.Int16"/> or <see langword="null"/> if camera is not initialised.
