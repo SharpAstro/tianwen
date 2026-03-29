@@ -15,9 +15,11 @@ namespace TianWen.Lib.Imaging;
 internal sealed class ChannelBuffer(float[,] data, Action<float[,]>? onRelease = null)
 {
     private int _refCount = 1;
+    private volatile bool _released;
 
     /// <summary>The backing pixel data (row-major [Height, Width]).</summary>
-    public float[,] Data => data;
+    /// <exception cref="ObjectDisposedException">Thrown if accessed after all refs released.</exception>
+    public float[,] Data => !_released ? data : throw new ObjectDisposedException(nameof(ChannelBuffer));
 
     /// <summary>Image height (rows).</summary>
     public int Height => data.GetLength(0);
@@ -25,35 +27,46 @@ internal sealed class ChannelBuffer(float[,] data, Action<float[,]>? onRelease =
     /// <summary>Image width (columns).</summary>
     public int Width => data.GetLength(1);
 
+    /// <summary>Whether all references have been released.</summary>
+    public bool IsReleased => _released;
+
     /// <summary>Current reference count (for diagnostics).</summary>
     public int RefCount => Volatile.Read(ref _refCount);
 
     /// <summary>
     /// Increments the reference count. Call before handing the buffer to an additional consumer.
     /// </summary>
+    /// <exception cref="ObjectDisposedException">Thrown if already fully released.</exception>
     public ChannelBuffer AddRef()
     {
-        var count = Interlocked.Increment(ref _refCount);
-        if (count <= 1)
+        if (_released)
         {
-            // Was already released — this is a bug
-            Interlocked.Decrement(ref _refCount);
             throw new ObjectDisposedException(nameof(ChannelBuffer), "Cannot AddRef on a released ChannelBuffer");
         }
+
+        Interlocked.Increment(ref _refCount);
         return this;
     }
 
     /// <summary>
     /// Decrements the reference count. When it reaches zero, fires the <c>onRelease</c>
     /// callback so the camera can recycle the backing <c>float[,]</c>.
-    /// Safe to call multiple times — only the transition to zero triggers release.
+    /// Idempotent after reaching zero — extra calls are no-ops.
     /// </summary>
     public void Release()
     {
+        if (_released) return;
+
         var count = Interlocked.Decrement(ref _refCount);
         if (count == 0)
         {
+            _released = true;
             onRelease?.Invoke(data);
+        }
+        else if (count < 0)
+        {
+            // Over-release — clamp back to 0 and ignore
+            Interlocked.Increment(ref _refCount);
         }
     }
 }
