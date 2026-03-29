@@ -916,12 +916,24 @@ namespace TianWen.UI.Abstractions
                 rect.X + pad, rect.Y, rect.Width - pad * 2, rowH,
                 fontSize * 0.85f, HeaderText, TextAlign.Near, TextAlign.Center);
 
-            // Column headers
+            // Column layout — fixed pixel positions for alignment with proportional fonts
             var colY = rect.Y + rowH;
+            var x0 = rect.X + pad;
+            var w = rect.Width;
+            var colTime = x0;
+            var colTarget = x0 + w * 0.14f;
+            var colFilter = x0 + w * 0.55f;
+            var colHfd = x0 + w * 0.73f;
+            var colStars = x0 + w * 0.88f;
+            var smallFs = fontSize * 0.75f;
+            var rowFs = fontSize * 0.8f;
+
             FillRect(rect.X, colY, rect.Width, rowH, HeaderBg);
-            DrawText("Time  Target       Filter  HFD  \u2605", fontPath,
-                rect.X + pad, colY, rect.Width - pad * 2, rowH,
-                fontSize * 0.75f, DimText, TextAlign.Near, TextAlign.Center);
+            DrawText("Time", fontPath, colTime, colY, colTarget - colTime, rowH, smallFs, DimText, TextAlign.Near, TextAlign.Center);
+            DrawText("Target", fontPath, colTarget, colY, colFilter - colTarget, rowH, smallFs, DimText, TextAlign.Near, TextAlign.Center);
+            DrawText("Filter", fontPath, colFilter, colY, colHfd - colFilter, rowH, smallFs, DimText, TextAlign.Near, TextAlign.Center);
+            DrawText("HFD", fontPath, colHfd, colY, colStars - colHfd, rowH, smallFs, DimText, TextAlign.Near, TextAlign.Center);
+            DrawText("\u2605", fontPath, colStars, colY, rect.X + rect.Width - colStars - pad, rowH, smallFs, DimText, TextAlign.Near, TextAlign.Center);
 
             var log = state.ExposureLog;
             if (log.Length == 0)
@@ -948,12 +960,20 @@ namespace TianWen.UI.Abstractions
 
             for (var i = startIdx; i < log.Length && y < rect.Y + rect.Height - rowH; i++)
             {
-                var row = LiveSessionActions.FormatExposureLogRow(log[i]);
+                var entry = log[i];
                 var bg = (i % 2 == 0) ? PanelBg : RowAltBg;
                 FillRect(rect.X, y, rect.Width, rowH, bg);
-                DrawText(row, fontPath,
-                    rect.X + pad, y, rect.Width - pad * 2, rowH,
-                    fontSize * 0.8f, BodyText, TextAlign.Near, TextAlign.Center);
+
+                var target = entry.TargetName.Length > 10 ? entry.TargetName[..10] : entry.TargetName;
+                var filter = entry.FilterName.Length > 6 ? entry.FilterName[..6] : entry.FilterName;
+                var hfd = entry.MedianHfd > 0 ? $"{entry.MedianHfd:F1}\"" : "--";
+                var stars = entry.StarCount > 0 ? $"{entry.StarCount}" : "--";
+
+                DrawText(entry.Timestamp.ToString("HH:mm"), fontPath, colTime, y, colTarget - colTime, rowH, rowFs, DimText, TextAlign.Near, TextAlign.Center);
+                DrawText(target, fontPath, colTarget, y, colFilter - colTarget, rowH, rowFs, BodyText, TextAlign.Near, TextAlign.Center);
+                DrawText(filter, fontPath, colFilter, y, colHfd - colFilter, rowH, rowFs, DimText, TextAlign.Near, TextAlign.Center);
+                DrawText(hfd, fontPath, colHfd, y, colStars - colHfd, rowH, rowFs, BodyText, TextAlign.Far, TextAlign.Center);
+                DrawText(stars, fontPath, colStars, y, rect.X + rect.Width - colStars - pad, rowH, rowFs, BodyText, TextAlign.Far, TextAlign.Center);
                 y += rowH;
             }
 
