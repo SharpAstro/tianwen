@@ -113,10 +113,10 @@ internal partial record Session
 
                 if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } image)
                 {
-                    if (cancellationToken.IsCancellationRequested) { image.ReturnChannelData(); break; }
+
 
                     var stars = await image.FindStarsAsync(0, snrMin: 15, cancellationToken: cancellationToken);
-                    image.ReturnChannelData();
+
 
                     _currentActivity = $"Stars: {stars.Count}/15 (exposure {expTimesSec[i]}s)";
                     External.AppLogger.LogInformation("RoughFocus: telescope #{TelescopeNumber} exposure {ExpTime}s → {StarCount} stars detected (need ≥15)",
@@ -409,7 +409,7 @@ internal partial record Session
                 if (telescopeIndex < _lastCapturedImages.Length)
                 {
                     // Return previous viewer image channels to pool before overwriting
-                    _lastCapturedImages[telescopeIndex]?.ReturnChannelData();
+
                     _lastCapturedImages[telescopeIndex] = viewerImage;
                 }
 
@@ -441,7 +441,7 @@ internal partial record Session
                 // is kept in _lastCapturedImages for the MiniViewer, but the raw data is no longer needed
                 if (!ReferenceEquals(image, viewerImage))
                 {
-                    image.ReturnChannelData();
+
                     image = null;
                 }
             }
@@ -450,7 +450,7 @@ internal partial record Session
         // Return last captured viewer image and reclaim V-curve intermediates
         if (telescopeIndex < _lastCapturedImages.Length)
         {
-            _lastCapturedImages[telescopeIndex]?.ReturnChannelData();
+
             _lastCapturedImages[telescopeIndex] = null;
         }
         GC.Collect(2, GCCollectionMode.Aggressive, blocking: true);
@@ -500,7 +500,7 @@ internal partial record Session
             if (verifyImage is { Width: > 0, Height: > 0 })
             {
                 var verifyStars = await verifyImage.FindStarsAsync(0, snrMin: 10, cancellationToken: cancellationToken);
-                verifyImage.ReturnChannelData();
+
                 if (verifyStars.Count > 3)
                 {
                     var baseline = FrameMetrics.FromStarList(verifyStars, autoFocusExposure, currentGain);
@@ -522,7 +522,7 @@ internal partial record Session
             }
             else
             {
-                verifyImage?.ReturnChannelData();
+
             }
 
             // Fit converged but we couldn't measure baseline — use the hyperbola minimum as HFD estimate
@@ -582,7 +582,7 @@ internal partial record Session
         var searchOrigin = new WCS(mountRa, mountDec);
 
         var result = await PlateSolver.SolveImageAsync(image, searchOrigin: searchOrigin, searchRadius: 10, cancellationToken: cancellationToken);
-        image.ReturnChannelData();
+
 
         if (result.Solution is not { } wcs)
         {

@@ -86,7 +86,7 @@ public partial class Image
                 BinaryPrimitives.ReverseEndianness(intSpan, intSpan);
             }
 
-            imgChannels[c] = Array2DPool<float>.Rent(height, width);
+            imgChannels[c] = new float[height, width];
             Buffer.BlockCopy(channelBytes, 0, imgChannels[c], 0, channelByteSize);
         }
 

@@ -83,7 +83,7 @@ public partial class Image(float[][,] data, BitDepth bitDepth, float maxValue, f
         var channels = new float[channelCount][,];
         for (var c = 0; c < channelCount; c++)
         {
-            channels[c] = Array2DPool<float>.Rent(height, width);
+            channels[c] = new float[height, width];
         }
         return channels;
     }
@@ -106,15 +106,6 @@ public partial class Image(float[][,] data, BitDepth bitDepth, float maxValue, f
                 Array2DPool<float>.Return(channel);
             }
         }
-    }
-
-    ~Image()
-    {
-        if (!_channelsReturned)
-        {
-            Interlocked.Increment(ref _finalizerReturnCount);
-        }
-        ReturnChannelData();
     }
 
     private static long _finalizerReturnCount;
