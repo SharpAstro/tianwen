@@ -47,7 +47,6 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
     private bool _equipmentConnected;
     private bool _paused;
     private ITimer? _settleTimer;
-    private CancellationTokenSource? _guideCts;
     private CancellationTokenSource? _loopCts;
     private GuideLoop? _guideLoop;
     private volatile float[,]? _lastLoopFrame;
@@ -216,7 +215,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
     public ValueTask FlipCalibrationAsync(CancellationToken cancellationToken = default)
         => ValueTask.CompletedTask;
 
-    public async ValueTask GuideAsync(double settlePixels, double settleTime, double settleTimeout, CancellationToken cancellationToken)
+    public ValueTask GuideAsync(double settlePixels, double settleTime, double settleTimeout, CancellationToken cancellationToken)
     {
         if (!_equipmentConnected)
         {
@@ -232,69 +231,19 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
             throw new GuiderException($"Cannot start guiding in state {current}");
         }
 
-        // Stop any looping capture and abort in-flight exposure before transitioning to guiding
-        _loopCts?.Cancel();
-        _loopCts = null;
-        if (_camera is { Connected: true } cam && await cam.GetCameraStateAsync(cancellationToken) is CameraState.Exposing)
-        {
-            await cam.AbortExposureAsync(cancellationToken);
-        }
-
-        // Settle via timer, then start real guide loop in background
+        // Transition to Settling — the shared capture loop (started by LoopAsync) will
+        // detect the state change and start applying guide corrections once settled.
         ForceState(GuiderState.Settling);
         StartSettleTimer(settleTime);
 
-        if (_camera is { Connected: true } camera && _mount is { Connected: true } mount)
+        // If not already looping, start the capture loop now
+        if (_camera is { Connected: true } camera && _mount is { Connected: true } mount && _loopCts is null)
         {
-            _guideCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            _ = Task.Run(() => RunGuideLoopAsync(camera, mount, _guideCts.Token), _guideCts.Token);
+            _loopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            _ = Task.Run(() => RunCaptureLoopAsync(camera, mount, _loopCts.Token), _loopCts.Token);
         }
-    }
 
-    private async Task RunGuideLoopAsync(ICameraDriver camera, IMountDriver mount, CancellationToken ct)
-    {
-        try
-        {
-            var exposureTime = TimeSpan.FromSeconds(2);
-            var tracker = new GuiderCentroidTracker(maxStars: 1);
-
-            // Capture initial frame and acquire guide star
-            var ext = External;
-            var frame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, ct);
-            tracker.ProcessFrame(frame);
-            tracker.SetLockPosition();
-
-            // Create guide loop with a simple P-controller (no calibration needed for fake — corrections are no-ops)
-            var pulseTarget = new PulseGuideRouter(PulseGuideSource.Auto, camera, mount);
-            var pController = new ProportionalGuideController { AggressivenessRa = 0.7, AggressivenessDec = 0.7, MinPulseMs = 20 };
-            var guideLoop = new GuideLoop(pulseTarget, tracker, pController, External);
-
-            // Set a unit calibration (1:1 pixel-to-axis mapping, no rotation)
-            guideLoop.SetCalibration(new GuiderCalibrationResult(0, 1.0, 1.0, 0, 0, 0));
-            _guideLoop = guideLoop;
-
-            var declination = await mount.GetDeclinationAsync(ct);
-            var ra = await mount.GetRightAscensionAsync(ct);
-            var siderealTime = await mount.GetSiderealTimeAsync(ct);
-            var hourAngle = siderealTime - ra;
-            var siteLatitude = await mount.GetSiteLatitudeAsync(ct);
-
-            await guideLoop.RunAsync(
-                async token => await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, token),
-                exposureTime, hourAngle, declination, siteLatitude, ct);
-        }
-        catch (OperationCanceledException)
-        {
-            // Expected on stop
-        }
-        catch (Exception ex)
-        {
-            External.AppLogger.LogError(ex, "FakeGuider guide loop error");
-        }
-        finally
-        {
-            _guideLoop = null;
-        }
+        return ValueTask.CompletedTask;
     }
 
     private Image? _cachedGuideImage;
@@ -367,29 +316,87 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
                 var exposureTime = TimeSpan.FromSeconds(2);
                 _lastLoopFrame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, External, cancellationToken);
 
-                // Continue capturing in background
+                // Start the unified capture loop in background
                 _loopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                _ = Task.Run(() => RunLoopCaptureAsync(camera, _loopCts.Token), _loopCts.Token);
+                _ = Task.Run(() => RunCaptureLoopAsync(camera, _mount!, _loopCts.Token), _loopCts.Token);
             }
         }
 
         return true;
     }
 
-    private async Task RunLoopCaptureAsync(ICameraDriver camera, CancellationToken ct)
+    /// <summary>
+    /// Unified capture loop: continuously captures frames on the guide camera.
+    /// In Looping/Settling state, just captures and stores frames.
+    /// When state transitions to Guiding, sets up the GuideLoop and hands off
+    /// to <see cref="GuideLoop.RunAsync"/> which takes over the capture loop
+    /// with correction computations (like real PHD2).
+    /// </summary>
+    private async Task RunCaptureLoopAsync(ICameraDriver camera, IMountDriver mount, CancellationToken ct)
     {
         try
         {
             var exposureTime = TimeSpan.FromSeconds(2);
-            while (!ct.IsCancellationRequested && CurrentState is GuiderState.Looping)
+            var ext = External;
+
+            // Phase 1: Loop capture — expose and store frames until guiding starts
+            while (!ct.IsCancellationRequested)
             {
-                var frame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, External, ct);
+                var state = CurrentState;
+                if (state is GuiderState.Idle)
+                {
+                    return;
+                }
+
+                if (state is GuiderState.Guiding)
+                {
+                    break; // Transition to phase 2: guided capture
+                }
+
+                var frame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, ct);
                 _lastLoopFrame = frame;
             }
+
+            // Phase 2: Guided capture — acquire guide star, then run GuideLoop
+            var tracker = new GuiderCentroidTracker(maxStars: 1);
+            var initFrame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, ct);
+            _lastLoopFrame = initFrame;
+            tracker.ProcessFrame(initFrame);
+            tracker.SetLockPosition();
+
+            var pulseTarget = new PulseGuideRouter(PulseGuideSource.Auto, camera, mount);
+            var pController = new ProportionalGuideController { AggressivenessRa = 0.7, AggressivenessDec = 0.7, MinPulseMs = 20 };
+            var guideLoop = new GuideLoop(pulseTarget, tracker, pController, External);
+            guideLoop.SetCalibration(new GuiderCalibrationResult(0, 1.0, 1.0, 0, 0, 0));
+            _guideLoop = guideLoop;
+
+            var declination = await mount.GetDeclinationAsync(ct);
+            var ra = await mount.GetRightAscensionAsync(ct);
+            var siderealTime = await mount.GetSiderealTimeAsync(ct);
+            var hourAngle = siderealTime - ra;
+            var siteLatitude = await mount.GetSiteLatitudeAsync(ct);
+
+            // GuideLoop.RunAsync captures frames via the delegate and applies corrections
+            await guideLoop.RunAsync(
+                async token =>
+                {
+                    var f = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, token);
+                    _lastLoopFrame = f;
+                    return f;
+                },
+                exposureTime, hourAngle, declination, siteLatitude, ct);
         }
         catch (OperationCanceledException)
         {
-            // expected on stop
+            // Expected on stop
+        }
+        catch (Exception ex)
+        {
+            External.AppLogger.LogError(ex, "FakeGuider capture loop error");
+        }
+        finally
+        {
+            _guideLoop = null;
         }
     }
 
@@ -454,8 +461,6 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
     public ValueTask StopCaptureAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
     {
         Interlocked.Exchange(ref _settleTimer, null)?.Dispose();
-        _guideCts?.Cancel();
-        _guideCts = null;
         _loopCts?.Cancel();
         _loopCts = null;
         ForceState(GuiderState.Idle);
