@@ -35,7 +35,8 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
     }
 
     private Float32HxWImageData? _lastImageData;
-    private float[,]? _recycledBuffer; // returned by consumer via ReleaseImageData for reuse
+    private ChannelBuffer? _channelBuffer; // ref-counted owner of _lastImageData.Data[0]
+    private float[,]? _recycledBuffer; // returned when ChannelBuffer refcount hits 0
     private CameraSettings _cameraSettings;
     private CameraSettings _exposureSettings;
     private ExposureData? _exposureData;
@@ -270,14 +271,14 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
         }
     }
 
+    Imaging.ChannelBuffer? ICameraDriver.ChannelBuffer => _channelBuffer;
+
     public void ReleaseImageData()
     {
         lock (_lock)
         {
-            if (_lastImageData is { Data: [{ } channel] })
-            {
-                _recycledBuffer = channel;
-            }
+            // Drop camera's ref — when all consumers also release, onRelease stores in _recycledBuffer
+            Interlocked.Exchange(ref _channelBuffer, null)?.Release();
             _lastImageData = null;
         }
     }
@@ -597,6 +598,7 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
                         }
                     }
 
+                    _channelBuffer = new ChannelBuffer(array, onRelease: recycled => _recycledBuffer = recycled);
                     _lastImageData = new Float32HxWImageData([array], dataMax, dataMin);
                 }
             }
