@@ -41,6 +41,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
 
     private int _camImageReady = 0;
     private Float32HxWImageData? _camImageArray;
+    private float[,]? _recycledBuffer;
     private readonly ITimer?[] _pulseGuiderTimers = new ITimer?[4];
 
     public DALCameraDriver(TDevice device, IExternal external) : base(device, external)
@@ -350,7 +351,11 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
 
     public void ReleaseImageData()
     {
-        _camImageArray = null;
+        var prev = Interlocked.CompareExchange(ref _camImageArray, null, _camImageArray);
+        if (prev is { Data: [{ } channel] })
+        {
+            Interlocked.CompareExchange(ref _recycledBuffer, channel, null);
+        }
     }
 
     public ValueTask<short> GetGainAsync(CancellationToken cancellationToken = default)
@@ -699,11 +704,28 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         }
 
         var cachedArray = Interlocked.Exchange(ref _camImageArray, null);
-        var (data, maxValue, minValue) = cachedArray?.Data is null || cachedArray.Data[0].GetLength(0) != h || cachedArray.Data[0].GetLength(1) != w
-            ? new Float32HxWImageData([new float[h, w]], 0f, float.MaxValue)
-            : cachedArray;
-
-        var channel = data[0];
+        var recycled = Interlocked.Exchange(ref _recycledBuffer, null);
+        float[,] channel;
+        float maxValue, minValue;
+        if (cachedArray?.Data is [{ } cached] && cached.GetLength(0) == h && cached.GetLength(1) == w)
+        {
+            channel = cached;
+            maxValue = 0f;
+            minValue = float.MaxValue;
+        }
+        else if (recycled is not null && recycled.GetLength(0) == h && recycled.GetLength(1) == w)
+        {
+            channel = recycled;
+            maxValue = 0f;
+            minValue = float.MaxValue;
+        }
+        else
+        {
+            channel = new float[h, w];
+            maxValue = 0f;
+            minValue = float.MaxValue;
+        }
+        var data = new float[][,] { channel };
         switch (exposureSettings.BitDepth.BitSize)
         {
             case 8:
