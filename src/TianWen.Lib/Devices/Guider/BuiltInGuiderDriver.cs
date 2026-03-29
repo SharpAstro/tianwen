@@ -72,8 +72,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
 
     /// <summary>
-    /// Last guide frame as a mono Image — zero-copy wrap of the internal float[,].
-    /// GuideLoop.LastFrame is now an Image — return directly.
+    /// Last guide frame — from the guide loop when guiding.
     /// </summary>
     public Image? LastGuideFrame => _guideLoop?.LastFrame;
 
