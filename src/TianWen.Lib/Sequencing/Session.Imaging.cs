@@ -442,7 +442,7 @@ internal partial record Session
 
                                 var stars = await viewerImage.FindStarsAsync(0, snrMin: 10, maxStars: 1000, cancellationToken: cancellationToken);
                                 var currentGain = await camDriver.GetGainAsync(cancellationToken);
-                                metrics = FrameMetrics.FromStarList(stars, frameExpTime, currentGain);
+                                metrics = FrameMetrics.FromStarList(stars, frameExpTime, currentGain, viewerImage.Width, viewerImage.Height);
                                 _lastFrameMetrics[i] = metrics;
                                 _frameMetricsHistory[i].Add(metrics);
                             }
@@ -1058,9 +1058,11 @@ internal partial record Session
             }
 
             var stars = await image.FindStarsAsync(0, snrMin: 10, maxStars: 100, cancellationToken: cancellationToken);
+            var imgW = image.Width;
+            var imgH = image.Height;
             image.Release();
             var currentGain = await camera.GetGainAsync(cancellationToken);
-            var metrics = FrameMetrics.FromStarList(stars, testExposure, currentGain);
+            var metrics = FrameMetrics.FromStarList(stars, testExposure, currentGain, imgW, imgH);
 
             if (!metrics.IsValid)
             {
