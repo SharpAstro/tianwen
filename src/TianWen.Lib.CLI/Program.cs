@@ -45,6 +45,7 @@ builder.Services
     .AddProfiles()
     .AddFake()
     .AddPHD2()
+    .AddBuiltInGuider()
     .AddDevices()
     .AddSessionFactory()
     .AddFitsViewer()
