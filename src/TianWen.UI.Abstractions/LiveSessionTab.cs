@@ -526,7 +526,7 @@ namespace TianWen.UI.Abstractions
             FillRect(rect.X, rect.Y, rect.Width, 1, SeparatorColor);
 
             var abortW = state.IsRunning ? 80f * dpiScale : 0;
-            var rmsW = 280f * dpiScale;
+            var rmsW = 220f * dpiScale;
             var guideW = rect.Width - rmsW - abortW - pad * (state.IsRunning ? 5 : 3);
 
             // Mini guide graph (left portion)

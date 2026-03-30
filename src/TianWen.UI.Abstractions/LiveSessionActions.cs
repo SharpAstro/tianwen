@@ -113,7 +113,7 @@ namespace TianWen.UI.Abstractions
             {
                 return "Guiding: --";
             }
-            return $"Total: {stats.TotalRMS:F1}\" Ra: {stats.RaRMS:F1}\" Dec: {stats.DecRMS:F1}\" Peak: {Math.Max(stats.PeakRa, stats.PeakDec):F1}\"";
+            return $"RMS: {stats.TotalRMS:F1}\" Ra: {stats.RaRMS:F1}\" Dec: {stats.DecRMS:F1}\"";
         }
 
         /// <summary>Format exposure log entry as a compact TUI row.</summary>
