@@ -26,6 +26,8 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     private CancellationTokenSource? _guideCts;
     private GuiderCalibrationResult? _lastCalibration;
     private double _calibrationHourAngle = double.NaN;
+    private volatile Image? _lastFrame;
+    private volatile GuiderCentroidTracker? _calibrationTracker;
 
     /// <summary>
     /// When true (the default), the DEC guide direction is automatically reversed when
@@ -38,7 +40,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
     private double _settlePixels;
     private double _settleTime;
-    private ITimer? _settleTimer;
+    private long _settleStartedTicks;
 
     // Neural guide configuration — read from device URI query parameters
     private readonly bool _useNeuralGuider;
@@ -78,21 +80,21 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
 
     /// <summary>
-    /// Last guide frame — from the guide loop when guiding.
+    /// Last guide frame — from the guide loop when guiding, or from calibration/looping captures.
     /// </summary>
-    public Image? LastGuideFrame => _guideLoop?.LastFrame;
+    public Image? LastGuideFrame => _guideLoop?.LastFrame ?? _lastFrame;
 
     /// <summary>Guide star position in frame pixels.</summary>
     public (double X, double Y)? GuideStarPosition =>
-        _guideLoop?.LastCentroidResult is { } r ? (r.X, r.Y) : null;
+        (_guideLoop?.LastCentroidResult ?? _calibrationTracker?.LastResult) is { } r ? (r.X, r.Y) : null;
 
     /// <summary>Guide star SNR.</summary>
     public double? GuideStarSNR =>
-        _guideLoop?.LastCentroidResult?.SNR;
+        (_guideLoop?.LastCentroidResult ?? _calibrationTracker?.LastResult)?.SNR;
 
     /// <summary>Star profile: horizontal and vertical intensity cross-sections.</summary>
     public (float[] H, float[] V)? GuideStarProfile =>
-        _guideLoop?.LastCentroidResult is { HProfile: { } h, VProfile: { } v } ? (h, v) : null;
+        (_guideLoop?.LastCentroidResult ?? _calibrationTracker?.LastResult) is { HProfile: { } h, VProfile: { } v } ? (h, v) : null;
 
     /// <summary>
     /// The mount driver wired by <see cref="LinkDevices"/>.
@@ -310,19 +312,26 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         var exposureTime = await ExposureTimeAsync(ct);
 
         var tracker = new GuiderCentroidTracker(maxStars: 1);
+        _calibrationTracker = tracker;
         var frame = await CaptureGuideFrameAsync(camera, exposureTime, External, ct);
+        _lastFrame = frame;
         tracker.ProcessFrame(frame.GetChannelArray(0));
 
         if (!tracker.IsAcquired)
         {
             frame.Release();
+            _lastFrame = null;
             GuidingErrorEvent?.Invoke(this, new GuidingErrorEventArgs(_device, "Failed to acquire guide star"));
             return null;
         }
 
         var ext = External;
         async ValueTask<Image> CaptureFrame(CancellationToken token)
-            => await CaptureGuideFrameAsync(camera, exposureTime, ext, token);
+        {
+            var f = await CaptureGuideFrameAsync(camera, exposureTime, ext, token);
+            _lastFrame = f;
+            return f;
+        }
 
         var calibration = new GuiderCalibration
         {
@@ -417,6 +426,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
             }
 
             _guideLoop = guideLoop;
+            _calibrationTracker = null; // guide loop owns tracking now
 
             // Query mount for neural model features
             var declination = await mount.GetDeclinationAsync(ct);
@@ -427,7 +437,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
             // Transition: Calibrating → Settling → Guiding
             ForceState(GuiderState.Settling);
-            StartSettleTimer(_settleTime);
+            RecordSettleStart();
 
             // Run the guide loop (blocks until cancelled)
             await guideLoop.RunAsync(CaptureFrame, exposureTime, hourAngle, declination, siteLatitude, ct);
@@ -480,19 +490,25 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         _settleTime = settleTime;
 
         ForceState(GuiderState.Settling);
-        StartSettleTimer(settleTime);
+        RecordSettleStart();
 
         return ValueTask.CompletedTask;
     }
 
     public ValueTask<bool> IsGuidingAsync(CancellationToken cancellationToken = default)
-        => ValueTask.FromResult(CurrentState is GuiderState.Guiding);
+    {
+        TryCompleteSettle();
+        return ValueTask.FromResult(CurrentState is GuiderState.Guiding);
+    }
 
     public ValueTask<bool> IsLoopingAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(CurrentState is GuiderState.Looping or GuiderState.Guiding or GuiderState.Calibrating or GuiderState.Settling);
 
     public ValueTask<bool> IsSettlingAsync(CancellationToken cancellationToken = default)
-        => ValueTask.FromResult(CurrentState is GuiderState.Settling or GuiderState.Calibrating);
+    {
+        TryCompleteSettle();
+        return ValueTask.FromResult(CurrentState is GuiderState.Settling or GuiderState.Calibrating);
+    }
 
     public ValueTask<bool> LoopAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
     {
@@ -521,7 +537,6 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     public ValueTask StopCaptureAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
     {
         CancelGuideLoop();
-        Interlocked.Exchange(ref _settleTimer, null)?.Dispose();
         ForceState(GuiderState.Idle);
         return ValueTask.CompletedTask;
     }
@@ -529,19 +544,30 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     public ValueTask UnpauseAsync(CancellationToken cancellationToken = default)
         => ValueTask.CompletedTask;
 
-    private void StartSettleTimer(double settleTimeSeconds)
+    private void RecordSettleStart()
     {
-        Interlocked.Exchange(ref _settleTimer, null)?.Dispose();
-        _settleTimer = External.TimeProvider.CreateTimer(
-            _ => OnSettleComplete(),
-            null,
-            TimeSpan.FromSeconds(settleTimeSeconds),
-            Timeout.InfiniteTimeSpan);
+        Interlocked.Exchange(ref _settleStartedTicks, External.TimeProvider.GetTimestamp());
     }
 
-    private void OnSettleComplete()
+    /// <summary>
+    /// Checks whether enough time has elapsed since settling started.
+    /// If so, transitions from Settling to Guiding.
+    /// </summary>
+    private bool TryCompleteSettle()
     {
-        TryTransition(GuiderState.Settling, GuiderState.Guiding);
+        if (CurrentState is not GuiderState.Settling)
+        {
+            return false;
+        }
+
+        var elapsed = External.TimeProvider.GetElapsedTime(_settleStartedTicks);
+        if (elapsed.TotalSeconds >= _settleTime)
+        {
+            TryTransition(GuiderState.Settling, GuiderState.Guiding);
+            return true;
+        }
+
+        return false;
     }
 
     private void CancelGuideLoop()
@@ -557,7 +583,6 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     public void Dispose()
     {
         CancelGuideLoop();
-        Interlocked.Exchange(ref _settleTimer, null)?.Dispose();
     }
 
     public async ValueTask DisposeAsync()
