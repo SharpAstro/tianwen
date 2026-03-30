@@ -86,18 +86,21 @@ namespace TianWen.UI.Abstractions
                 headerRect.Width - 200 * dpiScale - padding * 2, headerRect.Height,
                 fontSize * 0.9f, BodyText, TextAlign.Far, TextAlign.Center);
 
-            // Layout: top row = camera (left) + stats (right), bottom = full-width graph
+            // Layout: top row = camera (left) + target view (center) + stats (right), bottom = graph
             var bodyTop = contentRect.Y + headerH;
             var bodyHeight = contentRect.Height - headerH;
             var graphH = Math.Max(bodyHeight * 0.2f, 80f * dpiScale);
             var topH = bodyHeight - graphH;
-            var cameraW = contentRect.Width - statsW;
+            var cameraW = (contentRect.Width - statsW) * 0.55f;
+            var targetW = contentRect.Width - statsW - cameraW;
 
             var cameraRect = new RectF32(contentRect.X, bodyTop, cameraW, topH);
-            var statsRect = new RectF32(contentRect.X + cameraW, bodyTop, statsW, topH);
+            var targetRect = new RectF32(contentRect.X + cameraW, bodyTop, targetW, topH);
+            var statsRect = new RectF32(contentRect.X + cameraW + targetW, bodyTop, statsW, topH);
             var graphRect = new RectF32(contentRect.X, bodyTop + topH, contentRect.Width, graphH);
 
             RenderGuideCamera(cameraRect, dpiScale, fontPath, fontSize);
+            RenderTargetView(targetRect, dpiScale, fontPath, fontSize);
             RenderStats(statsRect, dpiScale, fontPath, fontSize, padding);
             RenderGraph(graphRect, dpiScale, fontPath, fontSize);
         }
@@ -164,6 +167,113 @@ namespace TianWen.UI.Abstractions
             DrawText(State.IsRunning ? "Waiting for guide frame\u2026" : "No guide camera",
                 fontPath, rect.X, rect.Y, rect.Width, rect.Height,
                 fontSize, DimText, TextAlign.Center, TextAlign.Center);
+        }
+
+        private static readonly RGBAColor32 TargetBg = new RGBAColor32(0x10, 0x10, 0x18, 0xff);
+        private static readonly RGBAColor32 TargetRingColor = new RGBAColor32(0x33, 0x33, 0x44, 0xff);
+        private static readonly RGBAColor32 RmsRingColor = new RGBAColor32(0x44, 0x66, 0x44, 0xff);
+        private static readonly RGBAColor32 RecentDotColor = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
+        private static readonly RGBAColor32 OldDotColor = new RGBAColor32(0x66, 0x66, 0x88, 0x88);
+
+        /// <summary>
+        /// PHD2-style target view: 2D scatter of RA (X) vs Dec (Y) error with RMS circle.
+        /// </summary>
+        private void RenderTargetView(RectF32 rect, float dpiScale, string fontPath, float fontSize)
+        {
+            FillRect(rect.X, rect.Y, rect.Width, rect.Height, TargetBg);
+
+            var samples = State.GuideSamples;
+            if (samples.Length < 2)
+            {
+                DrawText("Target View", fontPath,
+                    rect.X, rect.Y, rect.Width, rect.Height,
+                    fontSize, DimText, TextAlign.Center, TextAlign.Center);
+                return;
+            }
+
+            var padding = BasePadding * dpiScale;
+            var side = Math.Min(rect.Width, rect.Height) - padding * 2;
+            var cx = rect.X + rect.Width / 2;
+            var cy = rect.Y + rect.Height / 2;
+            var halfSide = side / 2;
+
+            // Scale: use same Y scale as the graph for consistency
+            var yScale = GuideGraphRenderer.ComputeYScale(State.LastGuideStats);
+
+            // Concentric ring grid (at 1/4, 1/2, 3/4, full scale)
+            for (var ring = 1; ring <= 4; ring++)
+            {
+                var r = (float)(ring / 4.0 * halfSide);
+                DrawRing(cx, cy, r, ring == 4 ? GuideGraphRenderer.ZeroLineColor : TargetRingColor);
+            }
+
+            // Crosshair
+            FillRect(rect.X + padding, cy, side, 1, TargetRingColor);
+            FillRect(cx, rect.Y + padding, 1, side, TargetRingColor);
+
+            // Axis labels
+            var labelSize = fontSize * 0.7f;
+            DrawText("RA", fontPath, rect.X + rect.Width - padding - 20 * dpiScale, cy + 2, 20 * dpiScale, labelSize,
+                labelSize, GuideGraphRenderer.RaColor, TextAlign.Far, TextAlign.Near);
+            DrawText("Dec", fontPath, cx + 2, rect.Y + padding, 30 * dpiScale, labelSize,
+                labelSize, GuideGraphRenderer.DecColor, TextAlign.Near, TextAlign.Near);
+
+            // Scale label
+            DrawText($"\u00b1{yScale:F1}\"", fontPath,
+                rect.X + padding, rect.Y + rect.Height - labelSize * 1.5f, 50 * dpiScale, labelSize,
+                labelSize, GuideGraphRenderer.ZeroLineColor, TextAlign.Near, TextAlign.Far);
+
+            // RMS circle
+            if (State.LastGuideStats is { TotalRMS: > 0 } stats)
+            {
+                var rmsR = (float)(stats.TotalRMS / yScale * halfSide);
+                if (rmsR > 2)
+                {
+                    DrawRing(cx, cy, rmsR, RmsRingColor);
+                }
+            }
+
+            // Plot dots — recent samples brighter, older samples dimmer
+            var recentCount = Math.Min(samples.Length, 50);
+            var startIdx = samples.Length - recentCount;
+
+            for (var i = startIdx; i < samples.Length; i++)
+            {
+                var s = samples[i];
+                var px = cx + (float)(Math.Clamp(s.RaError / yScale, -1, 1) * halfSide);
+                var py = cy - (float)(Math.Clamp(s.DecError / yScale, -1, 1) * halfSide);
+
+                // Fade: newest = white, oldest = dim
+                var age = (float)(i - startIdx) / recentCount;
+                var dotColor = age > 0.8f ? RecentDotColor : OldDotColor;
+                var dotSize = age > 0.8f ? 3 : 2;
+
+                FillRect((int)px - dotSize / 2, (int)py - dotSize / 2, dotSize, dotSize, dotColor);
+            }
+
+            // Latest point as larger bright dot
+            if (samples.Length > 0)
+            {
+                var last = samples[^1];
+                var lx = cx + (float)(Math.Clamp(last.RaError / yScale, -1, 1) * halfSide);
+                var ly = cy - (float)(Math.Clamp(last.DecError / yScale, -1, 1) * halfSide);
+                FillRect((int)lx - 2, (int)ly - 2, 5, 5, CrosshairColor);
+            }
+        }
+
+        /// <summary>
+        /// Draws an approximate circle using horizontal line segments.
+        /// </summary>
+        private void DrawRing(float cx, float cy, float radius, RGBAColor32 color)
+        {
+            var steps = Math.Max(32, (int)(radius * 2));
+            for (var i = 0; i < steps; i++)
+            {
+                var angle = 2.0 * Math.PI * i / steps;
+                var px = (int)(cx + radius * Math.Cos(angle));
+                var py = (int)(cy + radius * Math.Sin(angle));
+                FillRect(px, py, 1, 1, color);
+            }
         }
 
         private void RenderGraph(RectF32 rect, float dpiScale, string fontPath, float fontSize)
