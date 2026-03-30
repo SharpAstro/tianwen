@@ -28,7 +28,8 @@ internal sealed class GuideLoop
     private double _guideStartTimestamp;
 
     /// <summary>Last captured guide frame. Updated each iteration. Caller must Release() when replacing.</summary>
-    internal Image? LastFrame { get; private set; }
+    private volatile Image? _lastFrame;
+    internal Image? LastFrame { get => _lastFrame; private set => _lastFrame = value; }
 
     /// <summary>Last centroid result from the tracker. Null if star was lost.</summary>
     internal GuiderCentroidResult? LastCentroidResult { get; private set; }
