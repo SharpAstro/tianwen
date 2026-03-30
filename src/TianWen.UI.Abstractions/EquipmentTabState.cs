@@ -1,6 +1,7 @@
 using DIR.Lib;
 using System.Collections.Generic;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.UI.Abstractions;
@@ -75,6 +76,30 @@ public class EquipmentTabState
 
     // Guider focal length editing
     public TextInputState GuiderFocalLengthInput { get; } = new() { Placeholder = "Guide scope FL (mm)" };
+
+    // Built-in guider config editing
+    public bool IsGuiderConfigExpanded { get; set; }
+    public BuiltInGuiderConfig? EditingGuiderConfig { get; set; }
+    public bool GuiderConfigDirty { get; set; }
+
+    /// <summary>
+    /// Loads the built-in guider config into the mutable editing state.
+    /// </summary>
+    public void BeginEditingGuiderConfig(BuiltInGuiderConfig config)
+    {
+        EditingGuiderConfig = config;
+        GuiderConfigDirty = false;
+    }
+
+    /// <summary>
+    /// Discards the mutable guider config editing state.
+    /// </summary>
+    public void StopEditingGuiderConfig()
+    {
+        EditingGuiderConfig = null;
+        GuiderConfigDirty = false;
+        IsGuiderConfigExpanded = false;
+    }
 
     /// <summary>
     /// Initializes the OTA editing state from the given OTA data.
