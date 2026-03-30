@@ -46,7 +46,6 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
     private int _state = (int)GuiderState.Idle;
     private bool _equipmentConnected;
     private bool _paused;
-    private ITimer? _settleTimer;
     private CancellationTokenSource? _loopCts;
     private GuideLoop? _guideLoop;
     private volatile Image? _lastLoopFrame;
@@ -54,6 +53,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
     private double _settlePixels;
     private double _settleTime;
     private double _ditherPixels;
+    private long _settleStartedTicks;
 
     private enum GuiderState
     {
@@ -96,7 +96,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
     public ValueTask DisconnectEquipmentAsync(CancellationToken cancellationToken = default)
     {
         _equipmentConnected = false;
-        Interlocked.Exchange(ref _settleTimer, null)?.Dispose();
+
         ForceState(GuiderState.Idle);
         return ValueTask.CompletedTask;
     }
@@ -123,7 +123,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
         _settleTime = settleTime;
 
         ForceState(GuiderState.Settling);
-        StartSettleTimer(settleTime);
+        RecordSettleStart();
 
         return ValueTask.CompletedTask;
     }
@@ -236,7 +236,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
         {
             // Already settling — update settle params and restart settle timer
             _settlePixels = settlePixels;
-            StartSettleTimer(settleTime);
+            RecordSettleStart();
             return ValueTask.CompletedTask;
         }
 
@@ -248,7 +248,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
         // Transition to Settling — the shared capture loop (started by LoopAsync) will
         // detect the state change and start applying guide corrections once settled.
         ForceState(GuiderState.Settling);
-        StartSettleTimer(settleTime);
+        RecordSettleStart();
 
         // If not already looping, start the capture loop now
         if (_camera is { Connected: true } camera && _mount is { Connected: true } mount && _loopCts is null)
@@ -276,30 +276,48 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
     public (float[] H, float[] V)? GuideStarProfile =>
         _guideLoop?.LastCentroidResult is { HProfile: { } h, VProfile: { } v } ? (h, v) : null;
 
-    private void StartSettleTimer(double settleTimeSeconds)
+    private void RecordSettleStart()
     {
-        Interlocked.Exchange(ref _settleTimer, null)?.Dispose();
-
-        _settleTimer = External.TimeProvider.CreateTimer(
-            _ => OnSettleComplete(),
-            null,
-            TimeSpan.FromSeconds(settleTimeSeconds),
-            Timeout.InfiniteTimeSpan);
+        Interlocked.Exchange(ref _settleStartedTicks, External.TimeProvider.GetTimestamp());
     }
 
-    private void OnSettleComplete()
+    /// <summary>
+    /// Checks whether enough (fake) time has elapsed since settling started.
+    /// If so, transitions from Settling to Guiding. This is polled by
+    /// <see cref="IsGuidingAsync"/> and <see cref="IsSettlingAsync"/>,
+    /// making it reliable with <see cref="FakeTimeProvider"/> (no timer callback needed).
+    /// </summary>
+    private bool TryCompleteSettle()
     {
-        TryTransition(GuiderState.Settling, GuiderState.Guiding);
+        if (CurrentState is not GuiderState.Settling)
+        {
+            return false;
+        }
+
+        var elapsed = External.TimeProvider.GetElapsedTime(_settleStartedTicks);
+        if (elapsed.TotalSeconds >= _settleTime)
+        {
+            TryTransition(GuiderState.Settling, GuiderState.Guiding);
+            return true;
+        }
+
+        return false;
     }
 
     public ValueTask<bool> IsGuidingAsync(CancellationToken cancellationToken = default)
-        => ValueTask.FromResult(CurrentState is GuiderState.Guiding && !_paused);
+    {
+        TryCompleteSettle();
+        return ValueTask.FromResult(CurrentState is GuiderState.Guiding && !_paused);
+    }
 
     public ValueTask<bool> IsLoopingAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(CurrentState is GuiderState.Looping or GuiderState.Guiding or GuiderState.Calibrating or GuiderState.Settling);
 
     public ValueTask<bool> IsSettlingAsync(CancellationToken cancellationToken = default)
-        => ValueTask.FromResult(CurrentState is GuiderState.Settling or GuiderState.Calibrating);
+    {
+        TryCompleteSettle();
+        return ValueTask.FromResult(CurrentState is GuiderState.Settling or GuiderState.Calibrating);
+    }
 
     public async ValueTask<bool> LoopAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
     {
@@ -362,7 +380,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
             }
 
             // Continue capturing during settle — keeps the guider view updating
-            while (CurrentState is GuiderState.Settling && !ct.IsCancellationRequested)
+            while (!TryCompleteSettle() && CurrentState is GuiderState.Settling && !ct.IsCancellationRequested)
             {
                 _lastLoopFrame?.Release();
                 var settleFrame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, ct);
@@ -458,7 +476,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
 
     public ValueTask StopCaptureAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
     {
-        Interlocked.Exchange(ref _settleTimer, null)?.Dispose();
+
         _loopCts?.Cancel();
         _loopCts = null;
         ForceState(GuiderState.Idle);
@@ -474,6 +492,6 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
-        Interlocked.Exchange(ref _settleTimer, null)?.Dispose();
+
     }
 }
