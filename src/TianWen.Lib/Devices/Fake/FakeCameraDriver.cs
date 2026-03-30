@@ -84,46 +84,71 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
 
     public bool CanPulseGuide { get; } = true;
 
-    // Net star offset = periodic error drift + ST-4 corrections (which should cancel each other)
-    private double _guideOffsetX;
-    private double _guideOffsetY;
+    // Accumulated star position (PE drift + ST-4 corrections share the same integrator)
+    private double _starPositionX;
+    private double _starPositionY;
+    private long _peStartTicks;  // phase reference (never updated)
+    private long _lastPeTicks;   // last integration timestamp
 
-    // Periodic error simulation — sinusoidal drift in RA (pixels), ~8px peak-to-peak over ~480s period
-    private long _peStartTicks;
+    /// <summary>Periodic error period in seconds (typical worm gear ~10 minutes).</summary>
+    internal double PePeriodSeconds { get; set; } = 600.0;
 
-    /// <summary>Periodic error period in seconds (typical worm gear ~8 minutes).</summary>
-    internal double PePeriodSeconds { get; set; } = 480.0;
-
-    /// <summary>Periodic error amplitude in pixels (peak displacement).</summary>
-    internal double PeAmplitudePixels { get; set; } = 4.0;
+    /// <summary>Periodic error peak-to-peak amplitude in arcseconds (typical ~20").</summary>
+    internal double PePeakTopeakArcsec { get; set; } = 20.0;
 
     /// <summary>
     /// Guide rate in pixels per second, derived from 0.5x sidereal rate and the camera's pixel scale.
+    /// Falls back to 2 px/s when FocalLength is not configured (typical for ~130mm guide scope + small pixels).
     /// </summary>
     internal double GuideRatePixelsPerSecond
     {
         get
         {
+            if (FocalLength <= 0)
+            {
+                return 2.0; // sensible default for guide cameras
+            }
             const double halfSiderealArcsecPerSec = 15.041 * 0.5;
-            var pixelScaleArcsec = FocalLength > 0 ? PixelSizeX / FocalLength * 206.265 : 1.0;
+            var pixelScaleArcsec = PixelSizeX / FocalLength * 206.265;
             return halfSiderealArcsecPerSec / pixelScaleArcsec;
         }
     }
 
     /// <summary>
-    /// Computes the current periodic error drift in pixels (RA only).
+    /// PE drift rate amplitude in pixels/second.
+    /// Derived from peak-to-peak arcsec → amplitude pixels → rate via ω.
     /// </summary>
-    private double CurrentPeDriftPixels
+    private double PeRateAmplitude
     {
         get
         {
-            if (_peStartTicks == 0)
-            {
-                _peStartTicks = External.TimeProvider.GetTimestamp();
-            }
-            var elapsed = External.TimeProvider.GetElapsedTime(_peStartTicks).TotalSeconds;
-            return PeAmplitudePixels * Math.Sin(2.0 * Math.PI * elapsed / PePeriodSeconds);
+            var pixelScaleArcsec = FocalLength > 0 ? PixelSizeX / FocalLength * 206.265 : 3.8; // ~130mm + 2.4µm default
+            var amplitudePixels = PePeakTopeakArcsec / 2.0 / pixelScaleArcsec;
+            return 2.0 * Math.PI / PePeriodSeconds * amplitudePixels;
         }
+    }
+
+    /// <summary>
+    /// Advances star position by integrating PE drift since the last call.
+    /// Called each frame before rendering.
+    /// </summary>
+    private void IntegratePeDrift()
+    {
+        var now = External.TimeProvider.GetTimestamp();
+        if (_peStartTicks == 0)
+        {
+            _peStartTicks = now;
+            _lastPeTicks = now;
+            return;
+        }
+
+        var dt = External.TimeProvider.GetElapsedTime(_lastPeTicks).TotalSeconds;
+        _lastPeTicks = now;
+
+        // Phase from session start (stable reference, not affected by dt update)
+        var phase = External.TimeProvider.GetElapsedTime(_peStartTicks).TotalSeconds;
+        var driftRate = PeRateAmplitude * Math.Sin(2.0 * Math.PI * phase / PePeriodSeconds);
+        _starPositionX += driftRate * dt;
     }
 
     public bool UsesGainValue { get; } = true;
@@ -687,23 +712,30 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
     public ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken = default)
     {
         var pixels = GuideRatePixelsPerSecond * duration.TotalSeconds;
-        // ST-4 corrections: West speeds up RA tracking → stars shift +X (East on sensor)
-        // This matches real ST-4 behavior where West correction counteracts RA drift
+        // ST-4 corrections modify the same accumulator as PE drift.
+        // West = speed up RA tracking = stars shift -X (counteracts +X drift)
         switch (direction)
         {
-            case GuideDirection.North: _guideOffsetY -= pixels; break;
-            case GuideDirection.South: _guideOffsetY += pixels; break;
-            case GuideDirection.West:  _guideOffsetX += pixels; break;
-            case GuideDirection.East:  _guideOffsetX -= pixels; break;
+            case GuideDirection.North: _starPositionY -= pixels; break;
+            case GuideDirection.South: _starPositionY += pixels; break;
+            case GuideDirection.West:  _starPositionX -= pixels; break;
+            case GuideDirection.East:  _starPositionX += pixels; break;
         }
         return ValueTask.CompletedTask;
     }
 
     /// <summary>
-    /// Total star offset: periodic error drift minus accumulated ST-4 corrections.
-    /// Corrections counteract the drift, so they subtract from it.
+    /// Current star offset: integrated PE drift + accumulated ST-4 corrections.
+    /// Both operate on the same position — corrections push back against drift.
     /// </summary>
-    private (double X, double Y) TotalStarOffset => (CurrentPeDriftPixels - _guideOffsetX, -_guideOffsetY);
+    private (double X, double Y) TotalStarOffset
+    {
+        get
+        {
+            IntegratePeDrift();
+            return (_starPositionX, _starPositionY);
+        }
+    }
 
     protected override void Dispose(bool disposing)
     {

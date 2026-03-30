@@ -68,7 +68,7 @@ namespace TianWen.UI.Abstractions
         public List<PerOtaCameraSettings> CameraSettings { get; set; } = [];
 
         /// <summary>Tracks the profile identity to detect when reinitialisation is needed.</summary>
-        private Uri? _lastProfileUri;
+        private Guid? _lastProfileId;
 
         /// <summary>Tracks the OTA count to detect profile structure changes.</summary>
         private int _lastOtaCount;
@@ -139,7 +139,7 @@ namespace TianWen.UI.Abstractions
                 return CameraSettings.Count > 0;
             }
 
-            return profile.DeviceUri != _lastProfileUri
+            return profile.ProfileId != _lastProfileId
                 || (profile.Data?.OTAs.Length ?? 0) != _lastOtaCount;
         }
 
@@ -153,12 +153,12 @@ namespace TianWen.UI.Abstractions
 
             if (profile?.Data is not { } data)
             {
-                _lastProfileUri = null;
+                _lastProfileId = null;
                 _lastOtaCount = 0;
                 return;
             }
 
-            _lastProfileUri = profile.DeviceUri;
+            _lastProfileId = profile.ProfileId;
             _lastOtaCount = data.OTAs.Length;
 
             foreach (var ota in data.OTAs)
