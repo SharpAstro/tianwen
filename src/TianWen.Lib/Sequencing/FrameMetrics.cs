@@ -21,15 +21,40 @@ public readonly record struct FrameMetrics(int StarCount, float MedianHfd, float
     /// </summary>
     public readonly bool IsComparableTo(in FrameMetrics other) => Exposure == other.Exposure && Gain == other.Gain;
 
-    public static FrameMetrics FromStarList(StarList stars, TimeSpan exposure, short gain)
+    /// <summary>
+    /// Border margin fraction (0.1 = 10% border on each side = 80% central region).
+    /// Stars outside this region are excluded from the count to avoid false condition
+    /// deterioration from tracking drift shifting edge stars out of frame.
+    /// </summary>
+    public const float BorderMargin = 0.1f;
+
+    public static FrameMetrics FromStarList(StarList stars, TimeSpan exposure, short gain, int imageWidth = 0, int imageHeight = 0)
     {
         if (stars.Count == 0)
         {
             return default;
         }
 
+        var count = stars.Count;
+
+        // If image dimensions provided, only count stars in the central region
+        if (imageWidth > 0 && imageHeight > 0)
+        {
+            var marginX = imageWidth * BorderMargin;
+            var marginY = imageHeight * BorderMargin;
+            count = 0;
+            foreach (var star in stars)
+            {
+                if (star.XCentroid >= marginX && star.XCentroid <= imageWidth - marginX &&
+                    star.YCentroid >= marginY && star.YCentroid <= imageHeight - marginY)
+                {
+                    count++;
+                }
+            }
+        }
+
         return new FrameMetrics(
-            stars.Count,
+            count,
             stars.MapReduceStarProperty(SampleKind.HFD, AggregationMethod.Median),
             stars.MapReduceStarProperty(SampleKind.FWHM, AggregationMethod.Median),
             exposure,

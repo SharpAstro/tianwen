@@ -93,7 +93,9 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
     /// <summary>Periodic error period in seconds (typical worm gear ~10 minutes).</summary>
     internal double PePeriodSeconds { get; set; } = 600.0;
 
-    /// <summary>Periodic error peak-to-peak amplitude in arcseconds (typical ~20").</summary>
+    /// <summary>
+    /// Periodic error peak-to-peak amplitude in arcseconds (typical ~20").
+    /// </summary>
     internal double PePeakTopeakArcsec { get; set; } = 20.0;
 
     /// <summary>
@@ -134,6 +136,11 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
     /// </summary>
     private void IntegratePeDrift()
     {
+        if (PePeakTopeakArcsec <= 0)
+        {
+            return;
+        }
+
         var now = External.TimeProvider.GetTimestamp();
         if (_peStartTicks == 0)
         {
