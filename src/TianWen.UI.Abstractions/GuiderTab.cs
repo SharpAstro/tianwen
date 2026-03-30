@@ -389,13 +389,13 @@ namespace TianWen.UI.Abstractions
 
             // Sweet spot — filled disc showing acceptable guiding tolerance
             var sweetR = (float)(sweetSpotArcsec / targetScaleArcsec * halfSide);
-            FillDisc(cx, cy, sweetR, SweetSpotColor);
+            FillCircle(cx, cy, sweetR, SweetSpotColor);
 
             // Concentric rings at fixed arcsec intervals
             for (var ring = 1; ring <= 4; ring++)
             {
                 var r = (float)(ring * ringStepArcsec / targetScaleArcsec * halfSide);
-                DrawRing(cx, cy, r, ring == 4 ? GuideGraphRenderer.ZeroLineColor : TargetRingColor);
+                DrawCircle(cx, cy, r, ring == 4 ? GuideGraphRenderer.ZeroLineColor : TargetRingColor);
             }
 
             // Crosshair — short marks at center only
@@ -421,7 +421,7 @@ namespace TianWen.UI.Abstractions
                 var rmsR = (float)(stats.TotalRMS / targetScaleArcsec * halfSide);
                 if (rmsR > 2)
                 {
-                    DrawRing(cx, cy, Math.Min(rmsR, halfSide), RmsRingColor);
+                    DrawCircle(cx, cy, Math.Min(rmsR, halfSide), RmsRingColor);
                 }
             }
 
@@ -453,33 +453,6 @@ namespace TianWen.UI.Abstractions
             }
         }
 
-        /// <summary>
-        /// Fills a disc (filled circle) using horizontal scanlines.
-        /// </summary>
-        private void FillDisc(float cx, float cy, float radius, RGBAColor32 color)
-        {
-            var r = (int)radius;
-            for (var dy = -r; dy <= r; dy++)
-            {
-                var halfW = (int)Math.Sqrt(radius * radius - dy * dy);
-                FillRect((int)cx - halfW, (int)cy + dy, halfW * 2, 1, color);
-            }
-        }
-
-        /// <summary>
-        /// Draws an approximate circle using horizontal line segments.
-        /// </summary>
-        private void DrawRing(float cx, float cy, float radius, RGBAColor32 color)
-        {
-            var steps = Math.Max(32, (int)(radius * 2));
-            for (var i = 0; i < steps; i++)
-            {
-                var angle = 2.0 * Math.PI * i / steps;
-                var px = (int)(cx + radius * Math.Cos(angle));
-                var py = (int)(cy + radius * Math.Sin(angle));
-                FillRect(px, py, 1, 1, color);
-            }
-        }
 
         private void RenderGraph(RectF32 rect, float dpiScale, string fontPath, float fontSize)
         {

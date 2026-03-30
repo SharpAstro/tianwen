@@ -86,18 +86,18 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 60_000)]
-    public void GivenPulseGuideRouterWithCameraSourceAndNonSt4CameraThenThrows()
+    public void GivenPulseGuideRouterWithCameraSourceThenRoutesToCamera()
     {
-        // FakeCameraDriver has CanPulseGuide = false
+        // FakeCameraDriver has CanPulseGuide = true (ST-4 simulation)
         var external = new FakeExternal(output);
         var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
         var camera = new FakeCameraDriver(cameraDevice, external);
         var mountDevice = new FakeDevice(DeviceType.Mount, 1);
         var mount = new FakeMountDriver(mountDevice, external);
 
-        Should.Throw<InvalidOperationException>(() =>
-            new PulseGuideRouter(PulseGuideSource.Camera, camera, mount)
-        );
+        // Should not throw — camera supports pulse guiding
+        var router = new PulseGuideRouter(PulseGuideSource.Camera, camera, mount);
+        router.ShouldNotBeNull();
     }
 
     [Fact(Timeout = 60_000)]

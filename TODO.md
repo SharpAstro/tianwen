@@ -13,7 +13,9 @@
 - [x] Guider graph: connect dots with lines (Bresenham or anti-aliased) instead of scatter dots — users expect smooth curves like PHD2
 - [ ] Guider graph: scrolling window (last N minutes) instead of compressing all history — makes activity feel live
 - [ ] Guider graph: reuse the existing LiveSessionTab guide graph widget — the guider tab should show a larger version of the same graph, not a separate implementation. Extract shared graph rendering
+- [ ] DIR.Lib: add `FillEllipse`/`FillCircle`/`DrawEllipse`/`DrawCircle` primitives to `PixelWidgetBase` — currently everything is built from `FillRect` scanlines
 - [ ] Guider graph: show applied correction pulses (RA/Dec duration bars) alongside error — users need to see what the controller is doing, not just the resulting error
+- [ ] SyntheticStarFieldRenderer: refactor 20-parameter methods into records/structs
 - [ ] Guider graph: show dither events (markers/shading)
 - [x] Guider tab: keep looping guide camera frames during centering/slewing — call `LoopAsync` when not guiding so the guide camera feed stays live. Currently the guide loop stops during centering and the tab shows "Waiting for guider"
 - [x] Guider tab: show calibration frames — render guide camera during calibration phase with star position and profile. Remaining: star movement vectors, step count, and calibration progress overlay
@@ -29,6 +31,7 @@
 - [ ] Live session: show dither state — "Dithering..." status with settle progress, no indicator currently visible during dither
 - [ ] Cooling graph: same scrolling window treatment
 - [ ] VSOP87 vectorization — convert 43K lines of hardcoded `amplitude * Cos(phase + frequency * t)` into coefficient arrays, evaluate with `Vector256<double>` (AVX2). Process 4 terms per iteration. Requires source generator or one-time conversion of all planet files (EarthX/Y/Z, MarsX/Y/Z, etc.)
+- [ ] Fake camera: shift/change star field during slews — currently renders the same fixed seed regardless of mount pointing
 - [ ] Fake camera: scale synthetic background noise with exposure duration in `SyntheticStarFieldRenderer` — long subs (≥60s) have unrealistically clean backgrounds, causing per-channel stretch to produce degenerate parameters. Real cameras accumulate sky glow + dark current + read noise over time.
 
 - [x] Fake filter wheels should have pre-installed filters (realistic filter sets per device ID)
