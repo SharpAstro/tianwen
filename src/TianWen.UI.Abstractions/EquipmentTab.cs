@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Threading.Tasks;
 using DIR.Lib;
 using TianWen.Lib.Devices;
-using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.UI.Abstractions
@@ -353,11 +353,9 @@ namespace TianWen.UI.Abstractions
                     cursor += fieldH + 2;
                 }
 
-                // Built-in guider config (only when assigned guider has configurable capabilities)
-                if (EquipmentActions.GetGuiderCapabilities(pd.Guider) is not GuiderCapabilities.None)
-                {
-                    cursor = RenderGuiderConfig(appState, pd, x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
-                }
+                // Device settings for guider (if it declares any)
+                cursor = RenderDeviceSettingsIfAny(appState, pd, pd.Guider, "Guider Settings",
+                    x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
 
                 cursor += padding;
                 FillRect(x + padding, cursor, w - padding * 2f, 1f, SeparatorColor);
@@ -420,6 +418,9 @@ namespace TianWen.UI.Abstractions
                     cursor = RenderProfileSlot(
                         "  Camera", ota.Camera, new AssignTarget.OTALevel(i, "Camera"),
                         x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW);
+                    // Device settings for camera (if it declares any)
+                    cursor = RenderDeviceSettingsIfAny(appState, pd, ota.Camera, "Camera Settings",
+                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
                     cursor = RenderProfileSlot(
                         "  Focuser", ota.Focuser, new AssignTarget.OTALevel(i, "Focuser"),
                         x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW);
@@ -939,34 +940,66 @@ namespace TianWen.UI.Abstractions
         }
 
         // -----------------------------------------------------------------------
-        // Built-in guider config
+        // Generic device settings
         // -----------------------------------------------------------------------
 
-        private float RenderGuiderConfig(
+        /// <summary>
+        /// Renders device settings for a device URI if the device declares any <see cref="DeviceSettingDescriptor"/>s.
+        /// Returns the updated cursor Y. No-ops if the device has no settings.
+        /// </summary>
+        private float RenderDeviceSettingsIfAny(
             GuiAppState appState,
             ProfileData pd,
+            Uri? deviceUri,
+            string sectionLabel,
             float x, float cursor, float w, float itemH,
             float dpiScale, string fontPath, float fontSize, float padding)
         {
-            var savedConfig = EquipmentActions.GetBuiltInGuiderConfig(pd);
-            var capabilities = EquipmentActions.GetGuiderCapabilities(pd.Guider);
-            var isExpanded = State.IsGuiderConfigExpanded;
+            if (deviceUri is null || deviceUri == NoneDevice.Instance.DeviceUri)
+            {
+                return cursor;
+            }
+
+            var device = EquipmentActions.TryDeviceFromUri(deviceUri);
+            if (device is null || device.Settings.IsDefaultOrEmpty)
+            {
+                return cursor;
+            }
+
+            return RenderDeviceSettings(appState, pd, deviceUri, device.Settings, sectionLabel,
+                x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
+        }
+
+        /// <summary>
+        /// Renders the expandable settings pane for a device. Iterates <see cref="DeviceSettingDescriptor"/>s
+        /// and dispatches on <see cref="DeviceSettingKind"/> to render the appropriate control.
+        /// </summary>
+        private float RenderDeviceSettings(
+            GuiAppState appState,
+            ProfileData pd,
+            Uri savedDeviceUri,
+            ImmutableArray<DeviceSettingDescriptor> settings,
+            string sectionLabel,
+            float x, float cursor, float w, float itemH,
+            float dpiScale, string fontPath, float fontSize, float padding)
+        {
+            var deviceKey = savedDeviceUri.GetLeftPart(UriPartial.Path);
+            var isExpanded = State.ExpandedDeviceSettingsUri == deviceKey;
             var rowH = itemH * 0.9f;
 
             // Toggle header
-            var headerLabel = isExpanded ? "    Guider Settings [-]" : "    Guider Settings [+]";
+            var headerLabel = isExpanded ? $"    {sectionLabel} [-]" : $"    {sectionLabel} [+]";
             FillRect(x + padding, cursor, w - padding * 2f, rowH, FilterTableBg);
-            RegisterClickable(x + padding, cursor, w - padding * 2f, rowH, new HitResult.ButtonHit("ToggleGuiderConfig"),
+            RegisterClickable(x + padding, cursor, w - padding * 2f, rowH, new HitResult.ButtonHit($"Toggle_{deviceKey}"),
                 _ =>
                 {
                     if (isExpanded)
                     {
-                        State.StopEditingGuiderConfig();
+                        State.StopEditingDeviceSettings();
                     }
                     else
                     {
-                        State.IsGuiderConfigExpanded = true;
-                        State.BeginEditingGuiderConfig(savedConfig);
+                        State.BeginEditingDeviceSettings(savedDeviceUri);
                     }
                 });
             DrawText(
@@ -976,7 +1009,7 @@ namespace TianWen.UI.Abstractions
                 fontSize * 0.85f, HeaderText, TextAlign.Near, TextAlign.Center);
             cursor += rowH;
 
-            if (!isExpanded || State.EditingGuiderConfig is not { } config)
+            if (!isExpanded || State.EditingDeviceUri is not { } editingUri)
             {
                 return cursor;
             }
@@ -987,107 +1020,93 @@ namespace TianWen.UI.Abstractions
             var labelX = x + padding * 2f;
             var stepBtnW = 24f * dpiScale;
 
-            // Pulse Guide Source (enum cycle)
-            if (capabilities.HasFlag(GuiderCapabilities.ConfigurablePulseGuideSource))
+            for (var i = 0; i < settings.Length; i++)
             {
-                FillRect(x + padding, cursor, w - padding * 2f, rowH, FilterTableBg);
-                DrawText("Pulse Guide:".AsSpan(), fontPath, labelX, cursor, labelW, rowH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-                var pgsLabel = config.PulseGuideSource.ToString();
-                RenderButton(pgsLabel, controlX, cursor, controlW, rowH, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, "CyclePulseGuide",
-                    _ =>
-                    {
-                        var next = (PulseGuideSource)(((int)config.PulseGuideSource + 1) % 3);
-                        State.EditingGuiderConfig = config with { PulseGuideSource = next };
-                        State.GuiderConfigDirty = true;
-                    });
-                cursor += rowH;
-            }
+                var desc = settings[i];
 
-            // Reverse DEC after flip (bool toggle)
-            if (capabilities.HasFlag(GuiderCapabilities.ConfigurableDecFlip))
-            {
-                FillRect(x + padding, cursor, w - padding * 2f, rowH, FilterRowAlt);
-                DrawText("Rev DEC on Flip:".AsSpan(), fontPath, labelX, cursor, labelW, rowH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-                var rdLabel = config.ReverseDecAfterFlip ? "Yes" : "No";
-                RenderButton(rdLabel, controlX, cursor, controlW, rowH, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, "ToggleRevDec",
-                    _ =>
-                    {
-                        State.EditingGuiderConfig = config with { ReverseDecAfterFlip = !config.ReverseDecAfterFlip };
-                        State.GuiderConfigDirty = true;
-                    });
-                cursor += rowH;
-            }
-
-            // Use Neural Guider (bool toggle)
-            if (capabilities.HasFlag(GuiderCapabilities.NeuralGuiding))
-            {
-                FillRect(x + padding, cursor, w - padding * 2f, rowH, FilterTableBg);
-                DrawText("Neural Guider:".AsSpan(), fontPath, labelX, cursor, labelW, rowH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-                var ngLabel = config.UseNeuralGuider ? "On" : "Off";
-                RenderButton(ngLabel, controlX, cursor, controlW, rowH, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, "ToggleNeuralGuider",
-                    _ =>
-                    {
-                        State.EditingGuiderConfig = config with { UseNeuralGuider = !config.UseNeuralGuider };
-                        State.GuiderConfigDirty = true;
-                    });
-                cursor += rowH;
-
-                // Neural Blend % (stepper, only when neural guider is enabled)
-                if (config.UseNeuralGuider)
+                // Conditional visibility
+                if (desc.IsVisible is { } isVisible && !isVisible(editingUri))
                 {
-                    FillRect(x + padding, cursor, w - padding * 2f, rowH, FilterRowAlt);
-                    DrawText("Neural Blend:".AsSpan(), fontPath, labelX, cursor, labelW, rowH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
-
-                    // [-] button
-                    RenderButton("-", controlX, cursor, stepBtnW, rowH, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, "DecBlend",
-                        _ =>
-                        {
-                            var newPct = Math.Max(0, config.NeuralBlendPercent - 5);
-                            State.EditingGuiderConfig = config with { NeuralBlendPercent = newPct };
-                            State.GuiderConfigDirty = true;
-                        });
-
-                    // Value label
-                    var pctLabel = $"{config.NeuralBlendPercent}%";
-                    var valueW = controlW - stepBtnW * 2f;
-                    DrawText(pctLabel.AsSpan(), fontPath, controlX + stepBtnW, cursor, valueW, rowH, fontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center);
-
-                    // [+] button
-                    RenderButton("+", controlX + controlW - stepBtnW, cursor, stepBtnW, rowH, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, "IncBlend",
-                        _ =>
-                        {
-                            var newPct = Math.Min(100, config.NeuralBlendPercent + 5);
-                            State.EditingGuiderConfig = config with { NeuralBlendPercent = newPct };
-                            State.GuiderConfigDirty = true;
-                        });
-
-                    cursor += rowH;
+                    continue;
                 }
+
+                var rowBg = i % 2 == 0 ? FilterTableBg : FilterRowAlt;
+                FillRect(x + padding, cursor, w - padding * 2f, rowH, rowBg);
+                DrawText($"{desc.Label}:".AsSpan(), fontPath, labelX, cursor, labelW, rowH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
+
+                var capturedDesc = desc;
+                switch (desc.Kind)
+                {
+                    case DeviceSettingKind.BoolToggle:
+                    case DeviceSettingKind.EnumCycle:
+                    {
+                        var valueLabel = desc.FormatValue(editingUri);
+                        RenderButton(valueLabel, controlX, cursor, controlW, rowH, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, $"Cycle_{desc.Key}",
+                            _ =>
+                            {
+                                State.EditingDeviceUri = capturedDesc.Increment(editingUri);
+                                State.DeviceSettingsDirty = true;
+                            });
+                        break;
+                    }
+
+                    case DeviceSettingKind.IntStepper:
+                    case DeviceSettingKind.FloatStepper:
+                    case DeviceSettingKind.PercentStepper:
+                    {
+                        // [-] button
+                        if (desc.Decrement is { } decrement)
+                        {
+                            RenderButton("-", controlX, cursor, stepBtnW, rowH, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, $"Dec_{desc.Key}",
+                                _ =>
+                                {
+                                    State.EditingDeviceUri = decrement(editingUri);
+                                    State.DeviceSettingsDirty = true;
+                                });
+                        }
+
+                        // Value label
+                        var valueText = desc.FormatValue(editingUri);
+                        var valueW = controlW - stepBtnW * 2f;
+                        DrawText(valueText.AsSpan(), fontPath, controlX + stepBtnW, cursor, valueW, rowH, fontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center);
+
+                        // [+] button
+                        RenderButton("+", controlX + controlW - stepBtnW, cursor, stepBtnW, rowH, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, $"Inc_{desc.Key}",
+                            _ =>
+                            {
+                                State.EditingDeviceUri = capturedDesc.Increment(editingUri);
+                                State.DeviceSettingsDirty = true;
+                            });
+                        break;
+                    }
+                }
+
+                cursor += rowH;
             }
 
             // Save / Cancel buttons (only when dirty)
-            if (State.GuiderConfigDirty)
+            if (State.DeviceSettingsDirty)
             {
                 var btnW = 60f * dpiScale;
                 var gap = padding;
                 var saveBtnX = x + w - padding - btnW * 2f - gap;
                 var cancelBtnX = x + w - padding - btnW;
 
-                RenderButton("Save", saveBtnX, cursor, btnW, rowH, fontPath, fontSize * 0.85f, CreateButton, BodyText, "SaveGuiderConfig",
+                RenderButton("Save", saveBtnX, cursor, btnW, rowH, fontPath, fontSize * 0.85f, CreateButton, BodyText, $"SaveSettings_{deviceKey}",
                     _ =>
                     {
-                        if (appState.ActiveProfile is { Data: { } data } && State.EditingGuiderConfig is { } cfg)
+                        if (appState.ActiveProfile is { Data: { } data } && State.EditingDeviceUri is { } newUri)
                         {
-                            var newData = EquipmentActions.SetBuiltInGuiderConfig(data, cfg);
+                            var newData = EquipmentActions.UpdateDeviceUri(data, savedDeviceUri, newUri);
                             PostSignal(new UpdateProfileSignal(newData));
-                            State.BeginEditingGuiderConfig(cfg);
+                            State.BeginEditingDeviceSettings(newUri);
                         }
                     });
 
-                RenderButton("Cancel", cancelBtnX, cursor, btnW, rowH, fontPath, fontSize * 0.85f, EditButtonBg, DimText, "CancelGuiderConfig",
+                RenderButton("Cancel", cancelBtnX, cursor, btnW, rowH, fontPath, fontSize * 0.85f, EditButtonBg, DimText, $"CancelSettings_{deviceKey}",
                     _ =>
                     {
-                        State.BeginEditingGuiderConfig(savedConfig);
+                        State.BeginEditingDeviceSettings(savedDeviceUri);
                     });
 
                 cursor += rowH;

@@ -1,7 +1,7 @@
+using System;
 using DIR.Lib;
 using System.Collections.Generic;
 using TianWen.Lib.Devices;
-using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.UI.Abstractions;
@@ -77,28 +77,34 @@ public class EquipmentTabState
     // Guider focal length editing
     public TextInputState GuiderFocalLengthInput { get; } = new() { Placeholder = "Guide scope FL (mm)" };
 
-    // Built-in guider config editing
-    public bool IsGuiderConfigExpanded { get; set; }
-    public BuiltInGuiderConfig? EditingGuiderConfig { get; set; }
-    public bool GuiderConfigDirty { get; set; }
+    // Generic device settings editing
+    /// <summary>URI path of the device whose settings pane is currently expanded, or null.</summary>
+    public string? ExpandedDeviceSettingsUri { get; set; }
+
+    /// <summary>Mutable copy of the device URI being edited (query params are mutated).</summary>
+    public Uri? EditingDeviceUri { get; set; }
+
+    /// <summary>True when the editing URI differs from the saved URI.</summary>
+    public bool DeviceSettingsDirty { get; set; }
 
     /// <summary>
-    /// Loads the built-in guider config into the mutable editing state.
+    /// Begins editing device settings for the given device URI.
     /// </summary>
-    public void BeginEditingGuiderConfig(BuiltInGuiderConfig config)
+    public void BeginEditingDeviceSettings(Uri deviceUri)
     {
-        EditingGuiderConfig = config;
-        GuiderConfigDirty = false;
+        ExpandedDeviceSettingsUri = deviceUri.GetLeftPart(UriPartial.Path);
+        EditingDeviceUri = deviceUri;
+        DeviceSettingsDirty = false;
     }
 
     /// <summary>
-    /// Discards the mutable guider config editing state.
+    /// Discards the device settings editing state.
     /// </summary>
-    public void StopEditingGuiderConfig()
+    public void StopEditingDeviceSettings()
     {
-        EditingGuiderConfig = null;
-        GuiderConfigDirty = false;
-        IsGuiderConfigExpanded = false;
+        ExpandedDeviceSettingsUri = null;
+        EditingDeviceUri = null;
+        DeviceSettingsDirty = false;
     }
 
     /// <summary>

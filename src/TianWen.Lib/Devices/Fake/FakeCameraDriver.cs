@@ -32,6 +32,20 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
                 _cameraSettings = _cameraSettings with { Height = (ushort)CameraYSize };
             }
         }
+
+        // Read PE simulation parameters from device URI query params
+        if (fakeDevice.Query.QueryValue(DeviceQueryKey.PePeriodSeconds) is { } pePeriod
+            && double.TryParse(pePeriod, System.Globalization.CultureInfo.InvariantCulture, out var period)
+            && period > 0)
+        {
+            PePeriodSeconds = period;
+        }
+        if (fakeDevice.Query.QueryValue(DeviceQueryKey.PePeakTopeakArcsec) is { } peAmplitude
+            && double.TryParse(peAmplitude, System.Globalization.CultureInfo.InvariantCulture, out var amplitude)
+            && amplitude >= 0)
+        {
+            PePeakTopeakArcsec = amplitude;
+        }
     }
 
     private Imaging.Channel? _lastImageData;

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Immutable;
 using System.Collections.Specialized;
 using System.Text;
 using System.Text.Json.Serialization;
@@ -18,6 +19,24 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
     {
         // calls primary constructor
     }
+
+    private static readonly ImmutableArray<DeviceSettingDescriptor> CameraSettings =
+    [
+        DeviceSettingHelper.IntSetting(
+            DeviceQueryKey.PePeriodSeconds.Key, "PE Period",
+            defaultValue: 600, min: 60, max: 3600, step: 60,
+            suffix: "s"),
+        DeviceSettingHelper.FloatSetting(
+            DeviceQueryKey.PePeakTopeakArcsec.Key, "PE Amplitude",
+            defaultValue: 20.0, min: 0.0, max: 120.0, step: 2.0,
+            format: "F1", suffix: "\""),
+    ];
+
+    public override ImmutableArray<DeviceSettingDescriptor> Settings => DeviceType switch
+    {
+        DeviceType.Camera => CameraSettings,
+        _ => [],
+    };
 
     protected override IDeviceDriver? NewInstanceFromDevice(IExternal external) => DeviceType switch
     {

@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Immutable;
+using System.Web;
 
 namespace TianWen.Lib.Devices.Guider;
 
@@ -25,6 +27,32 @@ public record class BuiltInGuiderDevice(Uri DeviceUri) : GuiderDeviceBase(Device
         GuiderCapabilities.ConfigurablePulseGuideSource |
         GuiderCapabilities.ConfigurableDecFlip |
         GuiderCapabilities.NeuralGuiding;
+
+    private static readonly string NeuralBlendKey = DeviceQueryKey.NeuralBlendFactor.Key;
+    private static readonly string UseNeuralKey = DeviceQueryKey.UseNeuralGuider.Key;
+
+    private static bool IsNeuralEnabled(Uri uri)
+    {
+        var val = HttpUtility.ParseQueryString(uri.Query)[UseNeuralKey];
+        return val is null || !bool.TryParse(val, out var b) || b;
+    }
+
+    public override ImmutableArray<DeviceSettingDescriptor> Settings { get; } =
+    [
+        DeviceSettingHelper.EnumSetting(
+            DeviceQueryKey.PulseGuideSource.Key, "Pulse Guide",
+            PulseGuideSource.Auto),
+        DeviceSettingHelper.BoolSetting(
+            DeviceQueryKey.ReverseDecAfterFlip.Key, "Rev DEC on Flip",
+            defaultValue: true),
+        DeviceSettingHelper.BoolSetting(
+            UseNeuralKey, "Neural Guider",
+            defaultValue: true, trueLabel: "On", falseLabel: "Off"),
+        DeviceSettingHelper.PercentSetting(
+            NeuralBlendKey, "Neural Blend",
+            defaultPercent: 15,
+            isVisible: IsNeuralEnabled),
+    ];
 
     protected override IDeviceDriver? NewInstanceFromDevice(IExternal external) => DeviceType switch
     {

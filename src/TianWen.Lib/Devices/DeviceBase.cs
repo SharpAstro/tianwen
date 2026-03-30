@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Immutable;
 using System.Collections.Specialized;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
@@ -32,6 +33,14 @@ public abstract record class DeviceBase(Uri DeviceUri)
 
     [JsonIgnore]
     public string DeviceClass => DeviceUri.Host;
+
+    /// <summary>
+    /// Configurable settings for this device, described as URI query parameter descriptors.
+    /// The equipment tab iterates these to render a generic settings pane.
+    /// Override in subclasses to declare device-specific settings.
+    /// </summary>
+    [JsonIgnore]
+    public virtual ImmutableArray<DeviceSettingDescriptor> Settings => [];
 
     protected virtual string? CustomToString() => null;
 
