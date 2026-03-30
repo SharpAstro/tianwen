@@ -2,7 +2,7 @@
 
 ## High Priority
 
-- [ ] MiniViewer: optional lightweight mode that skips storing UnstretchedImage — for live preview where we never re-stretch, just keep stats + GPU texture. Saves ~140MB per displayed frame
+- [x] MiniViewer: optional lightweight mode that skips storing UnstretchedImage — for live preview where we never re-stretch, just keep stats + GPU texture. Saves ~140MB per displayed frame
 - [ ] Cache altitude chart as texture — only re-render the mouse follower overlay on hover, not the entire chart. Currently 20% GPU on mouse hover due to full chart redraw per frame
 
 ## Next Up
@@ -10,19 +10,20 @@
 - [ ] Weather API integration — cloud cover, seeing, humidity, dew point. Auto-pause session on bad conditions. Candidates: OpenMeteo (free), ClearOutside scrape, or INDI weather device
 - [ ] Planner: show Moon phase + position — altitude curve on the chart, illumination %, angular distance from each target (flag targets < 30° from Moon). Use existing VSOP87/ELP2000 or simplified lunar ephemeris
 - [ ] Live viewer: camera switching — allow selecting which OTA's camera to preview in both GUI MiniViewer and TUI Sixel preview (currently always shows first available)
-- [ ] Guider graph: connect dots with lines (Bresenham or anti-aliased) instead of scatter dots — users expect smooth curves like PHD2
+- [x] Guider graph: connect dots with lines (Bresenham or anti-aliased) instead of scatter dots — users expect smooth curves like PHD2
 - [ ] Guider graph: scrolling window (last N minutes) instead of compressing all history — makes activity feel live
 - [ ] Guider graph: reuse the existing LiveSessionTab guide graph widget — the guider tab should show a larger version of the same graph, not a separate implementation. Extract shared graph rendering
 - [ ] Guider graph: show correction pulses (vertical bars) and dither events (markers/shading)
-- [ ] Guider tab: keep looping guide camera frames during centering/slewing — call `LoopAsync` when not guiding so the guide camera feed stays live. Currently the guide loop stops during centering and the tab shows "Waiting for guider"
+- [x] Guider tab: keep looping guide camera frames during centering/slewing — call `LoopAsync` when not guiding so the guide camera feed stays live. Currently the guide loop stops during centering and the tab shows "Waiting for guider"
 - [ ] Guider tab: show calibration frames — render guide camera during calibration phase with star movement vectors, step count, and calibration progress
-- [ ] Guider tab: guide camera image + crosshair + star close-up + profile. Requires plumbing:
-  - Add to `IDeviceDependentGuider`: `Image? LastGuideFrame`, `(float,float)? GuideStarPosition`, `float? GuideStarSNR`, `float? GuideStarHFD`
-  - Surface on `ISession` (on-demand: only fetch when guider tab is active)
-  - `BuiltInGuiderDriver`: expose from `GuideLoop`'s `GuiderCentroidTracker` (currently all `internal`)
-  - `FakeGuider`: generate synthetic guide frames with star field
-  - GUI: guide camera Canvas + crosshair overlay + zoomed star close-up + 1D intensity profile
-  - PHD2: no image (show placeholder), SNR/mass from event stream only
+- [x] Guider tab: guide camera image + crosshair (done). Remaining: star close-up + 1D intensity profile
+  - [x] Add to `IDeviceDependentGuider`: `Image? LastGuideFrame`, `(float,float)? GuideStarPosition`, `float? GuideStarSNR`, `float? GuideStarHFD`
+  - [x] Surface on `ISession` via `LiveSessionState.PollSession`
+  - [x] `BuiltInGuiderDriver`: expose from `GuideLoop`'s `GuiderCentroidTracker`
+  - [x] `FakeGuider`: generate synthetic guide frames with star field
+  - [x] GUI: guide camera Canvas + crosshair overlay + SNR + frame counter
+  - [ ] GUI: zoomed star close-up + 1D intensity profile
+  - [ ] PHD2: no image (show placeholder), SNR/mass from event stream only
 - [ ] Live session: show dither state — "Dithering..." status with settle progress, no indicator currently visible during dither
 - [ ] Cooling graph: same scrolling window treatment
 - [ ] VSOP87 vectorization — convert 43K lines of hardcoded `amplitude * Cos(phase + frequency * t)` into coefficient arrays, evaluate with `Vector256<double>` (AVX2). Process 4 terms per iteration. Requires source generator or one-time conversion of all planet files (EarthX/Y/Z, MarsX/Y/Z, etc.)

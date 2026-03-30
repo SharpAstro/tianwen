@@ -318,7 +318,7 @@ public void ReleaseImageData() { }
 
     public int BayerOffsetX => _camera.BayerOffsetX;
 
-    public int BayerOffsetY => _camera.BayerOffsetX;
+    public int BayerOffsetY => _camera.BayerOffsetY;
 
     // Async-primary members
     public ValueTask<bool> GetImageReadyAsync(CancellationToken cancellationToken = default)

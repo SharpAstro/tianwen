@@ -60,6 +60,7 @@ internal sealed partial class AscomDispatchCamera : IDisposable
     public partial int CameraState { get; }
     public partial int SensorType { get; }
     public partial int BayerOffsetX { get; }
+    public partial int BayerOffsetY { get; }
     public partial double PixelSizeX { get; }
     public partial double PixelSizeY { get; }
     public partial double CoolerPower { get; }
