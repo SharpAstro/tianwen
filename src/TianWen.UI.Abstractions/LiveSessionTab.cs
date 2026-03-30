@@ -525,9 +525,9 @@ namespace TianWen.UI.Abstractions
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, HeaderBg);
             FillRect(rect.X, rect.Y, rect.Width, 1, SeparatorColor);
 
-            var abortW = 80f * dpiScale;
+            var abortW = state.IsRunning ? 80f * dpiScale : 0;
             var rmsW = 280f * dpiScale;
-            var guideW = rect.Width - rmsW - abortW - pad * 4;
+            var guideW = rect.Width - rmsW - abortW - pad * (state.IsRunning ? 5 : 3);
 
             // Mini guide graph (left portion)
             if (guideW > 40)
@@ -536,16 +536,17 @@ namespace TianWen.UI.Abstractions
                 RenderCompactGuideGraph(state, guideRect, dpiScale);
             }
 
-            // RMS stats (center)
+            // RMS stats (between graph and abort)
+            var rmsX = rect.X + guideW + pad * 2;
             var rmsText = LiveSessionActions.FormatGuideRms(state.LastGuideStats);
             DrawText(rmsText, fontPath,
-                rect.X + guideW + pad * 2, rect.Y, rmsW, rect.Height,
-                fontSize * 0.9f, BodyText, TextAlign.Center, TextAlign.Center);
+                rmsX, rect.Y, rmsW, rect.Height,
+                fontSize * 0.9f, BodyText, TextAlign.Near, TextAlign.Center);
 
-            // ABORT button (right)
+            // ABORT button (right, after RMS)
             if (state.IsRunning)
             {
-                var abortX = rect.X + rect.Width - abortW - pad;
+                var abortX = rmsX + rmsW + pad;
                 RenderButton("ABORT", abortX, rect.Y + 4 * dpiScale, abortW, rect.Height - 8 * dpiScale,
                     fontPath, fontSize, AbortBg, AbortText, "AbortSession",
                     _ => { state.ShowAbortConfirm = true; state.NeedsRedraw = true; });
