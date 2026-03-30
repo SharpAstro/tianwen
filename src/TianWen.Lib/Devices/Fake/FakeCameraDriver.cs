@@ -700,9 +700,10 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
     }
 
     /// <summary>
-    /// Total star offset: periodic error drift + accumulated ST-4 corrections.
+    /// Total star offset: periodic error drift minus accumulated ST-4 corrections.
+    /// Corrections counteract the drift, so they subtract from it.
     /// </summary>
-    private (double X, double Y) TotalStarOffset => (CurrentPeDriftPixels + _guideOffsetX, _guideOffsetY);
+    private (double X, double Y) TotalStarOffset => (CurrentPeDriftPixels - _guideOffsetX, -_guideOffsetY);
 
     protected override void Dispose(bool disposing)
     {
