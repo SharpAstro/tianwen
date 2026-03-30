@@ -178,9 +178,10 @@ internal class TuiSubCommand(
                 liveSessionState.NeedsRedraw = false;
             }
 
-            // Force periodic redraw on live session tab (~2 Hz) for clock, cooling, mount updates
+            // Force periodic redraw on live session/guider tab (~2 Hz) for clock, cooling, mount, guide updates
             if (liveSessionState.IsRunning && appState.ActiveTab is GuiTab.LiveSession or GuiTab.Guider)
             {
+                liveSessionState.PollSession();
                 activeTab.NeedsRedraw = true;
                 await Task.Delay(500, cts.Token);
             }
