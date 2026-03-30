@@ -58,7 +58,7 @@ public class GuiderTabState
                 SessionPhase.CalibratingGuider when LastGuideFrame is null => GuiderPlaceholder.Calibrating,
                 SessionPhase.Cooling or SessionPhase.WaitingForDark
                     or SessionPhase.RoughFocus or SessionPhase.AutoFocus => GuiderPlaceholder.NotGuiding,
-                SessionPhase.Observing when LastGuideStats is null => GuiderPlaceholder.WaitingForGuider,
+                SessionPhase.Observing when LastGuideStats is null && LastGuideFrame is null => GuiderPlaceholder.WaitingForGuider,
                 _ => null
             };
         }

@@ -82,7 +82,49 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
 
     public bool CanSetBitDepth { get; } = false;
 
-    public bool CanPulseGuide { get; } = false;
+    public bool CanPulseGuide { get; } = true;
+
+    // Net star offset = periodic error drift + ST-4 corrections (which should cancel each other)
+    private double _guideOffsetX;
+    private double _guideOffsetY;
+
+    // Periodic error simulation — sinusoidal drift in RA (pixels), ~8px peak-to-peak over ~480s period
+    private long _peStartTicks;
+
+    /// <summary>Periodic error period in seconds (typical worm gear ~8 minutes).</summary>
+    internal double PePeriodSeconds { get; set; } = 480.0;
+
+    /// <summary>Periodic error amplitude in pixels (peak displacement).</summary>
+    internal double PeAmplitudePixels { get; set; } = 4.0;
+
+    /// <summary>
+    /// Guide rate in pixels per second, derived from 0.5x sidereal rate and the camera's pixel scale.
+    /// </summary>
+    internal double GuideRatePixelsPerSecond
+    {
+        get
+        {
+            const double halfSiderealArcsecPerSec = 15.041 * 0.5;
+            var pixelScaleArcsec = FocalLength > 0 ? PixelSizeX / FocalLength * 206.265 : 1.0;
+            return halfSiderealArcsecPerSec / pixelScaleArcsec;
+        }
+    }
+
+    /// <summary>
+    /// Computes the current periodic error drift in pixels (RA only).
+    /// </summary>
+    private double CurrentPeDriftPixels
+    {
+        get
+        {
+            if (_peStartTicks == 0)
+            {
+                _peStartTicks = External.TimeProvider.GetTimestamp();
+            }
+            var elapsed = External.TimeProvider.GetElapsedTime(_peStartTicks).TotalSeconds;
+            return PeAmplitudePixels * Math.Sin(2.0 * Math.PI * elapsed / PePeriodSeconds);
+        }
+    }
 
     public bool UsesGainValue { get; } = true;
 
@@ -574,9 +616,11 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
                             var starSpan = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(stars);
                             array = SensorType is Imaging.SensorType.RGGB
                                 ? SyntheticStarFieldRenderer.RenderBayer(imgWidth, imgHeight, defocus, starSpan,
+                                    offsetX: TotalStarOffset.X, offsetY: TotalStarOffset.Y,
                                     exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(), dest: dest)
                                 : SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocus,
-                                    stars: starSpan, exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(),
+                                    stars: starSpan, offsetX: TotalStarOffset.X, offsetY: TotalStarOffset.Y,
+                                    exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(),
                                     cloudCoverage: CloudCoverage, cloudSeed: cloudSeed, dest: dest);
                         }
                         else
@@ -584,6 +628,7 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
                             var cloudSeed = _frameRng.Next();
                             // No catalog — random stars, can't do meaningful Bayer colors
                             array = SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocus,
+                                offsetX: TotalStarOffset.X, offsetY: TotalStarOffset.Y,
                                 exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(),
                                 cloudCoverage: CloudCoverage, cloudSeed: cloudSeed, dest: dest);
                         }
@@ -596,6 +641,7 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
                         var exposureSec = current.IntendedDuration.TotalSeconds;
                         var cloudSeed = _frameRng.Next();
                         array = SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocusSteps: 0,
+                            offsetX: TotalStarOffset.X, offsetY: TotalStarOffset.Y,
                             exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(),
                             cloudCoverage: CloudCoverage, cloudSeed: cloudSeed, dest: dest);
                     }
@@ -639,7 +685,24 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
     }
 
     public ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken = default)
-        => throw new InvalidOperationException("Pulse guiding via camera is not supported");
+    {
+        var pixels = GuideRatePixelsPerSecond * duration.TotalSeconds;
+        // ST-4 corrections: West speeds up RA tracking → stars shift +X (East on sensor)
+        // This matches real ST-4 behavior where West correction counteracts RA drift
+        switch (direction)
+        {
+            case GuideDirection.North: _guideOffsetY -= pixels; break;
+            case GuideDirection.South: _guideOffsetY += pixels; break;
+            case GuideDirection.West:  _guideOffsetX += pixels; break;
+            case GuideDirection.East:  _guideOffsetX -= pixels; break;
+        }
+        return ValueTask.CompletedTask;
+    }
+
+    /// <summary>
+    /// Total star offset: periodic error drift + accumulated ST-4 corrections.
+    /// </summary>
+    private (double X, double Y) TotalStarOffset => (CurrentPeDriftPixels + _guideOffsetX, _guideOffsetY);
 
     protected override void Dispose(bool disposing)
     {

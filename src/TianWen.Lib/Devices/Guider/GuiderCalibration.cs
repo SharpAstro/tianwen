@@ -25,8 +25,22 @@ internal enum CalibrationValidationResult
 /// Performs guider calibration by sending test pulses to the mount and measuring
 /// the resulting star displacement. Determines camera angle and effective guide rates.
 /// </summary>
+/// <summary>
+/// Current calibration step, exposed for UI progress display.
+/// </summary>
+internal readonly record struct CalibrationProgress(
+    string Phase,
+    GuideDirection Direction,
+    int Step,
+    int TotalSteps,
+    double DisplacementPx);
+
 internal sealed class GuiderCalibration
 {
+    /// <summary>
+    /// Current calibration progress, updated during <see cref="CalibrateAsync"/>.
+    /// </summary>
+    public CalibrationProgress? Progress { get; set; }
     private const int DefaultCalibrationPulseMs = 2000;
     private const int DefaultCalibrationSteps = 5;
 
