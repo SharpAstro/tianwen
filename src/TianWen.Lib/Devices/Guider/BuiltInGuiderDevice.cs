@@ -21,6 +21,11 @@ public record class BuiltInGuiderDevice(Uri DeviceUri) : GuiderDeviceBase(Device
 
     public override string? ProfileName => null;
 
+    public override GuiderCapabilities Capabilities =>
+        GuiderCapabilities.ConfigurablePulseGuideSource |
+        GuiderCapabilities.ConfigurableDecFlip |
+        GuiderCapabilities.NeuralGuiding;
+
     protected override IDeviceDriver? NewInstanceFromDevice(IExternal external) => DeviceType switch
     {
         DeviceType.Guider => new BuiltInGuiderDriver(this, external),

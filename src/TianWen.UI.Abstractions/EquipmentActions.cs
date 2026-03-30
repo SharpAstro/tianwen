@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Web;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.UI.Abstractions;
@@ -334,6 +335,81 @@ public static class EquipmentActions
         }
 
         return data with { OTAs = data.OTAs.SetItem(otaIndex, ota) };
+    }
+
+    /// <summary>
+    /// Returns the <see cref="GuiderCapabilities"/> for the given guider URI
+    /// by instantiating the appropriate <see cref="GuiderDeviceBase"/> subclass.
+    /// </summary>
+    public static GuiderCapabilities GetGuiderCapabilities(Uri? guiderUri)
+    {
+        if (guiderUri is null || guiderUri == NoneDevice.Instance.DeviceUri)
+        {
+            return GuiderCapabilities.None;
+        }
+
+        GuiderDeviceBase? device = guiderUri.Host switch
+        {
+            nameof(BuiltInGuiderDevice) => new BuiltInGuiderDevice(guiderUri),
+            _ => null,
+        };
+
+        return device?.Capabilities ?? GuiderCapabilities.None;
+    }
+
+    /// <summary>
+    /// Reads the built-in guider configuration from the guider URI query params.
+    /// </summary>
+    public static BuiltInGuiderConfig GetBuiltInGuiderConfig(ProfileData data)
+    {
+        var uri = data.Guider;
+        if (uri is null || uri == NoneDevice.Instance.DeviceUri)
+        {
+            return BuiltInGuiderConfig.Default;
+        }
+
+        var query = HttpUtility.ParseQueryString(uri.Query);
+
+        var pulseGuideSource = Enum.TryParse<PulseGuideSource>(query.QueryValue(DeviceQueryKey.PulseGuideSource), ignoreCase: true, out var pgs)
+            ? pgs
+            : PulseGuideSource.Auto;
+
+        var reverseDecAfterFlip = query.QueryValue(DeviceQueryKey.ReverseDecAfterFlip) is not { } rdVal
+            || !bool.TryParse(rdVal, out var rd)
+            || rd;
+
+        var useNeuralGuider = query.QueryValue(DeviceQueryKey.UseNeuralGuider) is not { } unVal
+            || !bool.TryParse(unVal, out var un)
+            || un;
+
+        var neuralBlendPercent = query.QueryValue(DeviceQueryKey.NeuralBlendFactor) is { } nbVal
+            && double.TryParse(nbVal, CultureInfo.InvariantCulture, out var nb)
+            ? (int)Math.Round(nb * 100.0)
+            : 15;
+
+        return new BuiltInGuiderConfig(pulseGuideSource, reverseDecAfterFlip, useNeuralGuider, neuralBlendPercent);
+    }
+
+    /// <summary>
+    /// Returns new <see cref="ProfileData"/> with the guider URI query params updated from the given config.
+    /// </summary>
+    public static ProfileData SetBuiltInGuiderConfig(ProfileData data, BuiltInGuiderConfig config)
+    {
+        var uri = data.Guider;
+        if (uri is null || uri == NoneDevice.Instance.DeviceUri)
+        {
+            return data;
+        }
+
+        var query = HttpUtility.ParseQueryString(uri.Query);
+
+        query[DeviceQueryKey.PulseGuideSource.Key] = config.PulseGuideSource.ToString();
+        query[DeviceQueryKey.ReverseDecAfterFlip.Key] = config.ReverseDecAfterFlip.ToString();
+        query[DeviceQueryKey.UseNeuralGuider.Key] = config.UseNeuralGuider.ToString();
+        query[DeviceQueryKey.NeuralBlendFactor.Key] = (config.NeuralBlendPercent / 100.0).ToString(CultureInfo.InvariantCulture);
+
+        var builder = new UriBuilder(uri) { Query = query.ToString() };
+        return data with { Guider = builder.Uri };
     }
 
     /// <summary>
