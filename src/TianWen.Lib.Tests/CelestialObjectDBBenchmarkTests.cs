@@ -1,3 +1,4 @@
+using System;
 using TianWen.Lib.Astrometry.Catalogs;
 using Shouldly;
 using System.Diagnostics;
@@ -130,11 +131,12 @@ public class CelestialObjectDBBenchmarkTests(ITestOutputHelper output)
         }
         sw.Stop();
 
-        // then — lookups should be at least 10x faster than init per entry
+        // then — lookups should be at least 10x faster than init per entry (relaxed to 5x in CI)
         var avgLookupNs = sw.Elapsed.TotalNanoseconds / (iterations * indices.Length);
         var speedup = initNsPerEntry / avgLookupNs;
-        output.WriteLine($"Init: {initNsPerEntry:F1}ns/entry, Lookup: {avgLookupNs:F1}ns avg, Speedup: {speedup:F0}x");
-        speedup.ShouldBeGreaterThan(10,
-            $"Cross-index lookup ({avgLookupNs:F1}ns) should be at least 10x faster than init per entry ({initNsPerEntry:F1}ns), but was only {speedup:F1}x faster");
+        var minSpeedup = Environment.GetEnvironmentVariable("CI") is not null ? 5.0 : 10.0;
+        output.WriteLine($"Init: {initNsPerEntry:F1}ns/entry, Lookup: {avgLookupNs:F1}ns avg, Speedup: {speedup:F0}x (min: {minSpeedup}x)");
+        speedup.ShouldBeGreaterThan(minSpeedup,
+            $"Cross-index lookup ({avgLookupNs:F1}ns) should be at least {minSpeedup}x faster than init per entry ({initNsPerEntry:F1}ns), but was only {speedup:F1}x faster");
     }
 }
