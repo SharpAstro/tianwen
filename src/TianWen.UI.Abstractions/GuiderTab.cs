@@ -355,6 +355,7 @@ namespace TianWen.UI.Abstractions
 
         private static readonly RGBAColor32 TargetBg = new RGBAColor32(0x10, 0x10, 0x18, 0xff);
         private static readonly RGBAColor32 TargetRingColor = new RGBAColor32(0x33, 0x33, 0x44, 0xff);
+        private static readonly RGBAColor32 SweetSpotColor = new RGBAColor32(0x18, 0x30, 0x18, 0xff);
         private static readonly RGBAColor32 RmsRingColor = new RGBAColor32(0x44, 0x66, 0x44, 0xff);
         private static readonly RGBAColor32 RecentDotColor = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
         private static readonly RGBAColor32 OldDotColor = new RGBAColor32(0x66, 0x66, 0x88, 0x88);
@@ -384,6 +385,11 @@ namespace TianWen.UI.Abstractions
             // Fixed scale: rings at 3", 6", 9", 12" (outer ring = 12")
             const double targetScaleArcsec = 12.0;
             const double ringStepArcsec = 3.0;
+            const double sweetSpotArcsec = 1.0;
+
+            // Sweet spot — filled disc showing acceptable guiding tolerance
+            var sweetR = (float)(sweetSpotArcsec / targetScaleArcsec * halfSide);
+            FillDisc(cx, cy, sweetR, SweetSpotColor);
 
             // Concentric rings at fixed arcsec intervals
             for (var ring = 1; ring <= 4; ring++)
@@ -444,6 +450,19 @@ namespace TianWen.UI.Abstractions
                 var lx = cx + (float)(Math.Clamp(last.RaError / targetScaleArcsec, -1, 1) * halfSide);
                 var ly = cy - (float)(Math.Clamp(last.DecError / targetScaleArcsec, -1, 1) * halfSide);
                 FillRect((int)lx - 2, (int)ly - 2, 5, 5, CrosshairColor);
+            }
+        }
+
+        /// <summary>
+        /// Fills a disc (filled circle) using horizontal scanlines.
+        /// </summary>
+        private void FillDisc(float cx, float cy, float radius, RGBAColor32 color)
+        {
+            var r = (int)radius;
+            for (var dy = -r; dy <= r; dy++)
+            {
+                var halfW = (int)Math.Sqrt(radius * radius - dy * dy);
+                FillRect((int)cx - halfW, (int)cy + dy, halfW * 2, 1, color);
             }
         }
 
