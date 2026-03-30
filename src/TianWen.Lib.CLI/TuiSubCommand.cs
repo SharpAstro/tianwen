@@ -269,7 +269,9 @@ internal class TuiSubCommand(
 
         appState.ActiveTab = tab;
         activeTab = tabs[tab];
+        terminal.Clear(); // Erase sixel pixel artifacts from previous tab
         activeTab.BuildPanel(terminal);
+        activeTab.NeedsRedraw = true;
         appState.NeedsRedraw = true;
         return true;
     }

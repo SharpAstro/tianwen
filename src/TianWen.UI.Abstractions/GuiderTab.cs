@@ -86,22 +86,37 @@ namespace TianWen.UI.Abstractions
                 headerRect.Width - 200 * dpiScale - padding * 2, headerRect.Height,
                 fontSize * 0.9f, BodyText, TextAlign.Far, TextAlign.Center);
 
-            // Layout: top row = camera (left) + target view (center) + stats (right), bottom = graph
+            // Layout:
+            // ┌─────────────────┬──────────┬────────┐
+            // │  Guide Camera   │ Profile  │ Stats  │  top half of right panel
+            // │  (large left)   ├──────────┴────────┤
+            // │                 │   Target View      │  bottom half of right panel
+            // └─────────────────┴───────────────────┘
+            // │        Guide Error Graph             │
+            // └──────────────────────────────────────┘
             var bodyTop = contentRect.Y + headerH;
             var bodyHeight = contentRect.Height - headerH;
             var graphH = Math.Max(bodyHeight * 0.2f, 80f * dpiScale);
-            var topH = bodyHeight - graphH;
-            var cameraW = (contentRect.Width - statsW) * 0.55f;
-            var targetW = contentRect.Width - statsW - cameraW;
+            var mainH = bodyHeight - graphH;
+            var rightW = statsW + 120f * dpiScale; // profile + stats width
+            var cameraW = contentRect.Width - rightW;
+            var rightX = contentRect.X + cameraW;
 
-            var cameraRect = new RectF32(contentRect.X, bodyTop, cameraW, topH);
-            var targetRect = new RectF32(contentRect.X + cameraW, bodyTop, targetW, topH);
-            var statsRect = new RectF32(contentRect.X + cameraW + targetW, bodyTop, statsW, topH);
-            var graphRect = new RectF32(contentRect.X, bodyTop + topH, contentRect.Width, graphH);
+            // Right panel: top half = profile + stats, bottom half = target view
+            var rightTopH = mainH * 0.5f;
+            var rightBotH = mainH - rightTopH;
+            var profileW = rightW - statsW;
+
+            var cameraRect = new RectF32(contentRect.X, bodyTop, cameraW, mainH);
+            var profileRect = new RectF32(rightX, bodyTop, profileW, rightTopH);
+            var statsRect = new RectF32(rightX + profileW, bodyTop, statsW, rightTopH);
+            var targetRect = new RectF32(rightX, bodyTop + rightTopH, rightW, rightBotH);
+            var graphRect = new RectF32(contentRect.X, bodyTop + mainH, contentRect.Width, graphH);
 
             RenderGuideCamera(cameraRect, dpiScale, fontPath, fontSize);
-            RenderTargetView(targetRect, dpiScale, fontPath, fontSize);
+            RenderStarProfile(profileRect, dpiScale, fontPath, fontSize);
             RenderStats(statsRect, dpiScale, fontPath, fontSize, padding);
+            RenderTargetView(targetRect, dpiScale, fontPath, fontSize);
             RenderGraph(graphRect, dpiScale, fontPath, fontSize);
         }
 
@@ -169,6 +184,28 @@ namespace TianWen.UI.Abstractions
                 fontSize, DimText, TextAlign.Center, TextAlign.Center);
         }
 
+        private static readonly RGBAColor32 ProfileBg = new RGBAColor32(0x12, 0x12, 0x1a, 0xff);
+        private static readonly RGBAColor32 ProfileLineColor = new RGBAColor32(0x66, 0xcc, 0x66, 0xff);
+
+        /// <summary>
+        /// Star profile: 1D intensity cross-section through the guide star.
+        /// Placeholder until profile data is piped from GuiderCentroidTracker.
+        /// </summary>
+        private void RenderStarProfile(RectF32 rect, float dpiScale, string fontPath, float fontSize)
+        {
+            FillRect(rect.X, rect.Y, rect.Width, rect.Height, ProfileBg);
+
+            DrawText("Star Profile", fontPath,
+                rect.X + BasePadding * dpiScale, rect.Y + BasePadding * dpiScale,
+                rect.Width - BasePadding * 2 * dpiScale, fontSize * 1.2f,
+                fontSize * 0.85f, HeaderText, TextAlign.Near, TextAlign.Near);
+
+            // TODO: render H/V intensity cross-sections when GuiderCentroidResult exposes profile data
+            DrawText("Awaiting data\u2026", fontPath,
+                rect.X, rect.Y, rect.Width, rect.Height,
+                fontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center);
+        }
+
         private static readonly RGBAColor32 TargetBg = new RGBAColor32(0x10, 0x10, 0x18, 0xff);
         private static readonly RGBAColor32 TargetRingColor = new RGBAColor32(0x33, 0x33, 0x44, 0xff);
         private static readonly RGBAColor32 RmsRingColor = new RGBAColor32(0x44, 0x66, 0x44, 0xff);
@@ -207,9 +244,10 @@ namespace TianWen.UI.Abstractions
                 DrawRing(cx, cy, r, ring == 4 ? GuideGraphRenderer.ZeroLineColor : TargetRingColor);
             }
 
-            // Crosshair
-            FillRect(rect.X + padding, cy, side, 1, TargetRingColor);
-            FillRect(cx, rect.Y + padding, 1, side, TargetRingColor);
+            // Crosshair — short marks at center only
+            var crossLen = 8f * dpiScale;
+            FillRect(cx - crossLen, cy, crossLen * 2, 1, TargetRingColor);
+            FillRect(cx, cy - crossLen, 1, crossLen * 2, TargetRingColor);
 
             // Axis labels
             var labelSize = fontSize * 0.7f;

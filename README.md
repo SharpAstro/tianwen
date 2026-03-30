@@ -255,15 +255,14 @@ Pre-built native AOT binaries of `TianWen.Lib.CLI` are available from [GitHub Re
 
 ### CLI Reference
 
-The `tianwen` CLI (`TianWen.Lib.CLI`) provides non-interactive commands and an interactive TUI mode (`-i`).
+The `tianwen` CLI (`TianWen.Lib.CLI`) provides non-interactive commands and a full-screen tabbed TUI (`tianwen tui`).
 
 #### Global Options
 
 | Option | Description |
 |--------|-------------|
 | `-a`, `--active <name>` | Select active profile by name or ID |
-| `-i`, `--interactive` | Enter alternate-screen interactive TUI mode |
-| `<path>` | FITS file or directory to view (shorthand for `view <path> -i`) |
+| `<path>` | FITS file or directory to view (shorthand for `view <path>`) |
 
 #### Profile Management
 
@@ -332,17 +331,24 @@ tianwen device discover                         # Force rediscovery
 #### FITS Viewer (Terminal)
 
 ```
-tianwen view <path>                             # Single-shot render (Sixel or ASCII)
-tianwen view <path> -i                          # Interactive TUI viewer
-tianwen <path>                                  # Shorthand for view -i
+tianwen view <path>                             # Render to terminal (Sixel or ASCII)
+tianwen <path>                                  # Shorthand for view <path>
 ```
 
 #### Observation Planner
 
 ```
 tianwen plan                                    # Tonight's best targets (requires profile)
-tianwen plan -i                                 # Interactive TUI planner with altitude chart
 ```
+
+#### Interactive TUI
+
+```
+tianwen tui                                     # Full-screen tabbed TUI (alternate screen)
+```
+
+The TUI provides an Equipment tab, Planner with altitude charts, Session configuration,
+Live Session monitor with Sixel preview, and Guider tab with Braille target view.
 
 #### Example: Building a Dual-Scope Rig
 
