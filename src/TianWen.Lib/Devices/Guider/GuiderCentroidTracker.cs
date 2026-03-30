@@ -115,12 +115,20 @@ internal sealed class GuiderCentroidTracker
         var height = frame.GetLength(0);
         var width = frame.GetLength(1);
 
-        if (!_acquired)
+        var result = !_acquired
+            ? TryAcquire(frame, width, height)
+            : TryTrackAll(frame, width, height);
+
+        if (result is { } r)
         {
-            return TryAcquire(frame, width, height);
+            // Extract 1D intensity profiles through the primary star center
+            var cx = (int)Math.Round(r.X);
+            var cy = (int)Math.Round(r.Y);
+            var (h, v) = ExtractStarProfile(frame, width, height, cx, cy, _searchRadius);
+            return r with { HProfile = h, VProfile = v };
         }
 
-        return TryTrackAll(frame, width, height);
+        return null;
     }
 
     /// <summary>
@@ -416,6 +424,56 @@ internal sealed class GuiderCentroidTracker
         return true;
     }
 
+    /// <summary>
+    /// Extracts horizontal and vertical intensity profiles through the star center,
+    /// background-subtracted. Profile length = 2 * radius + 1.
+    /// </summary>
+    internal static (float[] H, float[] V) ExtractStarProfile(
+        float[,] frame, int width, int height, int cx, int cy, int radius)
+    {
+        var size = 2 * radius + 1;
+        var h = new float[size];
+        var v = new float[size];
+
+        // Estimate background from corners of the extraction box
+        var bgSum = 0.0;
+        var bgCount = 0;
+        var outerR = radius + 3;
+        var innerR2 = radius * radius;
+        var outerR2 = outerR * outerR;
+        for (var dy = -outerR; dy <= outerR; dy++)
+        {
+            for (var dx = -outerR; dx <= outerR; dx++)
+            {
+                var d2 = dx * dx + dy * dy;
+                if (d2 > innerR2 && d2 <= outerR2)
+                {
+                    var py = cy + dy;
+                    var px = cx + dx;
+                    if (py >= 0 && py < height && px >= 0 && px < width)
+                    {
+                        bgSum += frame[py, px];
+                        bgCount++;
+                    }
+                }
+            }
+        }
+        var bg = bgCount > 0 ? (float)(bgSum / bgCount) : 0f;
+
+        for (var i = 0; i < size; i++)
+        {
+            var offset = i - radius;
+            // Horizontal: row = cy, col = cx + offset
+            var hx = cx + offset;
+            h[i] = hx >= 0 && hx < width ? Math.Max(0, frame[cy, hx] - bg) : 0;
+            // Vertical: row = cy + offset, col = cx
+            var vy = cy + offset;
+            v[i] = vy >= 0 && vy < height ? Math.Max(0, frame[vy, cx] - bg) : 0;
+        }
+
+        return (h, v);
+    }
+
     private readonly record struct CandidateStar(double X, double Y, double Flux, double SNR);
 }
 
@@ -442,9 +500,13 @@ internal record struct TrackedStar(
 /// <param name="DeltaY">Flux-weighted average offset from lock positions in Y (pixels).</param>
 /// <param name="Flux">Total integrated flux across all tracked stars.</param>
 /// <param name="SNR">Minimum SNR among tracked stars.</param>
+/// <param name="HProfile">Horizontal intensity profile through the primary star center (background-subtracted).</param>
+/// <param name="VProfile">Vertical intensity profile through the primary star center (background-subtracted).</param>
 /// <param name="TrackedStarCount">Number of stars successfully tracked this frame.</param>
 internal readonly record struct GuiderCentroidResult(
     double X, double Y,
     double DeltaX, double DeltaY,
     double Flux, double SNR,
-    int TrackedStarCount);
+    int TrackedStarCount,
+    float[]? HProfile = null,
+    float[]? VProfile = null);

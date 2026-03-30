@@ -272,6 +272,10 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
     public double? GuideStarSNR =>
         _guideLoop?.LastCentroidResult?.SNR;
 
+    /// <summary>Star profile: horizontal and vertical intensity cross-sections.</summary>
+    public (float[] H, float[] V)? GuideStarProfile =>
+        _guideLoop?.LastCentroidResult is { HProfile: { } h, VProfile: { } v } ? (h, v) : null;
+
     private void StartSettleTimer(double settleTimeSeconds)
     {
         Interlocked.Exchange(ref _settleTimer, null)?.Dispose();

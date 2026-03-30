@@ -84,6 +84,10 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     public double? GuideStarSNR =>
         _guideLoop?.LastCentroidResult?.SNR;
 
+    /// <summary>Star profile: horizontal and vertical intensity cross-sections.</summary>
+    public (float[] H, float[] V)? GuideStarProfile =>
+        _guideLoop?.LastCentroidResult is { HProfile: { } h, VProfile: { } v } ? (h, v) : null;
+
     /// <summary>
     /// The mount driver wired by <see cref="LinkDevices"/>.
     /// </summary>

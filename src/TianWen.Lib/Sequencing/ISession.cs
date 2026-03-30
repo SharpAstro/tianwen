@@ -54,6 +54,9 @@ public interface ISession : IAsyncDisposable
     /// <summary>Guide star SNR, or null if not available.</summary>
     double? GuideStarSNR { get; }
 
+    /// <summary>Star profile: horizontal and vertical intensity cross-sections, or null.</summary>
+    (float[] H, float[] V)? GuideStarProfile { get; }
+
     /// <summary>All frames written during this session.</summary>
     ImmutableArray<ExposureLogEntry> ExposureLog { get; }
 
