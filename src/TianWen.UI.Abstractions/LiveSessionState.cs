@@ -95,6 +95,9 @@ namespace TianWen.UI.Abstractions
         /// <summary>Guide star SNR, or null.</summary>
         public double? GuideStarSNR { get; set; }
 
+        /// <summary>Star profile: H and V intensity cross-sections, or null.</summary>
+        public (float[] H, float[] V)? GuideStarProfile { get; set; }
+
         /// <summary>Site timezone offset for displaying times in local site time.</summary>
         public TimeSpan SiteTimeZone { get; set; }
 
@@ -146,6 +149,7 @@ namespace TianWen.UI.Abstractions
             LastGuideFrame = session.LastGuideFrame;
             GuideStarPosition = session.GuideStarPosition;
             GuideStarSNR = session.GuideStarSNR;
+            GuideStarProfile = session.GuideStarProfile;
         }
     }
 }

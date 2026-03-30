@@ -433,4 +433,9 @@ public interface IGuider : IDeviceDriver
     /// SNR of the primary guide star, or null if not available.
     /// </summary>
     double? GuideStarSNR => null;
+
+    /// <summary>
+    /// Star profile: horizontal and vertical intensity cross-sections through the primary star, or null.
+    /// </summary>
+    (float[] H, float[] V)? GuideStarProfile => null;
 }

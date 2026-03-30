@@ -185,25 +185,172 @@ namespace TianWen.UI.Abstractions
         }
 
         private static readonly RGBAColor32 ProfileBg = new RGBAColor32(0x12, 0x12, 0x1a, 0xff);
-        private static readonly RGBAColor32 ProfileLineColor = new RGBAColor32(0x66, 0xcc, 0x66, 0xff);
+        private static readonly RGBAColor32 ProfileLineColor = new RGBAColor32(0x44, 0x99, 0x44, 0x88);
+        private static readonly RGBAColor32 ProfileVLineColor = new RGBAColor32(0x44, 0x88, 0x99, 0x88);
+        private static readonly RGBAColor32 ProfileFitColor = new RGBAColor32(0x66, 0xff, 0x66, 0xff);
+        private static readonly RGBAColor32 ProfileVFitColor = new RGBAColor32(0x66, 0xdd, 0xff, 0xff);
 
         /// <summary>
-        /// Star profile: 1D intensity cross-section through the guide star.
-        /// Placeholder until profile data is piped from GuiderCentroidTracker.
+        /// Star profile: 1D intensity cross-section through the guide star center.
+        /// Shows horizontal (green) and vertical (cyan) profiles overlaid.
         /// </summary>
         private void RenderStarProfile(RectF32 rect, float dpiScale, string fontPath, float fontSize)
         {
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, ProfileBg);
 
+            var padding = BasePadding * dpiScale;
+            var headerH = fontSize * 1.4f;
+
             DrawText("Star Profile", fontPath,
-                rect.X + BasePadding * dpiScale, rect.Y + BasePadding * dpiScale,
-                rect.Width - BasePadding * 2 * dpiScale, fontSize * 1.2f,
+                rect.X + padding, rect.Y + padding,
+                rect.Width - padding * 2, headerH,
                 fontSize * 0.85f, HeaderText, TextAlign.Near, TextAlign.Near);
 
-            // TODO: render H/V intensity cross-sections when GuiderCentroidResult exposes profile data
-            DrawText("Awaiting data\u2026", fontPath,
-                rect.X, rect.Y, rect.Width, rect.Height,
-                fontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center);
+            if (State.GuideStarProfile is not var (hProfile, vProfile))
+            {
+                DrawText("Awaiting data\u2026", fontPath,
+                    rect.X, rect.Y, rect.Width, rect.Height,
+                    fontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center);
+                return;
+            }
+
+            var plotX = rect.X + padding;
+            var plotY = rect.Y + padding + headerH;
+            var plotW = rect.Width - padding * 2;
+            var plotH = rect.Height - padding * 2 - headerH;
+
+            if (plotW < 10 || plotH < 10) return;
+
+            // Find max value across both profiles for shared Y scale
+            var maxVal = 1f;
+            for (var i = 0; i < hProfile.Length; i++)
+            {
+                if (hProfile[i] > maxVal) maxVal = hProfile[i];
+            }
+            for (var i = 0; i < vProfile.Length; i++)
+            {
+                if (vProfile[i] > maxVal) maxVal = vProfile[i];
+            }
+
+            // Draw raw profiles as step-style line charts
+            var lineW = Math.Max(1f, dpiScale);
+            DrawProfileLine(hProfile, plotX, plotY, plotW, plotH, maxVal, lineW, ProfileLineColor);
+            DrawProfileLine(vProfile, plotX, plotY, plotW, plotH, maxVal, lineW, ProfileVLineColor);
+
+            // Gaussian fit overlay (moment estimation — no iterative solver)
+            var hFit = FitGaussian(hProfile);
+            var vFit = FitGaussian(vProfile);
+
+            if (hFit is var (hA, hMu, hSigma))
+            {
+                DrawGaussianCurve(hA, hMu, hSigma, hProfile.Length, plotX, plotY, plotW, plotH, maxVal, lineW, ProfileFitColor);
+            }
+            if (vFit is var (vA, vMu, vSigma))
+            {
+                DrawGaussianCurve(vA, vMu, vSigma, vProfile.Length, plotX, plotY, plotW, plotH, maxVal, lineW, ProfileVFitColor);
+            }
+
+            // FWHM text
+            var fwhmText = "";
+            if (hFit is var (_, _, hs)) fwhmText += $"H:{2.355 * hs:F1}px";
+            if (vFit is var (_, _, vs)) fwhmText += (fwhmText.Length > 0 ? "  " : "") + $"V:{2.355 * vs:F1}px";
+            if (fwhmText.Length > 0)
+            {
+                DrawText(fwhmText, fontPath,
+                    rect.X + padding, rect.Y + padding + headerH,
+                    plotW, fontSize,
+                    fontSize * 0.75f, BodyText, TextAlign.Far, TextAlign.Near);
+            }
+
+            // Legend
+            var legendY = rect.Y + rect.Height - padding - fontSize;
+            FillRect((int)(rect.X + padding), (int)legendY, (int)(6 * dpiScale), (int)(2 * dpiScale), ProfileLineColor);
+            DrawText("H", fontPath, rect.X + padding + 8 * dpiScale, legendY - fontSize * 0.2f, 15 * dpiScale, fontSize,
+                fontSize * 0.7f, ProfileLineColor, TextAlign.Near, TextAlign.Center);
+            FillRect((int)(rect.X + padding + 25 * dpiScale), (int)legendY, (int)(6 * dpiScale), (int)(2 * dpiScale), ProfileVLineColor);
+            DrawText("V", fontPath, rect.X + padding + 33 * dpiScale, legendY - fontSize * 0.2f, 15 * dpiScale, fontSize,
+                fontSize * 0.7f, ProfileVLineColor, TextAlign.Near, TextAlign.Center);
+        }
+
+        private void DrawProfileLine(float[] profile, float plotX, float plotY, float plotW, float plotH,
+            float maxVal, float lineW, RGBAColor32 color)
+        {
+            if (profile.Length < 2) return;
+
+            var step = plotW / (profile.Length - 1);
+            for (var i = 1; i < profile.Length; i++)
+            {
+                var x1 = plotX + (i - 1) * step;
+                var x2 = plotX + i * step;
+                var y1 = plotY + plotH - (profile[i - 1] / maxVal * plotH);
+                var y2 = plotY + plotH - (profile[i] / maxVal * plotH);
+
+                // Horizontal segment then vertical connector (step-style)
+                FillRect(x1, y1, x2 - x1, lineW, color);
+                FillRect(x2, Math.Min(y1, y2), lineW, Math.Abs(y2 - y1) + lineW, color);
+            }
+        }
+
+        /// <summary>
+        /// Fits a Gaussian to a 1D profile via moment estimation (no iteration).
+        /// Returns (amplitude, center, sigma) or default if the profile is flat.
+        /// </summary>
+        private static (float A, float Mu, float Sigma) FitGaussian(float[] profile)
+        {
+            var sumI = 0.0;
+            var sumIX = 0.0;
+            var peak = 0f;
+
+            for (var i = 0; i < profile.Length; i++)
+            {
+                var v = profile[i];
+                sumI += v;
+                sumIX += v * i;
+                if (v > peak) peak = v;
+            }
+
+            if (sumI <= 0 || peak <= 0)
+            {
+                return default;
+            }
+
+            var mu = sumIX / sumI;
+
+            var sumIXX = 0.0;
+            for (var i = 0; i < profile.Length; i++)
+            {
+                var d = i - mu;
+                sumIXX += profile[i] * d * d;
+            }
+
+            var sigma = Math.Sqrt(sumIXX / sumI);
+            if (sigma < 0.5) sigma = 0.5; // minimum width
+
+            return ((float)peak, (float)mu, (float)sigma);
+        }
+
+        private void DrawGaussianCurve(float amplitude, float mu, float sigma, int profileLen,
+            float plotX, float plotY, float plotW, float plotH, float maxVal, float lineW, RGBAColor32 color)
+        {
+            var steps = (int)plotW;
+            if (steps < 2) return;
+
+            var twoSigmaSq = 2.0 * sigma * sigma;
+            for (var i = 1; i < steps; i++)
+            {
+                var t0 = (float)(i - 1) / steps * (profileLen - 1);
+                var t1 = (float)i / steps * (profileLen - 1);
+                var g0 = amplitude * Math.Exp(-((t0 - mu) * (t0 - mu)) / twoSigmaSq);
+                var g1 = amplitude * Math.Exp(-((t1 - mu) * (t1 - mu)) / twoSigmaSq);
+
+                var x1 = plotX + (float)(i - 1) / steps * plotW;
+                var x2 = plotX + (float)i / steps * plotW;
+                var y1 = plotY + plotH - (float)(g0 / maxVal) * plotH;
+                var y2 = plotY + plotH - (float)(g1 / maxVal) * plotH;
+
+                FillRect(x1, y1, x2 - x1, lineW, color);
+                FillRect(x2, Math.Min(y1, y2), lineW, Math.Abs(y2 - y1) + lineW, color);
+            }
         }
 
         private static readonly RGBAColor32 TargetBg = new RGBAColor32(0x10, 0x10, 0x18, 0xff);
