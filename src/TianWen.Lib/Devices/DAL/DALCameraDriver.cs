@@ -41,7 +41,8 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
 
     private int _camImageReady = 0;
     private Imaging.Channel? _camImageArray;
-    private float[,]? _recycledBuffer;
+    private Imaging.ChannelBuffer? _channelBuffer;
+    private readonly System.Collections.Concurrent.ConcurrentBag<float[,]> _freeBuffers = [];
     private readonly ITimer?[] _pulseGuiderTimers = new ITimer?[4];
 
     public DALCameraDriver(TDevice device, IExternal external) : base(device, external)
@@ -349,14 +350,12 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         }
     }
 
+    Imaging.ChannelBuffer? ICameraDriver.ChannelBuffer => _channelBuffer;
+
     public void ReleaseImageData()
     {
-        var prev = _camImageArray;
         _camImageArray = null;
-        if (prev is { } ch)
-        {
-            Interlocked.CompareExchange(ref _recycledBuffer, ch.Data, null);
-        }
+        _channelBuffer = null;
     }
 
     public ValueTask<short> GetGainAsync(CancellationToken cancellationToken = default)
@@ -704,28 +703,16 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
             throw new InvalidOperationException($"Getting data after exposure returned {dataAfterExpErrorCode} w={w} h={h} bit={exposureSettings.BitDepth}");
         }
 
-        var cachedArray = Interlocked.Exchange(ref _camImageArray, null);
-        var recycled = Interlocked.Exchange(ref _recycledBuffer, null);
         float[,] channel;
-        float maxValue, minValue;
-        if (cachedArray is { } ca && ca.Data.GetLength(0) == h && ca.Data.GetLength(1) == w)
-        {
-            channel = ca.Data;
-            maxValue = 0f;
-            minValue = float.MaxValue;
-        }
-        else if (recycled is not null && recycled.GetLength(0) == h && recycled.GetLength(1) == w)
+        if (_freeBuffers.TryTake(out var recycled) && recycled.GetLength(0) == h && recycled.GetLength(1) == w)
         {
             channel = recycled;
-            maxValue = 0f;
-            minValue = float.MaxValue;
         }
         else
         {
             channel = new float[h, w];
-            maxValue = 0f;
-            minValue = float.MaxValue;
         }
+        float maxValue = 0f, minValue = float.MaxValue;
         switch (exposureSettings.BitDepth.BitSize)
         {
             case 8:
@@ -760,10 +747,10 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
                 throw new InvalidOperationException($"Cannot handle bit depth {exposureSettings.BitDepth}");
         }
 
-        // put the new array back
+        // Wrap in ChannelBuffer for ref-counted lifecycle — onRelease recycles the float[,]
         var result = new Imaging.Channel(channel, default, minValue, maxValue, 0);
+        _channelBuffer = new Imaging.ChannelBuffer(channel, onRelease: recycledBuf => _freeBuffers.Add(recycledBuf));
         _camImageArray = result;
-        // finished downloading
         _camState = CameraState.Idle;
 
         return result;
