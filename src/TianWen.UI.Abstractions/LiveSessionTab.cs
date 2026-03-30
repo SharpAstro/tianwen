@@ -407,7 +407,8 @@ namespace TianWen.UI.Abstractions
             // Obs / frame count / exposure time (top right)
             var obsIdx = state.CurrentObservationIndex;
             var obsCount = state.ActiveSession?.Observations.Count ?? 0;
-            var progressParts = $"Obs: {(obsIdx >= 0 ? obsIdx + 1 : 0)}/{obsCount}";
+            var obsDisplay = obsCount > 0 ? Math.Clamp(obsIdx + 1, 0, obsCount) : 0;
+            var progressParts = $"Obs: {obsDisplay}/{obsCount}";
             if (state.ActiveObservation is { } topObs)
             {
                 var subSec = topObs.SubExposure.TotalSeconds;

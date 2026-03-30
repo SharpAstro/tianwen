@@ -73,7 +73,7 @@ internal partial record Session(
     /// <summary>Per-camera frame metrics history for drift detection regression. Last N results per OTA.</summary>
     internal CircularBuffer<FrameMetrics>[] FrameMetricsHistory => _frameMetricsHistory;
     private CircularBuffer<FrameMetrics>[] _frameMetricsHistory = [];
-    public int TotalFramesWritten => _totalFramesWritten;
+    public int TotalFramesWritten => Volatile.Read(ref _totalFramesWritten);
     public TimeSpan TotalExposureTime => TimeSpan.FromTicks(Interlocked.Read(ref _totalExposureTimeTicks));
     public int CurrentObservationIndex => _activeObservation;
     public ImmutableArray<FocusRunRecord> FocusHistory => [.. _focusHistory];

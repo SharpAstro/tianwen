@@ -29,7 +29,7 @@ internal partial record Session
             meta.FrameType.ToString());
         Directory.CreateDirectory(frameFolder);
 
-        var fitsFileName = External.GetSafeFileName($"frame_{imageWrite.ExpStartTime:o}_{imageWrite.FrameNumber:000000}.fits");
+        var fitsFileName = External.GetSafeFileName($"frame_{imageWrite.ExpStartTime:yyyy-MM-ddTHH_mm_ss}_{imageWrite.FrameNumber:0000}.fits");
         var fitsFilePath = Path.Combine(frameFolder, fitsFileName);
 
         External.AppLogger.LogInformation("Writing FITS file {FitsFilePath}", fitsFilePath);
