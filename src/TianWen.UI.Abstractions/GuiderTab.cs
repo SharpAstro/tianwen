@@ -381,13 +381,14 @@ namespace TianWen.UI.Abstractions
             var cy = rect.Y + rect.Height / 2;
             var halfSide = side / 2;
 
-            // Scale: use same Y scale as the graph for consistency
-            var yScale = GuideGraphRenderer.ComputeYScale(State.LastGuideStats);
+            // Fixed scale: rings at 3", 6", 9", 12" (outer ring = 12")
+            const double targetScaleArcsec = 12.0;
+            const double ringStepArcsec = 3.0;
 
-            // Concentric ring grid (at 1/4, 1/2, 3/4, full scale)
+            // Concentric rings at fixed arcsec intervals
             for (var ring = 1; ring <= 4; ring++)
             {
-                var r = (float)(ring / 4.0 * halfSide);
+                var r = (float)(ring * ringStepArcsec / targetScaleArcsec * halfSide);
                 DrawRing(cx, cy, r, ring == 4 ? GuideGraphRenderer.ZeroLineColor : TargetRingColor);
             }
 
@@ -404,17 +405,17 @@ namespace TianWen.UI.Abstractions
                 labelSize, GuideGraphRenderer.DecColor, TextAlign.Near, TextAlign.Near);
 
             // Scale label
-            DrawText($"\u00b1{yScale:F1}\"", fontPath,
+            DrawText($"\u00b1{targetScaleArcsec:F0}\"", fontPath,
                 rect.X + padding, rect.Y + rect.Height - labelSize * 1.5f, 50 * dpiScale, labelSize,
                 labelSize, GuideGraphRenderer.ZeroLineColor, TextAlign.Near, TextAlign.Far);
 
             // RMS circle
             if (State.LastGuideStats is { TotalRMS: > 0 } stats)
             {
-                var rmsR = (float)(stats.TotalRMS / yScale * halfSide);
+                var rmsR = (float)(stats.TotalRMS / targetScaleArcsec * halfSide);
                 if (rmsR > 2)
                 {
-                    DrawRing(cx, cy, rmsR, RmsRingColor);
+                    DrawRing(cx, cy, Math.Min(rmsR, halfSide), RmsRingColor);
                 }
             }
 
@@ -425,8 +426,8 @@ namespace TianWen.UI.Abstractions
             for (var i = startIdx; i < samples.Length; i++)
             {
                 var s = samples[i];
-                var px = cx + (float)(Math.Clamp(s.RaError / yScale, -1, 1) * halfSide);
-                var py = cy - (float)(Math.Clamp(s.DecError / yScale, -1, 1) * halfSide);
+                var px = cx + (float)(Math.Clamp(s.RaError / targetScaleArcsec, -1, 1) * halfSide);
+                var py = cy - (float)(Math.Clamp(s.DecError / targetScaleArcsec, -1, 1) * halfSide);
 
                 // Fade: newest = white, oldest = dim
                 var age = (float)(i - startIdx) / recentCount;
@@ -440,8 +441,8 @@ namespace TianWen.UI.Abstractions
             if (samples.Length > 0)
             {
                 var last = samples[^1];
-                var lx = cx + (float)(Math.Clamp(last.RaError / yScale, -1, 1) * halfSide);
-                var ly = cy - (float)(Math.Clamp(last.DecError / yScale, -1, 1) * halfSide);
+                var lx = cx + (float)(Math.Clamp(last.RaError / targetScaleArcsec, -1, 1) * halfSide);
+                var ly = cy - (float)(Math.Clamp(last.DecError / targetScaleArcsec, -1, 1) * halfSide);
                 FillRect((int)lx - 2, (int)ly - 2, 5, 5, CrosshairColor);
             }
         }
