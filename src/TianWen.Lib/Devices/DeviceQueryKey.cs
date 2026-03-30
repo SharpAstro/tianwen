@@ -19,6 +19,8 @@ public enum DeviceQueryKey
     Data,
     PulseGuideSource,
     ReverseDecAfterFlip,
+    UseNeuralGuider,
+    NeuralBlendFactor,
 }
 
 public static class DeviceQueryKeyExtensions
@@ -39,6 +41,8 @@ public static class DeviceQueryKeyExtensions
             DeviceQueryKey.Data => "data",
             DeviceQueryKey.PulseGuideSource => "pulseGuideSource",
             DeviceQueryKey.ReverseDecAfterFlip => "reverseDecAfterFlip",
+            DeviceQueryKey.UseNeuralGuider => "useNeuralGuider",
+            DeviceQueryKey.NeuralBlendFactor => "neuralBlendFactor",
             _ => key.ToString().ToLowerInvariant()
         };
     }

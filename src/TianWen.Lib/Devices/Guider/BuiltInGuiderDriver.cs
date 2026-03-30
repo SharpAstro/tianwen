@@ -40,6 +40,10 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     private double _settleTime;
     private ITimer? _settleTimer;
 
+    // Neural guide configuration — read from device URI query parameters
+    private readonly bool _useNeuralGuider;
+    private readonly double _neuralBlendFactor;
+
     private enum GuiderState
     {
         Idle = 0,
@@ -54,6 +58,8 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         _device = device;
         External = external;
         ReverseDecOnFlip = device.ReverseDecAfterFlip;
+        _useNeuralGuider = device.UseNeuralGuider;
+        _neuralBlendFactor = device.NeuralBlendFactor;
     }
 
     public string Name => _device.DisplayName;
@@ -392,6 +398,24 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
             var guideLoop = new GuideLoop(pulseTarget, tracker, pController, External);
             guideLoop.SetCalibration(calResult.Value);
+
+            // Enable neural guide model with online learning if configured
+            if (_useNeuralGuider)
+            {
+                var model = new NeuralGuideModel();
+                var loaded = await NeuralGuideModelPersistence.TryLoadAsync(model, External.ProfileFolder, ct);
+                if (loaded is null)
+                {
+                    model.InitializeRandom(42);
+                }
+                guideLoop.NeuralBlendFactor = _neuralBlendFactor;
+                guideLoop.EnableNeuralModel(model);
+                guideLoop.EnableOnlineLearning(profileFolder: External.ProfileFolder);
+                External.AppLogger.LogInformation(
+                    "Neural guide enabled (blend={Blend}, {Status})",
+                    _neuralBlendFactor, loaded is not null ? "loaded from disk" : "fresh model");
+            }
+
             _guideLoop = guideLoop;
 
             // Query mount for neural model features

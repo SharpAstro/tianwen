@@ -55,4 +55,32 @@ public record class BuiltInGuiderDevice(Uri DeviceUri) : GuiderDeviceBase(Device
             return value is null || !bool.TryParse(value, out var result) || result;
         }
     }
+
+    /// <summary>
+    /// Whether to enable the neural guide model for online learning during guiding.
+    /// Defaults to <c>true</c> — the model starts from scratch or loads from a previous session.
+    /// </summary>
+    internal bool UseNeuralGuider
+    {
+        get
+        {
+            var value = Query.QueryValue(DeviceQueryKey.UseNeuralGuider);
+            return value is null || !bool.TryParse(value, out var result) || result;
+        }
+    }
+
+    /// <summary>
+    /// Blend factor for neural model corrections (0 = P-only, 1 = neural-only).
+    /// Defaults to 0.15 — conservative 15% neural refinement on top of P-controller.
+    /// </summary>
+    internal double NeuralBlendFactor
+    {
+        get
+        {
+            var value = Query.QueryValue(DeviceQueryKey.NeuralBlendFactor);
+            return value is not null && double.TryParse(value, System.Globalization.CultureInfo.InvariantCulture, out var factor)
+                ? factor
+                : 0.15;
+        }
+    }
 }
