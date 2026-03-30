@@ -402,7 +402,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
             {
                 AggressivenessRa = 0.7,
                 AggressivenessDec = 0.7,
-                MinPulseMs = 20
+                MinPulseMs = 5
             };
 
             var guideLoop = new GuideLoop(pulseTarget, tracker, pController, External);
