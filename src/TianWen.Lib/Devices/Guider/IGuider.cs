@@ -257,6 +257,13 @@ public interface IGuider : IDeviceDriver
         {
             try
             {
+                // Check if already guiding (e.g. from a previous attempt whose settle completed during the wait)
+                if (await IsGuidingAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    guidingSuccess = true;
+                    break;
+                }
+
                 var settlePix = 0.3 + (startGuidingTries * 0.2);
                 var settleTime = 15 + (startGuidingTries * 5);
                 var settleTimeout = settleTime * SETTLE_TIMEOUT_FACTOR;
