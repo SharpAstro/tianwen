@@ -20,25 +20,28 @@ internal sealed class TuiGuiderTab(
     private TextBar? _topBar;
     private TextBar? _statusBar;
     private MarkdownWidget? _graphPanel;
+    private MarkdownWidget? _targetPanel;
     private MarkdownWidget? _statsPanel;
 
-    [MemberNotNullWhen(true, nameof(_topBar), nameof(_statusBar), nameof(_graphPanel), nameof(_statsPanel))]
+    [MemberNotNullWhen(true, nameof(_topBar), nameof(_statusBar), nameof(_graphPanel), nameof(_targetPanel), nameof(_statsPanel))]
     protected override bool IsReady =>
-        _topBar is not null && _statusBar is not null && _graphPanel is not null && _statsPanel is not null;
+        _topBar is not null && _statusBar is not null && _graphPanel is not null && _targetPanel is not null && _statsPanel is not null;
 
     protected override void CreateWidgets(Panel panel)
     {
         var topVp = panel.Dock(DockStyle.Top, 1);
         var bottomVp = panel.Dock(DockStyle.Bottom, 1);
         var leftVp = panel.Dock(DockStyle.Left, 44);
+        var centerVp = panel.Dock(DockStyle.Left, 24);
         var fillVp = panel.Fill();
 
         _topBar = new TextBar(topVp);
         _statusBar = new TextBar(bottomVp);
         _graphPanel = new MarkdownWidget(leftVp);
+        _targetPanel = new MarkdownWidget(centerVp);
         _statsPanel = new MarkdownWidget(fillVp);
 
-        panel.Add(_topBar).Add(_statusBar).Add(_graphPanel).Add(_statsPanel);
+        panel.Add(_topBar).Add(_statusBar).Add(_graphPanel).Add(_targetPanel).Add(_statsPanel);
     }
 
     protected override void RenderContent()
@@ -74,6 +77,16 @@ internal sealed class TuiGuiderTab(
                 $"{raSpark}\n\n" +
                 $"## Dec Error ({decRange})\n\n" +
                 $"{decSpark}");
+        }
+
+        // Target view (center)
+        if (placeholder is not null)
+        {
+            _targetPanel.Markdown("");
+        }
+        else
+        {
+            _targetPanel.Markdown(GuiderActions.BuildTargetView(_state.GuideSamples));
         }
 
         // Stats panel (right)
