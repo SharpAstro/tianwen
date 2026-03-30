@@ -97,9 +97,6 @@ namespace TianWen.UI.Abstractions
             var pad = BasePadding * dpiScale;
             var rowH = BaseRowHeight * dpiScale;
 
-            // Poll session to update cached fields
-            state.PollSession();
-
             // Background
             FillRect(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height, ContentBg);
 
