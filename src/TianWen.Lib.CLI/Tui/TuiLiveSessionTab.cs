@@ -103,8 +103,6 @@ internal sealed class TuiLiveSessionTab(
     {
         if (!IsReady) return;
 
-        liveState.PollSession();
-
         RenderTopBar();
         RenderGuideBar();
         RenderInfoPanel();
