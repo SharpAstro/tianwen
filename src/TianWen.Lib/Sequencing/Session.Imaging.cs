@@ -448,8 +448,10 @@ internal partial record Session
                             }
 
                             // 3. Add to exposure log + frame history with metrics
-                            Interlocked.Increment(ref _totalFramesWritten);
+                            var newTotal = Interlocked.Increment(ref _totalFramesWritten);
                             Interlocked.Add(ref _totalExposureTimeTicks, frameExpTime.Ticks);
+                            External.AppLogger.LogInformation("Frame #{FrameNo} fetched for camera #{CameraNum}, total frames: {Total}",
+                                frameNo, i + 1, newTotal);
                             var logEntry = new ExposureLogEntry(
                                 Timestamp: expStartTimes[i],
                                 TargetName: observation.Target.Name,
@@ -725,6 +727,8 @@ internal partial record Session
             await WriteQueuedImagesToFitsFilesAsync();
         }
 
+        External.AppLogger.LogInformation("ImagingLoop ended. Frames written: {Total}, total exposure: {Exposure}",
+            TotalFramesWritten, TotalExposureTime);
         return next ?? ImageLoopNextAction.AdvanceToNextObservation;
 
         async ValueTask WriteQueuedImagesToFitsFilesAsync()
