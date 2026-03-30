@@ -348,11 +348,9 @@ public static class EquipmentActions
             return GuiderCapabilities.None;
         }
 
-        GuiderDeviceBase? device = guiderUri.Host switch
-        {
-            nameof(BuiltInGuiderDevice) => new BuiltInGuiderDevice(guiderUri),
-            _ => null,
-        };
+        GuiderDeviceBase? device = string.Equals(guiderUri.Host, nameof(BuiltInGuiderDevice), StringComparison.OrdinalIgnoreCase)
+            ? new BuiltInGuiderDevice(guiderUri)
+            : null;
 
         return device?.Capabilities ?? GuiderCapabilities.None;
     }
