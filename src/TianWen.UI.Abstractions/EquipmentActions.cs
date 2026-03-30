@@ -6,8 +6,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Web;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Devices.Guider;
-using TianWen.Lib.Sequencing;
 
 namespace TianWen.UI.Abstractions;
 
@@ -20,7 +20,7 @@ public static class EquipmentActions
     /// <summary>
     /// Common filter names for the equipment tab dropdown and CLI.
     /// </summary>
-    public static readonly IReadOnlyList<string> CommonFilterNames =
+    public static readonly ImmutableArray<string> CommonFilterNames =
     [
         "Luminance", "Red", "Green", "Blue",
         "H-Alpha", "OIII", "SII", "H-Beta",
@@ -338,76 +338,76 @@ public static class EquipmentActions
     }
 
     /// <summary>
-    /// Returns the <see cref="GuiderCapabilities"/> for the given guider URI
-    /// by instantiating the appropriate <see cref="GuiderDeviceBase"/> subclass.
+    /// Returns new <see cref="ProfileData"/> with <paramref name="oldUri"/> replaced by <paramref name="newUri"/>
+    /// in whichever slot it occupies (mount, guider, guider camera/focuser, or OTA sub-slots).
     /// </summary>
-    public static GuiderCapabilities GetGuiderCapabilities(Uri? guiderUri)
+    public static ProfileData UpdateDeviceUri(ProfileData data, Uri oldUri, Uri newUri)
     {
-        if (guiderUri is null || guiderUri == NoneDevice.Instance.DeviceUri)
+        if (DeviceBase.SameDevice(data.Mount, oldUri))
         {
-            return GuiderCapabilities.None;
+            // Preserve mount's existing non-device query params (site coords, etc.) by
+            // merging newUri's query on top.
+            var baseQuery = HttpUtility.ParseQueryString(data.Mount.Query);
+            var newQuery = HttpUtility.ParseQueryString(newUri.Query);
+            foreach (string? key in newQuery)
+            {
+                if (key is not null)
+                {
+                    baseQuery[key] = newQuery[key];
+                }
+            }
+            var builder = new UriBuilder(newUri) { Query = baseQuery.ToString() };
+            data = data with { Mount = builder.Uri };
+        }
+        if (DeviceBase.SameDevice(data.Guider, oldUri))
+        {
+            data = data with { Guider = newUri };
+        }
+        if (DeviceBase.SameDevice(data.GuiderCamera, oldUri))
+        {
+            data = data with { GuiderCamera = newUri };
+        }
+        if (DeviceBase.SameDevice(data.GuiderFocuser, oldUri))
+        {
+            data = data with { GuiderFocuser = newUri };
         }
 
-        GuiderDeviceBase? device = string.Equals(guiderUri.Host, nameof(BuiltInGuiderDevice), StringComparison.OrdinalIgnoreCase)
-            ? new BuiltInGuiderDevice(guiderUri)
-            : null;
+        for (var i = 0; i < data.OTAs.Length; i++)
+        {
+            var ota = data.OTAs[i];
+            var changed = false;
 
-        return device?.Capabilities ?? GuiderCapabilities.None;
+            if (DeviceBase.SameDevice(ota.Camera, oldUri)) { ota = ota with { Camera = newUri }; changed = true; }
+            if (DeviceBase.SameDevice(ota.Focuser, oldUri)) { ota = ota with { Focuser = newUri }; changed = true; }
+            if (DeviceBase.SameDevice(ota.FilterWheel, oldUri)) { ota = ota with { FilterWheel = newUri }; changed = true; }
+            if (DeviceBase.SameDevice(ota.Cover, oldUri)) { ota = ota with { Cover = newUri }; changed = true; }
+
+            if (changed)
+            {
+                data = data with { OTAs = data.OTAs.SetItem(i, ota) };
+            }
+        }
+
+        return data;
     }
 
     /// <summary>
-    /// Reads the built-in guider configuration from the guider URI query params.
+    /// Instantiates a <see cref="DeviceBase"/> subclass from a URI using the host name
+    /// to select the correct type. Returns null if the host is not recognised.
     /// </summary>
-    public static BuiltInGuiderConfig GetBuiltInGuiderConfig(ProfileData data)
+    public static DeviceBase? TryDeviceFromUri(Uri? uri)
     {
-        var uri = data.Guider;
         if (uri is null || uri == NoneDevice.Instance.DeviceUri)
         {
-            return BuiltInGuiderConfig.Default;
+            return null;
         }
 
-        var query = HttpUtility.ParseQueryString(uri.Query);
-
-        var pulseGuideSource = Enum.TryParse<PulseGuideSource>(query.QueryValue(DeviceQueryKey.PulseGuideSource), ignoreCase: true, out var pgs)
-            ? pgs
-            : PulseGuideSource.Auto;
-
-        var reverseDecAfterFlip = query.QueryValue(DeviceQueryKey.ReverseDecAfterFlip) is not { } rdVal
-            || !bool.TryParse(rdVal, out var rd)
-            || rd;
-
-        var useNeuralGuider = query.QueryValue(DeviceQueryKey.UseNeuralGuider) is not { } unVal
-            || !bool.TryParse(unVal, out var un)
-            || un;
-
-        var neuralBlendPercent = query.QueryValue(DeviceQueryKey.NeuralBlendFactor) is { } nbVal
-            && double.TryParse(nbVal, CultureInfo.InvariantCulture, out var nb)
-            ? (int)Math.Round(nb * 100.0)
-            : 15;
-
-        return new BuiltInGuiderConfig(pulseGuideSource, reverseDecAfterFlip, useNeuralGuider, neuralBlendPercent);
-    }
-
-    /// <summary>
-    /// Returns new <see cref="ProfileData"/> with the guider URI query params updated from the given config.
-    /// </summary>
-    public static ProfileData SetBuiltInGuiderConfig(ProfileData data, BuiltInGuiderConfig config)
-    {
-        var uri = data.Guider;
-        if (uri is null || uri == NoneDevice.Instance.DeviceUri)
+        return uri.Host.ToLowerInvariant() switch
         {
-            return data;
-        }
-
-        var query = HttpUtility.ParseQueryString(uri.Query);
-
-        query[DeviceQueryKey.PulseGuideSource.Key] = config.PulseGuideSource.ToString();
-        query[DeviceQueryKey.ReverseDecAfterFlip.Key] = config.ReverseDecAfterFlip.ToString();
-        query[DeviceQueryKey.UseNeuralGuider.Key] = config.UseNeuralGuider.ToString();
-        query[DeviceQueryKey.NeuralBlendFactor.Key] = (config.NeuralBlendPercent / 100.0).ToString(CultureInfo.InvariantCulture);
-
-        var builder = new UriBuilder(uri) { Query = query.ToString() };
-        return data with { Guider = builder.Uri };
+            "builtinguiderdevice" => new BuiltInGuiderDevice(uri),
+            "fakedevice" => new FakeDevice(uri),
+            _ => null
+        };
     }
 
     /// <summary>

@@ -21,6 +21,8 @@ public enum DeviceQueryKey
     ReverseDecAfterFlip,
     UseNeuralGuider,
     NeuralBlendFactor,
+    PePeriodSeconds,
+    PePeakTopeakArcsec,
 }
 
 public static class DeviceQueryKeyExtensions
@@ -43,6 +45,8 @@ public static class DeviceQueryKeyExtensions
             DeviceQueryKey.ReverseDecAfterFlip => "reverseDecAfterFlip",
             DeviceQueryKey.UseNeuralGuider => "useNeuralGuider",
             DeviceQueryKey.NeuralBlendFactor => "neuralBlendFactor",
+            DeviceQueryKey.PePeriodSeconds => "pePeriodSeconds",
+            DeviceQueryKey.PePeakTopeakArcsec => "pePeakTopeakArcsec",
             _ => key.ToString().ToLowerInvariant()
         };
     }

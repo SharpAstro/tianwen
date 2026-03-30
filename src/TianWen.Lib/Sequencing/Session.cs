@@ -3,20 +3,12 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Collections.Specialized;
-using System.Globalization;
-using System.IO;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Guider;
-using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Imaging;
-using TianWen.Lib.Stat;
-using static TianWen.Lib.Astrometry.CoordinateUtils;
-using static TianWen.Lib.Stat.StatisticsHelper;
 
 namespace TianWen.Lib.Sequencing;
 
@@ -233,8 +225,6 @@ internal partial record Session(
 
             SetPhase(SessionPhase.Cooling);
             await CoolCamerasToSetpointAsync(Configuration.SetpointCCDTemperature, Configuration.CooldownRampInterval, 80, SetupointDirection.Down, cancellationToken).ConfigureAwait(false);
-
-            // TODO wait until 5 min to astro dark, and/or implement IExternal.IsPolarAligned
 
             SetPhase(SessionPhase.RoughFocus);
             if (!await InitialRoughFocusAsync(cancellationToken))

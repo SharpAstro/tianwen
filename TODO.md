@@ -31,6 +31,7 @@
 - [ ] Live session: show dither state — "Dithering..." status with settle progress, no indicator currently visible during dither
 - [ ] Cooling graph: same scrolling window treatment
 - [ ] VSOP87 vectorization — convert 43K lines of hardcoded `amplitude * Cos(phase + frequency * t)` into coefficient arrays, evaluate with `Vector256<double>` (AVX2). Process 4 terms per iteration. Requires source generator or one-time conversion of all planet files (EarthX/Y/Z, MarsX/Y/Z, etc.)
+- [ ] Equipment tab: generic per-device settings pane — each device type (camera, mount, guider, etc.) should declare configurable properties via URI query params (like BuiltInGuiderDevice), and the equipment tab renders them automatically. FakeDevice should carry PE amplitude, period, guide rate etc. as URI params so FakeCameraDriver initializes from them instead of hardcoded defaults
 - [ ] Fake camera: shift/change star field during slews — currently renders the same fixed seed regardless of mount pointing
 - [ ] Fake camera: scale synthetic background noise with exposure duration in `SyntheticStarFieldRenderer` — long subs (≥60s) have unrealistically clean backgrounds, causing per-channel stretch to produce degenerate parameters. Real cameras accumulate sky glow + dark current + read noise over time.
 
