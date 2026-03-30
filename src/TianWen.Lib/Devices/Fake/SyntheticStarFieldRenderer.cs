@@ -638,6 +638,8 @@ internal static class SyntheticStarFieldRenderer
         int height,
         double defocusSteps,
         ReadOnlySpan<ProjectedStar> stars,
+        double offsetX = 0,
+        double offsetY = 0,
         double exposureSeconds = 1.0,
         int noiseSeed = 42,
         double skyBackground = 100.0,
@@ -689,22 +691,24 @@ internal static class SyntheticStarFieldRenderer
         for (var s = 0; s < stars.Length; s++)
         {
             var star = stars[s];
+            var starX = star.PixelX + offsetX;
+            var starY = star.PixelY + offsetY;
             var flux = 10000.0 * Math.Pow(10, -0.4 * (star.Magnitude - 5.0)) * exposureSeconds;
             var normalization = flux / (Math.PI * sigma2x2);
             var (rRatio, gRatio, bRatio) = BMinusVToRGB(star.BMinusV);
             ReadOnlySpan<double> channelRatios = [rRatio, gRatio, bRatio];
 
-            var xMin = Math.Max(0, (int)(star.PixelX - psfRadius));
-            var xMax = Math.Min(width - 1, (int)(star.PixelX + psfRadius));
-            var yMin = Math.Max(0, (int)(star.PixelY - psfRadius));
-            var yMax = Math.Min(height - 1, (int)(star.PixelY + psfRadius));
+            var xMin = Math.Max(0, (int)(starX - psfRadius));
+            var xMax = Math.Min(width - 1, (int)(starX + psfRadius));
+            var yMin = Math.Max(0, (int)(starY - psfRadius));
+            var yMax = Math.Min(height - 1, (int)(starY + psfRadius));
 
             for (var y = yMin; y <= yMax; y++)
             {
-                var dy = y - star.PixelY;
+                var dy = y - starY;
                 for (var x = xMin; x <= xMax; x++)
                 {
-                    var dx = x - star.PixelX;
+                    var dx = x - starX;
                     var r2 = dx * dx + dy * dy;
                     var value = normalization * Math.Exp(-r2 / sigma2x2);
 

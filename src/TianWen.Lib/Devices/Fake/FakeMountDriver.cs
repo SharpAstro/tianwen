@@ -26,7 +26,7 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
     // --- Mount state (guarded by _sem) ---
     private readonly SemaphoreSlim _sem = new SemaphoreSlim(1, 1);
     private double _ra; // hours (0..24) — initialized to LST on first site config
-    private double _dec = 48.2; // degrees (-90..90) — default to Vienna, updated on site config
+    private double _dec = 90.0; // degrees (-90..90) — GEM park position: celestial pole
     private double _targetRa;
     private double _targetDec;
     private bool _isTracking;
@@ -286,8 +286,8 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
     public async ValueTask UnparkAsync(CancellationToken cancellationToken)
     {
         _isParked = false;
-        // Home position: on the meridian at site latitude
-        _dec = _siteLatitude;
+        // Home position: GEM park at celestial pole (north or south based on site)
+        _dec = _siteLatitude >= 0 ? 90.0 : -90.0;
         IMountDriver self = this;
         if (await self.TryGetTransformAsync(cancellationToken) is { } transform)
         {
