@@ -226,6 +226,14 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
         _settleTime = settleTime;
 
         var current = CurrentState;
+        if (current is GuiderState.Settling or GuiderState.Guiding)
+        {
+            // Already settling or guiding — update settle params and restart settle timer
+            ForceState(GuiderState.Settling);
+            StartSettleTimer(settleTime);
+            return ValueTask.CompletedTask;
+        }
+
         if (current is not GuiderState.Idle and not GuiderState.Looping)
         {
             throw new GuiderException($"Cannot start guiding in state {current}");
