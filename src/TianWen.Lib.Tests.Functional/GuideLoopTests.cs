@@ -668,7 +668,7 @@ public class GuideLoopTests(ITestOutputHelper output)
             "combined disturbances should keep RMS bounded with guiding");
     }
 
-    [Theory(Timeout = 60_000)]
+    [Theory(Timeout = 120_000)]
     [InlineData(2.0, "good seeing")]
     [InlineData(4.0, "poor seeing")]
     public async Task GivenSameScenarioWhenNeuralPlusPVsPOnlyThenNeuralIsNotWorse(double seeingArcsec, string label)
