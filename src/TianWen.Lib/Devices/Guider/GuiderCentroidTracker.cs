@@ -39,6 +39,11 @@ internal sealed class GuiderCentroidTracker
     public bool IsAcquired => _acquired;
 
     /// <summary>
+    /// The most recent centroid result from <see cref="ProcessFrame"/>.
+    /// </summary>
+    public GuiderCentroidResult? LastResult { get; private set; }
+
+    /// <summary>
     /// Maximum number of guide stars to track simultaneously.
     /// </summary>
     public int MaxStars
@@ -125,7 +130,9 @@ internal sealed class GuiderCentroidTracker
             var cx = (int)Math.Round(r.X);
             var cy = (int)Math.Round(r.Y);
             var (h, v) = ExtractStarProfile(frame, width, height, cx, cy, _searchRadius);
-            return r with { HProfile = h, VProfile = v };
+            var enriched = r with { HProfile = h, VProfile = v };
+            LastResult = enriched;
+            return enriched;
         }
 
         return null;

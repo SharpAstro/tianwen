@@ -13,9 +13,11 @@
 - [x] Guider graph: connect dots with lines (Bresenham or anti-aliased) instead of scatter dots — users expect smooth curves like PHD2
 - [ ] Guider graph: scrolling window (last N minutes) instead of compressing all history — makes activity feel live
 - [ ] Guider graph: reuse the existing LiveSessionTab guide graph widget — the guider tab should show a larger version of the same graph, not a separate implementation. Extract shared graph rendering
-- [ ] Guider graph: show correction pulses (vertical bars) and dither events (markers/shading)
+- [ ] Guider graph: show applied correction pulses (RA/Dec duration bars) alongside error — users need to see what the controller is doing, not just the resulting error
+- [ ] Guider graph: show dither events (markers/shading)
 - [x] Guider tab: keep looping guide camera frames during centering/slewing — call `LoopAsync` when not guiding so the guide camera feed stays live. Currently the guide loop stops during centering and the tab shows "Waiting for guider"
-- [ ] Guider tab: show calibration frames — render guide camera during calibration phase with star movement vectors, step count, and calibration progress
+- [x] Guider tab: show calibration frames — render guide camera during calibration phase with star position and profile. Remaining: star movement vectors, step count, and calibration progress overlay
+- [ ] Fake camera: apply mount tracking drift as pixel offset to star positions — `SyntheticStarFieldRenderer` produces a fixed star field so pulse guide corrections are invisible, causing `GuiderCalibration` to never converge (zero displacement). Need to read accumulated RA/Dec drift from `FakeMountDriver` and translate to pixel shift
 - [x] Guider tab: guide camera image + crosshair (done). Remaining: star close-up + 1D intensity profile
   - [x] Add to `IDeviceDependentGuider`: `Image? LastGuideFrame`, `(float,float)? GuideStarPosition`, `float? GuideStarSNR`, `float? GuideStarHFD`
   - [x] Surface on `ISession` via `LiveSessionState.PollSession`
