@@ -23,6 +23,7 @@ public enum DeviceQueryKey
     NeuralBlendFactor,
     PePeriodSeconds,
     PePeakTopeakArcsec,
+    ReuseCalibration,
 }
 
 public static class DeviceQueryKeyExtensions
@@ -47,6 +48,7 @@ public static class DeviceQueryKeyExtensions
             DeviceQueryKey.NeuralBlendFactor => "neuralBlendFactor",
             DeviceQueryKey.PePeriodSeconds => "pePeriodSeconds",
             DeviceQueryKey.PePeakTopeakArcsec => "pePeakTopeakArcsec",
+            DeviceQueryKey.ReuseCalibration => "reuseCalibration",
             _ => key.ToString().ToLowerInvariant()
         };
     }
