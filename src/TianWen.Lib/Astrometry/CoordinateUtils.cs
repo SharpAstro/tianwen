@@ -7,6 +7,24 @@ namespace TianWen.Lib.Astrometry;
 public static class CoordinateUtils
 {
     /// <summary>
+    /// Radians-to-arcseconds constant: 1 radian = 206265 arcseconds.
+    /// Used in the small-angle pixel scale formula: arcsec/px = pixelSizeUm / focalLengthMm * 206.265.
+    /// </summary>
+    public const double ArcsecPerRadianDiv1000 = 206.265;
+
+    /// <summary>
+    /// Computes pixel scale in arcseconds per pixel from sensor pixel size and focal length.
+    /// Returns <see cref="double.NaN"/> if either parameter is non-positive.
+    /// </summary>
+    /// <param name="pixelSizeUm">Pixel size in micrometres.</param>
+    /// <param name="focalLengthMm">Focal length in millimetres.</param>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static double PixelScaleArcsec(double pixelSizeUm, double focalLengthMm)
+        => pixelSizeUm > 0 && focalLengthMm > 0
+            ? pixelSizeUm / focalLengthMm * ArcsecPerRadianDiv1000
+            : double.NaN;
+
+    /// <summary>
     /// Returns the astronomical "evening date" for the given site-local time.
     /// Before noon → previous calendar day (we're in last night's session).
     /// After noon → today (tonight's session hasn't started yet or is underway).

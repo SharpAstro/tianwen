@@ -1,4 +1,5 @@
 ﻿using System;
+using TianWen.Lib.Astrometry;
 
 namespace TianWen.Lib.Imaging;
 
@@ -92,7 +93,5 @@ public record struct ImageMeta(
     /// Returns NaN if either value is unavailable.
     /// </summary>
     public readonly double DerivedPixelScale =>
-        FocalLength > 0 && PixelSizeX > 0
-            ? PixelSizeX / FocalLength * 206.265
-            : double.NaN;
+        Astrometry.CoordinateUtils.PixelScaleArcsec(PixelSizeX, FocalLength);
 }

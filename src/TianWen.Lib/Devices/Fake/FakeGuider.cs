@@ -143,15 +143,21 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
 
         if (state is GuiderState.Settling or GuiderState.Calibrating)
         {
+            var tracker = _guideLoop?.ErrorTracker;
+            var distance = tracker is { LastRaError: { } ra, LastDecError: { } dec }
+                ? Math.Sqrt(ra * ra + dec * dec)
+                : _ditherPixels * 0.5;
+            var elapsed = External.TimeProvider.GetElapsedTime(_settleStartedTicks);
+
             return ValueTask.FromResult<SettleProgress?>(new SettleProgress
             {
                 Done = false,
-                Distance = _ditherPixels * 0.5,
+                Distance = distance,
                 SettlePx = _settlePixels,
-                Time = 0,
+                Time = elapsed.TotalSeconds,
                 SettleTime = _settleTime,
                 Status = 0,
-                StarLocked = true,
+                StarLocked = tracker?.TotalSamples > 0,
             });
         }
 
@@ -180,15 +186,18 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
         }
 
         var tracker = _guideLoop?.ErrorTracker;
+        var scale = _camera is { PixelSizeX: > 0, FocalLength: > 0 }
+            ? Astrometry.CoordinateUtils.PixelScaleArcsec(_camera.PixelSizeX, _camera.FocalLength)
+            : DefaultPixelScale;
         return ValueTask.FromResult<GuideStats?>(new GuideStats
         {
-            TotalRMS = tracker?.TotalRmsAll ?? 0.3,
-            RaRMS = tracker?.RaRmsAll ?? 0.2,
-            DecRMS = tracker?.DecRmsAll ?? 0.2,
-            PeakRa = tracker?.PeakRa ?? 0.5,
-            PeakDec = tracker?.PeakDec ?? 0.4,
-            LastRaErr = tracker?.LastRaError,
-            LastDecErr = tracker?.LastDecError,
+            TotalRMS = (tracker?.TotalRmsAll ?? 0.3) * scale,
+            RaRMS = (tracker?.RaRmsAll ?? 0.2) * scale,
+            DecRMS = (tracker?.DecRmsAll ?? 0.2) * scale,
+            PeakRa = (tracker?.PeakRa ?? 0.5) * scale,
+            PeakDec = (tracker?.PeakDec ?? 0.4) * scale,
+            LastRaErr = tracker?.LastRaError * scale,
+            LastDecErr = tracker?.LastDecError * scale,
         });
     }
 
@@ -441,7 +450,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
     public ValueTask<double> PixelScaleAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(
             _camera is { Connected: true, PixelSizeX: > 0, FocalLength: > 0 }
-                ? 206.265 * _camera.PixelSizeX / _camera.FocalLength
+                ? Astrometry.CoordinateUtils.PixelScaleArcsec(_camera.PixelSizeX, _camera.FocalLength)
                 : DefaultPixelScale);
 
     public async ValueTask<string?> SaveImageAsync(string outputFolder, CancellationToken cancellationToken = default)

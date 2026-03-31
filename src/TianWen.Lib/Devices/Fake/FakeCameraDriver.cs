@@ -125,7 +125,7 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
                 return 2.0; // sensible default for guide cameras
             }
             const double halfSiderealArcsecPerSec = 15.041 * 0.5;
-            var pixelScaleArcsec = PixelSizeX / FocalLength * 206.265;
+            var pixelScaleArcsec = Astrometry.CoordinateUtils.PixelScaleArcsec(PixelSizeX, FocalLength);
             return halfSiderealArcsecPerSec / pixelScaleArcsec;
         }
     }
@@ -138,7 +138,7 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
     {
         get
         {
-            var pixelScaleArcsec = FocalLength > 0 ? PixelSizeX / FocalLength * 206.265 : 3.8; // ~130mm + 2.4µm default
+            var pixelScaleArcsec = FocalLength > 0 ? Astrometry.CoordinateUtils.PixelScaleArcsec(PixelSizeX, FocalLength) : 3.8; // ~130mm + 2.4µm default
             var amplitudePixels = PePeakTopeakArcsec / 2.0 / pixelScaleArcsec;
             return 2.0 * Math.PI / PePeriodSeconds * amplitudePixels;
         }
