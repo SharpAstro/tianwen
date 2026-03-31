@@ -8,8 +8,23 @@ using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Devices.Fake;
 
-internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external) : FakeDeviceDriverBase(fakeDevice, external), ICameraDriver
+internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
 {
+    public FakeCameraDriver(FakeDevice fakeDevice, IExternal external) : base(fakeDevice, external)
+    {
+        var preset = GetPreset(fakeDevice);
+        PixelSizeX = preset.PixelSize;
+        PixelSizeY = preset.PixelSize;
+        MaxBinX = preset.MaxBin;
+        MaxBinY = preset.MaxBin;
+        CameraXSize = preset.Width;
+        CameraYSize = preset.Height;
+        GainMin = preset.GainMin;
+        GainMax = preset.GainMax;
+        MaxADU = preset.MaxADU;
+        SensorType = preset.SensorType;
+    }
+
     private readonly Lock _lock = new Lock();
     private readonly Random _frameRng = new Random(42);
 
@@ -34,13 +49,13 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
         }
 
         // Read PE simulation parameters from device URI query params
-        if (fakeDevice.Query.QueryValue(DeviceQueryKey.PePeriodSeconds) is { } pePeriod
+        if (_fakeDevice.Query.QueryValue(DeviceQueryKey.PePeriodSeconds) is { } pePeriod
             && double.TryParse(pePeriod, System.Globalization.CultureInfo.InvariantCulture, out var period)
             && period > 0)
         {
             PePeriodSeconds = period;
         }
-        if (fakeDevice.Query.QueryValue(DeviceQueryKey.PePeakTopeakArcsec) is { } peAmplitude
+        if (_fakeDevice.Query.QueryValue(DeviceQueryKey.PePeakTopeakArcsec) is { } peAmplitude
             && double.TryParse(peAmplitude, System.Globalization.CultureInfo.InvariantCulture, out var amplitude)
             && amplitude >= 0)
         {
@@ -180,13 +195,13 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
 
     public bool UsesOffsetMode { get; } = false;
 
-    public double PixelSizeX { get; } = GetPreset(fakeDevice).PixelSize;
+    public double PixelSizeX { get; }
 
-    public double PixelSizeY { get; } = GetPreset(fakeDevice).PixelSize;
+    public double PixelSizeY { get; }
 
-    public short MaxBinX { get; } = GetPreset(fakeDevice).MaxBin;
+    public short MaxBinX { get; }
 
-    public short MaxBinY { get; } = GetPreset(fakeDevice).MaxBin;
+    public short MaxBinY { get; }
 
     public int BinX
     {
@@ -320,9 +335,9 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
         }
     }
 
-    public int CameraXSize { get; } = GetPreset(fakeDevice).Width;
+    public int CameraXSize { get; }
 
-    public int CameraYSize { get; } = GetPreset(fakeDevice).Height;
+    public int CameraYSize { get; }
 
     public ValueTask<string?> GetReadoutModeAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult<string?>("Normal");
@@ -402,9 +417,9 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
         return ValueTask.CompletedTask;
     }
 
-    public short GainMin { get; } = GetPreset(fakeDevice).GainMin;
+    public short GainMin { get; }
 
-    public short GainMax { get; } = GetPreset(fakeDevice).GainMax;
+    public short GainMax { get; }
 
     public IReadOnlyList<string> Gains { get; } = [];
 
@@ -438,7 +453,7 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
 
     public double ExposureResolution { get; } = 0.01d;
 
-    public int MaxADU { get; } = GetPreset(fakeDevice).MaxADU;
+    public int MaxADU { get; }
 
     public double FullWellCapacity => throw new NotImplementedException();
 
@@ -477,7 +492,7 @@ internal sealed class FakeCameraDriver(FakeDevice fakeDevice, IExternal external
         }
     }
 
-    public SensorType SensorType { get; } = GetPreset(fakeDevice).SensorType;
+    public SensorType SensorType { get; }
 
     public int BayerOffsetX { get; } = 0;
 

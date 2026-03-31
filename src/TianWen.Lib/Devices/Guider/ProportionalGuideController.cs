@@ -51,10 +51,11 @@ internal sealed class ProportionalGuideController
         // Transform pixel-space error to mount axes
         var (raErrorPx, decErrorPx) = calibration.TransformToMountAxes(deltaX, deltaY);
 
-        // Convert pixel error to time-domain correction via guide rates
-        // error_pixels / rate_pixels_per_sec = correction_seconds
-        var raCorrectionSec = raErrorPx / calibration.RaRatePixPerSec * AggressivenessRa;
-        var decCorrectionSec = decErrorPx / calibration.DecRatePixPerSec * AggressivenessDec;
+        // Convert pixel error to time-domain correction via guide rates.
+        // Negate: positive RA error means star moved in the West-pulse direction,
+        // so we need an opposite (East) correction to bring it back.
+        var raCorrectionSec = -raErrorPx / calibration.RaRatePixPerSec * AggressivenessRa;
+        var decCorrectionSec = -decErrorPx / calibration.DecRatePixPerSec * AggressivenessDec;
 
         // Apply dead zone and clamp
         var raPulseMs = ApplyDeadZoneAndClamp(raCorrectionSec * 1000.0);

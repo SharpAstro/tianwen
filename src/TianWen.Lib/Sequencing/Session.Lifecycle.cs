@@ -37,6 +37,10 @@ internal partial record Session
         // state from GuiderFocusLoopAsync during InitialRoughFocusAsync
         await guider.Driver.StopCaptureAsync(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
 
+        // Poll guide stats in background while calibration + settle runs,
+        // so the UI can show the guide graph and settle progress during this phase
+        await using var statsPoller = new GuideStatsPoller(this, guider.Driver, External, cancellationToken);
+
         if (!await guider.Driver.StartGuidingLoopAsync(Configuration.GuidingTries, cancellationToken).ConfigureAwait(false))
         {
             throw new InvalidOperationException($"Failed to start guider loop of guider {guider.Driver}");
