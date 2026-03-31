@@ -46,7 +46,7 @@ public partial class Image(float[][,] data, BitDepth bitDepth, float maxValue, f
         var meta = ImageMeta;
         if (meta.PixelSizeX > 0 && meta.FocalLength > 0 && meta.BinX > 0)
         {
-            var pixelScale = meta.PixelSizeX * meta.BinX / meta.FocalLength * 206.265;
+            var pixelScale = Astrometry.CoordinateUtils.PixelScaleArcsec(meta.PixelSizeX * meta.BinX, meta.FocalLength);
             return new ImageDim(pixelScale, Width, Height);
         }
         return null;

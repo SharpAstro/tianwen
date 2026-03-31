@@ -185,24 +185,37 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
         if (state is GuiderState.Settling or GuiderState.Calibrating)
         {
+            // Compute actual error distance from the guide loop's error tracker (in pixels)
+            var tracker = _guideLoop?.ErrorTracker;
+            var distance = tracker is { LastRaError: { } ra, LastDecError: { } dec }
+                ? Math.Sqrt(ra * ra + dec * dec)
+                : double.NaN;
+
+            var elapsed = External.TimeProvider.GetElapsedTime(_settleStartedTicks);
+
             return ValueTask.FromResult<SettleProgress?>(new SettleProgress
             {
                 Done = false,
-                Distance = 1.0,
+                Distance = distance,
                 SettlePx = _settlePixels,
-                Time = 0,
+                Time = elapsed.TotalSeconds,
                 SettleTime = _settleTime,
                 Status = 0,
-                StarLocked = true,
+                StarLocked = tracker?.TotalSamples > 0,
             });
         }
 
         if (state is GuiderState.Guiding)
         {
+            var tracker = _guideLoop?.ErrorTracker;
+            var distance = tracker is { LastRaError: { } ra, LastDecError: { } dec }
+                ? Math.Sqrt(ra * ra + dec * dec)
+                : 0.0;
+
             return ValueTask.FromResult<SettleProgress?>(new SettleProgress
             {
                 Done = true,
-                Distance = 0.1,
+                Distance = distance,
                 SettlePx = _settlePixels,
                 Time = _settleTime,
                 SettleTime = _settleTime,
@@ -222,13 +235,16 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         }
 
         var tracker = _guideLoop?.ErrorTracker;
+        var scale = GuiderPixelScale; // px → arcsec
         return ValueTask.FromResult<GuideStats?>(new GuideStats
         {
-            TotalRMS = tracker?.TotalRmsAll ?? 0,
-            RaRMS = tracker?.RaRmsAll ?? 0,
-            DecRMS = tracker?.DecRmsAll ?? 0,
-            PeakRa = (tracker?.RaRmsAll ?? 0) * 2,
-            PeakDec = (tracker?.DecRmsAll ?? 0) * 2,
+            TotalRMS = (tracker?.TotalRmsAll ?? 0) * scale,
+            RaRMS = (tracker?.RaRmsAll ?? 0) * scale,
+            DecRMS = (tracker?.DecRmsAll ?? 0) * scale,
+            PeakRa = (tracker?.PeakRa ?? 0) * scale,
+            PeakDec = (tracker?.PeakDec ?? 0) * scale,
+            LastRaErr = tracker?.LastRaError * scale,
+            LastDecErr = tracker?.LastDecError * scale,
         });
     }
 
@@ -524,12 +540,17 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
     public ValueTask<double> PixelScaleAsync(CancellationToken cancellationToken = default)
     {
-        if (_camera is { PixelSizeX: > 0 } cam)
-        {
-            return ValueTask.FromResult(cam.PixelSizeX);
-        }
-        return ValueTask.FromResult(1.0);
+        return ValueTask.FromResult(GuiderPixelScale);
     }
+
+    /// <summary>
+    /// Guider pixel scale in arcsec/px, computed from camera pixel size and focal length.
+    /// Returns 1.0 as fallback if either is unavailable (so pixel values pass through as-is).
+    /// </summary>
+    private double GuiderPixelScale =>
+        _camera is { PixelSizeX: > 0 and var px, FocalLength: > 0 and var fl }
+            ? Astrometry.CoordinateUtils.PixelScaleArcsec(px, fl)
+            : 1.0;
 
     public ValueTask<string?> SaveImageAsync(string outputFolder, CancellationToken cancellationToken = default)
         => ValueTask.FromResult<string?>(null);
@@ -550,7 +571,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     }
 
     /// <summary>
-    /// Checks whether enough time has elapsed since settling started.
+    /// Checks whether the guide error has been below the settle threshold for the required settle time.
     /// If so, transitions from Settling to Guiding.
     /// </summary>
     private bool TryCompleteSettle()
@@ -561,6 +582,20 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         }
 
         var elapsed = External.TimeProvider.GetElapsedTime(_settleStartedTicks);
+
+        // Check actual error distance (in pixels) against the settle threshold
+        var tracker = _guideLoop?.ErrorTracker;
+        if (tracker is { LastRaError: { } ra, LastDecError: { } dec })
+        {
+            var distance = Math.Sqrt(ra * ra + dec * dec);
+            if (distance > _settlePixels)
+            {
+                // Error still above threshold — reset the settle timer
+                RecordSettleStart();
+                return false;
+            }
+        }
+
         if (elapsed.TotalSeconds >= _settleTime)
         {
             TryTransition(GuiderState.Settling, GuiderState.Guiding);

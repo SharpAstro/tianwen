@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices;
 
@@ -19,8 +20,7 @@ public static class MosaicGenerator
     public static (double WidthDeg, double HeightDeg) ComputeFieldOfView(
         int focalLengthMm, double pixelSizeUm, int sensorWidthPx, int sensorHeightPx, int binning = 1)
     {
-        // plate scale = pixelSize_µm / focalLength_mm * 206.265 arcsec/pixel
-        var pixelScaleArcsec = pixelSizeUm * binning / focalLengthMm * 206.265;
+        var pixelScaleArcsec = CoordinateUtils.PixelScaleArcsec(pixelSizeUm * binning, focalLengthMm);
         const double ArcSecToDeg = 1.0 / 3600.0;
         return (ArcSecToDeg * pixelScaleArcsec * sensorWidthPx / binning,
                 ArcSecToDeg * pixelScaleArcsec * sensorHeightPx / binning);
