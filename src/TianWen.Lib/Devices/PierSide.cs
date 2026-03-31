@@ -20,3 +20,20 @@ public enum PointingState
     /// </summary>
     ThroughThePole = 1
 }
+
+public static class PointingStateExtensions
+{
+    extension(PointingState state)
+    {
+        /// <summary>
+        /// Returns the opposite pointing state (Normal ↔ ThroughThePole).
+        /// Unknown remains Unknown.
+        /// </summary>
+        public PointingState Flipped => state switch
+        {
+            PointingState.Normal => PointingState.ThroughThePole,
+            PointingState.ThroughThePole => PointingState.Normal,
+            _ => state
+        };
+    }
+}

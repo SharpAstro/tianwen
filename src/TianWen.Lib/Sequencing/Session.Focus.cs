@@ -486,7 +486,7 @@ internal partial record Session
         _currentActivity = $"#{telescopeIndex + 1} Fitting hyperbola\u2026";
         if (sampleMap.TryGetBestFocusSolution(out var solution, out _, out _))
         {
-            var bestPos = (int)Math.Round(solution.Value.BestFocus);
+            var bestPos = Math.Clamp((int)Math.Round(solution.Value.BestFocus), 0, focuser.MaxStep);
             var currentPosNow = await focuser.GetPositionAsync(cancellationToken);
 
             _currentActivity = $"#{telescopeIndex + 1} Moving to best focus ({bestPos})";
