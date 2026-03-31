@@ -37,6 +37,7 @@ public class GuiderTabState
     public (double X, double Y)? GuideStarPosition { get; private set; }
     public double? GuideStarSNR { get; private set; }
     public (float[] H, float[] V)? GuideStarProfile { get; private set; }
+    public CalibrationOverlayData? CalibrationOverlay { get; private set; }
 
     public bool NeedsRedraw { get; set; }
 
@@ -82,5 +83,6 @@ public class GuiderTabState
         GuideStarPosition = live.GuideStarPosition;
         GuideStarSNR = live.GuideStarSNR;
         GuideStarProfile = live.GuideStarProfile;
+        CalibrationOverlay = live.CalibrationOverlay;
     }
 }

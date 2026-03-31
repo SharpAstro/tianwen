@@ -98,6 +98,9 @@ namespace TianWen.UI.Abstractions
         /// <summary>Star profile: H and V intensity cross-sections, or null.</summary>
         public (float[] H, float[] V)? GuideStarProfile { get; set; }
 
+        /// <summary>Calibration overlay data for guide camera L-overlay.</summary>
+        public CalibrationOverlayData? CalibrationOverlay { get; set; }
+
         /// <summary>Site timezone offset for displaying times in local site time.</summary>
         public TimeSpan SiteTimeZone { get; set; }
 
@@ -150,6 +153,7 @@ namespace TianWen.UI.Abstractions
             GuideStarPosition = session.GuideStarPosition;
             GuideStarSNR = session.GuideStarSNR;
             GuideStarProfile = session.GuideStarProfile;
+            CalibrationOverlay = session.CalibrationOverlay;
         }
     }
 }
