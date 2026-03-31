@@ -57,6 +57,9 @@ public interface ISession : IAsyncDisposable
     /// <summary>Star profile: horizontal and vertical intensity cross-sections, or null.</summary>
     (float[] H, float[] V)? GuideStarProfile { get; }
 
+    /// <summary>Calibration overlay data for rendering on the guide camera image.</summary>
+    CalibrationOverlayData? CalibrationOverlay { get; }
+
     /// <summary>All frames written during this session.</summary>
     ImmutableArray<ExposureLogEntry> ExposureLog { get; }
 

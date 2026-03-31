@@ -445,4 +445,10 @@ public interface IGuider : IDeviceDriver
     /// Star profile: horizontal and vertical intensity cross-sections through the primary star, or null.
     /// </summary>
     (float[] H, float[] V)? GuideStarProfile => null;
+
+    /// <summary>
+    /// Calibration overlay data (L-shaped per-step positions) for rendering on the guide camera image.
+    /// Null if no calibration has been performed yet.
+    /// </summary>
+    CalibrationOverlayData? CalibrationOverlay => null;
 }

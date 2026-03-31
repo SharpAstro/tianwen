@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using DIR.Lib;
+using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
 
@@ -121,6 +122,9 @@ namespace TianWen.UI.Abstractions
         }
 
         private static readonly RGBAColor32 CrosshairColor = new RGBAColor32(0x00, 0xff, 0x00, 0xaa);
+        private static readonly RGBAColor32 CalRaColor = new RGBAColor32(0xff, 0x88, 0x22, 0xcc); // orange for RA
+        private static readonly RGBAColor32 CalDecColor = new RGBAColor32(0x22, 0x88, 0xff, 0xcc); // blue for Dec
+        private static readonly RGBAColor32 CalOriginColor = new RGBAColor32(0xff, 0xff, 0xff, 0xcc);
         private static readonly RGBAColor32 CameraBg = new RGBAColor32(0x0a, 0x0a, 0x0a, 0xff);
 
         private void RenderGuideCamera(RectF32 rect, float dpiScale, string fontPath, float fontSize)
@@ -143,8 +147,8 @@ namespace TianWen.UI.Abstractions
                 {
                     viewer.Render(rect, Renderer.Width, Renderer.Height);
 
-                    // Crosshair overlay on guide star position
-                    if (State.GuideStarPosition is var (starX, starY) && image is not null)
+                    // Compute image→screen transform for overlays
+                    if (image is not null)
                     {
                         var imgW = image.Width;
                         var imgH = image.Height;
@@ -154,15 +158,26 @@ namespace TianWen.UI.Abstractions
                         var offsetX = rect.X + (rect.Width - drawW) / 2;
                         var offsetY = rect.Y + (rect.Height - drawH) / 2;
 
-                        var cx = (int)(offsetX + starX * fitScale);
-                        var cy = (int)(offsetY + starY * fitScale);
-                        var crossLen = (int)(15 * dpiScale);
-                        var crossGap = (int)(4 * dpiScale);
+                        // Crosshair overlay on guide star position
+                        if (State.GuideStarPosition is var (starX, starY))
+                        {
+                            var cx = (int)(offsetX + starX * fitScale);
+                            var cy = (int)(offsetY + starY * fitScale);
+                            var crossLen = (int)(15 * dpiScale);
+                            var crossGap = (int)(4 * dpiScale);
 
-                        FillRect(cx - crossLen, cy, crossLen - crossGap, 1, CrosshairColor);
-                        FillRect(cx + crossGap, cy, crossLen - crossGap, 1, CrosshairColor);
-                        FillRect(cx, cy - crossLen, 1, crossLen - crossGap, CrosshairColor);
-                        FillRect(cx, cy + crossGap, 1, crossLen - crossGap, CrosshairColor);
+                            FillRect(cx - crossLen, cy, crossLen - crossGap, 1, CrosshairColor);
+                            FillRect(cx + crossGap, cy, crossLen - crossGap, 1, CrosshairColor);
+                            FillRect(cx, cy - crossLen, 1, crossLen - crossGap, CrosshairColor);
+                            FillRect(cx, cy + crossGap, 1, crossLen - crossGap, CrosshairColor);
+                        }
+
+                        // L-shaped calibration overlay: auto-scaled, centered on image
+                        if (State.CalibrationOverlay is { } cal)
+                        {
+                            RenderCalibrationOverlayOnCamera(cal,
+                                offsetX + drawW / 2, offsetY + drawH / 2, dpiScale);
+                        }
                     }
 
                     // SNR + frame count in corner
@@ -182,6 +197,135 @@ namespace TianWen.UI.Abstractions
             DrawText(State.IsRunning ? "Waiting for guide frame\u2026" : "No guide camera",
                 fontPath, rect.X, rect.Y, rect.Width, rect.Height,
                 fontSize, DimText, TextAlign.Center, TextAlign.Center);
+        }
+
+        /// <summary>
+        /// Renders auto-scaled calibration vectors on the guide camera image, centered on the guide star.
+        /// The L-shape is scaled to fill a fixed screen area (~80px arms) so it's always visible
+        /// regardless of sensor resolution or actual pixel displacement.
+        /// </summary>
+        private void RenderCalibrationOverlayOnCamera(
+            CalibrationOverlayData cal,
+            double centerX, double centerY, float dpiScale)
+        {
+            var scx = (int)centerX;
+            var scy = (int)centerY;
+
+            // Find max displacement across both arms to compute auto-scale
+            var maxDisp = 1.0;
+            foreach (var step in cal.RaSteps)
+            {
+                var dx = step.X - cal.RaOrigin.X;
+                var dy = step.Y - cal.RaOrigin.Y;
+                maxDisp = Math.Max(maxDisp, Math.Sqrt(dx * dx + dy * dy));
+            }
+            foreach (var step in cal.DecSteps)
+            {
+                var dx = step.X - cal.DecOrigin.X;
+                var dy = step.Y - cal.DecOrigin.Y;
+                maxDisp = Math.Max(maxDisp, Math.Sqrt(dx * dx + dy * dy));
+            }
+
+            // Scale so the longest arm is ~200 screen pixels
+            var armLength = 200.0 * dpiScale;
+            var autoScale = armLength / maxDisp;
+
+            var dotR = Math.Max(2, (int)(2 * dpiScale));
+
+            // RA arm (orange)
+            var prevX = scx;
+            var prevY = scy;
+            foreach (var step in cal.RaSteps)
+            {
+                var dx = (step.X - cal.RaOrigin.X) * autoScale;
+                var dy = (step.Y - cal.RaOrigin.Y) * autoScale;
+                var sx = scx + (int)dx;
+                var sy = scy + (int)dy;
+                DrawLineOverlay(prevX, prevY, sx, sy, CalRaColor);
+                FillRect(sx - dotR, sy - dotR, dotR * 2 + 1, dotR * 2 + 1, CalRaColor);
+                prevX = sx;
+                prevY = sy;
+            }
+
+            // Dec arm (blue)
+            prevX = scx;
+            prevY = scy;
+            foreach (var step in cal.DecSteps)
+            {
+                var dx = (step.X - cal.DecOrigin.X) * autoScale;
+                var dy = (step.Y - cal.DecOrigin.Y) * autoScale;
+                var sx = scx + (int)dx;
+                var sy = scy + (int)dy;
+                DrawLineOverlay(prevX, prevY, sx, sy, CalDecColor);
+                FillRect(sx - dotR, sy - dotR, dotR * 2 + 1, dotR * 2 + 1, CalDecColor);
+                prevX = sx;
+                prevY = sy;
+            }
+
+            // Origin dot (white)
+            FillRect(scx - dotR, scy - dotR, dotR * 2 + 1, dotR * 2 + 1, CalOriginColor);
+        }
+
+        /// <summary>
+        /// Renders calibration summary text in the target view area: angle, rates, ortho error, backlash.
+        /// </summary>
+        private void RenderCalibrationText(
+            CalibrationOverlayData cal,
+            RectF32 rect, float dpiScale, string fontPath, float fontSize)
+        {
+            var padding = BasePadding * dpiScale;
+            var lineH = fontSize * 1.3f;
+            var labelW = rect.Width * 0.55f;
+            var valueW = rect.Width * 0.4f;
+            var x = rect.X + padding;
+            var y = rect.Y + rect.Height - padding; // anchor from bottom
+
+            var smallFont = fontSize * 0.7f;
+
+            // Build lines bottom-up so they sit above the ±12" label
+            var lines = new (string Label, string Value, RGBAColor32 Color)[]
+            {
+                ("Angle:", $"{cal.CameraAngleDeg:F1}\u00b0", BodyText),
+                ("RA rate:", $"{cal.RaRateArcsecPerSec:F2}\"/s", CalRaColor),
+                ("Dec rate:", $"{cal.DecRateArcsecPerSec:F2}\"/s", CalDecColor),
+                ("Ortho err:", $"{cal.OrthoErrorDeg:F1}\u00b0", cal.OrthoErrorDeg > 5 ? CalRaColor : BodyText),
+                ("BL RA:", cal.BacklashClearingStepsRa > 0 ? $"{cal.BacklashClearingStepsRa} steps" : "off", DimText),
+                ("BL Dec:", cal.BacklashClearingStepsDec > 0 ? $"{cal.BacklashClearingStepsDec} steps" : "off", DimText),
+            };
+
+            y -= lines.Length * lineH;
+            foreach (var (label, value, color) in lines)
+            {
+                DrawText(label, fontPath, x, y, labelW, lineH, smallFont, DimText, TextAlign.Near, TextAlign.Center);
+                DrawText(value, fontPath, x + labelW, y, valueW, lineH, smallFont, color, TextAlign.Near, TextAlign.Center);
+                y += lineH;
+            }
+        }
+
+        /// <summary>
+        /// Draws a 1px line between two points using horizontal/vertical fill rects (Bresenham).
+        /// </summary>
+        private void DrawLineOverlay(int x0, int y0, int x1, int y1, RGBAColor32 color)
+        {
+            var dx = Math.Abs(x1 - x0);
+            var dy = Math.Abs(y1 - y0);
+            var sx = x0 < x1 ? 1 : -1;
+            var sy = y0 < y1 ? 1 : -1;
+            var err = dx - dy;
+
+            while (true)
+            {
+                FillRect(x0, y0, 1, 1, color);
+
+                if (x0 == x1 && y0 == y1)
+                {
+                    break;
+                }
+
+                var e2 = 2 * err;
+                if (e2 > -dy) { err -= dy; x0 += sx; }
+                if (e2 < dx) { err += dx; y0 += sy; }
+            }
         }
 
         private static readonly RGBAColor32 ProfileBg = new RGBAColor32(0x12, 0x12, 0x1a, 0xff);
@@ -367,20 +511,20 @@ namespace TianWen.UI.Abstractions
         {
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, TargetBg);
 
+            var padding = BasePadding * dpiScale;
+            var side = Math.Min(rect.Width, rect.Height) - padding * 2;
+            var cx = rect.X + rect.Width / 2;
+            var cy = rect.Y + rect.Height / 2;
+            var halfSide = side / 2;
+
             var samples = State.GuideSamples;
-            if (samples.Length < 2)
+            if (samples.Length < 2 && State.CalibrationOverlay is null)
             {
                 DrawText("Target View", fontPath,
                     rect.X, rect.Y, rect.Width, rect.Height,
                     fontSize, DimText, TextAlign.Center, TextAlign.Center);
                 return;
             }
-
-            var padding = BasePadding * dpiScale;
-            var side = Math.Min(rect.Width, rect.Height) - padding * 2;
-            var cx = rect.X + rect.Width / 2;
-            var cy = rect.Y + rect.Height / 2;
-            var halfSide = side / 2;
 
             // Fixed scale: rings at 3", 6", 9", 12" (outer ring = 12")
             const double targetScaleArcsec = 12.0;
@@ -450,6 +594,12 @@ namespace TianWen.UI.Abstractions
                 var lx = cx + (float)(Math.Clamp(last.RaError / targetScaleArcsec, -1, 1) * halfSide);
                 var ly = cy - (float)(Math.Clamp(last.DecError / targetScaleArcsec, -1, 1) * halfSide);
                 FillRect((int)lx - 2, (int)ly - 2, 5, 5, CrosshairColor);
+            }
+
+            // Calibration data text (angle, rates, backlash)
+            if (State.CalibrationOverlay is { } cal)
+            {
+                RenderCalibrationText(cal, rect, dpiScale, fontPath, fontSize);
             }
         }
 

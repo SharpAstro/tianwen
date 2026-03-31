@@ -96,6 +96,17 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     public (float[] H, float[] V)? GuideStarProfile =>
         (_guideLoop?.LastCentroidResult ?? _calibrationTracker?.LastResult) is { HProfile: { } h, VProfile: { } v } ? (h, v) : null;
 
+    /// <summary>Calibration overlay data (L-shaped per-step positions) for guide camera overlay.</summary>
+    public CalibrationOverlayData? CalibrationOverlay =>
+        _lastCalibration is { } cal && cal.Overlay is { } overlay
+            ? overlay with
+            {
+                PixelScaleArcsec = GuiderPixelScale,
+                RaRateArcsecPerSec = cal.RaRatePixPerSec * GuiderPixelScale,
+                DecRateArcsecPerSec = cal.DecRatePixPerSec * GuiderPixelScale,
+            }
+            : null;
+
     /// <summary>
     /// The mount driver wired by <see cref="LinkDevices"/>.
     /// </summary>
@@ -588,9 +599,9 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         if (tracker is { LastRaError: { } ra, LastDecError: { } dec })
         {
             var distance = Math.Sqrt(ra * ra + dec * dec);
-            if (distance > _settlePixels)
+            if (distance > _settlePixels * 3)
             {
-                // Error still above threshold — reset the settle timer
+                // Large excursion — reset the settle timer completely
                 RecordSettleStart();
                 return false;
             }

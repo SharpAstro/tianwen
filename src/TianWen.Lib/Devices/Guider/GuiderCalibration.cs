@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
@@ -41,8 +43,8 @@ internal sealed class GuiderCalibration
     /// Current calibration progress, updated during <see cref="CalibrateAsync"/>.
     /// </summary>
     public CalibrationProgress? Progress { get; set; }
-    private const int DefaultCalibrationPulseMs = 2000;
-    private const int DefaultCalibrationSteps = 5;
+    private const int DefaultCalibrationPulseMs = 750;
+    private const int DefaultCalibrationSteps = 12;
 
     /// <summary>
     /// Maximum angle deviation (degrees) for a saved calibration to be considered valid.
@@ -122,13 +124,20 @@ internal sealed class GuiderCalibration
             tracker.SetLockPosition();
         }
 
-        var westResult = await MeasureDisplacementAsync(pulseTarget, tracker, captureFrame, external,
+        // Capture the RA origin (lock position = star position before first West pulse)
+        var raOrigin = tracker.Stars.Count > 0
+            ? new CalibrationStep(tracker.Stars[0].LockX, tracker.Stars[0].LockY)
+            : new CalibrationStep(0, 0);
+
+        var westMeasurement = await MeasureDisplacementAsync(pulseTarget, tracker, captureFrame, external,
             GuideDirection.West, CalibrationSteps, CalibrationPulseDuration, cancellationToken);
 
-        if (westResult is null)
+        if (westMeasurement is null)
         {
             return null;
         }
+
+        var (westResult, raSteps) = westMeasurement.Value;
 
         // Return to start by pulsing East
         for (var i = 0; i < CalibrationSteps; i++)
@@ -163,13 +172,20 @@ internal sealed class GuiderCalibration
             tracker.SetLockPosition();
         }
 
-        var northResult = await MeasureDisplacementAsync(pulseTarget, tracker, captureFrame, external,
+        // Capture the Dec origin (lock position = star position before first North pulse)
+        var decOrigin = tracker.Stars.Count > 0
+            ? new CalibrationStep(tracker.Stars[0].LockX, tracker.Stars[0].LockY)
+            : raOrigin;
+
+        var northMeasurement = await MeasureDisplacementAsync(pulseTarget, tracker, captureFrame, external,
             GuideDirection.North, CalibrationSteps, CalibrationPulseDuration, cancellationToken);
 
-        if (northResult is null)
+        if (northMeasurement is null)
         {
             return null;
         }
+
+        var (northResult, decSteps) = northMeasurement.Value;
 
         // Return to start by pulsing South
         for (var i = 0; i < CalibrationSteps; i++)
@@ -182,10 +198,10 @@ internal sealed class GuiderCalibration
         var totalRaTimeSec = CalibrationSteps * CalibrationPulseDuration.TotalSeconds;
         var totalDecTimeSec = totalRaTimeSec;
 
-        var raDx = westResult.Value.DeltaX;
-        var raDy = westResult.Value.DeltaY;
-        var decDx = northResult.Value.DeltaX;
-        var decDy = northResult.Value.DeltaY;
+        var raDx = westResult.DeltaX;
+        var raDy = westResult.DeltaY;
+        var decDx = northResult.DeltaX;
+        var decDy = northResult.DeltaY;
 
         var raDisplacementPx = Math.Sqrt(raDx * raDx + raDy * raDy);
         var decDisplacementPx = Math.Sqrt(decDx * decDx + decDy * decDy);
@@ -212,7 +228,12 @@ internal sealed class GuiderCalibration
             DecDisplacementPx: decDisplacementPx,
             TotalCalibrationTimeSec: totalRaTimeSec + totalDecTimeSec,
             BacklashClearingStepsRa: raBacklashResult.StepsUsed,
-            BacklashClearingStepsDec: decBacklashResult.StepsUsed);
+            BacklashClearingStepsDec: decBacklashResult.StepsUsed,
+            Overlay: new CalibrationOverlayData(raOrigin, decOrigin, raSteps, decSteps,
+                PixelScaleArcsec: 1.0, CameraAngleRad: cameraAngleRad,
+                RaRateArcsecPerSec: 0, DecRateArcsecPerSec: 0,
+                BacklashClearingStepsRa: raBacklashResult.StepsUsed,
+                BacklashClearingStepsDec: decBacklashResult.StepsUsed));
     }
 
     /// <summary>
@@ -335,7 +356,11 @@ internal sealed class GuiderCalibration
         return new BacklashClearingResult(MaxBacklashClearingSteps, MovementDetected: false);
     }
 
-    private static async ValueTask<GuiderCentroidResult?> MeasureDisplacementAsync(
+    /// <summary>
+    /// Measures displacement by sending calibration pulses and recording per-step star positions.
+    /// Returns the final centroid result and the absolute (X, Y) position after each step.
+    /// </summary>
+    private static async ValueTask<(GuiderCentroidResult Result, ImmutableArray<CalibrationStep> Steps)?> MeasureDisplacementAsync(
         IPulseGuideTarget pulseTarget,
         GuiderCentroidTracker tracker,
         Func<CancellationToken, ValueTask<Image>> captureFrame,
@@ -345,7 +370,8 @@ internal sealed class GuiderCalibration
         TimeSpan pulseDuration,
         CancellationToken cancellationToken)
     {
-        GuiderCentroidResult? lastResult = null;
+        var stepList = new List<CalibrationStep>(steps);
+        GuiderCentroidResult lastResult = default;
 
         for (var i = 0; i < steps; i++)
         {
@@ -353,15 +379,16 @@ internal sealed class GuiderCalibration
             await WaitForPulseCompleteAsync(pulseTarget, external, pulseDuration, cancellationToken);
 
             var frame = await captureFrame(cancellationToken);
-            lastResult = tracker.ProcessFrame(frame.GetChannelArray(0));
-
-            if (lastResult is null)
+            if (tracker.ProcessFrame(frame.GetChannelArray(0)) is not { } result)
             {
                 return null; // Lost star during calibration
             }
+
+            lastResult = result;
+            stepList.Add(new CalibrationStep(result.X, result.Y));
         }
 
-        return lastResult;
+        return stepList.Count > 0 ? (lastResult, [.. stepList]) : null;
     }
 
     private static async ValueTask WaitForPulseCompleteAsync(
@@ -415,7 +442,8 @@ internal readonly record struct GuiderCalibrationResult(
     double DecDisplacementPx,
     double TotalCalibrationTimeSec,
     int BacklashClearingStepsRa = 0,
-    int BacklashClearingStepsDec = 0)
+    int BacklashClearingStepsDec = 0,
+    CalibrationOverlayData? Overlay = null)
 {
     /// <summary>
     /// Camera angle in degrees.
@@ -439,5 +467,61 @@ internal readonly record struct GuiderCalibrationResult(
         var decPixels = -deltaX * sin + deltaY * cos;
 
         return (raPixels, decPixels);
+    }
+}
+
+/// <summary>
+/// A single position (absolute image pixels) recorded during calibration.
+/// </summary>
+/// <param name="X">Star X position in image pixels.</param>
+/// <param name="Y">Star Y position in image pixels.</param>
+public readonly record struct CalibrationStep(double X, double Y);
+
+/// <summary>
+/// Per-step calibration data for rendering the L-shaped overlay on the guide camera image.
+/// All coordinates are absolute image pixel positions.
+/// </summary>
+/// <param name="RaOrigin">Star position at the start of RA (West) measurement.</param>
+/// <param name="DecOrigin">Star position at the start of Dec (North) measurement.</param>
+/// <param name="RaSteps">Absolute star positions after each West calibration pulse.</param>
+/// <param name="DecSteps">Absolute star positions after each North calibration pulse.</param>
+/// <param name="PixelScaleArcsec">Guider pixel scale in arcsec/px for converting to display units.</param>
+/// <param name="CameraAngleRad">Camera angle from calibration, for rotating displacements to RA/Dec axes.</param>
+/// <param name="RaRateArcsecPerSec">RA guide rate in arcsec/sec.</param>
+/// <param name="DecRateArcsecPerSec">Dec guide rate in arcsec/sec.</param>
+/// <param name="BacklashClearingStepsRa">RA backlash clearing pulses used.</param>
+/// <param name="BacklashClearingStepsDec">Dec backlash clearing pulses used.</param>
+public sealed record CalibrationOverlayData(
+    CalibrationStep RaOrigin,
+    CalibrationStep DecOrigin,
+    ImmutableArray<CalibrationStep> RaSteps,
+    ImmutableArray<CalibrationStep> DecSteps,
+    double PixelScaleArcsec,
+    double CameraAngleRad,
+    double RaRateArcsecPerSec = 0,
+    double DecRateArcsecPerSec = 0,
+    int BacklashClearingStepsRa = 0,
+    int BacklashClearingStepsDec = 0)
+{
+    /// <summary>Camera angle in degrees.</summary>
+    public double CameraAngleDeg => CameraAngleRad * 180.0 / Math.PI;
+
+    /// <summary>Orthogonality error: deviation from 90° between RA and Dec axes.</summary>
+    public double OrthoErrorDeg
+    {
+        get
+        {
+            if (RaSteps.IsDefaultOrEmpty || DecSteps.IsDefaultOrEmpty)
+            {
+                return 0;
+            }
+            var raLast = RaSteps[^1];
+            var decLast = DecSteps[^1];
+            var raAngle = Math.Atan2(raLast.Y - RaOrigin.Y, raLast.X - RaOrigin.X);
+            var decAngle = Math.Atan2(decLast.Y - DecOrigin.Y, decLast.X - DecOrigin.X);
+            var diff = Math.Abs(decAngle - raAngle) * 180.0 / Math.PI;
+            if (diff > 180) diff = 360 - diff;
+            return Math.Abs(diff - 90);
+        }
     }
 }
