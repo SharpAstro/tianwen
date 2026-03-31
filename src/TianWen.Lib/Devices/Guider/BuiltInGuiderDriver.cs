@@ -25,7 +25,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     private GuideLoop? _guideLoop;
     private CancellationTokenSource? _guideCts;
     private GuiderCalibrationResult? _lastCalibration;
-    private double _calibrationHourAngle = double.NaN;
+    private PointingState? _calibrationPierSide;
     private volatile Image? _lastFrame;
     private volatile GuiderCentroidTracker? _calibrationTracker;
 
@@ -281,7 +281,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     public ValueTask ClearCalibrationAsync(CancellationToken cancellationToken = default)
     {
         _lastCalibration = null;
-        _calibrationHourAngle = double.NaN;
+        _calibrationPierSide = null;
         return ValueTask.CompletedTask;
     }
 
@@ -295,7 +295,8 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                 DecRatePixPerSec = -cal.DecRatePixPerSec,
                 DecDisplacementPx = -cal.DecDisplacementPx
             };
-            _calibrationHourAngle = -_calibrationHourAngle;
+            // Toggle pier side so a subsequent auto-detect doesn't double-flip
+            _calibrationPierSide = _calibrationPierSide?.Flipped;
         }
 
         return ValueTask.CompletedTask;
@@ -391,15 +392,16 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                 }
 
                 _lastCalibration = calResult;
-                _calibrationHourAngle = await mount.GetSiderealTimeAsync(ct) - await mount.GetRightAscensionAsync(ct);
+                _calibrationPierSide = await mount.GetSideOfPierAsync(ct);
             }
-            else if (ReverseDecOnFlip && !double.IsNaN(_calibrationHourAngle))
+            else if (ReverseDecOnFlip)
             {
-                // Detect meridian flip: HA sign changed since calibration
-                var currentHA = await mount.GetSiderealTimeAsync(ct) - await mount.GetRightAscensionAsync(ct);
-                if (Math.Sign(_calibrationHourAngle) != Math.Sign(currentHA) && _calibrationHourAngle != 0 && currentHA != 0)
+                // Detect meridian flip by checking if the mount's pier side changed since calibration.
+                // HA sign alone is unreliable — slewing to a target on the other side of the meridian
+                // changes HA sign without an actual GEM flip.
+                var currentPierSide = await mount.GetSideOfPierAsync(ct);
+                if (_calibrationPierSide is { } calPier && calPier != currentPierSide)
                 {
-                    // Reverse DEC direction by negating DecRatePixPerSec and DecDisplacementPx
                     var flipped = calResult.Value with
                     {
                         DecRatePixPerSec = -calResult.Value.DecRatePixPerSec,
@@ -407,10 +409,10 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                     };
                     calResult = flipped;
                     _lastCalibration = flipped;
-                    _calibrationHourAngle = currentHA;
+                    _calibrationPierSide = currentPierSide;
 
-                    External.AppLogger.LogInformation("Built-in guider: detected meridian flip (calibration HA={CalHA:F3} → current HA={CurHA:F3}), reversed DEC direction.",
-                        _calibrationHourAngle, currentHA);
+                    External.AppLogger.LogInformation("Built-in guider: detected meridian flip (pier side {CalPier} → {CurPier}), reversed DEC direction.",
+                        calPier, currentPierSide);
                 }
             }
 
