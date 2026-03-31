@@ -281,4 +281,52 @@ internal partial record Session(
         GC.SuppressFinalize(this);
     }
 
+    /// <summary>
+    /// Polls guide stats and settle progress on a timer, feeding the UI during phases
+    /// where the imaging loop isn't running (e.g. calibration + initial settle).
+    /// Disposed when the calling scope ends.
+    /// </summary>
+    private sealed class GuideStatsPoller : IAsyncDisposable
+    {
+        private readonly CancellationTokenSource _cts;
+        private readonly Task _task;
+
+        public GuideStatsPoller(Session session, Devices.Guider.IGuider guider, IExternal external, CancellationToken parentToken)
+        {
+            _cts = CancellationTokenSource.CreateLinkedTokenSource(parentToken);
+            _task = Task.Run(async () =>
+            {
+                var ct = _cts.Token;
+                while (!ct.IsCancellationRequested)
+                {
+                    try
+                    {
+                        var (appState, _) = await guider.GetStatusAsync(ct);
+                        session._guiderState = appState;
+                        session._guiderSettleProgress = await guider.GetSettleProgressAsync(ct);
+
+                        if (await guider.GetStatsAsync(ct) is { } gs)
+                        {
+                            session.UpdateGuideStats(gs);
+                            var raErr = gs.LastRaErr ?? 0;
+                            var decErr = gs.LastDecErr ?? 0;
+                            session.AppendGuideErrorSample(new GuideErrorSample(
+                                external.TimeProvider.GetUtcNow(), raErr, decErr));
+                        }
+                    }
+                    catch (OperationCanceledException) { break; }
+                    catch { /* ignore transient errors */ }
+
+                    await external.SleepAsync(TimeSpan.FromSeconds(2), ct);
+                }
+            }, _cts.Token);
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await _cts.CancelAsync();
+            try { await _task; } catch { /* expected */ }
+            _cts.Dispose();
+        }
+    }
 }
