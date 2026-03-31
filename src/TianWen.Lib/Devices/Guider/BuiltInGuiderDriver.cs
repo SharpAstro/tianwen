@@ -42,7 +42,8 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     private double _settleTime;
     private long _settleStartedTicks;
 
-    // Neural guide configuration — read from device URI query parameters
+    // Configuration — read from device URI query parameters
+    private readonly bool _reuseCalibration;
     private readonly bool _useNeuralGuider;
     private readonly double _neuralBlendFactor;
 
@@ -60,6 +61,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         _device = device;
         External = external;
         ReverseDecOnFlip = device.ReverseDecAfterFlip;
+        _reuseCalibration = device.ReuseCalibration;
         _useNeuralGuider = device.UseNeuralGuider;
         _neuralBlendFactor = device.NeuralBlendFactor;
     }
@@ -363,14 +365,74 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
         var calibration = new GuiderCalibration
         {
-            CalibrationPulseDuration = TimeSpan.FromSeconds(1),
-            CalibrationSteps = 3,
             BacklashClearingEnabled = true,
-            MaxBacklashClearingSteps = 10,
-            BacklashMovementThresholdPx = 1.5
         };
 
         return await calibration.CalibrateAsync(pulseTarget, tracker, CaptureFrame, External, ct);
+    }
+
+    /// <summary>
+    /// Attempts to load a saved calibration from disk and validate it with a quick pulse test.
+    /// Returns the loaded calibration if valid, or null if no saved calibration exists or validation failed.
+    /// </summary>
+    private async ValueTask<GuiderCalibrationResult?> TryLoadAndValidateCalibrationAsync(
+        IPulseGuideTarget pulseTarget, ICameraDriver camera, CancellationToken ct)
+    {
+        // Load the most recent neural model file — it contains the calibration result
+        var model = new NeuralGuideModel();
+        var savedCalibration = await NeuralGuideModelPersistence.TryLoadAsync(model, External.ProfileFolder, ct);
+        if (savedCalibration is null)
+        {
+            return null;
+        }
+
+        External.AppLogger.LogInformation("Loaded saved calibration (angle={Angle:F1}°, RA rate={RaRate:F2} px/s). Validating...",
+            savedCalibration.Value.CameraAngleDeg, savedCalibration.Value.RaRatePixPerSec);
+
+        // Acquire a guide star for validation
+        var exposureTime = await ExposureTimeAsync(ct);
+        var tracker = new GuiderCentroidTracker(maxStars: 1);
+        _calibrationTracker = tracker;
+        var frame = await CaptureGuideFrameAsync(camera, exposureTime, External, ct);
+        _lastFrame = frame;
+        tracker.ProcessFrame(frame.GetChannelArray(0));
+
+        if (!tracker.IsAcquired)
+        {
+            External.AppLogger.LogWarning("Cannot validate saved calibration — no guide star acquired.");
+            return null;
+        }
+
+        var ext = External;
+        async ValueTask<Image> CaptureFrame(CancellationToken token)
+        {
+            var f = await CaptureGuideFrameAsync(camera, exposureTime, ext, token);
+            _lastFrame = f;
+            return f;
+        }
+
+        var calibration = new GuiderCalibration();
+        var result = await calibration.ValidateAsync(savedCalibration.Value, pulseTarget, tracker, CaptureFrame, External, ct);
+
+        switch (result)
+        {
+            case CalibrationValidationResult.Valid:
+                External.AppLogger.LogInformation("Saved calibration validated — reusing.");
+                _lastCalibration = savedCalibration;
+                _calibrationPierSide = await _mount!.GetSideOfPierAsync(ct);
+                return savedCalibration;
+
+            case CalibrationValidationResult.RateDrifted:
+                External.AppLogger.LogInformation("Saved calibration rate drifted — recalibrating (keeping neural weights).");
+                return null;
+
+            case CalibrationValidationResult.AngleChanged:
+                External.AppLogger.LogInformation("Saved calibration angle changed — recalibrating (discarding neural weights).");
+                return null;
+
+            default:
+                return null;
+        }
     }
 
     private async Task RunCalibrateAndGuideAsync(IPulseGuideTarget pulseTarget, ICameraDriver camera, IMountDriver mount, CancellationToken ct)
@@ -381,6 +443,12 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
             // Reuse previous calibration if available, otherwise run a fresh calibration
             var calResult = _lastCalibration;
+            if (calResult is null && _reuseCalibration)
+            {
+                // Try to load saved calibration from disk and validate with a quick pulse test
+                calResult = await TryLoadAndValidateCalibrationAsync(pulseTarget, camera, ct);
+            }
+
             if (calResult is null)
             {
                 calResult = await CalibrateInternalAsync(pulseTarget, camera, ct);

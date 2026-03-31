@@ -39,6 +39,9 @@ public record class BuiltInGuiderDevice(Uri DeviceUri) : GuiderDeviceBase(Device
 
     public override ImmutableArray<DeviceSettingDescriptor> Settings { get; } =
     [
+        DeviceSettingHelper.BoolSetting(
+            DeviceQueryKey.ReuseCalibration.Key, "Reuse Calibration",
+            defaultValue: true),
         DeviceSettingHelper.EnumSetting(
             DeviceQueryKey.PulseGuideSource.Key, "Pulse Guide",
             PulseGuideSource.Auto),
@@ -80,6 +83,19 @@ public record class BuiltInGuiderDevice(Uri DeviceUri) : GuiderDeviceBase(Device
     /// Defaults to <c>true</c> — most modern GEM mounts require this.
     /// Some older mounts that internally reverse their DEC motor after a flip may need <c>false</c>.
     /// </summary>
+    /// <summary>
+    /// Whether to reuse a saved calibration from a previous session (validated with a quick pulse test).
+    /// Defaults to <c>true</c> (like PHD2). When false, always recalibrates.
+    /// </summary>
+    internal bool ReuseCalibration
+    {
+        get
+        {
+            var value = Query.QueryValue(DeviceQueryKey.ReuseCalibration);
+            return value is null || !bool.TryParse(value, out var result) || result;
+        }
+    }
+
     internal bool ReverseDecAfterFlip
     {
         get

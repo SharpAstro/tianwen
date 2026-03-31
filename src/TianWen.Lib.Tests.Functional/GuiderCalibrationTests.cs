@@ -1,6 +1,7 @@
 using TianWen.Lib.Imaging;
 using Shouldly;
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
@@ -397,4 +398,69 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         result.Value.BacklashClearingStepsDec.ShouldBeGreaterThan(0);
     }
 
+    [Fact(Timeout = 60_000)]
+    public async Task GivenSavedCalibrationAndWeightsWhenLoadedThenMatchOriginal()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // Save calibration + neural model to a temp directory
+        var tempDir = new DirectoryInfo(Path.Combine(Path.GetTempPath(), $"tianwen_cal_test_{Guid.NewGuid():N}"));
+        try
+        {
+            var originalCalibration = new GuiderCalibrationResult(
+                CameraAngleRad: -Math.PI,
+                RaRatePixPerSec: 1.95,
+                DecRatePixPerSec: 1.97,
+                RaDisplacementPx: 17.5,
+                DecDisplacementPx: 17.7,
+                TotalCalibrationTimeSec: 18.0);
+
+            var originalModel = new NeuralGuideModel();
+            originalModel.InitializeRandom(123); // non-default seed
+            var originalWeights = originalModel.ExportParameters();
+
+            await NeuralGuideModelPersistence.SaveAsync(originalModel, originalCalibration, tempDir, ct);
+
+            // Verify exactly one .ngm file was created
+            var ngmFiles = new DirectoryInfo(Path.Combine(tempDir.FullName, "NeuralGuider")).GetFiles("*.ngm");
+            ngmFiles.Length.ShouldBe(1);
+
+            // Load into a fresh model
+            var loadedModel = new NeuralGuideModel();
+            var loadedCalibration = await NeuralGuideModelPersistence.TryLoadAsync(loadedModel, tempDir, ct);
+
+            loadedCalibration.ShouldNotBeNull();
+
+            // Calibration should match
+            loadedCalibration.Value.CameraAngleRad.ShouldBe(originalCalibration.CameraAngleRad, 0.001);
+            loadedCalibration.Value.RaRatePixPerSec.ShouldBe(originalCalibration.RaRatePixPerSec, 0.001);
+            loadedCalibration.Value.DecRatePixPerSec.ShouldBe(originalCalibration.DecRatePixPerSec, 0.001);
+            loadedCalibration.Value.RaDisplacementPx.ShouldBe(originalCalibration.RaDisplacementPx, 0.001);
+            loadedCalibration.Value.DecDisplacementPx.ShouldBe(originalCalibration.DecDisplacementPx, 0.001);
+
+            // Weights should match
+            var loadedWeights = loadedModel.ExportParameters();
+            loadedWeights.Length.ShouldBe(originalWeights.Length);
+            for (var i = 0; i < loadedWeights.Length; i++)
+            {
+                loadedWeights[i].ShouldBe(originalWeights[i], 1e-6f,
+                    $"Weight [{i}] mismatch");
+            }
+
+            output.WriteLine($"Calibration round-trip: angle={loadedCalibration.Value.CameraAngleDeg:F1}°, " +
+                $"RA rate={loadedCalibration.Value.RaRatePixPerSec:F3}, {loadedWeights.Length} weights verified");
+
+            // Save again — should replace the old file, not accumulate
+            await NeuralGuideModelPersistence.SaveAsync(loadedModel, loadedCalibration.Value, tempDir, ct);
+            ngmFiles = new DirectoryInfo(Path.Combine(tempDir.FullName, "NeuralGuider")).GetFiles("*.ngm");
+            ngmFiles.Length.ShouldBe(1, "old .ngm files should be cleaned up after save");
+        }
+        finally
+        {
+            if (tempDir.Exists)
+            {
+                tempDir.Delete(recursive: true);
+            }
+        }
+    }
 }
