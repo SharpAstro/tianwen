@@ -26,7 +26,8 @@ It ships as a NuGet library (`TianWen.Lib`), a cross-platform CLI with interacti
 
 - **FITS Viewer** (`TianWen.UI.FitsViewer`):
   - GPU-accelerated stretch (MTF) with per-channel, linked, and luma modes.
-  - HDR compression via Hermite soft-knee in the GLSL shader.
+  - GPU bilinear Bayer demosaic — raw mosaic uploaded as single texture, debayered per-pixel in the fragment shader. No CPU debayer needed.
+  - HDR compression via Hermite soft-knee in the fragment shader.
   - Automatic star detection with HFD-sized overlay circles and status bar metrics.
   - Contrast boost with star-masked background estimation for clean nebula enhancement.
   - WCS coordinate grid overlay with RA/Dec labels.
@@ -158,7 +159,7 @@ graph LR
 
 ## Image Pipeline & Buffer Lifecycle
 
-The image pipeline manages `float[,]` pixel data from camera capture through debayer, star detection, FITS writing, and GPU display — with zero-copy buffer reuse to minimize allocations.
+The image pipeline manages `float[,]` pixel data from camera capture through star detection, FITS writing, and GPU display — with zero-copy buffer reuse and GPU-side debayer/stretch to minimize allocations.
 
 ### Types
 
@@ -168,45 +169,67 @@ The image pipeline manages `float[,]` pixel data from camera capture through deb
 | `Channel` | `readonly record struct` | Typed view over a `float[,]` with `Filter`, `MinValue`, `MaxValue`, `Index`. Zero overhead. Returned by `ICameraDriver.ImageData`. |
 | `ChannelBuffer` | `sealed class` (internal) | Ref-counted owner of a `float[,]`. When refcount reaches zero, `onRelease` fires → camera recycles the buffer. |
 | `Image` | `partial class` | Wraps `float[][,]` (jagged array of channel planes) + `ImageMeta`. Used by star detection, FITS write, plate solve. Holds optional `ChannelBuffer` refs — call `Release()` when done. |
-| `Array2DPool<T>` | `static class` | Separate pool for temporary scratch arrays (AHD debayer uses 6 per frame). Not used for camera buffers. |
 
-### Data Flow
+### Data Flow (Live Session)
+
+One copy in the entire live path: `memcpy` into the Vulkan staging buffer. Everything else is reference passing or zero-copy spans. No CPU debayer, no CPU normalization, no scratch arrays.
 
 ```mermaid
 flowchart TD
-    subgraph Camera
-        Render["SyntheticStarFieldRenderer.Render(dest?)"]
-        CB["ChannelBuffer(float[,], onRelease)"]
-        CH["Channel(float[,], Filter, min, max)"]
-        Free["_freeBuffers (ConcurrentBag)"]
+    subgraph Camera["Camera Driver"]
+        Free["_freeBuffers\n(ConcurrentBag&lt;float[,]&gt;)"]
+        Render["Render(dest)\nraw ADU 0–65535"]
+        CB["ChannelBuffer\n(refcount=1)"]
     end
 
-    subgraph GetImageAsync
-        IMG["Image([channel.Data], bitDepth, meta)"]
-        Transfer["Transfer ChannelBuffer → Image"]
+    subgraph Session["Session.ImagingLoopAsync"]
+        GIA["GetImageAsync()\n→ Image wraps float[,]"]
+        LAST["_lastCapturedImages[i]\n(same Image ref)"]
+        STARS["FindStarsAsync(ch:0)\nzero-copy span"]
+        QUEUE["imageWriteQueue\n(for FITS write)"]
     end
 
-    subgraph Consumers
-        FITS["FITS Write (reads float[,] by ref)"]
-        Debayer["DebayerIntoAsync(persistent Channel[])"]
-        Stars["FindStarsAsync (reads pixels)"]
-        Viewer["MiniViewer GPU upload (GetChannelSpan)"]
+    subgraph UI["UI Thread (each frame)"]
+        POLL["LiveSessionState.PollSession()\nref copy"]
+        QIMG["viewer.QueueImage(image)\nvolatile ref"]
+        SPAN["GetChannelSpan(0)\nzero-copy span"]
     end
 
+    subgraph GPU["Vulkan GPU"]
+        STAGE["CopyToStaging()\n⚡ THE ONE COPY"]
+        DMA["vkCmdCopyBufferToImage\n→ R32F texture"]
+        DEBAYER["debayerBilinear()\nBayer → RGB per-pixel"]
+        STRETCH["stretchChannel()\nnormalize + MTF stretch"]
+        SCREEN["→ Framebuffer → Screen"]
+    end
+
+    subgraph FITS["FITS Write"]
+        WRITE["WriteFitsFileAsync()\nreads same float[,]"]
+        REL["image.Release()\nrefcount → 0"]
+    end
+
+    Free -->|"reuse or alloc"| Render
     Render --> CB
-    CB --> CH
-    CH -->|"ImageData property"| GetImageAsync
-    GetImageAsync --> IMG
-    IMG --> Transfer
+    CB -->|"ownership transfer"| GIA
+    GIA -->|"same ref"| LAST
+    GIA -->|"same ref"| QUEUE
+    LAST --> STARS
+    LAST -->|"Image ref"| POLL
+    POLL --> QIMG
+    QIMG --> SPAN
+    SPAN -->|"ReadOnlySpan&lt;float&gt;"| STAGE
+    STAGE --> DMA
+    DMA --> DEBAYER
+    DEBAYER --> STRETCH
+    STRETCH --> SCREEN
+    QUEUE --> WRITE
+    WRITE --> REL
+    REL -->|"onRelease → recycle"| Free
 
-    Transfer --> FITS
-    Transfer --> Debayer
-    Transfer --> Stars
-    Debayer --> Viewer
-
-    FITS -->|"image.Release()"| Release["ChannelBuffer refcount → 0"]
-    Release -->|"onRelease callback"| Free
-    Free -->|"next exposure"| Render
+    style STAGE fill:#ff6,stroke:#333,color:#000
+    style DEBAYER fill:#4af,stroke:#333,color:#000
+    style Free fill:#4a4,stroke:#333,color:#fff
+    style REL fill:#4a4,stroke:#333,color:#fff
 ```
 
 ### Buffer Lifecycle
@@ -214,17 +237,25 @@ flowchart TD
 1. **First exposure**: `_freeBuffers` is empty → `Render()` allocates a fresh `float[,]`.
 2. **`StopExposureCore`**: Wraps the array in `ChannelBuffer(array, onRelease: bag.Add)` and stores as `Channel` in `ImageData`.
 3. **`GetImageAsync`**: Builds `Image` from `Channel.Data`, transfers `ChannelBuffer` ownership to the Image, calls `ReleaseImageData()` to clear camera state.
-4. **Consumer**: Reads pixel data (debayer, star detection, FITS write). The `float[,]` stays alive because the `Image` holds the `ChannelBuffer` ref.
+4. **Consumers**: Star detection, FITS write, and GPU upload all read the same `float[,]` via zero-copy spans. No debayer, no normalization on CPU.
 5. **`image.Release()`**: Decrements `ChannelBuffer` refcount to zero → `onRelease` fires → `float[,]` goes into `_freeBuffers`.
 6. **Next exposure**: `StopExposureCore` grabs a buffer from `_freeBuffers` via `TryTake()` and passes it as `dest` to `Render()` → **zero allocation**.
 
-### Viewer Path (Zero-Copy)
+### GPU Debayer & Stretch
 
-The session owns persistent `Channel[]` per telescope (`_viewerChannels`). `DebayerIntoAsync` writes AHD/BilinearMono output directly into these channels — no new `float[,]` allocated per frame. The `MiniViewer` uploads the channel spans to the GPU synchronously via `UploadChannelTexture()` and computes stretch stats inline. No `AstroImageDocument` is created for live preview.
+The fragment shader handles all image processing in a single pass per pixel:
 
-### AHD Debayer Scratch
+1. **Bayer demosaic** (`imgSource=RawBayer`): bilinear interpolation from 3×3 neighborhood via `texelFetch` on the raw mosaic texture, with configurable Bayer pattern offset
+2. **Normalization**: `raw × normFactor` where `normFactor = 1/MaxValue`
+3. **MTF stretch**: pedestal subtraction → shadow clip → midtone transfer function
+4. **Curves boost** and **HDR compression** (optional)
+5. **WCS grid overlay** (optional, in FITS viewer)
 
-AHD uses 6 temporary `float[,]` arrays (3 for `debayered`, 3 for `rgbV`). These are rented from `Array2DPool<float>` via `RentScoped()` and returned when the debayer method completes. The output channels (`rgbH`/`filtered`) are the persistent viewer channels — not pooled.
+For mono cameras (`imgSource=RawMono`), step 1 is skipped. For pre-debayered RGB files (`imgSource=ProcessedChannels`), all 3 channel textures are sampled individually.
+
+### FITS Viewer Path
+
+The FITS viewer (`AstroImageDocument`) normalizes the raw image to [0,1] in-place and computes histogram-based stretch statistics on CPU. For RGGB images, CPU debayer is skipped — the raw mosaic is uploaded and the GPU shader debayers. Per-channel stats are computed from the Bayer sub-channel pixels.
 
 ### Guide Camera
 
