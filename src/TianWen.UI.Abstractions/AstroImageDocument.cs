@@ -120,12 +120,16 @@ public sealed class AstroImageDocument
     /// </summary>
     public static async Task<AstroImageDocument> CreateFromImageAsync(Image image, DebayerAlgorithm algorithm = DebayerAlgorithm.AHD, WCS? wcs = null, string filePath = "", CancellationToken cancellationToken = default)
     {
-        // Debayer RGGB raw Bayer data into 3-channel color, normalizing in the same pass
+        // For Bayer images: skip CPU debayer but normalize to [0,1] so stretch stats
+        // match the existing histogram-based computation. The GPU shader does bilinear debayer.
         Image viewImage;
         DebayerAlgorithm actualAlgorithm;
         if (image.ImageMeta.SensorType is SensorType.RGGB && algorithm is not DebayerAlgorithm.None)
         {
-            viewImage = await image.DebayerAsync(algorithm, normalizeToUnit: true, cancellationToken);
+            // Normalize to [0,1] but don't debayer — GPU shader handles debayer.
+            viewImage = image.MaxValue > 1.0f + float.Epsilon
+                ? image.ScaleFloatValuesToUnitInPlace()
+                : image;
             actualAlgorithm = algorithm;
         }
         else
@@ -230,6 +234,14 @@ public sealed class AstroImageDocument
     private static async Task<(ChannelStretchStats[] PerChannelStats, ChannelStretchStats? LumaStats, float[] PerChannelBg, float LumaBg)> ComputeStretchStatsAsync(
         Image processedRawImage, CancellationToken cancellationToken)
     {
+        var isRawBayer = processedRawImage.ImageMeta.SensorType is SensorType.RGGB
+            && processedRawImage.ChannelCount == 1;
+
+        if (isRawBayer)
+        {
+            return await ComputeBayerStretchStatsAsync(processedRawImage, cancellationToken);
+        }
+
         var channelCount = processedRawImage.ChannelCount;
         var perChannelStats = new ChannelStretchStats[channelCount];
         for (var c = 0; c < channelCount; c++)
@@ -250,6 +262,35 @@ public sealed class AstroImageDocument
         var (perChannelBg, lumaBg) = processedRawImage.ScanBackgroundRegion(pedestals);
 
         return (perChannelStats, lumaStats, perChannelBg, lumaBg);
+    }
+
+    /// <summary>
+    /// Computes per-channel stretch stats from a raw Bayer mosaic.
+    /// Uses the existing histogram-based statistics on the full raw channel (which is a mix
+    /// of all Bayer sub-channels), then replicates to all 3 RGB channels.
+    /// This gives a good stretch approximation — the GPU shader handles the actual per-pixel
+    /// color separation during bilinear debayer.
+    /// </summary>
+    private static Task<(ChannelStretchStats[] PerChannelStats, ChannelStretchStats? LumaStats, float[] PerChannelBg, float LumaBg)> ComputeBayerStretchStatsAsync(
+        Image rawImage, CancellationToken cancellationToken)
+    {
+        // Use the existing robust histogram-based stats on channel 0 (the raw mosaic).
+        // The histogram naturally mixes R/G/G/B pixels — since the background level is similar
+        // for all channels, the blended median/MAD gives a good stretch baseline.
+        var (ped, med, mad) = rawImage.GetPedestralMedianAndMADScaledToUnit(0);
+        var stats = new ChannelStretchStats(ped, med, mad);
+
+        // Replicate to all 3 channels — the GPU debayer will produce slightly different
+        // R/G/B values but the stretch parameters are close enough for a good result.
+        var perChannelStats = new[] { stats, stats, stats };
+        var lumaStats = stats;
+
+        Span<float> pedestals = stackalloc float[1];
+        pedestals[0] = ped;
+        var (perChannelBg, lumaBg) = rawImage.ScanBackgroundRegion(pedestals);
+        var bg3 = new[] { perChannelBg[0], perChannelBg[0], perChannelBg[0] };
+
+        return Task.FromResult((perChannelStats, (ChannelStretchStats?)lumaStats, bg3, lumaBg));
     }
 
     /// <summary>

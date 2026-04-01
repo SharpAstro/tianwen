@@ -80,6 +80,15 @@ namespace TianWen.UI.Abstractions
         /// <summary>Number of channel textures currently uploaded (1 = mono/single channel, 3 = RGB).</summary>
         public int ChannelTextureCount { get; set; }
 
+        /// <summary>Image source mode for the GPU shader (processed channels, raw mono, or raw Bayer).</summary>
+        public int ImageSourceMode { get; set; }
+
+        /// <summary>Bayer pattern X offset (0 or 1).</summary>
+        public int BayerOffsetX { get; set; }
+
+        /// <summary>Bayer pattern Y offset (0 or 1).</summary>
+        public int BayerOffsetY { get; set; }
+
         /// <summary>DPI scale factor. Set from framebuffer size / window size ratio.</summary>
         public float DpiScale { get; set; } = 1f;
 
@@ -249,9 +258,21 @@ namespace TianWen.UI.Abstractions
             var image = document.UnstretchedImage;
             var pixelWidth = image.Width;
             var pixelHeight = image.Height;
-            if (state.ChannelView is ChannelView.Composite && image.ChannelCount >= 3)
+
+            // Raw Bayer: upload single channel, GPU shader does bilinear debayer
+            if (image.ImageMeta.SensorType is TianWen.Lib.Imaging.SensorType.RGGB && image.ChannelCount == 1
+                && state.ChannelView is ChannelView.Composite)
+            {
+                ChannelTextureCount = 3; // shader produces RGB
+                ImageSourceMode = 2; // RawBayer
+                BayerOffsetX = image.ImageMeta.BayerOffsetX;
+                BayerOffsetY = image.ImageMeta.BayerOffsetY;
+                UploadChannelTexture(image.GetChannelSpan(0), 0, pixelWidth, pixelHeight);
+            }
+            else if (state.ChannelView is ChannelView.Composite && image.ChannelCount >= 3)
             {
                 ChannelTextureCount = 3;
+                ImageSourceMode = 0; // ProcessedChannels
 
                 for (var i = 0; i < 3; i++)
                 {
@@ -261,6 +282,7 @@ namespace TianWen.UI.Abstractions
             else
             {
                 ChannelTextureCount = 1;
+                ImageSourceMode = image.ChannelCount == 1 ? 1 : 0; // RawMono or ProcessedChannels
 
                 var channelIndex = state.ChannelView switch
                 {

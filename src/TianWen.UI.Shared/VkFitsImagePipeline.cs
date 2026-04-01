@@ -69,8 +69,8 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             vec2  imageSize;        // offset 128
             vec2  crPix;            // offset 136
             vec2  crVal;            // offset 144
-            float _pad1;            // offset 152
-            float _pad2;            // offset 156
+            int   imgSource;        // offset 152: 0=processed, 1=rawMono, 2=rawBayer
+            int   bayerPat;         // offset 156: offsetX + offsetY*65536
             // mat2 stored as 2 vec4 columns (std140 mat2 = 2 x vec4 = 32 bytes)
             vec4  cdCol0;           // offset 160
             vec4  cdCol1;           // offset 176
@@ -153,59 +153,65 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             return max(raLine, decLine);
         }
 
-        void main() {
-            float r = texture(uChannel0, vTexCoord).r;
-            if (ubo.channelCount >= 3) {
-                float g = texture(uChannel1, vTexCoord).r;
-                float b = texture(uChannel2, vTexCoord).r;
+        // Bilinear Bayer demosaic from single-channel raw mosaic
+        vec3 debayerBilinear(vec2 uv) {
+            vec2 texSize = ubo.imageSize;
+            vec2 pixCoord = uv * texSize - 0.5;
+            ivec2 px = ivec2(floor(pixCoord));
+            int offX = ubo.bayerPat % 65536;
+            int offY = ubo.bayerPat / 65536;
+            int bx = (px.x + offX) % 2;
+            int by = (px.y + offY) % 2;
 
-                if (ubo.stretchMode == 1) {
-                    r = stretchChannel(r, 0);
-                    g = stretchChannel(g, 1);
-                    b = stretchChannel(b, 2);
-                } else if (ubo.stretchMode == 2) {
-                    float nr = r * ubo.normFactor;
-                    float ng = g * ubo.normFactor;
-                    float nb = b * ubo.normFactor;
-                    // Per-channel pedestal subtraction (avoids green cast from RGGB)
-                    float prr = nr - ubo.pedestal[0];
-                    float prg = ng - ubo.pedestal[1];
-                    float prb = nb - ubo.pedestal[2];
-                    // Luma from pedestal-subtracted channels
-                    float Ynorm = 0.2126 * prr + 0.7152 * prg + 0.0722 * prb;
-                    float rescaled = (Ynorm - ubo.shadows.x) * ubo.rescale.x;
-                    float Yp = mtf(ubo.midtones.x, rescaled);
-                    float scale = Ynorm > 1e-7 ? Yp / Ynorm : 0.0;
-                    float maxCh = max(prr, max(prg, prb));
-                    if (maxCh > 1e-7) scale = min(scale, 1.0 / maxCh);
-                    r = clamp(prr * scale, 0.0, 1.0);
-                    g = clamp(prg * scale, 0.0, 1.0);
-                    b = clamp(prb * scale, 0.0, 1.0);
-                }
+            float cc = texelFetch(uChannel0, px, 0).r;
+            float n  = texelFetch(uChannel0, px + ivec2( 0,-1), 0).r;
+            float s  = texelFetch(uChannel0, px + ivec2( 0, 1), 0).r;
+            float e  = texelFetch(uChannel0, px + ivec2( 1, 0), 0).r;
+            float w  = texelFetch(uChannel0, px + ivec2(-1, 0), 0).r;
+            float ne = texelFetch(uChannel0, px + ivec2( 1,-1), 0).r;
+            float nw = texelFetch(uChannel0, px + ivec2(-1,-1), 0).r;
+            float se = texelFetch(uChannel0, px + ivec2( 1, 1), 0).r;
+            float sw = texelFetch(uChannel0, px + ivec2(-1, 1), 0).r;
 
-                if (ubo.curvesBoost > 0.0) {
-                    r = applyCurve(r, ubo.curvesBoost);
-                    g = applyCurve(g, ubo.curvesBoost);
-                    b = applyCurve(b, ubo.curvesBoost);
-                }
-                if (ubo.hdrAmount > 0.0) {
-                    r = applyHdr(r, ubo.hdrAmount, ubo.hdrKnee);
-                    g = applyHdr(g, ubo.hdrAmount, ubo.hdrKnee);
-                    b = applyHdr(b, ubo.hdrAmount, ubo.hdrKnee);
-                }
-
-                if (ubo.gridEnabled != 0) {
-                    vec2 pixel = vec2(vTexCoord.x * ubo.imageSize.x + 1.0,
-                                     vTexCoord.y * ubo.imageSize.y + 1.0);
-                    float grid = gridIntensity(pixel);
-                    vec3 gridColor = vec3(0.0, 0.8, 0.0);
-                    r = mix(r, gridColor.r, grid * 0.7);
-                    g = mix(g, gridColor.g, grid * 0.7);
-                    b = mix(b, gridColor.b, grid * 0.7);
-                }
-
-                FragColor = vec4(r, g, b, 1.0);
+            float rr, gg, bb;
+            if (bx == 0 && by == 0) {
+                rr = cc;
+                gg = (n + s + e + w) * 0.25;
+                bb = (ne + nw + se + sw) * 0.25;
+            } else if (bx == 1 && by == 1) {
+                bb = cc;
+                gg = (n + s + e + w) * 0.25;
+                rr = (ne + nw + se + sw) * 0.25;
+            } else if (bx == 1 && by == 0) {
+                gg = cc;
+                rr = (w + e) * 0.5;
+                bb = (n + s) * 0.5;
             } else {
+                gg = cc;
+                bb = (w + e) * 0.5;
+                rr = (n + s) * 0.5;
+            }
+            return vec3(rr, gg, bb);
+        }
+
+        void main() {
+            int src = ubo.imgSource;
+            float r, g, b;
+
+            if (src == 2) {
+                vec3 rgb = debayerBilinear(vTexCoord);
+                r = rgb.r; g = rgb.g; b = rgb.b;
+            } else if (src == 1 || ubo.channelCount < 3) {
+                r = texture(uChannel0, vTexCoord).r;
+                g = r; b = r;
+            } else {
+                r = texture(uChannel0, vTexCoord).r;
+                g = texture(uChannel1, vTexCoord).r;
+                b = texture(uChannel2, vTexCoord).r;
+            }
+
+            // Mono path
+            if (src <= 1 && ubo.channelCount < 3) {
                 if (ubo.stretchMode >= 1) {
                     r = stretchChannel(r, 0);
                 }
@@ -215,7 +221,6 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
                 if (ubo.hdrAmount > 0.0) {
                     r = applyHdr(r, ubo.hdrAmount, ubo.hdrKnee);
                 }
-
                 if (ubo.gridEnabled != 0) {
                     vec2 pixel = vec2(vTexCoord.x * ubo.imageSize.x + 1.0,
                                      vTexCoord.y * ubo.imageSize.y + 1.0);
@@ -229,7 +234,54 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
                 } else {
                     FragColor = vec4(r, r, r, 1.0);
                 }
+                return;
             }
+
+            // RGB path
+            if (ubo.stretchMode == 1) {
+                r = stretchChannel(r, 0);
+                g = stretchChannel(g, 1);
+                b = stretchChannel(b, 2);
+            } else if (ubo.stretchMode == 2) {
+                float nr = r * ubo.normFactor;
+                float ng = g * ubo.normFactor;
+                float nb = b * ubo.normFactor;
+                float prr = nr - ubo.pedestal[0];
+                float prg = ng - ubo.pedestal[1];
+                float prb = nb - ubo.pedestal[2];
+                float Ynorm = 0.2126 * prr + 0.7152 * prg + 0.0722 * prb;
+                float rescaled = (Ynorm - ubo.shadows.x) * ubo.rescale.x;
+                float Yp = mtf(ubo.midtones.x, rescaled);
+                float scale = Ynorm > 1e-7 ? Yp / Ynorm : 0.0;
+                float maxCh = max(prr, max(prg, prb));
+                if (maxCh > 1e-7) scale = min(scale, 1.0 / maxCh);
+                r = clamp(prr * scale, 0.0, 1.0);
+                g = clamp(prg * scale, 0.0, 1.0);
+                b = clamp(prb * scale, 0.0, 1.0);
+            }
+
+            if (ubo.curvesBoost > 0.0) {
+                r = applyCurve(r, ubo.curvesBoost);
+                g = applyCurve(g, ubo.curvesBoost);
+                b = applyCurve(b, ubo.curvesBoost);
+            }
+            if (ubo.hdrAmount > 0.0) {
+                r = applyHdr(r, ubo.hdrAmount, ubo.hdrKnee);
+                g = applyHdr(g, ubo.hdrAmount, ubo.hdrKnee);
+                b = applyHdr(b, ubo.hdrAmount, ubo.hdrKnee);
+            }
+
+            if (ubo.gridEnabled != 0) {
+                vec2 pixel = vec2(vTexCoord.x * ubo.imageSize.x + 1.0,
+                                 vTexCoord.y * ubo.imageSize.y + 1.0);
+                float grid = gridIntensity(pixel);
+                vec3 gridColor = vec3(0.0, 0.8, 0.0);
+                r = mix(r, gridColor.r, grid * 0.7);
+                g = mix(g, gridColor.g, grid * 0.7);
+                b = mix(b, gridColor.b, grid * 0.7);
+            }
+
+            FragColor = vec4(r, g, b, 1.0);
         }
         """;
 
@@ -405,6 +457,17 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     /// The <paramref name="cmd"/> parameter is unused (coherent memory, no flush needed) but
     /// kept for API symmetry with future non-coherent implementations.
     /// </summary>
+    /// <summary>Image source mode for the fragment shader.</summary>
+    public enum ImageSource
+    {
+        /// <summary>Pre-debayered channels (existing path: 1-3 separate R32F textures).</summary>
+        ProcessedChannels = 0,
+        /// <summary>Raw mono: single R32F texture, no debayer needed.</summary>
+        RawMono = 1,
+        /// <summary>Raw Bayer mosaic: single R32F texture, bilinear debayer in shader.</summary>
+        RawBayer = 2,
+    }
+
     public void UpdateStretchUBO(
         VkCommandBuffer cmd,
         int channelCount, int stretchMode, float normFactor,
@@ -417,7 +480,9 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         bool gridEnabled, float gridSpacingRA, float gridSpacingDec, float gridLineWidth,
         float imageW, float imageH, float crPix1, float crPix2,
         float crValRA, float crValDec,
-        ReadOnlySpan<float> cdMatrix)
+        ReadOnlySpan<float> cdMatrix,
+        ImageSource imageSource = ImageSource.ProcessedChannels,
+        int bayerOffsetX = 0, int bayerOffsetY = 0)
     {
         var p = _stretchUboMapped;
 
@@ -477,8 +542,8 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         WriteFloat(p, 144, crValRA);
         WriteFloat(p, 148, crValDec);
 
-        WriteFloat(p, 152, 0f); // _pad1
-        WriteFloat(p, 156, 0f); // _pad2
+        WriteInt(p, 152, (int)imageSource);
+        WriteInt(p, 156, bayerOffsetX + bayerOffsetY * 65536);
 
         // cdMatrix stored col-major as 2 vec4s:
         // cdCol0 at offset 160: (cd[0,0], cd[1,0], 0, 0)

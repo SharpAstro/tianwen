@@ -24,6 +24,9 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
     private int _uploadedImageWidth;
     private int _uploadedImageHeight;
     private int _uploadedChannelCount;
+    private VkFitsImagePipeline.ImageSource _imageSource;
+    private int _bayerOffsetX;
+    private int _bayerOffsetY;
 
     // Cached stretch stats — recomputed only when image dimensions change
     private ChannelStretchStats[]? _cachedStretchStats;
@@ -44,8 +47,9 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
     }
 
     /// <summary>
-    /// Uploads channel data directly to GPU — no AstroImageDocument, no async task,
-    /// no debayer (image is already processed by the session).
+    /// Uploads raw image data to GPU. For Bayer images, uploads the single-channel mosaic
+    /// and lets the fragment shader do bilinear debayer + normalization + stretch.
+    /// For mono images, uploads single channel. For pre-debayered RGB, uploads all channels.
     /// </summary>
     private void ProcessPendingImage()
     {
@@ -55,25 +59,51 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
         }
         _pendingImage = null;
 
-        // Upload channel spans directly to GPU textures
-        var channelCount = image.ChannelCount;
-        for (var c = 0; c < channelCount; c++)
+        var sensorType = image.ImageMeta.SensorType;
+
+        if (sensorType is TianWen.Lib.Imaging.SensorType.Monochrome)
         {
-            _fitsPipeline.UploadChannelTexture(image.GetChannelSpan(c), c, image.Width, image.Height);
+            // Mono: upload single raw channel, GPU normalizes via normFactor
+            _fitsPipeline.UploadChannelTexture(image.GetChannelSpan(0), 0, image.Width, image.Height);
+            _uploadedChannelCount = 1;
+            _imageSource = VkFitsImagePipeline.ImageSource.RawMono;
+            _bayerOffsetX = 0;
+            _bayerOffsetY = 0;
+        }
+        else if (sensorType is TianWen.Lib.Imaging.SensorType.RGGB && image.ChannelCount == 1)
+        {
+            // Raw Bayer mosaic: upload single channel, shader debayers
+            _fitsPipeline.UploadChannelTexture(image.GetChannelSpan(0), 0, image.Width, image.Height);
+            _uploadedChannelCount = 3; // shader produces RGB
+            _imageSource = VkFitsImagePipeline.ImageSource.RawBayer;
+            _bayerOffsetX = image.ImageMeta.BayerOffsetX;
+            _bayerOffsetY = image.ImageMeta.BayerOffsetY;
+        }
+        else
+        {
+            // Pre-debayered RGB or multi-channel: upload all channels
+            var channelCount = image.ChannelCount;
+            for (var c = 0; c < channelCount; c++)
+            {
+                _fitsPipeline.UploadChannelTexture(image.GetChannelSpan(c), c, image.Width, image.Height);
+            }
+            _uploadedChannelCount = channelCount;
+            _imageSource = VkFitsImagePipeline.ImageSource.ProcessedChannels;
+            _bayerOffsetX = 0;
+            _bayerOffsetY = 0;
         }
 
         _uploadedImageWidth = image.Width;
         _uploadedImageHeight = image.Height;
-        _uploadedChannelCount = channelCount;
 
-        // Recompute stretch stats every frame — pixel data changes, stats must follow
-        if (_cachedStretchStats is null || _cachedStretchStats.Length != channelCount)
+        // Compute stretch stats from channel 0 (works for raw and debayered)
+        if (_cachedStretchStats is null || _cachedStretchStats.Length != _uploadedChannelCount)
         {
-            _cachedStretchStats = new ChannelStretchStats[channelCount];
+            _cachedStretchStats = new ChannelStretchStats[_uploadedChannelCount];
         }
-        for (var c = 0; c < channelCount; c++)
+        var (ped, med, mad) = image.GetPedestralMedianAndMADScaledToUnit(0);
+        for (var c = 0; c < _cachedStretchStats.Length; c++)
         {
-            var (ped, med, mad) = image.GetPedestralMedianAndMADScaledToUnit(c);
             _cachedStretchStats[c] = new ChannelStretchStats(ped, med, mad);
         }
 
@@ -122,7 +152,10 @@ public sealed unsafe class VkMiniViewerWidget : IMiniViewerWidget, IDisposable
             crPix2: 0f,
             crValRA: 0f,
             crValDec: 0f,
-            cdMatrix: ReadOnlySpan<float>.Empty);
+            cdMatrix: ReadOnlySpan<float>.Empty,
+            imageSource: _imageSource,
+            bayerOffsetX: _bayerOffsetX,
+            bayerOffsetY: _bayerOffsetY);
 
         // Compute draw rect based on zoom mode
         float drawX, drawY, drawW, drawH;

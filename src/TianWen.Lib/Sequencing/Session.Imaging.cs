@@ -427,28 +427,16 @@ internal partial record Session
 
                             // Drop camera's ref — the Image's ChannelBuffer ref keeps the float[,] alive until Release()
 
-                            // 2. Debayer into persistent viewer channels → star detection → metrics
+                            // 2. Pass raw image to GPU — shader does debayer + normalize + stretch.
+                            //    Star detection runs on raw channel 0 (works for both mono and Bayer).
                             FrameMetrics metrics = default;
                             if (i < _lastCapturedImages.Length)
                             {
-                                var channelCount = image.ImageMeta.SensorType is Imaging.SensorType.RGGB ? 3 : image.ChannelCount;
-                                // Allocate persistent viewer channels on first frame (or if dimensions changed)
-                                if (_viewerChannels[i] is not { } vc || vc.Length != channelCount || vc[0].Height != image.Height || vc[0].Width != image.Width)
-                                {
-                                    vc = new Imaging.Channel[channelCount];
-                                    for (var c = 0; c < channelCount; c++)
-                                        vc[c] = Imaging.Channel.Create(image.Height, image.Width, image.ImageMeta.Filter, (byte)c);
-                                    _viewerChannels[i] = vc;
-                                }
+                                _lastCapturedImages[i] = image;
 
-                                var viewerImage = await image.DebayerIntoAsync(vc,
-                                    image.ImageMeta.SensorType is Imaging.SensorType.RGGB ? Imaging.DebayerAlgorithm.AHD : Imaging.DebayerAlgorithm.None,
-                                    normalizeToUnit: true, cancellationToken);
-                                _lastCapturedImages[i] = viewerImage;
-
-                                var stars = await viewerImage.FindStarsAsync(0, snrMin: 10, maxStars: 1000, cancellationToken: cancellationToken);
+                                var stars = await image.FindStarsAsync(0, snrMin: 10, maxStars: 1000, cancellationToken: cancellationToken);
                                 var currentGain = await camDriver.GetGainAsync(cancellationToken);
-                                metrics = FrameMetrics.FromStarList(stars, frameExpTime, currentGain, viewerImage.Width, viewerImage.Height);
+                                metrics = FrameMetrics.FromStarList(stars, frameExpTime, currentGain, image.Width, image.Height);
                                 _lastFrameMetrics[i] = metrics;
                                 _frameMetricsHistory[i].Add(metrics);
                             }
