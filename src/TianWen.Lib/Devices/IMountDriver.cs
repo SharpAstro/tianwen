@@ -322,8 +322,8 @@ public interface IMountDriver : IDeviceDriver
     /// <param name="axis">Which mechanical axis to query.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Encoder position in ticks, or null if the mount does not expose encoder data.</returns>
-    ValueTask<int?> GetAxisPositionAsync(TelescopeAxis axis, CancellationToken cancellationToken)
-        => ValueTask.FromResult<int?>(null);
+    ValueTask<long?> GetAxisPositionAsync(TelescopeAxis axis, CancellationToken cancellationToken)
+        => ValueTask.FromResult<long?>(null);
 
     /// <summary>
     /// Gets the right ascension (hours) of the telescope's intended right ascension, in the coordinate system given by the <see cref="EquatorialSystem"/> property.

@@ -562,9 +562,13 @@ namespace TianWen.UI.Abstractions
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, GuideGraphRenderer.GraphBg);
 
             var samples = state.GuideSamples;
-            var yScale = GuideGraphRenderer.ComputeYScale(state.LastGuideStats);
             var halfH = rect.Height / 2;
             var zeroY = rect.Y + halfH;
+
+            if (samples.Length < 2) return;
+
+            var (startIdx, visibleCount, spacing) = GuideGraphRenderer.ComputeWindow(samples.Length, rect.Width, dpiScale);
+            var yScale = GuideGraphRenderer.ComputeYScale(state.LastGuideStats, samples, startIdx, visibleCount);
 
             // Grid lines
             for (var arcsec = 1; arcsec < (int)yScale; arcsec++)
@@ -574,11 +578,43 @@ namespace TianWen.UI.Abstractions
                 FillRect(rect.X, zeroY + gridY, rect.Width, 1, GuideGraphRenderer.GridColor);
             }
             FillRect(rect.X, zeroY, rect.Width, 1, GuideGraphRenderer.ZeroLineColor);
-
-            if (samples.Length < 2) return;
-
-            var (startIdx, visibleCount, spacing) = GuideGraphRenderer.ComputeWindow(samples.Length, rect.Width, dpiScale);
             var lineW = Math.Max(dpiScale, 1f);
+
+            // Settling shading + correction bars + dither markers (behind lines)
+            var barW = Math.Max(spacing * 0.3f, 1f);
+            for (var i = 0; i < visibleCount; i++)
+            {
+                var sample = samples[startIdx + i];
+                var sx = rect.X + i * spacing;
+                if (sample.IsSettling)
+                {
+                    FillRect(sx, rect.Y, spacing + 1, rect.Height, GuideGraphRenderer.SettlingShadeColor);
+                }
+                if (sample.RaCorrectionMs != 0)
+                {
+                    var cbH = GuideGraphRenderer.CorrectionBarFraction(sample.RaCorrectionMs) * halfH;
+                    if (sample.RaCorrectionMs > 0)
+                        FillRect(sx, zeroY - cbH, barW, cbH, GuideGraphRenderer.RaCorrectionColor);
+                    else
+                        FillRect(sx, zeroY, barW, cbH, GuideGraphRenderer.RaCorrectionColor);
+                }
+                if (sample.DecCorrectionMs != 0)
+                {
+                    var cbH = GuideGraphRenderer.CorrectionBarFraction(sample.DecCorrectionMs) * halfH;
+                    var dbx = sx + barW + 1;
+                    if (sample.DecCorrectionMs > 0)
+                        FillRect(dbx, zeroY - cbH, barW, cbH, GuideGraphRenderer.DecCorrectionColor);
+                    else
+                        FillRect(dbx, zeroY, barW, cbH, GuideGraphRenderer.DecCorrectionColor);
+                }
+                if (sample.IsDither)
+                {
+                    for (var dy = rect.Y; dy < rect.Y + rect.Height; dy += 6 * dpiScale)
+                    {
+                        FillRect(sx, dy, Math.Max(1, lineW), 3 * dpiScale, GuideGraphRenderer.DitherMarkerColor);
+                    }
+                }
+            }
 
             for (var i = 1; i < visibleCount; i++)
             {

@@ -109,8 +109,9 @@ public class ExperienceReplayBufferTests
         buffer.Add(MakeExperience(0.1f, 0.1f));
         buffer.GetAt(0).OutcomeKnown.ShouldBeFalse();
 
-        // Error got worse: 1.0 → 2.0
-        buffer.UpdateOutcome(nextRaError: 2.0, nextDecError: 0, prevRaError: 1.0, prevDecError: 0);
+        // Error got worse: 1.0 → 2.0 (raRateScale=1.0 for simplicity)
+        buffer.UpdateOutcome(nextRaError: 2.0, nextDecError: 0, prevRaError: 1.0, prevDecError: 0,
+            raRateScale: 1.0, decRateScale: 1.0);
 
         buffer.GetAt(0).OutcomeKnown.ShouldBeTrue();
         buffer.GetAt(0).PriorityWeight.ShouldBeGreaterThan(1.0f); // upweighted because error grew
@@ -123,11 +124,33 @@ public class ExperienceReplayBufferTests
 
         buffer.Add(MakeExperience(0.1f, 0.1f));
 
-        // Error improved: 2.0 → 0.5
-        buffer.UpdateOutcome(nextRaError: 0.5, nextDecError: 0, prevRaError: 2.0, prevDecError: 0);
+        // Error improved: 2.0 → 0.5 (raRateScale=1.0 for simplicity)
+        buffer.UpdateOutcome(nextRaError: 0.5, nextDecError: 0, prevRaError: 2.0, prevDecError: 0,
+            raRateScale: 1.0, decRateScale: 1.0);
 
         buffer.GetAt(0).OutcomeKnown.ShouldBeTrue();
         buffer.GetAt(0).PriorityWeight.ShouldBeLessThan(1.0f); // downweighted because error shrank
+    }
+
+    [Fact]
+    public void GivenBufferWhenUpdateOutcomeThenHindsightTargetComputed()
+    {
+        var buffer = new ExperienceReplayBuffer();
+
+        // Applied correction of 0.5 normalized, initial P-controller target 0.3
+        var exp = MakeExperience(0.3f, 0.1f);
+        exp.AppliedRaNorm = 0.5f;
+        exp.AppliedDecNorm = 0.2f;
+        buffer.Add(exp);
+
+        // Next frame still has 0.1px RA error → ideal correction was higher
+        // ideal = applied - nextError * rateScale = 0.5 - 0.1 * 0.5 = 0.45
+        buffer.UpdateOutcome(nextRaError: 0.1, nextDecError: -0.05, prevRaError: 1.0, prevDecError: 0.5,
+            raRateScale: 0.5, decRateScale: 0.5);
+
+        buffer.GetAt(0).OutcomeKnown.ShouldBeTrue();
+        buffer.GetAt(0).TargetRa.ShouldBe(0.45f, 0.001f);  // hindsight-optimal, not the original 0.3
+        buffer.GetAt(0).TargetDec.ShouldBe(0.225f, 0.001f); // 0.2 - (-0.05 * 0.5) = 0.225
     }
 
     [Fact]

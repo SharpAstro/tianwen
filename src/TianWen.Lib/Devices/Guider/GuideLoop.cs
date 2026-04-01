@@ -34,6 +34,9 @@ internal sealed class GuideLoop
     /// <summary>Last centroid result from the tracker. Null if star was lost.</summary>
     internal GuiderCentroidResult? LastCentroidResult { get; private set; }
 
+    /// <summary>Last applied guide correction (pulse durations in ms).</summary>
+    internal GuideCorrection? LastCorrection { get; private set; }
+
     // Online learning state
     private ExperienceReplayBuffer? _experienceBuffer;
     private NeuralGuideTrainer? _onlineTrainer;
@@ -45,6 +48,9 @@ internal sealed class GuideLoop
     private double _lastRaError;
     private double _lastDecError;
     private bool _hasPreviousError;
+    private double _lastRaCorrectionPx;
+    private double _lastDecCorrectionPx;
+    private int _guideFrameCount;
 
     // Thread-safe scratch buffers for neural inference during online learning
     private readonly float[] _hidden1Scratch = new float[NeuralGuideModel.Hidden1Size];
@@ -57,13 +63,20 @@ internal sealed class GuideLoop
     public double MaxPulseMs { get; set; } = 2000;
 
     /// <summary>
-    /// Blend factor for neural model corrections. Controls how much the neural output
-    /// modifies the P-controller baseline. 0 = P-controller only, 1 = full neural replacement.
-    /// Default: 0.15 (neural provides 15% refinement on top of P-controller).
-    /// Kept conservative to prevent runaway corrections from an under-trained model;
-    /// online learning gradually improves the model in-place.
+    /// Target blend factor for neural model corrections after ramp-in completes.
+    /// 0 = P-controller only, 1 = full neural replacement.
+    /// Default: 0.5 (50% neural, 50% P-controller — matches PHD2's prediction_gain).
+    /// During the ramp-in phase, the effective blend linearly increases from 0 to this value.
     /// </summary>
-    public double NeuralBlendFactor { get; set; } = 0.15;
+    public double NeuralBlendFactor { get; set; } = 0.5;
+
+    /// <summary>
+    /// Number of frames over which the neural blend ramps from 0 to <see cref="NeuralBlendFactor"/>.
+    /// Set to approximately 2 PE cycles worth of frames for the model to learn before contributing.
+    /// At 2s exposure with ~480s PE period, 2 cycles = 480 frames.
+    /// Default: 480 frames (~16 min at 2s cadence).
+    /// </summary>
+    public int BlendRampInFrames { get; set; } = 480;
 
     /// <summary>
     /// Number of frames between online training updates.
@@ -94,6 +107,11 @@ internal sealed class GuideLoop
     /// Whether the guide loop is currently running.
     /// </summary>
     public bool IsGuiding => _isGuiding;
+
+    /// <summary>
+    /// The centroid tracker. Exposed for dither offset manipulation.
+    /// </summary>
+    internal GuiderCentroidTracker Tracker => _tracker;
 
     /// <summary>
     /// Guide error statistics.
@@ -211,6 +229,9 @@ internal sealed class GuideLoop
         _experienceBuffer?.Reset();
         _guideStartTimestamp = GetTimestamp();
         _hasPreviousError = false;
+        _lastRaCorrectionPx = 0;
+        _lastDecCorrectionPx = 0;
+        _guideFrameCount = 0;
         _consecutiveFallbacks = 0;
         _framesSinceTraining = 0;
 
@@ -244,10 +265,13 @@ internal sealed class GuideLoop
                 var timestamp = GetTimestamp();
                 _errorTracker.Add(timestamp, raErrorPx, decErrorPx);
 
-                // Update outcome of previous experience
+                // Update outcome of previous experience with hindsight-optimal target
                 if (_hasPreviousError && _experienceBuffer is not null)
                 {
-                    _experienceBuffer.UpdateOutcome(raErrorPx, decErrorPx, _lastRaError, _lastDecError);
+                    var raRateScale = 1000.0 / (calibration.RaRatePixPerSec * MaxPulseMs);
+                    var decRateScale = 1000.0 / (Math.Abs(calibration.DecRatePixPerSec) * MaxPulseMs);
+                    _experienceBuffer.UpdateOutcome(raErrorPx, decErrorPx, _lastRaError, _lastDecError,
+                        raRateScale, decRateScale);
                 }
 
                 // Compute P-controller correction (always, for shadow comparison and experience recording)
@@ -263,14 +287,21 @@ internal sealed class GuideLoop
                 {
                     var features = new float[NeuralGuideModel.InputSize];
                     var (raErr, decErr) = calibration.TransformToMountAxes(result.Value.DeltaX, result.Value.DeltaY);
-                    _neuralFeatures.Build(raErr, decErr, timestamp,
+                    // Pass previous frame's correction in pixels so gear error can be accumulated
+                    _neuralFeatures.Build(raErr, decErr,
+                        _lastRaCorrectionPx, _lastDecCorrectionPx,
+                        timestamp,
                         _errorTracker.RaRmsShort, _errorTracker.DecRmsShort, hourAngle, declination, features);
 
                     var experience = new OnlineGuideExperience
                     {
                         Features = features,
+                        // Initial target: P-controller (used if outcome is never observed, e.g. star lost next frame)
                         TargetRa = (float)Math.Clamp(pCorrection.RaPulseMs / MaxPulseMs, -1.0, 1.0),
                         TargetDec = (float)Math.Clamp(pCorrection.DecPulseMs / MaxPulseMs, -1.0, 1.0),
+                        // Actual applied correction (for hindsight-optimal target computation)
+                        AppliedRaNorm = (float)Math.Clamp(correction.RaPulseMs / MaxPulseMs, -1.0, 1.0),
+                        AppliedDecNorm = (float)Math.Clamp(correction.DecPulseMs / MaxPulseMs, -1.0, 1.0),
                         PriorityWeight = 1.0f,
                         OutcomeKnown = false
                     };
@@ -290,7 +321,13 @@ internal sealed class GuideLoop
 
                 _lastRaError = raErrorPx;
                 _lastDecError = decErrorPx;
+                // Store applied correction in pixels for gear error accumulation next frame
+                _lastRaCorrectionPx = correction.RaPulseMs / 1000.0 * calibration.RaRatePixPerSec;
+                _lastDecCorrectionPx = correction.DecPulseMs / 1000.0 * Math.Abs(calibration.DecRatePixPerSec);
                 _hasPreviousError = true;
+                _guideFrameCount++;
+
+                LastCorrection = correction;
 
                 // Apply RA correction
                 if (correction.HasRaCorrection)
@@ -378,7 +415,9 @@ internal sealed class GuideLoop
 
             Span<float> input = stackalloc float[NeuralGuideModel.InputSize];
             _neuralFeatures.Build(
-                raErrorPx, decErrorPx, timestamp,
+                raErrorPx, decErrorPx,
+                _lastRaCorrectionPx, _lastDecCorrectionPx,
+                timestamp,
                 _errorTracker.RaRmsShort, _errorTracker.DecRmsShort,
                 hourAngle, declination, input);
 
@@ -407,12 +446,15 @@ internal sealed class GuideLoop
 
             _consecutiveFallbacks = 0;
 
-            // Blend neural output with P-controller baseline. The P-controller provides
-            // a proven-reliable correction; the neural model refines it. This prevents
-            // the neural model from catastrophically over-correcting when inputs are noisy
-            // (gear noise, seeing jitter).
-            var blendedRa = (1.0 - NeuralBlendFactor) * pCorrection.RaPulseMs + NeuralBlendFactor * raPulseMs;
-            var blendedDec = (1.0 - NeuralBlendFactor) * pCorrection.DecPulseMs + NeuralBlendFactor * decPulseMs;
+            // Ramp-in: linearly increase blend from 0 to NeuralBlendFactor over BlendRampInFrames.
+            // Like PHD2, the model needs ~2 PE cycles to learn before it should contribute.
+            // During ramp-in, the P-controller does the work while the model trains on outcomes.
+            var effectiveBlend = BlendRampInFrames > 0
+                ? NeuralBlendFactor * Math.Min(1.0, (double)_guideFrameCount / BlendRampInFrames)
+                : NeuralBlendFactor;
+
+            var blendedRa = (1.0 - effectiveBlend) * pCorrection.RaPulseMs + effectiveBlend * raPulseMs;
+            var blendedDec = (1.0 - effectiveBlend) * pCorrection.DecPulseMs + effectiveBlend * decPulseMs;
             return (new GuideCorrection(blendedRa, blendedDec), true);
         }
 

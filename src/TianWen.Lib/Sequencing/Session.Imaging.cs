@@ -296,8 +296,9 @@ internal partial record Session
             try { _guiderSettleProgress = await guider.Driver.GetSettleProgressAsync(cancellationToken); } catch { /* ignore */ }
             try { _guideExposure = await guider.Driver.ExposureTimeAsync(cancellationToken); } catch { /* ignore */ }
 
-            // Poll guide stats each tick for the guide graph
-            if (isGuiding)
+            // Poll guide stats each tick for the guide graph (also during settling — guide loop still corrects)
+            var isSettlingOrGuiding = isGuiding || _guiderState is "Settling";
+            if (isSettlingOrGuiding)
             {
                 GuideStats? guideStats = null;
                 try { guideStats = await guider.Driver.GetStatsAsync(cancellationToken); } catch { /* ignore */ }
@@ -307,8 +308,13 @@ internal partial record Session
                     // Use real per-frame errors when available, fall back to synthetic
                     var raErr = gs.LastRaErr ?? gs.RaRMS * (new Random(tickCount).NextDouble() * 2 - 1);
                     var decErr = gs.LastDecErr ?? gs.DecRMS * (new Random(tickCount + 1).NextDouble() * 2 - 1);
+                    var isDither = _ditherPending;
+                    if (isDither) _ditherPending = false;
+                    var isSettling = _guiderState is "Settling";
                     AppendGuideErrorSample(new GuideErrorSample(
-                        External.TimeProvider.GetUtcNow(), raErr, decErr));
+                        External.TimeProvider.GetUtcNow(), raErr, decErr,
+                        gs.LastRaPulseMs ?? 0, gs.LastDecPulseMs ?? 0,
+                        isDither, isSettling));
                 }
             }
 
@@ -703,6 +709,7 @@ internal partial record Session
                     var shouldDither = (tickCount % ditherEveryNTicks) == 0;
                     if (shouldDither)
                     {
+                        _ditherPending = true;
                         if (await guider.Driver.DitherWaitAsync(Configuration.DitherPixel, Configuration.SettlePixel, Configuration.SettleTime, WriteQueuedImagesToFitsFilesAsync, cancellationToken).ConfigureAwait(false))
                         {
                             External.AppLogger.LogInformation("Dithering using \"{GuiderName}\" succeeded.", guider.Driver);

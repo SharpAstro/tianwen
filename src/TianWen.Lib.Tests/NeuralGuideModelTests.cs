@@ -10,8 +10,8 @@ public class NeuralGuideModelTests
     [Fact]
     public void GivenModelWhenInitializedThenParameterCountCorrect()
     {
-        // (16*32 + 32) + (32*16 + 16) + (16*2 + 2) = 544 + 528 + 34 = 1,106
-        NeuralGuideModel.TotalParams.ShouldBe(1106);
+        // (22*32 + 32) + (32*16 + 16) + (16*2 + 2) = 736 + 528 + 34 = 1,298
+        NeuralGuideModel.TotalParams.ShouldBe(1298);
     }
 
     [Fact]
@@ -117,20 +117,25 @@ public class NeuralGuideModelTests
 
         features.Build(
             raErrorPx: 1.5, decErrorPx: -0.3,
+            raCorrectionPx: 0, decCorrectionPx: 0, // first frame, no prior correction
             timestampSec: 10.0,
             raRmsShort: 0.8, decRmsShort: 0.4,
             hourAngle: 2.0,
             declination: 45.0,
             buffer);
 
-        buffer[0].ShouldBe(1.5f);      // current RA error
-        buffer[1].ShouldBe(-0.3f);     // current Dec error
-        buffer[2].ShouldBe(0f);        // t-1 RA (first call, no history)
-        buffer[3].ShouldBe(0f);        // t-1 Dec (first call, no history)
-        buffer[10].ShouldBe(0.8f);     // RA RMS short
-        buffer[11].ShouldBe(0.4f);     // Dec RMS short
-        buffer[13].ShouldBe(2.0f / 12f); // hour angle normalized
-        buffer[15].ShouldBe(45.0f / 90f); // declination normalized
+        buffer[0].ShouldBe(1.5f);       // current RA error
+        buffer[1].ShouldBe(-0.3f);      // current Dec error
+        buffer[2].ShouldBe(0f);         // t-1 RA (first call, no history)
+        buffer[3].ShouldBe(0f);         // t-1 Dec (first call, no history)
+        buffer[10].ShouldBe(0.8f);      // RA RMS short
+        buffer[11].ShouldBe(0.4f);      // Dec RMS short
+        buffer[12].ShouldBe(1.5f);      // medium-term mean RA (1 frame = current)
+        buffer[13].ShouldBe(-0.3f);     // medium-term mean Dec (1 frame = current)
+        buffer[14].ShouldBe(1.5f);      // long-term mean RA (1 frame = current)
+        buffer[15].ShouldBe(-0.3f);     // long-term mean Dec (1 frame = current)
+        buffer[18].ShouldBe(2.0f / 12f);  // hour angle normalized
+        buffer[20].ShouldBe(45.0f / 90f); // declination normalized
     }
 
     [Fact]
@@ -139,8 +144,8 @@ public class NeuralGuideModelTests
         var features = new NeuralGuideFeatures(siteLatitude: 45.0);
         Span<float> buffer = stackalloc float[NeuralGuideModel.InputSize];
 
-        features.Build(1.0, -0.5, 10.0, 0.5, 0.3, 0, 45.0, buffer);
-        features.Build(1.5, -0.8, 12.0, 0.6, 0.4, 0, 45.0, buffer);
+        features.Build(1.0, -0.5, 0, 0, 10.0, 0.5, 0.3, 0, 45.0, buffer);
+        features.Build(1.5, -0.8, -0.7, 0.35, 12.0, 0.6, 0.4, 0, 45.0, buffer);
 
         buffer[0].ShouldBe(1.5f);       // current RA
         buffer[1].ShouldBe(-0.8f);      // current Dec
@@ -157,9 +162,9 @@ public class NeuralGuideModelTests
         var features = new NeuralGuideFeatures(siteLatitude: 45.0);
         Span<float> buffer = stackalloc float[NeuralGuideModel.InputSize];
 
-        features.Build(1.0, -0.5, 10.0, 0.5, 0.3, 0, 45.0, buffer);
+        features.Build(1.0, -0.5, 0, 0, 10.0, 0.5, 0.3, 0, 45.0, buffer);
         features.Reset();
-        features.Build(2.0, 1.0, 20.0, 0.1, 0.1, 0, 45.0, buffer);
+        features.Build(2.0, 1.0, 0, 0, 20.0, 0.1, 0.1, 0, 45.0, buffer);
 
         buffer[2].ShouldBe(0f); // t-1 RA cleared by reset
         buffer[3].ShouldBe(0f); // t-1 Dec cleared by reset

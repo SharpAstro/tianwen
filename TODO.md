@@ -5,6 +5,13 @@
 - [x] MiniViewer: optional lightweight mode that skips storing UnstretchedImage — for live preview where we never re-stretch, just keep stats + GPU texture. Saves ~140MB per displayed frame
 - [ ] Cache altitude chart as texture — only re-render the mouse follower overlay on hover, not the entire chart. Currently 20% GPU on mouse hover due to full chart redraw per frame
 
+## Flaky CI Tests
+
+- [ ] `SessionImagingTests.GivenHighAltitudeTarget...HighUtilization` — fails 4/6 CI runs, passes locally. Timing-sensitive `FakeTimeProvider` interaction
+- [ ] `SessionImagingTests.GivenDitherEveryNth...DitheringTriggered` — fails 3/6 CI runs
+- [ ] `SessionImagingTests.GivenFocusDrift...AutoRefocusTriggered` — occasional CI failure
+- [ ] `SessionPhaseTests.AbortDuringCooling_StopsRampAndWarmsBack` — occasional CI failure
+
 ## Next Up
 
 - [ ] Weather API integration — cloud cover, seeing, humidity, dew point. Auto-pause session on bad conditions. Candidates: OpenMeteo (free), ClearOutside scrape, or INDI weather device
@@ -31,6 +38,7 @@
 - [ ] Live session: show dither state — "Dithering..." status with settle progress, no indicator currently visible during dither
 - [ ] Cooling graph: same scrolling window treatment
 - [ ] VSOP87 vectorization — convert 43K lines of hardcoded `amplitude * Cos(phase + frequency * t)` into coefficient arrays, evaluate with `Vector256<double>` (AVX2). Process 4 terms per iteration. Requires source generator or one-time conversion of all planet files (EarthX/Y/Z, MarsX/Y/Z, etc.)
+- [ ] CLI: `train-guide-model` command for offline epoch training of the neural guide model — connects to mount + guide camera, records guide data for N worm cycles, then runs `TrainEpoch` with real PE data as teacher signal. Produces a base `.ngm` model file for the optical train. Aimed at permanent setups where users can invest a one-time training session to get a high-quality starting model. The online trainer (`TrainOnBatch`) should eventually converge to the same quality — offline training just gets there faster by seeing many PE cycles upfront instead of learning incrementally
 - [ ] Equipment tab: generic per-device settings pane — each device type (camera, mount, guider, etc.) should declare configurable properties via URI query params (like BuiltInGuiderDevice), and the equipment tab renders them automatically. FakeDevice should carry PE amplitude, period, guide rate etc. as URI params so FakeCameraDriver initializes from them instead of hardcoded defaults
 - [ ] Fake camera: shift/change star field during slews — currently renders the same fixed seed regardless of mount pointing
 - [ ] Fake camera: scale synthetic background noise with exposure duration in `SyntheticStarFieldRenderer` — long subs (≥60s) have unrealistically clean backgrounds, causing per-channel stretch to produce degenerate parameters. Real cameras accumulate sky glow + dark current + read noise over time.

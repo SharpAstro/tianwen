@@ -38,6 +38,7 @@ internal partial record Session(
     private volatile GuideStats? _lastGuideStats;
     private volatile string? _guiderState;
     private volatile SettleProgress? _guiderSettleProgress;
+    private volatile bool _ditherPending;
     private TimeSpan _guideExposure;
     private readonly ConcurrentQueue<ExposureLogEntry> _exposureLog = [];
     private readonly ConcurrentQueue<CoolingSample> _coolingSamples = [];
@@ -310,8 +311,13 @@ internal partial record Session(
                             session.UpdateGuideStats(gs);
                             var raErr = gs.LastRaErr ?? 0;
                             var decErr = gs.LastDecErr ?? 0;
+                            var isDither = session._ditherPending;
+                            if (isDither) session._ditherPending = false;
+                            var isSettling = session._guiderState is "Settling";
                             session.AppendGuideErrorSample(new GuideErrorSample(
-                                external.TimeProvider.GetUtcNow(), raErr, decErr));
+                                external.TimeProvider.GetUtcNow(), raErr, decErr,
+                                gs.LastRaPulseMs ?? 0, gs.LastDecPulseMs ?? 0,
+                                isDither, isSettling));
                         }
                     }
                     catch (OperationCanceledException) { break; }
