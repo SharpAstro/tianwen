@@ -145,9 +145,7 @@ namespace TianWen.UI.Abstractions
                 mousePos = (mx, my);
             }
 
-            AltitudeChartRenderer.Render(Renderer, state, fontPath,
-                (int)_chartRect.X, (int)_chartRect.Y, (int)_chartRect.Width, (int)_chartRect.Height,
-                selectedIndex, chartCurrentTime, mousePos);
+            RenderChart(state, _chartRect, fontPath, selectedIndex, chartCurrentTime, mousePos);
 
             // Register slider hit regions for drag interaction
             RegisterSliderHitRegions(state, dpiScale);
@@ -163,6 +161,18 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>Chart rect from last render (for slider drag coordinate conversion).</summary>
         public RectF32 ChartRect => _chartRect;
+
+        /// <summary>
+        /// Renders the altitude chart. Override in GPU-backed subclasses to use cached textures.
+        /// Default implementation renders directly via the renderer.
+        /// </summary>
+        protected virtual void RenderChart(PlannerState state, RectF32 chartRect, string fontPath,
+            int? selectedIndex, DateTimeOffset? chartCurrentTime, (float, float)? mousePos)
+        {
+            AltitudeChartRenderer.Render(Renderer, state, fontPath,
+                (int)chartRect.X, (int)chartRect.Y, (int)chartRect.Width, (int)chartRect.Height,
+                selectedIndex, chartCurrentTime, mousePos);
+        }
 
         private void RegisterSliderHitRegions(PlannerState state, float dpiScale)
         {
@@ -484,7 +494,8 @@ namespace TianWen.UI.Abstractions
         {
             InputEvent.Scroll(var scrollY, var mouseX, var mouseY, _)
                 when _targetListRect.Contains(mouseX, mouseY) => HandleTargetListScroll(scrollY),
-            InputEvent.MouseMove(var mx, var my) => _chartRect.Contains(mx, my), // redraw for mouse follower
+            // Mouse move: redraw for follower overlay. Cheap on GPU (cached chart texture + 2-3 overlay draws).
+            InputEvent.MouseMove(var mx, var my) => _chartRect.Contains(mx, my),
             InputEvent.KeyDown(var key, var modifiers) => HandlePlannerKey(key, modifiers),
             _ => false
         };

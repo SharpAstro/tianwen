@@ -40,9 +40,9 @@
     <PackageVersion Include="Pastel" Version="7.0.1" />
     <PackageVersion Include="System.CommandLine" Version="2.0.5" />
     <!-- SDL3 + Vulkan packages -->
-    <PackageVersion Include="DIR.Lib" Version="1.6.151" />
-    <PackageVersion Include="Console.Lib" Version="1.5.191" />
-    <PackageVersion Include="SdlVulkan.Renderer" Version="1.6.181" />
+    <PackageVersion Include="DIR.Lib" Version="1.7.271" />
+    <PackageVersion Include="Console.Lib" Version="1.7.201" />
+    <PackageVersion Include="SdlVulkan.Renderer" Version="1.6.261" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <!-- Other packages -->

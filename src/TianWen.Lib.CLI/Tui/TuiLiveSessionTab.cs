@@ -51,8 +51,8 @@ internal sealed class TuiLiveSessionTab(
     private TextBar? _previewToolbar;
 
     // Preview area — Canvas for Sixel, MarkdownWidget placeholder for non-Sixel
-    private Canvas<RgbaImage>? _previewCanvas;
-    private RgbaImageRenderer? _previewRenderer;
+    private Canvas? _previewCanvas;
+    private SixelRgbaImageRenderer? _previewRenderer;
     private MarkdownWidget? _previewFallback;
 
     // Sixel preview state
@@ -85,8 +85,8 @@ internal sealed class TuiLiveSessionTab(
         if (terminal.HasSixelSupport)
         {
             var canvasPixelSize = fillVp.PixelSize;
-            _previewRenderer = new RgbaImageRenderer((uint)canvasPixelSize.Width, (uint)canvasPixelSize.Height);
-            _previewCanvas = new Canvas<RgbaImage>(fillVp, _previewRenderer);
+            _previewRenderer = new SixelRgbaImageRenderer((uint)canvasPixelSize.Width, (uint)canvasPixelSize.Height);
+            _previewCanvas = new Canvas(fillVp, _previewRenderer);
             _previewFallback = null;
             panel.Add(_topBar).Add(_guideBar).Add(_statusBar).Add(_infoPanel).Add(_previewToolbar).Add(_previewCanvas);
         }
