@@ -449,6 +449,12 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
             {
                 // Try to load saved calibration from disk and validate with a quick pulse test
                 calResult = await TryLoadAndValidateCalibrationAsync(pulseTarget, camera, ct);
+                if (calResult is not null)
+                {
+                    // Record pier side at the time we load the calibration — this is our reference
+                    // for detecting meridian flips later when guiding restarts after a slew.
+                    _calibrationPierSide = await mount.GetSideOfPierAsync(ct);
+                }
             }
 
             if (calResult is null)

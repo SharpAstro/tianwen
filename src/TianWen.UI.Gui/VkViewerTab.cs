@@ -151,7 +151,10 @@ public sealed class VkViewerTab : ImageRendererBase<VulkanContext>, IDisposable
             crPix2: crPix2,
             crValRA: crValRA,
             crValDec: crValDec,
-            cdMatrix: cdMatrix);
+            cdMatrix: cdMatrix,
+            imageSource: (VkFitsImagePipeline.ImageSource)ImageSourceMode,
+            bayerOffsetX: BayerOffsetX,
+            bayerOffsetY: BayerOffsetY);
 
         _fitsPipeline.RecordImageDraw(
             cmd,

@@ -156,7 +156,10 @@ public sealed class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposa
             crPix2: crPix2,
             crValRA: crValRA,
             crValDec: crValDec,
-            cdMatrix: cdMatrix);
+            cdMatrix: cdMatrix,
+            imageSource: (VkFitsImagePipeline.ImageSource)ImageSourceMode,
+            bayerOffsetX: BayerOffsetX,
+            bayerOffsetY: BayerOffsetY);
 
         _fitsPipeline.RecordImageDraw(
             cmd,
