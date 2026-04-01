@@ -120,9 +120,12 @@ internal sealed class NeuralGuideTrainer
             var declination = (rng.NextDouble() - 0.5) * 120.0; // ±60°
 
             // Build features from clean errors (2 frames of history per sample)
+            // Simulate a small correction for the previous frame for gear error accumulation
+            var prevCorrRa = -prevRaError * 0.7; // simulate P-controller correction in pixels
+            var prevCorrDec = -prevDecError * 0.7;
             features.Reset();
-            features.Build(prevRaError, prevDecError, 0, raRms, decRms, hourAngle, declination, inputBuffer);
-            features.Build(raError, decError, 2.0, raRms, decRms, hourAngle, declination, inputBuffer);
+            features.Build(prevRaError, prevDecError, 0, 0, 0, raRms, decRms, hourAngle, declination, inputBuffer);
+            features.Build(raError, decError, prevCorrRa, prevCorrDec, 2.0, raRms, decRms, hourAngle, declination, inputBuffer);
 
             // Input noise augmentation: jitter the features while keeping the teacher target
             // computed from clean errors. This teaches the model to be conservative when

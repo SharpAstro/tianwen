@@ -2,7 +2,8 @@ namespace TianWen.Lib.Devices.Guider;
 
 /// <summary>
 /// A single experience tuple recorded during guided frames for online training.
-/// Contains the feature vector snapshot and the P-controller's target output.
+/// Contains the feature vector snapshot, the initial P-controller target, and
+/// (once observed) the hindsight-optimal target computed from the next-frame error.
 /// </summary>
 internal struct OnlineGuideExperience
 {
@@ -12,14 +13,29 @@ internal struct OnlineGuideExperience
     public float[] Features;
 
     /// <summary>
-    /// P-controller target RA correction, normalized to [-1, 1].
+    /// Training target RA correction, normalized to [-1, 1].
+    /// Initially set to the P-controller output; replaced with the hindsight-optimal
+    /// correction once the next-frame error is observed.
     /// </summary>
     public float TargetRa;
 
     /// <summary>
-    /// P-controller target Dec correction, normalized to [-1, 1].
+    /// Training target Dec correction, normalized to [-1, 1].
+    /// Initially set to the P-controller output; replaced with the hindsight-optimal
+    /// correction once the next-frame error is observed.
     /// </summary>
     public float TargetDec;
+
+    /// <summary>
+    /// Actual RA correction applied this frame, normalized to [-1, 1].
+    /// Used to compute the hindsight-optimal target when the next-frame error is known.
+    /// </summary>
+    public float AppliedRaNorm;
+
+    /// <summary>
+    /// Actual Dec correction applied this frame, normalized to [-1, 1].
+    /// </summary>
+    public float AppliedDecNorm;
 
     /// <summary>
     /// Importance weight for experience replay. Initialized to 1.0,

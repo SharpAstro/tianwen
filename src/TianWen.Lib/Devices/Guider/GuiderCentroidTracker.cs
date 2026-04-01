@@ -149,7 +149,7 @@ internal sealed class GuiderCentroidTracker
 
     /// <summary>
     /// Sets new lock positions at each star's current position.
-    /// Useful after dithering to re-center the guide reference.
+    /// Useful after calibration to establish the guide reference.
     /// </summary>
     public void SetLockPosition()
     {
@@ -162,6 +162,27 @@ internal sealed class GuiderCentroidTracker
         {
             var star = _stars[i];
             _stars[i] = star with { LockX = star.LastX, LockY = star.LastY };
+        }
+    }
+
+    /// <summary>
+    /// Offsets the lock position by the given pixel amounts.
+    /// Used for dithering: the guide loop then naturally corrects the star
+    /// back to the new lock position, creating the dither offset.
+    /// </summary>
+    /// <param name="dx">X offset in pixels.</param>
+    /// <param name="dy">Y offset in pixels.</param>
+    public void OffsetLockPosition(double dx, double dy)
+    {
+        if (!_acquired)
+        {
+            return;
+        }
+
+        for (var i = 0; i < _stars.Count; i++)
+        {
+            var star = _stars[i];
+            _stars[i] = star with { LockX = star.LockX + dx, LockY = star.LockY + dy };
         }
     }
 

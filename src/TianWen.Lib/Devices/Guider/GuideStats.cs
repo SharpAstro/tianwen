@@ -36,5 +36,11 @@ public class GuideStats
     public double? LastRaErr { get; internal set; }
     public double? LastDecErr { get; internal set; }
 
+    /// <summary>Last RA correction pulse in milliseconds (positive = West, negative = East). Null if no correction.</summary>
+    public double? LastRaPulseMs { get; internal set; }
+
+    /// <summary>Last Dec correction pulse in milliseconds (positive = North, negative = South). Null if no correction.</summary>
+    public double? LastDecPulseMs { get; internal set; }
+
     public GuideStats Clone() => (GuideStats)MemberwiseClone();
 }

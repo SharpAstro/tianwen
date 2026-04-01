@@ -17,8 +17,8 @@ internal sealed class ExperienceReplayBuffer
     /// <summary>
     /// Creates a new experience replay buffer.
     /// </summary>
-    /// <param name="capacity">Maximum number of experiences to store. Default 512 (~8 min at 1s cadence).</param>
-    public ExperienceReplayBuffer(int capacity = 512)
+    /// <param name="capacity">Maximum number of experiences to store. Default 2048 (~68 min at 2s cadence, multiple PE cycles).</param>
+    public ExperienceReplayBuffer(int capacity = 2048)
     {
         _buffer = new OnlineGuideExperience[capacity];
     }
@@ -52,12 +52,19 @@ internal sealed class ExperienceReplayBuffer
     /// <summary>
     /// Updates the outcome of the most recently written experience.
     /// Called from the guide thread at the start of the next frame.
+    /// Computes the hindsight-optimal correction target: what correction would have
+    /// zeroed the next-frame error, given the correction that was actually applied.
     /// </summary>
     /// <param name="nextRaError">RA error observed in the next frame (pixels).</param>
     /// <param name="nextDecError">Dec error observed in the next frame (pixels).</param>
     /// <param name="prevRaError">RA error from the frame that produced the experience.</param>
     /// <param name="prevDecError">Dec error from the frame that produced the experience.</param>
-    public void UpdateOutcome(double nextRaError, double nextDecError, double prevRaError, double prevDecError)
+    /// <param name="raRateScale">Conversion factor: pixels → normalized correction = 1000 / (raRate * maxPulseMs).</param>
+    /// <param name="decRateScale">Conversion factor: pixels → normalized correction = 1000 / (decRate * maxPulseMs).</param>
+    public void UpdateOutcome(
+        double nextRaError, double nextDecError,
+        double prevRaError, double prevDecError,
+        double raRateScale, double decRateScale)
     {
         if (_totalWritten == 0)
         {
@@ -71,6 +78,12 @@ internal sealed class ExperienceReplayBuffer
         {
             return;
         }
+
+        // Hindsight-optimal target: applied correction + residual correction to zero the next-frame error.
+        // If we applied C and still had residual E, the ideal correction was C + (-E / rate * 1000 / maxPulse).
+        // The sign convention matches the P-controller: negative error → positive correction.
+        exp.TargetRa = (float)Math.Clamp(exp.AppliedRaNorm - nextRaError * raRateScale, -1.0, 1.0);
+        exp.TargetDec = (float)Math.Clamp(exp.AppliedDecNorm - nextDecError * decRateScale, -1.0, 1.0);
 
         // Priority weight: higher when error got worse (model needs more training on these)
         var prevMag = Math.Sqrt(prevRaError * prevRaError + prevDecError * prevDecError);

@@ -202,7 +202,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
             var tracker = _guideLoop?.ErrorTracker;
             var distance = tracker is { LastRaError: { } ra, LastDecError: { } dec }
                 ? Math.Sqrt(ra * ra + dec * dec)
-                : double.NaN;
+                : 0.0;
 
             var elapsed = External.TimeProvider.GetElapsedTime(_settleStartedTicks);
 
@@ -258,6 +258,8 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
             PeakDec = (tracker?.PeakDec ?? 0) * scale,
             LastRaErr = tracker?.LastRaError * scale,
             LastDecErr = tracker?.LastDecError * scale,
+            LastRaPulseMs = _guideLoop?.LastCorrection?.RaPulseMs,
+            LastDecPulseMs = _guideLoop?.LastCorrection?.DecPulseMs,
         });
     }
 
@@ -575,12 +577,26 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         return await camera.GetImageAsync(ct) ?? throw new GuiderException("Failed to capture guide frame — no image data");
     }
 
+    private static readonly Random _ditherRng = new Random();
+
     public ValueTask DitherAsync(double ditherPixels, double settlePixels, double settleTime, double settleTimeout, bool raOnly = false, CancellationToken cancellationToken = default)
     {
         var current = CurrentState;
         if (current is not GuiderState.Guiding)
         {
             throw new GuiderException($"Cannot dither in state {current}");
+        }
+
+        // Offset the guide star lock position by a random amount up to ditherPixels.
+        // The guide loop naturally corrects the star back to the new lock position,
+        // creating the dither offset on the imaging camera.
+        if (_guideLoop is { } loop)
+        {
+            var angle = _ditherRng.NextDouble() * 2 * Math.PI;
+            var distance = ditherPixels * (0.5 + 0.5 * _ditherRng.NextDouble()); // 50-100% of requested
+            var dx = distance * Math.Cos(angle);
+            var dy = raOnly ? 0 : distance * Math.Sin(angle);
+            loop.Tracker.OffsetLockPosition(dx, dy);
         }
 
         _settlePixels = settlePixels;

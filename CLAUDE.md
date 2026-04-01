@@ -56,7 +56,7 @@ dotnet test -c Release
 | CLI | System.CommandLine v2 + Pastel |
 | Testing | xUnit v3 + Shouldly + NSubstitute |
 | Imaging | Magick.NET, FITS.Lib |
-| UI / OpenGL | Silk.NET (GLFW) |
+| UI / GPU | SDL3 + Vulkan (SdlVulkan.Renderer) |
 | Astronomy | ASCOM, WWA.Core, ZWOptical.SDK |
 | Compression | SharpCompress |
 
@@ -123,7 +123,7 @@ Keys are defined in `DeviceQueryKey` enum (wire strings in parentheses).
 | `FakeDevice` | `port`, `latitude`, `longitude` | `port` selects mount protocol: `LX200`, `SGP`, or default |
 | `MeadeDevice` | `port`, `baud` | Inherited from `DeviceBase` |
 | `IOptronDevice` | `port`, `latitude`, `longitude` | `ConnectSerialDevice` enforces 28800 baud; lat/lon optional seed |
-| `BuiltInGuiderDevice` | `pulseGuideSource` | `Auto` (default), `Camera`, or `Mount` |
+| `BuiltInGuiderDevice` | `pulseGuideSource`, `reverseDecAfterFlip`, `reuseCalibration`, `useNeuralGuider`, `neuralBlendFactor` | Pulse source: `Auto`/`Camera`/`Mount`; neural guider with predictive PE correction, blend ramps in over ~2 PE cycles |
 | `OpenPHD2GuiderDevice` | *(none)* | Host/instance/profile encoded in URI path segments |
 | `Profile` | `data` | Base64url-encoded `ProfileData` JSON blob |
 | `NoneDevice` | *(none)* | Sentinel, fixed URI |
@@ -568,12 +568,29 @@ Camera → Channel → ChannelBuffer → Image → Consumer → Release → Came
 
 - **Reduced allocations**: prefer `MemoryMarshal`, `stackalloc`, `ArrayPool<T>`, and `Span<T>` over allocating new arrays. Use `ReadOnlySpan<T>` for read-only views.
 - **Immutability with controlled mutability**: make types immutable by default. When mutation is needed (e.g., `HistogramDisplay.Recompute()`), keep mutable state private and expose only read-only views.
-- **Correct abstraction levels**: pure math and data processing in `TianWen.Lib`, UI state and document model in `TianWen.UI.Abstractions`, GL-specific rendering in `TianWen.UI.OpenGL`. Never put OpenGL calls in Lib or Abstractions.
+- **Correct abstraction levels**: pure math and data processing in `TianWen.Lib`, UI state and document model in `TianWen.UI.Abstractions`, Vulkan-specific rendering in `TianWen.UI.Shared` and `TianWen.UI.Gui`. Never put GPU calls in Lib or Abstractions.
 - **Avoid code duplication**: reuse existing methods (e.g., `Image.StretchValue()` as single source of truth for stretch) rather than reimplementing logic in multiple places.
 
 ## Package Management
 
 Centralized in `Directory.Packages.props` — version numbers are defined there, not in individual `.csproj` files. When adding or updating packages, edit `Directory.Packages.props`.
+
+## Runtime Data (AppData)
+
+Application data is stored in `%LOCALAPPDATA%/TianWen/` (`C:\Users\<user>\AppData\Local\TianWen\`):
+
+```
+TianWen/
+├── Logs/                    # Per-day log files: GUI_*.log, FitsViewer_*.log
+│   └── 20260401/
+├── Profiles/                # Per-profile data
+│   ├── <guid>.json          # Profile configuration
+│   └── NeuralGuider/        # Persisted neural guide model weights (.ngm files)
+└── Planner/                 # Persisted planner state (pinned targets)
+```
+
+- **Logs**: file-based logging via `Microsoft.Extensions.Logging`, one file per app launch
+- **Neural guide models**: `.ngm` binary files keyed by calibration hash, auto-loaded on guide start
 
 ## Namespace Structure
 

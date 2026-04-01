@@ -78,7 +78,7 @@ namespace TianWen.UI.Abstractions
             }
 
             // Header: guider state + RMS
-            var guiderLabel = State.GuiderState ?? "Guiding";
+            var guiderLabel = FormatGuiderStateLabel();
             DrawText($"[{guiderLabel}]", fontPath,
                 headerRect.X + padding, headerRect.Y, 200 * dpiScale, headerRect.Height,
                 fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
@@ -264,6 +264,40 @@ namespace TianWen.UI.Abstractions
 
             // Origin dot (white)
             FillRect(scx - dotR, scy - dotR, dotR * 2 + 1, dotR * 2 + 1, CalOriginColor);
+        }
+
+        private string FormatGuiderStateLabel()
+        {
+            var state = State.GuiderState;
+            if (state is "Settling" && State.GuiderSettleProgress is { Distance: var dist } && !double.IsNaN(dist))
+            {
+                return $"Settling {dist:F2}px";
+            }
+            if (state is "Settling")
+            {
+                return "Settling";
+            }
+            if (state is "Stopped" && State.Phase is SessionPhase.Observing)
+            {
+                return "Paused (Slewing)";
+            }
+            if (state is "Guiding" && State.LastGuideStats is { } gs)
+            {
+                var ra = FormatPulse(gs.LastRaPulseMs, "\u2190", "\u2192"); // ← West, → East
+                var dec = FormatPulse(gs.LastDecPulseMs, "\u2193", "\u2191"); // ↓ South, ↑ North
+                if (ra.Length > 0 || dec.Length > 0)
+                {
+                    return $"Guiding {ra}{(ra.Length > 0 && dec.Length > 0 ? " " : "")}{dec}";
+                }
+            }
+            return state ?? "Guiding";
+
+            static string FormatPulse(double? pulseMs, string negArrow, string posArrow)
+            {
+                if (pulseMs is not { } p || p == 0) return "";
+                var arrow = p > 0 ? posArrow : negArrow;
+                return $"{arrow}{Math.Abs(p):F0}ms";
+            }
         }
 
         /// <summary>
@@ -596,8 +630,8 @@ namespace TianWen.UI.Abstractions
                 FillRect((int)lx - 2, (int)ly - 2, 5, 5, CrosshairColor);
             }
 
-            // Calibration data text (angle, rates, backlash)
-            if (State.CalibrationOverlay is { } cal)
+            // Calibration data text (angle, rates, backlash) — hide once guiding starts
+            if (State.CalibrationOverlay is { } cal && samples.Length < 2)
             {
                 RenderCalibrationText(cal, rect, dpiScale, fontPath, fontSize);
             }
@@ -618,10 +652,13 @@ namespace TianWen.UI.Abstractions
 
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, GuideGraphRenderer.GraphBg);
 
-            var yScale = GuideGraphRenderer.ComputeYScale(State.LastGuideStats);
             var padding = BasePadding * dpiScale;
             var halfH = rect.Height / 2;
             var zeroY = rect.Y + halfH;
+
+            // Compute window first so Y scale can use visible samples
+            var (startIdx, visibleCount, spacing) = GuideGraphRenderer.ComputeWindow(samples.Length, rect.Width, dpiScale);
+            var yScale = GuideGraphRenderer.ComputeYScale(State.LastGuideStats, samples, startIdx, visibleCount);
 
             // Grid lines
             for (var arcsec = 1; arcsec < (int)yScale; arcsec++)
@@ -644,10 +681,48 @@ namespace TianWen.UI.Abstractions
                 rect.X, rect.Y + rect.Height - fontSize * 1.2f, labelW, fontSize * 1.2f,
                 fontSize * 0.75f, GuideGraphRenderer.ZeroLineColor, TextAlign.Near, TextAlign.Far);
 
-            // Connected step-style lines
-            var (startIdx, visibleCount, spacing) = GuideGraphRenderer.ComputeWindow(samples.Length, rect.Width, dpiScale);
+            // Connected step-style lines with settling shading and dither markers
             var lineW = Math.Max(dpiScale, 1f);
 
+            // First pass: settling shading (behind everything)
+            for (var i = 0; i < visibleCount; i++)
+            {
+                var sample = samples[startIdx + i];
+                if (sample.IsSettling)
+                {
+                    var sx = rect.X + i * spacing;
+                    FillRect(sx, rect.Y, spacing + 1, rect.Height, GuideGraphRenderer.SettlingShadeColor);
+                }
+            }
+
+            // Second pass: correction bars (behind error lines, on top of shading)
+            var barW = Math.Max(spacing * 0.3f, 1f);
+            for (var i = 0; i < visibleCount; i++)
+            {
+                var sample = samples[startIdx + i];
+                var bx = rect.X + i * spacing;
+
+                if (sample.RaCorrectionMs != 0)
+                {
+                    // Bar extends up for positive (West), down for negative (East)
+                    var barH = GuideGraphRenderer.CorrectionBarFraction(sample.RaCorrectionMs) * halfH;
+                    if (sample.RaCorrectionMs > 0)
+                        FillRect(bx, zeroY - barH, barW, barH, GuideGraphRenderer.RaCorrectionColor);
+                    else
+                        FillRect(bx, zeroY, barW, barH, GuideGraphRenderer.RaCorrectionColor);
+                }
+                if (sample.DecCorrectionMs != 0)
+                {
+                    var barH = GuideGraphRenderer.CorrectionBarFraction(sample.DecCorrectionMs) * halfH;
+                    var dbx = bx + barW + 1; // offset Dec bars slightly right of RA bars
+                    if (sample.DecCorrectionMs > 0)
+                        FillRect(dbx, zeroY - barH, barW, barH, GuideGraphRenderer.DecCorrectionColor);
+                    else
+                        FillRect(dbx, zeroY, barW, barH, GuideGraphRenderer.DecCorrectionColor);
+                }
+            }
+
+            // Second pass: error lines
             for (var i = 1; i < visibleCount; i++)
             {
                 var x1 = rect.X + (i - 1) * spacing;
@@ -662,6 +737,20 @@ namespace TianWen.UI.Abstractions
                 var decY2 = GuideGraphRenderer.ErrorToY(samples[startIdx + i].DecError, yScale, zeroY, halfH);
                 FillRect(x1, decY1, x2 - x1, lineW, GuideGraphRenderer.DecColor);
                 FillRect(x2, Math.Min(decY1, decY2), lineW, Math.Abs(decY2 - decY1) + lineW, GuideGraphRenderer.DecColor);
+            }
+
+            // Third pass: dither markers (on top of everything)
+            for (var i = 0; i < visibleCount; i++)
+            {
+                if (samples[startIdx + i].IsDither)
+                {
+                    var dx = rect.X + i * spacing;
+                    // Dashed vertical line
+                    for (var dy = rect.Y; dy < rect.Y + rect.Height; dy += 6 * dpiScale)
+                    {
+                        FillRect(dx, dy, Math.Max(1, lineW), 3 * dpiScale, GuideGraphRenderer.DitherMarkerColor);
+                    }
+                }
             }
 
             // Legend

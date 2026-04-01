@@ -53,7 +53,7 @@ public record class BuiltInGuiderDevice(Uri DeviceUri) : GuiderDeviceBase(Device
             defaultValue: true, trueLabel: "On", falseLabel: "Off"),
         DeviceSettingHelper.PercentSetting(
             NeuralBlendKey, "Neural Blend",
-            defaultPercent: 15,
+            defaultPercent: 50,
             isVisible: IsNeuralEnabled),
     ];
 
@@ -119,8 +119,9 @@ public record class BuiltInGuiderDevice(Uri DeviceUri) : GuiderDeviceBase(Device
     }
 
     /// <summary>
-    /// Blend factor for neural model corrections (0 = P-only, 1 = neural-only).
-    /// Defaults to 0.15 — conservative 15% neural refinement on top of P-controller.
+    /// Target blend factor for neural model corrections (0 = P-only, 1 = neural-only).
+    /// Defaults to 0.5 — 50% neural (matches PHD2's prediction_gain).
+    /// The effective blend ramps linearly from 0 to this value over ~2 PE cycles.
     /// </summary>
     internal double NeuralBlendFactor
     {
@@ -129,7 +130,7 @@ public record class BuiltInGuiderDevice(Uri DeviceUri) : GuiderDeviceBase(Device
             var value = Query.QueryValue(DeviceQueryKey.NeuralBlendFactor);
             return value is not null && double.TryParse(value, System.Globalization.CultureInfo.InvariantCulture, out var factor)
                 ? factor
-                : 0.15;
+                : 0.5;
         }
     }
 }
