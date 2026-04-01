@@ -322,8 +322,8 @@ namespace TianWen.UI.Gui
                 }
             }
 
-            // Clock (right) — on Live Session and Guider tabs (which poll at 500ms)
-            if (appState.ActiveTab is GuiTab.LiveSession or GuiTab.Guider)
+            // Clock (right) — on tabs that benefit from live time display
+            if (appState.ActiveTab is GuiTab.Planner or GuiTab.LiveSession or GuiTab.Guider)
             {
                 DrawText(clockText.AsSpan(), _fontPath,
                     w * 0.7f, 0, w * 0.3f - 4f, sbh,

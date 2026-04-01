@@ -20,8 +20,8 @@ internal sealed class TuiPlannerTab(
     private TextBar? _statusBar;
     private ScrollableList<TargetListItem>? _targetList;
     private MarkdownWidget? _detailWidget;
-    private Canvas<RgbaImage>? _canvas;
-    private RgbaImageRenderer? _canvasRenderer;
+    private Canvas? _canvas;
+    private SixelRgbaImageRenderer? _canvasRenderer;
 
     [MemberNotNullWhen(true, nameof(_topBar), nameof(_statusBar), nameof(_targetList),
         nameof(_detailWidget), nameof(_canvas), nameof(_canvasRenderer))]
@@ -43,8 +43,8 @@ internal sealed class TuiPlannerTab(
         _detailWidget = new MarkdownWidget(detailVp);
 
         var canvasPixelSize = fillVp.PixelSize;
-        _canvasRenderer = new RgbaImageRenderer((uint)canvasPixelSize.Width, (uint)canvasPixelSize.Height);
-        _canvas = new Canvas<RgbaImage>(fillVp, _canvasRenderer);
+        _canvasRenderer = new SixelRgbaImageRenderer((uint)canvasPixelSize.Width, (uint)canvasPixelSize.Height);
+        _canvas = new Canvas(fillVp, _canvasRenderer);
 
         panel.Add(_topBar).Add(_statusBar).Add(_targetList).Add(_detailWidget).Add(_canvas);
     }

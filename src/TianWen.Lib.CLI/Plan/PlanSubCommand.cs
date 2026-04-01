@@ -380,7 +380,7 @@ internal class PlanSubCommand(
             return;
         }
 
-        var renderer = new RgbaImageRenderer((uint)chartW, (uint)chartH);
+        var renderer = new SixelRgbaImageRenderer((uint)chartW, (uint)chartH);
 
         renderer.FillRectangle(
             new RectInt(new PointInt(chartW, chartH), new PointInt(0, 0)),
@@ -389,11 +389,7 @@ internal class PlanSubCommand(
         var fontPath = Tui.TuiFontPath.Resolve();
         AltitudeChartRenderer.Render(renderer, plannerState, fontPath);
 
-        var surface = (RgbaImage)renderer.Surface;
-        using var ms = new MemoryStream();
-        SixelEncoder.Encode(surface.Pixels, surface.Width, surface.Height, 4, ms);
-        ms.Position = 0;
-        ms.CopyTo(terminal.OutputStream);
+        renderer.EncodeSixel(terminal.OutputStream);
         terminal.Flush();
     }
 

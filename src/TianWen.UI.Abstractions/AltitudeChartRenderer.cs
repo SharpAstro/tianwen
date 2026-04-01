@@ -488,6 +488,28 @@ public static class AltitudeChartRenderer
     }
 
     /// <summary>
+    /// Returns the full plot area layout for drawing overlays (time shade, mouse follower)
+    /// on top of a cached chart texture.
+    /// </summary>
+    public static (DateTimeOffset TStart, DateTimeOffset TEnd, int PlotX, int PlotY, int PlotW, int PlotH)
+        GetChartPlotLayout(PlannerState state, int areaX, int areaY, int areaW, int areaH)
+    {
+        var xMargin = Math.Max(48, areaW / 14);
+        var yMarginTop = Math.Max(30, areaH / 22);
+        var yMarginBot = Math.Max(44, areaH / 14);
+        var legendH = Math.Max(20, areaH / 33);
+
+        var plotX = areaX + xMargin;
+        var plotY = areaY + yMarginTop;
+        var plotW = areaW - xMargin * 2;
+        var plotH = areaH - yMarginTop - yMarginBot - legendH;
+
+        var tStart = (state.CivilSet ?? state.AstroDark - TimeSpan.FromHours(1)) - TimeSpan.FromMinutes(15);
+        var tEnd = (state.CivilRise ?? state.AstroTwilight + TimeSpan.FromHours(1)) + TimeSpan.FromMinutes(15);
+        return (tStart, tEnd, plotX, plotY, plotW, plotH);
+    }
+
+    /// <summary>
     /// Converts a screen X pixel to a time using the chart's time layout.
     /// </summary>
     public static DateTimeOffset XToTime(float px, DateTimeOffset tStart, DateTimeOffset tEnd, float plotX, float plotW)

@@ -8,26 +8,26 @@ namespace TianWen.Lib.CLI.View;
 /// <summary>
 /// CPU-side FITS image renderer for terminal output.
 /// Applies stretch via <see cref="Image.StretchValue"/> and renders to an <see cref="RgbaImage"/>.
-/// Supports Sixel (via <see cref="RgbaImageRenderer"/>) and ASCII fallback.
+/// Supports Sixel (via <see cref="SixelRgbaImageRenderer"/>) and ASCII fallback.
 /// </summary>
 internal sealed class ConsoleImageRenderer
 {
-    private readonly RgbaImageRenderer _renderer;
+    private readonly SixelRgbaImageRenderer _renderer;
 
     public ConsoleImageRenderer(int width, int height)
     {
-        _renderer = new RgbaImageRenderer((uint)width, (uint)height);
+        _renderer = new SixelRgbaImageRenderer((uint)width, (uint)height);
     }
 
     /// <summary>
     /// Wraps an existing renderer — use this to render directly into a Canvas's surface.
     /// </summary>
-    public ConsoleImageRenderer(RgbaImageRenderer renderer)
+    public ConsoleImageRenderer(SixelRgbaImageRenderer renderer)
     {
         _renderer = renderer;
     }
 
-    public RgbaImageRenderer Renderer => _renderer;
+    public SixelRgbaImageRenderer Renderer => _renderer;
     public RgbaImage Surface => (RgbaImage)_renderer.Surface;
 
     /// <summary>
