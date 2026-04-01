@@ -3,7 +3,7 @@
 ## High Priority
 
 - [x] MiniViewer: optional lightweight mode that skips storing UnstretchedImage — for live preview where we never re-stretch, just keep stats + GPU texture. Saves ~140MB per displayed frame
-- [ ] Cache altitude chart as texture — only re-render the mouse follower overlay on hover, not the entire chart. Currently 20% GPU on mouse hover due to full chart redraw per frame
+- [x] Cache altitude chart as texture — only re-render the mouse follower overlay on hover, not the entire chart. Currently 20% GPU on mouse hover due to full chart redraw per frame
 
 ## Flaky CI Tests
 
@@ -19,7 +19,7 @@
 - [ ] Live viewer: camera switching — allow selecting which OTA's camera to preview in both GUI MiniViewer and TUI Sixel preview (currently always shows first available)
 - [x] Guider graph: connect dots with lines (Bresenham or anti-aliased) instead of scatter dots — users expect smooth curves like PHD2
 - [ ] Guider graph: scrolling window (last N minutes) instead of compressing all history — makes activity feel live
-- [ ] Guider graph: reuse the existing LiveSessionTab guide graph widget — the guider tab should show a larger version of the same graph, not a separate implementation. Extract shared graph rendering
+- [x] Guider graph: reuse the existing LiveSessionTab guide graph widget — the guider tab should show a larger version of the same graph, not a separate implementation. Extract shared graph rendering
 - [ ] DIR.Lib: add `FillEllipse`/`FillCircle`/`DrawEllipse`/`DrawCircle` primitives to `PixelWidgetBase` — currently everything is built from `FillRect` scanlines
 - [x] Guider graph: show applied correction pulses (RA/Dec duration bars) alongside error — log-scaled bars (blue RA / orange Dec) extending up/down from zero line
 - [ ] SyntheticStarFieldRenderer: refactor 20-parameter methods into records/structs
@@ -33,7 +33,7 @@
   - [x] `BuiltInGuiderDriver`: expose from `GuideLoop`'s `GuiderCentroidTracker`
   - [x] `FakeGuider`: generate synthetic guide frames with star field
   - [x] GUI: guide camera Canvas + crosshair overlay + SNR + frame counter
-  - [ ] GUI: zoomed star close-up + 1D intensity profile
+  - [x] GUI: star profile panel with 1D H/V intensity cross-sections + Gaussian fits + FWHM
   - [ ] PHD2: no image (show placeholder), SNR/mass from event stream only
 - [x] Live session: show dither state — guider header shows `[Settling 0.42px]` with live distance, `[Paused (Slewing)]` during slews, correction arrows `[Guiding →142ms ↑38ms]`
 - [ ] Cooling graph: same scrolling window treatment
@@ -138,11 +138,11 @@
 
 ## Live Session Tab (Phase 2 — Polish)
 
-- [ ] Guide star profile bitmap from guider
+- [x] Guide star profile bitmap from guider (rendered in GuiderTab star profile panel)
 - [ ] Inline V-curve charts in focus history panel
 - [ ] Per-filter frame count breakdown in stats
 - [ ] Meridian flip countdown indicator
-- [ ] Dither event markers on guide graph
+- [x] Dither event markers on guide graph
 - [ ] Click exposure log entry → open in Viewer tab
 - [ ] Exposure log thumbnails: 128px height, preserve aspect ratio
 - [ ] Finalise as background task — keep UI responsive during park/warmup after abort/complete
