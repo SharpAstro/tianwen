@@ -135,18 +135,19 @@ public class EquipmentContent(IDeviceUriRegistry? registry = null)
         foreach (var slot in GetProfileSlots(data.Value))
         {
             var marker = slot.IsAssigned ? "\u2705" : "\u274c";
-            sb.AppendLine($"**{slot.Label}:** {marker} {slot.DeviceName}  ");
+            sb.AppendLine($"**{slot.Label}:** {marker} {slot.DeviceName}");
+            sb.AppendLine();
         }
 
         // Site
         var siteLabel = GetSiteLabel(data.Value);
         if (siteLabel is not null)
         {
-            sb.AppendLine($"**Site:** {siteLabel}  ");
+            sb.AppendLine($"**Site:** {siteLabel}");
         }
         else
         {
-            sb.AppendLine("**Site:** *not configured*  ");
+            sb.AppendLine("**Site:** *not configured*");
         }
 
         // OTAs
@@ -154,12 +155,15 @@ public class EquipmentContent(IDeviceUriRegistry? registry = null)
         {
             sb.AppendLine();
             sb.AppendLine($"### Telescope #{ota.Index}: {ota.Name}");
-            sb.AppendLine($"*{ota.Properties}*  ");
+            sb.AppendLine();
+            sb.AppendLine($"*{ota.Properties}*");
+            sb.AppendLine();
 
             foreach (var slot in ota.DeviceSlots)
             {
                 var marker = slot.IsAssigned ? "\u2705" : "\u274c";
-                sb.AppendLine($"  **{slot.Label}:** {marker} {slot.DeviceName}  ");
+                sb.AppendLine($"**{slot.Label}:** {marker} {slot.DeviceName}");
+                sb.AppendLine();
             }
 
             if (ota.Filters is { Count: > 0 } filters)
