@@ -14,16 +14,16 @@
 
 ## Next Up
 
-- [ ] Weather API integration — cloud cover, seeing, humidity, dew point. Auto-pause session on bad conditions. Candidates: OpenMeteo (free), ClearOutside scrape, or INDI weather device
+- [ ] Weather overlay in planner — hourly cloud cover forecast from OpenMeteo (free, no API key) rendered as a colored band along the altitude chart time axis (green=clear, yellow=partial, red=overcast). Helps users plan around weather windows. Session auto-pause on clouds is already handled by star-count-based condition deterioration detection
 - [ ] Planner: show Moon phase + position — altitude curve on the chart, illumination %, angular distance from each target (flag targets < 30° from Moon). Use existing VSOP87/ELP2000 or simplified lunar ephemeris
 - [ ] Live viewer: camera switching — allow selecting which OTA's camera to preview in both GUI MiniViewer and TUI Sixel preview (currently always shows first available)
 - [x] Guider graph: connect dots with lines (Bresenham or anti-aliased) instead of scatter dots — users expect smooth curves like PHD2
 - [ ] Guider graph: scrolling window (last N minutes) instead of compressing all history — makes activity feel live
 - [ ] Guider graph: reuse the existing LiveSessionTab guide graph widget — the guider tab should show a larger version of the same graph, not a separate implementation. Extract shared graph rendering
 - [ ] DIR.Lib: add `FillEllipse`/`FillCircle`/`DrawEllipse`/`DrawCircle` primitives to `PixelWidgetBase` — currently everything is built from `FillRect` scanlines
-- [ ] Guider graph: show applied correction pulses (RA/Dec duration bars) alongside error — users need to see what the controller is doing, not just the resulting error
+- [x] Guider graph: show applied correction pulses (RA/Dec duration bars) alongside error — log-scaled bars (blue RA / orange Dec) extending up/down from zero line
 - [ ] SyntheticStarFieldRenderer: refactor 20-parameter methods into records/structs
-- [ ] Guider graph: show dither events (markers/shading)
+- [x] Guider graph: show dither events (markers/shading) — yellow dashed vertical lines at dither events, dim yellow settling shading
 - [x] Guider tab: keep looping guide camera frames during centering/slewing — call `LoopAsync` when not guiding so the guide camera feed stays live. Currently the guide loop stops during centering and the tab shows "Waiting for guider"
 - [x] Guider tab: show calibration frames — render guide camera during calibration phase with star position and profile. Remaining: star movement vectors, step count, and calibration progress overlay
 - [ ] Fake camera: apply mount tracking drift as pixel offset to star positions — `SyntheticStarFieldRenderer` produces a fixed star field so pulse guide corrections are invisible, causing `GuiderCalibration` to never converge (zero displacement). Need to read accumulated RA/Dec drift from `FakeMountDriver` and translate to pixel shift
@@ -35,7 +35,7 @@
   - [x] GUI: guide camera Canvas + crosshair overlay + SNR + frame counter
   - [ ] GUI: zoomed star close-up + 1D intensity profile
   - [ ] PHD2: no image (show placeholder), SNR/mass from event stream only
-- [ ] Live session: show dither state — "Dithering..." status with settle progress, no indicator currently visible during dither
+- [x] Live session: show dither state — guider header shows `[Settling 0.42px]` with live distance, `[Paused (Slewing)]` during slews, correction arrows `[Guiding →142ms ↑38ms]`
 - [ ] Cooling graph: same scrolling window treatment
 - [ ] VSOP87 vectorization — convert 43K lines of hardcoded `amplitude * Cos(phase + frequency * t)` into coefficient arrays, evaluate with `Vector256<double>` (AVX2). Process 4 terms per iteration. Requires source generator or one-time conversion of all planet files (EarthX/Y/Z, MarsX/Y/Z, etc.)
 - [ ] CLI: `train-guide-model` command for offline epoch training of the neural guide model — connects to mount + guide camera, records guide data for N worm cycles, then runs `TrainEpoch` with real PE data as teacher signal. Produces a base `.ngm` model file for the optical train. Aimed at permanent setups where users can invest a one-time training session to get a high-quality starting model. The online trainer (`TrainOnBatch`) should eventually converge to the same quality — offline training just gets there faster by seeing many PE cycles upfront instead of learning incrementally
