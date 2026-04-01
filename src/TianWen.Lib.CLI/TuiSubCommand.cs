@@ -95,7 +95,7 @@ internal class TuiSubCommand(
             [GuiTab.Planner] = new TuiPlannerTab(appState, plannerState, fontPath, external.TimeProvider),
             [GuiTab.Session] = new TuiSessionTab(appState, sessionState, plannerState, bus),
             [GuiTab.LiveSession] = new TuiLiveSessionTab(appState, liveSessionState, terminal, bus),
-            [GuiTab.Guider] = new TuiGuiderTab(appState, liveSessionState),
+            [GuiTab.Guider] = new TuiGuiderTab(appState, liveSessionState, terminal, fontPath, external.TimeProvider),
         };
 
         // BuildScheduleSignal is now handled inside AppSignalHandler — no host-level subscription needed
