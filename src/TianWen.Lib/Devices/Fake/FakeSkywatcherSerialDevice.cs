@@ -134,8 +134,13 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                         _posDec += (int)(Math.Sign(delta) * slewRate * elapsedSeconds);
                     }
                 }
-                // else: constant-speed guide/slew — Dec doesn't move in simulation
-                // (guide pulses are too short to meaningfully change encoder position)
+                else
+                {
+                    // Constant-speed guide/slew: move Dec at guide rate
+                    var guideRate = (double)DEFAULT_CPR / 86164.0905 * 0.5; // 0.5x sidereal
+                    var direction = _decDirection == 0 ? 1.0 : -1.0;
+                    _posDec += (int)(direction * guideRate * elapsedSeconds);
+                }
             }
         }
     }
