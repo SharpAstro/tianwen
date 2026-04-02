@@ -540,12 +540,24 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
             var siderealTime = await mount.GetSiderealTimeAsync(ct);
             var hourAngle = siderealTime - ra;
 
+            // Probe mount for encoder position support (for predictive PEC)
+            Func<TelescopeAxis, CancellationToken, ValueTask<long?>>? getAxisPosition = null;
+            uint wormStepsRa = 0, wormStepsDec = 0;
+            var testPos = await mount.GetAxisPositionAsync(TelescopeAxis.Primary, ct);
+            if (testPos is not null)
+            {
+                getAxisPosition = mount.GetAxisPositionAsync;
+                wormStepsRa = await mount.GetWormPeriodStepsAsync(TelescopeAxis.Primary, ct);
+                wormStepsDec = await mount.GetWormPeriodStepsAsync(TelescopeAxis.Seconary, ct);
+            }
+
             // Transition: Calibrating → Settling → Guiding
             ForceState(GuiderState.Settling);
             RecordSettleStart();
 
             // Run the guide loop (blocks until cancelled)
-            await guideLoop.RunAsync(CaptureFrame, exposureTime, hourAngle, declination, siteLatitude, ct);
+            await guideLoop.RunAsync(CaptureFrame, exposureTime, hourAngle, declination, siteLatitude,
+                getAxisPosition, wormStepsRa, wormStepsDec, ct);
         }
         catch (OperationCanceledException)
         {

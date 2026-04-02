@@ -10,8 +10,8 @@ public class NeuralGuideModelTests
     [Fact]
     public void GivenModelWhenInitializedThenParameterCountCorrect()
     {
-        // (22*32 + 32) + (32*16 + 16) + (16*2 + 2) = 736 + 528 + 34 = 1,298
-        NeuralGuideModel.TotalParams.ShouldBe(1298);
+        // (26*32 + 32) + (32*16 + 16) + (16*2 + 2) = 864 + 528 + 34 = 1,426
+        NeuralGuideModel.TotalParams.ShouldBe(1426);
     }
 
     [Fact]
@@ -122,6 +122,8 @@ public class NeuralGuideModelTests
             raRmsShort: 0.8, decRmsShort: 0.4,
             hourAngle: 2.0,
             declination: 45.0,
+            raEncoderPhaseRadians: double.NaN,
+            decEncoderPhaseRadians: double.NaN,
             buffer);
 
         buffer[0].ShouldBe(1.5f);       // current RA error
@@ -144,8 +146,8 @@ public class NeuralGuideModelTests
         var features = new NeuralGuideFeatures(siteLatitude: 45.0);
         Span<float> buffer = stackalloc float[NeuralGuideModel.InputSize];
 
-        features.Build(1.0, -0.5, 0, 0, 10.0, 0.5, 0.3, 0, 45.0, buffer);
-        features.Build(1.5, -0.8, -0.7, 0.35, 12.0, 0.6, 0.4, 0, 45.0, buffer);
+        features.Build(1.0, -0.5, 0, 0, 10.0, 0.5, 0.3, 0, 45.0, double.NaN, double.NaN, buffer);
+        features.Build(1.5, -0.8, -0.7, 0.35, 12.0, 0.6, 0.4, 0, 45.0, double.NaN, double.NaN, buffer);
 
         buffer[0].ShouldBe(1.5f);       // current RA
         buffer[1].ShouldBe(-0.8f);      // current Dec
@@ -162,9 +164,9 @@ public class NeuralGuideModelTests
         var features = new NeuralGuideFeatures(siteLatitude: 45.0);
         Span<float> buffer = stackalloc float[NeuralGuideModel.InputSize];
 
-        features.Build(1.0, -0.5, 0, 0, 10.0, 0.5, 0.3, 0, 45.0, buffer);
+        features.Build(1.0, -0.5, 0, 0, 10.0, 0.5, 0.3, 0, 45.0, double.NaN, double.NaN, buffer);
         features.Reset();
-        features.Build(2.0, 1.0, 0, 0, 20.0, 0.1, 0.1, 0, 45.0, buffer);
+        features.Build(2.0, 1.0, 0, 0, 20.0, 0.1, 0.1, 0, 45.0, double.NaN, double.NaN, buffer);
 
         buffer[2].ShouldBe(0f); // t-1 RA cleared by reset
         buffer[3].ShouldBe(0f); // t-1 Dec cleared by reset

@@ -109,7 +109,7 @@ public class GuideLoopTests(ITestOutputHelper output)
 
         try
         {
-            await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(GuideIntervalSeconds), hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cts.Token);
+            await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(GuideIntervalSeconds), hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cancellationToken: cts.Token);
         }
         catch (OperationCanceledException)
         {
@@ -225,7 +225,7 @@ public class GuideLoopTests(ITestOutputHelper output)
 
             try
             {
-                await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(GuideIntervalSeconds), hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cts.Token);
+                await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(GuideIntervalSeconds), hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cancellationToken: cts.Token);
             }
             catch (OperationCanceledException)
             {
@@ -345,7 +345,7 @@ public class GuideLoopTests(ITestOutputHelper output)
 
         try
         {
-            await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(GuideIntervalSeconds), hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cts.Token);
+            await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(GuideIntervalSeconds), hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cancellationToken: cts.Token);
         }
         catch (OperationCanceledException)
         {
@@ -540,7 +540,7 @@ public class GuideLoopTests(ITestOutputHelper output)
 
             try
             {
-                await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(2), hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cts.Token);
+                await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(2), hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cancellationToken: cts.Token);
             }
             catch (OperationCanceledException)
             {
@@ -593,7 +593,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         await Should.ThrowAsync<InvalidOperationException>(async () =>
         {
             await guideLoop.RunAsync(_ => ValueTask.FromResult(Image.FromChannel(new float[240, 320])),
-                TimeSpan.FromSeconds(1), hourAngle: 0, declination: 45.0, siteLatitude: 48.2, ct);
+                TimeSpan.FromSeconds(1), hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cancellationToken: ct);
         });
     }
 
@@ -835,7 +835,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         try
         {
             await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(GuideIntervalSeconds),
-                hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cts.Token);
+                hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cancellationToken: cts.Token);
         }
         catch (OperationCanceledException)
         {

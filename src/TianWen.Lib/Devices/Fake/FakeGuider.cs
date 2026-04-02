@@ -425,7 +425,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
                     _lastLoopFrame = f; // same ref as GuideLoop.LastFrame — no extra Release needed
                     return f;
                 },
-                exposureTime, hourAngle, declination, siteLatitude, ct);
+                exposureTime, hourAngle, declination, siteLatitude, cancellationToken: ct);
         }
         catch (OperationCanceledException)
         {

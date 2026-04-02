@@ -65,6 +65,12 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
             return new FakeSgpMountDriver(this, external);
         }
 
+        // If port=SkyWatcher is specified, use the Skywatcher motor controller protocol stack.
+        if (string.Equals(port, "SkyWatcher", StringComparison.OrdinalIgnoreCase))
+        {
+            return new FakeSkywatcherMountDriver(this, external);
+        }
+
         // Otherwise use the lightweight direct driver.
         return new FakeMountDriver(this, external);
     }
@@ -73,6 +79,8 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
     {
         DeviceType.Mount when string.Equals(Query.QueryValue(DeviceQueryKey.Port), "SGP", StringComparison.OrdinalIgnoreCase)
             => new FakeSgpSerialDevice(external.AppLogger, encoding ?? Encoding.ASCII, external.TimeProvider, SiteLatitude >= 0, true),
+        DeviceType.Mount when string.Equals(Query.QueryValue(DeviceQueryKey.Port), "SkyWatcher", StringComparison.OrdinalIgnoreCase)
+            => new FakeSkywatcherSerialDevice(external.AppLogger, encoding ?? Encoding.ASCII, external.TimeProvider, true),
         DeviceType.Mount
             => new FakeMeadeLX200SerialDevice(external.AppLogger, encoding ?? Encoding.Latin1, external.TimeProvider, SiteLatitude, SiteLongitude, true),
         _ => null
