@@ -36,7 +36,7 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
     [
         DeviceSettingHelper.IntSetting(
             DeviceQueryKey.FocuserInitialPosition.Key, "Initial Pos",
-            defaultValue: 950, min: 0, max: 2000, step: 10,
+            defaultValue: 980, min: 0, max: 2000, step: 10,
             suffix: " steps"),
         DeviceSettingHelper.IntSetting(
             DeviceQueryKey.FocuserBestFocus.Key, "Best Focus",
