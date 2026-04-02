@@ -927,14 +927,19 @@ namespace TianWen.UI.Abstractions
             var chartW = rect.Width - margin * 2;
             var chartH = rect.Height - margin * 2 - fontSize; // leave room for axis label
 
-            // Add 10% vertical padding
+            // Add padding so dots don't sit on the axis edges
             var hfdRange = maxHfd - minHfd;
-            minHfd -= hfdRange * 0.1f;
-            maxHfd += hfdRange * 0.1f;
+            if (hfdRange < 0.5f) hfdRange = 0.5f; // minimum range to avoid noise magnification
+            minHfd -= hfdRange * 0.15f;
+            maxHfd += hfdRange * 0.15f;
             if (minHfd < 0) minHfd = 0;
             hfdRange = maxHfd - minHfd;
 
             var posRange = maxPos - minPos;
+            var posPad = Math.Max(posRange * 0.05, 1);
+            minPos -= (int)posPad;
+            maxPos += (int)posPad;
+            posRange = maxPos - minPos;
 
             float PosToX(double pos) => chartX + (float)((pos - minPos) / posRange) * chartW;
             float HfdToY(double hfd) => chartY + chartH - (float)((hfd - minHfd) / hfdRange) * chartH;
