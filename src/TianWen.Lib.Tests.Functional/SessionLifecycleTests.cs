@@ -370,7 +370,9 @@ public class SessionLifecycleTests(ITestOutputHelper output)
     public async Task GivenSyntheticStarsWhenInitialRoughFocusThenDetectsStars()
     {
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
+        // LX200 mount needed: InitialRoughFocusAsync slews internally via WaitForSlewCompleteAsync
+        // which requires the serial protocol's timer-based slew to interleave with SleepAsync pumping.
+        using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, mountPort: "LX200", cancellationToken: ct);
 
         // Enable synthetic star field rendering at best focus
         ctx.Camera.TrueBestFocus = 1000;
