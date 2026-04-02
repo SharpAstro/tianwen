@@ -684,6 +684,13 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IExte
             await GetSiteLatitudeAsync(cancellationToken);
             await GetSiteLongitudeAsync(cancellationToken);
 
+            // If encoder is at home (0,0), assume pointing at the pole (standard park position)
+            if (_posRa == 0 && _posDec == 0 && !double.IsNaN(_siteLatitude))
+            {
+                var poleDec = _siteLatitude >= 0 ? 90.0 : -90.0;
+                await SyncRaDecAsync(await GetSiderealTimeAsync(cancellationToken), poleDec, cancellationToken);
+            }
+
             return true;
         }
         catch (Exception ex)
