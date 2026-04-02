@@ -39,6 +39,11 @@ dotnet build
 dotnet build -c Release
 dotnet test
 dotnet test -c Release
+
+# Run a specific test collection by class name pattern:
+dotnet test TianWen.Lib.Tests --filter "FullyQualifiedName~Catalog"
+dotnet test TianWen.Lib.Tests --filter "Skywatcher"
+dotnet test TianWen.Lib.Tests --filter "FullyQualifiedName~Guider|FullyQualifiedName~NeuralGuide"
 ```
 
 ## Target Framework
@@ -73,6 +78,34 @@ dotnet test -c Release
 - **Never use reflection in tests**: do not access private fields/methods via `System.Reflection`.
   If test code needs access to internal state, add an `internal` property or method to the
   production code — the test project already has `InternalsVisibleTo` access.
+
+### Test Collections & Parallelism
+
+Tests are grouped into `[Collection("X")]` by functional area. Tests within the same
+collection run sequentially; different collections run in parallel.
+
+**Unit test collections** (`TianWen.Lib.Tests`):
+
+| Collection | Classes | What to re-run when... |
+|---|---|---|
+| `Catalog` | CatalogIndex, Catalog, CatalogUtil, CelestialObjectDB, Constellation | catalog data or cross-references change |
+| `Imaging` | FindStars*, SyntheticStarDetection, Stretch*, ContrastBoost, BitMatrix, FITS/TIFF roundtrip, Statistics | star detection, stretch pipeline, image I/O change |
+| `Astrometry` | CoordinateUtils, Transform, PlateSolver*, VSOP87a, AstronomicalEveningDate, TimeUtil, TimeZoneLookup, OverlayEngine | coordinate math, plate solving, WCS overlay change |
+| `Guider` | ProportionalGuideController, GuiderCentroidTracker, GuideErrorTracker, GuiderDevice, NeuralGuide* | guide algorithm, neural model, calibration change |
+| `Scheduling` | ObservationScheduler*, FilterPlanBuilder, Filter, OpticalDesign, Mosaic*, TonightsBest, WaitForDark, FindBestFocus | scheduling, filter plans, mosaic, focus algorithm change |
+| `Device` | Device, SensorType, ObjectType, SerialConnection, ManualFilterWheel | device URI parsing, serial protocol, sensor types change |
+| `Skywatcher` | SkywatcherProtocol | Skywatcher motor controller protocol change |
+| `Encoding` | Base91, SessionPersistence, StepExposure, TryParseExposureInput | data encoding, persistence formats change |
+| `UI` | TextInputState, SessionTab | widget state, session config UI change |
+
+**Functional test collections** (`TianWen.Lib.Tests.Functional`):
+- All `Session*Tests` share `[Collection("Session")]` — runs sequentially to avoid
+  thread pool starvation from concurrent `Task.Run` + `FakeTimeProvider` timer callbacks
+- `maxParallelThreads: 2` in `xunit.runner.json` limits overall parallelism
+- **No wall-clock `CancellationTokenSource` timeouts** in session tests — rely on
+  `[Fact(Timeout = ...)]` instead; inner timeouts cause flakes under thread pool pressure
+- `SessionTestHelper` defaults to `FakeMountDriver` (no `mountPort`); pass
+  `mountPort: "LX200"` or `"SkyWatcher"` only for protocol-specific tests
 
 ## Coding Style
 
