@@ -15,6 +15,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Scheduling")]
 public sealed class ObservationScheduleVisualizationTests(ITestOutputHelper testOutputHelper)
 {
     // Vienna, Austria — ~48.2°N, ~16.4°E

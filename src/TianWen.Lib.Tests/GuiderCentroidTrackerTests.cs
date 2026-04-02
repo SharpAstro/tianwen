@@ -6,6 +6,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Guider")]
 public class GuiderCentroidTrackerTests(ITestOutputHelper output)
 {
     [Fact]

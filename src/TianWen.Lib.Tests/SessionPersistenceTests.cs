@@ -8,6 +8,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Encoding")]
 public class SessionPersistenceTests(ITestOutputHelper output)
 {
     private static Profile CreateTestProfile(int otaCount = 1, Uri? cameraUri = null)

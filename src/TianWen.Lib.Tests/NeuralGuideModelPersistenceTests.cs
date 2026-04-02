@@ -9,6 +9,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Guider")]
 public class NeuralGuideModelPersistenceTests : IDisposable
 {
     private readonly DirectoryInfo _tempDir;

@@ -8,6 +8,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Scheduling")]
 public sealed class ConditionDeteriorationTests
 {
     private const int Width = 640;

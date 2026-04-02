@@ -7,6 +7,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Scheduling")]
 public sealed class MosaicGeneratorTests
 {
     // M31 — Andromeda Galaxy: RA=0.712h, Dec=41.27°, MajorAxis=178', MinorAxis=63', PA=35°

@@ -7,6 +7,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Catalog")]
 public class CelestialObjectDBBenchmarkTests(ITestOutputHelper output)
 {
     [Fact]

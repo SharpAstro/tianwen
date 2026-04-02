@@ -9,6 +9,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Astrometry")]
 public class OverlayEngineTests
 {
     // --- IsExtendedObjectType ---

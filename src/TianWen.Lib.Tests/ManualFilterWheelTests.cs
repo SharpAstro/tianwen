@@ -6,6 +6,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Device")]
 public class ManualFilterWheelTests(ITestOutputHelper output)
 {
     [Fact]

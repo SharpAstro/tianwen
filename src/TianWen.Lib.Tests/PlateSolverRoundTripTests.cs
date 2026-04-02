@@ -8,6 +8,7 @@ using static TianWen.Lib.Tests.SharedTestData;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Astrometry")]
 public class PlateSolverRoundTripTests
 {
     [Theory]

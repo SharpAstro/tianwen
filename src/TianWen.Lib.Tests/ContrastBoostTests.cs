@@ -9,6 +9,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Imaging")]
 public class ContrastBoostTests(ITestOutputHelper testOutputHelper)
 {
     private const string RGGBImage = "RGGB_frame_bx0_by0_top_down";

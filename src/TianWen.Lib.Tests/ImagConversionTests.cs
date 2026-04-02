@@ -9,6 +9,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Imaging")]
 public class ImagConversionTests(ITestOutputHelper testOutputHelper)
 {
     [Theory]

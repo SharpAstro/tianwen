@@ -12,6 +12,7 @@ namespace TianWen.Lib.Tests;
 /// Verifies that FindStarsAsync can detect stars from perfectly focused through
 /// moderately defocused images, matching what the rough focus phase encounters.
 /// </summary>
+[Collection("Imaging")]
 public class SyntheticStarDetectionTests(ITestOutputHelper output)
 {
     private const int Width = 1280;

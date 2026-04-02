@@ -8,6 +8,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Scheduling")]
 public class FilterPlanBuilderTests
 {
     private static readonly ImmutableArray<InstalledFilter> LRGBHaFilters =

@@ -7,6 +7,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Astrometry")]
 public class VSOP87aTests
 {
     [Theory]

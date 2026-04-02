@@ -6,6 +6,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Device")]
 public class SerialConnectionTests(ITestOutputHelper testOutputHelper)
 {
     private (StreamSerialConnection C1, StreamSerialConnection C2) CreatePair()

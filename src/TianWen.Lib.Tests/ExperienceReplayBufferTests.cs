@@ -5,6 +5,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Guider")]
 public class ExperienceReplayBufferTests
 {
     private static OnlineGuideExperience MakeExperience(float targetRa, float targetDec)

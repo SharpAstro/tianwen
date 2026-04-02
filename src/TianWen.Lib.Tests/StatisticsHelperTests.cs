@@ -5,6 +5,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Imaging")]
 public class StatisticsHelperTests
 {
     [Theory]

@@ -14,6 +14,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Astrometry")]
 public class PlateSolverTests(ITestOutputHelper output)
 {
     private static ICelestialObjectDB? _cachedDB;
