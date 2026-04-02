@@ -45,8 +45,8 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
     private int _targetDecSteps;
     private int _raDirection; // 0=forward, 1=reverse
     private int _decDirection;
-    private int _raMode; // 0=tracking, 1=slew (constant speed); from G command payload[0]
-    private int _decMode;
+    private bool _raGotoMode; // true=goto (move to H/S target), false=tracking/guide (constant speed)
+    private bool _decGotoMode;
 
     // Guide speed
     private int _guideSpeedIndex = 2; // 0-4
@@ -98,8 +98,8 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                 _posRa += (int)(stepsPerSec * elapsedSeconds);
             }
 
-            // Simulate slew: move toward target
-            if (_raRunning && !_raTracking)
+            // Simulate goto slew: move toward target
+            if (_raRunning && _raGotoMode)
             {
                 var slewRate = (double)DEFAULT_CPR / 360.0 * 3.0; // 3 deg/s slew speed in steps
                 var delta = _targetRaSteps - _posRa;
@@ -107,6 +107,7 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                 {
                     _posRa = _targetRaSteps;
                     _raRunning = false;
+                    _raGotoMode = false;
                 }
                 else
                 {
@@ -116,17 +117,23 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
 
             if (_decRunning)
             {
-                var slewRate = (double)DEFAULT_CPR / 360.0 * 3.0;
-                var delta = _targetDecSteps - _posDec;
-                if (Math.Abs(delta) < slewRate * elapsedSeconds)
+                if (_decGotoMode)
                 {
-                    _posDec = _targetDecSteps;
-                    _decRunning = false;
+                    // Goto: move toward target, stop when reached
+                    var slewRate = (double)DEFAULT_CPR / 360.0 * 3.0;
+                    var delta = _targetDecSteps - _posDec;
+                    if (Math.Abs(delta) < slewRate * elapsedSeconds)
+                    {
+                        _posDec = _targetDecSteps;
+                        _decRunning = false;
+                    }
+                    else
+                    {
+                        _posDec += (int)(Math.Sign(delta) * slewRate * elapsedSeconds);
+                    }
                 }
-                else
-                {
-                    _posDec += (int)(Math.Sign(delta) * slewRate * elapsedSeconds);
-                }
+                // else: constant-speed guide/slew — Dec doesn't move in simulation
+                // (guide pulses are too short to meaningfully change encoder position)
             }
         }
     }
@@ -262,13 +269,16 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
 
                 case 'G': // Motion mode
                 {
-                    // payload: 3 chars: mode, speed, direction
+                    // payload: 2-char hex mode byte + 1-char direction
+                    // mode bit 0: 0=goto, 1=constant-speed (tracking/guide)
+                    // direction: 0=forward, 1=reverse
                     if (payload.Length >= 3)
                     {
-                        var mode = payload[0] - '0';
+                        var modeByte = byte.Parse(payload.AsSpan(0, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+                        var isGoto = (modeByte & 0x01) == 0; // bit 0: 0=goto, 1=tracking/slew
                         var dir = payload[2] - '0';
-                        if (axis == '1') { _raMode = mode; _raDirection = dir; }
-                        else { _decMode = mode; _decDirection = dir; }
+                        if (axis == '1') { _raGotoMode = isGoto; _raDirection = dir; }
+                        else { _decGotoMode = isGoto; _decDirection = dir; }
                     }
                     _responseBuffer.Append("=\r");
                     break;
@@ -316,8 +326,8 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                     if (axis == '1' || axis == '3')
                     {
                         _raRunning = true;
-                        // Mode 0 = tracking (sidereal rate), mode 1 = slew (constant speed)
-                        _raTracking = _raMode == 0;
+                        // Goto mode moves to H/S target; constant-speed mode is tracking/guide
+                        _raTracking = !_raGotoMode;
                     }
                     if (axis == '2' || axis == '3')
                     {
