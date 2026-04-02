@@ -111,11 +111,14 @@ internal partial record Session
 
                 if (cancellationToken.IsCancellationRequested) break;
 
+                await PollDeviceStatesAsync(cancellationToken);
+
                 if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } image)
                 {
-                    var stars = await image.FindStarsAsync(0, snrMin: 15, cancellationToken: cancellationToken);
-                    image.Release();
+                    // Push to mini viewer so the user sees the frame even when stars aren't found
+                    _lastCapturedImages[i] = image;
 
+                    var stars = await image.FindStarsAsync(0, snrMin: 15, cancellationToken: cancellationToken);
 
                     _currentActivity = $"Stars: {stars.Count}/15 (exposure {expTimesSec[i]}s)";
                     External.AppLogger.LogInformation("RoughFocus: telescope #{TelescopeNumber} exposure {ExpTime}s → {StarCount} stars detected (need ≥15)",
