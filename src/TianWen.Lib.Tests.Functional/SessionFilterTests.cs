@@ -16,6 +16,7 @@ namespace TianWen.Lib.Tests.Functional;
 /// Tests for filter wheel sequencing in the imaging loop, including
 /// the altitude-ladder traversal and focus offset application.
 /// </summary>
+[Collection("Session")]
 public class SessionFilterTests(ITestOutputHelper output)
 {
     // Horsehead + M42 framing center: midpoint between Horsehead (5.68h, -1.94°) and M42 (5.59h, -5.39°)

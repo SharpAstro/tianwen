@@ -17,6 +17,7 @@ namespace TianWen.Lib.Tests.Functional;
 /// Tests for the observable session surface: phase transitions, abort lifecycle,
 /// cooling samples, and events (PhaseChanged, FrameWritten, FocusHistory).
 /// </summary>
+[Collection("Session")]
 public class SessionPhaseTests(ITestOutputHelper output)
 {
     // Winter night in Vienna — astro dark at ~17:30 UTC, twilight at ~04:30 UTC

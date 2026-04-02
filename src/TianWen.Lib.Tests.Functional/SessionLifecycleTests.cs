@@ -18,6 +18,7 @@ namespace TianWen.Lib.Tests.Functional;
 /// Site: Vienna 48.2°N, 16.3°E.
 /// Winter tests use Dec 15 22:00 UTC (long, unambiguous astronomical night).
 /// </summary>
+[Collection("Session")]
 public class SessionLifecycleTests(ITestOutputHelper output)
 {
     private static readonly DateTimeOffset WinterNight = new(2025, 12, 15, 22, 0, 0, TimeSpan.Zero);

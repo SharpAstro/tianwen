@@ -20,6 +20,7 @@ namespace TianWen.Lib.Tests.Functional;
 ///   Seagull (RA=7.06) HA≈−2.5h, alt≈23° — rising, visible above 15°
 ///   Sagittarius (RA=18.0, Dec=−30°) alt≈−66° — well below horizon
 /// </summary>
+[Collection("Session")]
 public class SessionObservationLoopTests(ITestOutputHelper output)
 {
     private const int TrueBestFocusPosition = 1000;
