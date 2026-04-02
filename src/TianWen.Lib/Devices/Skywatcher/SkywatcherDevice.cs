@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Specialized;
+using System.Net;
 using System.Text;
 using TianWen.Lib.Connections;
 
@@ -27,8 +28,8 @@ public record SkywatcherDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
             return null;
         }
 
-        // WiFi transport: port starts with a host address (contains ':' or is an IP)
-        if (port.Contains(':') || (port.Split('.') is { Length: 4 }))
+        // WiFi transport: port is an IPv4 address
+        if (IPAddress.TryParse(port, out _))
         {
             return new SkywatcherUdpConnection(port, SkywatcherProtocol.WIFI_PORT, encoding ?? Encoding.ASCII, external.AppLogger);
         }
