@@ -122,7 +122,6 @@ internal partial record Session
 
                 if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } image)
                 {
-                    // Push to mini viewer so the user sees the frame even when stars aren't found
                     _lastCapturedImages[i] = image;
 
                     var stars = await image.FindStarsAsync(0, snrMin: 15, cancellationToken: cancellationToken);
@@ -414,37 +413,14 @@ internal partial record Session
                 {
                     _cameraStates[telescopeIndex] = _cameraStates[telescopeIndex] with { State = Devices.CameraState.Download };
                 }
-                // Debayer into persistent viewer channels (1 channel for BilinearMono)
-                Image viewerImage;
-                var channelCount = image.ImageMeta.SensorType is Imaging.SensorType.RGGB ? 1 : image.ChannelCount;
-                if (telescopeIndex < _viewerChannels.Length)
-                {
-                    if (_viewerChannels[telescopeIndex] is not { } vc || vc.Length != channelCount || vc[0].Height != image.Height || vc[0].Width != image.Width)
-                    {
-                        vc = new Imaging.Channel[channelCount];
-                        for (var c = 0; c < channelCount; c++)
-                            vc[c] = Imaging.Channel.Create(image.Height, image.Width, image.ImageMeta.Filter, (byte)c);
-                        _viewerChannels[telescopeIndex] = vc;
-                    }
-
-                    viewerImage = await image.DebayerIntoAsync(vc,
-                        image.ImageMeta.SensorType is Imaging.SensorType.RGGB ? Imaging.DebayerAlgorithm.BilinearMono : Imaging.DebayerAlgorithm.None,
-                        normalizeToUnit: true, cancellationToken);
-                }
-                else
-                {
-                    viewerImage = image.ImageMeta.SensorType is Imaging.SensorType.RGGB
-                        ? await image.DebayerAsync(Imaging.DebayerAlgorithm.BilinearMono, normalizeToUnit: true, cancellationToken)
-                        : image.ScaleFloatValuesToUnitInPlace();
-                }
-
+                // Push raw image to mini viewer (GPU handles debayer)
                 if (telescopeIndex < _lastCapturedImages.Length)
                 {
-                    _lastCapturedImages[telescopeIndex] = viewerImage;
+                    _lastCapturedImages[telescopeIndex] = image;
                 }
 
-                // Star detection on the mono/normalized image
-                var stars = await viewerImage.FindStarsAsync(0, snrMin: 10, cancellationToken: cancellationToken);
+                // Star detection on the raw image
+                var stars = await image.FindStarsAsync(0, snrMin: 10, cancellationToken: cancellationToken);
                 if (stars.Count > 3)
                 {
                     var hfd = stars.MapReduceStarProperty(SampleKind.HFD, AggregationMethod.Median);
@@ -468,8 +444,7 @@ internal partial record Session
                     Array2DPool<float>.ReturnCount,
                     0);
 
-                // Release raw image's ChannelBuffer — debayer already read the data into new arrays
-                if (!ReferenceEquals(image, viewerImage))
+                // Release raw image's ChannelBuffer after star detection
                 {
                     image.Release();
                     image = null;
