@@ -214,7 +214,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IExte
         var statusRa = await QueryAxisStatusAsync('1', cancellationToken);
         var statusDec = await QueryAxisStatusAsync('2', cancellationToken);
         _isSlewingRa = statusRa.IsRunning && !statusRa.IsTracking;
-        _isSlewingDec = statusDec.IsRunning;
+        _isSlewingDec = statusDec.IsRunning && !statusDec.IsTracking;
         return _isSlewingRa || _isSlewingDec;
     }
 
@@ -363,7 +363,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IExte
         return ValueTask.FromResult(fraction * SIDEREAL_RATE / 3600.0);
     }
 
-    public ValueTask SetGuideRateRightAscensionAsync(double value, CancellationToken cancellationToken)
+    public async ValueTask SetGuideRateRightAscensionAsync(double value, CancellationToken cancellationToken)
     {
         // Map to nearest guide speed index (0-4)
         var siderealDegPerSec = SIDEREAL_RATE / 3600.0;
@@ -376,14 +376,20 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IExte
             >= 0.1875 => 3,  // 0.25x
             _ => 4            // 0.125x
         };
-        return ValueTask.CompletedTask;
+        // Send :P to set the ST-4 autoguide port speed on the mount hardware
+        await SendCommandAsync('P', '1', _guideSpeedIndex.ToString(), cancellationToken);
     }
 
     public ValueTask<double> GetGuideRateDeclinationAsync(CancellationToken cancellationToken)
         => GetGuideRateRightAscensionAsync(cancellationToken); // same guide speed for both axes
 
-    public ValueTask SetGuideRateDeclinationAsync(double value, CancellationToken cancellationToken)
-        => SetGuideRateRightAscensionAsync(value, cancellationToken);
+    public async ValueTask SetGuideRateDeclinationAsync(double value, CancellationToken cancellationToken)
+    {
+        await SetGuideRateRightAscensionAsync(value, cancellationToken);
+        // RA setter already updates _guideSpeedIndex and sends :P to axis 1;
+        // also send to axis 2 for the Dec ST-4 port
+        await SendCommandAsync('P', '2', _guideSpeedIndex.ToString(), cancellationToken);
+    }
 
     #endregion
 
@@ -663,6 +669,10 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IExte
 
             // Initialize both axes
             await SendCommandAsync('F', '3', null, cancellationToken);
+
+            // Set ST-4 autoguide port speed to match our guide speed index
+            await SendCommandAsync('P', '1', _guideSpeedIndex.ToString(), cancellationToken);
+            await SendCommandAsync('P', '2', _guideSpeedIndex.ToString(), cancellationToken);
 
             // Read site coordinates from URI
             await GetSiteLatitudeAsync(cancellationToken);
