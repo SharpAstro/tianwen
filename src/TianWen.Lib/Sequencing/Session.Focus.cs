@@ -53,7 +53,14 @@ internal partial record Session
         var zenithTarget = new Target(zenithRa, zenithDec, "Zenith", null);
         for (var i = 0; i < Setup.Telescopes.Length; i++)
         {
-            Setup.Telescopes[i].Camera.Driver.Target = zenithTarget;
+            var cam = Setup.Telescopes[i].Camera.Driver;
+            cam.Target = zenithTarget;
+
+            // Sync camera's FocusPosition from the focuser so defocus-dependent rendering is correct
+            if (Setup.Telescopes[i].Focuser?.Driver is { Connected: true } foc)
+            {
+                cam.FocusPosition = await foc.GetPositionAsync(cancellationToken);
+            }
         }
 
         _currentActivity = "Guider plate-solve (60s timeout)\u2026";
@@ -121,8 +128,8 @@ internal partial record Session
                     var stars = await image.FindStarsAsync(0, snrMin: 15, cancellationToken: cancellationToken);
 
                     _currentActivity = $"Stars: {stars.Count}/15 (exposure {expTimesSec[i]}s)";
-                    External.AppLogger.LogInformation("RoughFocus: telescope #{TelescopeNumber} exposure {ExpTime}s → {StarCount} stars detected (need ≥15)",
-                        i + 1, expTimesSec[i], stars.Count);
+                    External.AppLogger.LogInformation("RoughFocus: telescope #{TelescopeNumber} exposure {ExpTime}s focPos={FocusPosition} → {StarCount} stars detected (need ≥15)",
+                        i + 1, expTimesSec[i], camDriver.FocusPosition, stars.Count);
 
                     if (stars.Count < 15)
                     {

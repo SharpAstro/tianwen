@@ -116,4 +116,50 @@ public class SyntheticStarDetectionTests(ITestOutputHelper output)
         stars.Count.ShouldBeGreaterThanOrEqualTo(15,
             "Rough focus should detect ≥15 stars at 20 steps defocus with 1s exposure");
     }
+
+    /// <summary>
+    /// Replicates the exact FakeCameraDriver pipeline: BitDepth.Int16 with float data,
+    /// to verify star detection works through the same path the session uses.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(20)]
+    [InlineData(50)]
+    [InlineData(100)]
+    public async Task GivenCameraDriverPipeline_ThenStarsDetected(int defocusSteps)
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var data = SyntheticStarFieldRenderer.Render(
+            Width, Height, defocusSteps: defocusSteps,
+            exposureSeconds: 1.0, starCount: 50, seed: Seed, noiseSeed: 1);
+
+        // Compute min/max like FakeCameraDriver does
+        var dataMax = 0f;
+        var dataMin = float.MaxValue;
+        for (var y = 0; y < data.GetLength(0); y++)
+        {
+            for (var x = 0; x < data.GetLength(1); x++)
+            {
+                var val = data[y, x];
+                if (val > dataMax) dataMax = val;
+                if (val < dataMin) dataMin = val;
+            }
+        }
+
+        // Create Image with BitDepth.Int16 (like FakeCameraDriver.GetBitDepthAsync returns)
+        var meta = new ImageMeta("synth", DateTime.UtcNow, TimeSpan.FromSeconds(1.0),
+            FrameType.Light, "", 4.63f, 4.63f, 800, -1, Filter.Luminance, 1, 1,
+            float.NaN, SensorType.Monochrome, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
+        var image = new Image([data], BitDepth.Int16, dataMax, dataMin, 0, meta);
+
+        output.WriteLine("Camera pipeline: defocus={0}, MaxValue={1:F0}, MinValue={2:F0}", defocusSteps, dataMax, dataMin);
+
+        var stars = await image.FindStarsAsync(0, snrMin: 15f, maxStars: 200, cancellationToken: ct);
+
+        output.WriteLine("  → {0} stars detected", stars.Count);
+
+        stars.Count.ShouldBeGreaterThan(0,
+            $"Camera pipeline should detect stars at defocus={defocusSteps}");
+    }
 }
