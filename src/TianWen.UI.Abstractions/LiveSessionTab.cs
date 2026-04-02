@@ -774,11 +774,16 @@ namespace TianWen.UI.Abstractions
                 }
             }
 
-            // V-curve chart: show during auto-focus or when last focus run is recent
+            // V-curve chart: show in-progress samples during auto-focus, or the completed
+            // run's curve (with hyperbola fit) until imaging starts
             var activeSamples = state.ActiveFocusSamples;
             var lastFocusRun = state.FocusHistory is { Length: > 0 } fh ? fh[^1] : default(FocusRunRecord?);
-            if (activeSamples.Length >= 2 || (state.Phase is SessionPhase.AutoFocus && lastFocusRun?.Curve.Length >= 2))
+            var showVCurve = activeSamples.Length >= 2
+                || (lastFocusRun?.Curve.Length >= 2
+                    && state.Phase is SessionPhase.AutoFocus or SessionPhase.CalibratingGuider or SessionPhase.RoughFocus);
+            if (showVCurve)
             {
+                // Prefer in-progress samples; fall back to completed run's curve
                 var chartSamples = activeSamples.Length >= 2 ? activeSamples : lastFocusRun!.Value.Curve;
                 var chartY = rect.Y + rect.Height * 0.45f;
                 var chartH = rect.Y + rect.Height * 0.65f - chartY;
