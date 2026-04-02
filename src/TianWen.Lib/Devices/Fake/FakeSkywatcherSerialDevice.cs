@@ -234,7 +234,7 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                     // 3 bytes: byte0 (running|blocked), byte1 (initDone), byte2 (level: 0=tracking, 1=slew)
                     var isRunning = axis == '1' ? _raRunning : _decRunning;
                     var isInitDone = axis == '1' ? _raInitDone : _decInitDone;
-                    var isTracking = axis == '1' ? _raTracking : false;
+                    var isTracking = axis == '1' ? _raTracking : !_decGotoMode;
 
                     var byte0 = isRunning ? 1 : 0;
                     var byte1 = isInitDone ? 1 : 0;

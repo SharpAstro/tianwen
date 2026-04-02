@@ -30,7 +30,7 @@ public record SkywatcherDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         // WiFi transport: port starts with a host address (contains ':' or is an IP)
         if (port.Contains(':') || (port.Split('.') is { Length: 4 }))
         {
-            return new SkywatcherUdpConnection(port, SkywatcherProtocol.WIFI_PORT, encoding ?? Encoding.ASCII);
+            return new SkywatcherUdpConnection(port, SkywatcherProtocol.WIFI_PORT, encoding ?? Encoding.ASCII, external.AppLogger);
         }
 
         // Parse baud from URI query, defaulting to the provided baud parameter
