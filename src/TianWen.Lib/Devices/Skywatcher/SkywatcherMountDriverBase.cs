@@ -419,12 +419,18 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IExte
 
     public async ValueTask<PointingState> GetSideOfPierAsync(CancellationToken cancellationToken)
     {
-        // Query RA encoder and compare to CPR/2
-        var response = await SendAndReceiveAsync('j', '1', null, cancellationToken);
-        if (SkywatcherProtocol.TryParseResponse(response, out var data) && data.Length >= 6 && _cprRa > 0)
+        // Pier side is determined from the Dec encoder position (the physical orientation of
+        // the telescope), not from HA (which only tells you where the target is in the sky).
+        // Following GSServer GermanPolar convention:
+        //   Raw mount Dec axis = pos / CPR * 360 + 90  (home encoder 0x800000 = 90°)
+        //   App-space = 180 - raw
+        //   Normal (counterweight down) when |app-space| < 90, i.e., 0 < raw < 180
+        //   This simplifies to: 0 < pos < CPR/2  →  Normal
+        var response = await SendAndReceiveAsync('j', '2', null, cancellationToken);
+        if (SkywatcherProtocol.TryParseResponse(response, out var data) && data.Length >= 6 && _cprDec > 0)
         {
             var pos = SkywatcherProtocol.DecodePosition(data.AsSpan(0, 6));
-            return pos >= 0 ? PointingState.Normal : PointingState.ThroughThePole;
+            return pos > 0 && pos < _cprDec / 2 ? PointingState.Normal : PointingState.ThroughThePole;
         }
         return PointingState.Normal;
     }
@@ -783,7 +789,9 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IExte
 
     /// <summary>
     /// Convert encoder steps to RA hours.
-    /// Steps = RA_hours / 24 * CPR, with sidereal time offset.
+    /// Home position (steps=0) corresponds to HA=6h (counterweight-down, scope at pole),
+    /// matching the GSServer GermanPolar convention where HomeAxisX=90°.
+    /// HA = steps / CPR * 24 + 6, then RA = LST - HA.
     /// </summary>
     private double StepsToRa(int steps)
     {
@@ -792,15 +800,14 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IExte
         transform.RefreshDateTimeFromTimeProvider();
         transform.SiteLongitude = double.IsNaN(_siteLongitude) ? 0.0 : _siteLongitude;
         var lst = transform.LocalSiderealTime;
-        // Steps represent mechanical position; 0 = pointing at pole/home
-        // RA = LST - HA, where HA = steps / CPR * 360 / 15 hours
-        var ha = (double)steps / _cprRa * 24.0;
+        var ha = (double)steps / _cprRa * 24.0 + 6.0;
         var ra = CoordinateUtils.ConditionRA(lst - ha);
         return ra;
     }
 
     /// <summary>
     /// Convert RA hours to encoder steps.
+    /// Inverse of <see cref="StepsToRa"/>: steps = (HA - 6) / 24 * CPR.
     /// </summary>
     private int RaToSteps(double ra)
     {
@@ -810,26 +817,29 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IExte
         transform.SiteLongitude = double.IsNaN(_siteLongitude) ? 0.0 : _siteLongitude;
         var lst = transform.LocalSiderealTime;
         var ha = CoordinateUtils.ConditionHA(lst - ra);
-        return (int)Math.Round(ha / 24.0 * _cprRa);
+        return (int)Math.Round((ha - 6.0) / 24.0 * _cprRa);
     }
 
     /// <summary>
     /// Convert encoder steps to declination degrees.
+    /// Home position (steps=0) corresponds to Dec=90° (pole, counterweight-down),
+    /// matching the GSServer GermanPolar convention where HomeAxisY=90°.
+    /// Dec = 90 - steps / CPR * 360.
     /// </summary>
     private double StepsToDec(int steps)
     {
         if (_cprDec == 0) return 0.0;
-        // Steps: 0 = 0°, ±CPR/4 = ±90°
-        return (double)steps / _cprDec * 360.0;
+        return 90.0 - (double)steps / _cprDec * 360.0;
     }
 
     /// <summary>
     /// Convert declination degrees to encoder steps.
+    /// Inverse of <see cref="StepsToDec"/>: steps = (90 - dec) / 360 * CPR.
     /// </summary>
     private int DecToSteps(double dec)
     {
         if (_cprDec == 0) return 0;
-        return (int)Math.Round(dec / 360.0 * _cprDec);
+        return (int)Math.Round((90.0 - dec) / 360.0 * _cprDec);
     }
 
     #endregion

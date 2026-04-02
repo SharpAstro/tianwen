@@ -79,16 +79,25 @@ public class SessionFilterTests(ITestOutputHelper output)
 
         ctx.Session.AdvanceObservationForTest();
 
-        // Enable tracking and start guiding (required by imaging loop)
+        // Slew mount from home position to the target
         IMountDriver mount = ctx.Mount;
+        var target = ctx.Session.ActiveObservation!.Target;
+        await mount.BeginSlewRaDecAsync(target.RA, target.Dec, ct);
+        while (await mount.IsSlewingAsync(ct))
+        {
+            await ctx.External.SleepAsync(TimeSpan.FromMilliseconds(100), ct);
+        }
+
+        // Enable tracking and start guiding (required by imaging loop)
         await mount.EnsureTrackingAsync(cancellationToken: ct);
         var guider = (FakeGuider)ctx.Session.Setup.Guider.Driver;
         await guider.GuideAsync(0.3, 3, 30, ct);
         await ctx.External.SleepAsync(TimeSpan.FromSeconds(4), ct);
 
         var observation = ctx.Session.ActiveObservation!;
+        var hourAngle = await mount.GetHourAngleAsync(ct);
         ctx.External.ExternalTimePump = true;
-        var loopTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, -0.5, ct), ct);
+        var loopTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, ct), ct);
 
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(180));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
@@ -178,15 +187,24 @@ public class SessionFilterTests(ITestOutputHelper output)
 
         ctx.Session.AdvanceObservationForTest();
 
-        // Enable tracking and guiding
+        // Slew mount from home position to the target
         IMountDriver mount = ctx.Mount;
+        var target = ctx.Session.ActiveObservation!.Target;
+        await mount.BeginSlewRaDecAsync(target.RA, target.Dec, ct);
+        while (await mount.IsSlewingAsync(ct))
+        {
+            await ctx.External.SleepAsync(TimeSpan.FromMilliseconds(100), ct);
+        }
+
+        // Enable tracking and guiding
         await mount.EnsureTrackingAsync(cancellationToken: ct);
         var guider = (FakeGuider)ctx.Session.Setup.Guider.Driver;
         await guider.GuideAsync(0.3, 3, 30, ct);
         await ctx.External.SleepAsync(TimeSpan.FromSeconds(4), ct);
 
         var observation = ctx.Session.ActiveObservation!;
-        var loopTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, -0.5, ct), ct);
+        var hourAngle = await mount.GetHourAngleAsync(ct);
+        var loopTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, ct), ct);
 
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);

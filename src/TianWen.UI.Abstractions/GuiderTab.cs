@@ -172,8 +172,9 @@ namespace TianWen.UI.Abstractions
                             FillRect(cx, cy + crossGap, 1, crossLen - crossGap, CrosshairColor);
                         }
 
-                        // L-shaped calibration overlay: auto-scaled, centered on image
-                        if (State.CalibrationOverlay is { } cal)
+                        // L-shaped calibration overlay: auto-scaled, centered on image.
+                        // Hide once guiding is active (guide samples accumulating).
+                        if (State.CalibrationOverlay is { } cal && State.GuideSamples.Length < 2)
                         {
                             RenderCalibrationOverlayOnCamera(cal,
                                 offsetX + drawW / 2, offsetY + drawH / 2, dpiScale);

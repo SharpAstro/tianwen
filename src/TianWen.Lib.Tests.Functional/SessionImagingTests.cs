@@ -43,6 +43,15 @@ public class SessionImagingTests(ITestOutputHelper output)
         // Advance observation index so ActiveObservation is set
         ctx.Session.AdvanceObservationForTest();
 
+        // Slew mount from home position to the target
+        var target = ctx.Session.ActiveObservation!.Target;
+        IMountDriver mount = ctx.Mount;
+        await mount.BeginSlewRaDecAsync(target.RA, target.Dec, cancellationToken);
+        while (await mount.IsSlewingAsync(cancellationToken))
+        {
+            await ctx.External.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
+        }
+
         return ctx;
     }
 

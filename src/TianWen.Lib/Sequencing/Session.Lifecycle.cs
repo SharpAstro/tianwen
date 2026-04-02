@@ -43,6 +43,7 @@ internal partial record Session
 
         if (!await guider.Driver.StartGuidingLoopAsync(Configuration.GuidingTries, cancellationToken).ConfigureAwait(false))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             throw new InvalidOperationException($"Failed to start guider loop of guider {guider.Driver}");
         }
     }
