@@ -696,9 +696,10 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
                     }
                     else
                     {
-                        // No TrueBestFocus explicitly set — use default (1000, matching
-                        // FakeFocuserDriver's FocuserBestFocus setting default)
-                        var defocus = Math.Abs(FocusPosition - 1000);
+                        // No TrueBestFocus explicitly set — if FocusPosition was never set
+                        // by a focuser (e.g. guide camera with no dedicated focuser), render
+                        // in perfect focus. Otherwise use default best focus of 1000.
+                        var defocus = FocusPosition <= 0 ? 0 : Math.Abs(FocusPosition - 1000);
                         var exposureSec = current.IntendedDuration.TotalSeconds;
                         var cloudSeed = _frameRng.Next();
                         array = SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocusSteps: defocus,
