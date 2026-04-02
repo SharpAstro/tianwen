@@ -33,12 +33,13 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
         ScheduledObservation[] observations,
         SessionConfiguration? configuration = null,
         string? mountPort = null,
+        DateTimeOffset? now = null,
         CancellationToken cancellationToken = default)
     {
         var config = configuration ?? SessionTestHelper.DefaultConfiguration;
 
         var ctx = await SessionTestHelper.CreateSessionAsync(
-            output, config, observations, now: WinterNightStart, focalLength: 480, mountPort: mountPort, cancellationToken: cancellationToken);
+            output, config, observations, now: now ?? WinterNightStart, focalLength: 480, mountPort: mountPort, cancellationToken: cancellationToken);
 
         ctx.Camera.TrueBestFocus = TrueBestFocusPosition;
         ctx.Camera.FocusPosition = TrueBestFocusPosition;
@@ -212,12 +213,12 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
     [Fact(Timeout = 120_000)]
     public async Task GivenM42WhenAltitudeDropsBelowMinThenImagingStopsEarly()
     {
-        // given — M42 transit altitude from Vienna ≈ 36.4°. With min alt 30°, M42 is above 30°
-        // for about ±2h around transit (22:43 UTC). Starting at 22:00, it drops below ~00:45 UTC.
-        // A 4-hour observation should stop early.
+        // given — M42 transit altitude from Vienna ≈ 36.4°. With min alt 30°, M42 drops below
+        // ~00:45 UTC. Start at 00:20 (25 min before drop) so we capture a few frames then stop.
         var ct = TestContext.Current.CancellationToken;
         var subExposure = TimeSpan.FromSeconds(30);
-        var scheduledDuration = TimeSpan.FromHours(4);
+        var scheduledDuration = TimeSpan.FromHours(1);
+        var nearDropStart = new DateTimeOffset(2025, 12, 16, 0, 20, 0, TimeSpan.Zero);
 
         var config = SessionTestHelper.DefaultConfiguration with
         {
@@ -228,7 +229,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
         {
             new ScheduledObservation(
                 new Target(5.588, -5.391, "M42", null),
-                WinterNightStart,
+                nearDropStart,
                 scheduledDuration,
                 AcrossMeridian: false,
                 FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
@@ -237,7 +238,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
             )
         };
 
-        using var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
+        using var ctx = await CreateWinterSessionAsync(observations, config, now: nearDropStart, cancellationToken: ct);
 
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
@@ -245,7 +246,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
         // when
         await RunObservationLoopWithTimePumpAsync(ctx, subExposure, ct);
 
-        // then — some frames captured, but imaging stopped early
+        // then — some frames captured, but imaging stopped early due to altitude
         ctx.Session.TotalFramesWritten.ShouldBeGreaterThan(0,
             "should have captured frames while M42 was still above minimum altitude");
         ctx.Session.TotalExposureTime.ShouldBeLessThan(scheduledDuration * 0.9,
