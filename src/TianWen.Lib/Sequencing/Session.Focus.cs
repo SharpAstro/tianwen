@@ -373,6 +373,7 @@ internal partial record Session
             }
 
             camera.FocusPosition = targetPos;
+            await PollDeviceStatesAsync(cancellationToken);
 
             // Update camera state for the UI
             if (telescopeIndex < _cameraStates.Length)
