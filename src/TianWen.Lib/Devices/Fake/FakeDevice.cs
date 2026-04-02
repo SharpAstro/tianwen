@@ -32,9 +32,22 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
             format: "F1", suffix: "\""),
     ];
 
+    private static readonly ImmutableArray<DeviceSettingDescriptor> FocuserSettings =
+    [
+        DeviceSettingHelper.IntSetting(
+            DeviceQueryKey.FocuserInitialPosition.Key, "Initial Pos",
+            defaultValue: 900, min: 0, max: 2000, step: 100,
+            suffix: " steps"),
+        DeviceSettingHelper.IntSetting(
+            DeviceQueryKey.FocuserBestFocus.Key, "Best Focus",
+            defaultValue: 1000, min: 0, max: 2000, step: 50,
+            suffix: " steps"),
+    ];
+
     public override ImmutableArray<DeviceSettingDescriptor> Settings => DeviceType switch
     {
         DeviceType.Camera => CameraSettings,
+        DeviceType.Focuser => FocuserSettings,
         _ => [],
     };
 

@@ -24,6 +24,8 @@ public enum DeviceQueryKey
     PePeriodSeconds,
     PePeakTopeakArcsec,
     ReuseCalibration,
+    FocuserInitialPosition,
+    FocuserBestFocus,
 }
 
 public static class DeviceQueryKeyExtensions
@@ -49,6 +51,8 @@ public static class DeviceQueryKeyExtensions
             DeviceQueryKey.PePeriodSeconds => "pePeriodSeconds",
             DeviceQueryKey.PePeakTopeakArcsec => "pePeakTopeakArcsec",
             DeviceQueryKey.ReuseCalibration => "reuseCalibration",
+            DeviceQueryKey.FocuserInitialPosition => "focuserInitialPosition",
+            DeviceQueryKey.FocuserBestFocus => "focuserBestFocus",
             _ => key.ToString().ToLowerInvariant()
         };
     }
