@@ -215,7 +215,13 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IExte
         var statusDec = await QueryAxisStatusAsync('2', cancellationToken);
         _isSlewingRa = statusRa.IsRunning && !statusRa.IsTracking;
         _isSlewingDec = statusDec.IsRunning && !statusDec.IsTracking;
-        return _isSlewingRa || _isSlewingDec;
+        var result = _isSlewingRa || _isSlewingDec;
+        if (result)
+        {
+            External.AppLogger.LogDebug("IsSlewingAsync=true: RA(running={RaRun},tracking={RaTrk}) Dec(running={DecRun},tracking={DecTrk})",
+                statusRa.IsRunning, statusRa.IsTracking, statusDec.IsRunning, statusDec.IsTracking);
+        }
+        return result;
     }
 
     public async ValueTask BeginSlewRaDecAsync(double ra, double dec, CancellationToken cancellationToken)

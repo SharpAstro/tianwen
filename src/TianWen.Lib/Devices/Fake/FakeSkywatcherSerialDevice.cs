@@ -98,7 +98,7 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                 _posRa += (int)(stepsPerSec * elapsedSeconds);
             }
 
-            // Simulate goto slew: move toward target
+            // Simulate goto slew: move toward target, auto-start tracking when done
             if (_raRunning && _raGotoMode)
             {
                 var slewRate = (double)DEFAULT_CPR / 360.0 * 3.0; // 3 deg/s slew speed in steps
@@ -106,8 +106,10 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                 if (Math.Abs(delta) < slewRate * elapsedSeconds)
                 {
                     _posRa = _targetRaSteps;
-                    _raRunning = false;
+                    // Real SW mounts auto-start sidereal tracking after goto completes
                     _raGotoMode = false;
+                    _raTracking = true;
+                    // _raRunning stays true — now tracking at sidereal rate
                 }
                 else
                 {
