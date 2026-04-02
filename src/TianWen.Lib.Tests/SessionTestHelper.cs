@@ -56,7 +56,7 @@ internal static class SessionTestHelper
         ScheduledObservation[]? observations = null,
         DateTimeOffset? now = null,
         int focalLength = 1000,
-        string? mountPort = "LX200",
+        string? mountPort = null,
         CancellationToken cancellationToken = default)
     {
         var external = new FakeExternal(output, now: now ?? new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
@@ -90,7 +90,8 @@ internal static class SessionTestHelper
         var mountQuery = new NameValueCollection
         {
             { "latitude", "48.2" },
-            { "longitude", "16.3" }
+            { "longitude", "16.3" },
+            { "elevation", "200" }
         };
         if (mountPort is not null)
         {
@@ -217,9 +218,9 @@ internal static class SessionTestHelper
         // Shared mount + guider
         var mountDevice = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection
         {
-            { "port", "LX200" },
             { "latitude", "48.2" },
-            { "longitude", "16.3" }
+            { "longitude", "16.3" },
+            { "elevation", "200" }
         });
         var guiderDevice = new FakeDevice(DeviceType.Guider, 1);
         var guiderCamDevice = new FakeDevice(new Uri($"Camera://{nameof(FakeDevice)}/FakeGuideCam#Fake Guide Cam ({FakeCameraDriver.GuideCameraPreset.SensorName})"));
