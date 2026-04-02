@@ -292,6 +292,10 @@ public interface IGuider : IDeviceDriver
                     await External.SleepAsync(TimeSpan.FromMinutes(startGuidingTries), cancellationToken).ConfigureAwait(false);
                 }
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw; // user-initiated abort — propagate to RunAsync
+            }
             catch (Exception e)
             {
                 External.AppLogger.LogError(e, "Exception while on try #{StartGuidingTries} checking if \"{ProfileName}\" is guiding.", startGuidingTries, activeProfile);
