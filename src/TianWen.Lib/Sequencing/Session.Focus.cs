@@ -75,7 +75,7 @@ internal partial record Session
         // Ensure _lastCapturedImages is sized (normally done by InitialisationAsync)
         if (_lastCapturedImages.Length < count)
         {
-            Array.Resize(ref _lastCapturedImages, count);
+            _lastCapturedImages = new Image?[count];
         }
 
         // Move filter wheels to the focus filter before rough focus
