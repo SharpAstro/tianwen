@@ -45,6 +45,8 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
     private int _targetDecSteps;
     private int _raDirection; // 0=forward, 1=reverse
     private int _decDirection;
+    private int _raMode; // 0=tracking, 1=slew (constant speed); from G command payload[0]
+    private int _decMode;
 
     // Guide speed
     private int _guideSpeedIndex = 2; // 0-4
@@ -261,12 +263,12 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                 case 'G': // Motion mode
                 {
                     // payload: 3 chars: mode, speed, direction
-                    // We just acknowledge and store direction
                     if (payload.Length >= 3)
                     {
+                        var mode = payload[0] - '0';
                         var dir = payload[2] - '0';
-                        if (axis == '1') _raDirection = dir;
-                        else _decDirection = dir;
+                        if (axis == '1') { _raMode = mode; _raDirection = dir; }
+                        else { _decMode = mode; _decDirection = dir; }
                     }
                     _responseBuffer.Append("=\r");
                     break;
@@ -314,9 +316,8 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                     if (axis == '1' || axis == '3')
                     {
                         _raRunning = true;
-                        // Check if this is tracking mode (set by G command's mode byte)
-                        // For simplicity: if target == current, it's tracking
-                        _raTracking = _targetRaSteps == _posRa;
+                        // Mode 0 = tracking (sidereal rate), mode 1 = slew (constant speed)
+                        _raTracking = _raMode == 0;
                     }
                     if (axis == '2' || axis == '3')
                     {
