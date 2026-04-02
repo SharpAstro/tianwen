@@ -54,9 +54,8 @@ public class SessionPhaseTests(ITestOutputHelper output)
         // Run session on background thread, pump time from test thread
         var runTask = Task.Run(async () => await ctx.Session.RunAsync(ct), ct);
 
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
         var maxPumps = (int)(TimeSpan.FromHours(24) / subExposure);
-        for (var i = 0; i < maxPumps && !runTask.IsCompleted && !timeout.IsCancellationRequested; i++)
+        for (var i = 0; i < maxPumps && !runTask.IsCompleted && !ct.IsCancellationRequested; i++)
         {
             await ctx.External.SleepAsync(subExposure, ct);
             await Task.Delay(50, ct);
@@ -121,8 +120,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
         var runTask = Task.Run(async () => await ctx.Session.RunAsync(cts.Token), ct);
 
         // Pump time until complete (including warmup in Finalise)
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-        while (!runTask.IsCompleted && !timeout.IsCancellationRequested)
+        while (!runTask.IsCompleted && !ct.IsCancellationRequested)
         {
             await ctx.External.SleepAsync(TimeSpan.FromSeconds(1), ct);
             await Task.Delay(10, ct);
@@ -180,8 +178,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
 
         var runTask = Task.Run(async () => await ctx.Session.RunAsync(cts.Token), ct);
 
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-        while (!runTask.IsCompleted && !timeout.IsCancellationRequested)
+        while (!runTask.IsCompleted && !ct.IsCancellationRequested)
         {
             await ctx.External.SleepAsync(TimeSpan.FromSeconds(1), ct);
             await Task.Delay(10, ct);
@@ -231,8 +228,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
 
         var runTask = Task.Run(async () => await ctx.Session.RunAsync(cts.Token), ct);
 
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        while (!runTask.IsCompleted && !timeout.IsCancellationRequested)
+        while (!runTask.IsCompleted && !ct.IsCancellationRequested)
         {
             await ctx.External.SleepAsync(TimeSpan.FromSeconds(1), ct);
             await Task.Delay(10, ct);
@@ -286,9 +282,8 @@ public class SessionPhaseTests(ITestOutputHelper output)
 
         var runTask = Task.Run(async () => await ctx.Session.RunAsync(cts.Token), ct);
 
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
         var maxPumps = 1000;
-        for (var i = 0; i < maxPumps && !runTask.IsCompleted && !timeout.IsCancellationRequested; i++)
+        for (var i = 0; i < maxPumps && !runTask.IsCompleted && !ct.IsCancellationRequested; i++)
         {
             await ctx.External.SleepAsync(TimeSpan.FromSeconds(2), ct);
             await Task.Delay(10, ct);
@@ -343,9 +338,8 @@ public class SessionPhaseTests(ITestOutputHelper output)
 
         var runTask = Task.Run(async () => await ctx.Session.RunAsync(ct), ct);
 
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
         var maxPumps = (int)(TimeSpan.FromHours(24) / subExposure);
-        for (var i = 0; i < maxPumps && !runTask.IsCompleted && !timeout.IsCancellationRequested; i++)
+        for (var i = 0; i < maxPumps && !runTask.IsCompleted && !ct.IsCancellationRequested; i++)
         {
             await ctx.External.SleepAsync(subExposure, ct);
             await Task.Delay(50, ct);

@@ -1,7 +1,6 @@
 using Shouldly;
 using System;
 using System.Collections.Immutable;
-using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
@@ -100,12 +99,10 @@ public class SessionFilterTests(ITestOutputHelper output)
         ctx.External.ExternalTimePump = true;
         var loopTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, ct), ct);
 
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(180));
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
         var pumpIncrement = TimeSpan.FromSeconds(5);
         var maxFakeTime = TimeSpan.FromHours(4);
         var pumped = TimeSpan.Zero;
-        while (pumped < maxFakeTime && !loopTask.IsCompleted && !linked.IsCancellationRequested)
+        while (pumped < maxFakeTime && !loopTask.IsCompleted && !ct.IsCancellationRequested)
         {
             ctx.External.Advance(pumpIncrement);
             pumped += pumpIncrement;
@@ -207,9 +204,7 @@ public class SessionFilterTests(ITestOutputHelper output)
         var hourAngle = await mount.GetHourAngleAsync(ct);
         var loopTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, ct), ct);
 
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
-        for (var i = 0; i < 30 && !loopTask.IsCompleted && !linked.IsCancellationRequested; i++)
+        for (var i = 0; i < 30 && !loopTask.IsCompleted && !ct.IsCancellationRequested; i++)
         {
             await ctx.External.SleepAsync(subExposure, ct);
             for (var spin = 0; spin < 10 && !loopTask.IsCompleted; spin++)

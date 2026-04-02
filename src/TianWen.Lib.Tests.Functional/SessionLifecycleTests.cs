@@ -113,8 +113,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         // Run calibration — slews 30 min east of meridian at dec=0, then starts guiding
         var calibrateTask = Task.Run(async () => await ctx.Session.CalibrateGuiderAsync(ct), ct);
 
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        while (!calibrateTask.IsCompleted && !timeout.IsCancellationRequested)
+        while (!calibrateTask.IsCompleted && !ct.IsCancellationRequested)
         {
             await ctx.External.SleepAsync(TimeSpan.FromSeconds(1), ct);
             await Task.Delay(10, ct);
@@ -141,8 +140,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         // Run initialisation — connects, unparks (no-op), sets UTC, cools to sensor temp, opens covers (null=ok)
         var initTask = Task.Run(async () => await ctx.Session.InitialisationAsync(ct), ct);
 
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        while (!initTask.IsCompleted && !timeout.IsCancellationRequested)
+        while (!initTask.IsCompleted && !ct.IsCancellationRequested)
         {
             await ctx.External.SleepAsync(TimeSpan.FromSeconds(1), ct);
             await Task.Delay(10, ct);
@@ -184,8 +182,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         // Run finalise with time pump
         var finaliseTask = Task.Run(async () => await ctx.Session.Finalise(ct), ct);
 
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        while (!finaliseTask.IsCompleted && !timeout.IsCancellationRequested)
+        while (!finaliseTask.IsCompleted && !ct.IsCancellationRequested)
         {
             await ctx.External.SleepAsync(TimeSpan.FromSeconds(1), ct);
             await Task.Delay(10, ct);
@@ -267,8 +264,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         // Open covers — needs time pump for the Moving → Open transition and calibrator check
         var openTask = Task.Run(async () => await session.MoveTelescopeCoversToStateAsync(CoverStatus.Open, ct), ct);
 
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        while (!openTask.IsCompleted && !timeout.IsCancellationRequested)
+        while (!openTask.IsCompleted && !ct.IsCancellationRequested)
         {
             await external.SleepAsync(TimeSpan.FromSeconds(1), ct);
             await Task.Delay(10, ct);
@@ -297,8 +293,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         // Close covers
         var closeTask = Task.Run(async () => await session.MoveTelescopeCoversToStateAsync(CoverStatus.Closed, ct), ct);
 
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        while (!closeTask.IsCompleted && !timeout.IsCancellationRequested)
+        while (!closeTask.IsCompleted && !ct.IsCancellationRequested)
         {
             await external.SleepAsync(TimeSpan.FromSeconds(1), ct);
             await Task.Delay(10, ct);
@@ -327,8 +322,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         // Open cover — should turn off calibrator first, then open
         var openTask = Task.Run(async () => await session.MoveTelescopeCoversToStateAsync(CoverStatus.Open, ct), ct);
 
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        while (!openTask.IsCompleted && !timeout.IsCancellationRequested)
+        while (!openTask.IsCompleted && !ct.IsCancellationRequested)
         {
             await external.SleepAsync(TimeSpan.FromSeconds(1), ct);
             await Task.Delay(10, ct);
@@ -397,8 +391,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         var roughFocusTask = Task.Run(
             async () => await ctx.Session.InitialRoughFocusAsync(ct), ct);
 
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-        while (!roughFocusTask.IsCompleted && !timeout.IsCancellationRequested)
+        while (!roughFocusTask.IsCompleted && !ct.IsCancellationRequested)
         {
             await ctx.External.SleepAsync(TimeSpan.FromSeconds(1), ct);
             await Task.Delay(10, ct);
@@ -477,9 +470,8 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         // RunAsync on background thread, pump time from test thread
         var runTask = Task.Run(async () => await session.RunAsync(ct), ct);
 
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(120));
         var maxPumps = (int)(TimeSpan.FromHours(24) / subExposure);
-        for (var i = 0; i < maxPumps && !runTask.IsCompleted && !timeout.IsCancellationRequested; i++)
+        for (var i = 0; i < maxPumps && !runTask.IsCompleted && !ct.IsCancellationRequested; i++)
         {
             await external.SleepAsync(subExposure, ct);
             await Task.Delay(50, ct);

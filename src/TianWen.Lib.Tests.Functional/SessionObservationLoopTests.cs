@@ -74,15 +74,12 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
 
         var loopTask = Task.Run(async () => await ctx.Session.ObservationLoopAsync(cancellationToken), cancellationToken);
 
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(180));
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
-
         // Pump time in small increments — the obs loop yields on SleepAsync until
         // we advance past its target time, ensuring deterministic sequencing.
         var pumpIncrement = TimeSpan.FromSeconds(5);
         var maxFakeTime = TimeSpan.FromHours(24);
         var pumped = TimeSpan.Zero;
-        while (pumped < maxFakeTime && !loopTask.IsCompleted && !linked.IsCancellationRequested)
+        while (pumped < maxFakeTime && !loopTask.IsCompleted && !cancellationToken.IsCancellationRequested)
         {
             ctx.External.Advance(pumpIncrement);
             pumped += pumpIncrement;
