@@ -424,6 +424,8 @@ namespace TianWen.UI.Abstractions
                     cursor = RenderProfileSlot(
                         "  Focuser", ota.Focuser, new AssignTarget.OTALevel(i, "Focuser"),
                         x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW);
+                    cursor = RenderDeviceSettingsIfAny(appState, pd, ota.Focuser, "Focuser Settings",
+                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
                     cursor = RenderProfileSlot(
                         "  Filter Wheel", ota.FilterWheel, new AssignTarget.OTALevel(i, "FilterWheel"),
                         x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW);
