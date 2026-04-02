@@ -231,7 +231,7 @@ public partial class Image
 
         // find peak in histogram which should be the average background
         var pixels = 0u;
-        var max_range = histogram.Mean;
+        var max_range = Math.Min(histogram.Mean, histogram.Histogram.Length - 1);
         uint i;
         // mean value from histogram
         for (i = 1; i <= max_range; i++)

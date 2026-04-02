@@ -13,7 +13,7 @@ internal class FakeFocuserDriver(FakeDevice fakeDevice, IExternal external) : Fa
 
     // Focus model — read from device URI settings, with sensible defaults
     private readonly int _baseBestFocus = int.TryParse(fakeDevice.Query.QueryValue(DeviceQueryKey.FocuserBestFocus), out var bf) ? bf : 1000;
-    private readonly int _initialPosition = int.TryParse(fakeDevice.Query.QueryValue(DeviceQueryKey.FocuserInitialPosition), out var ip) ? ip : 900;
+    private readonly int _initialPosition = int.TryParse(fakeDevice.Query.QueryValue(DeviceQueryKey.FocuserInitialPosition), out var ip) ? ip : 950;
     private double _tempCoefficient = 5.0; // steps per °C of focus shift
 
     // Backlash model
