@@ -11,6 +11,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests.Functional;
 
+[Collection("Session")]
 public class SessionAutoFocusTests(ITestOutputHelper output)
 {
     private const int TrueBestFocusPosition = 1000;

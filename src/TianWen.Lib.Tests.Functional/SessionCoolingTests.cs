@@ -8,6 +8,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests.Functional;
 
+[Collection("Session")]
 public class SessionCoolingTests(ITestOutputHelper output)
 {
     [Fact(Timeout = 60_000)]
