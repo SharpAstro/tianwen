@@ -765,31 +765,31 @@ namespace TianWen.UI.Abstractions
                 {
                     var cs = cameraStates[i];
                     RenderExposureState(cs, px + pad, y, textW, progressH, rowH, fontPath, fontSize, smallFs, dpiScale, timeProvider);
+                    y += rowH + progressH + pad;
                 }
-                else
+                else if (y < maxY)
                 {
                     DrawText("Idle", fontPath,
                         px + pad, y, textW, rowH,
                         smallFs, DimText, TextAlign.Near, TextAlign.Center);
+                    y += rowH;
                 }
-            }
 
-            // V-curve chart: show in-progress samples during auto-focus, or the completed
-            // run's curve (with hyperbola fit) until imaging starts
-            var activeSamples = state.ActiveFocusSamples;
-            var lastFocusRun = state.FocusHistory is { Length: > 0 } fh ? fh[^1] : default(FocusRunRecord?);
-            var showVCurve = activeSamples.Length >= 2
-                || (lastFocusRun?.Curve.Length >= 2
-                    && state.Phase is SessionPhase.AutoFocus or SessionPhase.CalibratingGuider or SessionPhase.RoughFocus);
-            if (showVCurve)
-            {
-                // Prefer in-progress samples; fall back to completed run's curve
-                var chartSamples = activeSamples.Length >= 2 ? activeSamples : lastFocusRun!.Value.Curve;
-                var chartY = rect.Y + rect.Height * 0.45f;
-                var chartH = rect.Y + rect.Height * 0.65f - chartY;
-                if (chartH > 40)
+                // V-curve chart for this OTA (below its exposure state)
+                var activeSamples = state.ActiveFocusSamples;
+                var lastFocusRun = state.FocusHistory is { Length: > 0 } fh ? fh[^1] : default(FocusRunRecord?);
+                var showVCurve = y < maxY
+                    && (activeSamples.Length >= 2
+                        || (lastFocusRun?.Curve.Length >= 2
+                            && state.Phase is SessionPhase.AutoFocus or SessionPhase.CalibratingGuider or SessionPhase.RoughFocus));
+                if (showVCurve)
                 {
-                    RenderVCurveChart(chartSamples, lastFocusRun, new RectF32(rect.X + pad, chartY, rect.Width - pad * 2, chartH), fontPath, smallFs, dpiScale);
+                    var chartSamples = activeSamples.Length >= 2 ? activeSamples : lastFocusRun!.Value.Curve;
+                    var chartH = maxY - y - pad;
+                    if (chartH > 40)
+                    {
+                        RenderVCurveChart(chartSamples, lastFocusRun, new RectF32(px + pad, y, textW, chartH), fontPath, smallFs, dpiScale);
+                    }
                 }
             }
 
