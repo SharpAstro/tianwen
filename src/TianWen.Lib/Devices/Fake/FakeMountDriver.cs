@@ -286,12 +286,12 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
     public async ValueTask UnparkAsync(CancellationToken cancellationToken)
     {
         _isParked = false;
-        // Home position: GEM park at celestial pole (north or south based on site)
+        // Home position: counterweight-down at pole, HA=6h (standard GEM park)
         _dec = _siteLatitude >= 0 ? 90.0 : -90.0;
         IMountDriver self = this;
         if (await self.TryGetTransformAsync(cancellationToken) is { } transform)
         {
-            _ra = transform.LocalSiderealTime;
+            _ra = ConditionRA(transform.LocalSiderealTime - 6.0);
         }
     }
 
@@ -606,12 +606,12 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
     public async ValueTask SetSiteLatitudeAsync(double latitude, CancellationToken cancellationToken)
     {
         _siteLatitude = latitude;
-        // Update home position: Dec = site latitude, RA = LST (if transform available)
-        _dec = latitude;
+        // Home position: counterweight-down at pole, HA=6h (standard GEM park)
+        _dec = latitude >= 0 ? 90.0 : -90.0;
         IMountDriver self = this;
         if (await self.TryGetTransformAsync(cancellationToken) is { } transform)
         {
-            _ra = transform.LocalSiderealTime;
+            _ra = ConditionRA(transform.LocalSiderealTime - 6.0);
         }
     }
 

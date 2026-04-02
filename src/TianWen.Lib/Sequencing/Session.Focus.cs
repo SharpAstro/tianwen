@@ -72,6 +72,12 @@ internal partial record Session
 
         var count = Setup.Telescopes.Length;
 
+        // Ensure _lastCapturedImages is sized (normally done by InitialisationAsync)
+        if (_lastCapturedImages.Length < count)
+        {
+            Array.Resize(ref _lastCapturedImages, count);
+        }
+
         // Move filter wheels to the focus filter before rough focus
         for (var i = 0; i < count; i++)
         {

@@ -69,9 +69,9 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
             SiteLongitude = siteLongitude
         };
 
-        // Home position: mount pointing at celestial pole
-        // HA axis at 0 (meridian), DEC axis at pole (90 or -90 depending on hemisphere)
-        _haAxisAngle = 0;
+        // Home position: counterweight-down, scope pointing at pole (HA=6h, Dec=±90°)
+        // HA=6h = 90° west of meridian, the standard GEM park/home position
+        _haAxisAngle = 6;
         _decAxisAngle = siteLatitude >= 0 ? 90 : -90;
 
         // Initialize target to current position (pole)

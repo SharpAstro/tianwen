@@ -25,7 +25,7 @@ internal class FakeFocuserDriver(FakeDevice fakeDevice, IExternal external) : Fa
     protected override void OnConnected()
     {
         _position = _initialPosition;
-        _startTime = external.TimeProvider.GetUtcNow();
+        _startTime = External.TimeProvider.GetUtcNow();
     }
 
     /// <summary>Current true best focus position accounting for temperature drift.</summary>
