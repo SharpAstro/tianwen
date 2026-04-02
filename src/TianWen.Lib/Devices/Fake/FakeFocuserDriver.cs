@@ -19,8 +19,8 @@ internal class FakeFocuserDriver(FakeDevice fakeDevice, IExternal external) : Fa
     // Backlash model
     private int _lastDirection; // +1 or -1
     private int _backlashSteps; // consumed backlash pending
-    private int _trueBacklashIn = 20; // actual mechanical backlash moving inward
-    private int _trueBacklashOut = 15; // actual mechanical backlash moving outward
+    private int _trueBacklashIn = int.TryParse(fakeDevice.Query.QueryValue(DeviceQueryKey.FocuserBacklashIn), out var bi) ? bi : 20;
+    private int _trueBacklashOut = int.TryParse(fakeDevice.Query.QueryValue(DeviceQueryKey.FocuserBacklashOut), out var bo) ? bo : 15;
 
     protected override void OnConnected()
     {

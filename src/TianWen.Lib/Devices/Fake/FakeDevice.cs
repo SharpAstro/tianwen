@@ -42,6 +42,14 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
             DeviceQueryKey.FocuserBestFocus.Key, "Best Focus",
             defaultValue: 1000, min: 0, max: 2000, step: 50,
             suffix: " steps"),
+        DeviceSettingHelper.IntSetting(
+            DeviceQueryKey.FocuserBacklashIn.Key, "Backlash In",
+            defaultValue: 20, min: 0, max: 200, step: 5,
+            suffix: " steps"),
+        DeviceSettingHelper.IntSetting(
+            DeviceQueryKey.FocuserBacklashOut.Key, "Backlash Out",
+            defaultValue: 15, min: 0, max: 200, step: 5,
+            suffix: " steps"),
     ];
 
     public override ImmutableArray<DeviceSettingDescriptor> Settings => DeviceType switch

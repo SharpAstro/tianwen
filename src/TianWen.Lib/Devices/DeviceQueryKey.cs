@@ -26,6 +26,8 @@ public enum DeviceQueryKey
     ReuseCalibration,
     FocuserInitialPosition,
     FocuserBestFocus,
+    FocuserBacklashIn,
+    FocuserBacklashOut,
 }
 
 public static class DeviceQueryKeyExtensions
@@ -53,6 +55,8 @@ public static class DeviceQueryKeyExtensions
             DeviceQueryKey.ReuseCalibration => "reuseCalibration",
             DeviceQueryKey.FocuserInitialPosition => "focuserInitialPosition",
             DeviceQueryKey.FocuserBestFocus => "focuserBestFocus",
+            DeviceQueryKey.FocuserBacklashIn => "focuserBacklashIn",
+            DeviceQueryKey.FocuserBacklashOut => "focuserBacklashOut",
             _ => key.ToString().ToLowerInvariant()
         };
     }
