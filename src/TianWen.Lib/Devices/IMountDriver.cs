@@ -326,6 +326,18 @@ public interface IMountDriver : IDeviceDriver
         => ValueTask.FromResult<long?>(null);
 
     /// <summary>
+    /// Gets the number of encoder steps per single worm gear rotation for the specified axis.
+    /// This is the PE period in encoder ticks: <c>CPR / wormTeeth</c>.
+    /// Used together with <see cref="GetAxisPositionAsync"/> to compute worm gear PE phase
+    /// for predictive periodic error correction in the neural guider.
+    /// </summary>
+    /// <param name="axis">Which mechanical axis to query.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Steps per worm rotation, or 0 if unknown (mount doesn't expose encoder data or worm teeth count is unknown).</returns>
+    ValueTask<uint> GetWormPeriodStepsAsync(TelescopeAxis axis, CancellationToken cancellationToken)
+        => ValueTask.FromResult(0u);
+
+    /// <summary>
     /// Gets the right ascension (hours) of the telescope's intended right ascension, in the coordinate system given by the <see cref="EquatorialSystem"/> property.
     /// </summary>
     ValueTask<double> GetTargetRightAscensionAsync(CancellationToken cancellationToken);

@@ -124,8 +124,8 @@ internal sealed class NeuralGuideTrainer
             var prevCorrRa = -prevRaError * 0.7; // simulate P-controller correction in pixels
             var prevCorrDec = -prevDecError * 0.7;
             features.Reset();
-            features.Build(prevRaError, prevDecError, 0, 0, 0, raRms, decRms, hourAngle, declination, inputBuffer);
-            features.Build(raError, decError, prevCorrRa, prevCorrDec, 2.0, raRms, decRms, hourAngle, declination, inputBuffer);
+            features.Build(prevRaError, prevDecError, 0, 0, 0, raRms, decRms, hourAngle, declination, double.NaN, double.NaN, inputBuffer);
+            features.Build(raError, decError, prevCorrRa, prevCorrDec, 2.0, raRms, decRms, hourAngle, declination, double.NaN, double.NaN, inputBuffer);
 
             // Input noise augmentation: jitter the features while keeping the teacher target
             // computed from clean errors. This teaches the model to be conservative when

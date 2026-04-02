@@ -7,7 +7,7 @@
 
 ## Project Overview
 
-TianWen is a .NET library for astronomical device management, image processing, and astrometry. It supports cameras, mounts, focusers, filter wheels, and guiders via ASCOM, INDI, ZWO, and Meade protocols. Published as a NuGet package (`TianWen.Lib`).
+TianWen is a .NET library for astronomical device management, image processing, and astrometry. It supports cameras, mounts, focusers, filter wheels, and guiders via ASCOM, INDI, ZWO, Meade, and Skywatcher protocols. Published as a NuGet package (`TianWen.Lib`).
 
 Repository: https://github.com/SharpAstro/tianwen
 
@@ -120,10 +120,11 @@ Keys are defined in `DeviceQueryKey` enum (wire strings in parentheses).
 | `AscomDevice` | *(none)* | Identity in URI path only |
 | `AlpacaDevice` | `host`, `port`, `deviceNumber` | HTTP endpoint + device index |
 | `ZWODevice` | `filter{n}`, `offset{n}` | Dynamic keys (not enum), on filter wheel URIs |
-| `FakeDevice` | `port`, `latitude`, `longitude` | `port` selects mount protocol: `LX200`, `SGP`, or default |
+| `FakeDevice` | `port`, `latitude`, `longitude` | `port` selects mount protocol: `LX200`, `SGP`, `SkyWatcher`, or default |
 | `MeadeDevice` | `port`, `baud` | Inherited from `DeviceBase` |
+| `SkywatcherDevice` | `port`, `baud` | `baud` = 9600 (legacy) or 115200 (USB); WiFi if `port` is an IP address |
 | `IOptronDevice` | `port`, `latitude`, `longitude` | `ConnectSerialDevice` enforces 28800 baud; lat/lon optional seed |
-| `BuiltInGuiderDevice` | `pulseGuideSource`, `reverseDecAfterFlip`, `reuseCalibration`, `useNeuralGuider`, `neuralBlendFactor` | Pulse source: `Auto`/`Camera`/`Mount`; neural guider with predictive PE correction, blend ramps in over ~2 PE cycles |
+| `BuiltInGuiderDevice` | `pulseGuideSource`, `reverseDecAfterFlip`, `reuseCalibration`, `useNeuralGuider`, `neuralBlendFactor` | Pulse source: `Auto`/`Camera`/`Mount`; neural guider (26 inputs) with encoder-phase PEC, blend ramps in over ~2 PE cycles |
 | `OpenPHD2GuiderDevice` | *(none)* | Host/instance/profile encoded in URI path segments |
 | `Profile` | `data` | Base64url-encoded `ProfileData` JSON blob |
 | `NoneDevice` | *(none)* | Sentinel, fixed URI |
@@ -134,6 +135,43 @@ Keys are defined in `DeviceQueryKey` enum (wire strings in parentheses).
 - `IExternal` — file I/O, serial ports, time management, logging
 - `ISessionFactory` — creates observation sessions with bound devices
 - `IPlateSolverFactory` — plate solving (ASTAP, astrometry.net)
+
+### Skywatcher Motor Controller Driver
+
+Skywatcher mounts (EQ6, HEQ5, AzEQ6, EQ6-R, AzGTi, StarAdventurer, etc.) use a distinct
+motor controller protocol over serial and WiFi (UDP port 11880).
+
+**Wire format**: ASCII, `:<CMD><AXIS>[DATA]\r` → `=<DATA>\r` (ok) or `!<ERR>\r` (error).
+Data is hex ASCII, little-endian byte order. 24-bit positions offset by 0x800000.
+
+**Key types** (in `TianWen.Lib/Devices/Skywatcher/`):
+- `SkywatcherProtocol` — pure static helpers: LE hex encode/decode, T1 speed formula,
+  firmware parsing, capability flags, mount model detection, gear ratio workarounds
+- `SkywatcherDevice` — URI-addressed device record; `baud` query param (9600 legacy / 115200 USB);
+  WiFi transport when `port` is an IP address
+- `SkywatcherMountDriverBase<T>` — core driver implementing `IMountDriver`: two-axis GEM
+  with semaphore-locked async serial I/O, tracking/slew/sync/pulse guide/park/camera snap
+- `SkywatcherUdpConnection` — `ISerialConnection` wrapping `UdpClient` for WiFi (port 11880)
+- `SkywatcherDeviceSource` — serial discovery (115200 then 9600 probe) + WiFi UDP broadcast
+
+**Baud rates**: legacy mounts use external serial adapters at **9600 baud**, newer mounts
+with integrated USB (e.g. EQ6-R) use **115200 baud**. Discovery tries 115200 first.
+
+**Firmware & capabilities**: `SkywatcherFirmwareInfo` (model + version from `:e`),
+`SkywatcherCapabilities` (flag nibbles from `:q`). Advanced 32-bit commands gated by
+`_supportsAdvancedCommands` (MVP uses 24-bit legacy only).
+
+**Fake driver** (`FakeSkywatcherSerialDevice`): full motor simulator responding to all
+protocol commands with timer-based tracking/slew simulation. Activated via `port=SkyWatcher`
+on `FakeDevice`.
+
+**Test coverage** (78 tests):
+- `SkywatcherProtocolTests` (61): hex LE roundtrips, position encoding, speed formula,
+  firmware parsing, mount models, capability flags, advanced command gating, goto adjustment,
+  gear ratio override, guide speed, command building, response parsing
+- `FakeSkywatcherMountDriverTests` (17): connect/disconnect, tracking on/off, slew+abort,
+  sync, pulse guide (all 4 directions), camera snap, axis position, park/unpark, capabilities,
+  site coordinates
 
 ### Session (Most Critical Class)
 
@@ -291,6 +329,11 @@ the parent `CatalogIndex` propagated, producing per-panel subdirectories for FIT
   single-panel shortcut, RA ordering, overlap/margin, near-pole handling, RA wrapping
 - `MosaicSchedulingTests` (7): contiguous allocation, RA-ascending ordering,
   mixed mosaic+individual scheduling, per-panel AcrossMeridian, end-to-end generate+schedule
+- `SkywatcherProtocolTests` (61): hex LE roundtrips, position encoding, speed formula,
+  firmware parsing, mount models, capability flags, advanced command gating, goto adjustment,
+  gear ratio override, guide speed, command building, response parsing
+- `FakeSkywatcherMountDriverTests` (17): connect/disconnect, tracking, slew+abort, sync,
+  pulse guide, camera snap, axis position, park/unpark, capabilities, site coordinates
 - **Untested branch paths**: spare target fallback, guider failure/restart during imaging,
   filter switching during imaging loop (needs `FakeFilterWheelDriver`-equipped session test).
 
@@ -598,7 +641,7 @@ TianWen/
 TianWen.Lib
 ├── Astrometry/          # Plate solving, catalogs, focus algorithms, SOFA, VSOP87
 ├── Connections/          # JSON-RPC, TCP, serial protocols
-├── Devices/             # ASCOM, INDI, ZWO, Meade, PHD2, Fake, DAL
+├── Devices/             # ASCOM, INDI, ZWO, Meade, Skywatcher, PHD2, Fake, DAL
 ├── Extensions/          # DI service registration extension methods
 ├── Imaging/             # Image processing, star detection, HFD/FWHM
 ├── Sequencing/          # Observation automation

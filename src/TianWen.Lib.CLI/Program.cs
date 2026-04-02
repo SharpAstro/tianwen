@@ -42,6 +42,7 @@ builder.Services
     .AddAscom()
     .AddMeade()
     .AddIOptron()
+    .AddSkywatcher()
     .AddProfiles()
     .AddFake()
     .AddPHD2()

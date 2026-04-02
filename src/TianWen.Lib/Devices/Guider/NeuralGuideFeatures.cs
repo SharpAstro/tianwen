@@ -86,7 +86,9 @@ internal sealed class NeuralGuideFeatures
     /// <param name="decRmsShort">Short-window Dec RMS in pixels.</param>
     /// <param name="hourAngle">Current hour angle in hours (-12 to +12).</param>
     /// <param name="declination">Target declination in degrees (-90 to +90).</param>
-    /// <param name="features">Output span to fill (must be length 22).</param>
+    /// <param name="raEncoderPhaseRadians">RA encoder phase in radians (mod worm period), or NaN if unavailable.</param>
+    /// <param name="decEncoderPhaseRadians">Dec encoder phase in radians (mod worm period), or NaN if unavailable.</param>
+    /// <param name="features">Output span to fill (must be length 26).</param>
     public void Build(
         double raErrorPx, double decErrorPx,
         double raCorrectionPx, double decCorrectionPx,
@@ -94,6 +96,8 @@ internal sealed class NeuralGuideFeatures
         double raRmsShort, double decRmsShort,
         double hourAngle,
         double declination,
+        double raEncoderPhaseRadians,
+        double decEncoderPhaseRadians,
         Span<float> features)
     {
         // Accumulate gear error: what the mount did wrong = residual + what we corrected.
@@ -187,6 +191,34 @@ internal sealed class NeuralGuideFeatures
         features[21] = (float)Math.Min(double.IsNaN(_lastCorrectionTimestamp)
             ? 0
             : timestampSec - _lastCorrectionTimestamp, 30.0);
+
+        // [22-23] RA encoder phase as sin/cos pair (wraps smoothly, learnable by the network).
+        // When the mount doesn't expose encoder data (NaN), both components are 0 — the network
+        // learns to ignore them. sin/cos encoding avoids the discontinuity at 0/2π.
+        if (!double.IsNaN(raEncoderPhaseRadians))
+        {
+            features[22] = (float)Math.Sin(raEncoderPhaseRadians);
+            features[23] = (float)Math.Cos(raEncoderPhaseRadians);
+        }
+        else
+        {
+            features[22] = 0f;
+            features[23] = 0f;
+        }
+
+        // [24-25] Dec encoder phase as sin/cos pair.
+        // Dec PE is less prominent than RA, but belt-driven Dec axes and gear mesh
+        // patterns can produce repeatable Dec errors that the model can learn.
+        if (!double.IsNaN(decEncoderPhaseRadians))
+        {
+            features[24] = (float)Math.Sin(decEncoderPhaseRadians);
+            features[25] = (float)Math.Cos(decEncoderPhaseRadians);
+        }
+        else
+        {
+            features[24] = 0f;
+            features[25] = 0f;
+        }
     }
 
     private static void PushMean(

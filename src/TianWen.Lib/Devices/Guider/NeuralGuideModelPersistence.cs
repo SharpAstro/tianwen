@@ -21,6 +21,10 @@ namespace TianWen.Lib.Devices.Guider;
 ///   [20..67] CalibrationResult: 6 doubles (CameraAngleRad, RaRate, DecRate, RaDisp, DecDisp, TotalTime)
 ///   [68..]   Model weights: TotalParams floats
 ///   Total: 20 + 48 + TotalParams*4 bytes
+///
+/// v1 used InputSize=22 (1,298 params). v2 uses InputSize=26 (1,426 params) with encoder phase features.
+/// Files with mismatched InputSize are rejected by TryLoadAsync (architecture dimension check),
+/// causing the model to be re-initialized with fresh weights.
 /// </remarks>
 internal static class NeuralGuideModelPersistence
 {

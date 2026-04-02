@@ -205,6 +205,9 @@ internal sealed class GuideLoop
     /// <param name="hourAngle">Current hour angle in hours (for neural model features).</param>
     /// <param name="declination">Target declination in degrees (for neural model features).</param>
     /// <param name="siteLatitude">Observer latitude in degrees (for altitude computation).</param>
+    /// <param name="getAxisPosition">Optional callback to read raw encoder position per axis. Returns null if mount doesn't expose encoder data.</param>
+    /// <param name="wormStepsPerCycleRa">RA worm gear steps per single worm rotation (CPR / wormTeeth). 0 = unknown/unavailable.</param>
+    /// <param name="wormStepsPerCycleDec">Dec worm gear steps per single worm rotation. 0 = unknown/unavailable.</param>
     /// <param name="cancellationToken">Cancellation token to stop guiding.</param>
     public async ValueTask RunAsync(
         Func<CancellationToken, ValueTask<Image>> captureFrame,
@@ -212,7 +215,10 @@ internal sealed class GuideLoop
         double hourAngle,
         double declination,
         double siteLatitude,
-        CancellationToken cancellationToken)
+        Func<TelescopeAxis, CancellationToken, ValueTask<long?>>? getAxisPosition = null,
+        uint wormStepsPerCycleRa = 0,
+        uint wormStepsPerCycleDec = 0,
+        CancellationToken cancellationToken = default)
     {
         if (_calibration is not { } calibration)
         {
@@ -274,13 +280,32 @@ internal sealed class GuideLoop
                         raRateScale, decRateScale);
                 }
 
+                // Read encoder positions for PE phase features (non-blocking, best-effort)
+                var raPhase = double.NaN;
+                var decPhase = double.NaN;
+                if (getAxisPosition is not null)
+                {
+                    var raPos = await getAxisPosition(TelescopeAxis.Primary, cancellationToken);
+                    if (raPos is { } rp && wormStepsPerCycleRa > 0)
+                    {
+                        raPhase = ((rp % wormStepsPerCycleRa + wormStepsPerCycleRa) % wormStepsPerCycleRa)
+                            / (double)wormStepsPerCycleRa * 2.0 * Math.PI;
+                    }
+                    var decPos = await getAxisPosition(TelescopeAxis.Seconary, cancellationToken);
+                    if (decPos is { } dp && wormStepsPerCycleDec > 0)
+                    {
+                        decPhase = ((dp % wormStepsPerCycleDec + wormStepsPerCycleDec) % wormStepsPerCycleDec)
+                            / (double)wormStepsPerCycleDec * 2.0 * Math.PI;
+                    }
+                }
+
                 // Compute P-controller correction (always, for shadow comparison and experience recording)
                 var pCorrection = _pController.Compute(calibration, result.Value.DeltaX, result.Value.DeltaY);
 
                 // Compute actual correction (neural or P-controller)
                 var (correction, usedNeural) = ComputeCorrection(
                     calibration, result.Value.DeltaX, result.Value.DeltaY,
-                    timestamp, hourAngle, declination, pCorrection);
+                    timestamp, hourAngle, declination, raPhase, decPhase, pCorrection);
 
                 // Record experience for online learning
                 if (_experienceBuffer is not null && _neuralFeatures is not null)
@@ -291,7 +316,8 @@ internal sealed class GuideLoop
                     _neuralFeatures.Build(raErr, decErr,
                         _lastRaCorrectionPx, _lastDecCorrectionPx,
                         timestamp,
-                        _errorTracker.RaRmsShort, _errorTracker.DecRmsShort, hourAngle, declination, features);
+                        _errorTracker.RaRmsShort, _errorTracker.DecRmsShort, hourAngle, declination,
+                        raPhase, decPhase, features);
 
                     var experience = new OnlineGuideExperience
                     {
@@ -407,6 +433,7 @@ internal sealed class GuideLoop
         GuiderCalibrationResult calibration,
         double deltaX, double deltaY,
         double timestamp, double hourAngle, double declination,
+        double raEncoderPhase, double decEncoderPhase,
         GuideCorrection pCorrection)
     {
         if (_useNeuralModel && _neuralModel is not null && _neuralFeatures is not null)
@@ -419,7 +446,7 @@ internal sealed class GuideLoop
                 _lastRaCorrectionPx, _lastDecCorrectionPx,
                 timestamp,
                 _errorTracker.RaRmsShort, _errorTracker.DecRmsShort,
-                hourAngle, declination, input);
+                hourAngle, declination, raEncoderPhase, decEncoderPhase, input);
 
             var output = _neuralModel.ForwardWithScratch(input, _hidden1Scratch, _hidden2Scratch, _outputScratch);
             var raPulseMs = output[0] * MaxPulseMs;

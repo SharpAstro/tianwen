@@ -9,11 +9,11 @@ namespace TianWen.Lib.Devices.Guider;
 /// Hand-rolled inference using <see cref="TensorPrimitives"/> for zero-allocation hot path.
 /// </summary>
 /// <remarks>
-/// Architecture: Input(22) → Dense(32, ReLU) → Dense(16, ReLU) → Dense(2, Tanh)
-/// 1,298 parameters total. Inference is ~2K FMAs, well under 1µs on modern CPUs.
+/// Architecture: Input(26) → Dense(32, ReLU) → Dense(16, ReLU) → Dense(2, Tanh)
+/// 1,426 parameters total. Inference is ~2K FMAs, well under 1µs on modern CPUs.
 /// The middle layer provides denoising capacity for gear noise and seeing jitter.
 ///
-/// Input features (22):
+/// Input features (26):
 ///   [0-1]   Current RA/Dec error (pixels)
 ///   [2-3]   t-1 RA/Dec error (pixels)
 ///   [4-5]   t-2 RA/Dec error (pixels)
@@ -27,6 +27,8 @@ namespace TianWen.Lib.Devices.Guider;
 ///   [19]    Altitude / 90 (normalized to [0, 1])
 ///   [20]    Declination / 90 (normalized to [-1, 1])
 ///   [21]    Time since last correction (seconds, clamped to 30)
+///   [22-23] RA encoder phase (sin, cos) — worm gear PE phase (0 when unavailable)
+///   [24-25] Dec encoder phase (sin, cos) — Dec gear phase (0 when unavailable)
 ///
 /// Output (2):
 ///   [0] RA correction (normalized: -1 to +1, maps to -MaxPulse to +MaxPulse)
@@ -35,7 +37,7 @@ namespace TianWen.Lib.Devices.Guider;
 internal sealed class NeuralGuideModel
 {
     /// <summary>Number of input features.</summary>
-    internal const int InputSize = 22;
+    internal const int InputSize = 26;
 
     /// <summary>Number of hidden units in layer 1.</summary>
     internal const int Hidden1Size = 32;
@@ -48,10 +50,10 @@ internal sealed class NeuralGuideModel
 
     /// <summary>Total parameter count.</summary>
     internal const int TotalParams =
-        (InputSize * Hidden1Size + Hidden1Size)     // Layer 1: 22*32 + 32 = 736
+        (InputSize * Hidden1Size + Hidden1Size)     // Layer 1: 26*32 + 32 = 864
         + (Hidden1Size * Hidden2Size + Hidden2Size) // Layer 2: 32*16 + 16 = 528
         + (Hidden2Size * OutputSize + OutputSize);  // Layer 3: 16*2  + 2  = 34
-    // Total: 1,298
+    // Total: 1,426
 
     // Layer 1: Input → Hidden1 (weight matrix stored row-major: hidden1 × input)
     private readonly float[] _w1 = new float[Hidden1Size * InputSize];

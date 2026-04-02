@@ -325,6 +325,14 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
     // Simulates encoder ticks: 360° = EncoderTicksPerRevolution ticks
     private const int EncoderTicksPerRevolution = 11_520_000; // typical high-res encoder
 
+    // 180 worm teeth (like EQ6), PE period = 11520000/180 = 64000 steps (~8 min at sidereal rate)
+    private const int WormTeeth = 180;
+
+    public ValueTask<uint> GetWormPeriodStepsAsync(TelescopeAxis axis, CancellationToken cancellationToken)
+        => ValueTask.FromResult(axis is TelescopeAxis.Primary or TelescopeAxis.Seconary
+            ? (uint)(EncoderTicksPerRevolution / WormTeeth)
+            : 0u);
+
     public async ValueTask<long?> GetAxisPositionAsync(TelescopeAxis axis, CancellationToken cancellationToken)
     {
         using var @lock = await _sem.AcquireLockAsync(cancellationToken);
