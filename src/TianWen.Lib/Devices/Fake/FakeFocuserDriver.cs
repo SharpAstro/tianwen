@@ -11,8 +11,9 @@ internal class FakeFocuserDriver(FakeDevice fakeDevice, IExternal external) : Fa
     private double _tempDriftRate = -0.5; // °C per hour (cooling overnight)
     private DateTimeOffset? _startTime;
 
-    // Focus model
-    private readonly int _baseBestFocus = 1000;
+    // Focus model — read from device URI settings, with sensible defaults
+    private readonly int _baseBestFocus = int.TryParse(fakeDevice.Query.QueryValue(DeviceQueryKey.FocuserBestFocus), out var bf) ? bf : 1000;
+    private readonly int _initialPosition = int.TryParse(fakeDevice.Query.QueryValue(DeviceQueryKey.FocuserInitialPosition), out var ip) ? ip : 900;
     private double _tempCoefficient = 5.0; // steps per °C of focus shift
 
     // Backlash model
@@ -20,6 +21,12 @@ internal class FakeFocuserDriver(FakeDevice fakeDevice, IExternal external) : Fa
     private int _backlashSteps; // consumed backlash pending
     private int _trueBacklashIn = 20; // actual mechanical backlash moving inward
     private int _trueBacklashOut = 15; // actual mechanical backlash moving outward
+
+    protected override void OnConnected()
+    {
+        _position = _initialPosition;
+        _startTime = external.TimeProvider.GetUtcNow();
+    }
 
     /// <summary>Current true best focus position accounting for temperature drift.</summary>
     public int TrueBestFocus

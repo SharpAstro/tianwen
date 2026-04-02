@@ -696,12 +696,12 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
                     }
                     else
                     {
-                        // No TrueBestFocus set — render in-focus stars (defocus=0) so the
-                        // camera always produces a detectable image, even in the GUI where
-                        // TrueBestFocus isn't set by tests.
+                        // No TrueBestFocus explicitly set — use default (1000, matching
+                        // FakeFocuserDriver's FocuserBestFocus setting default)
+                        var defocus = Math.Abs(FocusPosition - 1000);
                         var exposureSec = current.IntendedDuration.TotalSeconds;
                         var cloudSeed = _frameRng.Next();
-                        array = SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocusSteps: 0,
+                        array = SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocusSteps: defocus,
                             offsetX: TotalStarOffset.X, offsetY: TotalStarOffset.Y,
                             exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(),
                             cloudCoverage: CloudCoverage, cloudSeed: cloudSeed, dest: dest);
