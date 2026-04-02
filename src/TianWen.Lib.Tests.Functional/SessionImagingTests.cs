@@ -94,17 +94,18 @@ public class SessionImagingTests(ITestOutputHelper output)
         // Get hour angle for pier side tracking
         var hourAngle = await ctx.Mount.GetHourAngleAsync(ct);
 
-        // when — run imaging loop on thread pool, advance fake time from test thread
+        // when — run imaging loop on thread pool, pump fake time cooperatively
+        ctx.External.ExternalTimePump = true;
         var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, ct));
 
-        var maxTicks = (int)(TimeSpan.FromHours(24) / subExposure);
-        for (var i = 0; i < maxTicks && !imagingTask.IsCompleted && !ct.IsCancellationRequested; i++)
+        var pumpIncrement = TimeSpan.FromSeconds(5);
+        var maxFakeTime = TimeSpan.FromHours(4);
+        var pumped = TimeSpan.Zero;
+        while (pumped < maxFakeTime && !imagingTask.IsCompleted && !ct.IsCancellationRequested)
         {
-            await ctx.External.SleepAsync(subExposure, ct);
-            for (var spin = 0; spin < 10 && !imagingTask.IsCompleted; spin++)
-            {
-                await Task.Delay(10, ct);
-            }
+            ctx.External.Advance(pumpIncrement);
+            pumped += pumpIncrement;
+            await Task.Delay(1, ct);
         }
 
         imagingTask.IsCompleted.ShouldBeTrue("imaging loop should have completed within timeout");
@@ -165,17 +166,18 @@ public class SessionImagingTests(ITestOutputHelper output)
 
         var hourAngle = await ctx.Mount.GetHourAngleAsync(ct);
 
-        // when — run imaging loop on thread pool, advance fake time from test thread
+        // when — run imaging loop on thread pool, pump fake time cooperatively
+        ctx.External.ExternalTimePump = true;
         var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, ct));
 
-        var maxTicks = (int)(TimeSpan.FromHours(24) / subExposure);
-        for (var i = 0; i < maxTicks && !imagingTask.IsCompleted && !ct.IsCancellationRequested; i++)
+        var pumpIncrement = TimeSpan.FromSeconds(5);
+        var maxFakeTime = TimeSpan.FromHours(4);
+        var pumped = TimeSpan.Zero;
+        while (pumped < maxFakeTime && !imagingTask.IsCompleted && !ct.IsCancellationRequested)
         {
-            await ctx.External.SleepAsync(subExposure, ct);
-            for (var spin = 0; spin < 10 && !imagingTask.IsCompleted; spin++)
-            {
-                await Task.Delay(10, ct);
-            }
+            ctx.External.Advance(pumpIncrement);
+            pumped += pumpIncrement;
+            await Task.Delay(1, ct);
         }
 
         imagingTask.IsCompleted.ShouldBeTrue("imaging loop should have completed within timeout");
@@ -219,17 +221,18 @@ public class SessionImagingTests(ITestOutputHelper output)
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
 
-        // when — run observation loop on thread pool, advance fake time from test thread
+        // when — run observation loop on thread pool, pump fake time cooperatively
+        ctx.External.ExternalTimePump = true;
         var loopTask = Task.Run(async () => await ctx.Session.ObservationLoopAsync(ct), ct);
 
-        var maxTicks = (int)(TimeSpan.FromHours(24) / subExposure);
-        for (var i = 0; i < maxTicks && !loopTask.IsCompleted && !ct.IsCancellationRequested; i++)
+        var pumpIncrement = TimeSpan.FromSeconds(5);
+        var maxFakeTime = TimeSpan.FromHours(4);
+        var pumped = TimeSpan.Zero;
+        while (pumped < maxFakeTime && !loopTask.IsCompleted && !ct.IsCancellationRequested)
         {
-            await ctx.External.SleepAsync(subExposure, ct);
-            for (var spin = 0; spin < 10 && !loopTask.IsCompleted; spin++)
-            {
-                await Task.Delay(10, ct);
-            }
+            ctx.External.Advance(pumpIncrement);
+            pumped += pumpIncrement;
+            await Task.Delay(1, ct);
         }
 
         loopTask.IsCompleted.ShouldBeTrue("observation loop should have completed within timeout");
@@ -292,29 +295,34 @@ public class SessionImagingTests(ITestOutputHelper output)
 
         // when — run imaging loop, defocus after baseline is established
         var defocused = false;
+        ctx.External.ExternalTimePump = true;
         var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, ct));
 
-        for (var i = 0; i < 500 && !imagingTask.IsCompleted && !ct.IsCancellationRequested; i++)
+        var pumpIncrement = TimeSpan.FromSeconds(5);
+        var maxFakeTime = TimeSpan.FromHours(4);
+        var pumped = TimeSpan.Zero;
+        var pumpIteration = 0;
+        while (pumped < maxFakeTime && !imagingTask.IsCompleted && !ct.IsCancellationRequested)
         {
-            await ctx.External.SleepAsync(subExposure, ct);
+            ctx.External.Advance(pumpIncrement);
+            pumped += pumpIncrement;
+            pumpIteration++;
 
             // After baseline is established (2 frames), defocus by moving focuser away
             if (!defocused && ctx.Session.BaselineByObservation.ContainsKey(0))
             {
-                output.WriteLine($"Baseline established after pump {i}, defocusing by 80 steps");
+                output.WriteLine($"Baseline established after pump {pumpIteration}, defocusing by 80 steps");
                 var currentPos = await ctx.Focuser.GetPositionAsync(ct);
                 await ctx.Focuser.BeginMoveAsync(currentPos + 80, ct);
                 while (await ctx.Focuser.GetIsMovingAsync(ct))
                 {
-                    await ctx.External.SleepAsync(TimeSpan.FromMilliseconds(100), ct);
+                    ctx.External.Advance(TimeSpan.FromMilliseconds(100));
+                    pumped += TimeSpan.FromMilliseconds(100);
                 }
                 defocused = true;
             }
 
-            for (var spin = 0; spin < 10 && !imagingTask.IsCompleted; spin++)
-            {
-                await Task.Delay(10, ct);
-            }
+            await Task.Delay(1, ct);
         }
 
         imagingTask.IsCompleted.ShouldBeTrue("imaging loop should have completed within timeout");
@@ -374,17 +382,18 @@ public class SessionImagingTests(ITestOutputHelper output)
 
         var hourAngle = await ctx.Mount.GetHourAngleAsync(ct);
 
-        // when — run imaging loop, pump time
+        // when — run imaging loop, pump fake time cooperatively
+        ctx.External.ExternalTimePump = true;
         var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, ct));
 
-        var maxTicks = (int)(TimeSpan.FromHours(24) / subExposure);
-        for (var i = 0; i < maxTicks && !imagingTask.IsCompleted && !ct.IsCancellationRequested; i++)
+        var pumpIncrement = TimeSpan.FromSeconds(5);
+        var maxFakeTime = TimeSpan.FromHours(4);
+        var pumped = TimeSpan.Zero;
+        while (pumped < maxFakeTime && !imagingTask.IsCompleted && !ct.IsCancellationRequested)
         {
-            await ctx.External.SleepAsync(subExposure, ct);
-            for (var spin = 0; spin < 10 && !imagingTask.IsCompleted; spin++)
-            {
-                await Task.Delay(10, ct);
-            }
+            ctx.External.Advance(pumpIncrement);
+            pumped += pumpIncrement;
+            await Task.Delay(1, ct);
         }
 
         imagingTask.IsCompleted.ShouldBeTrue("imaging loop should have completed within timeout");
@@ -448,31 +457,35 @@ public class SessionImagingTests(ITestOutputHelper output)
         // when — run imaging loop, inject clouds after baseline established, clear after a bit
         var cloudsInjected = false;
         var cloudsCleared = false;
+        ctx.External.ExternalTimePump = true;
         var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, ct));
 
-        for (var i = 0; i < 500 && !imagingTask.IsCompleted && !ct.IsCancellationRequested; i++)
+        var pumpIncrement = TimeSpan.FromSeconds(5);
+        var maxFakeTime = TimeSpan.FromHours(4);
+        var pumped = TimeSpan.Zero;
+        var pumpIteration = 0;
+        while (pumped < maxFakeTime && !imagingTask.IsCompleted && !ct.IsCancellationRequested)
         {
-            await ctx.External.SleepAsync(subExposure, ct);
+            ctx.External.Advance(pumpIncrement);
+            pumped += pumpIncrement;
+            pumpIteration++;
 
             // After baseline established, inject heavy clouds
             if (!cloudsInjected && ctx.Session.BaselineByObservation.ContainsKey(0))
             {
-                output.WriteLine($"Baseline established at pump {i}, injecting clouds (coverage=0.8)");
+                output.WriteLine($"Baseline established at pump {pumpIteration}, injecting clouds (coverage=0.8)");
                 ctx.Camera.CloudCoverage = 0.8;
                 cloudsInjected = true;
             }
-            // After a few cloudy frames, clear the sky so recovery can succeed
-            else if (cloudsInjected && !cloudsCleared && i > 10)
+            // After a few cloudy pump iterations, clear the sky so recovery can succeed
+            else if (cloudsInjected && !cloudsCleared && pumpIteration > 10)
             {
-                output.WriteLine($"Clearing clouds at pump {i}");
+                output.WriteLine($"Clearing clouds at pump {pumpIteration}");
                 ctx.Camera.CloudCoverage = 0;
                 cloudsCleared = true;
             }
 
-            for (var spin = 0; spin < 10 && !imagingTask.IsCompleted; spin++)
-            {
-                await Task.Delay(10, ct);
-            }
+            await Task.Delay(1, ct);
         }
 
         imagingTask.IsCompleted.ShouldBeTrue("imaging loop should have completed within timeout");

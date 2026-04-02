@@ -35,7 +35,27 @@ jobs:
         path: '**/*.nupkg'
         retention-days: 5
 
-  test:
+  test-unit:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: recursive
+    - uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.0.x
+    - name: Restore dependencies
+      run: dotnet restore
+      working-directory: src
+    - name: Build
+      run: dotnet build -c $BUILD_CONF --no-restore -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true
+      working-directory: src
+    - name: Unit Tests
+      run: dotnet test TianWen.Lib.Tests -c $BUILD_CONF --no-build
+      working-directory: src
+
+  test-functional:
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -53,12 +73,12 @@ jobs:
     - name: Build
       run: dotnet build -c $BUILD_CONF --no-restore -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true
       working-directory: src
-    - name: Test
-      run: dotnet test -c $BUILD_CONF --no-build || dotnet test -c $BUILD_CONF --no-build
+    - name: Functional Tests
+      run: dotnet test TianWen.Lib.Tests.Functional -c $BUILD_CONF --no-build
       working-directory: src
 
   publish-apps:
-    needs: test
+    needs: [test-unit, test-functional]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     strategy:
       fail-fast: false
@@ -121,7 +141,7 @@ jobs:
           tianwen-fits-viewer-*.tar.gz
 
   publish-nuget:
-    needs: test
+    needs: [test-unit, test-functional]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
