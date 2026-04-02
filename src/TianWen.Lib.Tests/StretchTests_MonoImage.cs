@@ -4,6 +4,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Imaging")]
 public class StretchTests_MonoImage(ITestOutputHelper testOutputHelper) : StretchTestBase(testOutputHelper)
 {
     [Theory]

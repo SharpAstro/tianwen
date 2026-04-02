@@ -12,6 +12,7 @@ using static TianWen.Lib.Astrometry.Catalogs.CatalogUtils;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Scheduling")]
 public class TonightsBestTests
 {
     private static ICelestialObjectDB? _cachedDB;

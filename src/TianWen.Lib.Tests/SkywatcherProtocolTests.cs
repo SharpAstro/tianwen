@@ -5,6 +5,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Skywatcher")]
 public class SkywatcherProtocolTests
 {
     #region Hex LE Encoding Roundtrips

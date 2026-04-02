@@ -4,6 +4,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Scheduling")]
 public sealed class FilterTests
 {
     [Theory]

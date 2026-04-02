@@ -8,6 +8,7 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Astrometry")]
 public class TransformTests
 {
     [Theory]

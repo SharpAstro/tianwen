@@ -4,6 +4,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("UI")]
 public class TextInputStateTests
 {
     [Fact]

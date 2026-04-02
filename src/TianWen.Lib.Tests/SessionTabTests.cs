@@ -7,6 +7,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests
 {
+    [Collection("Encoding")]
     public class StepExposureTests
     {
         [Theory]
@@ -57,6 +58,7 @@ namespace TianWen.Lib.Tests
         }
     }
 
+    [Collection("Encoding")]
     public class TryParseExposureInputTests
     {
         [Theory]
@@ -93,6 +95,7 @@ namespace TianWen.Lib.Tests
         }
     }
 
+    [Collection("UI")]
     public class SessionTabTests
     {
         private static SessionTab<RgbaImage> CreateTab(out SessionTabState state, int width = 800, int height = 600)

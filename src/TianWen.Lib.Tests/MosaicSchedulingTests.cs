@@ -9,6 +9,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Scheduling")]
 public sealed class MosaicSchedulingTests
 {
     // Vienna, Austria — ~48.2°N, ~16.4°E

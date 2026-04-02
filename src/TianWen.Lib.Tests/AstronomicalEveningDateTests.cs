@@ -5,6 +5,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Astrometry")]
 public class AstronomicalEveningDateTests
 {
     [Theory]

@@ -15,6 +15,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Scheduling")]
 public class FindBestFocusTests(ITestOutputHelper testOutputHelper)
 {
     record NinaTestResult(

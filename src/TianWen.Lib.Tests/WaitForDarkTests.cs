@@ -17,6 +17,7 @@ namespace TianWen.Lib.Tests;
 /// The method now waits until 10 minutes before the first scheduled observation
 /// start time, rather than recomputing twilight from SOFA.
 /// </summary>
+[Collection("Scheduling")]
 public class WaitForDarkTests(ITestOutputHelper output)
 {
     [Fact(Timeout = 60_000)]

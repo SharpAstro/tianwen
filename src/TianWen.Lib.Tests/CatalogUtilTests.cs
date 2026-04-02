@@ -5,6 +5,7 @@ using static TianWen.Lib.Tests.SharedTestData;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Catalog")]
 public class CatalogUtilTests
 {
     [Theory]

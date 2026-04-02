@@ -5,6 +5,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Encoding")]
 public class Base91Tests
 {
     [Fact]

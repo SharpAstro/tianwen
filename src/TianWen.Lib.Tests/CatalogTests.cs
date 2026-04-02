@@ -4,6 +4,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Catalog")]
 public class CatalogTests
 {
     [Theory]

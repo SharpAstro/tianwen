@@ -10,6 +10,7 @@ namespace TianWen.Lib.Tests;
 /// Tests for timezone lookup from coordinates, verifying that GeoTimeZone
 /// resolves correctly for various sites including ocean locations.
 /// </summary>
+[Collection("Astrometry")]
 public class TimeZoneLookupTests(ITestOutputHelper output)
 {
     [Theory]

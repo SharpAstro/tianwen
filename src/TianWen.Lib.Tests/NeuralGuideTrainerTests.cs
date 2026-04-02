@@ -5,6 +5,7 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+[Collection("Guider")]
 public class NeuralGuideTrainerTests(ITestOutputHelper output)
 {
     private static GuiderCalibrationResult MakeCalibration()
