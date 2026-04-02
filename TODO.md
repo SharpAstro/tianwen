@@ -7,10 +7,10 @@
 
 ## Flaky CI Tests
 
-- [ ] `SessionImagingTests.GivenHighAltitudeTarget...HighUtilization` — fails 4/6 CI runs, passes locally. Timing-sensitive `FakeTimeProvider` interaction
-- [ ] `SessionImagingTests.GivenDitherEveryNth...DitheringTriggered` — fails 3/6 CI runs
-- [ ] `SessionImagingTests.GivenFocusDrift...AutoRefocusTriggered` — occasional CI failure
-- [ ] `SessionPhaseTests.AbortDuringCooling_StopsRampAndWarmsBack` — occasional CI failure
+- [x] `SessionImagingTests.GivenHighAltitudeTarget...HighUtilization` — fixed: cooperative time pump (`ExternalTimePump + Advance`)
+- [x] `SessionImagingTests.GivenDitherEveryNth...DitheringTriggered` — fixed: same root cause (SleepAsync pump race)
+- [x] `SessionImagingTests.GivenFocusDrift...AutoRefocusTriggered` — fixed: same root cause
+- [x] `SessionPhaseTests.AbortDuringCooling_StopsRampAndWarmsBack` — fixed: removed wall-clock CancellationTokenSource timeouts
 
 ## Next Up
 
@@ -149,7 +149,7 @@
 
 ## Flaky Tests
 
-- [ ] `SessionObservationLoopTests.GivenRefocusOnNewTargetWhenSwitchingTargetsThenBaselineStoredPerTarget` — intermittently fails, passes on re-run. Likely timing-sensitive fake time pumping race between test thread and session background task. Investigate whether the `Task.Delay` yield is insufficient or whether `FakeTimeProvider.Advance` interleaving causes non-deterministic ordering.
+- [x] `SessionObservationLoopTests.GivenRefocusOnNewTargetWhenSwitchingTargetsThenBaselineStoredPerTarget` — fixed: cooperative time pump, `[Collection("Session")]` serialization, removed wall-clock timeouts
 
 ## Camera / ICameraDriver
 

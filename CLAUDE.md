@@ -101,11 +101,29 @@ collection run sequentially; different collections run in parallel.
 **Functional test collections** (`TianWen.Lib.Tests.Functional`):
 - All `Session*Tests` share `[Collection("Session")]` — runs sequentially to avoid
   thread pool starvation from concurrent `Task.Run` + `FakeTimeProvider` timer callbacks
-- `maxParallelThreads: 2` in `xunit.runner.json` limits overall parallelism
+- `maxParallelThreads: 4` in `xunit.runner.json` limits overall parallelism
 - **No wall-clock `CancellationTokenSource` timeouts** in session tests — rely on
   `[Fact(Timeout = ...)]` instead; inner timeouts cause flakes under thread pool pressure
 - `SessionTestHelper` defaults to `FakeMountDriver` (no `mountPort`); pass
   `mountPort: "LX200"` or `"SkyWatcher"` only for protocol-specific tests
+- **Cooperative time pump pattern** for tests that run session loops via `Task.Run`:
+  ```csharp
+  ctx.External.ExternalTimePump = true;
+  var loopTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(...));
+
+  var pumpIncrement = TimeSpan.FromSeconds(5);
+  var maxFakeTime = TimeSpan.FromHours(4);
+  var pumped = TimeSpan.Zero;
+  while (pumped < maxFakeTime && !loopTask.IsCompleted && !ct.IsCancellationRequested)
+  {
+      ctx.External.Advance(pumpIncrement);
+      pumped += pumpIncrement;
+      await Task.Delay(1, ct);
+  }
+  ```
+  **Never** use `SleepAsync(subExposure)` in a pump loop — it advances fake time even when
+  the `Task.Run` hasn't been scheduled yet, causing targets to "set" before imaging starts.
+  `Advance` fires timers synchronously; `Task.Delay(1)` yields to the thread pool.
 
 ## Coding Style
 
