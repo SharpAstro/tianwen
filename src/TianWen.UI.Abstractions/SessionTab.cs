@@ -55,6 +55,9 @@ namespace TianWen.UI.Abstractions
         /// <summary>Cached reference to planner state for HandleInput access.</summary>
         private PlannerState? _plannerState;
 
+        /// <summary>Cached reference to time provider for observation list rendering.</summary>
+        private TimeProvider? _timeProvider;
+
         /// <summary>Tab state (configuration values, per-OTA camera settings, scroll offset).</summary>
         public SessionTabState State { get; } = new SessionTabState();
 
@@ -74,10 +77,12 @@ namespace TianWen.UI.Abstractions
             PlannerState plannerState,
             RectF32 contentRect,
             float dpiScale,
-            string fontPath)
+            string fontPath,
+            TimeProvider? timeProvider = null)
         {
             BeginFrame();
             _plannerState = plannerState;
+            _timeProvider = timeProvider;
             _exposureValueRegions.Clear();
             FillRect(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height, ContentBg);
 
@@ -498,7 +503,7 @@ namespace TianWen.UI.Abstractions
                 var windowStart = i > 0 && i - 1 < sliders.Count ? sliders[i - 1] : dark;
                 var windowEnd = i < sliders.Count ? sliders[i] : twilight;
                 var effectiveStart = windowStart;
-                var utcNow = TimeProvider.System.GetUtcNow();
+                var utcNow = (_timeProvider ?? TimeProvider.System).GetUtcNow();
                 if (utcNow > windowStart && utcNow < windowEnd)
                 {
                     effectiveStart = utcNow;

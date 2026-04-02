@@ -37,6 +37,7 @@ internal sealed class TuiLiveSessionTab(
     GuiAppState appState,
     LiveSessionState liveState,
     IVirtualTerminal terminal,
+    TimeProvider timeProvider,
     SignalBus bus) : TuiTabBase
 {
     private const int LeftPanelCols = 40;
@@ -215,7 +216,7 @@ internal sealed class TuiLiveSessionTab(
                 // Exposure state with progress bar
                 if (cs.State == CameraState.Exposing)
                 {
-                    var elapsed = TimeProvider.System.GetUtcNow() - cs.ExposureStart;
+                    var elapsed = timeProvider.GetUtcNow() - cs.ExposureStart;
                     var total = cs.SubExposure.TotalSeconds;
                     var elapsedSec = Math.Min(elapsed.TotalSeconds, total);
                     var progress = total > 0 ? elapsedSec / total : 0;
@@ -267,7 +268,7 @@ internal sealed class TuiLiveSessionTab(
             var startIdx = Math.Max(0, focusHistory.Length - 3);
             for (var i = startIdx; i < focusHistory.Length; i++)
             {
-                sb.AppendLine(LiveSessionActions.FormatFocusHistoryRow(focusHistory[i]));
+                sb.AppendLine(LiveSessionActions.FormatFocusHistoryRow(focusHistory[i], liveState.SiteTimeZone));
             }
         }
     }
@@ -288,7 +289,7 @@ internal sealed class TuiLiveSessionTab(
             var startIdx = Math.Max(0, log.Length - 8);
             for (var i = startIdx; i < log.Length; i++)
             {
-                sb.AppendLine(LiveSessionActions.FormatExposureLogRow(log[i]));
+                sb.AppendLine(LiveSessionActions.FormatExposureLogRow(log[i], liveState.SiteTimeZone));
                 sb.AppendLine();
             }
         }

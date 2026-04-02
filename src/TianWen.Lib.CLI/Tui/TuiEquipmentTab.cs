@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using Console.Lib;
 using DIR.Lib;
 using TianWen.Lib.Devices;
@@ -8,19 +10,26 @@ using TianWen.UI.Abstractions;
 namespace TianWen.Lib.CLI.Tui;
 
 /// <summary>
-/// TUI equipment/profile tab. Shows profile summary as markdown on the right,
-/// interactive device settings list on the left, with site editing in the bottom bar.
+/// TUI equipment/profile tab. Left: profile picker. Right: unified scrollable list
+/// with all profile elements (device slots, OTA properties, filters, device settings).
+/// In assignment mode the settings list is replaced by the device picker.
 /// </summary>
 internal sealed class TuiEquipmentTab(
     GuiAppState appState,
     EquipmentTabState eqState,
     EquipmentContent equipmentContent,
+    IConsoleHost consoleHost,
     SignalBus? bus = null) : TuiTabBase
 {
-    private MarkdownWidget? _profileWidget;
+    /// <summary>Interaction mode state machine.</summary>
+    private enum Mode { Browse, Assignment, InlineEdit }
+
+    private ScrollableList<ProfilePickerItem>? _profileList;
     private ScrollableList<EquipmentFieldItem>? _settingsList;
     private TextBar? _siteBar;
     private TextBar? _statusBar;
+
+    private Mode _mode = Mode.Browse;
 
     /// <summary>Tracks which field is active during site editing: 0=lat, 1=lon, 2=elev.</summary>
     private int _editFieldIndex;
@@ -31,30 +40,48 @@ internal sealed class TuiEquipmentTab(
     /// <summary>Total editable field count.</summary>
     private int _fieldCount;
 
+    /// <summary>Selected index in the device picker (reuses _settingsList viewport).</summary>
+    private int _pickerSelectedIndex;
+
+    /// <summary>OTA index pending deletion confirmation (-1 = none).</summary>
+    private int _pendingDeleteOtaIndex = -1;
+
     /// <summary>Last built items list (for keyboard lookup).</summary>
     private List<EquipmentFieldItem> _lastItems = [];
 
     /// <summary>Working copy of device URIs being edited (keyed by slot path).</summary>
     private readonly Dictionary<string, Uri> _editingUris = new Dictionary<string, Uri>();
 
-    [MemberNotNullWhen(true, nameof(_profileWidget), nameof(_settingsList), nameof(_siteBar), nameof(_statusBar))]
-    protected override bool IsReady =>
-        _profileWidget is not null && _settingsList is not null && _siteBar is not null && _statusBar is not null;
+    /// <summary>Active inline text input (filter name editing).</summary>
+    private TextInputState? _activeInlineInput;
 
-    [MemberNotNull(nameof(_profileWidget), nameof(_settingsList), nameof(_siteBar), nameof(_statusBar))]
+    /// <summary>Cached profile list for the picker.</summary>
+    private IReadOnlyCollection<Profile> _cachedProfiles = [];
+
+    /// <summary>Whether profiles have been loaded at least once.</summary>
+    private bool _profilesLoaded;
+
+    /// <summary>Selected index in the profile picker.</summary>
+    private int _profileSelectedIndex;
+
+    [MemberNotNullWhen(true, nameof(_profileList), nameof(_settingsList), nameof(_siteBar), nameof(_statusBar))]
+    protected override bool IsReady =>
+        _profileList is not null && _settingsList is not null && _siteBar is not null && _statusBar is not null;
+
+    [MemberNotNull(nameof(_profileList), nameof(_settingsList), nameof(_siteBar), nameof(_statusBar))]
     protected override void CreateWidgets(Panel panel)
     {
         var bottomVp = panel.Dock(DockStyle.Bottom, 1);
         var siteVp = panel.Dock(DockStyle.Bottom, 1);
-        var leftVp = panel.Dock(DockStyle.Left, 44);
+        var leftVp = panel.Dock(DockStyle.Left, 24);
         var fillVp = panel.Fill();
 
         _siteBar = new TextBar(siteVp);
         _statusBar = new TextBar(bottomVp);
-        _profileWidget = new MarkdownWidget(leftVp);
+        _profileList = new ScrollableList<ProfilePickerItem>(leftVp);
         _settingsList = new ScrollableList<EquipmentFieldItem>(fillVp);
 
-        panel.Add(_siteBar).Add(_statusBar).Add(_profileWidget).Add(_settingsList);
+        panel.Add(_siteBar).Add(_statusBar).Add(_profileList).Add(_settingsList);
     }
 
     private static readonly string[] FieldLabels = ["Lat", "Lon", "Elev"];
@@ -73,13 +100,27 @@ internal sealed class TuiEquipmentTab(
             return;
         }
 
-        if (appState.ActiveProfile is { Data: { } data } profile)
+        // Load profiles once on first render
+        if (!_profilesLoaded)
         {
-            // Right panel: markdown profile summary
-            _profileWidget.Markdown(equipmentContent.FormatProfileMarkdown(profile));
+            _profilesLoaded = true;
+            RefreshProfiles();
+        }
 
-            // Left panel: interactive settings list
-            BuildSettingsList(data);
+        // Left panel: profile picker
+        BuildProfileList();
+
+        if (appState.ActiveProfile is { Data: { } data })
+        {
+            // Right panel: settings list or device picker
+            if (_mode == Mode.Assignment)
+            {
+                BuildDevicePickerList(data);
+            }
+            else
+            {
+                BuildSettingsList(data);
+            }
 
             // Site bar
             if (eqState.IsEditingSite)
@@ -102,14 +143,53 @@ internal sealed class TuiEquipmentTab(
         }
         else
         {
-            _profileWidget.Markdown("## No profile selected");
-            _settingsList.Items([]).Header("Equipment Settings");
+            _settingsList.Items([]).Header("Equipment");
             _siteBar.Text(" Site: \u2014");
             _siteBar.RightText("");
         }
 
-        _statusBar.Text(" D:discover  E:edit site  \u2191\u2193:select  \u2190\u2192/Enter:adjust  R:refresh  Q:quit");
+        // Status bar varies by mode
+        var statusText = _mode switch
+        {
+            Mode.Assignment => " \u2191\u2193:select  Enter:assign  Esc:cancel",
+            Mode.InlineEdit => " Type filter name  Enter:save  Esc:cancel",
+            _ when eqState.IsEditingSite => " Tab:next field  Enter:save  Esc:cancel",
+            _ when _pendingDeleteOtaIndex >= 0 => " Press X again to confirm delete, any other key to cancel",
+            _ => " D:discover  E:site  A:add OTA  Enter:assign  \u2190\u2192:adjust  Q:quit"
+        };
+        _statusBar.Text(statusText);
         _statusBar.RightText(appState.StatusMessage ?? "");
+    }
+
+    private void BuildProfileList()
+    {
+        var items = new List<ProfilePickerItem>();
+        var activeId = appState.ActiveProfile?.ProfileId;
+        var idx = 0;
+
+        foreach (var profile in _cachedProfiles)
+        {
+            var isActive = profile.ProfileId == activeId;
+            items.Add(new ProfilePickerItem
+            {
+                Profile = profile,
+                IsActive = isActive,
+                IsSelected = idx == _profileSelectedIndex,
+            });
+            if (isActive && _profileSelectedIndex < 0)
+            {
+                _profileSelectedIndex = idx;
+            }
+            idx++;
+        }
+
+        _profileList!.Items([.. items]).Header("Profiles");
+
+        // Scroll to keep selected visible
+        if (_profileSelectedIndex >= 0 && _profileList.VisibleRows > 0)
+        {
+            _profileList.ScrollTo(Math.Max(0, _profileSelectedIndex - _profileList.VisibleRows / 2));
+        }
     }
 
     private void BuildSettingsList(ProfileData data)
@@ -117,21 +197,173 @@ internal sealed class TuiEquipmentTab(
         var items = new List<EquipmentFieldItem>();
         var fieldIdx = 0;
 
-        // Profile-level devices with settings
-        AddDeviceSettings(items, ref fieldIdx, data.Guider, "Guider Settings");
-        AddDeviceSettings(items, ref fieldIdx, data.GuiderCamera, "Guide Camera Settings");
-
-        // Per-OTA devices with settings
-        for (var i = 0; i < data.OTAs.Length; i++)
+        // -- Profile-level device slots --
+        items.Add(new EquipmentFieldItem { SectionName = "Profile Devices" });
+        foreach (var slot in equipmentContent.GetProfileSlots(data))
         {
-            var ota = data.OTAs[i];
-            AddDeviceSettings(items, ref fieldIdx, ota.Camera,
+            items.Add(new EquipmentFieldItem
+            {
+                Slot = slot.Slot,
+                SlotLabel = slot.Label,
+                SlotDeviceName = slot.DeviceName,
+                IsSlotActive = slot.IsAssigned,
+                FieldIndex = fieldIdx,
+                IsSelected = fieldIdx == _selectedFieldIndex,
+            });
+            fieldIdx++;
+        }
+
+        // -- Per-OTA sections --
+        var otaSummaries = equipmentContent.GetOtaSummaries(data);
+        for (var i = 0; i < otaSummaries.Count; i++)
+        {
+            var ota = otaSummaries[i];
+            var otaData = data.OTAs[i];
+
+            // OTA header with actions
+            items.Add(new EquipmentFieldItem
+            {
+                SectionName = $"Telescope #{ota.Index}: {ota.Name}",
+                IsOtaHeader = true,
+                OtaIndex = i,
+            });
+
+            // Device sub-slots
+            foreach (var slot in ota.DeviceSlots)
+            {
+                items.Add(new EquipmentFieldItem
+                {
+                    Slot = slot.Slot,
+                    SlotLabel = slot.Label,
+                    SlotDeviceName = slot.DeviceName,
+                    IsSlotActive = slot.IsAssigned,
+                    FieldIndex = fieldIdx,
+                    IsSelected = fieldIdx == _selectedFieldIndex,
+                });
+                fieldIdx++;
+            }
+
+            // OTA property steppers
+            var capturedOtaIdx = i;
+
+            // Focal Length
+            items.Add(MakePropertyStepper(ref fieldIdx, "FL (mm)", otaData.FocalLength.ToString(),
+                () =>
+                {
+                    var updated = EquipmentActions.UpdateOTA(data, capturedOtaIdx,
+                        focalLength: Math.Min(otaData.FocalLength + 50, 10000));
+                    bus?.Post(new UpdateProfileSignal(updated));
+                },
+                () =>
+                {
+                    var updated = EquipmentActions.UpdateOTA(data, capturedOtaIdx,
+                        focalLength: Math.Max(otaData.FocalLength - 50, 50));
+                    bus?.Post(new UpdateProfileSignal(updated));
+                }));
+
+            // Aperture
+            items.Add(MakePropertyStepper(ref fieldIdx, "Aperture (mm)", otaData.Aperture?.ToString() ?? "\u2014",
+                () =>
+                {
+                    var updated = EquipmentActions.UpdateOTA(data, capturedOtaIdx,
+                        aperture: Math.Min((otaData.Aperture ?? 0) + 10, 2000));
+                    bus?.Post(new UpdateProfileSignal(updated));
+                },
+                () =>
+                {
+                    var newAp = Math.Max((otaData.Aperture ?? 0) - 10, 0);
+                    var updated = EquipmentActions.UpdateOTA(data, capturedOtaIdx, aperture: newAp);
+                    bus?.Post(new UpdateProfileSignal(updated));
+                }));
+
+            // Optical Design (cycle)
+            var designs = Enum.GetValues<OpticalDesign>();
+            items.Add(new EquipmentFieldItem
+            {
+                PropertyLabel = "Design",
+                PropertyValue = otaData.OpticalDesign.ToString(),
+                IsCycleField = true,
+                FieldIndex = fieldIdx,
+                IsSelected = fieldIdx == _selectedFieldIndex,
+                Increment = () =>
+                {
+                    var idx = Array.IndexOf(designs, otaData.OpticalDesign);
+                    var next = designs[(idx + 1) % designs.Length];
+                    var updated = EquipmentActions.UpdateOTA(data, capturedOtaIdx, opticalDesign: next);
+                    bus?.Post(new UpdateProfileSignal(updated));
+                },
+            });
+            fieldIdx++;
+
+            // Filter rows (if filter wheel assigned)
+            if (ota.Filters is { Count: > 0 })
+            {
+                items.Add(new EquipmentFieldItem { SectionName = "Filters" });
+                var installedFilters = EquipmentActions.GetFilterConfig(data, i);
+                for (var f = 0; f < installedFilters.Count; f++)
+                {
+                    var capturedFilterIdx = f;
+                    var capturedOtaForFilter = i;
+                    var filter = installedFilters[f];
+
+                    items.Add(new EquipmentFieldItem
+                    {
+                        FilterIndex = f + 1,
+                        FilterName = EquipmentActions.FilterDisplayName(filter),
+                        FilterOffset = filter.Position,
+                        OtaIndex = i,
+                        FieldIndex = fieldIdx,
+                        IsSelected = fieldIdx == _selectedFieldIndex,
+                        // Left/Right adjusts offset
+                        Increment = () =>
+                        {
+                            var currentFilters = new List<InstalledFilter>(EquipmentActions.GetFilterConfig(data, capturedOtaForFilter));
+                            if (capturedFilterIdx < currentFilters.Count)
+                            {
+                                var f2 = currentFilters[capturedFilterIdx];
+                                currentFilters[capturedFilterIdx] = new InstalledFilter(f2.Filter, f2.Position + 10, f2.CustomName);
+                                var updated = EquipmentActions.SetFilterConfig(data, capturedOtaForFilter, currentFilters);
+                                bus?.Post(new UpdateProfileSignal(updated));
+                            }
+                        },
+                        Decrement = () =>
+                        {
+                            var currentFilters = new List<InstalledFilter>(EquipmentActions.GetFilterConfig(data, capturedOtaForFilter));
+                            if (capturedFilterIdx < currentFilters.Count)
+                            {
+                                var f2 = currentFilters[capturedFilterIdx];
+                                currentFilters[capturedFilterIdx] = new InstalledFilter(f2.Filter, f2.Position - 10, f2.CustomName);
+                                var updated = EquipmentActions.SetFilterConfig(data, capturedOtaForFilter, currentFilters);
+                                bus?.Post(new UpdateProfileSignal(updated));
+                            }
+                        },
+                    });
+                    fieldIdx++;
+                }
+            }
+
+            // Device settings for assigned devices in this OTA
+            AddDeviceSettings(items, ref fieldIdx, otaData.Camera,
                 data.OTAs.Length > 1 ? $"Camera Settings ({ota.Name})" : "Camera Settings");
         }
 
+        // -- Guider/Guide camera device settings --
+        AddDeviceSettings(items, ref fieldIdx, data.Guider, "Guider Settings");
+        AddDeviceSettings(items, ref fieldIdx, data.GuiderCamera, "Guide Camera Settings");
+
+        // -- Add OTA action row --
+        items.Add(new EquipmentFieldItem
+        {
+            ActionLabel = "+ Add OTA",
+            FieldIndex = fieldIdx,
+            IsSelected = fieldIdx == _selectedFieldIndex,
+            Increment = () => bus?.Post(new AddOtaSignal()),
+        });
+        fieldIdx++;
+
         _fieldCount = fieldIdx;
         _lastItems = items;
-        _settingsList!.Items([.. items]).Header("Equipment Settings");
+        _settingsList!.Items([.. items]).Header("Equipment");
 
         // Scroll to keep selected item visible
         var selectedListIdx = items.FindIndex(i => i.IsSelected);
@@ -139,6 +371,21 @@ internal sealed class TuiEquipmentTab(
         {
             _settingsList.ScrollTo(Math.Max(0, selectedListIdx - _settingsList.VisibleRows / 2));
         }
+    }
+
+    private EquipmentFieldItem MakePropertyStepper(ref int fieldIdx, string label, string value, Action inc, Action dec)
+    {
+        var item = new EquipmentFieldItem
+        {
+            PropertyLabel = label,
+            PropertyValue = value,
+            FieldIndex = fieldIdx,
+            IsSelected = fieldIdx == _selectedFieldIndex,
+            Increment = inc,
+            Decrement = dec,
+        };
+        fieldIdx++;
+        return item;
     }
 
     private void AddDeviceSettings(List<EquipmentFieldItem> items, ref int fieldIdx, Uri? deviceUri, string sectionLabel)
@@ -155,7 +402,7 @@ internal sealed class TuiEquipmentTab(
         }
 
         // Use working copy of URI if we have one, otherwise the original
-        var uriKey = deviceUri.GetLeftPart(System.UriPartial.Path);
+        var uriKey = deviceUri.GetLeftPart(UriPartial.Path);
         if (!_editingUris.TryGetValue(uriKey, out var workingUri))
         {
             workingUri = deviceUri;
@@ -173,7 +420,6 @@ internal sealed class TuiEquipmentTab(
 
             var capturedSetting = setting;
             var capturedKey = uriKey;
-            var capturedIdx = fieldIdx;
 
             items.Add(new EquipmentFieldItem
             {
@@ -203,6 +449,49 @@ internal sealed class TuiEquipmentTab(
         }
     }
 
+    private void BuildDevicePickerList(ProfileData data)
+    {
+        if (eqState.ActiveAssignment is not { } target)
+        {
+            return;
+        }
+
+        var items = new List<EquipmentFieldItem>();
+
+        if (eqState.DiscoveredDevices.Count == 0)
+        {
+            items.Add(new EquipmentFieldItem { SectionName = "No devices discovered" });
+            items.Add(new EquipmentFieldItem { PropertyLabel = "Press D to discover", PropertyValue = "", IsCycleField = true });
+        }
+        else
+        {
+            for (var i = 0; i < eqState.DiscoveredDevices.Count; i++)
+            {
+                var device = eqState.DiscoveredDevices[i];
+                var matches = device.DeviceType == target.ExpectedDeviceType;
+                var assigned = EquipmentActions.IsDeviceAssigned(data, device.DeviceUri);
+
+                items.Add(new EquipmentFieldItem
+                {
+                    SlotLabel = device.DeviceType.ToString(),
+                    SlotDeviceName = device.DisplayName + (assigned ? " \u2713" : ""),
+                    IsSlotActive = matches,
+                    Slot = target, // reuse for type info
+                    FieldIndex = i,
+                    IsSelected = i == _pickerSelectedIndex,
+                });
+            }
+        }
+
+        _settingsList!.Items([.. items]).Header($"Assign {target.ExpectedDeviceType}");
+
+        // Scroll picker
+        if (_pickerSelectedIndex >= 0 && _settingsList.VisibleRows > 0)
+        {
+            _settingsList.ScrollTo(Math.Max(0, _pickerSelectedIndex - _settingsList.VisibleRows / 2));
+        }
+    }
+
     private void SaveDeviceSettings(string uriKey)
     {
         if (appState.ActiveProfile?.Data is not { } data)
@@ -211,8 +500,6 @@ internal sealed class TuiEquipmentTab(
         }
 
         var newUri = _editingUris[uriKey];
-
-        // Find the original URI in the profile and replace it
         var originalUri = FindOriginalUri(data, uriKey);
         if (originalUri is null)
         {
@@ -225,19 +512,19 @@ internal sealed class TuiEquipmentTab(
 
     private static Uri? FindOriginalUri(ProfileData data, string uriKey)
     {
-        if (data.Guider is { } g && g.GetLeftPart(System.UriPartial.Path) == uriKey)
+        if (data.Guider is { } g && g.GetLeftPart(UriPartial.Path) == uriKey)
         {
             return g;
         }
 
-        if (data.GuiderCamera is { } gc && gc.GetLeftPart(System.UriPartial.Path) == uriKey)
+        if (data.GuiderCamera is { } gc && gc.GetLeftPart(UriPartial.Path) == uriKey)
         {
             return gc;
         }
 
         for (var i = 0; i < data.OTAs.Length; i++)
         {
-            if (data.OTAs[i].Camera is { } cam && cam.GetLeftPart(System.UriPartial.Path) == uriKey)
+            if (data.OTAs[i].Camera is { } cam && cam.GetLeftPart(UriPartial.Path) == uriKey)
             {
                 return cam;
             }
@@ -262,6 +549,71 @@ internal sealed class TuiEquipmentTab(
         return $"{label}: [{before}{VtStyle.ReverseOn}{cursorChar}{VtStyle.ReverseOff}{after}]";
     }
 
+    private void RefreshProfiles()
+    {
+        // Fire-and-forget profile load — results arrive via callback
+        _ = LoadProfilesAsync();
+    }
+
+    private async Task LoadProfilesAsync()
+    {
+        try
+        {
+            _cachedProfiles = await consoleHost.ListDevicesAsync<Profile>(
+                DeviceType.Profile, DeviceDiscoveryOption.Force, default);
+            _profileSelectedIndex = FindActiveProfileIndex();
+            NeedsRedraw = true;
+        }
+        catch
+        {
+            // Ignore — profiles stay empty
+        }
+    }
+
+    private int FindActiveProfileIndex()
+    {
+        var activeId = appState.ActiveProfile?.ProfileId;
+        if (activeId is null)
+        {
+            return 0;
+        }
+
+        var idx = 0;
+        foreach (var p in _cachedProfiles)
+        {
+            if (p.ProfileId == activeId)
+            {
+                return idx;
+            }
+            idx++;
+        }
+        return 0;
+    }
+
+    private void SwitchToSelectedProfile()
+    {
+        var idx = 0;
+        foreach (var profile in _cachedProfiles)
+        {
+            if (idx == _profileSelectedIndex)
+            {
+                if (profile.ProfileId != appState.ActiveProfile?.ProfileId)
+                {
+                    appState.ActiveProfile = profile;
+                    _editingUris.Clear();
+                    _selectedFieldIndex = 0;
+                    appState.NeedsRedraw = true;
+                }
+                return;
+            }
+            idx++;
+        }
+    }
+
+    // ----------------------------------------------------------------
+    // Input handling — state machine
+    // ----------------------------------------------------------------
+
     public override bool HandleInput(InputEvent evt)
     {
         if (evt is not InputEvent.KeyDown(var key, var modifiers))
@@ -269,10 +621,39 @@ internal sealed class TuiEquipmentTab(
             return false;
         }
 
-        // Site editing mode
+        // Site editing takes priority over all modes
         if (eqState.IsEditingSite)
         {
             return HandleSiteEditInput(key, modifiers);
+        }
+
+        return _mode switch
+        {
+            Mode.Browse => HandleBrowseInput(key, modifiers),
+            Mode.Assignment => HandleAssignmentInput(key, modifiers),
+            Mode.InlineEdit => HandleInlineEditInput(key, modifiers),
+            _ => false,
+        };
+    }
+
+    private bool HandleBrowseInput(InputKey key, InputModifier modifiers)
+    {
+        // Delete confirmation guard
+        if (_pendingDeleteOtaIndex >= 0)
+        {
+            if (key == InputKey.X)
+            {
+                // Confirmed: delete the OTA
+                if (appState.ActiveProfile?.Data is { } data)
+                {
+                    var updated = EquipmentActions.RemoveOTA(data, _pendingDeleteOtaIndex);
+                    bus?.Post(new UpdateProfileSignal(updated));
+                }
+            }
+            // Any key (including X) clears the guard
+            _pendingDeleteOtaIndex = -1;
+            NeedsRedraw = true;
+            return false;
         }
 
         switch (key)
@@ -289,9 +670,9 @@ internal sealed class TuiEquipmentTab(
                     var site = pd.Mount is { } mount ? EquipmentActions.GetSiteFromMount(mount) : null;
                     if (site.HasValue)
                     {
-                        eqState.LatitudeInput.Activate(site.Value.Lat.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                        eqState.LongitudeInput.Activate(site.Value.Lon.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                        eqState.ElevationInput.Activate(site.Value.Elev?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "");
+                        eqState.LatitudeInput.Activate(site.Value.Lat.ToString(CultureInfo.InvariantCulture));
+                        eqState.LongitudeInput.Activate(site.Value.Lon.ToString(CultureInfo.InvariantCulture));
+                        eqState.ElevationInput.Activate(site.Value.Elev?.ToString(CultureInfo.InvariantCulture) ?? "");
                     }
                     else
                     {
@@ -302,6 +683,39 @@ internal sealed class TuiEquipmentTab(
                 }
                 eqState.IsEditingSite = true;
                 NeedsRedraw = true;
+                return false;
+
+            case InputKey.A:
+                bus?.Post(new AddOtaSignal());
+                NeedsRedraw = true;
+                return false;
+
+            case InputKey.X:
+                var otaIdx = FindNearestOtaIndex();
+                if (otaIdx >= 0)
+                {
+                    _pendingDeleteOtaIndex = otaIdx;
+                    NeedsRedraw = true;
+                }
+                return false;
+
+            // Profile picker navigation (Ctrl+Up/Down)
+            case InputKey.Up when (modifiers & InputModifier.Ctrl) != 0:
+                if (_profileSelectedIndex > 0)
+                {
+                    _profileSelectedIndex--;
+                    SwitchToSelectedProfile();
+                    NeedsRedraw = true;
+                }
+                return false;
+
+            case InputKey.Down when (modifiers & InputModifier.Ctrl) != 0:
+                if (_profileSelectedIndex < _cachedProfiles.Count - 1)
+                {
+                    _profileSelectedIndex++;
+                    SwitchToSelectedProfile();
+                    NeedsRedraw = true;
+                }
                 return false;
 
             case InputKey.Up:
@@ -329,7 +743,6 @@ internal sealed class TuiEquipmentTab(
                 return false;
 
             case InputKey.Right:
-            case InputKey.Enter:
                 if (FindSelectedItem() is { Increment: { } inc })
                 {
                     inc();
@@ -337,8 +750,43 @@ internal sealed class TuiEquipmentTab(
                 }
                 return false;
 
+            case InputKey.Enter:
+                var selected = FindSelectedItem();
+                if (selected is null)
+                {
+                    return false;
+                }
+
+                // Slot row → enter assignment mode
+                if (selected.Slot is { } slot)
+                {
+                    EnterAssignmentMode(slot);
+                    return false;
+                }
+
+                // Filter row → enter inline edit for filter name
+                if (selected.FilterIndex > 0 && selected.OtaIndex >= 0)
+                {
+                    EnterFilterNameEdit(selected.OtaIndex, selected.FilterIndex - 1, selected.FilterName ?? "");
+                    return false;
+                }
+
+                // Action row or cycle field → invoke increment
+                if (selected.Increment is { } enterInc)
+                {
+                    enterInc();
+                    NeedsRedraw = true;
+                }
+                return false;
+
+            case InputKey.N when (modifiers & InputModifier.Ctrl) != 0:
+                bus?.Post(new CreateProfileSignal());
+                NeedsRedraw = true;
+                return false;
+
             case InputKey.R:
                 _editingUris.Clear();
+                RefreshProfiles();
                 NeedsRedraw = true;
                 return false;
         }
@@ -346,10 +794,183 @@ internal sealed class TuiEquipmentTab(
         return false;
     }
 
+    private bool HandleAssignmentInput(InputKey key, InputModifier modifiers)
+    {
+        switch (key)
+        {
+            case InputKey.Escape:
+                ExitAssignmentMode();
+                return false;
+
+            case InputKey.Up:
+                if (_pickerSelectedIndex > 0)
+                {
+                    _pickerSelectedIndex--;
+                    NeedsRedraw = true;
+                }
+                return false;
+
+            case InputKey.Down:
+                if (_pickerSelectedIndex < eqState.DiscoveredDevices.Count - 1)
+                {
+                    _pickerSelectedIndex++;
+                    NeedsRedraw = true;
+                }
+                return false;
+
+            case InputKey.Enter:
+                if (_pickerSelectedIndex >= 0 && _pickerSelectedIndex < eqState.DiscoveredDevices.Count)
+                {
+                    bus?.Post(new AssignDeviceSignal(_pickerSelectedIndex));
+                    ExitAssignmentMode();
+                }
+                return false;
+        }
+
+        return false;
+    }
+
+    private bool HandleInlineEditInput(InputKey key, InputModifier modifiers)
+    {
+        if (_activeInlineInput is not { } input)
+        {
+            _mode = Mode.Browse;
+            NeedsRedraw = true;
+            return false;
+        }
+
+        // Navigation/editing keys
+        if (key.ToTextInputKey(modifiers) is { } textKey)
+        {
+            input.HandleKey(textKey);
+            NeedsRedraw = true;
+
+            if (input.IsCommitted)
+            {
+                input.IsCommitted = false;
+                _ = input.OnCommit?.Invoke(input.Text);
+                ExitInlineEdit();
+            }
+            else if (input.IsCancelled)
+            {
+                input.IsCancelled = false;
+                input.OnCancel?.Invoke();
+                ExitInlineEdit();
+            }
+            return false;
+        }
+
+        // Printable character input
+        if (key.ToChar(modifiers) is { } ch)
+        {
+            input.InsertText(ch.ToString());
+            NeedsRedraw = true;
+        }
+
+        return false;
+    }
+
+    // ----------------------------------------------------------------
+    // Mode transitions
+    // ----------------------------------------------------------------
+
+    private void EnterAssignmentMode(AssignTarget slot)
+    {
+        if (eqState.DiscoveredDevices.Count == 0)
+        {
+            appState.StatusMessage = "No devices discovered. Press D to discover.";
+            NeedsRedraw = true;
+            return;
+        }
+
+        eqState.ActiveAssignment = slot;
+        _mode = Mode.Assignment;
+        _pickerSelectedIndex = 0;
+
+        // Pre-select first matching device
+        for (var i = 0; i < eqState.DiscoveredDevices.Count; i++)
+        {
+            if (eqState.DiscoveredDevices[i].DeviceType == slot.ExpectedDeviceType)
+            {
+                _pickerSelectedIndex = i;
+                break;
+            }
+        }
+
+        NeedsRedraw = true;
+    }
+
+    private void ExitAssignmentMode()
+    {
+        eqState.ActiveAssignment = null;
+        _mode = Mode.Browse;
+        NeedsRedraw = true;
+    }
+
+    private void EnterFilterNameEdit(int otaIndex, int filterIdx, string currentName)
+    {
+        var input = new TextInputState { Placeholder = "Filter name..." };
+        input.Activate(currentName);
+
+        var capturedOta = otaIndex;
+        var capturedFilter = filterIdx;
+
+        input.OnCommit = _ =>
+        {
+            if (appState.ActiveProfile?.Data is { } data)
+            {
+                var filters = new List<InstalledFilter>(EquipmentActions.GetFilterConfig(data, capturedOta));
+                if (capturedFilter < filters.Count)
+                {
+                    var newName = input.Text.Trim();
+                    if (newName.Length > 0)
+                    {
+                        filters[capturedFilter] = new InstalledFilter(newName, filters[capturedFilter].Position);
+                        var updated = EquipmentActions.SetFilterConfig(data, capturedOta, filters);
+                        bus?.Post(new UpdateProfileSignal(updated));
+                    }
+                }
+            }
+            return System.Threading.Tasks.Task.CompletedTask;
+        };
+
+        _activeInlineInput = input;
+        _mode = Mode.InlineEdit;
+        NeedsRedraw = true;
+    }
+
+    private void ExitInlineEdit()
+    {
+        _activeInlineInput = null;
+        _mode = Mode.Browse;
+        NeedsRedraw = true;
+    }
+
+    // ----------------------------------------------------------------
+    // Helpers
+    // ----------------------------------------------------------------
+
     private EquipmentFieldItem? FindSelectedItem()
     {
         var idx = _selectedFieldIndex;
         return idx >= 0 ? _lastItems.Find(i => i.FieldIndex == idx) : null;
+    }
+
+    /// <summary>
+    /// Finds the OTA index for the nearest OTA header at or above the current selection.
+    /// </summary>
+    private int FindNearestOtaIndex()
+    {
+        var selectedPos = _lastItems.FindIndex(it => it.FieldIndex == _selectedFieldIndex);
+        for (var i = selectedPos; i >= 0; i--)
+        {
+            if (_lastItems[i].IsOtaHeader && _lastItems[i].OtaIndex >= 0)
+            {
+                return _lastItems[i].OtaIndex;
+            }
+        }
+
+        return -1;
     }
 
     private bool HandleSiteEditInput(InputKey key, InputModifier modifiers)

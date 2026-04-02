@@ -14,9 +14,15 @@ internal class TuiSubCommand(
     PlannerState plannerState,
     ProfileSelector profileSelector)
 {
+    private readonly Option<bool> _fakeOption = new("--fake", "-f")
+    {
+        Description = "Include fake/simulated devices and auto-discover on startup"
+    };
+
     public Command Build()
     {
         var tuiCommand = new Command("tui", "Full-screen tabbed TUI (alternate screen)");
+        tuiCommand.Options.Add(_fakeOption);
         tuiCommand.SetAction(TuiActionAsync);
         return tuiCommand;
     }
@@ -33,11 +39,13 @@ internal class TuiSubCommand(
             return;
         }
 
+        var includeFake = parseResult.GetValue(_fakeOption);
+
         terminal.EnterAlternateScreen();
 
         try
         {
-            await RunTuiAsync(profile, ct);
+            await RunTuiAsync(profile, includeFake, ct);
         }
         catch (Exception ex)
         {
@@ -51,7 +59,7 @@ internal class TuiSubCommand(
         }
     }
 
-    private async Task RunTuiAsync(Profile profile, CancellationToken ct)
+    private async Task RunTuiAsync(Profile profile, bool includeFake, CancellationToken ct)
     {
         var terminal = consoleHost.Terminal;
         var external = consoleHost.External;
@@ -91,14 +99,20 @@ internal class TuiSubCommand(
 
         var tabs = new Dictionary<GuiTab, ITuiTab>
         {
-            [GuiTab.Equipment] = new TuiEquipmentTab(appState, eqState, equipmentContent, bus),
+            [GuiTab.Equipment] = new TuiEquipmentTab(appState, eqState, equipmentContent, consoleHost, bus),
             [GuiTab.Planner] = new TuiPlannerTab(appState, plannerState, fontPath, external.TimeProvider),
             [GuiTab.Session] = new TuiSessionTab(appState, sessionState, plannerState, bus),
-            [GuiTab.LiveSession] = new TuiLiveSessionTab(appState, liveSessionState, terminal, bus),
+            [GuiTab.LiveSession] = new TuiLiveSessionTab(appState, liveSessionState, terminal, external.TimeProvider, bus),
             [GuiTab.Guider] = new TuiGuiderTab(appState, liveSessionState, terminal, fontPath, external.TimeProvider),
         };
 
         // BuildScheduleSignal is now handled inside AppSignalHandler — no host-level subscription needed
+
+        // Auto-discover devices on startup when --fake is passed
+        if (includeFake)
+        {
+            bus.Post(new DiscoverDevicesSignal(IncludeFake: true));
+        }
 
         // Kick off planner computation in background
         if (transform is not null)
@@ -117,6 +131,8 @@ internal class TuiSubCommand(
 
         var activeTab = tabs[appState.ActiveTab];
         activeTab.BuildPanel(terminal);
+
+        var lastClockSecond = -1;
 
         // Main loop
         while (!cts.Token.IsCancellationRequested)
@@ -187,6 +203,13 @@ internal class TuiSubCommand(
             }
             else if (!appState.NeedsRedraw && !activeTab.NeedsRedraw)
             {
+                // Refresh tab bar clock once per second
+                var currentSecond = external.TimeProvider.GetUtcNow().Second;
+                if (currentSecond != lastClockSecond)
+                {
+                    lastClockSecond = currentSecond;
+                    appState.NeedsRedraw = true;
+                }
                 await Task.Delay(16, cts.Token);
             }
 

@@ -1028,7 +1028,7 @@ namespace TianWen.UI.Abstractions
                 var focusStartIdx = Math.Max(0, history.Length - (int)((remainH - rowH * 2) / rowH));
                 for (var i = focusStartIdx; i < history.Length && y < rect.Y + rect.Height - rowH; i++)
                 {
-                    var row = LiveSessionActions.FormatFocusHistoryRow(history[i]);
+                    var row = LiveSessionActions.FormatFocusHistoryRow(history[i], state.SiteTimeZone);
                     var bg = (i % 2 == 0) ? PanelBg : RowAltBg;
                     FillRect(rect.X, y, rect.Width, rowH, bg);
                     DrawText(row, fontPath,
