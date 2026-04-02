@@ -61,6 +61,10 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 StatusSlewing    = new RGBAColor32(0xcc, 0xcc, 0x44, 0xff); // yellow
         private static readonly RGBAColor32 StatusSolving    = new RGBAColor32(0x44, 0xaa, 0xcc, 0xff); // cyan
         private static readonly RGBAColor32 StatusTracking   = new RGBAColor32(0x44, 0xcc, 0x44, 0xff); // green
+        private static readonly RGBAColor32 VCurveDotColor   = new RGBAColor32(0x44, 0xcc, 0xff, 0xff); // cyan dots
+        private static readonly RGBAColor32 VCurveFitColor   = new RGBAColor32(0xff, 0x66, 0x33, 0xcc); // orange-red fit curve
+        private static readonly RGBAColor32 VCurveBestColor  = new RGBAColor32(0x44, 0xff, 0x44, 0xaa); // green best-focus line
+        private static readonly RGBAColor32 VCurveAxisColor  = new RGBAColor32(0x44, 0x44, 0x55, 0xff); // dim axis lines
 
         // Per-camera color palette (temp = solid, power = same hue lighter)
         private static readonly RGBAColor32[] CameraTempColors =
@@ -770,6 +774,20 @@ namespace TianWen.UI.Abstractions
                 }
             }
 
+            // V-curve chart: show during auto-focus or when last focus run is recent
+            var activeSamples = state.ActiveFocusSamples;
+            var lastFocusRun = state.FocusHistory is { Length: > 0 } fh ? fh[^1] : default(FocusRunRecord?);
+            if (activeSamples.Length >= 2 || (state.Phase is SessionPhase.AutoFocus && lastFocusRun?.Curve.Length >= 2))
+            {
+                var chartSamples = activeSamples.Length >= 2 ? activeSamples : lastFocusRun!.Value.Curve;
+                var chartY = rect.Y + rect.Height * 0.45f;
+                var chartH = rect.Y + rect.Height * 0.65f - chartY;
+                if (chartH > 40)
+                {
+                    RenderVCurveChart(chartSamples, lastFocusRun, new RectF32(rect.X + pad, chartY, rect.Width - pad * 2, chartH), fontPath, smallFs, dpiScale);
+                }
+            }
+
             // Mount status section (below OTAs, full width)
             var mountY = rect.Y + rect.Height - rowH * 6 - pad;
             if (mountY > rect.Y + rect.Height * 0.35f) // only show if there's room
@@ -871,6 +889,97 @@ namespace TianWen.UI.Abstractions
                     x, y, w, progressH,
                     fontSize * 0.65f, BrightText, TextAlign.Center, TextAlign.Center);
             }
+        }
+
+        /// <summary>Renders V-curve chart: scatter dots for measured HFD + fitted hyperbola curve.</summary>
+        private void RenderVCurveChart(
+            ImmutableArray<(int Position, float Hfd)> samples,
+            FocusRunRecord? completedRun,
+            RectF32 rect, string fontPath, float fontSize, float dpiScale)
+        {
+            FillRect(rect.X, rect.Y, rect.Width, rect.Height, GraphBg);
+
+            if (samples.Length < 2) return;
+
+            // Compute data bounds
+            var minPos = int.MaxValue;
+            var maxPos = int.MinValue;
+            var minHfd = float.MaxValue;
+            var maxHfd = float.MinValue;
+            foreach (var (pos, hfd) in samples)
+            {
+                if (pos < minPos) minPos = pos;
+                if (pos > maxPos) maxPos = pos;
+                if (hfd < minHfd) minHfd = hfd;
+                if (hfd > maxHfd) maxHfd = hfd;
+            }
+
+            if (maxPos <= minPos || maxHfd <= minHfd) return;
+
+            var margin = 4f * dpiScale;
+            var chartX = rect.X + margin;
+            var chartY = rect.Y + margin;
+            var chartW = rect.Width - margin * 2;
+            var chartH = rect.Height - margin * 2 - fontSize; // leave room for axis label
+
+            // Add 10% vertical padding
+            var hfdRange = maxHfd - minHfd;
+            minHfd -= hfdRange * 0.1f;
+            maxHfd += hfdRange * 0.1f;
+            if (minHfd < 0) minHfd = 0;
+            hfdRange = maxHfd - minHfd;
+
+            var posRange = maxPos - minPos;
+
+            float PosToX(double pos) => chartX + (float)((pos - minPos) / posRange) * chartW;
+            float HfdToY(double hfd) => chartY + chartH - (float)((hfd - minHfd) / hfdRange) * chartH;
+
+            // Axis lines
+            FillRect(chartX, chartY + chartH, chartW, 1, VCurveAxisColor); // X axis
+            FillRect(chartX, chartY, 1, chartH, VCurveAxisColor);          // Y axis
+
+            // Scatter dots
+            var dotR = 3f * dpiScale;
+            foreach (var (pos, hfd) in samples)
+            {
+                var dx = PosToX(pos);
+                var dy = HfdToY(hfd);
+                FillRect(dx - dotR, dy - dotR, dotR * 2, dotR * 2, VCurveDotColor);
+            }
+
+            // Fitted hyperbola curve (if we have fit parameters)
+            if (completedRun is { FitA: var a, FitB: var b, BestPosition: var bestPos }
+                && !double.IsNaN(a) && !double.IsNaN(b) && b > 0)
+            {
+                // Draw smooth curve
+                var steps = (int)chartW;
+                var lineW = Math.Max(1f, dpiScale);
+                for (var i = 0; i < steps; i++)
+                {
+                    var xPos = minPos + (double)i / steps * posRange;
+                    var yVal = TianWen.Lib.Astrometry.Focus.Hyperbola.CalculateValueAtPosition(xPos, bestPos, a, b);
+                    var px = PosToX(xPos);
+                    var py = HfdToY(yVal);
+                    if (py >= chartY && py <= chartY + chartH)
+                    {
+                        FillRect(px, py, lineW, lineW, VCurveFitColor);
+                    }
+                }
+
+                // Best focus vertical line
+                var bestX = PosToX(bestPos);
+                FillRect(bestX, chartY, 1, chartH, VCurveBestColor);
+
+                // Best focus label
+                DrawText($"\u2193 {bestPos} (HFD {a:F2})", fontPath,
+                    bestX + 2 * dpiScale, chartY, chartW * 0.4f, fontSize,
+                    fontSize * 0.8f, VCurveBestColor, TextAlign.Near, TextAlign.Near);
+            }
+
+            // X-axis label
+            DrawText($"Focuser position ({minPos}\u2013{maxPos})", fontPath,
+                chartX, chartY + chartH + 1, chartW, fontSize,
+                fontSize * 0.75f, DimText, TextAlign.Center, TextAlign.Near);
         }
 
         /// <summary>Tiny sparkline of temperature + power for a single camera.</summary>

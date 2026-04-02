@@ -248,7 +248,8 @@ internal partial record Session
 
     private void AppendFocusRunRecord(
         int telescopeIndex, OTA telescope, IFilterWheelDriver? filterWheelDriver,
-        int filterPosition, int bestPos, float bestHfd, MetricSampleMap sampleMap)
+        int filterPosition, int bestPos, float bestHfd, MetricSampleMap sampleMap,
+        double fitA = double.NaN, double fitB = double.NaN)
     {
         var filterName = filterPosition >= 0 && filterWheelDriver?.Filters is { } filters && filterPosition < filters.Count
             ? filters[filterPosition].DisplayName
@@ -272,7 +273,10 @@ internal partial record Session
             FilterName: filterName,
             BestPosition: bestPos,
             BestHfd: bestHfd,
-            Curve: curveBuilder.ToImmutable()));
+            Curve: curveBuilder.ToImmutable(),
+            FitA: fitA,
+            FitB: fitB));
+        _activeFocusSamples = [];
     }
 
     /// <summary>
@@ -336,6 +340,7 @@ internal partial record Session
             telescopeIndex + 1, stepCount, startPos, stepSize);
 
         var sampleMap = new MetricSampleMap(SampleKind.HFD, AggregationMethod.Median);
+        _activeFocusSamples = [];
 
         // Move to start position with backlash compensation
         var focusDir = telescope.FocusDirection;
@@ -434,6 +439,7 @@ internal partial record Session
                 {
                     var hfd = stars.MapReduceStarProperty(SampleKind.HFD, AggregationMethod.Median);
                     sampleMap.AddSampleAtFocusPosition(targetPos, hfd);
+                    _activeFocusSamples = _activeFocusSamples.Add((targetPos, hfd));
                     External.AppLogger.LogInformation("Auto-focus pos={Position} stars={StarCount} HFD={HFD:F2}", targetPos, stars.Count, hfd);
                 }
                 else
@@ -530,7 +536,7 @@ internal partial record Session
                             telescopeIndex + 1, (hfdRatio - 1) * 100);
                     }
 
-                    AppendFocusRunRecord(telescopeIndex, telescope, filterWheelDriver, preFocusFilterPosition, bestPos, baseline.MedianHfd, sampleMap);
+                    AppendFocusRunRecord(telescopeIndex, telescope, filterWheelDriver, preFocusFilterPosition, bestPos, baseline.MedianHfd, sampleMap, solution.Value.A, solution.Value.B);
                     return (true, baseline);
                 }
             }
@@ -540,7 +546,7 @@ internal partial record Session
             }
 
             // Fit converged but we couldn't measure baseline — use the hyperbola minimum as HFD estimate
-            AppendFocusRunRecord(telescopeIndex, telescope, filterWheelDriver, preFocusFilterPosition, bestPos, (float)solution.Value.A, sampleMap);
+            AppendFocusRunRecord(telescopeIndex, telescope, filterWheelDriver, preFocusFilterPosition, bestPos, (float)solution.Value.A, sampleMap, solution.Value.A, solution.Value.B);
             return (true, new FrameMetrics(0, (float)solution.Value.A, float.NaN, autoFocusExposure, currentGain));
         }
 
