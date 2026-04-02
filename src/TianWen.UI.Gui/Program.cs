@@ -14,9 +14,13 @@ using TianWen.UI.Gui;
 // DI setup
 var services = new ServiceCollection();
 services
-    .AddLogging(static builder => builder
-        .AddProvider(new FileLoggerProvider("GUI"))
-    )
+    .AddLogging(static builder =>
+    {
+        builder.AddProvider(new FileLoggerProvider("GUI"));
+#if DEBUG
+        builder.SetMinimumLevel(LogLevel.Debug);
+#endif
+    })
     .AddExternal()
     .AddAstrometry()
     .AddZWO()
