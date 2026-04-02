@@ -30,6 +30,9 @@ public interface ISession : IAsyncDisposable
     /// <summary>Snapshot of completed auto-focus runs.</summary>
     ImmutableArray<FocusRunRecord> FocusHistory { get; }
 
+    /// <summary>In-progress V-curve samples (position, HFD) during auto-focus. Empty when not focusing.</summary>
+    ImmutableArray<(int Position, float Hfd)> ActiveFocusSamples { get; }
+
     /// <summary>Rolling circular buffer of recent guide error samples (~5 min window).</summary>
     ImmutableArray<GuideErrorSample> GuideSamples { get; }
 

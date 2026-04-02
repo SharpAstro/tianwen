@@ -50,6 +50,9 @@ namespace TianWen.UI.Abstractions
         /// <summary>Completed auto-focus run snapshots.</summary>
         public ImmutableArray<FocusRunRecord> FocusHistory { get; set; } = [];
 
+        /// <summary>In-progress V-curve samples during auto-focus. Empty when not focusing.</summary>
+        public ImmutableArray<(int Position, float Hfd)> ActiveFocusSamples { get; set; } = [];
+
         /// <summary>All frames written during this session.</summary>
         public ImmutableArray<ExposureLogEntry> ExposureLog { get; set; } = [];
 
@@ -137,6 +140,7 @@ namespace TianWen.UI.Abstractions
             GuideSamples = session.GuideSamples;
             LastGuideStats = session.LastGuideStats;
             FocusHistory = session.FocusHistory;
+            ActiveFocusSamples = session.ActiveFocusSamples;
             ExposureLog = session.ExposureLog;
             CoolingSamples = session.CoolingSamples;
             PhaseTimeline = session.PhaseTimeline;

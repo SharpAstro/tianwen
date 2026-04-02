@@ -34,6 +34,7 @@ internal partial record Session(
     private volatile SessionPhase _phase;
     private volatile string? _currentActivity;
     private readonly ConcurrentQueue<FocusRunRecord> _focusHistory = [];
+    private ImmutableArray<(int Position, float Hfd)> _activeFocusSamples = [];
     private readonly CircularBuffer<GuideErrorSample> _guideSamples = new CircularBuffer<GuideErrorSample>(300);
     private volatile GuideStats? _lastGuideStats;
     private volatile string? _guiderState;
@@ -70,6 +71,7 @@ internal partial record Session(
     public TimeSpan TotalExposureTime => TimeSpan.FromTicks(Interlocked.Read(ref _totalExposureTimeTicks));
     public int CurrentObservationIndex => _activeObservation;
     public ImmutableArray<FocusRunRecord> FocusHistory => [.. _focusHistory];
+    public ImmutableArray<(int Position, float Hfd)> ActiveFocusSamples => _activeFocusSamples;
     public ImmutableArray<GuideErrorSample> GuideSamples => [.. _guideSamples];
     public GuideStats? LastGuideStats => _lastGuideStats;
     public string? GuiderState => _guiderState;
