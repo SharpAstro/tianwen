@@ -677,6 +677,8 @@ namespace TianWen.UI.Abstractions
 
                 var y = rect.Y + pad;
                 var textW = panelW - pad * 2;
+                // Mount status is pinned to the bottom; stop rendering OTA items before they overlap
+                var maxY = rect.Y + rect.Height - rowH * 6;
 
                 // OTA header (camera name)
                 DrawText(ota.Camera.Device.DisplayName, fontPath,
@@ -724,7 +726,7 @@ namespace TianWen.UI.Abstractions
                 }
 
                 // Focuser position + temperature + moving state
-                if (ota.Focuser is not null && i < cameraStates.Length)
+                if (y < maxY && ota.Focuser is not null && i < cameraStates.Length)
                 {
                     var cs = cameraStates[i];
                     var focLabel = $"Foc: {cs.FocusPosition}";
@@ -744,7 +746,7 @@ namespace TianWen.UI.Abstractions
                 }
 
                 // Filter
-                if (ota.FilterWheel is not null)
+                if (y < maxY && ota.FilterWheel is not null)
                 {
                     var filterName = (i < cameraStates.Length && cameraStates[i].FilterName is { Length: > 0 } fn) ? fn : "--";
                     DrawText($"FW: {filterName}", fontPath,
@@ -755,7 +757,7 @@ namespace TianWen.UI.Abstractions
 
                 // Exposure state + progress bar
                 y += pad;
-                if (i < cameraStates.Length)
+                if (y < maxY && i < cameraStates.Length)
                 {
                     var cs = cameraStates[i];
                     RenderExposureState(cs, px + pad, y, textW, progressH, rowH, fontPath, fontSize, smallFs, dpiScale, timeProvider);
