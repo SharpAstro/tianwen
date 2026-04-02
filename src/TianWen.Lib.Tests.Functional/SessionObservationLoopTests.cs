@@ -32,7 +32,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
     private async Task<SessionTestContext> CreateWinterSessionAsync(
         ScheduledObservation[] observations,
         SessionConfiguration? configuration = null,
-        string? mountPort = "LX200",
+        string? mountPort = null,
         CancellationToken cancellationToken = default)
     {
         var config = configuration ?? SessionTestHelper.DefaultConfiguration;
