@@ -43,6 +43,18 @@ internal sealed class GuiderCalibration
     /// Current calibration progress, updated during <see cref="CalibrateAsync"/>.
     /// </summary>
     public CalibrationProgress? Progress { get; set; }
+
+    /// <summary>In-progress RA calibration steps (star positions after each pulse). Empty before RA calibration starts.</summary>
+    public ImmutableArray<CalibrationStep> ActiveRaSteps { get; private set; } = [];
+
+    /// <summary>In-progress Dec calibration steps. Empty before Dec calibration starts.</summary>
+    public ImmutableArray<CalibrationStep> ActiveDecSteps { get; private set; } = [];
+
+    /// <summary>RA origin (star position before first RA pulse).</summary>
+    public CalibrationStep? ActiveRaOrigin { get; private set; }
+
+    /// <summary>Dec origin (star position before first Dec pulse).</summary>
+    public CalibrationStep? ActiveDecOrigin { get; private set; }
     private const int DefaultCalibrationPulseMs = 750;
     private const int DefaultCalibrationSteps = 12;
 
@@ -128,9 +140,12 @@ internal sealed class GuiderCalibration
         var raOrigin = tracker.Stars.Count > 0
             ? new CalibrationStep(tracker.Stars[0].LockX, tracker.Stars[0].LockY)
             : new CalibrationStep(0, 0);
+        ActiveRaOrigin = raOrigin;
+        ActiveRaSteps = [];
 
         var westMeasurement = await MeasureDisplacementAsync(pulseTarget, tracker, captureFrame, external,
-            GuideDirection.West, CalibrationSteps, CalibrationPulseDuration, cancellationToken);
+            GuideDirection.West, CalibrationSteps, CalibrationPulseDuration, cancellationToken,
+            onStep: step => ActiveRaSteps = ActiveRaSteps.Add(step));
 
         if (westMeasurement is null)
         {
@@ -176,9 +191,12 @@ internal sealed class GuiderCalibration
         var decOrigin = tracker.Stars.Count > 0
             ? new CalibrationStep(tracker.Stars[0].LockX, tracker.Stars[0].LockY)
             : raOrigin;
+        ActiveDecOrigin = decOrigin;
+        ActiveDecSteps = [];
 
         var northMeasurement = await MeasureDisplacementAsync(pulseTarget, tracker, captureFrame, external,
-            GuideDirection.North, CalibrationSteps, CalibrationPulseDuration, cancellationToken);
+            GuideDirection.North, CalibrationSteps, CalibrationPulseDuration, cancellationToken,
+            onStep: step => ActiveDecSteps = ActiveDecSteps.Add(step));
 
         if (northMeasurement is null)
         {
@@ -368,7 +386,8 @@ internal sealed class GuiderCalibration
         GuideDirection direction,
         int steps,
         TimeSpan pulseDuration,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<CalibrationStep>? onStep = null)
     {
         var stepList = new List<CalibrationStep>(steps);
         GuiderCentroidResult lastResult = default;
@@ -385,7 +404,9 @@ internal sealed class GuiderCalibration
             }
 
             lastResult = result;
-            stepList.Add(new CalibrationStep(result.X, result.Y));
+            var step = new CalibrationStep(result.X, result.Y);
+            stepList.Add(step);
+            onStep?.Invoke(step);
         }
 
         return stepList.Count > 0 ? (lastResult, [.. stepList]) : null;
