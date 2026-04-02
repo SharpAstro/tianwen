@@ -771,13 +771,13 @@ namespace TianWen.UI.Abstractions
             }
 
             // Mount status section (below OTAs, full width)
-            var mountY = rect.Y + rect.Height - rowH * 5 - pad;
+            var mountY = rect.Y + rect.Height - rowH * 6 - pad;
             if (mountY > rect.Y + rect.Height * 0.35f) // only show if there's room
             {
                 FillRect(rect.X, mountY, rect.Width, 1, SeparatorColor);
                 mountY += pad;
 
-                // Mount name + status dot
+                // Mount name row
                 var mountName = session.Setup.Mount.Device.DisplayName;
                 var ms = state.MountState;
                 var dotColor = ms.IsSlewing ? StatusSlewing
@@ -785,11 +785,18 @@ namespace TianWen.UI.Abstractions
                     : DimText;
                 var dotSize = rowH * 0.4f;
                 FillRect(rect.X + pad, mountY + (rowH - dotSize) / 2, dotSize, dotSize, dotColor);
-                var pierLabel = ms.PierSide is Lib.Devices.PointingState.Normal ? "E" : ms.PierSide is Lib.Devices.PointingState.ThroughThePole ? "W" : "";
-                var mountStatus = ms.IsSlewing ? "Slewing" : ms.IsTracking ? "Tracking" : "Idle";
-                DrawText($"{mountName}  {mountStatus}  {pierLabel}", fontPath,
+                DrawText(mountName, fontPath,
                     rect.X + pad + dotSize + pad, mountY, rect.Width - pad * 3 - dotSize, rowH,
                     smallFs, HeaderText, TextAlign.Near, TextAlign.Center);
+                mountY += rowH;
+
+                // Status + pier side row
+                var pierLabel = ms.PierSide is Lib.Devices.PointingState.Normal ? "E" : ms.PierSide is Lib.Devices.PointingState.ThroughThePole ? "W" : "";
+                var mountStatus = ms.IsSlewing ? "Slewing" : ms.IsTracking ? "Tracking" : "Idle";
+                var statusColor = ms.IsSlewing ? StatusSlewing : ms.IsTracking ? StatusTracking : DimText;
+                DrawText($"{mountStatus}  {pierLabel}", fontPath,
+                    rect.X + pad, mountY, rect.Width - pad * 2, rowH,
+                    smallFs, statusColor, TextAlign.Near, TextAlign.Center);
                 mountY += rowH;
 
                 // RA + HA on one row
