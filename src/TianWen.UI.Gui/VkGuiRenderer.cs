@@ -372,7 +372,7 @@ namespace TianWen.UI.Gui
 
                 case GuiTab.Session:
                     _sessionTab.Render(appState, plannerState, contentRect, DpiScale,
-                        _fontPath ?? "monospace");
+                        _fontPath ?? "monospace", timeProvider);
                     break;
 
                 case GuiTab.LiveSession:

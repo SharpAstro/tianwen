@@ -72,7 +72,7 @@ namespace TianWen.UI.Abstractions
 
                 SessionPhase.WaitingForDark when first is { } f =>
                     utcNow < f.Start - TimeSpan.FromMinutes(10)
-                        ? $"Next: {f.Target.Name} at {f.Start:HH:mm} (in {FormatDuration(f.Start - TimeSpan.FromMinutes(10) - utcNow)})"
+                        ? $"Next: {f.Target.Name} at {f.Start.ToOffset(state.SiteTimeZone):HH:mm} (in {FormatDuration(f.Start - TimeSpan.FromMinutes(10) - utcNow)})"
                         : $"Next: {f.Target.Name} \u2014 starting soon",
 
                 SessionPhase.WaitingForDark => "Waiting for dark\u2026",
@@ -117,19 +117,19 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>Format exposure log entry as a compact TUI row.</summary>
-        public static string FormatExposureLogRow(ExposureLogEntry entry)
+        public static string FormatExposureLogRow(ExposureLogEntry entry, TimeSpan siteTimeZone)
         {
             var target = entry.TargetName.Length > 12 ? entry.TargetName[..12] : entry.TargetName;
             var filter = entry.FilterName.Length > 6 ? entry.FilterName[..6] : entry.FilterName;
             var hfd = entry.MedianHfd > 0 ? $"{entry.MedianHfd:F1}\"" : "--";
             var stars = entry.StarCount > 0 ? $"{entry.StarCount}" : "--";
-            return $"{entry.Timestamp:HH:mm} {target,-12} {filter,-6} {hfd,5} {stars,4}\u2605";
+            return $"{entry.Timestamp.ToOffset(siteTimeZone):HH:mm} {target,-12} {filter,-6} {hfd,5} {stars,4}\u2605";
         }
 
         /// <summary>Format focus history entry as a compact row.</summary>
-        public static string FormatFocusHistoryRow(FocusRunRecord record)
+        public static string FormatFocusHistoryRow(FocusRunRecord record, TimeSpan siteTimeZone)
         {
-            return $"{record.Timestamp:HH:mm} {record.OtaName} {record.FilterName} {record.BestHfd:F1}\" @{record.BestPosition}";
+            return $"{record.Timestamp.ToOffset(siteTimeZone):HH:mm} {record.OtaName} {record.FilterName} {record.BestHfd:F1}\" @{record.BestPosition}";
         }
     }
 }
