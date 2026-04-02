@@ -39,8 +39,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-    - name: Install fonts
-      run: sudo apt-get update && sudo apt-get install -y fonts-dejavu-core fontconfig && fc-cache -f
+    - name: Install fonts for ImageMagick
+      run: sudo apt-get update && sudo apt-get install -y ghostscript fonts-urw-base35 fontconfig && fc-cache -f
     - uses: actions/checkout@v4
       with:
         submodules: recursive
