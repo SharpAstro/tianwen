@@ -85,10 +85,8 @@ namespace TianWen.UI.Abstractions
                 DrawGridLabels(contentRect, fontPath, fontSize * 0.8f, ppr, cx, cy);
             }
 
-            if (State.ShowConstellationNames)
-            {
-                DrawConstellationLabels(db, contentRect, fontPath, fontSize * 0.9f, ppr, cx, cy);
-            }
+            // Constellation names at boundary centroids (always shown)
+            DrawConstellationNames(contentRect, fontPath, fontSize * 0.85f, ppr, cx, cy);
 
             if (State.ShowPlanets)
             {
@@ -117,85 +115,165 @@ namespace TianWen.UI.Abstractions
 
         // ── Text overlay methods (use native GPU DrawText, drawn on top of cached texture) ──
 
+        /// <summary>
+        /// Place grid labels where grid lines intersect the viewport edges,
+        /// matching the FITS viewer WCS overlay approach.
+        /// </summary>
         private void DrawGridLabels(RectF32 rect, string fontPath, float fontSize, double ppr, float cx, float cy)
         {
             var fov = State.FieldOfViewDeg;
-            var halfFov = fov * 0.6; // slight margin beyond viewport
-
-            // RA labels: only for RA values within the visible FOV range
             var raStep = fov switch { < 5 => 0.5, < 15 => 1.0, < 40 => 2.0, < 90 => 3.0, _ => 6.0 };
-            // RA range visible: depends on Dec (cos correction)
-            var cosDec = Math.Max(0.1, Math.Cos(State.CenterDec * Math.PI / 180.0));
-            var raHalfRange = halfFov / 15.0 / cosDec; // hours
+            var decStep = fov switch { < 5 => 5.0, < 15 => 10.0, < 40 => 15.0, _ => 30.0 };
+            var labelH = fontSize * 1.3f;
+            var margin = 4f;
 
+            // RA labels: find where each constant-RA line crosses the viewport edge
             for (var ra = 0.0; ra < 24.0; ra += raStep)
             {
-                // Angular distance in RA from center
-                var dRA = ra - State.CenterRA;
-                if (dRA > 12) dRA -= 24;
-                if (dRA < -12) dRA += 24;
-                if (Math.Abs(dRA) > raHalfRange)
-                {
-                    continue;
-                }
-
-                if (SkyMapProjection.Project(ra, State.CenterDec, State.CenterRA, State.CenterDec,
-                    ppr, cx, cy, out var lx, out _)
-                    && lx >= rect.X && lx < rect.X + rect.Width - 30)
+                if (FindEdgeCrossing(ra, true, rect, ppr, cx, cy, out var lx, out var ly, out var edge))
                 {
                     var label = raStep < 1 ? $"{ra:F1}h" : $"{ra:F0}h";
+                    // Place label near the edge crossing, offset inward
+                    var textX = edge == Edge.Right ? lx - 45 : lx + margin;
+                    var textY = edge == Edge.Bottom ? ly - labelH : ly + margin;
                     DrawText(label.AsSpan(), fontPath,
-                        lx + 2, rect.Y + 2, 50, fontSize * 1.2f,
+                        textX, textY, 50, labelH,
                         fontSize, GridLabelColor, TextAlign.Near, TextAlign.Near);
                 }
             }
 
-            // Dec labels: only for Dec values within the visible FOV range
-            var decStep = fov switch { < 5 => 5.0, < 15 => 10.0, < 40 => 15.0, _ => 30.0 };
-
-            for (var dec = -90.0; dec <= 90.0; dec += decStep)
+            // Dec labels: find where each constant-Dec line crosses the viewport edge
+            for (var dec = -90.0 + decStep; dec < 90.0; dec += decStep)
             {
-                if (Math.Abs(dec - State.CenterDec) > halfFov)
-                {
-                    continue;
-                }
-
-                if (SkyMapProjection.Project(State.CenterRA, dec, State.CenterRA, State.CenterDec,
-                    ppr, cx, cy, out _, out var ly)
-                    && ly >= rect.Y && ly < rect.Y + rect.Height - 14)
+                if (FindEdgeCrossing(dec, false, rect, ppr, cx, cy, out var lx, out var ly, out var edge))
                 {
                     var label = dec >= 0 ? $"+{dec:F0}\u00B0" : $"{dec:F0}\u00B0";
+                    var textX = edge == Edge.Right ? lx - 45 : lx + margin;
+                    var textY = edge == Edge.Bottom ? ly - labelH : ly + margin;
                     DrawText(label.AsSpan(), fontPath,
-                        rect.X + 2, ly + 2, 50, fontSize * 1.2f,
+                        textX, textY, 50, labelH,
                         fontSize, GridLabelColor, TextAlign.Near, TextAlign.Near);
                 }
             }
         }
 
-        private void DrawConstellationLabels(
-            ICelestialObjectDB db, RectF32 rect, string fontPath, float fontSize, double ppr, float cx, float cy)
+        private enum Edge { Top, Bottom, Left, Right }
+
+        /// <summary>
+        /// Trace a grid line and find where it crosses a viewport edge (entry or exit).
+        /// For RA lines (isRA=true): traces Dec from -90 to +90 at constant RA.
+        /// For Dec lines (isRA=false): traces RA from 0 to 24 at constant Dec.
+        /// Returns the crossing point nearest to a viewport edge for label placement.
+        /// </summary>
+        private bool FindEdgeCrossing(double value, bool isRA, RectF32 rect, double ppr,
+            float cx, float cy, out float crossX, out float crossY, out Edge edge)
         {
-            var seen = new HashSet<Constellation>();
-            foreach (var seg in ConstellationLines.Segments)
+            crossX = 0;
+            crossY = 0;
+            edge = Edge.Top;
+
+            const int steps = 80;
+            var prevInside = false;
+            var prevSx = 0f;
+            var prevSy = 0f;
+            var prevValid = false;
+
+            for (var i = 0; i <= steps; i++)
             {
-                if (!seen.Add(seg.Constellation))
+                double ra, dec;
+                if (isRA)
                 {
+                    ra = value;
+                    dec = -90.0 + i * 180.0 / steps;
+                }
+                else
+                {
+                    ra = i * 24.0 / steps;
+                    dec = value;
+                }
+
+                if (!SkyMapProjection.Project(ra, dec, State.CenterRA, State.CenterDec,
+                    ppr, cx, cy, out var sx, out var sy))
+                {
+                    prevValid = false;
+                    prevInside = false;
                     continue;
                 }
 
-                if (!db.TryLookupByIndex(seg.Constellation.GetBrighestStar(), out var starObj))
+                var inside = sx >= rect.X && sx < rect.X + rect.Width
+                          && sy >= rect.Y && sy < rect.Y + rect.Height;
+
+                // Detect any crossing (entry or exit)
+                if (prevValid && inside != prevInside)
                 {
-                    continue;
+                    // Use the point that's inside the viewport
+                    crossX = inside ? sx : prevSx;
+                    crossY = inside ? sy : prevSy;
+
+                    // Determine which edge based on the crossing point's position
+                    var edgeX = crossX;
+                    var edgeY = crossY;
+                    var distTop = edgeY - rect.Y;
+                    var distBot = rect.Y + rect.Height - edgeY;
+                    var distLeft = edgeX - rect.X;
+                    var distRight = rect.X + rect.Width - edgeX;
+                    var minDist = Math.Min(Math.Min(distTop, distBot), Math.Min(distLeft, distRight));
+
+                    if (minDist == distTop) edge = Edge.Top;
+                    else if (minDist == distBot) edge = Edge.Bottom;
+                    else if (minDist == distLeft) edge = Edge.Left;
+                    else edge = Edge.Right;
+
+                    return true;
                 }
 
-                if (SkyMapProjection.Project(starObj.RA, starObj.Dec, State.CenterRA, State.CenterDec,
+                prevSx = sx;
+                prevSy = sy;
+                prevInside = inside;
+                prevValid = true;
+            }
+
+            return false;
+        }
+
+
+        private static readonly RGBAColor32 ConstellNameColor = new(0x60, 0x90, 0x60, 0xB0);
+
+        /// <summary>
+        /// Draw constellation names at the centroid of each constellation's boundary strips.
+        /// </summary>
+        private void DrawConstellationNames(RectF32 rect, string fontPath, float fontSize, double ppr, float cx, float cy)
+        {
+            // Compute centroid of each constellation from its boundary strips
+            var centroids = new Dictionary<Constellation, (double RaSum, double DecSum, int Count)>();
+
+            foreach (var b in ConstellationBoundary.Table)
+            {
+                var midRA = (b.LowerRA + b.UpperRA) * 0.5;
+                var midDec = b.LowerDec + 2.0; // approximate — offset above lower dec boundary
+
+                if (!centroids.TryGetValue(b.Constellation, out var c))
+                {
+                    c = (0, 0, 0);
+                }
+                centroids[b.Constellation] = (c.RaSum + midRA, c.DecSum + midDec, c.Count + 1);
+            }
+
+            foreach (var (constellation, (raSum, decSum, count)) in centroids)
+            {
+                var avgRA = raSum / count;
+                var avgDec = decSum / count;
+
+                if (SkyMapProjection.Project(avgRA, avgDec, State.CenterRA, State.CenterDec,
                     ppr, cx, cy, out var sx, out var sy)
                     && sx >= rect.X && sx < rect.X + rect.Width
                     && sy >= rect.Y && sy < rect.Y + rect.Height)
                 {
-                    DrawText(seg.Constellation.ToIAUAbbreviation().AsSpan(), fontPath,
-                        sx + 10, sy - fontSize, 100, fontSize * 1.2f,
-                        fontSize, ConstellLabel, TextAlign.Near, TextAlign.Center);
+                    var name = constellation.ToName();
+                    var (tw, _) = Renderer.MeasureText(name, fontPath, fontSize);
+                    DrawText(name.AsSpan(), fontPath,
+                        sx - tw * 0.5f, sy - fontSize * 0.5f, tw + 4, fontSize * 1.2f,
+                        fontSize, ConstellNameColor, TextAlign.Center, TextAlign.Center);
                 }
             }
         }
@@ -245,7 +323,7 @@ namespace TianWen.UI.Abstractions
             var fovText = State.FieldOfViewDeg < 1
                 ? $"FOV: {State.FieldOfViewDeg * 60:F0}'"
                 : $"FOV: {State.FieldOfViewDeg:F1}\u00B0";
-            var info = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0    {fovText}    [G]rid [C]onst [P]lanets [N]ames";
+            var info = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0    {fovText}    [G]rid [B]oundaries [P]lanets";
 
             DrawText(info.AsSpan(), fontPath,
                 rect.X + 8, stripY, rect.Width - 16, stripH,
@@ -315,16 +393,12 @@ namespace TianWen.UI.Abstractions
                     State.ShowGrid = !State.ShowGrid;
                     State.NeedsRedraw = true;
                     return true;
-                case InputKey.C:
-                    State.ShowConstellationLines = !State.ShowConstellationLines;
+                case InputKey.B:
+                    State.ShowConstellationBoundaries = !State.ShowConstellationBoundaries;
                     State.NeedsRedraw = true;
                     return true;
                 case InputKey.P:
                     State.ShowPlanets = !State.ShowPlanets;
-                    State.NeedsRedraw = true;
-                    return true;
-                case InputKey.N:
-                    State.ShowConstellationNames = !State.ShowConstellationNames;
                     State.NeedsRedraw = true;
                     return true;
                 case InputKey.Plus:

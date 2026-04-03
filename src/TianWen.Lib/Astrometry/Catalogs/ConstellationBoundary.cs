@@ -19,7 +19,11 @@ public record struct ConstellationBoundary(double LowerRA, double UpperRA, doubl
     /// <item>constellation abbreviation (3 letters)</item>
     /// </list>
     /// </summary>
-    private static readonly ConstellationBoundary[] Table = [
+    /// <summary>
+    /// All constellation boundary strips. Note: coordinates are in the 1875 equinox system.
+    /// For visual rendering this is close enough; for precise identification, precess to J2000.
+    /// </summary>
+    internal static readonly ConstellationBoundary[] Table = [
         new ConstellationBoundary(0.0000, 24.0000, 88.0000, Constellation.UrsaMinor),
         new ConstellationBoundary(8.0000, 14.5000, 86.5000, Constellation.UrsaMinor),
         new ConstellationBoundary(21.0000, 23.0000, 86.1667, Constellation.UrsaMinor),

@@ -32,7 +32,7 @@ public sealed class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanContext>(
             mapW, mapH,
             State.CenterRA, State.CenterDec,
             State.FieldOfViewDeg,
-            State.ShowConstellationLines,
+            State.ShowConstellationBoundaries,
             State.ShowGrid,
             State.ShowPlanets,
             State.MagnitudeLimit,
