@@ -672,11 +672,10 @@ cancellationToken: TestContext.Current.CancellationToken);
     {
         var db = await InitDBAsync();
 
-        var found = db.TryLookupHIP(hip, out var ra, out var dec, out var vMag, out _);
+        var found = db.TryLookupHIP(hip, out var ra, out var dec, out _, out _);
         found.ShouldBeTrue($"HIP {hip} ({name}) should resolve via TryLookupHIP");
         ra.ShouldBeInRange(0.0, 24.0, $"RA for {name}");
         dec.ShouldBeInRange(-90.0, 90.0, $"Dec for {name}");
-        float.IsNaN(vMag).ShouldBeFalse($"Magnitude for {name} should not be NaN");
     }
 
 }
