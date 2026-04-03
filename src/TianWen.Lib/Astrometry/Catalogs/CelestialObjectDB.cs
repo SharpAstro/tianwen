@@ -493,11 +493,11 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
     }
 
-    private bool TryGetTycho2RaDec(CatalogIndex tycIndex, out double ra, out double dec, out Half vMag, out double bMinusV)
+    private bool TryGetTycho2RaDec(CatalogIndex tycIndex, out double ra, out double dec, out Half vMag, out float bMinusV)
     {
         ra = dec = 0;
         vMag = HalfUndefined;
-        bMinusV = 0.65;
+        bMinusV = 0.65f;
         if (_tycho2Data is null)
         {
             return false;
@@ -537,11 +537,11 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// at the start of the binary file (int32 LE per stream).
     /// </para>
     /// </summary>
-    private bool TryGetTycho2RaDec(ushort tyc1, ushort tyc2, byte tyc3, out double ra, out double dec, out Half vMag, out double bMinusV)
+    private bool TryGetTycho2RaDec(ushort tyc1, ushort tyc2, byte tyc3, out double ra, out double dec, out Half vMag, out float bMinusV)
     {
         ra = dec = 0;
         vMag = HalfUndefined;
-        bMinusV = 0.65; // solar-type default
+        bMinusV = 0.65f; // solar-type default
         if (_tycho2Data is null || tyc1 == 0 || tyc1 > _tycho2StreamCount)
         {
             return false;
@@ -574,9 +574,9 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                 // B-V = 0.850 × (BT - VT), or default if BT missing
                 if (vtDecimag != 0xFF && btDecimag != 0xFF)
                 {
-                    var vt = (vtDecimag - 20) / 10.0;
-                    var bt = (btDecimag - 20) / 10.0;
-                    bMinusV = 0.850 * (bt - vt);
+                    var vt = (vtDecimag - 20) / 10.0f;
+                    var bt = (btDecimag - 20) / 10.0f;
+                    bMinusV = 0.850f * (bt - vt);
                 }
                 return true;
             }
@@ -632,7 +632,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             if (tycIndex != 0 && TryGetTycho2RaDec(tycIndex, out ra, out dec, out var vm, out var bvVal))
             {
                 vMag = (float)vm;
-                bv = (float)bvVal;
+                bv = bvVal;
                 return true;
             }
         }
