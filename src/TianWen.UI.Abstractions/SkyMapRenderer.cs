@@ -51,17 +51,18 @@ namespace TianWen.UI.Abstractions
 
             // Draw layers back to front — always render everything (no drag shortcuts)
 
-            // Horizon: just the line, no fill (fill causes rendering artifacts)
-            DrawHorizonLine(image, timeProvider, siteLat, siteLon, cRA, cDec, ppr, cx, cy, w, h);
-
             // Meridian: green line at RA = LST (HA=0), from pole to pole
             if (!double.IsNaN(siteLat) && !double.IsNaN(siteLon))
             {
                 var lst = ComputeLST(timeProvider.GetUtcNow(), siteLon);
-                // Meridian runs pole to pole at RA = LST
+                var antiLst = (lst + 12.0) % 24.0;
+                // Full meridian circle: LST side (Dec -90→+90) + anti-meridian side (Dec +90→-90)
                 var steps = Math.Max(100, (int)(300 * 60.0 / Math.Max(state.FieldOfViewDeg, 1)));
-                DrawProjectedLine(image, cRA, cDec, ppr, cx, cy, w, h, MeridianColor, Math.Min(steps, 600),
-                    i => (lst, -90.0 + i * 180.0 / Math.Min(steps, 600)));
+                steps = Math.Min(steps, 600);
+                DrawProjectedLine(image, cRA, cDec, ppr, cx, cy, w, h, MeridianColor, steps,
+                    i => (lst, -90.0 + i * 180.0 / steps));
+                DrawProjectedLine(image, cRA, cDec, ppr, cx, cy, w, h, MeridianColor, steps,
+                    i => (antiLst, 90.0 - i * 180.0 / steps));
             }
 
             if (state.ShowGrid)
@@ -79,12 +80,16 @@ namespace TianWen.UI.Abstractions
                 DrawConstellationFigures(image, db, cRA, cDec, ppr, cx, cy, w, h);
             }
 
-            DrawStars(image, db, cRA, cDec, ppr, cx, cy, w, h, state.MagnitudeLimit, state.FieldOfViewDeg);
+            DrawStars(image, db, cRA, cDec, ppr, cx, cy, w, h, state.MagnitudeLimit, state.FieldOfViewDeg,
+                siteLat, siteLon, timeProvider);
 
             if (state.ShowPlanets)
             {
                 DrawPlanets(image, db, timeProvider, siteLat, siteLon, cRA, cDec, ppr, cx, cy, w, h);
             }
+
+            // Horizon drawn last so it's visible on top of everything
+            DrawHorizonLine(image, timeProvider, siteLat, siteLon, cRA, cDec, ppr, cx, cy, w, h);
         }
 
         // ── Horizon ──
@@ -296,9 +301,15 @@ namespace TianWen.UI.Abstractions
             ICelestialObjectDB db,
             double cRA, double cDec, double ppr,
             float cx, float cy, int w, int h,
-            float magLimit, double fovDeg)
+            float magLimit, double fovDeg,
+            double siteLat, double siteLon, TimeProvider timeProvider)
         {
             var hipCount = db.HipStarCount;
+
+            // Precompute for altitude check (skip stars below horizon)
+            var hasHorizon = !double.IsNaN(siteLat) && !double.IsNaN(siteLon);
+            var lst = hasHorizon ? ComputeLST(timeProvider.GetUtcNow(), siteLon) : 0;
+            var (sinLat, cosLat) = hasHorizon ? Math.SinCos(siteLat * Math.PI / 180.0) : (0.0, 1.0);
 
             for (var hip = 1; hip <= hipCount; hip++)
             {
@@ -310,6 +321,18 @@ namespace TianWen.UI.Abstractions
                 if (float.IsNaN(vMag) || vMag > magLimit)
                 {
                     continue;
+                }
+
+                // Skip stars below the horizon
+                if (hasHorizon)
+                {
+                    var ha = (lst - ra) * Math.PI / 12.0;
+                    var (sinDec, cosDec) = Math.SinCos(dec * Math.PI / 180.0);
+                    var sinAlt = sinLat * sinDec + cosLat * cosDec * Math.Cos(ha);
+                    if (sinAlt < 0)
+                    {
+                        continue;
+                    }
                 }
 
                 if (!SkyMapProjection.Project(ra, dec, cRA, cDec, ppr, cx, cy, out var sx, out var sy))
