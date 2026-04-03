@@ -609,4 +609,74 @@ cancellationToken: TestContext.Current.CancellationToken);
         grid.ShouldNotBeEmpty("Grid cell at Electra's position should have entries");
     }
 
+    // ── Constellation figure HIP star resolution ──
+
+    [Fact]
+    public async Task AllConstellationFigureHIPStarsResolve()
+    {
+        var db = await InitDBAsync();
+        var missing = new System.Collections.Generic.List<(Constellation Con, int HIP)>();
+
+        foreach (var constellation in Enum.GetValues<Constellation>())
+        {
+            if (constellation is Constellation.SerpensCaput or Constellation.SerpensCauda)
+            {
+                continue; // tested via Serpens parent
+            }
+
+            var figure = constellation.Figure;
+            if (figure.IsDefaultOrEmpty)
+            {
+                continue;
+            }
+
+            foreach (var polyline in figure)
+            {
+                foreach (var hip in polyline)
+                {
+                    if (!db.TryLookupHIP(hip, out _, out _, out _, out _))
+                    {
+                        missing.Add((constellation, hip));
+                    }
+                }
+            }
+        }
+
+        missing.ShouldBeEmpty(
+            $"These constellation figure stars failed TryLookupHIP:\n" +
+            string.Join("\n", missing.Select(m => $"  {m.Con}: HIP {m.HIP}")));
+    }
+
+    [Fact]
+    public async Task HIPStarCountIsReasonable()
+    {
+        var db = await InitDBAsync();
+
+        // Hipparcos catalog has ~118,218 entries
+        db.HipStarCount.ShouldBeGreaterThan(100000);
+        db.HipStarCount.ShouldBeLessThan(200000);
+    }
+
+    [Theory]
+    [InlineData(78820, "Acrab")]        // β1 Sco — Scorpius head
+    [InlineData(78265, "β2 Sco")]       // β2 Sco — Scorpius head branch
+    [InlineData(80763, "Dschubba")]     // δ Sco — Scorpius head junction
+    [InlineData(27989, "Betelgeuse")]   // α Ori — Orion shoulder
+    [InlineData(24436, "Rigel")]        // β Ori — Orion foot
+    [InlineData(91262, "Vega")]         // α Lyr
+    [InlineData(97649, "Altair")]       // α Aql
+    [InlineData(7588, "Achernar")]      // α Eri
+    [InlineData(30438, "Canopus")]      // α Car
+    [InlineData(71683, "α Cen")]        // α Cen A
+    public async Task GivenBrightFigureStarWhenLookingUpHIPThenPositionIsValid(int hip, string name)
+    {
+        var db = await InitDBAsync();
+
+        var found = db.TryLookupHIP(hip, out var ra, out var dec, out var vMag, out _);
+        found.ShouldBeTrue($"HIP {hip} ({name}) should resolve via TryLookupHIP");
+        ra.ShouldBeInRange(0.0, 24.0, $"RA for {name}");
+        dec.ShouldBeInRange(-90.0, 90.0, $"Dec for {name}");
+        float.IsNaN(vMag).ShouldBeFalse($"Magnitude for {name} should not be NaN");
+    }
+
 }
