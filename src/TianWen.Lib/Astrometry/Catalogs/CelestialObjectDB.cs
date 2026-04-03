@@ -615,6 +615,24 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         return (Half)vt;
     }
 
+    /// <inheritdoc/>
+    public bool TryLookupHIP(int hipNumber, out double ra, out double dec)
+    {
+        ra = 0;
+        dec = 0;
+
+        if (_hipToTyc is not null && hipNumber > 0 && hipNumber <= _hipToTyc.Length)
+        {
+            var tycIndex = _hipToTyc[hipNumber - 1];
+            if (tycIndex != 0 && TryGetTycho2RaDec(tycIndex, out ra, out dec, out _, out _))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private bool TryLookupHIPFromTycho2(CatalogIndex hipIndex, ulong hipValue, out CelestialObject celestialObject)
     {
         celestialObject = default;
