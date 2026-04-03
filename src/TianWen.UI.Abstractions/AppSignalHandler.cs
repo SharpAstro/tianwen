@@ -17,6 +17,15 @@ namespace TianWen.UI.Abstractions
     /// Host-agnostic signal handler. Wires all <see cref="SignalBus"/> subscriptions
     /// and <see cref="TextInputState"/> callbacks for planner search, equipment editing,
     /// and profile management. Shared between GPU and terminal hosts.
+    /// <para>
+    /// <b>SignalBus delivery contract:</b>
+    /// <see cref="SignalBus.PostSignal{T}"/> enqueues the signal — it never delivers inline,
+    /// so it is safe to call during rendering or hit testing (no reentrancy risk).
+    /// <see cref="SignalBus.ProcessPending"/> is called once per frame from the render thread:
+    /// it dequeues all pending signals and invokes subscribers in registration order.
+    /// Sync subscribers run inline on the render thread; async subscribers are submitted
+    /// to <see cref="BackgroundTaskTracker"/> (never fire-and-forget).
+    /// </para>
     /// </summary>
     public class AppSignalHandler
     {
@@ -72,6 +81,7 @@ namespace TianWen.UI.Abstractions
         {
             var objectDb = _sp.GetRequiredService<ICelestialObjectDB>();
             await objectDb.InitDBAsync(cancellationToken);
+            _plannerState.ObjectDb = objectDb;
             SetAutoCompleteCache(objectDb.CreateAutoCompleteList());
             await PlannerActions.ComputeTonightsBestAsync(
                 _plannerState, objectDb, transform,

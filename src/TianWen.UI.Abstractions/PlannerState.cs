@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using DIR.Lib;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
@@ -146,4 +147,10 @@ public class PlannerState
 
     /// <summary>Status message to display.</summary>
     public string? StatusMessage { get; set; }
+
+    /// <summary>
+    /// Celestial object database reference, set after <see cref="AppSignalHandler.InitializePlannerAsync"/>.
+    /// Used by the sky map tab for star positions and constellation data.
+    /// </summary>
+    public ICelestialObjectDB? ObjectDb { get; set; }
 }

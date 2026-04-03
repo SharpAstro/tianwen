@@ -62,6 +62,10 @@ public partial class Image
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public virtual async Task<StarList> FindStarsAsync(int channel, float snrMin = 20f, int maxStars = 500, int maxRetries = 2, CancellationToken cancellationToken = default)
     {
+        // ChunkSize = row band height each parallel task processes, matching the max star radius
+        // (HfdFactor * BoxRadius) so no star can span two non-adjacent chunks. Decoupled from
+        // StarMasks.MaxScaledRadius (full HFD diameter) — ChunkSize is a half-diameter guard band,
+        // not the pixel mask stamp size, keeping parallelization stable if HfdFactor changes.
         const int ChunkSize = 2 * ((int)(HfdFactor * BoxRadius) + 1);
         const float HalfChunkSizeInv = 1.0f / (2.0f * ChunkSize);
         var (channelCount, width, height) = Shape;
@@ -91,7 +95,9 @@ public partial class Image
         var img_star_area = new BitMatrix(height, width);
         var channelData = data[channel];
 
-        // we use interleaved processing of rows (so that we do not have to lock to protect the bitmatrix
+        // Interleaved chunk processing: two passes (i=0 even chunks, i=1 odd chunks) ensures no two
+        // adjacent chunks run simultaneously, so a star near a chunk boundary won't be written into
+        // the BitMatrix star mask by one task while a neighbour reads it concurrently — no locking needed.
         var halfChunkCount = (int)Math.Ceiling(height * HalfChunkSizeInv);
         var parallelOptions = new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount * 4, CancellationToken = cancellationToken };
 
