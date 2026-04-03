@@ -32,6 +32,12 @@ public interface ICelestialObjectDB
 
     bool TryGetShape(CatalogIndex index, out CelestialObjectShape shape);
 
+    /// <summary>
+    /// Fast HIP number → RA/Dec lookup via the Tycho-2 cross-reference array.
+    /// Avoids string parsing of "HIP nnn" on every call. O(1) array index.
+    /// </summary>
+    bool TryLookupHIP(int hipNumber, out double ra, out double dec);
+
     public bool TryLookupByIndex(string name, [NotNullWhen(true)] out CelestialObject celestialObject)
     {
         if (TryGetCleanedUpCatalogName(name, out var index) && TryLookupByIndex(index, out celestialObject))

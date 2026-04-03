@@ -575,6 +575,13 @@ public class OverlayEngineTests
             return _shapes.TryGetValue(index, out shape);
         }
 
+        public bool TryLookupHIP(int hipNumber, out double ra, out double dec)
+        {
+            ra = 0;
+            dec = 0;
+            return false;
+        }
+
         public bool TryLookupByIndex(CatalogIndex index, out CelestialObject celestialObject)
         {
             return _objects.TryGetValue(index, out celestialObject);

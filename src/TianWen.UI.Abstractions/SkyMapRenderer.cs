@@ -17,6 +17,7 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 GridColor            = new(0x30, 0x60, 0xA0, 0xB0);
         private static readonly RGBAColor32 BoundaryColor        = new(0xAA, 0x44, 0x44, 0x80); // red, like Stellarium
         private static readonly RGBAColor32 ConstellationLabel   = new(0x70, 0x90, 0xC0, 0xE0);
+        private static readonly RGBAColor32 FigureColor          = new(0x40, 0x80, 0xDD, 0xDD); // blue stick figures
         private static readonly RGBAColor32 PlanetColor          = new(0xFF, 0xDD, 0x44, 0xFF);
         private static readonly RGBAColor32 PlanetLabelColor     = new(0xFF, 0xEE, 0x88, 0xFF);
 
@@ -71,6 +72,11 @@ namespace TianWen.UI.Abstractions
             if (state.ShowConstellationBoundaries)
             {
                 DrawConstellationBoundaries(image, cRA, cDec, ppr, cx, cy, w, h);
+            }
+
+            if (state.ShowConstellationFigures)
+            {
+                DrawConstellationFigures(image, db, cRA, cDec, ppr, cx, cy, w, h);
             }
 
             DrawStars(image, db, cRA, cDec, ppr, cx, cy, w, h, state.MagnitudeLimit, state.FieldOfViewDeg);
@@ -326,6 +332,66 @@ namespace TianWen.UI.Abstractions
         }
 
         // ── Constellation Lines ──
+
+        // ── Constellation Figures ──
+
+        /// <summary>
+        /// Draw constellation stick figures by resolving HIP star numbers to RA/Dec
+        /// via the celestial object database, then connecting consecutive stars with lines.
+        /// </summary>
+        private static void DrawConstellationFigures(
+            RgbaImage image,
+            ICelestialObjectDB db,
+            double cRA, double cDec, double ppr,
+            float cx, float cy, int w, int h)
+        {
+            foreach (var constellation in System.Enum.GetValues<Constellation>())
+            {
+                // Skip Serpens sub-parts to avoid drawing twice (Serpens composes from them)
+                if (constellation is Constellation.SerpensCaput or Constellation.SerpensCauda)
+                {
+                    continue;
+                }
+
+                var figure = constellation.Figure;
+                if (figure.IsDefaultOrEmpty)
+                {
+                    continue;
+                }
+
+                foreach (var polyline in figure)
+                {
+                    var prevX = float.NaN;
+                    var prevY = float.NaN;
+
+                    foreach (var hip in polyline)
+                    {
+                        // Fast O(1) HIP → RA/Dec via the Tycho-2 cross-reference array
+                        if (!db.TryLookupHIP(hip, out var ra, out var dec))
+                        {
+                            prevX = float.NaN;
+                            continue;
+                        }
+
+                        if (!SkyMapProjection.Project(ra, dec, cRA, cDec, ppr, cx, cy,
+                            out var sx, out var sy))
+                        {
+                            prevX = float.NaN;
+                            continue;
+                        }
+
+                        if (!float.IsNaN(prevX)
+                            && sx >= -50 && sx < w + 50 && sy >= -50 && sy < h + 50)
+                        {
+                            DrawLine(image, (int)prevX, (int)prevY, (int)sx, (int)sy, FigureColor);
+                        }
+
+                        prevX = sx;
+                        prevY = sy;
+                    }
+                }
+            }
+        }
 
         // ── Constellation Boundaries ──
 

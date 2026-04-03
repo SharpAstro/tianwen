@@ -323,7 +323,7 @@ namespace TianWen.UI.Abstractions
             var fovText = State.FieldOfViewDeg < 1
                 ? $"FOV: {State.FieldOfViewDeg * 60:F0}'"
                 : $"FOV: {State.FieldOfViewDeg:F1}\u00B0";
-            var info = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0    {fovText}    [G]rid [B]oundaries [P]lanets";
+            var info = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0    {fovText}    [G]rid [B]oundaries [C]onst [P]lanets";
 
             DrawText(info.AsSpan(), fontPath,
                 rect.X + 8, stripY, rect.Width - 16, stripH,
@@ -395,6 +395,10 @@ namespace TianWen.UI.Abstractions
                     return true;
                 case InputKey.B:
                     State.ShowConstellationBoundaries = !State.ShowConstellationBoundaries;
+                    State.NeedsRedraw = true;
+                    return true;
+                case InputKey.C:
+                    State.ShowConstellationFigures = !State.ShowConstellationFigures;
                     State.NeedsRedraw = true;
                     return true;
                 case InputKey.P:
