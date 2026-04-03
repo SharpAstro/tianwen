@@ -281,14 +281,8 @@ namespace TianWen.UI.Abstractions
             RectF32 rect, string fontPath, float fontSize, double ppr, float cx, float cy)
         {
             var now = timeProvider.GetUtcNow();
-            ReadOnlySpan<CatalogIndex> planets =
-            [
-                CatalogIndex.Mercury, CatalogIndex.Venus, CatalogIndex.Mars,
-                CatalogIndex.Jupiter, CatalogIndex.Saturn, CatalogIndex.Uranus,
-                CatalogIndex.Neptune, CatalogIndex.Moon
-            ];
 
-            foreach (var planetIdx in planets)
+            foreach (var planetIdx in SkyMapRenderer.PlanetIndices)
             {
                 if (!TianWen.Lib.Astrometry.VSOP87.VSOP87a.Reduce(
                     planetIdx, now, siteLat, siteLon,

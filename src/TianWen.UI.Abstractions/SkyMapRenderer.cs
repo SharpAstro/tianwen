@@ -18,7 +18,7 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 GridColor            = new(0x30, 0x60, 0xA0, 0xB0);
         private static readonly RGBAColor32 BoundaryColor        = new(0xAA, 0x44, 0x44, 0x80); // red, like Stellarium
         private static readonly RGBAColor32 ConstellationLabel   = new(0x70, 0x90, 0xC0, 0xE0);
-        private static readonly RGBAColor32 FigureColor          = new(0x40, 0x80, 0xDD, 0xDD); // blue stick figures
+        private static readonly RGBAColor32 FigureColor          = new(0x40, 0x80, 0xDD, 0x90); // blue stick figures, semi-transparent
         private static readonly RGBAColor32 PlanetColor          = new(0xFF, 0xDD, 0x44, 0xFF);
         private static readonly RGBAColor32 PlanetLabelColor     = new(0xFF, 0xEE, 0x88, 0xFF);
 
@@ -436,7 +436,7 @@ namespace TianWen.UI.Abstractions
 
         // ── Planets ──
 
-        private static readonly CatalogIndex[] PlanetIndices =
+        internal static readonly CatalogIndex[] PlanetIndices =
         [
             CatalogIndex.Mercury,
             CatalogIndex.Venus,
