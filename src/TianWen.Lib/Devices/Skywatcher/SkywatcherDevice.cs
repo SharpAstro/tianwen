@@ -6,6 +6,11 @@ using TianWen.Lib.Connections;
 
 namespace TianWen.Lib.Devices.Skywatcher;
 
+/// <summary>
+/// Skywatcher mount device addressed by URI. The <c>baud</c> query parameter selects the serial speed:
+/// <c>9600</c> = legacy mounts via external serial adapter, <c>115200</c> = integrated USB (e.g. EQ6-R, AzEQ6).
+/// Discovery probes 115200 first. WiFi mounts (port = IP address) ignore baud entirely.
+/// </summary>
 public record SkywatcherDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 {
     public SkywatcherDevice(DeviceType deviceType, string deviceId, string displayName, string port, int baud = SkywatcherProtocol.DEFAULT_LEGACY_BAUD)

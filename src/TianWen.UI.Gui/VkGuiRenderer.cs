@@ -18,6 +18,7 @@ namespace TianWen.UI.Gui
         private readonly VkEquipmentTab _equipmentTab;
         private readonly VkSessionTab _sessionTab;
         private readonly VkViewerTab _viewerTab;
+        private readonly VkSkyMapTab _skyMapTab;
         private readonly VkLiveSessionTab _liveSessionTab;
         private readonly GuiderTab<VulkanContext> _guiderTab;
         private readonly VkMiniViewerWidget _guiderMiniViewer;
@@ -73,10 +74,11 @@ namespace TianWen.UI.Gui
         // Sidebar tab definitions
         private static readonly (string Icon, GuiTab Tab)[] SidebarTabs =
         [
-            ("\U0001F52D", GuiTab.Equipment),   // 🔭 Telescope
-            ("\U0001F4C5", GuiTab.Planner),     // 📅 Calendar
-            ("\U0001F4F7", GuiTab.Session),     // 📷 Session Config
-            ("\U0001F30C", GuiTab.LiveSession),  // 🌌 Live Session
+            ("\U0001F52D", GuiTab.Equipment),    // 🔭 Equipment
+            ("\U0001F4C5", GuiTab.Planner),      // 📅 Planner
+            ("\U0001F30C", GuiTab.SkyMap),        // 🌌 Sky Map
+            ("\U0001F527", GuiTab.Session),       // 🔧 Session Config
+            ("\U0001F4F7", GuiTab.LiveSession),   // 📷 Live Session
             ("\U0001F3AF", GuiTab.Guider),        // 🎯 Guider
         ];
 
@@ -106,6 +108,7 @@ namespace TianWen.UI.Gui
             _equipmentTab = new VkEquipmentTab(renderer) { Bus = bus };
             _sessionTab = new VkSessionTab(renderer) { Bus = bus };
             _viewerTab = new VkViewerTab(renderer, width, height) { Bus = bus };
+            _skyMapTab = new VkSkyMapTab(renderer) { Bus = bus };
             _miniViewer = new VkMiniViewerWidget(renderer);
             _liveSessionTab = new VkLiveSessionTab(renderer) { Bus = bus, MiniViewer = _miniViewer };
             _guiderMiniViewer = new VkMiniViewerWidget(renderer);
@@ -140,6 +143,7 @@ namespace TianWen.UI.Gui
             _plannerTab.FrameCount++;
             _sessionTab.FrameCount++;
             _viewerTab.FrameCount++;
+            _skyMapTab.FrameCount++;
             _liveSessionTab.FrameCount++;
             _guiderTab.FrameCount++;
 
@@ -148,6 +152,7 @@ namespace TianWen.UI.Gui
                 GuiTab.Planner => _plannerTab,
                 GuiTab.Equipment => _equipmentTab,
                 GuiTab.Session => _sessionTab,
+                GuiTab.SkyMap => _skyMapTab,
                 GuiTab.LiveSession => _liveSessionTab,
                 GuiTab.Guider => _guiderTab,
                 _ => null
@@ -372,6 +377,11 @@ namespace TianWen.UI.Gui
 
                 case GuiTab.Session:
                     _sessionTab.Render(appState, plannerState, contentRect, DpiScale,
+                        _fontPath ?? "monospace", timeProvider);
+                    break;
+
+                case GuiTab.SkyMap:
+                    _skyMapTab.Render(plannerState, contentRect, DpiScale,
                         _fontPath ?? "monospace", timeProvider);
                     break;
 

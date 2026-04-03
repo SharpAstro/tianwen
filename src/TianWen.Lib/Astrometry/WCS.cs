@@ -198,6 +198,8 @@ public record struct WCS(double CenterRA, double CenterDec)
     public static WCS? FromHeader(Header header)
     {
         // Try CRVAL1/2 first (degrees), then RA/DEC (degrees), then OBJCTRA/OBJCTDEC (HMS/DMS strings)
+        // IMPORTANT: Always pass double.NaN as default — GetDoubleValue returns 0.0 for missing keys
+        // if no default is specified, which would silently produce coordinates at (0, 0).
         var raDeg = header.GetDoubleValue("CRVAL1", double.NaN);
         var dec = header.GetDoubleValue("CRVAL2", double.NaN);
 

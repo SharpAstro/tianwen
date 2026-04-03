@@ -523,7 +523,7 @@ internal partial record Session
 
                         if (remaining > TimeSpan.FromSeconds(30))
                         {
-                            // Mostly remaining — abort to avoid long wait
+                            // >30s remaining — abort to flip promptly; ≤30s — wait and save the frame to avoid wasting integration time
                             External.AppLogger.LogInformation("Aborting exposure on camera #{CameraNumber} ({Remaining:F0}s remaining of {Total}s).",
                                 i + 1, remaining.TotalSeconds, total.TotalSeconds);
                             if (camDriver.CanAbortExposure)

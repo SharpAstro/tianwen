@@ -8,6 +8,7 @@ public enum GuiTab
     Planner,
     Session,
     Equipment,
+    SkyMap,
     LiveSession,
     Guider
 }
