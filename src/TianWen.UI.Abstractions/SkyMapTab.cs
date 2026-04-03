@@ -57,18 +57,16 @@ namespace TianWen.UI.Abstractions
             var siteLon = plannerState.SiteLongitude;
 
             // Initialize view to zenith on first valid site, or re-center on profile switch
-            if (!double.IsNaN(siteLat) && !double.IsNaN(siteLon))
+            var site = SiteContext.Create(siteLat, siteLon, timeProvider);
+            if (site.IsValid && (!State.Initialized || siteLat != _lastSiteLat || siteLon != _lastSiteLon))
             {
-                if (!State.Initialized || siteLat != _lastSiteLat || siteLon != _lastSiteLon)
-                {
-                    _lastSiteLat = siteLat;
-                    _lastSiteLon = siteLon;
-                    State.Initialized = true;
-                    // Home position: look at the visible celestial pole (SCP for southern hemisphere, NCP for northern)
-                    State.CenterRA = SkyMapRenderer.ComputeLST(timeProvider.GetUtcNow(), siteLon);
-                    State.CenterDec = siteLat < 0 ? -89.0 : 89.0;
-                    State.NeedsRedraw = true;
-                }
+                _lastSiteLat = siteLat;
+                _lastSiteLon = siteLon;
+                State.Initialized = true;
+                // Home position: look at the visible celestial pole (SCP for southern hemisphere, NCP for northern)
+                State.CenterRA = site.LST;
+                State.CenterDec = siteLat < 0 ? -89.0 : 89.0;
+                State.NeedsRedraw = true;
             }
 
             // Delegate pixel rendering to virtual method (overridden by VkSkyMapTab for GPU caching)
@@ -323,7 +321,7 @@ namespace TianWen.UI.Abstractions
             var fovText = State.FieldOfViewDeg < 1
                 ? $"FOV: {State.FieldOfViewDeg * 60:F0}'"
                 : $"FOV: {State.FieldOfViewDeg:F1}\u00B0";
-            var info = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0    {fovText}    [G]rid [B]oundaries [C]onst [P]lanets";
+            var info = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0    {fovText}    [H]orizon [G]rid [B]oundaries [C]onst [P]lanets";
 
             DrawText(info.AsSpan(), fontPath,
                 rect.X + 8, stripY, rect.Width - 16, stripH,
@@ -391,6 +389,10 @@ namespace TianWen.UI.Abstractions
             {
                 case InputKey.G:
                     State.ShowGrid = !State.ShowGrid;
+                    State.NeedsRedraw = true;
+                    return true;
+                case InputKey.H:
+                    State.ShowHorizon = !State.ShowHorizon;
                     State.NeedsRedraw = true;
                     return true;
                 case InputKey.B:
