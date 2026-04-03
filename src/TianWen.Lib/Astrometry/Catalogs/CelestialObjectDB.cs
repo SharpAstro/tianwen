@@ -626,6 +626,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         vMag = float.NaN;
         bv = float.NaN;
 
+        // Fast path: direct HIP→Tycho-2 array lookup
         if (_hipToTyc is not null && hipNumber > 0 && hipNumber <= _hipToTyc.Length)
         {
             var tycIndex = _hipToTyc[hipNumber - 1];
@@ -634,6 +635,37 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                 vMag = (float)vm;
                 bv = bvVal;
                 return true;
+            }
+        }
+
+        // Fallback: resolve HIP → cross-referenced HR/HD entry via the lookup table
+        var hipIdx = PrefixedNumericToASCIIPackedInt<CatalogIndex>((ulong)Catalog.HIP, hipNumber, Catalog.HIP.GetNumericalIndexSize());
+        if (hipIdx != default)
+        {
+            // Try direct lookup first (HIP key in _objectsByIndex)
+            if (TryLookupByIndex(hipIdx, out var obj))
+            {
+                ra = obj.RA;
+                dec = obj.Dec;
+                vMag = (float)obj.V_Mag;
+                bv = (float)obj.BMinusV;
+                return true;
+            }
+
+            // Try cross-reference: HIP → HR or HD
+            if (_crossIndexLookuptable.TryGetLookupEntries(hipIdx, out var crossRefs))
+            {
+                foreach (var crossRef in crossRefs)
+                {
+                    if (TryLookupByIndex(crossRef, out obj))
+                    {
+                        ra = obj.RA;
+                        dec = obj.Dec;
+                        vMag = (float)obj.V_Mag;
+                        bv = (float)obj.BMinusV;
+                        return true;
+                    }
+                }
             }
         }
 
