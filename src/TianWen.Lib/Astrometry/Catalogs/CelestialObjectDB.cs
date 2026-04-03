@@ -108,7 +108,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         {
             return true;
         }
-        else if (cat is Catalog.HIP && !msbSet && TryLookupHIPFromTycho2(index, value, out celestialObject))
+        else if (cat is Catalog.HIP && !msbSet && TryLookupHIPCore(index, value, out celestialObject))
         {
             return true;
         }
@@ -626,45 +626,84 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         vMag = float.NaN;
         bv = float.NaN;
 
-        // Fast path: direct HIP→Tycho-2 array lookup
+        if (TryLookupHIPCore(hipNumber, out var obj))
+        {
+            ra = obj.RA;
+            dec = obj.Dec;
+            vMag = (float)obj.V_Mag;
+            bv = (float)obj.BMinusV;
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Core HIP resolution with 3-tier fallback:
+    /// 1. Tycho-2 array (O(1), covers ~99% of HIP stars)
+    /// 2. Cross-reference table (HIP → HR/HD for bright stars loaded via SIMBAD)
+    /// Used by both <see cref="TryLookupHIP"/> and <see cref="TryLookupByIndexDirect"/>.
+    /// </summary>
+    private bool TryLookupHIPCore(CatalogIndex hipIndex, ulong hipValue, out CelestialObject celestialObject)
+    {
+        // Tier 1: direct Tycho-2 array
+        if (TryLookupHIPFromTycho2(hipIndex, hipValue, out celestialObject))
+        {
+            return true;
+        }
+
+        // Tier 2: cross-reference → HR/HD
+        if (_crossIndexLookuptable.TryGetLookupEntries(hipIndex, out var crossRefs))
+        {
+            foreach (var crossRef in crossRefs)
+            {
+                if (_objectsByIndex.TryGetValue(crossRef, out celestialObject))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private bool TryLookupHIPCore(int hipNumber, out CelestialObject celestialObject)
+    {
+        celestialObject = default;
+
+        // Build HIP CatalogIndex for this number
+        var hipIdx = PrefixedNumericToASCIIPackedInt<CatalogIndex>((ulong)Catalog.HIP, hipNumber, Catalog.HIP.GetNumericalIndexSize());
+        if (hipIdx == default)
+        {
+            return false;
+        }
+
+        // Tier 1: Tycho-2 array (fastest, covers most HIP stars)
         if (_hipToTyc is not null && hipNumber > 0 && hipNumber <= _hipToTyc.Length)
         {
             var tycIndex = _hipToTyc[hipNumber - 1];
-            if (tycIndex != 0 && TryGetTycho2RaDec(tycIndex, out ra, out dec, out var vm, out var bvVal))
+            if (tycIndex != 0 && TryGetTycho2RaDec(tycIndex, out var ra, out var dec, out var vMag, out var bv)
+                && ConstellationBoundary.TryFindConstellation(ra, dec, out var constellation))
             {
-                vMag = (float)vm;
-                bv = bvVal;
+                celestialObject = new CelestialObject(hipIdx, ObjectType.Star, ra, dec, constellation, vMag, HalfUndefined, (Half)bv, EmptyNameSet);
                 return true;
             }
         }
 
-        // Fallback: resolve HIP → cross-referenced HR/HD entry via the lookup table
-        var hipIdx = PrefixedNumericToASCIIPackedInt<CatalogIndex>((ulong)Catalog.HIP, hipNumber, Catalog.HIP.GetNumericalIndexSize());
-        if (hipIdx != default)
+        // Tier 2: already loaded in _objectsByIndex as HIP entry
+        if (_objectsByIndex.TryGetValue(hipIdx, out celestialObject))
         {
-            // Try direct lookup first (HIP key in _objectsByIndex)
-            if (TryLookupByIndex(hipIdx, out var obj))
-            {
-                ra = obj.RA;
-                dec = obj.Dec;
-                vMag = (float)obj.V_Mag;
-                bv = (float)obj.BMinusV;
-                return true;
-            }
+            return true;
+        }
 
-            // Try cross-reference: HIP → HR or HD
-            if (_crossIndexLookuptable.TryGetLookupEntries(hipIdx, out var crossRefs))
+        // Tier 3: cross-reference HIP → HR/HD
+        if (_crossIndexLookuptable.TryGetLookupEntries(hipIdx, out var crossRefs))
+        {
+            foreach (var crossRef in crossRefs)
             {
-                foreach (var crossRef in crossRefs)
+                if (_objectsByIndex.TryGetValue(crossRef, out celestialObject))
                 {
-                    if (TryLookupByIndex(crossRef, out obj))
-                    {
-                        ra = obj.RA;
-                        dec = obj.Dec;
-                        vMag = (float)obj.V_Mag;
-                        bv = (float)obj.BMinusV;
-                        return true;
-                    }
+                    return true;
                 }
             }
         }
