@@ -33,10 +33,16 @@ public interface ICelestialObjectDB
     bool TryGetShape(CatalogIndex index, out CelestialObjectShape shape);
 
     /// <summary>
-    /// Fast HIP number → RA/Dec lookup via the Tycho-2 cross-reference array.
+    /// Fast HIP number → RA/Dec/mag/color lookup via the Tycho-2 cross-reference array.
     /// Avoids string parsing of "HIP nnn" on every call. O(1) array index.
     /// </summary>
-    bool TryLookupHIP(int hipNumber, out double ra, out double dec);
+    bool TryLookupHIP(int hipNumber, out double ra, out double dec, out float vMag, out float bv);
+
+    /// <summary>
+    /// Number of entries in the HIP→Tycho-2 cross-reference array.
+    /// Iterate 1..HipStarCount with <see cref="TryLookupHIP"/> to access all HIP stars.
+    /// </summary>
+    int HipStarCount { get; }
 
     public bool TryLookupByIndex(string name, [NotNullWhen(true)] out CelestialObject celestialObject)
     {
