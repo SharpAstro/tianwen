@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using DIR.Lib;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.SOFA;
 
 namespace TianWen.UI.Abstractions
 {
@@ -14,7 +15,6 @@ namespace TianWen.UI.Abstractions
     {
         private static readonly RGBAColor32 InfoPanelBg   = new(0x10, 0x10, 0x1C, 0xE0);
         private static readonly RGBAColor32 InfoText      = new(0xCC, 0xCC, 0xCC, 0xFF);
-        private static readonly RGBAColor32 ConstellLabel = new(0x50, 0x70, 0xA0, 0xC0);
         private static readonly RGBAColor32 PlanetLabel   = new(0xFF, 0xEE, 0x88, 0xFF);
         private static readonly RGBAColor32 GridLabelColor = new(0x60, 0x80, 0xA0, 0xCC);
 
