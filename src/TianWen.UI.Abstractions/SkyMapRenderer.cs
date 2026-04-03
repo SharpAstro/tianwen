@@ -6,6 +6,88 @@ using TianWen.Lib.Astrometry.Catalogs;
 namespace TianWen.UI.Abstractions
 {
     /// <summary>
+    /// Precomputed observer site data for a single frame. Avoids recomputing LST, sin/cos(lat)
+    /// etc. in every drawing method.
+    /// </summary>
+    public readonly record struct SiteContext
+    {
+        public double Latitude { get; init; }
+        public double Longitude { get; init; }
+        public double LST { get; init; }
+        public double SinLat { get; init; }
+        public double CosLat { get; init; }
+        public double TanLat { get; init; }
+        public bool IsValid { get; init; }
+
+        /// <summary>
+        /// Compute Local Sidereal Time in hours from UTC and longitude.
+        /// Uses the standard GMST formula (IAU 1982, accurate to ~1 second).
+        /// </summary>
+        public static double ComputeLST(DateTimeOffset utcNow, double lonDeg)
+        {
+            var jd = 2451545.0 + (utcNow - new DateTimeOffset(2000, 1, 1, 12, 0, 0, TimeSpan.Zero)).TotalDays;
+            var T = (jd - 2451545.0) / 36525.0;
+
+            // GMST in degrees (IAU 1982 formula)
+            var gmst = 280.46061837 + 360.98564736629 * (jd - 2451545.0)
+                        + 0.000387933 * T * T - T * T * T / 38710000.0;
+            gmst = ((gmst % 360.0) + 360.0) % 360.0;
+
+            var lst = (gmst + lonDeg) / 15.0; // convert to hours
+            return ((lst % 24.0) + 24.0) % 24.0;
+        }
+
+        public static SiteContext Create(double siteLat, double siteLon, TimeProvider timeProvider)
+        {
+            if (double.IsNaN(siteLat) || double.IsNaN(siteLon))
+            {
+                return default;
+            }
+
+            var lst = ComputeLST(timeProvider.GetUtcNow(), siteLon);
+            var (sinLat, cosLat) = Math.SinCos(siteLat * Math.PI / 180.0);
+            return new SiteContext
+            {
+                Latitude = siteLat,
+                Longitude = siteLon,
+                LST = lst,
+                SinLat = sinLat,
+                CosLat = cosLat,
+                TanLat = Math.Tan(siteLat * Math.PI / 180.0),
+                IsValid = true
+            };
+        }
+
+        /// <summary>
+        /// Returns true if the given RA/Dec is above the horizon (altitude > 0).
+        /// </summary>
+        public bool IsAboveHorizon(double ra, double dec)
+        {
+            if (!IsValid)
+            {
+                return true; // no site info → show everything
+            }
+
+            var ha = (LST - ra) * Math.PI / 12.0;
+            var (sinDec, cosDec) = Math.SinCos(dec * Math.PI / 180.0);
+            return SinLat * sinDec + CosLat * cosDec * Math.Cos(ha) >= 0;
+        }
+
+        /// <summary>
+        /// Returns the Dec at which altitude = 0 for the given RA.
+        /// </summary>
+        public double HorizonDec(double ra)
+        {
+            if (Math.Abs(TanLat) < 1e-10)
+            {
+                return 0;
+            }
+            var ha = (LST - ra) * Math.PI / 12.0;
+            return Math.Atan(-Math.Cos(ha) / TanLat) * 180.0 / Math.PI;
+        }
+    }
+
+    /// <summary>
     /// CPU software renderer for the sky map. Draws stars, constellation lines, RA/Dec grid,
     /// and planets onto an <see cref="RgbaImage"/> pixel buffer. The buffer is then uploaded
     /// as a GPU texture by the Vulkan layer for cached rendering.
@@ -48,19 +130,17 @@ namespace TianWen.UI.Abstractions
             var cy = h * 0.5f;
             var cRA = state.CenterRA;
             var cDec = state.CenterDec;
+            var site = SiteContext.Create(siteLat, siteLon, timeProvider);
 
-            // Draw layers back to front — always render everything (no drag shortcuts)
+            // Draw layers back to front
 
-            // Meridian: green line at RA = LST (HA=0), from pole to pole
-            if (!double.IsNaN(siteLat) && !double.IsNaN(siteLon))
+            // Meridian: full great circle through both poles at RA = LST and RA = LST+12h
+            if (site.IsValid)
             {
-                var lst = ComputeLST(timeProvider.GetUtcNow(), siteLon);
-                var antiLst = (lst + 12.0) % 24.0;
-                // Full meridian circle: LST side (Dec -90→+90) + anti-meridian side (Dec +90→-90)
-                var steps = Math.Max(100, (int)(300 * 60.0 / Math.Max(state.FieldOfViewDeg, 1)));
-                steps = Math.Min(steps, 600);
+                var antiLst = (site.LST + 12.0) % 24.0;
+                var steps = Math.Clamp((int)(300 * 60.0 / Math.Max(state.FieldOfViewDeg, 1)), 100, 600);
                 DrawProjectedLine(image, cRA, cDec, ppr, cx, cy, w, h, MeridianColor, steps,
-                    i => (lst, -90.0 + i * 180.0 / steps));
+                    i => (site.LST, -90.0 + i * 180.0 / steps));
                 DrawProjectedLine(image, cRA, cDec, ppr, cx, cy, w, h, MeridianColor, steps,
                     i => (antiLst, 90.0 - i * 180.0 / steps));
             }
@@ -80,16 +160,20 @@ namespace TianWen.UI.Abstractions
                 DrawConstellationFigures(image, db, cRA, cDec, ppr, cx, cy, w, h);
             }
 
-            DrawStars(image, db, cRA, cDec, ppr, cx, cy, w, h, state.MagnitudeLimit, state.FieldOfViewDeg,
-                siteLat, siteLon, timeProvider);
+            DrawStars(image, db, cRA, cDec, ppr, cx, cy, w, h,
+                state.MagnitudeLimit, state.FieldOfViewDeg,
+                state.ShowHorizon ? site : default);
 
             if (state.ShowPlanets)
             {
-                DrawPlanets(image, db, timeProvider, siteLat, siteLon, cRA, cDec, ppr, cx, cy, w, h);
+                DrawPlanets(image, db, site, cRA, cDec, ppr, cx, cy, w, h);
             }
 
             // Horizon drawn last so it's visible on top of everything
-            DrawHorizonLine(image, timeProvider, siteLat, siteLon, cRA, cDec, ppr, cx, cy, w, h);
+            if (state.ShowHorizon)
+            {
+                DrawHorizonLine(image, site, cRA, cDec, ppr, cx, cy, w, h);
+            }
         }
 
         // ── Horizon ──
@@ -103,19 +187,14 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private static void DrawHorizonLine(
             RgbaImage image,
-            TimeProvider timeProvider,
-            double siteLat, double siteLon,
+            SiteContext site,
             double cRA, double cDec, double ppr,
             float cx, float cy, int w, int h)
         {
-            if (double.IsNaN(siteLat) || double.IsNaN(siteLon))
+            if (!site.IsValid)
             {
                 return;
             }
-
-            var lst = ComputeLST(timeProvider.GetUtcNow(), siteLon);
-            var latRad = siteLat * Math.PI / 180.0;
-            var tanLat = Math.Tan(latRad);
 
             // Trace the horizon curve and draw it as connected line segments
             const int steps = 120;
@@ -125,10 +204,7 @@ namespace TianWen.UI.Abstractions
             for (var i = 0; i <= steps; i++)
             {
                 var ra = i * 24.0 / steps;
-                var ha = (lst - ra) * Math.PI / 12.0;
-                var decHorizon = Math.Abs(tanLat) < 1e-10
-                    ? 0.0
-                    : Math.Atan(-Math.Cos(ha) / tanLat) * 180.0 / Math.PI;
+                var decHorizon = site.HorizonDec(ra);
 
                 if (SkyMapProjection.Project(ra, decHorizon, cRA, cDec, ppr, cx, cy, out var sx, out var sy)
                     && sx >= -200 && sx < w + 200 && sy >= -200 && sy < h + 200)
@@ -147,16 +223,15 @@ namespace TianWen.UI.Abstractions
             }
 
             // Cardinal points: N (az=0), E (az=90), S (az=180), W (az=270)
-            var (sinLat, cosLat) = Math.SinCos(latRad);
             ReadOnlySpan<(double Az, string Label)> cardinals =
                 [(0, "N"), (90, "E"), (180, "S"), (270, "W")];
 
             foreach (var (az, _) in cardinals)
             {
                 var (sinAz, cosAz) = Math.SinCos(az * Math.PI / 180.0);
-                var dec = Math.Asin(cosAz * cosLat) * 180.0 / Math.PI;
-                var ha = Math.Atan2(sinAz, cosAz * sinLat) * 12.0 / Math.PI;
-                var ra = ((lst - ha) % 24.0 + 24.0) % 24.0;
+                var dec = Math.Asin(cosAz * site.CosLat) * 180.0 / Math.PI;
+                var ha = Math.Atan2(sinAz, cosAz * site.SinLat) * 12.0 / Math.PI;
+                var ra = ((site.LST - ha) % 24.0 + 24.0) % 24.0;
 
                 if (SkyMapProjection.Project(ra, dec, cRA, cDec, ppr, cx, cy, out var sx, out var sy)
                     && sx >= 0 && sx < w && sy >= 0 && sy < h)
@@ -166,24 +241,6 @@ namespace TianWen.UI.Abstractions
             }
         }
 
-        /// <summary>
-        /// Compute Local Sidereal Time in hours from UTC and longitude.
-        /// Uses the standard GMST formula (accurate to ~1 second).
-        /// </summary>
-        public static double ComputeLST(DateTimeOffset utcNow, double lonDeg)
-        {
-            // Julian date
-            var jd = 2451545.0 + (utcNow - new DateTimeOffset(2000, 1, 1, 12, 0, 0, TimeSpan.Zero)).TotalDays;
-            var T = (jd - 2451545.0) / 36525.0;
-
-            // GMST in hours (IAU 1982 formula)
-            var gmst = 280.46061837 + 360.98564736629 * (jd - 2451545.0)
-                        + 0.000387933 * T * T - T * T * T / 38710000.0;
-            gmst = ((gmst % 360.0) + 360.0) % 360.0; // normalize to 0-360 degrees
-
-            var lst = (gmst + lonDeg) / 15.0; // convert to hours
-            return ((lst % 24.0) + 24.0) % 24.0;
-        }
 
         // ── Grid ──
 
@@ -302,14 +359,9 @@ namespace TianWen.UI.Abstractions
             double cRA, double cDec, double ppr,
             float cx, float cy, int w, int h,
             float magLimit, double fovDeg,
-            double siteLat, double siteLon, TimeProvider timeProvider)
+            SiteContext site)
         {
             var hipCount = db.HipStarCount;
-
-            // Precompute for altitude check (skip stars below horizon)
-            var hasHorizon = !double.IsNaN(siteLat) && !double.IsNaN(siteLon);
-            var lst = hasHorizon ? ComputeLST(timeProvider.GetUtcNow(), siteLon) : 0;
-            var (sinLat, cosLat) = hasHorizon ? Math.SinCos(siteLat * Math.PI / 180.0) : (0.0, 1.0);
 
             for (var hip = 1; hip <= hipCount; hip++)
             {
@@ -323,16 +375,10 @@ namespace TianWen.UI.Abstractions
                     continue;
                 }
 
-                // Skip stars below the horizon
-                if (hasHorizon)
+                // Skip stars below the horizon (when horizon is enabled)
+                if (site.IsValid && !site.IsAboveHorizon(ra, dec))
                 {
-                    var ha = (lst - ra) * Math.PI / 12.0;
-                    var (sinDec, cosDec) = Math.SinCos(dec * Math.PI / 180.0);
-                    var sinAlt = sinLat * sinDec + cosLat * cosDec * Math.Cos(ha);
-                    if (sinAlt < 0)
-                    {
-                        continue;
-                    }
+                    continue;
                 }
 
                 if (!SkyMapProjection.Project(ra, dec, cRA, cDec, ppr, cx, cy, out var sx, out var sy))
@@ -486,17 +532,21 @@ namespace TianWen.UI.Abstractions
         private static void DrawPlanets(
             RgbaImage image,
             ICelestialObjectDB db,
-            TimeProvider timeProvider,
-            double siteLat, double siteLon,
+            SiteContext site,
             double cRA, double cDec, double ppr,
             float cx, float cy, int w, int h)
         {
-            var now = timeProvider.GetUtcNow();
+            if (!site.IsValid)
+            {
+                return;
+            }
+
+            var now = DateTimeOffset.UtcNow; // planets need current time, not cached
 
             foreach (var planetIdx in PlanetIndices)
             {
                 if (!TianWen.Lib.Astrometry.VSOP87.VSOP87a.Reduce(
-                        planetIdx, now, siteLat, siteLon,
+                        planetIdx, now, site.Latitude, site.Longitude,
                         out var ra, out var dec, out _, out _, out _))
                 {
                     continue;

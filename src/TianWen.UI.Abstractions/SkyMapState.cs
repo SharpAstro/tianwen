@@ -27,6 +27,9 @@ namespace TianWen.UI.Abstractions
         /// <summary>Show constellation boundary outlines (B key).</summary>
         public bool ShowConstellationBoundaries { get; set; } = true;
 
+        /// <summary>Show horizon line and clip below-horizon stars (H key).</summary>
+        public bool ShowHorizon { get; set; } = true;
+
         /// <summary>Show constellation stick figures (C key).</summary>
         public bool ShowConstellationFigures { get; set; } = true;
         public bool ShowGrid { get; set; } = true;
