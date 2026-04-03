@@ -12,14 +12,13 @@ namespace TianWen.UI.Abstractions
     /// </summary>
     public static class SkyMapRenderer
     {
-        // Colors — bright for visibility on dark background
-        private static readonly RGBAColor32 BackgroundColor     = new(0x05, 0x05, 0x0C, 0xFF);
-        private static readonly RGBAColor32 GridColor           = new(0x30, 0x60, 0xA0, 0xB0);
-        private static readonly RGBAColor32 GridLabelColor      = new(0x70, 0x90, 0xB0, 0xE0);
-        private static readonly RGBAColor32 ConstellationLine   = new(0x40, 0x80, 0xDD, 0xFF);
-        private static readonly RGBAColor32 ConstellationLabel  = new(0x70, 0x90, 0xC0, 0xE0);
-        private static readonly RGBAColor32 PlanetColor         = new(0xFF, 0xDD, 0x44, 0xFF);
-        private static readonly RGBAColor32 PlanetLabelColor    = new(0xFF, 0xEE, 0x88, 0xFF);
+        // Colors — Stellarium-inspired color scheme
+        private static readonly RGBAColor32 BackgroundColor      = new(0x05, 0x05, 0x0C, 0xFF);
+        private static readonly RGBAColor32 GridColor            = new(0x30, 0x60, 0xA0, 0xB0);
+        private static readonly RGBAColor32 BoundaryColor        = new(0xAA, 0x44, 0x44, 0x80); // red, like Stellarium
+        private static readonly RGBAColor32 ConstellationLabel   = new(0x70, 0x90, 0xC0, 0xE0);
+        private static readonly RGBAColor32 PlanetColor          = new(0xFF, 0xDD, 0x44, 0xFF);
+        private static readonly RGBAColor32 PlanetLabelColor     = new(0xFF, 0xEE, 0x88, 0xFF);
 
         /// <summary>
         /// Render the full sky map to the given pixel buffer.
@@ -69,17 +68,12 @@ namespace TianWen.UI.Abstractions
                 DrawGrid(image, cRA, cDec, ppr, cx, cy, w, h, state.FieldOfViewDeg);
             }
 
-            if (state.ShowConstellationLines)
+            if (state.ShowConstellationBoundaries)
             {
-                DrawConstellationLines(image, db, cRA, cDec, ppr, cx, cy, w, h);
+                DrawConstellationBoundaries(image, cRA, cDec, ppr, cx, cy, w, h);
             }
 
             DrawStars(image, db, cRA, cDec, ppr, cx, cy, w, h, state.MagnitudeLimit, state.FieldOfViewDeg);
-
-            if (state.ShowConstellationNames)
-            {
-                DrawConstellationLabels(image, db, cRA, cDec, ppr, cx, cy, w, h);
-            }
 
             if (state.ShowPlanets)
             {
@@ -333,92 +327,51 @@ namespace TianWen.UI.Abstractions
 
         // ── Constellation Lines ──
 
-        private static void DrawConstellationLines(
+        // ── Constellation Boundaries ──
+
+        /// <summary>
+        /// Draw IAU constellation boundary edges. Each edge is a single line segment between
+        /// two points, drawn as a parallel (constant Dec) or meridian (constant RA) arc.
+        /// Data from Stellarium's modern sky culture boundary edges (Barbier/Delporte, B1875).
+        /// </summary>
+        private static void DrawConstellationBoundaries(
             RgbaImage image,
-            ICelestialObjectDB db,
             double cRA, double cDec, double ppr,
             float cx, float cy, int w, int h)
         {
-            foreach (var seg in ConstellationLines.Segments)
+            foreach (var edge in ConstellationEdges.Edges)
             {
-                var fromIdx = CatalogUtils.TryGetCleanedUpCatalogName($"HR {seg.HrFrom}", out var fromCat) ? fromCat : default;
-                var toIdx = CatalogUtils.TryGetCleanedUpCatalogName($"HR {seg.HrTo}", out var toCat) ? toCat : default;
-
-                if (fromIdx == default || toIdx == default)
+                if (edge.Type == ConstellationEdges.EdgeType.Parallel)
                 {
-                    continue;
+                    // Constant Dec arc from RA1 to RA2 — interpolate along RA
+                    var raRange = edge.RA2 - edge.RA1;
+                    // Handle RA wrapping (e.g., 23h to 1h)
+                    if (raRange < -12) raRange += 24;
+                    if (raRange > 12) raRange -= 24;
+                    var steps = Math.Max(5, (int)(Math.Abs(raRange) * 8));
+                    DrawProjectedLine(image, cRA, cDec, ppr, cx, cy, w, h, BoundaryColor, steps,
+                        i => (edge.RA1 + i * raRange / steps, edge.Dec1));
                 }
-
-                if (!db.TryLookupByIndex(fromIdx, out var fromObj) || !db.TryLookupByIndex(toIdx, out var toObj))
+                else if (edge.Type == ConstellationEdges.EdgeType.Meridian)
                 {
-                    continue;
+                    // Constant RA arc from Dec1 to Dec2 — interpolate along Dec
+                    var decRange = edge.Dec2 - edge.Dec1;
+                    var steps = Math.Max(5, (int)(Math.Abs(decRange) / 2));
+                    DrawProjectedLine(image, cRA, cDec, ppr, cx, cy, w, h, BoundaryColor, steps,
+                        i => (edge.RA1, edge.Dec1 + i * decRange / steps));
                 }
-
-                if (!SkyMapProjection.Project(fromObj.RA, fromObj.Dec, cRA, cDec, ppr, cx, cy, out var x1, out var y1))
+                else
                 {
-                    continue;
+                    // Straight line — just draw between the two endpoints
+                    if (SkyMapProjection.Project(edge.RA1, edge.Dec1, cRA, cDec, ppr, cx, cy, out var x1, out var y1)
+                        && SkyMapProjection.Project(edge.RA2, edge.Dec2, cRA, cDec, ppr, cx, cy, out var x2, out var y2))
+                    {
+                        DrawLine(image, (int)x1, (int)y1, (int)x2, (int)y2, BoundaryColor);
+                    }
                 }
-
-                if (!SkyMapProjection.Project(toObj.RA, toObj.Dec, cRA, cDec, ppr, cx, cy, out var x2, out var y2))
-                {
-                    continue;
-                }
-
-                // Skip if both endpoints are far outside the viewport
-                if ((x1 < -50 && x2 < -50) || (x1 > w + 50 && x2 > w + 50)
-                    || (y1 < -50 && y2 < -50) || (y1 > h + 50 && y2 > h + 50))
-                {
-                    continue;
-                }
-
-                DrawLine(image, (int)x1, (int)y1, (int)x2, (int)y2, ConstellationLine);
             }
         }
 
-        // ── Constellation Labels ──
-
-        private static void DrawConstellationLabels(
-            RgbaImage image,
-            ICelestialObjectDB db,
-            double cRA, double cDec, double ppr,
-            float cx, float cy, int w, int h)
-        {
-            // Place label at each constellation's brightest star
-            var seen = new HashSet<Constellation>();
-            foreach (var seg in ConstellationLines.Segments)
-            {
-                if (!seen.Add(seg.Constellation))
-                {
-                    continue;
-                }
-
-                var brightestStar = seg.Constellation.GetBrighestStar();
-                if (!db.TryLookupByIndex(brightestStar, out var starObj))
-                {
-                    continue;
-                }
-
-                if (!SkyMapProjection.Project(starObj.RA, starObj.Dec, cRA, cDec, ppr, cx, cy, out var sx, out var sy))
-                {
-                    continue;
-                }
-
-                if (sx < 0 || sx >= w || sy < 0 || sy >= h)
-                {
-                    continue;
-                }
-
-                // Draw abbreviation offset slightly from the star
-                var label = seg.Constellation.ToIAUAbbreviation();
-                var lx = (int)sx + 8;
-                var ly = (int)sy - 12;
-
-                // Simple text rendering: draw each char as a colored pixel block
-                // For now, we skip actual text (requires font rendering on RgbaImage).
-                // The VkSkyMapTab override draws labels with the GPU renderer on top.
-                _ = label; _ = lx; _ = ly;
-            }
-        }
 
         // ── Planets ──
 

@@ -24,10 +24,10 @@ namespace TianWen.UI.Abstractions
         public SkyMapMode Mode { get; set; } = SkyMapMode.Equatorial;
 
         // Display toggles
-        public bool ShowConstellationLines { get; set; } = true;
+        /// <summary>Show constellation boundary outlines (B key).</summary>
+        public bool ShowConstellationBoundaries { get; set; } = true;
         public bool ShowGrid { get; set; } = true;
         public bool ShowPlanets { get; set; } = true;
-        public bool ShowConstellationNames { get; set; } = true;
 
         // Drag state
         public bool IsDragging { get; set; }
