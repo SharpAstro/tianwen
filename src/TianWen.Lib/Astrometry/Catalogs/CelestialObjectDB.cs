@@ -616,16 +616,23 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     }
 
     /// <inheritdoc/>
-    public bool TryLookupHIP(int hipNumber, out double ra, out double dec)
+    public int HipStarCount => _hipToTyc?.Length ?? 0;
+
+    /// <inheritdoc/>
+    public bool TryLookupHIP(int hipNumber, out double ra, out double dec, out float vMag, out float bv)
     {
         ra = 0;
         dec = 0;
+        vMag = float.NaN;
+        bv = float.NaN;
 
         if (_hipToTyc is not null && hipNumber > 0 && hipNumber <= _hipToTyc.Length)
         {
             var tycIndex = _hipToTyc[hipNumber - 1];
-            if (tycIndex != 0 && TryGetTycho2RaDec(tycIndex, out ra, out dec, out _, out _))
+            if (tycIndex != 0 && TryGetTycho2RaDec(tycIndex, out ra, out dec, out var vm, out var bvVal))
             {
+                vMag = (float)vm;
+                bv = (float)bvVal;
                 return true;
             }
         }

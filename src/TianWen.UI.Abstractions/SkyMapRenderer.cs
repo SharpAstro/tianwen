@@ -287,6 +287,10 @@ namespace TianWen.UI.Abstractions
 
         // ── Stars ──
 
+        /// <summary>
+        /// Draw stars by iterating the HIP catalog via the fast O(1) Tycho-2 cross-reference.
+        /// ~118k HIP stars cover all naked-eye stars and most telescope targets.
+        /// </summary>
         private static void DrawStars(
             RgbaImage image,
             ICelestialObjectDB db,
@@ -294,26 +298,21 @@ namespace TianWen.UI.Abstractions
             float cx, float cy, int w, int h,
             float magLimit, double fovDeg)
         {
-            foreach (var idx in db.AllObjectIndices)
+            var hipCount = db.HipStarCount;
+
+            for (var hip = 1; hip <= hipCount; hip++)
             {
-                if (!db.TryLookupByIndex(idx, out var obj))
+                if (!db.TryLookupHIP(hip, out var ra, out var dec, out var vMag, out var bv))
                 {
                     continue;
                 }
 
-                // Only render stars (not DSOs, planets, etc.)
-                if (obj.ObjectType is not ObjectType.Star and not ObjectType.DoubleStar)
-                {
-                    continue;
-                }
-
-                var vMag = (float)obj.V_Mag;
                 if (float.IsNaN(vMag) || vMag > magLimit)
                 {
                     continue;
                 }
 
-                if (!SkyMapProjection.Project(obj.RA, obj.Dec, cRA, cDec, ppr, cx, cy, out var sx, out var sy))
+                if (!SkyMapProjection.Project(ra, dec, cRA, cDec, ppr, cx, cy, out var sx, out var sy))
                 {
                     continue;
                 }
@@ -324,10 +323,18 @@ namespace TianWen.UI.Abstractions
                 }
 
                 var radius = SkyMapProjection.StarRadius(vMag, fovDeg);
-                var (r, g, b) = SkyMapProjection.StarColor((float)obj.BMinusV);
-                var color = new RGBAColor32(r, g, b, 0xFF);
+                var (r, g, b) = SkyMapProjection.StarColor(bv);
+                var iRadius = Math.Max(1, (int)(radius + 0.5f));
 
-                FillCircle(image, (int)sx, (int)sy, Math.Max(1, (int)(radius + 0.5f)), color);
+                // Dim halo for brighter stars (radius > 2) — gives soft glow effect
+                if (iRadius > 2)
+                {
+                    var haloAlpha = (byte)Math.Min(120, 40 + iRadius * 10);
+                    FillCircle(image, (int)sx, (int)sy, iRadius + 1, new RGBAColor32(r, g, b, haloAlpha));
+                }
+
+                // Bright core
+                FillCircle(image, (int)sx, (int)sy, iRadius, new RGBAColor32(r, g, b, 0xFF));
             }
         }
 
@@ -367,7 +374,7 @@ namespace TianWen.UI.Abstractions
                     foreach (var hip in polyline)
                     {
                         // Fast O(1) HIP → RA/Dec via the Tycho-2 cross-reference array
-                        if (!db.TryLookupHIP(hip, out var ra, out var dec))
+                        if (!db.TryLookupHIP(hip, out var ra, out var dec, out _, out _))
                         {
                             prevX = float.NaN;
                             continue;

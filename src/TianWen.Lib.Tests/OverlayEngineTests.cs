@@ -575,10 +575,14 @@ public class OverlayEngineTests
             return _shapes.TryGetValue(index, out shape);
         }
 
-        public bool TryLookupHIP(int hipNumber, out double ra, out double dec)
+        public int HipStarCount => 0;
+
+        public bool TryLookupHIP(int hipNumber, out double ra, out double dec, out float vMag, out float bv)
         {
             ra = 0;
             dec = 0;
+            vMag = float.NaN;
+            bv = float.NaN;
             return false;
         }
 
