@@ -668,12 +668,39 @@ cancellationToken: TestContext.Current.CancellationToken);
     [InlineData(7588, "Achernar")]      // α Eri
     [InlineData(30438, "Canopus")]      // α Car
     [InlineData(71683, "α Cen")]        // α Cen A
+    [InlineData(60718, "Acrux")]        // α1 Cru — double star, Crux (HR 4730)
+    [InlineData(65378, "Mizar")]        // ζ UMa A — double star, Big Dipper
+    [InlineData(26727, "η Ori")]        // η Ori — double star, Orion
+    [InlineData(36850, "Mekbuda")]      // ζ Gem — Cepheid variable, Gemini
+    [InlineData(50583, "Chertan")]      // θ Leo — Leo
     public async Task GivenBrightFigureStarWhenLookingUpHIPThenPositionIsValid(int hip, string name)
     {
         var db = await InitDBAsync();
 
         var found = db.TryLookupHIP(hip, out var ra, out var dec, out _, out _);
-        found.ShouldBeTrue($"HIP {hip} ({name}) should resolve via TryLookupHIP");
+
+        // Diagnostic: check if the HR fallback works directly
+        if (!found && hip == 60718) // Acrux special diagnostic
+        {
+            var hrFound = db.TryLookupByIndex("HR 4730", out var hrObj);
+            hrFound.ShouldBeTrue($"HR 4730 (Acrux's HR entry) should be in DB directly. AllObjectIndices count: {db.AllObjectIndices.Count}");
+        }
+
+        // Diagnostic: check nearby HIP numbers for double star components
+        if (!found)
+        {
+            var nearby = new System.Collections.Generic.List<int>();
+            for (var h = hip - 5; h <= hip + 5; h++)
+            {
+                if (h != hip && db.TryLookupHIP(h, out _, out _, out _, out _))
+                {
+                    nearby.Add(h);
+                }
+            }
+            var nearbyInfo = nearby.Count > 0 ? $"nearby resolved: {string.Join(", ", nearby)}" : "no nearby HIP resolved";
+            found.ShouldBeTrue($"HIP {hip} ({name}) not resolved. {nearbyInfo}");
+        }
+
         ra.ShouldBeInRange(0.0, 24.0, $"RA for {name}");
         dec.ShouldBeInRange(-90.0, 90.0, $"Dec for {name}");
     }
