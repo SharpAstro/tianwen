@@ -438,10 +438,15 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                 if (_objectsByIndex.TryGetValue(id, out var existing))
                 {
                     // Update existing entry if SIMBAD provides a more specific object type
-                    // (e.g., CStar instead of generic Star from Tycho-2)
-                    if (existing.ObjectType is ObjectType.Star && objType is not ObjectType.Star)
+                    // or better magnitude/color data (e.g., CStar instead of generic Star from Tycho-2)
+                    var needsUpdate = existing.ObjectType is ObjectType.Star && objType is not ObjectType.Star;
+                    var newObjType = needsUpdate ? objType : existing.ObjectType;
+                    var newVMag = !Half.IsNaN(vMag) ? vMag : existing.V_Mag;
+                    var newBMinusV = !Half.IsNaN(bMinusV) ? bMinusV : existing.BMinusV;
+
+                    if (needsUpdate || newVMag != existing.V_Mag || newBMinusV != existing.BMinusV)
                     {
-                        var updated = new CelestialObject(existing.Index, objType, existing.RA, existing.Dec, existing.Constellation, existing.V_Mag, existing.SurfaceBrightness, existing.BMinusV, existing.CommonNames);
+                        var updated = new CelestialObject(existing.Index, newObjType, existing.RA, existing.Dec, existing.Constellation, newVMag, existing.SurfaceBrightness, newBMinusV, existing.CommonNames);
                         _objectsByIndex[id] = updated;
                     }
                 }
