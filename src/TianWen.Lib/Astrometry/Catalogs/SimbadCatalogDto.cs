@@ -8,7 +8,8 @@ internal record SimbadCatalogDto(
     string ObjType,
     double Ra,
     double Dec,
-    double? VMag
+    double? VMag,
+    double? BMinusV
 );
 
 [JsonSerializable(typeof(SimbadCatalogDto))]
