@@ -762,7 +762,7 @@ cancellationToken: TestContext.Current.CancellationToken);
 
         var found = db.TryLookupByIndex("HR 1607", out var obj);
         found.ShouldBeTrue("HR 1607 (R Lep) should be in DB");
-        obj.ObjectType.IsStar.ShouldBeTrue("R Lep should be a star type");
+        obj.ObjectType.ShouldBe(ObjectType.CStar, "R Lep should be a carbon star");
 
         var foundHip = db.TryLookupHIP(23203, out _, out _, out var vMag, out var bv);
         foundHip.ShouldBeTrue("HIP 23203 (R Lep) should resolve");
