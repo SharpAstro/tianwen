@@ -658,51 +658,82 @@ cancellationToken: TestContext.Current.CancellationToken);
     }
 
     [Theory]
+    // Double star fallback (tier 4: HIP → HR)
+    [InlineData(60718, "Acrux")]        // α1 Cru — Crux (HR 4730)
+    [InlineData(65378, "Mizar")]        // ζ UMa A — Big Dipper (HR 5054)
+    [InlineData(26727, "η Ori")]        // η Ori — Orion (HR 1931)
+    [InlineData(36850, "Mekbuda")]      // ζ Gem — Gemini (HR 2650)
+    [InlineData(50583, "Chertan")]      // θ Leo — Leo (HR 4359)
+    // Scorpius head and body
     [InlineData(78820, "Acrab")]        // β1 Sco — Scorpius head
     [InlineData(78265, "β2 Sco")]       // β2 Sco — Scorpius head branch
     [InlineData(80763, "Dschubba")]     // δ Sco — Scorpius head junction
+    [InlineData(86228, "ε Sco")]        // ε Sco — Scorpius body
+    [InlineData(85927, "Shaula")]       // λ Sco — Scorpius tail tip
+    // Orion
     [InlineData(27989, "Betelgeuse")]   // α Ori — Orion shoulder
     [InlineData(24436, "Rigel")]        // β Ori — Orion foot
+    [InlineData(26311, "Alnilam")]      // ε Ori — Orion belt center
+    // Bright navigation stars
     [InlineData(91262, "Vega")]         // α Lyr
     [InlineData(97649, "Altair")]       // α Aql
-    [InlineData(7588, "Achernar")]      // α Eri
+    [InlineData(7588,  "Achernar")]     // α Eri
     [InlineData(30438, "Canopus")]      // α Car
     [InlineData(71683, "α Cen")]        // α Cen A
-    [InlineData(60718, "Acrux")]        // α1 Cru — double star, Crux (HR 4730)
-    [InlineData(65378, "Mizar")]        // ζ UMa A — double star, Big Dipper
-    [InlineData(26727, "η Ori")]        // η Ori — double star, Orion
-    [InlineData(36850, "Mekbuda")]      // ζ Gem — Cepheid variable, Gemini
-    [InlineData(50583, "Chertan")]      // θ Leo — Leo
+    [InlineData(32349, "Sirius")]       // α CMa
+    [InlineData(37279, "Procyon")]      // α CMi
+    [InlineData(677,   "Alpheratz")]    // α And — shared with Pegasus square
+    // Southern sky
+    [InlineData(61084, "α Cru")]        // α Cru (different component from 60718)
+    [InlineData(62434, "β Cru")]        // β Cru (Mimosa)
+    [InlineData(4427,  "γ Cas")]        // γ Cas — Cassiopeia
+    [InlineData(11767, "Polaris")]      // α UMi — pole star
     public async Task GivenBrightFigureStarWhenLookingUpHIPThenPositionIsValid(int hip, string name)
     {
         var db = await InitDBAsync();
 
         var found = db.TryLookupHIP(hip, out var ra, out var dec, out _, out _);
-
-        // Diagnostic: check if the HR fallback works directly
-        if (!found && hip == 60718) // Acrux special diagnostic
-        {
-            var hrFound = db.TryLookupByIndex("HR 4730", out var hrObj);
-            hrFound.ShouldBeTrue($"HR 4730 (Acrux's HR entry) should be in DB directly. AllObjectIndices count: {db.AllObjectIndices.Count}");
-        }
-
-        // Diagnostic: check nearby HIP numbers for double star components
-        if (!found)
-        {
-            var nearby = new System.Collections.Generic.List<int>();
-            for (var h = hip - 5; h <= hip + 5; h++)
-            {
-                if (h != hip && db.TryLookupHIP(h, out _, out _, out _, out _))
-                {
-                    nearby.Add(h);
-                }
-            }
-            var nearbyInfo = nearby.Count > 0 ? $"nearby resolved: {string.Join(", ", nearby)}" : "no nearby HIP resolved";
-            found.ShouldBeTrue($"HIP {hip} ({name}) not resolved. {nearbyInfo}");
-        }
-
+        found.ShouldBeTrue($"HIP {hip} ({name}) should resolve via TryLookupHIP");
         ra.ShouldBeInRange(0.0, 24.0, $"RA for {name}");
         dec.ShouldBeInRange(-90.0, 90.0, $"Dec for {name}");
+    }
+
+    [Theory]
+    [InlineData("HR 4730", "Acrux")]      // brightest star in Crux
+    [InlineData("HR 5054", "Mizar")]      // Big Dipper handle
+    [InlineData("HR 7001", "Vega")]       // brightest in Lyra
+    [InlineData("HR 2491", "Sirius")]     // brightest in sky
+    [InlineData("HR 2326", "Canopus")]    // second brightest
+    [InlineData("HR 5340", "Arcturus")]   // brightest in Bootes
+    [InlineData("HR 1713", "Rigel")]      // brightest in Orion
+    [InlineData("HR 2061", "Betelgeuse")] // Orion shoulder
+    [InlineData("HR 6134", "Antares")]    // brightest in Scorpius
+    public async Task GivenHRStarWhenLookingUpByIndexThenItIsFound(string hrName, string expectedName)
+    {
+        var db = await InitDBAsync();
+
+        var found = db.TryLookupByIndex(hrName, out var obj);
+        found.ShouldBeTrue($"{hrName} ({expectedName}) should be in DB");
+        obj.RA.ShouldBeInRange(0.0, 24.0);
+        obj.Dec.ShouldBeInRange(-90.0, 90.0);
+    }
+
+    [Fact]
+    public async Task GivenFigureStarWhenLookingUpTwiceThenSamePositionReturned()
+    {
+        // Ensures figure renderer and star renderer get the same coordinates
+        var db = await InitDBAsync();
+
+        foreach (var hip in new[] { 80763, 91262, 60718, 65378, 27989 })
+        {
+            var found1 = db.TryLookupHIP(hip, out var ra1, out var dec1, out _, out _);
+            var found2 = db.TryLookupHIP(hip, out var ra2, out var dec2, out _, out _);
+
+            found1.ShouldBeTrue($"HIP {hip} first lookup");
+            found2.ShouldBeTrue($"HIP {hip} second lookup");
+            ra1.ShouldBe(ra2, $"HIP {hip} RA should be identical across lookups");
+            dec1.ShouldBe(dec2, $"HIP {hip} Dec should be identical across lookups");
+        }
     }
 
 }
