@@ -708,8 +708,40 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             }
         }
 
+        // Tier 4: bright double star components not in Tycho-2.
+        // Stellarium's constellation figures reference HIP numbers that map to
+        // a different component than what our Tycho-2 data resolves. Look up
+        // the corresponding HR entry which has full data (name, magnitude, color).
+        if (HipToHrFallback.TryGetValue(hipNumber, out var hrName)
+            && CatalogUtils.TryGetCleanedUpCatalogName(hrName, out var hrIdx)
+            && TryLookupByIndex(hrIdx, out celestialObject))
+        {
+            return true;
+        }
+
         return false;
     }
+
+    /// <summary>
+    /// HIP → HR fallback for bright double stars missing from Tycho-2.
+    /// These 5 stars have no Tycho-2 entry because they are unresolved double
+    /// star components, but their HR entries have full catalog data.
+    /// Uses the same <see cref="CatalogUtils.TryGetCleanedUpCatalogName"/> path as
+    /// <see cref="ConstellationEx"/> to ensure key format matches <see cref="_objectsByIndex"/>.
+    /// </summary>
+    /// <summary>
+    /// HIP → HR name fallback for bright double stars missing from Tycho-2.
+    /// These 5 stars have no Tycho-2 entry because they are unresolved double
+    /// star components, but their HR entries have full catalog data (name, mag, color).
+    /// </summary>
+    private static readonly Dictionary<int, string> HipToHrFallback = new()
+    {
+        [60718] = "HR 4730",  // α1 Cru (Acrux) — brightest star in Crux
+        [65378] = "HR 5054",  // ζ UMa A (Mizar) — Big Dipper handle
+        [26727] = "HR 1931",  // η Ori — Orion
+        [36850] = "HR 2650",  // ζ Gem (Mekbuda) — Gemini, Cepheid variable
+        [50583] = "HR 4359",  // θ Leo (Chertan) — Leo
+    };
 
     private bool TryLookupHIPFromTycho2(CatalogIndex hipIndex, ulong hipValue, out CelestialObject celestialObject)
     {
