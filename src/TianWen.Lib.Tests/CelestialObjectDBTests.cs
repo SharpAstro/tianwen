@@ -72,9 +72,9 @@ cancellationToken: TestContext.Current.CancellationToken);
     [InlineData("GUM033", ObjectType.HIIReg, CatalogIndex.NGC3372, Constellation.Carina, 10.752369444444444d, -59.86669444444445d)]
     [InlineData("GUM016", ObjectType.HIIReg, CatalogIndex.GUM016, Constellation.Vela, 8.553333333333335d, -44.1d)]
     [InlineData("C009", ObjectType.HIIReg, CatalogIndex.C009, Constellation.Cepheus, 22.965d, 62.51833333333333d)]
-    // TODO: VDB has these listed as Be*, but in HIP we only know stars (*)
-    [InlineData("vdB0005", ObjectType.Star, CatalogIndex.HIP004427, Constellation.Cassiopeia, 0.9451477026666667d, 60.71674038d)]
-    [InlineData("vdB0020", ObjectType.Star, CatalogIndex.HIP017499, Constellation.Taurus, 3.747927033333333d, 24.11333922d)]
+    // VDB cross-refs to HIP/HD now correctly inherit SIMBAD object types
+    [InlineData("vdB0005", ObjectType.HighMassXBin, CatalogIndex.HIP004427, Constellation.Cassiopeia, 0.9451477026666667d, 60.71674038d)]
+    [InlineData("vdB0020", ObjectType.BeStar, CatalogIndex.HIP017499, Constellation.Taurus, 3.747927033333333d, 24.11333922d)]
     [InlineData("HIP120404", ObjectType.Star, CatalogIndex.HIP120404, Constellation.Carina, 7.967475347333333d, -60.61478539d)]
     // HD cross-reference first 10
     [InlineData("HD000001", ObjectType.Star, CatalogIndex.HD000001, Constellation.Cepheus, 0.0857878625d, 67.8400115967d)]
@@ -82,7 +82,7 @@ cancellationToken: TestContext.Current.CancellationToken);
     [InlineData("HD000003", ObjectType.Star, CatalogIndex.HD000003, Constellation.Andromeda, 0.0860434994d, 45.2290306091d)]
     [InlineData("HD000004", ObjectType.Star, CatalogIndex.HD000004, Constellation.Pegasus, 0.0858989134d, 30.3290309906d)]
     [InlineData("HD000005", ObjectType.Star, CatalogIndex.HD000005, Constellation.Pisces, 0.0861614272d, 2.3972029686d)]
-    [InlineData("HD000006", ObjectType.Star, CatalogIndex.HD000006, Constellation.Pisces, 0.0843953714d, -0.5030353069d)]
+    [InlineData("HD000006", ObjectType.HighPMStar, CatalogIndex.HD000006, Constellation.Pisces, 0.0843953714d, -0.5030353069d)]
     [InlineData("HD000007", ObjectType.Star, CatalogIndex.HD000007, Constellation.Pisces, 0.0862675384d, -1.8536438942d)]
     [InlineData("HD000008", ObjectType.Star, CatalogIndex.HD000008, Constellation.Pisces, 0.0860361978d, -4.0346636772d)]
     [InlineData("HD000009", ObjectType.Star, CatalogIndex.HD000009, Constellation.Cetus, 0.0854400545d, -20.6129074097d)]
@@ -734,6 +734,80 @@ cancellationToken: TestContext.Current.CancellationToken);
             ra1.ShouldBe(ra2, $"HIP {hip} RA should be identical across lookups");
             dec1.ShouldBe(dec2, $"HIP {hip} Dec should be identical across lookups");
         }
+    }
+
+    [Theory]
+    [InlineData(80763, "Antares",  0.91f, 1.84f)]   // α Sco — deep red supergiant
+    [InlineData(85927, "Shaula",   1.62f, -0.22f)]  // λ Sco — blue giant
+    [InlineData(86670, "Lesath",   2.39f, -0.18f)]  // υ Sco — blue subgiant (SIMBAD composite)
+    [InlineData(86228, "Sargas",   1.85f,  0.44f)]  // θ Sco — F-type (SIMBAD)
+    public async Task GivenBrightDoubleStarWhenLookingUpHIPThenVMagAndBVAreValid(int hip, string name, float expectedVMag, float expectedBv)
+    {
+        var db = await InitDBAsync();
+
+        var found = db.TryLookupHIP(hip, out _, out _, out var vMag, out var bv);
+        found.ShouldBeTrue($"HIP {hip} ({name}) should resolve");
+        float.IsNaN(vMag).ShouldBeFalse($"HIP {hip} ({name}) vMag should not be NaN");
+        vMag.ShouldBe(expectedVMag, 0.15f, $"HIP {hip} ({name}) vMag");
+        float.IsNaN(bv).ShouldBeFalse($"HIP {hip} ({name}) B-V should not be NaN");
+        bv.ShouldBe(expectedBv, 0.15f, $"HIP {hip} ({name}) B-V");
+    }
+
+    [Fact]
+    public async Task GivenCarbonStarWhenLookingUpByHRThenColorIsDeepRed()
+    {
+        // R Leporis (Hind's Crimson Star) — reddest star in the HR catalog
+        // Variable star (Mira type, 5.5–11.7 mag), Tycho-2 snapshot values
+        var db = await InitDBAsync();
+
+        var found = db.TryLookupByIndex("HR 1607", out var obj);
+        found.ShouldBeTrue("HR 1607 (R Lep) should be in DB");
+        obj.ObjectType.IsStar.ShouldBeTrue("R Lep should be a star type");
+
+        var foundHip = db.TryLookupHIP(23203, out _, out _, out var vMag, out var bv);
+        foundHip.ShouldBeTrue("HIP 23203 (R Lep) should resolve");
+        vMag.ShouldBe(8.28f, 0.15f, "R Lep vMag (Tycho-2 snapshot)");
+        bv.ShouldBe(4.93f, 0.3f, "R Lep B-V (very red carbon star)");
+    }
+
+    [Fact]
+    public async Task AllConstellationFigureStarsResolveWithMagnitude()
+    {
+        // Stars with NaN vMag are invisible in DrawStars (skipped by magLimit filter).
+        // Constellation figure lines still connect through them, but the star dot is missing.
+        var db = await InitDBAsync();
+        var nanMagStars = new System.Collections.Generic.List<(Constellation Constellation, int Hip)>();
+
+        foreach (var constellation in Enum.GetValues<Constellation>())
+        {
+            if (constellation is Constellation.SerpensCaput or Constellation.SerpensCauda)
+            {
+                continue;
+            }
+
+            var figure = constellation.Figure;
+            if (figure.IsDefaultOrEmpty)
+            {
+                continue;
+            }
+
+            foreach (var polyline in figure)
+            {
+                foreach (var hip in polyline)
+                {
+                    var found = db.TryLookupHIP(hip, out _, out _, out var vMag, out _);
+                    found.ShouldBeTrue($"HIP {hip} ({constellation}) should resolve");
+                    if (float.IsNaN(vMag))
+                    {
+                        nanMagStars.Add((constellation, hip));
+                    }
+                }
+            }
+        }
+
+        nanMagStars.ShouldBeEmpty(
+            $"These constellation figure stars have NaN vMag and won't render: " +
+            string.Join(", ", nanMagStars.Distinct().Select(s => $"HIP {s.Hip} ({s.Constellation})")));
     }
 
 }

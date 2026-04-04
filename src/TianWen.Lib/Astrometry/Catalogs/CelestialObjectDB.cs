@@ -376,7 +376,9 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                 if (!_objectsByIndex.ContainsKey(hdIndex) && TryGetTycho2RaDec(tycIndex, out var ra, out var dec, out var vMag, out var bv)
                     && ConstellationBoundary.TryFindConstellation(ra, dec, out var constellation))
                 {
-                    var hdObj = new CelestialObject(hdIndex, ObjectType.Star, ra, dec, constellation, vMag, HalfUndefined, (Half)bv, EmptyNameSet);
+                    // Try to inherit object type from HIP entry or its cross-refs (e.g., HR with CStar type)
+                    var objType = GetInheritedObjectType(hipIndex);
+                    var hdObj = new CelestialObject(hdIndex, objType, ra, dec, constellation, vMag, HalfUndefined, (Half)bv, EmptyNameSet);
                     _objectsByIndex[hdIndex] = hdObj;
                     AddCommonNameAndPosIndices(hdObj);
                 }
@@ -400,16 +402,52 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
     }
 
-    private void PopulateSimbadStarEntries(Dictionary<Catalog, CatalogIndex[]> relevantIds, Catalog catalog, double raInH, double dec)
+    /// <summary>
+    /// Gets the most specific object type from an index or its cross-references.
+    /// Returns <see cref="ObjectType.Star"/> if no more specific type is found.
+    /// </summary>
+    private ObjectType GetInheritedObjectType(CatalogIndex index)
+    {
+        // Check the index itself first
+        if (_objectsByIndex.TryGetValue(index, out var obj) && obj.ObjectType is not ObjectType.Star)
+        {
+            return obj.ObjectType;
+        }
+
+        // Check cross-references for a more specific type
+        if (_crossIndexLookuptable.TryGetLookupEntries(index, out var crossRefs))
+        {
+            foreach (var crossRef in crossRefs)
+            {
+                if (_objectsByIndex.TryGetValue(crossRef, out var crossObj) && crossObj.ObjectType is not ObjectType.Star)
+                {
+                    return crossObj.ObjectType;
+                }
+            }
+        }
+
+        return ObjectType.Star;
+    }
+
+    private void PopulateSimbadStarEntries(Dictionary<Catalog, CatalogIndex[]> relevantIds, Catalog catalog, double raInH, double dec, Half vMag, Half bMinusV, ObjectType objType)
     {
         if (relevantIds.TryGetValue(catalog, out var ids))
         {
             foreach (var id in ids)
             {
-                if (!_objectsByIndex.ContainsKey(id)
-                    && ConstellationBoundary.TryFindConstellation(raInH, dec, out var constellation))
+                if (_objectsByIndex.TryGetValue(id, out var existing))
                 {
-                    var obj = new CelestialObject(id, ObjectType.Star, raInH, dec, constellation, HalfUndefined, HalfUndefined, HalfUndefined, EmptyNameSet);
+                    // Update existing entry if SIMBAD provides a more specific object type
+                    // (e.g., CStar instead of generic Star from Tycho-2)
+                    if (existing.ObjectType is ObjectType.Star && objType is not ObjectType.Star)
+                    {
+                        var updated = new CelestialObject(existing.Index, objType, existing.RA, existing.Dec, existing.Constellation, existing.V_Mag, existing.SurfaceBrightness, existing.BMinusV, existing.CommonNames);
+                        _objectsByIndex[id] = updated;
+                    }
+                }
+                else if (ConstellationBoundary.TryFindConstellation(raInH, dec, out var constellation))
+                {
+                    var obj = new CelestialObject(id, objType, raInH, dec, constellation, vMag, HalfUndefined, bMinusV, EmptyNameSet);
                     _objectsByIndex[id] = obj;
                     AddCommonNameAndPosIndices(obj);
                 }
@@ -632,6 +670,14 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             dec = obj.Dec;
             vMag = (float)obj.V_Mag;
             bv = (float)obj.BMinusV;
+
+            // Fallback for bright stars where SIMBAD has null VMag and no Tycho-2 entry
+            if (Half.IsNaN(obj.V_Mag) && HipMagnitudeFallback.TryGetValue(hipNumber, out var fallback))
+            {
+                vMag = (float)fallback.VMag;
+                bv = (float)fallback.BMinusV;
+            }
+
             return true;
         }
 
@@ -685,7 +731,9 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             if (tycIndex != 0 && TryGetTycho2RaDec(tycIndex, out var ra, out var dec, out var vMag, out var bv)
                 && ConstellationBoundary.TryFindConstellation(ra, dec, out var constellation))
             {
-                celestialObject = new CelestialObject(hipIdx, ObjectType.Star, ra, dec, constellation, vMag, HalfUndefined, (Half)bv, EmptyNameSet);
+                // Try to inherit a more specific object type from cross-references (e.g., HR with CStar type)
+                var objType = GetInheritedObjectType(hipIdx);
+                celestialObject = new CelestialObject(hipIdx, objType, ra, dec, constellation, vMag, HalfUndefined, (Half)bv, EmptyNameSet);
                 return true;
             }
         }
@@ -743,6 +791,16 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         [50583] = "HR 4359",  // θ Leo (Chertan) — Leo
     };
 
+    /// <summary>
+    /// Hardcoded V magnitude and B-V for bright stars where SIMBAD has null VMag
+    /// AND no Tycho-2 entry exists (too bright / unresolved binary). Values from
+    /// the Bright Star Catalogue (Yale).
+    /// </summary>
+    private static readonly Dictionary<int, (Half VMag, Half BMinusV)> HipMagnitudeFallback = new()
+    {
+        [42913] = ((Half)1.96f, (Half)0.04f),  // δ¹ Vel (Alsephina) — eclipsing binary, SIMBAD VMag null
+    };
+
     private bool TryLookupHIPFromTycho2(CatalogIndex hipIndex, ulong hipValue, out CelestialObject celestialObject)
     {
         celestialObject = default;
@@ -754,7 +812,9 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             if (tycIndex != 0 && TryGetTycho2RaDec(tycIndex, out var ra, out var dec, out var vMag, out var bv)
                 && ConstellationBoundary.TryFindConstellation(ra, dec, out var constellation))
             {
-                celestialObject = new CelestialObject(hipIndex, ObjectType.Star, ra, dec, constellation, vMag, HalfUndefined, (Half)bv, EmptyNameSet);
+                // Try to inherit a more specific object type from cross-references (e.g., HR with CStar type)
+                var objType = GetInheritedObjectType(hipIndex);
+                celestialObject = new CelestialObject(hipIndex, objType, ra, dec, constellation, vMag, HalfUndefined, (Half)bv, EmptyNameSet);
                 return true;
             }
         }
@@ -773,7 +833,9 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             if (tycIndex != 0 && TryGetTycho2RaDec(tycIndex, out var ra, out var dec, out var vMag, out var bv)
                 && ConstellationBoundary.TryFindConstellation(ra, dec, out var constellation))
             {
-                celestialObject = new CelestialObject(hdIndex, ObjectType.Star, ra, dec, constellation, vMag, HalfUndefined, (Half)bv, EmptyNameSet);
+                // Try to inherit a more specific object type from cross-references (e.g., HR with CStar type)
+                var objType = GetInheritedObjectType(hdIndex);
+                celestialObject = new CelestialObject(hdIndex, objType, ra, dec, constellation, vMag, HalfUndefined, (Half)bv, EmptyNameSet);
                 return true;
             }
         }
@@ -1012,10 +1074,13 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
             if (catToAddIdxs.Count > 0)
             {
-                // Populate HIP/HD entries from Simbad data with authoritative coordinates
+                // Populate HIP/HD entries from Simbad data with authoritative coordinates, magnitude and color
                 var raInHForStars = record.Ra / 15;
-                PopulateSimbadStarEntries(relevantIds, Catalog.HIP, raInHForStars, record.Dec);
-                PopulateSimbadStarEntries(relevantIds, Catalog.HD, raInHForStars, record.Dec);
+                var simbadVMag = record.VMag is double v ? (Half)v : HalfUndefined;
+                var simbadBv = record.BMinusV is double bv ? (Half)bv : HalfUndefined;
+                var simbadObjType = AbbreviationToEnumMember<ObjectType>(record.ObjType);
+                PopulateSimbadStarEntries(relevantIds, Catalog.HIP, raInHForStars, record.Dec, simbadVMag, simbadBv, simbadObjType);
+                PopulateSimbadStarEntries(relevantIds, Catalog.HD, raInHForStars, record.Dec, simbadVMag, simbadBv, simbadObjType);
 
                 var bestMatches = (
                     from relevantIdPerCat in relevantIds
@@ -1099,7 +1164,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                         {
                             var objType = AbbreviationToEnumMember<ObjectType>(record.ObjType);
                             var setOrEmpty = commonNames.Count > 0 ? new HashSet<string>(commonNames) : EmptyNameSet;
-                            var obj = _objectsByIndex[catToAddIdx] = new CelestialObject(catToAddIdx, objType, raInH, record.Dec, constellation, HalfUndefined, HalfUndefined, HalfUndefined, setOrEmpty);
+                            var obj = _objectsByIndex[catToAddIdx] = new CelestialObject(catToAddIdx, objType, raInH, record.Dec, constellation, simbadVMag, HalfUndefined, simbadBv, setOrEmpty);
 
                             AddCommonNameAndPosIndices(obj);
                         }

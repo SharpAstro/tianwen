@@ -33,19 +33,22 @@ if ([string]::IsNullOrWhiteSpace($Cat)) {
     }
 }
 
-$outParams = "main_id,ids,otype(3),ra(d;ICRS),dec(d,ICRS),fluxdata(V)"
+$commonOutParams = "main_id,ids,otype(3),ra(d;ICRS),dec(d,ICRS),fluxdata(V)"
+# Star catalogs also fetch B-band flux for B-V color index (fluxdata expands to qual,value,error per band)
+$starOutParams = "main_id,ids,otype(3),ra(d;ICRS),dec(d,ICRS),fluxdata(V),fluxdata(B)"
 $catalogs.GetEnumerator() | ForEach-Object {
     $cat = $_.Name
     $filter = $_.Value
     if ($filter -eq $starCatFilter -and $SkipStarCats) {
         Write-Host "Skipping star catalog $cat"
     } else {
-        
+        $isStarCatalog = $filter -eq $starCatFilter
+        $outParams = if ($isStarCatalog) { $starOutParams } else { $commonOutParams }
         $commonOutputQueryPart = "&output.format=votable&output.params=$($outParams)"
-        
-        if ($cat -eq 'Cl') { 
+
+        if ($cat -eq 'Cl') {
             $url = "https://simbad.cds.unistra.fr/simbad/sim-sam?Criteria=cat+%3D+%27Cl%27+%26+otype+%3D+%27OpenCluster%27&submit=submit+query&OutputMode=LIST&maxObject=10000$($commonOutputQueryPart)"
-        } else { 
+        } else {
             Write-Host "Querying catalog $($cat) using ID filter $($filter)"
             $url = "http://simbad.u-strasbg.fr/simbad/sim-id?Ident=$($cat)&NbIdent=cat$($commonOutputQueryPart)"
         }
@@ -55,14 +58,21 @@ $catalogs.GetEnumerator() | ForEach-Object {
         $entries = $table.VOTABLE.RESOURCE.TABLE.DATA.TABLEDATA.TR | ForEach-Object {
             if (-not [string]::IsNullOrWhiteSpace($_.TD[3]) -and -not [string]::IsNullOrWhiteSpace($_.TD[4])) {
                 $ids = $_.TD[1].Split('|') -match $filter
-                [PSCustomObject]@{
+                # fluxdata(V) → TD[5]=filter, TD[6]=V, TD[7..13]=err,system,bibcode,var,mult,qual,unit
+                # fluxdata(B) → TD[14]=filter, TD[15]=B, TD[16..22]=... (star catalogs only)
+                $vMag = if (-not [string]::IsNullOrWhiteSpace($_.TD[6])) { [double]$_.TD[6] } else { $null }
+                $props = [ordered]@{
                     MainId = $_.TD[0]
                     Ids = $ids
                     ObjType = $_.TD[2]
                     Ra = [double]$_.TD[3]
                     Dec = [double]$_.TD[4]
-                    VMag = if (-not [string]::IsNullOrWhiteSpace($_.TD[6])) { [double]$_.TD[6] } else { $null }
+                    VMag = $vMag
                 }
+                if ($isStarCatalog -and $null -ne $vMag -and -not [string]::IsNullOrWhiteSpace($_.TD[15])) {
+                    $props['BMinusV'] = [double]$_.TD[15] - $vMag
+                }
+                [PSCustomObject]$props
             }
         }
 
