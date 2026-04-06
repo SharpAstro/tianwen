@@ -1,7 +1,7 @@
-TianWen (天文)
+TiānWén (天文)
 =============
 
-TianWen is a free, open-source astronomical imaging suite for .NET. It manages cameras, mounts, focusers, filter wheels, and guiders via ASCOM, Alpaca, ZWO, and Meade protocols — with first-class support for multi-OTA (dual rig) setups that are difficult or expensive to achieve with existing software.
+TianWen is a free, open-source astronomical imaging suite for .NET. It manages cameras, mounts, focusers, filter wheels, and guiders via ASCOM, Alpaca, ZWO, QHYCCD, and Meade protocols — with first-class support for multi-OTA (dual rig) setups that are difficult or expensive to achieve with existing software.
 
 It ships as a NuGet library (`TianWen.Lib`), a cross-platform CLI with interactive TUI (`TianWen.Lib.CLI`), a standalone FITS viewer (`TianWen.UI.FitsViewer`), and an integrated N.I.N.A.-style GUI (`TianWen.UI.Gui`).
 
@@ -77,6 +77,14 @@ graph LR
         ZWOFocuserDriver
     end
 
+    subgraph QHYCCD
+        QHYDevice
+        QHYCameraDriver
+        QHYCameraControlledFilterWheelDriver
+        QHYSerialControlledFilterWheelDriver
+        QHYFocuserDriver
+    end
+
     subgraph Meade
         MeadeDevice
         MeadeLX200ProtocolMountDriver
@@ -113,6 +121,7 @@ graph LR
     DeviceBase --> AscomDevice
     DeviceBase --> AlpacaDevice
     DeviceBase --> ZWODevice
+    DeviceBase --> QHYDevice
     DeviceBase --> MeadeDevice
     DeviceBase --> IOptronDevice
     DeviceBase --> FakeDevice
@@ -139,6 +148,11 @@ graph LR
     ZWODevice -.-> ZWOCameraDriver
     ZWODevice -.-> ZWOFilterWheelDriver
     ZWODevice -.-> ZWOFocuserDriver
+
+    QHYDevice -.-> QHYCameraDriver
+    QHYDevice -.-> QHYCameraControlledFilterWheelDriver
+    QHYDevice -.-> QHYSerialControlledFilterWheelDriver
+    QHYDevice -.-> QHYFocuserDriver
 
     MeadeDevice -.-> MeadeLX200ProtocolMountDriver
     IOptronDevice -.-> SgpMountDriver

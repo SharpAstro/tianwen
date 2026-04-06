@@ -17,6 +17,8 @@ public record class QHYDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         DeviceType.FilterWheel => Query.QueryValue(DeviceQueryKey.Port) is { Length: > 0 }
             ? new QHYSerialControlledFilterWheelDriver(this, external)
             : new QHYCameraControlledFilterWheelDriver(this, external),
+        // QFOC focuser — always serial
+        DeviceType.Focuser => new QHYFocuserDriver(this, external),
         _ => null
     };
 }

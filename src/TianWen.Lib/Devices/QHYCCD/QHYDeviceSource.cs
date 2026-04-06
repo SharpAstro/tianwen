@@ -14,7 +14,10 @@ namespace TianWen.Lib.Devices.QHYCCD;
 internal class QHYDeviceSource(IExternal external) : IDeviceSource<QHYDevice>
 {
     static readonly Dictionary<DeviceType, bool> _supportedDeviceTypes = [];
+    private readonly List<QHYDevice> _cameras = [];
+    private readonly List<QHYDevice> _cameraControlledFilterWheels = [];
     private readonly List<QHYDevice> _serialFilterWheels = [];
+    private readonly List<QHYDevice> _serialFocusers = [];
 
     static QHYDeviceSource()
     {
@@ -32,18 +35,37 @@ internal class QHYDeviceSource(IExternal external) : IDeviceSource<QHYDevice>
         _supportedDeviceTypes[DeviceType.Camera] = isSupported;
         // Filter wheels are always potentially supported (serial CFW doesn't need the camera SDK)
         _supportedDeviceTypes[DeviceType.FilterWheel] = true;
+        // QFOC focusers are always potentially supported (serial, independent of camera SDK)
+        _supportedDeviceTypes[DeviceType.Focuser] = true;
     }
 
     public ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(_supportedDeviceTypes.Values.Any(v => v));
 
     /// <summary>
-    /// Probes serial ports for standalone QHY CFWs (e.g. QHYCFW3) using the VRS command.
+    /// Discovers all QHY devices in three phases:
+    /// <list type="number">
+    ///   <item>Enumerate cameras via QHY SDK (lightweight — no open/close)</item>
+    ///   <item>Probe serial ports for standalone CFWs (QHYCFW3) and QFOC focusers</item>
+    ///   <item>Open each camera briefly to check for a plugged camera-cable CFW</item>
+    /// </list>
+    /// This order lets serial probing run while the SDK iterator is not holding camera handles,
+    /// and defers the heavier camera-open-for-CFW check to the end.
     /// </summary>
     public async ValueTask DiscoverAsync(CancellationToken cancellationToken = default)
     {
+        _cameras.Clear();
+        _cameraControlledFilterWheels.Clear();
         _serialFilterWheels.Clear();
+        _serialFocusers.Clear();
 
+        // Phase 1: enumerate cameras via SDK (no open, just iterate)
+        if (_supportedDeviceTypes.TryGetValue(DeviceType.Camera, out var cameraSupported) && cameraSupported)
+        {
+            EnumerateCameras();
+        }
+
+        // Phase 2: probe serial ports for standalone CFWs and QFOC focusers
         using var resourceLock = await external.WaitForSerialPortEnumerationAsync(cancellationToken);
 
         foreach (var portName in external.EnumerateAvailableSerialPorts(resourceLock))
@@ -63,6 +85,9 @@ internal class QHYDeviceSource(IExternal external) : IDeviceSource<QHYDevice>
                 if (fwVersion is null)
                 {
                     port.TryClose();
+
+                    // Not a CFW — try probing for a QFOC focuser on this port
+                    await ProbeForQfocAsync(portName, cancellationToken);
                     continue;
                 }
 
@@ -94,35 +119,51 @@ internal class QHYDeviceSource(IExternal external) : IDeviceSource<QHYDevice>
                 // Skip this port
             }
         }
-    }
 
-    public IEnumerable<DeviceType> RegisteredDeviceTypes { get; } = _supportedDeviceTypes
-        .Where(p => p.Value)
-        .Select(p => p.Key)
-        .ToList();
-
-    public IEnumerable<QHYDevice> RegisteredDevices(DeviceType deviceType)
-    {
-        if (_supportedDeviceTypes.TryGetValue(deviceType, out var isSupported) && isSupported)
+        // Phase 3: open each camera to check for camera-cable CFWs
+        if (cameraSupported)
         {
-            return deviceType switch
-            {
-                DeviceType.Camera => ListCameras(),
-                DeviceType.FilterWheel => ListCameraControlledFilterWheels().Concat(_serialFilterWheels),
-                _ => throw new ArgumentException($"Device type {deviceType} not implemented!", nameof(deviceType))
-            };
+            DiscoverCameraControlledFilterWheels();
         }
-
-        return [];
     }
-
-    static IEnumerable<QHYDevice> ListCameras() => ListDevice(DeviceType.Camera);
 
     /// <summary>
-    /// Discovers camera-cable-connected filter wheels by iterating all QHY cameras
-    /// and probing each one for a plugged CFW.
+    /// Phase 1: lightweight camera enumeration via QHY SDK.
+    /// Opens each camera briefly only to read its identity (serial number, name).
     /// </summary>
-    static IEnumerable<QHYDevice> ListCameraControlledFilterWheels()
+    private void EnumerateCameras()
+    {
+        var ids = new HashSet<int>();
+        var iterator = new DeviceIterator<QHYCCD_CAMERA_INFO>();
+
+        foreach (var deviceInfo in iterator)
+        {
+            if (!ids.Contains(deviceInfo.ID) && deviceInfo.Open())
+            {
+                try
+                {
+                    var deviceId = deviceInfo.SerialNumber is { Length: > 0 } sn ? sn
+                        : deviceInfo.IsUSB3Device && deviceInfo.CustomId is { Length: > 0 } cid ? cid
+                        : deviceInfo.Name;
+
+                    var cameraUri = new Uri($"{DeviceType.Camera}://{typeof(QHYDevice).Name}/{deviceId}#{deviceInfo.Name}");
+                    _cameras.Add(new QHYDevice(cameraUri));
+
+                    ids.Add(deviceInfo.ID);
+                }
+                finally
+                {
+                    _ = deviceInfo.Close();
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Phase 3: open each camera to check for a plugged camera-cable CFW.
+    /// Runs after serial probing so that camera handles are not held during port scanning.
+    /// </summary>
+    private void DiscoverCameraControlledFilterWheels()
     {
         var ids = new HashSet<int>();
         var iterator = new DeviceIterator<QHYCCD_CAMERA_INFO>();
@@ -142,8 +183,8 @@ internal class QHYDeviceSource(IExternal external) : IDeviceSource<QHYDevice>
                         var slotCount = deviceInfo.CfwSlotCount;
                         var filterParams = SeedFilterParams(slotCount);
                         var queryPart = filterParams is { Length: > 0 } ? $"?{filterParams}" : "";
-                        var uri = new Uri($"{DeviceType.FilterWheel}://{typeof(QHYDevice).Name}/{deviceId}{queryPart}#{deviceInfo.Name} {slotCount}-Slot CFW");
-                        yield return new QHYDevice(uri);
+                        var cfwUri = new Uri($"{DeviceType.FilterWheel}://{typeof(QHYDevice).Name}/{deviceId}{queryPart}#{deviceInfo.Name} {slotCount}-Slot CFW");
+                        _cameraControlledFilterWheels.Add(new QHYDevice(cfwUri));
                     }
 
                     ids.Add(deviceInfo.ID);
@@ -154,6 +195,70 @@ internal class QHYDeviceSource(IExternal external) : IDeviceSource<QHYDevice>
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Probes a serial port for a QFOC focuser (Standard or High Precision) using the JSON init command.
+    /// </summary>
+    private async ValueTask ProbeForQfocAsync(string portName, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(TimeSpan.FromMilliseconds(1500));
+
+            var port = external.OpenSerialDevice(portName, QHYFocuserDriver.QFOC_BAUD, Encoding.ASCII);
+            if (port is not { IsOpen: true })
+            {
+                return;
+            }
+
+            var probeResult = await QHYFocuserDriver.ProbeAsync(port, cts.Token);
+            port.TryClose();
+
+            if (probeResult is not var (firmwareVersion, boardVersion))
+            {
+                return;
+            }
+
+            var portWithoutPrefix = ISerialConnection.RemoveProtoPrrefix(portName);
+            var deviceId = $"QFOC_{portWithoutPrefix}";
+            var displayName = $"QFOC (FW {firmwareVersion}, Board {boardVersion}) on {portWithoutPrefix}";
+
+            var portParam = $"{DeviceQueryKey.Port.Key}={Uri.EscapeDataString(portName)}";
+            var uri = new Uri($"{DeviceType.Focuser}://{typeof(QHYDevice).Name}/{deviceId}?{portParam}#{displayName}");
+
+            _serialFocusers.Add(new QHYDevice(uri));
+        }
+        catch (OperationCanceledException)
+        {
+            // Timeout — not a QFOC on this port
+        }
+        catch (Exception)
+        {
+            // Skip this port
+        }
+    }
+
+    public IEnumerable<DeviceType> RegisteredDeviceTypes { get; } = _supportedDeviceTypes
+        .Where(p => p.Value)
+        .Select(p => p.Key)
+        .ToList();
+
+    public IEnumerable<QHYDevice> RegisteredDevices(DeviceType deviceType)
+    {
+        if (_supportedDeviceTypes.TryGetValue(deviceType, out var isSupported) && isSupported)
+        {
+            return deviceType switch
+            {
+                DeviceType.Camera => _cameras,
+                DeviceType.FilterWheel => _cameraControlledFilterWheels.Concat(_serialFilterWheels),
+                DeviceType.Focuser => _serialFocusers,
+                _ => throw new ArgumentException($"Device type {deviceType} not implemented!", nameof(deviceType))
+            };
+        }
+
+        return [];
     }
 
     /// <summary>
@@ -174,31 +279,4 @@ internal class QHYDeviceSource(IExternal external) : IDeviceSource<QHYDevice>
         return string.Join("&", parts);
     }
 
-    static IEnumerable<QHYDevice> ListDevice(DeviceType deviceType)
-    {
-        var ids = new HashSet<int>();
-        var iterator = new DeviceIterator<QHYCCD_CAMERA_INFO>();
-
-        foreach (var deviceInfo in iterator)
-        {
-            if (!ids.Contains(deviceInfo.ID) && deviceInfo.Open())
-            {
-                try
-                {
-                    var deviceId = deviceInfo.SerialNumber is { Length: > 0 } sn ? sn
-                        : deviceInfo.IsUSB3Device && deviceInfo.CustomId is { Length: > 0 } cid ? cid
-                        : deviceInfo.Name;
-
-                    var uri = new Uri($"{deviceType}://{typeof(QHYDevice).Name}/{deviceId}#{deviceInfo.Name}");
-                    yield return new QHYDevice(uri);
-
-                    ids.Add(deviceInfo.ID);
-                }
-                finally
-                {
-                    _ = deviceInfo.Close();
-                }
-            }
-        }
-    }
 }
