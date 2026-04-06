@@ -178,6 +178,12 @@ public static class AltitudeChartRenderer
         DrawAltitudeCurves(renderer, state, allTargets, targetColorMap,
             TimeToX, AltToY, fontFamily, h, highlightTargetIndex);
 
+        // --- Moon curve ---
+        if (state.MoonAltitudeProfile is { Count: > 1 } moonProfile)
+        {
+            DrawMoonCurve(renderer, moonProfile, state, TimeToX, AltToY, h, emojiFontPath ?? fontFamily);
+        }
+
         // --- Title (at very top, before weather band) ---
         var titleH = Math.Max(16, h / 35);
         var titleRect = MakeRect(0, areaY + 2, w, titleH);
@@ -699,6 +705,74 @@ public static class AltitudeChartRenderer
             return true;
         }
         return false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Moon curve
+    // -----------------------------------------------------------------------
+
+    private static readonly RGBAColor32 MoonCurveColor = new RGBAColor32(220, 200, 120, 160);
+
+    private static void DrawMoonCurve<TSurface>(
+        Renderer<TSurface> renderer,
+        List<(DateTimeOffset Time, double Alt)> moonProfile,
+        PlannerState state,
+        Func<DateTimeOffset, int> timeToX,
+        Func<double, int> altToY,
+        int chartH,
+        string emojiFontPath)
+    {
+        // Draw dashed moon altitude curve
+        var visible = moonProfile
+            .Where(p => p.Alt >= 0)
+            .Select(p => (X: (double)timeToX(p.Time), Y: (double)altToY(p.Alt)))
+            .ToArray();
+
+        if (visible.Length >= 2)
+        {
+            var smoothed = CatmullRomSpline.Interpolate(visible, segmentsPerSpan: 16);
+            DrawDashedCurve(renderer, smoothed, MoonCurveColor, dotSize: 1, dashLen: 4, gapLen: 4);
+        }
+
+        // Draw moon phase emoji at the peak altitude
+        if (state.MoonPhaseEmoji is { } emoji && moonProfile.Count > 0)
+        {
+            var peak = moonProfile.MaxBy(p => p.Alt);
+            if (peak.Alt > 0)
+            {
+                var peakX = timeToX(peak.Time);
+                var peakY = altToY(peak.Alt);
+                var emojiSize = FontSize(chartH, 16);
+                var emojiRect = MakeRect(peakX - 12, peakY - 20, 24, 18);
+                renderer.DrawText(emoji, emojiFontPath, emojiSize, WhiteColor,
+                    emojiRect, TextAlign.Center, TextAlign.Center);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Draws a dashed curve (alternating dots and gaps) from an array of pixel coordinates.
+    /// </summary>
+    private static void DrawDashedCurve<TSurface>(
+        Renderer<TSurface> renderer,
+        (double X, double Y)[] points,
+        RGBAColor32 color, int dotSize, int dashLen, int gapLen)
+    {
+        var accumulated = 0.0;
+        for (var i = 0; i < points.Length; i++)
+        {
+            if (i > 0)
+            {
+                var dx = points[i].X - points[i - 1].X;
+                var dy = points[i].Y - points[i - 1].Y;
+                accumulated += Math.Sqrt(dx * dx + dy * dy);
+            }
+            var cycle = (int)accumulated % (dashLen + gapLen);
+            if (cycle < dashLen)
+            {
+                FillRect(renderer, (int)points[i].X, (int)points[i].Y, dotSize, dotSize, color);
+            }
+        }
     }
 
     // -----------------------------------------------------------------------

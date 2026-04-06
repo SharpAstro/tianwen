@@ -151,6 +151,64 @@ internal static class MeeusMoon
         body[2] = earth[2] + geoZ;
     }
 
+    /// <summary>
+    /// Computes the Moon's illumination fraction (0 = new, 1 = full) and whether it is waxing.
+    /// Uses the geocentric elongation between Moon and Sun ecliptic longitudes.
+    /// </summary>
+    /// <param name="jd">Julian date (TDB).</param>
+    /// <returns>Illumination fraction (0–1) and waxing flag.</returns>
+    internal static (double Illumination, bool Waxing) GetPhase(double jd)
+    {
+        var t = (jd - 2451545.0) / 36525.0;
+
+        // Compute Moon's geocentric ecliptic longitude (same first step as GetHeliocentricXYZ)
+        var Lp = Normalize(218.3164477 + 481267.88123421 * t);
+        var D  = Normalize(297.8501921 + 445267.1114034 * t);
+        var M  = Normalize(357.5291092 + 35999.0502909 * t);
+        var Mp = Normalize(134.9633964 + 477198.8675055 * t);
+
+        // Simplified Moon longitude (major terms only)
+        var moonLon = Lp + 6.289 * SinD(Mp) - 1.274 * SinD(2 * D - Mp) + 0.658 * SinD(2 * D)
+                       + 0.214 * SinD(2 * Mp) - 0.186 * SinD(M);
+
+        // Sun's mean longitude (approximate)
+        var sunLon = Normalize(280.46646 + 36000.76983 * t);
+
+        // Elongation: difference in ecliptic longitude (Moon - Sun)
+        var elongation = Normalize(moonLon - sunLon);
+
+        // Illumination fraction from elongation: 0° = new (0%), 180° = full (100%)
+        var halfElongRad = elongation * 0.5 * Constants.DEGREES2RADIANS;
+        var sinHalf = Math.Sin(halfElongRad);
+        var illumination = sinHalf * sinHalf;
+
+        // Waxing: elongation 0–180° (Moon moving away from Sun)
+        var waxing = elongation < 180.0;
+
+        return (illumination, waxing);
+    }
+
+    /// <summary>
+    /// Returns the Unicode moon phase emoji for the given illumination and hemisphere.
+    /// Southern hemisphere sees the illumination mirrored on the X axis — a waxing crescent
+    /// (lit on right in north) appears lit on the left in south. We pick the visually
+    /// mirrored emoji: e.g. waxing crescent in south uses the waning crescent glyph (🌘).
+    /// </summary>
+    internal static string GetPhaseEmoji(double illumination, bool waxing, bool southernHemisphere)
+    {
+        // Southern hemisphere: same phase name, flipped visual → pick the mirrored glyph
+        var litOnRight = southernHemisphere ? !waxing : waxing;
+
+        return illumination switch
+        {
+            < 0.02 => "\U0001F311",                                        // 🌑 New
+            < 0.35 => litOnRight ? "\U0001F312" : "\U0001F318",           // 🌒 / 🌘
+            < 0.65 => litOnRight ? "\U0001F313" : "\U0001F317",           // 🌓 / 🌗
+            < 0.98 => litOnRight ? "\U0001F314" : "\U0001F316",           // 🌔 / 🌖
+            _      => "\U0001F315",                                        // 🌕 Full
+        };
+    }
+
     private static double Normalize(double degrees)
     {
         var result = degrees % 360.0;
