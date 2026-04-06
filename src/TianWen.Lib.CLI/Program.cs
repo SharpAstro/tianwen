@@ -39,6 +39,7 @@ builder.Services
     .AddExternal()
     .AddAstrometry()
     .AddZWO()
+    .AddQHY()
     .AddAscom()
     .AddMeade()
     .AddIOptron()
