@@ -67,6 +67,7 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         DeviceType.Focuser => new FakeFocuserDriver(this, external),
         DeviceType.Guider => new FakeGuider(this, external),
         DeviceType.Mount => CreateMountDriver(external),
+        DeviceType.Weather => new FakeWeatherDriver(this, external),
         _ => null
     };
 

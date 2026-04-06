@@ -367,7 +367,8 @@ namespace TianWen.UI.Gui
             {
                 case GuiTab.Planner:
                     _plannerTab.Render(plannerState, contentRect, DpiScale,
-                        _fontPath ?? "monospace", timeProvider, appState.MouseScreenPosition);
+                        _fontPath ?? "monospace", timeProvider, appState.MouseScreenPosition,
+                        _emojiFontPath);
                     break;
 
                 case GuiTab.Equipment:

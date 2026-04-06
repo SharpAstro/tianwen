@@ -47,6 +47,7 @@ builder.Services
     .AddFake()
     .AddPHD2()
     .AddBuiltInGuider()
+    .AddOpenMeteo()
     .AddDevices()
     .AddSessionFactory()
     .AddFitsViewer()

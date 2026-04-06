@@ -8,6 +8,7 @@ using System.Web;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Devices.Guider;
+using TianWen.Lib.Devices.Weather;
 
 namespace TianWen.UI.Abstractions;
 
@@ -50,6 +51,9 @@ public static class EquipmentActions
 
     public static ProfileData AssignGuiderFocuser(ProfileData data, Uri focuserUri)
         => data with { GuiderFocuser = focuserUri };
+
+    public static ProfileData AssignWeather(ProfileData data, Uri weatherUri)
+        => data with { Weather = weatherUri };
 
     public static ProfileData SetOagOtaIndex(ProfileData data, int otaIndex)
         => data with { OAG_OTA_Index = otaIndex };
@@ -108,6 +112,10 @@ public static class EquipmentActions
         {
             return true;
         }
+        if (DeviceBase.SameDevice(data.Weather, deviceUri))
+        {
+            return true;
+        }
 
         foreach (var ota in data.OTAs)
         {
@@ -147,6 +155,10 @@ public static class EquipmentActions
         {
             data = data with { GuiderFocuser = null };
         }
+        if (DeviceBase.SameDevice(data.Weather, deviceUri))
+        {
+            data = data with { Weather = null };
+        }
 
         for (var i = 0; i < data.OTAs.Length; i++)
         {
@@ -178,6 +190,7 @@ public static class EquipmentActions
             AssignTarget.ProfileLevel { Field: "Guider" } => data.Guider,
             AssignTarget.ProfileLevel { Field: "GuiderCamera" } => data.GuiderCamera,
             AssignTarget.ProfileLevel { Field: "GuiderFocuser" } => data.GuiderFocuser,
+            AssignTarget.ProfileLevel { Field: "Weather" } => data.Weather,
             AssignTarget.OTALevel { OtaIndex: var idx, Field: "Camera" } when idx >= 0 && idx < data.OTAs.Length
                 => data.OTAs[idx].Camera,
             AssignTarget.OTALevel { OtaIndex: var idx, Field: "Focuser" } when idx >= 0 && idx < data.OTAs.Length
@@ -371,6 +384,10 @@ public static class EquipmentActions
         {
             data = data with { GuiderFocuser = newUri };
         }
+        if (DeviceBase.SameDevice(data.Weather, oldUri))
+        {
+            data = data with { Weather = newUri };
+        }
 
         for (var i = 0; i < data.OTAs.Length; i++)
         {
@@ -405,6 +422,7 @@ public static class EquipmentActions
         return uri.Host.ToLowerInvariant() switch
         {
             "builtinguiderdevice" => new BuiltInGuiderDevice(uri),
+            "openmeteodevice" => new OpenMeteoDevice(uri),
             "fakedevice" => new FakeDevice(uri),
             _ => null
         };

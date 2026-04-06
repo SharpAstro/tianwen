@@ -59,7 +59,13 @@ public enum DeviceType
     /// <summary>
     /// A software/hardware device that supports the <see cref="Guider.IGuider"/> interface, e.g. OpenPHD2
     /// </summary>
-    Guider
+    Guider,
+
+    /// <summary>
+    /// A weather/observing conditions device that implements <see cref="Weather.IWeatherDriver"/>.
+    /// Provides cloud cover, temperature, humidity, wind, precipitation, and hourly forecasts.
+    /// </summary>
+    Weather
 }
 
 public static class DeviceTypeHelper

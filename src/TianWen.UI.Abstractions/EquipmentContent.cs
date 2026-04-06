@@ -39,9 +39,20 @@ public readonly record struct FilterSlotRow(
 public class EquipmentContent(IDeviceUriRegistry? registry = null)
 {
     /// <summary>
-    /// Returns the profile-level device slots (mount, guider, guider camera, guider focuser).
+    /// Returns all profile-level device slots (core + extra).
     /// </summary>
     public List<DeviceSlotRow> GetProfileSlots(ProfileData data)
+    {
+        var slots = GetCoreProfileSlots(data);
+        slots.AddRange(GetExtraProfileSlots(data));
+        return slots;
+    }
+
+    /// <summary>
+    /// Core profile-level slots that have special rendering (site editing, focal length, settings).
+    /// These are rendered by hardcoded sections in the equipment tab.
+    /// </summary>
+    public List<DeviceSlotRow> GetCoreProfileSlots(ProfileData data)
     {
         return
         [
@@ -49,6 +60,18 @@ public class EquipmentContent(IDeviceUriRegistry? registry = null)
             new DeviceSlotRow("Guider", DeviceLabel(data.Guider), IsAssignedDevice(data.Guider), new AssignTarget.ProfileLevel("Guider")),
             new DeviceSlotRow("Guider Cam", DeviceLabel(data.GuiderCamera), IsAssignedDevice(data.GuiderCamera), new AssignTarget.ProfileLevel("GuiderCamera")),
             new DeviceSlotRow("Guider Foc", DeviceLabel(data.GuiderFocuser), IsAssignedDevice(data.GuiderFocuser), new AssignTarget.ProfileLevel("GuiderFocuser")),
+        ];
+    }
+
+    /// <summary>
+    /// Extra profile-level device slots (weather, future device types).
+    /// Rendered dynamically in a loop — no special UI between them.
+    /// </summary>
+    public List<DeviceSlotRow> GetExtraProfileSlots(ProfileData data)
+    {
+        return
+        [
+            new DeviceSlotRow("Weather", DeviceLabel(data.Weather), IsAssignedDevice(data.Weather), new AssignTarget.ProfileLevel("Weather")),
         ];
     }
 

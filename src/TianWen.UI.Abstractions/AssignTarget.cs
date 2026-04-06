@@ -7,7 +7,7 @@ namespace TianWen.UI.Abstractions
     /// </summary>
     public abstract record AssignTarget
     {
-        /// <summary>A profile-level slot (Mount, Guider, GuiderCamera, GuiderFocuser).</summary>
+        /// <summary>A profile-level slot (Mount, Guider, GuiderCamera, GuiderFocuser, Weather).</summary>
         public sealed record ProfileLevel(string Field) : AssignTarget;
 
         /// <summary>A per-OTA slot (Camera, Focuser, FilterWheel, Cover).</summary>
@@ -20,6 +20,7 @@ namespace TianWen.UI.Abstractions
             ProfileLevel { Field: "Guider" } => DeviceType.Guider,
             ProfileLevel { Field: "GuiderCamera" } => DeviceType.Camera,
             ProfileLevel { Field: "GuiderFocuser" } => DeviceType.Focuser,
+            ProfileLevel { Field: "Weather" } => DeviceType.Weather,
             OTALevel { Field: "Camera" } => DeviceType.Camera,
             OTALevel { Field: "Focuser" } => DeviceType.Focuser,
             OTALevel { Field: "FilterWheel" } => DeviceType.FilterWheel,

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using DIR.Lib;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Weather;
 using TianWen.Lib.Sequencing;
 using TianWen.Lib.Stat;
 
@@ -51,6 +52,15 @@ public static class AltitudeChartRenderer
     private static readonly RGBAColor32 SliderLabelColor   = new RGBAColor32(255, 255, 255, 220);
     private static readonly RGBAColor32 ConflictColor      = new RGBAColor32(255, 215,   0, 255);
 
+    // Weather band colours
+    private static readonly RGBAColor32 WeatherClearBg      = new RGBAColor32( 20,  50,  40, 180);
+    private static readonly RGBAColor32 WeatherPartlyBg     = new RGBAColor32( 60,  60,  30, 180);
+    private static readonly RGBAColor32 WeatherOvercastBg   = new RGBAColor32( 50,  50,  55, 180);
+    private static readonly RGBAColor32 WeatherRainBg       = new RGBAColor32( 40,  30,  60, 180);
+    private static readonly RGBAColor32 WeatherSnowBg       = new RGBAColor32( 50,  55,  70, 180);
+    private static readonly RGBAColor32 WeatherThunderBg    = new RGBAColor32( 55,  30,  50, 180);
+    private static readonly RGBAColor32 WeatherFogBg        = new RGBAColor32( 55,  55,  60, 180);
+
     // Default font family — callers may prefer to pass one via fontPath parameter
     private const string DefaultFontFamily = "monospace";
 
@@ -75,8 +85,9 @@ public static class AltitudeChartRenderer
         Renderer<TSurface> renderer,
         PlannerState state,
         string fontFamily = DefaultFontFamily,
-        int? highlightTargetIndex = null)
-        => Render(renderer, state, fontFamily, 0, 0, (int)renderer.Width, (int)renderer.Height, highlightTargetIndex);
+        int? highlightTargetIndex = null,
+        string? emojiFontPath = null)
+        => Render(renderer, state, fontFamily, 0, 0, (int)renderer.Width, (int)renderer.Height, highlightTargetIndex, emojiFontPath: emojiFontPath);
 
     /// <summary>
     /// Renders the chart within a specific area of the renderer surface.
@@ -89,7 +100,8 @@ public static class AltitudeChartRenderer
         int areaX, int areaY, int areaW, int areaH,
         int? highlightTargetIndex = null,
         DateTimeOffset? currentTime = null,
-        (float X, float Y)? mouseScreenPosition = null)
+        (float X, float Y)? mouseScreenPosition = null,
+        string? emojiFontPath = null)
     {
         // Guard: no data loaded yet (AstroDark is default = 0001-01-01)
         if (state.AstroDark == default)
@@ -103,7 +115,7 @@ public static class AltitudeChartRenderer
 
         // --- Layout (proportional to area size, offset by areaX/areaY) ---
         var xMargin     = Math.Max(48, w / 14);
-        var yMarginTop  = Math.Max(30, h / 22);
+        var yMarginTop  = Math.Max(30, h / 22) + WeatherMargin(state, h);
         var yMarginBot  = Math.Max(44, h / 14);
         var legendH     = Math.Max(20, h / 33);
 
@@ -166,14 +178,24 @@ public static class AltitudeChartRenderer
         DrawAltitudeCurves(renderer, state, allTargets, targetColorMap,
             TimeToX, AltToY, fontFamily, h, highlightTargetIndex);
 
-        // --- Title ---
-        var titleRect = MakeRect(0, 2, w, yMarginTop - 4);
+        // --- Title (at very top, before weather band) ---
+        var titleH = Math.Max(16, h / 35);
+        var titleRect = MakeRect(0, areaY + 2, w, titleH);
         var latSign   = state.SiteLatitude >= 0 ? "N" : "S";
         var lonSign   = state.SiteLongitude >= 0 ? "E" : "W";
         renderer.DrawText(
             $"Observation Schedule — {Math.Abs(state.SiteLatitude):F1}°{latSign}, {Math.Abs(state.SiteLongitude):F1}°{lonSign}",
             fontFamily, FontSize(h, 16), WhiteColor,
             titleRect, TextAlign.Center, TextAlign.Near);
+
+        // --- Weather band (above the twilight zone labels) ---
+        if (state.WeatherForecast is { Count: > 0 } forecast)
+        {
+            var bandH = WeatherBandHeight(h);
+            var weatherBandY = areaY + titleH + 4;
+            DrawWeatherBand(renderer, state, forecast, tStart, tEnd, TimeToX,
+                plotX, weatherBandY, plotW, bandH, h, emojiFontPath ?? fontFamily);
+        }
 
         // --- Current time shade (grey out elapsed time) ---
         if (currentTime is { } now && now >= tStart && now <= tEnd)
@@ -495,7 +517,7 @@ public static class AltitudeChartRenderer
         GetChartPlotLayout(PlannerState state, int areaX, int areaY, int areaW, int areaH)
     {
         var xMargin = Math.Max(48, areaW / 14);
-        var yMarginTop = Math.Max(30, areaH / 22);
+        var yMarginTop = Math.Max(30, areaH / 22) + WeatherMargin(state, areaH);
         var yMarginBot = Math.Max(44, areaH / 14);
         var legendH = Math.Max(20, areaH / 33);
 
@@ -517,6 +539,137 @@ public static class AltitudeChartRenderer
         var fraction = (px - plotX) / plotW;
         fraction = Math.Clamp(fraction, 0, 1);
         return tStart + TimeSpan.FromSeconds(fraction * (tEnd - tStart).TotalSeconds);
+    }
+
+    // -----------------------------------------------------------------------
+    // Weather band
+    // -----------------------------------------------------------------------
+
+    /// <summary>Returns the weather icon band height, proportional to chart height.</summary>
+    private static int WeatherBandHeight(int chartH) => Math.Max(18, chartH / 36);
+
+    /// <summary>Returns extra top margin pixels when weather data is available, proportional to chart height.</summary>
+    private static int WeatherMargin(PlannerState state, int chartH = 800)
+        => state.WeatherForecast is { Count: > 0 } ? WeatherBandHeight(chartH) + Math.Max(16, chartH / 50) : 0;
+
+    /// <summary>
+    /// Draws hourly weather condition icons in a band just above the plot area.
+    /// Icons: rain > fog > overcast > partly cloudy > clear (moon at night, sun in twilight).
+    /// </summary>
+    private static void DrawWeatherBand<TSurface>(
+        Renderer<TSurface> renderer,
+        PlannerState state,
+        IReadOnlyList<HourlyWeatherForecast> forecast,
+        DateTimeOffset tStart, DateTimeOffset tEnd,
+        Func<DateTimeOffset, int> timeToX,
+        int plotX, int bandY, int plotW,
+        int bandH, int chartH,
+        string emojiFontPath)
+    {
+        var iconSize = FontSize(chartH, 14);
+        var tRange = (tEnd - tStart).TotalHours;
+        // Width of one hour slot in pixels
+        var slotW = (int)Math.Max(8, plotW / tRange);
+
+        for (var i = 0; i < forecast.Count; i++)
+        {
+            var entry = forecast[i];
+            var x = timeToX(entry.Time);
+
+            // Skip if outside visible range
+            if (x < plotX - slotW / 2 || x > plotX + plotW + slotW / 2)
+            {
+                continue;
+            }
+
+            // Determine condition (priority order: rain > fog > overcast > partly > clear)
+            var (icon, bgColor) = ClassifyWeather(entry, state);
+
+            // Draw background rectangle
+            var bgX = x - slotW / 2;
+            var bgW = slotW;
+            // Clip to plot area
+            if (bgX < plotX) { bgW -= plotX - bgX; bgX = plotX; }
+            if (bgX + bgW > plotX + plotW) { bgW = plotX + plotW - bgX; }
+            if (bgW > 0)
+            {
+                FillRect(renderer, bgX, bandY, bgW, bandH, bgColor);
+            }
+
+            // Draw emoji icon centered on the hour
+            var iconRect = MakeRect(x - slotW / 2, bandY + 1, slotW, bandH - 2);
+            renderer.DrawText(icon, emojiFontPath, iconSize, WhiteColor,
+                iconRect, TextAlign.Center, TextAlign.Center);
+        }
+    }
+
+    /// <summary>
+    /// Classifies a weather entry into condition icon and background colour.
+    /// </summary>
+    private static (string Icon, RGBAColor32 BgColor) ClassifyWeather(HourlyWeatherForecast entry, PlannerState state)
+    {
+        // Thunderstorm: WMO codes 95-99
+        if (entry.WeatherCode is >= 95 and <= 99)
+        {
+            return ("\u26C8", WeatherThunderBg);        // ⛈
+        }
+
+        // Snow: WMO codes 71-77 (snowfall), 85-86 (snow showers)
+        if (entry.WeatherCode is (>= 71 and <= 77) or 85 or 86)
+        {
+            return ("\u2744", WeatherSnowBg);           // ❄
+        }
+
+        // Rain/drizzle: precipitation > 0.1mm or WMO codes 51-67, 80-82
+        if (entry.Precipitation > 0.1 || entry.WeatherCode is (>= 51 and <= 67) or (>= 80 and <= 82))
+        {
+            return ("\U0001F327", WeatherRainBg);       // 🌧
+        }
+
+        // Fog: visibility < 1000m or WMO codes 45/48
+        if (entry.Visibility < 1000 || entry.WeatherCode is 45 or 48)
+        {
+            return ("\U0001F32B", WeatherFogBg);        // 🌫
+        }
+
+        // Overcast: cloud cover 50-100%
+        if (entry.CloudCover > 50)
+        {
+            return ("\u2601", WeatherOvercastBg);       // ☁
+        }
+
+        // Partly cloudy: cloud cover 10-50%
+        if (entry.CloudCover > 10)
+        {
+            return ("\u26C5", WeatherPartlyBg);         // ⛅
+        }
+
+        // Clear: cloud cover <= 10%
+        // Use sun during twilight, moon during darkness
+        if (IsTwilight(entry.Time, state))
+        {
+            return ("\u2600", WeatherClearBg);          // ☀
+        }
+        return ("\U0001F319", WeatherClearBg);          // 🌙
+    }
+
+    /// <summary>
+    /// Returns true if the given time falls within civil or nautical twilight
+    /// (before astronomical darkness or after astronomical dawn).
+    /// </summary>
+    private static bool IsTwilight(DateTimeOffset time, PlannerState state)
+    {
+        // Evening twilight: between civil set and astro dark
+        if (time < state.AstroDark)
+        {
+            return true;
+        }
+        // Morning twilight: between astro twilight and civil rise
+        if (time > state.AstroTwilight)
+        {
+            return true;
+        }
+        return false;
     }
 
     // -----------------------------------------------------------------------
