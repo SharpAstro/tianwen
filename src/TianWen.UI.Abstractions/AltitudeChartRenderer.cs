@@ -632,10 +632,16 @@ public static class AltitudeChartRenderer
             return ("\U0001F32B", WeatherFogBg);        // 🌫
         }
 
-        // Overcast: cloud cover 50-100%
-        if (entry.CloudCover > 50)
+        // Heavy overcast: cloud cover 80-100%
+        if (entry.CloudCover > 80)
         {
             return ("\u2601", WeatherOvercastBg);       // ☁
+        }
+
+        // Mostly cloudy: cloud cover 50-80%
+        if (entry.CloudCover > 50)
+        {
+            return ("\U0001F325", WeatherOvercastBg);   // 🌥 (sun behind large cloud)
         }
 
         // Partly cloudy: cloud cover 10-50%
