@@ -14,7 +14,7 @@
 
 ## Next Up
 
-- [ ] Weather overlay in planner — hourly cloud cover forecast from OpenMeteo (free, no API key) rendered as a colored band along the altitude chart time axis (green=clear, yellow=partial, red=overcast). Helps users plan around weather windows. Session auto-pause on clouds is already handled by star-count-based condition deterioration detection
+- [x] Weather overlay in planner — hourly forecast from Open-Meteo (free, no API key) with layered color emoji (rain/snow/thunder/fog/cloud/sun/moon), file-cached with 1h TTL + offline fallback. Weather as full device type (IWeatherDriver) with equipment/profile integration
 - [x] Planner: show Moon phase + position — altitude curve on the chart with phase emoji (hemisphere-aware). Uses Meeus lunar ephemeris via VSOP87a pipeline
 - [ ] Moon penalty in target scoring — penalise targets within ~30° of a bright Moon (illumination × proximity factor). Compute angular separation per target in ObservationScheduler.ScoreTarget
 - [ ] Live viewer: camera switching — allow selecting which OTA's camera to preview in both GUI MiniViewer and TUI Sixel preview (currently always shows first available)
