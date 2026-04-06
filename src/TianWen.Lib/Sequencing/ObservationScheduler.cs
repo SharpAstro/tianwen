@@ -118,12 +118,13 @@ internal static class ObservationScheduler
         Transform transform,
         DateTimeOffset astroDark,
         DateTimeOffset astroTwilight,
-        byte minHeightAboveHorizon)
+        byte minHeightAboveHorizon,
+        ObjectType objectType = ObjectType.Unknown)
     {
         var (astroms, times) = PrecomputeAstromGrid(
             astroDark, astroTwilight,
             transform.SiteLatitude, transform.SiteLongitude, transform.SiteElevation);
-        return ScoreTarget(target, astroms, times, astroDark, astroTwilight, minHeightAboveHorizon, transform.SiteLongitude);
+        return ScoreTarget(target, astroms, times, astroDark, astroTwilight, minHeightAboveHorizon, transform.SiteLongitude, objectType);
     }
 
     /// <summary>
@@ -188,7 +189,7 @@ internal static class ObservationScheduler
         foreach (var proposal in proposals)
         {
             var score = ScoreTarget(proposal.Target, astroms, times, astroDark, astroTwilight,
-                minHeightAboveHorizon, transform.SiteLongitude);
+                minHeightAboveHorizon, transform.SiteLongitude, proposal.ObjectType);
             scored.Add((proposal, score));
         }
 
@@ -610,7 +611,7 @@ internal static class ObservationScheduler
         DateTimeOffset astroTwilight,
         byte minHeightAboveHorizon,
         double siteLong,
-        ObjectType objectType = ObjectType.Unknown,
+        ObjectType objectType,
         double objectBonus = 1.0)
     {
         var profile = new Dictionary<RaDecEventTime, RaDecEventInfo>(astroms.Length + 4);
