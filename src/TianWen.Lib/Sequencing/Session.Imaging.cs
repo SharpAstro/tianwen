@@ -158,7 +158,7 @@ internal partial record Session
             }
             else if (imageLoopResult is ImageLoopNextAction.RepeatCurrentObservation)
             {
-                // todo maybe wait a bit for better weather/tree out of the way, etc.
+                // TODO: increase test coverage for condition recovery, add more signals (mean background, etc.)
                 continue;
             }
             else
