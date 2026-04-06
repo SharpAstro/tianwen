@@ -59,6 +59,7 @@ namespace TianWen.UI.Abstractions
         private RectF32 _chartRect;
         private (float X, float Y)? _appMousePosition;
         private DateTimeOffset? _currentTime;
+        private TimeProvider? _timeProvider;
         private float _itemHeight;
         private float _searchBarBottom;
         private float _searchBarLeft;
@@ -135,6 +136,7 @@ namespace TianWen.UI.Abstractions
 
             var now = timeProvider.GetLocalNow();
             _currentTime = now;
+            _timeProvider = timeProvider;
 
             // Only pass current time to chart if planning for tonight
             var chartCurrentTime = state.PlanningDate.HasValue ? (DateTimeOffset?)null : now;
@@ -573,6 +575,18 @@ namespace TianWen.UI.Abstractions
                     };
                     state.NeedsRecompute = true;
                     state.NeedsRedraw = true;
+                    return true;
+
+                case InputKey.T:
+                    PlannerActions.ResetPlanningDate(state);
+                    return true;
+
+                case InputKey.Left when _timeProvider is not null:
+                    PlannerActions.ShiftPlanningDate(state, _timeProvider, -1);
+                    return true;
+
+                case InputKey.Right when _timeProvider is not null:
+                    PlannerActions.ShiftPlanningDate(state, _timeProvider, 1);
                     return true;
 
                 default:
