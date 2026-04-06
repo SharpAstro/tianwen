@@ -583,7 +583,7 @@ public static class AltitudeChartRenderer
             }
 
             // Determine condition (priority order: rain > fog > overcast > partly > clear)
-            var (icon, bgColor) = ClassifyWeather(entry, state);
+            var (icon, bgIcon, bgColor) = ClassifyWeather(entry, state);
 
             // Draw background rectangle
             var bgX = x - slotW / 2;
@@ -596,67 +596,83 @@ public static class AltitudeChartRenderer
                 FillRect(renderer, bgX, bandY, bgW, bandH, bgColor);
             }
 
-            // Draw emoji icon centered on the hour
+            // Draw background icon (moon behind cloud at night)
             var iconRect = MakeRect(x - slotW / 2, bandY + 1, slotW, bandH - 2);
+            if (bgIcon is not null)
+            {
+                renderer.DrawText(bgIcon, emojiFontPath, iconSize, WhiteColor,
+                    iconRect, TextAlign.Center, TextAlign.Center);
+            }
+
+            // Draw main emoji icon centered on the hour
             renderer.DrawText(icon, emojiFontPath, iconSize, WhiteColor,
                 iconRect, TextAlign.Center, TextAlign.Center);
         }
     }
 
     /// <summary>
-    /// Classifies a weather entry into condition icon and background colour.
+    /// Classifies a weather entry into condition icon, optional background icon, and background colour.
+    /// At night, cloudy conditions show the moon behind the cloud (two overlapping draws).
     /// </summary>
-    private static (string Icon, RGBAColor32 BgColor) ClassifyWeather(HourlyWeatherForecast entry, PlannerState state)
+    private static (string Icon, string? BgIcon, RGBAColor32 BgColor) ClassifyWeather(HourlyWeatherForecast entry, PlannerState state)
     {
+        var night = !IsTwilight(entry.Time, state);
+        var moon = night ? "\U0001F319" : null;         // 🌙 behind clouds at night
+
         // Thunderstorm: WMO codes 95-99
         if (entry.WeatherCode is >= 95 and <= 99)
         {
-            return ("\u26C8", WeatherThunderBg);        // ⛈
+            return ("\u26C8", moon, WeatherThunderBg);        // ⛈
         }
 
         // Snow: WMO codes 71-77 (snowfall), 85-86 (snow showers)
         if (entry.WeatherCode is (>= 71 and <= 77) or 85 or 86)
         {
-            return ("\u2744", WeatherSnowBg);           // ❄
+            return ("\u2744", moon, WeatherSnowBg);           // ❄
         }
 
         // Rain/drizzle: precipitation > 0.1mm or WMO codes 51-67, 80-82
         if (entry.Precipitation > 0.1 || entry.WeatherCode is (>= 51 and <= 67) or (>= 80 and <= 82))
         {
-            return ("\U0001F327", WeatherRainBg);       // 🌧
+            return ("\U0001F327", moon, WeatherRainBg);       // 🌧
         }
 
         // Fog: visibility < 1000m or WMO codes 45/48
         if (entry.Visibility < 1000 || entry.WeatherCode is 45 or 48)
         {
-            return ("\U0001F32B", WeatherFogBg);        // 🌫
+            return ("\U0001F32B", moon, WeatherFogBg);        // 🌫
         }
 
         // Heavy overcast: cloud cover 80-100%
         if (entry.CloudCover > 80)
         {
-            return ("\u2601", WeatherOvercastBg);       // ☁
+            return ("\u2601", moon, WeatherOvercastBg);       // ☁
         }
 
         // Mostly cloudy: cloud cover 50-80%
         if (entry.CloudCover > 50)
         {
-            return ("\U0001F325", WeatherOvercastBg);   // 🌥 (sun behind large cloud)
+            // Sun behind large cloud during twilight, moon + cloud at night
+            return night
+                ? ("\u2601", moon, WeatherOvercastBg)          // 🌙+☁
+                : ("\U0001F325", null, WeatherOvercastBg);     // 🌥
         }
 
         // Partly cloudy: cloud cover 10-50%
         if (entry.CloudCover > 10)
         {
-            return ("\u26C5", WeatherPartlyBg);         // ⛅
+            // Sun behind cloud during twilight, moon + cloud at night
+            return night
+                ? ("\u2601", moon, WeatherPartlyBg)            // 🌙+☁
+                : ("\u26C5", null, WeatherPartlyBg);           // ⛅
         }
 
         // Clear: cloud cover <= 10%
-        // Use sun during twilight, moon during darkness
-        if (IsTwilight(entry.Time, state))
+        if (!night)
         {
-            return ("\u2600", WeatherClearBg);          // ☀
+            return ("\u2600", null, WeatherClearBg);          // ☀
         }
-        return ("\U0001F319", WeatherClearBg);          // 🌙
+        return ("\U0001F319", null, WeatherClearBg);          // 🌙
     }
 
     /// <summary>
