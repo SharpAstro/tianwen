@@ -149,6 +149,18 @@ public class PlannerState
     /// <summary>Hourly weather forecast for the planning night, or null if no weather device is assigned.</summary>
     public IReadOnlyList<HourlyWeatherForecast>? WeatherForecast { get; set; }
 
+    /// <summary>Moon altitude profile for the planning night.</summary>
+    public List<(DateTimeOffset Time, double Alt)>? MoonAltitudeProfile { get; set; }
+
+    /// <summary>Moon illumination fraction (0 = new, 1 = full) for the planning night.</summary>
+    public double MoonIllumination { get; set; }
+
+    /// <summary>Whether the moon is waxing (true) or waning (false).</summary>
+    public bool MoonWaxing { get; set; }
+
+    /// <summary>Moon phase emoji for the planning night (accounts for hemisphere).</summary>
+    public string? MoonPhaseEmoji { get; set; }
+
     /// <summary>Status message to display.</summary>
     public string? StatusMessage { get; set; }
 

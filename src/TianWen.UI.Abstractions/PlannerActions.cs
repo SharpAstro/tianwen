@@ -8,6 +8,7 @@ using DIR.Lib;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
+using TianWen.Lib.Astrometry.Lunar;
 using TianWen.Lib.Astrometry.VSOP87;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
@@ -92,6 +93,7 @@ public static class PlannerActions
         state.TonightsBest = rescored;
 
         RecomputeHandoffSliders(state);
+        ComputeMoonData(state, transform);
         state.NeedsRedraw = true;
     }
 
@@ -160,6 +162,7 @@ public static class PlannerActions
 
         // Recompute handoff sliders for any existing proposals
         RecomputeHandoffSliders(state);
+        ComputeMoonData(state, transform);
 
         Report("");
         state.StatusMessage = null;
@@ -1288,6 +1291,36 @@ public static class PlannerActions
     /// <summary>
     /// Fast altitude profile using precomputed Astrom grid — no per-sample SOFA overhead.
     /// </summary>
+    /// <summary>
+    /// Computes the Moon's altitude profile and phase for the planning night.
+    /// </summary>
+    internal static void ComputeMoonData(PlannerState state, Transform transform)
+    {
+        var tStart = state.CivilSet ?? state.AstroDark - TimeSpan.FromHours(1);
+        var tEnd = state.CivilRise ?? state.AstroTwilight + TimeSpan.FromHours(1);
+
+        // Altitude profile: sample every 10 minutes
+        var profile = new List<(DateTimeOffset Time, double Alt)>();
+        var step = TimeSpan.FromMinutes(10);
+        for (var t = tStart; t <= tEnd; t += step)
+        {
+            if (VSOP87a.Reduce(CatalogIndex.Moon, t, transform.SiteLatitude, transform.SiteLongitude,
+                    out _, out _, out _, out var alt, out _))
+            {
+                profile.Add((t, alt));
+            }
+        }
+        state.MoonAltitudeProfile = profile;
+
+        // Phase: compute at mid-night
+        var midNight = state.AstroDark + (state.AstroTwilight - state.AstroDark) / 2;
+        var jd = midNight.ToJulian();
+        var (illumination, waxing) = MeeusMoon.GetPhase(jd);
+        state.MoonIllumination = illumination;
+        state.MoonWaxing = waxing;
+        state.MoonPhaseEmoji = MeeusMoon.GetPhaseEmoji(illumination, waxing, transform.SiteLatitude < 0);
+    }
+
     private static List<(DateTimeOffset Time, double Alt)> ComputeFineAltitudeProfileFast(
         Target target, Astrom[] astroms, DateTimeOffset[] times,
         double siteLat, double siteLong)
