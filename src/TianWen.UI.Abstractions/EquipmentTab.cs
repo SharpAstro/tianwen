@@ -14,6 +14,8 @@ namespace TianWen.UI.Abstractions
     /// </summary>
     public class EquipmentTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer)
     {
+        private readonly EquipmentContent _content = new EquipmentContent();
+
         // Layout constants (at 1x scale)
         private const float BaseProfilePanelWidth = 360f;
         private const float BaseFontSize          = 14f;
@@ -356,6 +358,18 @@ namespace TianWen.UI.Abstractions
                 // Device settings for guider (if it declares any)
                 cursor = RenderDeviceSettingsIfAny(appState, pd, pd.Guider, "Guider Settings",
                     x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
+
+                cursor += padding;
+                FillRect(x + padding, cursor, w - padding * 2f, 1f, SeparatorColor);
+                cursor += padding;
+
+                // Extra profile-level slots (Weather, future device types) — rendered dynamically
+                foreach (var extraSlot in _content.GetExtraProfileSlots(pd))
+                {
+                    cursor = RenderProfileSlot(
+                        extraSlot.Label, EquipmentActions.GetAssignedDevice(pd, extraSlot.Slot), extraSlot.Slot,
+                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW);
+                }
 
                 cursor += padding;
                 FillRect(x + padding, cursor, w - padding * 2f, 1f, SeparatorColor);
@@ -1130,6 +1144,7 @@ namespace TianWen.UI.Abstractions
                 DeviceType.FilterWheel    => "FW",
                 DeviceType.CoverCalibrator=> "Cover",
                 DeviceType.Guider         => "Guider",
+                DeviceType.Weather        => "WX",
                 DeviceType.Profile        => "Profile",
                 _                         => "?"
             };

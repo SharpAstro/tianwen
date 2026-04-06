@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Weather;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.UI.Abstractions
@@ -90,6 +91,7 @@ namespace TianWen.UI.Abstractions
             {
                 await PlannerPersistence.TryLoadAsync(_plannerState, profile, _external, cancellationToken);
             }
+            await FetchWeatherForecastAsync(cancellationToken);
             _plannerState.SelectedTargetIndex = 0;
             _plannerState.NeedsRedraw = true;
         }
@@ -147,6 +149,7 @@ namespace TianWen.UI.Abstractions
                             }
                             SetAutoCompleteCache(objectDb.CreateAutoCompleteList());
                         }
+                        await FetchWeatherForecastAsync(_cts.Token);
                         _appState.StatusMessage = null;
                     }
                     else
@@ -165,6 +168,52 @@ namespace TianWen.UI.Abstractions
                     _appState.NeedsRedraw = true;
                 }
             }, "Recompute targets");
+        }
+
+        /// <summary>
+        /// Fetches weather forecast for the current night window if a weather device is assigned in the profile.
+        /// Non-fatal: silently logs and clears forecast on failure.
+        /// </summary>
+        private async Task FetchWeatherForecastAsync(CancellationToken ct)
+        {
+            if (_appState.ActiveProfile?.Data is not { Weather: { } weatherUri } data
+                || weatherUri == NoneDevice.Instance.DeviceUri)
+            {
+                _plannerState.WeatherForecast = null;
+                return;
+            }
+
+            if (double.IsNaN(_plannerState.SiteLatitude) || double.IsNaN(_plannerState.SiteLongitude))
+            {
+                _plannerState.WeatherForecast = null;
+                return;
+            }
+
+            try
+            {
+                var device = EquipmentActions.TryDeviceFromUri(weatherUri);
+                if (device is null || !device.TryInstantiateDriver<IWeatherDriver>(_external, out var weatherDriver))
+                {
+                    _plannerState.WeatherForecast = null;
+                    return;
+                }
+
+                using (weatherDriver)
+                {
+                    var tStart = _plannerState.CivilSet ?? _plannerState.AstroDark - TimeSpan.FromHours(1);
+                    var tEnd = _plannerState.CivilRise ?? _plannerState.AstroTwilight + TimeSpan.FromHours(1);
+                    _plannerState.WeatherForecast = await weatherDriver.GetHourlyForecastAsync(
+                        _plannerState.SiteLatitude, _plannerState.SiteLongitude,
+                        tStart, tEnd, ct);
+                    _plannerState.NeedsRedraw = true;
+                    _appState.NeedsRedraw = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                _external.AppLogger.LogWarning(ex, "Weather forecast fetch failed");
+                _plannerState.WeatherForecast = null;
+            }
         }
 
         /// <summary>
@@ -467,6 +516,7 @@ namespace TianWen.UI.Abstractions
                         AssignTarget.ProfileLevel { Field: "Guider" } => EquipmentActions.AssignGuider(data, device.DeviceUri),
                         AssignTarget.ProfileLevel { Field: "GuiderCamera" } => EquipmentActions.AssignGuiderCamera(data, device.DeviceUri),
                         AssignTarget.ProfileLevel { Field: "GuiderFocuser" } => EquipmentActions.AssignGuiderFocuser(data, device.DeviceUri),
+                        AssignTarget.ProfileLevel { Field: "Weather" } => EquipmentActions.AssignWeather(data, device.DeviceUri),
                         AssignTarget.OTALevel otaTarget => EquipmentActions.AssignDeviceToOTA(data, otaTarget.OtaIndex,
                             device.DeviceType, device.DeviceUri),
                         _ => data
@@ -477,6 +527,13 @@ namespace TianWen.UI.Abstractions
                     eqState.ActiveAssignment = null;
                     appState.NeedsRedraw = true;
                     await updated.SaveAsync(external, cts.Token);
+
+                    // Fetch weather forecast immediately when a weather device is assigned
+                    if (device.DeviceType is DeviceType.Weather)
+                    {
+                        await FetchWeatherForecastAsync(cts.Token);
+                        appState.NeedsRedraw = true;
+                    }
                 }
             });
 

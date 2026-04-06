@@ -22,7 +22,8 @@ public sealed class VkPlannerTab(VkRenderer renderer) : PlannerTab<VulkanContext
     private ChartCacheKey _cachedKey;
 
     protected override void RenderChart(PlannerState state, RectF32 chartRect, string fontPath,
-        int? selectedIndex, DateTimeOffset? chartCurrentTime, (float, float)? mousePos)
+        int? selectedIndex, DateTimeOffset? chartCurrentTime, (float, float)? mousePos,
+        string? emojiFontPath = null)
     {
         var chartW = (int)chartRect.Width;
         var chartH = (int)chartRect.Height;
@@ -39,7 +40,9 @@ public sealed class VkPlannerTab(VkRenderer renderer) : PlannerTab<VulkanContext
             state.HandoffSliders.Count,
             state.SelectedSliderIndex,
             state.DraggingSliderIndex,
-            state.MinHeightAboveHorizon
+            state.MinHeightAboveHorizon,
+            state.WeatherForecast is { Count: > 0 } wf ? wf[0].Time.GetHashCode() : 0,
+            state.AstroDark.GetHashCode()
         );
 
         if (key != _cachedKey || _chartTexture is null)
@@ -54,7 +57,8 @@ public sealed class VkPlannerTab(VkRenderer renderer) : PlannerTab<VulkanContext
             // Render chart to CPU pixel buffer at (0,0) — no overlays
             AltitudeChartRenderer.Render(_chartRenderer, state, fontPath,
                 0, 0, chartW, chartH,
-                selectedIndex, currentTime: null, mouseScreenPosition: null);
+                selectedIndex, currentTime: null, mouseScreenPosition: null,
+                emojiFontPath);
 
             // Swizzle RGBA → BGRA for Vulkan (VkFormat.B8G8R8A8Unorm)
             var pixels = _chartRenderer.Surface.Pixels;
@@ -146,5 +150,7 @@ public sealed class VkPlannerTab(VkRenderer renderer) : PlannerTab<VulkanContext
         int SliderCount,
         int SelectedSliderIndex,
         int DraggingSliderIndex,
-        int MinAltitude);
+        int MinAltitude,
+        int WeatherForecastHash,
+        int AstroDarkHash);
 }

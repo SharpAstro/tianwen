@@ -8,7 +8,7 @@ namespace TianWen.Lib.Devices.Fake;
 
 internal class FakeDeviceSource : IDeviceSource<FakeDevice>
 {
-    public IEnumerable<DeviceType> RegisteredDeviceTypes => [DeviceType.Mount, DeviceType.Camera, DeviceType.Focuser, DeviceType.FilterWheel, DeviceType.Guider];
+    public IEnumerable<DeviceType> RegisteredDeviceTypes => [DeviceType.Mount, DeviceType.Camera, DeviceType.Focuser, DeviceType.FilterWheel, DeviceType.Guider, DeviceType.Weather];
 
     // Fake mounts with different protocol stacks
     private static readonly (string Port, string DisplaySuffix)[] _mountProtocols =

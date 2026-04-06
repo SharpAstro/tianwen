@@ -4,6 +4,7 @@ using DIR.Lib;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Weather;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.UI.Abstractions;
@@ -144,6 +145,9 @@ public class PlannerState
 
     /// <summary>Cached precomputed astrometry grid for fast altitude profile computation.</summary>
     internal (Astrom[] Astroms, DateTimeOffset[] Times)? CachedAstromGrid { get; set; }
+
+    /// <summary>Hourly weather forecast for the planning night, or null if no weather device is assigned.</summary>
+    public IReadOnlyList<HourlyWeatherForecast>? WeatherForecast { get; set; }
 
     /// <summary>Status message to display.</summary>
     public string? StatusMessage { get; set; }

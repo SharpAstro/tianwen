@@ -101,7 +101,8 @@ namespace TianWen.UI.Abstractions
             float dpiScale,
             string fontPath,
             TimeProvider timeProvider,
-            (float X, float Y) mouseScreenPosition = default)
+            (float X, float Y) mouseScreenPosition = default,
+            string? emojiFontPath = null)
         {
             _state = state;
             var targetListWidth  = BaseTargetListWidth * dpiScale;
@@ -145,7 +146,7 @@ namespace TianWen.UI.Abstractions
                 mousePos = (mx, my);
             }
 
-            RenderChart(state, _chartRect, fontPath, selectedIndex, chartCurrentTime, mousePos);
+            RenderChart(state, _chartRect, fontPath, selectedIndex, chartCurrentTime, mousePos, emojiFontPath);
 
             // Register slider hit regions for drag interaction
             RegisterSliderHitRegions(state, dpiScale);
@@ -167,11 +168,12 @@ namespace TianWen.UI.Abstractions
         /// Default implementation renders directly via the renderer.
         /// </summary>
         protected virtual void RenderChart(PlannerState state, RectF32 chartRect, string fontPath,
-            int? selectedIndex, DateTimeOffset? chartCurrentTime, (float, float)? mousePos)
+            int? selectedIndex, DateTimeOffset? chartCurrentTime, (float, float)? mousePos,
+            string? emojiFontPath = null)
         {
             AltitudeChartRenderer.Render(Renderer, state, fontPath,
                 (int)chartRect.X, (int)chartRect.Y, (int)chartRect.Width, (int)chartRect.Height,
-                selectedIndex, chartCurrentTime, mousePos);
+                selectedIndex, chartCurrentTime, mousePos, emojiFontPath);
         }
 
         private void RegisterSliderHitRegions(PlannerState state, float dpiScale)
