@@ -7,7 +7,7 @@
 
 ## Project Overview
 
-TianWen is a .NET library for astronomical device management, image processing, and astrometry. It supports cameras, mounts, focusers, filter wheels, and guiders via ASCOM, INDI, ZWO, Meade, and Skywatcher protocols. Published as a NuGet package (`TianWen.Lib`).
+TianWen is a .NET library for astronomical device management, image processing, and astrometry. It supports cameras, mounts, focusers, filter wheels, and guiders via ASCOM, INDI, ZWO, QHYCCD, Meade, and Skywatcher protocols. Published as a NuGet package (`TianWen.Lib`).
 
 Repository: https://github.com/SharpAstro/tianwen
 
@@ -62,7 +62,7 @@ dotnet test TianWen.Lib.Tests --filter "FullyQualifiedName~Guider|FullyQualified
 | Testing | xUnit v3 + Shouldly + NSubstitute |
 | Imaging | Magick.NET, FITS.Lib |
 | UI / GPU | SDL3 + Vulkan (SdlVulkan.Renderer) |
-| Astronomy | ASCOM, WWA.Core, ZWOptical.SDK |
+| Astronomy | ASCOM, ZWOptical.SDK, QHYCCD.SDK, IAU SOFA (C# port) |
 | Compression | SharpCompress |
 
 ## Testing Conventions
@@ -238,6 +238,21 @@ PixelWidgetBase<TSurface>   (DIR.Lib — renderer-agnostic, has Bus + PostSignal
 Filter names and focus offsets stored as URI query params (`filter1`, `offset1`, ...) on the
 filter wheel device URI in the profile. All drivers read from URI params first, with
 driver-specific fallbacks per slot. See each filter wheel driver class for fallback details.
+
+### QHY Device Discovery & QFOC Focuser
+
+`QHYDeviceSource` discovers all QHY devices in three phases during `DiscoverAsync`:
+1. **Enumerate cameras** via QHY SDK (lightweight open/close for identity)
+2. **Probe serial ports** for standalone CFWs (QHYCFW3, VRS command) and QFOC focusers (JSON init)
+3. **Check camera-cable CFWs** by re-opening each camera to query `IsCfwPlugged`
+
+`RegisteredDevices` returns pre-discovered lists — no I/O on the sync path.
+
+**QFOC Focuser** (`QHYFocuserDriver`): JSON-over-serial at 9600 baud. Supports both Standard
+(board version 1.x) and High Precision (2.x) variants via the same protocol. Protocol types
+and full command reference are in `QfocProtocol.cs` with AOT-safe `QfocJsonContext`. Key features:
+absolute positioning (±1M steps), dual temperature sensors (external NTC + chip), TMC StallGuard,
+12V supply detection.
 
 ### Image Pipeline & Buffer Lifecycle
 
