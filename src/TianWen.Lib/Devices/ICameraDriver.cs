@@ -366,7 +366,7 @@ public interface ICameraDriver : IDeviceDriver
             var hasHeatSinkTemp = !double.IsNaN(heatSinkTemp) && heatSinkTemp is >= -40 and <= 50;
 
             var coolerPower = await External.CatchAsyncIf(CanGetCoolerPower, GetCoolerPowerAsync, cancellationToken, double.NaN);
-            // TODO: Consider using external temp sensor if no heatsink temp is available
+            // TODO: when no heatsink temp, use external temp sensor (e.g. Pegasus Astro) or IWeatherDriver.Temperature as ambient fallback
             var heatSinkOrCCDTemp = hasHeatSinkTemp ? heatSinkTemp : ccdTemp;
             var setpointTemp = desiredSetpointTemp.Kind switch
             {
