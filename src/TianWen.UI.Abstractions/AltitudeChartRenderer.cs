@@ -583,7 +583,7 @@ public static class AltitudeChartRenderer
             }
 
             // Determine condition (priority order: rain > fog > overcast > partly > clear)
-            var (icon, bgIcon, bgColor) = ClassifyWeather(entry, state);
+            var (layers, bgColor) = ClassifyWeather(entry, state);
 
             // Draw background rectangle
             var bgX = x - slotW / 2;
@@ -596,83 +596,90 @@ public static class AltitudeChartRenderer
                 FillRect(renderer, bgX, bandY, bgW, bandH, bgColor);
             }
 
-            // Draw background icon (moon behind cloud at night)
-            var iconRect = MakeRect(x - slotW / 2, bandY + 1, slotW, bandH - 2);
-            if (bgIcon is not null)
+            // Draw icon layers back-to-front, each with its own offset and size
+            var baseRect = MakeRect(x - slotW / 2, bandY + 1, slotW, bandH - 2);
+            foreach (var (layerIcon, xOffsetFrac, sizeScale) in layers)
             {
-                renderer.DrawText(bgIcon, emojiFontPath, iconSize, WhiteColor,
-                    iconRect, TextAlign.Center, TextAlign.Center);
+                var layerSize = iconSize * sizeScale;
+                var xOff = (int)(iconSize * xOffsetFrac);
+                var layerRect = MakeRect((int)baseRect.UpperLeft.X + xOff, (int)baseRect.UpperLeft.Y,
+                    (int)baseRect.Width, (int)baseRect.Height);
+                renderer.DrawText(layerIcon, emojiFontPath, layerSize, WhiteColor,
+                    layerRect, TextAlign.Center, TextAlign.Center);
             }
-
-            // Draw main emoji icon centered on the hour
-            renderer.DrawText(icon, emojiFontPath, iconSize, WhiteColor,
-                iconRect, TextAlign.Center, TextAlign.Center);
         }
     }
 
     /// <summary>
-    /// Classifies a weather entry into condition icon, optional background icon, and background colour.
-    /// At night, cloudy conditions show the moon behind the cloud (two overlapping draws).
+    /// Classifies a weather entry into layered icons and background colour.
+    /// Each layer is (icon, xOffsetFraction, fontSizeScale) drawn back-to-front.
+    /// At night, moon peeks behind clouds; heavier cloud cover uses more cloud layers.
     /// </summary>
-    private static (string Icon, string? BgIcon, RGBAColor32 BgColor) ClassifyWeather(HourlyWeatherForecast entry, PlannerState state)
+    private static ((string Icon, float XOffset, float Size)[] Layers, RGBAColor32 BgColor) ClassifyWeather(
+        HourlyWeatherForecast entry, PlannerState state)
     {
         var night = !IsTwilight(entry.Time, state);
-        var moon = night ? "\U0001F319" : null;         // 🌙 behind clouds at night
+        const string moon = "\U0001F319";  // 🌙
+        const string cloud = "\u2601";     // ☁
 
         // Thunderstorm: WMO codes 95-99
         if (entry.WeatherCode is >= 95 and <= 99)
         {
-            return ("\u26C8", moon, WeatherThunderBg);        // ⛈
+            return (night
+                ? [(moon, -0.5f, 1f), ("\u26C8", 0.3f, 1f)]
+                : [("\u26C8", 0f, 1f)], WeatherThunderBg);
         }
 
         // Snow: WMO codes 71-77 (snowfall), 85-86 (snow showers)
         if (entry.WeatherCode is (>= 71 and <= 77) or 85 or 86)
         {
-            return ("\u2744", moon, WeatherSnowBg);           // ❄
+            return (night
+                ? [(moon, -0.5f, 1f), ("\u2744", 0.3f, 1f)]
+                : [("\u2744", 0f, 1f)], WeatherSnowBg);
         }
 
         // Rain/drizzle: precipitation > 0.1mm or WMO codes 51-67, 80-82
         if (entry.Precipitation > 0.1 || entry.WeatherCode is (>= 51 and <= 67) or (>= 80 and <= 82))
         {
-            return ("\U0001F327", moon, WeatherRainBg);       // 🌧
+            return (night
+                ? [(moon, -0.5f, 1f), ("\U0001F327", 0.3f, 1f)]
+                : [("\U0001F327", 0f, 1f)], WeatherRainBg);
         }
 
         // Fog: visibility < 1000m or WMO codes 45/48
         if (entry.Visibility < 1000 || entry.WeatherCode is 45 or 48)
         {
-            return ("\U0001F32B", null, WeatherFogBg);         // 🌫
+            return ([("\U0001F32B", 0f, 1f)], WeatherFogBg);
         }
 
-        // Heavy overcast: cloud cover 80-100%
+        // Heavy overcast: cloud cover 80-100% — 3 clouds (night: moon barely visible)
         if (entry.CloudCover > 80)
         {
-            return ("\u2601", moon, WeatherOvercastBg);       // ☁
+            return (night
+                ? [(moon, -0.6f, 1f), (cloud, -0.3f, 1f), (cloud, 0.1f, 1f), (cloud, 0.5f, 1f)]
+                : [(cloud, -0.3f, 1f), (cloud, 0.1f, 1f), (cloud, 0.5f, 1f)], WeatherOvercastBg);
         }
 
-        // Mostly cloudy: cloud cover 50-80%
+        // Mostly cloudy: cloud cover 50-80% — 2 clouds
         if (entry.CloudCover > 50)
         {
-            // Sun behind large cloud during twilight, moon + cloud at night
-            return night
-                ? ("\u2601", moon, WeatherOvercastBg)          // 🌙+☁
-                : ("\U0001F325", null, WeatherOvercastBg);     // 🌥
+            return (night
+                ? [(moon, -0.5f, 1f), (cloud, 0f, 1f), (cloud, 0.5f, 1f)]
+                : [("\U0001F325", 0f, 1f)], WeatherOvercastBg);                // 🌥
         }
 
-        // Partly cloudy: cloud cover 10-50%
+        // Partly cloudy: cloud cover 10-50% — 1 cloud
         if (entry.CloudCover > 10)
         {
-            // Sun behind cloud during twilight, moon + cloud at night
-            return night
-                ? ("\u2601", moon, WeatherPartlyBg)            // 🌙+☁
-                : ("\u26C5", null, WeatherPartlyBg);           // ⛅
+            return (night
+                ? [(moon, -0.5f, 1f), (cloud, 0.3f, 1f)]
+                : [("\u26C5", 0f, 1f)], WeatherPartlyBg);                     // ⛅
         }
 
         // Clear: cloud cover <= 10%
-        if (!night)
-        {
-            return ("\u2600", null, WeatherClearBg);          // ☀
-        }
-        return ("\U0001F319", null, WeatherClearBg);          // 🌙
+        return night
+            ? ([(moon, 0f, 1f)], WeatherClearBg)
+            : ([("\u2600", 0f, 1f)], WeatherClearBg);                         // ☀
     }
 
     /// <summary>
