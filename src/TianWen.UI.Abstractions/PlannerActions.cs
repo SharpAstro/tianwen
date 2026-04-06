@@ -65,7 +65,8 @@ public static class PlannerActions
         foreach (var old in state.TonightsBest)
         {
             var scored = ObservationScheduler.ScoreTarget(old.Target, astroms, times,
-                astroDark, astroTwilight, state.MinHeightAboveHorizon, transform.SiteLongitude);
+                astroDark, astroTwilight, state.MinHeightAboveHorizon, transform.SiteLongitude,
+                old.ObjectType);
             rescored.Add(scored);
             state.ScoredTargets[old.Target] = scored;
             state.AltitudeProfiles[old.Target] = ComputeFineAltitudeProfileFast(
@@ -78,7 +79,8 @@ public static class PlannerActions
             if (!state.AltitudeProfiles.ContainsKey(s.Target))
             {
                 var scored = ObservationScheduler.ScoreTarget(s.Target, astroms, times,
-                    astroDark, astroTwilight, state.MinHeightAboveHorizon, transform.SiteLongitude);
+                    astroDark, astroTwilight, state.MinHeightAboveHorizon, transform.SiteLongitude,
+                    s.ObjectType);
                 state.ScoredTargets[s.Target] = scored;
                 state.AltitudeProfiles[s.Target] = ComputeFineAltitudeProfileFast(
                     s.Target, astroms, times, transform.SiteLatitude, transform.SiteLongitude);
@@ -523,11 +525,13 @@ public static class PlannerActions
         {
             double ra, dec;
             string name;
+            var objectType = ObjectType.Unknown;
 
             if (objectDb.TryLookupByIndex(match, out var obj))
             {
                 ra = obj.RA;
                 dec = obj.Dec;
+                objectType = obj.ObjectType;
 
                 // For solar system objects (NaN coordinates), compute position via VSOP87 ephemeris
                 if (double.IsNaN(ra) || double.IsNaN(dec))
@@ -580,7 +584,7 @@ public static class PlannerActions
             }
 
             var scored = ObservationScheduler.ScoreTarget(target, transform,
-                state.AstroDark, state.AstroTwilight, state.MinHeightAboveHorizon);
+                state.AstroDark, state.AstroTwilight, state.MinHeightAboveHorizon, objectType);
 
             if (!state.AltitudeProfiles.ContainsKey(target))
             {
@@ -647,11 +651,14 @@ public static class PlannerActions
         double ra, dec;
         string name = suggestion;
 
+        var objectType = ObjectType.Unknown;
+
         if (objectDb.TryLookupByIndex(catIdx, out var obj))
         {
             ra = obj.RA;
             dec = obj.Dec;
             name = obj.DisplayName;
+            objectType = obj.ObjectType;
 
             if (double.IsNaN(ra) || double.IsNaN(dec))
             {
@@ -694,7 +701,7 @@ public static class PlannerActions
 
         // Not in TonightsBest — add as search result
         var scored = ObservationScheduler.ScoreTarget(target, transform,
-            state.AstroDark, state.AstroTwilight, state.MinHeightAboveHorizon);
+            state.AstroDark, state.AstroTwilight, state.MinHeightAboveHorizon, objectType);
 
         if (!state.AltitudeProfiles.ContainsKey(target))
         {
@@ -903,7 +910,8 @@ public static class PlannerActions
             return;
         }
 
-        var target = state.TonightsBest[tonightsBestIndex].Target;
+        var scored = state.TonightsBest[tonightsBestIndex];
+        var target = scored.Target;
 
         // Don't add duplicates
         if (state.Proposals.Any(p => p.Target == target))
@@ -911,7 +919,7 @@ public static class PlannerActions
             return;
         }
 
-        state.Proposals.Add(new ProposedObservation(target, Priority: priority));
+        state.Proposals.Add(new ProposedObservation(target, scored.ObjectType, Priority: priority));
         SortProposalsByPeakTime(state);
         RecomputeHandoffSliders(state);
         state.IsDirty = true;
@@ -947,7 +955,8 @@ public static class PlannerActions
         }
         else
         {
-            state.Proposals.Add(new ProposedObservation(target, Priority: priority));
+            var objType = state.ScoredTargets.TryGetValue(target, out var st) ? st.ObjectType : ObjectType.Unknown;
+            state.Proposals.Add(new ProposedObservation(target, objType, Priority: priority));
             SortProposalsByPeakTime(state);
         }
         RecomputeHandoffSliders(state);
