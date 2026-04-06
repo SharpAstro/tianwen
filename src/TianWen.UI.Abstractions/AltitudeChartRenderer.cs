@@ -640,7 +640,7 @@ public static class AltitudeChartRenderer
         // Fog: visibility < 1000m or WMO codes 45/48
         if (entry.Visibility < 1000 || entry.WeatherCode is 45 or 48)
         {
-            return ("\U0001F32B", moon, WeatherFogBg);        // 🌫
+            return ("\U0001F32B", null, WeatherFogBg);         // 🌫
         }
 
         // Heavy overcast: cloud cover 80-100%
