@@ -24,6 +24,7 @@ services
     .AddExternal()
     .AddAstrometry()
     .AddZWO()
+    .AddQHY()
     .AddAscom()
     .AddMeade()
     .AddIOptron()
