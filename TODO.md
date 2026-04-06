@@ -15,7 +15,8 @@
 ## Next Up
 
 - [ ] Weather overlay in planner — hourly cloud cover forecast from OpenMeteo (free, no API key) rendered as a colored band along the altitude chart time axis (green=clear, yellow=partial, red=overcast). Helps users plan around weather windows. Session auto-pause on clouds is already handled by star-count-based condition deterioration detection
-- [ ] Planner: show Moon phase + position — altitude curve on the chart, illumination %, angular distance from each target (flag targets < 30° from Moon). Use existing VSOP87/ELP2000 or simplified lunar ephemeris
+- [x] Planner: show Moon phase + position — altitude curve on the chart with phase emoji (hemisphere-aware). Uses Meeus lunar ephemeris via VSOP87a pipeline
+- [ ] Moon penalty in target scoring — penalise targets within ~30° of a bright Moon (illumination × proximity factor). Compute angular separation per target in ObservationScheduler.ScoreTarget
 - [ ] Live viewer: camera switching — allow selecting which OTA's camera to preview in both GUI MiniViewer and TUI Sixel preview (currently always shows first available)
 - [x] Guider graph: connect dots with lines (Bresenham or anti-aliased) instead of scatter dots — users expect smooth curves like PHD2
 - [ ] Guider graph: scrolling window (last N minutes) instead of compressing all history — makes activity feel live
