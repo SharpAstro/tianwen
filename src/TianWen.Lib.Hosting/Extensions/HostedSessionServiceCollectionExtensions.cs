@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using TianWen.Lib.Hosting.Api;
+using TianWen.Lib.Hosting.Api.NinaV2;
 using TianWen.Lib.Hosting.WebSocket;
 
 namespace TianWen.Lib.Hosting.Extensions;
@@ -31,12 +32,20 @@ public static class HostedSessionServiceCollectionExtensions
     /// </summary>
     public static WebApplication MapHostingApi(this WebApplication app)
     {
+        // Native TianWen multi-OTA API (v1)
         app.MapSessionApi();
         app.MapOtaApi();
         app.MapMountApi();
         app.MapGuiderApi();
         app.MapDeviceApi();
         app.MapWebSocketEndpoint();
+
+        // ninaAPI v2 compatibility shim for Touch N Stars
+        app.MapNinaSystemApi();
+        app.MapNinaEquipmentApi();
+        app.MapNinaSequenceApi();
+        app.MapNinaImageApi();
+
         return app;
     }
 
