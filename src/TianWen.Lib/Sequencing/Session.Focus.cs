@@ -555,12 +555,13 @@ internal partial record Session
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns><c>true</c> if plate solve succeeded and mount was synced.</returns>
     internal async ValueTask<bool> PlateSolveAndSyncAsync(int telescopeIndex, TimeSpan exposureTime, CancellationToken cancellationToken)
-        => (await PlateSolveAndSyncCoreAsync(telescopeIndex, exposureTime, cancellationToken)).Solved;
+        => (await PlateSolveAndSyncCoreAsync(telescopeIndex, exposureTime, PlateSolveContext.MountSync, cancellationToken)).Solved;
 
-    internal async ValueTask<(bool Solved, double RaJ2000, double DecJ2000)> PlateSolveAndSyncCoreAsync(int telescopeIndex, TimeSpan exposureTime, CancellationToken cancellationToken)
+    internal async ValueTask<(bool Solved, double RaJ2000, double DecJ2000)> PlateSolveAndSyncCoreAsync(int telescopeIndex, TimeSpan exposureTime, PlateSolveContext context, CancellationToken cancellationToken)
     {
         var mount = Setup.Mount;
-        var camDriver = Setup.Telescopes[telescopeIndex].Camera.Driver;
+        var telescope = Setup.Telescopes[telescopeIndex];
+        var camDriver = telescope.Camera.Driver;
 
         // Take a short exposure
         await camDriver.StartExposureAsync(exposureTime, cancellationToken: cancellationToken);
@@ -585,6 +586,7 @@ internal partial record Session
         if (image is null)
         {
             External.AppLogger.LogWarning("Plate solve: failed to capture image from camera #{CameraNumber}.", telescopeIndex + 1);
+            RecordPlateSolve(context, telescope.Name, succeeded: false, solution: null, elapsed: TimeSpan.Zero);
             return (false, double.NaN, double.NaN);
         }
 
@@ -599,6 +601,7 @@ internal partial record Session
         if (result.Solution is not { } wcs)
         {
             External.AppLogger.LogWarning("Plate solve: failed to solve image from camera #{CameraNumber}.", telescopeIndex + 1);
+            RecordPlateSolve(context, telescope.Name, succeeded: false, solution: null, result);
             return (false, double.NaN, double.NaN);
         }
 
@@ -612,6 +615,7 @@ internal partial record Session
         await mount.Driver.SyncRaDecJ2000Async(wcs.CenterRA, wcs.CenterDec, cancellationToken);
 
         External.AppLogger.LogInformation("Plate solve: mount synced to solved position.");
+        RecordPlateSolve(context, telescope.Name, succeeded: true, solution: wcs, result);
         return (true, wcs.CenterRA, wcs.CenterDec);
     }
 
@@ -628,7 +632,7 @@ internal partial record Session
         {
             _currentActivity = $"Centering {target.Name} (attempt {attempt}/{maxAttempts})\u2026";
 
-            var (solved, solvedRa, solvedDec) = await PlateSolveAndSyncCoreAsync(telescopeIndex, TimeSpan.FromSeconds(5), cancellationToken);
+            var (solved, solvedRa, solvedDec) = await PlateSolveAndSyncCoreAsync(telescopeIndex, TimeSpan.FromSeconds(5), PlateSolveContext.Centering, cancellationToken);
             if (!solved)
             {
                 External.AppLogger.LogWarning("Centering: plate solve failed on attempt {Attempt}/{Max}", attempt, maxAttempts);
@@ -684,24 +688,47 @@ internal partial record Session
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             External.AppLogger.LogWarning(ex, "Guider plate-solve failed");
+            RecordPlateSolve(PlateSolveContext.GuiderFocus, guider.Device.DisplayName, succeeded: false, solution: null, elapsed: TimeSpan.Zero);
             return false;
         }
 
-        if (result.Solution is var (solvedRa, solvedDec))
+        var guiderName = guider.Device.DisplayName;
+
+        if (result.Solution is { } wcs)
         {
             External.AppLogger.LogInformation("Guider \"{GuiderName}\" is in focus and camera image plate solve succeeded with ({SolvedRa}, {SolvedDec})",
-                guider.Driver, solvedRa, solvedDec);
+                guiderName, wcs.CenterRA, wcs.CenterDec);
+            RecordPlateSolve(PlateSolveContext.GuiderFocus, guiderName, succeeded: true, solution: wcs, result);
             return true;
         }
         else
         {
             External.AppLogger.LogWarning("Failed to plate solve guider \"{GuiderName}\" without a specific reason (probably not enough stars detected)",
-                guider.Driver);
+                guiderName);
+            RecordPlateSolve(PlateSolveContext.GuiderFocus, guiderName, succeeded: false, solution: null, result);
         }
 
         return false;
     }
 
+    private void RecordPlateSolve(PlateSolveContext context, string otaName, bool succeeded, WCS? solution, Astrometry.PlateSolve.PlateSolveResult result)
+    {
+        RecordPlateSolve(context, otaName, succeeded, solution, result.Elapsed, result.DetectedStars, result.MatchedStars);
+    }
 
+    private void RecordPlateSolve(PlateSolveContext context, string otaName, bool succeeded, WCS? solution, TimeSpan elapsed, int detectedStars = 0, int matchedStars = 0)
+    {
+        var record = new PlateSolveRecord(
+            Timestamp: External.TimeProvider.GetUtcNow(),
+            Context: context,
+            OtaName: otaName,
+            Succeeded: succeeded,
+            Solution: solution,
+            Elapsed: elapsed,
+            DetectedStars: detectedStars,
+            MatchedStars: matchedStars);
 
+        _plateSolveHistory.Enqueue(record);
+        PlateSolveCompleted?.Invoke(this, new PlateSolveCompletedEventArgs(record));
+    }
 }

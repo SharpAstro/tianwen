@@ -66,6 +66,9 @@ public interface ISession : IAsyncDisposable
     /// <summary>All frames written during this session.</summary>
     ImmutableArray<ExposureLogEntry> ExposureLog { get; }
 
+    /// <summary>All plate solve attempts recorded during this session, newest last.</summary>
+    ImmutableArray<PlateSolveRecord> PlateSolveHistory { get; }
+
     /// <summary>Cooling ramp samples (temp + power per camera over time).</summary>
     ImmutableArray<CoolingSample> CoolingSamples { get; }
 
@@ -104,6 +107,9 @@ public interface ISession : IAsyncDisposable
 
     /// <summary>Fired after a frame is written to disk.</summary>
     event EventHandler<FrameWrittenEventArgs>? FrameWritten;
+
+    /// <summary>Fired after each plate solve attempt completes (success or failure).</summary>
+    event EventHandler<PlateSolveCompletedEventArgs>? PlateSolveCompleted;
 
     Task RunAsync(CancellationToken cancellationToken);
 }
