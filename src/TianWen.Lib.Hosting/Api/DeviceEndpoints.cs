@@ -44,19 +44,6 @@ internal static class DeviceEndpoints
                 HostingJsonContext.Default.ResponseEnvelopeStringArray);
         });
 
-        // List profiles
-        group.MapGet("/profiles", (ICombinedDeviceManager deviceManager) =>
-        {
-            var profiles = deviceManager.RegisteredDevices(DeviceType.Profile)
-                .OfType<Profile>()
-                .Select(p => $"{p.DisplayName} ({p.ProfileId:D})")
-                .ToArray();
-
-            return Results.Json(
-                ResponseEnvelope<string[]>.Ok(profiles),
-                HostingJsonContext.Default.ResponseEnvelopeStringArray);
-        });
-
         return group;
     }
 }

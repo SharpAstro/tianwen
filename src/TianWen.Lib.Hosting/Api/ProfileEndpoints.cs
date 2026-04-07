@@ -22,12 +22,12 @@ internal static class ProfileEndpoints
         {
             var profiles = deviceManager.RegisteredDevices(DeviceType.Profile)
                 .OfType<Profile>()
-                .Select(p => new { p.ProfileId, Name = p.DisplayName })
+                .Select(p => new ProfileSummaryDto { ProfileId = p.ProfileId, Name = p.DisplayName })
                 .ToArray();
 
             return Results.Json(
-                ResponseEnvelope<object>.Ok(profiles),
-                HostingJsonContext.Default.ResponseEnvelopeObject);
+                ResponseEnvelope<ProfileSummaryDto[]>.Ok(profiles),
+                HostingJsonContext.Default.ResponseEnvelopeProfileSummaryDtoArray);
         });
 
         // GET /api/v1/profiles/{id} — get profile detail
@@ -100,5 +100,11 @@ internal static class ProfileEndpoints
 
 public sealed class CreateProfileRequest
 {
+    public required string Name { get; init; }
+}
+
+public sealed class ProfileSummaryDto
+{
+    public required Guid ProfileId { get; init; }
     public required string Name { get; init; }
 }

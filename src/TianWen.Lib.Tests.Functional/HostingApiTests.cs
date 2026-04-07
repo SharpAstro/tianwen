@@ -47,6 +47,7 @@ public class HostingApiTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         builder.Services.AddAstrometry();
         builder.Services.AddFake();
         builder.Services.AddDevices();
+        builder.Services.AddProfiles();
         builder.Services.AddSessionFactory();
         builder.Services.AddHostedSession();
 
