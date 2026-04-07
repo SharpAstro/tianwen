@@ -107,6 +107,9 @@ jobs:
     - name: Publish TianWen.UI.FitsViewer
       run: dotnet publish src/TianWen.UI.FitsViewer/TianWen.UI.FitsViewer.csproj -r ${{ matrix.rid }} -c Release -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:GeneratePackageOnBuild=false
       shell: bash
+    - name: Publish TianWen.Lib.Server
+      run: dotnet publish src/TianWen.Lib.Server/TianWen.Lib.Server.csproj -r ${{ matrix.rid }} -c Release -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:GeneratePackageOnBuild=false
+      shell: bash
     - uses: actions/upload-artifact@v4
       with:
         name: tianwen-cli-${{ matrix.rid }}
@@ -115,6 +118,10 @@ jobs:
       with:
         name: tianwen-fits-viewer-${{ matrix.rid }}
         path: src/TianWen.UI.FitsViewer/bin/Release/net10.0/${{ matrix.rid }}/publish/
+    - uses: actions/upload-artifact@v4
+      with:
+        name: tianwen-server-${{ matrix.rid }}
+        path: src/TianWen.Lib.Server/bin/Release/net10.0/${{ matrix.rid }}/publish/
 
   release:
     needs: publish-apps
@@ -128,7 +135,7 @@ jobs:
     - name: Create release archives
       run: |
         cd artifacts
-        for dir in tianwen-cli-* tianwen-fits-viewer-*/; do
+        for dir in tianwen-cli-* tianwen-fits-viewer-*/ tianwen-server-*/; do
           name="${dir%/}"
           tar -czf "../${name}.tar.gz" -C "$dir" .
         done
@@ -141,6 +148,7 @@ jobs:
         files: |
           tianwen-cli-*.tar.gz
           tianwen-fits-viewer-*.tar.gz
+          tianwen-server-*.tar.gz
 
   publish-nuget:
     needs: [test-unit, test-functional]
