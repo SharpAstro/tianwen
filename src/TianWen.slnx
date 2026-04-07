@@ -1,0 +1,26 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/Solution Items/">
+    <File Path="../.github/workflows/dotnet.yml" />
+    <File Path="../TODO.md" />
+    <File Path=".editorconfig" />
+    <File Path="Directory.Packages.props" />
+    <File Path="NuGet.config" />
+  </Folder>
+  <Project Path="TianWen.Lib.CLI/TianWen.Lib.CLI.csproj" />
+  <Project Path="TianWen.Lib.Hosting/TianWen.Lib.Hosting.csproj" />
+  <Project Path="TianWen.Lib.Server/TianWen.Lib.Server.csproj" />
+  <Project Path="TianWen.Lib.SourceGenerators/TianWen.Lib.SourceGenerators.csproj" />
+  <Project Path="TianWen.Lib.Tests.Functional/TianWen.Lib.Tests.Functional.csproj" />
+  <Project Path="TianWen.Lib.Tests/TianWen.Lib.Tests.csproj" />
+  <Project Path="TianWen.Lib/TianWen.Lib.csproj" />
+  <Project Path="TianWen.UI.Abstractions/TianWen.UI.Abstractions.csproj" />
+  <Project Path="TianWen.UI.Benchmarks/TianWen.UI.Benchmarks.csproj" />
+  <Project Path="TianWen.UI.FitsViewer/TianWen.UI.FitsViewer.csproj" />
+  <Project Path="TianWen.UI.Gui/TianWen.UI.Gui.csproj" />
+  <Project Path="TianWen.UI.Shared/TianWen.UI.Shared.csproj" />
+</Solution>
