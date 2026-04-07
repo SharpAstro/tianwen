@@ -1,0 +1,42 @@
+# Auto detect text files and normalise line endings
+* text=auto
+
+# C# / .NET — CRLF (Windows convention, matches .editorconfig)
+*.cs text eol=crlf
+*.csproj text eol=crlf
+*.props text eol=crlf
+*.targets text eol=crlf
+*.sln text eol=crlf
+
+# Config / markup
+*.json text eol=lf
+*.xml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.editorconfig text eol=lf
+
+# Shell scripts — always LF
+*.sh text eol=lf
+
+# Shaders
+*.glsl text eol=lf
+*.vert text eol=lf
+*.frag text eol=lf
+*.comp text eol=lf
+*.spv binary
+
+# Binary — no conversion
+*.png binary
+*.fits binary
+*.fit binary
+*.fts binary
+*.dll binary
+*.exe binary
+*.nupkg binary
+*.snk binary
+*.pfx binary
+*.gz binary
+*.tgz binary
+*.zip binary
