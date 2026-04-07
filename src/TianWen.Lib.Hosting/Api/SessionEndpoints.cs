@@ -52,8 +52,14 @@ internal static class SessionEndpoints
             // Profile ID from query string or active profile
             var profileIdStr = httpContext.Request.Query["profileId"].FirstOrDefault();
             Guid? profileId = null;
-            if (profileIdStr is not null && Guid.TryParse(profileIdStr, out var parsed))
+            if (profileIdStr is not null)
             {
+                if (!Guid.TryParse(profileIdStr, out var parsed))
+                {
+                    return Results.Json(
+                        ResponseEnvelope<string>.Fail($"Invalid profile ID '{profileIdStr}'"),
+                        HostingJsonContext.Default.ResponseEnvelopeString);
+                }
                 profileId = parsed;
             }
             profileId ??= hosted.ActiveProfileId;

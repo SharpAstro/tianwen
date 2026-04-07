@@ -105,12 +105,12 @@ internal static class NinaSystemEndpoints
         {
             var profiles = deviceManager.RegisteredDevices(DeviceType.Profile)
                 .OfType<Profile>()
-                .Select(p => new { Id = p.ProfileId.ToString(), p.DisplayName })
+                .Select(p => new ProfileSummaryDto { ProfileId = p.ProfileId, Name = p.DisplayName })
                 .ToArray();
 
             return Results.Json(
-                ResponseEnvelope<object>.Ok(profiles),
-                NinaApiJsonContext.Default.ResponseEnvelopeObject);
+                ResponseEnvelope<ProfileSummaryDto[]>.Ok(profiles),
+                NinaApiJsonContext.Default.ResponseEnvelopeProfileSummaryDtoArray);
         });
 
         return group;
