@@ -3,7 +3,7 @@ TiānWén (天文)
 
 TianWen is a free, open-source astronomical imaging suite for .NET. It manages cameras, mounts, focusers, filter wheels, and guiders via ASCOM, Alpaca, ZWO, QHYCCD, and Meade protocols — with first-class support for multi-OTA (dual rig) setups that are difficult or expensive to achieve with existing software.
 
-It ships as a NuGet library (`TianWen.Lib`), a cross-platform CLI with interactive TUI (`TianWen.Lib.CLI`), a standalone FITS viewer (`TianWen.UI.FitsViewer`), and an integrated N.I.N.A.-style GUI (`TianWen.UI.Gui`).
+It ships as a NuGet library (`TianWen.Lib`), a cross-platform CLI with interactive TUI (`TianWen.Lib.CLI`), a headless REST API server (`TianWen.Lib.Server`) for remote operation via [Touch N Stars](https://github.com/Touch-N-Stars/Touch-N-Stars), a standalone FITS viewer (`TianWen.UI.FitsViewer`), and an integrated N.I.N.A.-style GUI (`TianWen.UI.Gui`).
 
 ## Features
 
@@ -284,6 +284,29 @@ You can install the TianWen library via NuGet:
 ```bash
 dotnet add package TianWen.Lib
 ```
+
+### Server (Headless / Remote)
+
+Pre-built native AOT binaries of `tianwen-server` are available from [GitHub Releases](https://github.com/SharpAstro/tianwen/releases):
+
+| Platform | Architecture | Artifact |
+|----------|-------------|----------|
+| Windows  | x64         | `tianwen-server-win-x64.tar.gz` |
+| Windows  | ARM64       | `tianwen-server-win-arm64.tar.gz` |
+| Linux    | x64         | `tianwen-server-linux-x64.tar.gz` |
+| Linux    | ARM64       | `tianwen-server-linux-arm64.tar.gz` |
+| macOS    | x64         | `tianwen-server-osx-x64.tar.gz` |
+| macOS    | ARM64       | `tianwen-server-osx-arm64.tar.gz` |
+
+```bash
+tianwen-server                    # Listens on http://0.0.0.0:1888
+tianwen-server --port 8080        # Custom port
+```
+
+The server exposes both a native multi-OTA REST API (`/api/v1/`) and a ninaAPI v2
+compatibility shim (`/v2/api/`) that works with [Touch N Stars](https://github.com/Touch-N-Stars/Touch-N-Stars)
+for mobile control. WebSocket push events are available at `/api/v1/events` (camelCase)
+and `/v2/socket` (PascalCase).
 
 ### CLI
 

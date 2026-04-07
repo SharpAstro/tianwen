@@ -15,14 +15,15 @@ Repository: https://github.com/SharpAstro/tianwen
 
 ```
 src/
-├── TianWen.sln                    # Solution file
+├── TianWen.slnx                   # Solution file (XML format)
 ├── Directory.Packages.props       # Centralized package version management
 ├── .editorconfig                  # Code style rules
 ├── NuGet.config                   # Package sources
 ├── TianWen.Lib/                   # Core library (net10.0)
 ├── TianWen.Lib.Tests/             # Unit tests (xUnit v3)
 ├── TianWen.Lib.CLI/               # CLI application (AOT-published)
-├── TianWen.Lib.Hosting/           # IHostedService extensions
+├── TianWen.Lib.Hosting/           # ASP.NET Core Minimal API — REST + WebSocket endpoints
+├── TianWen.Lib.Server/            # Headless server executable (tianwen-server, AOT-published)
 ├── TianWen.UI.Abstractions/       # Widget system, layout, state, shared types
 ├── TianWen.UI.Shared/             # SDL→InputKey mapping, Vulkan FITS pipeline, VkImageRenderer
 ├── TianWen.UI.Gui/                # N.I.N.A.-style integrated GUI (SDL3 + Vulkan)
@@ -50,7 +51,7 @@ dotnet test TianWen.Lib.Tests --filter "FullyQualifiedName~Guider|FullyQualified
 
 - **.NET 10.0** (`net10.0`) across all projects
 - Nullable reference types enabled globally
-- CLI project has `PublishAot` enabled
+- CLI, Server, and FitsViewer projects have `PublishAot` enabled
 
 ## Key Technologies
 
@@ -62,6 +63,7 @@ dotnet test TianWen.Lib.Tests --filter "FullyQualifiedName~Guider|FullyQualified
 | Testing | xUnit v3 + Shouldly + NSubstitute |
 | Imaging | Magick.NET, FITS.Lib |
 | UI / GPU | SDL3 + Vulkan (SdlVulkan.Renderer) |
+| Hosting | ASP.NET Core Minimal API, StbImageWriteSharp (JPEG) |
 | Astronomy | ASCOM, ZWOptical.SDK, QHYCCD.SDK, IAU SOFA (C# port) |
 | Compression | SharpCompress |
 
@@ -253,6 +255,25 @@ driver-specific fallbacks per slot. See each filter wheel driver class for fallb
 and full command reference are in `QfocProtocol.cs` with AOT-safe `QfocJsonContext`. Key features:
 absolute positioning (±1M steps), dual temperature sensors (external NTC + chip), TMC StallGuard,
 12V supply detection.
+
+### Hosting API (`TianWen.Lib.Hosting` + `TianWen.Lib.Server`)
+
+Headless REST + WebSocket API for remote operation (Raspberry Pi, Touch N Stars mobile UI).
+
+**Architecture:** Two API layers on the same ASP.NET Core host:
+- **Native v1** (`/api/v1/`): Multi-OTA routes, camelCase JSON (`HostingJsonContext`), POST for mutations
+- **ninaAPI v2 shim** (`/v2/api/`): Single-OTA (maps to OTA[0]), PascalCase JSON (`NinaApiJsonContext`), GET for everything (ninaAPI convention)
+
+**Key types:**
+- `IHostedSession` — singleton holding `ISession?`, `ActiveProfileId`, `PendingTargets` (pre-session target queue)
+- `HostedSession` — implementation with `DrainTargets()` for atomic target consumption at session start
+- `EventHub` — dual-pool WebSocket broadcaster (native camelCase + ninaAPI PascalCase)
+- `EventBroadcaster` — `BackgroundService` subscribing to `PhaseChanged`, `FrameWritten`, `PlateSolveCompleted`
+
+**Target lifecycle:** Targets are queued via `AddTarget()` before session start, drained into
+`ScheduledObservation[]` when `/session/start` is called. Cannot be modified mid-session.
+
+**Running:** `dotnet run --project TianWen.Lib.Server` or `tianwen-server [--port 1888]`
 
 ### Image Pipeline & Buffer Lifecycle
 
