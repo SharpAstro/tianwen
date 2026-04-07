@@ -23,7 +23,7 @@ internal sealed class OpenMeteoDriver : IWeatherDriver
 
     private static readonly HttpClient s_httpClient = new HttpClient()
     {
-        Timeout = TimeSpan.FromSeconds(30)
+        Timeout = TimeSpan.FromSeconds(10)
     };
 
     private readonly OpenMeteoDevice _device;

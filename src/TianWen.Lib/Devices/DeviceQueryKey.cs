@@ -28,6 +28,7 @@ public enum DeviceQueryKey
     FocuserBestFocus,
     FocuserBacklashIn,
     FocuserBacklashOut,
+    ApiKey,
 }
 
 public static class DeviceQueryKeyExtensions
@@ -57,6 +58,7 @@ public static class DeviceQueryKeyExtensions
             DeviceQueryKey.FocuserBestFocus => "focuserBestFocus",
             DeviceQueryKey.FocuserBacklashIn => "focuserBacklashIn",
             DeviceQueryKey.FocuserBacklashOut => "focuserBacklashOut",
+            DeviceQueryKey.ApiKey => "apiKey",
             _ => key.ToString().ToLowerInvariant()
         };
     }

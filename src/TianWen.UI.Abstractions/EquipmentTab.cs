@@ -366,9 +366,12 @@ namespace TianWen.UI.Abstractions
                 // Extra profile-level slots (Weather, future device types) — rendered dynamically
                 foreach (var extraSlot in _content.GetExtraProfileSlots(pd))
                 {
+                    var extraDeviceUri = EquipmentActions.GetAssignedDevice(pd, extraSlot.Slot);
                     cursor = RenderProfileSlot(
-                        extraSlot.Label, EquipmentActions.GetAssignedDevice(pd, extraSlot.Slot), extraSlot.Slot,
+                        extraSlot.Label, extraDeviceUri, extraSlot.Slot,
                         x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW);
+                    cursor = RenderDeviceSettingsIfAny(appState, pd, extraDeviceUri, $"{extraSlot.Label} Settings",
+                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
                 }
 
                 cursor += padding;
@@ -1048,7 +1051,12 @@ namespace TianWen.UI.Abstractions
 
                 var rowBg = i % 2 == 0 ? FilterTableBg : FilterRowAlt;
                 FillRect(x + padding, cursor, w - padding * 2f, rowH, rowBg);
-                DrawText($"{desc.Label}:".AsSpan(), fontPath, labelX, cursor, labelW, rowH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
+
+                // StringEditor uses a narrower label to give more space to the text input
+                var rowLabelW = desc.Kind == DeviceSettingKind.StringEditor ? w * 0.25f : labelW;
+                var rowControlX = x + padding * 2f + rowLabelW;
+                var rowControlW = w - padding * 4f - rowLabelW;
+                DrawText($"{desc.Label}:".AsSpan(), fontPath, labelX, cursor, rowLabelW, rowH, fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
 
                 var capturedDesc = desc;
                 switch (desc.Kind)
@@ -1095,9 +1103,51 @@ namespace TianWen.UI.Abstractions
                             });
                         break;
                     }
+
+                    case DeviceSettingKind.StringEditor:
+                    {
+                        var isEditing = State.EditingStringSettingKey == desc.Key;
+                        if (isEditing)
+                        {
+                            // Active text input
+                            if (desc.Placeholder is { } placeholder)
+                            {
+                                State.StringSettingInput.Placeholder = placeholder;
+                            }
+                            RenderTextInput(State.StringSettingInput, (int)rowControlX, (int)cursor, (int)rowControlW, (int)rowH, fontPath, fontSize * 0.85f);
+                        }
+                        else
+                        {
+                            // Display current value (masked if configured) with click-to-edit
+                            var rawValue = desc.FormatValue(editingUri);
+                            var displayValue = desc.Mask && rawValue.Length > 0
+                                ? new string('*', Math.Min(rawValue.Length, 8)) + rawValue[Math.Max(0, rawValue.Length - 4)..]
+                                : rawValue;
+                            if (displayValue.Length == 0)
+                            {
+                                displayValue = desc.Placeholder ?? "(empty)";
+                            }
+                            RenderButton(displayValue, rowControlX, cursor, rowControlW, rowH, fontPath, fontSize * 0.85f, EditButtonBg, BodyText, $"Edit_{desc.Key}",
+                                _ =>
+                                {
+                                    State.EditingStringSettingKey = capturedDesc.Key;
+                                    State.StringSettingInput.Activate(capturedDesc.FormatValue(editingUri));
+                                });
+                        }
+                        break;
+                    }
                 }
 
                 cursor += rowH;
+            }
+
+            // Commit any active string editor when focus moves away
+            if (State.EditingStringSettingKey is { } activeStringKey
+                && State.StringSettingInput is { IsActive: false } stringInput)
+            {
+                State.EditingDeviceUri = DeviceSettingHelper.WithQueryParam(editingUri, activeStringKey, stringInput.Text);
+                State.DeviceSettingsDirty = true;
+                State.EditingStringSettingKey = null;
             }
 
             // Save / Cancel buttons (only when dirty)
