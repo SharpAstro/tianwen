@@ -141,4 +141,80 @@ public class HostingApiTests(ITestOutputHelper outputHelper) : IAsyncLifetime
         var doc = JsonDocument.Parse(json);
         doc.RootElement.GetProperty("success").GetBoolean().ShouldBeTrue();
     }
+
+    // Phase 2: Control endpoints
+
+    [Fact(Timeout = 30_000)]
+    public async Task DeviceDiscover_ReturnsDevices()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var response = await _client.GetAsync("/api/v1/devices/discover", ct);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var json = await response.Content.ReadAsStringAsync(ct);
+        var doc = JsonDocument.Parse(json);
+        doc.RootElement.GetProperty("success").GetBoolean().ShouldBeTrue();
+
+        // Fake device source should discover fake devices
+        var devices = doc.RootElement.GetProperty("response");
+        devices.GetArrayLength().ShouldBeGreaterThan(0);
+    }
+
+    [Fact(Timeout = 10_000)]
+    public async Task SessionStart_WithInvalidProfileId_ReturnsBadRequest()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var response = await _client.PostAsync("/api/v1/session/start?profileId=not-a-guid", null, ct);
+
+        var json = await response.Content.ReadAsStringAsync(ct);
+        var doc = JsonDocument.Parse(json);
+        doc.RootElement.GetProperty("success").GetBoolean().ShouldBeFalse();
+        doc.RootElement.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain("Invalid profile ID");
+    }
+
+    [Fact(Timeout = 10_000)]
+    public async Task SessionAbort_WithNoSession_ReturnsNotFound()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var response = await _client.PostAsync("/api/v1/session/abort", null, ct);
+
+        var json = await response.Content.ReadAsStringAsync(ct);
+        var doc = JsonDocument.Parse(json);
+        doc.RootElement.GetProperty("success").GetBoolean().ShouldBeFalse();
+        doc.RootElement.GetProperty("statusCode").GetInt32().ShouldBe(404);
+    }
+
+    [Fact(Timeout = 10_000)]
+    public async Task MountSlew_WithNoSession_ReturnsNotFound()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var response = await _client.PostAsync("/api/v1/mount/slew?ra=12.0&dec=45.0", null, ct);
+
+        var json = await response.Content.ReadAsStringAsync(ct);
+        var doc = JsonDocument.Parse(json);
+        doc.RootElement.GetProperty("success").GetBoolean().ShouldBeFalse();
+        doc.RootElement.GetProperty("statusCode").GetInt32().ShouldBe(404);
+    }
+
+    [Fact(Timeout = 10_000)]
+    public async Task FocuserMove_WithNoSession_ReturnsNotFound()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var response = await _client.PostAsync("/api/v1/ota/0/focuser/move?position=1000", null, ct);
+
+        var json = await response.Content.ReadAsStringAsync(ct);
+        var doc = JsonDocument.Parse(json);
+        doc.RootElement.GetProperty("success").GetBoolean().ShouldBeFalse();
+    }
+
+    [Fact(Timeout = 10_000)]
+    public async Task FilterWheelChange_WithNoSession_ReturnsNotFound()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var response = await _client.PostAsync("/api/v1/ota/0/filterwheel/change?position=2", null, ct);
+
+        var json = await response.Content.ReadAsStringAsync(ct);
+        var doc = JsonDocument.Parse(json);
+        doc.RootElement.GetProperty("success").GetBoolean().ShouldBeFalse();
+    }
 }
