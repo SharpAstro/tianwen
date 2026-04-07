@@ -18,3 +18,11 @@ public sealed class FrameWrittenEventArgs(ExposureLogEntry entry) : EventArgs
 {
     public ExposureLogEntry Entry { get; } = entry;
 }
+
+/// <summary>
+/// Event args for <see cref="ISession.PlateSolveCompleted"/>.
+/// </summary>
+public sealed class PlateSolveCompletedEventArgs(PlateSolveRecord record) : EventArgs
+{
+    public PlateSolveRecord Record { get; } = record;
+}

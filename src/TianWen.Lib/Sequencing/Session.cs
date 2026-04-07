@@ -42,6 +42,7 @@ internal partial record Session(
     private volatile bool _ditherPending;
     private TimeSpan _guideExposure;
     private readonly ConcurrentQueue<ExposureLogEntry> _exposureLog = [];
+    private readonly ConcurrentQueue<PlateSolveRecord> _plateSolveHistory = [];
     private readonly ConcurrentQueue<CoolingSample> _coolingSamples = [];
     private readonly ConcurrentQueue<PhaseTimestamp> _phaseTimeline = [];
     private volatile CameraExposureState[] _cameraStates = [];
@@ -83,12 +84,14 @@ internal partial record Session(
     public (float[] H, float[] V)? GuideStarProfile => Setup.Guider?.Driver?.GuideStarProfile;
     public CalibrationOverlayData? CalibrationOverlay => Setup.Guider?.Driver?.CalibrationOverlay;
     public ImmutableArray<ExposureLogEntry> ExposureLog => [.. _exposureLog];
+    public ImmutableArray<PlateSolveRecord> PlateSolveHistory => [.. _plateSolveHistory];
     public ImmutableArray<CoolingSample> CoolingSamples => [.. _coolingSamples];
     public ImmutableArray<PhaseTimestamp> PhaseTimeline => [.. _phaseTimeline];
     public ImmutableArray<CameraExposureState> CameraStates => [.. _cameraStates];
 
     public event EventHandler<SessionPhaseChangedEventArgs>? PhaseChanged;
     public event EventHandler<FrameWrittenEventArgs>? FrameWritten;
+    public event EventHandler<PlateSolveCompletedEventArgs>? PlateSolveCompleted;
 
     /// <summary>
     /// Per-observation, per-telescope baseline metrics for focus drift and environmental anomaly detection.
