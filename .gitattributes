@@ -40,3 +40,5 @@
 *.gz binary
 *.tgz binary
 *.zip binary
+*.lz binary
+*.lzip binary
