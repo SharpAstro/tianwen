@@ -9,7 +9,8 @@ public record Setup(
     Mount Mount,
     Guider Guider,
     GuiderSetup GuiderSetup,
-    ImmutableArray<OTA> Telescopes
+    ImmutableArray<OTA> Telescopes,
+    Weather? Weather = null
 ) : IAsyncDisposable
 {
     public async ValueTask DisposeAsync()
@@ -28,6 +29,11 @@ public record Setup(
         foreach (var telescope in Telescopes)
         {
             await telescope.DisposeAsync();
+        }
+
+        if (Weather is { } weather)
+        {
+            await weather.DisposeAsync();
         }
 
         GC.SuppressFinalize(this);

@@ -16,6 +16,7 @@ namespace TianWen.Lib.Hosting.Dto;
 [JsonSerializable(typeof(ResponseEnvelope<NinaFilterWheelInfoDto>))]
 [JsonSerializable(typeof(ResponseEnvelope<NinaGuiderInfoDto>))]
 [JsonSerializable(typeof(ResponseEnvelope<NinaStubInfoDto>))]
+[JsonSerializable(typeof(ResponseEnvelope<NinaWeatherInfoDto>))]
 [JsonSerializable(typeof(ResponseEnvelope<NinaProfileDto>))]
 [JsonSerializable(typeof(ResponseEnvelope<NinaEventDto[]>))]
 [JsonSerializable(typeof(ResponseEnvelope<NinaImageHistoryDto[]>))]

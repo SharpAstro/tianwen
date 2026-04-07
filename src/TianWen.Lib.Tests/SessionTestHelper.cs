@@ -116,7 +116,11 @@ internal static class SessionTestHelper
         // Set UTC date on mount so TryGetTransformAsync works
         await mount.Driver.SetUTCDateAsync(external.TimeProvider.GetUtcNow().UtcDateTime, cancellationToken);
 
-        var setup = new Setup(mount, guider, new GuiderSetup(guiderCam, FocalLength: 130), [ota]);
+        var weatherDevice = new FakeDevice(DeviceType.Weather, 1);
+        var weather = new Weather(weatherDevice, external);
+        await weather.Driver.ConnectAsync(cancellationToken);
+
+        var setup = new Setup(mount, guider, new GuiderSetup(guiderCam, FocalLength: 130), [ota], weather);
         var plateSolver = new FakePlateSolver();
 
         var config = configuration ?? DefaultConfiguration;
@@ -236,7 +240,11 @@ internal static class SessionTestHelper
         ((FakeGuider)guider.Driver).LinkDevices(mount.Driver, guiderCam.Driver);
         await mount.Driver.SetUTCDateAsync(external.TimeProvider.GetUtcNow().UtcDateTime, cancellationToken);
 
-        var setup = new Setup(mount, guider, new GuiderSetup(guiderCam, FocalLength: 130), [ota1, ota2]);
+        var dualWeatherDevice = new FakeDevice(DeviceType.Weather, 1);
+        var dualWeather = new Weather(dualWeatherDevice, external);
+        await dualWeather.Driver.ConnectAsync(cancellationToken);
+
+        var setup = new Setup(mount, guider, new GuiderSetup(guiderCam, FocalLength: 130), [ota1, ota2], dualWeather);
         var plateSolver = new FakePlateSolver();
 
         var config = configuration ?? DefaultConfiguration;

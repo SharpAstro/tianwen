@@ -25,6 +25,7 @@ internal static class NinaEquipmentEndpoints
         MapFocuserEndpoints(group);
         MapFilterWheelEndpoints(group);
         MapGuiderEndpoints(group);
+        MapWeatherEndpoints(group);
         MapStubEndpoints(group);
 
         return group;
@@ -391,6 +392,22 @@ internal static class NinaEquipmentEndpoints
         });
     }
 
+    private static void MapWeatherEndpoints(RouteGroupBuilder group)
+    {
+        // GET /v2/api/equipment/weather/info — read from session's weather device
+        group.MapGet("/weather/info", (IHostedSession hosted) =>
+        {
+            var driver = hosted.CurrentSession?.Setup.Weather?.Driver;
+            var dto = driver is { Connected: true }
+                ? NinaWeatherInfoDto.FromDriver(driver)
+                : NinaWeatherInfoDto.Disconnected;
+
+            return Results.Json(
+                ResponseEnvelope<NinaWeatherInfoDto>.Ok(dto),
+                NinaApiJsonContext.Default.ResponseEnvelopeNinaWeatherInfoDto);
+        });
+    }
+
     /// <summary>
     /// Stub endpoints for devices TianWen doesn't support.
     /// TNS gracefully handles { Connected: false }.
@@ -399,7 +416,7 @@ internal static class NinaEquipmentEndpoints
     {
         var disconnected = ResponseEnvelope<NinaStubInfoDto>.Ok(NinaStubInfoDto.Disconnected);
 
-        foreach (var device in new[] { "rotator", "flatdevice", "dome", "switch", "weather", "safetymonitor" })
+        foreach (var device in new[] { "rotator", "flatdevice", "dome", "switch", "safetymonitor" })
         {
             group.MapGet($"/{device}/info", () => Results.Json(
                 disconnected,

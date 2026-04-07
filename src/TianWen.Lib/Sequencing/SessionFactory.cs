@@ -89,7 +89,9 @@ internal class SessionFactory(
 
         var guiderSetup = new GuiderSetup(guiderCamera, guiderFocuser, guiderIsOAGOfOTA, profileData.GuiderFocalLength);
 
-        var setup = new Setup(mount, guider, guiderSetup, [.. otas]);
+        var weather = profileData.Weather is { } weatherUri ? new Weather(DeviceFromUri(weatherUri), external) : null;
+
+        var setup = new Setup(mount, guider, guiderSetup, [.. otas], weather);
 
         return (setup, profileData);
 
