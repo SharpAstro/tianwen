@@ -1,10 +1,13 @@
 using System;
+using System.Collections.Immutable;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Hosting.Dto;
 using TianWen.Lib.Sequencing;
 
@@ -34,8 +37,10 @@ internal static class SessionEndpoints
         /// <summary>
         /// Starts a new session for the given profile. Creates the session via ISessionFactory
         /// and runs it in a background task. Returns immediately.
+        /// Consumes pending targets from IHostedSession.
+        /// Accepts optional JSON body with SessionConfigApiDto.
         /// </summary>
-        group.MapPost("/start", (string profileId, IHostedSession hosted, ISessionFactory factory, CancellationToken ct) =>
+        group.MapPost("/start", async (HttpContext httpContext, IHostedSession hosted, ISessionFactory factory, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not null)
             {
@@ -44,17 +49,57 @@ internal static class SessionEndpoints
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
-            if (!Guid.TryParse(profileId, out var guid))
+            // Profile ID from query string or active profile
+            var profileIdStr = httpContext.Request.Query["profileId"].FirstOrDefault();
+            Guid? profileId = null;
+            if (profileIdStr is not null && Guid.TryParse(profileIdStr, out var parsed))
+            {
+                profileId = parsed;
+            }
+            profileId ??= hosted.ActiveProfileId;
+
+            if (profileId is null)
             {
                 return Results.Json(
-                    ResponseEnvelope<string>.Fail($"Invalid profile ID: {profileId}"),
+                    ResponseEnvelope<string>.Fail("No profile ID specified. Set via ?profileId= or /api/v1/session/profile"),
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
+
+            // Try to read optional config from body
+            SessionConfiguration config = new SessionConfiguration();
+            if (httpContext.Request.ContentLength > 0)
+            {
+                try
+                {
+                    var configDto = await httpContext.Request.ReadFromJsonAsync(HostingJsonContext.Default.SessionConfigApiDto, ct);
+                    if (configDto is not null)
+                    {
+                        config = configDto.ToConfiguration();
+                    }
+                }
+                catch
+                {
+                    // Body parsing failed — use defaults
+                }
+            }
+
+            // Drain pending targets
+            var pendingTargets = hosted is HostedSession hs ? hs.DrainTargets() : [];
+            var observations = pendingTargets.Select(t => new ScheduledObservation(
+                new Target(t.RA, t.Dec, t.Name, null),
+                DateTimeOffset.UtcNow,
+                TimeSpan.FromMinutes(t.DurationMinutes ?? 30),
+                AcrossMeridian: false,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(
+                    TimeSpan.FromSeconds(t.SubExposureSeconds ?? 120)),
+                Gain: t.Gain.HasValue ? (int?)t.Gain.Value : null,
+                Offset: t.Offset.HasValue ? (int?)t.Offset.Value : null
+            )).ToArray();
 
             Sequencing.ISession session;
             try
             {
-                session = factory.Create(guid, new SessionConfiguration(), []);
+                session = factory.Create(profileId.Value, config, observations);
             }
             catch (ArgumentException ex)
             {
@@ -63,9 +108,10 @@ internal static class SessionEndpoints
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
-            if (hosted is HostedSession hs)
+            if (hosted is HostedSession hostedSession)
             {
-                hs.SetSession(session);
+                hostedSession.SetSession(session);
+                hostedSession.SetActiveProfile(profileId.Value);
             }
 
             // Run in background — caller polls /state for progress
@@ -106,6 +152,55 @@ internal static class SessionEndpoints
                 HostingJsonContext.Default.ResponseEnvelopeString);
         });
 
+        // --- Target management (pre-session) ---
+
+        // GET /api/v1/session/targets — list pending targets
+        group.MapGet("/targets", (IHostedSession hosted) =>
+        {
+            return Results.Json(
+                ResponseEnvelope<object>.Ok(hosted.PendingTargets),
+                HostingJsonContext.Default.ResponseEnvelopeObject);
+        });
+
+        // POST /api/v1/session/targets — add a target
+        group.MapPost("/targets", (PendingTarget target, IHostedSession hosted) =>
+        {
+            if (string.IsNullOrWhiteSpace(target.Name))
+            {
+                return Results.Json(
+                    ResponseEnvelope<string>.Fail("Target name is required"),
+                    HostingJsonContext.Default.ResponseEnvelopeString);
+            }
+
+            hosted.AddTarget(target);
+            return Results.Json(
+                ResponseEnvelope<string>.Ok($"Target '{target.Name}' added ({hosted.PendingTargets.Count} pending)"),
+                HostingJsonContext.Default.ResponseEnvelopeString);
+        });
+
+        // DELETE /api/v1/session/targets — clear all pending targets
+        group.MapDelete("/targets", (IHostedSession hosted) =>
+        {
+            hosted.ClearTargets();
+            return Results.Json(
+                ResponseEnvelope<string>.Ok("Pending targets cleared"),
+                HostingJsonContext.Default.ResponseEnvelopeString);
+        });
+
+        // PUT /api/v1/session/profile — set active profile (pre-session)
+        group.MapPut("/profile", (SetProfileRequest request, IHostedSession hosted) =>
+        {
+            hosted.SetActiveProfile(request.ProfileId);
+            return Results.Json(
+                ResponseEnvelope<string>.Ok($"Active profile set to {request.ProfileId}"),
+                HostingJsonContext.Default.ResponseEnvelopeString);
+        });
+
         return group;
     }
+}
+
+public sealed class SetProfileRequest
+{
+    public required Guid ProfileId { get; init; }
 }

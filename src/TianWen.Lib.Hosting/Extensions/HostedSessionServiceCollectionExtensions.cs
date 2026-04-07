@@ -33,6 +33,7 @@ public static class HostedSessionServiceCollectionExtensions
     public static WebApplication MapHostingApi(this WebApplication app)
     {
         // Native TianWen multi-OTA API (v1)
+        app.MapProfileApi();
         app.MapSessionApi();
         app.MapOtaApi();
         app.MapMountApi();

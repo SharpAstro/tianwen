@@ -1,9 +1,11 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Hosting.Dto;
 using TianWen.Lib.Hosting.Dto.NinaV2;
 using TianWen.Lib.Sequencing;
@@ -49,7 +51,7 @@ internal static class NinaSequenceEndpoints
                 NinaApiJsonContext.Default.ResponseEnvelopeString);
         });
 
-        // GET /v2/api/sequence/start — start session (ninaAPI uses GET, passes ?skipValidation=true)
+        // GET /v2/api/sequence/start — start session using active profile + pending targets
         group.MapGet("/start", (IHostedSession hosted, ISessionFactory factory, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not null)
@@ -59,8 +61,49 @@ internal static class NinaSequenceEndpoints
                     NinaApiJsonContext.Default.ResponseEnvelopeString);
             }
 
-            // For the v2 shim, we use the default profile (first available)
-            // Full profile selection is handled via the native /api/v1/session/start endpoint
+            if (hosted.ActiveProfileId is not { } profileId)
+            {
+                return Results.Json(
+                    ResponseEnvelope<string>.Fail("No active profile. Use /v2/api/profile/switch first."),
+                    NinaApiJsonContext.Default.ResponseEnvelopeString);
+            }
+
+            // Drain pending targets
+            var pendingTargets = hosted is HostedSession hs2 ? hs2.DrainTargets() : [];
+            var observations = pendingTargets.Select(t => new ScheduledObservation(
+                new Target(t.RA, t.Dec, t.Name, null),
+                DateTimeOffset.UtcNow,
+                TimeSpan.FromMinutes(t.DurationMinutes ?? 30),
+                AcrossMeridian: false,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(
+                    TimeSpan.FromSeconds(t.SubExposureSeconds ?? 120)),
+                Gain: t.Gain,
+                Offset: t.Offset
+            )).ToArray();
+
+            Sequencing.ISession session;
+            try
+            {
+                session = factory.Create(profileId, new SessionConfiguration(), observations);
+            }
+            catch (ArgumentException ex)
+            {
+                return Results.Json(
+                    ResponseEnvelope<string>.Fail(ex.Message, 404),
+                    NinaApiJsonContext.Default.ResponseEnvelopeString);
+            }
+
+            if (hosted is HostedSession hs)
+            {
+                hs.SetSession(session);
+            }
+
+            _ = Task.Run(async () =>
+            {
+                try { await session.RunAsync(ct); }
+                catch (OperationCanceledException) { }
+            }, ct);
+
             return Results.Json(
                 ResponseEnvelope<string>.Ok("Sequence started"),
                 NinaApiJsonContext.Default.ResponseEnvelopeString);
@@ -83,6 +126,15 @@ internal static class NinaSequenceEndpoints
 
             return Results.Json(
                 ResponseEnvelope<string>.Ok("Sequence stopped"),
+                NinaApiJsonContext.Default.ResponseEnvelopeString);
+        });
+
+        // GET /v2/api/sequence/set-target?name=&ra=&dec=&rotation=&index= — queue a target
+        group.MapGet("/set-target", (string name, double ra, double dec, IHostedSession hosted) =>
+        {
+            hosted.AddTarget(new PendingTarget(name, ra, dec));
+            return Results.Json(
+                ResponseEnvelope<string>.Ok($"Target '{name}' queued"),
                 NinaApiJsonContext.Default.ResponseEnvelopeString);
         });
 

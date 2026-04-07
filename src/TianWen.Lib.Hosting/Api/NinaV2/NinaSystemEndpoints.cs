@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Hosting.Dto;
 using TianWen.Lib.Hosting.Dto.NinaV2;
 
@@ -80,6 +82,35 @@ internal static class NinaSystemEndpoints
             return Results.Json(
                 ResponseEnvelope<NinaProfileDto>.Ok(dto),
                 NinaApiJsonContext.Default.ResponseEnvelopeNinaProfileDto);
+        });
+
+        // GET /v2/api/profile/switch?profileid= — set active profile
+        group.MapGet("/profile/switch", (string profileid, IHostedSession hosted) =>
+        {
+            if (!Guid.TryParse(profileid, out var guid))
+            {
+                return Results.Json(
+                    ResponseEnvelope<string>.Fail($"Invalid profile ID: {profileid}"),
+                    NinaApiJsonContext.Default.ResponseEnvelopeString);
+            }
+
+            hosted.SetActiveProfile(guid);
+            return Results.Json(
+                ResponseEnvelope<string>.Ok($"Switched to profile {guid}"),
+                NinaApiJsonContext.Default.ResponseEnvelopeString);
+        });
+
+        // GET /v2/api/profile/list-available — list profiles (alias for /v2/api/profile/show without ?active)
+        group.MapGet("/profile/list-available", (ICombinedDeviceManager deviceManager) =>
+        {
+            var profiles = deviceManager.RegisteredDevices(DeviceType.Profile)
+                .OfType<Profile>()
+                .Select(p => new { Id = p.ProfileId.ToString(), p.DisplayName })
+                .ToArray();
+
+            return Results.Json(
+                ResponseEnvelope<object>.Ok(profiles),
+                NinaApiJsonContext.Default.ResponseEnvelopeObject);
         });
 
         return group;
