@@ -1,4 +1,5 @@
 using System.Linq;
+using System.Threading;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -16,6 +17,22 @@ internal static class DeviceEndpoints
         // List discovered devices (excludes profiles)
         group.MapGet("/devices", (ICombinedDeviceManager deviceManager) =>
         {
+            var devices = deviceManager.RegisteredDeviceTypes
+                .Where(dt => dt is not DeviceType.Profile)
+                .SelectMany(dt => deviceManager.RegisteredDevices(dt))
+                .Select(d => $"{d.DeviceType}: {d.DisplayName} ({d.DeviceId})")
+                .ToArray();
+
+            return Results.Json(
+                ResponseEnvelope<string[]>.Ok(devices),
+                HostingJsonContext.Default.ResponseEnvelopeStringArray);
+        });
+
+        // Trigger device discovery
+        group.MapGet("/devices/discover", async (ICombinedDeviceManager deviceManager, CancellationToken ct) =>
+        {
+            await deviceManager.DiscoverAsync(ct);
+
             var devices = deviceManager.RegisteredDeviceTypes
                 .Where(dt => dt is not DeviceType.Profile)
                 .SelectMany(dt => deviceManager.RegisteredDevices(dt))
