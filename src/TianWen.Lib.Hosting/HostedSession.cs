@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Hosting;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.Lib.Hosting;
@@ -14,6 +14,14 @@ internal class HostedSession(ISessionFactory sessionFactory) : IHostedSession
     private CancellationTokenSource? _cts;
 
     public ISession? CurrentSession => Interlocked.CompareExchange(ref _session, null, null);
+
+    /// <summary>
+    /// Sets the active session (called when a session is created via the API or signal bus).
+    /// </summary>
+    internal void SetSession(ISession session)
+    {
+        Interlocked.Exchange(ref _session, session);
+    }
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
@@ -36,7 +44,7 @@ internal class HostedSession(ISessionFactory sessionFactory) : IHostedSession
 
         if (Interlocked.Exchange(ref _session, null) is { } session)
         {
-            // TODO: there's more to do here to gracefully stop a session
+            // TODO: graceful shutdown — park mount, warm cameras, close covers
             await session.DisposeAsync();
         }
     }

@@ -34,7 +34,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\TianWen.Lib\TianWen.Lib.csproj" />
+    <ProjectReference Include="..\TianWen.Lib.Hosting\TianWen.Lib.Hosting.csproj" />
     <ProjectReference Include="..\TianWen.Lib.Tests\TianWen.Lib.Tests.csproj" />
   </ItemGroup>
 
