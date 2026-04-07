@@ -541,10 +541,18 @@ namespace TianWen.UI.Abstractions
             {
                 if (appState.ActiveProfile is { } profile)
                 {
+                    var previousWeather = profile.Data?.Weather;
                     var updated = profile.WithData(sig.Data);
                     appState.ActiveProfile = updated;
                     appState.NeedsRedraw = true;
                     await updated.SaveAsync(external, cts.Token);
+
+                    // Refetch weather when the weather device URI changes (e.g. API key entered)
+                    if (sig.Data.Weather != previousWeather)
+                    {
+                        await FetchWeatherForecastAsync(cts.Token);
+                        appState.NeedsRedraw = true;
+                    }
                 }
             });
 

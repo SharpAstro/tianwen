@@ -423,6 +423,7 @@ public static class EquipmentActions
         {
             "builtinguiderdevice" => new BuiltInGuiderDevice(uri),
             "openmeteodevice" => new OpenMeteoDevice(uri),
+            "openweathermapdevice" => new OpenWeatherMapDevice(uri),
             "fakedevice" => new FakeDevice(uri),
             _ => null
         };

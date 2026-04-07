@@ -49,6 +49,7 @@ builder.Services
     .AddPHD2()
     .AddBuiltInGuider()
     .AddOpenMeteo()
+    .AddOpenWeatherMap()
     .AddDevices()
     .AddSessionFactory()
     .AddFitsViewer()

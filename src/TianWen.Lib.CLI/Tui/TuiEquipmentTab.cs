@@ -347,6 +347,9 @@ internal sealed class TuiEquipmentTab(
                 data.OTAs.Length > 1 ? $"Camera Settings ({ota.Name})" : "Camera Settings");
         }
 
+        // -- Weather device settings --
+        AddDeviceSettings(items, ref fieldIdx, data.Weather, "Weather Settings");
+
         // -- Guider/Guide camera device settings --
         AddDeviceSettings(items, ref fieldIdx, data.Guider, "Guider Settings");
         AddDeviceSettings(items, ref fieldIdx, data.GuiderCamera, "Guide Camera Settings");
@@ -512,6 +515,11 @@ internal sealed class TuiEquipmentTab(
 
     private static Uri? FindOriginalUri(ProfileData data, string uriKey)
     {
+        if (data.Weather is { } w && w.GetLeftPart(UriPartial.Path) == uriKey)
+        {
+            return w;
+        }
+
         if (data.Guider is { } g && g.GetLeftPart(UriPartial.Path) == uriKey)
         {
             return g;

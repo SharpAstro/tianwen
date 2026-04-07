@@ -16,6 +16,7 @@ public enum DeviceSettingKind
     IntStepper,
     FloatStepper,
     PercentStepper,
+    StringEditor,
 }
 
 /// <summary>
@@ -30,6 +31,8 @@ public enum DeviceSettingKind
 /// <param name="Increment">Returns a new URI with the value incremented (for steppers/cycles).</param>
 /// <param name="Decrement">Returns a new URI with the value decremented (for steppers). Null for toggles/cycles.</param>
 /// <param name="IsVisible">Optional predicate to conditionally hide this row (e.g. blend% only when neural=true).</param>
+/// <param name="Placeholder">Placeholder text for <see cref="DeviceSettingKind.StringEditor"/> fields.</param>
+/// <param name="Mask">When true, the displayed value is masked (e.g. for API keys). Only used by <see cref="DeviceSettingKind.StringEditor"/>.</param>
 public readonly record struct DeviceSettingDescriptor(
     string Key,
     string Label,
@@ -37,7 +40,9 @@ public readonly record struct DeviceSettingDescriptor(
     Func<Uri, string> FormatValue,
     Func<Uri, Uri> Increment,
     Func<Uri, Uri>? Decrement = null,
-    Func<Uri, bool>? IsVisible = null);
+    Func<Uri, bool>? IsVisible = null,
+    string? Placeholder = null,
+    bool Mask = false);
 
 public static class DeviceSettingHelper
 {
@@ -221,5 +226,34 @@ public static class DeviceSettingHelper
                 return WithQueryParam(uri, key, (newPct / 100.0).ToString(CultureInfo.InvariantCulture));
             },
             IsVisible: isVisible);
+    }
+
+    /// <summary>
+    /// Creates a <see cref="DeviceSettingDescriptor"/> for a free-text string stored as a query param.
+    /// The UI renders a text input field; <see cref="DeviceSettingDescriptor.Increment"/> and
+    /// <see cref="DeviceSettingDescriptor.Decrement"/> are no-ops (text is set directly by the UI).
+    /// </summary>
+    /// <param name="placeholder">Placeholder text shown when the value is empty.</param>
+    /// <param name="mask">When true, the displayed value is masked (e.g. for API keys).</param>
+    public static DeviceSettingDescriptor StringSetting(
+        string key, string label,
+        string defaultValue = "",
+        string? placeholder = null,
+        bool mask = false,
+        Func<Uri, bool>? isVisible = null)
+    {
+        return new DeviceSettingDescriptor(
+            key, label, DeviceSettingKind.StringEditor,
+            FormatValue: uri =>
+            {
+                var val = HttpUtility.ParseQueryString(uri.Query)[key];
+                return val ?? defaultValue;
+            },
+            // Increment/Decrement are no-ops — the UI sets the value directly via WithQueryParam
+            Increment: uri => uri,
+            Decrement: uri => uri,
+            IsVisible: isVisible,
+            Placeholder: placeholder,
+            Mask: mask);
     }
 }

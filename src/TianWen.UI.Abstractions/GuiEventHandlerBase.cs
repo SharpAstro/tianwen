@@ -18,6 +18,18 @@ namespace TianWen.UI.Abstractions
         private readonly BackgroundTaskTracker _tracker;
         private readonly AppSignalHandler _signalHandler;
 
+        /// <summary>
+        /// Platform-specific clipboard read callback (e.g. <c>SDL.GetClipboardText</c>).
+        /// Set by the host application. When null, paste is a no-op.
+        /// </summary>
+        public Func<string?>? GetClipboardText { get; set; }
+
+        /// <summary>
+        /// Platform-specific clipboard write callback (e.g. <c>SDL.SetClipboardText</c>).
+        /// Set by the host application. When null, copy is a no-op.
+        /// </summary>
+        public Action<string>? SetClipboardText { get; set; }
+
         public GuiEventHandlerBase(
             IServiceProvider sp,
             GuiAppState appState,
@@ -269,6 +281,29 @@ namespace TianWen.UI.Abstractions
             if (textKey.HasValue && activeInput.OnKeyOverride?.Invoke(textKey.Value) == true)
             {
                 _appState.NeedsRedraw = true;
+                return true;
+            }
+
+            // Handle Ctrl+V paste via platform clipboard
+            if (textKey == TextInputKey.Paste)
+            {
+                var clipboardText = GetClipboardText?.Invoke();
+                if (!string.IsNullOrEmpty(clipboardText))
+                {
+                    activeInput.InsertText(clipboardText);
+                    activeInput.OnTextChanged?.Invoke(activeInput.Text);
+                }
+                _appState.NeedsRedraw = true;
+                return true;
+            }
+
+            // Handle Ctrl+C copy via platform clipboard
+            if (textKey == TextInputKey.Copy)
+            {
+                if (activeInput.HasSelection)
+                {
+                    SetClipboardText?.Invoke(activeInput.Text[activeInput.SelectionStart..activeInput.SelectionEnd]);
+                }
                 return true;
             }
 

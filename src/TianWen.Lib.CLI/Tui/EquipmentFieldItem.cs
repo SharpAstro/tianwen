@@ -225,6 +225,9 @@ internal sealed class EquipmentFieldItem : IRowFormatter
         {
             DeviceSettingKind.BoolToggle => $"  [{value}]",
             DeviceSettingKind.EnumCycle => $"  [{value}]",
+            DeviceSettingKind.StringEditor => setting.Mask && value.Length > 0
+                ? $"  [{new string('*', Math.Min(value.Length, 8))}{value[Math.Max(0, value.Length - 4)..]}]"
+                : $"  [{(value.Length > 0 ? value : setting.Placeholder ?? "(empty)")}]",
             _ => $"  [\u2190] {value} [\u2192]",
         };
 

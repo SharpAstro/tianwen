@@ -33,6 +33,7 @@ services
     .AddPHD2()
     .AddBuiltInGuider()
     .AddOpenMeteo()
+    .AddOpenWeatherMap()
     .AddDevices()
     .AddSessionFactory()
     .AddFitsViewer()
@@ -86,6 +87,8 @@ var cts = new CancellationTokenSource();
 var tracker = new BackgroundTaskTracker();
 var lastWindowTitle = "\U0001F52D TianWen";
 var handlers = new GuiEventHandlers(sp, appState, plannerState, guiRenderer, cts, external, tracker);
+handlers.GetClipboardText = GetClipboardText;
+handlers.SetClipboardText = text => SetClipboardText(text);
 
 // Signal subscriptions — text input activation/deactivation via SDL
 bus.Subscribe<ActivateTextInputSignal>(sig =>

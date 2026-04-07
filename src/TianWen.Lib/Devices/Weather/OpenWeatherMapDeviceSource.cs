@@ -6,25 +6,25 @@ using System.Threading.Tasks;
 namespace TianWen.Lib.Devices.Weather;
 
 /// <summary>
-/// Device source for the built-in Open-Meteo weather service.
-/// Discovery checks reachability via HTTP HEAD; connect re-validates with a real API call.
-/// No API key needed.
+/// Device source for the OpenWeatherMap weather service.
+/// Discovery checks reachability via HTTP HEAD; connect re-validates with the actual API
+/// (including API key and version auto-detection).
 /// </summary>
-internal sealed class OpenMeteoDeviceSource : IDeviceSource<OpenMeteoDevice>
+internal sealed class OpenWeatherMapDeviceSource : IDeviceSource<OpenWeatherMapDevice>
 {
     private static readonly HttpClient s_httpClient = new HttpClient()
     {
         Timeout = System.TimeSpan.FromSeconds(5)
     };
 
-    private readonly OpenMeteoDevice _device = new OpenMeteoDevice();
+    private readonly OpenWeatherMapDevice _device = new OpenWeatherMapDevice();
     private bool _reachable;
 
     public async ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken = default)
     {
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Head, "https://api.open-meteo.com");
+            using var request = new HttpRequestMessage(HttpMethod.Head, "https://api.openweathermap.org");
             using var response = await s_httpClient.SendAsync(request, cancellationToken);
             _reachable = true;
         }
@@ -40,6 +40,6 @@ internal sealed class OpenMeteoDeviceSource : IDeviceSource<OpenMeteoDevice>
 
     public IEnumerable<DeviceType> RegisteredDeviceTypes { get; } = [DeviceType.Weather];
 
-    public IEnumerable<OpenMeteoDevice> RegisteredDevices(DeviceType deviceType)
+    public IEnumerable<OpenWeatherMapDevice> RegisteredDevices(DeviceType deviceType)
         => deviceType is DeviceType.Weather && _reachable ? [_device] : [];
 }

@@ -87,6 +87,12 @@ public class EquipmentTabState
     /// <summary>True when the editing URI differs from the saved URI.</summary>
     public bool DeviceSettingsDirty { get; set; }
 
+    /// <summary>Key of the string setting currently being edited, or null.</summary>
+    public string? EditingStringSettingKey { get; set; }
+
+    /// <summary>Text input state for the active <see cref="DeviceSettingKind.StringEditor"/> field.</summary>
+    public TextInputState StringSettingInput { get; } = new();
+
     /// <summary>
     /// Begins editing device settings for the given device URI.
     /// </summary>
