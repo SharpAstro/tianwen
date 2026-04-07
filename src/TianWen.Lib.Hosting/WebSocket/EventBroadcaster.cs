@@ -66,12 +66,14 @@ internal sealed class EventBroadcaster(
     {
         session.PhaseChanged += OnPhaseChanged;
         session.FrameWritten += OnFrameWritten;
+        session.PlateSolveCompleted += OnPlateSolveCompleted;
     }
 
     private void UnsubscribeFromSession(ISession session)
     {
         session.PhaseChanged -= OnPhaseChanged;
         session.FrameWritten -= OnFrameWritten;
+        session.PlateSolveCompleted -= OnPlateSolveCompleted;
     }
 
     private void OnPhaseChanged(object? sender, SessionPhaseChangedEventArgs e)
@@ -101,6 +103,26 @@ internal sealed class EventBroadcaster(
                 ["FrameNumber"] = entry.FrameNumber,
                 ["MedianHfd"] = entry.MedianHfd,
                 ["StarCount"] = entry.StarCount
+            }
+        });
+    }
+
+    private void OnPlateSolveCompleted(object? sender, PlateSolveCompletedEventArgs e)
+    {
+        var record = e.Record;
+        _ = BroadcastSafeAsync(new WebSocketEventDto
+        {
+            Event = "PLATE-SOLVE-COMPLETED",
+            Data = new Dictionary<string, object?>
+            {
+                ["Context"] = record.Context.ToString(),
+                ["OtaName"] = record.OtaName,
+                ["Succeeded"] = record.Succeeded,
+                ["SolvedRA"] = record.Solution?.CenterRA,
+                ["SolvedDec"] = record.Solution?.CenterDec,
+                ["ElapsedMs"] = record.Elapsed.TotalMilliseconds,
+                ["DetectedStars"] = record.DetectedStars,
+                ["MatchedStars"] = record.MatchedStars
             }
         });
     }
