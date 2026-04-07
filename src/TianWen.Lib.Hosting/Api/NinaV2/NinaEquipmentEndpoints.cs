@@ -26,6 +26,7 @@ internal static class NinaEquipmentEndpoints
         MapFilterWheelEndpoints(group);
         MapGuiderEndpoints(group);
         MapWeatherEndpoints(group);
+        MapDeviceLifecycleEndpoints(group);
         MapStubEndpoints(group);
 
         return group;
@@ -241,6 +242,72 @@ internal static class NinaEquipmentEndpoints
 
             return NinaOk($"Tracking set to {speed}");
         });
+
+        // GET /v2/api/equipment/mount/move-axis?direction=<N|S|E|W>&rate=<0-8>
+        // direction: N/S = Secondary (Dec), E/W = Primary (RA)
+        // rate: index into AxisRates array (0 = slowest guide rate)
+        group.MapGet("/mount/move-axis", async (IHostedSession hosted, string direction, int rate, CancellationToken ct) =>
+        {
+            if (hosted.CurrentSession is not { } session)
+            {
+                return NinaFail("No active session");
+            }
+
+            var mount = session.Setup.Mount.Driver;
+            if (!mount.Connected)
+            {
+                return NinaFail("Mount not connected");
+            }
+
+            var axis = direction is "N" or "S" ? TelescopeAxis.Seconary : TelescopeAxis.Primary;
+            if (!mount.CanMoveAxis(axis))
+            {
+                return NinaFail($"Mount cannot move {axis} axis");
+            }
+
+            var rates = mount.AxisRates(axis);
+            if (rate < 0 || rate >= rates.Count)
+            {
+                return NinaFail($"Rate index {rate} out of range (0-{rates.Count - 1})");
+            }
+
+            // Negative rate for S/W direction
+            var rateValue = rates[rate].Maximum;
+            if (direction is "S" or "W")
+            {
+                rateValue = -rateValue;
+            }
+
+            await mount.MoveAxisAsync(axis, rateValue, ct);
+            return NinaOk($"Moving {direction} at rate {rate}");
+        });
+
+        // GET /v2/api/equipment/mount/move-axis/stop
+        group.MapGet("/mount/move-axis/stop", async (IHostedSession hosted, CancellationToken ct) =>
+        {
+            if (hosted.CurrentSession is not { } session)
+            {
+                return NinaFail("No active session");
+            }
+
+            var mount = session.Setup.Mount.Driver;
+            if (!mount.Connected)
+            {
+                return NinaFail("Mount not connected");
+            }
+
+            // Stop both axes
+            if (mount.CanMoveAxis(TelescopeAxis.Primary))
+            {
+                await mount.MoveAxisAsync(TelescopeAxis.Primary, 0, ct);
+            }
+            if (mount.CanMoveAxis(TelescopeAxis.Seconary))
+            {
+                await mount.MoveAxisAsync(TelescopeAxis.Seconary, 0, ct);
+            }
+
+            return NinaOk("Axis motion stopped");
+        });
     }
 
     private static void MapFocuserEndpoints(RouteGroupBuilder group)
@@ -390,6 +457,50 @@ internal static class NinaEquipmentEndpoints
             await session.Setup.Guider.Driver.StopCaptureAsync(TimeSpan.FromSeconds(10), ct);
             return NinaOk("Guiding stopped");
         });
+
+        // GET /v2/api/equipment/guider/graph — guide error samples for the guiding graph
+        group.MapGet("/guider/graph", (IHostedSession hosted) =>
+        {
+            if (hosted.CurrentSession is not { } session)
+            {
+                return Results.Json(
+                    ResponseEnvelope<NinaGuideStepDto[]>.Ok([]),
+                    NinaApiJsonContext.Default.ResponseEnvelopeNinaGuideStepDtoArray);
+            }
+
+            var samples = session.GuideSamples;
+            var steps = new NinaGuideStepDto[samples.Length];
+            for (var i = 0; i < samples.Length; i++)
+            {
+                var s = samples[i];
+                steps[i] = new NinaGuideStepDto
+                {
+                    Timestamp = s.Timestamp.ToString("o"),
+                    RADistanceRawDisplay = s.RaError,
+                    DECDistanceRawDisplay = s.DecError,
+                    RADuration = s.RaCorrectionMs,
+                    DECDuration = s.DecCorrectionMs,
+                    Dither = s.IsDither,
+                    Settling = s.IsSettling,
+                };
+            }
+
+            return Results.Json(
+                ResponseEnvelope<NinaGuideStepDto[]>.Ok(steps),
+                NinaApiJsonContext.Default.ResponseEnvelopeNinaGuideStepDtoArray);
+        });
+
+        // GET /v2/api/equipment/guider/clear-calibration
+        group.MapGet("/guider/clear-calibration", async (IHostedSession hosted, CancellationToken ct) =>
+        {
+            if (hosted.CurrentSession is not { } session)
+            {
+                return NinaFail("No active session");
+            }
+
+            await session.Setup.Guider.Driver.ClearCalibrationAsync(ct);
+            return NinaOk("Calibration cleared");
+        });
     }
 
     private static void MapWeatherEndpoints(RouteGroupBuilder group)
@@ -406,6 +517,67 @@ internal static class NinaEquipmentEndpoints
                 ResponseEnvelope<NinaWeatherInfoDto>.Ok(dto),
                 NinaApiJsonContext.Default.ResponseEnvelopeNinaWeatherInfoDto);
         });
+    }
+
+    /// <summary>
+    /// Device lifecycle endpoints: list-devices, connect, disconnect, rescan.
+    /// In TianWen's model, devices are pre-connected via profile. These endpoints
+    /// return the current device as already-connected so TNS can proceed past its
+    /// device selection screen.
+    /// </summary>
+    private static void MapDeviceLifecycleEndpoints(RouteGroupBuilder group)
+    {
+        // For each device type, list-devices returns the currently active device (or empty).
+        // connect/disconnect are acknowledged but no-op (devices are managed by the session).
+        foreach (var device in new[] { "camera", "mount", "focuser", "filterwheel", "guider",
+                                       "rotator", "flatdevice", "dome", "switch", "weather", "safetymonitor" })
+        {
+            group.MapGet($"/{device}/list-devices", (IHostedSession hosted) =>
+            {
+                var name = GetDeviceName(hosted, device);
+                var devices = name is not null
+                    ? new[] { new { Id = name, DisplayName = name } }
+                    : Array.Empty<object>();
+
+                return Results.Json(
+                    ResponseEnvelope<object>.Ok(devices),
+                    NinaApiJsonContext.Default.ResponseEnvelopeObject);
+            });
+
+            group.MapGet($"/{device}/rescan", (IHostedSession hosted) =>
+            {
+                var name = GetDeviceName(hosted, device);
+                var devices = name is not null
+                    ? new[] { new { Id = name, DisplayName = name } }
+                    : Array.Empty<object>();
+
+                return Results.Json(
+                    ResponseEnvelope<object>.Ok(devices),
+                    NinaApiJsonContext.Default.ResponseEnvelopeObject);
+            });
+
+            group.MapGet($"/{device}/connect", () => NinaOk("Connected"));
+            group.MapGet($"/{device}/disconnect", () => NinaOk("Disconnected"));
+        }
+    }
+
+    private static string? GetDeviceName(IHostedSession hosted, string device)
+    {
+        if (hosted.CurrentSession is not { } session)
+        {
+            return null;
+        }
+
+        return device switch
+        {
+            "camera" when session.Setup.Telescopes.Length > 0 => session.Setup.Telescopes[0].Camera.Driver.Name,
+            "mount" => session.Setup.Mount.Driver.Name,
+            "focuser" when session.Setup.Telescopes.Length > 0 => session.Setup.Telescopes[0].Focuser?.Driver.Name,
+            "filterwheel" when session.Setup.Telescopes.Length > 0 => session.Setup.Telescopes[0].FilterWheel?.Driver.Name,
+            "guider" => session.Setup.Guider.Driver.Name,
+            "weather" => session.Setup.Weather?.Driver.Name,
+            _ => null,
+        };
     }
 
     /// <summary>
