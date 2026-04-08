@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Specialized;
 using System.Text;
+using TianWen.Lib;
 using TianWen.Lib.Connections;
 
 namespace TianWen.Lib.Devices.IOptron;
@@ -15,9 +16,9 @@ public record IOptronDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         // calls primary constructor
     }
 
-    protected override IDeviceDriver? NewInstanceFromDevice(IExternal external) => DeviceType switch
+    protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
     {
-        DeviceType.Mount => new SgpMountDriver(this, external),
+        DeviceType.Mount => new SgpMountDriver(this, sp.External),
         _ => null
     };
 

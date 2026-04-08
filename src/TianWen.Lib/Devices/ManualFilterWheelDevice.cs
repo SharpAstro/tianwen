@@ -1,5 +1,6 @@
 using System;
 using System.Web;
+using TianWen.Lib;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Devices;
@@ -25,9 +26,9 @@ public record class ManualFilterWheelDevice(Uri DeviceUri) : DeviceBase(DeviceUr
     {
     }
 
-    protected override IDeviceDriver? NewInstanceFromDevice(IExternal external) => DeviceType switch
+    protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
     {
-        DeviceType.FilterWheel => new ManualFilterWheelDriver(this, external),
+        DeviceType.FilterWheel => new ManualFilterWheelDriver(this, sp.External),
         _ => null
     };
 

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
@@ -14,7 +15,8 @@ public class ManualFilterWheelTests(ITestOutputHelper output)
     {
         var device = new ManualFilterWheelDevice(Filter.HydrogenAlphaOxygenIII);
         var external = new FakeExternal(output);
-        device.TryInstantiateDriver<IFilterWheelDriver>(external, out var driver).ShouldBeTrue();
+        var sp = new ServiceCollection().AddSingleton<IExternal>(external).BuildServiceProvider();
+        device.TryInstantiateDriver<IFilterWheelDriver>(sp, out var driver).ShouldBeTrue();
 
         await ((IDeviceDriver)driver!).ConnectAsync(TestContext.Current.CancellationToken);
 
@@ -29,7 +31,8 @@ public class ManualFilterWheelTests(ITestOutputHelper output)
     {
         var device = new ManualFilterWheelDevice(Filter.Red);
         var external = new FakeExternal(output);
-        device.TryInstantiateDriver<IFilterWheelDriver>(external, out var driver).ShouldBeTrue();
+        var sp = new ServiceCollection().AddSingleton<IExternal>(external).BuildServiceProvider();
+        device.TryInstantiateDriver<IFilterWheelDriver>(sp, out var driver).ShouldBeTrue();
 
         await ((IDeviceDriver)driver!).ConnectAsync(TestContext.Current.CancellationToken);
 
@@ -46,7 +49,8 @@ public class ManualFilterWheelTests(ITestOutputHelper output)
     {
         var device = new ManualFilterWheelDevice(Filter.Luminance);
         var external = new FakeExternal(output);
-        device.TryInstantiateDriver<IFilterWheelDriver>(external, out var driver).ShouldBeTrue();
+        var sp = new ServiceCollection().AddSingleton<IExternal>(external).BuildServiceProvider();
+        device.TryInstantiateDriver<IFilterWheelDriver>(sp, out var driver).ShouldBeTrue();
 
         await ((IDeviceDriver)driver!).ConnectAsync(TestContext.Current.CancellationToken);
 

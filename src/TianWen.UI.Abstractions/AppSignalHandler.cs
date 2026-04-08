@@ -192,7 +192,7 @@ namespace TianWen.UI.Abstractions
             try
             {
                 var device = EquipmentActions.TryDeviceFromUri(weatherUri);
-                if (device is null || !device.TryInstantiateDriver<IWeatherDriver>(_external, out var weatherDriver))
+                if (device is null || !device.TryInstantiateDriver<IWeatherDriver>(_sp, out var weatherDriver))
                 {
                     _plannerState.WeatherForecast = null;
                     return;

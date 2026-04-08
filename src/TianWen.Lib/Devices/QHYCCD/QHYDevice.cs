@@ -1,4 +1,5 @@
 using System;
+using TianWen.Lib;
 
 namespace TianWen.Lib.Devices.QHYCCD;
 
@@ -10,15 +11,15 @@ public record class QHYDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         // calls primary constructor
     }
 
-    protected override IDeviceDriver? NewInstanceFromDevice(IExternal external) => DeviceType switch
+    protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
     {
-        DeviceType.Camera => new QHYCameraDriver(this, external),
+        DeviceType.Camera => new QHYCameraDriver(this, sp.External),
         // Serial port in URI → standalone USB CFW; otherwise → camera-cable CFW
         DeviceType.FilterWheel => Query.QueryValue(DeviceQueryKey.Port) is { Length: > 0 }
-            ? new QHYSerialControlledFilterWheelDriver(this, external)
-            : new QHYCameraControlledFilterWheelDriver(this, external),
+            ? new QHYSerialControlledFilterWheelDriver(this, sp.External)
+            : new QHYCameraControlledFilterWheelDriver(this, sp.External),
         // QFOC focuser — always serial
-        DeviceType.Focuser => new QHYFocuserDriver(this, external),
+        DeviceType.Focuser => new QHYFocuserDriver(this, sp.External),
         _ => null
     };
 }

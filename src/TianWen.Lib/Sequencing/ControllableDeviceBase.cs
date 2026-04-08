@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Microsoft.Extensions.DependencyInjection;
+using System;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
 
@@ -10,7 +11,10 @@ public abstract record ControllableDeviceBase<TDriver> : IAsyncDisposable
     public ControllableDeviceBase(DeviceBase device, IExternal external)
     {
         Device = device;
-        if (device.TryInstantiateDriver<TDriver>(external, out var driver))
+        var sp = new ServiceCollection()
+            .AddSingleton<IExternal>(external)
+            .BuildServiceProvider();
+        if (device.TryInstantiateDriver<TDriver>(sp, out var driver))
         {
             (Driver = driver).DeviceConnectedEvent += Driver_DeviceConnectedEvent;
         }

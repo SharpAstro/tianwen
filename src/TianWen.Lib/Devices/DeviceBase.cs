@@ -69,10 +69,10 @@ public abstract record class DeviceBase(Uri DeviceUri)
         return stringBuilder.ToString();
     }
 
-    public virtual bool TryInstantiateDriver<TDeviceDriver>(IExternal external, [NotNullWhen(true)] out TDeviceDriver? driver)
+    public virtual bool TryInstantiateDriver<TDeviceDriver>(IServiceProvider sp, [NotNullWhen(true)] out TDeviceDriver? driver)
         where TDeviceDriver : IDeviceDriver
     {
-        if (NewInstanceFromDevice(external) is TDeviceDriver asT)
+        if (NewInstanceFromDevice(sp) is TDeviceDriver asT)
         {
             driver = asT;
             return true;
@@ -84,7 +84,7 @@ public abstract record class DeviceBase(Uri DeviceUri)
         }
     }
 
-    protected virtual IDeviceDriver? NewInstanceFromDevice(IExternal external) => null;
+    protected virtual IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => null;
 
     public virtual ISerialConnection? ConnectSerialDevice(IExternal external, int baud = 9600, Encoding? encoding = null)
     {

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Specialized;
+using TianWen.Lib;
 
 namespace TianWen.Lib.Devices.Meade;
 
@@ -11,9 +12,9 @@ public record MeadeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         // calls primary constructor
     }
 
-    protected override IDeviceDriver? NewInstanceFromDevice(IExternal external) => DeviceType switch
+    protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
     {
-        DeviceType.Mount => new MeadeLX200ProtocolMountDriver(this, external),
+        DeviceType.Mount => new MeadeLX200ProtocolMountDriver(this, sp.External),
         _ => null
     };
 }

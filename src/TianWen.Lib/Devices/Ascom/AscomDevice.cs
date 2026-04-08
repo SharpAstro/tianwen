@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Runtime.Versioning;
+using TianWen.Lib;
 
 namespace TianWen.Lib.Devices.Ascom;
 
@@ -11,8 +12,8 @@ public record class AscomDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         // calls primary constructor
     }
 
-    protected override IDeviceDriver? NewInstanceFromDevice(IExternal external) =>
-        OperatingSystem.IsWindows() ? InstantiateAscomDriver(external) : null;
+    protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) =>
+        OperatingSystem.IsWindows() ? InstantiateAscomDriver(sp.External) : null;
 
     [SupportedOSPlatform("Windows")]
     private IDeviceDriver? InstantiateAscomDriver(IExternal external) =>

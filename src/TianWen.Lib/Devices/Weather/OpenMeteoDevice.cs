@@ -1,4 +1,5 @@
 using System;
+using TianWen.Lib;
 
 namespace TianWen.Lib.Devices.Weather;
 
@@ -16,9 +17,9 @@ public record class OpenMeteoDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
     {
     }
 
-    protected override IDeviceDriver? NewInstanceFromDevice(IExternal external) => DeviceType switch
+    protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
     {
-        DeviceType.Weather => new OpenMeteoDriver(this, external),
+        DeviceType.Weather => new OpenMeteoDriver(this, sp.External),
         _ => null
     };
 }
