@@ -117,8 +117,10 @@ bus.Subscribe<DeactivateTextInputSignal>(_ =>
 // BuildScheduleSignal is now handled inside AppSignalHandler — no host-level subscription needed
 
 // Load saved session configuration + initialize planner (shared logic in AppSignalHandler)
+// Separate CTS for non-session background tasks — cancelled on quit without affecting running sessions.
+var backgroundCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
 var signalHandler = handlers.SignalHandler;
-tracker.Run(() => signalHandler.LoadSessionConfigAsync(cts.Token), "Load session config");
+tracker.Run(() => signalHandler.LoadSessionConfigAsync(backgroundCts.Token), "Load session config");
 
 if (appState.ActiveProfile is not null)
 {
@@ -126,7 +128,7 @@ if (appState.ActiveProfile is not null)
     if (transform is not null)
     {
         AppSignalHandler.ApplySiteFromTransform(plannerState, transform);
-        tracker.Run(() => signalHandler.InitializePlannerAsync(transform, cts.Token), "Compute tonight's best targets");
+        tracker.Run(() => signalHandler.InitializePlannerAsync(transform, backgroundCts.Token), "Compute tonight's best targets");
     }
     else
     {
@@ -241,6 +243,9 @@ void RequestQuit()
     {
         sessionCts2.Cancel();
     }
+
+    // Cancel non-session background tasks (planner init, weather fetch) immediately
+    backgroundCts.Cancel();
 
     if (tracker.HasPending)
     {
