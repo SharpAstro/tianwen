@@ -15,6 +15,9 @@ public enum GuiTab
 
 public class GuiAppState
 {
+    /// <summary>Device URI registry for resolving camera URIs to device instances.</summary>
+    public IDeviceUriRegistry? DeviceUriRegistry { get; init; }
+
     public GuiTab ActiveTab { get; set; } = GuiTab.Planner;
     public Profile? ActiveProfile { get; set; }
     public bool NeedsRedraw { get; set; } = true;

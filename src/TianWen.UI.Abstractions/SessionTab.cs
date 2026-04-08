@@ -91,7 +91,7 @@ namespace TianWen.UI.Abstractions
             // Reinitialize per-OTA settings when the profile changes
             if (State.NeedsReinitialization(appState.ActiveProfile))
             {
-                State.InitializeFromProfile(appState.ActiveProfile);
+                State.InitializeFromProfile(appState.ActiveProfile, appState.DeviceUriRegistry);
             }
 
             var layout = new PixelLayout(contentRect);
@@ -390,13 +390,24 @@ namespace TianWen.UI.Abstractions
 
                 if (cam.UsesGainMode && cam.GainModes.Count > 0)
                 {
-                    // Mode camera: cycle through named modes
+                    // Mode camera: ◀ label ▶
                     var modeName = cam.Gain >= 0 && cam.Gain < cam.GainModes.Count
                         ? cam.GainModes[cam.Gain]
                         : $"Mode {cam.Gain}";
-                    var cycleBtnW = 120f * dpiScale;
-                    RenderButton($"{modeName} \u25B6", controlX, cursor, cycleBtnW, itemH, fontPath, fontSize * 0.9f,
-                        CycleBg, BodyText, $"Cycle:Gain:{i}",
+                    RenderButton("\u25C0", controlX, cursor, stepperBtnW, itemH, fontPath, fontSize,
+                        StepperBg, BodyText, $"Dec:Gain:{i}",
+                        _ =>
+                        {
+                            var c = State.CameraSettings[capturedI];
+                            c.Gain = (c.Gain - 1 + c.GainModes.Count) % c.GainModes.Count;
+                            State.IsDirty = true;
+                            State.NeedsRedraw = true;
+                        });
+                    DrawText(modeName, fontPath,
+                        controlX + stepperBtnW, cursor, valueW, itemH,
+                        fontSize * 0.9f, BodyText, TextAlign.Center, TextAlign.Center);
+                    RenderButton("\u25B6", controlX + stepperBtnW + valueW, cursor, stepperBtnW, itemH, fontPath, fontSize,
+                        StepperBg, BodyText, $"Inc:Gain:{i}",
                         _ =>
                         {
                             var c = State.CameraSettings[capturedI];

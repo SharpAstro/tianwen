@@ -38,10 +38,17 @@ internal class CombinedDeviceManager(IExternal external, IEnumerable<IDeviceSour
             cancellationToken,
             async (deviceSource, cancellationToken) =>
             {
-                var map = new DeviceMap<DeviceBase>(deviceSource);
-                if (await map.CheckSupportAsync(cancellationToken))
+                try
                 {
-                    deviceMaps.Add(map);
+                    var map = new DeviceMap<DeviceBase>(deviceSource);
+                    if (await map.CheckSupportAsync(cancellationToken))
+                    {
+                        deviceMaps.Add(map);
+                    }
+                }
+                catch (Exception e)
+                {
+                    external.AppLogger.LogError(e, "Error while checking support for {DeviceSource}", deviceSource.GetType().Name);
                 }
             }
         );

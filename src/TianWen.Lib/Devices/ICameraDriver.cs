@@ -34,6 +34,13 @@ public interface ICameraDriver : IDeviceDriver
     bool CanPulseGuide { get; }
 
     /// <summary>
+    /// True if the camera supports mirror lockup (MLU) control.
+    /// When supported, <see cref="GetMirrorLockupAsync"/> and <see cref="SetMirrorLockupAsync"/>
+    /// can be used to read/write the setting. Primarily relevant for Canon DSLRs.
+    /// </summary>
+    bool CanMirrorLockup => false;
+
+    /// <summary>
     /// True if <see cref="Gain"/> value is supported. Exclusive with <see cref="UsesGainMode"/>.
     /// </summary>
     bool UsesGainValue { get; }
@@ -241,6 +248,18 @@ public interface ICameraDriver : IDeviceDriver
     ValueTask SetSetCCDTemperatureAsync(double value, CancellationToken cancellationToken = default);
 
     ValueTask<bool> GetIsPulseGuidingAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Returns whether mirror lockup is currently enabled.
+    /// Only call when <see cref="CanMirrorLockup"/> is <see langword="true"/>.
+    /// </summary>
+    ValueTask<bool> GetMirrorLockupAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(false);
+
+    /// <summary>
+    /// Enables or disables mirror lockup. Equivalent to the camera menu setting.
+    /// Only call when <see cref="CanMirrorLockup"/> is <see langword="true"/>.
+    /// </summary>
+    ValueTask SetMirrorLockupAsync(bool value, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
 
     ValueTask<DateTimeOffset> StartExposureAsync(TimeSpan duration, FrameType frameType = FrameType.Light, CancellationToken cancellationToken = default);
 

@@ -1,5 +1,6 @@
 using Console.Lib;
 using DIR.Lib;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System.CommandLine;
 using TianWen.Lib.CLI.Tui;
@@ -66,10 +67,11 @@ internal class TuiSubCommand(
         var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
         // Shared state
-        var appState = new GuiAppState { ActiveProfile = profile, ActiveTab = GuiTab.Equipment };
+        var registry = sp.GetService<IDeviceUriRegistry>();
+        var appState = new GuiAppState { ActiveProfile = profile, ActiveTab = GuiTab.Equipment, DeviceUriRegistry = registry };
         var eqState = new EquipmentTabState();
         var sessionState = new SessionTabState();
-        sessionState.InitializeFromProfile(profile);
+        sessionState.InitializeFromProfile(profile, registry);
         var bus = new SignalBus();
         var tracker = new BackgroundTaskTracker();
         var liveSessionState = new LiveSessionState();

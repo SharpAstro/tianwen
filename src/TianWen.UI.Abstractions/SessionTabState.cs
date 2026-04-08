@@ -144,10 +144,11 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
+        /// <summary>
         /// Initializes <see cref="CameraSettings"/> from the active profile's OTAs.
         /// Computes default gain and exposure from f-ratio.
         /// </summary>
-        public void InitializeFromProfile(Profile? profile)
+        public void InitializeFromProfile(Profile? profile, IDeviceUriRegistry? registry = null)
         {
             CameraSettings.Clear();
 
@@ -180,6 +181,15 @@ namespace TianWen.UI.Abstractions
                     }
                 }
 
+                // Resolve gain modes from device registry (e.g. Canon ISO)
+                IReadOnlyList<string> gainModes = [];
+                if (ota.Camera is { } camUri && registry is not null
+                    && registry.TryGetDeviceFromUri(camUri, out var device)
+                    && device is IDeviceWithGainModes withGain)
+                {
+                    gainModes = withGain.GainModes;
+                }
+
                 CameraSettings.Add(new PerOtaCameraSettings
                 {
                     OtaName = ota.Name,
@@ -188,6 +198,8 @@ namespace TianWen.UI.Abstractions
                     Gain = gain,
                     Offset = offset,
                     SetpointTempC = -10,
+                    UsesGainMode = gainModes.Count > 0,
+                    GainModes = gainModes,
                 });
             }
         }
@@ -373,5 +385,6 @@ namespace TianWen.UI.Abstractions
             var span = end < 0 ? query.AsSpan(start) : query.AsSpan(start, end - start);
             return int.TryParse(span, out value);
         }
+
     }
 }

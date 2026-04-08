@@ -32,7 +32,7 @@ public static class SessionPersistence
     /// Per-OTA camera settings are only restored if the camera URI matches (prevents applying
     /// gain/offset/setpoint from a different camera).
     /// </summary>
-    public static async Task<bool> TryLoadAsync(SessionTabState state, Profile? profile, IExternal external, CancellationToken ct)
+    public static async Task<bool> TryLoadAsync(SessionTabState state, Profile? profile, IExternal external, CancellationToken ct, IDeviceUriRegistry? registry = null)
     {
         if (profile is null)
         {
@@ -40,7 +40,7 @@ public static class SessionPersistence
         }
 
         // Ensure per-OTA camera settings are populated before restoring saved values
-        state.InitializeFromProfile(profile);
+        state.InitializeFromProfile(profile, registry);
 
         var dto = await external.TryReadJsonAsync(
             GetSessionFilePath(profile, external),

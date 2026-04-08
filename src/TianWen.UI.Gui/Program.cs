@@ -38,7 +38,7 @@ services
     .AddDevices()
     .AddSessionFactory()
     .AddFitsViewer()
-    .AddSingleton<GuiAppState>();
+    .AddSingleton(sp => new GuiAppState { DeviceUriRegistry = sp.GetService<IDeviceUriRegistry>() });
 
 var sp = services.BuildServiceProvider();
 var appState = sp.GetRequiredService<GuiAppState>();
