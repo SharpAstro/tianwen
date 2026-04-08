@@ -1,4 +1,5 @@
 ﻿using Meziantou.Extensions.Logging.Xunit.v3;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using System;
@@ -127,4 +128,13 @@ public class FakeExternal : IExternal
     public IReadOnlyList<string> EnumerateAvailableSerialPorts(ResourceLock resourceLock) => [];
 
     public ValueTask<ResourceLock> WaitForSerialPortEnumerationAsync(CancellationToken cancellationToken) => ValueTask.FromResult(ResourceLock.AlwaysUnlocked);
+
+    /// <summary>
+    /// Builds a minimal <see cref="IServiceProvider"/> that resolves <see cref="IExternal"/> to this instance.
+    /// Use when constructing <see cref="TianWen.Lib.Sequencing.ControllableDeviceBase{TDriver}"/> subclasses in tests.
+    /// </summary>
+    public IServiceProvider BuildServiceProvider() =>
+        new ServiceCollection()
+            .AddSingleton<IExternal>(this)
+            .BuildServiceProvider();
 }

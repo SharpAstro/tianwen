@@ -9,24 +9,7 @@ internal class DeviceUriRegistry(IServiceProvider serviceProvider) : IDeviceUriR
 {
     public bool TryGetDeviceFromUri(Uri uri, [NotNullWhen(true)] out DeviceBase? device)
     {
-        // Prefer discovered devices — they carry runtime state (e.g. CanonCameraFactory via DI)
-        try
-        {
-            if (serviceProvider.GetService<ICombinedDeviceManager>() is { } deviceManager)
-            {
-                var deviceId = string.Concat(uri.Segments[1..]);
-                if (deviceManager.TryFindByDeviceId(deviceId, out device))
-                {
-                    return true;
-                }
-            }
-        }
-        catch (InvalidOperationException ex)
-        {
-            serviceProvider.GetService<IExternal>()?.AppLogger.LogDebug(ex, "Could not resolve ICombinedDeviceManager for device lookup");
-        }
-
-        // Fall back to creating a new device from the URI factory
+        // Create device from URI factory — preserves all query params (API keys, settings, etc.)
         var func = serviceProvider.GetKeyedService<Func<Uri, DeviceBase>>(uri.Host.ToLowerInvariant());
 
         if (func is not null)

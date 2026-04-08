@@ -208,13 +208,14 @@ public class SessionLifecycleTests(ITestOutputHelper output)
     private async Task<(Session Session, FakeExternal External, FakeCoverDriver Cover)> CreateSessionWithCoverAsync(CancellationToken ct)
     {
         var external = new FakeExternal(output, now: WinterNight);
+        var sp = external.BuildServiceProvider();
         var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
         var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
         var coverDevice = new FakeDevice(DeviceType.CoverCalibrator, 1);
 
-        var camera = new Camera(cameraDevice, external);
-        var focuser = new Focuser(focuserDevice, external);
-        var cover = new Cover(coverDevice, external);
+        var camera = new Camera(cameraDevice, sp);
+        var focuser = new Focuser(focuserDevice, sp);
+        var cover = new Cover(coverDevice, sp);
 
         await camera.Driver.ConnectAsync(ct);
         await focuser.Driver.ConnectAsync(ct);
@@ -236,8 +237,8 @@ public class SessionLifecycleTests(ITestOutputHelper output)
                 { "longitude", "16.3" }
             });
         var guiderDevice = new FakeDevice(DeviceType.Guider, 1);
-        var mount = new Mount(mountDevice, external);
-        var guider = new Guider(guiderDevice, external);
+        var mount = new Mount(mountDevice, sp);
+        var guider = new Guider(guiderDevice, sp);
 
         await mount.Driver.ConnectAsync(ct);
         await guider.Driver.ConnectAsync(ct);
@@ -429,10 +430,11 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
         // Use fresh session — RunAsync handles all setup internally
         var external = new FakeExternal(output, now: WinterNight);
+        var sp = external.BuildServiceProvider();
         var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
         var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
-        var camera = new Camera(cameraDevice, external);
-        var focuser = new Focuser(focuserDevice, external);
+        var camera = new Camera(cameraDevice, sp);
+        var focuser = new Focuser(focuserDevice, sp);
 
         await camera.Driver.ConnectAsync(ct);
         await focuser.Driver.ConnectAsync(ct);
@@ -456,8 +458,8 @@ public class SessionLifecycleTests(ITestOutputHelper output)
                 { "longitude", "16.3" }
             });
         var guiderDevice = new FakeDevice(DeviceType.Guider, 1);
-        var mount = new Mount(mountDevice, external);
-        var guider = new Guider(guiderDevice, external);
+        var mount = new Mount(mountDevice, sp);
+        var guider = new Guider(guiderDevice, sp);
 
         var setup = new Setup(mount, guider, new GuiderSetup(), [ota]);
         var plateSolver = new FakePlateSolver();

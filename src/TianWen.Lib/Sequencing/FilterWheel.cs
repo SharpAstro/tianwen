@@ -1,8 +1,9 @@
-﻿using TianWen.Lib.Devices;
+﻿using System;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Sequencing;
 
-public record FilterWheel(DeviceBase Device, IExternal External) : ControllableDeviceBase<IFilterWheelDriver>(Device, External)
+public record FilterWheel(DeviceBase Device, IServiceProvider ServiceProvider) : ControllableDeviceBase<IFilterWheelDriver>(Device, ServiceProvider)
 {
     protected override void Driver_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
     {

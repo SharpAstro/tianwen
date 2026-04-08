@@ -25,6 +25,9 @@ namespace TianWen.UI.Abstractions
         /// <summary>f-ratio computed from focal length / aperture. NaN if aperture unknown.</summary>
         public double FRatio => Aperture is > 0 ? (double)FocalLength / Aperture.Value : double.NaN;
 
+        /// <summary>Whether this camera supports CCD cooling. False for DSLRs.</summary>
+        public bool HasCooling { get; init; } = true;
+
         /// <summary>CCD cooling setpoint in °C for this session. Derived from profile default.</summary>
         public sbyte SetpointTempC { get; set; } = -10;
 
@@ -181,13 +184,20 @@ namespace TianWen.UI.Abstractions
                     }
                 }
 
-                // Resolve gain modes from device registry (e.g. Canon ISO)
+                // Resolve camera capabilities from device registry
                 IReadOnlyList<string> gainModes = [];
+                var hasCooling = true;
                 if (ota.Camera is { } camUri && registry is not null
-                    && registry.TryGetDeviceFromUri(camUri, out var device)
-                    && device is IDeviceWithGainModes withGain)
+                    && registry.TryGetDeviceFromUri(camUri, out var device))
                 {
-                    gainModes = withGain.GainModes;
+                    if (device is IDeviceWithGainModes withGain)
+                    {
+                        gainModes = withGain.GainModes;
+                    }
+                    if (device is IUncooledCamera)
+                    {
+                        hasCooling = false;
+                    }
                 }
 
                 CameraSettings.Add(new PerOtaCameraSettings
@@ -198,6 +208,7 @@ namespace TianWen.UI.Abstractions
                     Gain = gain,
                     Offset = offset,
                     SetpointTempC = -10,
+                    HasCooling = hasCooling,
                     UsesGainMode = gainModes.Count > 0,
                     GainModes = gainModes,
                 });

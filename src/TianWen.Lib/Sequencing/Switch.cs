@@ -1,8 +1,9 @@
-﻿using TianWen.Lib.Devices;
+﻿using System;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Sequencing;
 
-public record Switch(DeviceBase Device, IExternal External) : ControllableDeviceBase<ISwitchDriver>(Device, External)
+public record Switch(DeviceBase Device, IServiceProvider ServiceProvider) : ControllableDeviceBase<ISwitchDriver>(Device, ServiceProvider)
 {
     protected override void Driver_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e)
     {

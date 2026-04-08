@@ -13,7 +13,8 @@ internal class SessionFactory(
     IDeviceUriRegistry deviceUriRegistry,
     ICombinedDeviceManager deviceManager,
     IExternal external,
-    IPlateSolverFactory plateSolverFactory
+    IPlateSolverFactory plateSolverFactory,
+    IServiceProvider serviceProvider
 ) : ISessionFactory
 {
     public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
@@ -61,10 +62,10 @@ internal class SessionFactory(
         {
             var otaData = profileData.OTAs[i];
 
-            var camera = new Camera(DeviceFromUri(otaData.Camera, i), external);
-            var cover = otaData.Cover is { } coverUri ? new Cover(DeviceFromUri(coverUri, i), external) : null;
-            var focuser = otaData.Focuser is { } focuserUri ? new Focuser(DeviceFromUri(focuserUri, i), external) : null;
-            var filterWheel = otaData.FilterWheel is { } filterWheelUri ? new FilterWheel(DeviceFromUri(filterWheelUri, i), external) : null;
+            var camera = new Camera(DeviceFromUri(otaData.Camera, i), serviceProvider);
+            var cover = otaData.Cover is { } coverUri ? new Cover(DeviceFromUri(coverUri, i), serviceProvider) : null;
+            var focuser = otaData.Focuser is { } focuserUri ? new Focuser(DeviceFromUri(focuserUri, i), serviceProvider) : null;
+            var filterWheel = otaData.FilterWheel is { } filterWheelUri ? new FilterWheel(DeviceFromUri(filterWheelUri, i), serviceProvider) : null;
 
             var focusDirection = new FocusDirection(otaData.PreferOutwardFocus ?? true, otaData.OutwardIsPositive ?? true);
             var ota = new OTA(otaData.Name, otaData.FocalLength, camera, cover, focuser, focusDirection, filterWheel, Switches: null, otaData.Aperture, otaData.OpticalDesign);
@@ -76,10 +77,10 @@ internal class SessionFactory(
             }
         }
 
-        var mount = new Mount(DeviceFromUri(profileData.Mount), external);
-        var guider = new Guider(DeviceFromUri(profileData.Guider), external);
-        var guiderCamera = profileData.GuiderCamera is { } guiderCameraUri ? new Camera(DeviceFromUri(guiderCameraUri), external) : null;
-        var guiderFocuser = profileData.GuiderFocuser is { } guiderFocuserUri ? new Focuser(DeviceFromUri(guiderFocuserUri), external) : null;
+        var mount = new Mount(DeviceFromUri(profileData.Mount), serviceProvider);
+        var guider = new Guider(DeviceFromUri(profileData.Guider), serviceProvider);
+        var guiderCamera = profileData.GuiderCamera is { } guiderCameraUri ? new Camera(DeviceFromUri(guiderCameraUri), serviceProvider) : null;
+        var guiderFocuser = profileData.GuiderFocuser is { } guiderFocuserUri ? new Focuser(DeviceFromUri(guiderFocuserUri), serviceProvider) : null;
 
         // Wire mount and camera into guiders that need device access.
         if (guider.Driver is IDeviceDependentGuider deviceDependentGuider)
@@ -89,7 +90,7 @@ internal class SessionFactory(
 
         var guiderSetup = new GuiderSetup(guiderCamera, guiderFocuser, guiderIsOAGOfOTA, profileData.GuiderFocalLength);
 
-        var weather = profileData.Weather is { } weatherUri ? new Weather(DeviceFromUri(weatherUri), external) : null;
+        var weather = profileData.Weather is { } weatherUri ? new Weather(DeviceFromUri(weatherUri), serviceProvider) : null;
 
         var setup = new Setup(mount, guider, guiderSetup, [.. otas], weather);
 
