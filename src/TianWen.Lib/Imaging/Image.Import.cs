@@ -1,6 +1,7 @@
 using ImageMagick;
 using System;
 using System.Diagnostics.CodeAnalysis;
+using System.IO;
 
 namespace TianWen.Lib.Imaging;
 
@@ -14,7 +15,14 @@ public partial class Image
     {
         try
         {
-            using var magick = new MagickImage(fileName);
+            // CR2/CR3 require an explicit format hint — otherwise ImageMagick interprets them as TIFF
+            var settings = Path.GetExtension(fileName).ToLowerInvariant() switch
+            {
+                ".cr2" => new MagickReadSettings { Format = MagickFormat.Cr2 },
+                ".cr3" => new MagickReadSettings { Format = MagickFormat.Cr3 },
+                _ => null
+            };
+            using var magick = settings is not null ? new MagickImage(fileName, settings) : new MagickImage(fileName);
             var width = (int)magick.Width;
             var height = (int)magick.Height;
             var depth = (int)magick.Depth;
