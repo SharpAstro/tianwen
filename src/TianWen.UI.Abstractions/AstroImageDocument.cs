@@ -22,7 +22,7 @@ namespace TianWen.UI.Abstractions;
 public sealed class AstroImageDocument
 {
     /// <summary>Supported file extensions for the image viewer.</summary>
-    public static readonly ImmutableArray<string> SupportedExtensions = [".fits", ".fit", ".fts", ".tif", ".tiff"];
+    public static readonly ImmutableArray<string> SupportedExtensions = [".fits", ".fit", ".fts", ".tif", ".tiff", ".cr2", ".cr3"];
 
     /// <summary>Glob patterns matching all supported file extensions (for folder scanning).</summary>
     public static readonly ImmutableArray<string> SupportedPatterns = [.. SupportedExtensions.Select(ext => "*" + ext)];
@@ -32,6 +32,7 @@ public sealed class AstroImageDocument
     [
         ("FITS files", [".fits", ".fit", ".fts"]),
         ("TIFF files", [".tif", ".tiff"]),
+        ("Canon RAW", [".cr2", ".cr3"]),
     ];
 
     private readonly string _filePath;
@@ -163,12 +164,15 @@ public sealed class AstroImageDocument
     {
         var ext = Path.GetExtension(filePath);
 
-        if (ext.Equals(".tif", StringComparison.OrdinalIgnoreCase) || ext.Equals(".tiff", StringComparison.OrdinalIgnoreCase))
+        if (ext.Equals(".fits", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".fit", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".fts", StringComparison.OrdinalIgnoreCase))
         {
-            return await OpenTiffAsync(filePath, cancellationToken);
+            return await OpenFitsAsync(filePath, algorithm, cancellationToken);
         }
 
-        return await OpenFitsAsync(filePath, algorithm, cancellationToken);
+        // TIFF, CR2, CR3, and other image formats — decoded via Magick.NET
+        return await OpenImageFileAsync(filePath, cancellationToken);
     }
 
     private static async Task<AstroImageDocument?> OpenFitsAsync(string filePath, DebayerAlgorithm algorithm, CancellationToken cancellationToken)
@@ -191,16 +195,16 @@ public sealed class AstroImageDocument
         return await CreateFromImageAsync(rawImage, algorithm, fileWcs, filePath, cancellationToken);
     }
 
-    private static async Task<AstroImageDocument?> OpenTiffAsync(string filePath, CancellationToken cancellationToken)
+    private static async Task<AstroImageDocument?> OpenImageFileAsync(string filePath, CancellationToken cancellationToken)
     {
-        if (!Image.TryReadTiffFile(filePath, out var image))
+        if (!Image.TryReadImageFile(filePath, out var image))
         {
             return null;
         }
 
         var isPreStretched = Image.DetectPreStretched(image);
 
-        // Image is already normalized to [0,1] by TryReadTiffFile
+        // Image is already normalized to [0,1] by TryReadImageFile
         var channelCount = image.ChannelCount;
         var perChannelStats = new ChannelStretchStats[channelCount];
         for (var c = 0; c < channelCount; c++)

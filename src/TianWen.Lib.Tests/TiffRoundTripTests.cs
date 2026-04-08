@@ -22,16 +22,16 @@ public class TiffRoundTripTests(ITestOutputHelper testOutput)
         var original = await SharedTestData.ExtractGZippedFitsImageAsync(name, isReadOnly: false, cancellationToken: cancellationToken);
         var magick = await original.ToMagickImageAsync(algorithm, cancellationToken);
 
-        // when — save as TIFF and reload via TryReadTiffFile
+        // when — save as TIFF and reload via TryReadImageFile
         var testDir = SharedTestData.CreateTempTestOutputDir();
         var tiffPath = Path.Combine(testDir, $"{name}.tiff");
         await File.WriteAllBytesAsync(tiffPath, magick.ToByteArray(MagickFormat.Tiff), cancellationToken);
         testOutput.WriteLine($"Saved TIFF to {tiffPath} ({new FileInfo(tiffPath).Length:N0} bytes)");
 
-        var loaded = Image.TryReadTiffFile(tiffPath, out var reloaded);
+        var loaded = Image.TryReadImageFile(tiffPath, out var reloaded);
 
         // then — image loads and dimensions match
-        loaded.ShouldBeTrue("TryReadTiffFile should succeed");
+        loaded.ShouldBeTrue("TryReadImageFile should succeed");
         reloaded.ShouldNotBeNull();
 
         var expectedChannels = algorithm is DebayerAlgorithm.None && original.ImageMeta.SensorType is not SensorType.RGGB
@@ -88,7 +88,7 @@ public class TiffRoundTripTests(ITestOutputHelper testOutput)
         await File.WriteAllBytesAsync(tiffPath, magick.ToByteArray(MagickFormat.Tiff), cancellationToken);
 
         // when
-        Image.TryReadTiffFile(tiffPath, out var reloaded).ShouldBeTrue();
+        Image.TryReadImageFile(tiffPath, out var reloaded).ShouldBeTrue();
         var isPreStretched = Image.DetectPreStretched(reloaded!);
 
         // then
