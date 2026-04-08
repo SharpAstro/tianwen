@@ -77,8 +77,8 @@ namespace TianWen.UI.Gui
             ("\U0001F52D", GuiTab.Equipment),    // 🔭 Equipment
             ("\U0001F4C5", GuiTab.Planner),      // 📅 Planner
             ("\U0001F30C", GuiTab.SkyMap),        // 🌌 Sky Map
-            ("\U0001F527", GuiTab.Session),       // 🔧 Session Config
-            ("\U0001F4F7", GuiTab.LiveSession),   // 📷 Live Session
+            ("\U0001F4F7", GuiTab.Session),       // 📷 Session Config
+            ("\U0001F4F8", GuiTab.LiveSession),   // 📸 Live Session
             ("\U0001F3AF", GuiTab.Guider),        // 🎯 Guider
         ];
 

@@ -145,6 +145,7 @@ internal sealed class CanonCameraDriver : ICameraDriver
 
     private readonly CanonDevice _device;
     private readonly IExternal _external;
+    private readonly CanonCameraFactory _cameraFactory;
     private CanonCamera? _camera;
     private bool _connected;
     private bool _bulbActive;
@@ -168,10 +169,11 @@ internal sealed class CanonCameraDriver : ICameraDriver
     private int _cameraXSize = 5472;
     private int _cameraYSize = 3648;
 
-    public CanonCameraDriver(CanonDevice device, IExternal external)
+    public CanonCameraDriver(CanonDevice device, IExternal external, CanonCameraFactory cameraFactory)
     {
         _device = device;
         _external = external;
+        _cameraFactory = cameraFactory;
     }
 
     // --- IDeviceDriver ---
@@ -192,11 +194,15 @@ internal sealed class CanonCameraDriver : ICameraDriver
         }
 
         // Connect based on transport type
-        if (_device.IsWifi)
+        if (_device.IsWpd && OperatingSystem.IsWindows())
+        {
+            _camera = _cameraFactory.ConnectWpd(_device.DeviceId);
+        }
+        else if (_device.IsWifi)
         {
             var host = _device.WifiHost
                 ?? throw new InvalidOperationException("WiFi host not configured. Set the IP address in Equipment settings.");
-            _camera = CanonCamera.ConnectWifi(host, "TianWen");
+            _camera = _cameraFactory.ConnectWifi(host, "TianWen");
         }
         else
         {
@@ -216,7 +222,7 @@ internal sealed class CanonCameraDriver : ICameraDriver
             }
 
             _camera = match is { } m
-                ? CanonCamera.ConnectUsb(m)
+                ? _cameraFactory.ConnectUsb(m)
                 : throw new InvalidOperationException($"Canon camera with ID '{deviceId}' not found on USB.");
         }
 
@@ -264,6 +270,24 @@ internal sealed class CanonCameraDriver : ICameraDriver
             _external.AppLogger.LogDebug(ex, "Could not read current ISO from Canon camera");
         }
 
+        // Enable mirror lockup for astrophotography (reduces vibration during exposures)
+        try
+        {
+            var (mluErr, mluSetting) = await _camera.GetMirrorUpSettingAsync(cancellationToken);
+            if (mluErr is EdsError.OK && mluSetting is EdsMirrorUpSetting.Off)
+            {
+                var enableResult = await _camera.EnableMirrorLockupAsync(cancellationToken);
+                if (enableResult is EdsError.OK)
+                {
+                    _external.AppLogger.LogInformation("Mirror lockup enabled automatically for astrophotography");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _external.AppLogger.LogDebug(ex, "Could not configure mirror lockup on Canon camera");
+        }
+
         Volatile.Write(ref _connected, true);
         DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(true));
         _external.AppLogger.LogInformation("Canon camera connected: {Name} ({Transport})", Name, _device.IsWifi ? "WiFi" : "USB");
@@ -296,6 +320,7 @@ internal sealed class CanonCameraDriver : ICameraDriver
     public bool CanFastReadout => false;
     public bool CanSetBitDepth => false;
     public bool CanPulseGuide => false;
+    public bool CanMirrorLockup => true;
     public bool UsesGainValue => false;
     public bool UsesGainMode => true; // ISO via mode list
     public bool UsesOffsetValue => false;
@@ -369,6 +394,39 @@ internal sealed class CanonCameraDriver : ICameraDriver
     public ValueTask SetCoolerOnAsync(bool value, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
     public ValueTask<double> GetSetCCDTemperatureAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(double.NaN);
     public ValueTask SetSetCCDTemperatureAsync(double value, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+
+    // --- Mirror lockup ---
+    public async ValueTask<bool> GetMirrorLockupAsync(CancellationToken cancellationToken = default)
+    {
+        if (_camera is null)
+        {
+            return false;
+        }
+
+        var (err, setting) = await _camera.GetMirrorUpSettingAsync(cancellationToken);
+        return err is EdsError.OK && setting is EdsMirrorUpSetting.On;
+    }
+
+    public async ValueTask SetMirrorLockupAsync(bool value, CancellationToken cancellationToken = default)
+    {
+        if (_camera is null)
+        {
+            return;
+        }
+
+        var result = value
+            ? await _camera.EnableMirrorLockupAsync(cancellationToken)
+            : await _camera.DisableMirrorLockupAsync(cancellationToken);
+
+        if (result is EdsError.OK)
+        {
+            _external.AppLogger.LogInformation("Canon mirror lockup {State}", value ? "enabled" : "disabled");
+        }
+        else
+        {
+            _external.AppLogger.LogWarning("Failed to {Action} Canon mirror lockup: {Error}", value ? "enable" : "disable", result);
+        }
+    }
 
     // --- Pulse guiding (not supported) ---
     public ValueTask<bool> GetIsPulseGuidingAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(false);

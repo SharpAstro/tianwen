@@ -224,7 +224,7 @@ namespace TianWen.UI.Abstractions
         {
             if (_appState.ActiveProfile is { } profile)
             {
-                await SessionPersistence.TryLoadAsync(_sessionState, profile, _external, cancellationToken);
+                await SessionPersistence.TryLoadAsync(_sessionState, profile, _external, cancellationToken, _appState.DeviceUriRegistry);
             }
         }
 
