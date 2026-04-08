@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using System.Web;
+using TianWen.Lib;
 
 namespace TianWen.Lib.Devices.Guider;
 
@@ -57,9 +58,9 @@ public record class BuiltInGuiderDevice(Uri DeviceUri) : GuiderDeviceBase(Device
             isVisible: IsNeuralEnabled),
     ];
 
-    protected override IDeviceDriver? NewInstanceFromDevice(IExternal external) => DeviceType switch
+    protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
     {
-        DeviceType.Guider => new BuiltInGuiderDriver(this, external),
+        DeviceType.Guider => new BuiltInGuiderDriver(this, sp.External),
         _ => null
     };
 

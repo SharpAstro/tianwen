@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.Web;
+using TianWen.Lib;
 
 namespace TianWen.Lib.Devices.Alpaca;
 
@@ -55,13 +56,14 @@ public record class AlpacaDevice : DeviceBase
         _ => DeviceType.ToString().ToLowerInvariant()
     };
 
-    protected override IDeviceDriver? NewInstanceFromDevice(IExternal external)
+    protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp)
     {
         if (Client is null)
         {
             return null;
         }
 
+        var external = sp.External;
         return DeviceType switch
         {
             Devices.DeviceType.Camera => new AlpacaCameraDriver(this, external),

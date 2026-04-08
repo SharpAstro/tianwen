@@ -1,7 +1,9 @@
 using FC.SDK;
+using Microsoft.Extensions.DependencyInjection;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using TianWen.Lib;
 
 namespace TianWen.Lib.Devices.Canon;
 
@@ -11,12 +13,6 @@ namespace TianWen.Lib.Devices.Canon;
 /// </summary>
 public record class CanonDevice(Uri DeviceUri) : DeviceBase(DeviceUri), IDeviceWithGainModes
 {
-    /// <summary>
-    /// Factory for creating <see cref="CanonCamera"/> instances with logging.
-    /// Set by <see cref="CanonDeviceSource"/> during discovery.
-    /// </summary>
-    internal CanonCameraFactory? CameraFactory { get; init; }
-
     /// <summary>Whether this device connects over WiFi (PTP/IP) rather than USB.</summary>
     public bool IsWifi => DeviceUri.QueryValue(DeviceQueryKey.Port) == "wifi";
 
@@ -48,9 +44,9 @@ public record class CanonDevice(Uri DeviceUri) : DeviceBase(DeviceUri), IDeviceW
         "ISO 25600",
     ];
 
-    protected override IDeviceDriver? NewInstanceFromDevice(IExternal external) => DeviceType switch
+    protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
     {
-        DeviceType.Camera when CameraFactory is { } factory => new CanonCameraDriver(this, external, factory),
+        DeviceType.Camera => new CanonCameraDriver(this, sp.External, sp.GetRequiredService<CanonCameraFactory>()),
         _ => null
     };
 }

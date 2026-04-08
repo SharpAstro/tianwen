@@ -2,6 +2,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json.Serialization;
+using TianWen.Lib;
 using TianWen.Lib.Devices.Guider;
 
 namespace TianWen.Lib.Devices.OpenPHD2;
@@ -67,9 +68,9 @@ public record class OpenPHD2GuiderDevice(Uri DeviceUri) : GuiderDeviceBase(Devic
     [JsonIgnore]
     public override string? ProfileName => (_parsedDeviceId ??= ParseDeviceId(DeviceId)).ProfileName;
 
-    protected override IDeviceDriver? NewInstanceFromDevice(IExternal external) => DeviceType switch
+    protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
     {
-        DeviceType.Guider => new OpenPHD2GuiderDriver(this, external),
+        DeviceType.Guider => new OpenPHD2GuiderDriver(this, sp.External),
         _ => null
     };
 }

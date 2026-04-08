@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 using System;
 using System.Diagnostics;
@@ -49,7 +50,8 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         device.DeviceType.ShouldBe(type);
         device.DisplayName.ShouldNotBeNullOrEmpty();
 
-        device.TryInstantiateDriver<IDeviceDriver>(external, out var driver).ShouldBeTrue();
+        var sp = new ServiceCollection().AddSingleton<IExternal>(external).BuildServiceProvider();
+        device.TryInstantiateDriver<IDeviceDriver>(sp, out var driver).ShouldBeTrue();
 
         await using (driver)
         {
@@ -71,7 +73,8 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         var simTelescopeDevice = allTelescopes.FirstOrDefault(e => e.DeviceId == "ASCOM.Simulator." + DeviceType.Telescope);
 
         // when
-        if (simTelescopeDevice?.TryInstantiateDriver(external, out IMountDriver? driver) is true)
+        var sp = new ServiceCollection().AddSingleton<IExternal>(external).BuildServiceProvider();
+        if (simTelescopeDevice?.TryInstantiateDriver(sp, out IMountDriver? driver) is true)
         {
             await using (driver)
             {
@@ -94,7 +97,8 @@ public class AscomDeviceTests(ITestOutputHelper testOutputHelper)
         var simCameraDevice = allCameras.FirstOrDefault(e => e.DeviceId == "ASCOM.Simulator." + DeviceType.Camera);
 
         // when / then
-        if (simCameraDevice?.TryInstantiateDriver(external, out ICameraDriver? driver) is true)
+        var sp2 = new ServiceCollection().AddSingleton<IExternal>(external).BuildServiceProvider();
+        if (simCameraDevice?.TryInstantiateDriver(sp2, out ICameraDriver? driver) is true)
         {
             await using (driver)
             {

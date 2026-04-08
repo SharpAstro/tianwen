@@ -2,6 +2,7 @@ using System;
 using System.Collections.Specialized;
 using System.Net;
 using System.Text;
+using TianWen.Lib;
 using TianWen.Lib.Connections;
 
 namespace TianWen.Lib.Devices.Skywatcher;
@@ -19,9 +20,9 @@ public record SkywatcherDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         // calls primary constructor
     }
 
-    protected override IDeviceDriver? NewInstanceFromDevice(IExternal external) => DeviceType switch
+    protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
     {
-        DeviceType.Mount => new SkywatcherMountDriver(this, external),
+        DeviceType.Mount => new SkywatcherMountDriver(this, sp.External),
         _ => null
     };
 

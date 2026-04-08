@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using System.Collections.Specialized;
 using System.Text;
 using System.Text.Json.Serialization;
+using TianWen.Lib;
 using TianWen.Lib.Connections;
 
 namespace TianWen.Lib.Devices.Fake;
@@ -59,15 +60,15 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         _ => [],
     };
 
-    protected override IDeviceDriver? NewInstanceFromDevice(IExternal external) => DeviceType switch
+    protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
     {
-        DeviceType.Camera => new FakeCameraDriver(this, external),
-        DeviceType.CoverCalibrator => new FakeCoverDriver(this, external),
-        DeviceType.FilterWheel => new FakeFilterWheelDriver(this, external),
-        DeviceType.Focuser => new FakeFocuserDriver(this, external),
-        DeviceType.Guider => new FakeGuider(this, external),
-        DeviceType.Mount => CreateMountDriver(external),
-        DeviceType.Weather => new FakeWeatherDriver(this, external),
+        DeviceType.Camera => new FakeCameraDriver(this, sp.External),
+        DeviceType.CoverCalibrator => new FakeCoverDriver(this, sp.External),
+        DeviceType.FilterWheel => new FakeFilterWheelDriver(this, sp.External),
+        DeviceType.Focuser => new FakeFocuserDriver(this, sp.External),
+        DeviceType.Guider => new FakeGuider(this, sp.External),
+        DeviceType.Mount => CreateMountDriver(sp.External),
+        DeviceType.Weather => new FakeWeatherDriver(this, sp.External),
         _ => null
     };
 

@@ -1,4 +1,5 @@
 ﻿using System;
+using TianWen.Lib;
 
 namespace TianWen.Lib.Devices.ZWO;
 
@@ -10,11 +11,11 @@ public record class ZWODevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         // calls primary constructor
     }
 
-    protected override IDeviceDriver? NewInstanceFromDevice(IExternal external) => DeviceType switch
+    protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
     {
-        DeviceType.Camera => new ZWOCameraDriver(this, external),
-        DeviceType.FilterWheel => new ZWOFilterWheelDriver(this, external),
-        DeviceType.Focuser => new ZWOFocuserDriver(this, external),
+        DeviceType.Camera => new ZWOCameraDriver(this, sp.External),
+        DeviceType.FilterWheel => new ZWOFilterWheelDriver(this, sp.External),
+        DeviceType.Focuser => new ZWOFocuserDriver(this, sp.External),
         _ => null
     };
 }

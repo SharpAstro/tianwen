@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using TianWen.Lib;
 
 namespace TianWen.Lib.Devices.Weather;
 
@@ -34,9 +35,9 @@ public record class OpenWeatherMapDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
             mask: true),
     ];
 
-    protected override IDeviceDriver? NewInstanceFromDevice(IExternal external) => DeviceType switch
+    protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
     {
-        DeviceType.Weather => ApiKey is { Length: > 0 } ? new OpenWeatherMapDriver(this, external) : null,
+        DeviceType.Weather => ApiKey is { Length: > 0 } ? new OpenWeatherMapDriver(this, sp.External) : null,
         _ => null
     };
 }
