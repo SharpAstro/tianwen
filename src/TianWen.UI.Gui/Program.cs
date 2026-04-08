@@ -33,6 +33,7 @@ services
     .AddPHD2()
     .AddBuiltInGuider()
     .AddOpenMeteo()
+    .AddCanon()
     .AddOpenWeatherMap()
     .AddDevices()
     .AddSessionFactory()

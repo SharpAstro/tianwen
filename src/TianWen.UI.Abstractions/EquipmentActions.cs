@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Web;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Devices.Canon;
 using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Devices.Weather;
@@ -424,6 +425,7 @@ public static class EquipmentActions
             "builtinguiderdevice" => new BuiltInGuiderDevice(uri),
             "openmeteodevice" => new OpenMeteoDevice(uri),
             "openweathermapdevice" => new OpenWeatherMapDevice(uri),
+            "canondevice" => new CanonDevice(uri),
             "fakedevice" => new FakeDevice(uri),
             _ => null
         };

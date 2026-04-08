@@ -7,10 +7,10 @@ namespace TianWen.Lib.Imaging;
 public partial class Image
 {
     /// <summary>
-    /// Reads a TIFF file using Magick.NET and returns an <see cref="Image"/> with float channel data.
-    /// Extracts available EXIF/TIFF metadata into <see cref="ImageMeta"/>.
+    /// Reads an image file (TIFF, CR2, CR3, etc.) using Magick.NET and returns an <see cref="Image"/> with float channel data.
+    /// Extracts available EXIF metadata into <see cref="ImageMeta"/>.
     /// </summary>
-    public static bool TryReadTiffFile(string fileName, [NotNullWhen(true)] out Image? image)
+    public static bool TryReadImageFile(string fileName, [NotNullWhen(true)] out Image? image)
     {
         try
         {
