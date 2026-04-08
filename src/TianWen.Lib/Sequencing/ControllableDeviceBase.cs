@@ -8,12 +8,9 @@ namespace TianWen.Lib.Sequencing;
 public abstract record ControllableDeviceBase<TDriver> : IAsyncDisposable
     where TDriver : IDeviceDriver
 {
-    public ControllableDeviceBase(DeviceBase device, IExternal external)
+    public ControllableDeviceBase(DeviceBase device, IServiceProvider sp)
     {
         Device = device;
-        var sp = new ServiceCollection()
-            .AddSingleton<IExternal>(external)
-            .BuildServiceProvider();
         if (device.TryInstantiateDriver<TDriver>(sp, out var driver))
         {
             (Driver = driver).DeviceConnectedEvent += Driver_DeviceConnectedEvent;

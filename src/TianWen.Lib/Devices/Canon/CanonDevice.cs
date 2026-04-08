@@ -11,7 +11,7 @@ namespace TianWen.Lib.Devices.Canon;
 /// Device record for Canon DSLR cameras connected via WPD, USB, or WiFi (PTP/IP).
 /// URI format: <c>Camera://CanonDevice/{id}?port={wpd|usb|wifi}&amp;host={ipAddr}#{modelName}</c>
 /// </summary>
-public record class CanonDevice(Uri DeviceUri) : DeviceBase(DeviceUri), IDeviceWithGainModes
+public record class CanonDevice(Uri DeviceUri) : DeviceBase(DeviceUri), IDeviceWithGainModes, IUncooledCamera
 {
     /// <summary>Whether this device connects over WiFi (PTP/IP) rather than USB.</summary>
     public bool IsWifi => DeviceUri.QueryValue(DeviceQueryKey.Port) == "wifi";

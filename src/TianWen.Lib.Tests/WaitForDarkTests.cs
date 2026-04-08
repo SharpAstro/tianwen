@@ -85,11 +85,12 @@ public class WaitForDarkTests(ITestOutputHelper output)
         DateTimeOffset observationStart, DateTimeOffset now, CancellationToken ct)
     {
         var external = new FakeExternal(null!, now: now);
+        var sp = external.BuildServiceProvider();
 
         var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
         var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
-        var camera = new Camera(cameraDevice, external);
-        var focuser = new Focuser(focuserDevice, external);
+        var camera = new Camera(cameraDevice, sp);
+        var focuser = new Focuser(focuserDevice, sp);
 
         await camera.Driver.ConnectAsync(ct);
         await focuser.Driver.ConnectAsync(ct);
@@ -106,8 +107,8 @@ public class WaitForDarkTests(ITestOutputHelper output)
         var mountDevice = new FakeDevice(DeviceType.Mount, 1,
             new NameValueCollection { { "latitude", "48.2" }, { "longitude", "16.3" } });
         var guiderDevice = new FakeDevice(DeviceType.Guider, 1);
-        var mount = new Mount(mountDevice, external);
-        var guider = new Guider(guiderDevice, external);
+        var mount = new Mount(mountDevice, sp);
+        var guider = new Guider(guiderDevice, sp);
 
         await mount.Driver.ConnectAsync(ct);
         await mount.Driver.SetUTCDateAsync(now.UtcDateTime, ct);

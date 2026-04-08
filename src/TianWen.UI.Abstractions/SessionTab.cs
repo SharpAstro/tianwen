@@ -362,27 +362,31 @@ namespace TianWen.UI.Abstractions
                     fontSize, BodyText, TextAlign.Near, TextAlign.Center);
                 cursor += itemH;
 
-                // Setpoint row
                 var labelW = 80f * dpiScale;
                 var controlX = listRect.X + padding + labelW;
 
-                FillRect(listRect.X, cursor, listRect.Width, itemH, PanelBg);
-                DrawText("Setpoint", fontPath,
-                    listRect.X + padding, cursor, labelW, itemH,
-                    fontSize * 0.9f, DimText, TextAlign.Near, TextAlign.Center);
+                // Setpoint row (hidden for uncooled cameras like DSLRs)
+                if (cam.HasCooling)
+                {
+                    FillRect(listRect.X, cursor, listRect.Width, itemH, PanelBg);
+                    DrawText("Setpoint", fontPath,
+                        listRect.X + padding, cursor, labelW, itemH,
+                        fontSize * 0.9f, DimText, TextAlign.Near, TextAlign.Center);
 
-                RenderButton("\u2212", controlX, cursor, stepperBtnW, itemH, fontPath, fontSize,
-                    StepperBg, BodyText, $"Dec:Setpoint:{i}",
-                    _ => { State.CameraSettings[capturedI].SetpointTempC = (sbyte)Math.Max(State.CameraSettings[capturedI].SetpointTempC - 1, -40); State.IsDirty = true; State.NeedsRedraw = true; });
-                DrawText($"{cam.SetpointTempC}°C", fontPath,
-                    controlX + stepperBtnW, cursor, valueW, itemH,
-                    fontSize, BodyText, TextAlign.Center, TextAlign.Center);
-                RenderButton("+", controlX + stepperBtnW + valueW, cursor, stepperBtnW, itemH, fontPath, fontSize,
-                    StepperBg, BodyText, $"Inc:Setpoint:{i}",
-                    _ => { State.CameraSettings[capturedI].SetpointTempC = (sbyte)Math.Min(State.CameraSettings[capturedI].SetpointTempC + 1, 30); State.IsDirty = true; State.NeedsRedraw = true; });
-                cursor += itemH;
+                    RenderButton("\u2212", controlX, cursor, stepperBtnW, itemH, fontPath, fontSize,
+                        StepperBg, BodyText, $"Dec:Setpoint:{i}",
+                        _ => { State.CameraSettings[capturedI].SetpointTempC = (sbyte)Math.Max(State.CameraSettings[capturedI].SetpointTempC - 1, -40); State.IsDirty = true; State.NeedsRedraw = true; });
+                    DrawText($"{cam.SetpointTempC}°C", fontPath,
+                        controlX + stepperBtnW, cursor, valueW, itemH,
+                        fontSize, BodyText, TextAlign.Center, TextAlign.Center);
+                    RenderButton("+", controlX + stepperBtnW + valueW, cursor, stepperBtnW, itemH, fontPath, fontSize,
+                        StepperBg, BodyText, $"Inc:Setpoint:{i}",
+                        _ => { State.CameraSettings[capturedI].SetpointTempC = (sbyte)Math.Min(State.CameraSettings[capturedI].SetpointTempC + 1, 30); State.IsDirty = true; State.NeedsRedraw = true; });
+                    cursor += itemH;
+                }
 
                 // Gain row
+                var gainValueW = cam.UsesGainMode ? valueW * 1.6f : valueW;
                 FillRect(listRect.X, cursor, listRect.Width, itemH, RowAltBg);
                 DrawText("Gain", fontPath,
                     listRect.X + padding, cursor, labelW, itemH,
@@ -404,9 +408,9 @@ namespace TianWen.UI.Abstractions
                             State.NeedsRedraw = true;
                         });
                     DrawText(modeName, fontPath,
-                        controlX + stepperBtnW, cursor, valueW, itemH,
+                        controlX + stepperBtnW, cursor, gainValueW, itemH,
                         fontSize * 0.9f, BodyText, TextAlign.Center, TextAlign.Center);
-                    RenderButton("\u25B6", controlX + stepperBtnW + valueW, cursor, stepperBtnW, itemH, fontPath, fontSize,
+                    RenderButton("\u25B6", controlX + stepperBtnW + gainValueW, cursor, stepperBtnW, itemH, fontPath, fontSize,
                         StepperBg, BodyText, $"Inc:Gain:{i}",
                         _ =>
                         {

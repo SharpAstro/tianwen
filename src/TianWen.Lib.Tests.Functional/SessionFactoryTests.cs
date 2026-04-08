@@ -67,7 +67,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         var plateSolverFactory = Substitute.For<IPlateSolverFactory>();
         plateSolverFactory.CheckSupportAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(true));
 
-        var factory = new SessionFactory(deviceUriRegistry, deviceManager, external, plateSolverFactory);
+        var factory = new SessionFactory(deviceUriRegistry, deviceManager, external, plateSolverFactory, external.BuildServiceProvider());
         return (factory, external);
     }
 
@@ -294,7 +294,8 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
             Substitute.For<IDeviceUriRegistry>(),
             Substitute.For<ICombinedDeviceManager>(),
             external,
-            plateSolverFactory
+            plateSolverFactory,
+            external.BuildServiceProvider()
         );
 
         // when/then
@@ -317,7 +318,8 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
             Substitute.For<IDeviceUriRegistry>(),
             deviceManager,
             external,
-            plateSolverFactory
+            plateSolverFactory,
+            external.BuildServiceProvider()
         );
 
         // when

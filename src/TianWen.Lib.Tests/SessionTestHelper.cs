@@ -63,8 +63,9 @@ internal static class SessionTestHelper
 
         var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
         var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
-        var camera = new Camera(cameraDevice, external);
-        var focuser = new Focuser(focuserDevice, external);
+        var sp = external.BuildServiceProvider();
+        var camera = new Camera(cameraDevice, sp);
+        var focuser = new Focuser(focuserDevice, sp);
 
         await camera.Driver.ConnectAsync(cancellationToken);
         await focuser.Driver.ConnectAsync(cancellationToken);
@@ -100,9 +101,9 @@ internal static class SessionTestHelper
         var mountDevice = new FakeDevice(DeviceType.Mount, 1, mountQuery);
         var guiderDevice = new FakeDevice(DeviceType.Guider, 1);
         var guiderCamDevice = new FakeDevice(new Uri($"Camera://{nameof(FakeDevice)}/FakeGuideCam#Fake Guide Cam ({FakeCameraDriver.GuideCameraPreset.SensorName})"));
-        var mount = new Mount(mountDevice, external);
-        var guider = new Guider(guiderDevice, external);
-        var guiderCam = new Camera(guiderCamDevice, external);
+        var mount = new Mount(mountDevice, sp);
+        var guider = new Guider(guiderDevice, sp);
+        var guiderCam = new Camera(guiderCamDevice, sp);
 
         await mount.Driver.ConnectAsync(cancellationToken);
         await guider.Driver.ConnectAsync(cancellationToken);
@@ -117,7 +118,7 @@ internal static class SessionTestHelper
         await mount.Driver.SetUTCDateAsync(external.TimeProvider.GetUtcNow().UtcDateTime, cancellationToken);
 
         var weatherDevice = new FakeDevice(DeviceType.Weather, 1);
-        var weather = new Weather(weatherDevice, external);
+        var weather = new Weather(weatherDevice, sp);
         await weather.Driver.ConnectAsync(cancellationToken);
 
         var setup = new Setup(mount, guider, new GuiderSetup(guiderCam, FocalLength: 130), [ota], weather);
@@ -145,10 +146,11 @@ internal static class SessionTestHelper
         CancellationToken cancellationToken = default)
     {
         var external = new FakeExternal(output, now: now ?? new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var sp = external.BuildServiceProvider();
 
         // OTA 1: OSC camera, no filter wheel (fixed L-Ultimate dual-band)
         var oscCameraDevice = new FakeDevice(DeviceType.Camera, 1);
-        var oscCamera = new Camera(oscCameraDevice, external);
+        var oscCamera = new Camera(oscCameraDevice, sp);
         await oscCamera.Driver.ConnectAsync(cancellationToken);
         var oscCameraDriver = (FakeCameraDriver)oscCamera.Driver;
         oscCameraDriver.BinX = 1;
@@ -157,13 +159,13 @@ internal static class SessionTestHelper
 
         // OTA 1 focuser
         var oscFocuserDevice = new FakeDevice(DeviceType.Focuser, 1);
-        var oscFocuser = new Focuser(oscFocuserDevice, external);
+        var oscFocuser = new Focuser(oscFocuserDevice, sp);
         await oscFocuser.Driver.ConnectAsync(cancellationToken);
         var oscFocuserDriver = (FakeFocuserDriver)oscFocuser.Driver;
 
         // Fixed L-Ultimate (Ha+OIII) dual-band filter in a manual holder
         var oscFilterDevice = new ManualFilterWheelDevice(Filter.HydrogenAlphaOxygenIII);
-        var oscFilterWheel = new FilterWheel(oscFilterDevice, external);
+        var oscFilterWheel = new FilterWheel(oscFilterDevice, sp);
         await oscFilterWheel.Driver.ConnectAsync(cancellationToken);
 
         var ota1 = new OTA(
@@ -181,7 +183,7 @@ internal static class SessionTestHelper
 
         // OTA 2: Mono camera + filter wheel + focuser
         var monoCameraDevice = new FakeDevice(DeviceType.Camera, 2);
-        var monoCamera = new Camera(monoCameraDevice, external);
+        var monoCamera = new Camera(monoCameraDevice, sp);
         await monoCamera.Driver.ConnectAsync(cancellationToken);
         var monoCameraDriver = (FakeCameraDriver)monoCamera.Driver;
         monoCameraDriver.BinX = 1;
@@ -189,7 +191,7 @@ internal static class SessionTestHelper
         monoCameraDriver.NumY = 512;
 
         var monoFocuserDevice = new FakeDevice(DeviceType.Focuser, 2);
-        var monoFocuser = new Focuser(monoFocuserDevice, external);
+        var monoFocuser = new Focuser(monoFocuserDevice, sp);
         await monoFocuser.Driver.ConnectAsync(cancellationToken);
         var monoFocuserDriver = (FakeFocuserDriver)monoFocuser.Driver;
 
@@ -202,7 +204,7 @@ internal static class SessionTestHelper
             { "filter4", "Green" },     { "offset4", "0" },
             { "filter5", "Blue" },      { "offset5", "-15" }
         });
-        var filterWheel = new FilterWheel(filterWheelDevice, external);
+        var filterWheel = new FilterWheel(filterWheelDevice, sp);
         await filterWheel.Driver.ConnectAsync(cancellationToken);
         var filterWheelDriver = (FakeFilterWheelDriver)filterWheel.Driver;
 
@@ -228,9 +230,9 @@ internal static class SessionTestHelper
         });
         var guiderDevice = new FakeDevice(DeviceType.Guider, 1);
         var guiderCamDevice = new FakeDevice(new Uri($"Camera://{nameof(FakeDevice)}/FakeGuideCam#Fake Guide Cam ({FakeCameraDriver.GuideCameraPreset.SensorName})"));
-        var mount = new Mount(mountDevice, external);
-        var guider = new Guider(guiderDevice, external);
-        var guiderCam = new Camera(guiderCamDevice, external);
+        var mount = new Mount(mountDevice, sp);
+        var guider = new Guider(guiderDevice, sp);
+        var guiderCam = new Camera(guiderCamDevice, sp);
 
         await mount.Driver.ConnectAsync(cancellationToken);
         await guider.Driver.ConnectAsync(cancellationToken);
@@ -241,7 +243,7 @@ internal static class SessionTestHelper
         await mount.Driver.SetUTCDateAsync(external.TimeProvider.GetUtcNow().UtcDateTime, cancellationToken);
 
         var dualWeatherDevice = new FakeDevice(DeviceType.Weather, 1);
-        var dualWeather = new Weather(dualWeatherDevice, external);
+        var dualWeather = new Weather(dualWeatherDevice, sp);
         await dualWeather.Driver.ConnectAsync(cancellationToken);
 
         var setup = new Setup(mount, guider, new GuiderSetup(guiderCam, FocalLength: 130), [ota1, ota2], dualWeather);
