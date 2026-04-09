@@ -177,7 +177,10 @@ internal partial record Session
 
         ValueTask<bool> CloseCoversAsync(CancellationToken cancellationToken) => MoveTelescopeCoversToStateAsync(CoverStatus.Closed, cancellationToken);
 
-        ValueTask<bool> TurnOffCameraCoolingAsync(CancellationToken cancellationToken) => CoolCamerasToAmbientAsync(Configuration.WarmupRampInterval);
+        ValueTask<bool> TurnOffCameraCoolingAsync(CancellationToken cancellationToken) =>
+            Configuration.WarmCamerasOnSessionEnd
+                ? CoolCamerasToAmbientAsync(Configuration.WarmupRampInterval)
+                : ValueTask.FromResult(true);
     }
 
     /// <summary>
