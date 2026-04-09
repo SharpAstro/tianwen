@@ -101,9 +101,9 @@ internal static class NinaSystemEndpoints
         });
 
         // GET /v2/api/profile/list-available — list profiles (alias for /v2/api/profile/show without ?active)
-        group.MapGet("/profile/list-available", (ICombinedDeviceManager deviceManager) =>
+        group.MapGet("/profile/list-available", (IDeviceDiscovery deviceDiscovery) =>
         {
-            var profiles = deviceManager.RegisteredDevices(DeviceType.Profile)
+            var profiles = deviceDiscovery.RegisteredDevices(DeviceType.Profile)
                 .OfType<Profile>()
                 .Select(p => new ProfileSummaryDto { ProfileId = p.ProfileId, Name = p.DisplayName })
                 .ToArray();

@@ -25,13 +25,14 @@ public class DeviceTests
     public void GivenAnUriDisplayNameDeviceTypeAndClassAreReturned(string uriString, Type containerType, DeviceType expectedDeviceType, string expectedId, string expectedDisplayName)
     {
         var serviceCollection = new ServiceCollection();
+        serviceCollection.AddLogging();
         serviceCollection.AddAscom();
         serviceCollection.AddFake();
         serviceCollection.AddPHD2();
         serviceCollection.AddDevices();
 
         var provider = serviceCollection.BuildServiceProvider();
-        var registry = provider.GetRequiredService<IDeviceUriRegistry>();
+        var registry = provider.GetRequiredService<IDeviceHub>();
 
         var uri = new Uri(uriString);
         registry.TryGetDeviceFromUri(uri, out var device).ShouldBeTrue();

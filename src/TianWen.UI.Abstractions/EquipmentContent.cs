@@ -36,7 +36,7 @@ public readonly record struct FilterSlotRow(
 /// Produces display-ready models from profile data, consumed by both
 /// GPU (PixelWidgetBase) and terminal (Console.Lib) hosts.
 /// </summary>
-public class EquipmentContent(IDeviceUriRegistry? registry = null)
+public class EquipmentContent(IDeviceHub? registry = null)
 {
     /// <summary>
     /// Returns all profile-level device slots (core + extra).

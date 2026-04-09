@@ -13,7 +13,7 @@ public interface IConsoleHost
 
     Task<IReadOnlyCollection<DeviceBase>> ListAllDevicesAsync(DeviceDiscoveryOption options, CancellationToken cancellationToken);
 
-    IDeviceUriRegistry DeviceUriRegistry { get; }
+    IDeviceHub DeviceHub { get; }
 
     IHostApplicationLifetime ApplicationLifetime { get; }
 

@@ -14,8 +14,8 @@ public static class DeviceServiceCollectionExtensions
     /// <returns></returns>
     public static IServiceCollection AddDevices(this IServiceCollection services) => services
         .AddDeviceType(uri => new NoneDevice(uri))
-        .AddSingleton<IDeviceUriRegistry, DeviceUriRegistry>()
-        .AddSingleton<ICombinedDeviceManager, CombinedDeviceManager>();
+        .AddSingleton<IDeviceHub, DeviceHub>()
+        .AddSingleton<IDeviceDiscovery, DeviceDiscovery>();
 
     internal static IServiceCollection AddDeviceType<TDevice>(this IServiceCollection services, Func<Uri, TDevice> func) where TDevice : DeviceBase => services
         .AddKeyedSingleton<Func<Uri, DeviceBase>>(typeof(TDevice).Name.ToLowerInvariant(), func);

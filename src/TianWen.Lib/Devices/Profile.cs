@@ -75,7 +75,7 @@ public record class Profile(Uri DeviceUri) : DeviceBase(DeviceUri)
         }
     }
 
-    public string Detailed(IDeviceUriRegistry deviceUriRegistry)
+    public string Detailed(IDeviceHub deviceUriRegistry)
     {
         var sb = new StringBuilder()
             .Append($"Profile: {DisplayName} ({ProfileId})");

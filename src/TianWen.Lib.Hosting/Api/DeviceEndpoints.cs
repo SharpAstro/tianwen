@@ -15,11 +15,11 @@ internal static class DeviceEndpoints
         var group = routes.MapGroup("/api/v1");
 
         // List discovered devices (excludes profiles)
-        group.MapGet("/devices", (ICombinedDeviceManager deviceManager) =>
+        group.MapGet("/devices", (IDeviceDiscovery deviceDiscovery) =>
         {
-            var devices = deviceManager.RegisteredDeviceTypes
+            var devices = deviceDiscovery.RegisteredDeviceTypes
                 .Where(dt => dt is not DeviceType.Profile)
-                .SelectMany(dt => deviceManager.RegisteredDevices(dt))
+                .SelectMany(dt => deviceDiscovery.RegisteredDevices(dt))
                 .Select(d => $"{d.DeviceType}: {d.DisplayName} ({d.DeviceId})")
                 .ToArray();
 
@@ -29,13 +29,13 @@ internal static class DeviceEndpoints
         });
 
         // Trigger device discovery
-        group.MapGet("/devices/discover", async (ICombinedDeviceManager deviceManager, CancellationToken ct) =>
+        group.MapGet("/devices/discover", async (IDeviceDiscovery deviceDiscovery, CancellationToken ct) =>
         {
-            await deviceManager.DiscoverAsync(ct);
+            await deviceDiscovery.DiscoverAsync(ct);
 
-            var devices = deviceManager.RegisteredDeviceTypes
+            var devices = deviceDiscovery.RegisteredDeviceTypes
                 .Where(dt => dt is not DeviceType.Profile)
-                .SelectMany(dt => deviceManager.RegisteredDevices(dt))
+                .SelectMany(dt => deviceDiscovery.RegisteredDevices(dt))
                 .Select(d => $"{d.DeviceType}: {d.DisplayName} ({d.DeviceId})")
                 .ToArray();
 
