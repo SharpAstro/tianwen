@@ -27,5 +27,6 @@ public record struct SessionConfiguration(
     double MosaicOverlap = 0.2,
     double MosaicMargin = 0.1,
     float ConditionDeteriorationThreshold = 0.5f,
-    TimeSpan? ConditionRecoveryTimeout = null
+    TimeSpan? ConditionRecoveryTimeout = null,
+    bool WarmCamerasOnSessionEnd = true
 );
