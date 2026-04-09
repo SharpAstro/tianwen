@@ -151,7 +151,7 @@ namespace TianWen.UI.Abstractions
         /// Initializes <see cref="CameraSettings"/> from the active profile's OTAs.
         /// Computes default gain and exposure from f-ratio.
         /// </summary>
-        public void InitializeFromProfile(Profile? profile, IDeviceUriRegistry? registry = null)
+        public void InitializeFromProfile(Profile? profile, IDeviceHub? registry = null)
         {
             CameraSettings.Clear();
 

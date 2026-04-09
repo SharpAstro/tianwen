@@ -32,7 +32,7 @@ public static class SessionPersistence
     /// Per-OTA camera settings are only restored if the camera URI matches (prevents applying
     /// gain/offset/setpoint from a different camera).
     /// </summary>
-    public static async Task<bool> TryLoadAsync(SessionTabState state, Profile? profile, IExternal external, CancellationToken ct, IDeviceUriRegistry? registry = null)
+    public static async Task<bool> TryLoadAsync(SessionTabState state, Profile? profile, IExternal external, CancellationToken ct, IDeviceHub? registry = null)
     {
         if (profile is null)
         {

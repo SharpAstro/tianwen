@@ -38,7 +38,7 @@ services
     .AddDevices()
     .AddSessionFactory()
     .AddFitsViewer()
-    .AddSingleton(sp => new GuiAppState { DeviceUriRegistry = sp.GetService<IDeviceUriRegistry>() });
+    .AddSingleton(sp => new GuiAppState { DeviceHub = sp.GetService<IDeviceHub>() });
 
 var sp = services.BuildServiceProvider();
 var appState = sp.GetRequiredService<GuiAppState>();
@@ -49,7 +49,7 @@ var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("TianWen.UI.Gu
 var timeProvider = sp.GetRequiredService<ITimeProvider>();
 
 // Resolve profile — auto-select if exactly one, otherwise none for now
-var profiles = await sp.GetRequiredService<ICombinedDeviceManager>()
+var profiles = await sp.GetRequiredService<IDeviceDiscovery>()
     .Let(async dm =>
     {
         await dm.CheckSupportAsync(CancellationToken.None);

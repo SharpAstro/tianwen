@@ -53,6 +53,23 @@ dotnet test TianWen.Lib.Tests --filter "FullyQualifiedName~Guider|FullyQualified
 - Nullable reference types enabled globally
 - CLI, Server, and FitsViewer projects have `PublishAot` enabled
 
+## SharpAstro Sibling Libraries
+
+TianWen depends on several in-house libraries published to nuget.org under the **SharpAstro**
+org. Their source repos live as siblings under the same parent directory (`../`):
+
+| Package | Source Repo | Purpose |
+|---------|-------------|---------|
+| `DIR.Lib` | `../DIR.Lib` | SignalBus, BackgroundTaskTracker, PixelWidgetBase, InputEvent |
+| `SdlVulkan.Renderer` | `../SdlVulkan.Renderer` | SDL3 + Vulkan rendering, font atlas, GLSL pipeline |
+| `Console.Lib` | `../Console.Lib` | RgbaImageRenderer, MarkdownWidget, Sixel, TUI widgets |
+| `FC.SDK` | `../FC.SDK` | Canon DSLR PTP/USB/WiFi SDK |
+| `FITS.Lib` | `../FITS.Lib` | FITS file reading/writing |
+
+These are consumed as **NuGet PackageReferences** (versions in `Directory.Packages.props`),
+not ProjectReferences. Changes to these libraries require publishing a new NuGet version first.
+For local cross-repo development, use local nupkg feeds with bumped versions.
+
 ## Key Technologies
 
 | Area | Technology |

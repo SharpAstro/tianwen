@@ -226,7 +226,7 @@ namespace TianWen.UI.Abstractions
         {
             if (_appState.ActiveProfile is { } profile)
             {
-                await SessionPersistence.TryLoadAsync(_sessionState, profile, _external, cancellationToken, _appState.DeviceUriRegistry);
+                await SessionPersistence.TryLoadAsync(_sessionState, profile, _external, cancellationToken, _appState.DeviceHub);
             }
         }
 
@@ -426,7 +426,7 @@ namespace TianWen.UI.Abstractions
                 appState.NeedsRedraw = true;
                 try
                 {
-                    var dm = sp.GetRequiredService<ICombinedDeviceManager>();
+                    var dm = sp.GetRequiredService<IDeviceDiscovery>();
                     await dm.CheckSupportAsync(cts.Token);
                     await dm.DiscoverAsync(cts.Token);
                     eqState.DiscoveredDevices = [.. dm.RegisteredDeviceTypes

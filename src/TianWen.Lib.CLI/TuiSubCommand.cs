@@ -68,8 +68,8 @@ internal class TuiSubCommand(
         var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
         // Shared state
-        var registry = sp.GetService<IDeviceUriRegistry>();
-        var appState = new GuiAppState { ActiveProfile = profile, ActiveTab = GuiTab.Equipment, DeviceUriRegistry = registry };
+        var registry = sp.GetService<IDeviceHub>();
+        var appState = new GuiAppState { ActiveProfile = profile, ActiveTab = GuiTab.Equipment, DeviceHub = registry };
         var eqState = new EquipmentTabState();
         var sessionState = new SessionTabState();
         sessionState.InitializeFromProfile(profile, registry);
@@ -98,7 +98,7 @@ internal class TuiSubCommand(
 
         // Create tabs
         var fontPath = TuiFontPath.Resolve();
-        var equipmentContent = new EquipmentContent(consoleHost.DeviceUriRegistry);
+        var equipmentContent = new EquipmentContent(consoleHost.DeviceHub);
 
         var tabs = new Dictionary<GuiTab, ITuiTab>
         {

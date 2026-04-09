@@ -11,8 +11,8 @@ namespace TianWen.Lib.CLI;
 internal class ConsoleHost(
     IExternal external,
     IHostApplicationLifetime applicationLifetime,
-    ICombinedDeviceManager deviceManager,
-    IDeviceUriRegistry deviceUriRegistry,
+    IDeviceDiscovery deviceDiscovery,
+    IDeviceHub deviceHub,
     IVirtualTerminal terminal,
     ITimeProvider timeProvider
 ) : IConsoleHost
@@ -21,7 +21,7 @@ internal class ConsoleHost(
 
     public IVirtualTerminal Terminal { get; } = terminal;
 
-    public IDeviceUriRegistry DeviceUriRegistry { get; } = deviceUriRegistry;
+    public IDeviceHub DeviceHub { get; } = deviceHub;
 
     public IHostApplicationLifetime ApplicationLifetime { get; } = applicationLifetime;
 
@@ -59,13 +59,13 @@ internal class ConsoleHost(
         using var cts = new CancellationTokenSource(discoveryTimeout, TimeProvider.System);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken);
 
-        await deviceManager.CheckSupportAsync(linked.Token);
+        await deviceDiscovery.CheckSupportAsync(linked.Token);
 
-        if (options.HasFlag(DeviceDiscoveryOption.Force) || deviceManager.RegisteredDeviceTypes.Any(t => !_discoveryRanForDevice.TryGetValue(t, out var ran) || !ran))
+        if (options.HasFlag(DeviceDiscoveryOption.Force) || deviceDiscovery.RegisteredDeviceTypes.Any(t => !_discoveryRanForDevice.TryGetValue(t, out var ran) || !ran))
         {
-            await deviceManager.DiscoverAsync(linked.Token);
+            await deviceDiscovery.DiscoverAsync(linked.Token);
 
-            foreach (var type in deviceManager.RegisteredDeviceTypes)
+            foreach (var type in deviceDiscovery.RegisteredDeviceTypes)
             {
                 _discoveryRanForDevice[type] = true;
             }
@@ -73,9 +73,9 @@ internal class ConsoleHost(
 
         var includeFake = options.HasFlag(DeviceDiscoveryOption.IncludeFake);
 
-        return [.. deviceManager
+        return [.. deviceDiscovery
             .RegisteredDeviceTypes
-            .SelectMany(deviceManager.RegisteredDevices)
+            .SelectMany(deviceDiscovery.RegisteredDevices)
             .Where(d => includeFake || d is not FakeDevice)
             .OrderBy(d => d.DeviceType).ThenBy(d => d.DisplayName)
         ];
@@ -89,16 +89,16 @@ internal class ConsoleHost(
         using var cts = new CancellationTokenSource(discoveryTimeout, TimeProvider.System);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken);
 
-        if (await deviceManager.CheckSupportAsync(linked.Token) && (
+        if (await deviceDiscovery.CheckSupportAsync(linked.Token) && (
             options.HasFlag(DeviceDiscoveryOption.Force) || !_discoveryRanForDevice.TryGetValue(deviceType, out var ran) || !ran)
         )
         {
-            await deviceManager.DiscoverOnlyDeviceType(deviceType, linked.Token);
+            await deviceDiscovery.DiscoverOnlyDeviceType(deviceType, linked.Token);
         }
 
         var includeFake = options.HasFlag(DeviceDiscoveryOption.IncludeFake);
 
-        return [.. deviceManager
+        return [.. deviceDiscovery
             .RegisteredDevices(deviceType)
             .OfType<TDevice>()
             .Where(d => includeFake || d is not FakeDevice)

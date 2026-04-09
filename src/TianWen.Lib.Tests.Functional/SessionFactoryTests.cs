@@ -33,8 +33,8 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         var external = new FakeExternal(outputHelper, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
         var profile = new Profile(TestProfileId, "Test Profile", profileData);
 
-        var deviceUriRegistry = Substitute.For<IDeviceUriRegistry>();
-        deviceUriRegistry.TryGetDeviceFromUri(Arg.Any<Uri>(), out Arg.Any<DeviceBase?>())
+        var deviceHub = Substitute.For<IDeviceHub>();
+        deviceHub.TryGetDeviceFromUri(Arg.Any<Uri>(), out Arg.Any<DeviceBase?>())
             .Returns(call =>
             {
                 var uri = call.ArgAt<Uri>(0);
@@ -56,18 +56,13 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
                 return device is not null;
             });
 
-        var deviceManager = Substitute.For<ICombinedDeviceManager>();
-        deviceManager.TryFindByDeviceId(Profile.DeviceIdFromUUID(TestProfileId), out Arg.Any<DeviceBase?>())
-            .Returns(call =>
-            {
-                call[1] = profile;
-                return true;
-            });
+        var deviceDiscovery = Substitute.For<IDeviceDiscovery>();
+        deviceDiscovery.RegisteredDevices(DeviceType.Profile).Returns([profile]);
 
         var plateSolverFactory = Substitute.For<IPlateSolverFactory>();
         plateSolverFactory.CheckSupportAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(true));
 
-        var factory = new SessionFactory(deviceUriRegistry, deviceManager, external, plateSolverFactory, external.BuildServiceProvider());
+        var factory = new SessionFactory(deviceHub, deviceDiscovery, external, plateSolverFactory, external.BuildServiceProvider());
         return (factory, external);
     }
 
@@ -291,8 +286,8 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         plateSolverFactory.CheckSupportAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(false));
 
         var factory = new SessionFactory(
-            Substitute.For<IDeviceUriRegistry>(),
-            Substitute.For<ICombinedDeviceManager>(),
+            Substitute.For<IDeviceHub>(),
+            Substitute.For<IDeviceDiscovery>(),
             external,
             plateSolverFactory,
             external.BuildServiceProvider()
@@ -312,11 +307,11 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         var plateSolverFactory = Substitute.For<IPlateSolverFactory>();
         plateSolverFactory.CheckSupportAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(true));
 
-        var deviceManager = Substitute.For<ICombinedDeviceManager>();
+        var deviceDiscovery = Substitute.For<IDeviceDiscovery>();
 
         var factory = new SessionFactory(
-            Substitute.For<IDeviceUriRegistry>(),
-            deviceManager,
+            Substitute.For<IDeviceHub>(),
+            deviceDiscovery,
             external,
             plateSolverFactory,
             external.BuildServiceProvider()
@@ -326,7 +321,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         await factory.InitializeAsync(TestContext.Current.CancellationToken);
 
         // then
-        await deviceManager.Received(1).DiscoverAsync(Arg.Any<CancellationToken>());
+        await deviceDiscovery.Received(1).DiscoverAsync(Arg.Any<CancellationToken>());
     }
 
     [Fact(Timeout = 60_000)]

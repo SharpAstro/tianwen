@@ -2,35 +2,33 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace TianWen.Lib.Devices;
 
-internal class CombinedDeviceManager(IExternal external, ILogger<CombinedDeviceManager> logger, IEnumerable<IDeviceSource<DeviceBase>> deviceSources) : ICombinedDeviceManager
+internal class DeviceDiscovery(IExternal external, ILogger<DeviceDiscovery> logger, IEnumerable<IDeviceSource<DeviceBase>> deviceSources) : IDeviceDiscovery
 {
     private volatile bool _initialized;
     private readonly SemaphoreSlim _initSem = new SemaphoreSlim(1, 1);
-    private List<DeviceMap<DeviceBase>> _deviceMaps = [];
-    private readonly ConcurrentDictionary<string, DeviceMap<DeviceBase>> deviceIdCache = [];
+    private List<IDeviceSource<DeviceBase>> _supportedSources = [];
 
     public async ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken)
     {
         if (_initialized)
         {
-            // will be true if we have at least one support device source
-            return _deviceMaps.Count > 0;
+            // will be true if we have at least one supported device source
+            return _supportedSources.Count > 0;
         }
 
-        var deviceMaps = new ConcurrentBag<DeviceMap<DeviceBase>>();
+        var supportedSources = new ConcurrentBag<IDeviceSource<DeviceBase>>();
         using var @lock = await _initSem.AcquireLockAsync(cancellationToken);
 
         // double check after lock acquisition
         if (_initialized)
         {
-            return _deviceMaps.Count > 0;
+            return _supportedSources.Count > 0;
         }
 
         await Parallel.ForEachAsync(
@@ -40,10 +38,9 @@ internal class CombinedDeviceManager(IExternal external, ILogger<CombinedDeviceM
             {
                 try
                 {
-                    var map = new DeviceMap<DeviceBase>(deviceSource);
-                    if (await map.CheckSupportAsync(cancellationToken))
+                    if (await deviceSource.CheckSupportAsync(cancellationToken))
                     {
-                        deviceMaps.Add(map);
+                        supportedSources.Add(deviceSource);
                     }
                 }
                 catch (Exception e)
@@ -52,16 +49,16 @@ internal class CombinedDeviceManager(IExternal external, ILogger<CombinedDeviceM
                 }
             }
         );
-        _ = Interlocked.Exchange(ref _deviceMaps, [.. deviceMaps]);
+        _ = Interlocked.Exchange(ref _supportedSources, [.. supportedSources]);
 
         _initialized = true;
 
-        return _deviceMaps.Count > 0;
+        return _supportedSources.Count > 0;
     }
 
-    public IEnumerable<DeviceType> RegisteredDeviceTypes => _deviceMaps.SelectMany(map => map.RegisteredDeviceTypes).ToHashSet();
+    public IEnumerable<DeviceType> RegisteredDeviceTypes => _supportedSources.SelectMany(s => s.RegisteredDeviceTypes).ToHashSet();
 
-    public IEnumerable<DeviceBase> RegisteredDevices(DeviceType type) => _deviceMaps.SelectMany(map => map.RegisteredDevices(type));
+    public IEnumerable<DeviceBase> RegisteredDevices(DeviceType type) => _supportedSources.SelectMany(s => s.RegisteredDevices(type));
 
     public async ValueTask DiscoverOnlyDeviceType(DeviceType type, CancellationToken cancellationToken)
     {
@@ -70,13 +67,13 @@ internal class CombinedDeviceManager(IExternal external, ILogger<CombinedDeviceM
             return;
         }
 
-        foreach (var deviceMap in _deviceMaps)
+        foreach (var source in _supportedSources)
         {
-            if (deviceMap.RegisteredDeviceTypes.Contains(type))
+            if (source.RegisteredDeviceTypes.Contains(type))
             {
                 try
                 {
-                    await deviceMap.DiscoverAsync(cancellationToken);
+                    await source.DiscoverAsync(cancellationToken);
                 }
                 catch (Exception e)
                 {
@@ -93,36 +90,16 @@ internal class CombinedDeviceManager(IExternal external, ILogger<CombinedDeviceM
             return;
         }
 
-        foreach (var deviceMap in _deviceMaps)
+        foreach (var source in _supportedSources)
         {
             try
             {
-                await deviceMap.DiscoverAsync(cancellationToken);
+                await source.DiscoverAsync(cancellationToken);
             }
             catch (Exception e)
             {
                 logger.LogError(e, "Error while discovering devices");
             }
         }
-    }
-
-    public bool TryFindByDeviceId(string deviceId, [NotNullWhen(true)] out DeviceBase? device)
-    {
-        if (deviceIdCache.TryGetValue(deviceId, out var map))
-        {
-            return map.TryFindByDeviceId(deviceId, out device);
-        }
-
-        foreach (var deviceMap in _deviceMaps)
-        {
-            if (deviceMap.TryFindByDeviceId(deviceId, out device))
-            {
-                deviceIdCache[deviceId] = deviceMap;
-                return true;
-            }
-        }
-
-        device = null;
-        return false;
     }
 }

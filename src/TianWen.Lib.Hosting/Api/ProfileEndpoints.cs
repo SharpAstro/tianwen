@@ -18,9 +18,9 @@ internal static class ProfileEndpoints
         var group = routes.MapGroup("/api/v1/profiles");
 
         // GET /api/v1/profiles — list all profiles
-        group.MapGet("/", (ICombinedDeviceManager deviceManager) =>
+        group.MapGet("/", (IDeviceDiscovery deviceDiscovery) =>
         {
-            var profiles = deviceManager.RegisteredDevices(DeviceType.Profile)
+            var profiles = deviceDiscovery.RegisteredDevices(DeviceType.Profile)
                 .OfType<Profile>()
                 .Select(p => new ProfileSummaryDto { ProfileId = p.ProfileId, Name = p.DisplayName })
                 .ToArray();
@@ -31,9 +31,9 @@ internal static class ProfileEndpoints
         });
 
         // GET /api/v1/profiles/{id} — get profile detail
-        group.MapGet("/{id:guid}", (Guid id, ICombinedDeviceManager deviceManager) =>
+        group.MapGet("/{id:guid}", (Guid id, IDeviceDiscovery deviceDiscovery) =>
         {
-            var profile = deviceManager.RegisteredDevices(DeviceType.Profile)
+            var profile = deviceDiscovery.RegisteredDevices(DeviceType.Profile)
                 .OfType<Profile>()
                 .FirstOrDefault(p => p.ProfileId == id);
 
@@ -50,7 +50,7 @@ internal static class ProfileEndpoints
         });
 
         // POST /api/v1/profiles — create a new profile
-        group.MapPost("/", async (CreateProfileRequest request, IExternal external, ICombinedDeviceManager deviceManager, CancellationToken ct) =>
+        group.MapPost("/", async (CreateProfileRequest request, IExternal external, IDeviceDiscovery deviceDiscovery, CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.Name))
             {
@@ -63,7 +63,7 @@ internal static class ProfileEndpoints
             await profile.SaveAsync(external, ct);
 
             // Refresh device registry so the new profile is discoverable
-            await deviceManager.DiscoverOnlyDeviceType(DeviceType.Profile, ct);
+            await deviceDiscovery.DiscoverOnlyDeviceType(DeviceType.Profile, ct);
 
             return Results.Json(
                 ResponseEnvelope<ProfileDetailDto>.Ok(ProfileDetailDto.FromProfile(profile)),
@@ -71,9 +71,9 @@ internal static class ProfileEndpoints
         });
 
         // DELETE /api/v1/profiles/{id} — delete a profile
-        group.MapDelete("/{id:guid}", async (Guid id, IExternal external, ICombinedDeviceManager deviceManager, CancellationToken ct) =>
+        group.MapDelete("/{id:guid}", async (Guid id, IExternal external, IDeviceDiscovery deviceDiscovery, CancellationToken ct) =>
         {
-            var profile = deviceManager.RegisteredDevices(DeviceType.Profile)
+            var profile = deviceDiscovery.RegisteredDevices(DeviceType.Profile)
                 .OfType<Profile>()
                 .FirstOrDefault(p => p.ProfileId == id);
 
@@ -87,7 +87,7 @@ internal static class ProfileEndpoints
             profile.Delete(external);
 
             // Refresh device registry
-            await deviceManager.DiscoverOnlyDeviceType(DeviceType.Profile, ct);
+            await deviceDiscovery.DiscoverOnlyDeviceType(DeviceType.Profile, ct);
 
             return Results.Json(
                 ResponseEnvelope<string>.Ok($"Profile {id} deleted"),

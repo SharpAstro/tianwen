@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.Focus;
@@ -10,8 +11,8 @@ using TianWen.Lib.Devices.Guider;
 namespace TianWen.Lib.Sequencing;
 
 internal class SessionFactory(
-    IDeviceUriRegistry deviceUriRegistry,
-    ICombinedDeviceManager deviceManager,
+    IDeviceHub deviceHub,
+    IDeviceDiscovery deviceDiscovery,
     IExternal external,
     IPlateSolverFactory plateSolverFactory,
     IServiceProvider serviceProvider
@@ -23,7 +24,7 @@ internal class SessionFactory(
         {
             throw new InvalidOperationException("Failed to initalize due to plate solver factory error.");
         }
-        await deviceManager.DiscoverAsync(cancellationToken).ConfigureAwait(false);
+        await deviceDiscovery.DiscoverAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public ISession Create(Guid profileId, in SessionConfiguration configuration, ReadOnlySpan<ScheduledObservation> observations)
@@ -37,14 +38,10 @@ internal class SessionFactory(
 
     private (Setup Setup, ProfileData ProfileData) CreateSetup(Guid profileId)
     {
-        if (!deviceManager.TryFindByDeviceId(Profile.DeviceIdFromUUID(profileId), out var profileDevice))
+        var profileDeviceId = Profile.DeviceIdFromUUID(profileId);
+        if (deviceDiscovery.RegisteredDevices(DeviceType.Profile).FirstOrDefault(p => p.DeviceId == profileDeviceId) is not Profile profile)
         {
             throw new ArgumentException($"Cannot find a profile with id {profileId}", nameof(profileId));
-        }
-
-        if (profileDevice is not Profile profile)
-        {
-            throw new ArgumentException($"Device {profileDevice} is not a {DeviceType.Profile}", nameof(profileId));
         }
 
         var profileData = profile.Data ?? throw new ArgumentException($"Profile {profileId} contains no devices", nameof(profileId));
@@ -98,7 +95,7 @@ internal class SessionFactory(
 
         DeviceBase DeviceFromUri(Uri deviceUri, int? otaIdx = null)
         {
-            if (deviceUriRegistry.TryGetDeviceFromUri(deviceUri, out var device))
+            if (deviceHub.TryGetDeviceFromUri(deviceUri, out var device))
             {
                 return device;
             }

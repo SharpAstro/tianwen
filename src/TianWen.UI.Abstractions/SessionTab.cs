@@ -92,7 +92,7 @@ namespace TianWen.UI.Abstractions
             // Reinitialize per-OTA settings when the profile changes
             if (State.NeedsReinitialization(appState.ActiveProfile))
             {
-                State.InitializeFromProfile(appState.ActiveProfile, appState.DeviceUriRegistry);
+                State.InitializeFromProfile(appState.ActiveProfile, appState.DeviceHub);
             }
 
             var layout = new PixelLayout(contentRect);
