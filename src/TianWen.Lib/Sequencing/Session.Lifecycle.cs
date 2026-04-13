@@ -109,7 +109,7 @@ internal partial record Session
             int i = 0;
             while (!await mount.Driver.AtParkAsync(cancellationToken) && i++ < IDeviceDriver.MAX_FAILSAFE)
             {
-                await External.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
+                await _timeProvider.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
             }
 
             return await mount.Driver.AtParkAsync(cancellationToken);

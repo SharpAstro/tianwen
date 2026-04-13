@@ -62,7 +62,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         _device = device;
         External = serviceProvider.GetRequiredService<IExternal>();
         Logger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(BuiltInGuiderDriver));
-        TimeProvider = serviceProvider.GetRequiredService<TimeProvider>();
+        TimeProvider = serviceProvider.GetRequiredService<ITimeProvider>();
         ReverseDecOnFlip = device.ReverseDecAfterFlip;
         _reuseCalibration = device.ReuseCalibration;
         _useNeuralGuider = device.UseNeuralGuider;
@@ -85,7 +85,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
     public ILogger Logger { get; }
 
-    public TimeProvider TimeProvider { get; }
+    public ITimeProvider TimeProvider { get; }
 
 
     /// <summary>
@@ -352,7 +352,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
         var tracker = new GuiderCentroidTracker(maxStars: 1);
         _calibrationTracker = tracker;
-        var frame = await CaptureGuideFrameAsync(camera, exposureTime, External, ct);
+        var frame = await CaptureGuideFrameAsync(camera, exposureTime, TimeProvider, ct);
         _lastFrame = frame;
         tracker.ProcessFrame(frame.GetChannelArray(0));
 
@@ -367,7 +367,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         var timeProvider = TimeProvider;
         async ValueTask<Image> CaptureFrame(CancellationToken token)
         {
-            var f = await CaptureGuideFrameAsync(camera, exposureTime, External, token);
+            var f = await CaptureGuideFrameAsync(camera, exposureTime, timeProvider, token);
             _lastFrame = f;
             return f;
         }
@@ -377,7 +377,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
             BacklashClearingEnabled = true,
         };
 
-        return await calibration.CalibrateAsync(pulseTarget, tracker, CaptureFrame, External, ct);
+        return await calibration.CalibrateAsync(pulseTarget, tracker, CaptureFrame, TimeProvider, ct);
     }
 
     /// <summary>
@@ -402,7 +402,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         var exposureTime = await ExposureTimeAsync(ct);
         var tracker = new GuiderCentroidTracker(maxStars: 1);
         _calibrationTracker = tracker;
-        var frame = await CaptureGuideFrameAsync(camera, exposureTime, External, ct);
+        var frame = await CaptureGuideFrameAsync(camera, exposureTime, TimeProvider, ct);
         _lastFrame = frame;
         tracker.ProcessFrame(frame.GetChannelArray(0));
 
@@ -415,13 +415,13 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         var timeProvider = TimeProvider;
         async ValueTask<Image> CaptureFrame(CancellationToken token)
         {
-            var f = await CaptureGuideFrameAsync(camera, exposureTime, External, token);
+            var f = await CaptureGuideFrameAsync(camera, exposureTime, timeProvider, token);
             _lastFrame = f;
             return f;
         }
 
         var calibration = new GuiderCalibration();
-        var result = await calibration.ValidateAsync(savedCalibration.Value, pulseTarget, tracker, CaptureFrame, External, ct);
+        var result = await calibration.ValidateAsync(savedCalibration.Value, pulseTarget, tracker, CaptureFrame, TimeProvider, ct);
 
         switch (result)
         {
@@ -503,9 +503,9 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
             var tracker = new GuiderCentroidTracker(maxStars: 1);
             var timeProvider = TimeProvider;
             async ValueTask<Image> CaptureFrame(CancellationToken token)
-                => await CaptureGuideFrameAsync(camera, exposureTime, External, token);
+                => await CaptureGuideFrameAsync(camera, exposureTime, timeProvider, token);
 
-            var frame = await CaptureGuideFrameAsync(camera, exposureTime, External, ct);
+            var frame = await CaptureGuideFrameAsync(camera, exposureTime, TimeProvider, ct);
             tracker.ProcessFrame(frame.GetChannelArray(0));
             tracker.SetLockPosition();
 
@@ -517,7 +517,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                 MinPulseMs = 5
             };
 
-            var guideLoop = new GuideLoop(pulseTarget, tracker, pController, External, TimeProvider);
+            var guideLoop = new GuideLoop(pulseTarget, tracker, pController, TimeProvider);
             guideLoop.SetCalibration(calResult.Value);
 
             // Enable neural guide model with online learning if configured
@@ -589,14 +589,14 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     /// The returned <see cref="Image"/> holds a <see cref="ChannelBuffer"/> ref —
     /// caller must call <see cref="Image.Release"/> when done to allow buffer reuse.
     /// </summary>
-    internal static async ValueTask<Image> CaptureGuideFrameAsync(ICameraDriver camera, TimeSpan exposure, IExternal external, CancellationToken ct)
+    internal static async ValueTask<Image> CaptureGuideFrameAsync(ICameraDriver camera, TimeSpan exposure, ITimeProvider timeProvider, CancellationToken ct)
     {
         await camera.StartExposureAsync(exposure, FrameType.Light, ct);
 
         // Poll until image is ready
         while (!await camera.GetImageReadyAsync(ct))
         {
-            await external.SleepAsync(TimeSpan.FromMilliseconds(50), ct);
+            await timeProvider.SleepAsync(TimeSpan.FromMilliseconds(50), ct);
         }
 
         return await camera.GetImageAsync(ct) ?? throw new GuiderException("Failed to capture guide frame — no image data");

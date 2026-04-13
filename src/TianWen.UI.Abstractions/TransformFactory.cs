@@ -16,7 +16,7 @@ public static class TransformFactory
     /// Creates a Transform from the profile's mount URI query params.
     /// Returns null with an error message if the profile has no mount or no lat/lon.
     /// </summary>
-    public static Transform? FromProfile(Profile profile, TimeProvider timeProvider, out string? error)
+    public static Transform? FromProfile(Profile profile, ITimeProvider timeProvider, out string? error)
     {
         error = null;
         var data = profile.Data;
@@ -55,7 +55,7 @@ public static class TransformFactory
             SiteLongitude = lon,
             SiteElevation = elevation,
             SiteTemperature = 15,
-            DateTimeOffset = timeProvider.GetLocalNow()
+            DateTimeOffset = timeProvider.System.GetLocalNow()
         };
 
         // Re-express "now" in the site's timezone so CalculateNightWindow computes

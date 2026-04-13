@@ -47,7 +47,7 @@ public class TonightsBestTests
 
     private static Transform CreateTransform(double latitude, double longitude, DateTimeOffset date)
     {
-        return new Transform(TimeProvider.System)
+        return new Transform(SystemTimeProvider.Instance)
         {
             SiteLatitude = latitude,
             SiteLongitude = longitude,

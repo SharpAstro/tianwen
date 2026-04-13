@@ -1,7 +1,6 @@
-﻿using Meziantou.Extensions.Logging.Xunit.v3;
+using Meziantou.Extensions.Logging.Xunit.v3;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Time.Testing;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -20,17 +19,15 @@ namespace TianWen.Lib.Tests;
 
 public class FakeExternal : IExternal
 {
-    private readonly FakeTimeProvider _timeProvider;
+    private readonly FakeTimeProviderWrapper _timeProvider;
 
-    public FakeExternal(ITestOutputHelper testOutputHelper, DirectoryInfo? root = null, DateTimeOffset? now = null, TimeSpan? autoAdvanceAmount = null, [CallerMemberName] string? callerName = null)
+    public FakeExternal(ITestOutputHelper testOutputHelper, FakeTimeProviderWrapper timeProvider, DirectoryInfo? root = null, [CallerMemberName] string? callerName = null)
     {
         // Disable array pooling in tests — parallel tests share the static pool,
         // causing cross-test data races on pooled scratch arrays.
         Array2DPool<float>.Enabled = false;
 
-        _timeProvider = now is { }
-            ? new FakeTimeProvider(now.Value) { AutoAdvanceAmount = autoAdvanceAmount ?? TimeSpan.Zero }
-            : new FakeTimeProvider() { AutoAdvanceAmount = autoAdvanceAmount ?? TimeSpan.Zero };
+        _timeProvider = timeProvider;
 
         if (string.IsNullOrWhiteSpace(callerName))
         {
@@ -45,6 +42,15 @@ public class FakeExternal : IExternal
         AppLogger = CreateLogger(testOutputHelper);
     }
 
+    /// <summary>
+    /// Convenience constructor that creates a <see cref="FakeTimeProviderWrapper"/> internally.
+    /// Use the 2-arg constructor when you need direct access to the wrapper (e.g. for <c>Advance</c>).
+    /// </summary>
+    public FakeExternal(ITestOutputHelper testOutputHelper, DirectoryInfo? root = null, DateTimeOffset? now = null, TimeSpan? autoAdvanceAmount = null, [CallerMemberName] string? callerName = null)
+        : this(testOutputHelper, new FakeTimeProviderWrapper(now, autoAdvanceAmount), root, callerName)
+    {
+    }
+
     public static ILogger CreateLogger(ITestOutputHelper testOutputHelper) => new XUnitLoggerProvider(testOutputHelper, false).CreateLogger("Test");
 
     public DirectoryInfo ProfileFolder { get; private set; }
@@ -52,8 +58,6 @@ public class FakeExternal : IExternal
     public DirectoryInfo AppDataFolder { get; private set; }
 
     public DirectoryInfo ImageOutputFolder { get; private set; }
-
-    public TimeProvider TimeProvider => _timeProvider;
 
     public ILogger AppLogger { get; }
 
@@ -70,35 +74,6 @@ public class FakeExternal : IExternal
 
     public virtual ISerialConnection OpenSerialDevice(string address, int baud, Encoding encoding)
         => throw new ArgumentException($"Failed to instantiate serial device at address={address}", nameof(address));
-
-    /// <summary>
-    /// When true, SleepAsync waits for the fake time to advance (driven by an external pump)
-    /// rather than advancing time itself. This prevents concurrent Advance calls from racing.
-    /// </summary>
-    public bool ExternalTimePump { get; set; }
-
-    /// <summary>
-    /// Advances the fake time provider by the specified duration.
-    /// Only for use by the external time pump (test thread).
-    /// </summary>
-    public void Advance(TimeSpan duration) => _timeProvider.Advance(duration);
-
-    public async ValueTask SleepAsync(TimeSpan duration, CancellationToken cancellationToken = default)
-    {
-        if (ExternalTimePump)
-        {
-            // Wait until the external pump has advanced time past our target
-            var target = _timeProvider.GetUtcNow() + duration;
-            while (_timeProvider.GetUtcNow() < target && !cancellationToken.IsCancellationRequested)
-            {
-                await Task.Delay(1, cancellationToken);
-            }
-        }
-        else
-        {
-            _timeProvider.Advance(duration);
-        }
-    }
 
     /// <summary>Maximum number of FITS files to write to disk. Default 1 to reduce test I/O.</summary>
     public int MaxFitsWrites { get; set; } = 1;
@@ -130,13 +105,13 @@ public class FakeExternal : IExternal
     public ValueTask<ResourceLock> WaitForSerialPortEnumerationAsync(CancellationToken cancellationToken) => ValueTask.FromResult(ResourceLock.AlwaysUnlocked);
 
     /// <summary>
-    /// Builds a minimal <see cref="IServiceProvider"/> that resolves <see cref="IExternal"/> to this instance.
+    /// Builds a minimal <see cref="IServiceProvider"/> that resolves <see cref="IExternal"/> and <see cref="ITimeProvider"/>.
     /// Use when constructing <see cref="TianWen.Lib.Sequencing.ControllableDeviceBase{TDriver}"/> subclasses in tests.
     /// </summary>
     public IServiceProvider BuildServiceProvider() =>
         new ServiceCollection()
             .AddSingleton<IExternal>(this)
-            .AddSingleton<TimeProvider>(TimeProvider)
+            .AddSingleton<ITimeProvider>(_timeProvider)
             .AddLogging()
             .BuildServiceProvider();
 }

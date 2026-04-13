@@ -38,7 +38,7 @@ namespace TianWen.UI.Abstractions
         private readonly CancellationTokenSource _cts;
         private readonly IExternal _external;
         private readonly ILogger _logger;
-        private readonly TimeProvider _timeProvider;
+        private readonly ITimeProvider _timeProvider;
 
         /// <summary>Set by the host after catalog load to enable autocomplete.</summary>
         public Action<string[]> SetAutoCompleteCache { get; }
@@ -250,7 +250,7 @@ namespace TianWen.UI.Abstractions
             _cts = cts;
             _external = external;
             _logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(AppSignalHandler));
-            _timeProvider = sp.GetRequiredService<TimeProvider>();
+            _timeProvider = sp.GetRequiredService<ITimeProvider>();
 
             var logger = _logger;
 

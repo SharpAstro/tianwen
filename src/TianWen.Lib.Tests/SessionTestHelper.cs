@@ -59,7 +59,8 @@ internal static class SessionTestHelper
         string? mountPort = null,
         CancellationToken cancellationToken = default)
     {
-        var external = new FakeExternal(output, now: now ?? new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var timeProvider = new FakeTimeProviderWrapper(now ?? new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var external = new FakeExternal(output, timeProvider);
 
         var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
         var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
@@ -115,7 +116,7 @@ internal static class SessionTestHelper
         ((FakeGuider)guider.Driver).LinkDevices(mount.Driver, guiderCam.Driver);
 
         // Set UTC date on mount so TryGetTransformAsync works
-        await mount.Driver.SetUTCDateAsync(external.TimeProvider.GetUtcNow().UtcDateTime, cancellationToken);
+        await mount.Driver.SetUTCDateAsync(timeProvider.GetUtcNow().UtcDateTime, cancellationToken);
 
         var weatherDevice = new FakeDevice(DeviceType.Weather, 1);
         var weather = new Weather(weatherDevice, sp);
@@ -129,7 +130,7 @@ internal static class SessionTestHelper
 
         var session = new Session(setup, config, plateSolver, external, sp, new ScheduledObservationTree(obs));
 
-        return new SessionTestContext(session, external, cameraDriver, focuserDriver, mount.Driver);
+        return new SessionTestContext(session, external, timeProvider, cameraDriver, focuserDriver, mount.Driver);
     }
 
     /// <summary>
@@ -145,7 +146,8 @@ internal static class SessionTestHelper
         DateTimeOffset? now = null,
         CancellationToken cancellationToken = default)
     {
-        var external = new FakeExternal(output, now: now ?? new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var timeProvider = new FakeTimeProviderWrapper(now ?? new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var external = new FakeExternal(output, timeProvider);
         var sp = external.BuildServiceProvider();
 
         // OTA 1: OSC camera, no filter wheel (fixed L-Ultimate dual-band)
@@ -240,7 +242,7 @@ internal static class SessionTestHelper
         guiderCam.Driver.FocalLength = 130;
         await ((FakeGuider)guider.Driver).ConnectEquipmentAsync(cancellationToken);
         ((FakeGuider)guider.Driver).LinkDevices(mount.Driver, guiderCam.Driver);
-        await mount.Driver.SetUTCDateAsync(external.TimeProvider.GetUtcNow().UtcDateTime, cancellationToken);
+        await mount.Driver.SetUTCDateAsync(timeProvider.GetUtcNow().UtcDateTime, cancellationToken);
 
         var dualWeatherDevice = new FakeDevice(DeviceType.Weather, 1);
         var dualWeather = new Weather(dualWeatherDevice, sp);
@@ -254,7 +256,7 @@ internal static class SessionTestHelper
 
         var session = new Session(setup, config, plateSolver, external, sp, new ScheduledObservationTree(obs));
 
-        return new DualOTATestContext(session, external, oscCameraDriver, monoCameraDriver, oscFocuserDriver, monoFocuserDriver, filterWheelDriver, mount.Driver);
+        return new DualOTATestContext(session, external, timeProvider, oscCameraDriver, monoCameraDriver, oscFocuserDriver, monoFocuserDriver, filterWheelDriver, mount.Driver);
     }
 
     /// <summary>
@@ -276,6 +278,7 @@ internal static class SessionTestHelper
 internal record DualOTATestContext(
     Session Session,
     FakeExternal External,
+    FakeTimeProviderWrapper TimeProvider,
     FakeCameraDriver OSCCamera,
     FakeCameraDriver MonoCamera,
     FakeFocuserDriver OSCFocuser,
@@ -293,6 +296,7 @@ internal record DualOTATestContext(
 internal record SessionTestContext(
     Session Session,
     FakeExternal External,
+    FakeTimeProviderWrapper TimeProvider,
     FakeCameraDriver Camera,
     FakeFocuserDriver Focuser,
     IMountDriver Mount

@@ -16,7 +16,7 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
 {
     private readonly AlignmentMode _alignmentMode = AlignmentMode.GermanPolar;
     private readonly Transform _transform;
-    private readonly TimeProvider _timeProvider;
+    private readonly ITimeProvider _timeProvider;
     private readonly int _alignmentStars = 0;
     private double _slewRate = 1.5d; // degrees per second
     private volatile bool _isTracking = false;
@@ -59,7 +59,7 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
         ? _decAxisAngle > 90
         : _decAxisAngle < -90;
 
-    public FakeMeadeLX200SerialDevice(ILogger logger, Encoding encoding, TimeProvider timeProvider, double siteLatitude, double siteLongitude, bool isOpen)
+    public FakeMeadeLX200SerialDevice(ILogger logger, Encoding encoding, ITimeProvider timeProvider, double siteLatitude, double siteLongitude, bool isOpen)
     {
         _timeProvider = timeProvider;
         _transform = new Transform(timeProvider)
@@ -704,7 +704,7 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
         if (state is SlewState slewState && IsOpen && _isSlewing)
         {
             var now = _timeProvider.GetTimestamp();
-            var elapsedSeconds = _timeProvider.GetElapsedTime(slewState.LastTicks, now).TotalSeconds;
+            var elapsedSeconds = TimeSpan.FromSeconds((now - slewState.LastTicks) / (double)_timeProvider.TimestampFrequency).TotalSeconds;
             slewState.LastTicks = now;
             var slewRateHoursPerPeriod = slewState.SlewRate * DEG2HOURS * elapsedSeconds;
             var slewRateDegreesPerPeriod = slewState.SlewRate * elapsedSeconds;

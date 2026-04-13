@@ -30,7 +30,7 @@ internal abstract class AscomDeviceDriverBase(AscomDevice device, IServiceProvid
 
             while (!cancellationToken.IsCancellationRequested && _dispatchDevice.Connecting)
             {
-                await External.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
+                await TimeProvider.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
             }
 
             success = _dispatchDevice.Connected;
@@ -52,7 +52,7 @@ internal abstract class AscomDeviceDriverBase(AscomDevice device, IServiceProvid
 
             while (!cancellationToken.IsCancellationRequested && _dispatchDevice.Connecting)
             {
-                await External.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
+                await TimeProvider.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
             }
 
             return !_dispatchDevice.Connected;

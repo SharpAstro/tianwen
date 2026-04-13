@@ -10,21 +10,22 @@ namespace TianWen.Lib.Tests.Functional;
 
 public class FakeMountDriverTests(ITestOutputHelper output)
 {
-    private (FakeMountDriver mount, FakeExternal external) CreateMount(
+    private (FakeMountDriver mount, FakeTimeProviderWrapper timeProvider, FakeExternal external) CreateMount(
         double latitude = 48.2,
         double longitude = 16.3,
         DateTimeOffset? now = null)
     {
-        var external = new FakeExternal(output, now: now ?? new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var timeProvider = new FakeTimeProviderWrapper(now ?? new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var external = new FakeExternal(output, timeProvider);
         var device = new FakeDevice(DeviceType.Mount, 1);
         var mount = new FakeMountDriver(device, external.BuildServiceProvider());
-        return (mount, external);
+        return (mount, timeProvider, external);
     }
 
     [Fact(Timeout = 60_000)]
     public async Task GivenConnectedMountWhenSetPositionThenCoordinatesMatch()
     {
-        var (mount, _) = CreateMount();
+        var (mount, _, _) = CreateMount();
         var ct = TestContext.Current.CancellationToken;
         await mount.ConnectAsync(ct);
 
@@ -41,7 +42,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     public async Task GivenTrackingMountWhenTimeAdvancesThenRaTracksCorrectly()
     {
         var ct = TestContext.Current.CancellationToken;
-        var (mount, external) = CreateMount();
+        var (mount, timeProvider, _) = CreateMount();
         await mount.ConnectAsync(ct);
 
         await mount.SetPositionAsync(16.695, 36.46, ct);
@@ -50,7 +51,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         var ra0 = await mount.GetRightAscensionAsync(ct);
 
         // Advance 1 hour
-        await external.SleepAsync(TimeSpan.FromHours(1), ct);
+        await timeProvider.SleepAsync(TimeSpan.FromHours(1), ct);
 
         var ra1 = await mount.GetRightAscensionAsync(ct);
 
@@ -67,7 +68,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     public async Task GivenMountWhenPulseGuideEastThenRaDecreases()
     {
         var ct = TestContext.Current.CancellationToken;
-        var (mount, external) = CreateMount();
+        var (mount, _, _) = CreateMount();
         await mount.ConnectAsync(ct);
         await mount.SetPositionAsync(12.0, 45.0, ct);
 
@@ -90,7 +91,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     public async Task GivenMountWhenPulseGuideNorthThenDecIncreases()
     {
         var ct = TestContext.Current.CancellationToken;
-        var (mount, external) = CreateMount();
+        var (mount, _, _) = CreateMount();
         await mount.ConnectAsync(ct);
         await mount.SetPositionAsync(12.0, 45.0, ct);
 
@@ -108,7 +109,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     public async Task GivenPeriodicErrorWhenTrackingThenRaDrifts()
     {
         var ct = TestContext.Current.CancellationToken;
-        var (mount, external) = CreateMount();
+        var (mount, timeProvider, _) = CreateMount();
         await mount.ConnectAsync(ct);
 
         mount.PeriodicErrorAmplitudeArcsec = 15.0; // 15" peak PE
@@ -124,7 +125,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
 
         for (var i = 0; i < samples; i++)
         {
-            await external.SleepAsync(sampleInterval, ct);
+            await timeProvider.SleepAsync(sampleInterval, ct);
             var error = await mount.GetTrackingErrorRaArcsecAsync(ct);
             if (error > maxError) maxError = error;
             if (error < minError) minError = error;
@@ -142,7 +143,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     public async Task GivenPolarDriftWhenTrackingThenDecDrifts()
     {
         var ct = TestContext.Current.CancellationToken;
-        var (mount, external) = CreateMount();
+        var (mount, timeProvider, _) = CreateMount();
         await mount.ConnectAsync(ct);
 
         mount.PolarDriftRateDecArcsecPerSec = 0.5; // 0.5"/s drift north
@@ -152,7 +153,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         var dec0 = await mount.GetDeclinationAsync(ct);
 
         // Advance 60 seconds → expect ~30" = 0.00833° drift
-        await external.SleepAsync(TimeSpan.FromSeconds(60), ct);
+        await timeProvider.SleepAsync(TimeSpan.FromSeconds(60), ct);
 
         var dec1 = await mount.GetDeclinationAsync(ct);
         var driftArcsec = (dec1 - dec0) * 3600;
@@ -165,7 +166,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     public async Task GivenDecBacklashWhenDirectionReversedThenDeadZoneApplied()
     {
         var ct = TestContext.Current.CancellationToken;
-        var (mount, external) = CreateMount();
+        var (mount, _, _) = CreateMount();
         await mount.ConnectAsync(ct);
 
         mount.DecBacklashArcsec = 5.0; // 5" backlash
@@ -194,7 +195,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     public async Task GivenDecBacklashWhenSameDirectionThenNoDeadZone()
     {
         var ct = TestContext.Current.CancellationToken;
-        var (mount, external) = CreateMount();
+        var (mount, _, _) = CreateMount();
         await mount.ConnectAsync(ct);
 
         mount.DecBacklashArcsec = 5.0;
@@ -219,7 +220,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     public async Task GivenMountWhenSlewThenReachesTarget()
     {
         var ct = TestContext.Current.CancellationToken;
-        var (mount, external) = CreateMount();
+        var (mount, timeProvider, _) = CreateMount();
         await mount.ConnectAsync(ct);
 
         await mount.SetPositionAsync(12.0, 45.0, ct);
@@ -230,7 +231,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         (await mount.IsSlewingAsync(ct)).ShouldBeTrue();
 
         // Advance time to allow slew to complete
-        await external.SleepAsync(TimeSpan.FromSeconds(30), ct);
+        await timeProvider.SleepAsync(TimeSpan.FromSeconds(30), ct);
 
         (await mount.IsSlewingAsync(ct)).ShouldBeFalse();
 
@@ -244,14 +245,14 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     public async Task GivenPerfectMountWhenTrackingThenNoError()
     {
         var ct = TestContext.Current.CancellationToken;
-        var (mount, external) = CreateMount();
+        var (mount, timeProvider, _) = CreateMount();
         await mount.ConnectAsync(ct);
 
         // All error injection defaults to 0
         await mount.SetPositionAsync(12.0, 45.0, ct);
         await mount.SetTrackingAsync(true, ct);
 
-        await external.SleepAsync(TimeSpan.FromMinutes(5), ct);
+        await timeProvider.SleepAsync(TimeSpan.FromMinutes(5), ct);
 
         (await mount.GetTrackingErrorRaArcsecAsync(ct)).ShouldBe(0.0, 0.01);
         (await mount.GetTrackingErrorDecArcsecAsync(ct)).ShouldBe(0.0, 0.01);
@@ -261,7 +262,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     public async Task GivenMountWhenIsPulseGuidingThenReturnsCorrectState()
     {
         var ct = TestContext.Current.CancellationToken;
-        var (mount, external) = CreateMount();
+        var (mount, timeProvider, _) = CreateMount();
         await mount.ConnectAsync(ct);
         await mount.SetPositionAsync(12.0, 45.0, ct);
 
@@ -275,7 +276,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         (await mount.IsPulseGuidingAsync(ct)).ShouldBeTrue();
 
         // Advance past pulse duration
-        await external.SleepAsync(TimeSpan.FromSeconds(3), ct);
+        await timeProvider.SleepAsync(TimeSpan.FromSeconds(3), ct);
 
         // After pulse: not guiding
         (await mount.IsPulseGuidingAsync(ct)).ShouldBeFalse();
@@ -300,6 +301,8 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         // Brightest pixel should shift by approximately the offset
         ((double)(maxX1 - maxX0)).ShouldBe(5.0, 1.5);
         ((double)(maxY1 - maxY0)).ShouldBe(3.0, 1.5);
+
+        await Task.CompletedTask; // suppress warning
     }
 
     [Fact(Timeout = 60_000)]
@@ -348,7 +351,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     public async Task GivenMountWhenGetAxisPositionThenReturnsEncoderTicks()
     {
         var ct = TestContext.Current.CancellationToken;
-        var (mount, _) = CreateMount();
+        var (mount, _, _) = CreateMount();
         await mount.ConnectAsync(ct);
 
         await mount.SetPositionAsync(6.0, 45.0, ct); // RA=6h, Dec=+45°
@@ -398,7 +401,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     public async Task GivenWindGustsWhenTrackingThenPositionFluctuates()
     {
         var ct = TestContext.Current.CancellationToken;
-        var (mount, external) = CreateMount();
+        var (mount, timeProvider, _) = CreateMount();
         await mount.ConnectAsync(ct);
 
         mount.WindGustAmplitudeArcsec = 3.0;
@@ -411,7 +414,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         var decErrors = new double[20];
         for (var i = 0; i < 20; i++)
         {
-            await external.SleepAsync(TimeSpan.FromSeconds(2), ct);
+            await timeProvider.SleepAsync(TimeSpan.FromSeconds(2), ct);
             raErrors[i] = await mount.GetTrackingErrorRaArcsecAsync(ct);
             decErrors[i] = await mount.GetTrackingErrorDecArcsecAsync(ct);
         }
@@ -436,7 +439,8 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
         var now = new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero);
-        var external1 = new FakeExternal(output, now: now);
+        var timeProvider1 = new FakeTimeProviderWrapper(now);
+        var external1 = new FakeExternal(output, timeProvider1);
         var mount1 = new FakeMountDriver(new FakeDevice(DeviceType.Mount, 1), external1.BuildServiceProvider());
         await mount1.ConnectAsync(ct);
         mount1.WindGustAmplitudeArcsec = 3.0;
@@ -444,7 +448,8 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         await mount1.SetPositionAsync(12.0, 45.0, ct);
         await mount1.SetTrackingAsync(true, ct);
 
-        var external2 = new FakeExternal(output, now: now);
+        var timeProvider2 = new FakeTimeProviderWrapper(now);
+        var external2 = new FakeExternal(output, timeProvider2);
         var mount2 = new FakeMountDriver(new FakeDevice(DeviceType.Mount, 2), external2.BuildServiceProvider());
         await mount2.ConnectAsync(ct);
         mount2.WindGustAmplitudeArcsec = 3.0;
@@ -454,8 +459,8 @@ public class FakeMountDriverTests(ITestOutputHelper output)
 
         for (var i = 0; i < 10; i++)
         {
-            await external1.SleepAsync(TimeSpan.FromSeconds(2), ct);
-            await external2.SleepAsync(TimeSpan.FromSeconds(2), ct);
+            await timeProvider1.SleepAsync(TimeSpan.FromSeconds(2), ct);
+            await timeProvider2.SleepAsync(TimeSpan.FromSeconds(2), ct);
 
             var ra1 = await mount1.GetTrackingErrorRaArcsecAsync(ct);
             var ra2 = await mount2.GetTrackingErrorRaArcsecAsync(ct);
@@ -473,7 +478,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     public async Task GivenCableSnagWhenTimeReachedThenStepApplied()
     {
         var ct = TestContext.Current.CancellationToken;
-        var (mount, external) = CreateMount();
+        var (mount, timeProvider, _) = CreateMount();
         await mount.ConnectAsync(ct);
 
         mount.CableSnagTimeSeconds = 30.0;
@@ -483,12 +488,12 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         await mount.SetTrackingAsync(true, ct);
 
         // Before snag time
-        await external.SleepAsync(TimeSpan.FromSeconds(20), ct);
+        await timeProvider.SleepAsync(TimeSpan.FromSeconds(20), ct);
         var raBefore = await mount.GetRightAscensionAsync(ct);
         var decBefore = await mount.GetDeclinationAsync(ct);
 
         // After snag time
-        await external.SleepAsync(TimeSpan.FromSeconds(15), ct); // total = 35s, past 30s snag
+        await timeProvider.SleepAsync(TimeSpan.FromSeconds(15), ct); // total = 35s, past 30s snag
         var raAfter = await mount.GetRightAscensionAsync(ct);
         var decAfter = await mount.GetDeclinationAsync(ct);
 
@@ -503,7 +508,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     public async Task GivenCableSnagWhenTimeNotReachedThenNoEffect()
     {
         var ct = TestContext.Current.CancellationToken;
-        var (mount, external) = CreateMount();
+        var (mount, timeProvider, _) = CreateMount();
         await mount.ConnectAsync(ct);
 
         mount.CableSnagTimeSeconds = 60.0;
@@ -513,7 +518,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         await mount.SetTrackingAsync(true, ct);
 
         // Only advance 30s — snag at 60s should not fire
-        await external.SleepAsync(TimeSpan.FromSeconds(30), ct);
+        await timeProvider.SleepAsync(TimeSpan.FromSeconds(30), ct);
 
         (await mount.GetTrackingErrorRaArcsecAsync(ct)).ShouldBe(0.0, 0.01);
         (await mount.GetTrackingErrorDecArcsecAsync(ct)).ShouldBe(0.0, 0.01);
@@ -525,7 +530,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     public async Task GivenFlexureDriftWhenTrackingThenDecDriftsWithHA()
     {
         var ct = TestContext.Current.CancellationToken;
-        var (mount, external) = CreateMount();
+        var (mount, timeProvider, _) = CreateMount();
         await mount.ConnectAsync(ct);
 
         mount.FlexureDriftRateDecArcsecPerHaHour = 2.0; // 2"/HA-hour
@@ -533,7 +538,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         await mount.SetTrackingAsync(true, ct);
 
         // Advance 1 hour (3600 seconds)
-        await external.SleepAsync(TimeSpan.FromHours(1), ct);
+        await timeProvider.SleepAsync(TimeSpan.FromHours(1), ct);
 
         var flexureError = await mount.GetTrackingErrorDecArcsecAsync(ct);
         output.WriteLine($"Flexure Dec error after 1h: {flexureError:F4} arcsec");

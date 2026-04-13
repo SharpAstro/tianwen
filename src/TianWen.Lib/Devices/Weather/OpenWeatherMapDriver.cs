@@ -53,7 +53,7 @@ internal sealed class OpenWeatherMapDriver : IWeatherDriver
         _device = device;
         _external = serviceProvider.GetRequiredService<IExternal>();
         Logger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(OpenWeatherMapDriver));
-        TimeProvider = serviceProvider.GetRequiredService<TimeProvider>();
+        TimeProvider = serviceProvider.GetRequiredService<ITimeProvider>();
         _apiKey = device.ApiKey ?? throw new ArgumentException("OpenWeatherMap API key is required");
     }
 
@@ -65,7 +65,7 @@ internal sealed class OpenWeatherMapDriver : IWeatherDriver
     public DeviceType DriverType => DeviceType.Weather;
     public IExternal External => _external;
     public ILogger Logger { get; }
-    public TimeProvider TimeProvider { get; }
+    public ITimeProvider TimeProvider { get; }
     public bool Connected => Volatile.Read(ref _connected);
     public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
 

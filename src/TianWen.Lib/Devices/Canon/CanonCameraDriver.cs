@@ -176,7 +176,7 @@ internal sealed class CanonCameraDriver : ICameraDriver
         _external = serviceProvider.GetRequiredService<IExternal>();
         _cameraFactory = cameraFactory;
         Logger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(CanonCameraDriver));
-        TimeProvider = serviceProvider.GetRequiredService<TimeProvider>();
+        TimeProvider = serviceProvider.GetRequiredService<ITimeProvider>();
     }
 
     // --- IDeviceDriver ---
@@ -187,7 +187,7 @@ internal sealed class CanonCameraDriver : ICameraDriver
     public DeviceType DriverType => DeviceType.Camera;
     public IExternal External => _external;
     public ILogger Logger { get; }
-    public TimeProvider TimeProvider { get; }
+    public ITimeProvider TimeProvider { get; }
     public bool Connected => Volatile.Read(ref _connected);
     public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
 
@@ -493,7 +493,7 @@ internal sealed class CanonCameraDriver : ICameraDriver
             // Bulb mode
             _bulbActive = true;
             await _camera.BulbStartAsync(cancellationToken);
-            await External.SleepAsync(duration, cancellationToken);
+            await TimeProvider.SleepAsync(duration, cancellationToken);
             await _camera.BulbEndAsync(cancellationToken);
             _bulbActive = false;
         }

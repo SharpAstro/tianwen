@@ -27,7 +27,7 @@ public record SkywatcherDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         _ => null
     };
 
-    public override ISerialConnection? ConnectSerialDevice(IExternal external, int baud = SkywatcherProtocol.DEFAULT_LEGACY_BAUD, Encoding? encoding = null, ILogger? logger = null, TimeProvider? timeProvider = null)
+    public override ISerialConnection? ConnectSerialDevice(IExternal external, int baud = SkywatcherProtocol.DEFAULT_LEGACY_BAUD, Encoding? encoding = null, ILogger? logger = null, ITimeProvider? timeProvider = null)
     {
         var port = Query.QueryValue(DeviceQueryKey.Port);
         if (port is null)

@@ -103,7 +103,7 @@ public sealed class ObservationScheduleVisualizationTests(ITestOutputHelper test
     public async Task Schedule_MultiTarget_GeneratesAltitudeChart(string dateStr, string label, bool showDawnDusk)
     {
         var dto = DateTimeOffset.Parse(dateStr, System.Globalization.CultureInfo.InvariantCulture);
-        var transform = new Transform(TimeProvider.System)
+        var transform = new Transform(SystemTimeProvider.Instance)
         {
             SiteLatitude = SiteLatitude,
             SiteLongitude = SiteLongitude,

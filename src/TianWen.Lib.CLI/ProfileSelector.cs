@@ -156,10 +156,10 @@ internal class ProfileSelector(IConsoleHost consoleHost, Option<string?> selecte
     /// </summary>
     private sealed class ProfilePickerMenu(
         IVirtualTerminal terminal,
-        TimeProvider timeProvider,
+        ITimeProvider timeProvider,
         string[] items,
         string title = "Select profile"
-    ) : MenuBase<int>(terminal, timeProvider)
+    ) : MenuBase<int>(terminal, timeProvider.System)
     {
         protected override async Task<int> ShowAsyncCore(CancellationToken cancellationToken)
         {

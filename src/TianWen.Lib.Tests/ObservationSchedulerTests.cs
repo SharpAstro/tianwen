@@ -23,7 +23,7 @@ public sealed class ObservationSchedulerTests
 
     private static Transform CreateTransform()
     {
-        var transform = new Transform(TimeProvider.System)
+        var transform = new Transform(SystemTimeProvider.Instance)
         {
             SiteLatitude = SiteLatitude,
             SiteLongitude = SiteLongitude,
@@ -279,7 +279,7 @@ public sealed class ObservationSchedulerTests
     public void CalculateNightWindow_ReturnsValidWindow(double lat, double lon, string dateStr, double elevation, double minNightHours, double maxNightHours)
     {
         var dto = DateTimeOffset.Parse(dateStr, System.Globalization.CultureInfo.InvariantCulture);
-        var transform = new Transform(TimeProvider.System)
+        var transform = new Transform(SystemTimeProvider.Instance)
         {
             SiteLatitude = lat,
             SiteLongitude = lon,
@@ -303,7 +303,7 @@ public sealed class ObservationSchedulerTests
     {
         // Tromsø, Norway — ~69.6°N, polar night in December
         var dto = new DateTimeOffset(2025, 12, 21, 0, 0, 0, TimeSpan.FromHours(1));
-        var transform = new Transform(TimeProvider.System)
+        var transform = new Transform(SystemTimeProvider.Instance)
         {
             SiteLatitude = 69.6,
             SiteLongitude = 18.95,
@@ -327,7 +327,7 @@ public sealed class ObservationSchedulerTests
     public void CalculateNightWindow_ThenTwilightBoundaries_OrderedCorrectly(double lat, double lon, string dateStr, double elevation)
     {
         var dto = DateTimeOffset.Parse(dateStr, System.Globalization.CultureInfo.InvariantCulture);
-        var transform = new Transform(TimeProvider.System)
+        var transform = new Transform(SystemTimeProvider.Instance)
         {
             SiteLatitude = lat,
             SiteLongitude = lon,
@@ -387,7 +387,7 @@ public sealed class ObservationSchedulerTests
         // Civil twilight set may occur AFTER the nautical-derived "astro dark" because
         // the sun never drops below -18° (or even -12° fully), so only a partial chain applies.
         var dto = new DateTimeOffset(2025, 6, 21, 0, 0, 0, TimeSpan.FromHours(1));
-        var transform = new Transform(TimeProvider.System)
+        var transform = new Transform(SystemTimeProvider.Instance)
         {
             SiteLatitude = 53.35,
             SiteLongitude = -6.26,
@@ -435,7 +435,7 @@ public sealed class ObservationSchedulerTests
     {
         // Use a winter date where M42 (Orion) is well-placed from Vienna
         var winterDate = new DateTimeOffset(2025, 12, 15, 0, 0, 0, TimeSpan.FromHours(1));
-        var transform = new Transform(TimeProvider.System)
+        var transform = new Transform(SystemTimeProvider.Instance)
         {
             SiteLatitude = SiteLatitude,
             SiteLongitude = SiteLongitude,

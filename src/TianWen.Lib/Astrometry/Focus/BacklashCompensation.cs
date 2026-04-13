@@ -24,7 +24,7 @@ public static class BacklashCompensation
         int backlashStepsIn,
         int backlashStepsOut,
         FocusDirection focusDirection,
-        IExternal external,
+        ITimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
         if (targetPosition == currentPosition)
@@ -38,7 +38,7 @@ public static class BacklashCompensation
         if (approachingFromPreferred)
         {
             // Moving in the preferred direction — no compensation needed, just move directly
-            await MoveAndWaitAsync(focuser, targetPosition, external, cancellationToken);
+            await MoveAndWaitAsync(focuser, targetPosition, timeProvider, cancellationToken);
         }
         else
         {
@@ -58,10 +58,10 @@ public static class BacklashCompensation
                     overshootPos = Math.Min(focuser.MaxStep, overshootPos);
                 }
 
-                await MoveAndWaitAsync(focuser, overshootPos, external, cancellationToken);
+                await MoveAndWaitAsync(focuser, overshootPos, timeProvider, cancellationToken);
             }
             // Now approach target from the preferred direction
-            await MoveAndWaitAsync(focuser, targetPosition, external, cancellationToken);
+            await MoveAndWaitAsync(focuser, targetPosition, timeProvider, cancellationToken);
         }
     }
 
@@ -75,27 +75,27 @@ public static class BacklashCompensation
         int currentPosition,
         int backlashStepsIn,
         int backlashStepsOut,
-        IExternal external,
+        ITimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
         return MoveWithCompensationAsync(
             focuser, targetPosition, currentPosition,
             backlashStepsIn, backlashStepsOut,
             new FocusDirection(PreferOutward: true, OutwardIsPositive: true),
-            external, cancellationToken);
+            timeProvider, cancellationToken);
     }
 
     private static async Task MoveAndWaitAsync(
         IFocuserDriver focuser,
         int position,
-        IExternal external,
+        ITimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
         await focuser.BeginMoveAsync(position, cancellationToken);
 
         while (await focuser.GetIsMovingAsync(cancellationToken) && !cancellationToken.IsCancellationRequested)
         {
-            await external.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
+            await timeProvider.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
         }
     }
 }

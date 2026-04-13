@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using DIR.Lib;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
@@ -45,7 +46,7 @@ namespace TianWen.UI.Abstractions
             RectF32 contentRect,
             float dpiScale,
             string fontPath,
-            TimeProvider timeProvider)
+            ITimeProvider timeProvider)
         {
             BeginFrame();
             State.PollFromLiveState(liveState);

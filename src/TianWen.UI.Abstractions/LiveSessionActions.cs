@@ -1,5 +1,6 @@
 using System;
 using DIR.Lib;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.UI.Abstractions
@@ -54,7 +55,7 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>Phase-specific status text with countdowns and context.</summary>
-        public static string PhaseStatusText(LiveSessionState state, TimeProvider timeProvider)
+        public static string PhaseStatusText(LiveSessionState state, ITimeProvider timeProvider)
         {
             // Use CurrentActivity if available — it's more specific than the phase-level text
             if (state.CurrentActivity is { Length: > 0 } activity)

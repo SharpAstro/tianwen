@@ -1,10 +1,11 @@
 ﻿using TianWen.Lib.Astrometry.SOFA;
+using TianWen.Lib.Devices;
 using Shouldly;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Xunit;
-using Microsoft.Extensions.Time.Testing;
+
 
 namespace TianWen.Lib.Tests;
 
@@ -30,7 +31,7 @@ public class TransformTests
         bool actualAboveHorizon;
         IReadOnlyList<TimeSpan> actualRiseEvents;
         IReadOnlyList<TimeSpan> actualSetEvents;
-        var transform = new Transform(TimeProvider.System)
+        var transform = new Transform(SystemTimeProvider.Instance)
         {
             SiteLatitude = lat,
             SiteLongitude = @long,
@@ -70,7 +71,7 @@ public class TransformTests
     public void GivenJ2000CoordsAndLocationWhenTransformingThenAltAzAndTopocentricIsReturned(double ra2000, double dec2000, double julianUTC, double @long, double lat, double elevation, double expAlt, double expAz, double expRaTopo, double expDecTopo)
     {
         // given
-        var transform = new Transform(TimeProvider.System)
+        var transform = new Transform(SystemTimeProvider.Instance)
         {
             SiteLatitude = lat,
             SiteLongitude = @long,
@@ -95,7 +96,7 @@ public class TransformTests
     {
         // given
         var dto = DateTimeOffset.ParseExact(utc, "o", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
-        var transform = new Transform(new FakeTimeProvider(dto)) { SiteLongitude = @long };
+        var transform = new Transform(new FakeTimeProviderWrapper(dto)) { SiteLongitude = @long };
 
         // when / then
         transform.LocalSiderealTime.ShouldBeInRange(expected - 0.01, expected + 0.01);

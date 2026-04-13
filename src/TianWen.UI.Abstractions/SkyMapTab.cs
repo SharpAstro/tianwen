@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using DIR.Lib;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
+using TianWen.Lib.Devices;
 
 namespace TianWen.UI.Abstractions
 {
@@ -33,7 +34,7 @@ namespace TianWen.UI.Abstractions
             RectF32 contentRect,
             float dpiScale,
             string fontPath,
-            TimeProvider timeProvider)
+            ITimeProvider timeProvider)
         {
             BeginFrame();
 
@@ -105,7 +106,7 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         protected virtual void RenderSkyMap(
             ICelestialObjectDB db, RectF32 contentRect, string fontPath,
-            TimeProvider timeProvider, double siteLat, double siteLon)
+            ITimeProvider timeProvider, double siteLat, double siteLon)
         {
             FillRect(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height,
                 new RGBAColor32(0x06, 0x06, 0x10, 0xFF));
@@ -277,7 +278,7 @@ namespace TianWen.UI.Abstractions
         }
 
         private void DrawPlanetLabels(
-            ICelestialObjectDB db, TimeProvider timeProvider, double siteLat, double siteLon,
+            ICelestialObjectDB db, ITimeProvider timeProvider, double siteLat, double siteLon,
             RectF32 rect, string fontPath, float fontSize, double ppr, float cx, float cy)
         {
             var now = timeProvider.GetUtcNow();

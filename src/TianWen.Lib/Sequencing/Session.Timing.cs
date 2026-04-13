@@ -44,7 +44,7 @@ internal partial record Session
         {
             _logger.LogInformation("Waiting {Diff} until 10 minutes before first observation at {FirstStart}",
                 diff, firstStart);
-            await External.SleepAsync(diff, cancellationToken).ConfigureAwait(false);
+            await _timeProvider.SleepAsync(diff, cancellationToken).ConfigureAwait(false);
         }
         else
         {

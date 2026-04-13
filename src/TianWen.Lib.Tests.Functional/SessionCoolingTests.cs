@@ -119,7 +119,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
         // 10s allows ~5 steps (5°C cooled) before the cancel timer fires
         // deterministically inside the loop's own Advance call. No Task.Run race.
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        using var cancelTimer = ctx.External.TimeProvider.CreateTimer(
+        using var cancelTimer = ctx.TimeProvider.CreateTimer(
             _ => cts.Cancel(), null, TimeSpan.FromSeconds(10), Timeout.InfiniteTimeSpan);
 
         await ctx.Session.CoolCamerasToSetpointAsync(

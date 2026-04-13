@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using TianWen.Lib.Devices;
 
 namespace TianWen.UI.Abstractions
 {
@@ -88,7 +89,7 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// Builds display-ready observation rows from session and planner state.
         /// </summary>
-        public static List<ObservationRow> GetObservationRows(SessionTabState sessionState, PlannerState plannerState, TimeProvider? timeProvider = null)
+        public static List<ObservationRow> GetObservationRows(SessionTabState sessionState, PlannerState plannerState, ITimeProvider? timeProvider = null)
         {
             var proposals = plannerState.Proposals;
             var sliders = plannerState.HandoffSliders;
@@ -157,7 +158,7 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// Formats the right panel (camera settings + observation list) as markdown for the TUI.
         /// </summary>
-        public static string FormatRightPanelMarkdown(SessionTabState sessionState, PlannerState plannerState, TimeProvider? timeProvider = null)
+        public static string FormatRightPanelMarkdown(SessionTabState sessionState, PlannerState plannerState, ITimeProvider? timeProvider = null)
         {
             var sb = new StringBuilder();
 

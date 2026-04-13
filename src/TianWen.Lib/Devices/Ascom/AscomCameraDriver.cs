@@ -366,7 +366,7 @@ public void ReleaseImageData() { }
     public ValueTask<DateTimeOffset> StartExposureAsync(TimeSpan duration, FrameType frameType = FrameType.Light, CancellationToken cancellationToken = default)
     {
         _camera.StartExposure(duration.TotalSeconds, frameType.NeedsOpenShutter);
-        var startTime = TimeProvider.GetLocalNow();
+        var startTime = TimeProvider.System.GetLocalNow();
         LastExposureStartTime = startTime;
         LastExposureFrameType = frameType;
         return ValueTask.FromResult(startTime);

@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Devices.Guider;
@@ -18,8 +19,7 @@ internal sealed class GuideLoop
     private readonly GuiderCentroidTracker _tracker;
     private readonly GuideErrorTracker _errorTracker;
     private readonly ProportionalGuideController _pController;
-    private readonly IExternal _external;
-    private readonly TimeProvider _timeProvider;
+    private readonly ITimeProvider _timeProvider;
 
     private GuiderCalibrationResult? _calibration;
     private NeuralGuideModel? _neuralModel;
@@ -138,13 +138,11 @@ internal sealed class GuideLoop
         IPulseGuideTarget pulseTarget,
         GuiderCentroidTracker tracker,
         ProportionalGuideController pController,
-        IExternal external,
-        TimeProvider timeProvider)
+        ITimeProvider timeProvider)
     {
         _pulseTarget = pulseTarget;
         _tracker = tracker;
         _pController = pController;
-        _external = external;
         _timeProvider = timeProvider;
         _errorTracker = new GuideErrorTracker();
     }
@@ -263,7 +261,7 @@ internal sealed class GuideLoop
                 {
                     // Star lost — wait and try again
                     _hasPreviousError = false;
-                    await _external.SleepAsync(exposureInterval, cancellationToken);
+                    await _timeProvider.SleepAsync(exposureInterval, cancellationToken);
                     continue;
                 }
 
@@ -407,7 +405,7 @@ internal sealed class GuideLoop
                 var remaining = exposureInterval - elapsed;
                 if (remaining > TimeSpan.Zero)
                 {
-                    await _external.SleepAsync(remaining, cancellationToken);
+                    await _timeProvider.SleepAsync(remaining, cancellationToken);
                 }
             }
         }

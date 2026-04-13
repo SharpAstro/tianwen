@@ -138,7 +138,8 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
     public async Task GivenMountPulseGuideTargetWhenPulseGuideThenDelegatesToMount()
     {
         var ct = TestContext.Current.CancellationToken;
-        var external = new FakeExternal(output);
+        var timeProvider = new FakeTimeProviderWrapper();
+        var external = new FakeExternal(output, timeProvider);
         var mountDevice = new FakeDevice(DeviceType.Mount, 1);
         var mount = new FakeMountDriver(mountDevice, external.BuildServiceProvider());
         await mount.ConnectAsync(ct);
@@ -150,7 +151,7 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
         await target.PulseGuideAsync(GuideDirection.West, TimeSpan.FromMilliseconds(500), ct);
 
         // Wait for pulse to complete
-        await external.SleepAsync(TimeSpan.FromMilliseconds(600), ct);
+        await timeProvider.SleepAsync(TimeSpan.FromMilliseconds(600), ct);
 
         var raAfter = await mount.GetRightAscensionAsync(ct);
         output.WriteLine($"RA before: {raBefore:F6}, after: {raAfter:F6}");
@@ -171,7 +172,8 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
 
     private async Task<(BuiltInGuiderDriver driver, FakeMountDriver mount, FakeCameraDriver camera, FakeExternal external)> CreateLinkedDriver(CancellationToken ct)
     {
-        var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var external = new FakeExternal(output, timeProvider);
 
         var mountDevice = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection
         {

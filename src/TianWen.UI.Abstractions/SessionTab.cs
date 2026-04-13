@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using DIR.Lib;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.UI.Abstractions
@@ -56,7 +57,7 @@ namespace TianWen.UI.Abstractions
         private PlannerState? _plannerState;
 
         /// <summary>Cached reference to time provider for observation list rendering.</summary>
-        private TimeProvider? _timeProvider;
+        private ITimeProvider? _timeProvider;
 
         /// <summary>Tab state (configuration values, per-OTA camera settings, scroll offset).</summary>
         public SessionTabState State { get; } = new SessionTabState();
@@ -78,7 +79,7 @@ namespace TianWen.UI.Abstractions
             RectF32 contentRect,
             float dpiScale,
             string fontPath,
-            TimeProvider? timeProvider = null)
+            ITimeProvider? timeProvider = null)
         {
             BeginFrame();
             _plannerState = plannerState;
@@ -518,7 +519,7 @@ namespace TianWen.UI.Abstractions
                 var windowStart = i > 0 && i - 1 < sliders.Count ? sliders[i - 1] : dark;
                 var windowEnd = i < sliders.Count ? sliders[i] : twilight;
                 var effectiveStart = windowStart;
-                var utcNow = (_timeProvider ?? TimeProvider.System).GetUtcNow();
+                var utcNow = (_timeProvider ?? SystemTimeProvider.Instance).GetUtcNow();
                 if (utcNow > windowStart && utcNow < windowEnd)
                 {
                     effectiveStart = utcNow;

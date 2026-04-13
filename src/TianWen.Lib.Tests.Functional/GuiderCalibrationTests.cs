@@ -20,7 +20,8 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
     public async Task GivenFakeMountWhenCalibrateThenRatesAndAngleCorrect()
     {
         var ct = TestContext.Current.CancellationToken;
-        var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var external = new FakeExternal(output, timeProvider);
         var device = new FakeDevice(DeviceType.Mount, 1);
         var mount = new FakeMountDriver(device, external.BuildServiceProvider());
         await mount.ConnectAsync(ct);
@@ -61,7 +62,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         // Calibrate
         var pulseTarget = new MountPulseGuideTarget(mount);
         var result = await calibration.CalibrateAsync(
-            pulseTarget, tracker, RenderFrame, external, ct);
+            pulseTarget, tracker, RenderFrame, timeProvider, ct);
 
         result.ShouldNotBeNull();
 
@@ -84,7 +85,8 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
     public async Task GivenSavedCalibrationWhenValidateThenValid()
     {
         var ct = TestContext.Current.CancellationToken;
-        var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var external = new FakeExternal(output, timeProvider);
         var device = new FakeDevice(DeviceType.Mount, 1);
         var mount = new FakeMountDriver(device, external.BuildServiceProvider());
         await mount.ConnectAsync(ct);
@@ -117,7 +119,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         // Full calibration first
         tracker.ProcessFrame((await RenderFrame(ct)).GetChannelArray(0));
         var pulseTarget = new MountPulseGuideTarget(mount);
-        var calResult = await calibration.CalibrateAsync(pulseTarget, tracker, RenderFrame, external, ct);
+        var calResult = await calibration.CalibrateAsync(pulseTarget, tracker, RenderFrame, timeProvider, ct);
         calResult.ShouldNotBeNull();
 
         output.WriteLine($"Calibrated: angle={calResult.Value.CameraAngleDeg:F1}°, RA rate={calResult.Value.RaRatePixPerSec:F3}");
@@ -127,7 +129,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         tracker.ProcessFrame((await RenderFrame(ct)).GetChannelArray(0));
 
         // Validate with same mount/conditions — should be Valid
-        var result = await calibration.ValidateAsync(calResult.Value, pulseTarget, tracker, RenderFrame, external, ct);
+        var result = await calibration.ValidateAsync(calResult.Value, pulseTarget, tracker, RenderFrame, timeProvider, ct);
         output.WriteLine($"Validation result: {result}");
         result.ShouldBe(CalibrationValidationResult.Valid);
     }
@@ -161,7 +163,8 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
     public async Task GivenDecBacklashWhenAdaptiveClearThenDetectsMovementAfterBacklashConsumed()
     {
         var ct = TestContext.Current.CancellationToken;
-        var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var external = new FakeExternal(output, timeProvider);
         var device = new FakeDevice(DeviceType.Mount, 1);
         // Guide rate is ~10 arcsec/s, so 25 arcsec backlash needs ~3 pulses to clear
         var mount = new FakeMountDriver(device, external.BuildServiceProvider()) { DecBacklashArcsec = 25.0 };
@@ -171,7 +174,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         // Pre-pulse South to arm backlash on reversal to North
         var pulseTarget = new MountPulseGuideTarget(mount);
         await pulseTarget.PulseGuideAsync(GuideDirection.South, TimeSpan.FromSeconds(1), ct);
-        await external.SleepAsync(TimeSpan.FromSeconds(2), ct);
+        await timeProvider.SleepAsync(TimeSpan.FromSeconds(2), ct);
 
         // Update initial position after pre-pulse
         var initialRa = await mount.GetRightAscensionAsync(ct);
@@ -206,7 +209,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
 
         // Run adaptive backlash clearing in North direction (reversal from South)
         var result = await calibration.ClearBacklashAsync(
-            pulseTarget, tracker, RenderFrame, external, GuideDirection.North, ct);
+            pulseTarget, tracker, RenderFrame, timeProvider, GuideDirection.North, ct);
 
         output.WriteLine($"Backlash clearing: StepsUsed={result.StepsUsed}, MovementDetected={result.MovementDetected}");
 
@@ -218,7 +221,8 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
     public async Task GivenNoBacklashWhenAdaptiveClearThenDetectsMovementImmediately()
     {
         var ct = TestContext.Current.CancellationToken;
-        var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var external = new FakeExternal(output, timeProvider);
         var device = new FakeDevice(DeviceType.Mount, 1);
         var mount = new FakeMountDriver(device, external.BuildServiceProvider()) { DecBacklashArcsec = 0 };
         await mount.ConnectAsync(ct);
@@ -230,7 +234,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         // Pre-pulse South then update baseline
         var pulseTarget = new MountPulseGuideTarget(mount);
         await pulseTarget.PulseGuideAsync(GuideDirection.South, TimeSpan.FromSeconds(1), ct);
-        await external.SleepAsync(TimeSpan.FromSeconds(2), ct);
+        await timeProvider.SleepAsync(TimeSpan.FromSeconds(2), ct);
 
         initialRa = await mount.GetRightAscensionAsync(ct);
         initialDec = await mount.GetDeclinationAsync(ct);
@@ -262,7 +266,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         tracker.IsAcquired.ShouldBeTrue();
 
         var result = await calibration.ClearBacklashAsync(
-            pulseTarget, tracker, RenderFrame, external, GuideDirection.North, ct);
+            pulseTarget, tracker, RenderFrame, timeProvider, GuideDirection.North, ct);
 
         output.WriteLine($"Backlash clearing: StepsUsed={result.StepsUsed}, MovementDetected={result.MovementDetected}");
 
@@ -274,7 +278,8 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
     public async Task GivenMaxStepsExceededWhenClearThenReturnsMovementNotDetected()
     {
         var ct = TestContext.Current.CancellationToken;
-        var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var external = new FakeExternal(output, timeProvider);
         var device = new FakeDevice(DeviceType.Mount, 1);
         var mount = new FakeMountDriver(device, external.BuildServiceProvider()) { DecBacklashArcsec = 1000.0 };
         await mount.ConnectAsync(ct);
@@ -286,7 +291,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         // Pre-pulse South to arm backlash
         var pulseTarget = new MountPulseGuideTarget(mount);
         await pulseTarget.PulseGuideAsync(GuideDirection.South, TimeSpan.FromSeconds(1), ct);
-        await external.SleepAsync(TimeSpan.FromSeconds(2), ct);
+        await timeProvider.SleepAsync(TimeSpan.FromSeconds(2), ct);
 
         initialRa = await mount.GetRightAscensionAsync(ct);
         initialDec = await mount.GetDeclinationAsync(ct);
@@ -318,7 +323,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         tracker.IsAcquired.ShouldBeTrue();
 
         var result = await calibration.ClearBacklashAsync(
-            pulseTarget, tracker, RenderFrame, external, GuideDirection.North, ct);
+            pulseTarget, tracker, RenderFrame, timeProvider, GuideDirection.North, ct);
 
         output.WriteLine($"Backlash clearing: StepsUsed={result.StepsUsed}, MovementDetected={result.MovementDetected}");
 
@@ -330,7 +335,8 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
     public async Task GivenDecBacklashWhenFullCalibrationThenRatesAccurate()
     {
         var ct = TestContext.Current.CancellationToken;
-        var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var external = new FakeExternal(output, timeProvider);
         var device = new FakeDevice(DeviceType.Mount, 1);
         // Guide rate is ~10 arcsec/s, so 25 arcsec backlash needs ~3 pulses to clear
         var mount = new FakeMountDriver(device, external.BuildServiceProvider()) { DecBacklashArcsec = 25.0 };
@@ -340,7 +346,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         // Pre-pulse South to arm Dec backlash on reversal
         var pulseTarget = new MountPulseGuideTarget(mount);
         await pulseTarget.PulseGuideAsync(GuideDirection.South, TimeSpan.FromSeconds(1), ct);
-        await external.SleepAsync(TimeSpan.FromSeconds(2), ct);
+        await timeProvider.SleepAsync(TimeSpan.FromSeconds(2), ct);
 
         var initialRa = await mount.GetRightAscensionAsync(ct);
         var initialDec = await mount.GetDeclinationAsync(ct);
@@ -374,7 +380,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         tracker.IsAcquired.ShouldBeTrue();
 
         var result = await calibration.CalibrateAsync(
-            pulseTarget, tracker, RenderFrame, external, ct);
+            pulseTarget, tracker, RenderFrame, timeProvider, ct);
 
         result.ShouldNotBeNull();
 

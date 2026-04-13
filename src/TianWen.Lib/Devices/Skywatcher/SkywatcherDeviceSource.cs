@@ -12,7 +12,7 @@ namespace TianWen.Lib.Devices.Skywatcher;
 /// Discovers Skywatcher mounts via serial port enumeration (115200/9600 baud probe)
 /// and WiFi UDP broadcast (:e1\r to 255.255.255.255:11880).
 /// </summary>
-internal class SkywatcherDeviceSource(IExternal external, ILogger<SkywatcherDeviceSource> logger, TimeProvider timeProvider) : IDeviceSource<SkywatcherDevice>
+internal class SkywatcherDeviceSource(IExternal external, ILogger<SkywatcherDeviceSource> logger, ITimeProvider timeProvider) : IDeviceSource<SkywatcherDevice>
 {
     private Dictionary<DeviceType, IReadOnlyList<SkywatcherDevice>> _cachedDevices = new();
 

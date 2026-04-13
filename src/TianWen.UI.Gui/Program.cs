@@ -46,7 +46,7 @@ var plannerState = sp.GetRequiredService<PlannerState>();
 var viewerState = sp.GetRequiredService<ViewerState>();
 var external = sp.GetRequiredService<IExternal>();
 var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("TianWen.UI.Gui");
-var timeProvider = sp.GetRequiredService<TimeProvider>();
+var timeProvider = sp.GetRequiredService<ITimeProvider>();
 
 // Resolve profile — auto-select if exactly one, otherwise none for now
 var profiles = await sp.GetRequiredService<ICombinedDeviceManager>()
@@ -194,7 +194,7 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         if (guiRenderer.LiveSessionState.IsRunning && appState.ActiveTab is GuiTab.LiveSession or GuiTab.Guider)
         {
             var now = timeProvider.GetTimestamp();
-            if (timeProvider.GetElapsedTime(_lastSessionRedrawTimestamp, now) >= TimeSpan.FromMilliseconds(500))
+            if (timeProvider.System.GetElapsedTime(_lastSessionRedrawTimestamp, now) >= TimeSpan.FromMilliseconds(500))
             {
                 _lastSessionRedrawTimestamp = now;
                 return true;

@@ -60,7 +60,7 @@ internal partial record Session
                         _logger.LogInformation(
                             "Target {Target} is rising, waiting {WaitMinutes:F0} min until it clears {MinAlt}°.",
                             observation.Target, waitTime.TotalMinutes, Configuration.MinHeightAboveHorizon);
-                        await External.SleepAsync(waitTime, cancellationToken);
+                        await _timeProvider.SleepAsync(waitTime, cancellationToken);
 
                         // Retry slew after waiting
                         (postCondition, hourAngleAtSlewTime) = await mount.Driver.BeginSlewToTargetAsync(
@@ -271,7 +271,7 @@ internal partial record Session
             Environment.WorkingSet / (1024.0 * 1024),
             GC.GetTotalMemory(forceFullCollection: false) / (1024.0 * 1024));
 
-        using var ticker = new PeriodicTimer(tickDuration, _timeProvider);
+        using var ticker = new PeriodicTimer(tickDuration, _timeProvider.System);
 
         while (!cancellationToken.IsCancellationRequested
             && mount.Driver.Connected
@@ -463,7 +463,7 @@ internal partial record Session
                             var spinDuration = TimeSpan.FromMilliseconds(100);
                             polled += spinDuration;
 
-                            await External.SleepAsync(spinDuration, cancellationToken);
+                            await _timeProvider.SleepAsync(spinDuration, cancellationToken);
                         }
                     }
                     while (polled < (tickDuration / 5)
@@ -539,7 +539,7 @@ internal partial record Session
                         {
                             // Nearly done — wait for it to finish and save the frame
                             _logger.LogInformation("Waiting for exposure on camera #{CameraNumber} to finish ({Remaining:F0}s remaining).", i + 1, remaining.TotalSeconds);
-                            await External.SleepAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, cancellationToken);
+                            await _timeProvider.SleepAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, cancellationToken);
                             if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } image)
                             {
                                 imageWriteQueue.Enqueue(new QueuedImageWrite(image, observation, expStartTimes[i], frameNumbers[i], total, i));
@@ -827,7 +827,7 @@ internal partial record Session
                 break;
             }
 
-            await External.SleepAsync(TimeSpan.FromMilliseconds(250), cancellationToken);
+            await _timeProvider.SleepAsync(TimeSpan.FromMilliseconds(250), cancellationToken);
         }
 
         // Apply focuser offset delta if the telescope has a focuser and the filter has an offset
@@ -856,7 +856,7 @@ internal partial record Session
                 await BacklashCompensation.MoveWithCompensationAsync(
                     focuserDriver, targetFocusPos, currentFocusPos,
                     focuserDriver.BacklashStepsIn, focuserDriver.BacklashStepsOut,
-                    telescope.FocusDirection, External, cancellationToken);
+                    telescope.FocusDirection, _timeProvider, cancellationToken);
             }
         }
     }
@@ -885,7 +885,7 @@ internal partial record Session
         // Wait for any ongoing slew to complete before attempting the flip
         while (await CatchAsync(mount.Driver.IsSlewingAsync, cancellationToken) && !cancellationToken.IsCancellationRequested)
         {
-            await External.SleepAsync(TimeSpan.FromMilliseconds(500), cancellationToken);
+            await _timeProvider.SleepAsync(TimeSpan.FromMilliseconds(500), cancellationToken);
         }
 
         for (var attempt = 1; attempt <= maxFlipAttempts; attempt++)
@@ -1025,7 +1025,7 @@ internal partial record Session
 
         while (elapsed < timeout && !cancellationToken.IsCancellationRequested)
         {
-            await External.SleepAsync(pollInterval, cancellationToken);
+            await _timeProvider.SleepAsync(pollInterval, cancellationToken);
             elapsed += pollInterval;
 
             var camera = Setup.Telescopes[telescopeIndex].Camera.Driver;
@@ -1034,12 +1034,12 @@ internal partial record Session
             if (await camera.GetCameraStateAsync(cancellationToken) is CameraState.Exposing)
             {
                 await camera.AbortExposureAsync(cancellationToken);
-                await External.SleepAsync(TimeSpan.FromSeconds(1), cancellationToken);
+                await _timeProvider.SleepAsync(TimeSpan.FromSeconds(1), cancellationToken);
             }
 
             var testExposure = TimeSpan.FromSeconds(Math.Min(baseline.Exposure.TotalSeconds, 5));
             await camera.StartExposureAsync(testExposure, cancellationToken: cancellationToken);
-            await External.SleepAsync(testExposure + TimeSpan.FromSeconds(2), cancellationToken);
+            await _timeProvider.SleepAsync(testExposure + TimeSpan.FromSeconds(2), cancellationToken);
 
             if (!await camera.GetImageReadyAsync(cancellationToken))
             {

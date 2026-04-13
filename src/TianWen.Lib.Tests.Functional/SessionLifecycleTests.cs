@@ -32,7 +32,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
 
-        var startTime = ctx.External.TimeProvider.GetUtcNow().UtcDateTime;
+        var startTime = ctx.TimeProvider.GetUtcNow().UtcDateTime;
         var endTime = await ctx.Session.SessionEndTimeAsync(startTime, ct);
 
         endTime.ShouldBeGreaterThan(startTime);
@@ -64,11 +64,11 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         };
         using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, observations: observations, cancellationToken: ct);
 
-        var timeBefore = ctx.External.TimeProvider.GetUtcNow();
+        var timeBefore = ctx.TimeProvider.GetUtcNow();
 
         await ctx.Session.WaitUntilTenMinutesBeforeAmateurAstroTwilightEndsAsync(ct);
 
-        var timeAfter = ctx.External.TimeProvider.GetUtcNow();
+        var timeAfter = ctx.TimeProvider.GetUtcNow();
         var elapsed = timeAfter - timeBefore;
         elapsed.TotalSeconds.ShouldBeLessThan(1, "should return immediately when observation already started");
     }
@@ -115,7 +115,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
         while (!calibrateTask.IsCompleted && !ct.IsCancellationRequested)
         {
-            await ctx.External.SleepAsync(TimeSpan.FromSeconds(1), ct);
+            await ctx.TimeProvider.SleepAsync(TimeSpan.FromSeconds(1), ct);
             await Task.Delay(10, ct);
         }
 
@@ -142,7 +142,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
         while (!initTask.IsCompleted && !ct.IsCancellationRequested)
         {
-            await ctx.External.SleepAsync(TimeSpan.FromSeconds(1), ct);
+            await ctx.TimeProvider.SleepAsync(TimeSpan.FromSeconds(1), ct);
             await Task.Delay(10, ct);
         }
 
@@ -174,7 +174,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         // Start guiding so Finalise has something to stop
         var guider = (FakeGuider)ctx.Session.Setup.Guider.Driver;
         await guider.GuideAsync(0.3, 3, 30, ct);
-        await ctx.External.SleepAsync(TimeSpan.FromSeconds(25), ct); // let guider settle
+        await ctx.TimeProvider.SleepAsync(TimeSpan.FromSeconds(25), ct); // let guider settle
 
         (await guider.IsGuidingAsync(ct)).ShouldBeTrue("guider should be guiding before finalise");
         (await mount.IsTrackingAsync(ct)).ShouldBeTrue("mount should be tracking before finalise");
@@ -184,7 +184,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
         while (!finaliseTask.IsCompleted && !ct.IsCancellationRequested)
         {
-            await ctx.External.SleepAsync(TimeSpan.FromSeconds(1), ct);
+            await ctx.TimeProvider.SleepAsync(TimeSpan.FromSeconds(1), ct);
             await Task.Delay(10, ct);
         }
 
@@ -205,9 +205,10 @@ public class SessionLifecycleTests(ITestOutputHelper output)
     /// <summary>
     /// Creates a Session whose OTA has a FakeCoverDriver attached.
     /// </summary>
-    private async Task<(Session Session, FakeExternal External, FakeCoverDriver Cover)> CreateSessionWithCoverAsync(CancellationToken ct)
+    private async Task<(Session Session, FakeTimeProviderWrapper TimeProvider, FakeExternal External, FakeCoverDriver Cover)> CreateSessionWithCoverAsync(CancellationToken ct)
     {
-        var external = new FakeExternal(output, now: WinterNight);
+        var timeProvider = new FakeTimeProviderWrapper(WinterNight);
+        var external = new FakeExternal(output, timeProvider);
         var sp = external.BuildServiceProvider();
         var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
         var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
@@ -243,21 +244,21 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         await mount.Driver.ConnectAsync(ct);
         await guider.Driver.ConnectAsync(ct);
         await ((FakeGuider)guider.Driver).ConnectEquipmentAsync(ct);
-        await mount.Driver.SetUTCDateAsync(external.TimeProvider.GetUtcNow().UtcDateTime, ct);
+        await mount.Driver.SetUTCDateAsync(timeProvider.GetUtcNow().UtcDateTime, ct);
 
         var setup = new Setup(mount, guider, new GuiderSetup(), [ota]);
         var config = SessionTestHelper.DefaultConfiguration;
         var session = new Session(setup, config, new FakePlateSolver(), external, sp, new ScheduledObservationTree(SessionTestHelper.DefaultScheduledObservations));
 
         var coverDriver = (FakeCoverDriver)cover.Driver;
-        return (session, external, coverDriver);
+        return (session, timeProvider, external, coverDriver);
     }
 
     [Fact(Timeout = 120_000)]
     public async Task GivenClosedCoverWhenOpenThenCoverOpens()
     {
         var ct = TestContext.Current.CancellationToken;
-        var (session, external, coverDriver) = await CreateSessionWithCoverAsync(ct);
+        var (session, timeProvider, external, coverDriver) = await CreateSessionWithCoverAsync(ct);
 
         // Cover starts Closed
         (await coverDriver.GetCoverStateAsync(ct)).ShouldBe(CoverStatus.Closed);
@@ -267,7 +268,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
         while (!openTask.IsCompleted && !ct.IsCancellationRequested)
         {
-            await external.SleepAsync(TimeSpan.FromSeconds(1), ct);
+            await timeProvider.SleepAsync(TimeSpan.FromSeconds(1), ct);
             await Task.Delay(10, ct);
         }
 
@@ -284,11 +285,11 @@ public class SessionLifecycleTests(ITestOutputHelper output)
     public async Task GivenOpenCoverWhenCloseThenCoverCloses()
     {
         var ct = TestContext.Current.CancellationToken;
-        var (session, external, coverDriver) = await CreateSessionWithCoverAsync(ct);
+        var (session, timeProvider, external, coverDriver) = await CreateSessionWithCoverAsync(ct);
 
         // Open the cover first
         await coverDriver.BeginOpen(ct);
-        await external.SleepAsync(TimeSpan.FromSeconds(10), ct); // let timer fire
+        await timeProvider.SleepAsync(TimeSpan.FromSeconds(10), ct); // let timer fire
         (await coverDriver.GetCoverStateAsync(ct)).ShouldBe(CoverStatus.Open);
 
         // Close covers
@@ -296,7 +297,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
         while (!closeTask.IsCompleted && !ct.IsCancellationRequested)
         {
-            await external.SleepAsync(TimeSpan.FromSeconds(1), ct);
+            await timeProvider.SleepAsync(TimeSpan.FromSeconds(1), ct);
             await Task.Delay(10, ct);
         }
 
@@ -313,7 +314,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
     public async Task GivenCalibratorOnWhenOpenCoverThenCalibratorTurnedOffFirst()
     {
         var ct = TestContext.Current.CancellationToken;
-        var (session, external, coverDriver) = await CreateSessionWithCoverAsync(ct);
+        var (session, timeProvider, external, coverDriver) = await CreateSessionWithCoverAsync(ct);
 
         // Turn calibrator on
         await coverDriver.BeginCalibratorOn(128, ct);
@@ -325,7 +326,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
         while (!openTask.IsCompleted && !ct.IsCancellationRequested)
         {
-            await external.SleepAsync(TimeSpan.FromSeconds(1), ct);
+            await timeProvider.SleepAsync(TimeSpan.FromSeconds(1), ct);
             await Task.Delay(10, ct);
         }
 
@@ -382,7 +383,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         await ctx.Focuser.BeginMoveAsync(1000, ct);
         while (await ctx.Focuser.GetIsMovingAsync(ct))
         {
-            await ctx.External.SleepAsync(TimeSpan.FromMilliseconds(100), ct);
+            await ctx.TimeProvider.SleepAsync(TimeSpan.FromMilliseconds(100), ct);
         }
 
         IMountDriver mount = ctx.Mount;
@@ -396,7 +397,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
         while (!roughFocusTask.IsCompleted && !ct.IsCancellationRequested)
         {
-            await ctx.External.SleepAsync(TimeSpan.FromSeconds(1), ct);
+            await ctx.TimeProvider.SleepAsync(TimeSpan.FromSeconds(1), ct);
             await Task.Delay(10, ct);
         }
 
@@ -429,7 +430,8 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         };
 
         // Use fresh session — RunAsync handles all setup internally
-        var external = new FakeExternal(output, now: WinterNight);
+        var timeProvider = new FakeTimeProviderWrapper(WinterNight);
+        var external = new FakeExternal(output, timeProvider);
         var sp = external.BuildServiceProvider();
         var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
         var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
@@ -477,7 +479,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         var maxPumps = (int)(TimeSpan.FromHours(24) / subExposure);
         for (var i = 0; i < maxPumps && !runTask.IsCompleted && !ct.IsCancellationRequested; i++)
         {
-            await external.SleepAsync(subExposure, ct);
+            await timeProvider.SleepAsync(subExposure, ct);
             await Task.Delay(50, ct);
         }
 
@@ -512,13 +514,13 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
 
         var mountTime = await ctx.Session.GetMountUtcNowAsync(ct);
-        var providerTime = ctx.External.TimeProvider.GetUtcNow().UtcDateTime;
+        var providerTime = ctx.TimeProvider.GetUtcNow().UtcDateTime;
 
         // Mount time should be close to the time provider's time (may differ by serial round-trip)
         Math.Abs((mountTime - providerTime).TotalSeconds).ShouldBeLessThan(5);
 
         // Advance time and verify mount time follows
-        await ctx.External.SleepAsync(TimeSpan.FromMinutes(10), ct);
+        await ctx.TimeProvider.SleepAsync(TimeSpan.FromMinutes(10), ct);
         var mountTimeAfter = await ctx.Session.GetMountUtcNowAsync(ct);
         mountTimeAfter.ShouldBeGreaterThan(mountTime);
 

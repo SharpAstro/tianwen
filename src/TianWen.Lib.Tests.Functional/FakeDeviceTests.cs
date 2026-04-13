@@ -16,7 +16,8 @@ public class FakeDeviceTests(ITestOutputHelper output)
     {
         // given
         var ct = TestContext.Current.CancellationToken;
-        var external = new FakeExternal(output);
+        var timeProvider = new FakeTimeProviderWrapper();
+        var external = new FakeExternal(output, timeProvider);
         var device = new FakeDevice(DeviceType.Guider, 1);
         await using var guider = new FakeGuider(device, external.BuildServiceProvider());
         await guider.ConnectAsync(ct);
@@ -30,7 +31,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
         (await guider.IsGuidingAsync(ct)).ShouldBeFalse("should not be guiding yet");
 
         // when — advance time past settle time (5s)
-        await external.SleepAsync(TimeSpan.FromSeconds(6), ct);
+        await timeProvider.SleepAsync(TimeSpan.FromSeconds(6), ct);
 
         // then — should be guiding
         (await guider.IsGuidingAsync(ct)).ShouldBeTrue("should be guiding after settle completes");
@@ -42,13 +43,14 @@ public class FakeDeviceTests(ITestOutputHelper output)
     {
         // given — guider in Guiding state
         var ct = TestContext.Current.CancellationToken;
-        var external = new FakeExternal(output);
+        var timeProvider = new FakeTimeProviderWrapper();
+        var external = new FakeExternal(output, timeProvider);
         var device = new FakeDevice(DeviceType.Guider, 1);
         await using var guider = new FakeGuider(device, external.BuildServiceProvider());
         await guider.ConnectAsync(ct);
         await guider.ConnectEquipmentAsync(ct);
         await guider.GuideAsync(0.5, 2, 30, ct);
-        await external.SleepAsync(TimeSpan.FromSeconds(3), ct);
+        await timeProvider.SleepAsync(TimeSpan.FromSeconds(3), ct);
         (await guider.IsGuidingAsync(ct)).ShouldBeTrue("precondition: should be guiding");
 
         // when — dither
@@ -61,7 +63,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
         progress.Done.ShouldBeFalse();
 
         // when — advance past settle time
-        await external.SleepAsync(TimeSpan.FromSeconds(4), ct);
+        await timeProvider.SleepAsync(TimeSpan.FromSeconds(4), ct);
 
         // then — back to guiding
         (await guider.IsGuidingAsync(ct)).ShouldBeTrue("should be guiding after dither settles");
@@ -75,13 +77,14 @@ public class FakeDeviceTests(ITestOutputHelper output)
     {
         // given
         var ct = TestContext.Current.CancellationToken;
-        var external = new FakeExternal(output);
+        var timeProvider = new FakeTimeProviderWrapper();
+        var external = new FakeExternal(output, timeProvider);
         var device = new FakeDevice(DeviceType.Guider, 1);
         await using var guider = new FakeGuider(device, external.BuildServiceProvider());
         await guider.ConnectAsync(ct);
         await guider.ConnectEquipmentAsync(ct);
         await guider.GuideAsync(0.5, 2, 30, ct);
-        await external.SleepAsync(TimeSpan.FromSeconds(3), ct);
+        await timeProvider.SleepAsync(TimeSpan.FromSeconds(3), ct);
         (await guider.IsGuidingAsync(ct)).ShouldBeTrue();
 
         // when
@@ -160,7 +163,8 @@ public class FakeDeviceTests(ITestOutputHelper output)
     {
         // given
         var ct = TestContext.Current.CancellationToken;
-        var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var external = new FakeExternal(output, timeProvider);
         var device = new FakeDevice(DeviceType.Focuser, 1);
         await using var focuser = new FakeFocuserDriver(device, external.BuildServiceProvider());
         await focuser.ConnectAsync(ct);
@@ -170,7 +174,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
         output.WriteLine($"T0: {t0:F2}°C");
 
         // advance 2 hours with -0.5°C/hr drift rate
-        await external.SleepAsync(TimeSpan.FromHours(2), ct);
+        await timeProvider.SleepAsync(TimeSpan.FromHours(2), ct);
         var t1 = await focuser.GetTemperatureAsync(ct);
         output.WriteLine($"T after 2h: {t1:F2}°C");
 
@@ -183,7 +187,8 @@ public class FakeDeviceTests(ITestOutputHelper output)
     {
         // given
         var ct = TestContext.Current.CancellationToken;
-        var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var external = new FakeExternal(output, timeProvider);
         var device = new FakeDevice(DeviceType.Focuser, 1);
         await using var focuser = new FakeFocuserDriver(device, external.BuildServiceProvider());
         await focuser.ConnectAsync(ct);
@@ -192,7 +197,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
         output.WriteLine($"Initial best focus: {initialBestFocus}");
 
         // when — advance 4 hours → -2°C drift
-        await external.SleepAsync(TimeSpan.FromHours(4), ct);
+        await timeProvider.SleepAsync(TimeSpan.FromHours(4), ct);
         var shiftedBestFocus = focuser.TrueBestFocus;
         output.WriteLine($"Shifted best focus: {shiftedBestFocus}");
 
@@ -205,7 +210,8 @@ public class FakeDeviceTests(ITestOutputHelper output)
     {
         // given
         var ct = TestContext.Current.CancellationToken;
-        var external = new FakeExternal(output);
+        var timeProvider = new FakeTimeProviderWrapper();
+        var external = new FakeExternal(output, timeProvider);
         var device = new FakeDevice(DeviceType.Focuser, 1);
         await using var focuser = new FakeFocuserDriver(device, external.BuildServiceProvider());
         focuser.TrueBacklashIn = 20;
@@ -215,14 +221,14 @@ public class FakeDeviceTests(ITestOutputHelper output)
         // when — move outward first
         await focuser.BeginMoveAsync(500, ct);
         // Wait for movement (FakePositionBasedDriver moves 1 step per 100ms timer tick)
-        await external.SleepAsync(TimeSpan.FromSeconds(60), ct);
+        await timeProvider.SleepAsync(TimeSpan.FromSeconds(60), ct);
 
         var posAfterOutward = await focuser.GetPositionAsync(ct);
         output.WriteLine($"Position after outward move: {posAfterOutward}");
 
         // then move inward — should engage backlash
         await focuser.BeginMoveAsync(480, ct);
-        await external.SleepAsync(TimeSpan.FromSeconds(5), ct);
+        await timeProvider.SleepAsync(TimeSpan.FromSeconds(5), ct);
 
         var posAfterInward = await focuser.GetPositionAsync(ct);
         output.WriteLine($"Position after inward move: {posAfterInward}");
@@ -240,7 +246,8 @@ public class FakeDeviceTests(ITestOutputHelper output)
     {
         // given
         var ct = TestContext.Current.CancellationToken;
-        var external = new FakeExternal(output);
+        var timeProvider = new FakeTimeProviderWrapper();
+        var external = new FakeExternal(output, timeProvider);
         var device = new FakeDevice(DeviceType.Focuser, 1);
         await using var focuser = new FakeFocuserDriver(device, external.BuildServiceProvider());
         focuser.TrueBacklashIn = 20;
@@ -249,9 +256,9 @@ public class FakeDeviceTests(ITestOutputHelper output)
 
         // when — move outward twice (same direction)
         await focuser.BeginMoveAsync(100, ct);
-        await external.SleepAsync(TimeSpan.FromSeconds(15), ct);
+        await timeProvider.SleepAsync(TimeSpan.FromSeconds(15), ct);
         await focuser.BeginMoveAsync(200, ct);
-        await external.SleepAsync(TimeSpan.FromSeconds(15), ct);
+        await timeProvider.SleepAsync(TimeSpan.FromSeconds(15), ct);
 
         // then — no backlash because same direction
         var pos = await focuser.GetPositionAsync(ct);
@@ -267,7 +274,8 @@ public class FakeDeviceTests(ITestOutputHelper output)
     {
         // given
         var ct = TestContext.Current.CancellationToken;
-        var external = new FakeExternal(output);
+        var timeProvider = new FakeTimeProviderWrapper();
+        var external = new FakeExternal(output, timeProvider);
         var device = new FakeDevice(DeviceType.Camera, 1);
         await using var camera = new FakeCameraDriver(device, external.BuildServiceProvider());
         await camera.ConnectAsync(ct);
@@ -277,7 +285,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
         startTime.ShouldNotBe(default);
 
         // advance time past exposure duration
-        await external.SleepAsync(TimeSpan.FromSeconds(2), ct);
+        await timeProvider.SleepAsync(TimeSpan.FromSeconds(2), ct);
 
         // then — image should be ready
         (await camera.GetImageReadyAsync(ct)).ShouldBeTrue();

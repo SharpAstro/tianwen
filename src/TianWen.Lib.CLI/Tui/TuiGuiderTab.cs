@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using Console.Lib;
 using DIR.Lib;
+using TianWen.Lib.Devices;
 using TianWen.UI.Abstractions;
 
 namespace TianWen.Lib.CLI.Tui;
@@ -15,7 +16,7 @@ internal sealed class TuiGuiderTab(
     LiveSessionState liveState,
     IVirtualTerminal terminal,
     string fontPath,
-    TimeProvider timeProvider) : TuiTabBase
+    ITimeProvider timeProvider) : TuiTabBase
 {
     private const int SparklineWidth = 40;
 

@@ -66,7 +66,7 @@ public interface ICoverDriver : IDeviceDriver
             && !cancellationToken.IsCancellationRequested
             && ++tries < MAX_FAILSAFE)
         {
-            await External.SleepAsync(TimeSpan.FromSeconds(3), cancellationToken);
+            await TimeProvider.SleepAsync(TimeSpan.FromSeconds(3), cancellationToken);
         }
 
         return calState is CalibratorStatus.Off;

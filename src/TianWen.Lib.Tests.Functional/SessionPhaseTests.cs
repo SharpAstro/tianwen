@@ -57,7 +57,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
         var maxPumps = (int)(TimeSpan.FromHours(24) / subExposure);
         for (var i = 0; i < maxPumps && !runTask.IsCompleted && !ct.IsCancellationRequested; i++)
         {
-            await ctx.External.SleepAsync(subExposure, ct);
+            await ctx.TimeProvider.SleepAsync(subExposure, ct);
             await Task.Delay(50, ct);
         }
 
@@ -111,7 +111,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
             if (e.NewPhase == SessionPhase.Cooling)
             {
                 // Schedule cancellation 3 seconds into cooling (after a few ramp steps)
-                ctx.External.TimeProvider.CreateTimer(
+                ctx.TimeProvider.CreateTimer(
                     _ => cts.Cancel(), null, TimeSpan.FromSeconds(3), Timeout.InfiniteTimeSpan);
             }
         };
@@ -122,7 +122,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
         // Pump time until complete (including warmup in Finalise)
         while (!runTask.IsCompleted && !ct.IsCancellationRequested)
         {
-            await ctx.External.SleepAsync(TimeSpan.FromSeconds(1), ct);
+            await ctx.TimeProvider.SleepAsync(TimeSpan.FromSeconds(1), ct);
             await Task.Delay(10, ct);
         }
 
@@ -171,7 +171,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
         {
             if (e.NewPhase == SessionPhase.Cooling)
             {
-                ctx.External.TimeProvider.CreateTimer(
+                ctx.TimeProvider.CreateTimer(
                     _ => cts.Cancel(), null, TimeSpan.FromSeconds(3), Timeout.InfiniteTimeSpan);
             }
         };
@@ -180,7 +180,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
 
         while (!runTask.IsCompleted && !ct.IsCancellationRequested)
         {
-            await ctx.External.SleepAsync(TimeSpan.FromSeconds(1), ct);
+            await ctx.TimeProvider.SleepAsync(TimeSpan.FromSeconds(1), ct);
             await Task.Delay(10, ct);
         }
 
@@ -223,14 +223,14 @@ public class SessionPhaseTests(ITestOutputHelper output)
 
         // Cancel quickly — we just need the first few transitions
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        using var cancelTimer = ctx.External.TimeProvider.CreateTimer(
+        using var cancelTimer = ctx.TimeProvider.CreateTimer(
             _ => cts.Cancel(), null, TimeSpan.FromSeconds(1), Timeout.InfiniteTimeSpan);
 
         var runTask = Task.Run(async () => await ctx.Session.RunAsync(cts.Token), ct);
 
         while (!runTask.IsCompleted && !ct.IsCancellationRequested)
         {
-            await ctx.External.SleepAsync(TimeSpan.FromSeconds(1), ct);
+            await ctx.TimeProvider.SleepAsync(TimeSpan.FromSeconds(1), ct);
             await Task.Delay(10, ct);
         }
 
@@ -285,7 +285,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
         var maxPumps = 1000;
         for (var i = 0; i < maxPumps && !runTask.IsCompleted && !ct.IsCancellationRequested; i++)
         {
-            await ctx.External.SleepAsync(TimeSpan.FromSeconds(2), ct);
+            await ctx.TimeProvider.SleepAsync(TimeSpan.FromSeconds(2), ct);
             await Task.Delay(10, ct);
         }
 
@@ -341,7 +341,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
         var maxPumps = (int)(TimeSpan.FromHours(24) / subExposure);
         for (var i = 0; i < maxPumps && !runTask.IsCompleted && !ct.IsCancellationRequested; i++)
         {
-            await ctx.External.SleepAsync(subExposure, ct);
+            await ctx.TimeProvider.SleepAsync(subExposure, ct);
             await Task.Delay(50, ct);
         }
 
@@ -369,7 +369,8 @@ public class SessionPhaseTests(ITestOutputHelper output)
     private async Task<SessionTestContext> CreateWinterSessionAsync(
         ScheduledObservation[] observations, CancellationToken ct)
     {
-        var external = new FakeExternal(output, now: WinterNight);
+        var timeProvider = new FakeTimeProviderWrapper(WinterNight);
+        var external = new FakeExternal(output, timeProvider);
         var sp = external.BuildServiceProvider();
         var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
         var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
@@ -410,6 +411,6 @@ public class SessionPhaseTests(ITestOutputHelper output)
 
         var session = new Session(setup, config, plateSolver, external, sp, new ScheduledObservationTree(observations));
 
-        return new SessionTestContext(session, external, cameraDriver, focuserDriver, mount.Driver);
+        return new SessionTestContext(session, external, timeProvider, cameraDriver, focuserDriver, mount.Driver);
     }
 }

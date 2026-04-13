@@ -49,7 +49,7 @@ internal sealed class OpenMeteoDriver : IWeatherDriver
         _device = device;
         _external = serviceProvider.GetRequiredService<IExternal>();
         Logger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(OpenMeteoDriver));
-        TimeProvider = serviceProvider.GetRequiredService<TimeProvider>();
+        TimeProvider = serviceProvider.GetRequiredService<ITimeProvider>();
     }
 
     // --- IDeviceDriver ---
@@ -60,7 +60,7 @@ internal sealed class OpenMeteoDriver : IWeatherDriver
     public DeviceType DriverType => DeviceType.Weather;
     public IExternal External => _external;
     public ILogger Logger { get; }
-    public TimeProvider TimeProvider { get; }
+    public ITimeProvider TimeProvider { get; }
     public bool Connected => Volatile.Read(ref _connected);
     public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
 

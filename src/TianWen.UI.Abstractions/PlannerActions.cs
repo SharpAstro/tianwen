@@ -24,9 +24,9 @@ public static class PlannerActions
     /// Shifts the planning date by the given number of days (+1 = tomorrow, -1 = yesterday).
     /// Sets <see cref="PlannerState.PlanningDate"/> and flags for recomputation.
     /// </summary>
-    public static void ShiftPlanningDate(PlannerState state, TimeProvider timeProvider, int days)
+    public static void ShiftPlanningDate(PlannerState state, ITimeProvider timeProvider, int days)
     {
-        var current = state.PlanningDate ?? timeProvider.GetLocalNow();
+        var current = state.PlanningDate ?? timeProvider.System.GetLocalNow();
         state.PlanningDate = current.AddDays(days);
         state.NeedsRecompute = true;
         state.NeedsRedraw = true;

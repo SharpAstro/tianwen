@@ -180,7 +180,7 @@ internal partial record Session
                 return true;
             }
 
-            await External.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
+            await _timeProvider.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
         }
 
         return false;
@@ -361,7 +361,7 @@ internal partial record Session
         // Move to start position with backlash compensation
         var focusDir = telescope.FocusDirection;
         await BacklashCompensation.MoveWithCompensationAsync(
-            focuser, startPos, currentPos, focuser.BacklashStepsIn, focuser.BacklashStepsOut, focusDir, External, cancellationToken);
+            focuser, startPos, currentPos, focuser.BacklashStepsIn, focuser.BacklashStepsOut, focusDir, _timeProvider, cancellationToken);
 
         // Scan from start to end (always moving outward — no backlash needed)
         for (var i = 0; i < stepCount && !cancellationToken.IsCancellationRequested; i++)
@@ -376,7 +376,7 @@ internal partial record Session
             while (await focuser.GetIsMovingAsync(cancellationToken) && !cancellationToken.IsCancellationRequested)
             {
                 await PollDeviceStatesAsync(cancellationToken);
-                await External.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
+                await _timeProvider.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
             }
 
             camera.FocusPosition = targetPos;
@@ -410,7 +410,7 @@ internal partial record Session
                         await focuser.BeginMoveAsync(nextPos, cancellationToken);
                         moveStarted = true;
                     }
-                    await External.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
+                    await _timeProvider.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
                 }
             }
 
@@ -493,7 +493,7 @@ internal partial record Session
                 telescopeIndex + 1, bestPos, solution.Value.A, solution.Value.B, solution.Value.Error);
 
             await BacklashCompensation.MoveWithCompensationAsync(
-                focuser, bestPos, currentPosNow, focuser.BacklashStepsIn, focuser.BacklashStepsOut, focusDir, External, cancellationToken);
+                focuser, bestPos, currentPosNow, focuser.BacklashStepsIn, focuser.BacklashStepsOut, focusDir, _timeProvider, cancellationToken);
 
             // Take a verification exposure at best focus to get baseline HFD
             camera.FocusPosition = bestPos;
@@ -506,7 +506,7 @@ internal partial record Session
                 verifyImage = await camera.GetImageAsync(cancellationToken);
                 if (verifyImage is null)
                 {
-                    await External.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
+                    await _timeProvider.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
                 }
             }
 
@@ -581,7 +581,7 @@ internal partial record Session
 
             var spinDuration = TimeSpan.FromMilliseconds(250);
             polled += spinDuration;
-            await External.SleepAsync(spinDuration, cancellationToken);
+            await _timeProvider.SleepAsync(spinDuration, cancellationToken);
         }
 
         if (image is null)

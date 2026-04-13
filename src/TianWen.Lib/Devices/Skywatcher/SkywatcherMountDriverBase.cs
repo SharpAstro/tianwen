@@ -345,7 +345,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         await SendCommandAsync('J', axisChar, null, cancellationToken);
 
         // Wait for duration
-        await External.SleepAsync(duration, cancellationToken);
+        await TimeProvider.SleepAsync(duration, cancellationToken);
 
         // Stop guide axis (restore tracking on RA, stop on Dec)
         await SendCommandAsync('K', axisChar, null, cancellationToken);
@@ -544,7 +544,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         _snapActive = true;
 
         // Wait for shutter duration
-        await External.SleepAsync(settings.ShutterTime, cancellationToken);
+        await TimeProvider.SleepAsync(settings.ShutterTime, cancellationToken);
 
         // Aux port off
         await SendCommandAsync('O', '1', "0", cancellationToken);
