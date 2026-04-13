@@ -551,6 +551,12 @@ namespace TianWen.UI.Abstractions
                     appState.NeedsRedraw = true;
                     await updated.SaveAsync(external, cts.Token);
 
+                    // Camera / focuser / filter-wheel assignments may have changed; rebuild the per-OTA
+                    // settings so gain modes (DSLR ISO vs ZWO numeric) and cooling capability come from
+                    // the new device's driver instead of being cached from the old one.
+                    sessionState.InitializeFromProfile(updated, appState.DeviceHub);
+                    sessionState.NeedsRedraw = true;
+
                     // Refetch weather when the weather device URI changes (e.g. API key entered)
                     if (sig.Data.Weather != previousWeather)
                     {
@@ -583,6 +589,21 @@ namespace TianWen.UI.Abstractions
             // Wire signal bus into state objects for auto-posting on dirty
             plannerState.Bus = bus;
             sessionState.Bus = bus;
+
+            // Refresh per-OTA camera capabilities when a driver connects or disconnects via the hub —
+            // gain modes / cooling info may only become known after the driver is actually instantiated.
+            if (appState.DeviceHub is { } hub)
+            {
+                hub.DeviceStateChanged += (_, _) =>
+                {
+                    if (appState.ActiveProfile is { } profile)
+                    {
+                        sessionState.InitializeFromProfile(profile, hub);
+                        sessionState.NeedsRedraw = true;
+                        appState.NeedsRedraw = true;
+                    }
+                };
+            }
 
             // ---------------------------------------------------------------
             // Schedule building (shared between planner preview and session start)
