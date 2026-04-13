@@ -23,7 +23,7 @@ public record IOptronDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         _ => null
     };
 
-    public override ISerialConnection? ConnectSerialDevice(IExternal external, int baud = SGP_BAUD_RATE, Encoding? encoding = null, ILogger? logger = null, ITimeProvider? timeProvider = null)
+    public override ISerialConnection? ConnectSerialDevice(IExternal external, ILogger logger, ITimeProvider timeProvider, int baud = SGP_BAUD_RATE, Encoding? encoding = null)
     {
         // SGP requires exactly 28800 baud — refuse to connect at any other speed
         if (baud != SGP_BAUD_RATE)

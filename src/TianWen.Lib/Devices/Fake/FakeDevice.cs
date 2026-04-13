@@ -99,14 +99,14 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         return new FakeMountDriver(this, sp);
     }
 
-    public override ISerialConnection? ConnectSerialDevice(IExternal external, int baud = 9600, Encoding? encoding = null, ILogger? logger = null, ITimeProvider? timeProvider = null) => DeviceType switch
+    public override ISerialConnection? ConnectSerialDevice(IExternal external, ILogger logger, ITimeProvider timeProvider, int baud = 9600, Encoding? encoding = null) => DeviceType switch
     {
         DeviceType.Mount when string.Equals(Query.QueryValue(DeviceQueryKey.Port), "SGP", StringComparison.OrdinalIgnoreCase)
-            => new FakeSgpSerialDevice(logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, encoding ?? Encoding.ASCII, timeProvider ?? SystemTimeProvider.Instance, SiteLatitude >= 0, true),
+            => new FakeSgpSerialDevice(logger, encoding ?? Encoding.ASCII, timeProvider, SiteLatitude >= 0, true),
         DeviceType.Mount when string.Equals(Query.QueryValue(DeviceQueryKey.Port), "SkyWatcher", StringComparison.OrdinalIgnoreCase)
-            => new FakeSkywatcherSerialDevice(logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, encoding ?? Encoding.ASCII, timeProvider ?? SystemTimeProvider.Instance, true),
+            => new FakeSkywatcherSerialDevice(logger, encoding ?? Encoding.ASCII, timeProvider, true),
         DeviceType.Mount
-            => new FakeMeadeLX200SerialDevice(logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, encoding ?? Encoding.Latin1, timeProvider ?? SystemTimeProvider.Instance, SiteLatitude, SiteLongitude, true),
+            => new FakeMeadeLX200SerialDevice(logger, encoding ?? Encoding.Latin1, timeProvider, SiteLatitude, SiteLongitude, true),
         _ => null
     };
 

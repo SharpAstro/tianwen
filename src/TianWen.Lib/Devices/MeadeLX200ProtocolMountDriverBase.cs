@@ -944,7 +944,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         ISerialConnection? serialDevice;
         try
         {
-            if (_device.ConnectSerialDevice(External, encoding: _encoding, logger: Logger, timeProvider: TimeProvider) is { IsOpen: true } openedConnection)
+            if (_device.ConnectSerialDevice(External, Logger, TimeProvider, encoding: _encoding) is { IsOpen: true } openedConnection)
             {
                 serialDevice = openedConnection;
             }

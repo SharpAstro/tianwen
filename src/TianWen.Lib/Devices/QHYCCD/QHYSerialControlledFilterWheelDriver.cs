@@ -54,7 +54,7 @@ internal class QHYSerialControlledFilterWheelDriver(QHYDevice device, IServicePr
     {
         try
         {
-            if (_device.ConnectSerialDevice(External, CFW_BAUD, Encoding.ASCII) is { IsOpen: true } conn)
+            if (_device.ConnectSerialDevice(External, Logger, TimeProvider, CFW_BAUD, Encoding.ASCII) is { IsOpen: true } conn)
             {
                 return Task.FromResult((true, CONNECTION_ID_EXCLUSIVE, new QHYSerialFilterWheelInfo(conn)));
             }
