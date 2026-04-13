@@ -19,6 +19,8 @@ public interface IConsoleHost
 
     IExternal External { get; }
 
+    TimeProvider TimeProvider { get; }
+
     void WriteScrollable(string content, bool newLine = true);
 
     string? ReadLine();

@@ -46,7 +46,7 @@ public record class CanonDevice(Uri DeviceUri) : DeviceBase(DeviceUri), IDeviceW
 
     protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
     {
-        DeviceType.Camera => new CanonCameraDriver(this, sp.External, sp.GetRequiredService<CanonCameraFactory>()),
+        DeviceType.Camera => new CanonCameraDriver(this, sp, sp.GetRequiredService<CanonCameraFactory>()),
         _ => null
     };
 }

@@ -1,4 +1,7 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using TianWen.Lib.Devices;
+using TianWen.Lib.Extensions;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -41,10 +44,12 @@ internal sealed class OpenMeteoDriver : IWeatherDriver
     private double _windDirection = double.NaN;
     private double _rainRate = double.NaN;
 
-    public OpenMeteoDriver(OpenMeteoDevice device, IExternal external)
+    public OpenMeteoDriver(OpenMeteoDevice device, IServiceProvider serviceProvider)
     {
         _device = device;
-        _external = external;
+        _external = serviceProvider.GetRequiredService<IExternal>();
+        Logger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(OpenMeteoDriver));
+        TimeProvider = serviceProvider.GetRequiredService<TimeProvider>();
     }
 
     // --- IDeviceDriver ---
@@ -54,6 +59,8 @@ internal sealed class OpenMeteoDriver : IWeatherDriver
     public string? DriverVersion => "1.0";
     public DeviceType DriverType => DeviceType.Weather;
     public IExternal External => _external;
+    public ILogger Logger { get; }
+    public TimeProvider TimeProvider { get; }
     public bool Connected => Volatile.Read(ref _connected);
     public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
 
@@ -74,7 +81,7 @@ internal sealed class OpenMeteoDriver : IWeatherDriver
         }
         catch (Exception ex)
         {
-            _external.AppLogger.LogWarning(ex, "Open-Meteo API connectivity check failed");
+            Logger.LogWarning(ex, "Open-Meteo API connectivity check failed");
             throw;
         }
 
@@ -131,7 +138,7 @@ internal sealed class OpenMeteoDriver : IWeatherDriver
             + $"&current={CurrentParams}"
             + $"&start_date={startDate}&end_date={endDate}";
 
-        _external.AppLogger.LogDebug("Fetching Open-Meteo forecast: {Url}", url);
+        Logger.LogDebug("Fetching Open-Meteo forecast: {Url}", url);
 
         OpenMeteoResponse? apiResponse;
         try
@@ -144,12 +151,12 @@ internal sealed class OpenMeteoDriver : IWeatherDriver
         }
         catch (Exception ex)
         {
-            _external.AppLogger.LogWarning(ex, "Open-Meteo API request failed");
+            Logger.LogWarning(ex, "Open-Meteo API request failed");
 
             // Fall back to stale cache when offline
             if (cached is { data: { } staleData })
             {
-                _external.AppLogger.LogInformation("Using stale weather cache (offline fallback)");
+                Logger.LogInformation("Using stale weather cache (offline fallback)");
                 return staleData;
             }
             return [];
@@ -167,7 +174,7 @@ internal sealed class OpenMeteoDriver : IWeatherDriver
         var forecasts = ParseHourlyData(apiResponse.Hourly, start, end);
 
         // Cache result (non-fatal — don't lose forecast data if caching fails)
-        await _external.CatchAsync(
+        await Logger.CatchAsync(
             ct => _external.AtomicWriteJsonAsync(cacheFile, forecasts, OpenMeteoJsonContext.Default.ListHourlyWeatherForecast, ct),
             cancellationToken);
 
@@ -186,19 +193,19 @@ internal sealed class OpenMeteoDriver : IWeatherDriver
             return null;
         }
 
-        var data = await _external.TryReadJsonAsync(cacheFile, OpenMeteoJsonContext.Default.ListHourlyWeatherForecast, ct);
+        var data = await _external.TryReadJsonAsync(cacheFile, OpenMeteoJsonContext.Default.ListHourlyWeatherForecast, Logger, ct);
         if (data is null)
         {
             return null;
         }
 
         var fileInfo = new FileInfo(cacheFile);
-        var age = _external.TimeProvider.GetUtcNow() - new DateTimeOffset(fileInfo.LastWriteTimeUtc, TimeSpan.Zero);
+        var age = TimeProvider.GetUtcNow() - new DateTimeOffset(fileInfo.LastWriteTimeUtc, TimeSpan.Zero);
         var fresh = age <= CacheTtl;
 
         if (fresh)
         {
-            _external.AppLogger.LogDebug("Using cached weather forecast: {CacheFile}", cacheFile);
+            Logger.LogDebug("Using cached weather forecast: {CacheFile}", cacheFile);
         }
 
         return (data, fresh);

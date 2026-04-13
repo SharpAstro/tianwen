@@ -34,7 +34,7 @@ public class FocusDirectionTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output);
         var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
-        await using var focuser = new FakeFocuserDriver(focuserDevice, external);
+        await using var focuser = new FakeFocuserDriver(focuserDevice, external.BuildServiceProvider());
         await focuser.ConnectAsync(ct);
         await focuser.BeginMoveAsync(1000, ct);
         await WaitForMoveComplete(focuser, external, ct);
@@ -61,7 +61,7 @@ public class FocusDirectionTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output);
         var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
-        await using var focuser = new FakeFocuserDriver(focuserDevice, external);
+        await using var focuser = new FakeFocuserDriver(focuserDevice, external.BuildServiceProvider());
         await focuser.ConnectAsync(ct);
         await focuser.BeginMoveAsync(800, ct);
         await WaitForMoveComplete(focuser, external, ct);
@@ -84,7 +84,7 @@ public class FocusDirectionTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output);
         var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
-        await using var focuser = new FakeFocuserDriver(focuserDevice, external);
+        await using var focuser = new FakeFocuserDriver(focuserDevice, external.BuildServiceProvider());
         await focuser.ConnectAsync(ct);
         await focuser.BeginMoveAsync(800, ct);
         await WaitForMoveComplete(focuser, external, ct);
@@ -108,7 +108,7 @@ public class FocusDirectionTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output);
         var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
-        await using var focuser = new FakeFocuserDriver(focuserDevice, external);
+        await using var focuser = new FakeFocuserDriver(focuserDevice, external.BuildServiceProvider());
         await focuser.ConnectAsync(ct);
         await focuser.BeginMoveAsync(1000, ct);
         await WaitForMoveComplete(focuser, external, ct);
@@ -131,7 +131,7 @@ public class FocusDirectionTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output);
         var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
-        await using var focuser = new FakeFocuserDriver(focuserDevice, external);
+        await using var focuser = new FakeFocuserDriver(focuserDevice, external.BuildServiceProvider());
         await focuser.ConnectAsync(ct);
         await focuser.BeginMoveAsync(800, ct);
         await WaitForMoveComplete(focuser, external, ct);
@@ -155,7 +155,7 @@ public class FocusDirectionTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output);
         var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
-        await using var focuser = new FakeFocuserDriver(focuserDevice, external);
+        await using var focuser = new FakeFocuserDriver(focuserDevice, external.BuildServiceProvider());
         await focuser.ConnectAsync(ct);
         await focuser.BeginMoveAsync(1000, ct);
         await WaitForMoveComplete(focuser, external, ct);
@@ -178,7 +178,7 @@ public class FocusDirectionTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output);
         var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
-        await using var focuser = new FakeFocuserDriver(focuserDevice, external);
+        await using var focuser = new FakeFocuserDriver(focuserDevice, external.BuildServiceProvider());
         await focuser.ConnectAsync(ct);
         await focuser.BeginMoveAsync(50, ct);
         await WaitForMoveComplete(focuser, external, ct);

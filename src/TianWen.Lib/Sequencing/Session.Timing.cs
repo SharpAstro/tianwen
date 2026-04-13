@@ -2,13 +2,14 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Extensions;
 
 namespace TianWen.Lib.Sequencing;
 
 internal partial record Session
 {
     internal async ValueTask<DateTime> GetMountUtcNowAsync(CancellationToken cancellationToken)
-        => await Setup.Mount.Driver.TryGetUTCDateFromMountAsync(cancellationToken) ?? External.TimeProvider.GetUtcNow().UtcDateTime;
+        => await Setup.Mount.Driver.TryGetUTCDateFromMountAsync(cancellationToken) ?? _timeProvider.GetUtcNow().UtcDateTime;
 
     /// <summary>
     /// Converts a UTC <see cref="DateTime"/> to a local <see cref="DateTimeOffset"/> at the site's timezone,
@@ -33,21 +34,21 @@ internal partial record Session
 
         var firstStart = Observations[0].Start;
         var waitUntil = firstStart - TimeSpan.FromMinutes(10);
-        var utcNow = External.TimeProvider.GetUtcNow();
+        var utcNow = _timeProvider.GetUtcNow();
         var diff = waitUntil - utcNow;
 
-        External.AppLogger.LogInformation("WaitForDark: utcNow={UtcNow}, firstObservationStart={FirstStart}, waitUntil={WaitUntil}, diff={Diff}",
+        _logger.LogInformation("WaitForDark: utcNow={UtcNow}, firstObservationStart={FirstStart}, waitUntil={WaitUntil}, diff={Diff}",
             utcNow, firstStart, waitUntil, diff);
 
         if (diff > TimeSpan.Zero)
         {
-            External.AppLogger.LogInformation("Waiting {Diff} until 10 minutes before first observation at {FirstStart}",
+            _logger.LogInformation("Waiting {Diff} until 10 minutes before first observation at {FirstStart}",
                 diff, firstStart);
             await External.SleepAsync(diff, cancellationToken).ConfigureAwait(false);
         }
         else
         {
-            External.AppLogger.LogInformation("First observation at {FirstStart} already started or starting soon (diff={Diff})",
+            _logger.LogInformation("First observation at {FirstStart} already started or starting soon (diff={Diff})",
                 firstStart, diff);
         }
     }

@@ -15,7 +15,7 @@ namespace TianWen.Lib.Devices.Fake;
 /// Supports configurable error injection: periodic error, polar misalignment drift,
 /// mount backlash, and cone error.
 /// </summary>
-internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external) : FakeDeviceDriverBase(fakeDevice, external), IMountDriver
+internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider serviceProvider) : FakeDeviceDriverBase(fakeDevice, serviceProvider), IMountDriver
 {
     // --- Physical constants ---
     private const double SIDEREAL_RATE_HOURS_PER_SECOND = 24.0 / 86164.0905;
@@ -359,7 +359,7 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
 
     public ValueTask<double> GetSiderealTimeAsync(CancellationToken cancellationToken)
     {
-        var transform = new Transform(External.TimeProvider)
+        var transform = new Transform(TimeProvider)
         {
             SiteLatitude = _siteLatitude,
             SiteLongitude = _siteLongitude,
@@ -480,7 +480,7 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
 
         var isRA = direction is GuideDirection.East or GuideDirection.West;
         ref var timerRef = ref isRA ? ref _pulseGuideTimerRA : ref _pulseGuideTimerDec;
-        var timer = External.TimeProvider.CreateTimer(
+        var timer = TimeProvider.CreateTimer(
             _ => Interlocked.Decrement(ref _activePulseGuides),
             null,
             duration,
@@ -520,7 +520,7 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
 
         // Start slew timer (outside lock)
         var period = TimeSpan.FromMilliseconds(100);
-        var slewTimer = External.TimeProvider.CreateTimer(SlewTimerCallback, null, period, period);
+        var slewTimer = TimeProvider.CreateTimer(SlewTimerCallback, null, period, period);
         Interlocked.Exchange(ref _slewTimer, slewTimer)?.Dispose();
     }
 
@@ -636,7 +636,7 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
     // --- Time ---
 
     public ValueTask<DateTime?> TryGetUTCDateFromMountAsync(CancellationToken cancellationToken)
-        => ValueTask.FromResult<DateTime?>(External.TimeProvider.GetUtcNow().UtcDateTime);
+        => ValueTask.FromResult<DateTime?>(TimeProvider.GetUtcNow().UtcDateTime);
 
     public ValueTask SetUTCDateAsync(DateTime dateTime, CancellationToken cancellationToken)
     {
@@ -672,7 +672,7 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
         _lastDecDirection = 0;
         _accumulatedRaHours = 0;
         _accumulatedDecDegrees = 0;
-        _trackingCheckpointTicks = External.TimeProvider.GetTimestamp();
+        _trackingCheckpointTicks = TimeProvider.GetTimestamp();
 
         // Reset wind OU state and RNG
         _windStateRa = 0;
@@ -707,7 +707,7 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
         _accumulatedWindRaArcsec = 0;
         _accumulatedWindDecArcsec = 0;
         _accumulatedFlexureDecArcsec = 0;
-        _trackingCheckpointTicks = External.TimeProvider.GetTimestamp();
+        _trackingCheckpointTicks = TimeProvider.GetTimestamp();
     }
 
     /// <summary>
@@ -719,9 +719,9 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
     {
         if (!_isTracking || _isSlewing) return;
 
-        var currentTicks = External.TimeProvider.GetTimestamp();
+        var currentTicks = TimeProvider.GetTimestamp();
         var elapsedTicks = currentTicks - _trackingCheckpointTicks;
-        var elapsedSeconds = (double)elapsedTicks / External.TimeProvider.TimestampFrequency;
+        var elapsedSeconds = (double)elapsedTicks / TimeProvider.TimestampFrequency;
 
         if (elapsedSeconds <= 0) return;
 
@@ -753,7 +753,7 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
         // 5. Wind gusts (Ornstein-Uhlenbeck process)
         if (WindGustAmplitudeArcsec > 0 && _windRng is not null)
         {
-            var windDt = (double)(currentTicks - _windLastUpdateTicks) / External.TimeProvider.TimestampFrequency;
+            var windDt = (double)(currentTicks - _windLastUpdateTicks) / TimeProvider.TimestampFrequency;
             if (windDt > 0)
             {
                 var tau = WindGustDecayTimeSeconds;
@@ -792,7 +792,7 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IExternal external)
         // and the noise evolves realistically between time steps.
         if (GearNoiseArcsec > 0)
         {
-            var gearDt = (double)(currentTicks - _gearNoiseLastUpdateTicks) / External.TimeProvider.TimestampFrequency;
+            var gearDt = (double)(currentTicks - _gearNoiseLastUpdateTicks) / TimeProvider.TimestampFrequency;
             if (gearDt > 0)
             {
                 var tau = GearNoiseDecayTimeSeconds;

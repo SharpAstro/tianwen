@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -14,7 +14,7 @@ namespace TianWen.Lib.Devices;
 
 internal class External(
     IUtf8TextBasedConnectionFactory textBasedConnectionFactory,
-    ILoggerFactory loggerFactory,
+    ILogger<External> logger,
     Astrometry.Catalogs.ICelestialObjectDB celestialObjectDB
 ) : IExternal, IDisposable
 {
@@ -22,8 +22,6 @@ internal class External(
     private readonly SemaphoreSlim _serialPortEnumerationSemaphore = new SemaphoreSlim(1, 1);
     private readonly ConcurrentDictionary<string, ISerialConnection> _serialConnections = [];
     private bool disposedValue;
-
-    public TimeProvider TimeProvider => TimeProvider.System;
 
     /// <summary>
     /// Gets the directory where application output files are stored.
@@ -39,8 +37,6 @@ internal class External(
     /// Profiles are shared between every consumer of this library, for ease of use
     /// </summary>
     public DirectoryInfo ProfileFolder { get; } = SharedStaticData.CommonDataRoot.CreateSubdirectory("Profiles");
-
-    public ILogger AppLogger => loggerFactory.CreateLogger("App");
 
     public async ValueTask<Astrometry.Catalogs.ICelestialObjectDB> GetCelestialObjectDBAsync(CancellationToken cancellationToken = default)
     {
@@ -79,10 +75,8 @@ internal class External(
             (portName, existing) => existing.IsOpen ? existing : OpenSerialConnection(portName)
         );
 
-        ISerialConnection OpenSerialConnection(string portName) => new SerialConnection(portName, baud, encoding, AppLogger);
+        ISerialConnection OpenSerialConnection(string portName) => new SerialConnection(portName, baud, encoding, logger);
     }
-
-    public async ValueTask SleepAsync(TimeSpan duration, CancellationToken cancellationToken) => await Task.Delay(duration, cancellationToken);
 
     public Task<IUtf8TextBasedConnection> ConnectGuiderAsync(EndPoint address, CommunicationProtocol protocol = CommunicationProtocol.JsonRPC, CancellationToken cancellationToken = default)
         => textBasedConnectionFactory.ConnectAsync(address, protocol, cancellationToken);

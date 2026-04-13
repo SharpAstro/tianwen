@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 
 namespace TianWen.Lib.Devices;
 
-internal class CombinedDeviceManager(IExternal external, IEnumerable<IDeviceSource<DeviceBase>> deviceSources) : ICombinedDeviceManager
+internal class CombinedDeviceManager(IExternal external, ILogger<CombinedDeviceManager> logger, IEnumerable<IDeviceSource<DeviceBase>> deviceSources) : ICombinedDeviceManager
 {
     private volatile bool _initialized;
     private readonly SemaphoreSlim _initSem = new SemaphoreSlim(1, 1);
@@ -48,7 +48,7 @@ internal class CombinedDeviceManager(IExternal external, IEnumerable<IDeviceSour
                 }
                 catch (Exception e)
                 {
-                    external.AppLogger.LogError(e, "Error while checking support for {DeviceSource}", deviceSource.GetType().Name);
+                    logger.LogError(e, "Error while checking support for {DeviceSource}", deviceSource.GetType().Name);
                 }
             }
         );
@@ -80,7 +80,7 @@ internal class CombinedDeviceManager(IExternal external, IEnumerable<IDeviceSour
                 }
                 catch (Exception e)
                 {
-                    external.AppLogger.LogError(e, "Error while discovering devices of type {DeviceType}", type);
+                    logger.LogError(e, "Error while discovering devices of type {DeviceType}", type);
                 }
             }
         }
@@ -101,7 +101,7 @@ internal class CombinedDeviceManager(IExternal external, IEnumerable<IDeviceSour
             }
             catch (Exception e)
             {
-                external.AppLogger.LogError(e, "Error while discovering devices");
+                logger.LogError(e, "Error while discovering devices");
             }
         }
     }

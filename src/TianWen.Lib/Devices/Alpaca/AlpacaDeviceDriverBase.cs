@@ -6,14 +6,15 @@ using System.Threading.Tasks;
 
 namespace TianWen.Lib.Devices.Alpaca;
 
+
 internal record struct AlpacaDeviceInfo();
 
 /// <summary>
 /// Base driver class for ASCOM Alpaca devices. Connects/disconnects via the Alpaca REST API
 /// and provides convenience methods for property access and method invocation.
 /// </summary>
-internal abstract class AlpacaDeviceDriverBase(AlpacaDevice device, IExternal external)
-    : DeviceDriverBase<AlpacaDevice, AlpacaDeviceInfo>(device, external), IDeviceDriver
+internal abstract class AlpacaDeviceDriverBase(AlpacaDevice device, IServiceProvider serviceProvider)
+    : DeviceDriverBase<AlpacaDevice, AlpacaDeviceInfo>(device, serviceProvider), IDeviceDriver
 {
     protected AlpacaClient Client => _device.Client ?? throw new InvalidOperationException("AlpacaClient is not set on the device");
 
@@ -54,7 +55,7 @@ internal abstract class AlpacaDeviceDriverBase(AlpacaDevice device, IExternal ex
         }
         catch (Exception e)
         {
-            External.AppLogger.LogError(e, "Failed to connect to Alpaca device {DeviceId} ({DisplayName}): {ErrorMessage}", _device.DeviceId, _device.DisplayName, e.Message);
+            Logger.LogError(e, "Failed to connect to Alpaca device {DeviceId} ({DisplayName}): {ErrorMessage}", _device.DeviceId, _device.DisplayName, e.Message);
             return (false, CONNECTION_ID_UNKNOWN, new AlpacaDeviceInfo());
         }
     }
@@ -79,7 +80,7 @@ internal abstract class AlpacaDeviceDriverBase(AlpacaDevice device, IExternal ex
         }
         catch (Exception e)
         {
-            External.AppLogger.LogError(e, "Failed to disconnect from Alpaca device {DeviceId} ({DisplayName}): {ErrorMessage}", _device.DeviceId, _device.DisplayName, e.Message);
+            Logger.LogError(e, "Failed to disconnect from Alpaca device {DeviceId} ({DisplayName}): {ErrorMessage}", _device.DeviceId, _device.DisplayName, e.Message);
             return false;
         }
     }

@@ -30,7 +30,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
         var device = new FakeDevice(DeviceType.Mount, 1);
-        var mount = new FakeMountDriver(device, external);
+        var mount = new FakeMountDriver(device, external.BuildServiceProvider());
         await mount.ConnectAsync(ct);
         await mount.SetPositionAsync(12.0, 45.0, ct);
 
@@ -90,7 +90,7 @@ public class GuideLoopTests(ITestOutputHelper output)
             AggressivenessDec = 0.7,
             MinPulseMs = 20
         };
-        var guideLoop = new GuideLoop(pulseTarget, tracker, pController, external);
+        var guideLoop = new GuideLoop(pulseTarget, tracker, pController, external, external.TimeProvider);
         guideLoop.SetCalibration(calResult.Value);
 
         // Run guide loop for enough iterations to cover the PE cycle
@@ -133,7 +133,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
         var device = new FakeDevice(DeviceType.Mount, 1);
-        var mount = new FakeMountDriver(device, external);
+        var mount = new FakeMountDriver(device, external.BuildServiceProvider());
         await mount.ConnectAsync(ct);
         await mount.SetPositionAsync(12.0, 45.0, ct);
 
@@ -201,7 +201,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         var tempDir = Directory.CreateTempSubdirectory("guide_loop_online_test_");
         try
         {
-            var guideLoop = new GuideLoop(pulseTarget, tracker, pController, external);
+            var guideLoop = new GuideLoop(pulseTarget, tracker, pController, external, external.TimeProvider);
             guideLoop.SetCalibration(calResult.Value);
             guideLoop.EnableNeuralModel(model);
             guideLoop.EnableOnlineLearning(onlineLearningRate: 0.0001f, profileFolder: tempDir);
@@ -265,7 +265,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
         var device = new FakeDevice(DeviceType.Mount, 1);
-        var mount = new FakeMountDriver(device, external);
+        var mount = new FakeMountDriver(device, external.BuildServiceProvider());
         await mount.ConnectAsync(ct);
         await mount.SetPositionAsync(12.0, 45.0, ct);
 
@@ -328,7 +328,7 @@ public class GuideLoopTests(ITestOutputHelper output)
             AggressivenessDec = 0.7,
             MinPulseMs = 20
         };
-        var guideLoop = new GuideLoop(pulseTarget, tracker, pController, external);
+        var guideLoop = new GuideLoop(pulseTarget, tracker, pController, external, external.TimeProvider);
         guideLoop.SetCalibration(calResult.Value);
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -443,7 +443,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
         var device = new FakeDevice(DeviceType.Mount, 1);
-        var mount = new FakeMountDriver(device, external);
+        var mount = new FakeMountDriver(device, external.BuildServiceProvider());
         await mount.ConnectAsync(ct);
         await mount.SetPositionAsync(12.0, 45.0, ct);
 
@@ -517,7 +517,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         var tempDir = Directory.CreateTempSubdirectory("guide_loop_seeing_online_test_");
         try
         {
-            var guideLoop = new GuideLoop(pulseTarget, tracker, pController, external);
+            var guideLoop = new GuideLoop(pulseTarget, tracker, pController, external, external.TimeProvider);
             guideLoop.SetCalibration(calResult.Value);
             guideLoop.EnableNeuralModel(model);
             guideLoop.EnableOnlineLearning(onlineLearningRate: 0.0001f, profileFolder: tempDir);
@@ -584,11 +584,11 @@ public class GuideLoopTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
         var device = new FakeDevice(DeviceType.Mount, 1);
-        var mount = new FakeMountDriver(device, external);
+        var mount = new FakeMountDriver(device, external.BuildServiceProvider());
         var pulseTarget = new MountPulseGuideTarget(mount);
         var tracker = new GuiderCentroidTracker(maxStars: 1);
         var pController = new ProportionalGuideController();
-        var guideLoop = new GuideLoop(pulseTarget, tracker, pController, external);
+        var guideLoop = new GuideLoop(pulseTarget, tracker, pController, external, external.TimeProvider);
 
         await Should.ThrowAsync<InvalidOperationException>(async () =>
         {
@@ -747,7 +747,7 @@ public class GuideLoopTests(ITestOutputHelper output)
     {
         var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
         var device = new FakeDevice(DeviceType.Mount, 1);
-        var mount = new FakeMountDriver(device, external);
+        var mount = new FakeMountDriver(device, external.BuildServiceProvider());
         await mount.ConnectAsync(ct);
         await mount.SetPositionAsync(12.0, 45.0, ct);
 
@@ -808,7 +808,7 @@ public class GuideLoopTests(ITestOutputHelper output)
             AggressivenessDec = 0.7,
             MinPulseMs = 20
         };
-        var guideLoop = new GuideLoop(pulseTarget, tracker, pController, external);
+        var guideLoop = new GuideLoop(pulseTarget, tracker, pController, external, external.TimeProvider);
         guideLoop.SetCalibration(calResult.Value);
 
         return (mount, guideLoop, tracker, calResult.Value, RenderFrame);

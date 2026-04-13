@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 
 namespace TianWen.Lib.Devices;
 
-internal class ProfileIterator(IExternal external) : IDeviceSource<Profile>
+internal class ProfileIterator(IExternal external, ILogger<ProfileIterator> logger) : IDeviceSource<Profile>
 {
     private ConcurrentBag<Profile> _profiles = [];
 
@@ -32,15 +32,15 @@ internal class ProfileIterator(IExternal external) : IDeviceSource<Profile>
                 {
                     if (string.IsNullOrWhiteSpace(dto.Name))
                     {
-                        external.AppLogger.LogWarning("Skipping profile {ProfileId} in file {File} as it does not have a name", profileId, file);
+                        logger.LogWarning("Skipping profile {ProfileId} in file {File} as it does not have a name", profileId, file);
                     }
                     else if (dto.ProfileId != profileId)
                     {
-                        external.AppLogger.LogWarning("Skipping profile {ProfileId} ({Name}) in file {File} as it does not match stored id {DtoProfileId}", profileId, dto.Name, file, dto.ProfileId);
+                        logger.LogWarning("Skipping profile {ProfileId} ({Name}) in file {File} as it does not match stored id {DtoProfileId}", profileId, dto.Name, file, dto.ProfileId);
                     }
                     else if (dto.ProfileId == Guid.Empty)
                     {
-                        external.AppLogger.LogWarning("Skipping profile {ProfileId} ({Name}) in file {File} has an invalid uuid", profileId, dto.Name, file);
+                        logger.LogWarning("Skipping profile {ProfileId} ({Name}) in file {File} has an invalid uuid", profileId, dto.Name, file);
                     }
                     else
                     {
@@ -49,12 +49,12 @@ internal class ProfileIterator(IExternal external) : IDeviceSource<Profile>
                 }
                 else
                 {
-                    external.AppLogger.LogWarning("Skipping invalid profile {ProfileId} in file {File}", profileId, file);
+                    logger.LogWarning("Skipping invalid profile {ProfileId} in file {File}", profileId, file);
                 }
             }
             catch (Exception ex)
             {
-                external.AppLogger.LogError(ex, "Failed to load profile {ProfileId} in file {File}", profileId, file);
+                logger.LogError(ex, "Failed to load profile {ProfileId} in file {File}", profileId, file);
             }
         });
 

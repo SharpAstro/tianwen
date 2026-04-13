@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Microsoft.Extensions.Logging;
+using System;
 using System.Collections.Immutable;
 using System.Collections.Specialized;
 using System.Diagnostics.CodeAnalysis;
@@ -86,7 +87,7 @@ public abstract record class DeviceBase(Uri DeviceUri)
 
     protected virtual IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => null;
 
-    public virtual ISerialConnection? ConnectSerialDevice(IExternal external, int baud = 9600, Encoding? encoding = null)
+    public virtual ISerialConnection? ConnectSerialDevice(IExternal external, int baud = 9600, Encoding? encoding = null, ILogger? logger = null, TimeProvider? timeProvider = null)
     {
         if (Query.QueryValue(DeviceQueryKey.Port) is { Length: > 0 } port)
         {

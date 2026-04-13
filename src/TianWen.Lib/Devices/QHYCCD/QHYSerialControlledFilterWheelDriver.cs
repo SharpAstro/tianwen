@@ -17,8 +17,8 @@ internal record struct QHYSerialFilterWheelInfo(ISerialConnection? SerialDevice)
 /// Filter wheel driver for standalone QHY CFW (e.g. QHYCFW3) connected via USB-to-serial.
 /// Uses the QHYCFW3 ASCII protocol: single-char hex goto commands, VRS/MXP/NOW queries.
 /// </summary>
-internal class QHYSerialControlledFilterWheelDriver(QHYDevice device, IExternal external)
-    : DeviceDriverBase<QHYDevice, QHYSerialFilterWheelInfo>(device, external), IFilterWheelDriver
+internal class QHYSerialControlledFilterWheelDriver(QHYDevice device, IServiceProvider serviceProvider)
+    : DeviceDriverBase<QHYDevice, QHYSerialFilterWheelInfo>(device, serviceProvider), IFilterWheelDriver
 {
     internal const int CFW_BAUD = 9600;
 

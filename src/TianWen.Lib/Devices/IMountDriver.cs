@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -7,6 +7,7 @@ using TianWen.DAL;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.SOFA;
 using static TianWen.Lib.Astrometry.CoordinateUtils;
+using TianWen.Lib.Extensions;
 
 namespace TianWen.Lib.Devices;
 
@@ -242,20 +243,20 @@ public interface IMountDriver : IDeviceDriver
     /// <summary>
     /// The UTC date/time of the telescope's internal clock.
     /// Must be initalised via <see cref="SetUTCDateAsync(DateTime, CancellationToken)"/> from system time if no internal clock is supported.
-    /// <see cref="IExternal.TimeProvider"/>.
+    /// <see cref="ITimeProvider"/>.
     /// </summary>
     ValueTask<DateTime?> TryGetUTCDateFromMountAsync(CancellationToken cancellationToken);
 
     /// <summary>
     /// The UTC date/time of the telescope's internal clock.
     /// Must be initalised from system time if no internal clock is supported.
-    /// <see cref="IExternal.TimeProvider"/>.
+    /// <see cref="ITimeProvider"/>.
     /// </summary>
     ValueTask SetUTCDateAsync(DateTime dateTime, CancellationToken cancellationToken);
 
     /// <summary>
     /// Returns true iff time was updated via <see cref="SetUTCDateAsync(DateTime, CancellationToken)"/>.
-    /// Will be equal to <see cref="IExternal.TimeProvider"/> if true.
+    /// Will be equal to <see cref="ITimeProvider"/> if true.
     /// </summary>
     bool TimeIsSetByUs { get; }
 
@@ -386,7 +387,7 @@ public interface IMountDriver : IDeviceDriver
     {
         if (Connected && await TryGetUTCDateFromMountAsync(cancellationToken) is { } utc)
         {
-            return new Transform(External.TimeProvider)
+            return new Transform(TimeProvider)
             {
                 SiteElevation = await GetSiteElevationAsync(cancellationToken) is var elev && !double.IsNaN(elev) ? elev : 0,
                 SiteLatitude = await GetSiteLatitudeAsync(cancellationToken),
@@ -450,7 +451,7 @@ public interface IMountDriver : IDeviceDriver
     /// </summary>
     public async Task<bool> IsOnSamePierSideAsync(double hourAngleAtSlewTime, CancellationToken cancellationToken)
     {
-        var currentHourAngle = await External.CatchAsync(GetHourAngleAsync, cancellationToken, double.NaN);
+        var currentHourAngle = await Logger.CatchAsync(GetHourAngleAsync, cancellationToken, double.NaN);
         if (double.IsNaN(currentHourAngle))
         {
             return false;
@@ -494,13 +495,13 @@ public interface IMountDriver : IDeviceDriver
         if (await TryGetTransformAsync(cancellationToken) is not { } transform
             || await TryTransformJ2000ToMountNativeAsync(transform, target.RA, target.Dec, updateTime: false, cancellationToken) is not { } nativeCoords)
         {
-            External.AppLogger.LogError("Failed to slew {MountName} to target {TargetName}, coordinate transform unavailable.", Name, target.Name);
+            Logger.LogError("Failed to slew {MountName} to target {TargetName}, coordinate transform unavailable.", Name, target.Name);
             return new SlewResult(SlewPostCondition.SlewNotPossible, double.NaN);
         }
 
         if (nativeCoords.Alt < minAboveHorizonDegrees)
         {
-            External.AppLogger.LogWarning("Target {TargetName} is below minimum altitude of {MinAlt} degrees (alt={Alt:0.00}°).",
+            Logger.LogWarning("Target {TargetName} is below minimum altitude of {MinAlt} degrees (alt={Alt:0.00}°).",
                 target.Name, minAboveHorizonDegrees, nativeCoords.Alt);
             return new SlewResult(SlewPostCondition.TargetBelowHorizonLimit, double.NaN);
         }
@@ -508,7 +509,7 @@ public interface IMountDriver : IDeviceDriver
         var dsop = await DestinationSideOfPierAsync(nativeCoords.RaMount, nativeCoords.DecMount, cancellationToken);
         if (dsop == PointingState.Unknown)
         {
-            External.AppLogger.LogError("Failed to slew {MountName} to target {TargetName} az={AZ:0.00} alt={Alt:0.00} dsop={DestinationSoP}, skipping.",
+            Logger.LogError("Failed to slew {MountName} to target {TargetName} az={AZ:0.00} alt={Alt:0.00} dsop={DestinationSoP}, skipping.",
                 Name, target.Name, nativeCoords.Az, nativeCoords.Alt, dsop);
             return new SlewResult(SlewPostCondition.SlewNotPossible, double.NaN);
         }

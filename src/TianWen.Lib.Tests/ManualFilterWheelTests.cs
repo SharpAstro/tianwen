@@ -15,7 +15,7 @@ public class ManualFilterWheelTests(ITestOutputHelper output)
     {
         var device = new ManualFilterWheelDevice(Filter.HydrogenAlphaOxygenIII);
         var external = new FakeExternal(output);
-        var sp = new ServiceCollection().AddSingleton<IExternal>(external).BuildServiceProvider();
+        var sp = external.BuildServiceProvider();
         device.TryInstantiateDriver<IFilterWheelDriver>(sp, out var driver).ShouldBeTrue();
 
         await ((IDeviceDriver)driver!).ConnectAsync(TestContext.Current.CancellationToken);
@@ -31,7 +31,7 @@ public class ManualFilterWheelTests(ITestOutputHelper output)
     {
         var device = new ManualFilterWheelDevice(Filter.Red);
         var external = new FakeExternal(output);
-        var sp = new ServiceCollection().AddSingleton<IExternal>(external).BuildServiceProvider();
+        var sp = external.BuildServiceProvider();
         device.TryInstantiateDriver<IFilterWheelDriver>(sp, out var driver).ShouldBeTrue();
 
         await ((IDeviceDriver)driver!).ConnectAsync(TestContext.Current.CancellationToken);
@@ -49,7 +49,7 @@ public class ManualFilterWheelTests(ITestOutputHelper output)
     {
         var device = new ManualFilterWheelDevice(Filter.Luminance);
         var external = new FakeExternal(output);
-        var sp = new ServiceCollection().AddSingleton<IExternal>(external).BuildServiceProvider();
+        var sp = external.BuildServiceProvider();
         device.TryInstantiateDriver<IFilterWheelDriver>(sp, out var driver).ShouldBeTrue();
 
         await ((IDeviceDriver)driver!).ConnectAsync(TestContext.Current.CancellationToken);

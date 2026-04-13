@@ -19,7 +19,7 @@ public record class OpenMeteoDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 
     protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
     {
-        DeviceType.Weather => new OpenMeteoDriver(this, sp.External),
+        DeviceType.Weather => new OpenMeteoDriver(this, sp),
         _ => null
     };
 }

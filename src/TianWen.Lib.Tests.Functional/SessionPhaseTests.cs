@@ -408,7 +408,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
         var plateSolver = new FakePlateSolver();
         var config = SessionTestHelper.DefaultConfiguration;
 
-        var session = new Session(setup, config, plateSolver, external, new ScheduledObservationTree(observations));
+        var session = new Session(setup, config, plateSolver, external, sp, new ScheduledObservationTree(observations));
 
         return new SessionTestContext(session, external, cameraDriver, focuserDriver, mount.Driver);
     }

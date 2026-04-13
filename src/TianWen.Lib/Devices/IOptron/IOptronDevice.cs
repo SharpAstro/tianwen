@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Specialized;
 using System.Text;
@@ -18,11 +19,11 @@ public record IOptronDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 
     protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
     {
-        DeviceType.Mount => new SgpMountDriver(this, sp.External),
+        DeviceType.Mount => new SgpMountDriver(this, sp),
         _ => null
     };
 
-    public override ISerialConnection? ConnectSerialDevice(IExternal external, int baud = SGP_BAUD_RATE, Encoding? encoding = null)
+    public override ISerialConnection? ConnectSerialDevice(IExternal external, int baud = SGP_BAUD_RATE, Encoding? encoding = null, ILogger? logger = null, TimeProvider? timeProvider = null)
     {
         // SGP requires exactly 28800 baud — refuse to connect at any other speed
         if (baud != SGP_BAUD_RATE)

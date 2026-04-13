@@ -37,7 +37,7 @@ public record class OpenWeatherMapDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 
     protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
     {
-        DeviceType.Weather => ApiKey is { Length: > 0 } ? new OpenWeatherMapDriver(this, sp.External) : null,
+        DeviceType.Weather => ApiKey is { Length: > 0 } ? new OpenWeatherMapDriver(this, sp) : null,
         _ => null
     };
 }

@@ -45,7 +45,8 @@ var appState = sp.GetRequiredService<GuiAppState>();
 var plannerState = sp.GetRequiredService<PlannerState>();
 var viewerState = sp.GetRequiredService<ViewerState>();
 var external = sp.GetRequiredService<IExternal>();
-var logger = external.AppLogger;
+var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("TianWen.UI.Gui");
+var timeProvider = sp.GetRequiredService<TimeProvider>();
 
 // Resolve profile — auto-select if exactly one, otherwise none for now
 var profiles = await sp.GetRequiredService<ICombinedDeviceManager>()
@@ -124,7 +125,7 @@ tracker.Run(() => signalHandler.LoadSessionConfigAsync(backgroundCts.Token), "Lo
 
 if (appState.ActiveProfile is not null)
 {
-    var transform = TransformFactory.FromProfile(appState.ActiveProfile, external.TimeProvider, out _);
+    var transform = TransformFactory.FromProfile(appState.ActiveProfile, timeProvider, out _);
     if (transform is not null)
     {
         AppSignalHandler.ApplySiteFromTransform(plannerState, transform);
@@ -140,7 +141,7 @@ if (appState.ActiveProfile is not null)
 bus.Post(new DiscoverDevicesSignal());
 
 // --- Main event loop via SdlEventLoop ---
-var _lastSessionRedrawTimestamp = external.TimeProvider.GetTimestamp();
+var _lastSessionRedrawTimestamp = timeProvider.GetTimestamp();
 
 var loop = new SdlEventLoop(sdlWindow, renderer)
 {
@@ -192,8 +193,8 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         // Redraw periodically (every ~500ms) when session is running on the Live tab
         if (guiRenderer.LiveSessionState.IsRunning && appState.ActiveTab is GuiTab.LiveSession or GuiTab.Guider)
         {
-            var now = external.TimeProvider.GetTimestamp();
-            if (external.TimeProvider.GetElapsedTime(_lastSessionRedrawTimestamp, now) >= TimeSpan.FromMilliseconds(500))
+            var now = timeProvider.GetTimestamp();
+            if (timeProvider.GetElapsedTime(_lastSessionRedrawTimestamp, now) >= TimeSpan.FromMilliseconds(500))
             {
                 _lastSessionRedrawTimestamp = now;
                 return true;
@@ -204,7 +205,7 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
             || appState.ActiveTextInput is { IsActive: true };
     },
 
-    OnRender = () => guiRenderer.Render(appState, plannerState, viewerState, external.TimeProvider),
+    OnRender = () => guiRenderer.Render(appState, plannerState, viewerState, timeProvider),
 
 };
 

@@ -40,8 +40,8 @@ internal record struct QHYFocuserInfo(ISerialConnection? SerialDevice);
 /// <para>Responses are JSON objects terminated by '}'. The <c>idx</c> field identifies the response type:
 /// idx=1 → position arrived, idx=4 → temperature/status.</para>
 /// </summary>
-internal class QHYFocuserDriver(QHYDevice device, IExternal external)
-    : DeviceDriverBase<QHYDevice, QHYFocuserInfo>(device, external), IFocuserDriver
+internal class QHYFocuserDriver(QHYDevice device, IServiceProvider serviceProvider)
+    : DeviceDriverBase<QHYDevice, QHYFocuserInfo>(device, serviceProvider), IFocuserDriver
 {
     internal const int QFOC_BAUD = 9600;
 
@@ -155,7 +155,7 @@ internal class QHYFocuserDriver(QHYDevice device, IExternal external)
         }
         catch (Exception ex)
         {
-            External.AppLogger.LogError(ex, "Failed to open serial port for QFOC focuser {DeviceId}", _device.DeviceId);
+            Logger.LogError(ex, "Failed to open serial port for QFOC focuser {DeviceId}", _device.DeviceId);
         }
 
         return Task.FromResult((false, CONNECTION_ID_UNKNOWN, default(QHYFocuserInfo)));
@@ -185,14 +185,14 @@ internal class QHYFocuserDriver(QHYDevice device, IExternal external)
 
         if (initResponse is null || initResponse.Version is not { Length: > 0 })
         {
-            External.AppLogger.LogWarning("QFOC init response missing version");
+            Logger.LogWarning("QFOC init response missing version");
             return false;
         }
 
         _firmwareVersion = initResponse.Version;
         _boardVersion = initResponse.BoardVersion;
 
-        External.AppLogger.LogInformation("QFOC connected: firmware={FirmwareVersion}, board={BoardVersion}", _firmwareVersion, _boardVersion);
+        Logger.LogInformation("QFOC connected: firmware={FirmwareVersion}, board={BoardVersion}", _firmwareVersion, _boardVersion);
 
         // Set speed: normal (0) — caller can change via URI params or settings later
         await SendCommandAsync(new QfocSetSpeedCommand(0), QfocJsonContext.Default.QfocSetSpeedCommand, cancellationToken);

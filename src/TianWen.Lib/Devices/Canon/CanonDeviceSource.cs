@@ -17,7 +17,7 @@ namespace TianWen.Lib.Devices.Canon;
 /// Device source for Canon DSLR cameras.
 /// Discovers cameras via WPD (Windows), USB (LibUsbDotNet), and WiFi (mDNS + PTP/IP).
 /// </summary>
-internal sealed class CanonDeviceSource(IExternal external) : IDeviceSource<CanonDevice>
+internal sealed class CanonDeviceSource(IExternal external, ILogger<CanonDeviceSource> logger) : IDeviceSource<CanonDevice>
 {
     private static readonly IPAddress MdnsMulticast = IPAddress.Parse("224.0.0.251");
     private const int MdnsPort = 5353;
@@ -87,13 +87,13 @@ internal sealed class CanonDeviceSource(IExternal external) : IDeviceSource<Cano
                     $"?{DeviceQueryKey.Port.Key}=usb#{Uri.EscapeDataString(displayName)}");
                 _cameras.Add(new CanonDevice(uri) );
 
-                external.AppLogger.LogDebug("Discovered Canon USB camera: {Name} ({Id})", displayName, deviceId);
+                logger.LogDebug("Discovered Canon USB camera: {Name} ({Id})", displayName, deviceId);
             }
-            external.AppLogger.LogDebug("Canon USB enumeration found {Count} camera(s)", usbCount);
+            logger.LogDebug("Canon USB enumeration found {Count} camera(s)", usbCount);
         }
         catch (Exception ex)
         {
-            external.AppLogger.LogDebug(ex, "Canon USB enumeration failed (LibUsbDotNet not available?)");
+            logger.LogDebug(ex, "Canon USB enumeration failed (LibUsbDotNet not available?)");
         }
 
         // Phase 3: WiFi cameras via mDNS
@@ -112,13 +112,13 @@ internal sealed class CanonDeviceSource(IExternal external) : IDeviceSource<Cano
                     $"#{Uri.EscapeDataString(displayName)}");
                 _cameras.Add(new CanonDevice(uri) );
 
-                external.AppLogger.LogDebug("Discovered Canon WiFi camera: {Name} at {Ip} (id={Id})", displayName, ipAddr, deviceId);
+                logger.LogDebug("Discovered Canon WiFi camera: {Name} at {Ip} (id={Id})", displayName, ipAddr, deviceId);
             }
-            external.AppLogger.LogDebug("Canon mDNS scan found {Count} WiFi camera(s)", mdnsResults.Count);
+            logger.LogDebug("Canon mDNS scan found {Count} WiFi camera(s)", mdnsResults.Count);
         }
         catch (Exception ex)
         {
-            external.AppLogger.LogDebug(ex, "Canon mDNS WiFi discovery failed");
+            logger.LogDebug(ex, "Canon mDNS WiFi discovery failed");
         }
     }
 
@@ -135,13 +135,13 @@ internal sealed class CanonDeviceSource(IExternal external) : IDeviceSource<Cano
                     $"?{DeviceQueryKey.Port.Key}=wpd#{Uri.EscapeDataString(friendlyName)}");
                 _cameras.Add(new CanonDevice(uri) );
 
-                external.AppLogger.LogDebug("Discovered Canon WPD camera: {Name} ({Id})", friendlyName, wpdDeviceId);
+                logger.LogDebug("Discovered Canon WPD camera: {Name} ({Id})", friendlyName, wpdDeviceId);
             }
-            external.AppLogger.LogDebug("Canon WPD enumeration found {Count} camera(s)", wpdCount);
+            logger.LogDebug("Canon WPD enumeration found {Count} camera(s)", wpdCount);
         }
         catch (Exception ex)
         {
-            external.AppLogger.LogDebug(ex, "Canon WPD enumeration failed");
+            logger.LogDebug(ex, "Canon WPD enumeration failed");
         }
     }
 

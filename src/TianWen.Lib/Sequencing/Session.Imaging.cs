@@ -30,12 +30,12 @@ internal partial record Session
         {
             if (!await mount.Driver.EnsureTrackingAsync(cancellationToken: cancellationToken))
             {
-                External.AppLogger.LogError("Failed to enable tracking of {Mount}.", mount);
+                _logger.LogError("Failed to enable tracking of {Mount}.", mount);
                 return;
             }
 
             _currentActivity = $"Slewing to {observation.Target.Name}\u2026";
-            External.AppLogger.LogInformation("Stop guiding to start slewing mount to target {Observation}.", observation);
+            _logger.LogInformation("Stop guiding to start slewing mount to target {Observation}.", observation);
             await guider.Driver.StopCaptureAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
 
             // Set camera target early so centering plate-solve has correct metadata
@@ -57,7 +57,7 @@ internal partial record Session
                         && await EstimateTimeUntilTargetRisesAsync(observation.Target, Configuration.MinHeightAboveHorizon, maxWait, cancellationToken) is { } waitTime
                         && waitTime > TimeSpan.Zero)
                     {
-                        External.AppLogger.LogInformation(
+                        _logger.LogInformation(
                             "Target {Target} is rising, waiting {WaitMinutes:F0} min until it clears {MinAlt}°.",
                             observation.Target, waitTime.TotalMinutes, Configuration.MinHeightAboveHorizon);
                         await External.SleepAsync(waitTime, cancellationToken);
@@ -72,7 +72,7 @@ internal partial record Session
                     {
                         if (Observations.TryGetNextSpare(_activeObservation, ref _spareIndex) is { } spare)
                         {
-                            External.AppLogger.LogInformation("Primary target {Target} not available ({PostCondition}), trying spare target {SpareTarget}.",
+                            _logger.LogInformation("Primary target {Target} not available ({PostCondition}), trying spare target {SpareTarget}.",
                                 observation.Target, postCondition, spare.Target);
                             observation = spare;
 
@@ -94,7 +94,7 @@ internal partial record Session
                 {
                     if (!await mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, cancellationToken).ConfigureAwait(false))
                     {
-                        External.AppLogger.LogError("Failed to complete slewing of mount {Mount}", mount);
+                        _logger.LogError("Failed to complete slewing of mount {Mount}", mount);
 
                         throw new InvalidOperationException($"Failed to complete slewing of mount {mount} while slewing to {observation.Target}");
                     }
@@ -106,7 +106,7 @@ internal partial record Session
                     // Iterative plate-solve + sync + reslew centering
                     if (!await CenterOnTargetAsync(observation.Target, 0, thresholdArcmin: 1.0, maxAttempts: 3, cancellationToken))
                     {
-                        External.AppLogger.LogWarning("Centering on {Target} did not converge, continuing with current pointing.", observation.Target);
+                        _logger.LogWarning("Centering on {Target} did not converge, continuing with current pointing.", observation.Target);
                     }
                 }
                 else
@@ -116,7 +116,7 @@ internal partial record Session
             }
             catch (Exception ex)
             {
-                External.AppLogger.LogError(ex, "Error while slewing to {Observation}, retrying", observation);
+                _logger.LogError(ex, "Error while slewing to {Observation}, retrying", observation);
                 continue;
             }
 
@@ -125,12 +125,12 @@ internal partial record Session
 
             if (cancellationToken.IsCancellationRequested)
             {
-                External.AppLogger.LogWarning("Cancellation requested, abort setting up guider \"{GuiderName}\" and quit observation loop.", guider.Driver);
+                _logger.LogWarning("Cancellation requested, abort setting up guider \"{GuiderName}\" and quit observation loop.", guider.Driver);
                 break;
             }
             else if (!guidingSuccess)
             {
-                External.AppLogger.LogError("Skipping target {Observation} as starting guider \"{GuiderName}\" failed after trying {GuiderTries} times.", observation, guider.Driver, Configuration.GuidingTries);
+                _logger.LogError("Skipping target {Observation} as starting guider \"{GuiderName}\" failed after trying {GuiderTries} times.", observation, guider.Driver, Configuration.GuidingTries);
                 _ = AdvanceObservation();
                 continue;
             }
@@ -138,12 +138,12 @@ internal partial record Session
             // Optionally refocus when switching to a new target
             if (Configuration.AlwaysRefocusOnNewTarget && !_baselineByObservation.ContainsKey(ActiveObservationIndex))
             {
-                External.AppLogger.LogInformation("Refocusing for new target {Target}.", observation.Target);
+                _logger.LogInformation("Refocusing for new target {Target}.", observation.Target);
                 await guider.Driver.StopCaptureAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
 
                 if (!await AutoFocusAllTelescopesAsync(cancellationToken))
                 {
-                    External.AppLogger.LogWarning("Auto-focus did not converge for all telescopes on new target, proceeding.");
+                    _logger.LogWarning("Auto-focus did not converge for all telescopes on new target, proceeding.");
                 }
 
                 await guider.Driver.StartGuidingLoopAsync(Configuration.GuidingTries, cancellationToken).ConfigureAwait(false);
@@ -163,7 +163,7 @@ internal partial record Session
             }
             else
             {
-                External.AppLogger.LogError("Imaging loop for {Observation} did not complete successfully, total runtime: {TotalRuntime:c}", observation, await GetMountUtcNowAsync(cancellationToken) - imageLoopStart);
+                _logger.LogError("Imaging loop for {Observation} did not complete successfully, total runtime: {TotalRuntime:c}", observation, await GetMountUtcNowAsync(cancellationToken) - imageLoopStart);
                 break;
             }
         } // end observation loop
@@ -261,17 +261,17 @@ internal partial record Session
         var maxTicks = (int)(observation.Duration.TotalSeconds / tickSec);
 
         _currentActivity = null; // clear — PhaseStatusText takes over for imaging
-        External.AppLogger.LogInformation(
+        _logger.LogInformation(
             "ImagingLoop starting for {Target}: {FilterCount} filters, direction={Direction}, tick={TickSec}s, duration={Duration}, GCD={GCD}s.",
             observation.Target, observation.FilterPlan.Length,
             filterAscending ? "ascending" : "descending",
             tickSec, observation.Duration, gcdSec);
-        External.AppLogger.LogInformation(
+        _logger.LogInformation(
             "Memory at ImagingLoop start: working={WorkingMB:F0}MB, managed={ManagedMB:F0}MB",
             Environment.WorkingSet / (1024.0 * 1024),
             GC.GetTotalMemory(forceFullCollection: false) / (1024.0 * 1024));
 
-        using var ticker = new PeriodicTimer(tickDuration, External.TimeProvider);
+        using var ticker = new PeriodicTimer(tickDuration, _timeProvider);
 
         while (!cancellationToken.IsCancellationRequested
             && mount.Driver.Connected
@@ -312,7 +312,7 @@ internal partial record Session
                     if (isDither) _ditherPending = false;
                     var isSettling = _guiderState is "Settling";
                     AppendGuideErrorSample(new GuideErrorSample(
-                        External.TimeProvider.GetUtcNow(), raErr, decErr,
+                        _timeProvider.GetUtcNow(), raErr, decErr,
                         gs.LastRaPulseMs ?? 0, gs.LastDecPulseMs ?? 0,
                         isDither, isSettling));
                 }
@@ -326,13 +326,13 @@ internal partial record Session
 
                 if (cancellationToken.IsCancellationRequested)
                 {
-                    External.AppLogger.LogWarning("Cancellation requested, abort setting up guider \"{GuiderName}\" and quit imaging loop for observation {Observation}.", guider.Driver, observation);
+                    _logger.LogWarning("Cancellation requested, abort setting up guider \"{GuiderName}\" and quit imaging loop for observation {Observation}.", guider.Driver, observation);
                     next = ImageLoopNextAction.BreakObservationLoop;
                     break;
                 }
                 else if (!guiderRestartedSuccess)
                 {
-                    External.AppLogger.LogError("Reschedule target {Observation} as starting guider \"{GuiderName}\" failed after trying {GuiderTries} times.", observation, guider.Driver, Configuration.GuidingTries);
+                    _logger.LogError("Reschedule target {Observation} as starting guider \"{GuiderName}\" failed after trying {GuiderTries} times.", observation, guider.Driver, Configuration.GuidingTries);
                     next = ImageLoopNextAction.RepeatCurrentObservation;
                     break;
                 }
@@ -356,7 +356,7 @@ internal partial record Session
                         cursor = AdvanceFilterCursor(ref filterCursors[i], plan.Length, filterAscending);
                         currentEntry = plan[cursor];
 
-                        External.AppLogger.LogInformation(
+                        _logger.LogInformation(
                             "Telescope #{TelescopeNumber}: filter ladder step {PrevCursor} → {Cursor} ({Direction}), next filter position {FilterPosition}.",
                             i + 1, prevCursor, cursor, filterAscending ? "ascending" : "descending", currentEntry.FilterPosition);
                     }
@@ -385,7 +385,7 @@ internal partial record Session
                         camerDriver.Filter.DisplayName, camerDriver.FocusPosition, Devices.CameraState.Exposing,
                         focuserTemp, focuserMoving);
 
-                    External.AppLogger.LogInformation("Camera #{CameraNumber} {CamerName} starting {ExposureStartTime} exposure of frame #{FrameNo} (filter: {Filter}).",
+                    _logger.LogInformation("Camera #{CameraNumber} {CamerName} starting {ExposureStartTime} exposure of frame #{FrameNo} (filter: {Filter}).",
                         i + 1, camerDriver.Name, frameExpTime, frameNo, camerDriver.Filter);
                 }
             }
@@ -393,7 +393,7 @@ internal partial record Session
             await WriteQueuedImagesToFitsFilesAsync().ConfigureAwait(false);
             if (cancellationToken.IsCancellationRequested)
             {
-                External.AppLogger.LogWarning("Cancellation requested, all images in queue written to disk, abort image acquisition and quit imaging loop");
+                _logger.LogWarning("Cancellation requested, all images in queue written to disk, abort image acquisition and quit imaging loop");
                 next = ImageLoopNextAction.BreakObservationLoop;
                 break;
             }
@@ -419,7 +419,7 @@ internal partial record Session
                             imageFetchSuccess[i] = true;
                             _cameraStates[i] = _cameraStates[i] with { State = Devices.CameraState.Download };
 
-                            External.AppLogger.LogInformation("Camera #{CameraNumber} {CameraName} finished {ExposureStartTime} exposure of frame #{FrameNo}",
+                            _logger.LogInformation("Camera #{CameraNumber} {CameraName} finished {ExposureStartTime} exposure of frame #{FrameNo}",
                                 i + 1, camDriver.Name, frameExpTime, frameNo);
 
                             // 1. Enqueue raw image for FITS write — image holds its own ChannelBuffer ref via AddRef in GetImageAsync
@@ -444,7 +444,7 @@ internal partial record Session
                             // 3. Add to exposure log + frame history with metrics
                             var newTotal = Interlocked.Increment(ref _totalFramesWritten);
                             Interlocked.Add(ref _totalExposureTimeTicks, frameExpTime.Ticks);
-                            External.AppLogger.LogInformation("Frame #{FrameNo} fetched for camera #{CameraNum}, total frames: {Total}",
+                            _logger.LogInformation("Frame #{FrameNo} fetched for camera #{CameraNum}, total frames: {Total}",
                                 frameNo, i + 1, newTotal);
                             var logEntry = new ExposureLogEntry(
                                 Timestamp: expStartTimes[i],
@@ -473,7 +473,7 @@ internal partial record Session
 
                     if (!imageFetchSuccess[i])
                     {
-                        External.AppLogger.LogError("Failed fetching camera #{CameraNumber)} {CameraName} {ExposureStartTime} exposure of frame #{FrameNo}, camera state: {CameraState}",
+                        _logger.LogError("Failed fetching camera #{CameraNumber)} {CameraName} {ExposureStartTime} exposure of frame #{FrameNo}, camera state: {CameraState}",
                             i + 1, camDriver.Name, frameExpTime, frameNo, await camDriver.GetCameraStateAsync(cancellationToken));
                     }
                 }
@@ -484,7 +484,7 @@ internal partial record Session
             // Check if scheduled observation duration has elapsed (tick-based to avoid clock drift)
             if (tickCount >= maxTicks)
             {
-                External.AppLogger.LogInformation(
+                _logger.LogInformation(
                     "Observation duration {Duration} for target {Target} has elapsed ({TickCount}/{MaxTicks} ticks), advancing.",
                     observation.Duration, observation.Target, tickCount, maxTicks);
                 await WriteQueuedImagesToFitsFilesAsync();
@@ -498,7 +498,7 @@ internal partial record Session
                     updateTime: true, cancellationToken) is { } altCoords
                 && altCoords.Alt < Configuration.MinHeightAboveHorizon)
             {
-                External.AppLogger.LogInformation(
+                _logger.LogInformation(
                     "Target {Target} dropped below minimum altitude ({Alt:F1}° < {Min}°), advancing.",
                     observation.Target, altCoords.Alt, Configuration.MinHeightAboveHorizon);
                 await WriteQueuedImagesToFitsFilesAsync();
@@ -517,14 +517,14 @@ internal partial record Session
                     var camDriver = Setup.Telescopes[i].Camera.Driver;
                     if (await camDriver.GetCameraStateAsync(cancellationToken) is CameraState.Exposing)
                     {
-                        var elapsed = External.TimeProvider.GetUtcNow() - expStartTimes[i];
+                        var elapsed = _timeProvider.GetUtcNow() - expStartTimes[i];
                         var total = TimeSpan.FromSeconds(currentSubExposuresSec[i]);
                         var remaining = total - elapsed;
 
                         if (remaining > TimeSpan.FromSeconds(30))
                         {
                             // >30s remaining — abort to flip promptly; ≤30s — wait and save the frame to avoid wasting integration time
-                            External.AppLogger.LogInformation("Aborting exposure on camera #{CameraNumber} ({Remaining:F0}s remaining of {Total}s).",
+                            _logger.LogInformation("Aborting exposure on camera #{CameraNumber} ({Remaining:F0}s remaining of {Total}s).",
                                 i + 1, remaining.TotalSeconds, total.TotalSeconds);
                             if (camDriver.CanAbortExposure)
                             {
@@ -538,7 +538,7 @@ internal partial record Session
                         else
                         {
                             // Nearly done — wait for it to finish and save the frame
-                            External.AppLogger.LogInformation("Waiting for exposure on camera #{CameraNumber} to finish ({Remaining:F0}s remaining).", i + 1, remaining.TotalSeconds);
+                            _logger.LogInformation("Waiting for exposure on camera #{CameraNumber} to finish ({Remaining:F0}s remaining).", i + 1, remaining.TotalSeconds);
                             await External.SleepAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, cancellationToken);
                             if (await camDriver.GetImageAsync(cancellationToken) is { Width: > 0, Height: > 0 } image)
                             {
@@ -560,7 +560,7 @@ internal partial record Session
 
                         // Reverse the altitude ladder: target is now descending
                         filterAscending = false;
-                        External.AppLogger.LogInformation(
+                        _logger.LogInformation(
                             "Meridian flip complete: reversing filter ladder direction to descending for {Target}.",
                             observation.Target);
 
@@ -639,7 +639,7 @@ internal partial record Session
 
                         if (ratio > Configuration.FocusDriftThreshold)
                         {
-                            External.AppLogger.LogWarning("Focus drift detected on telescope #{TelescopeNumber}: trend HFD={TrendHFD:F2} (current={CurrentHFD:F2}) vs baseline={BaselineHFD:F2} (ratio={Ratio:F2}), triggering auto-refocus.",
+                            _logger.LogWarning("Focus drift detected on telescope #{TelescopeNumber}: trend HFD={TrendHFD:F2} (current={CurrentHFD:F2}) vs baseline={BaselineHFD:F2} (ratio={Ratio:F2}), triggering auto-refocus.",
                                 i + 1, trendHfd, currentMetrics.MedianHfd, currentBaselines[i].MedianHfd, ratio);
 
                             // Write pending images before refocusing
@@ -665,7 +665,7 @@ internal partial record Session
                         var starCountRatio = (float)currentMetrics.StarCount / currentBaselines[i].StarCount;
                         if (starCountRatio < Configuration.ConditionDeteriorationThreshold)
                         {
-                            External.AppLogger.LogWarning(
+                            _logger.LogWarning(
                                 "Condition deterioration detected on telescope #{TelescopeNumber}: {CurrentStars} stars vs baseline {BaselineStars} (ratio={Ratio:F2}), pausing guiding.",
                                 i + 1, currentMetrics.StarCount, currentBaselines[i].StarCount, starCountRatio);
 
@@ -678,12 +678,12 @@ internal partial record Session
 
                             if (recovered)
                             {
-                                External.AppLogger.LogInformation("Conditions recovered on telescope #{TelescopeNumber}, resuming imaging.", i + 1);
+                                _logger.LogInformation("Conditions recovered on telescope #{TelescopeNumber}, resuming imaging.", i + 1);
                                 await guider.Driver.UnpauseAsync(cancellationToken).ConfigureAwait(false);
                             }
                             else
                             {
-                                External.AppLogger.LogWarning("Conditions did not recover within {Timeout} on telescope #{TelescopeNumber}, advancing to next observation.",
+                                _logger.LogWarning("Conditions did not recover within {Timeout} on telescope #{TelescopeNumber}, advancing to next observation.",
                                     recoveryTimeout, i + 1);
                                 await guider.Driver.UnpauseAsync(cancellationToken).ConfigureAwait(false);
                                 return ImageLoopNextAction.AdvanceToNextObservation;
@@ -700,16 +700,16 @@ internal partial record Session
                         _ditherPending = true;
                         if (await guider.Driver.DitherWaitAsync(Configuration.DitherPixel, Configuration.SettlePixel, Configuration.SettleTime, WriteQueuedImagesToFitsFilesAsync, cancellationToken).ConfigureAwait(false))
                         {
-                            External.AppLogger.LogInformation("Dithering using \"{GuiderName}\" succeeded.", guider.Driver);
+                            _logger.LogInformation("Dithering using \"{GuiderName}\" succeeded.", guider.Driver);
                         }
                         else
                         {
-                            External.AppLogger.LogWarning("Dithering using \"{GuiderName}\" failed.", guider.Driver);
+                            _logger.LogWarning("Dithering using \"{GuiderName}\" failed.", guider.Driver);
                         }
                     }
                     else
                     {
-                        External.AppLogger.LogInformation("Skipping dithering ({DitheringRound}/{DitherEveryNthFrame} ticks)",
+                        _logger.LogInformation("Skipping dithering ({DitheringRound}/{DitherEveryNthFrame} ticks)",
                             tickCount % ditherEveryNTicks, ditherEveryNTicks);
                     }
                 }
@@ -722,7 +722,7 @@ internal partial record Session
             await WriteQueuedImagesToFitsFilesAsync();
         }
 
-        External.AppLogger.LogInformation("ImagingLoop ended. Frames written: {Total}, total exposure: {Exposure}",
+        _logger.LogInformation("ImagingLoop ended. Frames written: {Total}, total exposure: {Exposure}",
             TotalFramesWritten, TotalExposureTime);
         return next ?? ImageLoopNextAction.AdvanceToNextObservation;
 
@@ -736,7 +736,7 @@ internal partial record Session
                 }
                 catch (Exception ex)
                 {
-                    External.AppLogger.LogError(ex, "Exception while saving frame #{FrameNumber} taken at {ExposureStartTime:o} by {Instrument}",
+                    _logger.LogError(ex, "Exception while saving frame #{FrameNumber} taken at {ExposureStartTime:o} by {Instrument}",
                         imageWrite.FrameNumber, imageWrite.ExpStartTime, imageWrite.Image.ImageMeta.Instrument);
                 }
                 finally
@@ -748,7 +748,7 @@ internal partial record Session
                     GC.Collect(2, GCCollectionMode.Forced, blocking: true);
                     GC.WaitForPendingFinalizers();
                     var gcInfo = GC.GetGCMemoryInfo();
-                    External.AppLogger.LogInformation(
+                    _logger.LogInformation(
                         "Memory after FITS Release+GC: working={WorkingMB:F0}MB, managed={ManagedMB:F0}MB, " +
                         "gen0={Gen0}KB, gen1={Gen1}KB, gen2={Gen2}KB, LOH={LOH}KB, POH={POH}KB, " +
                         "committed={CommittedMB:F0}MB, promoted={PromotedMB:F0}MB",
@@ -813,7 +813,7 @@ internal partial record Session
             ? filterWheelDriver.Filters[targetFilterPosition]
             : new InstalledFilter(Filter.Unknown, 0);
 
-        External.AppLogger.LogInformation("Telescope #{TelescopeNumber}: switching filter to {Filter} (position {Position}).",
+        _logger.LogInformation("Telescope #{TelescopeNumber}: switching filter to {Filter} (position {Position}).",
             telescopeIndex + 1, targetFilter.Filter, targetFilterPosition);
 
         await filterWheelDriver.BeginMoveAsync(targetFilterPosition, cancellationToken);
@@ -850,7 +850,7 @@ internal partial record Session
                 var currentFocusPos = await focuserDriver.GetPositionAsync(cancellationToken);
                 var targetFocusPos = currentFocusPos + delta;
 
-                External.AppLogger.LogInformation("Telescope #{TelescopeNumber}: applying focus offset {Delta} steps for filter {Filter} (pos {From} -> {To}).",
+                _logger.LogInformation("Telescope #{TelescopeNumber}: applying focus offset {Delta} steps for filter {Filter} (pos {From} -> {To}).",
                     telescopeIndex + 1, delta, targetFilter.Filter, currentFocusPos, targetFocusPos);
 
                 await BacklashCompensation.MoveWithCompensationAsync(
@@ -879,7 +879,7 @@ internal partial record Session
         var mount = Setup.Mount;
         var guider = Setup.Guider;
 
-        External.AppLogger.LogInformation("Meridian flip: stopping guider for {Target}.", observation.Target);
+        _logger.LogInformation("Meridian flip: stopping guider for {Target}.", observation.Target);
         await guider.Driver.StopCaptureAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
 
         // Wait for any ongoing slew to complete before attempting the flip
@@ -896,7 +896,7 @@ internal partial record Session
             if (offsetRA < 0) offsetRA += 24;
             var slewTarget = observation.Target with { RA = offsetRA };
 
-            External.AppLogger.LogInformation("Meridian flip: slewing to {Target} (attempt {Attempt}/{MaxAttempts}, RA offset {Offset:F3}h).",
+            _logger.LogInformation("Meridian flip: slewing to {Target} (attempt {Attempt}/{MaxAttempts}, RA offset {Offset:F3}h).",
                 observation.Target, attempt, maxFlipAttempts, raOffsetHours * attempt);
 
             // Ensure no slew is in progress before starting the flip slew
@@ -910,18 +910,18 @@ internal partial record Session
 
             if (postCondition is not SlewPostCondition.Slewing)
             {
-                External.AppLogger.LogError("Meridian flip: slew failed with {PostCondition} on attempt {Attempt}.", postCondition, attempt);
+                _logger.LogError("Meridian flip: slew failed with {PostCondition} on attempt {Attempt}.", postCondition, attempt);
                 continue;
             }
 
             if (!await mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, cancellationToken).ConfigureAwait(false))
             {
-                External.AppLogger.LogError("Meridian flip: slew did not complete on attempt {Attempt}.", attempt);
+                _logger.LogError("Meridian flip: slew did not complete on attempt {Attempt}.", attempt);
                 continue;
             }
 
             var newHourAngle = await mount.Driver.GetHourAngleAsync(cancellationToken);
-            External.AppLogger.LogInformation("Meridian flip: slew complete, HA={NewHA:F4}h (attempt {Attempt}).", newHourAngle, attempt);
+            _logger.LogInformation("Meridian flip: slew complete, HA={NewHA:F4}h (attempt {Attempt}).", newHourAngle, attempt);
 
             // Verify the HA is now positive (west of meridian) — the flip actually happened
             if (newHourAngle > 0)
@@ -930,25 +930,25 @@ internal partial record Session
                 _currentActivity = $"Centering on {observation.Target.Name} after flip\u2026";
                 if (!await CenterOnTargetAsync(observation.Target, 0, thresholdArcmin: 1.0, maxAttempts: 5, cancellationToken))
                 {
-                    External.AppLogger.LogWarning("Meridian flip: centering did not converge, proceeding with current pointing.");
+                    _logger.LogWarning("Meridian flip: centering did not converge, proceeding with current pointing.");
                 }
 
-                External.AppLogger.LogInformation("Meridian flip: restarting guiding for {Target}.", observation.Target);
+                _logger.LogInformation("Meridian flip: restarting guiding for {Target}.", observation.Target);
                 if (!await guider.Driver.StartGuidingLoopAsync(Configuration.GuidingTries, cancellationToken).ConfigureAwait(false))
                 {
-                    External.AppLogger.LogError("Meridian flip: failed to restart guider after flip for {Target}.", observation.Target);
+                    _logger.LogError("Meridian flip: failed to restart guider after flip for {Target}.", observation.Target);
                     return MeridianFlipResult.Failed;
                 }
 
-                External.AppLogger.LogInformation("Meridian flip: completed successfully for {Target}, HA={NewHA:F4}h.", observation.Target, newHourAngle);
+                _logger.LogInformation("Meridian flip: completed successfully for {Target}, HA={NewHA:F4}h.", observation.Target, newHourAngle);
                 return new MeridianFlipResult(true, newHourAngle);
             }
 
-            External.AppLogger.LogWarning("Meridian flip: HA={NewHA:F4}h still east of meridian after attempt {Attempt}, retrying with larger offset.",
+            _logger.LogWarning("Meridian flip: HA={NewHA:F4}h still east of meridian after attempt {Attempt}, retrying with larger offset.",
                 newHourAngle, attempt);
         }
 
-        External.AppLogger.LogError("Meridian flip: failed after {MaxAttempts} attempts for {Target}.", maxFlipAttempts, observation.Target);
+        _logger.LogError("Meridian flip: failed after {MaxAttempts} attempts for {Target}.", maxFlipAttempts, observation.Target);
         return MeridianFlipResult.Failed;
     }
 
@@ -1061,13 +1061,13 @@ internal partial record Session
 
             if (!metrics.IsValid)
             {
-                External.AppLogger.LogInformation("Condition check: {Stars} stars detected (waiting for recovery, {Elapsed}/{Timeout}).",
+                _logger.LogInformation("Condition check: {Stars} stars detected (waiting for recovery, {Elapsed}/{Timeout}).",
                     stars.Count, elapsed, timeout);
                 continue;
             }
 
             var starCountRatio = (float)metrics.StarCount / baseline.StarCount;
-            External.AppLogger.LogInformation("Condition check: {Stars} stars (ratio={Ratio:F2} vs baseline {Baseline}, {Elapsed}/{Timeout}).",
+            _logger.LogInformation("Condition check: {Stars} stars (ratio={Ratio:F2} vs baseline {Baseline}, {Elapsed}/{Timeout}).",
                 metrics.StarCount, starCountRatio, baseline.StarCount, elapsed, timeout);
 
             if (starCountRatio >= Configuration.ConditionDeteriorationThreshold)

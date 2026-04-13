@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 
 namespace TianWen.Lib.Devices.Fake;
 
-internal class FakeCoverDriver(FakeDevice fakeDevice, IExternal external) : FakeDeviceDriverBase(fakeDevice, external), ICoverDriver
+internal class FakeCoverDriver(FakeDevice fakeDevice, IServiceProvider serviceProvider) : FakeDeviceDriverBase(fakeDevice, serviceProvider), ICoverDriver
 {
     private volatile CoverStatus _coverState = CoverStatus.Closed;
     private volatile CalibratorStatus _calibratorState = CalibratorStatus.Off;
@@ -57,7 +57,7 @@ internal class FakeCoverDriver(FakeDevice fakeDevice, IExternal external) : Fake
 
     private void ScheduleCoverTransition(CoverStatus targetState)
     {
-        var timer = External.TimeProvider.CreateTimer(
+        var timer = TimeProvider.CreateTimer(
             _ => _coverState = targetState,
             null,
             CoverMoveDuration,

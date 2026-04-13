@@ -1,6 +1,7 @@
 using FC.SDK;
 using FC.SDK.Canon;
 using FC.SDK.Transport;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System;
 using TianWen.DAL;
@@ -169,11 +170,13 @@ internal sealed class CanonCameraDriver : ICameraDriver
     private int _cameraXSize = 5472;
     private int _cameraYSize = 3648;
 
-    public CanonCameraDriver(CanonDevice device, IExternal external, CanonCameraFactory cameraFactory)
+    public CanonCameraDriver(CanonDevice device, IServiceProvider serviceProvider, CanonCameraFactory cameraFactory)
     {
         _device = device;
-        _external = external;
+        _external = serviceProvider.GetRequiredService<IExternal>();
         _cameraFactory = cameraFactory;
+        Logger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(CanonCameraDriver));
+        TimeProvider = serviceProvider.GetRequiredService<TimeProvider>();
     }
 
     // --- IDeviceDriver ---
@@ -183,6 +186,8 @@ internal sealed class CanonCameraDriver : ICameraDriver
     public string? DriverVersion => "1.0";
     public DeviceType DriverType => DeviceType.Camera;
     public IExternal External => _external;
+    public ILogger Logger { get; }
+    public TimeProvider TimeProvider { get; }
     public bool Connected => Volatile.Read(ref _connected);
     public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
 
@@ -267,7 +272,7 @@ internal sealed class CanonCameraDriver : ICameraDriver
         }
         catch (Exception ex)
         {
-            _external.AppLogger.LogDebug(ex, "Could not read current ISO from Canon camera");
+            Logger.LogDebug(ex, "Could not read current ISO from Canon camera");
         }
 
         // Enable mirror lockup for astrophotography (reduces vibration during exposures)
@@ -279,18 +284,18 @@ internal sealed class CanonCameraDriver : ICameraDriver
                 var enableResult = await _camera.EnableMirrorLockupAsync(cancellationToken);
                 if (enableResult is EdsError.OK)
                 {
-                    _external.AppLogger.LogInformation("Mirror lockup enabled automatically for astrophotography");
+                    Logger.LogInformation("Mirror lockup enabled automatically for astrophotography");
                 }
             }
         }
         catch (Exception ex)
         {
-            _external.AppLogger.LogDebug(ex, "Could not configure mirror lockup on Canon camera");
+            Logger.LogDebug(ex, "Could not configure mirror lockup on Canon camera");
         }
 
         Volatile.Write(ref _connected, true);
         DeviceConnectedEvent?.Invoke(this, new DeviceConnectedEventArgs(true));
-        _external.AppLogger.LogInformation("Canon camera connected: {Name} ({Transport})", Name, _device.IsWifi ? "WiFi" : "USB");
+        Logger.LogInformation("Canon camera connected: {Name} ({Transport})", Name, _device.IsWifi ? "WiFi" : "USB");
     }
 
     public async ValueTask DisconnectAsync(CancellationToken cancellationToken = default)
@@ -420,11 +425,11 @@ internal sealed class CanonCameraDriver : ICameraDriver
 
         if (result is EdsError.OK)
         {
-            _external.AppLogger.LogInformation("Canon mirror lockup {State}", value ? "enabled" : "disabled");
+            Logger.LogInformation("Canon mirror lockup {State}", value ? "enabled" : "disabled");
         }
         else
         {
-            _external.AppLogger.LogWarning("Failed to {Action} Canon mirror lockup: {Error}", value ? "enable" : "disable", result);
+            Logger.LogWarning("Failed to {Action} Canon mirror lockup: {Error}", value ? "enable" : "disable", result);
         }
     }
 
@@ -466,7 +471,7 @@ internal sealed class CanonCameraDriver : ICameraDriver
             throw new InvalidOperationException("Camera not connected");
         }
 
-        var startTime = _external.TimeProvider.GetUtcNow();
+        var startTime = TimeProvider.GetUtcNow();
         _lastExposureStartTime = startTime;
         _lastExposureDuration = duration;
         _lastExposureFrameType = frameType;
@@ -488,7 +493,7 @@ internal sealed class CanonCameraDriver : ICameraDriver
             // Bulb mode
             _bulbActive = true;
             await _camera.BulbStartAsync(cancellationToken);
-            await _external.SleepAsync(duration, cancellationToken);
+            await External.SleepAsync(duration, cancellationToken);
             await _camera.BulbEndAsync(cancellationToken);
             _bulbActive = false;
         }
@@ -554,16 +559,16 @@ internal sealed class CanonCameraDriver : ICameraDriver
                     _cameraYSize = image.Height;
                 }
 
-                _external.AppLogger.LogDebug("Canon image downloaded: {W}x{H}", image.Width, image.Height);
+                Logger.LogDebug("Canon image downloaded: {W}x{H}", image.Width, image.Height);
             }
             else
             {
-                _external.AppLogger.LogError("Failed to decode CR2 from Canon camera");
+                Logger.LogError("Failed to decode CR2 from Canon camera");
             }
         }
         catch (Exception ex)
         {
-            _external.AppLogger.LogError(ex, "Canon image download failed");
+            Logger.LogError(ex, "Canon image download failed");
         }
         finally
         {

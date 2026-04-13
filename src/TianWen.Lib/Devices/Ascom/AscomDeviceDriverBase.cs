@@ -8,8 +8,8 @@ using TianWen.Lib.Devices.Ascom.ComInterop;
 namespace TianWen.Lib.Devices.Ascom;
 
 [SupportedOSPlatform("windows")]
-internal abstract class AscomDeviceDriverBase(AscomDevice device, IExternal external)
-    : DeviceDriverBase<AscomDevice, AscomDeviceInfo>(device, external), IDeviceDriver
+internal abstract class AscomDeviceDriverBase(AscomDevice device, IServiceProvider serviceProvider)
+    : DeviceDriverBase<AscomDevice, AscomDeviceInfo>(device, serviceProvider), IDeviceDriver
 {
     protected readonly AscomDispatchDevice _dispatchDevice = new(device.DeviceId);
 
@@ -38,7 +38,7 @@ internal abstract class AscomDeviceDriverBase(AscomDevice device, IExternal exte
         catch (Exception e)
         {
             success = false;
-            External.AppLogger.LogError(e, "Failed to connect to ASCOM device {DeviceId} ({DisplayName}): {ErrorMessage}", _device.DeviceId, _device.DisplayName, e.Message);
+            Logger.LogError(e, "Failed to connect to ASCOM device {DeviceId} ({DisplayName}): {ErrorMessage}", _device.DeviceId, _device.DisplayName, e.Message);
         }
 
         return (success, success ? CONNECTION_ID_EXCLUSIVE : CONNECTION_ID_UNKNOWN, new AscomDeviceInfo());
@@ -59,7 +59,7 @@ internal abstract class AscomDeviceDriverBase(AscomDevice device, IExternal exte
         }
         catch (Exception e)
         {
-            External.AppLogger.LogError(e, "Failed to disconnect from ASCOM device {DeviceId} ({DisplayName}): {ErrorMessage}", _device.DeviceId, _device.DisplayName, e.Message);
+            Logger.LogError(e, "Failed to disconnect from ASCOM device {DeviceId} ({DisplayName}): {ErrorMessage}", _device.DeviceId, _device.DisplayName, e.Message);
             return false;
         }
     }

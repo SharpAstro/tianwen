@@ -1,6 +1,8 @@
-﻿namespace TianWen.Lib.Devices.Fake;
+﻿using System;
 
-internal class FakeMeadeLX200ProtocolMountDriver(FakeDevice device, IExternal external) : MeadeLX200ProtocolMountDriverBase<FakeDevice>(device, external)
+namespace TianWen.Lib.Devices.Fake;
+
+internal class FakeMeadeLX200ProtocolMountDriver(FakeDevice device, IServiceProvider serviceProvider) : MeadeLX200ProtocolMountDriverBase<FakeDevice>(device, serviceProvider)
 {
 
 }

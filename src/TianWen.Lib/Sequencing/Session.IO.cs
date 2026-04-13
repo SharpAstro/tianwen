@@ -7,6 +7,7 @@ using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Stat;
+using TianWen.Lib.Extensions;
 
 namespace TianWen.Lib.Sequencing;
 
@@ -32,11 +33,11 @@ internal partial record Session
         var fitsFileName = External.GetSafeFileName($"frame_{imageWrite.ExpStartTime:yyyy-MM-ddTHH_mm_ss}_{imageWrite.FrameNumber:0000}.fits");
         var fitsFilePath = Path.Combine(frameFolder, fitsFileName);
 
-        External.AppLogger.LogInformation("Writing FITS file {FitsFilePath}", fitsFilePath);
+        _logger.LogInformation("Writing FITS file {FitsFilePath}", fitsFilePath);
         await External.WriteFitsFileAsync(imageWrite.Image, fitsFilePath);
 
         var gcInfo = GC.GetGCMemoryInfo();
-        External.AppLogger.LogInformation(
+        _logger.LogInformation(
             "Memory after FITS write: working={WorkingMB:F0}MB, managed={ManagedMB:F0}MB, GC heap={HeapMB:F0}MB | pool: {Pooled} pooled, {Hits} hits, {Misses} misses, {Returns} returns",
             Environment.WorkingSet / (1024.0 * 1024),
             GC.GetTotalMemory(forceFullCollection: false) / (1024.0 * 1024),

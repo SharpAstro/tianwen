@@ -11,7 +11,7 @@ internal class AscomCoverCalibratorDriver : AscomDeviceDriverBase, ICoverDriver
 {
     private readonly AscomDispatchCoverCalibrator _coverCalibrator;
 
-    internal AscomCoverCalibratorDriver(AscomDevice device, IExternal external) : base(device, external)
+    internal AscomCoverCalibratorDriver(AscomDevice device, IServiceProvider sp) : base(device, sp)
     {
         _coverCalibrator = new AscomDispatchCoverCalibrator(_dispatchDevice.Dispatch);
     }

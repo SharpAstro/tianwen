@@ -21,7 +21,7 @@ services
 
 var sp = services.BuildServiceProvider();
 var state = sp.GetRequiredService<ViewerState>();
-var logger = sp.GetRequiredService<IExternal>().AppLogger;
+var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("TianWen.UI.FitsViewer");
 
 string? initialFilePath = null;
 string? folderPath = null;

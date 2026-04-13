@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Extensions;
 
 namespace TianWen.Lib.Devices;
 
@@ -289,7 +290,7 @@ public interface ICameraDriver : IDeviceDriver
         var ccdTemp = await GetCCDTemperatureAsync(cancellationToken);
         var offset = await GetOffsetAsync(cancellationToken);
         var gain = await GetGainAsync(cancellationToken);
-        var setCCDTemp = CanSetCCDTemperature ? (float)await External.CatchAsync(GetSetCCDTemperatureAsync, cancellationToken, double.NaN) : float.NaN;
+        var setCCDTemp = CanSetCCDTemperature ? (float)await Logger.CatchAsync(GetSetCCDTemperatureAsync, cancellationToken, double.NaN) : float.NaN;
         float egain;
         try { egain = (float)ElectronsPerADU; } catch { egain = float.NaN; }
 
@@ -369,7 +370,7 @@ public interface ICameraDriver : IDeviceDriver
     /// </summary>
     /// <returns>true if camera is a coolable camera</returns>
     bool IsCoolable =>
-        External.Catch(() => Connected)
+        Logger.Catch(() => Connected)
         && CanSetCCDTemperature
         && CanGetCoolerOn
         && CanSetCoolerOn
@@ -384,7 +385,7 @@ public interface ICameraDriver : IDeviceDriver
             var heatSinkTemp = await GetHeatSinkTemperatureAsync(cancellationToken);
             var hasHeatSinkTemp = !double.IsNaN(heatSinkTemp) && heatSinkTemp is >= -40 and <= 50;
 
-            var coolerPower = await External.CatchAsyncIf(CanGetCoolerPower, GetCoolerPowerAsync, cancellationToken, double.NaN);
+            var coolerPower = await Logger.CatchAsyncIf(CanGetCoolerPower, GetCoolerPowerAsync, cancellationToken, double.NaN);
             // TODO: when no heatsink temp, use external temp sensor (e.g. Pegasus Astro) or IWeatherDriver.Temperature as ambient fallback
             var heatSinkOrCCDTemp = hasHeatSinkTemp ? heatSinkTemp : ccdTemp;
             var setpointTemp = desiredSetpointTemp.Kind switch
@@ -405,7 +406,7 @@ public interface ICameraDriver : IDeviceDriver
             var needsFurtherRamping = direction.NeedsFurtherRamping(ccdTemp, setpointTemp);
 
             if (needsFurtherRamping
-                && (double.IsNaN(coolerPower) || !await External.CatchAsyncIf(CanGetCoolerOn, GetCoolerOnAsync, cancellationToken) || !direction.ThresholdPowerReached(coolerPower, thresPower))
+                && (double.IsNaN(coolerPower) || !await Logger.CatchAsyncIf(CanGetCoolerOn, GetCoolerOnAsync, cancellationToken) || !direction.ThresholdPowerReached(coolerPower, thresPower))
             )
             {
                 var actualSetpointTemp = direction.SetpointTemp(ccdTemp, setpointTemp);
@@ -413,7 +414,7 @@ public interface ICameraDriver : IDeviceDriver
 
                 // turn cooler on if required
                 string coolerPrev;
-                if (await External.CatchAsyncIf(CanGetCoolerOn, GetCoolerOnAsync, cancellationToken))
+                if (await Logger.CatchAsyncIf(CanGetCoolerOn, GetCoolerOnAsync, cancellationToken))
                 {
                     coolerPrev = "";
                 }
@@ -431,10 +432,10 @@ public interface ICameraDriver : IDeviceDriver
                     IsCoolable = true
                 };
 
-                External.AppLogger.LogInformation("Camera {Name} setpoint temperature {SetpointTemp:0.00} °C not yet reached, " +
+                Logger.LogInformation("Camera {Name} setpoint temperature {SetpointTemp:0.00} °C not yet reached, " +
                     "cooling {Direction} stepwise, currently at {ActualSetpointTemp:0.00} °C. " +
                     "Heatsink={HeatSinkTemp:0.00} °C, CCD={CCDTemp:0.00} °C, Power={CoolerPower:0.00}%, Cooler={CoolerStateChange}.",
-                    Name, setpointTemp, direction.ToString().ToLowerInvariant(), actualSetpointTemp, heatSinkTemp, ccdTemp, await External.CatchAsyncIf(CanGetCoolerPower, GetCoolerPowerAsync, cancellationToken, double.NaN), coolerPrev + (await External.CatchAsyncIf(CanGetCoolerOn, GetCoolerOnAsync, cancellationToken) ? "on" : "off")
+                    Name, setpointTemp, direction.ToString().ToLowerInvariant(), actualSetpointTemp, heatSinkTemp, ccdTemp, await Logger.CatchAsyncIf(CanGetCoolerPower, GetCoolerPowerAsync, cancellationToken, double.NaN), coolerPrev + (await Logger.CatchAsyncIf(CanGetCoolerOn, GetCoolerOnAsync, cancellationToken) ? "on" : "off")
 
                 );
             }
@@ -448,8 +449,8 @@ public interface ICameraDriver : IDeviceDriver
                     IsCoolable = true
                 };
 
-                External.AppLogger.LogInformation("Camera {Name} setpoint temperature {SetpointTemp:0.00} °C or {ThresPower:0.00} % power reached. Heatsink={HeatSinkTemp:0.00} °C, CCD={CCDTemp:0.00} °C, Power={CoolerPower:0.00}%, Cooler={CoolerState}.",
-                    Name, setpointTemp, thresPower, heatSinkTemp, ccdTemp, await External.CatchAsyncIf(CanGetCoolerPower, GetCoolerPowerAsync, cancellationToken, double.NaN), await External.CatchAsyncIf(CanGetCoolerOn, GetCoolerOnAsync, cancellationToken) ? "on" : "off");
+                Logger.LogInformation("Camera {Name} setpoint temperature {SetpointTemp:0.00} °C or {ThresPower:0.00} % power reached. Heatsink={HeatSinkTemp:0.00} °C, CCD={CCDTemp:0.00} °C, Power={CoolerPower:0.00}%, Cooler={CoolerState}.",
+                    Name, setpointTemp, thresPower, heatSinkTemp, ccdTemp, await Logger.CatchAsyncIf(CanGetCoolerPower, GetCoolerPowerAsync, cancellationToken, double.NaN), await Logger.CatchAsyncIf(CanGetCoolerOn, GetCoolerOnAsync, cancellationToken) ? "on" : "off");
             }
             else
             {
@@ -460,8 +461,8 @@ public interface ICameraDriver : IDeviceDriver
                     IsCoolable = true
                 };
 
-                External.AppLogger.LogInformation("Camera {Name} setpoint temperature {SetpointTemp:0.00} °C or {ThresPower:0.00} % power reached twice in a row. Heatsink={HeatSinkTemp:0.00} °C, CCD={CCDTemp:0.00} °C, Power={CoolerPower:0.00}%, Cooler={CoolerState}.",
-                    Name, setpointTemp, thresPower, heatSinkTemp, ccdTemp, await External.CatchAsyncIf(CanGetCoolerPower, GetCoolerPowerAsync, cancellationToken, double.NaN), await External.CatchAsyncIf(CanGetCoolerOn, GetCoolerOnAsync, cancellationToken) ? "on" : "off");
+                Logger.LogInformation("Camera {Name} setpoint temperature {SetpointTemp:0.00} °C or {ThresPower:0.00} % power reached twice in a row. Heatsink={HeatSinkTemp:0.00} °C, CCD={CCDTemp:0.00} °C, Power={CoolerPower:0.00}%, Cooler={CoolerState}.",
+                    Name, setpointTemp, thresPower, heatSinkTemp, ccdTemp, await Logger.CatchAsyncIf(CanGetCoolerPower, GetCoolerPowerAsync, cancellationToken, double.NaN), await Logger.CatchAsyncIf(CanGetCoolerOn, GetCoolerOnAsync, cancellationToken) ? "on" : "off");
             }
 
             return newState;
@@ -474,8 +475,8 @@ public interface ICameraDriver : IDeviceDriver
                 SetpointTempKind.CCD => "current sensor",
                 _ => $"{desiredSetpointTemp.TempC:0.00} °C"
             };
-            External.AppLogger.LogWarning("Skipping camera {Name} setpoint temperature {setpointTemp} as we cannot get the current CCD temperature or cooling is not supported. Power={CoolerPower:0.00}%, Cooler={CoolerState}.",
-                Name, setpointTemp, await External.CatchAsyncIf(CanGetCoolerPower, GetCoolerPowerAsync, cancellationToken, double.NaN), await External.CatchAsyncIf(CanGetCoolerOn, GetCoolerOnAsync, cancellationToken) ? "on" : "off");
+            Logger.LogWarning("Skipping camera {Name} setpoint temperature {setpointTemp} as we cannot get the current CCD temperature or cooling is not supported. Power={CoolerPower:0.00}%, Cooler={CoolerState}.",
+                Name, setpointTemp, await Logger.CatchAsyncIf(CanGetCoolerPower, GetCoolerPowerAsync, cancellationToken, double.NaN), await Logger.CatchAsyncIf(CanGetCoolerOn, GetCoolerOnAsync, cancellationToken) ? "on" : "off");
 
             return new CameraCoolingState(false, 0, false, false);
         }

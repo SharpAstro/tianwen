@@ -13,7 +13,7 @@ internal class AscomFilterWheelDriver : AscomDeviceDriverBase, IFilterWheelDrive
 {
     private readonly AscomDispatchFilterWheel _filterWheel;
 
-    internal AscomFilterWheelDriver(AscomDevice device, IExternal external) : base(device, external)
+    internal AscomFilterWheelDriver(AscomDevice device, IServiceProvider sp) : base(device, sp)
     {
         _filterWheel = new AscomDispatchFilterWheel(_dispatchDevice.Dispatch);
     }

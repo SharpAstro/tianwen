@@ -12,7 +12,7 @@ namespace TianWen.Lib.Devices.Skywatcher;
 /// Discovers Skywatcher mounts via serial port enumeration (115200/9600 baud probe)
 /// and WiFi UDP broadcast (:e1\r to 255.255.255.255:11880).
 /// </summary>
-internal class SkywatcherDeviceSource(IExternal external) : IDeviceSource<SkywatcherDevice>
+internal class SkywatcherDeviceSource(IExternal external, ILogger<SkywatcherDeviceSource> logger, TimeProvider timeProvider) : IDeviceSource<SkywatcherDevice>
 {
     private Dictionary<DeviceType, IReadOnlyList<SkywatcherDevice>> _cachedDevices = new();
 
@@ -42,7 +42,7 @@ internal class SkywatcherDeviceSource(IExternal external) : IDeviceSource<Skywat
         }
         catch (Exception ex)
         {
-            external.AppLogger.LogWarning(ex, "Failed to enumerate serial ports for Skywatcher discovery");
+            logger.LogWarning(ex, "Failed to enumerate serial ports for Skywatcher discovery");
         }
 
         // WiFi discovery via UDP broadcast
@@ -55,7 +55,7 @@ internal class SkywatcherDeviceSource(IExternal external) : IDeviceSource<Skywat
         }
         catch (Exception ex)
         {
-            external.AppLogger.LogWarning(ex, "Skywatcher WiFi discovery failed");
+            logger.LogWarning(ex, "Skywatcher WiFi discovery failed");
         }
 
         Interlocked.Exchange(ref _cachedDevices, new Dictionary<DeviceType, IReadOnlyList<SkywatcherDevice>>
@@ -113,7 +113,7 @@ internal class SkywatcherDeviceSource(IExternal external) : IDeviceSource<Skywat
             }
             catch (Exception ex)
             {
-                external.AppLogger.LogDebug(ex, "Skywatcher probe failed on {Port} at {Baud} baud", portName, baud);
+                logger.LogDebug(ex, "Skywatcher probe failed on {Port} at {Baud} baud", portName, baud);
             }
         }
 

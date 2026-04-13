@@ -11,7 +11,7 @@ using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Devices.Fake;
 
-internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDeviceDriverBase(fakeDevice, external), IDeviceDependentGuider
+internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvider) : FakeDeviceDriverBase(fakeDevice, serviceProvider), IDeviceDependentGuider
 {
 
     private const double DefaultPixelScale = 1.5;
@@ -147,7 +147,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
             var distance = tracker is { LastRaError: { } ra, LastDecError: { } dec }
                 ? Math.Sqrt(ra * ra + dec * dec)
                 : _ditherPixels * 0.5;
-            var elapsed = External.TimeProvider.GetElapsedTime(_settleStartedTicks);
+            var elapsed = TimeProvider.GetElapsedTime(_settleStartedTicks);
 
             return ValueTask.FromResult<SettleProgress?>(new SettleProgress
             {
@@ -287,7 +287,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
 
     private void RecordSettleStart()
     {
-        Interlocked.Exchange(ref _settleStartedTicks, External.TimeProvider.GetTimestamp());
+        Interlocked.Exchange(ref _settleStartedTicks, TimeProvider.GetTimestamp());
     }
 
     /// <summary>
@@ -303,7 +303,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
             return false;
         }
 
-        var elapsed = External.TimeProvider.GetElapsedTime(_settleStartedTicks);
+        var elapsed = TimeProvider.GetElapsedTime(_settleStartedTicks);
         if (elapsed.TotalSeconds >= _settleTime)
         {
             TryTransition(GuiderState.Settling, GuiderState.Guiding);
@@ -407,7 +407,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
 
             var pulseTarget = new PulseGuideRouter(PulseGuideSource.Auto, camera, mount);
             var pController = new ProportionalGuideController { AggressivenessRa = 0.7, AggressivenessDec = 0.7, MinPulseMs = 20 };
-            var guideLoop = new GuideLoop(pulseTarget, tracker, pController, External);
+            var guideLoop = new GuideLoop(pulseTarget, tracker, pController, External, TimeProvider);
             guideLoop.SetCalibration(new GuiderCalibrationResult(0, 1.0, 1.0, 0, 0, 0));
             _guideLoop = guideLoop;
 
@@ -433,7 +433,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
         }
         catch (Exception ex)
         {
-            External.AppLogger.LogError(ex, "FakeGuider capture loop error");
+            Logger.LogError(ex, "FakeGuider capture loop error");
         }
         finally
         {
@@ -463,7 +463,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IExternal external) : FakeDevic
         }
 
         Directory.CreateDirectory(outputFolder);
-        var path = Path.Combine(outputFolder, $"guider_{External.TimeProvider.GetUtcNow().UtcDateTime:yyyyMMdd_HHmmss}.fits");
+        var path = Path.Combine(outputFolder, $"guider_{TimeProvider.GetUtcNow().UtcDateTime:yyyyMMdd_HHmmss}.fits");
 
         // Write WCS headers from current mount pointing so FakePlateSolver can read them
         WCS? wcs = null;

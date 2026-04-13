@@ -1,4 +1,7 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using TianWen.Lib.Devices;
+using TianWen.Lib.Extensions;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -45,10 +48,12 @@ internal sealed class OpenWeatherMapDriver : IWeatherDriver
     private double _windDirection = double.NaN;
     private double _rainRate = double.NaN;
 
-    public OpenWeatherMapDriver(OpenWeatherMapDevice device, IExternal external)
+    public OpenWeatherMapDriver(OpenWeatherMapDevice device, IServiceProvider serviceProvider)
     {
         _device = device;
-        _external = external;
+        _external = serviceProvider.GetRequiredService<IExternal>();
+        Logger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(OpenWeatherMapDriver));
+        TimeProvider = serviceProvider.GetRequiredService<TimeProvider>();
         _apiKey = device.ApiKey ?? throw new ArgumentException("OpenWeatherMap API key is required");
     }
 
@@ -59,6 +64,8 @@ internal sealed class OpenWeatherMapDriver : IWeatherDriver
     public string? DriverVersion => "1.0";
     public DeviceType DriverType => DeviceType.Weather;
     public IExternal External => _external;
+    public ILogger Logger { get; }
+    public TimeProvider TimeProvider { get; }
     public bool Connected => Volatile.Read(ref _connected);
     public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
 
@@ -77,13 +84,13 @@ internal sealed class OpenWeatherMapDriver : IWeatherDriver
             if (response30.IsSuccessStatusCode)
             {
                 _useOneCall30 = true;
-                _external.AppLogger.LogInformation("OpenWeatherMap: using One Call 3.0 API");
+                Logger.LogInformation("OpenWeatherMap: using One Call 3.0 API");
             }
             else if (response30.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
             {
                 // Key doesn't have 3.0 access — fall back to 2.5
                 _useOneCall30 = false;
-                _external.AppLogger.LogInformation("OpenWeatherMap: One Call 3.0 not available, using 2.5 API");
+                Logger.LogInformation("OpenWeatherMap: One Call 3.0 not available, using 2.5 API");
 
                 // Validate 2.5 works
                 var testUrl25 = $"{BaseUrl25}/weather?lat=0&lon=0&appid={_apiKey}&units=metric";
@@ -98,7 +105,7 @@ internal sealed class OpenWeatherMapDriver : IWeatherDriver
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _external.AppLogger.LogWarning(ex, "OpenWeatherMap API connectivity check failed");
+            Logger.LogWarning(ex, "OpenWeatherMap API connectivity check failed");
             throw;
         }
 
@@ -150,7 +157,7 @@ internal sealed class OpenWeatherMapDriver : IWeatherDriver
         var lat = latitude.ToString(CultureInfo.InvariantCulture);
         var lon = longitude.ToString(CultureInfo.InvariantCulture);
 
-        _external.AppLogger.LogDebug("Fetching OpenWeatherMap forecast for {Lat},{Lon} (v{Version})", lat, lon, _useOneCall30 ? "3.0" : "2.5");
+        Logger.LogDebug("Fetching OpenWeatherMap forecast for {Lat},{Lon} (v{Version})", lat, lon, _useOneCall30 ? "3.0" : "2.5");
 
         List<HourlyWeatherForecast> forecasts;
         try
@@ -161,11 +168,11 @@ internal sealed class OpenWeatherMapDriver : IWeatherDriver
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            _external.AppLogger.LogWarning(ex, "OpenWeatherMap API request failed");
+            Logger.LogWarning(ex, "OpenWeatherMap API request failed");
 
             if (cached is { data: { } staleData })
             {
-                _external.AppLogger.LogInformation("Using stale weather cache (offline fallback)");
+                Logger.LogInformation("Using stale weather cache (offline fallback)");
                 return staleData;
             }
             return [];
@@ -177,7 +184,7 @@ internal sealed class OpenWeatherMapDriver : IWeatherDriver
         }
 
         // Cache result (non-fatal)
-        await _external.CatchAsync(
+        await Logger.CatchAsync(
             ct => _external.AtomicWriteJsonAsync(cacheFile, forecasts, OpenMeteoJsonContext.Default.ListHourlyWeatherForecast, ct),
             cancellationToken);
 
@@ -268,19 +275,19 @@ internal sealed class OpenWeatherMapDriver : IWeatherDriver
             return null;
         }
 
-        var data = await _external.TryReadJsonAsync(cacheFile, OpenMeteoJsonContext.Default.ListHourlyWeatherForecast, ct);
+        var data = await _external.TryReadJsonAsync(cacheFile, OpenMeteoJsonContext.Default.ListHourlyWeatherForecast, Logger, ct);
         if (data is null)
         {
             return null;
         }
 
         var fileInfo = new FileInfo(cacheFile);
-        var age = _external.TimeProvider.GetUtcNow() - new DateTimeOffset(fileInfo.LastWriteTimeUtc, TimeSpan.Zero);
+        var age = TimeProvider.GetUtcNow() - new DateTimeOffset(fileInfo.LastWriteTimeUtc, TimeSpan.Zero);
         var fresh = age <= CacheTtl;
 
         if (fresh)
         {
-            _external.AppLogger.LogDebug("Using cached OWM weather forecast: {CacheFile}", cacheFile);
+            Logger.LogDebug("Using cached OWM weather forecast: {CacheFile}", cacheFile);
         }
 
         return (data, fresh);

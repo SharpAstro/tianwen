@@ -268,7 +268,7 @@ public interface IGuider : IDeviceDriver
                 var settleTime = 15 + (startGuidingTries * 5);
                 var settleTimeout = settleTime * SETTLE_TIMEOUT_FACTOR;
 
-                External.AppLogger.LogInformation("Start guiding using \"{ProfileName}\", settle pixels: {SettlePix}, settle time: {SettleTime}s, timeout: {SettleTimeout}s.",
+                Logger.LogInformation("Start guiding using \"{ProfileName}\", settle pixels: {SettlePix}, settle time: {SettleTime}s, timeout: {SettleTimeout}s.",
                     activeProfile,
                     settlePix,
                     settleTime,
@@ -298,7 +298,7 @@ public interface IGuider : IDeviceDriver
             }
             catch (Exception e)
             {
-                External.AppLogger.LogError(e, "Exception while on try #{StartGuidingTries} checking if \"{ProfileName}\" is guiding.", startGuidingTries, activeProfile);
+                Logger.LogError(e, "Exception while on try #{StartGuidingTries} checking if \"{ProfileName}\" is guiding.", startGuidingTries, activeProfile);
                 guidingSuccess = false;
             }
         }
@@ -319,20 +319,20 @@ public interface IGuider : IDeviceDriver
     {
         var settleTimeout = settleTime * SETTLE_TIMEOUT_FACTOR;
 
-        External.AppLogger.LogInformation("Start dithering pixel={DitherPixel} settlePixel={SettlePixel} settleTime={SettleTime}, timeout={SettleTimeout}",
+        Logger.LogInformation("Start dithering pixel={DitherPixel} settlePixel={SettlePixel} settleTime={SettleTime}, timeout={SettleTimeout}",
             ditherPixel, settlePixel, settlePixel, settleTimeout);
 
         await DitherAsync(ditherPixel, settlePixel, settleTime.TotalSeconds, settleTimeout.TotalSeconds, cancellationToken: cancellationToken);
 
         await processQueuedWork().ConfigureAwait(false);
 
-        using var ticker = new PeriodicTimer(settleTime, External.TimeProvider);
+        using var ticker = new PeriodicTimer(settleTime, TimeProvider);
 
         for (var i = 0; i < SETTLE_TIMEOUT_FACTOR; i++)
         {
             if (cancellationToken.IsCancellationRequested)
             {
-                External.AppLogger.LogWarning("Cancellation requested, all images in queue written to disk, abort image acquisition and quit imaging loop");
+                Logger.LogWarning("Cancellation requested, all images in queue written to disk, abort image acquisition and quit imaging loop");
                 return false;
             }
 
@@ -344,38 +344,38 @@ public interface IGuider : IDeviceDriver
                 {
                     if (settleProgress?.Error is { Length: > 0 } error)
                     {
-                        External.AppLogger.LogError("Settling after dithering failed with: {ErrorMessage} pixel={SettlePx} dist={SettleDistance}",
+                        Logger.LogError("Settling after dithering failed with: {ErrorMessage} pixel={SettlePx} dist={SettleDistance}",
                             error, settleProgress.SettlePx, settleProgress.Distance);
                         return false;
                     }
                     else if (settleProgress is not null)
                     {
-                        External.AppLogger.LogInformation("Settling finished: settle pixel={SettlePx} dist={SettleDistance}", settleProgress.SettlePx, settleProgress.Distance);
+                        Logger.LogInformation("Settling finished: settle pixel={SettlePx} dist={SettleDistance}", settleProgress.SettlePx, settleProgress.Distance);
                         return true;
                     }
                     else
                     {
-                        External.AppLogger.LogError("Settling failed with no specific error message, assume dithering failed.");
+                        Logger.LogError("Settling failed with no specific error message, assume dithering failed.");
                         return false;
                     }
                 }
                 else if (settleProgress.Error is { Length: > 0 } error)
                 {
-                    External.AppLogger.LogError("Settling after dithering failed with: {ErrorMessage}", error);
+                    Logger.LogError("Settling after dithering failed with: {ErrorMessage}", error);
                     return false;
                 }
                 else
                 {
-                    External.AppLogger.LogInformation("Settle still in progress: settle pixel={SettlePx} dist={SettleDistance}", settleProgress.SettlePx, settleProgress.Distance);
+                    Logger.LogInformation("Settle still in progress: settle pixel={SettlePx} dist={SettleDistance}", settleProgress.SettlePx, settleProgress.Distance);
                 }
             }
             else
             {
-                External.AppLogger.LogError("Failed to retrieve settling progress");
+                Logger.LogError("Failed to retrieve settling progress");
             }
         }
 
-        External.AppLogger.LogError("Settling timeout after {SettleTimeout:c}, aborting dithering.", settleTimeout);
+        Logger.LogError("Settling timeout after {SettleTimeout:c}, aborting dithering.", settleTimeout);
         return false;
     }
 

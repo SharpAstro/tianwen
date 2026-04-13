@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
@@ -9,7 +10,7 @@ using static ZWOptical.SDK.EFW1_7.EFW_ERROR_CODE;
 
 namespace TianWen.Lib.Devices.ZWO;
 
-internal class ZWOFilterWheelDriver(ZWODevice device, IExternal external) : DALDeviceDriverBase<ZWODevice, EFW_INFO>(device, external), IFilterWheelDriver
+internal class ZWOFilterWheelDriver(ZWODevice device, IServiceProvider sp) : DALDeviceDriverBase<ZWODevice, EFW_INFO>(device, sp), IFilterWheelDriver
 {
     private int? _filterCount = null;
 

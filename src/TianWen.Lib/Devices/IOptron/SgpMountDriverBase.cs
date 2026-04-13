@@ -20,8 +20,8 @@ internal record struct SgpDeviceInfo(ISerialConnection SerialDevice);
 /// Abstract base driver for the iOptron SkyGuider Pro (SGP).
 /// RA-only single-axis equatorial tracker with custom serial protocol at 28800 baud.
 /// </summary>
-internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, IExternal external)
-    : DeviceDriverBase<TDevice, SgpDeviceInfo>(device, external), IMountDriver
+internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, IServiceProvider serviceProvider)
+    : DeviceDriverBase<TDevice, SgpDeviceInfo>(device, serviceProvider), IMountDriver
     where TDevice : DeviceBase
 {
     internal const int SGP_BAUD_RATE = IOptronDevice.SGP_BAUD_RATE;
@@ -124,7 +124,7 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, IExt
         if (tracking)
         {
             await SetTrackingSpeedAsync(_trackingSpeed, cancellationToken);
-            _trackingStartTicks = External.TimeProvider.GetTimestamp();
+            _trackingStartTicks = TimeProvider.GetTimestamp();
             _raAtTrackingStart = _ra;
         }
         else
@@ -152,7 +152,7 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, IExt
 
     public ValueTask<double> GetSiderealTimeAsync(CancellationToken cancellationToken)
     {
-        var transform = new Transform(External.TimeProvider);
+        var transform = new Transform(TimeProvider);
         transform.RefreshDateTimeFromTimeProvider();
         transform.SiteLongitude = _siteLongitude;
         return ValueTask.FromResult(transform.LocalSiderealTime);
@@ -229,7 +229,7 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, IExt
         _ra = ra;
         _dec = dec;
         _raAtTrackingStart = ra;
-        _trackingStartTicks = External.TimeProvider.GetTimestamp();
+        _trackingStartTicks = TimeProvider.GetTimestamp();
         return ValueTask.CompletedTask;
     }
 
@@ -368,7 +368,7 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, IExt
     public bool TimeIsSetByUs => true;
 
     public ValueTask<DateTime?> TryGetUTCDateFromMountAsync(CancellationToken cancellationToken)
-        => ValueTask.FromResult<DateTime?>(External.TimeProvider.GetUtcNow().UtcDateTime);
+        => ValueTask.FromResult<DateTime?>(TimeProvider.GetUtcNow().UtcDateTime);
 
     public ValueTask SetUTCDateAsync(DateTime dateTime, CancellationToken cancellationToken)
         => ValueTask.CompletedTask;
@@ -447,7 +447,7 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, IExt
         ISerialConnection? serialDevice;
         try
         {
-            if (_device.ConnectSerialDevice(External, SGP_BAUD_RATE, _encoding) is { IsOpen: true } openedConnection)
+            if (_device.ConnectSerialDevice(External, SGP_BAUD_RATE, _encoding, logger: Logger) is { IsOpen: true } openedConnection)
             {
                 serialDevice = openedConnection;
             }
@@ -459,7 +459,7 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, IExt
         catch (Exception ex)
         {
             serialDevice = null;
-            External.AppLogger.LogError(ex, "Error when connecting to serial port {DeviceUri}", _device.DeviceUri);
+            Logger.LogError(ex, "Error when connecting to serial port {DeviceUri}", _device.DeviceUri);
         }
 
         if (serialDevice is not null)
@@ -502,7 +502,7 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, IExt
         }
         catch (Exception ex)
         {
-            External.AppLogger.LogError(ex, "Failed to initialize SGP mount");
+            Logger.LogError(ex, "Failed to initialize SGP mount");
             return false;
         }
     }

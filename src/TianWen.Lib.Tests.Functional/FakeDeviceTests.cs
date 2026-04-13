@@ -18,7 +18,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output);
         var device = new FakeDevice(DeviceType.Guider, 1);
-        await using var guider = new FakeGuider(device, external);
+        await using var guider = new FakeGuider(device, external.BuildServiceProvider());
         await guider.ConnectAsync(ct);
         await guider.ConnectEquipmentAsync(ct);
 
@@ -44,7 +44,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output);
         var device = new FakeDevice(DeviceType.Guider, 1);
-        await using var guider = new FakeGuider(device, external);
+        await using var guider = new FakeGuider(device, external.BuildServiceProvider());
         await guider.ConnectAsync(ct);
         await guider.ConnectEquipmentAsync(ct);
         await guider.GuideAsync(0.5, 2, 30, ct);
@@ -77,7 +77,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output);
         var device = new FakeDevice(DeviceType.Guider, 1);
-        await using var guider = new FakeGuider(device, external);
+        await using var guider = new FakeGuider(device, external.BuildServiceProvider());
         await guider.ConnectAsync(ct);
         await guider.ConnectEquipmentAsync(ct);
         await guider.GuideAsync(0.5, 2, 30, ct);
@@ -103,7 +103,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output);
         var device = new FakeDevice(DeviceType.Camera, 1);
-        await using var camera = new FakeCameraDriver(device, external);
+        await using var camera = new FakeCameraDriver(device, external.BuildServiceProvider());
         await camera.ConnectAsync(ct);
 
         // when — enable cooler and set target to -10°C
@@ -141,7 +141,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output);
         var device = new FakeDevice(DeviceType.Camera, 1);
-        await using var camera = new FakeCameraDriver(device, external);
+        await using var camera = new FakeCameraDriver(device, external.BuildServiceProvider());
         await camera.ConnectAsync(ct);
 
         // when — cooler off, poll temperature
@@ -162,7 +162,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
         var device = new FakeDevice(DeviceType.Focuser, 1);
-        await using var focuser = new FakeFocuserDriver(device, external);
+        await using var focuser = new FakeFocuserDriver(device, external.BuildServiceProvider());
         await focuser.ConnectAsync(ct);
 
         // when — read initial temperature
@@ -185,7 +185,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
         var device = new FakeDevice(DeviceType.Focuser, 1);
-        await using var focuser = new FakeFocuserDriver(device, external);
+        await using var focuser = new FakeFocuserDriver(device, external.BuildServiceProvider());
         await focuser.ConnectAsync(ct);
 
         var initialBestFocus = focuser.TrueBestFocus;
@@ -207,7 +207,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output);
         var device = new FakeDevice(DeviceType.Focuser, 1);
-        await using var focuser = new FakeFocuserDriver(device, external);
+        await using var focuser = new FakeFocuserDriver(device, external.BuildServiceProvider());
         focuser.TrueBacklashIn = 20;
         focuser.TrueBacklashOut = 15;
         await focuser.ConnectAsync(ct);
@@ -242,7 +242,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output);
         var device = new FakeDevice(DeviceType.Focuser, 1);
-        await using var focuser = new FakeFocuserDriver(device, external);
+        await using var focuser = new FakeFocuserDriver(device, external.BuildServiceProvider());
         focuser.TrueBacklashIn = 20;
         focuser.TrueBacklashOut = 15;
         await focuser.ConnectAsync(ct);
@@ -269,7 +269,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output);
         var device = new FakeDevice(DeviceType.Camera, 1);
-        await using var camera = new FakeCameraDriver(device, external);
+        await using var camera = new FakeCameraDriver(device, external.BuildServiceProvider());
         await camera.ConnectAsync(ct);
 
         // when — start exposure

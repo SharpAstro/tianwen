@@ -136,5 +136,7 @@ public class FakeExternal : IExternal
     public IServiceProvider BuildServiceProvider() =>
         new ServiceCollection()
             .AddSingleton<IExternal>(this)
+            .AddSingleton<TimeProvider>(TimeProvider)
+            .AddLogging()
             .BuildServiceProvider();
 }

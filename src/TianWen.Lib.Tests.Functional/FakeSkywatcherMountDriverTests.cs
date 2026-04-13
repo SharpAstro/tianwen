@@ -23,7 +23,7 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
             { "latitude", latitude.ToString() },
             { "longitude", longitude.ToString() }
         });
-        var mount = new FakeSkywatcherMountDriver(device, external);
+        var mount = new FakeSkywatcherMountDriver(device, external.BuildServiceProvider());
         return (mount, external);
     }
 

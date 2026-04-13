@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
 using static TianWen.Lib.Astrometry.CoordinateUtils;
+using TianWen.Lib.Extensions;
 
 namespace TianWen.Lib.Sequencing;
 
@@ -28,7 +29,7 @@ internal partial record Session
         // Plate solve and sync for accurate calibration position
         if (!await PlateSolveAndSyncAsync(0, TimeSpan.FromSeconds(5), cancellationToken))
         {
-            External.AppLogger.LogWarning("Plate solve after calibration slew failed, proceeding with uncorrected pointing.");
+            _logger.LogWarning("Plate solve after calibration slew failed, proceeding with uncorrected pointing.");
         }
 
         var guider = Setup.Guider;
@@ -39,7 +40,7 @@ internal partial record Session
 
         // Poll guide stats in background while calibration + settle runs,
         // so the UI can show the guide graph and settle progress during this phase
-        await using var statsPoller = new GuideStatsPoller(this, guider.Driver, External, cancellationToken);
+        await using var statsPoller = new GuideStatsPoller(this, guider.Driver, _timeProvider, cancellationToken);
 
         if (!await guider.Driver.StartGuidingLoopAsync(Configuration.GuidingTries, cancellationToken).ConfigureAwait(false))
         {
@@ -50,7 +51,7 @@ internal partial record Session
 
     internal async ValueTask Finalise(CancellationToken cancellationToken)
     {
-        External.AppLogger.LogInformation("Executing session run finaliser: Stop guiding, stop tracking, disconnect guider, close covers, cool to ambient temp, turn off cooler, park scope.");
+        _logger.LogInformation("Executing session run finaliser: Stop guiding, stop tracking, disconnect guider, close covers, cool to ambient temp, turn off cooler, park scope.");
 
         var mount = Setup.Mount;
         var guider = Setup.Guider;
@@ -62,7 +63,7 @@ internal partial record Session
             var cam = Setup.Telescopes[i].Camera.Driver;
             if (await CatchAsync(cam.GetCameraStateAsync, cancellationToken) is CameraState.Exposing)
             {
-                External.AppLogger.LogInformation("Finalise: aborting exposure on camera #{CameraNumber} {CameraName}", i + 1, cam.Name);
+                _logger.LogInformation("Finalise: aborting exposure on camera #{CameraNumber} {CameraName}", i + 1, cam.Name);
                 if (cam.CanAbortExposure)
                 {
                     await CatchAsync(cam.AbortExposureAsync, cancellationToken).ConfigureAwait(false);
@@ -78,7 +79,7 @@ internal partial record Session
         var maybeCooledCamerasToAmbient = null as bool?;
 
         _currentActivity = "Stopping guider\u2026";
-        External.AppLogger.LogInformation("Finalise: stopping guider...");
+        _logger.LogInformation("Finalise: stopping guider...");
         var guiderStopped = await CatchAsync(async cancellationToken =>
         {
             await guider.Driver.StopCaptureAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
@@ -86,7 +87,7 @@ internal partial record Session
         }, cancellationToken).ConfigureAwait(false);
 
         _currentActivity = "Stopping tracking\u2026";
-        External.AppLogger.LogInformation("Finalise: stopping tracking...");
+        _logger.LogInformation("Finalise: stopping tracking...");
         var trackingStopped = await CatchAsync(async cancellationToken => mount.Driver.CanSetTracking && !await mount.Driver.IsTrackingAsync(cancellationToken), cancellationToken).ConfigureAwait(false);
 
         if (trackingStopped)
@@ -96,11 +97,11 @@ internal partial record Session
         }
 
         _currentActivity = "Disconnecting guider\u2026";
-        External.AppLogger.LogInformation("Finalise: disconnecting guider...");
+        _logger.LogInformation("Finalise: disconnecting guider...");
         var guiderDisconnected = await CatchAsync(guider.Driver.DisconnectAsync, cancellationToken).ConfigureAwait(false);
 
         _currentActivity = "Parking mount\u2026";
-        External.AppLogger.LogInformation("Finalise: parking mount...");
+        _logger.LogInformation("Finalise: parking mount...");
         bool parkInitiated = Catch(() => mount.Driver.CanPark) && await CatchAsync(mount.Driver.ParkAsync, cancellationToken).ConfigureAwait(false);
 
         var parkCompleted = parkInitiated && await CatchAsync(async cancellationToken =>
@@ -121,12 +122,12 @@ internal partial record Session
         }
 
         _currentActivity = "Closing covers + warming cameras\u2026";
-        External.AppLogger.LogInformation("Finalise: closing covers and warming cameras...");
+        _logger.LogInformation("Finalise: closing covers and warming cameras...");
         var coversClosed = maybeCoversClosed ??= await CatchAsync(CloseCoversAsync, cancellationToken).ConfigureAwait(false);
         var cooledCamerasToAmbient = maybeCooledCamerasToAmbient ??= await CatchAsync(TurnOffCameraCoolingAsync, cancellationToken).ConfigureAwait(false);
 
         _currentActivity = "Disconnecting mount\u2026";
-        External.AppLogger.LogInformation("Finalise: disconnecting mount...");
+        _logger.LogInformation("Finalise: disconnecting mount...");
         var mountDisconnected = await CatchAsync(mount.Driver.DisconnectAsync, cancellationToken).ConfigureAwait(false);
 
         var shutdownReport = new Dictionary<string, bool>
@@ -167,11 +168,11 @@ internal partial record Session
 
         if (shutdownReport.Values.Any(v => !v))
         {
-            External.AppLogger.LogError("Partially failed shut-down of session: {@ShutdownReport}", shutdownReport.Select(p => p.Key + ": " + (p.Value ? "success" : "fail")));
+            _logger.LogError("Partially failed shut-down of session: {@ShutdownReport}", shutdownReport.Select(p => p.Key + ": " + (p.Value ? "success" : "fail")));
         }
         else
         {
-            External.AppLogger.LogInformation("Shutdown complete, session ended. Please turn off mount and camera cooler power.");
+            _logger.LogInformation("Shutdown complete, session ended. Please turn off mount and camera cooler power.");
         }
 
         ValueTask<bool> CloseCoversAsync(CancellationToken cancellationToken) => MoveTelescopeCoversToStateAsync(CoverStatus.Closed, cancellationToken);
@@ -190,35 +191,35 @@ internal partial record Session
         var guider = Setup.Guider;
 
         _currentActivity = "Connecting mount\u2026";
-        External.AppLogger.LogDebug("Init: connecting mount {Mount}", mount);
+        _logger.LogDebug("Init: connecting mount {Mount}", mount);
         await mount.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
 
         _currentActivity = "Connecting guider\u2026";
-        External.AppLogger.LogDebug("Init: connecting guider {Guider}", guider);
+        _logger.LogDebug("Init: connecting guider {Guider}", guider);
         await guider.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
 
-        External.AppLogger.LogDebug("Init: checking park state");
+        _logger.LogDebug("Init: checking park state");
         if (await mount.Driver.AtParkAsync(cancellationToken)
             && (!mount.Driver.CanUnpark || !await CatchAsync(mount.Driver.UnparkAsync, cancellationToken).ConfigureAwait(false)))
         {
-            External.AppLogger.LogError("Mount {Mount} is parked but cannot be unparked. Aborting.", mount);
+            _logger.LogError("Mount {Mount} is parked but cannot be unparked. Aborting.", mount);
             return false;
         }
 
         // try set the time to our time if supported
-        await mount.Driver.SetUTCDateAsync(External.TimeProvider.GetUtcNow().UtcDateTime, cancellationToken);
+        await mount.Driver.SetUTCDateAsync(_timeProvider.GetUtcNow().UtcDateTime, cancellationToken);
 
         // Sync site coordinates from session configuration to mount
-        External.AppLogger.LogDebug("Init: site config lat={Latitude}, lon={Longitude}", Configuration.SiteLatitude, Configuration.SiteLongitude);
+        _logger.LogDebug("Init: site config lat={Latitude}, lon={Longitude}", Configuration.SiteLatitude, Configuration.SiteLongitude);
         if (!double.IsNaN(Configuration.SiteLatitude) && !double.IsNaN(Configuration.SiteLongitude))
         {
             await mount.Driver.SetSiteLatitudeAsync(Configuration.SiteLatitude, cancellationToken);
             await mount.Driver.SetSiteLongitudeAsync(Configuration.SiteLongitude, cancellationToken);
-            External.AppLogger.LogInformation("Mount site synced to lat={Latitude:F4}, lon={Longitude:F4}", Configuration.SiteLatitude, Configuration.SiteLongitude);
+            _logger.LogInformation("Mount site synced to lat={Latitude:F4}, lon={Longitude:F4}", Configuration.SiteLatitude, Configuration.SiteLongitude);
         }
         else
         {
-            External.AppLogger.LogWarning("Init: site coordinates not set (NaN) — mount will use defaults");
+            _logger.LogWarning("Init: site coordinates not set (NaN) — mount will use defaults");
         }
 
         for (var i = 0; i < Setup.Telescopes.Length; i++)
@@ -226,24 +227,24 @@ internal partial record Session
             var telescope = Setup.Telescopes[i];
             var camera = telescope.Camera;
             _currentActivity = $"Connecting {telescope.Name}\u2026";
-            External.AppLogger.LogDebug("Init: connecting OTA #{OtaIndex} camera {Camera}", i, camera);
+            _logger.LogDebug("Init: connecting OTA #{OtaIndex} camera {Camera}", i, camera);
             await camera.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
 
             if (telescope.Focuser is { } focuser)
             {
-                External.AppLogger.LogDebug("Init: connecting OTA #{OtaIndex} focuser {Focuser}", i, focuser);
+                _logger.LogDebug("Init: connecting OTA #{OtaIndex} focuser {Focuser}", i, focuser);
                 await focuser.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
             }
 
             if (telescope.FilterWheel is { } filterWheel)
             {
-                External.AppLogger.LogDebug("Init: connecting OTA #{OtaIndex} filter wheel {FilterWheel}", i, filterWheel);
+                _logger.LogDebug("Init: connecting OTA #{OtaIndex} filter wheel {FilterWheel}", i, filterWheel);
                 await filterWheel.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
             }
 
             if (telescope.Cover is { } cover)
             {
-                External.AppLogger.LogDebug("Init: connecting OTA #{OtaIndex} cover {Cover}", i, cover);
+                _logger.LogDebug("Init: connecting OTA #{OtaIndex} cover {Cover}", i, cover);
                 await cover.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
             }
 
@@ -258,28 +259,28 @@ internal partial record Session
         }
 
         _currentActivity = "Checking cooler sensor temp\u2026";
-        External.AppLogger.LogDebug("Init: checking cooler sensor temp");
+        _logger.LogDebug("Init: checking cooler sensor temp");
         // Short interval — confirming camera is at sensor temp, not a full ramp.
         // 5 seconds allows cameras to settle after initial power-on.
         if (!await CoolCamerasToSensorTempAsync(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false))
         {
-            External.AppLogger.LogError("Failed to set camera cooler setpoint to current CCD temperature, aborting session.");
+            _logger.LogError("Failed to set camera cooler setpoint to current CCD temperature, aborting session.");
             return false;
         }
 
         _currentActivity = "Opening telescope covers\u2026";
-        External.AppLogger.LogDebug("Init: opening covers ({CoverCount} OTAs, covers present: {HasCovers})",
+        _logger.LogDebug("Init: opening covers ({CoverCount} OTAs, covers present: {HasCovers})",
             Setup.Telescopes.Length,
             string.Join(", ", Setup.Telescopes.Select((t, i) => $"OTA#{i}={t.Cover is not null}")));
         // Cancellable: if aborted, Finalise will close covers. The hardware continues its
         // physical motion regardless — we just stop polling.
         if (await MoveTelescopeCoversToStateAsync(CoverStatus.Open, cancellationToken))
         {
-            External.AppLogger.LogDebug("Init: all covers opened");
+            _logger.LogDebug("Init: all covers opened");
         }
         else
         {
-            External.AppLogger.LogError("Opening telescope covers failed, aborting session.");
+            _logger.LogError("Opening telescope covers failed, aborting session.");
             return false;
         }
 
@@ -287,7 +288,7 @@ internal partial record Session
         if (Setup.GuiderSetup.Camera is { } guiderCam)
         {
             _currentActivity = "Connecting guider camera\u2026";
-            External.AppLogger.LogDebug("Init: connecting guider camera {GuiderCam}", guiderCam);
+            _logger.LogDebug("Init: connecting guider camera {GuiderCam}", guiderCam);
             await guiderCam.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
 
             // Guide scope focal length: explicit profile setting wins (covers OAG-before-reducer
@@ -302,22 +303,22 @@ internal partial record Session
             }
 
             var guidePixelScale = PixelScaleArcsec(guiderCam.Driver.PixelSizeX, guiderCam.Driver.FocalLength);
-            External.AppLogger.LogInformation("Guider camera: {Name}, FL={FL}mm, pixel={PixelSize}\u00b5m, scale={PixelScale:F2}\"/px",
+            _logger.LogInformation("Guider camera: {Name}, FL={FL}mm, pixel={PixelSize}\u00b5m, scale={PixelScale:F2}\"/px",
                 guiderCam.Driver.Name, guiderCam.Driver.FocalLength, guiderCam.Driver.PixelSizeX, guidePixelScale);
         }
         if (Setup.GuiderSetup.Focuser is { } guiderFocuser)
         {
-            External.AppLogger.LogDebug("Init: connecting guider focuser {GuiderFocuser}", guiderFocuser);
+            _logger.LogDebug("Init: connecting guider focuser {GuiderFocuser}", guiderFocuser);
             await guiderFocuser.Driver.ConnectAsync(cancellationToken).ConfigureAwait(false);
         }
 
         _currentActivity = "Connecting guider equipment\u2026";
-        External.AppLogger.LogDebug("Init: connecting guider equipment via {Guider}", guider.Driver);
+        _logger.LogDebug("Init: connecting guider equipment via {Guider}", guider.Driver);
         guider.Driver.GuiderStateChangedEvent += (_, e) => _guiderEvents.Enqueue(e);
         guider.Driver.GuidingErrorEvent +=  (_, e) => _guiderEvents.Enqueue(e);
         await guider.Driver.ConnectEquipmentAsync(cancellationToken).ConfigureAwait(false);
 
-        External.AppLogger.LogDebug("Init: complete");
+        _logger.LogDebug("Init: complete");
 
         if (cancellationToken.IsCancellationRequested)
         {

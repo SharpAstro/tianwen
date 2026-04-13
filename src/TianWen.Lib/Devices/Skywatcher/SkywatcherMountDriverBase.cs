@@ -18,8 +18,8 @@ internal record struct SkywatcherDeviceInfo(ISerialConnection SerialDevice);
 /// Abstract base driver for Skywatcher motor controller mounts (EQ6, HEQ5, AzEQ6, EQ6-R, AzGTi, etc.).
 /// Two-axis GEM using Skywatcher motor controller protocol over serial (9600/115200 baud) or WiFi (UDP 11880).
 /// </summary>
-internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IExternal external)
-    : DeviceDriverBase<TDevice, SkywatcherDeviceInfo>(device, external), IMountDriver
+internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServiceProvider serviceProvider)
+    : DeviceDriverBase<TDevice, SkywatcherDeviceInfo>(device, serviceProvider), IMountDriver
     where TDevice : DeviceBase
 {
     private static readonly Encoding _encoding = Encoding.ASCII;
@@ -175,7 +175,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IExte
 
     public ValueTask<double> GetSiderealTimeAsync(CancellationToken cancellationToken)
     {
-        var transform = new Transform(External.TimeProvider);
+        var transform = new Transform(TimeProvider);
         transform.RefreshDateTimeFromTimeProvider();
         transform.SiteLongitude = double.IsNaN(_siteLongitude) ? 0.0 : _siteLongitude;
         return ValueTask.FromResult(transform.LocalSiderealTime);
@@ -218,7 +218,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IExte
         var result = _isSlewingRa || _isSlewingDec;
         if (result)
         {
-            External.AppLogger.LogDebug("IsSlewingAsync=true: RA(running={RaRun},tracking={RaTrk}) Dec(running={DecRun},tracking={DecTrk})",
+            Logger.LogDebug("IsSlewingAsync=true: RA(running={RaRun},tracking={RaTrk}) Dec(running={DecRun},tracking={DecTrk})",
                 statusRa.IsRunning, statusRa.IsTracking, statusDec.IsRunning, statusDec.IsTracking);
         }
         return result;
@@ -441,7 +441,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IExte
     public ValueTask<PointingState> DestinationSideOfPierAsync(double ra, double dec, CancellationToken cancellationToken)
     {
         // Determine pier side based on hour angle
-        var transform = new Transform(External.TimeProvider);
+        var transform = new Transform(TimeProvider);
         transform.RefreshDateTimeFromTimeProvider();
         transform.SiteLongitude = double.IsNaN(_siteLongitude) ? 0.0 : _siteLongitude;
         var ha = CoordinateUtils.ConditionHA(transform.LocalSiderealTime - ra);
@@ -504,7 +504,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IExte
     public bool TimeIsSetByUs => true;
 
     public ValueTask<DateTime?> TryGetUTCDateFromMountAsync(CancellationToken cancellationToken)
-        => ValueTask.FromResult<DateTime?>(External.TimeProvider.GetUtcNow().UtcDateTime);
+        => ValueTask.FromResult<DateTime?>(TimeProvider.GetUtcNow().UtcDateTime);
 
     public ValueTask SetUTCDateAsync(DateTime dateTime, CancellationToken cancellationToken)
         => ValueTask.CompletedTask;
@@ -573,7 +573,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IExte
         ISerialConnection? serialDevice;
         try
         {
-            if (_device.ConnectSerialDevice(External, encoding: _encoding) is { IsOpen: true } openedConnection)
+            if (_device.ConnectSerialDevice(External, encoding: _encoding, logger: Logger) is { IsOpen: true } openedConnection)
             {
                 serialDevice = openedConnection;
             }
@@ -585,7 +585,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IExte
         catch (Exception ex)
         {
             serialDevice = null;
-            External.AppLogger.LogError(ex, "Error when connecting to serial port {DeviceUri}", _device.DeviceUri);
+            Logger.LogError(ex, "Error when connecting to serial port {DeviceUri}", _device.DeviceUri);
         }
 
         if (serialDevice is not null)
@@ -607,7 +607,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IExte
             if (!SkywatcherProtocol.TryParseResponse(fwResponse, out var fwData) ||
                 !SkywatcherProtocol.TryParseFirmwareResponse(fwData, out _firmwareInfo))
             {
-                External.AppLogger.LogError("Failed to parse firmware response: {Response}", fwResponse);
+                Logger.LogError("Failed to parse firmware response: {Response}", fwResponse);
                 return false;
             }
 
@@ -701,7 +701,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IExte
         }
         catch (Exception ex)
         {
-            External.AppLogger.LogError(ex, "Failed to initialize Skywatcher mount");
+            Logger.LogError(ex, "Failed to initialize Skywatcher mount");
             return false;
         }
     }
@@ -796,7 +796,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IExte
     private double StepsToRa(int steps)
     {
         if (_cprRa == 0) return 0.0;
-        var transform = new Transform(External.TimeProvider);
+        var transform = new Transform(TimeProvider);
         transform.RefreshDateTimeFromTimeProvider();
         transform.SiteLongitude = double.IsNaN(_siteLongitude) ? 0.0 : _siteLongitude;
         var lst = transform.LocalSiderealTime;
@@ -812,7 +812,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IExte
     private int RaToSteps(double ra)
     {
         if (_cprRa == 0) return 0;
-        var transform = new Transform(External.TimeProvider);
+        var transform = new Transform(TimeProvider);
         transform.RefreshDateTimeFromTimeProvider();
         transform.SiteLongitude = double.IsNaN(_siteLongitude) ? 0.0 : _siteLongitude;
         var lst = transform.LocalSiderealTime;

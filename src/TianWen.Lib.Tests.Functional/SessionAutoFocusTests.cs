@@ -113,7 +113,7 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output);
         var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
-        await using var cameraDriver = new FakeCameraDriver(cameraDevice, external);
+        await using var cameraDriver = new FakeCameraDriver(cameraDevice, external.BuildServiceProvider());
         await cameraDriver.ConnectAsync(ct);
         cameraDriver.TrueBestFocus = TrueBestFocusPosition;
         cameraDriver.BinX = 1;
@@ -147,7 +147,7 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output);
         var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
-        await using var cameraDriver = new FakeCameraDriver(cameraDevice, external);
+        await using var cameraDriver = new FakeCameraDriver(cameraDevice, external.BuildServiceProvider());
         await cameraDriver.ConnectAsync(ct);
         cameraDriver.TrueBestFocus = TrueBestFocusPosition;
         cameraDriver.BinX = 1;
@@ -190,7 +190,7 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output);
         var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
-        await using var cameraDriver = new FakeCameraDriver(cameraDevice, external);
+        await using var cameraDriver = new FakeCameraDriver(cameraDevice, external.BuildServiceProvider());
         await cameraDriver.ConnectAsync(ct);
         cameraDriver.TrueBestFocus = TrueBestFocusPosition;
         cameraDriver.BinX = 1;

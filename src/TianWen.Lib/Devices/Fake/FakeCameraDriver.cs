@@ -10,7 +10,7 @@ namespace TianWen.Lib.Devices.Fake;
 
 internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
 {
-    public FakeCameraDriver(FakeDevice fakeDevice, IExternal external) : base(fakeDevice, external)
+    public FakeCameraDriver(FakeDevice fakeDevice, IServiceProvider serviceProvider) : base(fakeDevice, serviceProvider)
     {
         var preset = GetPreset(fakeDevice);
         PixelSizeX = preset.PixelSize;
@@ -170,7 +170,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
             return;
         }
 
-        var now = External.TimeProvider.GetTimestamp();
+        var now = TimeProvider.GetTimestamp();
         if (_peStartTicks == 0)
         {
             _peStartTicks = now;
@@ -178,11 +178,11 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
             return;
         }
 
-        var dt = External.TimeProvider.GetElapsedTime(_lastPeTicks).TotalSeconds;
+        var dt = TimeProvider.GetElapsedTime(_lastPeTicks).TotalSeconds;
         _lastPeTicks = now;
 
         // Phase from session start (stable reference, not affected by dt update)
-        var phase = External.TimeProvider.GetElapsedTime(_peStartTicks).TotalSeconds;
+        var phase = TimeProvider.GetElapsedTime(_peStartTicks).TotalSeconds;
         var driftRate = PeRateAmplitude * Math.Sin(2.0 * Math.PI * phase / PePeriodSeconds);
         _starPositionX += driftRate * dt;
     }
@@ -603,7 +603,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
         var previousState = (CameraState)Interlocked.CompareExchange(ref _cameraState, (int)CameraState.Exposing, (int)CameraState.Idle);
         if (previousState is CameraState.Idle)
         {
-            var startTime = External.TimeProvider.GetUtcNow();
+            var startTime = TimeProvider.GetUtcNow();
 
             lock (_lock)
             {
@@ -611,7 +611,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
                 _exposureSettings = _cameraSettings;
                 _exposureData = new ExposureData(startTime, intentedDuration, null, frameType, _gain, _offset);
 
-                var timer = _exposureTimer ??= External.TimeProvider.CreateTimer(_ => StopExposureCore(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+                var timer = _exposureTimer ??= TimeProvider.CreateTimer(_ => StopExposureCore(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
                 timer.Change(intentedDuration, Timeout.InfiniteTimeSpan);
             }
 
@@ -625,7 +625,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver
 
     private void StopExposureCore()
     {
-        var stopTime = External.TimeProvider.GetUtcNow();
+        var stopTime = TimeProvider.GetUtcNow();
 
         var previousState = (CameraState)Interlocked.CompareExchange(ref _cameraState, (int)CameraState.Download, (int)CameraState.Exposing);
 

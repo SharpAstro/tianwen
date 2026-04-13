@@ -1,4 +1,5 @@
-﻿using System;
+using Microsoft.Extensions.Logging;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -19,6 +20,16 @@ public interface IDeviceDriver : IAsyncDisposable, IDisposable
     DeviceType DriverType { get; }
 
     IExternal External { get; }
+
+    /// <summary>
+    /// Logger for this driver instance. Used by interface default methods that need logging.
+    /// </summary>
+    ILogger Logger { get; }
+
+    /// <summary>
+    /// Time provider for this driver instance. Used by interface default methods that need time.
+    /// </summary>
+    TimeProvider TimeProvider { get; }
 
     bool Connected { get; }
 

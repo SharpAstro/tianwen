@@ -11,7 +11,7 @@ internal class AscomFocuserDriver : AscomDeviceDriverBase, IFocuserDriver
 {
     private readonly AscomDispatchFocuser _focuser;
 
-    internal AscomFocuserDriver(AscomDevice device, IExternal external) : base(device, external)
+    internal AscomFocuserDriver(AscomDevice device, IServiceProvider sp) : base(device, sp)
     {
         _focuser = new AscomDispatchFocuser(_dispatchDevice.Dispatch);
     }

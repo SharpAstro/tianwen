@@ -64,7 +64,7 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
     {
         var external = new FakeExternal(output);
         var device = new BuiltInGuiderDevice();
-        var driver = new BuiltInGuiderDriver(device, external);
+        var driver = new BuiltInGuiderDriver(device, external.BuildServiceProvider());
 
         Should.Throw<GuiderException>(async () =>
             await driver.GuideAsync(0.5, 10, 60, TestContext.Current.CancellationToken)
@@ -91,9 +91,9 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
         // FakeCameraDriver has CanPulseGuide = true (ST-4 simulation)
         var external = new FakeExternal(output);
         var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
-        var camera = new FakeCameraDriver(cameraDevice, external);
+        var camera = new FakeCameraDriver(cameraDevice, external.BuildServiceProvider());
         var mountDevice = new FakeDevice(DeviceType.Mount, 1);
-        var mount = new FakeMountDriver(mountDevice, external);
+        var mount = new FakeMountDriver(mountDevice, external.BuildServiceProvider());
 
         // Should not throw — camera supports pulse guiding
         var router = new PulseGuideRouter(PulseGuideSource.Camera, camera, mount);
@@ -106,7 +106,7 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output);
         var mountDevice = new FakeDevice(DeviceType.Mount, 1);
-        var mount = new FakeMountDriver(mountDevice, external);
+        var mount = new FakeMountDriver(mountDevice, external.BuildServiceProvider());
         await mount.ConnectAsync(ct);
         await mount.SetPositionAsync(12.0, 45.0, ct);
 
@@ -125,7 +125,7 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
     {
         var external = new FakeExternal(output);
         var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
-        var camera = new FakeCameraDriver(cameraDevice, external);
+        var camera = new FakeCameraDriver(cameraDevice, external.BuildServiceProvider());
         // FakeCameraDriver.CanPulseGuide = false, FakeMountDriver not connected = CanPulseGuide depends
 
         // Pass null for both to simulate neither supporting it
@@ -140,7 +140,7 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output);
         var mountDevice = new FakeDevice(DeviceType.Mount, 1);
-        var mount = new FakeMountDriver(mountDevice, external);
+        var mount = new FakeMountDriver(mountDevice, external.BuildServiceProvider());
         await mount.ConnectAsync(ct);
         await mount.SetPositionAsync(12.0, 45.0, ct);
 
@@ -179,18 +179,18 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
             { DeviceQueryKey.Latitude.Key, "48.2" },
             { DeviceQueryKey.Longitude.Key, "16.3" }
         });
-        var mount = new FakeMountDriver(mountDevice, external);
+        var mount = new FakeMountDriver(mountDevice, external.BuildServiceProvider());
         await mount.ConnectAsync(ct);
         await mount.SetPositionAsync(12.0, 45.0, ct);
 
         var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
-        var camera = new FakeCameraDriver(cameraDevice, external);
+        var camera = new FakeCameraDriver(cameraDevice, external.BuildServiceProvider());
         await camera.ConnectAsync(ct);
 
         // Use Auto pulse guide source, which should fall back to mount (camera doesn't support ST-4)
         var uri = new Uri("guider://BuiltInGuiderDevice/builtin?pulseGuideSource=Mount#Built-in Guider");
         var device = new BuiltInGuiderDevice(uri);
-        var driver = new BuiltInGuiderDriver(device, external);
+        var driver = new BuiltInGuiderDriver(device, external.BuildServiceProvider());
 
         driver.LinkDevices(mount, camera);
 

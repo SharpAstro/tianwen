@@ -60,7 +60,7 @@ public record class BuiltInGuiderDevice(Uri DeviceUri) : GuiderDeviceBase(Device
 
     protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
     {
-        DeviceType.Guider => new BuiltInGuiderDriver(this, sp.External),
+        DeviceType.Guider => new BuiltInGuiderDriver(this, sp),
         _ => null
     };
 

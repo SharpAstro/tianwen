@@ -9,7 +9,7 @@ namespace TianWen.Lib.Devices.Fake;
 /// </summary>
 /// <param name="fakeDevice"></param>
 /// <param name="external"></param>
-internal abstract class FakePositionBasedDriver(FakeDevice fakeDevice, IExternal external) : FakeDeviceDriverBase(fakeDevice, external)
+internal abstract class FakePositionBasedDriver(FakeDevice fakeDevice, IServiceProvider serviceProvider) : FakeDeviceDriverBase(fakeDevice, serviceProvider)
 {
     protected volatile int _position;
     protected volatile bool _isMoving;
@@ -32,7 +32,7 @@ internal abstract class FakePositionBasedDriver(FakeDevice fakeDevice, IExternal
 
             var state = new MovingState(currentPosition, position);
 
-            var movingTimer = External.TimeProvider.CreateTimer(MovingTimerCallback, state, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+            var movingTimer = TimeProvider.CreateTimer(MovingTimerCallback, state, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
 
             Interlocked.Exchange(ref _movingTimer, movingTimer)?.Dispose();
 

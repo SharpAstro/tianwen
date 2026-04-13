@@ -1,11 +1,12 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace TianWen.Lib.Devices;
 
-internal abstract class DeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, IExternal external) : IDeviceDriver
+internal abstract class DeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, IServiceProvider serviceProvider) : IDeviceDriver
     where TDevice : DeviceBase
     where TDeviceInfo : struct
 {
@@ -24,7 +25,11 @@ internal abstract class DeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, I
 
     public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
 
-    public IExternal External { get; } = external;
+    public IExternal External { get; } = serviceProvider.GetRequiredService<IExternal>();
+
+    public ILogger Logger { get; } = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(device.GetType().Name);
+
+    public TimeProvider TimeProvider { get; } = serviceProvider.GetRequiredService<TimeProvider>();
 
     private int _connectionId;
 
@@ -96,7 +101,7 @@ internal abstract class DeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, I
                         // revert to failed state as initization failed.
                         Interlocked.CompareExchange(ref _connectionState, CONNECTION_FAILURE, desiredState);
 
-                        External.AppLogger.LogError(ex, "Failed to initialize device {DeviceId} ({DisplayName}): {ErrorMessage}", _device.DeviceId, _device.DisplayName, ex.Message);
+                        Logger.LogError(ex, "Failed to initialize device {DeviceId} ({DisplayName}): {ErrorMessage}", _device.DeviceId, _device.DisplayName, ex.Message);
                     }
 
                     if (initSuccess)

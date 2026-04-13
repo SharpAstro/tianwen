@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Specialized;
 using System.Net;
@@ -22,11 +23,11 @@ public record SkywatcherDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 
     protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
     {
-        DeviceType.Mount => new SkywatcherMountDriver(this, sp.External),
+        DeviceType.Mount => new SkywatcherMountDriver(this, sp),
         _ => null
     };
 
-    public override ISerialConnection? ConnectSerialDevice(IExternal external, int baud = SkywatcherProtocol.DEFAULT_LEGACY_BAUD, Encoding? encoding = null)
+    public override ISerialConnection? ConnectSerialDevice(IExternal external, int baud = SkywatcherProtocol.DEFAULT_LEGACY_BAUD, Encoding? encoding = null, ILogger? logger = null, TimeProvider? timeProvider = null)
     {
         var port = Query.QueryValue(DeviceQueryKey.Port);
         if (port is null)
@@ -37,7 +38,7 @@ public record SkywatcherDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         // WiFi transport: port is an IPv4 address
         if (IPAddress.TryParse(port, out _))
         {
-            return new SkywatcherUdpConnection(port, SkywatcherProtocol.WIFI_PORT, encoding ?? Encoding.ASCII, external.AppLogger);
+            return new SkywatcherUdpConnection(port, SkywatcherProtocol.WIFI_PORT, encoding ?? Encoding.ASCII, logger);
         }
 
         // Parse baud from URI query, defaulting to the provided baud parameter

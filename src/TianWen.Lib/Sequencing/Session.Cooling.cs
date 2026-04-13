@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Extensions;
 
 namespace TianWen.Lib.Sequencing;
 
@@ -57,7 +58,7 @@ internal partial record Session
         for (var i = 0; i < scopes; i++)
         {
             var camera = Setup.Telescopes[i].Camera;
-            var ccdTemp = await External.CatchAsync(camera.Driver.GetCCDTemperatureAsync, cancellationToken, double.NaN);
+            var ccdTemp = await _logger.CatchAsync(camera.Driver.GetCCDTemperatureAsync, cancellationToken, double.NaN);
             if (!double.IsNaN(ccdTemp))
             {
                 var target = desiredSetpointTemp.Kind switch
@@ -75,7 +76,7 @@ internal partial record Session
             var anyCoolerOn = false;
             for (var i = 0; i < scopes; i++)
             {
-                var power = await External.CatchAsync(Setup.Telescopes[i].Camera.Driver.GetCoolerPowerAsync, cancellationToken, 0.0);
+                var power = await _logger.CatchAsync(Setup.Telescopes[i].Camera.Driver.GetCoolerPowerAsync, cancellationToken, 0.0);
                 if (power > 1)
                 {
                     anyCoolerOn = true;
@@ -84,7 +85,7 @@ internal partial record Session
             }
             if (!anyCoolerOn)
             {
-                External.AppLogger.LogInformation("Cooling: all cameras already at ambient, skipping warmup ramp.");
+                _logger.LogInformation("Cooling: all cameras already at ambient, skipping warmup ramp.");
                 return true;
             }
             maxDelta = 30;
@@ -110,12 +111,12 @@ internal partial record Session
                 coolingStates[i] = await camera.Driver.CoolToSetpointAsync(desiredSetpointTemp, thresPower, direction, coolingStates[i], cancellationToken);
 
                 // Record cooling sample for the live session graph
-                var ccdTemp = await External.CatchAsync(camera.Driver.GetCCDTemperatureAsync, cancellationToken, double.NaN);
-                var setpoint = await External.CatchAsyncIf(camera.Driver.CanSetCCDTemperature, camera.Driver.GetSetCCDTemperatureAsync, cancellationToken, double.NaN);
-                var power = await External.CatchAsyncIf(camera.Driver.CanGetCoolerPower, camera.Driver.GetCoolerPowerAsync, cancellationToken, double.NaN);
+                var ccdTemp = await _logger.CatchAsync(camera.Driver.GetCCDTemperatureAsync, cancellationToken, double.NaN);
+                var setpoint = await _logger.CatchAsyncIf(camera.Driver.CanSetCCDTemperature, camera.Driver.GetSetCCDTemperatureAsync, cancellationToken, double.NaN);
+                var power = await _logger.CatchAsyncIf(camera.Driver.CanGetCoolerPower, camera.Driver.GetCoolerPowerAsync, cancellationToken, double.NaN);
                 if (!double.IsNaN(ccdTemp))
                 {
-                    _coolingSamples.Enqueue(new CoolingSample(External.TimeProvider.GetUtcNow(), i, ccdTemp, double.IsNaN(setpoint) ? 0 : setpoint, double.IsNaN(power) ? 0 : power));
+                    _coolingSamples.Enqueue(new CoolingSample(_timeProvider.GetUtcNow(), i, ccdTemp, double.IsNaN(setpoint) ? 0 : setpoint, double.IsNaN(power) ? 0 : power));
                     _currentActivity = $"{ccdTemp:F0}\u00B0C \u2192 {targetLabel} ({(double.IsNaN(power) ? 0 : power):F0}% power)";
                 }
             }
@@ -125,7 +126,7 @@ internal partial record Session
             {
                 if (cancellationToken.IsCancellationRequested)
                 {
-                    External.AppLogger.LogWarning("Cancellation requested, quitting cooldown loop");
+                    _logger.LogWarning("Cancellation requested, quitting cooldown loop");
                 }
                 break;
             }
@@ -134,7 +135,7 @@ internal partial record Session
             var estimatedRampTime = stepCount * rampInterval;
             if (accSleep >= actualRampTime * 2)
             {
-                External.AppLogger.LogWarning("Cooling: safety cap reached ({AccSleep} >= 2x {ActualRamp}), exiting ramp loop.",
+                _logger.LogWarning("Cooling: safety cap reached ({AccSleep} >= 2x {ActualRamp}), exiting ramp loop.",
                     accSleep, actualRampTime);
                 break;
             }
