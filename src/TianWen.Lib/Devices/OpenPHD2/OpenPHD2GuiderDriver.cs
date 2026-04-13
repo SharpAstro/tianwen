@@ -66,6 +66,12 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
     private string? PHDSubvVersion { get; set; }
     private SettleProgress? Settle { get; set; }
 
+    public OpenPHD2GuiderDriver(IExternal external, ILogger<OpenPHD2GuiderDriver> logger, ITimeProvider timeProvider)
+        : this(MakeDefaultRootDevice(external), external, logger, timeProvider)
+    {
+        // root device source ctor used by DI; per-profile drivers go through the device-bound ctor below
+    }
+
     public OpenPHD2GuiderDriver(OpenPHD2GuiderDevice guiderDevice, IExternal external, ILogger logger, ITimeProvider timeProvider)
     {
         if (guiderDevice.DeviceType != DeviceType.Guider)
