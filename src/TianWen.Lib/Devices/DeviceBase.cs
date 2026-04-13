@@ -87,7 +87,7 @@ public abstract record class DeviceBase(Uri DeviceUri)
 
     protected virtual IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => null;
 
-    public virtual ISerialConnection? ConnectSerialDevice(IExternal external, int baud = 9600, Encoding? encoding = null, ILogger? logger = null, ITimeProvider? timeProvider = null)
+    public virtual ISerialConnection? ConnectSerialDevice(IExternal external, ILogger logger, ITimeProvider timeProvider, int baud = 9600, Encoding? encoding = null)
     {
         if (Query.QueryValue(DeviceQueryKey.Port) is { Length: > 0 } port)
         {

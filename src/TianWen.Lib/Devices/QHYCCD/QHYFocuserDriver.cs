@@ -148,7 +148,7 @@ internal class QHYFocuserDriver(QHYDevice device, IServiceProvider serviceProvid
     {
         try
         {
-            if (_device.ConnectSerialDevice(External, QFOC_BAUD, Encoding.ASCII) is { IsOpen: true } conn)
+            if (_device.ConnectSerialDevice(External, Logger, TimeProvider, QFOC_BAUD, Encoding.ASCII) is { IsOpen: true } conn)
             {
                 return Task.FromResult((true, CONNECTION_ID_EXCLUSIVE, new QHYFocuserInfo(conn)));
             }

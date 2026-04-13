@@ -447,7 +447,7 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
         ISerialConnection? serialDevice;
         try
         {
-            if (_device.ConnectSerialDevice(External, SGP_BAUD_RATE, _encoding, logger: Logger, timeProvider: TimeProvider) is { IsOpen: true } openedConnection)
+            if (_device.ConnectSerialDevice(External, Logger, TimeProvider, SGP_BAUD_RATE, _encoding) is { IsOpen: true } openedConnection)
             {
                 serialDevice = openedConnection;
             }
