@@ -573,7 +573,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         ISerialConnection? serialDevice;
         try
         {
-            if (_device.ConnectSerialDevice(External, encoding: _encoding, logger: Logger) is { IsOpen: true } openedConnection)
+            if (_device.ConnectSerialDevice(External, encoding: _encoding, logger: Logger, timeProvider: TimeProvider) is { IsOpen: true } openedConnection)
             {
                 serialDevice = openedConnection;
             }
