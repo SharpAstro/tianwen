@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 
 namespace TianWen.Lib.Devices.Fake;
 
-internal class FakeFocuserDriver(FakeDevice fakeDevice, IExternal external) : FakePositionBasedDriver(fakeDevice, external), IFocuserDriver
+internal class FakeFocuserDriver(FakeDevice fakeDevice, IServiceProvider serviceProvider) : FakePositionBasedDriver(fakeDevice, serviceProvider), IFocuserDriver
 {
     // Temperature model
     private readonly double _baseTemperature = 15.0;
@@ -25,7 +25,7 @@ internal class FakeFocuserDriver(FakeDevice fakeDevice, IExternal external) : Fa
     protected override void OnConnected()
     {
         _position = _initialPosition;
-        _startTime = External.TimeProvider.GetUtcNow();
+        _startTime = TimeProvider.GetUtcNow();
     }
 
     /// <summary>Current true best focus position accounting for temperature drift.</summary>
@@ -148,8 +148,8 @@ internal class FakeFocuserDriver(FakeDevice fakeDevice, IExternal external) : Fa
 
     private double GetCurrentTemperature()
     {
-        _startTime ??= External.TimeProvider.GetUtcNow();
-        var elapsed = External.TimeProvider.GetUtcNow() - _startTime.Value;
+        _startTime ??= TimeProvider.GetUtcNow();
+        var elapsed = TimeProvider.GetUtcNow() - _startTime.Value;
         return _baseTemperature + _tempDriftRate * elapsed.TotalHours;
     }
 }

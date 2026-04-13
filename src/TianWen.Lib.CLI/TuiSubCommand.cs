@@ -50,7 +50,7 @@ internal class TuiSubCommand(
         }
         catch (Exception ex)
         {
-            consoleHost.External.AppLogger.LogError(ex, "TUI crashed");
+            sp.GetRequiredService<ILoggerFactory>().CreateLogger("TuiSubCommand").LogError(ex, "TUI crashed");
             throw;
         }
         finally
@@ -64,6 +64,7 @@ internal class TuiSubCommand(
     {
         var terminal = consoleHost.Terminal;
         var external = consoleHost.External;
+        var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("TuiSubCommand");
         var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
         // Shared state
@@ -88,7 +89,7 @@ internal class TuiSubCommand(
         tracker.Run(() => signalHandler.LoadSessionConfigAsync(cts.Token), "Load session config");
 
         // Resolve location from profile
-        var transform = Plan.LocationResolver.ResolveFromProfile(consoleHost, profile, external.TimeProvider);
+        var transform = Plan.LocationResolver.ResolveFromProfile(consoleHost, profile, consoleHost.TimeProvider);
         if (transform is not null)
         {
             AppSignalHandler.ApplySiteFromTransform(plannerState, transform);
@@ -102,10 +103,10 @@ internal class TuiSubCommand(
         var tabs = new Dictionary<GuiTab, ITuiTab>
         {
             [GuiTab.Equipment] = new TuiEquipmentTab(appState, eqState, equipmentContent, consoleHost, bus),
-            [GuiTab.Planner] = new TuiPlannerTab(appState, plannerState, fontPath, external.TimeProvider),
+            [GuiTab.Planner] = new TuiPlannerTab(appState, plannerState, fontPath, consoleHost.TimeProvider),
             [GuiTab.Session] = new TuiSessionTab(appState, sessionState, plannerState, bus),
-            [GuiTab.LiveSession] = new TuiLiveSessionTab(appState, liveSessionState, terminal, external.TimeProvider, bus),
-            [GuiTab.Guider] = new TuiGuiderTab(appState, liveSessionState, terminal, fontPath, external.TimeProvider),
+            [GuiTab.LiveSession] = new TuiLiveSessionTab(appState, liveSessionState, terminal, consoleHost.TimeProvider, bus),
+            [GuiTab.Guider] = new TuiGuiderTab(appState, liveSessionState, terminal, fontPath, consoleHost.TimeProvider),
         };
 
         // BuildScheduleSignal is now handled inside AppSignalHandler — no host-level subscription needed
@@ -206,7 +207,7 @@ internal class TuiSubCommand(
             else if (!appState.NeedsRedraw && !activeTab.NeedsRedraw)
             {
                 // Refresh tab bar clock once per second
-                var currentSecond = external.TimeProvider.GetUtcNow().Second;
+                var currentSecond = consoleHost.TimeProvider.GetUtcNow().Second;
                 if (currentSecond != lastClockSecond)
                 {
                     lastClockSecond = currentSecond;
@@ -218,7 +219,7 @@ internal class TuiSubCommand(
             // Signal bus + background tasks + recompute check
             bus.ProcessPending(tracker);
             signalHandler.CheckRecompute();
-            tracker.ProcessCompletions(external.AppLogger);
+            tracker.ProcessCompletions(logger);
 
             // Resize
             if (chromePanel.Recompute())
@@ -249,12 +250,12 @@ internal class TuiSubCommand(
                     var profileName = appState.ActiveProfile?.DisplayName ?? "No profile";
                     terminal.OutputStream.Write(System.Text.Encoding.UTF8.GetBytes($"\x1b]0;\U0001F52D {profileName} \u2014 {tabName}\x07"));
 
-                    tabBar.Render(appState, external.TimeProvider, plannerState.SiteTimeZone);
+                    tabBar.Render(appState, consoleHost.TimeProvider, plannerState.SiteTimeZone);
                     activeTab.Render();
                 }
                 catch (Exception ex)
                 {
-                    external.AppLogger.LogError(ex, "Render error on {Tab}", appState.ActiveTab);
+                    logger.LogError(ex, "Render error on {Tab}", appState.ActiveTab);
                 }
             }
         }

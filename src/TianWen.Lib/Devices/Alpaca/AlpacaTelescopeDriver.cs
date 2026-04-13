@@ -9,8 +9,8 @@ using static TianWen.Lib.Astrometry.CoordinateUtils;
 
 namespace TianWen.Lib.Devices.Alpaca;
 
-internal class AlpacaTelescopeDriver(AlpacaDevice device, IExternal external)
-    : AlpacaDeviceDriverBase(device, external), IMountDriver
+internal class AlpacaTelescopeDriver(AlpacaDevice device, IServiceProvider serviceProvider)
+    : AlpacaDeviceDriverBase(device, serviceProvider), IMountDriver
 {
     private List<TrackingSpeed> _trackingSpeeds = [];
 

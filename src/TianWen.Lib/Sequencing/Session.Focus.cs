@@ -9,6 +9,7 @@ using TianWen.Lib.Astrometry.Focus;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Stat;
+using TianWen.Lib.Extensions;
 
 namespace TianWen.Lib.Sequencing;
 
@@ -27,22 +28,22 @@ internal partial record Session
 
         if (!await mount.Driver.EnsureTrackingAsync(cancellationToken: cancellationToken))
         {
-            External.AppLogger.LogError("Failed to enable tracking of {Mount}.", mount);
+            _logger.LogError("Failed to enable tracking of {Mount}.", mount);
 
             return false;
         }
 
-        External.AppLogger.LogInformation("Slew mount {Mount} near zenith to verify that we have rough focus.", mount);
+        _logger.LogInformation("Slew mount {Mount} near zenith to verify that we have rough focus.", mount);
 
         // coordinates not quite accurate at this point (we have not plate-solved yet) but good enough for this purpose.
         await mount.Driver.BeginSlewToZenithAsync(distMeridian, cancellationToken).ConfigureAwait(false);
         var slewTime = await GetMountUtcNowAsync(cancellationToken);
 
         _currentActivity = "Waiting for slew to complete\u2026";
-        External.AppLogger.LogInformation("RoughFocus: waiting for slew to complete...");
+        _logger.LogInformation("RoughFocus: waiting for slew to complete...");
         if (!await mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, cancellationToken).ConfigureAwait(false))
         {
-            External.AppLogger.LogError("Failed to complete slewing of mount {Mount}", mount);
+            _logger.LogError("Failed to complete slewing of mount {Mount}", mount);
 
             return false;
         }
@@ -64,10 +65,10 @@ internal partial record Session
         }
 
         _currentActivity = "Guider plate-solve (60s timeout)\u2026";
-        External.AppLogger.LogInformation("RoughFocus: slew complete, starting guider plate-solve loop (1 min timeout)...");
+        _logger.LogInformation("RoughFocus: slew complete, starting guider plate-solve loop (1 min timeout)...");
         if (!await GuiderFocusLoopAsync(TimeSpan.FromMinutes(1), cancellationToken))
         {
-            External.AppLogger.LogWarning("RoughFocus: guider focus loop timed out or failed, continuing with rough focus detection.");
+            _logger.LogWarning("RoughFocus: guider focus loop timed out or failed, continuing with rough focus detection.");
         }
 
         var count = Setup.Telescopes.Length;
@@ -133,7 +134,7 @@ internal partial record Session
                     var stars = await image.FindStarsAsync(0, snrMin: 15, cancellationToken: cancellationToken);
 
                     _currentActivity = $"Stars: {stars.Count}/15 (exposure {expTimesSec[i]}s)";
-                    External.AppLogger.LogInformation("RoughFocus: telescope #{TelescopeNumber} exposure {ExpTime}s focPos={FocusPosition} → {StarCount} stars detected (need ≥15)",
+                    _logger.LogInformation("RoughFocus: telescope #{TelescopeNumber} exposure {ExpTime}s focPos={FocusPosition} → {StarCount} stars detected (need ≥15)",
                         i + 1, expTimesSec[i], camDriver.FocusPosition, stars.Count);
 
                     if (stars.Count < 15)
@@ -168,7 +169,7 @@ internal partial record Session
 
                 if (!await mount.Driver.WaitForSlewCompleteAsync(PollDeviceStatesAsync, cancellationToken).ConfigureAwait(false))
                 {
-                    External.AppLogger.LogError("Failed to complete slewing of mount {Mount}", mount);
+                    _logger.LogError("Failed to complete slewing of mount {Mount}", mount);
 
                     return false;
                 }
@@ -255,7 +256,7 @@ internal partial record Session
             baselines[telescopeIndex] = medianMetrics;
             SetBaselineForCurrentObservation(baselines);
 
-            External.AppLogger.LogInformation(
+            _logger.LogInformation(
                 "Established baseline for telescope #{TelescopeNumber} on observation #{ObservationIndex}: HFD={BaselineHFD:F2}, FWHM={BaselineFWHM:F2}, stars={StarCount} (from {FrameCount} frames).",
                 telescopeIndex + 1, obsIndex + 1, medianMetrics.MedianHfd, medianMetrics.MedianFwhm, medianMetrics.StarCount, Configuration.BaselineHfdFrameCount);
         }
@@ -283,7 +284,7 @@ internal partial record Session
         curveBuilder.Sort((a, b) => a.Position.CompareTo(b.Position));
 
         _focusHistory.Enqueue(new FocusRunRecord(
-            Timestamp: External.TimeProvider.GetUtcNow(),
+            Timestamp: _timeProvider.GetUtcNow(),
             OtaName: telescope.Name,
             FilterName: filterName,
             BestPosition: bestPos,
@@ -307,7 +308,7 @@ internal partial record Session
 
         if (focuser is not { Connected: true })
         {
-            External.AppLogger.LogWarning("Telescope #{TelescopeNumber} has no connected focuser, skipping auto-focus.", telescopeIndex + 1);
+            _logger.LogWarning("Telescope #{TelescopeNumber} has no connected focuser, skipping auto-focus.", telescopeIndex + 1);
             return (false, default);
         }
 
@@ -351,7 +352,7 @@ internal partial record Session
         var stepSize = range / (stepCount - 1);
         var startPos = Math.Max(0, currentPos - range / 2);
 
-        External.AppLogger.LogInformation("Auto-focus telescope #{TelescopeNumber}: scanning {StepCount} positions from {StartPos} with step size {StepSize}.",
+        _logger.LogInformation("Auto-focus telescope #{TelescopeNumber}: scanning {StepCount} positions from {StartPos} with step size {StepSize}.",
             telescopeIndex + 1, stepCount, startPos, stepSize);
 
         var sampleMap = new MetricSampleMap(SampleKind.HFD, AggregationMethod.Median);
@@ -386,7 +387,7 @@ internal partial record Session
             {
                 var focTemp = await CatchAsync(focuser.GetTemperatureAsync, cancellationToken, double.NaN);
                 _cameraStates[telescopeIndex] = new CameraExposureState(
-                    telescopeIndex, External.TimeProvider.GetUtcNow(), autoFocusExposure,
+                    telescopeIndex, _timeProvider.GetUtcNow(), autoFocusExposure,
                     i + 1, $"Focus {i + 1}/{stepCount}", targetPos, Devices.CameraState.Exposing,
                     focTemp, FocuserIsMoving: false);
             }
@@ -433,14 +434,14 @@ internal partial record Session
                     var hfd = stars.MapReduceStarProperty(SampleKind.HFD, AggregationMethod.Median);
                     sampleMap.AddSampleAtFocusPosition(targetPos, hfd);
                     _activeFocusSamples = _activeFocusSamples.Add((targetPos, hfd));
-                    External.AppLogger.LogInformation("Auto-focus pos={Position} stars={StarCount} HFD={HFD:F2}", targetPos, stars.Count, hfd);
+                    _logger.LogInformation("Auto-focus pos={Position} stars={StarCount} HFD={HFD:F2}", targetPos, stars.Count, hfd);
                 }
                 else
                 {
-                    External.AppLogger.LogInformation("Auto-focus pos={Position} too few stars ({StarCount})", targetPos, stars.Count);
+                    _logger.LogInformation("Auto-focus pos={Position} too few stars ({StarCount})", targetPos, stars.Count);
                 }
 
-                External.AppLogger.LogInformation(
+                _logger.LogInformation(
                     "Memory after AF pos={Position}: working={WorkingMB:F0}MB, managed={ManagedMB:F0}MB | pool: {Pooled} pooled, {Hits}h/{Misses}m/{Returns}r, {FinalizerReturns} finalizer",
                     targetPos,
                     Environment.WorkingSet / (1024.0 * 1024),
@@ -467,7 +468,7 @@ internal partial record Session
         }
         GC.Collect(2, GCCollectionMode.Aggressive, blocking: true);
         GC.WaitForPendingFinalizers();
-        External.AppLogger.LogInformation(
+        _logger.LogInformation(
             "Memory after AF cleanup: working={WorkingMB:F0}MB, managed={ManagedMB:F0}MB | pool: {Pooled} pooled, {FinalizerReturns} finalizer",
             Environment.WorkingSet / (1024.0 * 1024),
             GC.GetTotalMemory(forceFullCollection: false) / (1024.0 * 1024),
@@ -488,7 +489,7 @@ internal partial record Session
             var currentPosNow = await focuser.GetPositionAsync(cancellationToken);
 
             _currentActivity = $"#{telescopeIndex + 1} Moving to best focus ({bestPos})";
-            External.AppLogger.LogInformation("Auto-focus telescope #{TelescopeNumber}: best focus at position {BestFocus} (A={A:F2}, B={B:F2}, error={Error:F4}).",
+            _logger.LogInformation("Auto-focus telescope #{TelescopeNumber}: best focus at position {BestFocus} (A={A:F2}, B={B:F2}, error={Error:F4}).",
                 telescopeIndex + 1, bestPos, solution.Value.A, solution.Value.B, solution.Value.Error);
 
             await BacklashCompensation.MoveWithCompensationAsync(
@@ -519,12 +520,12 @@ internal partial record Session
                     var expectedHfd = solution.Value.A;
                     var hfdRatio = baseline.MedianHfd / expectedHfd;
 
-                    External.AppLogger.LogInformation("Auto-focus telescope #{TelescopeNumber}: baseline HFD={BaselineHFD:F2} (expected={Expected:F2}, ratio={Ratio:F2}), FWHM={BaselineFWHM:F2}, stars={StarCount}.",
+                    _logger.LogInformation("Auto-focus telescope #{TelescopeNumber}: baseline HFD={BaselineHFD:F2} (expected={Expected:F2}, ratio={Ratio:F2}), FWHM={BaselineFWHM:F2}, stars={StarCount}.",
                         telescopeIndex + 1, baseline.MedianHfd, expectedHfd, hfdRatio, baseline.MedianFwhm, baseline.StarCount);
 
                     if (hfdRatio > 1.5)
                     {
-                        External.AppLogger.LogWarning("Auto-focus telescope #{TelescopeNumber}: verification HFD is {Ratio:F0}% worse than expected, focus result may be unreliable.",
+                        _logger.LogWarning("Auto-focus telescope #{TelescopeNumber}: verification HFD is {Ratio:F0}% worse than expected, focus result may be unreliable.",
                             telescopeIndex + 1, (hfdRatio - 1) * 100);
                     }
 
@@ -542,7 +543,7 @@ internal partial record Session
             return (true, new FrameMetrics(0, (float)solution.Value.A, float.NaN, autoFocusExposure, currentGain));
         }
 
-        External.AppLogger.LogWarning("Auto-focus telescope #{TelescopeNumber}: hyperbola fit did not converge.", telescopeIndex + 1);
+        _logger.LogWarning("Auto-focus telescope #{TelescopeNumber}: hyperbola fit did not converge.", telescopeIndex + 1);
         return (false, default);
     }
 
@@ -585,7 +586,7 @@ internal partial record Session
 
         if (image is null)
         {
-            External.AppLogger.LogWarning("Plate solve: failed to capture image from camera #{CameraNumber}.", telescopeIndex + 1);
+            _logger.LogWarning("Plate solve: failed to capture image from camera #{CameraNumber}.", telescopeIndex + 1);
             RecordPlateSolve(context, telescope.Name, succeeded: false, solution: null, elapsed: TimeSpan.Zero);
             return (false, double.NaN, double.NaN);
         }
@@ -600,12 +601,12 @@ internal partial record Session
 
         if (result.Solution is not { } wcs)
         {
-            External.AppLogger.LogWarning("Plate solve: failed to solve image from camera #{CameraNumber}.", telescopeIndex + 1);
+            _logger.LogWarning("Plate solve: failed to solve image from camera #{CameraNumber}.", telescopeIndex + 1);
             RecordPlateSolve(context, telescope.Name, succeeded: false, solution: null, result);
             return (false, double.NaN, double.NaN);
         }
 
-        External.AppLogger.LogInformation(
+        _logger.LogInformation(
             "Plate solve: solved at ({SolvedRA}, {SolvedDec}), mount was at ({MountRA}, {MountDec}), offset=({DeltaRA:F4}h, {DeltaDec:F2}°).",
             Astrometry.CoordinateUtils.HoursToHMS(wcs.CenterRA), Astrometry.CoordinateUtils.DegreesToDMS(wcs.CenterDec),
             Astrometry.CoordinateUtils.HoursToHMS(mountRa), Astrometry.CoordinateUtils.DegreesToDMS(mountDec),
@@ -614,7 +615,7 @@ internal partial record Session
         // Sync mount to solved J2000 coordinates
         await mount.Driver.SyncRaDecJ2000Async(wcs.CenterRA, wcs.CenterDec, cancellationToken);
 
-        External.AppLogger.LogInformation("Plate solve: mount synced to solved position.");
+        _logger.LogInformation("Plate solve: mount synced to solved position.");
         RecordPlateSolve(context, telescope.Name, succeeded: true, solution: wcs, result);
         return (true, wcs.CenterRA, wcs.CenterDec);
     }
@@ -635,7 +636,7 @@ internal partial record Session
             var (solved, solvedRa, solvedDec) = await PlateSolveAndSyncCoreAsync(telescopeIndex, TimeSpan.FromSeconds(5), PlateSolveContext.Centering, cancellationToken);
             if (!solved)
             {
-                External.AppLogger.LogWarning("Centering: plate solve failed on attempt {Attempt}/{Max}", attempt, maxAttempts);
+                _logger.LogWarning("Centering: plate solve failed on attempt {Attempt}/{Max}", attempt, maxAttempts);
                 continue;
             }
 
@@ -645,12 +646,12 @@ internal partial record Session
             var deltaDecArcmin = Math.Abs(solvedDec - target.Dec) * 60.0;
             var totalOffsetArcmin = Math.Sqrt(deltaRaArcmin * deltaRaArcmin + deltaDecArcmin * deltaDecArcmin);
 
-            External.AppLogger.LogInformation("Centering: offset={Offset:F2}' (RA={DeltaRA:F2}' Dec={DeltaDec:F2}') attempt {Attempt}/{Max}",
+            _logger.LogInformation("Centering: offset={Offset:F2}' (RA={DeltaRA:F2}' Dec={DeltaDec:F2}') attempt {Attempt}/{Max}",
                 totalOffsetArcmin, deltaRaArcmin, deltaDecArcmin, attempt, maxAttempts);
 
             if (totalOffsetArcmin <= thresholdArcmin)
             {
-                External.AppLogger.LogInformation("Centering: converged within {Threshold}' after {Attempt} attempt(s)", thresholdArcmin, attempt);
+                _logger.LogInformation("Centering: converged within {Threshold}' after {Attempt} attempt(s)", thresholdArcmin, attempt);
                 return true;
             }
 
@@ -663,7 +664,7 @@ internal partial record Session
             }
         }
 
-        External.AppLogger.LogWarning("Centering: did not converge within {Max} attempts for {Target}", maxAttempts, target.Name);
+        _logger.LogWarning("Centering: did not converge within {Max} attempts for {Target}", maxAttempts, target.Name);
         return false;
     }
 
@@ -687,7 +688,7 @@ internal partial record Session
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            External.AppLogger.LogWarning(ex, "Guider plate-solve failed");
+            _logger.LogWarning(ex, "Guider plate-solve failed");
             RecordPlateSolve(PlateSolveContext.GuiderFocus, guider.Device.DisplayName, succeeded: false, solution: null, elapsed: TimeSpan.Zero);
             return false;
         }
@@ -696,14 +697,14 @@ internal partial record Session
 
         if (result.Solution is { } wcs)
         {
-            External.AppLogger.LogInformation("Guider \"{GuiderName}\" is in focus and camera image plate solve succeeded with ({SolvedRa}, {SolvedDec})",
+            _logger.LogInformation("Guider \"{GuiderName}\" is in focus and camera image plate solve succeeded with ({SolvedRa}, {SolvedDec})",
                 guiderName, wcs.CenterRA, wcs.CenterDec);
             RecordPlateSolve(PlateSolveContext.GuiderFocus, guiderName, succeeded: true, solution: wcs, result);
             return true;
         }
         else
         {
-            External.AppLogger.LogWarning("Failed to plate solve guider \"{GuiderName}\" without a specific reason (probably not enough stars detected)",
+            _logger.LogWarning("Failed to plate solve guider \"{GuiderName}\" without a specific reason (probably not enough stars detected)",
                 guiderName);
             RecordPlateSolve(PlateSolveContext.GuiderFocus, guiderName, succeeded: false, solution: null, result);
         }
@@ -719,7 +720,7 @@ internal partial record Session
     private void RecordPlateSolve(PlateSolveContext context, string otaName, bool succeeded, WCS? solution, TimeSpan elapsed, int detectedStars = 0, int matchedStars = 0)
     {
         var record = new PlateSolveRecord(
-            Timestamp: External.TimeProvider.GetUtcNow(),
+            Timestamp: _timeProvider.GetUtcNow(),
             Context: context,
             OtaName: otaName,
             Succeeded: succeeded,

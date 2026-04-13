@@ -10,7 +10,7 @@ namespace TianWen.Lib.Devices.Fake;
 /// Fake weather driver for testing. Returns deterministic synthetic weather data
 /// with a clear→cloudy→rainy→foggy→clear cycle over the night.
 /// </summary>
-internal sealed class FakeWeatherDriver(FakeDevice fakeDevice, IExternal external) : FakeDeviceDriverBase(fakeDevice, external), IWeatherDriver
+internal sealed class FakeWeatherDriver(FakeDevice fakeDevice, IServiceProvider serviceProvider) : FakeDeviceDriverBase(fakeDevice, serviceProvider), IWeatherDriver
 {
     public double CloudCover => 45.0;
     public double Temperature => 12.5;

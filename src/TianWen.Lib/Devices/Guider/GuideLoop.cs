@@ -19,6 +19,7 @@ internal sealed class GuideLoop
     private readonly GuideErrorTracker _errorTracker;
     private readonly ProportionalGuideController _pController;
     private readonly IExternal _external;
+    private readonly TimeProvider _timeProvider;
 
     private GuiderCalibrationResult? _calibration;
     private NeuralGuideModel? _neuralModel;
@@ -137,12 +138,14 @@ internal sealed class GuideLoop
         IPulseGuideTarget pulseTarget,
         GuiderCentroidTracker tracker,
         ProportionalGuideController pController,
-        IExternal external)
+        IExternal external,
+        TimeProvider timeProvider)
     {
         _pulseTarget = pulseTarget;
         _tracker = tracker;
         _pController = pController;
         _external = external;
+        _timeProvider = timeProvider;
         _errorTracker = new GuideErrorTracker();
     }
 
@@ -491,6 +494,6 @@ internal sealed class GuideLoop
 
     private double GetTimestamp()
     {
-        return _external.TimeProvider.GetTimestamp() / (double)_external.TimeProvider.TimestampFrequency;
+        return _timeProvider.GetTimestamp() / (double)_timeProvider.TimestampFrequency;
     }
 }

@@ -23,8 +23,8 @@ internal record struct MountDeviceInfo(ISerialConnection SerialDevice);
 /// </summary>
 /// <param name="device"></param>
 /// <param name="external"></param>
-internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice device, IExternal external)
-    : DeviceDriverBase<TDevice, MountDeviceInfo>(device, external), IMountDriver
+internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice device, IServiceProvider serviceProvider)
+    : DeviceDriverBase<TDevice, MountDeviceInfo>(device, serviceProvider), IMountDriver
     where TDevice : DeviceBase
 {
     private static readonly Encoding _encoding = Encoding.Latin1;
@@ -177,7 +177,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     public ValueTask<bool> IsPulseGuidingAsync(CancellationToken cancellationToken)
     {
         var endTicks = Volatile.Read(ref _pulseGuideEndTicks);
-        return ValueTask.FromResult(endTicks > 0 && External.TimeProvider.GetTimestamp() < endTicks);
+        return ValueTask.FromResult(endTicks > 0 && TimeProvider.GetTimestamp() < endTicks);
     }
 
     private static readonly ReadOnlyMemory<byte> DCommand = "D"u8.ToArray();
@@ -438,7 +438,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
             throw new InvalidOperationException($"Failed to set target right ascension to {HoursToHMS(value)}, using command {_encoding.GetString(buffer)}, response={response}");
         }
 #if TRACE
-        External.AppLogger.LogTrace("Set target right ascension to {TargetRightAscension}, current right ascension is {RightAscension}, high precision={HighPrecision}",
+        Logger.LogTrace("Set target right ascension to {TargetRightAscension}, current right ascension is {RightAscension}, high precision={HighPrecision}",
             HoursToHMS(value), HoursToHMS(ra), highPrecision);
 #endif
     }
@@ -512,7 +512,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         }
 
 #if TRACE
-        External.AppLogger.LogTrace("Set target declination to {TargetDeclination}, current declination is {Declination}, high precision={HighPrecision}",
+        Logger.LogTrace("Set target declination to {TargetDeclination}, current declination is {Declination}, high precision={HighPrecision}",
             DegreesToDMS(targetDec), DegreesToDMS(dec), highPrecision);
 #endif
     }
@@ -652,7 +652,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
             if (response is "1")
             {
-                External.AppLogger.LogInformation("Updated site latitude to {Degrees}", latitude);
+                Logger.LogInformation("Updated site latitude to {Degrees}", latitude);
             }
             else
             {
@@ -704,7 +704,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
             if (response is "1")
             {
-                External.AppLogger.LogInformation("Updated site longitude to {Degrees}", value);
+                Logger.LogInformation("Updated site longitude to {Degrees}", value);
             }
             else
             {
@@ -807,8 +807,8 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         if (ms.TryFormat(buffer.AsSpan(3), out _, "0000", CultureInfo.InvariantCulture))
         {
             // Track pulse end time for IsPulseGuidingAsync (LX200 has no wire-level query)
-            var endTicks = External.TimeProvider.GetTimestamp()
-                + (long)(duration.TotalSeconds * External.TimeProvider.TimestampFrequency);
+            var endTicks = TimeProvider.GetTimestamp()
+                + (long)(duration.TotalSeconds * TimeProvider.TimestampFrequency);
             // Keep the latest end time (overlapping pulses)
             long current;
             do
@@ -861,7 +861,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
             if (response is "0")
             {
 #if TRACE
-                External.AppLogger.LogTrace("Slewing to {RA},{Dec}", HoursToHMS(ra), DegreesToDMS(dec));
+                Logger.LogTrace("Slewing to {RA},{Dec}", HoursToHMS(ra), DegreesToDMS(dec));
 #endif
             }
             else if (response is { Length: 1 }
@@ -944,7 +944,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         ISerialConnection? serialDevice;
         try
         {
-            if (_device.ConnectSerialDevice(External, encoding: _encoding) is { IsOpen: true } openedConnection)
+            if (_device.ConnectSerialDevice(External, encoding: _encoding, logger: Logger) is { IsOpen: true } openedConnection)
             {
                 serialDevice = openedConnection;
             }
@@ -956,7 +956,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         catch (Exception ex)
         {
             serialDevice = null;
-            External.AppLogger.LogError(ex, "Error when connecting to serial port {DeviceUri}", _device.DeviceUri);
+            Logger.LogError(ex, "Error when connecting to serial port {DeviceUri}", _device.DeviceUri);
         }
 
         if (serialDevice is not null)
@@ -1010,14 +1010,14 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
             if (!await TrySetHighPrecisionAsync(cancellationToken))
             {
-                External.AppLogger.LogWarning("Failed to set high precision via :U#");
+                Logger.LogWarning("Failed to set high precision via :U#");
             }
 
             return true;
         }
         catch (Exception e)
         {
-            External.AppLogger.LogError(e, "Failed to initialize mount");
+            Logger.LogError(e, "Failed to initialize mount");
 
             return false;
         }

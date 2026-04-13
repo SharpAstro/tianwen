@@ -9,7 +9,7 @@ using TianWen.Lib.Connections;
 
 namespace TianWen.Lib.Devices.IOptron;
 
-internal partial class IOptronDeviceSource(IExternal external) : IDeviceSource<IOptronDevice>
+internal partial class IOptronDeviceSource(IExternal external, ILogger<IOptronDeviceSource> logger, TimeProvider timeProvider) : IDeviceSource<IOptronDevice>
 {
     private Dictionary<DeviceType, List<IOptronDevice>>? _cachedDevices;
 
@@ -31,7 +31,7 @@ internal partial class IOptronDeviceSource(IExternal external) : IDeviceSource<I
             }
             catch (Exception ex)
             {
-                external.AppLogger.LogWarning(ex, "Failed to query iOptron device on {PortName}", portName);
+                logger.LogWarning(ex, "Failed to query iOptron device on {PortName}", portName);
             }
         }
 
@@ -41,7 +41,7 @@ internal partial class IOptronDeviceSource(IExternal external) : IDeviceSource<I
     private async Task QueryPortAsync(Dictionary<DeviceType, List<IOptronDevice>> devices, string portName, CancellationToken cancellationToken)
     {
         var ioTimeout = TimeSpan.FromMilliseconds(500);
-        using var cts = new CancellationTokenSource(ioTimeout, external.TimeProvider);
+        using var cts = new CancellationTokenSource(ioTimeout, timeProvider);
         var linkedToken = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken).Token;
 
         using var serialDevice = external.OpenSerialDevice(portName, IOptronDevice.SGP_BAUD_RATE, Encoding.ASCII);

@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Extensions;
 
 namespace TianWen.Lib.Sequencing;
 
@@ -65,7 +66,7 @@ internal partial record Session
                 }
                 else if (!calibratorActionCompleted)
                 {
-                    External.AppLogger.LogError("Failed to turn off calibrator of telescope {TelescopeNumber}, current state {CalibratorState}", i+1, await cover.Driver.GetCalibratorStateAsync(cancellationToken));
+                    _logger.LogError("Failed to turn off calibrator of telescope {TelescopeNumber}, current state {CalibratorState}", i+1, await cover.Driver.GetCalibratorStateAsync(cancellationToken));
                 }
             }
             else
@@ -86,7 +87,7 @@ internal partial record Session
                     && ++failSafe < IDeviceDriver.MAX_FAILSAFE
                 )
                 {
-                    External.AppLogger.LogInformation("Cover {Cover} of telescope {TelescopeNumber} is still {CurrentState} while reaching {FinalCoverState}, waiting.",
+                    _logger.LogInformation("Cover {Cover} of telescope {TelescopeNumber} is still {CurrentState} while reaching {FinalCoverState}, waiting.",
                         cover, i + 1, cs, finalCoverState);
                     await External.SleepAsync(TimeSpan.FromSeconds(3), cancellationToken);
                 }
@@ -96,7 +97,7 @@ internal partial record Session
 
                 if (!finalCoverStateReached[i])
                 {
-                    External.AppLogger.LogError("Failed to {CoverAction} cover of telescope {TelescopeNumber} after moving, current state {CurrentCoverState}",
+                    _logger.LogError("Failed to {CoverAction} cover of telescope {TelescopeNumber} after moving, current state {CurrentCoverState}",
                         shouldOpen ? "open" : "close",  i + 1, finalCoverStateAfterMoving);
                 }
             }

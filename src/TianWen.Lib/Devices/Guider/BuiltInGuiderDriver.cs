@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
@@ -56,10 +57,12 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         Settling = 4,
     }
 
-    public BuiltInGuiderDriver(BuiltInGuiderDevice device, IExternal external)
+    public BuiltInGuiderDriver(BuiltInGuiderDevice device, IServiceProvider serviceProvider)
     {
         _device = device;
-        External = external;
+        External = serviceProvider.GetRequiredService<IExternal>();
+        Logger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(BuiltInGuiderDriver));
+        TimeProvider = serviceProvider.GetRequiredService<TimeProvider>();
         ReverseDecOnFlip = device.ReverseDecAfterFlip;
         _reuseCalibration = device.ReuseCalibration;
         _useNeuralGuider = device.UseNeuralGuider;
@@ -79,6 +82,10 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     public DeviceType DriverType => DeviceType.Guider;
 
     public IExternal External { get; }
+
+    public ILogger Logger { get; }
+
+    public TimeProvider TimeProvider { get; }
 
 
     /// <summary>
@@ -204,7 +211,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                 ? Math.Sqrt(ra * ra + dec * dec)
                 : 0.0;
 
-            var elapsed = External.TimeProvider.GetElapsedTime(_settleStartedTicks);
+            var elapsed = TimeProvider.GetElapsedTime(_settleStartedTicks);
 
             return ValueTask.FromResult<SettleProgress?>(new SettleProgress
             {
@@ -357,10 +364,10 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
             return null;
         }
 
-        var ext = External;
+        var timeProvider = TimeProvider;
         async ValueTask<Image> CaptureFrame(CancellationToken token)
         {
-            var f = await CaptureGuideFrameAsync(camera, exposureTime, ext, token);
+            var f = await CaptureGuideFrameAsync(camera, exposureTime, External, token);
             _lastFrame = f;
             return f;
         }
@@ -388,7 +395,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
             return null;
         }
 
-        External.AppLogger.LogInformation("Loaded saved calibration (angle={Angle:F1}°, RA rate={RaRate:F2} px/s). Validating...",
+        Logger.LogInformation("Loaded saved calibration (angle={Angle:F1}°, RA rate={RaRate:F2} px/s). Validating...",
             savedCalibration.Value.CameraAngleDeg, savedCalibration.Value.RaRatePixPerSec);
 
         // Acquire a guide star for validation
@@ -401,14 +408,14 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
         if (!tracker.IsAcquired)
         {
-            External.AppLogger.LogWarning("Cannot validate saved calibration — no guide star acquired.");
+            Logger.LogWarning("Cannot validate saved calibration — no guide star acquired.");
             return null;
         }
 
-        var ext = External;
+        var timeProvider = TimeProvider;
         async ValueTask<Image> CaptureFrame(CancellationToken token)
         {
-            var f = await CaptureGuideFrameAsync(camera, exposureTime, ext, token);
+            var f = await CaptureGuideFrameAsync(camera, exposureTime, External, token);
             _lastFrame = f;
             return f;
         }
@@ -419,17 +426,17 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         switch (result)
         {
             case CalibrationValidationResult.Valid:
-                External.AppLogger.LogInformation("Saved calibration validated — reusing.");
+                Logger.LogInformation("Saved calibration validated — reusing.");
                 _lastCalibration = savedCalibration;
                 _calibrationPierSide = await _mount!.GetSideOfPierAsync(ct);
                 return savedCalibration;
 
             case CalibrationValidationResult.RateDrifted:
-                External.AppLogger.LogInformation("Saved calibration rate drifted — recalibrating (keeping neural weights).");
+                Logger.LogInformation("Saved calibration rate drifted — recalibrating (keeping neural weights).");
                 return null;
 
             case CalibrationValidationResult.AngleChanged:
-                External.AppLogger.LogInformation("Saved calibration angle changed — recalibrating (discarding neural weights).");
+                Logger.LogInformation("Saved calibration angle changed — recalibrating (discarding neural weights).");
                 return null;
 
             default:
@@ -487,16 +494,16 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                     _lastCalibration = flipped;
                     _calibrationPierSide = currentPierSide;
 
-                    External.AppLogger.LogInformation("Built-in guider: detected meridian flip (pier side {CalPier} → {CurPier}), reversed DEC direction.",
+                    Logger.LogInformation("Built-in guider: detected meridian flip (pier side {CalPier} → {CurPier}), reversed DEC direction.",
                         calPier, currentPierSide);
                 }
             }
 
             // Acquire guide star and set lock position
             var tracker = new GuiderCentroidTracker(maxStars: 1);
-            var ext = External;
+            var timeProvider = TimeProvider;
             async ValueTask<Image> CaptureFrame(CancellationToken token)
-                => await CaptureGuideFrameAsync(camera, exposureTime, ext, token);
+                => await CaptureGuideFrameAsync(camera, exposureTime, External, token);
 
             var frame = await CaptureGuideFrameAsync(camera, exposureTime, External, ct);
             tracker.ProcessFrame(frame.GetChannelArray(0));
@@ -510,7 +517,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                 MinPulseMs = 5
             };
 
-            var guideLoop = new GuideLoop(pulseTarget, tracker, pController, External);
+            var guideLoop = new GuideLoop(pulseTarget, tracker, pController, External, TimeProvider);
             guideLoop.SetCalibration(calResult.Value);
 
             // Enable neural guide model with online learning if configured
@@ -525,7 +532,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                 guideLoop.NeuralBlendFactor = _neuralBlendFactor;
                 guideLoop.EnableNeuralModel(model);
                 guideLoop.EnableOnlineLearning(profileFolder: External.ProfileFolder);
-                External.AppLogger.LogInformation(
+                Logger.LogInformation(
                     "Neural guide enabled (blend={Blend}, {Status})",
                     _neuralBlendFactor, loaded is not null ? "loaded from disk" : "fresh model");
             }
@@ -682,7 +689,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
     private void RecordSettleStart()
     {
-        Interlocked.Exchange(ref _settleStartedTicks, External.TimeProvider.GetTimestamp());
+        Interlocked.Exchange(ref _settleStartedTicks, TimeProvider.GetTimestamp());
     }
 
     /// <summary>
@@ -696,7 +703,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
             return false;
         }
 
-        var elapsed = External.TimeProvider.GetElapsedTime(_settleStartedTicks);
+        var elapsed = TimeProvider.GetElapsedTime(_settleStartedTicks);
 
         // Check actual error distance (in pixels) against the settle threshold
         var tracker = _guideLoop?.ErrorTracker;

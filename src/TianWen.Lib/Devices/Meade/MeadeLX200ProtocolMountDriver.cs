@@ -1,6 +1,8 @@
-﻿namespace TianWen.Lib.Devices.Meade;
+﻿using System;
 
-internal class MeadeLX200ProtocolMountDriver(MeadeDevice device, IExternal external) : MeadeLX200ProtocolMountDriverBase<MeadeDevice>(device, external)
+namespace TianWen.Lib.Devices.Meade;
+
+internal class MeadeLX200ProtocolMountDriver(MeadeDevice device, IServiceProvider serviceProvider) : MeadeLX200ProtocolMountDriverBase<MeadeDevice>(device, serviceProvider)
 {
 
 }

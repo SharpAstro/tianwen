@@ -22,7 +22,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
         var device = new FakeDevice(DeviceType.Mount, 1);
-        var mount = new FakeMountDriver(device, external);
+        var mount = new FakeMountDriver(device, external.BuildServiceProvider());
         await mount.ConnectAsync(ct);
         await mount.SetPositionAsync(12.0, 45.0, ct);
 
@@ -86,7 +86,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
         var device = new FakeDevice(DeviceType.Mount, 1);
-        var mount = new FakeMountDriver(device, external);
+        var mount = new FakeMountDriver(device, external.BuildServiceProvider());
         await mount.ConnectAsync(ct);
         await mount.SetPositionAsync(12.0, 45.0, ct);
 
@@ -164,7 +164,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
         var device = new FakeDevice(DeviceType.Mount, 1);
         // Guide rate is ~10 arcsec/s, so 25 arcsec backlash needs ~3 pulses to clear
-        var mount = new FakeMountDriver(device, external) { DecBacklashArcsec = 25.0 };
+        var mount = new FakeMountDriver(device, external.BuildServiceProvider()) { DecBacklashArcsec = 25.0 };
         await mount.ConnectAsync(ct);
         await mount.SetPositionAsync(12.0, 45.0, ct);
 
@@ -220,7 +220,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
         var device = new FakeDevice(DeviceType.Mount, 1);
-        var mount = new FakeMountDriver(device, external) { DecBacklashArcsec = 0 };
+        var mount = new FakeMountDriver(device, external.BuildServiceProvider()) { DecBacklashArcsec = 0 };
         await mount.ConnectAsync(ct);
         await mount.SetPositionAsync(12.0, 45.0, ct);
 
@@ -276,7 +276,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
         var device = new FakeDevice(DeviceType.Mount, 1);
-        var mount = new FakeMountDriver(device, external) { DecBacklashArcsec = 1000.0 };
+        var mount = new FakeMountDriver(device, external.BuildServiceProvider()) { DecBacklashArcsec = 1000.0 };
         await mount.ConnectAsync(ct);
         await mount.SetPositionAsync(12.0, 45.0, ct);
 
@@ -333,7 +333,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
         var device = new FakeDevice(DeviceType.Mount, 1);
         // Guide rate is ~10 arcsec/s, so 25 arcsec backlash needs ~3 pulses to clear
-        var mount = new FakeMountDriver(device, external) { DecBacklashArcsec = 25.0 };
+        var mount = new FakeMountDriver(device, external.BuildServiceProvider()) { DecBacklashArcsec = 25.0 };
         await mount.ConnectAsync(ct);
         await mount.SetPositionAsync(12.0, 45.0, ct);
 

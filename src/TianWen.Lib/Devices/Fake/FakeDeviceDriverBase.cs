@@ -1,15 +1,16 @@
-﻿using System;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace TianWen.Lib.Devices.Fake;
 
-internal abstract class FakeDeviceDriverBase(FakeDevice fakeDevice, IExternal external) : IDeviceDriver
+internal abstract class FakeDeviceDriverBase(FakeDevice fakeDevice, IServiceProvider serviceProvider) : IDeviceDriver
 {
     protected readonly FakeDevice _fakeDevice = fakeDevice;
     private bool _connected;
 
-    protected IExternal _external = external;
     protected bool disposedValue;
 
     public string Name => _fakeDevice.DisplayName;
@@ -24,7 +25,11 @@ internal abstract class FakeDeviceDriverBase(FakeDevice fakeDevice, IExternal ex
 
     public DeviceType DriverType => _fakeDevice.DeviceType;
 
-    public IExternal External { get; } = external;
+    public IExternal External { get; } = serviceProvider.GetRequiredService<IExternal>();
+
+    public ILogger Logger { get; } = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(fakeDevice.GetType().Name);
+
+    public TimeProvider TimeProvider { get; } = serviceProvider.GetRequiredService<TimeProvider>();
 
     public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
 

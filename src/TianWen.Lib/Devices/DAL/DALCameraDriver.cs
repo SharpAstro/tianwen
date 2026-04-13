@@ -45,7 +45,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
     private readonly System.Collections.Concurrent.ConcurrentBag<float[,]> _freeBuffers = [];
     private readonly ITimer?[] _pulseGuiderTimers = new ITimer?[4];
 
-    public DALCameraDriver(TDevice device, IExternal external) : base(device, external)
+    public DALCameraDriver(TDevice device, IServiceProvider serviceProvider) : base(device, serviceProvider)
     {
         DeviceConnectedEvent += DALCameraDriver_DeviceConnectedEvent;
     }
@@ -766,7 +766,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         if (_deviceInfo.StopExposure() is CMOSErrorCode.Success)
         {
             Interlocked.Exchange(ref _camState, CameraState.Idle);
-            SetImageReadyToDownload(_exposureData is { } data ? External.TimeProvider.GetUtcNow() - data.StartTime : null);
+            SetImageReadyToDownload(_exposureData is { } data ? TimeProvider.GetUtcNow() - data.StartTime : null);
         }
     }
 
@@ -881,7 +881,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         if (startExposureErrorCode is CMOSErrorCode.Success)
         {
             _camState = CameraState.Exposing;
-            var startTime = External.TimeProvider.GetUtcNow();
+            var startTime = TimeProvider.GetUtcNow();
             _deviceInfo.GetControlValue(CMOSControlType.Gain, out var currentGain, out _);
             _deviceInfo.GetControlValue(CMOSControlType.Brightness, out var currentOffset, out _);
             _exposureData = new ExposureData(startTime, duration, null, frameType, currentGain, currentOffset);
@@ -900,7 +900,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
 
     public ValueTask PulseGuideAsync(GuideDirection guideDirection, TimeSpan duration, CancellationToken cancellationToken = default)
     {
-        var timer = External.TimeProvider.CreateTimer(StopPulseGuiding, guideDirection, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
+        var timer = TimeProvider.CreateTimer(StopPulseGuiding, guideDirection, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         if (_deviceInfo.PulseGuideOn(guideDirection) is var code and not CMOSErrorCode.Success)
         {
             throw OperationalException(code, $"Failed to pulse guide {guideDirection} for {duration:o}");
@@ -933,7 +933,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         {
             if (_deviceInfo.PulseGuideOff(guideDirection) is var code and not CMOSErrorCode.Success)
             {
-                External.AppLogger.LogError("Failed to stop guiding in direction {GuideDirection} due to error: {ErrorCode}", guideDirection, code);
+                Logger.LogError("Failed to stop guiding in direction {GuideDirection} due to error: {ErrorCode}", guideDirection, code);
             }
             else
             {
@@ -944,7 +944,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         }
         else
         {
-            External.AppLogger.LogCritical("Invalid state: {obj} in stop pulse guiding callback", obj);
+            Logger.LogCritical("Invalid state: {obj} in stop pulse guiding callback", obj);
         }
     }
 

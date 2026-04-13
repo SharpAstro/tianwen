@@ -13,9 +13,9 @@ public record class ZWODevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 
     protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
     {
-        DeviceType.Camera => new ZWOCameraDriver(this, sp.External),
-        DeviceType.FilterWheel => new ZWOFilterWheelDriver(this, sp.External),
-        DeviceType.Focuser => new ZWOFocuserDriver(this, sp.External),
+        DeviceType.Camera => new ZWOCameraDriver(this, sp),
+        DeviceType.FilterWheel => new ZWOFilterWheelDriver(this, sp),
+        DeviceType.Focuser => new ZWOFocuserDriver(this, sp),
         _ => null
     };
 }

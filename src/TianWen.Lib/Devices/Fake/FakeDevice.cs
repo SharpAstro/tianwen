@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Microsoft.Extensions.Logging;
+using System;
 using System.Collections.Immutable;
 using System.Collections.Specialized;
 using System.Text;
@@ -62,50 +63,50 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 
     protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
     {
-        DeviceType.Camera => new FakeCameraDriver(this, sp.External),
-        DeviceType.CoverCalibrator => new FakeCoverDriver(this, sp.External),
-        DeviceType.FilterWheel => new FakeFilterWheelDriver(this, sp.External),
-        DeviceType.Focuser => new FakeFocuserDriver(this, sp.External),
-        DeviceType.Guider => new FakeGuider(this, sp.External),
-        DeviceType.Mount => CreateMountDriver(sp.External),
-        DeviceType.Weather => new FakeWeatherDriver(this, sp.External),
+        DeviceType.Camera => new FakeCameraDriver(this, sp),
+        DeviceType.CoverCalibrator => new FakeCoverDriver(this, sp),
+        DeviceType.FilterWheel => new FakeFilterWheelDriver(this, sp),
+        DeviceType.Focuser => new FakeFocuserDriver(this, sp),
+        DeviceType.Guider => new FakeGuider(this, sp),
+        DeviceType.Mount => CreateMountDriver(sp),
+        DeviceType.Weather => new FakeWeatherDriver(this, sp),
         _ => null
     };
 
-    private IDeviceDriver CreateMountDriver(IExternal external)
+    private IDeviceDriver CreateMountDriver(IServiceProvider sp)
     {
         var port = Query.QueryValue(DeviceQueryKey.Port);
 
         // If port=LX200 is specified, use the full Meade serial protocol stack.
         if (string.Equals(port, "LX200", StringComparison.OrdinalIgnoreCase))
         {
-            return new FakeMeadeLX200ProtocolMountDriver(this, external);
+            return new FakeMeadeLX200ProtocolMountDriver(this, sp);
         }
 
         // If port=SGP is specified, use the iOptron SkyGuider Pro serial protocol stack.
         if (string.Equals(port, "SGP", StringComparison.OrdinalIgnoreCase))
         {
-            return new FakeSgpMountDriver(this, external);
+            return new FakeSgpMountDriver(this, sp);
         }
 
         // If port=SkyWatcher is specified, use the Skywatcher motor controller protocol stack.
         if (string.Equals(port, "SkyWatcher", StringComparison.OrdinalIgnoreCase))
         {
-            return new FakeSkywatcherMountDriver(this, external);
+            return new FakeSkywatcherMountDriver(this, sp);
         }
 
         // Otherwise use the lightweight direct driver.
-        return new FakeMountDriver(this, external);
+        return new FakeMountDriver(this, sp);
     }
 
-    public override ISerialConnection? ConnectSerialDevice(IExternal external, int baud = 9600, Encoding? encoding = null) => DeviceType switch
+    public override ISerialConnection? ConnectSerialDevice(IExternal external, int baud = 9600, Encoding? encoding = null, ILogger? logger = null, TimeProvider? timeProvider = null) => DeviceType switch
     {
         DeviceType.Mount when string.Equals(Query.QueryValue(DeviceQueryKey.Port), "SGP", StringComparison.OrdinalIgnoreCase)
-            => new FakeSgpSerialDevice(external.AppLogger, encoding ?? Encoding.ASCII, external.TimeProvider, SiteLatitude >= 0, true),
+            => new FakeSgpSerialDevice(logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, encoding ?? Encoding.ASCII, timeProvider ?? TimeProvider.System, SiteLatitude >= 0, true),
         DeviceType.Mount when string.Equals(Query.QueryValue(DeviceQueryKey.Port), "SkyWatcher", StringComparison.OrdinalIgnoreCase)
-            => new FakeSkywatcherSerialDevice(external.AppLogger, encoding ?? Encoding.ASCII, external.TimeProvider, true),
+            => new FakeSkywatcherSerialDevice(logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, encoding ?? Encoding.ASCII, timeProvider ?? TimeProvider.System, true),
         DeviceType.Mount
-            => new FakeMeadeLX200SerialDevice(external.AppLogger, encoding ?? Encoding.Latin1, external.TimeProvider, SiteLatitude, SiteLongitude, true),
+            => new FakeMeadeLX200SerialDevice(logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, encoding ?? Encoding.Latin1, timeProvider ?? TimeProvider.System, SiteLatitude, SiteLongitude, true),
         _ => null
     };
 

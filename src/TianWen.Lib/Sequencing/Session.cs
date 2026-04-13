@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Concurrent;
@@ -8,6 +9,7 @@ using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Guider;
+using TianWen.Lib.Extensions;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Sequencing;
@@ -17,9 +19,13 @@ internal partial record Session(
     in SessionConfiguration Configuration,
     IPlateSolver PlateSolver,
     IExternal External,
+    IServiceProvider ServiceProvider,
     ScheduledObservationTree Observations
 ) : ISession
 {
+    private readonly ILogger _logger = ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(Session));
+    private readonly TimeProvider _timeProvider = ServiceProvider.GetRequiredService<TimeProvider>();
+
     const int UNINITIALIZED_OBSERVATION_INDEX = -1;
 
     private readonly ConcurrentQueue<GuiderEventArgs> _guiderEvents = [];
@@ -129,8 +135,8 @@ internal partial record Session(
         {
             _cameraStates = new CameraExposureState[_cameraStates.Length];
         }
-        _phaseTimeline.Enqueue(new PhaseTimestamp(newPhase, External.TimeProvider.GetUtcNow()));
-        External.AppLogger.LogInformation("Session phase: {OldPhase} → {NewPhase}", old, newPhase);
+        _phaseTimeline.Enqueue(new PhaseTimestamp(newPhase, _timeProvider.GetUtcNow()));
+        _logger.LogInformation("Session phase: {OldPhase} → {NewPhase}", old, newPhase);
         PhaseChanged?.Invoke(this, new SessionPhaseChangedEventArgs(old, newPhase));
     }
 
@@ -212,14 +218,14 @@ internal partial record Session(
                 SetPhase(SessionPhase.Initialising);
                 if (!await InitialisationAsync(cancellationToken))
                 {
-                    External.AppLogger.LogError("Initialization failed, aborting session.");
+                    _logger.LogError("Initialization failed, aborting session.");
                     SetPhase(SessionPhase.Failed);
                     return;
                 }
             }
             else if (ActiveObservation is null)
             {
-                External.AppLogger.LogInformation("Session complete, finished {ObservationCount} observations, finalizing.", _activeObservation);
+                _logger.LogInformation("Session complete, finished {ObservationCount} observations, finalizing.", _activeObservation);
                 SetPhase(SessionPhase.Complete);
                 return;
             }
@@ -236,7 +242,7 @@ internal partial record Session(
             SetPhase(SessionPhase.RoughFocus);
             if (!await InitialRoughFocusAsync(cancellationToken))
             {
-                External.AppLogger.LogError("Failed to focus cameras (first time), aborting session.");
+                _logger.LogError("Failed to focus cameras (first time), aborting session.");
                 SetPhase(SessionPhase.Failed);
                 return;
             }
@@ -244,7 +250,7 @@ internal partial record Session(
             SetPhase(SessionPhase.AutoFocus);
             if (!await AutoFocusAllTelescopesAsync(cancellationToken))
             {
-                External.AppLogger.LogWarning("Auto-focus did not converge for all telescopes, proceeding with rough focus.");
+                _logger.LogWarning("Auto-focus did not converge for all telescopes, proceeding with rough focus.");
             }
 
             SetPhase(SessionPhase.CalibratingGuider);
@@ -261,7 +267,7 @@ internal partial record Session(
         }
         catch (Exception e)
         {
-            External.AppLogger.LogError(e, "Exception while in main run loop, unrecoverable, aborting session.");
+            _logger.LogError(e, "Exception while in main run loop, unrecoverable, aborting session.");
             SetPhase(SessionPhase.Failed);
         }
         finally
@@ -297,7 +303,7 @@ internal partial record Session(
         private readonly CancellationTokenSource _cts;
         private readonly Task _task;
 
-        public GuideStatsPoller(Session session, Devices.Guider.IGuider guider, IExternal external, CancellationToken parentToken)
+        public GuideStatsPoller(Session session, Devices.Guider.IGuider guider, TimeProvider timeProvider, CancellationToken parentToken)
         {
             _cts = CancellationTokenSource.CreateLinkedTokenSource(parentToken);
             _task = Task.Run(async () =>
@@ -320,7 +326,7 @@ internal partial record Session(
                             if (isDither) session._ditherPending = false;
                             var isSettling = session._guiderState is "Settling";
                             session.AppendGuideErrorSample(new GuideErrorSample(
-                                external.TimeProvider.GetUtcNow(), raErr, decErr,
+                                timeProvider.GetUtcNow(), raErr, decErr,
                                 gs.LastRaPulseMs ?? 0, gs.LastDecPulseMs ?? 0,
                                 isDither, isSettling));
                         }
@@ -328,7 +334,7 @@ internal partial record Session(
                     catch (OperationCanceledException) { break; }
                     catch { /* ignore transient errors */ }
 
-                    await external.SleepAsync(TimeSpan.FromSeconds(2), ct);
+                    await session.External.SleepAsync(TimeSpan.FromSeconds(2), ct);
                 }
             }, _cts.Token);
         }

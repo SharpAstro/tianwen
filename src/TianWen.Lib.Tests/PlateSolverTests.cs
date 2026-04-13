@@ -312,7 +312,7 @@ public class PlateSolverTests(ITestOutputHelper output)
         var cameraDevice = cameraDeviceId >= 0
             ? new FakeDevice(DeviceType.Camera, cameraDeviceId)
             : new FakeDevice(new Uri("Camera://FakeDevice/FakeGuideCam#Fake Guide Cam (IMX178M)"));
-        var camera = new FakeCameraDriver(cameraDevice, external);
+        var camera = new FakeCameraDriver(cameraDevice, external.BuildServiceProvider());
         await camera.ConnectAsync(cancellationToken);
         camera.TrueBestFocus = 1000;
         camera.FocusPosition = 1000; // at perfect focus

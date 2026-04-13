@@ -14,7 +14,7 @@ public record MeadeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 
     protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
     {
-        DeviceType.Mount => new MeadeLX200ProtocolMountDriver(this, sp.External),
+        DeviceType.Mount => new MeadeLX200ProtocolMountDriver(this, sp),
         _ => null
     };
 }

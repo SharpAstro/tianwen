@@ -1,10 +1,11 @@
-﻿using System.Threading;
+﻿using System;
+using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
 
 namespace TianWen.Lib.Devices.DAL;
 
-internal abstract class DALDeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, IExternal external) : DeviceDriverBase<TDevice, TDeviceInfo>(device, external)
+internal abstract class DALDeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, IServiceProvider serviceProvider) : DeviceDriverBase<TDevice, TDeviceInfo>(device, serviceProvider)
     where TDevice : DeviceBase
     where TDeviceInfo : struct, INativeDeviceInfo
 {

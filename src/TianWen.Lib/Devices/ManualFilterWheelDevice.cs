@@ -28,7 +28,7 @@ public record class ManualFilterWheelDevice(Uri DeviceUri) : DeviceBase(DeviceUr
 
     protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
     {
-        DeviceType.FilterWheel => new ManualFilterWheelDriver(this, sp.External),
+        DeviceType.FilterWheel => new ManualFilterWheelDriver(this, sp),
         _ => null
     };
 

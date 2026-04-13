@@ -14,7 +14,7 @@ internal class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 {
     private readonly AscomDispatchCamera _camera;
 
-    internal AscomCameraDriver(AscomDevice device, IExternal external) : base(device, external)
+    internal AscomCameraDriver(AscomDevice device, IServiceProvider sp) : base(device, sp)
     {
         _camera = new AscomDispatchCamera(_dispatchDevice.Dispatch);
     }
@@ -366,7 +366,7 @@ public void ReleaseImageData() { }
     public ValueTask<DateTimeOffset> StartExposureAsync(TimeSpan duration, FrameType frameType = FrameType.Light, CancellationToken cancellationToken = default)
     {
         _camera.StartExposure(duration.TotalSeconds, frameType.NeedsOpenShutter);
-        var startTime = External.TimeProvider.GetLocalNow();
+        var startTime = TimeProvider.GetLocalNow();
         LastExposureStartTime = startTime;
         LastExposureFrameType = frameType;
         return ValueTask.FromResult(startTime);

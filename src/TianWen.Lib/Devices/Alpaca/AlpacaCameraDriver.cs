@@ -8,8 +8,8 @@ using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Devices.Alpaca;
 
-internal class AlpacaCameraDriver(AlpacaDevice device, IExternal external)
-    : AlpacaDeviceDriverBase(device, external), ICameraDriver
+internal class AlpacaCameraDriver(AlpacaDevice device, IServiceProvider serviceProvider)
+    : AlpacaDeviceDriverBase(device, serviceProvider), ICameraDriver
 {
     // Cached static properties (set once during InitDeviceAsync)
     private double _pixelSizeX, _pixelSizeY;
@@ -341,7 +341,7 @@ public void ReleaseImageData() { }
             new("Light", frameType.NeedsOpenShutter.ToString())
         ], cancellationToken);
 
-        var startTime = External.TimeProvider.GetLocalNow();
+        var startTime = TimeProvider.GetLocalNow();
         LastExposureStartTime = startTime;
         LastExposureFrameType = frameType;
         return startTime;

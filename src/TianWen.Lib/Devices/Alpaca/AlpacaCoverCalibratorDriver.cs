@@ -5,8 +5,8 @@ using System.Threading.Tasks;
 
 namespace TianWen.Lib.Devices.Alpaca;
 
-internal class AlpacaCoverCalibratorDriver(AlpacaDevice device, IExternal external)
-    : AlpacaDeviceDriverBase(device, external), ICoverDriver
+internal class AlpacaCoverCalibratorDriver(AlpacaDevice device, IServiceProvider serviceProvider)
+    : AlpacaDeviceDriverBase(device, serviceProvider), ICoverDriver
 {
     // Cached static property
     private int _maxBrightness = -1;

@@ -1,4 +1,5 @@
-﻿using System.Threading;
+﻿using System;
+using System.Threading;
 using System.Threading.Tasks;
 using TianWen.DAL;
 using TianWen.Lib.Devices.DAL;
@@ -8,7 +9,7 @@ using static ZWOptical.SDK.EAFFocuser1_6.EAF_ERROR_CODE;
 
 namespace TianWen.Lib.Devices.ZWO;
 
-internal class ZWOFocuserDriver(ZWODevice device, IExternal external) : DALDeviceDriverBase<ZWODevice, EAF_INFO>(device, external), IFocuserDriver
+internal class ZWOFocuserDriver(ZWODevice device, IServiceProvider sp) : DALDeviceDriverBase<ZWODevice, EAF_INFO>(device, sp), IFocuserDriver
 {
     public override string? DriverInfo => $"ZWO Electronic Focuser Driver v{DriverVersion}";
 

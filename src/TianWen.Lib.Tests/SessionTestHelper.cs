@@ -127,7 +127,7 @@ internal static class SessionTestHelper
         var config = configuration ?? DefaultConfiguration;
         var obs = observations ?? DefaultScheduledObservations;
 
-        var session = new Session(setup, config, plateSolver, external, new ScheduledObservationTree(obs));
+        var session = new Session(setup, config, plateSolver, external, sp, new ScheduledObservationTree(obs));
 
         return new SessionTestContext(session, external, cameraDriver, focuserDriver, mount.Driver);
     }
@@ -252,7 +252,7 @@ internal static class SessionTestHelper
         var config = configuration ?? DefaultConfiguration;
         var obs = observations ?? DefaultScheduledObservations;
 
-        var session = new Session(setup, config, plateSolver, external, new ScheduledObservationTree(obs));
+        var session = new Session(setup, config, plateSolver, external, sp, new ScheduledObservationTree(obs));
 
         return new DualOTATestContext(session, external, oscCameraDriver, monoCameraDriver, oscFocuserDriver, monoFocuserDriver, filterWheelDriver, mount.Driver);
     }

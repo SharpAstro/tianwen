@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,7 +14,7 @@ namespace TianWen.Lib.Devices.QHYCCD;
 /// Shares the camera's native handle via reference-counted <see cref="QHYCCD_CAMERA_INFO.Open"/>.
 /// The filter wheel is discovered by iterating cameras and probing <see cref="QHYCCD_CAMERA_INFO.IsCfwPlugged"/>.
 /// </summary>
-internal class QHYCameraControlledFilterWheelDriver(QHYDevice device, IExternal external) : DALDeviceDriverBase<QHYDevice, QHYCCD_CAMERA_INFO>(device, external), IFilterWheelDriver
+internal class QHYCameraControlledFilterWheelDriver(QHYDevice device, IServiceProvider sp) : DALDeviceDriverBase<QHYDevice, QHYCCD_CAMERA_INFO>(device, sp), IFilterWheelDriver
 {
     private int _filterCount;
     private volatile bool _moveRequested;

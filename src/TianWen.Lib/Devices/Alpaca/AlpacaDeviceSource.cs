@@ -15,7 +15,7 @@ namespace TianWen.Lib.Devices.Alpaca;
 /// Discovers Alpaca servers via UDP broadcast on port 32227, then queries
 /// each server's management API for configured devices.
 /// </summary>
-internal class AlpacaDeviceSource(AlpacaClient alpacaClient, IExternal external) : IDeviceSource<AlpacaDevice>
+internal class AlpacaDeviceSource(AlpacaClient alpacaClient, IExternal external, ILogger<AlpacaDeviceSource> logger) : IDeviceSource<AlpacaDevice>
 {
     private const int AlpacaDiscoveryPort = 32227;
     private static readonly byte[] DiscoveryMessage = Encoding.ASCII.GetBytes("alpacadiscovery1");
@@ -82,7 +82,7 @@ internal class AlpacaDeviceSource(AlpacaClient alpacaClient, IExternal external)
             }
             catch (Exception e)
             {
-                external.AppLogger.LogWarning(e, "Failed to query Alpaca server at {Host}:{Port}: {ErrorMessage}", host, port, e.Message);
+                logger.LogWarning(e, "Failed to query Alpaca server at {Host}:{Port}: {ErrorMessage}", host, port, e.Message);
             }
         }
 

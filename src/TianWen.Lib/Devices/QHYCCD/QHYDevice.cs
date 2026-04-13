@@ -13,13 +13,13 @@ public record class QHYDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 
     protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
     {
-        DeviceType.Camera => new QHYCameraDriver(this, sp.External),
+        DeviceType.Camera => new QHYCameraDriver(this, sp),
         // Serial port in URI → standalone USB CFW; otherwise → camera-cable CFW
         DeviceType.FilterWheel => Query.QueryValue(DeviceQueryKey.Port) is { Length: > 0 }
-            ? new QHYSerialControlledFilterWheelDriver(this, sp.External)
-            : new QHYCameraControlledFilterWheelDriver(this, sp.External),
+            ? new QHYSerialControlledFilterWheelDriver(this, sp)
+            : new QHYCameraControlledFilterWheelDriver(this, sp),
         // QFOC focuser — always serial
-        DeviceType.Focuser => new QHYFocuserDriver(this, sp.External),
+        DeviceType.Focuser => new QHYFocuserDriver(this, sp),
         _ => null
     };
 }

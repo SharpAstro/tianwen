@@ -1,4 +1,6 @@
-﻿using System;
+﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using System;
 using System.Net;
 using System.Text;
 using System.Text.Json.Serialization;
@@ -70,7 +72,7 @@ public record class OpenPHD2GuiderDevice(Uri DeviceUri) : GuiderDeviceBase(Devic
 
     protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
     {
-        DeviceType.Guider => new OpenPHD2GuiderDriver(this, sp.External),
+        DeviceType.Guider => new OpenPHD2GuiderDriver(this, sp.GetRequiredService<IExternal>(), sp.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(OpenPHD2GuiderDriver)), sp.GetRequiredService<TimeProvider>()),
         _ => null
     };
 }

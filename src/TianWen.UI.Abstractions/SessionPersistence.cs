@@ -44,7 +44,7 @@ public static class SessionPersistence
 
         var dto = await external.TryReadJsonAsync(
             GetSessionFilePath(profile, external),
-            SessionConfigJsonContext.Default.SessionConfigDto, ct);
+            SessionConfigJsonContext.Default.SessionConfigDto, logger: null, ct);
 
         if (dto is null)
         {

@@ -9,7 +9,7 @@ using static ZWOptical.SDK.ASICamera2.ASI_ERROR_CODE;
 
 namespace TianWen.Lib.Devices.ZWO;
 
-internal class ZWOCameraDriver(ZWODevice device, IExternal external) : DALCameraDriver<ZWODevice, ASI_CAMERA_INFO>(device, external)
+internal class ZWOCameraDriver(ZWODevice device, IServiceProvider sp) : DALCameraDriver<ZWODevice, ASI_CAMERA_INFO>(device, sp)
 {
     public override string? DriverInfo => $"ZWO Camera Driver v{DriverVersion}";
 

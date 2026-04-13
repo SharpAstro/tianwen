@@ -33,7 +33,7 @@ internal class PlanSubCommand(
         }
 
         // Extract location from profile's mount URI
-        var transform = LocationResolver.ResolveFromProfile(consoleHost, profile, consoleHost.External.TimeProvider);
+        var transform = LocationResolver.ResolveFromProfile(consoleHost, profile, consoleHost.TimeProvider);
         if (transform is null)
         {
             return;

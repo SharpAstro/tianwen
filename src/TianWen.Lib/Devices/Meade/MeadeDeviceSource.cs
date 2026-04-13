@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -10,7 +10,7 @@ using TianWen.Lib.Connections;
 
 namespace TianWen.Lib.Devices.Meade;
 
-internal partial class MeadeDeviceSource(IExternal external) : IDeviceSource<MeadeDevice>
+internal partial class MeadeDeviceSource(IExternal external, ILogger<MeadeDeviceSource> logger, TimeProvider timeProvider) : IDeviceSource<MeadeDevice>
 {
     private Dictionary<DeviceType, List<MeadeDevice>>? _cachedDevices;
 
@@ -32,7 +32,7 @@ internal partial class MeadeDeviceSource(IExternal external) : IDeviceSource<Mea
             }
             catch (Exception ex)
             {
-                external.AppLogger.LogWarning(ex, "Failed to query device {PortName}", portName);
+                logger.LogWarning(ex, "Failed to query device {PortName}", portName);
             }
         }
 
@@ -42,13 +42,13 @@ internal partial class MeadeDeviceSource(IExternal external) : IDeviceSource<Mea
     private async Task QueryPortAsync(Dictionary<DeviceType, List<MeadeDevice>> devices, string portName, CancellationToken cancellationToken)
     {
         var ioTimeout = Debugger.IsAttached ? TimeSpan.FromMinutes(1) : TimeSpan.FromMilliseconds(250);
-        using var cts = new CancellationTokenSource(ioTimeout, external.TimeProvider);
+        using var cts = new CancellationTokenSource(ioTimeout, timeProvider);
         var linkedToken = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken).Token;
 
         using var serialDevice = external.OpenSerialDevice(portName, 9600, Encoding.ASCII);
 
         var (productName, productNumber, siteNames, uuid) = await TryGetMountInfo(serialDevice, linkedToken)
-            .WaitAsync(ioTimeout, external.TimeProvider, cancellationToken);
+            .WaitAsync(ioTimeout, timeProvider, cancellationToken);
         if (productName is not null && productNumber is not null && SupportedProductsRegex.IsMatch(productName))
         {
             List<MeadeDevice> deviceList;

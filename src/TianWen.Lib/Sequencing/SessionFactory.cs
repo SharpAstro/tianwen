@@ -30,7 +30,7 @@ internal class SessionFactory(
     {
         var (setup, _) = CreateSetup(profileId);
 
-        return new Session(setup, configuration, plateSolverFactory, external, new ScheduledObservationTree(observations));
+        return new Session(setup, configuration, plateSolverFactory, external, serviceProvider, new ScheduledObservationTree(observations));
     }
 
 

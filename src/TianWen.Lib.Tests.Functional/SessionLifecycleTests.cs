@@ -247,7 +247,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
         var setup = new Setup(mount, guider, new GuiderSetup(), [ota]);
         var config = SessionTestHelper.DefaultConfiguration;
-        var session = new Session(setup, config, new FakePlateSolver(), external, new ScheduledObservationTree(SessionTestHelper.DefaultScheduledObservations));
+        var session = new Session(setup, config, new FakePlateSolver(), external, sp, new ScheduledObservationTree(SessionTestHelper.DefaultScheduledObservations));
 
         var coverDriver = (FakeCoverDriver)cover.Driver;
         return (session, external, coverDriver);
@@ -465,7 +465,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         var plateSolver = new FakePlateSolver();
         var config = SessionTestHelper.DefaultConfiguration;
 
-        var session = new Session(setup, config, plateSolver, external, new ScheduledObservationTree(observations));
+        var session = new Session(setup, config, plateSolver, external, sp, new ScheduledObservationTree(observations));
 
         // Move focuser to best focus before RunAsync
         var focuserDriver = (FakeFocuserDriver)focuser.Driver;

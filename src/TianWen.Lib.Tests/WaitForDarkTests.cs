@@ -130,7 +130,7 @@ public class WaitForDarkTests(ITestOutputHelper output)
             )
         };
 
-        var session = new Session(setup, config, plateSolver, external, new ScheduledObservationTree(observations));
+        var session = new Session(setup, config, plateSolver, external, sp, new ScheduledObservationTree(observations));
 
         return new SessionTestContext(session, external, cameraDriver, (FakeFocuserDriver)focuser.Driver, mount.Driver);
     }

@@ -1,4 +1,5 @@
-﻿using Shouldly;
+﻿using Microsoft.Extensions.Logging.Abstractions;
+using Shouldly;
 using System;
 using System.IO;
 using System.Threading.Tasks;
@@ -28,7 +29,7 @@ public class ProfileTests(ITestOutputHelper outputHelper)
         try
         {
             var external = new FakeExternal(outputHelper, dir);
-            var profileIterator = new ProfileIterator(external);
+            var profileIterator = new ProfileIterator(external, NullLogger<ProfileIterator>.Instance);
 
             var profile = new Profile(new Guid(guid), name, ProfileData.Empty);
             await profile.SaveAsync(external, cancellationToken);

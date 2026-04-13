@@ -28,9 +28,9 @@ public static class PlannerPersistence
     /// <summary>
     /// Saves the current planner state to disk.
     /// </summary>
-    public static Task SaveAsync(PlannerState state, Profile profile, IExternal external, CancellationToken ct)
+    public static Task SaveAsync(PlannerState state, Profile profile, IExternal external, TimeProvider timeProvider, CancellationToken ct)
         => external.AtomicWriteJsonAsync(
-            GetSessionFilePath(profile, state, external),
+            GetSessionFilePath(profile, state, external, timeProvider),
             CreateDto(state),
             PlannerJsonContext.Default.PlannerSessionDto,
             ct);
@@ -39,31 +39,31 @@ public static class PlannerPersistence
     /// Attempts to load a previously saved planner session. Returns true if state was restored.
     /// Validates site coordinates and matches saved targets against the current TonightsBest list.
     /// </summary>
-    public static async Task<bool> TryLoadAsync(PlannerState state, Profile? profile, IExternal external, CancellationToken ct)
+    public static async Task<bool> TryLoadAsync(PlannerState state, Profile? profile, IExternal external, ILogger logger, TimeProvider timeProvider, CancellationToken ct)
     {
         if (profile is null)
         {
             return false;
         }
 
-        var filePath = GetSessionFilePath(profile, state, external);
+        var filePath = GetSessionFilePath(profile, state, external, timeProvider);
         var dto = await external.TryReadJsonAsync(
             filePath,
-            PlannerJsonContext.Default.PlannerSessionDto, ct);
+            PlannerJsonContext.Default.PlannerSessionDto, logger, ct);
 
         if (dto is null)
         {
-            external.AppLogger.LogInformation("PlannerPersistence: no saved session at {FilePath}", filePath);
+            logger.LogInformation("PlannerPersistence: no saved session at {FilePath}", filePath);
             return false;
         }
 
-        external.AppLogger.LogInformation("PlannerPersistence: loaded {Count} proposals from {FilePath}", dto.Proposals.Length, filePath);
+        logger.LogInformation("PlannerPersistence: loaded {Count} proposals from {FilePath}", dto.Proposals.Length, filePath);
 
         // Site invalidation: if saved site differs by >1° from current, discard
         if (Math.Abs(dto.SiteLatitude - state.SiteLatitude) > SiteInvalidationThreshold
             || Math.Abs(dto.SiteLongitude - state.SiteLongitude) > SiteInvalidationThreshold)
         {
-            external.AppLogger.LogWarning("PlannerPersistence: discarding saved session — site moved ({SavedLat:F1},{SavedLon:F1}) → ({CurrentLat:F1},{CurrentLon:F1})",
+            logger.LogWarning("PlannerPersistence: discarding saved session — site moved ({SavedLat:F1},{SavedLon:F1}) → ({CurrentLat:F1},{CurrentLon:F1})",
                 dto.SiteLatitude, dto.SiteLongitude, state.SiteLatitude, state.SiteLongitude);
             return false;
         }
@@ -106,14 +106,14 @@ public static class PlannerPersistence
             }
             else
             {
-                external.AppLogger.LogWarning("PlannerPersistence: could not match saved target '{Name}' (RA={RA:F3}h Dec={Dec:F1}°) to any current target",
+                logger.LogWarning("PlannerPersistence: could not match saved target '{Name}' (RA={RA:F3}h Dec={Dec:F1}°) to any current target",
                     p.Name, p.RA, p.Dec);
             }
         }
 
         if (restoredProposals.Count == 0)
         {
-            external.AppLogger.LogWarning("PlannerPersistence: no proposals could be matched — discarding saved session");
+            logger.LogWarning("PlannerPersistence: no proposals could be matched — discarding saved session");
             return false;
         }
 
@@ -127,7 +127,7 @@ public static class PlannerPersistence
         PlannerActions.SortProposalsByPeakTime(state);
         PlannerActions.RecomputeHandoffSliders(state);
 
-        external.AppLogger.LogInformation("PlannerPersistence: restored {Restored}/{Total} proposals",
+        logger.LogInformation("PlannerPersistence: restored {Restored}/{Total} proposals",
             restoredProposals.Count, dto.Proposals.Length);
 
         // Restore saved slider positions if count matches and they fall within the current night window
@@ -138,11 +138,11 @@ public static class PlannerPersistence
             {
                 state.HandoffSliders[i] = dto.Sliders[i];
             }
-            external.AppLogger.LogInformation("PlannerPersistence: restored {Count} slider positions", dto.Sliders.Length);
+            logger.LogInformation("PlannerPersistence: restored {Count} slider positions", dto.Sliders.Length);
         }
         else if (dto.Sliders.Length > 0)
         {
-            external.AppLogger.LogWarning("PlannerPersistence: discarding {Count} saved sliders (count mismatch or outside night window {Dark}–{Twilight})",
+            logger.LogWarning("PlannerPersistence: discarding {Count} saved sliders (count mismatch or outside night window {Dark}–{Twilight})",
                 dto.Sliders.Length, state.AstroDark, state.AstroTwilight);
         }
 
@@ -205,11 +205,11 @@ public static class PlannerPersistence
             SiteLongitude: state.SiteLongitude);
     }
 
-    private static string GetSessionFilePath(Profile profile, PlannerState state, IExternal external)
+    private static string GetSessionFilePath(Profile profile, PlannerState state, IExternal external, TimeProvider? timeProvider = null)
     {
         // Use the site's local date (not the machine's) so the file key matches
         // the "tonight" definition from CalculateNightWindow (site-timezone-aware).
-        var siteNow = external.TimeProvider.GetUtcNow().ToOffset(state.SiteTimeZone);
+        var siteNow = (timeProvider ?? TimeProvider.System).GetUtcNow().ToOffset(state.SiteTimeZone);
         var date = state.PlanningDate?.Date ?? CoordinateUtils.AstronomicalEveningDate(siteNow);
         var profileId = profile.ProfileId.ToString("D");
         var dateStr = date.ToString("yyyy-MM-dd");

@@ -1,4 +1,4 @@
-﻿/*
+/*
 
 MIT License
 
@@ -66,12 +66,7 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
     private string? PHDSubvVersion { get; set; }
     private SettleProgress? Settle { get; set; }
 
-    public OpenPHD2GuiderDriver(IExternal external) : this(MakeDefaultRootDevice(external), external)
-    {
-        // calls below
-    }
-
-    public OpenPHD2GuiderDriver(OpenPHD2GuiderDevice guiderDevice, IExternal external)
+    public OpenPHD2GuiderDriver(OpenPHD2GuiderDevice guiderDevice, IExternal external, ILogger logger, TimeProvider timeProvider)
     {
         if (guiderDevice.DeviceType != DeviceType.Guider)
         {
@@ -79,6 +74,8 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
         }
 
         External = external;
+        Logger = logger;
+        TimeProvider = timeProvider;
         _guiderDevice = guiderDevice;
 
         if (_guiderDevice.ProfileName is { } profileName)
@@ -119,7 +116,7 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
         catch (Exception ex) when (ex is System.Net.Sockets.SocketException or System.IO.IOException)
         {
             // PHD2 not running — not an error during discovery, just means no guider available
-            External.AppLogger.LogDebug(ex, "PHD2 not reachable during discovery");
+            Logger.LogDebug(ex, "PHD2 not reachable during discovery");
         }
     }
 
@@ -575,6 +572,8 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
     public DeviceType DriverType { get; } = DeviceType.Guider;
 
     public IExternal External { get; }
+    public ILogger Logger { get; }
+    public TimeProvider TimeProvider { get; }
 
     [DebuggerStepThrough]
     void EnsureConnected()

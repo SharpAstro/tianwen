@@ -16,7 +16,7 @@ internal class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
     private readonly AscomDispatchTelescope _telescope;
     private List<TrackingSpeed> _trackingSpeeds = [];
 
-    internal AscomTelescopeDriver(AscomDevice device, IExternal external) : base(device, external)
+    internal AscomTelescopeDriver(AscomDevice device, IServiceProvider sp) : base(device, sp)
     {
         _telescope = new AscomDispatchTelescope(_dispatchDevice.Dispatch);
     }

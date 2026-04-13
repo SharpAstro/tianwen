@@ -8,7 +8,7 @@ using static QHYCCD.SDK.QHYCamera;
 
 namespace TianWen.Lib.Devices.QHYCCD;
 
-internal class QHYCameraDriver(QHYDevice device, IExternal external) : DALCameraDriver<QHYDevice, QHYCCD_CAMERA_INFO>(device, external)
+internal class QHYCameraDriver(QHYDevice device, IServiceProvider sp) : DALCameraDriver<QHYDevice, QHYCCD_CAMERA_INFO>(device, sp)
 {
     public override string? DriverInfo => $"QHY Camera Driver v{DriverVersion}";
 

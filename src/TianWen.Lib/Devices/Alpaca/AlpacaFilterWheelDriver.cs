@@ -7,8 +7,8 @@ using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Devices.Alpaca;
 
-internal class AlpacaFilterWheelDriver(AlpacaDevice device, IExternal external)
-    : AlpacaDeviceDriverBase(device, external), IFilterWheelDriver
+internal class AlpacaFilterWheelDriver(AlpacaDevice device, IServiceProvider serviceProvider)
+    : AlpacaDeviceDriverBase(device, serviceProvider), IFilterWheelDriver
 {
     public async ValueTask<int> GetPositionAsync(CancellationToken cancellationToken = default)
         => await Client.GetIntAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "position", cancellationToken);

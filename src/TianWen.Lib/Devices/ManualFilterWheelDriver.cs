@@ -1,3 +1,5 @@
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -11,7 +13,7 @@ namespace TianWen.Lib.Devices;
 /// there is only one position. Used for cameras with a fixed filter (e.g., a
 /// dual-band narrowband filter in a nose adapter or drop-in holder).
 /// </summary>
-internal sealed class ManualFilterWheelDriver(ManualFilterWheelDevice device, IExternal external) : IFilterWheelDriver
+internal sealed class ManualFilterWheelDriver(ManualFilterWheelDevice device, IServiceProvider serviceProvider) : IFilterWheelDriver
 {
     private bool _connected;
 
@@ -45,7 +47,11 @@ internal sealed class ManualFilterWheelDriver(ManualFilterWheelDevice device, IE
 
     public DeviceType DriverType => DeviceType.FilterWheel;
 
-    public IExternal External { get; } = external;
+    public IExternal External { get; } = serviceProvider.GetRequiredService<IExternal>();
+
+    public ILogger Logger { get; } = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(ManualFilterWheelDriver));
+
+    public TimeProvider TimeProvider { get; } = serviceProvider.GetRequiredService<TimeProvider>();
 
     public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
 

@@ -63,15 +63,14 @@ public record class AlpacaDevice : DeviceBase
             return null;
         }
 
-        var external = sp.External;
         return DeviceType switch
         {
-            Devices.DeviceType.Camera => new AlpacaCameraDriver(this, external),
-            Devices.DeviceType.CoverCalibrator => new AlpacaCoverCalibratorDriver(this, external),
-            Devices.DeviceType.FilterWheel => new AlpacaFilterWheelDriver(this, external),
-            Devices.DeviceType.Focuser => new AlpacaFocuserDriver(this, external),
-            Devices.DeviceType.Switch => new AlpacaSwitchDriver(this, external),
-            Devices.DeviceType.Telescope => new AlpacaTelescopeDriver(this, external),
+            Devices.DeviceType.Camera => new AlpacaCameraDriver(this, sp),
+            Devices.DeviceType.CoverCalibrator => new AlpacaCoverCalibratorDriver(this, sp),
+            Devices.DeviceType.FilterWheel => new AlpacaFilterWheelDriver(this, sp),
+            Devices.DeviceType.Focuser => new AlpacaFocuserDriver(this, sp),
+            Devices.DeviceType.Switch => new AlpacaSwitchDriver(this, sp),
+            Devices.DeviceType.Telescope => new AlpacaTelescopeDriver(this, sp),
             _ => null
         };
     }

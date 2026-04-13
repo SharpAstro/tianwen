@@ -5,8 +5,8 @@ using System.Threading.Tasks;
 
 namespace TianWen.Lib.Devices.Alpaca;
 
-internal class AlpacaFocuserDriver(AlpacaDevice device, IExternal external)
-    : AlpacaDeviceDriverBase(device, external), IFocuserDriver
+internal class AlpacaFocuserDriver(AlpacaDevice device, IServiceProvider serviceProvider)
+    : AlpacaDeviceDriverBase(device, serviceProvider), IFocuserDriver
 {
     // Cached static properties
     private bool _absolute;

@@ -17,7 +17,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
     {
         var external = new FakeExternal(output, now: now ?? new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
         var device = new FakeDevice(DeviceType.Mount, 1);
-        var mount = new FakeMountDriver(device, external);
+        var mount = new FakeMountDriver(device, external.BuildServiceProvider());
         return (mount, external);
     }
 
@@ -437,7 +437,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var now = new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero);
         var external1 = new FakeExternal(output, now: now);
-        var mount1 = new FakeMountDriver(new FakeDevice(DeviceType.Mount, 1), external1);
+        var mount1 = new FakeMountDriver(new FakeDevice(DeviceType.Mount, 1), external1.BuildServiceProvider());
         await mount1.ConnectAsync(ct);
         mount1.WindGustAmplitudeArcsec = 3.0;
         mount1.WindGustSeed = 77;
@@ -445,7 +445,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         await mount1.SetTrackingAsync(true, ct);
 
         var external2 = new FakeExternal(output, now: now);
-        var mount2 = new FakeMountDriver(new FakeDevice(DeviceType.Mount, 2), external2);
+        var mount2 = new FakeMountDriver(new FakeDevice(DeviceType.Mount, 2), external2.BuildServiceProvider());
         await mount2.ConnectAsync(ct);
         mount2.WindGustAmplitudeArcsec = 3.0;
         mount2.WindGustSeed = 77;

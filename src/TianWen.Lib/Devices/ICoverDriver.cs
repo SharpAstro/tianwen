@@ -1,6 +1,7 @@
 using System.Threading;
 using System;
 using System.Threading.Tasks;
+using TianWen.Lib.Extensions;
 
 namespace TianWen.Lib.Devices;
 

@@ -70,7 +70,7 @@ internal class ProfileSelector(IConsoleHost consoleHost, Option<string?> selecte
         var profileList = profiles.ToArray();
         var names = profileList.Select(p => p.DisplayName).ToArray();
 
-        var menu = new ProfilePickerMenu(terminal, consoleHost.External.TimeProvider, names);
+        var menu = new ProfilePickerMenu(terminal, consoleHost.TimeProvider, names);
         var index = await menu.ShowAsync(ct);
 
         if (index < 0 || index >= profileList.Length)
@@ -122,7 +122,7 @@ internal class ProfileSelector(IConsoleHost consoleHost, Option<string?> selecte
         if (mounts.Length > 0)
         {
             var mountNames = mounts.Select(m => m.DisplayName).ToArray();
-            var mountMenu = new ProfilePickerMenu(terminal, consoleHost.External.TimeProvider, mountNames, "Select mount");
+            var mountMenu = new ProfilePickerMenu(terminal, consoleHost.TimeProvider, mountNames, "Select mount");
             var mountIdx = await mountMenu.ShowAsync(ct);
             if (mountIdx >= 0 && mountIdx < mounts.Length)
             {
@@ -137,7 +137,7 @@ internal class ProfileSelector(IConsoleHost consoleHost, Option<string?> selecte
         if (guiders.Length > 0)
         {
             var guiderNames = guiders.Select(g => g.DisplayName).ToArray();
-            var guiderMenu = new ProfilePickerMenu(terminal, consoleHost.External.TimeProvider, guiderNames, "Select guider");
+            var guiderMenu = new ProfilePickerMenu(terminal, consoleHost.TimeProvider, guiderNames, "Select guider");
             var guiderIdx = await guiderMenu.ShowAsync(ct);
             if (guiderIdx >= 0 && guiderIdx < guiders.Length)
             {

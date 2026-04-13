@@ -23,7 +23,7 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
             { "latitude", latitude.ToString() },
             { "longitude", longitude.ToString() }
         });
-        var mount = new FakeSgpMountDriver(device, external);
+        var mount = new FakeSgpMountDriver(device, external.BuildServiceProvider());
         return (mount, external);
     }
 

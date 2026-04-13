@@ -37,6 +37,8 @@ namespace TianWen.UI.Abstractions
         private readonly BackgroundTaskTracker _tracker;
         private readonly CancellationTokenSource _cts;
         private readonly IExternal _external;
+        private readonly ILogger _logger;
+        private readonly TimeProvider _timeProvider;
 
         /// <summary>Set by the host after catalog load to enable autocomplete.</summary>
         public Action<string[]> SetAutoCompleteCache { get; }
@@ -89,7 +91,7 @@ namespace TianWen.UI.Abstractions
                 _plannerState.MinHeightAboveHorizon, cancellationToken);
             if (_appState.ActiveProfile is { } profile)
             {
-                await PlannerPersistence.TryLoadAsync(_plannerState, profile, _external, cancellationToken);
+                await PlannerPersistence.TryLoadAsync(_plannerState, profile, _external, _logger, _timeProvider, cancellationToken);
             }
             await FetchWeatherForecastAsync(cancellationToken);
             _plannerState.SelectedTargetIndex = 0;
@@ -116,7 +118,7 @@ namespace TianWen.UI.Abstractions
                 try
                 {
                     var objectDb = _sp.GetRequiredService<ICelestialObjectDB>();
-                    var transform = TransformFactory.FromProfile(_appState.ActiveProfile, _external.TimeProvider, out _);
+                    var transform = TransformFactory.FromProfile(_appState.ActiveProfile, _timeProvider, out _);
 
                     if (transform is not null)
                     {
@@ -145,7 +147,7 @@ namespace TianWen.UI.Abstractions
                                 _plannerState.MinHeightAboveHorizon, _cts.Token);
                             if (_appState.ActiveProfile is { } profile)
                             {
-                                await PlannerPersistence.TryLoadAsync(_plannerState, profile, _external, _cts.Token);
+                                await PlannerPersistence.TryLoadAsync(_plannerState, profile, _external, _logger, _timeProvider, _cts.Token);
                             }
                             SetAutoCompleteCache(objectDb.CreateAutoCompleteList());
                         }
@@ -159,7 +161,7 @@ namespace TianWen.UI.Abstractions
                 }
                 catch (Exception ex)
                 {
-                    _external.AppLogger.LogWarning(ex, "Recompute failed");
+                    _logger.LogWarning(ex, "Recompute failed");
                     _appState.StatusMessage = $"Recompute failed: {ex.InnerException?.Message ?? ex.Message}";
                 }
                 finally
@@ -211,7 +213,7 @@ namespace TianWen.UI.Abstractions
             }
             catch (Exception ex)
             {
-                _external.AppLogger.LogWarning(ex, "Weather forecast fetch failed");
+                _logger.LogWarning(ex, "Weather forecast fetch failed");
                 _plannerState.WeatherForecast = null;
             }
         }
@@ -247,8 +249,10 @@ namespace TianWen.UI.Abstractions
             _tracker = tracker;
             _cts = cts;
             _external = external;
+            _logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(AppSignalHandler));
+            _timeProvider = sp.GetRequiredService<TimeProvider>();
 
-            var logger = external.AppLogger;
+            var logger = _logger;
 
             // ---------------------------------------------------------------
             // Wire planner search input callbacks
@@ -263,7 +267,7 @@ namespace TianWen.UI.Abstractions
 
                 if (appState.ActiveProfile is not null && text.Length > 0)
                 {
-                    var transform = TransformFactory.FromProfile(appState.ActiveProfile, external.TimeProvider, out _);
+                    var transform = TransformFactory.FromProfile(appState.ActiveProfile, _timeProvider, out _);
                     if (transform is not null)
                     {
                         var db = sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
@@ -563,7 +567,7 @@ namespace TianWen.UI.Abstractions
                     return;
                 }
                 plannerState.IsDirty = false;
-                await PlannerPersistence.SaveAsync(plannerState, profile, external, cts.Token);
+                await PlannerPersistence.SaveAsync(plannerState, profile, external, _timeProvider, cts.Token);
             });
 
             bus.Subscribe<SaveSessionConfigSignal>(async _ =>
@@ -586,7 +590,7 @@ namespace TianWen.UI.Abstractions
             bus.Subscribe<BuildScheduleSignal>(signal =>
             {
                 if (appState.ActiveProfile is not { } profile) return;
-                var transform = TransformFactory.FromProfile(profile, external.TimeProvider, out _);
+                var transform = TransformFactory.FromProfile(profile, _timeProvider, out _);
                 if (transform is null) return;
 
                 var profileData = profile.Data ?? ProfileData.Empty;
@@ -642,7 +646,7 @@ namespace TianWen.UI.Abstractions
 
                     // Build schedule from proposals using planner's window allocation
                     var profileData = profile.Data ?? ProfileData.Empty;
-                    var transform = TransformFactory.FromProfile(profile, external.TimeProvider, out var transformError);
+                    var transform = TransformFactory.FromProfile(profile, _timeProvider, out var transformError);
                     if (transform is null)
                     {
                         appState.StatusMessage = "Cannot determine site location from profile";
@@ -653,7 +657,7 @@ namespace TianWen.UI.Abstractions
                     var (filters, design) = GetFirstOtaFilterConfig(profileData);
 
                     var subExposure = sessionState.Configuration.DefaultSubExposure ?? TimeSpan.FromSeconds(120);
-                    external.AppLogger.LogInformation("BuildSchedule: DefaultSubExposure={SubExposure} (config={Config})",
+                    _logger.LogInformation("BuildSchedule: DefaultSubExposure={SubExposure} (config={Config})",
                         subExposure, sessionState.Configuration.DefaultSubExposure);
                     PlannerActions.BuildSchedule(plannerState, sessionState, transform,
                         defaultGain: null, defaultOffset: null,
@@ -767,7 +771,7 @@ namespace TianWen.UI.Abstractions
 
                 if (appState.ActiveProfile is not null)
                 {
-                    var transform = TransformFactory.FromProfile(appState.ActiveProfile, external.TimeProvider, out _);
+                    var transform = TransformFactory.FromProfile(appState.ActiveProfile, _timeProvider, out _);
                     if (transform is not null)
                     {
                         var db = sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();

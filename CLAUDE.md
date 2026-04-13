@@ -141,6 +141,18 @@ builder.Services
     .AddDevices();
 ```
 
+### Logger, TimeProvider, and SleepAsync
+
+- `ILogger` and `TimeProvider` are resolved from `IServiceProvider` (not from `IExternal`).
+- `DeviceDriverBase` resolves both in its constructor via `serviceProvider.GetRequiredService<>()`.
+- Non-driver classes (e.g., `AppSignalHandler`) resolve from SP in their own constructors.
+- **`IExternal.SleepAsync`** must be used instead of `Task.Delay(duration, timeProvider, ct)`
+  in any code exercised by tests with `FakeTimeProvider`. `FakeExternal.SleepAsync` auto-advances
+  fake time; `Task.Delay` with `FakeTimeProvider` hangs waiting for external advancement.
+- Static helpers (`BacklashCompensation`, `GuiderCalibration`) accept `IExternal` for `SleepAsync`.
+- `GuideLoop` takes both `IExternal` (for `SleepAsync`) and `TimeProvider` (for timestamps).
+- `LoggerCatchExtensions` (in `TianWen.Lib.Extensions`) provides `ILogger.Catch/CatchAsync`.
+
 ### Device Management
 
 Devices are URI-addressed and managed through:
@@ -155,7 +167,7 @@ for supported query parameters and their semantics.
 
 ### Key Abstractions
 
-- `IExternal` — file I/O, serial ports, time management, logging
+- `IExternal` — file I/O, serial ports, `SleepAsync` (fake-time-aware delay)
 - `ISessionFactory` — creates observation sessions with bound devices
 - `IPlateSolverFactory` — plate solving (ASTAP, astrometry.net)
 

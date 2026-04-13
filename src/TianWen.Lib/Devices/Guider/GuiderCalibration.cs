@@ -101,7 +101,7 @@ internal sealed class GuiderCalibration
     /// <param name="pulseTarget">Pulse guide target (camera ST-4, mount, or router).</param>
     /// <param name="tracker">Centroid tracker with an acquired star.</param>
     /// <param name="captureFrame">Function that captures a guide frame and returns the image data.</param>
-    /// <param name="external">External services for time management.</param>
+    /// <param name="external">Time provider for delays.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Calibration result, or null if calibration failed.</returns>
     public async ValueTask<GuiderCalibrationResult?> CalibrateAsync(
@@ -263,7 +263,7 @@ internal sealed class GuiderCalibration
     /// <param name="pulseTarget">Pulse guide target (camera ST-4, mount, or router).</param>
     /// <param name="tracker">Centroid tracker with an acquired star.</param>
     /// <param name="captureFrame">Function that captures a guide frame.</param>
-    /// <param name="external">External services for time management.</param>
+    /// <param name="external">Time provider for delays.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Validation result indicating whether the saved calibration can be reused.</returns>
     public async ValueTask<CalibrationValidationResult> ValidateAsync(

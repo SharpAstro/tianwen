@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -17,147 +17,6 @@ namespace TianWen.Lib.Devices;
 public interface IExternal
 {
     /// <summary>
-    /// Uses <see langword="try"/> <see langword="catch"/> to safely execute <paramref name="action"/>.
-    /// Returns <see langword="true"/> on success and  <see langword="false"/> failure, and logs errors using <see cref="AppLogger"/>.
-    /// </summary>
-    /// <typeparam name="T"></typeparam>
-    /// <param name="action"></param>
-    /// <returns>true if success</returns>
-    public bool Catch(Action action)
-    {
-        try
-        {
-            action();
-            return true;
-        }
-        catch (Exception ex)
-        {
-            AppLogger.LogError(ex, "Exception {Message} while executing: {Method}", ex.Message, action.Method.Name);
-            return false;
-        }
-    }    
-    
-    /// <summary>
-    /// Asynchronously awaits <paramref name="asyncFunc"/>, returning default <paramref name="default"/> if an exception occured.
-    /// </summary>
-    /// <typeparam name="T"></typeparam>
-    /// <param name="asyncFunc"></param>
-    /// <param name="cancellationToken"></param>
-    /// <param name="default"></param>
-    /// <returns></returns>
-    public async ValueTask<bool> CatchAsync(Func<CancellationToken, ValueTask> asyncFunc, CancellationToken cancellationToken)
-    {
-        try
-        {
-            await asyncFunc(cancellationToken).ConfigureAwait(false);
-
-            return true;
-        }
-        catch (Exception ex)
-        {
-            AppLogger.LogError(ex, "Exception {Message} while executing: {Method}", ex.Message, asyncFunc.Method.Name);
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Asynchronously awaits <paramref name="asyncFunc"/>, returning default <paramref name="default"/> if an exception occured.
-    /// </summary>
-    /// <typeparam name="T"></typeparam>
-    /// <param name="asyncFunc"></param>
-    /// <param name="cancellationToken"></param>
-    /// <param name="default"></param>
-    /// <returns></returns>
-    public async ValueTask<T> CatchAsync<T>(Func<CancellationToken, ValueTask<T>> asyncFunc, CancellationToken cancellationToken, T @default = default) where T : struct
-    {
-        try
-        {
-            return await asyncFunc(cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            AppLogger.LogError(ex, "Exception {Message} while executing: {Method}", ex.Message, asyncFunc.Method.Name);
-            return @default;
-        }
-    }
-
-    /// <summary>
-    /// If <paramref name="condition"/> is true, awaits <paramref name="asyncFunc"/>, returning <paramref name="default"/> on exception or when condition is false.
-    /// </summary>
-    public ValueTask<T> CatchAsyncIf<T>(bool condition, Func<CancellationToken, ValueTask<T>> asyncFunc, CancellationToken cancellationToken, T @default = default) where T : struct
-        => condition ? CatchAsync(asyncFunc, cancellationToken, @default) : ValueTask.FromResult(@default);
-
-    /// <summary>
-    /// Asynchronously awaits <paramref name="asyncFunc"/>, returning default <paramref name="default"/> if an exception occured.
-    /// </summary>
-    /// <typeparam name="T"></typeparam>
-    /// <param name="asyncFunc"></param>
-    /// <param name="cancellationToken"></param>
-    /// <param name="default"></param>
-    /// <returns></returns>
-    public async Task<bool> CatchAsync(Func<CancellationToken, Task> asyncFunc, CancellationToken cancellationToken)
-    {
-        try
-        {
-            await asyncFunc(cancellationToken).ConfigureAwait(false);
-
-            return true;
-        }
-        catch (Exception ex)
-        {
-            AppLogger.LogError(ex, "Exception {Message} while executing: {Method}", ex.Message, asyncFunc.Method.Name);
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Asynchronously awaits <paramref name="asyncFunc"/>, returning default <paramref name="default"/> if an exception occured.
-    /// </summary>
-    /// <typeparam name="T"></typeparam>
-    /// <param name="asyncFunc"></param>
-    /// <param name="cancellationToken"></param>
-    /// <param name="default"></param>
-    /// <returns></returns>
-    public async Task<T> CatchAsync<T>(Func<CancellationToken, Task<T>> asyncFunc, CancellationToken cancellationToken, T @default = default) where T : struct
-    {
-        try
-        {
-            return await asyncFunc(cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            AppLogger.LogError(ex, "Exception {Message} while executing: {Method}", ex.Message, asyncFunc.Method.Name);
-            return @default;
-        }
-    }
-
-    /// <summary>
-    /// Uses <see langword="try"/> <see langword="catch"/> to safely execute <paramref name="func"/>.
-    /// Returns result or <paramref name="default"/> on failure, and logs errors using <see cref="AppLogger"/>.
-    /// </summary>
-    /// <typeparam name="T"></typeparam>
-    /// <param name="func"></param>
-    /// <param name="default"></param>
-    /// <returns>Result or default</returns>
-    public T Catch<T>(Func<T> func, T @default = default)
-        where T : struct
-    {
-        try
-        {
-            return func();
-        }
-        catch (Exception ex)
-        {
-            AppLogger.LogError(ex, "Exception {Message} while executing: {Method}", ex.Message, func.Method.Name);
-            return @default;
-        }
-    }
-
-    ILogger AppLogger { get; }
-
-    ValueTask SleepAsync(TimeSpan duration, CancellationToken cancellationToken = default);
-
-    /// <summary>
     /// Folder root where app data (logs, planner state, session config) is stored.
     /// Typically <c>%LOCALAPPDATA%/TianWen</c>.
     /// </summary>
@@ -173,11 +32,6 @@ public interface IExternal
     /// Folder where profiles are stored
     /// </summary>
     DirectoryInfo ProfileFolder { get; }
-
-    /// <summary>
-    /// Time provider that should be used for all time operations
-    /// </summary>
-    TimeProvider TimeProvider { get; }
 
     /// <summary>
     /// Lazily initialized celestial object database. The DB is initialized on first access
@@ -216,7 +70,7 @@ public interface IExternal
     /// Reads and deserializes a JSON file using source-generated serialization.
     /// Returns <c>null</c> if the file does not exist or deserialization fails.
     /// </summary>
-    public async Task<T?> TryReadJsonAsync<T>(string filePath, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> jsonTypeInfo, CancellationToken ct = default) where T : class
+    public async Task<T?> TryReadJsonAsync<T>(string filePath, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> jsonTypeInfo, ILogger? logger = null, CancellationToken ct = default) where T : class
     {
         if (!File.Exists(filePath))
         {
@@ -230,7 +84,7 @@ public interface IExternal
         }
         catch (Exception ex)
         {
-            AppLogger.LogWarning(ex, "Failed to read JSON from {FilePath}", filePath);
+            logger?.LogWarning(ex, "Failed to read JSON from {FilePath}", filePath);
             return null;
         }
     }
@@ -268,6 +122,18 @@ public interface IExternal
         char[] invalids = Path.GetInvalidFileNameChars();
         return new string([.. name.Select(c => invalids.Contains(c) ? ReplacementChar : c)]);
     }
+
+    /// <summary>
+    /// Delays execution for the specified <paramref name="duration"/>.
+    /// <para>
+    /// Production (default): delegates to <see cref="Task.Delay(TimeSpan, CancellationToken)"/>.
+    /// Test (FakeExternal): auto-advances the <see cref="Microsoft.Extensions.Time.Testing.FakeTimeProvider"/>
+    /// unless <c>ExternalTimePump</c> is set, enabling deterministic time-dependent tests
+    /// without an external pump loop.
+    /// </para>
+    /// </summary>
+    ValueTask SleepAsync(TimeSpan duration, CancellationToken cancellationToken = default)
+        => new ValueTask(Task.Delay(duration, cancellationToken));
 
     /// <summary>
     /// TODO: Actually ensure that FITS library writes async

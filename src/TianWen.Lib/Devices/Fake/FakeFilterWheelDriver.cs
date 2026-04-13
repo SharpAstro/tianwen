@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 
 namespace TianWen.Lib.Devices.Fake;
 
-internal sealed class FakeFilterWheelDriver(FakeDevice fakeDevice, IExternal external) : FakePositionBasedDriver(fakeDevice, external), IFilterWheelDriver
+internal sealed class FakeFilterWheelDriver(FakeDevice fakeDevice, IServiceProvider serviceProvider) : FakePositionBasedDriver(fakeDevice, serviceProvider), IFilterWheelDriver
 {
     // Per-device-ID presets (1-based ID, mod 3)
     private static readonly IReadOnlyList<InstalledFilter> LrgbFilters =
