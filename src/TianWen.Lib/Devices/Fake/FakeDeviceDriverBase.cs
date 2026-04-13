@@ -29,7 +29,7 @@ internal abstract class FakeDeviceDriverBase(FakeDevice fakeDevice, IServiceProv
 
     public ILogger Logger { get; } = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(fakeDevice.GetType().Name);
 
-    public TimeProvider TimeProvider { get; } = serviceProvider.GetRequiredService<TimeProvider>();
+    public ITimeProvider TimeProvider { get; } = serviceProvider.GetRequiredService<ITimeProvider>();
 
     public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
 

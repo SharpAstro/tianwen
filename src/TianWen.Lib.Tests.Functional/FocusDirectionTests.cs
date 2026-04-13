@@ -32,19 +32,20 @@ public class FocusDirectionTests(ITestOutputHelper output)
     {
         // given — prefer positive direction (outward=+, prefer outward), currently at 1000, target 800
         var ct = TestContext.Current.CancellationToken;
-        var external = new FakeExternal(output);
+        var timeProvider = new FakeTimeProviderWrapper();
+        var external = new FakeExternal(output, timeProvider);
         var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
         await using var focuser = new FakeFocuserDriver(focuserDevice, external.BuildServiceProvider());
         await focuser.ConnectAsync(ct);
         await focuser.BeginMoveAsync(1000, ct);
-        await WaitForMoveComplete(focuser, external, ct);
+        await WaitForMoveComplete(focuser, timeProvider, ct);
 
         var focusDir = new FocusDirection(PreferOutward: true, OutwardIsPositive: true);
         // PreferredDirectionIsPositive = true
 
         // when — move to 800 (negative direction, against preferred)
         await BacklashCompensation.MoveWithCompensationAsync(
-            focuser, 800, 1000, backlashStepsIn: 20, backlashStepsOut: 20, focusDir, external, ct);
+            focuser, 800, 1000, backlashStepsIn: 20, backlashStepsOut: 20, focusDir, timeProvider, ct);
 
         // then — should end at 800, having overshot past it and returned from the positive side
         var finalPos = await focuser.GetPositionAsync(ct);
@@ -59,18 +60,19 @@ public class FocusDirectionTests(ITestOutputHelper output)
     {
         // given — prefer positive, currently at 800, target 1000
         var ct = TestContext.Current.CancellationToken;
-        var external = new FakeExternal(output);
+        var timeProvider = new FakeTimeProviderWrapper();
+        var external = new FakeExternal(output, timeProvider);
         var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
         await using var focuser = new FakeFocuserDriver(focuserDevice, external.BuildServiceProvider());
         await focuser.ConnectAsync(ct);
         await focuser.BeginMoveAsync(800, ct);
-        await WaitForMoveComplete(focuser, external, ct);
+        await WaitForMoveComplete(focuser, timeProvider, ct);
 
         var focusDir = new FocusDirection(PreferOutward: true, OutwardIsPositive: true);
 
         // when — move to 1000 (positive direction, same as preferred)
         await BacklashCompensation.MoveWithCompensationAsync(
-            focuser, 1000, 800, backlashStepsIn: 20, backlashStepsOut: 20, focusDir, external, ct);
+            focuser, 1000, 800, backlashStepsIn: 20, backlashStepsOut: 20, focusDir, timeProvider, ct);
 
         // then — direct move, no overshoot
         var finalPos = await focuser.GetPositionAsync(ct);
@@ -82,19 +84,20 @@ public class FocusDirectionTests(ITestOutputHelper output)
     {
         // given — refractor: outward=+, prefer inward (with gravity) → preferred direction is negative
         var ct = TestContext.Current.CancellationToken;
-        var external = new FakeExternal(output);
+        var timeProvider = new FakeTimeProviderWrapper();
+        var external = new FakeExternal(output, timeProvider);
         var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
         await using var focuser = new FakeFocuserDriver(focuserDevice, external.BuildServiceProvider());
         await focuser.ConnectAsync(ct);
         await focuser.BeginMoveAsync(800, ct);
-        await WaitForMoveComplete(focuser, external, ct);
+        await WaitForMoveComplete(focuser, timeProvider, ct);
 
         var focusDir = new FocusDirection(PreferOutward: false, OutwardIsPositive: true);
         // PreferredDirectionIsPositive = false (prefer negative)
 
         // when — move to 1000 (positive, against preferred)
         await BacklashCompensation.MoveWithCompensationAsync(
-            focuser, 1000, 800, backlashStepsIn: 20, backlashStepsOut: 20, focusDir, external, ct);
+            focuser, 1000, 800, backlashStepsIn: 20, backlashStepsOut: 20, focusDir, timeProvider, ct);
 
         // then — should overshoot past 1000 then approach from above (negative direction)
         var finalPos = await focuser.GetPositionAsync(ct);
@@ -106,18 +109,19 @@ public class FocusDirectionTests(ITestOutputHelper output)
     {
         // given — refractor: outward=+, prefer inward → preferred = negative
         var ct = TestContext.Current.CancellationToken;
-        var external = new FakeExternal(output);
+        var timeProvider = new FakeTimeProviderWrapper();
+        var external = new FakeExternal(output, timeProvider);
         var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
         await using var focuser = new FakeFocuserDriver(focuserDevice, external.BuildServiceProvider());
         await focuser.ConnectAsync(ct);
         await focuser.BeginMoveAsync(1000, ct);
-        await WaitForMoveComplete(focuser, external, ct);
+        await WaitForMoveComplete(focuser, timeProvider, ct);
 
         var focusDir = new FocusDirection(PreferOutward: false, OutwardIsPositive: true);
 
         // when — move to 800 (negative, same as preferred)
         await BacklashCompensation.MoveWithCompensationAsync(
-            focuser, 800, 1000, backlashStepsIn: 20, backlashStepsOut: 20, focusDir, external, ct);
+            focuser, 800, 1000, backlashStepsIn: 20, backlashStepsOut: 20, focusDir, timeProvider, ct);
 
         // then — direct move, no overshoot
         var finalPos = await focuser.GetPositionAsync(ct);
@@ -129,19 +133,20 @@ public class FocusDirectionTests(ITestOutputHelper output)
     {
         // given — reversed focuser: outward=−, prefer outward → preferred = negative
         var ct = TestContext.Current.CancellationToken;
-        var external = new FakeExternal(output);
+        var timeProvider = new FakeTimeProviderWrapper();
+        var external = new FakeExternal(output, timeProvider);
         var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
         await using var focuser = new FakeFocuserDriver(focuserDevice, external.BuildServiceProvider());
         await focuser.ConnectAsync(ct);
         await focuser.BeginMoveAsync(800, ct);
-        await WaitForMoveComplete(focuser, external, ct);
+        await WaitForMoveComplete(focuser, timeProvider, ct);
 
         var focusDir = new FocusDirection(PreferOutward: true, OutwardIsPositive: false);
         // PreferredDirectionIsPositive = false (prefer negative)
 
         // when — move to 1000 (positive, against preferred)
         await BacklashCompensation.MoveWithCompensationAsync(
-            focuser, 1000, 800, backlashStepsIn: 20, backlashStepsOut: 20, focusDir, external, ct);
+            focuser, 1000, 800, backlashStepsIn: 20, backlashStepsOut: 20, focusDir, timeProvider, ct);
 
         // then — overshoot and approach from preferred (negative) side
         var finalPos = await focuser.GetPositionAsync(ct);
@@ -153,18 +158,19 @@ public class FocusDirectionTests(ITestOutputHelper output)
     {
         // given — no backlash configured
         var ct = TestContext.Current.CancellationToken;
-        var external = new FakeExternal(output);
+        var timeProvider = new FakeTimeProviderWrapper();
+        var external = new FakeExternal(output, timeProvider);
         var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
         await using var focuser = new FakeFocuserDriver(focuserDevice, external.BuildServiceProvider());
         await focuser.ConnectAsync(ct);
         await focuser.BeginMoveAsync(1000, ct);
-        await WaitForMoveComplete(focuser, external, ct);
+        await WaitForMoveComplete(focuser, timeProvider, ct);
 
         var focusDir = new FocusDirection(PreferOutward: true, OutwardIsPositive: true);
 
         // when — move against preferred with zero backlash
         await BacklashCompensation.MoveWithCompensationAsync(
-            focuser, 800, 1000, backlashStepsIn: 0, backlashStepsOut: 0, focusDir, external, ct);
+            focuser, 800, 1000, backlashStepsIn: 0, backlashStepsOut: 0, focusDir, timeProvider, ct);
 
         // then — direct move (backlash = 0 means overshoot by 0 = no overshoot)
         var finalPos = await focuser.GetPositionAsync(ct);
@@ -176,29 +182,30 @@ public class FocusDirectionTests(ITestOutputHelper output)
     {
         // given — target near 0, backlash would overshoot below 0
         var ct = TestContext.Current.CancellationToken;
-        var external = new FakeExternal(output);
+        var timeProvider = new FakeTimeProviderWrapper();
+        var external = new FakeExternal(output, timeProvider);
         var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
         await using var focuser = new FakeFocuserDriver(focuserDevice, external.BuildServiceProvider());
         await focuser.ConnectAsync(ct);
         await focuser.BeginMoveAsync(50, ct);
-        await WaitForMoveComplete(focuser, external, ct);
+        await WaitForMoveComplete(focuser, timeProvider, ct);
 
         var focusDir = new FocusDirection(PreferOutward: true, OutwardIsPositive: true);
 
         // when — move to 5, backlash=20 would try to overshoot to -15
         await BacklashCompensation.MoveWithCompensationAsync(
-            focuser, 5, 50, backlashStepsIn: 20, backlashStepsOut: 20, focusDir, external, ct);
+            focuser, 5, 50, backlashStepsIn: 20, backlashStepsOut: 20, focusDir, timeProvider, ct);
 
         // then — should still reach target (overshoot clamped to 0)
         var finalPos = await focuser.GetPositionAsync(ct);
         finalPos.ShouldBe(5);
     }
 
-    private static async Task WaitForMoveComplete(FakeFocuserDriver focuser, FakeExternal external, CancellationToken ct)
+    private static async Task WaitForMoveComplete(FakeFocuserDriver focuser, FakeTimeProviderWrapper timeProvider, CancellationToken ct)
     {
         while (await focuser.GetIsMovingAsync(ct))
         {
-            await external.SleepAsync(TimeSpan.FromMilliseconds(100), ct);
+            await timeProvider.SleepAsync(TimeSpan.FromMilliseconds(100), ct);
         }
     }
 }

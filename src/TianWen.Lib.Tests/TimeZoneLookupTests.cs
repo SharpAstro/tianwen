@@ -2,6 +2,7 @@ using GeoTimeZone;
 using Shouldly;
 using System;
 using TianWen.Lib.Astrometry.SOFA;
+using TianWen.Lib.Devices;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
@@ -64,7 +65,7 @@ public class TimeZoneLookupTests(ITestOutputHelper output)
     [InlineData("Tenerife", 28.3, -16.5)]
     public void GivenSiteCoordinatesWhenTransformCreatedThenSiteTimeZoneIsCorrect(string name, double lat, double lon)
     {
-        var transform = new Transform(TimeProvider.System)
+        var transform = new Transform(SystemTimeProvider.Instance)
         {
             SiteLatitude = lat,
             SiteLongitude = lon,
@@ -86,7 +87,7 @@ public class TimeZoneLookupTests(ITestOutputHelper output)
     [Fact]
     public void GivenOceanCoordinatesWhenTransformCreatedThenFallbackBehaviorDocumented()
     {
-        var transform = new Transform(TimeProvider.System)
+        var transform = new Transform(SystemTimeProvider.Instance)
         {
             SiteLatitude = 32,
             SiteLongitude = -25,

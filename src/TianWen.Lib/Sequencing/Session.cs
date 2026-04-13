@@ -24,7 +24,7 @@ internal partial record Session(
 ) : ISession
 {
     private readonly ILogger _logger = ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(Session));
-    private readonly TimeProvider _timeProvider = ServiceProvider.GetRequiredService<TimeProvider>();
+    private readonly ITimeProvider _timeProvider = ServiceProvider.GetRequiredService<ITimeProvider>();
 
     const int UNINITIALIZED_OBSERVATION_INDEX = -1;
 
@@ -303,7 +303,7 @@ internal partial record Session(
         private readonly CancellationTokenSource _cts;
         private readonly Task _task;
 
-        public GuideStatsPoller(Session session, Devices.Guider.IGuider guider, TimeProvider timeProvider, CancellationToken parentToken)
+        public GuideStatsPoller(Session session, Devices.Guider.IGuider guider, ITimeProvider timeProvider, CancellationToken parentToken)
         {
             _cts = CancellationTokenSource.CreateLinkedTokenSource(parentToken);
             _task = Task.Run(async () =>
@@ -334,7 +334,7 @@ internal partial record Session(
                     catch (OperationCanceledException) { break; }
                     catch { /* ignore transient errors */ }
 
-                    await session.External.SleepAsync(TimeSpan.FromSeconds(2), ct);
+                    await timeProvider.SleepAsync(TimeSpan.FromSeconds(2), ct);
                 }
             }, _cts.Token);
         }

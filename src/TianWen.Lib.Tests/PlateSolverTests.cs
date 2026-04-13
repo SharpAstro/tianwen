@@ -307,7 +307,8 @@ public class PlateSolverTests(ITestOutputHelper output)
         var cancellationToken = TestContext.Current.CancellationToken;
         var db = await InitDBAsync(cancellationToken);
 
-        var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var external = new FakeExternal(output, timeProvider);
         // cameraDeviceId == -1 means use the guide camera (FakeGuideCam IMX178M)
         var cameraDevice = cameraDeviceId >= 0
             ? new FakeDevice(DeviceType.Camera, cameraDeviceId)
@@ -341,7 +342,7 @@ public class PlateSolverTests(ITestOutputHelper output)
         output.WriteLine($"Projected catalog stars: {projectedStars.Count} (mag ≤ {magCutoff:F1})");
         projectedStars.Count.ShouldBeGreaterThanOrEqualTo(6, $"Need at least 6 catalog stars in FOV for {targetName}");
         await camera.StartExposureAsync(exposureDuration, cancellationToken: cancellationToken);
-        await external.SleepAsync(exposureDuration, cancellationToken);
+        await timeProvider.SleepAsync(exposureDuration, cancellationToken);
 
         (await camera.GetImageReadyAsync(cancellationToken)).ShouldBeTrue("Image should be ready after exposure");
         ICameraDriver cameraDriver = camera;

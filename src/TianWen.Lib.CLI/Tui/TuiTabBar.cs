@@ -1,4 +1,5 @@
 using Console.Lib;
+using TianWen.Lib.Devices;
 using TianWen.UI.Abstractions;
 
 namespace TianWen.Lib.CLI.Tui;
@@ -19,7 +20,7 @@ internal sealed class TuiTabBar(ITerminalViewport viewport)
 
     private readonly TextBar _bar = new TextBar(viewport);
 
-    public void Render(GuiAppState appState, TimeProvider timeProvider, TimeSpan siteTimeZone)
+    public void Render(GuiAppState appState, ITimeProvider timeProvider, TimeSpan siteTimeZone)
     {
         var parts = new List<string>();
         foreach (var (label, tab) in Tabs)
@@ -29,7 +30,7 @@ internal sealed class TuiTabBar(ITerminalViewport viewport)
 
         var tabText = string.Join(" ", parts);
         var profileName = appState.ActiveProfile?.DisplayName ?? "No profile";
-        var clock = timeProvider.GetLocalNow().ToOffset(siteTimeZone).ToString("HH:mm:ss");
+        var clock = timeProvider.System.GetLocalNow().ToOffset(siteTimeZone).ToString("HH:mm:ss");
 
         _bar.Text($" {tabText}").RightText($"{profileName}  {clock} ");
         _bar.Render();

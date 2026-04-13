@@ -29,7 +29,7 @@ internal abstract class DeviceDriverBase<TDevice, TDeviceInfo>(TDevice device, I
 
     public ILogger Logger { get; } = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(device.GetType().Name);
 
-    public TimeProvider TimeProvider { get; } = serviceProvider.GetRequiredService<TimeProvider>();
+    public ITimeProvider TimeProvider { get; } = serviceProvider.GetRequiredService<ITimeProvider>();
 
     private int _connectionId;
 

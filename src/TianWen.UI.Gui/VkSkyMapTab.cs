@@ -2,6 +2,7 @@ using System;
 using DIR.Lib;
 using SdlVulkan.Renderer;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Devices;
 using TianWen.UI.Abstractions;
 
 namespace TianWen.UI.Gui;
@@ -19,7 +20,7 @@ public sealed class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanContext>(
 
     protected override void RenderSkyMap(
         ICelestialObjectDB db, RectF32 contentRect, string fontPath,
-        TimeProvider timeProvider, double siteLat, double siteLon)
+        ITimeProvider timeProvider, double siteLat, double siteLon)
     {
         var mapW = (int)contentRect.Width;
         var mapH = (int)contentRect.Height;

@@ -23,7 +23,7 @@ public sealed class MosaicSchedulingTests
 
     private static Transform CreateTransform()
     {
-        var transform = new Transform(TimeProvider.System)
+        var transform = new Transform(SystemTimeProvider.Instance)
         {
             SiteLatitude = SiteLatitude,
             SiteLongitude = SiteLongitude,

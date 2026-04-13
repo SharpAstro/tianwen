@@ -140,7 +140,7 @@ internal partial record Session
                 break;
             }
 
-            await External.SleepAsync(rampInterval, cancellationToken).ConfigureAwait(false);
+            await _timeProvider.SleepAsync(rampInterval, cancellationToken).ConfigureAwait(false);
         } while (true);
 
         return coolingStates.All(state => !(state.IsCoolable ?? false) || (state.TargetSetpointReached ?? false));

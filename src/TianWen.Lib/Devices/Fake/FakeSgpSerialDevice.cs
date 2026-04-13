@@ -14,7 +14,7 @@ namespace TianWen.Lib.Devices.Fake;
 /// </summary>
 internal class FakeSgpSerialDevice : ISerialConnection
 {
-    private readonly TimeProvider _timeProvider;
+    private readonly ITimeProvider _timeProvider;
     private readonly ILogger _logger;
     private readonly StringBuilder _responseBuffer = new();
     private int _responsePointer;
@@ -44,7 +44,7 @@ internal class FakeSgpSerialDevice : ISerialConnection
     private volatile bool _isTracking;
     private ITimer? _trackingTimer;
 
-    public FakeSgpSerialDevice(ILogger logger, Encoding encoding, TimeProvider timeProvider, bool isNorthernHemisphere, bool isOpen)
+    public FakeSgpSerialDevice(ILogger logger, Encoding encoding, ITimeProvider timeProvider, bool isNorthernHemisphere, bool isOpen)
     {
         _logger = logger;
         _timeProvider = timeProvider;

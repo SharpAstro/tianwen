@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using Console.Lib;
 using DIR.Lib;
+using TianWen.Lib.Devices;
 using TianWen.UI.Abstractions;
 using TianWen.Lib.CLI.Plan;
 
@@ -14,7 +15,7 @@ internal sealed class TuiPlannerTab(
     GuiAppState appState,
     PlannerState plannerState,
     string fontPath,
-    TimeProvider timeProvider) : TuiTabBase
+    ITimeProvider timeProvider) : TuiTabBase
 {
     private TextBar? _topBar;
     private TextBar? _statusBar;
@@ -98,7 +99,7 @@ internal sealed class TuiPlannerTab(
         _canvasRenderer.FillRectangle(
             new RectInt(new PointInt((int)canvasPixelSize.Width, (int)canvasPixelSize.Height), new PointInt(0, 0)),
             new RGBAColor32(0x1a, 0x1a, 0x2e, 0xff));
-        var chartCurrentTime = plannerState.PlanningDate.HasValue ? null as DateTimeOffset? : timeProvider.GetLocalNow();
+        var chartCurrentTime = plannerState.PlanningDate.HasValue ? null as DateTimeOffset? : timeProvider.System.GetLocalNow();
         AltitudeChartRenderer.Render(_canvasRenderer, plannerState, fontPath,
             0, 0, (int)_canvasRenderer.Width, (int)_canvasRenderer.Height,
             highlightTargetIndex: plannerState.SelectedTargetIndex,

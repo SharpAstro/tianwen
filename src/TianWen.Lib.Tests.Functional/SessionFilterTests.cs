@@ -74,7 +74,7 @@ public class SessionFilterTests(ITestOutputHelper output)
         await ctx.MonoFocuser.BeginMoveAsync(TrueBestFocusPosition, ct);
         while (await ctx.OSCFocuser.GetIsMovingAsync(ct) || await ctx.MonoFocuser.GetIsMovingAsync(ct))
         {
-            await ctx.External.SleepAsync(TimeSpan.FromMilliseconds(100), ct);
+            await ctx.TimeProvider.SleepAsync(TimeSpan.FromMilliseconds(100), ct);
         }
 
         ctx.Session.AdvanceObservationForTest();
@@ -85,18 +85,18 @@ public class SessionFilterTests(ITestOutputHelper output)
         await mount.BeginSlewRaDecAsync(target.RA, target.Dec, ct);
         while (await mount.IsSlewingAsync(ct))
         {
-            await ctx.External.SleepAsync(TimeSpan.FromMilliseconds(100), ct);
+            await ctx.TimeProvider.SleepAsync(TimeSpan.FromMilliseconds(100), ct);
         }
 
         // Enable tracking and start guiding (required by imaging loop)
         await mount.EnsureTrackingAsync(cancellationToken: ct);
         var guider = (FakeGuider)ctx.Session.Setup.Guider.Driver;
         await guider.GuideAsync(0.3, 3, 30, ct);
-        await ctx.External.SleepAsync(TimeSpan.FromSeconds(4), ct);
+        await ctx.TimeProvider.SleepAsync(TimeSpan.FromSeconds(4), ct);
 
         var observation = ctx.Session.ActiveObservation!;
         var hourAngle = await mount.GetHourAngleAsync(ct);
-        ctx.External.ExternalTimePump = true;
+        ctx.TimeProvider.ExternalTimePump = true;
         var loopTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, ct), ct);
 
         var pumpIncrement = TimeSpan.FromSeconds(5);
@@ -104,7 +104,7 @@ public class SessionFilterTests(ITestOutputHelper output)
         var pumped = TimeSpan.Zero;
         while (pumped < maxFakeTime && !loopTask.IsCompleted && !ct.IsCancellationRequested)
         {
-            ctx.External.Advance(pumpIncrement);
+            ctx.TimeProvider.Advance(pumpIncrement);
             pumped += pumpIncrement;
             await Task.Delay(1, ct);
         }
@@ -180,7 +180,7 @@ public class SessionFilterTests(ITestOutputHelper output)
         await ctx.Focuser.BeginMoveAsync(TrueBestFocusPosition, ct);
         while (await ctx.Focuser.GetIsMovingAsync(ct))
         {
-            await ctx.External.SleepAsync(TimeSpan.FromMilliseconds(100), ct);
+            await ctx.TimeProvider.SleepAsync(TimeSpan.FromMilliseconds(100), ct);
         }
 
         ctx.Session.AdvanceObservationForTest();
@@ -191,14 +191,14 @@ public class SessionFilterTests(ITestOutputHelper output)
         await mount.BeginSlewRaDecAsync(target.RA, target.Dec, ct);
         while (await mount.IsSlewingAsync(ct))
         {
-            await ctx.External.SleepAsync(TimeSpan.FromMilliseconds(100), ct);
+            await ctx.TimeProvider.SleepAsync(TimeSpan.FromMilliseconds(100), ct);
         }
 
         // Enable tracking and guiding
         await mount.EnsureTrackingAsync(cancellationToken: ct);
         var guider = (FakeGuider)ctx.Session.Setup.Guider.Driver;
         await guider.GuideAsync(0.3, 3, 30, ct);
-        await ctx.External.SleepAsync(TimeSpan.FromSeconds(4), ct);
+        await ctx.TimeProvider.SleepAsync(TimeSpan.FromSeconds(4), ct);
 
         var observation = ctx.Session.ActiveObservation!;
         var hourAngle = await mount.GetHourAngleAsync(ct);
@@ -206,7 +206,7 @@ public class SessionFilterTests(ITestOutputHelper output)
 
         for (var i = 0; i < 30 && !loopTask.IsCompleted && !ct.IsCancellationRequested; i++)
         {
-            await ctx.External.SleepAsync(subExposure, ct);
+            await ctx.TimeProvider.SleepAsync(subExposure, ct);
             for (var spin = 0; spin < 10 && !loopTask.IsCompleted; spin++)
             {
                 await Task.Delay(10, ct);

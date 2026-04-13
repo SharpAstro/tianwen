@@ -1,6 +1,7 @@
 using System;
 using DIR.Lib;
 using SdlVulkan.Renderer;
+using TianWen.Lib.Devices;
 using TianWen.UI.Abstractions;
 
 namespace TianWen.UI.Gui
@@ -130,7 +131,7 @@ namespace TianWen.UI.Gui
             GuiAppState appState,
             PlannerState plannerState,
             ViewerState viewerState,
-            TimeProvider timeProvider)
+            ITimeProvider timeProvider)
         {
             // Force Equipment tab when no profile exists
             if (appState.ActiveProfile is null && appState.ActiveTab is not GuiTab.Equipment)
@@ -244,7 +245,7 @@ namespace TianWen.UI.Gui
         // Status bar — registers clickable regions for interactive elements
         // -----------------------------------------------------------------------
 
-        private void RenderStatusBar(GuiAppState appState, PlannerState plannerState, TimeProvider timeProvider)
+        private void RenderStatusBar(GuiAppState appState, PlannerState plannerState, ITimeProvider timeProvider)
         {
             var w = (float)_width;
             var sbh = StatusBarHeight;
@@ -256,7 +257,7 @@ namespace TianWen.UI.Gui
                 return;
             }
 
-            var now = timeProvider.GetLocalNow().ToOffset(plannerState.SiteTimeZone);
+            var now = timeProvider.System.GetLocalNow().ToOffset(plannerState.SiteTimeZone);
             var clockText = now.ToString("ddd d MMM HH:mm:ss");
 
             // Profile name (left)
@@ -354,7 +355,7 @@ namespace TianWen.UI.Gui
             GuiAppState appState,
             PlannerState plannerState,
             ViewerState viewerState,
-            TimeProvider timeProvider,
+            ITimeProvider timeProvider,
             RectF32 contentRect)
         {
             // Poll session state for any tab that needs live data (LiveSession, Guider)

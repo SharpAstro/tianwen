@@ -89,7 +89,7 @@ internal partial record Session
                 {
                     _logger.LogInformation("Cover {Cover} of telescope {TelescopeNumber} is still {CurrentState} while reaching {FinalCoverState}, waiting.",
                         cover, i + 1, cs, finalCoverState);
-                    await External.SleepAsync(TimeSpan.FromSeconds(3), cancellationToken);
+                    await _timeProvider.SleepAsync(TimeSpan.FromSeconds(3), cancellationToken);
                 }
 
                 var finalCoverStateAfterMoving = await cover.Driver.GetCoverStateAsync(cancellationToken);

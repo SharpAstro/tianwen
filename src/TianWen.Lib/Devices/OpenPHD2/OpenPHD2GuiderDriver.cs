@@ -66,7 +66,7 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
     private string? PHDSubvVersion { get; set; }
     private SettleProgress? Settle { get; set; }
 
-    public OpenPHD2GuiderDriver(OpenPHD2GuiderDevice guiderDevice, IExternal external, ILogger logger, TimeProvider timeProvider)
+    public OpenPHD2GuiderDriver(OpenPHD2GuiderDevice guiderDevice, IExternal external, ILogger logger, ITimeProvider timeProvider)
     {
         if (guiderDevice.DeviceType != DeviceType.Guider)
         {
@@ -573,7 +573,7 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
 
     public IExternal External { get; }
     public ILogger Logger { get; }
-    public TimeProvider TimeProvider { get; }
+    public ITimeProvider TimeProvider { get; }
 
     [DebuggerStepThrough]
     void EnsureConnected()
@@ -819,7 +819,7 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
                 return;
             }
 
-            await External.SleepAsync(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+            await TimeProvider.SleepAsync(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
             EnsureConnected();
         }
 
@@ -856,7 +856,7 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
 
         using var loopingResponse = await CallAsync("loop", cancellationToken).ConfigureAwait(false);
 
-        await External.SleepAsync(exposureTime, cancellationToken).ConfigureAwait(false);
+        await TimeProvider.SleepAsync(exposureTime, cancellationToken).ConfigureAwait(false);
 
         var totalSeconds = (uint)timeout.TotalSeconds;
         for (uint i = 0; i < totalSeconds; i++)
@@ -869,7 +869,7 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
                 }
             }
 
-            await External.SleepAsync(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
+            await TimeProvider.SleepAsync(TimeSpan.FromSeconds(1), cancellationToken).ConfigureAwait(false);
 
             EnsureConnected();
         }

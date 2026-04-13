@@ -51,7 +51,7 @@ internal sealed class ManualFilterWheelDriver(ManualFilterWheelDevice device, IS
 
     public ILogger Logger { get; } = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(ManualFilterWheelDriver));
 
-    public TimeProvider TimeProvider { get; } = serviceProvider.GetRequiredService<TimeProvider>();
+    public ITimeProvider TimeProvider { get; } = serviceProvider.GetRequiredService<ITimeProvider>();
 
     public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
 

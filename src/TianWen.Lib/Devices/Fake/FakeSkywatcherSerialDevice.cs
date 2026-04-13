@@ -15,7 +15,7 @@ namespace TianWen.Lib.Devices.Fake;
 /// </summary>
 internal class FakeSkywatcherSerialDevice : ISerialConnection
 {
-    private readonly TimeProvider _timeProvider;
+    private readonly ITimeProvider _timeProvider;
     private readonly ILogger _logger;
     private readonly StringBuilder _responseBuffer = new();
     private int _responsePointer;
@@ -62,7 +62,7 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
     private const int FIRMWARE_MAJOR = 3;
     private const int FIRMWARE_MINOR = 39;
 
-    public FakeSkywatcherSerialDevice(ILogger logger, Encoding encoding, TimeProvider timeProvider, bool isOpen)
+    public FakeSkywatcherSerialDevice(ILogger logger, Encoding encoding, ITimeProvider timeProvider, bool isOpen)
     {
         _logger = logger;
         _timeProvider = timeProvider;

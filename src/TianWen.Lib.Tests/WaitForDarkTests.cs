@@ -29,13 +29,13 @@ public class WaitForDarkTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         using var ctx = await CreateSessionAsync(obsStart, now, ct);
 
-        var before = ctx.External.TimeProvider.GetUtcNow();
+        var before = ctx.TimeProvider.GetUtcNow();
 
         // when
         await ctx.Session.WaitUntilTenMinutesBeforeAmateurAstroTwilightEndsAsync(ct);
 
         // then
-        var waited = ctx.External.TimeProvider.GetUtcNow() - before;
+        var waited = ctx.TimeProvider.GetUtcNow() - before;
         output.WriteLine($"Waited: {waited}");
         waited.TotalMinutes.ShouldBeLessThan(1, "should skip when observation already started");
     }
@@ -49,13 +49,13 @@ public class WaitForDarkTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         using var ctx = await CreateSessionAsync(obsStart, now, ct);
 
-        var before = ctx.External.TimeProvider.GetUtcNow();
+        var before = ctx.TimeProvider.GetUtcNow();
 
         // when
         await ctx.Session.WaitUntilTenMinutesBeforeAmateurAstroTwilightEndsAsync(ct);
 
         // then — should wait ~1h50m (2h - 10min)
-        var waited = ctx.External.TimeProvider.GetUtcNow() - before;
+        var waited = ctx.TimeProvider.GetUtcNow() - before;
         output.WriteLine($"Waited: {waited}");
         waited.TotalMinutes.ShouldBeGreaterThan(100, "should wait until 10min before start");
         waited.TotalMinutes.ShouldBeLessThan(120, "should not wait past observation start");
@@ -70,13 +70,13 @@ public class WaitForDarkTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         using var ctx = await CreateSessionAsync(obsStart, now, ct);
 
-        var before = ctx.External.TimeProvider.GetUtcNow();
+        var before = ctx.TimeProvider.GetUtcNow();
 
         // when
         await ctx.Session.WaitUntilTenMinutesBeforeAmateurAstroTwilightEndsAsync(ct);
 
         // then — 5 min < 10 min buffer, diff is negative, should skip
-        var waited = ctx.External.TimeProvider.GetUtcNow() - before;
+        var waited = ctx.TimeProvider.GetUtcNow() - before;
         output.WriteLine($"Waited: {waited}");
         waited.TotalMinutes.ShouldBeLessThan(1, "should skip when within 10-min buffer");
     }
@@ -84,7 +84,8 @@ public class WaitForDarkTests(ITestOutputHelper output)
     private static async Task<SessionTestContext> CreateSessionAsync(
         DateTimeOffset observationStart, DateTimeOffset now, CancellationToken ct)
     {
-        var external = new FakeExternal(null!, now: now);
+        var timeProvider = new FakeTimeProviderWrapper(now);
+        var external = new FakeExternal(null!, timeProvider);
         var sp = external.BuildServiceProvider();
 
         var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
@@ -132,6 +133,6 @@ public class WaitForDarkTests(ITestOutputHelper output)
 
         var session = new Session(setup, config, plateSolver, external, sp, new ScheduledObservationTree(observations));
 
-        return new SessionTestContext(session, external, cameraDriver, (FakeFocuserDriver)focuser.Driver, mount.Driver);
+        return new SessionTestContext(session, external, timeProvider, cameraDriver, (FakeFocuserDriver)focuser.Driver, mount.Driver);
     }
 }

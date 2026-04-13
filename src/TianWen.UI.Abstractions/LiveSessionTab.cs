@@ -88,7 +88,7 @@ namespace TianWen.UI.Abstractions
             RectF32 contentRect,
             float dpiScale,
             string fontPath,
-            TimeProvider timeProvider)
+            ITimeProvider timeProvider)
         {
             State = state;
             BeginFrame();
@@ -386,7 +386,7 @@ namespace TianWen.UI.Abstractions
         // Top strip: phase pill + activity + progress + clock
         // -----------------------------------------------------------------------
 
-        private void RenderTopStrip(LiveSessionState state, RectF32 rect, string fontPath, float fontSize, float dpiScale, TimeProvider timeProvider)
+        private void RenderTopStrip(LiveSessionState state, RectF32 rect, string fontPath, float fontSize, float dpiScale, ITimeProvider timeProvider)
         {
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, HeaderBg);
 
@@ -429,7 +429,7 @@ namespace TianWen.UI.Abstractions
         // Timeline: phase bars + now needle + time axis
         // -----------------------------------------------------------------------
 
-        private void RenderTimeline(LiveSessionState state, RectF32 rect, string fontPath, float fontSize, float dpiScale, TimeProvider timeProvider)
+        private void RenderTimeline(LiveSessionState state, RectF32 rect, string fontPath, float fontSize, float dpiScale, ITimeProvider timeProvider)
         {
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, TimelineBg);
 
@@ -525,7 +525,7 @@ namespace TianWen.UI.Abstractions
         // Bottom strip: compact guide graph + RMS + ABORT
         // -----------------------------------------------------------------------
 
-        private void RenderBottomStrip(LiveSessionState state, RectF32 rect, string fontPath, float fontSize, float dpiScale, float pad, TimeProvider timeProvider)
+        private void RenderBottomStrip(LiveSessionState state, RectF32 rect, string fontPath, float fontSize, float dpiScale, float pad, ITimeProvider timeProvider)
         {
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, HeaderBg);
             FillRect(rect.X, rect.Y, rect.Width, 1, SeparatorColor);
@@ -642,7 +642,7 @@ namespace TianWen.UI.Abstractions
         // -----------------------------------------------------------------------
 
         private void RenderOTAPanels(LiveSessionState state, RectF32 rect, string fontPath,
-            float fontSize, float dpiScale, float pad, float rowH, TimeProvider timeProvider)
+            float fontSize, float dpiScale, float pad, float rowH, ITimeProvider timeProvider)
         {
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, PanelBg);
 
@@ -848,7 +848,7 @@ namespace TianWen.UI.Abstractions
         }
 
         private void RenderExposureState(CameraExposureState cs, float x, float y, float w, float progressH, float rowH,
-            string fontPath, float fontSize, float smallFs, float dpiScale, TimeProvider timeProvider)
+            string fontPath, float fontSize, float smallFs, float dpiScale, ITimeProvider timeProvider)
         {
             if (cs.State == CameraState.Idle)
             {

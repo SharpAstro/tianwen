@@ -32,7 +32,7 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
 
         while (await ctx.Focuser.GetIsMovingAsync(cancellationToken))
         {
-            await ctx.External.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
+            await ctx.TimeProvider.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
         }
 
         var positionAfterMove = await ctx.Focuser.GetPositionAsync(cancellationToken);
@@ -111,7 +111,8 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
     {
         // given — camera at best focus
         var ct = TestContext.Current.CancellationToken;
-        var external = new FakeExternal(output);
+        var timeProvider = new FakeTimeProviderWrapper();
+        var external = new FakeExternal(output, timeProvider);
         var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
         await using var cameraDriver = new FakeCameraDriver(cameraDevice, external.BuildServiceProvider());
         await cameraDriver.ConnectAsync(ct);
@@ -123,7 +124,7 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
 
         // when — take an exposure
         await cameraDriver.StartExposureAsync(TimeSpan.FromSeconds(2), cancellationToken: ct);
-        await external.SleepAsync(TimeSpan.FromSeconds(3), ct);
+        await timeProvider.SleepAsync(TimeSpan.FromSeconds(3), ct);
         var image = await ((ICameraDriver)cameraDriver).GetImageAsync(ct);
 
         // then — should produce detectable stars with tight HFD
@@ -145,7 +146,8 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
     {
         // given
         var ct = TestContext.Current.CancellationToken;
-        var external = new FakeExternal(output);
+        var timeProvider = new FakeTimeProviderWrapper();
+        var external = new FakeExternal(output, timeProvider);
         var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
         await using var cameraDriver = new FakeCameraDriver(cameraDevice, external.BuildServiceProvider());
         await cameraDriver.ConnectAsync(ct);
@@ -157,13 +159,13 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
         // when — take image at focus
         cameraDriver.FocusPosition = TrueBestFocusPosition;
         await cameraDriver.StartExposureAsync(TimeSpan.FromSeconds(2), cancellationToken: ct);
-        await external.SleepAsync(TimeSpan.FromSeconds(3), ct);
+        await timeProvider.SleepAsync(TimeSpan.FromSeconds(3), ct);
         var focusedImage = await ((ICameraDriver)cameraDriver).GetImageAsync(ct);
 
         // and — take image defocused by 100 steps
         cameraDriver.FocusPosition = TrueBestFocusPosition + 100;
         await cameraDriver.StartExposureAsync(TimeSpan.FromSeconds(2), cancellationToken: ct);
-        await external.SleepAsync(TimeSpan.FromSeconds(3), ct);
+        await timeProvider.SleepAsync(TimeSpan.FromSeconds(3), ct);
         var defocusedImage = await ((ICameraDriver)cameraDriver).GetImageAsync(ct);
 
         // then — defocused HFD should be larger
@@ -188,7 +190,8 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
     {
         // given — collect V-curve data from synthetic images at known positions
         var ct = TestContext.Current.CancellationToken;
-        var external = new FakeExternal(output);
+        var timeProvider = new FakeTimeProviderWrapper();
+        var external = new FakeExternal(output, timeProvider);
         var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
         await using var cameraDriver = new FakeCameraDriver(cameraDevice, external.BuildServiceProvider());
         await cameraDriver.ConnectAsync(ct);
@@ -206,7 +209,7 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
             var pos = startPos + i * stepSize;
             cameraDriver.FocusPosition = pos;
             await cameraDriver.StartExposureAsync(TimeSpan.FromSeconds(2), cancellationToken: ct);
-            await external.SleepAsync(TimeSpan.FromSeconds(3), ct);
+            await timeProvider.SleepAsync(TimeSpan.FromSeconds(3), ct);
             var image = await ((ICameraDriver)cameraDriver).GetImageAsync(ct);
             image.ShouldNotBeNull();
 

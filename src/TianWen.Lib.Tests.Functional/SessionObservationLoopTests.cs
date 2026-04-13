@@ -49,7 +49,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
         await ctx.Focuser.BeginMoveAsync(TrueBestFocusPosition, cancellationToken);
         while (await ctx.Focuser.GetIsMovingAsync(cancellationToken))
         {
-            await ctx.External.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
+            await ctx.TimeProvider.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
         }
 
         // Advance observation index so ActiveObservation is set
@@ -70,7 +70,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
     {
         // Enable external time pump mode: the obs loop's SleepAsync will wait for
         // time to advance rather than advancing it, preventing concurrent Advance races.
-        ctx.External.ExternalTimePump = true;
+        ctx.TimeProvider.ExternalTimePump = true;
 
         var loopTask = Task.Run(async () => await ctx.Session.ObservationLoopAsync(cancellationToken), cancellationToken);
 
@@ -81,7 +81,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
         var pumped = TimeSpan.Zero;
         while (pumped < maxFakeTime && !loopTask.IsCompleted && !cancellationToken.IsCancellationRequested)
         {
-            ctx.External.Advance(pumpIncrement);
+            ctx.TimeProvider.Advance(pumpIncrement);
             pumped += pumpIncrement;
 
             // Yield to let the observation loop process events triggered by the time advance

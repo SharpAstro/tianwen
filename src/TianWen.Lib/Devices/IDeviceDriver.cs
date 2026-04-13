@@ -29,7 +29,7 @@ public interface IDeviceDriver : IAsyncDisposable, IDisposable
     /// <summary>
     /// Time provider for this driver instance. Used by interface default methods that need time.
     /// </summary>
-    TimeProvider TimeProvider { get; }
+    ITimeProvider TimeProvider { get; }
 
     bool Connected { get; }
 

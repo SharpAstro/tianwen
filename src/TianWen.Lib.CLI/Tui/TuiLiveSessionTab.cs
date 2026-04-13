@@ -37,7 +37,7 @@ internal sealed class TuiLiveSessionTab(
     GuiAppState appState,
     LiveSessionState liveState,
     IVirtualTerminal terminal,
-    TimeProvider timeProvider,
+    ITimeProvider timeProvider,
     SignalBus bus) : TuiTabBase
 {
     private const int LeftPanelCols = 40;
@@ -116,7 +116,7 @@ internal sealed class TuiLiveSessionTab(
     {
         // Phase + activity
         var phaseLabel = LiveSessionActions.PhaseLabel(liveState.Phase);
-        var statusText = LiveSessionActions.PhaseStatusText(liveState, TimeProvider.System);
+        var statusText = LiveSessionActions.PhaseStatusText(liveState, timeProvider);
         _topBar!.Text($" [{phaseLabel}]  {statusText}");
 
         // Right side: obs/frame/exp counter

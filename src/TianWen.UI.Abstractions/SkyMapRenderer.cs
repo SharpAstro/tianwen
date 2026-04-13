@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using DIR.Lib;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
+using TianWen.Lib.Devices;
 
 namespace TianWen.UI.Abstractions
 {
@@ -29,7 +30,7 @@ namespace TianWen.UI.Abstractions
             RgbaImage image,
             SkyMapState state,
             ICelestialObjectDB db,
-            TimeProvider timeProvider,
+            ITimeProvider timeProvider,
             double siteLat,
             double siteLon,
             string fontPath,

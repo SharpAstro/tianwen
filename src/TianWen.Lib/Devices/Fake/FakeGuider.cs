@@ -339,7 +339,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
             if (_camera is { Connected: true } camera)
             {
                 var exposureTime = TimeSpan.FromSeconds(2);
-                _lastLoopFrame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, External, cancellationToken);
+                _lastLoopFrame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, TimeProvider, cancellationToken);
 
                 // Start the unified capture loop in background
                 _loopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -362,7 +362,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
         try
         {
             var exposureTime = TimeSpan.FromSeconds(2);
-            var ext = External;
+            var ext = TimeProvider;
 
             // Phase 1: Loop capture — expose and store frames until guiding starts
             while (!ct.IsCancellationRequested)
@@ -407,7 +407,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
 
             var pulseTarget = new PulseGuideRouter(PulseGuideSource.Auto, camera, mount);
             var pController = new ProportionalGuideController { AggressivenessRa = 0.7, AggressivenessDec = 0.7, MinPulseMs = 20 };
-            var guideLoop = new GuideLoop(pulseTarget, tracker, pController, External, TimeProvider);
+            var guideLoop = new GuideLoop(pulseTarget, tracker, pController, TimeProvider);
             guideLoop.SetCalibration(new GuiderCalibrationResult(0, 1.0, 1.0, 0, 0, 0));
             _guideLoop = guideLoop;
 

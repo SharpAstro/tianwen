@@ -86,11 +86,12 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
         // given
         var cancellationToken = TestContext.Current.CancellationToken;
         var device = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection { ["latitude"] = Convert.ToString(siteLat), ["longitude"] = Convert.ToString(siteLong) });
-        var fakeExternal = new FakeExternal(outputHelper, null, utc is not null ? DateTimeOffset.Parse(utc) : null, null);
+        var timeProvider = new FakeTimeProviderWrapper(utc is not null ? DateTimeOffset.Parse(utc) : null);
+        var fakeExternal = new FakeExternal(outputHelper, timeProvider);
 
         await using var mount = new FakeMeadeLX200ProtocolMountDriver(device, fakeExternal.BuildServiceProvider());
 
-        var timeStamp = fakeExternal.TimeProvider.GetTimestamp();
+        var timeStamp = timeProvider.GetTimestamp();
 
         // when
         await mount.ConnectAsync(cancellationToken);
@@ -100,11 +101,11 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
         while (await mount.IsSlewingAsync(cancellationToken))
         {
             // this will advance the fake timer and not actually sleep
-            await fakeExternal.SleepAsync(TimeSpan.FromSeconds(1), cancellationToken);
+            await timeProvider.SleepAsync(TimeSpan.FromSeconds(1), cancellationToken);
         }
 
         // then
-        var timePassed = fakeExternal.TimeProvider.GetElapsedTime(timeStamp);
+        var timePassed = timeProvider.System.GetElapsedTime(timeStamp);
         timePassed.ShouldBeGreaterThan(TimeSpan.FromSeconds(2));
         (await mount.IsSlewingAsync(cancellationToken)).ShouldBe(false);
         (await mount.IsTrackingAsync(cancellationToken)).ShouldBe(true);

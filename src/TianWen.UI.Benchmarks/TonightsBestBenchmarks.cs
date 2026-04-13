@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.UI.Benchmarks;
@@ -23,7 +24,7 @@ public class TonightsBestBenchmarks
         _db = new CelestialObjectDB();
         await _db.InitDBAsync(default);
 
-        _viennaSummer = new Transform(TimeProvider.System)
+        _viennaSummer = new Transform(SystemTimeProvider.Instance)
         {
             SiteLatitude = 48.2,
             SiteLongitude = 16.4,
@@ -32,7 +33,7 @@ public class TonightsBestBenchmarks
             DateTimeOffset = new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.FromHours(2))
         };
 
-        _viennaWinter = new Transform(TimeProvider.System)
+        _viennaWinter = new Transform(SystemTimeProvider.Instance)
         {
             SiteLatitude = 48.2,
             SiteLongitude = 16.4,
@@ -41,7 +42,7 @@ public class TonightsBestBenchmarks
             DateTimeOffset = new DateTimeOffset(2025, 12, 15, 20, 0, 0, TimeSpan.FromHours(1))
         };
 
-        _melbourneSummer = new Transform(TimeProvider.System)
+        _melbourneSummer = new Transform(SystemTimeProvider.Instance)
         {
             SiteLatitude = -37.8,
             SiteLongitude = 145.0,

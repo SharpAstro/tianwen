@@ -124,18 +124,6 @@ public interface IExternal
     }
 
     /// <summary>
-    /// Delays execution for the specified <paramref name="duration"/>.
-    /// <para>
-    /// Production (default): delegates to <see cref="Task.Delay(TimeSpan, CancellationToken)"/>.
-    /// Test (FakeExternal): auto-advances the <see cref="Microsoft.Extensions.Time.Testing.FakeTimeProvider"/>
-    /// unless <c>ExternalTimePump</c> is set, enabling deterministic time-dependent tests
-    /// without an external pump loop.
-    /// </para>
-    /// </summary>
-    ValueTask SleepAsync(TimeSpan duration, CancellationToken cancellationToken = default)
-        => new ValueTask(Task.Delay(duration, cancellationToken));
-
-    /// <summary>
     /// TODO: Actually ensure that FITS library writes async
     /// </summary>
     /// <param name="image"></param>

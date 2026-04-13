@@ -543,7 +543,7 @@ public interface IMountDriver : IDeviceDriver
             {
                 await onPoll(cancellationToken);
             }
-            await External.SleepAsync(period, cancellationToken);
+            await TimeProvider.SleepAsync(period, cancellationToken);
         }
 
         var isStillSlewing = await IsSlewingAsync(cancellationToken);

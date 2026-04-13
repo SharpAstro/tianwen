@@ -5,6 +5,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.VSOP87;
+using TianWen.Lib.Devices;
 using static TianWen.Lib.Astrometry.Constants;
 using static TianWen.Lib.Astrometry.SOFA.SofaFunctions;
 
@@ -22,7 +23,7 @@ namespace TianWen.Lib.Astrometry.SOFA
     /// </remarks>
     public sealed class Transform
     {
-        public TimeProvider TimeProvider { get; }
+        public ITimeProvider TimeProvider { get; }
         private double _RAJ2000Value, _RATopoValue, _DECJ2000Value, _DECTopoValue;
         private double _SiteElevValue, _SiteLatValue, _SiteLongValue;
         private TimeSpan? _SiteTimeZoneValue;
@@ -43,7 +44,7 @@ namespace TianWen.Lib.Astrometry.SOFA
             Refresh
         }
 
-        public Transform(TimeProvider timeProvider)
+        public Transform(ITimeProvider timeProvider)
         {
             // Initialise to invalid values in case these are read before they are set
             _RAJ2000Value = double.NaN;

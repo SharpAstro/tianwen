@@ -10,7 +10,7 @@ using TianWen.Lib.Connections;
 
 namespace TianWen.Lib.Devices.Meade;
 
-internal partial class MeadeDeviceSource(IExternal external, ILogger<MeadeDeviceSource> logger, TimeProvider timeProvider) : IDeviceSource<MeadeDevice>
+internal partial class MeadeDeviceSource(IExternal external, ILogger<MeadeDeviceSource> logger, ITimeProvider timeProvider) : IDeviceSource<MeadeDevice>
 {
     private Dictionary<DeviceType, List<MeadeDevice>>? _cachedDevices;
 
@@ -42,13 +42,13 @@ internal partial class MeadeDeviceSource(IExternal external, ILogger<MeadeDevice
     private async Task QueryPortAsync(Dictionary<DeviceType, List<MeadeDevice>> devices, string portName, CancellationToken cancellationToken)
     {
         var ioTimeout = Debugger.IsAttached ? TimeSpan.FromMinutes(1) : TimeSpan.FromMilliseconds(250);
-        using var cts = new CancellationTokenSource(ioTimeout, timeProvider);
+        using var cts = new CancellationTokenSource(ioTimeout, timeProvider.System);
         var linkedToken = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken).Token;
 
         using var serialDevice = external.OpenSerialDevice(portName, 9600, Encoding.ASCII);
 
         var (productName, productNumber, siteNames, uuid) = await TryGetMountInfo(serialDevice, linkedToken)
-            .WaitAsync(ioTimeout, timeProvider, cancellationToken);
+            .WaitAsync(ioTimeout, timeProvider.System, cancellationToken);
         if (productName is not null && productNumber is not null && SupportedProductsRegex.IsMatch(productName))
         {
             List<MeadeDevice> deviceList;

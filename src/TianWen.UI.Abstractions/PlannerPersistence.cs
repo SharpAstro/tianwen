@@ -28,7 +28,7 @@ public static class PlannerPersistence
     /// <summary>
     /// Saves the current planner state to disk.
     /// </summary>
-    public static Task SaveAsync(PlannerState state, Profile profile, IExternal external, TimeProvider timeProvider, CancellationToken ct)
+    public static Task SaveAsync(PlannerState state, Profile profile, IExternal external, ITimeProvider timeProvider, CancellationToken ct)
         => external.AtomicWriteJsonAsync(
             GetSessionFilePath(profile, state, external, timeProvider),
             CreateDto(state),
@@ -39,7 +39,7 @@ public static class PlannerPersistence
     /// Attempts to load a previously saved planner session. Returns true if state was restored.
     /// Validates site coordinates and matches saved targets against the current TonightsBest list.
     /// </summary>
-    public static async Task<bool> TryLoadAsync(PlannerState state, Profile? profile, IExternal external, ILogger logger, TimeProvider timeProvider, CancellationToken ct)
+    public static async Task<bool> TryLoadAsync(PlannerState state, Profile? profile, IExternal external, ILogger logger, ITimeProvider timeProvider, CancellationToken ct)
     {
         if (profile is null)
         {
@@ -205,11 +205,11 @@ public static class PlannerPersistence
             SiteLongitude: state.SiteLongitude);
     }
 
-    private static string GetSessionFilePath(Profile profile, PlannerState state, IExternal external, TimeProvider? timeProvider = null)
+    private static string GetSessionFilePath(Profile profile, PlannerState state, IExternal external, ITimeProvider? timeProvider = null)
     {
         // Use the site's local date (not the machine's) so the file key matches
         // the "tonight" definition from CalculateNightWindow (site-timezone-aware).
-        var siteNow = (timeProvider ?? TimeProvider.System).GetUtcNow().ToOffset(state.SiteTimeZone);
+        var siteNow = (timeProvider ?? SystemTimeProvider.Instance).GetUtcNow().ToOffset(state.SiteTimeZone);
         var date = state.PlanningDate?.Date ?? CoordinateUtils.AstronomicalEveningDate(siteNow);
         var profileId = profile.ProfileId.ToString("D");
         var dateStr = date.ToString("yyyy-MM-dd");

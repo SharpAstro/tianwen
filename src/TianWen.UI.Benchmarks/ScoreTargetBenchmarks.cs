@@ -23,7 +23,7 @@ public class ScoreTargetBenchmarks
     public void Setup()
     {
         // Vienna, summer night
-        _transform = new Transform(TimeProvider.System)
+        _transform = new Transform(SystemTimeProvider.Instance)
         {
             SiteLatitude = 48.2,
             SiteLongitude = 16.4,

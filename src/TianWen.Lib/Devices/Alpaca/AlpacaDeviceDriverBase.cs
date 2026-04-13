@@ -48,7 +48,7 @@ internal abstract class AlpacaDeviceDriverBase(AlpacaDevice device, IServiceProv
                     return (true, CONNECTION_ID_EXCLUSIVE, new AlpacaDeviceInfo());
                 }
 
-                await External.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
+                await TimeProvider.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
             }
 
             return (false, CONNECTION_ID_UNKNOWN, new AlpacaDeviceInfo());
@@ -73,7 +73,7 @@ internal abstract class AlpacaDeviceDriverBase(AlpacaDevice device, IServiceProv
                     return true;
                 }
 
-                await External.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
+                await TimeProvider.SleepAsync(TimeSpan.FromMilliseconds(100), cancellationToken);
             }
 
             return false;

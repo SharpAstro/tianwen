@@ -14,7 +14,7 @@ internal class ConsoleHost(
     ICombinedDeviceManager deviceManager,
     IDeviceUriRegistry deviceUriRegistry,
     IVirtualTerminal terminal,
-    TimeProvider timeProvider
+    ITimeProvider timeProvider
 ) : IConsoleHost
 {
     private readonly ConcurrentDictionary<DeviceType, bool> _discoveryRanForDevice = [];
@@ -27,7 +27,7 @@ internal class ConsoleHost(
 
     public IExternal External { get; } = external;
 
-    public TimeProvider TimeProvider { get; } = timeProvider;
+    public ITimeProvider TimeProvider { get; } = timeProvider;
 
     public void WriteScrollable(string content, bool newLine = true)
     {
@@ -56,7 +56,7 @@ internal class ConsoleHost(
     public async Task<IReadOnlyCollection<DeviceBase>> ListAllDevicesAsync(DeviceDiscoveryOption options, CancellationToken cancellationToken)
     {
         var discoveryTimeout = Debugger.IsAttached ? TimeSpan.FromMinutes(15) : TimeSpan.FromSeconds(25);
-        using var cts = new CancellationTokenSource(discoveryTimeout, TimeProvider);
+        using var cts = new CancellationTokenSource(discoveryTimeout, TimeProvider.System);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken);
 
         await deviceManager.CheckSupportAsync(linked.Token);
@@ -86,7 +86,7 @@ internal class ConsoleHost(
     {
         var discoveryTimeout = Debugger.IsAttached ? TimeSpan.FromMinutes(15) : TimeSpan.FromSeconds(25);
 
-        using var cts = new CancellationTokenSource(discoveryTimeout, TimeProvider);
+        using var cts = new CancellationTokenSource(discoveryTimeout, TimeProvider.System);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken);
 
         if (await deviceManager.CheckSupportAsync(linked.Token) && (

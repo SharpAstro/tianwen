@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using DIR.Lib;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.UI.Abstractions
@@ -59,7 +60,7 @@ namespace TianWen.UI.Abstractions
         private RectF32 _chartRect;
         private (float X, float Y)? _appMousePosition;
         private DateTimeOffset? _currentTime;
-        private TimeProvider? _timeProvider;
+        private ITimeProvider? _timeProvider;
         private float _itemHeight;
         private float _searchBarBottom;
         private float _searchBarLeft;
@@ -101,7 +102,7 @@ namespace TianWen.UI.Abstractions
             RectF32 contentRect,
             float dpiScale,
             string fontPath,
-            TimeProvider timeProvider,
+            ITimeProvider timeProvider,
             (float X, float Y) mouseScreenPosition = default,
             string? emojiFontPath = null)
         {
@@ -134,7 +135,7 @@ namespace TianWen.UI.Abstractions
                 ? state.SelectedTargetIndex
                 : (int?)null;
 
-            var now = timeProvider.GetLocalNow();
+            var now = timeProvider.System.GetLocalNow();
             _currentTime = now;
             _timeProvider = timeProvider;
 

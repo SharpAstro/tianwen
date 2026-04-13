@@ -1,4 +1,5 @@
 using System;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Astrometry.SOFA;
 
@@ -44,7 +45,7 @@ public readonly record struct SiteContext
         return ((lst % 24.0) + 24.0) % 24.0;
     }
 
-    public static SiteContext Create(double siteLat, double siteLon, TimeProvider timeProvider)
+    public static SiteContext Create(double siteLat, double siteLon, ITimeProvider timeProvider)
     {
         if (double.IsNaN(siteLat) || double.IsNaN(siteLon))
         {

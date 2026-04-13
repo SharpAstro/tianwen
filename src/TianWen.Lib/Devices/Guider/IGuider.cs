@@ -279,7 +279,7 @@ public interface IGuider : IDeviceDriver
                 var failsafeCounter = 0;
                 while (await IsSettlingAsync(cancellationToken).ConfigureAwait(false) && failsafeCounter++ < MAX_FAILSAFE && !cancellationToken.IsCancellationRequested)
                 {
-                    await External.SleepAsync(TimeSpan.FromSeconds(10), cancellationToken);
+                    await TimeProvider.SleepAsync(TimeSpan.FromSeconds(10), cancellationToken);
                 }
 
                 guidingSuccess = failsafeCounter < MAX_FAILSAFE && await IsGuidingAsync(cancellationToken).ConfigureAwait(false);
@@ -289,7 +289,7 @@ public interface IGuider : IDeviceDriver
                 }
                 else if (!guidingSuccess)
                 {
-                    await External.SleepAsync(TimeSpan.FromMinutes(startGuidingTries), cancellationToken).ConfigureAwait(false);
+                    await TimeProvider.SleepAsync(TimeSpan.FromMinutes(startGuidingTries), cancellationToken).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -326,7 +326,7 @@ public interface IGuider : IDeviceDriver
 
         await processQueuedWork().ConfigureAwait(false);
 
-        using var ticker = new PeriodicTimer(settleTime, TimeProvider);
+        using var ticker = new PeriodicTimer(settleTime, TimeProvider.System);
 
         for (var i = 0; i < SETTLE_TIMEOUT_FACTOR; i++)
         {

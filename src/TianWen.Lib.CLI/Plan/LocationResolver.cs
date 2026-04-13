@@ -12,7 +12,7 @@ internal static class LocationResolver
     public static Transform? ResolveFromProfile(
         IConsoleHost consoleHost,
         Profile profile,
-        TimeProvider timeProvider)
+        ITimeProvider timeProvider)
     {
         var transform = TransformFactory.FromProfile(profile, timeProvider, out var error);
         if (error is not null)
