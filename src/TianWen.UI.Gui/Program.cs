@@ -222,10 +222,11 @@ void RequestQuit()
 {
     if (appState.ShuttingDown)
     {
-        // Already shutting down, second press — force quit.
-        // Warm-up tasks use CancellationToken.None for camera safety; they'll be
-        // abandoned when the process exits, which is the user's explicit choice.
-        loop.Stop();
+        // Already shutting down — refuse to quit while warm-up is in progress.
+        // Same pattern as SessionPhase.Finalising: cameras must complete their
+        // thermal ramp for sensor safety.
+        appState.StatusMessage = "Warming cameras\u2026 please wait";
+        appState.NeedsRedraw = true;
         return;
     }
 
@@ -258,12 +259,10 @@ void RequestQuit()
     // Cancel non-session background tasks (planner init, weather fetch) immediately
     backgroundCts.Cancel();
 
-    // Out-of-session safety: enumerate hub-connected cameras.
-    // Safe cameras (cooler off + idle) are disconnected inline — no tracked task.
-    // Cameras that need a warm-up ramp get a tracked task so the loop stays alive
-    // to show progress. Warm-up uses CancellationToken.None for camera safety —
-    // a second quit press force-stops the loop but the ramp completes in background.
-    var warmupQueued = 0;
+    // Out-of-session safety: enumerate hub-connected cameras and queue disconnect tasks.
+    // Each task checks safety inside (async), then either disconnects cleanly or does a
+    // warm-up ramp. CancellationToken.None: thermal ramp must complete for camera safety.
+    var cameraCount = 0;
     if (appState.DeviceHub is { } hubAtQuit)
     {
         foreach (var (uri, driver) in hubAtQuit.ConnectedDevices)
@@ -271,34 +270,26 @@ void RequestQuit()
             if (driver is not TianWen.Lib.Devices.ICameraDriver) continue;
 
             var capUri = uri;
-            // Quick inline safety check — GetDisconnectSafetyAsync is fast (reads cached state)
-            var safety = EquipmentActions.GetDisconnectSafetyAsync(hubAtQuit, capUri, System.Threading.CancellationToken.None);
-            if (safety.IsCompletedSuccessfully && safety.Result == EquipmentActions.DisconnectSafety.Safe)
+            cameraCount++;
+            tracker.Run(async () =>
             {
-                // Idle + cooler off — disconnect inline, no need to block shutdown
-                tracker.Run(async () =>
+                try
                 {
-                    try { await hubAtQuit.DisconnectAsync(capUri, System.Threading.CancellationToken.None); }
-                    catch (Exception ex) { logger.LogWarning(ex, "Shutdown disconnect failed for {Uri}", capUri); }
-                }, $"Disconnect {capUri.Host}");
-            }
-            else
-            {
-                // Camera needs a warm-up ramp. CancellationToken.None: thermal ramp must
-                // complete for camera safety. Process exit will abandon if user force-quits.
-                tracker.Run(async () =>
-                {
-                    try
+                    var safety = await EquipmentActions.GetDisconnectSafetyAsync(hubAtQuit, capUri, System.Threading.CancellationToken.None);
+                    if (safety == EquipmentActions.DisconnectSafety.Safe)
+                    {
+                        await hubAtQuit.DisconnectAsync(capUri, System.Threading.CancellationToken.None);
+                    }
+                    else
                     {
                         await EquipmentActions.WarmAndDisconnectAsync(hubAtQuit, capUri, logger, System.Threading.CancellationToken.None);
                     }
-                    catch (Exception ex)
-                    {
-                        logger.LogWarning(ex, "Shutdown warm-and-disconnect failed for {Uri}", capUri);
-                    }
-                }, $"Warm up {capUri.Host}");
-                warmupQueued++;
-            }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Shutdown disconnect failed for {Uri}", capUri);
+                }
+            }, $"Shutdown {capUri.Host}");
         }
     }
 
@@ -307,8 +298,8 @@ void RequestQuit()
         // Keep loop alive to show Finalise / warm-up progress
         appState.ShuttingDown = true;
         appState.ShutdownComplete = false;
-        appState.StatusMessage = warmupQueued > 0
-            ? $"Warming up {warmupQueued} camera{(warmupQueued == 1 ? "" : "s")} before exit\u2026 (press X again to force)"
+        appState.StatusMessage = cameraCount > 0
+            ? $"Disconnecting {cameraCount} camera{(cameraCount == 1 ? "" : "s")}\u2026"
             : "Shutting down\u2026";
         appState.NeedsRedraw = true;
     }
@@ -424,11 +415,8 @@ loop.Run(cts.Token);
 // Use a timeout so force-quit (second X press) doesn't hang on warm-up tasks.
 cts.Cancel();
 
-var drainTask = tracker.DrainAsync();
-if (await Task.WhenAny(drainTask, Task.Delay(TimeSpan.FromSeconds(5))) != drainTask)
-{
-    logger.LogWarning("Drain timed out after 5s \u2014 exiting anyway");
-}
+// Drain completes quickly — warm-up already finished while the loop was alive.
+await tracker.DrainAsync();
 
 guiRenderer.Dispose();
 renderer.Dispose();
