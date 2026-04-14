@@ -37,7 +37,13 @@ public record class OpenWeatherMapDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 
     protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
     {
-        DeviceType.Weather => ApiKey is { Length: > 0 } ? new OpenWeatherMapDriver(this, sp) : null,
+        // Throw a user-meaningful error rather than returning null silently — the connect path
+        // surfaces the message to the status bar; silent-fetch (FetchWeatherForecastAsync) wraps
+        // this in try/catch and just logs.
+        DeviceType.Weather => ApiKey is { Length: > 0 }
+            ? new OpenWeatherMapDriver(this, sp)
+            : throw new InvalidOperationException(
+                "OpenWeatherMap API key not set — open the device's settings in the Equipment tab and enter your key."),
         _ => null
     };
 }

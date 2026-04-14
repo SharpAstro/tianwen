@@ -25,6 +25,13 @@ public class EquipmentTabState
     public IReadOnlyList<DeviceBase> DiscoveredDevices { get; set; } = [];
     public bool IsDiscovering { get; set; }
 
+    /// <summary>
+    /// Device URIs whose connect/disconnect transition is currently in flight.
+    /// Both segments of the On|Off button are disabled while a URI is in this set
+    /// to prevent rapid double-clicks issuing competing transitions.
+    /// </summary>
+    public HashSet<Uri> PendingTransitions { get; } = new();
+
     // Assignment mode: when non-null, clicking a device in the list assigns it to this slot
     public AssignTarget? ActiveAssignment { get; set; }
 
