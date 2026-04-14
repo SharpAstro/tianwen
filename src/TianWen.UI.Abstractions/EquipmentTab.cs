@@ -75,16 +75,59 @@ namespace TianWen.UI.Abstractions
         public override bool HandleInput(InputEvent evt) => evt switch
         {
             InputEvent.KeyDown(var key, _) when State.FilterNameDropdown.HandleKeyDown(key) => true,
-            // ESC dismisses expanded device settings pane before bubbling to quit
-            InputEvent.KeyDown(InputKey.Escape, _) when State.ExpandedDeviceSettingsUri is not null =>
-                DismissExpandedDevice(),
+            // ESC dismisses any active selection/confirmation before bubbling to quit
+            InputEvent.KeyDown(InputKey.Escape, _) => DismissActiveState(),
             _ => base.HandleInput(evt)
         };
 
-        private bool DismissExpandedDevice()
+        /// <summary>
+        /// Clears any active selection, assignment mode, confirmation strip, or expanded
+        /// device settings. Returns true (consumed) if anything was dismissed, false otherwise
+        /// so ESC can bubble up to the global quit handler.
+        /// </summary>
+        private bool DismissActiveState()
         {
-            State.StopEditingDeviceSettings();
-            return true;
+            var dismissed = false;
+
+            if (State.ActiveAssignment is not null)
+            {
+                State.ActiveAssignment = null;
+                dismissed = true;
+            }
+
+            if (State.ExpandedDeviceSettingsUri is not null)
+            {
+                State.StopEditingDeviceSettings();
+                dismissed = true;
+            }
+
+            if (State.PendingDisconnectConfirm is not null)
+            {
+                State.PendingDisconnectConfirm = null;
+                State.PendingForceConfirm = null;
+                dismissed = true;
+            }
+
+            if (State.PendingCoolerOffConfirm is not null)
+            {
+                State.PendingCoolerOffConfirm = null;
+                State.PendingCoolerOffForceConfirm = null;
+                dismissed = true;
+            }
+
+            if (State.IsCreatingProfile)
+            {
+                State.IsCreatingProfile = false;
+                dismissed = true;
+            }
+
+            if (State.IsEditingSite)
+            {
+                State.IsEditingSite = false;
+                dismissed = true;
+            }
+
+            return dismissed;
         }
 
         // -----------------------------------------------------------------------

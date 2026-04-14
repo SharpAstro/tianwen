@@ -120,6 +120,8 @@ bus.Subscribe<DeactivateTextInputSignal>(_ =>
 // Load saved session configuration + initialize planner (shared logic in AppSignalHandler)
 // Separate CTS for non-session background tasks — cancelled on quit without affecting running sessions.
 var backgroundCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
+// ESC quit confirmation: first ESC shows message, second ESC within 3s actually quits
+long escConfirmTimestamp = 0;
 var signalHandler = handlers.SignalHandler;
 tracker.Run(() => signalHandler.LoadSessionConfigAsync(backgroundCts.Token), "Load session config");
 
@@ -220,7 +222,9 @@ void RequestQuit()
 {
     if (appState.ShuttingDown)
     {
-        // Already shutting down, second press — force quit
+        // Already shutting down, second press — force quit.
+        // Warm-up tasks use CancellationToken.None for camera safety; they'll be
+        // abandoned when the process exits, which is the user's explicit choice.
         loop.Stop();
         return;
     }
@@ -254,11 +258,11 @@ void RequestQuit()
     // Cancel non-session background tasks (planner init, weather fetch) immediately
     backgroundCts.Cancel();
 
-    // Out-of-session safety: enumerate hub-connected cameras and queue warm-and-disconnect
-    // for any with the cooler on or mid-exposure. The existing tracker.HasPending gate keeps
-    // the loop alive until those tasks complete, so the user gets the same "Shutting down…"
-    // overlay they'd see for session Finalise. A second quit press during shutdown
-    // force-stops the loop (handled by the early return at the top of RequestQuit).
+    // Out-of-session safety: enumerate hub-connected cameras.
+    // Safe cameras (cooler off + idle) are disconnected inline — no tracked task.
+    // Cameras that need a warm-up ramp get a tracked task so the loop stays alive
+    // to show progress. Warm-up uses CancellationToken.None for camera safety —
+    // a second quit press force-stops the loop but the ramp completes in background.
     var warmupQueued = 0;
     if (appState.DeviceHub is { } hubAtQuit)
     {
@@ -267,29 +271,34 @@ void RequestQuit()
             if (driver is not TianWen.Lib.Devices.ICameraDriver) continue;
 
             var capUri = uri;
-            tracker.Run(async () =>
+            // Quick inline safety check — GetDisconnectSafetyAsync is fast (reads cached state)
+            var safety = EquipmentActions.GetDisconnectSafetyAsync(hubAtQuit, capUri, System.Threading.CancellationToken.None);
+            if (safety.IsCompletedSuccessfully && safety.Result == EquipmentActions.DisconnectSafety.Safe)
             {
-                try
+                // Idle + cooler off — disconnect inline, no need to block shutdown
+                tracker.Run(async () =>
                 {
-                    var safety = await EquipmentActions.GetDisconnectSafetyAsync(hubAtQuit, capUri, System.Threading.CancellationToken.None);
-                    if (safety == EquipmentActions.DisconnectSafety.Safe)
+                    try { await hubAtQuit.DisconnectAsync(capUri, System.Threading.CancellationToken.None); }
+                    catch (Exception ex) { logger.LogWarning(ex, "Shutdown disconnect failed for {Uri}", capUri); }
+                }, $"Disconnect {capUri.Host}");
+            }
+            else
+            {
+                // Camera needs a warm-up ramp. CancellationToken.None: thermal ramp must
+                // complete for camera safety. Process exit will abandon if user force-quits.
+                tracker.Run(async () =>
+                {
+                    try
                     {
-                        // Idle + cooler off — disconnect cleanly without ramp.
-                        await hubAtQuit.DisconnectAsync(capUri, System.Threading.CancellationToken.None);
-                    }
-                    else
-                    {
-                        // Camera needs a warm-up ramp. Use CancellationToken.None: we don't want
-                        // a Cancel during shutdown to abort the thermal ramp partway through.
                         await EquipmentActions.WarmAndDisconnectAsync(hubAtQuit, capUri, logger, System.Threading.CancellationToken.None);
                     }
-                }
-                catch (Exception ex)
-                {
-                    logger.LogWarning(ex, "Shutdown disconnect failed for {Uri}", capUri);
-                }
-            }, $"Shutdown {capUri.Host}");
-            warmupQueued++;
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Shutdown warm-and-disconnect failed for {Uri}", capUri);
+                    }
+                }, $"Warm up {capUri.Host}");
+                warmupQueued++;
+            }
         }
     }
 
@@ -377,7 +386,21 @@ loop.OnKeyDown = (inputKey, inputModifier) =>
     switch (inputKey)
     {
         case InputKey.Escape:
-            RequestQuit();
+            var now2 = timeProvider.GetTimestamp();
+            if (escConfirmTimestamp != 0
+                && timeProvider.System.GetElapsedTime(escConfirmTimestamp, now2) < TimeSpan.FromSeconds(3))
+            {
+                // Second ESC within 3s — actually quit
+                escConfirmTimestamp = 0;
+                RequestQuit();
+            }
+            else
+            {
+                // First ESC — show confirmation message
+                escConfirmTimestamp = now2;
+                appState.StatusMessage = "Press ESC again to quit";
+                appState.NeedsRedraw = true;
+            }
             return true;
         case InputKey.F11:
             sdlWindow.ToggleFullscreen();
@@ -397,10 +420,15 @@ loop.OnQuit = () =>
 
 loop.Run(cts.Token);
 
-// Final cleanup — drain should complete quickly since we already waited in the loop
+// Final cleanup — drain should complete quickly since we already waited in the loop.
+// Use a timeout so force-quit (second X press) doesn't hang on warm-up tasks.
 cts.Cancel();
 
-await tracker.DrainAsync();
+var drainTask = tracker.DrainAsync();
+if (await Task.WhenAny(drainTask, Task.Delay(TimeSpan.FromSeconds(5))) != drainTask)
+{
+    logger.LogWarning("Drain timed out after 5s \u2014 exiting anyway");
+}
 
 guiRenderer.Dispose();
 renderer.Dispose();
