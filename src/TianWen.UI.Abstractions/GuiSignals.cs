@@ -20,8 +20,29 @@ public readonly record struct AssignDeviceSignal(int DeviceIndex);
 /// <summary>Connect a device via the device hub (out-of-session).</summary>
 public readonly record struct ConnectDeviceSignal(System.Uri DeviceUri);
 
-/// <summary>Disconnect a device via the device hub (out-of-session).</summary>
+/// <summary>Disconnect a device via the device hub (out-of-session).
+/// The handler safety-checks first; for an unsafe device it sets a confirmation
+/// state instead of disconnecting immediately.</summary>
 public readonly record struct DisconnectDeviceSignal(System.Uri DeviceUri);
+
+/// <summary>Warm a cooled camera to ambient (gradual ramp), then disconnect.
+/// Posted from the per-row "Warm &amp; Disconnect" confirmation button.</summary>
+public readonly record struct WarmAndDisconnectDeviceSignal(System.Uri DeviceUri);
+
+/// <summary>Force-disconnect bypassing safety checks (no warm-up, no idle wait).
+/// Posted only after the secondary force-confirmation button is clicked.</summary>
+public readonly record struct ForceDisconnectDeviceSignal(System.Uri DeviceUri);
+
+/// <summary>Set the cooler setpoint (°C) on a hub-connected camera and turn the cooler on.</summary>
+public readonly record struct SetCoolerSetpointSignal(System.Uri DeviceUri, double SetpointC);
+
+/// <summary>Direct cooler-off (bypass safety). Posted only after force confirmation,
+/// or when the camera is already safe (idle + near ambient).</summary>
+public readonly record struct SetCoolerOffSignal(System.Uri DeviceUri);
+
+/// <summary>Warm a cooled camera to ambient (gradual ramp), then turn the cooler off
+/// without disconnecting. Posted from the cooler-panel "Warm up &amp; Off" confirmation.</summary>
+public readonly record struct WarmAndCoolerOffSignal(System.Uri DeviceUri);
 
 /// <summary>Update profile data (filter config, OTA props, etc.).</summary>
 public readonly record struct UpdateProfileSignal(ProfileData Data);

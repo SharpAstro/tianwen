@@ -175,6 +175,9 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
     {
         // Recompute targets when site/date changes (shared logic in AppSignalHandler)
         signalHandler.CheckRecompute();
+        // Sample camera cooler/temperature telemetry while the equipment tab is visible.
+        // Internally rate-limited per-camera so calling every frame is cheap.
+        signalHandler.PollCameraTelemetry();
 
         // During shutdown, show progress and signal ready to stop
         if (appState.ShuttingDown)
@@ -248,12 +251,53 @@ void RequestQuit()
     // Cancel non-session background tasks (planner init, weather fetch) immediately
     backgroundCts.Cancel();
 
+    // Out-of-session safety: enumerate hub-connected cameras and queue warm-and-disconnect
+    // for any with the cooler on or mid-exposure. The existing tracker.HasPending gate keeps
+    // the loop alive until those tasks complete, so the user gets the same "Shutting down…"
+    // overlay they'd see for session Finalise. A second quit press during shutdown
+    // force-stops the loop (handled by the early return at the top of RequestQuit).
+    var warmupQueued = 0;
+    if (appState.DeviceHub is { } hubAtQuit)
+    {
+        foreach (var (uri, driver) in hubAtQuit.ConnectedDevices)
+        {
+            if (driver is not TianWen.Lib.Devices.ICameraDriver) continue;
+
+            var capUri = uri;
+            tracker.Run(async () =>
+            {
+                try
+                {
+                    var safety = await EquipmentActions.GetDisconnectSafetyAsync(hubAtQuit, capUri, System.Threading.CancellationToken.None);
+                    if (safety == EquipmentActions.DisconnectSafety.Safe)
+                    {
+                        // Idle + cooler off — disconnect cleanly without ramp.
+                        await hubAtQuit.DisconnectAsync(capUri, System.Threading.CancellationToken.None);
+                    }
+                    else
+                    {
+                        // Camera needs a warm-up ramp. Use CancellationToken.None: we don't want
+                        // a Cancel during shutdown to abort the thermal ramp partway through.
+                        await EquipmentActions.WarmAndDisconnectAsync(hubAtQuit, capUri, logger, System.Threading.CancellationToken.None);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Shutdown disconnect failed for {Uri}", capUri);
+                }
+            }, $"Shutdown {capUri.Host}");
+            warmupQueued++;
+        }
+    }
+
     if (tracker.HasPending)
     {
-        // Keep loop alive to show Finalise progress
+        // Keep loop alive to show Finalise / warm-up progress
         appState.ShuttingDown = true;
         appState.ShutdownComplete = false;
-        appState.StatusMessage = "Shutting down\u2026";
+        appState.StatusMessage = warmupQueued > 0
+            ? $"Warming up {warmupQueued} camera{(warmupQueued == 1 ? "" : "s")} before exit\u2026 (press X again to force)"
+            : "Shutting down\u2026";
         appState.NeedsRedraw = true;
     }
     else
