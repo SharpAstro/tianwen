@@ -265,14 +265,16 @@ void RequestQuit()
 // Set separately to allow loop.Stop() self-reference
 loop.OnPostFrame = () =>
 {
-    var redrawBefore = appState.NeedsRedraw;
-    bus.ProcessPending(tracker);
+    // Any signal processed this post-frame may have mutated state that the just-rendered
+    // frame doesn't reflect — preserve NeedsRedraw so the loop renders again on the next
+    // iteration. The previous "redrawBefore == false" gate was buggy: when the click that
+    // triggered this frame's render also set NeedsRedraw=true, we wrongly cleared it.
+    var processedAny = bus.ProcessPending(tracker);
     if (tracker.ProcessCompletions(logger))
     {
         appState.NeedsRedraw = true;
     }
-    // If a signal handler set NeedsRedraw during ProcessPending, don't clear it
-    var signalSetRedraw = !redrawBefore && appState.NeedsRedraw;
+    var signalSetRedraw = processedAny;
 
     // During shutdown, stop the loop once all tasks (Finalise) have completed
     if (appState.ShutdownComplete)

@@ -528,7 +528,9 @@ namespace TianWen.UI.Abstractions
 
                     var updated = profile.WithData(newData);
                     appState.ActiveProfile = updated;
-                    eqState.ActiveAssignment = null;
+                    // Keep the slot active so the user can swap the assigned device by
+                    // clicking another row immediately, without re-clicking the slot.
+                    // Click the slot itself again to deactivate.
                     appState.NeedsRedraw = true;
                     await updated.SaveAsync(external, cts.Token);
 
@@ -538,6 +540,92 @@ namespace TianWen.UI.Abstractions
                         await FetchWeatherForecastAsync(cts.Token);
                         appState.NeedsRedraw = true;
                     }
+                }
+            });
+
+            bus.Subscribe<ConnectDeviceSignal>(async sig =>
+            {
+                if (appState.DeviceHub is not { } hub)
+                {
+                    appState.StatusMessage = "Device hub unavailable";
+                    return;
+                }
+
+                if (!eqState.PendingTransitions.Add(sig.DeviceUri))
+                {
+                    return; // transition already in flight
+                }
+                appState.NeedsRedraw = true;
+
+                try
+                {
+                    // Prefer the resolved device (carries query-param config); fall back
+                    // to a freshly-discovered match by URI equality.
+                    DeviceBase? device = null;
+                    if (hub.TryGetDeviceFromUri(sig.DeviceUri, out var resolved))
+                    {
+                        device = resolved;
+                    }
+                    else
+                    {
+                        foreach (var d in eqState.DiscoveredDevices)
+                        {
+                            if (DeviceBase.SameDevice(d.DeviceUri, sig.DeviceUri))
+                            {
+                                device = d;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (device is null)
+                    {
+                        appState.StatusMessage = "Cannot resolve device URI for connect";
+                        return;
+                    }
+
+                    await hub.ConnectAsync(device, cts.Token);
+                    appState.StatusMessage = $"Connected: {device.DisplayName}";
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Connect failed for {Uri}", sig.DeviceUri);
+                    appState.StatusMessage = $"Connect failed: {ex.Message}";
+                }
+                finally
+                {
+                    eqState.PendingTransitions.Remove(sig.DeviceUri);
+                    appState.NeedsRedraw = true;
+                }
+            });
+
+            bus.Subscribe<DisconnectDeviceSignal>(async sig =>
+            {
+                if (appState.DeviceHub is not { } hub)
+                {
+                    return;
+                }
+
+                if (!eqState.PendingTransitions.Add(sig.DeviceUri))
+                {
+                    return;
+                }
+                appState.NeedsRedraw = true;
+
+                try
+                {
+                    await hub.DisconnectAsync(sig.DeviceUri, cts.Token);
+                    appState.StatusMessage = "Device disconnected";
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Disconnect failed for {Uri}", sig.DeviceUri);
+                    appState.StatusMessage = $"Disconnect failed: {ex.Message}";
+                }
+                finally
+                {
+                    eqState.PendingTransitions.Remove(sig.DeviceUri);
+                    appState.NeedsRedraw = true;
                 }
             });
 

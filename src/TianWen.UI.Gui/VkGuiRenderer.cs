@@ -374,7 +374,7 @@ namespace TianWen.UI.Gui
 
                 case GuiTab.Equipment:
                     _equipmentTab.Render(appState, contentRect, DpiScale,
-                        _fontPath ?? "monospace");
+                        _fontPath ?? "monospace", _emojiFontPath);
                     break;
 
                 case GuiTab.Session:

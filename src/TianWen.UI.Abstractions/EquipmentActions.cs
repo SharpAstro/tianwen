@@ -208,6 +208,80 @@ public static class EquipmentActions
     }
 
     /// <summary>
+    /// Finds the profile slot URI matching the given device URI (path-equality via
+    /// <see cref="DeviceBase.SameDevice"/>). Returns the profile URI which carries
+    /// query params (API keys, ports, etc.) — these are stripped from discovered URIs,
+    /// so the profile copy is what should be passed to <see cref="IDeviceHub.ConnectAsync"/>.
+    /// </summary>
+    public static Uri? FindAssignedUri(ProfileData? data, Uri deviceUri)
+    {
+        if (data is not { } d) return null;
+        if (DeviceBase.SameDevice(d.Mount, deviceUri)) return d.Mount;
+        if (DeviceBase.SameDevice(d.Guider, deviceUri)) return d.Guider;
+        if (DeviceBase.SameDevice(d.GuiderCamera, deviceUri)) return d.GuiderCamera;
+        if (DeviceBase.SameDevice(d.GuiderFocuser, deviceUri)) return d.GuiderFocuser;
+        if (DeviceBase.SameDevice(d.Weather, deviceUri)) return d.Weather;
+        foreach (var ota in d.OTAs)
+        {
+            if (DeviceBase.SameDevice(ota.Camera, deviceUri)) return ota.Camera;
+            if (DeviceBase.SameDevice(ota.Focuser, deviceUri)) return ota.Focuser;
+            if (DeviceBase.SameDevice(ota.FilterWheel, deviceUri)) return ota.FilterWheel;
+            if (DeviceBase.SameDevice(ota.Cover, deviceUri)) return ota.Cover;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Reachability of a device as displayed in the Equipment tab. Combines profile
+    /// assignment, current discovery state, and live connection state from the hub.
+    /// </summary>
+    public enum DeviceReachability
+    {
+        /// <summary>URI is not assigned to any slot in the active profile.</summary>
+        NotAssigned,
+        /// <summary>Assigned and currently connected via <see cref="IDeviceHub"/>.</summary>
+        Connected,
+        /// <summary>Assigned, present in the latest discovery results, but not connected — connectable.</summary>
+        Disconnected,
+        /// <summary>Assigned but not present in the latest discovery results — hardware unreachable.</summary>
+        Offline
+    }
+
+    /// <summary>
+    /// Computes the four-state reachability for a device URI by combining profile assignment,
+    /// the latest discovery snapshot, and live hub connection state.
+    /// </summary>
+    public static DeviceReachability GetReachability(
+        ProfileData? data,
+        IDeviceHub? hub,
+        IReadOnlyCollection<DeviceBase> discoveredDevices,
+        Uri deviceUri)
+    {
+        // Live hub connection wins over assignment: a connected-but-unassigned device
+        // (e.g. one the user just reassigned the slot away from) still needs an On|Off
+        // toggle so they can disconnect it. Without this gate it would silently linger.
+        if (hub is not null && hub.IsConnected(deviceUri))
+        {
+            return DeviceReachability.Connected;
+        }
+
+        if (data is not { } pdata || !IsDeviceAssigned(pdata, deviceUri))
+        {
+            return DeviceReachability.NotAssigned;
+        }
+
+        foreach (var d in discoveredDevices)
+        {
+            if (DeviceBase.SameDevice(d.DeviceUri, deviceUri))
+            {
+                return DeviceReachability.Disconnected;
+            }
+        }
+
+        return DeviceReachability.Offline;
+    }
+
+    /// <summary>
     /// Returns a human-readable label for a device URI, using the registry if available.
     /// </summary>
     public static string DeviceLabel(Uri? uri, IDeviceHub? registry = null)

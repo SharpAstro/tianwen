@@ -17,6 +17,12 @@ public readonly record struct CreateProfileSignal;
 /// <summary>Assign a discovered device to the active slot.</summary>
 public readonly record struct AssignDeviceSignal(int DeviceIndex);
 
+/// <summary>Connect a device via the device hub (out-of-session).</summary>
+public readonly record struct ConnectDeviceSignal(System.Uri DeviceUri);
+
+/// <summary>Disconnect a device via the device hub (out-of-session).</summary>
+public readonly record struct DisconnectDeviceSignal(System.Uri DeviceUri);
+
 /// <summary>Update profile data (filter config, OTA props, etc.).</summary>
 public readonly record struct UpdateProfileSignal(ProfileData Data);
 

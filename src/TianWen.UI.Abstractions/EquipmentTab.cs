@@ -27,12 +27,14 @@ namespace TianWen.UI.Abstractions
         private const float BaseBadgeWidth        = 68f;
         private const float BaseCheckmarkWidth    = 20f;
         private const float BaseArrowWidth        = 22f;
+        private const float BaseStatusGlyphWidth  = 22f;
+        private const float BaseConnectBtnWidth   = 80f;
 
         // Colors
         private static readonly RGBAColor32 ProfilePanelBg   = new RGBAColor32(0x1e, 0x1e, 0x28, 0xff);
         private static readonly RGBAColor32 DeviceListBg     = new RGBAColor32(0x18, 0x18, 0x22, 0xff);
         private static readonly RGBAColor32 SlotNormal       = new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
-        private static readonly RGBAColor32 SlotActive       = new RGBAColor32(0x20, 0x35, 0x55, 0xff);
+        private static readonly RGBAColor32 SlotActive       = new RGBAColor32(0x2a, 0x6b, 0xb8, 0xff);
         private static readonly RGBAColor32 DeviceRowBg      = new RGBAColor32(0x20, 0x20, 0x2c, 0xff);
         private static readonly RGBAColor32 AssignedGreen    = new RGBAColor32(0x40, 0xc0, 0x40, 0xff);
         private static readonly RGBAColor32 DimmedText       = new RGBAColor32(0x60, 0x60, 0x70, 0xff);
@@ -50,6 +52,13 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 FilterTableBg    = new RGBAColor32(0x1a, 0x1a, 0x26, 0xff);
         private static readonly RGBAColor32 FilterRowAlt     = new RGBAColor32(0x20, 0x20, 0x2e, 0xff);
         private static readonly RGBAColor32 EditButtonBg     = new RGBAColor32(0x2a, 0x40, 0x5a, 0xff);
+        // Reachability indicator colors (⏻ glyph + segmented On|Off button highlight)
+        private static readonly RGBAColor32 ReachConnected   = new RGBAColor32(0x40, 0xc0, 0x40, 0xff);
+        private static readonly RGBAColor32 ReachDisconnected= new RGBAColor32(0xc0, 0x90, 0x30, 0xff);
+        private static readonly RGBAColor32 ReachOffline     = new RGBAColor32(0x70, 0x70, 0x78, 0xff);
+        private static readonly RGBAColor32 SegmentActive    = new RGBAColor32(0x30, 0x60, 0x90, 0xff);
+        private static readonly RGBAColor32 SegmentInactive  = new RGBAColor32(0x28, 0x28, 0x38, 0xff);
+        private static readonly RGBAColor32 SegmentDisabled  = new RGBAColor32(0x22, 0x22, 0x2a, 0xff);
 
         /// <summary>Tab state (scroll offsets, discovery results, assignment mode).</summary>
         public EquipmentTabState State { get; } = new EquipmentTabState();
@@ -75,7 +84,8 @@ namespace TianWen.UI.Abstractions
             GuiAppState appState,
             RectF32 contentRect,
             float dpiScale,
-            string fontPath)
+            string fontPath,
+            string? emojiFontPath = null)
         {
             // Clear clickable regions from previous frame
             BeginFrame();
@@ -95,7 +105,7 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            RenderProfileView(appState, contentRect, dpiScale, fontPath);
+            RenderProfileView(appState, contentRect, dpiScale, fontPath, emojiFontPath);
 
             // Dropdown overlay — rendered absolutely last so it paints on top of everything
             var fontSize = BaseFontSize * dpiScale;
@@ -195,7 +205,8 @@ namespace TianWen.UI.Abstractions
         private void RenderProfileView(
             GuiAppState appState,
             RectF32 contentRect,
-            float dpiScale, string fontPath)
+            float dpiScale, string fontPath,
+            string? emojiFontPath = null)
         {
             var profilePanelW = BaseProfilePanelWidth * dpiScale;
             var bottomBarH    = BaseBottomBarHeight * dpiScale;
@@ -207,14 +218,14 @@ namespace TianWen.UI.Abstractions
 
             // Left: profile panel
             FillRect(profileRect.X, profileRect.Y, profileRect.Width, profileRect.Height, ProfilePanelBg);
-            RenderProfilePanel(appState, profileRect, dpiScale, fontPath);
+            RenderProfilePanel(appState, profileRect, dpiScale, fontPath, emojiFontPath);
 
             // Vertical separator
             FillRect(deviceListRect.X, deviceListRect.Y, 1f, deviceListRect.Height, SeparatorColor);
 
             // Right: device list
             FillRect(deviceListRect.X, deviceListRect.Y, deviceListRect.Width, deviceListRect.Height, DeviceListBg);
-            RenderDeviceList(appState, deviceListRect, dpiScale, fontPath);
+            RenderDeviceList(appState, deviceListRect, dpiScale, fontPath, emojiFontPath);
 
             // Bottom bar
             FillRect(bottomBarRect.X, bottomBarRect.Y, bottomBarRect.Width, bottomBarRect.Height, BottomBarBg);
@@ -228,7 +239,8 @@ namespace TianWen.UI.Abstractions
         private void RenderProfilePanel(
             GuiAppState appState,
             RectF32 rect,
-            float dpiScale, string fontPath)
+            float dpiScale, string fontPath,
+            string? emojiFontPath = null)
         {
             var fontSize   = BaseFontSize * dpiScale;
             var padding    = BasePadding * dpiScale;
@@ -264,7 +276,7 @@ namespace TianWen.UI.Abstractions
                 // Mount slot
                 cursor = RenderProfileSlot(
                     "Mount", pd.Mount, new AssignTarget.ProfileLevel("Mount"),
-                    x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW);
+                    x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW, appState, pd, emojiFontPath);
 
                 // Site info — clickable to edit
                 var site = EquipmentActions.GetSiteFromMount(pd.Mount ?? NoneDevice.Instance.DeviceUri);
@@ -323,17 +335,17 @@ namespace TianWen.UI.Abstractions
                 // Guider slot
                 cursor = RenderProfileSlot(
                     "Guider", pd.Guider, new AssignTarget.ProfileLevel("Guider"),
-                    x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW);
+                    x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW, appState, pd, emojiFontPath);
 
                 // Guider Camera slot
                 cursor = RenderProfileSlot(
                     "Guider Cam", pd.GuiderCamera, new AssignTarget.ProfileLevel("GuiderCamera"),
-                    x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW);
+                    x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW, appState, pd, emojiFontPath);
 
                 // Guider Focuser slot
                 cursor = RenderProfileSlot(
                     "Guider Foc", pd.GuiderFocuser, new AssignTarget.ProfileLevel("GuiderFocuser"),
-                    x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW);
+                    x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW, appState, pd, emojiFontPath);
 
                 // Guide scope focal length
                 {
@@ -369,7 +381,7 @@ namespace TianWen.UI.Abstractions
                     var extraDeviceUri = EquipmentActions.GetAssignedDevice(pd, extraSlot.Slot);
                     cursor = RenderProfileSlot(
                         extraSlot.Label, extraDeviceUri, extraSlot.Slot,
-                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW);
+                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW, appState, pd, emojiFontPath);
                     cursor = RenderDeviceSettingsIfAny(appState, pd, extraDeviceUri, $"{extraSlot.Label} Settings",
                         x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
                 }
@@ -434,18 +446,18 @@ namespace TianWen.UI.Abstractions
                     // OTA sub-slots
                     cursor = RenderProfileSlot(
                         "  Camera", ota.Camera, new AssignTarget.OTALevel(i, "Camera"),
-                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW);
+                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW, appState, pd, emojiFontPath);
                     // Device settings for camera (if it declares any)
                     cursor = RenderDeviceSettingsIfAny(appState, pd, ota.Camera, "Camera Settings",
                         x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
                     cursor = RenderProfileSlot(
                         "  Focuser", ota.Focuser, new AssignTarget.OTALevel(i, "Focuser"),
-                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW);
+                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW, appState, pd, emojiFontPath);
                     cursor = RenderDeviceSettingsIfAny(appState, pd, ota.Focuser, "Focuser Settings",
                         x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
                     cursor = RenderProfileSlot(
                         "  Filter Wheel", ota.FilterWheel, new AssignTarget.OTALevel(i, "FilterWheel"),
-                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW);
+                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW, appState, pd, emojiFontPath);
 
                     // Filter table (shown when a filter wheel is assigned)
                     if (ota.FilterWheel is not null && ota.FilterWheel != NoneDevice.Instance.DeviceUri)
@@ -455,7 +467,7 @@ namespace TianWen.UI.Abstractions
 
                     cursor = RenderProfileSlot(
                         "  Cover", ota.Cover, new AssignTarget.OTALevel(i, "Cover"),
-                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW);
+                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW, appState, pd, emojiFontPath);
 
                     cursor += padding / 2f;
                 }
@@ -488,15 +500,23 @@ namespace TianWen.UI.Abstractions
             AssignTarget slot,
             float x, float y, float w, float itemH,
             float dpiScale, string fontPath,
-            float fontSize, float padding, float arrowW)
+            float fontSize, float padding, float arrowW,
+            GuiAppState? appState = null,
+            ProfileData? profileData = null,
+            string? emojiFontPath = null)
         {
             var isActive = State.ActiveAssignment == slot;
             var bgColor = isActive ? SlotActive : SlotNormal;
 
             FillRect(x, y, w, itemH, bgColor);
             var capturedSlot = slot;
+            var capturedAppState = appState;
             RegisterClickable(x, y, w, itemH, new HitResult.SlotHit<AssignTarget>(slot),
-                _ => { State.ActiveAssignment = State.ActiveAssignment == capturedSlot ? null : capturedSlot; });
+                _ =>
+                {
+                    State.ActiveAssignment = State.ActiveAssignment == capturedSlot ? null : capturedSlot;
+                    if (capturedAppState is not null) capturedAppState.NeedsRedraw = true;
+                });
 
             // Separator line at bottom of slot
             FillRect(x, y + itemH - 1f, w, 1f, SeparatorColor);
@@ -509,24 +529,60 @@ namespace TianWen.UI.Abstractions
                 x + padding, y, labelW, itemH,
                 fontSize * 0.9f, DimText, TextAlign.Near, TextAlign.Center);
 
-            // Device name (fills remaining space minus arrow button)
+            // Device name (fills remaining space minus arrow/indicator column).
+            // Truncate with an ellipsis if it would visually overflow into the indicator —
+            // DrawText doesn't clip on TextAlign.Near, so we have to do it ourselves.
             var deviceLabel = EquipmentActions.DeviceLabel(deviceUri, registry: null);
             var nameX = x + labelW;
             var nameW = w - labelW - arrowW - padding;
+            var truncated = TruncateToWidth(deviceLabel, fontPath, fontSize, nameW);
             DrawText(
-                deviceLabel.AsSpan(),
+                truncated.AsSpan(),
                 fontPath,
                 nameX, y, nameW, itemH,
                 fontSize, isActive ? BodyText : BodyText, TextAlign.Near, TextAlign.Center);
 
-            // [>] assignment indicator on the right
+            // Right-edge indicator. When a device is assigned and we have access to the live
+            // hub + discovery snapshot, draw a coloured square via FillRect (font-independent)
+            // so the user sees per-slot reachability without leaving the profile panel.
+            // Active assignment-mode highlight always wins and shows the original [>] arrow.
             var arrowX = x + w - arrowW;
             var arrowColor = isActive ? AccentInstruct : DimText;
-            DrawText(
-                ">".AsSpan(),
-                fontPath,
-                arrowX, y, arrowW - padding / 2f, itemH,
-                fontSize, arrowColor, TextAlign.Center, TextAlign.Center);
+
+            EquipmentActions.DeviceReachability? slotReach = null;
+            if (!isActive && deviceUri is not null && deviceUri != NoneDevice.Instance.DeviceUri
+                && profileData is { } pd && appState is { })
+            {
+                var r = EquipmentActions.GetReachability(pd, appState.DeviceHub,
+                    State.DiscoveredDevices, deviceUri);
+                if (r != EquipmentActions.DeviceReachability.NotAssigned)
+                {
+                    slotReach = r;
+                }
+            }
+
+            if (slotReach is { } reach)
+            {
+                var dotColor = reach switch
+                {
+                    EquipmentActions.DeviceReachability.Connected    => ReachConnected,
+                    EquipmentActions.DeviceReachability.Disconnected => ReachDisconnected,
+                    EquipmentActions.DeviceReachability.Offline      => ReachOffline,
+                    _                                                => DimText
+                };
+                var dotSize = MathF.Min(itemH * 0.45f, arrowW * 0.55f);
+                var dotX = arrowX + (arrowW - padding / 2f - dotSize) * 0.5f;
+                var dotY = y + (itemH - dotSize) * 0.5f;
+                FillRect(dotX, dotY, dotSize, dotSize, dotColor);
+            }
+            else
+            {
+                DrawText(
+                    ">".AsSpan(),
+                    fontPath,
+                    arrowX, y, arrowW - padding / 2f, itemH,
+                    fontSize, arrowColor, TextAlign.Center, TextAlign.Center);
+            }
 
             return y + itemH;
         }
@@ -538,7 +594,8 @@ namespace TianWen.UI.Abstractions
         private void RenderDeviceList(
             GuiAppState appState,
             RectF32 rect,
-            float dpiScale, string fontPath)
+            float dpiScale, string fontPath,
+            string? emojiFontPath = null)
         {
             var fontSize   = BaseFontSize * dpiScale;
             var padding    = BasePadding * dpiScale;
@@ -546,6 +603,8 @@ namespace TianWen.UI.Abstractions
             var headerH    = BaseHeaderHeight * dpiScale;
             var badgeW     = BaseBadgeWidth * dpiScale;
             var checkW     = BaseCheckmarkWidth * dpiScale;
+            var statusW    = BaseStatusGlyphWidth * dpiScale;
+            var connBtnW   = BaseConnectBtnWidth * dpiScale;
             var buttonH    = BaseButtonHeight * dpiScale;
 
             var x = rect.X;
@@ -606,23 +665,75 @@ namespace TianWen.UI.Abstractions
                     x + padding, rowY, badgeW, itemH,
                     fontSize * 0.8f, isWrongType ? DimmedText : HeaderText, TextAlign.Center, TextAlign.Center);
 
+                // Reserve right-edge columns: [⏻ status][On|Off button][✓ assigned]
+                // Even when not assigned we keep the layout stable so name widths don't jitter.
+                var rightReserved = padding + checkW + padding + connBtnW + padding + statusW;
+
                 // Device name
                 var nameX = x + badgeW + padding;
-                var nameW = w - badgeW - padding * 2f - checkW;
+                var nameW = w - badgeW - padding * 2f - rightReserved;
                 DrawText(
                     device.DisplayName.AsSpan(),
                     fontPath,
                     nameX, rowY, nameW, itemH,
                     fontSize, textColor, TextAlign.Near, TextAlign.Center);
 
-                // Assigned checkmark
+                // Right-edge columns laid out from the right margin inward.
+                var checkColX  = x + w - padding - checkW;
+                var btnColX    = checkColX - padding - connBtnW;
+                var statusColX = btnColX - padding - statusW;
+
+                // Assigned checkmark (still answers "is this URI wired into the profile?")
                 if (isAssigned)
                 {
                     DrawText(
                         "\u2713".AsSpan(),
                         fontPath,
-                        x + w - checkW - padding, rowY, checkW, itemH,
+                        checkColX, rowY, checkW, itemH,
                         fontSize, AssignedGreen, TextAlign.Center, TextAlign.Center);
+                }
+
+                // Reachability indicator + connect/disconnect button render whenever the device
+                // is either assigned in the profile OR currently connected via the hub (an
+                // "orphan" — left running after the user reassigned the slot to another device).
+                var reach = EquipmentActions.GetReachability(data, appState.DeviceHub, devices, device.DeviceUri);
+                if (reach != EquipmentActions.DeviceReachability.NotAssigned)
+                {
+                    var connectUriForPending = EquipmentActions.FindAssignedUri(data, device.DeviceUri) ?? device.DeviceUri;
+                    var pending = State.PendingTransitions.Contains(connectUriForPending);
+
+                    // Status indicator (display only — answers "is hardware reachable right now?").
+                    // Drawn as a filled square via FillRect so it renders regardless of font coverage.
+                    var glyphColor = reach switch
+                    {
+                        EquipmentActions.DeviceReachability.Connected    => ReachConnected,
+                        EquipmentActions.DeviceReachability.Disconnected => ReachDisconnected,
+                        EquipmentActions.DeviceReachability.Offline      => ReachOffline,
+                        _                                                => DimText
+                    };
+                    var dotSize = MathF.Min(itemH * 0.45f, statusW * 0.6f);
+                    var dotX = statusColX + (statusW - dotSize) * 0.5f;
+                    var dotY = rowY + (itemH - dotSize) * 0.5f;
+                    FillRect(dotX, dotY, dotSize, dotSize, glyphColor);
+
+                    if (reach == EquipmentActions.DeviceReachability.Offline)
+                    {
+                        // Offline: render OFFLINE label in place of the segmented button (no clickables).
+                        DrawText(
+                            "OFFLINE".AsSpan(),
+                            fontPath,
+                            btnColX, rowY, connBtnW, itemH,
+                            fontSize * 0.75f, ReachOffline, TextAlign.Center, TextAlign.Center);
+                    }
+                    else
+                    {
+                        // Connect with the profile URI (preserves query params like apiKey, port, baud).
+                        // The discovered device URI strips these — we only use it to identify the device.
+                        var connectUri = EquipmentActions.FindAssignedUri(data, device.DeviceUri) ?? device.DeviceUri;
+                        // Segmented On|Off button (action — encodes both current state and available transition).
+                        RenderConnectSegment(connectUri, btnColX, rowY, connBtnW, itemH,
+                            fontPath, fontSize, reach, pending);
+                    }
                 }
             }
 
@@ -634,6 +745,84 @@ namespace TianWen.UI.Abstractions
 
             RenderButton(discoverLabel, discoverBtnX, discoverBtnY, discoverBtnW, buttonH, fontPath, fontSize, CreateButton, BodyText, "Discover",
                 mods => PostSignal(new DiscoverDevicesSignal(IncludeFake: (mods & InputModifier.Shift) != 0)));
+        }
+
+        /// <summary>
+        /// Truncates <paramref name="text"/> with a trailing ellipsis so its rendered width
+        /// fits within <paramref name="maxWidth"/>. Returns the original string when it already fits.
+        /// Falls back gracefully on tiny widths by clipping characters until just the ellipsis remains.
+        /// </summary>
+        private string TruncateToWidth(string text, string fontPath, float fontSize, float maxWidth)
+        {
+            if (text.Length == 0 || maxWidth <= 0f) return text;
+            if (Renderer.MeasureText(text.AsSpan(), fontPath, fontSize).Width <= maxWidth) return text;
+
+            const string ellipsis = "\u2026";
+            // Binary search the longest prefix that fits with the trailing ellipsis appended.
+            var lo = 0;
+            var hi = text.Length;
+            var best = 0;
+            while (lo <= hi)
+            {
+                var mid = (lo + hi) / 2;
+                var candidate = string.Concat(text.AsSpan(0, mid), ellipsis);
+                if (Renderer.MeasureText(candidate.AsSpan(), fontPath, fontSize).Width <= maxWidth)
+                {
+                    best = mid;
+                    lo = mid + 1;
+                }
+                else
+                {
+                    hi = mid - 1;
+                }
+            }
+            return string.Concat(text.AsSpan(0, best), ellipsis);
+        }
+
+        /// <summary>
+        /// Renders the segmented On|Off connect/disconnect button. The current state's segment
+        /// is highlighted; only the *other* segment is clickable. While a transition is in flight,
+        /// the inactive segment is shown as "…" and no clickables are registered.
+        /// </summary>
+        private void RenderConnectSegment(
+            Uri deviceUri,
+            float x, float y, float w, float h,
+            string fontPath, float fontSize,
+            EquipmentActions.DeviceReachability reach,
+            bool pending)
+        {
+            var segW = w / 2f;
+            var isConnected = reach == EquipmentActions.DeviceReachability.Connected;
+
+            var onBg  = isConnected ? SegmentActive : SegmentInactive;
+            var offBg = isConnected ? SegmentInactive : SegmentActive;
+
+            // Segment backgrounds (inset vertically so the button looks like a control, not a row)
+            var segY = y + h * 0.15f;
+            var segH = h * 0.7f;
+            FillRect(x, segY, segW - 1f, segH, onBg);
+            FillRect(x + segW, segY, segW, segH, offBg);
+
+            // Labels: "…" on the segment we are transitioning *to*; otherwise "On" / "Off".
+            var onLabel  = pending && !isConnected ? "\u2026".AsSpan()   : "On".AsSpan();
+            var offLabel = pending &&  isConnected ? "\u2026".AsSpan()   : "Off".AsSpan();
+            DrawText(onLabel,  fontPath, x,        y, segW, h, fontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center);
+            DrawText(offLabel, fontPath, x + segW, y, segW, h, fontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center);
+
+            if (pending)
+            {
+                return; // both segments inert until the in-flight transition resolves
+            }
+
+            // Register BOTH segments as clickable — even the "you are here" segment must
+            // swallow the click so it doesn't fall through to the row's AssignDeviceSignal
+            // (which would silently enter assignment mode and look like a missed click).
+            // Clicking the segment you're already on is a no-op.
+            var capturedUri = deviceUri;
+            RegisterClickable(x, y, segW, h, new HitResult.ButtonHit("Connect"),
+                _ => { if (!isConnected) PostSignal(new ConnectDeviceSignal(capturedUri)); });
+            RegisterClickable(x + segW, y, segW, h, new HitResult.ButtonHit("Disconnect"),
+                _ => { if (isConnected) PostSignal(new DisconnectDeviceSignal(capturedUri)); });
         }
 
         // -----------------------------------------------------------------------
