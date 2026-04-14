@@ -8,9 +8,15 @@
     <IsAotCompatible>True</IsAotCompatible>
   </PropertyGroup>
 
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\DIR.Lib\src\DIR.Lib\DIR.Lib.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
+    <PackageReference Include="DIR.Lib" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\TianWen.Lib\TianWen.Lib.csproj" />
-    <PackageReference Include="DIR.Lib" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
   </ItemGroup>
 

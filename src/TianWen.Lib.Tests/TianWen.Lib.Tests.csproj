@@ -42,10 +42,16 @@
     <PackageReference Include="xunit.v3" />
   </ItemGroup>
 
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\Console.Lib\src\Console.Lib\Console.Lib.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
+    <PackageReference Include="Console.Lib" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\TianWen.Lib\TianWen.Lib.csproj" />
     <ProjectReference Include="..\TianWen.UI.Abstractions\TianWen.UI.Abstractions.csproj" />
-    <PackageReference Include="Console.Lib" />
   </ItemGroup>
 
   <ItemGroup>
