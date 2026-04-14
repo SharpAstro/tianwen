@@ -76,6 +76,7 @@ namespace TianWen.UI.Abstractions
             InputEvent.MouseUp(_, _, _) => HandleMouseUp(),
             InputEvent.Scroll(var scrollY, _, _, _) => HandleMouseWheel(scrollY),
             InputEvent.TextInput(var text) => HandleTextInput(text),
+            InputEvent.Pinch or InputEvent.PinchEnd => _chrome.ActiveTab?.HandleInput(evt) ?? false,
             _ => false
         };
 
