@@ -42,10 +42,18 @@ namespace TianWen.UI.Abstractions
         public bool ShowGrid { get; set; } = true;
         public bool ShowPlanets { get; set; } = true;
 
+        /// <summary>Show Alt/Az coordinate grid (A key toggles mode + grid).</summary>
+        public bool ShowAltAzGrid { get; set; }
+
+        /// <summary>Cached view matrix, updated each frame by the rendering layer.</summary>
+        public Matrix4x4 CurrentViewMatrix { get; set; } = Matrix4x4.Identity;
+
         // Drag state
         public bool IsDragging { get; set; }
         public (float X, float Y) DragStart { get; set; }
         public (double RA, double Dec) DragStartCenter { get; set; }
+        /// <summary>View matrix at drag start — needed for correct unproject during drag.</summary>
+        public Matrix4x4 DragStartViewMatrix { get; set; }
 
         /// <summary>Magnitude limit for displayed stars. Brighter = lower number.</summary>
         public float MagnitudeLimit { get; set; } = 6.5f;
@@ -66,9 +74,14 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// Compute the J2000 → camera rotation matrix for the current view center.
         /// The matrix maps the view direction to -Z (camera forward), with X = right and Y = up.
+        /// In equatorial mode, "up" is toward the celestial north pole.
+        /// In horizon mode, "up" is toward the local zenith (horizon stays horizontal).
         /// Returns a <see cref="Matrix4x4"/> (column-major layout matches std140 mat4).
         /// </summary>
-        public Matrix4x4 ComputeViewMatrix()
+        /// <param name="zenithX">J2000 X component of the local zenith (only used in Horizon mode).</param>
+        /// <param name="zenithY">J2000 Y component of the local zenith.</param>
+        /// <param name="zenithZ">J2000 Z component of the local zenith.</param>
+        public Matrix4x4 ComputeViewMatrix(float zenithX = 0f, float zenithY = 0f, float zenithZ = 1f)
         {
             var (sinRA, cosRA) = Math.SinCos(CenterRA * Hours2Rad);
             var (sinDec, cosDec) = Math.SinCos(CenterDec * Deg2Rad);
@@ -78,19 +91,37 @@ namespace TianWen.UI.Abstractions
             var fy = (float)(cosDec * sinRA);
             var fz = (float)sinDec;
 
-            // Right = forward × north, where north = (0, 0, 1)
-            // cross(f, (0,0,1)) = (fy, -fx, 0), then normalize
-            var rLen = MathF.Sqrt(fx * fx + fy * fy);
-            float rx, ry, rz;
-            if (rLen > 1e-6f)
+            // "Up" reference direction depends on mode:
+            // Equatorial: celestial north pole (0, 0, 1)
+            // Horizon: local zenith (cosLat*cosLST, cosLat*sinLST, sinLat)
+            float upRefX, upRefY, upRefZ;
+            if (Mode == SkyMapMode.Horizon)
             {
-                rx = fy / rLen;
-                ry = -fx / rLen;
-                rz = 0f;
+                upRefX = zenithX;
+                upRefY = zenithY;
+                upRefZ = zenithZ;
             }
             else
             {
-                // At poles, pick an arbitrary right vector
+                upRefX = 0f;
+                upRefY = 0f;
+                upRefZ = 1f;
+            }
+
+            // Right = forward × upRef, then normalize
+            var rx = fy * upRefZ - fz * upRefY;
+            var ry = fz * upRefX - fx * upRefZ;
+            var rz = fx * upRefY - fy * upRefX;
+            var rLen = MathF.Sqrt(rx * rx + ry * ry + rz * rz);
+            if (rLen > 1e-6f)
+            {
+                rx /= rLen;
+                ry /= rLen;
+                rz /= rLen;
+            }
+            else
+            {
+                // Forward is parallel to up reference — pick an arbitrary right vector
                 rx = 1f;
                 ry = 0f;
                 rz = 0f;

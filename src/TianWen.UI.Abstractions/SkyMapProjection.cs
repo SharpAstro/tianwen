@@ -1,4 +1,5 @@
 using System;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 
 namespace TianWen.UI.Abstractions
@@ -81,6 +82,85 @@ namespace TianWen.UI.Abstractions
 
             ra = ((ra % 24.0) + 24.0) % 24.0;
             return (ra, dec);
+        }
+
+        /// <summary>
+        /// Project a celestial coordinate using the view matrix, matching the GPU shader exactly.
+        /// Works in both equatorial and horizon modes.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool ProjectWithMatrix(
+            double ra, double dec,
+            in Matrix4x4 viewMatrix,
+            double pixelsPerRadian,
+            float centerX, float centerY,
+            out float screenX, out float screenY)
+        {
+            var (x, y, z) = SkyMapState.RaDecToUnitVec(ra, dec);
+
+            // Apply view matrix (same as GPU: viewMatrix * vec4(pos, 1.0))
+            var cx = viewMatrix.M11 * x + viewMatrix.M12 * y + viewMatrix.M13 * z;
+            var cy = viewMatrix.M21 * x + viewMatrix.M22 * y + viewMatrix.M23 * z;
+            var cz = viewMatrix.M31 * x + viewMatrix.M32 * y + viewMatrix.M33 * z;
+
+            // Stereographic projection in camera space (forward is -Z)
+            var cosD = -cz;
+            if (cosD <= -0.99f)
+            {
+                screenX = float.NaN;
+                screenY = float.NaN;
+                return false;
+            }
+
+            var k = 2.0 / (1.0 + cosD);
+            // +cx matches GPU shader (view matrix encodes RA direction)
+            screenX = centerX + (float)(cx * k * pixelsPerRadian);
+            screenY = centerY - (float)(cy * k * pixelsPerRadian);
+            return true;
+        }
+
+        /// <summary>
+        /// Inverse projection using the view matrix. Converts screen pixel coordinates back to RA/Dec.
+        /// Works in both equatorial and horizon modes.
+        /// </summary>
+        public static (double RA, double Dec) UnprojectWithMatrix(
+            float screenX, float screenY,
+            in Matrix4x4 viewMatrix,
+            double pixelsPerRadian,
+            float centerX, float centerY)
+        {
+            // Reverse the viewport mapping
+            var px = (screenX - centerX) / pixelsPerRadian;
+            var py = -(screenY - centerY) / pixelsPerRadian;
+
+            var rho = Math.Sqrt(px * px + py * py);
+            if (rho < 1e-12)
+            {
+                // At view center — recover forward direction from view matrix row 2 (negated)
+                var fx = -viewMatrix.M31;
+                var fy = -viewMatrix.M32;
+                var fz = -viewMatrix.M33;
+                var dec = Math.Asin(fz) * Rad2Deg;
+                var ra = Math.Atan2(fy, fx) / Hours2Rad;
+                return (((ra % 24.0) + 24.0) % 24.0, dec);
+            }
+
+            // Inverse stereographic: (px, py) -> camera-space unit vector
+            var c = 2.0 * Math.Atan(rho * 0.5);
+            var (sinC, cosC) = Math.SinCos(c);
+            var camX = sinC * px / rho;
+            var camY = sinC * py / rho;
+            var camZ = -cosC; // forward is -Z
+
+            // Rotate back to J2000 (view matrix is orthogonal, inverse = transpose)
+            var jx = viewMatrix.M11 * camX + viewMatrix.M21 * camY + viewMatrix.M31 * camZ;
+            var jy = viewMatrix.M12 * camX + viewMatrix.M22 * camY + viewMatrix.M32 * camZ;
+            var jz = viewMatrix.M13 * camX + viewMatrix.M23 * camY + viewMatrix.M33 * camZ;
+
+            var decResult = Math.Asin(Math.Clamp(jz, -1.0, 1.0)) * Rad2Deg;
+            var raResult = Math.Atan2(jy, jx) / Hours2Rad;
+            raResult = ((raResult % 24.0) + 24.0) % 24.0;
+            return (raResult, decResult);
         }
 
         /// <summary>

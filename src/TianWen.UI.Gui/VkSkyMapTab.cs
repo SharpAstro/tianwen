@@ -23,6 +23,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     // Reusable lists for dynamic per-frame geometry
     private readonly List<float> _horizonFloats = new(2048);
     private readonly List<float> _meridianFloats = new(4096);
+    private readonly List<float> _altAzGridFloats = new(4096);
 
     protected override void RenderSkyMap(
         ICelestialObjectDB db, RectF32 contentRect, string fontPath,
@@ -60,6 +61,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
 
         _horizonFloats.Clear();
         _meridianFloats.Clear();
+        _altAzGridFloats.Clear();
 
         if (State.ShowHorizon && site.IsValid)
         {
@@ -71,16 +73,22 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             VkSkyMapPipeline.BuildMeridianLine(site.LST, _meridianFloats);
         }
 
+        if (State.ShowAltAzGrid && site.IsValid)
+        {
+            VkSkyMapPipeline.BuildAltAzGrid(site, _altAzGridFloats);
+        }
+
         // Write dynamic geometry to the frame ring buffer
         var ctx = renderer.Context;
         var cmd = renderer.CurrentCommandBuffer;
 
         var horizonInfo = WriteToRingBuffer(ctx, _horizonFloats);
         var meridianInfo = WriteToRingBuffer(ctx, _meridianFloats);
+        var altAzGridInfo = WriteToRingBuffer(ctx, _altAzGridFloats);
 
         // Draw all sky map layers
         _pipeline.Draw(cmd, State, mapW, mapH, contentRect.X, contentRect.Y,
-            horizonInfo, meridianInfo);
+            horizonInfo, meridianInfo, altAzGridInfo);
 
         // Restore the full-window viewport/scissor for text overlay rendering
         // (the pipeline sets a clipped viewport/scissor for the sky map area)

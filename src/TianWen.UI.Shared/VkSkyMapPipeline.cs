@@ -439,7 +439,15 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         float offsetX, float offsetY,
         Lib.Astrometry.SOFA.SiteContext site)
     {
-        var viewMatrix = state.ComputeViewMatrix();
+        // Compute LST trig + zenith direction in J2000 for Alt/Az mode
+        var (fSinLST, fCosLST) = site.IsValid
+            ? Math.SinCos(site.LST * Math.PI / 12.0)
+            : (0.0, 1.0);
+        float zenithX = (float)(site.CosLat * fCosLST);
+        float zenithY = (float)(site.CosLat * fSinLST);
+        float zenithZ = (float)site.SinLat;
+        var viewMatrix = state.ComputeViewMatrix(zenithX, zenithY, zenithZ);
+        state.CurrentViewMatrix = viewMatrix;
         var ppr = (float)SkyMapProjection.PixelsPerRadian(viewportHeight, state.FieldOfViewDeg);
 
         var p = _uboMapped;
@@ -473,12 +481,8 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         WriteFloat(p, 96, (float)site.CosLat);
 
         // float sinLST, cosLST at offset 100, 104
-        if (site.IsValid)
-        {
-            var (sinLST, cosLST) = Math.SinCos(site.LST * Math.PI / 12.0);
-            WriteFloat(p, 100, (float)sinLST);
-            WriteFloat(p, 104, (float)cosLST);
-        }
+        WriteFloat(p, 100, (float)fSinLST);
+        WriteFloat(p, 104, (float)fCosLST);
 
         // int horizonClip at offset 108
         WriteInt(p, 108, state.ShowHorizon && site.IsValid ? 1 : 0);
@@ -493,9 +497,10 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         SkyMapState state,
         float viewportWidth, float viewportHeight,
         float offsetX, float offsetY,
-        // Dynamic line buffers (horizon, meridian) — written to ring buffer by caller
+        // Dynamic line buffers — written to ring buffer by caller
         (VkBuffer Buffer, uint ByteOffset, uint VertexCount) horizon,
-        (VkBuffer Buffer, uint ByteOffset, uint VertexCount) meridian)
+        (VkBuffer Buffer, uint ByteOffset, uint VertexCount) meridian,
+        (VkBuffer Buffer, uint ByteOffset, uint VertexCount) altAzGrid)
     {
         if (!_geometryBuilt)
         {
@@ -544,6 +549,13 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         if (state.ShowGrid)
         {
             DrawGrid(cmd, state);
+        }
+
+        // Alt/Az grid
+        if (state.ShowAltAzGrid && altAzGrid.VertexCount > 0)
+        {
+            PushLineColor(cmd, 0x80, 0xA0, 0x30, 0x80); // olive/yellow-green, semi-transparent
+            DrawLineBuffer(cmd, altAzGrid.Buffer, altAzGrid.ByteOffset, altAzGrid.VertexCount);
         }
 
         // Meridian
@@ -886,6 +898,76 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         TessellateArc(floats, steps / 2, i => (lst, -90.0 + i * 180.0 / (steps / 2)));
         // Second half: anti-LST line from north pole to south pole
         TessellateArc(floats, steps / 2, i => (antiLst, 90.0 - i * 180.0 / (steps / 2)));
+    }
+
+    /// <summary>
+    /// Build dynamic Alt/Az grid lines. Altitude circles at 10/20/30/45/60/80 degrees,
+    /// azimuth lines every 30 degrees. Converts (Alt, Az) to J2000 unit vectors using
+    /// the observer's latitude and LST.
+    /// </summary>
+    public static void BuildAltAzGrid(
+        Lib.Astrometry.SOFA.SiteContext site,
+        List<float> floats)
+    {
+        if (!site.IsValid)
+        {
+            return;
+        }
+
+        // Altitude circles: constant altitude, sweep azimuth 0..360
+        double[] altitudes = [10, 20, 30, 45, 60, 80];
+        const int azSteps = 120;
+
+        foreach (var alt in altitudes)
+        {
+            TessellateArc(floats, azSteps, i =>
+            {
+                var az = i * 360.0 / azSteps;
+                AltAzToRaDec(alt, az, site, out var ra, out var dec);
+                return (ra, dec);
+            });
+        }
+
+        // Azimuth lines: constant azimuth, sweep altitude 0..89
+        const int altSteps = 60;
+        for (var az = 0.0; az < 360.0; az += 30.0)
+        {
+            TessellateArc(floats, altSteps, i =>
+            {
+                var a = i * 89.0 / altSteps;
+                AltAzToRaDec(a, az, site, out var ra, out var dec);
+                return (ra, dec);
+            });
+        }
+    }
+
+    /// <summary>
+    /// Convert horizontal coordinates (Alt, Az in degrees) to equatorial (RA in hours, Dec in degrees).
+    /// </summary>
+    private static void AltAzToRaDec(
+        double altDeg, double azDeg,
+        Lib.Astrometry.SOFA.SiteContext site,
+        out double raHours, out double decDeg)
+    {
+        var (sinAlt, cosAlt) = Math.SinCos(double.DegreesToRadians(altDeg));
+        var (sinAz, cosAz) = Math.SinCos(double.DegreesToRadians(azDeg));
+
+        var sinDec = site.SinLat * sinAlt + site.CosLat * cosAlt * cosAz;
+        decDeg = double.RadiansToDegrees(Math.Asin(sinDec));
+
+        var cosDec = Math.Cos(Math.Asin(sinDec));
+        if (Math.Abs(cosDec) < 1e-12)
+        {
+            raHours = site.LST;
+            return;
+        }
+
+        var sinHA = -sinAz * cosAlt / cosDec;
+        var cosHA = (sinAlt - site.SinLat * sinDec) / (site.CosLat * cosDec);
+        var ha = Math.Atan2(sinHA, cosHA); // radians
+
+        raHours = (site.LST - ha * 12.0 / Math.PI) % 24.0;
+        if (raHours < 0) raHours += 24.0;
     }
 
     // ────────────────────────────────────────────────── Vulkan setup
