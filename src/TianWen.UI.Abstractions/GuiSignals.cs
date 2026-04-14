@@ -70,3 +70,31 @@ public readonly record struct RequestAbortSessionSignal;
 
 /// <summary>Confirmed abort — cancels the running session.</summary>
 public readonly record struct ConfirmAbortSessionSignal;
+
+/// <summary>
+/// Take a single preview exposure on one OTA's camera and display it in the mini viewer.
+/// NOT written to disk — transient. Only valid when no session is running.
+/// </summary>
+public readonly record struct TakePreviewSignal(
+    int OtaIndex,
+    double ExposureSeconds,
+    int? Gain = null,
+    short Binning = 1);
+
+/// <summary>
+/// Write the current preview frame to disk under a "Snapshot" target.
+/// Only valid when a preview image exists and no session is running.
+/// </summary>
+public readonly record struct SaveSnapshotSignal(int OtaIndex = 0);
+
+/// <summary>
+/// Plate-solve the current preview image (in-memory, not FITS viewer).
+/// Result stored in <see cref="LiveSessionState.PreviewPlateSolveResult"/>.
+/// </summary>
+public readonly record struct PlateSolvePreviewSignal(int OtaIndex = 0);
+
+/// <summary>
+/// Jog the focuser by a relative step amount. Positive = outward, negative = inward.
+/// Only valid when no session is running and the focuser is connected.
+/// </summary>
+public readonly record struct JogFocuserSignal(int OtaIndex, int Steps);

@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Threading;
+using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices.Guider;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
@@ -107,6 +109,69 @@ namespace TianWen.UI.Abstractions
         /// <summary>Site timezone offset for displaying times in local site time.</summary>
         public TimeSpan SiteTimeZone { get; set; }
 
+        // --- Preview mode telemetry (populated when !IsRunning, from hub-connected drivers) ---
+
+        /// <summary>
+        /// Per-OTA live telemetry snapshot for preview mode.
+        /// Index matches ActiveProfile.Data.OTAs. Length 0 when profile has no OTAs.
+        /// </summary>
+        public ImmutableArray<PreviewOTATelemetry> PreviewOTATelemetry { get; set; } = [];
+
+        /// <summary>Mount telemetry for preview mode (RA/Dec/tracking). Default when no mount connected.</summary>
+        public MountState PreviewMountState { get; set; }
+
+        /// <summary>Resolved mount display name for preview mode.</summary>
+        public string? PreviewMountDisplayName { get; set; }
+
+        /// <summary>Whether a preview exposure is currently in progress (per OTA index).</summary>
+        public bool[] PreviewCapturing { get; set; } = [];
+
+        /// <summary>Preview capture start time per OTA, used for progress computation.</summary>
+        public DateTimeOffset[] PreviewCaptureStart { get; set; } = [];
+
+        /// <summary>Requested preview exposure per OTA (for progress bar).</summary>
+        public TimeSpan[] PreviewExposureDuration { get; set; } = [];
+
+        /// <summary>Per-OTA requested exposure time in seconds for next preview.</summary>
+        public double[] PreviewExposureSeconds { get; set; } = [];
+
+        /// <summary>Per-OTA requested gain value for next preview exposure (null = camera default).</summary>
+        public int?[] PreviewGain { get; set; } = [];
+
+        /// <summary>Per-OTA requested binning for next preview exposure.</summary>
+        public short[] PreviewBinning { get; set; } = [];
+
+        /// <summary>Twilight data from PlannerState for preview timeline rendering.</summary>
+        public DateTimeOffset AstroDark { get; set; }
+
+        /// <summary>End of astronomical twilight (dawn).</summary>
+        public DateTimeOffset AstroTwilight { get; set; }
+
+        /// <summary>Civil sunset time.</summary>
+        public DateTimeOffset? CivilSet { get; set; }
+
+        /// <summary>Civil sunrise time.</summary>
+        public DateTimeOffset? CivilRise { get; set; }
+
+        /// <summary>Nautical sunset time.</summary>
+        public DateTimeOffset? NauticalSet { get; set; }
+
+        /// <summary>Nautical sunrise time.</summary>
+        public DateTimeOffset? NauticalRise { get; set; }
+
+        /// <summary>Last preview plate solve result, or null.</summary>
+        public PlateSolveResult? PreviewPlateSolveResult { get; set; }
+
+        // --- Derived ---
+
+        /// <summary>
+        /// Unified OTA count for layout, toolbar, and capture controls.
+        /// Session mode: from setup telescopes. Preview mode: from profile OTAs.
+        /// </summary>
+        public int OtaCount => IsRunning
+            ? (ActiveSession?.Setup.Telescopes.Length ?? 1)
+            : Math.Max(1, PreviewOTATelemetry.Length);
+
         // --- UI state ---
 
         /// <summary>Needs redraw flag for TUI integration.</summary>
@@ -120,6 +185,37 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>Scroll offset for the focus history list.</summary>
         public int FocusHistoryScrollOffset { get; set; }
+
+        /// <summary>
+        /// Ensures all per-OTA preview arrays match the given OTA count.
+        /// Call before rendering preview mode to avoid index-out-of-range.
+        /// </summary>
+        public void ResizePreviewArrays(int otaCount)
+        {
+            if (PreviewCapturing.Length == otaCount)
+            {
+                return;
+            }
+
+            PreviewCapturing = new bool[otaCount];
+            PreviewCaptureStart = new DateTimeOffset[otaCount];
+            PreviewExposureDuration = new TimeSpan[otaCount];
+            PreviewExposureSeconds = Enumerable.Repeat(5.0, otaCount).ToArray();
+            PreviewGain = new int?[otaCount];
+            PreviewBinning = Enumerable.Repeat((short)1, otaCount).ToArray();
+
+            if (PreviewOTATelemetry.Length != otaCount)
+            {
+                PreviewOTATelemetry = [.. Enumerable.Repeat(
+                    new PreviewOTATelemetry("", "", double.NaN, double.NaN, double.NaN, false, 0, double.NaN, false, "--", false, false, false),
+                    otaCount)];
+            }
+
+            if (LastCapturedImages.Length != otaCount)
+            {
+                LastCapturedImages = new Image?[otaCount];
+            }
+        }
 
         /// <summary>
         /// Polls the active session and updates cached fields. Call once per frame.

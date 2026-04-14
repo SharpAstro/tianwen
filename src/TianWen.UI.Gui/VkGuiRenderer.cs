@@ -277,22 +277,25 @@ namespace TianWen.UI.Gui
                 var sessionRunning = LiveSessionState.IsRunning;
                 SessionState.IsSessionRunning = sessionRunning;
 
+                // Measure the date label text to place arrows snugly around it
+                var arrowInset = w * 0.06f; // tighten arrows toward center
+
                 if (!sessionRunning)
                 {
-                    // [<] previous day
-                    RenderButton("\u25C0", centerX, 0, arrowW, sbh, _fontPath, arrowFontSize,
+                    // [<] previous day — closer to the date text
+                    RenderButton("\u25C0", centerX + arrowInset, 0, arrowW, sbh, _fontPath, arrowFontSize,
                         arrowBg, StatusText, "DatePrev",
                         _ => { PlannerActions.ShiftPlanningDate(plannerState, timeProvider, -1); });
 
-                    // [>] next day
-                    RenderButton("\u25B6", centerX + centerW - arrowW, 0, arrowW, sbh, _fontPath, arrowFontSize,
+                    // [>] next day — closer to the date text
+                    RenderButton("\u25B6", centerX + centerW - arrowW - arrowInset, 0, arrowW, sbh, _fontPath, arrowFontSize,
                         arrowBg, StatusText, "DateNext",
                         _ => { PlannerActions.ShiftPlanningDate(plannerState, timeProvider, +1); });
                 }
 
                 // Date + night window label between arrows
-                var labelX = centerX + arrowW;
-                var labelW = centerW - arrowW * 2;
+                var labelX = centerX + arrowInset + arrowW;
+                var labelW = centerW - (arrowInset + arrowW) * 2;
                 var planDate = plannerState.PlanningDate ?? now;
                 var isTonight = !plannerState.PlanningDate.HasValue || planDate.Date == now.Date;
                 string dateStr;
@@ -339,8 +342,8 @@ namespace TianWen.UI.Gui
             // Status message — shown to the right of the profile name, left of the date area
             if (appState.StatusMessage is { Length: > 0 } msg)
             {
-                var msgX = SidebarWidth + 6f + w * 0.15f;
-                var msgW = w * 0.20f;
+                var msgX = SidebarWidth + 6f + w * 0.06f;
+                var msgW = w * 0.28f;
                 DrawText(msg.AsSpan(), _fontPath,
                     msgX, 0, msgW, sbh,
                     FontSize * 0.85f, new RGBAColor32(0xff, 0xcc, 0x66, 0xff), TextAlign.Center, TextAlign.Center);
@@ -388,6 +391,16 @@ namespace TianWen.UI.Gui
                     break;
 
                 case GuiTab.LiveSession:
+                    // Copy twilight data from planner so preview timeline can render night window
+                    if (!LiveSessionState.IsRunning)
+                    {
+                        LiveSessionState.AstroDark = plannerState.AstroDark;
+                        LiveSessionState.AstroTwilight = plannerState.AstroTwilight;
+                        LiveSessionState.CivilSet = plannerState.CivilSet;
+                        LiveSessionState.CivilRise = plannerState.CivilRise;
+                        LiveSessionState.NauticalSet = plannerState.NauticalSet;
+                        LiveSessionState.NauticalRise = plannerState.NauticalRise;
+                    }
                     _liveSessionTab.Render(LiveSessionState, contentRect, DpiScale,
                         _fontPath ?? "monospace", timeProvider);
                     break;

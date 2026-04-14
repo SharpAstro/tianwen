@@ -75,8 +75,17 @@ namespace TianWen.UI.Abstractions
         public override bool HandleInput(InputEvent evt) => evt switch
         {
             InputEvent.KeyDown(var key, _) when State.FilterNameDropdown.HandleKeyDown(key) => true,
+            // ESC dismisses expanded device settings pane before bubbling to quit
+            InputEvent.KeyDown(InputKey.Escape, _) when State.ExpandedDeviceSettingsUri is not null =>
+                DismissExpandedDevice(),
             _ => base.HandleInput(evt)
         };
+
+        private bool DismissExpandedDevice()
+        {
+            State.StopEditingDeviceSettings();
+            return true;
+        }
 
         // -----------------------------------------------------------------------
         // Public entry points
