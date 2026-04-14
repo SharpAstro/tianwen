@@ -16,6 +16,7 @@ Repository: https://github.com/SharpAstro/tianwen
 ```
 src/
 ├── TianWen.slnx                   # Solution file (XML format)
+├── Directory.Build.props          # Auto-detect sibling repos (ProjectReference vs PackageReference)
 ├── Directory.Packages.props       # Centralized package version management
 ├── .editorconfig                  # Code style rules
 ├── NuGet.config                   # Package sources
@@ -25,7 +26,7 @@ src/
 ├── TianWen.Lib.Hosting/           # ASP.NET Core Minimal API — REST + WebSocket endpoints
 ├── TianWen.Lib.Server/            # Headless server executable (tianwen-server, AOT-published)
 ├── TianWen.UI.Abstractions/       # Widget system, layout, state, shared types
-├── TianWen.UI.Shared/             # SDL→InputKey mapping, Vulkan FITS pipeline, VkImageRenderer
+├── TianWen.UI.Shared/             # SDL→InputKey mapping, Vulkan FITS pipeline, VkSkyMapPipeline, VkImageRenderer
 ├── TianWen.UI.Gui/                # N.I.N.A.-style integrated GUI (SDL3 + Vulkan)
 ├── TianWen.UI.FitsViewer/         # Standalone FITS viewer application
 └── TianWen.UI.Benchmarks/         # BenchmarkDotNet performance tests
@@ -66,9 +67,20 @@ org. Their source repos live as siblings under the same parent directory (`../`)
 | `FC.SDK` | `../FC.SDK` | Canon DSLR PTP/USB/WiFi SDK |
 | `FITS.Lib` | `../FITS.Lib` | FITS file reading/writing |
 
-These are consumed as **NuGet PackageReferences** (versions in `Directory.Packages.props`),
-not ProjectReferences. Changes to these libraries require publishing a new NuGet version first.
-For local cross-repo development, use local nupkg feeds with bumped versions.
+**Local sibling auto-detection** (`Directory.Build.props`): For `DIR.Lib`, `Console.Lib`, and
+`SdlVulkan.Renderer`, the build automatically switches between ProjectReference (when all
+three sibling working copies exist at `../../<repo>/src/<lib>/<lib>.csproj`) and PackageReference
+(when any is missing). This lets developers iterate in-tree without publishing NuGet packages.
+
+- A single property `UseLocalSiblings` is set to `true` when all three sibling `.csproj` files
+  exist, empty otherwise. Each `.csproj` conditions its ItemGroups on this property.
+- Override: `dotnet build -p:UseLocalSiblings=false`
+- **CI** does not have sibling repos checked out, so it always falls through to PackageReference
+  with versions from `Directory.Packages.props`.
+- `FC.SDK` and `FITS.Lib` are not yet wired up — still consumed as PackageReference only.
+
+For libraries without sibling auto-detection, changes require publishing a new NuGet version first.
+For local cross-repo development on those, use local nupkg feeds with bumped versions.
 
 ## Key Technologies
 
@@ -256,6 +268,47 @@ mosaic cycle. See class XML doc comments for panel generation math and schedulin
 - `Image.StretchValue()` is the single source of truth for the stretch pipeline
   (normalize → subtract pedestal → rescale → MTF), used by CPU stretch, background computation, and tests
 - WCS coordinate grid overlay rendered in the fragment shader with per-pixel TAN deprojection
+
+### Sky Map / GPU 3D Rendering
+
+The sky map (`VkSkyMapTab`) renders stars, constellation lines, grid, and horizon using
+GPU shaders via a side-car Vulkan pipeline (`VkSkyMapPipeline` in `TianWen.UI.Shared`).
+
+**Architecture** (same approach as Stellarium, but projection in vertex shader):
+```
+Star catalog (RA/Dec) → J2000 unit vectors → persistent GPU vertex buffer (built once)
+View matrix (CenterRA/Dec) + FOV → UBO uniform buffer (updated per frame)
+Vertex shader: viewMatrix × unitVec → stereographic projection → screen NDC
+```
+
+**GLSL shader strings:** The Vortice.ShaderCompiler GLSL-to-SPIR-V compiler does **not**
+handle non-ASCII characters, even in comments. Never use Unicode (em dashes, arrows, math
+symbols) inside GLSL raw string literals — use ASCII only.
+
+**RA direction convention:** The view matrix's right vector points toward decreasing RA
+(leftward on a sky map viewed from inside the celestial sphere). The `stereoProject` GLSL
+function therefore uses `+camPos.x` (not negated) — the view matrix already encodes the
+inside-sphere RA direction. The CPU `SkyMapProjection.Project` negates X explicitly because
+it works directly in RA/Dec without a view matrix.
+
+**Key types:**
+- `VkSkyMapPipeline` — owns pipeline layout, UBO, star pipeline (instanced), line pipeline
+- `SkyMapState.ComputeViewMatrix()` → `Matrix4x4` (J2000 → camera rotation)
+- `SkyMapState.RaDecToUnitVec()` — RA/Dec → unit vector on celestial sphere
+- `SkyMapProjection` — kept for CPU-side inverse projection (drag-to-pan, label placement)
+- `SkyMapRenderer` — CPU software renderer, kept as TUI fallback
+
+**Sub-pipelines:**
+- `StarPipeline` — instanced quads (6 verts × N instances), B-V color + soft radial falloff
+  in fragment shader, additive blending
+- `LinePipeline` — `VK_PRIMITIVE_TOPOLOGY_LINE_LIST`, push constant vec4 color, alpha blending
+
+**Geometry buffers:**
+- Stars: ~118k instances × 20 bytes (vec3 pos + float mag + float bv) ≈ 2.3 MB, persistent
+- Constellation figures: ~500 line segments, persistent
+- Boundaries: ~7800 tessellated arc segments, persistent
+- Grid: 5 scale levels, each a persistent line-list buffer
+- Horizon + meridian: dynamic, written to per-frame ring buffer
 
 ### GUI Widget System
 

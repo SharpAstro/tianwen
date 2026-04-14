@@ -1,0 +1,18 @@
+<Project>
+
+  <!--
+    Auto-detect sibling SharpAstro working copies.
+    When a sibling repo exists locally, its project is used via ProjectReference
+    for fast in-tree iteration. CI and package builds without the sibling fall
+    through to PackageReference automatically (version from Directory.Packages.props).
+
+    Override: dotnet build -p:UseLocalSiblings=false
+  -->
+  <PropertyGroup>
+    <UseLocalSiblings Condition="'$(UseLocalSiblings)' == ''
+      AND Exists('$(MSBuildThisFileDirectory)..\..\DIR.Lib\src\DIR.Lib\DIR.Lib.csproj')
+      AND Exists('$(MSBuildThisFileDirectory)..\..\Console.Lib\src\Console.Lib\Console.Lib.csproj')
+      AND Exists('$(MSBuildThisFileDirectory)..\..\SdlVulkan.Renderer\src\SdlVulkan.Renderer\SdlVulkan.Renderer.csproj')">true</UseLocalSiblings>
+  </PropertyGroup>
+
+</Project>
