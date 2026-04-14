@@ -166,10 +166,20 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 
     OnMouseUp = (button) => handlers.HandleInput(new InputEvent.MouseUp(0, 0)),
 
-    OnMouseWheel = (scrollY, _, _) =>
+    OnMouseWheel = (scrollY, mx, my) =>
     {
-        handlers.HandleInput(new InputEvent.Scroll(scrollY, 0, 0));
+        handlers.HandleInput(new InputEvent.Scroll(scrollY, mx, my));
         return true;
+    },
+
+    OnPinch = (scale, mx, my) =>
+    {
+        handlers.HandleInput(new InputEvent.Pinch(scale, mx, my));
+    },
+
+    OnPinchEnd = () =>
+    {
+        handlers.HandleInput(new InputEvent.PinchEnd());
     },
 
     OnTextInput = text => handlers.HandleInput(new InputEvent.TextInput(text)),

@@ -53,6 +53,12 @@ namespace TianWen.UI.Abstractions
         /// <summary>View matrix at drag start — needed for correct unproject during drag.</summary>
         public Matrix4x4 DragStartViewMatrix { get; set; }
 
+        /// <summary>FOV at the start of a pinch gesture, for absolute scale application.</summary>
+        public double PinchStartFov { get; set; }
+
+        /// <summary>True while a two-finger pinch is active — suppresses drag.</summary>
+        public bool IsPinching { get; set; }
+
         /// <summary>Magnitude limit for displayed stars. Brighter = lower number.</summary>
         public float MagnitudeLimit { get; set; } = 6.5f;
 

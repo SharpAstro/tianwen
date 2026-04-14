@@ -805,16 +805,26 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             var floats = new List<float>(32768);
 
             // RA lines (constant RA, varying Dec — great circles)
+            // Skip values already drawn by coarser scales
             var lineSteps = Math.Max(60, Math.Min(200, (int)(180.0 / decStep * 2)));
             for (var ra = 0.0; ra < 24.0; ra += raStep)
             {
+                if (IsCoarserRaLine(ra, i))
+                {
+                    continue;
+                }
                 TessellateArc(floats, lineSteps, j => (ra, -90.0 + j * 180.0 / lineSteps));
             }
 
             // Dec lines (constant Dec, varying RA — small circles)
+            // Skip values already drawn by coarser scales
             var raSteps = Math.Max(60, Math.Min(200, (int)(24.0 / raStep * 2)));
             for (var dec = -90.0 + decStep; dec < 90.0; dec += decStep)
             {
+                if (IsCoarserDecLine(dec, i))
+                {
+                    continue;
+                }
                 TessellateArc(floats, raSteps, j => (j * 24.0 / raSteps, dec));
             }
 
@@ -826,6 +836,37 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
                 _gridBuffers[i] = (buffer, memory, vertexCount);
             }
         }
+    }
+
+    /// <summary>True if this RA value is already drawn by a coarser grid scale.</summary>
+    private static bool IsCoarserRaLine(double ra, int scaleIndex)
+    {
+        for (var j = 0; j < scaleIndex; j++)
+        {
+            var coarserStep = GridScales[j].RaStep;
+            // Check if ra is an exact multiple of the coarser step (within tolerance)
+            var remainder = ra % coarserStep;
+            if (remainder < 1e-9 || coarserStep - remainder < 1e-9)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>True if this Dec value is already drawn by a coarser grid scale.</summary>
+    private static bool IsCoarserDecLine(double dec, int scaleIndex)
+    {
+        for (var j = 0; j < scaleIndex; j++)
+        {
+            var coarserStep = GridScales[j].DecStep;
+            var remainder = Math.Abs(dec) % coarserStep;
+            if (remainder < 1e-9 || coarserStep - remainder < 1e-9)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>

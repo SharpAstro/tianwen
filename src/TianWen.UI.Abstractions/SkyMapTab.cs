@@ -325,18 +325,81 @@ namespace TianWen.UI.Abstractions
 
         public override bool HandleInput(InputEvent evt) => evt switch
         {
-            InputEvent.Scroll(var scrollY, _, _, _) => HandleZoom(scrollY),
+            InputEvent.Scroll(var scrollY, var mx, var my, _) => HandleZoom(scrollY, mx, my),
+            InputEvent.Pinch(var scale, var px, var py) => HandlePinchZoom(scale, px, py),
+            InputEvent.PinchEnd => HandlePinchEnd(),
             InputEvent.MouseDown(var x, var y, _, _, _) => HandleDragStart(x, y),
             InputEvent.MouseUp(_, _, _) => HandleDragEnd(),
-            InputEvent.MouseMove(var x, var y) when State.IsDragging => HandleDrag(x, y),
+            InputEvent.MouseMove(var x, var y) when State.IsDragging && !State.IsPinching => HandleDrag(x, y),
             InputEvent.KeyDown(var key, _) => HandleKey(key),
             _ => false
         };
 
-        private bool HandleZoom(float scrollY)
+        private bool HandlePinchZoom(float scale, float centerX, float centerY)
         {
-            var factor = scrollY > 0 ? 0.85 : 1.0 / 0.85;
+            if (!State.IsPinching)
+            {
+                // Pinch start — suppress drag, undo any drag the first finger caused
+                State.IsPinching = true;
+                if (State.IsDragging)
+                {
+                    var (startRA, startDec) = State.DragStartCenter;
+                    State.CenterRA = startRA;
+                    State.CenterDec = startDec;
+                    State.IsDragging = false;
+                }
+            }
+
+            // Convert relative per-frame pinch scale to proportional zoom
+            // scale ~1.01 per frame → small zoom step
+            return HandleZoomByFactor(1.0 / scale, centerX, centerY);
+        }
+
+        private bool HandlePinchEnd()
+        {
+            State.IsPinching = false;
+            return true;
+        }
+
+        private bool HandleZoom(float scrollY, float mouseX, float mouseY)
+        {
+            // Scale proportionally to scroll magnitude — each unit ≈ 15% zoom
+            var factor = Math.Pow(0.85, scrollY);
+            return HandleZoomByFactor(factor, mouseX, mouseY);
+        }
+
+        private bool HandleZoomByFactor(double factor, float mouseX, float mouseY)
+        {
+
+            // Center-point zoom: zoom toward the sky position under the mouse cursor
+            var ppr = SkyMapProjection.PixelsPerRadian(_contentHeight, State.FieldOfViewDeg);
+            var screenCx = _contentX + _contentWidth * 0.5f;
+            var screenCy = _contentY + _contentHeight * 0.5f;
+
+            // Sky position under the mouse before zoom
+            var (mouseRA, mouseDec) = SkyMapProjection.UnprojectWithMatrix(
+                mouseX, mouseY, State.CurrentViewMatrix, ppr, screenCx, screenCy);
+
+            // Apply zoom
             State.FieldOfViewDeg = Math.Clamp(State.FieldOfViewDeg * factor, 0.5, 180.0);
+
+            // Recompute ppr after zoom and find where the mouse sky position would end up
+            var newPpr = SkyMapProjection.PixelsPerRadian(_contentHeight, State.FieldOfViewDeg);
+            SkyMapProjection.ProjectWithMatrix(mouseRA, mouseDec, State.CurrentViewMatrix,
+                newPpr, screenCx, screenCy, out var newMx, out var newMy);
+
+            // Shift the view center so the mouse sky position stays under the cursor
+            // by unprojecting the delta
+            if (!float.IsNaN(newMx))
+            {
+                var (centerRA, centerDec) = SkyMapProjection.UnprojectWithMatrix(
+                    screenCx + (mouseX - newMx), screenCy + (mouseY - newMy),
+                    State.CurrentViewMatrix, newPpr, screenCx, screenCy);
+                State.CenterRA = centerRA;
+                State.CenterDec = centerDec;
+                State.NormalizeCenter();
+            }
+
             State.NeedsRedraw = true;
             return true;
         }
