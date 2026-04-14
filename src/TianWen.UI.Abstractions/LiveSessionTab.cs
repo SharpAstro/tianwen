@@ -25,6 +25,9 @@ namespace TianWen.UI.Abstractions
         /// <summary>Last mouse position for drag panning.</summary>
         private (float X, float Y)? _dragStart;
 
+        /// <summary>Cached mini viewer image rect for center-point zoom.</summary>
+        private RectF32 _viewerImageRect;
+
         // Layout constants (at 1x scale)
         private const float BaseFontSize       = 14f;
         private const float BaseTopStripHeight = 28f;
@@ -160,6 +163,7 @@ namespace TianWen.UI.Abstractions
                 // Image area (below where toolbar will go)
                 var toolbarH = BaseRowHeight * dpiScale;
                 var imageRect = new RectF32(viewerX, mainY + toolbarH, viewerW, mainH - toolbarH);
+                _viewerImageRect = imageRect;
                 viewer.Render(imageRect, Renderer.Width, Renderer.Height);
             }
             else if (viewerW > 0)
@@ -321,12 +325,26 @@ namespace TianWen.UI.Abstractions
                     state.NeedsRedraw = true;
                     return true;
 
-                case InputEvent.Scroll(var scrollY, _, _, _) when MiniViewer is { State: { ZoomToFit: false } vs }:
-                    // Scroll to zoom in the mini viewer
+                case InputEvent.Scroll(var scrollY, var mx, var my, _) when MiniViewer is { State: { ZoomToFit: false } vs }:
+                {
+                    // Center-point zoom toward cursor position
                     var zoomFactor = scrollY > 0 ? 1.15f : 1f / 1.15f;
-                    vs.Zoom = MathF.Max(0.1f, MathF.Min(vs.Zoom * zoomFactor, 16f));
+                    var oldZoom = vs.Zoom;
+                    var newZoom = MathF.Max(0.1f, MathF.Min(oldZoom * zoomFactor, 16f));
+
+                    // Cursor position relative to viewer center + pan offset
+                    var cx = mx - _viewerImageRect.X - _viewerImageRect.Width * 0.5f - vs.PanOffset.X;
+                    var cy = my - _viewerImageRect.Y - _viewerImageRect.Height * 0.5f - vs.PanOffset.Y;
+
+                    // Adjust pan so the image point under the cursor stays fixed
+                    vs.PanOffset = (
+                        vs.PanOffset.X - cx * (newZoom / oldZoom - 1f),
+                        vs.PanOffset.Y - cy * (newZoom / oldZoom - 1f)
+                    );
+                    vs.Zoom = newZoom;
                     state.NeedsRedraw = true;
                     return true;
+                }
 
                 case InputEvent.Scroll(var scrollY2, _, _, _):
                     state.ExposureLogScrollOffset = Math.Max(0, state.ExposureLogScrollOffset + (scrollY2 > 0 ? -1 : 1));
