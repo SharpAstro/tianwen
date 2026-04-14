@@ -32,6 +32,43 @@ public class EquipmentTabState
     /// </summary>
     public HashSet<Uri> PendingTransitions { get; } = new();
 
+    /// <summary>
+    /// First-stage disconnect confirmation: when set, the row for this URI shows
+    /// [Warm &amp; Disconnect] [Force Off] [Cancel] instead of the On|Off button.
+    /// Cleared on Cancel, on Warm &amp; Disconnect dispatch, or when Force escalates.
+    /// </summary>
+    public Uri? PendingDisconnectConfirm { get; set; }
+
+    /// <summary>Safety classification cached from the pre-check that put the URI into
+    /// <see cref="PendingDisconnectConfirm"/> — drives the warning text.</summary>
+    public EquipmentActions.DisconnectSafety PendingDisconnectSafety { get; set; }
+
+    /// <summary>
+    /// Second-stage force-disconnect confirmation: when set, the row shows
+    /// [Cancel] ⚠ Really force? [REALLY FORCE] with the destructive button at the
+    /// opposite side of the row to prevent muscle-memory double-click escalation.
+    /// </summary>
+    public Uri? PendingForceConfirm { get; set; }
+
+    /// <summary>
+    /// Camera telemetry sample buffers, keyed by URI path (host+path, no query/fragment).
+    /// Populated by <c>AppSignalHandler.PollCameraTelemetry</c> on the equipment tab's
+    /// per-frame tick while the camera is hub-connected. Drives the per-camera cooler
+    /// graph + readout in the expanded camera control panel.
+    /// </summary>
+    public Dictionary<string, CameraTelemetryBuffer> CameraTelemetry { get; } = new();
+
+    /// <summary>Per-camera setpoint input shared across cameras (camera URI path → text input state).</summary>
+    public Dictionary<string, TextInputState> CameraSetpointInputs { get; } = new();
+
+    /// <summary>First-stage cooler-off confirmation per URI: triggers the inline strip
+    /// [Warm up &amp; Off] [Force] [Cancel] under the cooler control panel.</summary>
+    public Uri? PendingCoolerOffConfirm { get; set; }
+
+    /// <summary>Second-stage force-cooler-off confirmation, position-swapped just like
+    /// the disconnect force flow to defeat muscle-memory escalation.</summary>
+    public Uri? PendingCoolerOffForceConfirm { get; set; }
+
     // Assignment mode: when non-null, clicking a device in the list assigns it to this slot
     public AssignTarget? ActiveAssignment { get; set; }
 

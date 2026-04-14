@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -229,6 +230,156 @@ public static class EquipmentActions
             if (DeviceBase.SameDevice(ota.Cover, deviceUri)) return ota.Cover;
         }
         return null;
+    }
+
+    /// <summary>
+    /// Safety classification for an out-of-session disconnect of a connected device.
+    /// Cameras are the primary concern: cold disconnect risks thermal shock; busy
+    /// disconnect interrupts an exposure.
+    /// </summary>
+    public enum DisconnectSafety
+    {
+        /// <summary>Safe to disconnect immediately (not a camera, or cooler off and idle).</summary>
+        Safe,
+        /// <summary>Camera cooler is on — needs warm-up ramp before disconnect.</summary>
+        CoolerOn,
+        /// <summary>Camera is mid-exposure / downloading — should finish before disconnect.</summary>
+        Busy,
+        /// <summary>Both cooler on and camera busy.</summary>
+        BusyAndCool,
+        /// <summary>State could not be read (driver error) — caller should treat as unsafe.</summary>
+        Unknown
+    }
+
+    /// <summary>
+    /// Out-of-session warm-up + disconnect for a single camera. Ramps the setpoint
+    /// toward the heat-sink (or +25°C fallback) in 2°C steps every 30s, then turns
+    /// the cooler off and disconnects. Non-camera devices disconnect directly.
+    /// Mirrors the spirit of <c>Session.Cooling.CoolCamerasToAmbientAsync</c> but
+    /// without the multi-camera orchestration / telemetry collection.
+    /// </summary>
+    public static ValueTask WarmAndDisconnectAsync(
+        IDeviceHub hub, Uri deviceUri,
+        Microsoft.Extensions.Logging.ILogger logger,
+        System.Threading.CancellationToken cancellationToken)
+        => WarmCameraAsync(hub, deviceUri, logger, disconnectAfter: true, cancellationToken);
+
+    /// <summary>
+    /// Warm-up ramp + cooler-off without disconnecting (camera stays available for
+    /// re-cooling). Same condensation-mitigation rationale as
+    /// <see cref="WarmAndDisconnectAsync"/>.
+    /// </summary>
+    public static ValueTask WarmAndCoolerOffAsync(
+        IDeviceHub hub, Uri deviceUri,
+        Microsoft.Extensions.Logging.ILogger logger,
+        System.Threading.CancellationToken cancellationToken)
+        => WarmCameraAsync(hub, deviceUri, logger, disconnectAfter: false, cancellationToken);
+
+    /// <summary>
+    /// Shared warm-up ramp implementation. Steps the setpoint toward the heat-sink (or
+    /// +25°C fallback) in 2°C / 30s increments capped at 15 min, then turns the cooler
+    /// off and (optionally) disconnects.
+    /// </summary>
+    private static async ValueTask WarmCameraAsync(
+        IDeviceHub hub, Uri deviceUri,
+        Microsoft.Extensions.Logging.ILogger logger,
+        bool disconnectAfter,
+        System.Threading.CancellationToken cancellationToken)
+    {
+        if (!hub.TryGetConnectedDriver<TianWen.Lib.Devices.ICameraDriver>(deviceUri, out var camera))
+        {
+            if (disconnectAfter) await hub.DisconnectAsync(deviceUri, cancellationToken);
+            return;
+        }
+
+        // Determine target temperature: heat-sink if available, else +25°C.
+        double target = 25.0;
+        if (camera.CanGetHeatsinkTemperature)
+        {
+            try { target = await camera.GetHeatSinkTemperatureAsync(cancellationToken); }
+            catch (Exception ex) { logger.LogWarning(ex, "GetHeatSinkTemperatureAsync failed for {Uri}", deviceUri); }
+        }
+
+        var stepInterval = TimeSpan.FromSeconds(30);
+        var stepSize = 2.0;
+        var stallThreshold = 1.0;
+        var maxSteps = 30;
+
+        for (var i = 0; i < maxSteps && !cancellationToken.IsCancellationRequested; i++)
+        {
+            double current;
+            try { current = await camera.GetCCDTemperatureAsync(cancellationToken); }
+            catch { break; }
+
+            if (current >= target - stallThreshold) break;
+
+            var nextSetpoint = Math.Min(current + stepSize, target);
+            try { await camera.SetSetCCDTemperatureAsync(nextSetpoint, cancellationToken); }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "SetSetCCDTemperatureAsync failed mid-ramp for {Uri}", deviceUri);
+                break;
+            }
+
+            try { await Task.Delay(stepInterval, cancellationToken); }
+            catch (OperationCanceledException) { throw; }
+        }
+
+        try { await camera.SetCoolerOnAsync(false, cancellationToken); }
+        catch (Exception ex) { logger.LogWarning(ex, "SetCoolerOnAsync(false) failed for {Uri}", deviceUri); }
+
+        try { await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken); }
+        catch (OperationCanceledException) { throw; }
+
+        if (disconnectAfter)
+        {
+            await hub.DisconnectAsync(deviceUri, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Reads camera state and cooler status to determine whether the device can be
+    /// safely disconnected without warm-up or interrupting work in flight.
+    /// Returns <see cref="DisconnectSafety.Safe"/> for non-camera devices.
+    /// </summary>
+    public static async ValueTask<DisconnectSafety> GetDisconnectSafetyAsync(
+        IDeviceHub hub, Uri deviceUri, System.Threading.CancellationToken cancellationToken = default)
+    {
+        if (!hub.TryGetConnectedDriver<TianWen.Lib.Devices.ICameraDriver>(deviceUri, out var camera))
+        {
+            return DisconnectSafety.Safe;
+        }
+
+        bool busy = false, cool = false;
+        try
+        {
+            var state = await camera.GetCameraStateAsync(cancellationToken);
+            busy = state is not (TianWen.Lib.Devices.CameraState.Idle or TianWen.Lib.Devices.CameraState.NotConnected);
+        }
+        catch
+        {
+            return DisconnectSafety.Unknown;
+        }
+
+        try
+        {
+            if (camera.CanGetCoolerOn)
+            {
+                cool = await camera.GetCoolerOnAsync(cancellationToken);
+            }
+        }
+        catch
+        {
+            return DisconnectSafety.Unknown;
+        }
+
+        return (busy, cool) switch
+        {
+            (false, false) => DisconnectSafety.Safe,
+            (false, true)  => DisconnectSafety.CoolerOn,
+            (true, false)  => DisconnectSafety.Busy,
+            (true, true)   => DisconnectSafety.BusyAndCool
+        };
     }
 
     /// <summary>

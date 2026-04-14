@@ -17,7 +17,7 @@ namespace TianWen.UI.Abstractions
         private readonly EquipmentContent _content = new EquipmentContent();
 
         // Layout constants (at 1x scale)
-        private const float BaseProfilePanelWidth = 360f;
+        private const float BaseProfilePanelWidth = 500f;
         private const float BaseFontSize          = 14f;
         private const float BaseItemHeight        = 24f;
         private const float BaseBottomBarHeight   = 50f;
@@ -59,6 +59,11 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 SegmentActive    = new RGBAColor32(0x30, 0x60, 0x90, 0xff);
         private static readonly RGBAColor32 SegmentInactive  = new RGBAColor32(0x28, 0x28, 0x38, 0xff);
         private static readonly RGBAColor32 SegmentDisabled  = new RGBAColor32(0x22, 0x22, 0x2a, 0xff);
+        // Confirmation strip colors
+        private static readonly RGBAColor32 ConfirmWarmBg    = new RGBAColor32(0x30, 0x60, 0x40, 0xff); // green-ish: safe choice
+        private static readonly RGBAColor32 ConfirmForceBg   = new RGBAColor32(0x6a, 0x40, 0x20, 0xff); // amber: caution
+        private static readonly RGBAColor32 ConfirmDangerBg  = new RGBAColor32(0xa0, 0x30, 0x30, 0xff); // red: destructive
+        private static readonly RGBAColor32 ConfirmCancelBg  = new RGBAColor32(0x35, 0x35, 0x42, 0xff); // neutral
 
         /// <summary>Tab state (scroll offsets, discovery results, assignment mode).</summary>
         public EquipmentTabState State { get; } = new EquipmentTabState();
@@ -450,6 +455,9 @@ namespace TianWen.UI.Abstractions
                     // Device settings for camera (if it declares any)
                     cursor = RenderDeviceSettingsIfAny(appState, pd, ota.Camera, "Camera Settings",
                         x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
+                    // Live cooler control + telemetry graph (only when hub-connected)
+                    cursor = RenderCameraTelemetryIfAny(appState, ota.Camera,
+                        x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding);
                     cursor = RenderProfileSlot(
                         "  Focuser", ota.Focuser, new AssignTarget.OTALevel(i, "Focuser"),
                         x, cursor, w, itemH, dpiScale, fontPath, fontSize, padding, arrowW, appState, pd, emojiFontPath);
@@ -730,9 +738,44 @@ namespace TianWen.UI.Abstractions
                         // Connect with the profile URI (preserves query params like apiKey, port, baud).
                         // The discovered device URI strips these — we only use it to identify the device.
                         var connectUri = EquipmentActions.FindAssignedUri(data, device.DeviceUri) ?? device.DeviceUri;
-                        // Segmented On|Off button (action — encodes both current state and available transition).
-                        RenderConnectSegment(connectUri, btnColX, rowY, connBtnW, itemH,
-                            fontPath, fontSize, reach, pending);
+
+                        // Pending disconnect confirmations replace the right portion of the row.
+                        // Extend the strip well past the status/button/checkmark columns and
+                        // into the (now-redundant) device-name area so the action labels fit
+                        // comfortably — the user already knows which device they're confirming.
+                        var stripX = nameX + nameW * 0.35f;
+                        var stripW = (x + w) - stripX - padding;
+
+                        if (DeviceBase.SameDevice(State.PendingForceConfirm, connectUri))
+                        {
+                            // Stage 2: force-disconnect confirmation. [Cancel] on left,
+                            // destructive [REALLY FORCE] on the right — opposite side from
+                            // where Force Off was clicked, to defeat muscle-memory escalation.
+                            RenderForceConfirmStrip(connectUri, stripX, rowY, stripW, itemH,
+                                fontPath, fontSize);
+                        }
+                        else if (DeviceBase.SameDevice(State.PendingDisconnectConfirm, connectUri))
+                        {
+                            // Stage 1: warm-or-force confirmation.
+                            RenderDisconnectConfirmStrip(connectUri, stripX, rowY, stripW, itemH,
+                                fontPath, fontSize, State.PendingDisconnectSafety);
+                        }
+                        else
+                        {
+                            // Telegraph disconnect risk on the Off segment itself by checking the
+                            // latest cached telemetry. If the camera reports CoolerOn or Busy,
+                            // tint Off red so the user knows clicking it will land on the
+                            // confirmation strip rather than disconnecting cleanly.
+                            var key = connectUri.GetLeftPart(UriPartial.Path);
+                            var unsafeOff = false;
+                            if (State.CameraTelemetry.TryGetValue(key, out var buf) && buf.Latest is { } latest)
+                            {
+                                unsafeOff = latest.CoolerOn || latest.Busy;
+                            }
+                            // Segmented On|Off button (encodes current state + available transition).
+                            RenderConnectSegment(connectUri, btnColX, rowY, connBtnW, itemH,
+                                fontPath, fontSize, reach, pending, offIsUnsafe: unsafeOff);
+                        }
                     }
                 }
             }
@@ -780,6 +823,177 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
+        /// Stage-1 cooler-off confirmation strip (camera stays connected). [Warm up &amp; Off]
+        /// (green), [Force] (amber, escalates), [Cancel] (neutral).
+        /// </summary>
+        private float RenderCoolerOffConfirmStrip(
+            Uri cameraUri, float x, float y, float w, float h, string fontPath, float fontSize)
+        {
+            var gap = 2f;
+            var btnW = (w - gap * 2f) / 3f;
+            var bx = x;
+            var capUri = cameraUri;
+
+            // [Warm up & Off]
+            FillRect(bx, y + h * 0.15f, btnW, h * 0.7f, ConfirmWarmBg);
+            DrawText("Warm up & Off".AsSpan(), fontPath, bx, y, btnW, h, fontSize * 0.78f, BodyText, TextAlign.Center, TextAlign.Center);
+            RegisterClickable(bx, y, btnW, h, new HitResult.ButtonHit("WarmCoolerOff"),
+                _ => PostSignal(new WarmAndCoolerOffSignal(capUri)));
+
+            // [Force] — escalates
+            bx += btnW + gap;
+            FillRect(bx, y + h * 0.15f, btnW, h * 0.7f, ConfirmForceBg);
+            DrawText("Force".AsSpan(), fontPath, bx, y, btnW, h, fontSize * 0.78f, BodyText, TextAlign.Center, TextAlign.Center);
+            RegisterClickable(bx, y, btnW, h, new HitResult.ButtonHit("EscalateForceCoolerOff"),
+                _ =>
+                {
+                    State.PendingCoolerOffForceConfirm = capUri;
+                    State.PendingCoolerOffConfirm = null;
+                });
+
+            // [Cancel]
+            bx += btnW + gap;
+            FillRect(bx, y + h * 0.15f, btnW, h * 0.7f, ConfirmCancelBg);
+            DrawText("Cancel".AsSpan(), fontPath, bx, y, btnW, h, fontSize * 0.78f, BodyText, TextAlign.Center, TextAlign.Center);
+            RegisterClickable(bx, y, btnW, h, new HitResult.ButtonHit("CancelCoolerOff"),
+                _ =>
+                {
+                    State.PendingCoolerOffConfirm = null;
+                    State.PendingCoolerOffForceConfirm = null;
+                });
+
+            return y + h;
+        }
+
+        /// <summary>
+        /// Stage-2 force-cooler-off confirmation. Same anti-double-click position swap as
+        /// the disconnect force flow: [Cancel] LEFT, [⚠ REALLY FORCE] RIGHT.
+        /// </summary>
+        private float RenderCoolerOffForceStrip(
+            Uri cameraUri, float x, float y, float w, float h, string fontPath, float fontSize)
+        {
+            var gap = 4f;
+            var halfW = (w - gap) / 2f;
+            var capUri = cameraUri;
+
+            // [Cancel] LEFT
+            FillRect(x, y + h * 0.15f, halfW, h * 0.7f, ConfirmCancelBg);
+            DrawText("Cancel".AsSpan(), fontPath, x, y, halfW, h, fontSize * 0.8f, BodyText, TextAlign.Center, TextAlign.Center);
+            RegisterClickable(x, y, halfW, h, new HitResult.ButtonHit("CancelForceCoolerOff"),
+                _ =>
+                {
+                    State.PendingCoolerOffForceConfirm = null;
+                    State.PendingCoolerOffConfirm = null;
+                });
+
+            // [⚠ REALLY FORCE COOLER OFF] RIGHT
+            var rx = x + halfW + gap;
+            FillRect(rx, y + h * 0.15f, halfW, h * 0.7f, ConfirmDangerBg);
+            DrawText("\u26A0 REALLY FORCE COOLER OFF".AsSpan(), fontPath, rx, y, halfW, h, fontSize * 0.7f, BodyText, TextAlign.Center, TextAlign.Center);
+            RegisterClickable(rx, y, halfW, h, new HitResult.ButtonHit("ConfirmForceCoolerOff"),
+                _ =>
+                {
+                    State.PendingCoolerOffForceConfirm = null;
+                    PostSignal(new SetCoolerOffSignal(capUri));
+                });
+
+            return y + h;
+        }
+
+        /// <summary>
+        /// Stage-1 confirmation strip shown when the user clicked Off on a cooled or busy
+        /// camera. Three buttons: [Warm &amp; Off] (left, safe-green), [Force Off] (middle, amber),
+        /// [Cancel] (right, neutral). Force Off escalates to a stage-2 confirmation rendered
+        /// at a different position to prevent muscle-memory double-clicks.
+        /// </summary>
+        private void RenderDisconnectConfirmStrip(
+            Uri deviceUri, float x, float y, float w, float h,
+            string fontPath, float fontSize,
+            EquipmentActions.DisconnectSafety safety)
+        {
+            // Three equal-width buttons. Order: [Warm & Off] [Force Off] [Cancel]
+            var gap = 2f;
+            var btnW = (w - gap * 2f) / 3f;
+            var bx = x;
+
+            var safetyLabel = safety switch
+            {
+                EquipmentActions.DisconnectSafety.CoolerOn   => "Warm up & Off",
+                EquipmentActions.DisconnectSafety.Busy       => "Wait & Off",
+                EquipmentActions.DisconnectSafety.BusyAndCool=> "Wait + Warm up",
+                _                                            => "Warm up & Off"
+            };
+
+            var capUri = deviceUri;
+            // [Warm/Wait & Off]
+            FillRect(bx, y + h * 0.15f, btnW, h * 0.7f, ConfirmWarmBg);
+            DrawText(safetyLabel.AsSpan(), fontPath, bx, y, btnW, h, fontSize * 0.75f, BodyText, TextAlign.Center, TextAlign.Center);
+            RegisterClickable(bx, y, btnW, h, new HitResult.ButtonHit("WarmDisconnect"),
+                _ => PostSignal(new WarmAndDisconnectDeviceSignal(capUri)));
+
+            // [Force Off] — escalates to stage 2 instead of disconnecting directly
+            bx += btnW + gap;
+            FillRect(bx, y + h * 0.15f, btnW, h * 0.7f, ConfirmForceBg);
+            DrawText("Force".AsSpan(), fontPath, bx, y, btnW, h, fontSize * 0.75f, BodyText, TextAlign.Center, TextAlign.Center);
+            RegisterClickable(bx, y, btnW, h, new HitResult.ButtonHit("EscalateForce"),
+                _ =>
+                {
+                    State.PendingForceConfirm = capUri;
+                    State.PendingDisconnectConfirm = null;
+                });
+
+            // [Cancel]
+            bx += btnW + gap;
+            FillRect(bx, y + h * 0.15f, btnW, h * 0.7f, ConfirmCancelBg);
+            DrawText("Cancel".AsSpan(), fontPath, bx, y, btnW, h, fontSize * 0.75f, BodyText, TextAlign.Center, TextAlign.Center);
+            RegisterClickable(bx, y, btnW, h, new HitResult.ButtonHit("CancelDisconnect"),
+                _ =>
+                {
+                    State.PendingDisconnectConfirm = null;
+                    State.PendingForceConfirm = null;
+                });
+        }
+
+        /// <summary>
+        /// Stage-2 force-disconnect confirmation. Layout deliberately swaps positions so the
+        /// destructive [REALLY FORCE] button lands where [Cancel] was on the previous strip,
+        /// and vice-versa — defeats the user's muscle memory for "click the same spot twice".
+        /// </summary>
+        private void RenderForceConfirmStrip(
+            Uri deviceUri, float x, float y, float w, float h,
+            string fontPath, float fontSize)
+        {
+            // Two halves: [Cancel] LEFT (where [Warm & Off] used to be) and [REALLY FORCE] RIGHT
+            // (where [Cancel] used to be). The reversed pairing means a double-click that
+            // started on [Force Off] (middle of stage 1) lands on... nothing meaningful — it
+            // either hits the [Cancel] half or ambiguous middle, never the destructive button.
+            var gap = 4f;
+            var halfW = (w - gap) / 2f;
+
+            var capUri = deviceUri;
+            // [Cancel] — LEFT
+            FillRect(x, y + h * 0.15f, halfW, h * 0.7f, ConfirmCancelBg);
+            DrawText("Cancel".AsSpan(), fontPath, x, y, halfW, h, fontSize * 0.8f, BodyText, TextAlign.Center, TextAlign.Center);
+            RegisterClickable(x, y, halfW, h, new HitResult.ButtonHit("CancelForce"),
+                _ =>
+                {
+                    State.PendingForceConfirm = null;
+                    State.PendingDisconnectConfirm = null;
+                });
+
+            // [REALLY FORCE] — RIGHT (destructive, deliberately offset from where Force Off was)
+            var rx = x + halfW + gap;
+            FillRect(rx, y + h * 0.15f, halfW, h * 0.7f, ConfirmDangerBg);
+            DrawText("\u26A0 REALLY FORCE OFF".AsSpan(), fontPath, rx, y, halfW, h, fontSize * 0.75f, BodyText, TextAlign.Center, TextAlign.Center);
+            RegisterClickable(rx, y, halfW, h, new HitResult.ButtonHit("ConfirmForce"),
+                _ =>
+                {
+                    State.PendingForceConfirm = null;
+                    PostSignal(new ForceDisconnectDeviceSignal(capUri));
+                });
+        }
+
+        /// <summary>
         /// Renders the segmented On|Off connect/disconnect button. The current state's segment
         /// is highlighted; only the *other* segment is clickable. While a transition is in flight,
         /// the inactive segment is shown as "…" and no clickables are registered.
@@ -789,13 +1003,21 @@ namespace TianWen.UI.Abstractions
             float x, float y, float w, float h,
             string fontPath, float fontSize,
             EquipmentActions.DeviceReachability reach,
-            bool pending)
+            bool pending,
+            bool offIsUnsafe = false)
         {
             var segW = w / 2f;
             var isConnected = reach == EquipmentActions.DeviceReachability.Connected;
 
             var onBg  = isConnected ? SegmentActive : SegmentInactive;
             var offBg = isConnected ? SegmentInactive : SegmentActive;
+            // Telegraph that Off would land on the warm/force confirmation strip — tint the
+            // *inactive* Off segment red. (When isConnected is true, Off is the actionable
+            // segment; show a darker red so it stays clearly clickable.)
+            if (offIsUnsafe)
+            {
+                offBg = isConnected ? ConfirmDangerBg : ConfirmForceBg;
+            }
 
             // Segment backgrounds (inset vertically so the button looks like a control, not a row)
             var segY = y + h * 0.15f;
@@ -845,16 +1067,14 @@ namespace TianWen.UI.Abstractions
             string message;
             RGBAColor32 textColor;
 
+            // Note: appState.StatusMessage is rendered in the chrome's top status bar — don't
+            // duplicate it here. The bottom bar is for *contextual* hints specific to the
+            // equipment-tab interaction (assignment mode, default tip).
             if (State.ActiveAssignment is not null)
             {
                 var typeName = State.ActiveAssignment.ExpectedDeviceType.ToString();
                 message   = $"Select a {typeName} device from the list on the right, or click the slot again to cancel.";
                 textColor = AccentInstruct;
-            }
-            else if (appState.StatusMessage is { Length: > 0 } status)
-            {
-                message   = status;
-                textColor = BodyText;
             }
             else
             {
@@ -1155,6 +1375,245 @@ namespace TianWen.UI.Abstractions
         /// Renders device settings for a device URI if the device declares any <see cref="DeviceSettingDescriptor"/>s.
         /// Returns the updated cursor Y. No-ops if the device has no settings.
         /// </summary>
+        /// <summary>
+        /// Renders the camera cooler control + telemetry sparkline panel for the given URI,
+        /// but only when the camera is currently connected via the device hub. Hidden otherwise.
+        /// Layout: collapsible header → readout row → setpoint input + buttons → temp sparkline.
+        /// </summary>
+        private float RenderCameraTelemetryIfAny(
+            GuiAppState appState,
+            Uri? cameraUri,
+            float x, float cursor, float w, float itemH,
+            float dpiScale, string fontPath, float fontSize, float padding)
+        {
+            if (cameraUri is null || cameraUri == NoneDevice.Instance.DeviceUri) return cursor;
+            if (appState.DeviceHub is not { } hub || !hub.IsConnected(cameraUri)) return cursor;
+
+            var key = cameraUri.GetLeftPart(UriPartial.Path);
+            var rowH = itemH * 0.9f;
+            var headerKey = $"CamCool_{key}";
+
+            // Toggle header — independent of the device-settings expand state.
+            // Stored on EquipmentTabState as a separate sub-key so it doesn't clash.
+            var paneKey = $"CoolerPane:{key}";
+            var isOpen = State.ExpandedDeviceSettingsUri == paneKey;
+            var headerLabel = isOpen ? "    Cooler Control [-]" : "    Cooler Control [+]";
+
+            FillRect(x + padding, cursor, w - padding * 2f, rowH, FilterTableBg);
+            RegisterClickable(x + padding, cursor, w - padding * 2f, rowH, new HitResult.ButtonHit(headerKey),
+                _ =>
+                {
+                    State.ExpandedDeviceSettingsUri = isOpen ? null : paneKey;
+                });
+            DrawText(headerLabel.AsSpan(), fontPath,
+                x + padding * 2f, cursor, w - padding * 4f, rowH,
+                fontSize * 0.85f, HeaderText, TextAlign.Near, TextAlign.Center);
+            cursor += rowH;
+
+            if (!isOpen) return cursor;
+
+            // Latest sample (may be null on first frame after connect)
+            State.CameraTelemetry.TryGetValue(key, out var buffer);
+            var latest = buffer?.Latest;
+
+            // ---- Readout row: 4 fixed-share cells so labels never overflow ----
+            var readoutH = rowH;
+            var readoutBg = FilterRowAlt;
+            var rowX = x + padding;
+            var rowW = w - padding * 2f;
+            FillRect(rowX, cursor, rowW, readoutH, readoutBg);
+
+            string Cell(double? v, string suffix) => v is { } d ? $"{d:F1}{suffix}" : "—";
+            var cellW = rowW / 4f;
+            var cellPad = padding;
+            var cellFs = fontSize * 0.85f;
+            var tempStr = $"CCD: {Cell(latest?.CcdTempC, "\u00b0C")}";
+            var setStr  = $"Set: {Cell(latest?.SetpointC, "\u00b0C")}";
+            var pwrStr  = latest?.CoolerPowerPct is { } p ? $"Power: {p:F0}%" : "Power: —";
+            var stateStr = latest is null ? "\u2026"
+                : (latest.Value.CoolerOn ? "Cooler ON" : "Cooler OFF");
+
+            // Belt-and-suspenders: still ellipsize per cell in case the panel shrinks below threshold.
+            var inner = cellW - cellPad;
+            var t = TruncateToWidth(tempStr,  fontPath, cellFs, inner);
+            var s = TruncateToWidth(setStr,   fontPath, cellFs, inner);
+            var pw = TruncateToWidth(pwrStr,   fontPath, cellFs, inner);
+            var st = TruncateToWidth(stateStr, fontPath, cellFs, inner);
+            DrawText(t.AsSpan(),  fontPath, rowX + cellPad,                 cursor, inner, readoutH, cellFs, BodyText, TextAlign.Near, TextAlign.Center);
+            DrawText(s.AsSpan(),  fontPath, rowX + cellW + cellPad,         cursor, inner, readoutH, cellFs, BodyText, TextAlign.Near, TextAlign.Center);
+            DrawText(pw.AsSpan(), fontPath, rowX + cellW * 2f + cellPad,    cursor, inner, readoutH, cellFs, BodyText, TextAlign.Near, TextAlign.Center);
+            DrawText(st.AsSpan(), fontPath, rowX + cellW * 3f + cellPad,    cursor, inner, readoutH, cellFs, BodyText, TextAlign.Near, TextAlign.Center);
+            cursor += readoutH;
+
+            // ---- Controls row: setpoint input + [Cool to Setpoint] + [Cooler Off] ----
+            var controlsH = rowH;
+            FillRect(x + padding, cursor, w - padding * 2f, controlsH, FilterTableBg);
+            var labelW = 80f * dpiScale;
+            DrawText("    Setpoint:".AsSpan(), fontPath,
+                x + padding, cursor, labelW, controlsH,
+                fontSize * 0.85f, DimText, TextAlign.Near, TextAlign.Center);
+
+            var inputX = x + padding + labelW;
+            var inputW = 70f * dpiScale;
+            // Lazy-init the setpoint input for this URI; default text from the latest sample.
+            if (!State.CameraSetpointInputs.TryGetValue(key, out var setpointInput))
+            {
+                setpointInput = new TextInputState { Placeholder = "-10" };
+                if (latest?.SetpointC is { } sp) setpointInput.Text = sp.ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+                State.CameraSetpointInputs[key] = setpointInput;
+            }
+            RenderTextInput(setpointInput,
+                (int)inputX, (int)cursor,
+                (int)inputW, (int)controlsH,
+                fontPath, fontSize * 0.85f);
+
+            var btnGap = 4f * dpiScale;
+            var coolBtnX = inputX + inputW + btnGap;
+            var coolBtnW = 110f * dpiScale;
+            var capUri = cameraUri;
+            RenderButton("Cool to Setpoint", coolBtnX, cursor, coolBtnW, controlsH, fontPath, fontSize * 0.78f,
+                CreateButton, BodyText, $"CoolTo_{key}",
+                _ =>
+                {
+                    var txt = setpointInput.Text;
+                    if (double.TryParse(txt, System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out var v))
+                    {
+                        PostSignal(new SetCoolerSetpointSignal(capUri, v));
+                    }
+                });
+
+            var offBtnX = coolBtnX + coolBtnW + btnGap;
+            var offBtnW = 80f * dpiScale;
+            // Safety: tint the Cooler Off button red when the cooler is on, and route
+            // the click to the confirmation strip instead of immediate cooler-off
+            // (same condensation/thermal-shock concern as disconnect).
+            var coolerUnsafe = latest is { } l && l.CoolerOn;
+            var offBg = coolerUnsafe ? ConfirmDangerBg : EditButtonBg;
+            RenderButton("Cooler Off", offBtnX, cursor, offBtnW, controlsH, fontPath, fontSize * 0.78f,
+                offBg, BodyText, $"CoolerOff_{key}",
+                _ =>
+                {
+                    if (coolerUnsafe)
+                    {
+                        State.PendingCoolerOffConfirm = capUri;
+                        State.PendingCoolerOffForceConfirm = null;
+                    }
+                    else
+                    {
+                        PostSignal(new SetCoolerOffSignal(capUri));
+                    }
+                });
+            cursor += controlsH;
+
+            // Confirmation strip — appears under the controls row when the user clicked
+            // Cooler Off on a cooled camera. Two stages, mirror of the disconnect flow.
+            if (DeviceBase.SameDevice(State.PendingCoolerOffForceConfirm, cameraUri))
+            {
+                cursor = RenderCoolerOffForceStrip(cameraUri, x + padding, cursor, w - padding * 2f, controlsH, fontPath, fontSize);
+            }
+            else if (DeviceBase.SameDevice(State.PendingCoolerOffConfirm, cameraUri))
+            {
+                cursor = RenderCoolerOffConfirmStrip(cameraUri, x + padding, cursor, w - padding * 2f, controlsH, fontPath, fontSize);
+            }
+
+            // ---- Sparkline graph ----
+            var graphH = 60f * dpiScale;
+            var graphX = x + padding;
+            var graphW = w - padding * 2f;
+            FillRect(graphX, cursor, graphW, graphH, FilterTableBg);
+            if (buffer is not null && buffer.Count >= 2)
+            {
+                RenderTemperatureSparkline(buffer, graphX, cursor, graphW, graphH, fontPath, fontSize);
+            }
+            else
+            {
+                DrawText("(sampling — graph appears after a few seconds)".AsSpan(), fontPath,
+                    graphX, cursor, graphW, graphH,
+                    fontSize * 0.8f, DimText, TextAlign.Center, TextAlign.Center);
+            }
+            cursor += graphH + padding * 0.5f;
+
+            return cursor;
+        }
+
+        /// <summary>
+        /// Draws a CCD-temperature line + setpoint reference line in the given rect.
+        /// Y-axis spans observed min/max with a small margin; X-axis is sample order.
+        /// </summary>
+        private void RenderTemperatureSparkline(
+            CameraTelemetryBuffer buffer,
+            float x, float y, float w, float h,
+            string fontPath, float fontSize)
+        {
+            // Collect points
+            var samples = new List<CameraTelemetrySample>(buffer.Count);
+            foreach (var s in buffer.InOrder()) samples.Add(s);
+            if (samples.Count < 2) return;
+
+            double minT = double.PositiveInfinity, maxT = double.NegativeInfinity;
+            foreach (var s in samples)
+            {
+                if (s.CcdTempC is { } t) { if (t < minT) minT = t; if (t > maxT) maxT = t; }
+                if (s.SetpointC is { } sp) { if (sp < minT) minT = sp; if (sp > maxT) maxT = sp; }
+            }
+            if (double.IsInfinity(minT) || double.IsInfinity(maxT)) return;
+            if (Math.Abs(maxT - minT) < 0.5) { var mid = (minT + maxT) * 0.5; minT = mid - 0.5; maxT = mid + 0.5; }
+
+            // Add a small vertical margin.
+            var range = maxT - minT;
+            minT -= range * 0.1; maxT += range * 0.1; range = maxT - minT;
+
+            // Inset for axis labels on the left
+            var labelW = 36f;
+            var plotX = x + labelW;
+            var plotW = w - labelW - 4f;
+            var plotY = y + 4f;
+            var plotH = h - 8f;
+
+            // Axis label (min and max temperature)
+            DrawText($"{maxT:F1}".AsSpan(), fontPath, x, plotY - 6f, labelW - 4f, 14f, fontSize * 0.7f, DimText, TextAlign.Far, TextAlign.Center);
+            DrawText($"{minT:F1}".AsSpan(), fontPath, x, plotY + plotH - 8f, labelW - 4f, 14f, fontSize * 0.7f, DimText, TextAlign.Far, TextAlign.Center);
+
+            // Setpoint reference line (dashed effect via short rects)
+            var lastSp = samples[samples.Count - 1].SetpointC;
+            if (lastSp is { } setPt)
+            {
+                var spY = plotY + (float)((maxT - setPt) / range) * plotH;
+                for (var dx = 0f; dx < plotW; dx += 6f)
+                {
+                    FillRect(plotX + dx, spY, 3f, 1f, ReachDisconnected);
+                }
+            }
+
+            // Plot CCD temp as connected line segments (one tiny rect per pair).
+            for (var i = 1; i < samples.Count; i++)
+            {
+                if (samples[i - 1].CcdTempC is not { } t0) continue;
+                if (samples[i].CcdTempC is not { } t1) continue;
+                var x0 = plotX + (i - 1) * plotW / (samples.Count - 1);
+                var x1 = plotX + i * plotW / (samples.Count - 1);
+                var y0 = plotY + (float)((maxT - t0) / range) * plotH;
+                var y1 = plotY + (float)((maxT - t1) / range) * plotH;
+                DrawLineSegment(x0, y0, x1, y1, ReachConnected);
+            }
+        }
+
+        /// <summary>
+        /// Cheap line segment via a chain of 1px FillRects — adequate for a sparkline.
+        /// </summary>
+        private void DrawLineSegment(float x0, float y0, float x1, float y1, RGBAColor32 color)
+        {
+            var dx = x1 - x0; var dy = y1 - y0;
+            var steps = (int)MathF.Ceiling(MathF.Max(MathF.Abs(dx), MathF.Abs(dy)));
+            if (steps < 1) steps = 1;
+            for (var i = 0; i <= steps; i++)
+            {
+                var t = (float)i / steps;
+                FillRect(x0 + dx * t, y0 + dy * t, 1.5f, 1.5f, color);
+            }
+        }
+
         private float RenderDeviceSettingsIfAny(
             GuiAppState appState,
             ProfileData pd,

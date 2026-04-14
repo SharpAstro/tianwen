@@ -39,6 +39,7 @@ namespace TianWen.UI.Abstractions
         private readonly IExternal _external;
         private readonly ILogger _logger;
         private readonly ITimeProvider _timeProvider;
+        private readonly EquipmentTabState _eqState;
 
         /// <summary>Set by the host after catalog load to enable autocomplete.</summary>
         public Action<string[]> SetAutoCompleteCache { get; }
@@ -96,6 +97,123 @@ namespace TianWen.UI.Abstractions
             await FetchWeatherForecastAsync(cancellationToken);
             _plannerState.SelectedTargetIndex = 0;
             _plannerState.NeedsRedraw = true;
+        }
+
+        // Per-camera last-poll timestamps, keyed by URI path (host+path, no query).
+        private readonly Dictionary<string, long> _telemetryLastSampleTicks = new();
+        // In-flight poll task per camera path, prevents overlapping samples.
+        private readonly HashSet<string> _telemetryInFlight = new();
+
+        /// <summary>
+        /// Polls connected cameras for cooler/temperature telemetry and appends samples
+        /// to <see cref="EquipmentTabState.CameraTelemetry"/>. Call once per frame from the
+        /// host's main loop. Internally rate-limits per-camera so polling stays at ~2s,
+        /// regardless of frame rate. Cheap to call when nothing needs sampling.
+        /// </summary>
+        public void PollCameraTelemetry()
+        {
+            if (_appState.DeviceHub is not { } hub) return;
+            // Only on the equipment tab — avoids hammering cameras with reads when the
+            // user isn't looking at the data. (Live-session view will be wired later.)
+            if (_appState.ActiveTab is not GuiTab.Equipment) return;
+
+            var nowTicks = _timeProvider.GetTimestamp();
+            var sampleInterval = TimeSpan.FromSeconds(2);
+
+            foreach (var (uri, driver) in hub.ConnectedDevices)
+            {
+                if (driver is not TianWen.Lib.Devices.ICameraDriver) continue;
+                var key = uri.GetLeftPart(UriPartial.Path);
+
+                if (_telemetryInFlight.Contains(key)) continue;
+                if (_telemetryLastSampleTicks.TryGetValue(key, out var lastTicks)
+                    && _timeProvider.System.GetElapsedTime(lastTicks, nowTicks) < sampleInterval)
+                {
+                    continue;
+                }
+
+                _telemetryLastSampleTicks[key] = nowTicks;
+                _telemetryInFlight.Add(key);
+                var capturedUri = uri;
+                _tracker.Run(async () =>
+                {
+                    try
+                    {
+                        var sample = await SampleCameraAsync(hub, capturedUri, _cts.Token);
+                        if (sample is { } s)
+                        {
+                            if (!_eqState.CameraTelemetry.TryGetValue(key, out var buffer))
+                            {
+                                buffer = new CameraTelemetryBuffer();
+                                _eqState.CameraTelemetry[key] = buffer;
+                            }
+                            buffer.Add(s);
+                            _appState.NeedsRedraw = true;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Telemetry poll failed for {Uri}", capturedUri);
+                    }
+                    finally
+                    {
+                        _telemetryInFlight.Remove(key);
+                    }
+                }, $"Telemetry {key}");
+            }
+        }
+
+        private async Task<CameraTelemetrySample?> SampleCameraAsync(
+            IDeviceHub hub, Uri uri, System.Threading.CancellationToken ct)
+        {
+            if (!hub.TryGetConnectedDriver<TianWen.Lib.Devices.ICameraDriver>(uri, out var camera))
+            {
+                return null;
+            }
+
+            double? ccd = null, sink = null, setpoint = null, power = null;
+            bool coolerOn = false, busy = false;
+
+            try
+            {
+                if (camera.CanGetCCDTemperature) ccd = await camera.GetCCDTemperatureAsync(ct);
+            }
+            catch { /* tolerate transient driver errors mid-sample */ }
+
+            try
+            {
+                if (camera.CanGetHeatsinkTemperature) sink = await camera.GetHeatSinkTemperatureAsync(ct);
+            }
+            catch { }
+
+            try
+            {
+                if (camera.CanGetCoolerOn) coolerOn = await camera.GetCoolerOnAsync(ct);
+            }
+            catch { }
+
+            try
+            {
+                if (camera.CanGetCoolerPower) power = await camera.GetCoolerPowerAsync(ct);
+            }
+            catch { }
+
+            try
+            {
+                setpoint = await camera.GetSetCCDTemperatureAsync(ct);
+            }
+            catch { }
+
+            try
+            {
+                var state = await camera.GetCameraStateAsync(ct);
+                busy = state is not (TianWen.Lib.Devices.CameraState.Idle or TianWen.Lib.Devices.CameraState.NotConnected);
+            }
+            catch { }
+
+            return new CameraTelemetrySample(
+                _timeProvider.System.GetLocalNow(),
+                ccd, sink, setpoint, power, coolerOn, busy);
         }
 
         /// <summary>
@@ -246,6 +364,7 @@ namespace TianWen.UI.Abstractions
             _appState = appState;
             _plannerState = plannerState;
             _sessionState = sessionState;
+            _eqState = eqState;
             _tracker = tracker;
             _cts = cts;
             _external = external;
@@ -512,6 +631,13 @@ namespace TianWen.UI.Abstractions
                     }
 
                     var data = profile.Data ?? ProfileData.Empty;
+
+                    // Capture the URI previously assigned to THIS slot. If still connected
+                    // via the hub, we'll auto-disconnect it after assignment iff safe
+                    // (cooler off, idle). Cool/busy orphans are left connected and the
+                    // user is told to disconnect manually so warm-up runs.
+                    var prevSlotUri = EquipmentActions.GetAssignedDevice(data, target);
+
                     data = EquipmentActions.UnassignDevice(data, device.DeviceUri);
 
                     var newData = target switch
@@ -538,6 +664,33 @@ namespace TianWen.UI.Abstractions
                     if (device.DeviceType is DeviceType.Weather)
                     {
                         await FetchWeatherForecastAsync(cts.Token);
+                        appState.NeedsRedraw = true;
+                    }
+
+                    // Auto-disconnect the orphan if it's still connected and safe.
+                    if (prevSlotUri is not null
+                        && !DeviceBase.SameDevice(prevSlotUri, device.DeviceUri)
+                        && appState.DeviceHub is { } hub
+                        && hub.IsConnected(prevSlotUri))
+                    {
+                        var safety = await EquipmentActions.GetDisconnectSafetyAsync(hub, prevSlotUri, cts.Token);
+                        if (safety == EquipmentActions.DisconnectSafety.Safe)
+                        {
+                            try
+                            {
+                                await hub.DisconnectAsync(prevSlotUri, cts.Token);
+                                appState.StatusMessage = $"Previous {target.ExpectedDeviceType} disconnected";
+                            }
+                            catch (Exception ex)
+                            {
+                                logger.LogWarning(ex, "Auto-disconnect of orphan {Uri} failed", prevSlotUri);
+                            }
+                        }
+                        else
+                        {
+                            // Don't yank a cold/busy camera silently — leave it for the user.
+                            appState.StatusMessage = $"Previous {target.ExpectedDeviceType} left connected ({safety}). Click Off on its row to warm up.";
+                        }
                         appState.NeedsRedraw = true;
                     }
                 }
@@ -606,6 +759,19 @@ namespace TianWen.UI.Abstractions
                     return;
                 }
 
+                // Pre-flight safety check. If the device is a cooled/busy camera, don't
+                // disconnect — set the per-row confirmation state so the UI shows the
+                // [Warm & Off] [Force Off] [Cancel] strip instead of executing.
+                var safety = await EquipmentActions.GetDisconnectSafetyAsync(hub, sig.DeviceUri, cts.Token);
+                if (safety != EquipmentActions.DisconnectSafety.Safe)
+                {
+                    eqState.PendingDisconnectConfirm = sig.DeviceUri;
+                    eqState.PendingDisconnectSafety = safety;
+                    eqState.PendingForceConfirm = null;
+                    appState.NeedsRedraw = true;
+                    return;
+                }
+
                 if (!eqState.PendingTransitions.Add(sig.DeviceUri))
                 {
                     return;
@@ -626,6 +792,139 @@ namespace TianWen.UI.Abstractions
                 {
                     eqState.PendingTransitions.Remove(sig.DeviceUri);
                     appState.NeedsRedraw = true;
+                }
+            });
+
+            bus.Subscribe<ForceDisconnectDeviceSignal>(async sig =>
+            {
+                if (appState.DeviceHub is not { } hub)
+                {
+                    return;
+                }
+
+                // Bypass the safety pre-check. Caller already passed two-stage confirmation.
+                eqState.PendingDisconnectConfirm = null;
+                eqState.PendingForceConfirm = null;
+                if (!eqState.PendingTransitions.Add(sig.DeviceUri))
+                {
+                    return;
+                }
+                appState.NeedsRedraw = true;
+
+                try
+                {
+                    await hub.DisconnectAsync(sig.DeviceUri, cts.Token);
+                    appState.StatusMessage = "Device force-disconnected (no warm-up)";
+                    logger.LogWarning("Force-disconnect of {Uri} (bypassed safety check)", sig.DeviceUri);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Force-disconnect failed for {Uri}", sig.DeviceUri);
+                    appState.StatusMessage = $"Force-disconnect failed: {ex.Message}";
+                }
+                finally
+                {
+                    eqState.PendingTransitions.Remove(sig.DeviceUri);
+                    appState.NeedsRedraw = true;
+                }
+            });
+
+            bus.Subscribe<WarmAndDisconnectDeviceSignal>(async sig =>
+            {
+                if (appState.DeviceHub is not { } hub)
+                {
+                    return;
+                }
+
+                eqState.PendingDisconnectConfirm = null;
+                eqState.PendingForceConfirm = null;
+                if (!eqState.PendingTransitions.Add(sig.DeviceUri))
+                {
+                    return;
+                }
+                appState.NeedsRedraw = true;
+
+                try
+                {
+                    await EquipmentActions.WarmAndDisconnectAsync(hub, sig.DeviceUri, _logger, cts.Token);
+                    appState.StatusMessage = "Camera warmed and disconnected";
+                }
+                catch (OperationCanceledException)
+                {
+                    appState.StatusMessage = "Warm-up cancelled";
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Warm-and-disconnect failed for {Uri}", sig.DeviceUri);
+                    appState.StatusMessage = $"Warm-up failed: {ex.Message}";
+                }
+                finally
+                {
+                    eqState.PendingTransitions.Remove(sig.DeviceUri);
+                    appState.NeedsRedraw = true;
+                }
+            });
+
+            bus.Subscribe<SetCoolerSetpointSignal>(async sig =>
+            {
+                if (appState.DeviceHub is not { } hub) return;
+                if (!hub.TryGetConnectedDriver<TianWen.Lib.Devices.ICameraDriver>(sig.DeviceUri, out var camera))
+                {
+                    appState.StatusMessage = "Camera not connected";
+                    return;
+                }
+                try
+                {
+                    await camera.SetSetCCDTemperatureAsync(sig.SetpointC, cts.Token);
+                    if (camera.CanSetCoolerOn) await camera.SetCoolerOnAsync(true, cts.Token);
+                    appState.StatusMessage = $"Cooling to {sig.SetpointC:F1}\u00b0C";
+                    appState.NeedsRedraw = true;
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "SetCoolerSetpoint failed for {Uri}", sig.DeviceUri);
+                    appState.StatusMessage = $"Cooler setpoint failed: {ex.Message}";
+                }
+            });
+
+            bus.Subscribe<WarmAndCoolerOffSignal>(async sig =>
+            {
+                if (appState.DeviceHub is not { } hub) return;
+                eqState.PendingCoolerOffConfirm = null;
+                eqState.PendingCoolerOffForceConfirm = null;
+                appState.NeedsRedraw = true;
+
+                try
+                {
+                    await EquipmentActions.WarmAndCoolerOffAsync(hub, sig.DeviceUri, _logger, cts.Token);
+                    appState.StatusMessage = "Camera warmed; cooler off";
+                }
+                catch (OperationCanceledException) { appState.StatusMessage = "Warm-up cancelled"; }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Warm-and-cooler-off failed for {Uri}", sig.DeviceUri);
+                    appState.StatusMessage = $"Warm-up failed: {ex.Message}";
+                }
+                finally { appState.NeedsRedraw = true; }
+            });
+
+            bus.Subscribe<SetCoolerOffSignal>(async sig =>
+            {
+                if (appState.DeviceHub is not { } hub) return;
+                if (!hub.TryGetConnectedDriver<TianWen.Lib.Devices.ICameraDriver>(sig.DeviceUri, out var camera))
+                {
+                    return;
+                }
+                try
+                {
+                    if (camera.CanSetCoolerOn) await camera.SetCoolerOnAsync(false, cts.Token);
+                    appState.StatusMessage = "Cooler off";
+                    appState.NeedsRedraw = true;
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "SetCoolerOff failed for {Uri}", sig.DeviceUri);
+                    appState.StatusMessage = $"Cooler off failed: {ex.Message}";
                 }
             });
 
