@@ -376,8 +376,12 @@ namespace TianWen.UI.Abstractions
                             continue;
                         }
 
+                        // Draw if either endpoint is within the guard band so lines
+                        // crossing the viewport edge are not clipped entirely.
+                        // DrawLine clips per-pixel, so off-screen coordinates are safe.
                         if (!float.IsNaN(prevX)
-                            && sx >= -50 && sx < w + 50 && sy >= -50 && sy < h + 50)
+                            && ((sx >= -50 && sx < w + 50 && sy >= -50 && sy < h + 50)
+                                || (prevX >= -50 && prevX < w + 50 && prevY >= -50 && prevY < h + 50)))
                         {
                             DrawLine(image, (int)prevX, (int)prevY, (int)sx, (int)sy, FigureColor);
                         }
