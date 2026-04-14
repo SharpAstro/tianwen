@@ -701,11 +701,11 @@ namespace TianWen.UI.Abstractions
                         fontSize, AssignedGreen, TextAlign.Center, TextAlign.Center);
                 }
 
-                // Reachability indicator + connect/disconnect button render whenever the device
-                // is either assigned in the profile OR currently connected via the hub (an
-                // "orphan" — left running after the user reassigned the slot to another device).
+                // Reachability indicator + connect/disconnect button render for EVERY discovered
+                // row (assigned or not). Unassigned devices that get connected appear as
+                // "orphans" — useful for ad-hoc connect of e.g. Open-Meteo without first
+                // wiring it into a profile slot.
                 var reach = EquipmentActions.GetReachability(data, appState.DeviceHub, devices, device.DeviceUri);
-                if (reach != EquipmentActions.DeviceReachability.NotAssigned)
                 {
                     var connectUriForPending = EquipmentActions.FindAssignedUri(data, device.DeviceUri) ?? device.DeviceUri;
                     var pending = State.PendingTransitions.Contains(connectUriForPending);
