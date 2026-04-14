@@ -241,6 +241,111 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         }
         """;
 
+    // Full-screen quad vertex shader (no vertex input, generates 2 triangles from gl_VertexIndex)
+    private const string HorizonFillVertexSource = """
+        #version 450
+
+        layout(location = 0) out vec2 vScreenPos;
+
+        layout(set = 0, binding = 0, std140) uniform SkyMapUBO {
+            mat4  viewMatrix;
+            vec2  viewportCenter;
+            float pixelsPerRadian;
+            float magnitudeLimit;
+            float fovDeg;
+            float sinLat;
+            vec2  viewportSize;
+            float cosLat;
+            float sinLST;
+            float cosLST;
+            int   horizonClip;
+        } ubo;
+
+        void main() {
+            // Generate full-screen triangle strip from vertex index (0..5 = 2 triangles)
+            vec2 pos;
+            if (gl_VertexIndex == 0)      pos = vec2(0.0, 0.0);
+            else if (gl_VertexIndex == 1) pos = vec2(ubo.viewportSize.x, 0.0);
+            else if (gl_VertexIndex == 2) pos = vec2(0.0, ubo.viewportSize.y);
+            else if (gl_VertexIndex == 3) pos = vec2(ubo.viewportSize.x, 0.0);
+            else if (gl_VertexIndex == 4) pos = vec2(ubo.viewportSize.x, ubo.viewportSize.y);
+            else                          pos = vec2(0.0, ubo.viewportSize.y);
+
+            // Output screen-pixel position for the fragment shader
+            vScreenPos = pos + vec2(ubo.viewportCenter.x - ubo.viewportSize.x * 0.5,
+                                    ubo.viewportCenter.y - ubo.viewportSize.y * 0.5);
+
+            // Map to NDC
+            gl_Position = vec4(
+                pos.x / ubo.viewportSize.x * 2.0 - 1.0,
+                pos.y / ubo.viewportSize.y * 2.0 - 1.0,
+                0.0, 1.0);
+        }
+        """;
+
+    private const string HorizonFillFragmentSource = """
+        #version 450
+
+        layout(location = 0) in vec2 vScreenPos;
+        layout(location = 0) out vec4 FragColor;
+
+        layout(set = 0, binding = 0, std140) uniform SkyMapUBO {
+            mat4  viewMatrix;
+            vec2  viewportCenter;
+            float pixelsPerRadian;
+            float magnitudeLimit;
+            float fovDeg;
+            float sinLat;
+            vec2  viewportSize;
+            float cosLat;
+            float sinLST;
+            float cosLST;
+            int   horizonClip;
+        } ubo;
+
+        void main() {
+            // Inverse stereographic projection: screen pixel -> camera-space unit vector
+            float x = (vScreenPos.x - ubo.viewportCenter.x) / ubo.pixelsPerRadian;
+            float y = -(vScreenPos.y - ubo.viewportCenter.y) / ubo.pixelsPerRadian;
+
+            float rho = length(vec2(x, y));
+            if (rho < 0.00001) {
+                // At view center, looking at the center direction
+                // camera forward is -Z, so reconstruct from view matrix
+                vec3 j2000 = transpose(mat3(ubo.viewMatrix)) * vec3(0.0, 0.0, -1.0);
+                float sinAlt = ubo.sinLat * j2000.z
+                    + ubo.cosLat * (ubo.cosLST * j2000.x + ubo.sinLST * j2000.y);
+                if (sinAlt >= 0.0) discard;
+                FragColor = vec4(0.0, 0.0, 0.0, 0.7);
+                return;
+            }
+
+            float c = 2.0 * atan(rho * 0.5);
+            float sinC = sin(c);
+            float cosC = cos(c);
+
+            // Camera-space unit vector
+            vec3 camDir = vec3(
+                sinC * x / rho,
+                sinC * y / rho,
+                -cosC
+            );
+
+            // Rotate back to J2000 (view matrix is orthogonal, inverse = transpose)
+            vec3 j2000 = transpose(mat3(ubo.viewMatrix)) * camDir;
+
+            // Compute altitude: sin(alt) = sinLat*z + cosLat*(cosLST*x + sinLST*y)
+            float sinAlt = ubo.sinLat * j2000.z
+                + ubo.cosLat * (ubo.cosLST * j2000.x + ubo.sinLST * j2000.y);
+
+            if (sinAlt >= 0.0) discard;
+
+            // Smooth gradient near the horizon (fade from 0.3 at horizon to 0.7 at -10 degrees)
+            float depth = clamp(-sinAlt / 0.17, 0.0, 1.0); // sin(10deg) ~ 0.17
+            FragColor = vec4(0.0, 0.0, 0.0, 0.3 + 0.4 * depth);
+        }
+        """;
+
     // ────────────────────────────────────────────────── Fields
 
     private readonly VulkanContext _ctx;
@@ -256,6 +361,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     // Sub-pipelines
     private VkPipeline _starPipeline;
     private VkPipeline _linePipeline;
+    private VkPipeline _horizonFillPipeline;
 
     // UBO buffer (persistently mapped)
     private VkBuffer _uboBuffer;
@@ -420,6 +526,16 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         var uboSet = _uboSet;
         api.vkCmdBindDescriptorSets(cmd, VkPipelineBindPoint.Graphics, _pipelineLayout,
             0, 1, &uboSet, 0, null);
+
+        // ── Horizon fill (drawn first, behind everything) ──
+        if (state.ShowHorizon && _horizonFillPipeline != VkPipeline.Null)
+        {
+            api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _horizonFillPipeline);
+            // Re-bind UBO after pipeline change
+            api.vkCmdBindDescriptorSets(cmd, VkPipelineBindPoint.Graphics, _pipelineLayout,
+                0, 1, &uboSet, 0, null);
+            api.vkCmdDraw(cmd, 6, 1, 0, 0); // full-screen quad (6 vertices from gl_VertexIndex)
+        }
 
         // ── Lines: grid, meridian, boundaries, constellation figures, horizon ──
         api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _linePipeline);
@@ -961,6 +1077,19 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
                 &lineBinding, 1, &lineAttr, 1,
                 VkPrimitiveTopology.LineList,
                 additive: false);
+
+            // ── Horizon fill pipeline: full-screen quad, no vertex input ──
+            var hzFillVertModule = CompileShaderModule(compiler, HorizonFillVertexSource, "skymap_hzfill.vert", ShaderKind.VertexShader);
+            var hzFillFragModule = CompileShaderModule(compiler, HorizonFillFragmentSource, "skymap_hzfill.frag", ShaderKind.FragmentShader);
+
+            _horizonFillPipeline = CreateGraphicsPipeline(
+                hzFillVertModule, hzFillFragModule,
+                null, 0, null, 0,
+                VkPrimitiveTopology.TriangleList,
+                additive: false);
+
+            _ctx.DeviceApi.vkDestroyShaderModule(hzFillVertModule);
+            _ctx.DeviceApi.vkDestroyShaderModule(hzFillFragModule);
         }
         finally
         {
@@ -1138,6 +1267,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         // Pipelines
         if (_starPipeline != VkPipeline.Null) api.vkDestroyPipeline(_starPipeline);
         if (_linePipeline != VkPipeline.Null) api.vkDestroyPipeline(_linePipeline);
+        if (_horizonFillPipeline != VkPipeline.Null) api.vkDestroyPipeline(_horizonFillPipeline);
 
         // Pipeline layout
         if (_pipelineLayout != VkPipelineLayout.Null) api.vkDestroyPipelineLayout(_pipelineLayout);
