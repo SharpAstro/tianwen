@@ -162,7 +162,19 @@ namespace TianWen.UI.Abstractions
 
         private bool HandleMouseMove(float px, float py)
         {
+            var prev = _appState.MouseScreenPosition;
             _appState.MouseScreenPosition = (px, py);
+
+            // Trigger redraw when the mouse enters/leaves the sidebar zone (for hover highlighting).
+            // Sidebar is always in the left ~52px * DpiScale; we use a fixed threshold since
+            // exact pixel width is renderer-specific. Only redraw on zone transitions, not every pixel.
+            const float sidebarThreshold = 60f; // generous to cover DPI scaling
+            var wasSidebar = prev.X < sidebarThreshold;
+            var isSidebar = px < sidebarThreshold;
+            if (isSidebar || wasSidebar)
+            {
+                _appState.NeedsRedraw = true;
+            }
 
             var idx = _plannerState.DraggingSliderIndex;
             if (idx < 0)

@@ -122,6 +122,7 @@ bus.Subscribe<DeactivateTextInputSignal>(_ =>
 var backgroundCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
 // ESC quit confirmation: first ESC shows message, second ESC within 3s actually quits
 long escConfirmTimestamp = 0;
+int _lastShutdownPendingCount = -1;
 var signalHandler = handlers.SignalHandler;
 tracker.Run(() => signalHandler.LoadSessionConfigAsync(backgroundCts.Token), "Load session config");
 
@@ -191,9 +192,12 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
             {
                 appState.ShutdownComplete = true;
             }
-            else
+            else if (tracker.PendingCount != _lastShutdownPendingCount)
             {
-                appState.StatusMessage = $"Shutting down\u2026 ({tracker.PendingCount} task{(tracker.PendingCount == 1 ? "" : "s")})";
+                _lastShutdownPendingCount = tracker.PendingCount;
+                appState.StatusMessage = _lastShutdownPendingCount == 1
+                    ? $"Shutting down\u2026 {tracker.PendingDescriptions.First()}"
+                    : $"Shutting down\u2026 ({_lastShutdownPendingCount} tasks)";
             }
             return true; // always redraw during shutdown
         }
@@ -270,6 +274,8 @@ void RequestQuit()
             if (driver is not TianWen.Lib.Devices.ICameraDriver) continue;
 
             var capUri = uri;
+            var camName = hubAtQuit.TryGetDeviceFromUri(capUri, out var dev) && dev is not null
+                ? dev.DisplayName : capUri.Host;
             cameraCount++;
             tracker.Run(async () =>
             {
@@ -289,7 +295,7 @@ void RequestQuit()
                 {
                     logger.LogWarning(ex, "Shutdown disconnect failed for {Uri}", capUri);
                 }
-            }, $"Shutdown {capUri.Host}");
+            }, $"Disconnecting {camName}");
         }
     }
 
