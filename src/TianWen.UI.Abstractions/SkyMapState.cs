@@ -11,9 +11,7 @@ namespace TianWen.UI.Abstractions
     public class SkyMapState
     {
         private const double Hours2Rad = Math.PI / 12.0;
-        private const double Deg2Rad = Math.PI / 180.0;
         private const float Hours2RadF = MathF.PI / 12f;
-        private const float Deg2RadF = MathF.PI / 180f;
 
         /// <summary>Viewport center RA in hours (J2000), range [0, 24).</summary>
         public double CenterRA { get; set; } = 0.0;
@@ -84,7 +82,7 @@ namespace TianWen.UI.Abstractions
         public Matrix4x4 ComputeViewMatrix(float zenithX = 0f, float zenithY = 0f, float zenithZ = 1f)
         {
             var (sinRA, cosRA) = Math.SinCos(CenterRA * Hours2Rad);
-            var (sinDec, cosDec) = Math.SinCos(CenterDec * Deg2Rad);
+            var (sinDec, cosDec) = Math.SinCos(double.DegreesToRadians(CenterDec));
 
             // Forward direction: unit vector toward (CenterRA, CenterDec)
             var fx = (float)(cosDec * cosRA);
@@ -149,7 +147,7 @@ namespace TianWen.UI.Abstractions
         public static (float X, float Y, float Z) RaDecToUnitVec(double raHours, double decDeg)
         {
             var (sinRA, cosRA) = MathF.SinCos((float)(raHours * Hours2RadF));
-            var (sinDec, cosDec) = MathF.SinCos((float)(decDeg * Deg2RadF));
+            var (sinDec, cosDec) = MathF.SinCos(float.DegreesToRadians((float)decDeg));
             return (cosDec * cosRA, cosDec * sinRA, sinDec);
         }
     }

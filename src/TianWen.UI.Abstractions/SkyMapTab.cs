@@ -391,8 +391,8 @@ namespace TianWen.UI.Abstractions
             var rotated = System.Numerics.Vector3.Transform(center, q);
 
             // Convert back to RA/Dec
-            var newDec = Math.Asin(Math.Clamp(rotated.Z, -1f, 1f)) * 180.0 / Math.PI;
-            var newRA = Math.Atan2(rotated.Y, rotated.X) * 12.0 / Math.PI;
+            var newDec = double.RadiansToDegrees(Math.Asin(Math.Clamp(rotated.Z, -1f, 1f)));
+            var newRA = Math.Atan2(rotated.Y, rotated.X) / (Math.PI / 12.0);
 
             State.CenterRA = newRA;
             State.CenterDec = newDec;

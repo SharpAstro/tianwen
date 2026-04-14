@@ -441,7 +441,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     {
         // Compute LST trig + zenith direction in J2000 for Alt/Az mode
         var (fSinLST, fCosLST) = site.IsValid
-            ? Math.SinCos(site.LST * Math.PI / 12.0)
+            ? Math.SinCos(site.LST * (Math.PI / 12.0))
             : (0.0, 1.0);
         float zenithX = (float)(site.CosLat * fCosLST);
         float zenithY = (float)(site.CosLat * fSinLST);
@@ -966,7 +966,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         var cosHA = (sinAlt - site.SinLat * sinDec) / (site.CosLat * cosDec);
         var ha = Math.Atan2(sinHA, cosHA); // radians
 
-        raHours = (site.LST - ha * 12.0 / Math.PI) % 24.0;
+        raHours = (site.LST - ha / (Math.PI / 12.0)) % 24.0;
         if (raHours < 0) raHours += 24.0;
     }
 
