@@ -22,6 +22,7 @@
     <PackageReference Include="SDL3-CS" />
     <PackageReference Include="SDL3-CS.Native" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="System.CommandLine" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,3 +1,4 @@
+using System.CommandLine;
 using DIR.Lib;
 using SdlVulkan.Renderer;
 using TianWen.Lib.Devices;
@@ -5,6 +6,7 @@ using TianWen.Lib.Imaging;
 using TianWen.Lib.Logging;
 using TianWen.UI.Abstractions;
 using TianWen.UI.Abstractions.Extensions;
+using TianWen.UI.FitsViewer;
 using TianWen.UI.Shared;
 using TianWen.Lib.Extensions;
 using Microsoft.Extensions.DependencyInjection;
@@ -23,25 +25,87 @@ var sp = services.BuildServiceProvider();
 var state = sp.GetRequiredService<ViewerState>();
 var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("TianWen.UI.FitsViewer");
 
+// --- Command-line definition ---
+var pathArg = new Argument<string?>("path")
+{
+    Description = "File or folder to open",
+    Arity = ArgumentArity.ZeroOrOne
+};
+
+// --register [FITS]: optional value, defaults to "FITS" when specified without a group name
+var registerOption = new Option<string?>("--register")
+{
+    Description = "Register file associations for an extension group (default: FITS)",
+    Arity = ArgumentArity.ZeroOrOne
+};
+
+var rootCommand = new RootCommand("TianWen FITS Image Viewer")
+{
+    pathArg,
+    registerOption
+};
+
+// SetAction captures parsed values; --help/--version bypass this action automatically
+var actionCalled = false;
+string? registerGroup = null;
+string? inputArg = null;
+
+rootCommand.SetAction((parseResult, _) =>
+{
+    actionCalled = true;
+
+    // ZeroOrOne arity: GetValue returns null both when not specified and when
+    // specified without a value. Check raw args to detect the flag's presence.
+    if (Array.Exists(args, a => a is "--register"))
+    {
+        registerGroup = parseResult.GetValue(registerOption) ?? "FITS";
+    }
+
+    inputArg = parseResult.GetValue(pathArg);
+    return Task.CompletedTask;
+});
+
+var parsedResult = rootCommand.Parse(args);
+if (parsedResult.Errors.Count > 0)
+{
+    foreach (var error in parsedResult.Errors)
+    {
+        logger.LogError("{Error}", error.Message);
+    }
+    return 1;
+}
+
+await parsedResult.InvokeAsync();
+
+// --help/--version bypass SetAction — exit cleanly
+if (!actionCalled)
+{
+    return 0;
+}
+
+// --register: register file associations and exit (before SDL init)
+if (registerGroup is not null)
+{
+    return FileAssociationRegistrar.Register(registerGroup, logger);
+}
+
 string? initialFilePath = null;
 string? folderPath = null;
 
-if (args.Length >= 1)
+if (inputArg is not null)
 {
-    var inputPath = args[0];
-
-    if (Directory.Exists(inputPath))
+    if (Directory.Exists(inputArg))
     {
-        folderPath = Path.GetFullPath(inputPath);
+        folderPath = Path.GetFullPath(inputArg);
     }
-    else if (File.Exists(inputPath))
+    else if (File.Exists(inputArg))
     {
-        initialFilePath = Path.GetFullPath(inputPath);
+        initialFilePath = Path.GetFullPath(inputArg);
         folderPath = Path.GetDirectoryName(initialFilePath);
     }
     else
     {
-        logger.LogError("Path not found: {InputPath}", inputPath);
+        logger.LogError("Path not found: {InputPath}", inputArg);
         return 1;
     }
 }
