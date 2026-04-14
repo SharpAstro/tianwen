@@ -11,8 +11,6 @@ namespace TianWen.UI.Abstractions
     /// </summary>
     public static class SkyMapProjection
     {
-        private const double Deg2Rad = Math.PI / 180.0;
-        private const double Rad2Deg = 180.0 / Math.PI;
         private const double Hours2Rad = Math.PI / 12.0;
 
         /// <summary>
@@ -29,8 +27,8 @@ namespace TianWen.UI.Abstractions
             out float screenX, out float screenY)
         {
             var dRA = (ra - centerRA) * Hours2Rad;
-            var (sinDec, cosDec) = Math.SinCos(dec * Deg2Rad);
-            var (sinDec0, cosDec0) = Math.SinCos(centerDec * Deg2Rad);
+            var (sinDec, cosDec) = Math.SinCos(double.DegreesToRadians(dec));
+            var (sinDec0, cosDec0) = Math.SinCos(double.DegreesToRadians(centerDec));
             var (sinDRA, cosDRA) = Math.SinCos(dRA);
 
             // Cosine of angular distance
@@ -75,9 +73,9 @@ namespace TianWen.UI.Abstractions
             // Stereographic inverse: c = 2 * atan(rho / 2)
             var c = 2.0 * Math.Atan(rho * 0.5);
             var (sinC, cosC) = Math.SinCos(c);
-            var (sinDec0, cosDec0) = Math.SinCos(centerDec * Deg2Rad);
+            var (sinDec0, cosDec0) = Math.SinCos(double.DegreesToRadians(centerDec));
 
-            var dec = Math.Asin(cosC * sinDec0 + y * sinC * cosDec0 / rho) * Rad2Deg;
+            var dec = double.RadiansToDegrees(Math.Asin(cosC * sinDec0 + y * sinC * cosDec0 / rho));
             var ra = centerRA + Math.Atan2(x * sinC, rho * cosDec0 * cosC - y * sinDec0 * sinC) / Hours2Rad;
 
             ra = ((ra % 24.0) + 24.0) % 24.0;
@@ -140,7 +138,7 @@ namespace TianWen.UI.Abstractions
                 var fx = -viewMatrix.M31;
                 var fy = -viewMatrix.M32;
                 var fz = -viewMatrix.M33;
-                var dec = Math.Asin(fz) * Rad2Deg;
+                var dec = double.RadiansToDegrees(Math.Asin(fz));
                 var ra = Math.Atan2(fy, fx) / Hours2Rad;
                 return (((ra % 24.0) + 24.0) % 24.0, dec);
             }
@@ -157,7 +155,7 @@ namespace TianWen.UI.Abstractions
             var jy = viewMatrix.M12 * camX + viewMatrix.M22 * camY + viewMatrix.M32 * camZ;
             var jz = viewMatrix.M13 * camX + viewMatrix.M23 * camY + viewMatrix.M33 * camZ;
 
-            var decResult = Math.Asin(Math.Clamp(jz, -1.0, 1.0)) * Rad2Deg;
+            var decResult = double.RadiansToDegrees(Math.Asin(Math.Clamp(jz, -1.0, 1.0)));
             var raResult = Math.Atan2(jy, jx) / Hours2Rad;
             raResult = ((raResult % 24.0) + 24.0) % 24.0;
             return (raResult, decResult);
@@ -170,7 +168,7 @@ namespace TianWen.UI.Abstractions
         public static double PixelsPerRadian(float viewportHeight, double fovDeg)
         {
             // Stereographic: fov/2 maps to 2*tan(fov/4) radians on the projection plane
-            var quarterFovRad = fovDeg * 0.25 * Deg2Rad;
+            var quarterFovRad = double.DegreesToRadians(fovDeg * 0.25);
             return viewportHeight / (4.0 * Math.Tan(quarterFovRad));
         }
 
