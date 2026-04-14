@@ -212,6 +212,24 @@ with altitude-ladder filter sequencing, write FITS, check duration/altitude/pier
 perform meridian flip if needed (with smart ≤30s wait / >30s abort — see code comments),
 detect focus drift via HFD regression, dither at filter batch boundaries.
 
+### Neural Guider
+
+`NeuralGuideModel` (`TianWen.Lib/Devices/Guider/NeuralGuideModel.cs`) is a tiny hand-rolled
+MLP used for predictive guide corrections. Not a transformer, no attention — the temporal
+"sequence" (t, t-1, t-2, t-3 errors plus short/medium/long rolling means and gear-phase
+sin/cos) is flattened into the 26-element input vector via feature engineering.
+
+- **Architecture**: `Input(26) → Dense(32, ReLU) → Dense(16, ReLU) → Dense(2, Tanh)`, 1,426 params
+- **Inference**: `TensorPrimitives.Dot` for mat-vec multiply, zero-allocation hot path (<1µs target on Pi-class CPU)
+- **Training** (`NeuralGuideTrainer`): supervised, P-controller as teacher, MSE loss, mini-batch SGD
+  (lr=0.001, batch=32), manual backprop with cached pre/post-activations
+- **Init**: Xavier normal via Box-Muller
+- **Output**: RA/Dec pulse corrections normalized to [-1, 1], scaled to MaxPulse downstream
+- **Persistence**: `.ngm` files in `%LOCALAPPDATA%/TianWen/Profiles/<profile>/NeuralGuider/`
+
+Rationale for the small MLP: <1µs latency budget inside the guide loop + low-dimensional
+input make a transformer overkill.
+
 ### Filter Wheel & Altitude-Ladder Scheduling
 
 The imaging loop sequences filters using an **altitude ladder** — narrowband (low-altitude

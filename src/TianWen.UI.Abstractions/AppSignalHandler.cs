@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -7,9 +10,12 @@ using DIR.Lib;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Weather;
+using TianWen.Lib.Extensions;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.UI.Abstractions
@@ -37,6 +43,7 @@ namespace TianWen.UI.Abstractions
         private readonly BackgroundTaskTracker _tracker;
         private readonly CancellationTokenSource _cts;
         private readonly IExternal _external;
+        private readonly LiveSessionState _liveSessionState;
         private readonly ILogger _logger;
         private readonly ITimeProvider _timeProvider;
         private readonly EquipmentTabState _eqState;
@@ -103,6 +110,12 @@ namespace TianWen.UI.Abstractions
         private readonly Dictionary<string, long> _telemetryLastSampleTicks = new();
         // In-flight poll task per camera path, prevents overlapping samples.
         private readonly HashSet<string> _telemetryInFlight = new();
+
+        // Preview-mode poll state (mirrors _telemetryLastSampleTicks pattern)
+        private readonly Dictionary<string, long> _previewTelemetryLastTicks = new();
+        private readonly HashSet<string> _previewTelemetryInFlight = new();
+        private long _previewMountLastTicks;
+        private bool _previewMountInFlight;
 
         /// <summary>
         /// Polls connected cameras for cooler/temperature telemetry and appends samples
@@ -214,6 +227,189 @@ namespace TianWen.UI.Abstractions
             return new CameraTelemetrySample(
                 _timeProvider.System.GetLocalNow(),
                 ccd, sink, setpoint, power, coolerOn, busy);
+        }
+
+        /// <summary>
+        /// Polls connected devices for preview telemetry when the Live Session tab is visible
+        /// and no session is running. Reads camera, focuser, filter wheel, and mount state
+        /// from hub-connected drivers via the active profile's OTA configuration.
+        /// Call once per frame from the host's main loop. Internally rate-limited.
+        /// </summary>
+        public void PollPreviewTelemetry()
+        {
+            if (_liveSessionState.IsRunning) return;
+            if (_appState.ActiveTab is not GuiTab.LiveSession) return;
+            if (_appState.ActiveProfile?.Data is not { OTAs: { Length: > 0 } otas } profileData) return;
+            if (_appState.DeviceHub is not { } hub) return;
+
+            var nowTicks = _timeProvider.GetTimestamp();
+            var sampleInterval = TimeSpan.FromSeconds(3);
+
+            _liveSessionState.ResizePreviewArrays(otas.Length);
+
+            // Per-OTA camera + focuser + filter polling
+            for (var i = 0; i < otas.Length; i++)
+            {
+                var ota = otas[i];
+                var key = ota.Camera.GetLeftPart(UriPartial.Path);
+
+                if (_previewTelemetryInFlight.Contains(key)) continue;
+                if (_previewTelemetryLastTicks.TryGetValue(key, out var last)
+                    && _timeProvider.System.GetElapsedTime(last, nowTicks) < sampleInterval)
+                {
+                    continue;
+                }
+
+                _previewTelemetryLastTicks[key] = nowTicks;
+                _previewTelemetryInFlight.Add(key);
+
+                var capturedOta = ota;
+                var capturedIndex = i;
+
+                _tracker.Run(async () =>
+                {
+                    try
+                    {
+                        var telemetry = await SamplePreviewOTAAsync(hub, capturedOta, _cts.Token);
+                        var arr = _liveSessionState.PreviewOTATelemetry;
+                        if (capturedIndex < arr.Length)
+                        {
+                            var builder = arr.ToBuilder();
+                            builder[capturedIndex] = telemetry;
+                            _liveSessionState.PreviewOTATelemetry = builder.ToImmutable();
+                            _appState.NeedsRedraw = true;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Preview telemetry poll failed for OTA {Index}", capturedIndex);
+                    }
+                    finally
+                    {
+                        _previewTelemetryInFlight.Remove(key);
+                    }
+                }, $"PreviewTelemetry OTA{capturedIndex}");
+            }
+
+            // Mount polling — rate-limited independently (2s)
+            if (!_previewMountInFlight
+                && _timeProvider.System.GetElapsedTime(_previewMountLastTicks, nowTicks) >= TimeSpan.FromSeconds(2)
+                && profileData.Mount is { Scheme: not "none" } mountUri)
+            {
+                _previewMountLastTicks = nowTicks;
+                _previewMountInFlight = true;
+
+                _tracker.Run(async () =>
+                {
+                    try
+                    {
+                        var (ms, displayName) = await SamplePreviewMountAsync(hub, mountUri, _cts.Token);
+                        _liveSessionState.PreviewMountState = ms;
+                        if (displayName is not null)
+                        {
+                            _liveSessionState.PreviewMountDisplayName = displayName;
+                        }
+                        _appState.NeedsRedraw = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Preview mount poll failed");
+                    }
+                    finally
+                    {
+                        _previewMountInFlight = false;
+                    }
+                }, "PreviewMount");
+            }
+        }
+
+        private async Task<PreviewOTATelemetry> SamplePreviewOTAAsync(
+            IDeviceHub hub, OTAData ota, CancellationToken ct)
+        {
+            // Camera
+            var ccdTemp = double.NaN;
+            var setpoint = double.NaN;
+            var power = double.NaN;
+            var coolerOn = false;
+            var cameraConnected = hub.TryGetConnectedDriver<ICameraDriver>(ota.Camera, out var camera);
+            if (cameraConnected && camera is not null)
+            {
+                ccdTemp = await _logger.CatchAsyncIf(camera.CanGetCCDTemperature, camera.GetCCDTemperatureAsync, ct, double.NaN);
+                power = await _logger.CatchAsyncIf(camera.CanGetCoolerPower, camera.GetCoolerPowerAsync, ct, double.NaN);
+                coolerOn = await _logger.CatchAsyncIf(camera.CanGetCoolerOn, camera.GetCoolerOnAsync, ct);
+                setpoint = await _logger.CatchAsync(camera.GetSetCCDTemperatureAsync, ct, double.NaN);
+            }
+
+            // Focuser
+            var focPos = 0;
+            var focTemp = double.NaN;
+            var focMoving = false;
+            var focConnected = false;
+            if (ota.Focuser is { } focUri)
+            {
+                focConnected = hub.TryGetConnectedDriver<IFocuserDriver>(focUri, out var foc);
+                if (focConnected && foc is not null)
+                {
+                    focPos = await _logger.CatchAsync(foc.GetPositionAsync, ct);
+                    focTemp = await _logger.CatchAsync(foc.GetTemperatureAsync, ct, double.NaN);
+                    focMoving = await _logger.CatchAsync(foc.GetIsMovingAsync, ct);
+                }
+            }
+
+            // Filter wheel
+            var filterName = "--";
+            var fwConnected = false;
+            if (ota.FilterWheel is { } fwUri)
+            {
+                fwConnected = hub.TryGetConnectedDriver<IFilterWheelDriver>(fwUri, out var fw);
+                if (fwConnected && fw is not null)
+                {
+                    var filter = await _logger.CatchAsync(fw.GetCurrentFilterAsync, ct);
+                    filterName = filter.DisplayName ?? "--";
+                }
+            }
+
+            var camDisplay = hub.TryGetDeviceFromUri(ota.Camera, out var dev) && dev is not null
+                ? dev.DisplayName : ota.Name;
+
+            return new PreviewOTATelemetry(
+                OtaName: ota.Name,
+                CameraDisplayName: camDisplay,
+                CcdTempC: ccdTemp,
+                SetpointC: setpoint,
+                CoolerPowerPct: power,
+                CoolerOn: coolerOn,
+                FocusPosition: focPos,
+                FocuserTempC: focTemp,
+                FocuserIsMoving: focMoving,
+                FilterName: filterName,
+                CameraConnected: cameraConnected,
+                FocuserConnected: focConnected,
+                FilterWheelConnected: fwConnected);
+        }
+
+        private async Task<(MountState State, string? DisplayName)> SamplePreviewMountAsync(
+            IDeviceHub hub, Uri mountUri, CancellationToken ct)
+        {
+            if (!hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var mount) || mount is null)
+            {
+                return (default, null);
+            }
+
+            var ra = await _logger.CatchAsync(mount.GetRightAscensionAsync, ct);
+            var dec = await _logger.CatchAsync(mount.GetDeclinationAsync, ct);
+            var ha = await _logger.CatchAsync(mount.GetHourAngleAsync, ct);
+            var slewing = await _logger.CatchAsync(mount.IsSlewingAsync, ct);
+            var tracking = await _logger.CatchAsync(mount.IsTrackingAsync, ct);
+            var pier = await _logger.CatchAsync(mount.GetSideOfPierAsync, ct);
+
+            string? displayName = null;
+            if (hub.TryGetDeviceFromUri(mountUri, out var dev) && dev is not null)
+            {
+                displayName = dev.DisplayName;
+            }
+
+            return (new MountState(ra, dec, ha, pier, slewing, tracking), displayName);
         }
 
         /// <summary>
@@ -365,6 +561,7 @@ namespace TianWen.UI.Abstractions
             _plannerState = plannerState;
             _sessionState = sessionState;
             _eqState = eqState;
+            _liveSessionState = liveSessionState;
             _tracker = tracker;
             _cts = cts;
             _external = external;
@@ -1164,6 +1361,197 @@ namespace TianWen.UI.Abstractions
                 liveSessionState.ShowAbortConfirm = false;
                 liveSessionState.NeedsRedraw = true;
                 appState.NeedsRedraw = true;
+            });
+
+            // ---------------------------------------------------------------
+            // Preview mode signals (camera preview, snapshot save, plate solve)
+            // ---------------------------------------------------------------
+
+            bus.Subscribe<TakePreviewSignal>(sig =>
+            {
+                if (liveSessionState.IsRunning)
+                {
+                    appState.StatusMessage = "Session is running \u2014 preview unavailable";
+                    return;
+                }
+                if (appState.ActiveProfile?.Data is not { OTAs: var otas } || sig.OtaIndex >= otas.Length)
+                {
+                    appState.StatusMessage = "Invalid OTA index";
+                    return;
+                }
+                if (appState.DeviceHub is not { } hub) return;
+
+                var ota = otas[sig.OtaIndex];
+                if (!hub.TryGetConnectedDriver<ICameraDriver>(ota.Camera, out var camera) || camera is null)
+                {
+                    appState.StatusMessage = "Camera not connected";
+                    return;
+                }
+
+                // Mark capturing
+                if (sig.OtaIndex < liveSessionState.PreviewCapturing.Length)
+                {
+                    liveSessionState.PreviewCapturing[sig.OtaIndex] = true;
+                    liveSessionState.PreviewCaptureStart[sig.OtaIndex] = _timeProvider.GetUtcNow();
+                    liveSessionState.PreviewExposureDuration[sig.OtaIndex] = TimeSpan.FromSeconds(sig.ExposureSeconds);
+                }
+                appState.NeedsRedraw = true;
+
+                tracker.Run(async () =>
+                {
+                    try
+                    {
+                        // Apply gain if supported
+                        if (sig.Gain.HasValue && camera.UsesGainValue)
+                        {
+                            try { await camera.SetGainAsync((short)sig.Gain.Value, cts.Token); } catch { }
+                        }
+                        // Apply binning
+                        if (sig.Binning > 1)
+                        {
+                            try { camera.BinX = sig.Binning; } catch { }
+                        }
+
+                        var duration = TimeSpan.FromSeconds(sig.ExposureSeconds);
+                        await camera.StartExposureAsync(duration, FrameType.Light, cts.Token);
+
+                        // Poll until image ready
+                        while (!await camera.GetImageReadyAsync(cts.Token))
+                        {
+                            await _timeProvider.SleepAsync(TimeSpan.FromMilliseconds(200), cts.Token);
+                        }
+
+                        if (await ((ICameraDriver)camera).GetImageAsync(cts.Token) is { } image
+                            && sig.OtaIndex < liveSessionState.LastCapturedImages.Length)
+                        {
+                            liveSessionState.LastCapturedImages[sig.OtaIndex] = image;
+                            appState.StatusMessage = $"Preview captured: OTA {sig.OtaIndex + 1}";
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        appState.StatusMessage = "Preview cancelled";
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Preview capture failed for OTA {Index}", sig.OtaIndex);
+                        appState.StatusMessage = $"Preview failed: {ex.Message}";
+                    }
+                    finally
+                    {
+                        if (sig.OtaIndex < liveSessionState.PreviewCapturing.Length)
+                        {
+                            liveSessionState.PreviewCapturing[sig.OtaIndex] = false;
+                        }
+                        appState.NeedsRedraw = true;
+                    }
+                }, $"PreviewCapture OTA{sig.OtaIndex}");
+            });
+
+            bus.Subscribe<SaveSnapshotSignal>(sig =>
+            {
+                if (liveSessionState.IsRunning) return;
+                if (sig.OtaIndex >= liveSessionState.LastCapturedImages.Length) return;
+                if (liveSessionState.LastCapturedImages[sig.OtaIndex] is not { } image)
+                {
+                    appState.StatusMessage = "No preview image to save";
+                    return;
+                }
+
+                tracker.Run(async () =>
+                {
+                    try
+                    {
+                        var dateFolderUtc = _timeProvider.GetUtcNow().ToString("yyyy-MM-dd", DateTimeFormatInfo.InvariantInfo);
+                        var snapshotFolder = Path.Combine(
+                            external.ImageOutputFolder.FullName,
+                            "Snapshot",
+                            dateFolderUtc);
+                        Directory.CreateDirectory(snapshotFolder);
+
+                        var fileName = external.GetSafeFileName(
+                            $"snapshot_{_timeProvider.GetUtcNow():yyyy-MM-ddTHH_mm_ss}_OTA{sig.OtaIndex + 1}.fits");
+                        var filePath = Path.Combine(snapshotFolder, fileName);
+
+                        await external.WriteFitsFileAsync(image, filePath);
+                        appState.StatusMessage = $"Snapshot saved: {fileName}";
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Snapshot save failed");
+                        appState.StatusMessage = $"Snapshot failed: {ex.Message}";
+                    }
+                    finally
+                    {
+                        appState.NeedsRedraw = true;
+                    }
+                }, "SaveSnapshot");
+            });
+
+            bus.Subscribe<PlateSolvePreviewSignal>(sig =>
+            {
+                if (liveSessionState.IsRunning) return;
+                if (sig.OtaIndex >= liveSessionState.LastCapturedImages.Length) return;
+                if (liveSessionState.LastCapturedImages[sig.OtaIndex] is not { } image)
+                {
+                    appState.StatusMessage = "No preview image to solve";
+                    return;
+                }
+
+                tracker.Run(async () =>
+                {
+                    try
+                    {
+                        appState.StatusMessage = "Plate solving\u2026";
+                        appState.NeedsRedraw = true;
+                        var solver = sp.GetRequiredService<IPlateSolverFactory>();
+                        var result = await solver.SolveImageAsync(image, cancellationToken: cts.Token);
+                        liveSessionState.PreviewPlateSolveResult = result;
+                        appState.StatusMessage = result.Solution is { } wcs
+                            ? $"Solved: RA {wcs.CenterRA:F3}h Dec {wcs.CenterDec:F2}\u00B0"
+                            : "Plate solve failed \u2014 no match";
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Preview plate solve failed");
+                        appState.StatusMessage = $"Plate solve error: {ex.Message}";
+                    }
+                    finally
+                    {
+                        appState.NeedsRedraw = true;
+                    }
+                }, "PreviewPlateSolve");
+            });
+
+            bus.Subscribe<JogFocuserSignal>(sig =>
+            {
+                if (liveSessionState.IsRunning) return;
+                if (appState.ActiveProfile?.Data is not { OTAs: var otas } || sig.OtaIndex >= otas.Length) return;
+                if (appState.DeviceHub is not { } hub) return;
+
+                var ota = otas[sig.OtaIndex];
+                if (ota.Focuser is not { } focUri) return;
+                if (!hub.TryGetConnectedDriver<IFocuserDriver>(focUri, out var focuser) || focuser is null) return;
+
+                tracker.Run(async () =>
+                {
+                    try
+                    {
+                        var currentPos = await focuser.GetPositionAsync(cts.Token);
+                        var targetPos = currentPos + sig.Steps;
+                        await focuser.BeginMoveAsync(targetPos, cts.Token);
+                        appState.StatusMessage = $"Focuser \u2192 {targetPos}";
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, "Focuser jog failed for OTA {Index}", sig.OtaIndex);
+                        appState.StatusMessage = $"Focuser jog failed: {ex.Message}";
+                    }
+                    finally
+                    {
+                        appState.NeedsRedraw = true;
+                    }
+                }, $"JogFocuser OTA{sig.OtaIndex}");
             });
 
             // ---------------------------------------------------------------

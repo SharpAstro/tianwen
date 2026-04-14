@@ -27,8 +27,8 @@ namespace TianWen.UI.Abstractions
 
         // Layout constants (at 1x scale)
         private const float BaseFontSize       = 14f;
-        private const float BaseTopStripHeight = 36f;
-        private const float BaseTimelineHeight = 60f;
+        private const float BaseTopStripHeight = 28f;
+        private const float BaseTimelineHeight = 48f;
         private const float BaseBotStripHeight = 100f;
         private const float BaseOtaPanelW       = 240f;
         private const float BaseRightPanelW    = 325f;
@@ -121,7 +121,7 @@ namespace TianWen.UI.Abstractions
             var mainH = contentRect.Height - topH - timelineH - botH;
 
             // Layout dimensions
-            var otaCount = state.ActiveSession?.Setup.Telescopes.Length ?? 1;
+            var otaCount = state.OtaCount;
             var otaTotalW = BaseOtaPanelW * dpiScale * otaCount;
             var logW = BaseRightPanelW * dpiScale;
             var viewerX = contentRect.X + otaTotalW;
@@ -165,9 +165,14 @@ namespace TianWen.UI.Abstractions
             else if (viewerW > 0)
             {
                 FillRect(viewerX, mainY, viewerW, mainH, GraphBg);
-                if (state.Phase is SessionPhase.Observing)
+                var placeholderText = state.IsRunning && state.Phase is SessionPhase.Observing
+                    ? "Waiting for first frame\u2026"
+                    : !state.IsRunning
+                        ? "Take a preview exposure \u2192"
+                        : null;
+                if (placeholderText is not null)
                 {
-                    DrawText("Waiting for first frame\u2026", fontPath,
+                    DrawText(placeholderText, fontPath,
                         viewerX, mainY, viewerW, mainH,
                         fs, DimText, TextAlign.Center, TextAlign.Center);
                 }
@@ -258,8 +263,8 @@ namespace TianWen.UI.Abstractions
                 _ => { vs.CycleBoost(); });
             x += btnW * 0.8f + pad;
 
-            // OTA selector buttons (right-aligned) — only for multi-OTA setups
-            var otaButtonCount = State?.ActiveSession?.Setup.Telescopes.Length ?? 0;
+            // OTA selector buttons (right-aligned) — works in both session and preview mode
+            var otaButtonCount = State?.OtaCount ?? 0;
             if (otaButtonCount > 1)
             {
                 var otaBtnX = rect.X + rect.Width - (btnW * 0.8f + pad) * otaButtonCount - pad;
@@ -393,6 +398,24 @@ namespace TianWen.UI.Abstractions
             var pad = BasePadding * dpiScale;
             var pillW = 140f * dpiScale;
             var pillH = rect.Height - pad * 2;
+
+            if (!state.IsRunning)
+            {
+                // PREVIEW pill
+                var previewPillColor = new RGBAColor32(0x55, 0x33, 0x88, 0xff); // purple
+                FillRect(rect.X + pad, rect.Y + pad, pillW, pillH, previewPillColor);
+                DrawText("PREVIEW", fontPath,
+                    rect.X + pad, rect.Y, pillW, rect.Height,
+                    fontSize * 0.9f, AbortText, TextAlign.Center, TextAlign.Center);
+
+                // Current time (right side)
+                var timeText = timeProvider.GetUtcNow().ToOffset(state.SiteTimeZone).ToString("HH:mm:ss");
+                DrawText(timeText, fontPath,
+                    rect.X + rect.Width - 120f * dpiScale, rect.Y, 116f * dpiScale, rect.Height,
+                    fontSize, DimText, TextAlign.Far, TextAlign.Center);
+                return;
+            }
+
             var pillColor = LiveSessionActions.PhaseColor(state.Phase);
             var label = LiveSessionActions.PhaseLabel(state.Phase);
 
@@ -432,6 +455,12 @@ namespace TianWen.UI.Abstractions
         private void RenderTimeline(LiveSessionState state, RectF32 rect, string fontPath, float fontSize, float dpiScale, ITimeProvider timeProvider)
         {
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, TimelineBg);
+
+            if (!state.IsRunning)
+            {
+                RenderPreviewTimeline(state, rect, fontPath, fontSize, dpiScale, timeProvider);
+                return;
+            }
 
             var timeline = state.PhaseTimeline;
             if (timeline.Length == 0)
@@ -510,6 +539,108 @@ namespace TianWen.UI.Abstractions
                 for (var t = tickStart; t <= sessionEnd; t = t.AddMinutes(tickMins))
                 {
                     if (t < timeStart) continue;
+                    var tx = TimeToX(t);
+                    if (tx < rect.X + pad || tx > rect.X + rect.Width - pad) continue;
+
+                    FillRect(tx, axisY, 1, axisH * 0.5f, TimelineTickColor);
+                    DrawText(t.ToOffset(state.SiteTimeZone).ToString("HH:mm"), fontPath,
+                        tx - 25 * dpiScale, axisY + axisH * 0.4f, 50 * dpiScale, axisH * 0.6f,
+                        fontSize * 0.8f, DimText, TextAlign.Center, TextAlign.Center);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Preview mode timeline: twilight bands + now needle.
+        /// Shows civil/nautical/astronomical twilight zones so the user knows when dark arrives.
+        /// </summary>
+        private void RenderPreviewTimeline(LiveSessionState state, RectF32 rect, string fontPath, float fontSize, float dpiScale, ITimeProvider timeProvider)
+        {
+            if (state.AstroDark == default)
+            {
+                DrawText("Twilight data loading\u2026", fontPath,
+                    rect.X, rect.Y, rect.Width, rect.Height,
+                    fontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center);
+                return;
+            }
+
+            var pad = BasePadding * dpiScale;
+            var barH = 24f * dpiScale;
+            var now = timeProvider.GetUtcNow();
+
+            // Time range: 15 min before civil set → 15 min after civil rise
+            var tStart = (state.CivilSet ?? state.AstroDark - TimeSpan.FromHours(1)) - TimeSpan.FromMinutes(15);
+            var tEnd = (state.CivilRise ?? state.AstroTwilight + TimeSpan.FromHours(1)) + TimeSpan.FromMinutes(15);
+            var totalSeconds = Math.Max((tEnd - tStart).TotalSeconds, 600);
+            var barY = rect.Y + pad;
+
+            float TimeToX(DateTimeOffset t) =>
+                rect.X + pad + (float)((t - tStart).TotalSeconds / totalSeconds) * (rect.Width - pad * 2);
+
+            // Twilight zone colors
+            var civilColor = new RGBAColor32(0x44, 0x44, 0x22, 0x88);
+            var nautColor = new RGBAColor32(0x22, 0x33, 0x55, 0x88);
+            var astroColor = new RGBAColor32(0x11, 0x22, 0x44, 0x88);
+            var nightColor = new RGBAColor32(0x00, 0x00, 0x22, 0xcc);
+
+            // Fill the twilight bands
+            if (state.CivilSet is { } cs)
+            {
+                FillRect(TimeToX(tStart), barY, TimeToX(cs) - TimeToX(tStart), barH, civilColor);
+            }
+            if (state.NauticalSet is { } ns)
+            {
+                var nsX = TimeToX(ns);
+                var fromX = state.CivilSet is { } cs2 ? TimeToX(cs2) : TimeToX(tStart);
+                FillRect(fromX, barY, nsX - fromX, barH, nautColor);
+            }
+            {
+                var astroStartX = state.NauticalSet is { } ns2 ? TimeToX(ns2) : (state.CivilSet is { } cs3 ? TimeToX(cs3) : TimeToX(tStart));
+                var darkX = TimeToX(state.AstroDark);
+                FillRect(astroStartX, barY, darkX - astroStartX, barH, astroColor);
+            }
+            // Night (dark)
+            {
+                var darkX = TimeToX(state.AstroDark);
+                var dawnX = TimeToX(state.AstroTwilight);
+                FillRect(darkX, barY, dawnX - darkX, barH, nightColor);
+            }
+            // Dawn side: astro → nautical → civil (mirror)
+            {
+                var dawnX = TimeToX(state.AstroTwilight);
+                var astroEndX = state.NauticalRise is { } nr ? TimeToX(nr) : (state.CivilRise is { } cr ? TimeToX(cr) : TimeToX(tEnd));
+                FillRect(dawnX, barY, astroEndX - dawnX, barH, astroColor);
+            }
+            if (state.NauticalRise is { } nRise)
+            {
+                var nrX = TimeToX(nRise);
+                var toX = state.CivilRise is { } cr2 ? TimeToX(cr2) : TimeToX(tEnd);
+                FillRect(nrX, barY, toX - nrX, barH, nautColor);
+            }
+            if (state.CivilRise is { } cRise)
+            {
+                FillRect(TimeToX(cRise), barY, TimeToX(tEnd) - TimeToX(cRise), barH, civilColor);
+            }
+
+            // Now needle
+            if (now >= tStart && now <= tEnd)
+            {
+                var nowX = TimeToX(now);
+                FillRect(nowX, barY - 2, 2 * dpiScale, barH + 4, NowNeedleColor);
+            }
+
+            // Time axis ticks
+            var axisY = barY + barH + 2;
+            var axisH = rect.Height - barH - pad * 2 - 2;
+            if (axisH > 4)
+            {
+                var rangeMins = totalSeconds / 60.0;
+                var tickMins = rangeMins < 120 ? 10 : 30;
+                var tickStart = new DateTimeOffset(tStart.Year, tStart.Month, tStart.Day,
+                    tStart.Hour, (int)(tStart.Minute / tickMins) * (int)tickMins, 0, tStart.Offset);
+                for (var t = tickStart; t <= tEnd; t = t.AddMinutes(tickMins))
+                {
+                    if (t < tStart) continue;
                     var tx = TimeToX(t);
                     if (tx < rect.X + pad || tx > rect.X + rect.Width - pad) continue;
 
@@ -646,9 +777,15 @@ namespace TianWen.UI.Abstractions
         {
             FillRect(rect.X, rect.Y, rect.Width, rect.Height, PanelBg);
 
+            if (!state.IsRunning)
+            {
+                RenderPreviewOTAPanels(state, rect, fontPath, fontSize, dpiScale, pad, rowH, timeProvider);
+                return;
+            }
+
             if (state.ActiveSession is not { } session)
             {
-                DrawText("No session", fontPath,
+                DrawText("Starting\u2026", fontPath,
                     rect.X, rect.Y, rect.Width, rect.Height,
                     fontSize, DimText, TextAlign.Center, TextAlign.Center);
                 return;
@@ -1063,6 +1200,283 @@ namespace TianWen.UI.Abstractions
         }
 
         // -----------------------------------------------------------------------
+        // Preview mode: OTA panels from profile + hub telemetry
+        // -----------------------------------------------------------------------
+
+        private void RenderPreviewOTAPanels(LiveSessionState state, RectF32 rect, string fontPath,
+            float fontSize, float dpiScale, float pad, float rowH, ITimeProvider timeProvider)
+        {
+            var preview = state.PreviewOTATelemetry;
+            var otaCount = preview.Length;
+            if (otaCount == 0)
+            {
+                DrawText("No OTAs configured in profile", fontPath,
+                    rect.X, rect.Y, rect.Width, rect.Height,
+                    fontSize, DimText, TextAlign.Center, TextAlign.Center);
+                return;
+            }
+
+            var panelW = rect.Width / otaCount;
+            var progressH = BaseProgressBarH * dpiScale;
+            var smallFs = fontSize * 0.85f;
+
+            for (var i = 0; i < otaCount; i++)
+            {
+                var tel = preview[i];
+                var px = rect.X + i * panelW;
+                if (i > 0)
+                {
+                    FillRect(px, rect.Y, 1, rect.Height, SeparatorColor);
+                }
+
+                var y = rect.Y + pad;
+                var textW = panelW - pad * 2;
+                // Reserve space for mount section at the bottom
+                var maxY = rect.Y + rect.Height - rowH * 5;
+
+                // Camera name (dim if not connected)
+                var nameColor = tel.CameraConnected ? HeaderText : DimText;
+                DrawText(tel.CameraDisplayName, fontPath,
+                    px + pad, y, textW, rowH,
+                    fontSize, nameColor, TextAlign.Near, TextAlign.Center);
+                y += rowH;
+
+                // Temperature from PreviewOTATelemetry
+                if (!double.IsNaN(tel.CcdTempC))
+                {
+                    var tempColor = CameraTempColors[i % CameraTempColors.Length];
+                    var tempText = $"{tel.CcdTempC:F0}\u00B0C  {tel.CoolerPowerPct:F0}%";
+                    if (!double.IsNaN(tel.SetpointC))
+                    {
+                        tempText += $"  \u2192 {tel.SetpointC:F0}\u00B0C";
+                    }
+                    DrawText(tempText, fontPath,
+                        px + pad, y, textW, rowH, smallFs, tempColor, TextAlign.Near, TextAlign.Center);
+                    y += rowH + pad;
+                }
+                else
+                {
+                    y += pad;
+                }
+
+                // Focuser readout + jog controls (fine ±10, coarse ±100)
+                if (y < maxY)
+                {
+                    if (tel.FocuserConnected)
+                    {
+                        var focLabel = $"Foc: {tel.FocusPosition}";
+                        if (!double.IsNaN(tel.FocuserTempC))
+                        {
+                            focLabel += $"  {tel.FocuserTempC:F1}\u00B0C";
+                        }
+                        if (tel.FocuserIsMoving)
+                        {
+                            focLabel += "  \u21C4";
+                        }
+                        DrawText(focLabel, fontPath,
+                            px + pad, y, textW, rowH,
+                            fontSize, tel.FocuserIsMoving ? StatusSlewing : BodyText, TextAlign.Near, TextAlign.Center);
+                        y += rowH;
+
+                        // Jog buttons row: [<<] [<] position [>] [>>]
+                        if (y < maxY)
+                        {
+                            var jogBg = new RGBAColor32(0x2a, 0x2a, 0x3a, 0xff);
+                            var jogBtnW = 32f * dpiScale;
+                            var jogBtnH = rowH * 0.85f;
+                            var jogBtnY2 = y + (rowH - jogBtnH) / 2;
+                            var capturedI = i;
+                            var jogX = px + pad;
+
+                            // Coarse in (<<)
+                            RenderButton("\u00AB", jogX, jogBtnY2, jogBtnW, jogBtnH,
+                                fontPath, smallFs, jogBg, BodyText, $"FocCoarseIn{capturedI}",
+                                _ => PostSignal(new JogFocuserSignal(capturedI, -100)));
+                            jogX += jogBtnW + 2;
+
+                            // Fine in (<)
+                            RenderButton("\u2039", jogX, jogBtnY2, jogBtnW, jogBtnH,
+                                fontPath, smallFs, jogBg, BodyText, $"FocFineIn{capturedI}",
+                                _ => PostSignal(new JogFocuserSignal(capturedI, -10)));
+                            jogX += jogBtnW + 2;
+
+                            // Step size labels
+                            var labelW = textW - (jogBtnW * 4 + 6);
+                            DrawText("10 | 100", fontPath,
+                                jogX, y, labelW, rowH,
+                                smallFs * 0.85f, DimText, TextAlign.Center, TextAlign.Center);
+                            jogX += labelW + 2;
+
+                            // Fine out (>)
+                            RenderButton("\u203A", jogX, jogBtnY2, jogBtnW, jogBtnH,
+                                fontPath, smallFs, jogBg, BodyText, $"FocFineOut{capturedI}",
+                                _ => PostSignal(new JogFocuserSignal(capturedI, 10)));
+                            jogX += jogBtnW + 2;
+
+                            // Coarse out (>>)
+                            RenderButton("\u00BB", jogX, jogBtnY2, jogBtnW, jogBtnH,
+                                fontPath, smallFs, jogBg, BodyText, $"FocCoarseOut{capturedI}",
+                                _ => PostSignal(new JogFocuserSignal(capturedI, 100)));
+
+                            y += rowH;
+                        }
+                    }
+                    else
+                    {
+                        DrawText("Foc: \u2014", fontPath,
+                            px + pad, y, textW, rowH,
+                            fontSize, DimText, TextAlign.Near, TextAlign.Center);
+                        y += rowH;
+                    }
+                }
+
+                // Filter
+                if (y < maxY)
+                {
+                    if (tel.FilterWheelConnected)
+                    {
+                        DrawText($"FW: {tel.FilterName}", fontPath,
+                            px + pad, y, textW, rowH, smallFs, BodyText, TextAlign.Near, TextAlign.Center);
+                    }
+                    else
+                    {
+                        DrawText("FW: \u2014", fontPath,
+                            px + pad, y, textW, rowH, smallFs, DimText, TextAlign.Near, TextAlign.Center);
+                    }
+                    y += rowH;
+                }
+
+                // Capture controls
+                y += pad;
+                if (y < maxY)
+                {
+                    RenderPreviewCaptureControls(state, i, px + pad, y, textW, progressH, rowH,
+                        fontPath, fontSize, smallFs, dpiScale, timeProvider);
+                }
+            }
+
+            // Mount section (pinned to bottom, full width)
+            RenderPreviewMountSection(state, rect, fontPath, fontSize, dpiScale, pad, rowH);
+        }
+
+        private void RenderPreviewCaptureControls(LiveSessionState state, int otaIndex,
+            float x, float y, float w, float progressH, float rowH,
+            string fontPath, float fontSize, float smallFs, float dpiScale, ITimeProvider timeProvider)
+        {
+            var isCapturing = otaIndex < state.PreviewCapturing.Length && state.PreviewCapturing[otaIndex];
+            var btnW = 72f * dpiScale;
+
+            if (isCapturing)
+            {
+                // Show progress bar + elapsed/total
+                var start = state.PreviewCaptureStart[otaIndex];
+                var dur = state.PreviewExposureDuration[otaIndex];
+                var elapsed = timeProvider.GetUtcNow() - start;
+                var fraction = dur.TotalSeconds > 0
+                    ? (float)Math.Min(elapsed.TotalSeconds / dur.TotalSeconds, 1.0)
+                    : 0f;
+                DrawText($"Capturing {elapsed.TotalSeconds:F0}/{dur.TotalSeconds:F0}s",
+                    fontPath, x, y, w, rowH, smallFs, HeaderText, TextAlign.Near, TextAlign.Center);
+                y += rowH;
+                FillRect(x, y, w, progressH, ProgressBg);
+                FillRect(x, y, w * fraction, progressH, ProgressFill);
+                return;
+            }
+
+            // Exposure time
+            var expSec = otaIndex < state.PreviewExposureSeconds.Length
+                ? state.PreviewExposureSeconds[otaIndex] : 5.0;
+            DrawText($"Exp: {expSec:F1}s", fontPath,
+                x, y, w - btnW - 4 * dpiScale, rowH,
+                smallFs, BodyText, TextAlign.Near, TextAlign.Center);
+
+            // [Capture] button
+            var captureBtnColor = new RGBAColor32(0x33, 0x66, 0x33, 0xff);
+            RenderButton("Capture", x + w - btnW, y, btnW, rowH * 0.9f,
+                fontPath, smallFs, captureBtnColor, BrightText,
+                $"PreviewCapture{otaIndex}",
+                _ =>
+                {
+                    var exp = otaIndex < state.PreviewExposureSeconds.Length
+                        ? state.PreviewExposureSeconds[otaIndex] : 5.0;
+                    PostSignal(new TakePreviewSignal(otaIndex, exp,
+                        otaIndex < state.PreviewGain.Length ? state.PreviewGain[otaIndex] : null,
+                        otaIndex < state.PreviewBinning.Length ? state.PreviewBinning[otaIndex] : (short)1));
+                });
+            y += rowH;
+
+            // [Save] and [Solve] only appear if a preview image exists for this OTA
+            var hasImage = otaIndex < state.LastCapturedImages.Length
+                && state.LastCapturedImages[otaIndex] is not null;
+            if (hasImage)
+            {
+                var halfW = (w - 4 * dpiScale) / 2;
+                var saveBtnColor = new RGBAColor32(0x22, 0x55, 0x44, 0xff);
+                var solveBtnColor = new RGBAColor32(0x22, 0x44, 0x66, 0xff);
+                RenderButton("Save", x, y, halfW, rowH * 0.9f,
+                    fontPath, smallFs, saveBtnColor, BrightText,
+                    $"PreviewSave{otaIndex}",
+                    _ => PostSignal(new SaveSnapshotSignal(otaIndex)));
+                RenderButton("Solve", x + halfW + 4 * dpiScale, y, halfW, rowH * 0.9f,
+                    fontPath, smallFs, solveBtnColor, BrightText,
+                    $"PreviewSolve{otaIndex}",
+                    _ => PostSignal(new PlateSolvePreviewSignal(otaIndex)));
+            }
+        }
+
+        private void RenderPreviewMountSection(LiveSessionState state, RectF32 rect,
+            string fontPath, float fontSize, float dpiScale, float pad, float rowH)
+        {
+            var smallFs = fontSize * 0.85f;
+            var mountY = rect.Y + rect.Height - rowH * 4 - pad;
+            if (mountY <= rect.Y + rect.Height * 0.35f)
+            {
+                return;
+            }
+
+            FillRect(rect.X, mountY, rect.Width, 1, SeparatorColor);
+            mountY += pad;
+
+            var ms = state.PreviewMountState;
+            var dotColor = ms.IsSlewing ? StatusSlewing
+                : ms.IsTracking ? StatusTracking
+                : DimText;
+            var dotSize = rowH * 0.4f;
+            FillRect(rect.X + pad, mountY + (rowH - dotSize) / 2, dotSize, dotSize, dotColor);
+
+            var mountName = state.PreviewMountDisplayName ?? "Mount";
+            DrawText(mountName, fontPath,
+                rect.X + pad + dotSize + pad, mountY, rect.Width - pad * 3 - dotSize, rowH,
+                smallFs, HeaderText, TextAlign.Near, TextAlign.Center);
+            mountY += rowH;
+
+            // RA / Dec
+            var raHms = $"RA {ms.RightAscension:F4}h";
+            var decDms = $"Dec {ms.Declination:F3}\u00B0";
+            DrawText(raHms, fontPath,
+                rect.X + pad, mountY, rect.Width - pad * 2, rowH,
+                smallFs, BodyText, TextAlign.Near, TextAlign.Center);
+            mountY += rowH;
+            DrawText(decDms, fontPath,
+                rect.X + pad, mountY, rect.Width - pad * 2, rowH,
+                smallFs, BodyText, TextAlign.Near, TextAlign.Center);
+            mountY += rowH;
+
+            // Status line
+            var statusText = ms.IsSlewing ? "Slewing" : ms.IsTracking ? "Tracking" : "Idle";
+            var pierLabel = ms.PierSide switch
+            {
+                TianWen.Lib.Devices.PointingState.Normal => "Normal",
+                TianWen.Lib.Devices.PointingState.ThroughThePole => "Through Pole",
+                _ => "?"
+            };
+            statusText += $"  Pier: {pierLabel}  HA: {ms.HourAngle:F2}h";
+            DrawText(statusText, fontPath,
+                rect.X + pad, mountY, rect.Width - pad * 2, rowH,
+                smallFs, ms.IsSlewing ? StatusSlewing : DimText, TextAlign.Near, TextAlign.Center);
+        }
+
+        // -----------------------------------------------------------------------
         // Right panel: exposure log
         // -----------------------------------------------------------------------
 
@@ -1073,6 +1487,44 @@ namespace TianWen.UI.Abstractions
 
             // Separator on left edge
             FillRect(rect.X, rect.Y, 1, rect.Height, SeparatorColor);
+
+            if (!state.IsRunning)
+            {
+                // Preview mode: show header + plate solve result if available
+                DrawText("Preview Mode", fontPath,
+                    rect.X + pad, rect.Y, rect.Width - pad * 2, rowH,
+                    fontSize * 0.85f, HeaderText, TextAlign.Near, TextAlign.Center);
+
+                if (state.PreviewPlateSolveResult is { } solveResult)
+                {
+                    var solveY = rect.Y + rowH + pad;
+                    if (solveResult.Solution is { } wcs)
+                    {
+                        DrawText($"RA  {wcs.CenterRA:F4}h", fontPath,
+                            rect.X + pad, solveY, rect.Width - pad * 2, rowH,
+                            fontSize * 0.8f, BodyText, TextAlign.Near, TextAlign.Center);
+                        solveY += rowH;
+                        DrawText($"Dec {wcs.CenterDec:F3}\u00B0", fontPath,
+                            rect.X + pad, solveY, rect.Width - pad * 2, rowH,
+                            fontSize * 0.8f, BodyText, TextAlign.Near, TextAlign.Center);
+                        solveY += rowH;
+                        DrawText($"Scale {wcs.PixelScaleArcsec:F2}\"/px", fontPath,
+                            rect.X + pad, solveY, rect.Width - pad * 2, rowH,
+                            fontSize * 0.8f, DimText, TextAlign.Near, TextAlign.Center);
+                        solveY += rowH;
+                        DrawText($"Solved in {solveResult.Elapsed.TotalSeconds:F1}s  {solveResult.MatchedStars} matched", fontPath,
+                            rect.X + pad, solveY, rect.Width - pad * 2, rowH,
+                            fontSize * 0.75f, DimText, TextAlign.Near, TextAlign.Center);
+                    }
+                    else
+                    {
+                        DrawText("Solve: no match", fontPath,
+                            rect.X + pad, solveY, rect.Width - pad * 2, rowH,
+                            fontSize * 0.8f, DimText, TextAlign.Near, TextAlign.Center);
+                    }
+                }
+                return;
+            }
 
             // Header
             DrawText("Exposure Log", fontPath,

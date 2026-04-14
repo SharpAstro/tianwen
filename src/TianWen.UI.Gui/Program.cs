@@ -178,6 +178,9 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         // Sample camera cooler/temperature telemetry while the equipment tab is visible.
         // Internally rate-limited per-camera so calling every frame is cheap.
         signalHandler.PollCameraTelemetry();
+        // Sample preview telemetry (camera/focuser/mount) while live session tab is visible
+        // and no session is running. Internally rate-limited.
+        signalHandler.PollPreviewTelemetry();
 
         // During shutdown, show progress and signal ready to stop
         if (appState.ShuttingDown)
