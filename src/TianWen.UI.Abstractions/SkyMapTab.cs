@@ -87,10 +87,7 @@ namespace TianWen.UI.Abstractions
             // Constellation names at boundary centroids (always shown)
             DrawConstellationNames(contentRect, fontPath, fontSize * 0.85f, ppr, cx, cy);
 
-            if (State.ShowPlanets)
-            {
-                DrawPlanetLabels(db, timeProvider, siteLat, siteLon, contentRect, fontPath, fontSize, ppr, cx, cy);
-            }
+            DrawPlanetLabels(db, timeProvider, siteLat, siteLon, contentRect, fontPath, fontSize, ppr, cx, cy);
 
             DrawInfoStrip(contentRect, fontPath, fontSize, dpiScale, cx, cy);
 
@@ -191,7 +188,7 @@ namespace TianWen.UI.Abstractions
                     dec = value;
                 }
 
-                if (!SkyMapProjection.Project(ra, dec, State.CenterRA, State.CenterDec,
+                if (!SkyMapProjection.ProjectWithMatrix(ra, dec, State.CurrentViewMatrix,
                     ppr, cx, cy, out var sx, out var sy))
                 {
                     prevValid = false;
@@ -263,7 +260,7 @@ namespace TianWen.UI.Abstractions
                 var avgRA = raSum / count;
                 var avgDec = decSum / count;
 
-                if (SkyMapProjection.Project(avgRA, avgDec, State.CenterRA, State.CenterDec,
+                if (SkyMapProjection.ProjectWithMatrix(avgRA, avgDec, State.CurrentViewMatrix,
                     ppr, cx, cy, out var sx, out var sy)
                     && sx >= rect.X && sx < rect.X + rect.Width
                     && sy >= rect.Y && sy < rect.Y + rect.Height)
@@ -293,7 +290,7 @@ namespace TianWen.UI.Abstractions
                 }
 
                 var raHours = ra / 15.0;
-                if (SkyMapProjection.Project(raHours, dec, State.CenterRA, State.CenterDec,
+                if (SkyMapProjection.ProjectWithMatrix(raHours, dec, State.CurrentViewMatrix,
                     ppr, cx, cy, out var sx, out var sy)
                     && sx >= rect.X && sx < rect.X + rect.Width
                     && sy >= rect.Y && sy < rect.Y + rect.Height)
@@ -316,7 +313,8 @@ namespace TianWen.UI.Abstractions
             var fovText = State.FieldOfViewDeg < 1
                 ? $"FOV: {State.FieldOfViewDeg * 60:F0}'"
                 : $"FOV: {State.FieldOfViewDeg:F1}\u00B0";
-            var info = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0    {fovText}    [H]orizon [G]rid [B]oundaries [C]onst [P]lanets";
+            var modeLabel = State.Mode == SkyMapMode.Equatorial ? "EQ" : "AZ";
+            var info = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0    {fovText}    [{modeLabel}]  [H]orizon [G]rid [A]lt/Az [B]oundaries [C]onst [P]roj";
 
             DrawText(info.AsSpan(), fontPath,
                 rect.X + 8, stripY, rect.Width - 16, stripH,
@@ -348,6 +346,7 @@ namespace TianWen.UI.Abstractions
             State.IsDragging = true;
             State.DragStart = (x, y);
             State.DragStartCenter = (State.CenterRA, State.CenterDec);
+            State.DragStartViewMatrix = State.CurrentViewMatrix;
             return true;
         }
 
@@ -360,19 +359,43 @@ namespace TianWen.UI.Abstractions
 
         private bool HandleDrag(float x, float y)
         {
-            // Stellarium approach: unproject both mouse positions to sky coordinates
+            // Great-circle drag: compute the rotation that maps the current mouse sky position
+            // back to the drag-start sky position, and apply it to the view center.
+            // This gives a natural "grab and drag" feel in any projection mode.
             var ppr = SkyMapProjection.PixelsPerRadian(_contentHeight, State.FieldOfViewDeg);
             var screenCx = _contentX + _contentWidth * 0.5f;
             var screenCy = _contentY + _contentHeight * 0.5f;
 
             var (startX, startY) = State.DragStart;
             var (startRA, startDec) = State.DragStartCenter;
+            var startMatrix = State.DragStartViewMatrix;
 
-            var (ra1, dec1) = SkyMapProjection.Unproject(startX, startY, startRA, startDec, ppr, screenCx, screenCy);
-            var (ra2, dec2) = SkyMapProjection.Unproject(x, y, startRA, startDec, ppr, screenCx, screenCy);
+            var (ra1, dec1) = SkyMapProjection.UnprojectWithMatrix(startX, startY, startMatrix, ppr, screenCx, screenCy);
+            var (ra2, dec2) = SkyMapProjection.UnprojectWithMatrix(x, y, startMatrix, ppr, screenCx, screenCy);
 
-            State.CenterRA = startRA + (ra1 - ra2);
-            State.CenterDec = startDec + (dec1 - dec2);
+            // Convert to unit vectors
+            var v1 = SkyMapState.RaDecToUnitVec(ra1, dec1);
+            var v2 = SkyMapState.RaDecToUnitVec(ra2, dec2);
+            var vc = SkyMapState.RaDecToUnitVec(startRA, startDec);
+
+            // Build quaternion rotation from v2 to v1: q = (cross(v2,v1), 1 + dot(v2,v1))
+            var from = new System.Numerics.Vector3(v2.X, v2.Y, v2.Z);
+            var to = new System.Numerics.Vector3(v1.X, v1.Y, v1.Z);
+            var cross = System.Numerics.Vector3.Cross(from, to);
+            var dot = System.Numerics.Vector3.Dot(from, to);
+            var q = System.Numerics.Quaternion.Normalize(
+                new System.Numerics.Quaternion(cross, 1f + dot));
+
+            // Apply rotation to the start center
+            var center = new System.Numerics.Vector3(vc.X, vc.Y, vc.Z);
+            var rotated = System.Numerics.Vector3.Transform(center, q);
+
+            // Convert back to RA/Dec
+            var newDec = Math.Asin(Math.Clamp(rotated.Z, -1f, 1f)) * 180.0 / Math.PI;
+            var newRA = Math.Atan2(rotated.Y, rotated.X) * 12.0 / Math.PI;
+
+            State.CenterRA = newRA;
+            State.CenterDec = newDec;
             State.NormalizeCenter();
             State.NeedsRedraw = true;
             return true;
@@ -398,8 +421,14 @@ namespace TianWen.UI.Abstractions
                     State.ShowConstellationFigures = !State.ShowConstellationFigures;
                     State.NeedsRedraw = true;
                     return true;
+                case InputKey.A:
+                    State.ShowAltAzGrid = !State.ShowAltAzGrid;
+                    State.NeedsRedraw = true;
+                    return true;
                 case InputKey.P:
-                    State.ShowPlanets = !State.ShowPlanets;
+                    State.Mode = State.Mode == SkyMapMode.Equatorial
+                        ? SkyMapMode.Horizon
+                        : SkyMapMode.Equatorial;
                     State.NeedsRedraw = true;
                     return true;
                 case InputKey.Plus:
