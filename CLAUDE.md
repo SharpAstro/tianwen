@@ -334,6 +334,53 @@ PixelWidgetBase<TSurface>   (DIR.Lib — renderer-agnostic, has Bus + PostSignal
 - SDL scancodes mapped to `InputKey` via `SdlInputMapping` (C# 14 extension blocks)
 - `Program.cs` is a thin event loop + composition root
 
+### Signal Handler Pattern — Route, Don't Implement
+
+The lightweight `SignalBus` is our alternative to MediatR / MVVM frameworks — it deliberately
+avoids that class of soul-sucking abstraction. But lightweight ≠ lawless. The
+`AppSignalHandler.cs` subscribe lambdas must follow proper separation of concerns:
+
+**A subscribe lambda's job is to route a signal.** It takes the signal payload, calls one
+or two helpers, and reflects any results back into UI state. That's it. No loops over
+domain state. No direct persistence. No URI manipulation. No multi-step business logic.
+
+**Where business logic actually goes**:
+- **Pure profile/equipment transformations** → `EquipmentActions` in `TianWen.UI.Abstractions`
+  (takes immutable inputs, returns new state; may do I/O via passed-in `IExternal`)
+- **Device-model operations** (URI reconciliation, discovery cache queries) →
+  extension methods on the relevant interface in `TianWen.Lib/Devices/*Extensions.cs`
+- **Persistence** → dedicated helpers like `PlannerPersistence`, `SessionPersistence`,
+  or `Profile.SaveAsync` — never inlined into a subscribe lambda
+
+**Canonical example** (`DiscoverDevicesSignal` handler):
+```csharp
+bus.Subscribe<DiscoverDevicesSignal>(async sig =>
+{
+    // ... routing only ...
+    await dm.DiscoverAsync(cts.Token);
+    eqState.DiscoveredDevices = [.. /* projection */];
+
+    // Route the business operation to a helper:
+    var changes = await EquipmentActions.ReconcileAllProfilesAsync(dm, external, cts.Token);
+
+    // Reflect results back into UI state:
+    foreach (var (original, updated) in changes)
+    {
+        if (appState.ActiveProfile?.ProfileId == original.ProfileId)
+            appState.ActiveProfile = updated;
+    }
+});
+```
+
+**Why it matters**:
+- Handler file stays a scannable routing table, not a feature file
+- Business operations are directly testable without signal-bus + SP setup
+- CLI / Server hosts can reuse the same helpers (they don't have the UI signal bus)
+- Adding a new URI field to `ProfileData` touches one helper, not every call site
+
+**Red flag**: if you're writing a `foreach` or a multi-step `if`/`await`/`save` chain
+inside a subscribe lambda, extract it to `EquipmentActions` (or a new sibling helper class).
+
 ### Filter Wheel Configuration
 
 **Design principle**: Seed on discovery, TianWen owns the data, sync back on connect.
