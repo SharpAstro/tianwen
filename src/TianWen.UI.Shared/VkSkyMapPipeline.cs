@@ -335,15 +335,18 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             float x = (vScreenPos.x - ubo.viewportCenter.x) / ubo.pixelsPerRadian;
             float y = -(vScreenPos.y - ubo.viewportCenter.y) / ubo.pixelsPerRadian;
 
+            // Warm earthy-brown tint for the below-horizon region. Mixed on top of
+            // the sky background with depth-scaled alpha so pixels just below the
+            // horizon are lightly hazed, and pixels deep below are mostly ground.
+            vec3 groundTint = vec3(0.18, 0.11, 0.06);
+
             float rho = length(vec2(x, y));
             if (rho < 0.00001) {
-                // At view center, looking at the center direction
-                // camera forward is -Z, so reconstruct from view matrix
                 vec3 j2000 = transpose(mat3(ubo.viewMatrix)) * vec3(0.0, 0.0, -1.0);
                 float sinAlt = ubo.sinLat * j2000.z
                     + ubo.cosLat * (ubo.cosLST * j2000.x + ubo.sinLST * j2000.y);
                 if (sinAlt >= 0.0) discard;
-                FragColor = vec4(0.0, 0.0, 0.0, 0.7);
+                FragColor = vec4(groundTint, 0.85);
                 return;
             }
 
@@ -367,9 +370,10 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
 
             if (sinAlt >= 0.0) discard;
 
-            // Smooth gradient near the horizon (fade from 0.3 at horizon to 0.7 at -10 degrees)
-            float depth = clamp(-sinAlt / 0.17, 0.0, 1.0); // sin(10deg) ~ 0.17
-            FragColor = vec4(0.0, 0.0, 0.0, 0.3 + 0.4 * depth);
+            // Fade from 0.45 at horizon to 0.88 at -10 degrees (sin(10deg) ~ 0.17)
+            float depth = clamp(-sinAlt / 0.17, 0.0, 1.0);
+            float alpha = 0.45 + 0.43 * depth;
+            FragColor = vec4(groundTint, alpha);
         }
         """;
 

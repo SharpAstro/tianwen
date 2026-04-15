@@ -70,8 +70,14 @@ namespace TianWen.UI.Abstractions
                 State.NeedsRedraw = true;
             }
 
+            // Sky-color-by-time is only valid when viewing "tonight" (PlanningDate null).
+            // On a different date we can't know what time of day the user is inspecting,
+            // so we just show a night sky. A future Stellarium-style time adjuster would
+            // feed an explicit instant in here.
+            var isPlanningTonight = plannerState.PlanningDate is null;
+
             // Delegate pixel rendering to virtual method (overridden by VkSkyMapTab for GPU caching)
-            RenderSkyMap(db, contentRect, fontPath, timeProvider, siteLat, siteLon);
+            RenderSkyMap(db, contentRect, fontPath, timeProvider, siteLat, siteLon, isPlanningTonight);
 
             // Draw text overlays natively (GPU text rendering on top of cached texture)
             var ppr = SkyMapProjection.PixelsPerRadian(contentRect.Height, State.FieldOfViewDeg);
@@ -108,10 +114,14 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         protected virtual void RenderSkyMap(
             ICelestialObjectDB db, RectF32 contentRect, string fontPath,
-            ITimeProvider timeProvider, double siteLat, double siteLon)
+            ITimeProvider timeProvider, double siteLat, double siteLon,
+            bool isPlanningTonight)
         {
+            double sunAltDeg = isPlanningTonight
+                ? State.GetSunAltitudeDegCached(timeProvider.GetUtcNow(), siteLat, siteLon)
+                : double.NaN;
             FillRect(contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height,
-                new RGBAColor32(0x06, 0x06, 0x10, 0xFF));
+                SkyMapState.SkyBackgroundColorForSunAltitude(sunAltDeg));
         }
 
         // ── Text overlay methods (use native GPU DrawText, drawn on top of cached texture) ──

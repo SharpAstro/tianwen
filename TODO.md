@@ -27,6 +27,12 @@
 - [ ] DIR.Lib: add `FillEllipse`/`FillCircle`/`DrawEllipse`/`DrawCircle` primitives to `PixelWidgetBase` — currently everything is built from `FillRect` scanlines
 - [x] Guider graph: show applied correction pulses (RA/Dec duration bars) alongside error — log-scaled bars (blue RA / orange Dec) extending up/down from zero line
 - [ ] SyntheticStarFieldRenderer: refactor 20-parameter methods into records/structs
+- [ ] Sky map: Stellarium-style time adjuster — step the observation instant relative to now (e.g. press `+1h` / `+1d` and it becomes Thursday 23:04 etc.), not a pick-a-date. Stores an offset from wall clock (minutes, hours, days, weeks) so the user can scrub forward and back. Drives:
+    - sky color (feeds `SkyMapState.GetSunAltitudeDegCached` with the adjusted instant)
+    - LST so stars / crosshair / horizon rotate correctly
+    - planet positions via `VSOP87a.Reduce`
+    - horizon fill and below-horizon label dimming
+  Must replace / extend the current "isPlanningTonight" bool path so the sky stays correctly coloured when a time offset is applied. HUD should show the scrubbed time prominently vs. wall clock so the user never confuses the two. A "reset to now" shortcut (e.g. `0`) returns offset to zero.
 - [x] Guider graph: show dither events (markers/shading) — yellow dashed vertical lines at dither events, dim yellow settling shading
 - [x] Guider tab: keep looping guide camera frames during centering/slewing — call `LoopAsync` when not guiding so the guide camera feed stays live. Currently the guide loop stops during centering and the tab shows "Waiting for guider"
 - [x] Guider tab: show calibration frames — render guide camera during calibration phase with star position and profile. Remaining: star movement vectors, step count, and calibration progress overlay
