@@ -19,18 +19,21 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
     private readonly ITimeProvider _timeProvider;
     private readonly int _alignmentStars = 0;
     private double _slewRate = 1.5d; // degrees per second
-    private volatile bool _isTracking = false;
-    private volatile bool _isSlewing = false;
+    // Promoted to protected so OnStep subclass can implement :Te#/:Td# (tracking on/off
+    // with 0/1 response) and :TK#/:TS# (king/solar tracking rates).
+    protected volatile bool _isTracking = false;
+    protected volatile bool _isSlewing = false;
     private volatile bool _highPrecision = false;
-    private volatile int _trackingFrequency = 601; // 60.1 Hz * 10, sidereal tracking rate
+    protected volatile int _trackingFrequency = 601; // 60.1 Hz * 10, sidereal tracking rate
     private TimeSpan _utcOffset = TimeSpan.Zero;
     private DateTime _localDateTime;
 
     // Mount axis angles (German Equatorial Mount)
     // HA axis: 0 = pointing at meridian (home position), positive = west of meridian
     // DEC axis: angle from equator, at home position = site latitude (pointing at pole)
-    private double _haAxisAngle;  // Hour angle axis position in hours
-    private double _decAxisAngle; // Declination axis position in degrees
+    // protected so OnStep subclass can derive synthetic :GX44#/:GX45# encoder counts.
+    protected double _haAxisAngle;  // Hour angle axis position in hours
+    protected double _decAxisAngle; // Declination axis position in degrees
 
     private double _targetRa;
     private double _targetDec;
@@ -46,16 +49,18 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
     private const double GUIDE_RATE_DEG_PER_SEC = SIDEREAL_RATE * 2.0 / 3.0 / 3600.0;
 
     // I/O properties
-    private readonly StringBuilder _responseBuffer = new StringBuilder();
+    // _responseBuffer and _lockObj are protected so a subclass extension hook can
+    // append responses inside the same lock that the base switch holds.
+    protected readonly StringBuilder _responseBuffer = new StringBuilder();
     private int _responsePointer = 0;
     private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
-    private readonly Lock _lockObj = new Lock();
+    protected readonly Lock _lockObj = new Lock();
 
     /// <summary>
     /// Whether the mount is on the "through the pole" pier side.
     /// NH: decAxisAngle &gt; 90, SH: decAxisAngle &lt; -90.
     /// </summary>
-    private bool IsFlippedPierSide => _transform.SiteLatitude >= 0
+    protected bool IsFlippedPierSide => _transform.SiteLatitude >= 0
         ? _decAxisAngle > 90
         : _decAxisAngle < -90;
 
@@ -98,6 +103,15 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
     /// Whether a pulse guide is currently active (timer-based tracking).
     /// </summary>
     public bool IsPulseGuiding => Volatile.Read(ref _activePulseGuides) > 0;
+
+    /// <summary>
+    /// Subclass hook for handling firmware-specific commands (e.g. OnStep <c>:GU#</c>,
+    /// <c>:Gm#</c>, <c>:hR#</c>) before the LX200 base switch runs. The caller holds
+    /// <see cref="_lockObj"/>, so subclasses may freely read/write protected state and
+    /// append to <see cref="_responseBuffer"/>. Return <c>true</c> if the command was
+    /// handled (skipping the base switch), <c>false</c> to fall through.
+    /// </summary>
+    protected virtual bool TryHandleExtensionCommand(string dataStr) => false;
 
     public Encoding Encoding { get; private set; }
 
@@ -311,6 +325,13 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
 #endif
         lock (_lockObj)
         {
+            // Subclass extension hook: try OnStep / firmware-specific commands first,
+            // fall through to the LX200 base command set if not handled.
+            if (TryHandleExtensionCommand(dataStr))
+            {
+                return ValueTask.FromResult(true);
+            }
+
             switch (dataStr)
             {
                 case ":GVP#":

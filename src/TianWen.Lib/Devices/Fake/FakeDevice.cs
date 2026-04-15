@@ -95,6 +95,12 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
             return new FakeSkywatcherMountDriver(this, sp);
         }
 
+        // If port=OnStep is specified, use the OnStep driver on top of the LX200 protocol stack.
+        if (string.Equals(port, "OnStep", StringComparison.OrdinalIgnoreCase))
+        {
+            return new FakeOnStepMountDriver(this, sp);
+        }
+
         // Otherwise use the lightweight direct driver.
         return new FakeMountDriver(this, sp);
     }
@@ -105,6 +111,8 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
             => new FakeSgpSerialDevice(logger, encoding ?? Encoding.ASCII, timeProvider, SiteLatitude >= 0, true),
         DeviceType.Mount when string.Equals(Query.QueryValue(DeviceQueryKey.Port), "SkyWatcher", StringComparison.OrdinalIgnoreCase)
             => new FakeSkywatcherSerialDevice(logger, encoding ?? Encoding.ASCII, timeProvider, true),
+        DeviceType.Mount when string.Equals(Query.QueryValue(DeviceQueryKey.Port), "OnStep", StringComparison.OrdinalIgnoreCase)
+            => new FakeOnStepSerialDevice(logger, encoding ?? Encoding.Latin1, timeProvider, SiteLatitude, SiteLongitude, true),
         DeviceType.Mount
             => new FakeMeadeLX200SerialDevice(logger, encoding ?? Encoding.Latin1, timeProvider, SiteLatitude, SiteLongitude, true),
         _ => null

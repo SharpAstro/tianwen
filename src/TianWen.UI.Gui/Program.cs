@@ -27,6 +27,7 @@ services
     .AddQHY()
     .AddAscom()
     .AddMeade()
+    .AddOnStep()
     .AddIOptron()
     .AddProfiles()
     .AddFake()

@@ -53,9 +53,9 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
     public bool CanPark => true;
 
-    public bool CanSetPark => false;
+    public virtual bool CanSetPark => false;
 
-    public bool CanUnpark => false;
+    public virtual bool CanUnpark => false;
 
     public bool CanSlew => false;
 
@@ -93,7 +93,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
     private readonly ReadOnlyMemory<byte> TQCommand = "TQ"u8.ToArray();
     private readonly ReadOnlyMemory<byte> TLCommand = "TL"u8.ToArray();
-    public ValueTask SetTrackingSpeedAsync(TrackingSpeed value, CancellationToken cancellationToken)
+    public virtual ValueTask SetTrackingSpeedAsync(TrackingSpeed value, CancellationToken cancellationToken)
     {
         var speed = value switch
         {
@@ -105,11 +105,11 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         return SendWithoutResponseAsync(speed, cancellationToken);
     }
 
-    public IReadOnlyList<TrackingSpeed> TrackingSpeeds => [TrackingSpeed.Sidereal, TrackingSpeed.Lunar];
+    public virtual IReadOnlyList<TrackingSpeed> TrackingSpeeds => [TrackingSpeed.Sidereal, TrackingSpeed.Lunar];
 
     public EquatorialCoordinateType EquatorialSystem => EquatorialCoordinateType.Topocentric;
 
-    public async ValueTask<bool> IsTrackingAsync(CancellationToken cancellationToken)
+    public virtual async ValueTask<bool> IsTrackingAsync(CancellationToken cancellationToken)
     {
         var (_, tracking, _) = await AlignmentDetailsAsync(cancellationToken);
         return tracking;
@@ -117,7 +117,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
     private readonly ReadOnlyMemory<byte> APCommand = "AP"u8.ToArray();
     private readonly ReadOnlyMemory<byte> ALCommand = "AL"u8.ToArray();
-    public async ValueTask SetTrackingAsync(bool tracking, CancellationToken cancellationToken)
+    public virtual async ValueTask SetTrackingAsync(bool tracking, CancellationToken cancellationToken)
     {
         if (await IsPulseGuidingAsync(cancellationToken))
         {
@@ -172,7 +172,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
     public ValueTask<bool> AtHomeAsync(CancellationToken cancellationToken) => ValueTask.FromResult(false);
 
-    public ValueTask<bool> AtParkAsync(CancellationToken cancellationToken) => ValueTask.FromResult(false);
+    public virtual ValueTask<bool> AtParkAsync(CancellationToken cancellationToken) => ValueTask.FromResult(false);
 
     public ValueTask<bool> IsPulseGuidingAsync(CancellationToken cancellationToken)
     {
@@ -184,7 +184,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     /// <summary>
     /// Uses :D# to check if mount is slewing (use this to update slewing state)
     /// </summary>
-    public async ValueTask<bool> IsSlewingAsync(CancellationToken cancellationToken)
+    public virtual async ValueTask<bool> IsSlewingAsync(CancellationToken cancellationToken)
     {
         using var response = ArrayPoolHelper.Rent<byte>(10);
 
@@ -334,7 +334,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         return (raSideOfPier, lst);
     }
 
-    public async ValueTask<PointingState> GetSideOfPierAsync(CancellationToken cancellationToken)
+    public virtual async ValueTask<PointingState> GetSideOfPierAsync(CancellationToken cancellationToken)
     {
         var (pointingState, _) = await CheckPointingStateAsync(await GetRightAscensionAsync(cancellationToken), cancellationToken);
 
@@ -744,7 +744,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
     public override string? Description => $"{_telescopeName} driver based on the LX200 serial protocol v2010.10, firmware: {_telescopeFW}";
 
-    public async ValueTask<PointingState> DestinationSideOfPierAsync(double ra, double dec, CancellationToken cancellationToken)
+    public virtual async ValueTask<PointingState> DestinationSideOfPierAsync(double ra, double dec, CancellationToken cancellationToken)
     {
         var (sideOfPier, _) = await CalculateSideOfPierAsync(ra, cancellationToken);
         return sideOfPier;
@@ -774,7 +774,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     }
 
     private readonly ReadOnlyMemory<byte> ParkCommand = "hP"u8.ToArray();
-    public async ValueTask ParkAsync(CancellationToken cancellationToken = default)
+    public virtual async ValueTask ParkAsync(CancellationToken cancellationToken = default)
     {
         await SendWithoutResponseAsync(ParkCommand, cancellationToken);
     }
@@ -937,7 +937,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         }
     }
 
-    public ValueTask UnparkAsync(CancellationToken cancellationToken) => throw new InvalidOperationException("Unparking is not supported");
+    public virtual ValueTask UnparkAsync(CancellationToken cancellationToken) => throw new InvalidOperationException("Unparking is not supported");
 
     protected override Task<(bool Success, int ConnectionId, MountDeviceInfo DeviceInfo)> DoConnectDeviceAsync(CancellationToken cancellationToken)
     {
@@ -1049,7 +1049,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     private static readonly ReadOnlyMemory<byte> Terminators = "#\0"u8.ToArray();
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private async ValueTask<string?> SendAndReceiveAsync(ReadOnlyMemory<byte> command, CancellationToken cancellationToken)
+    protected async ValueTask<string?> SendAndReceiveAsync(ReadOnlyMemory<byte> command, CancellationToken cancellationToken)
     {
         if (_deviceInfo.SerialDevice is { IsOpen: true } port)
         {
@@ -1064,7 +1064,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private async ValueTask<int> SendAndReceiveRawAsync(ReadOnlyMemory<byte> command, Memory<byte> response, CancellationToken cancellationToken)
+    protected async ValueTask<int> SendAndReceiveRawAsync(ReadOnlyMemory<byte> command, Memory<byte> response, CancellationToken cancellationToken)
     {
         if (_deviceInfo.SerialDevice is { IsOpen: true } port)
         {
@@ -1079,7 +1079,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private async ValueTask<string?> SendAndReceiveExactlyAsync(ReadOnlyMemory<byte> command, int count, CancellationToken cancellationToken)
+    protected async ValueTask<string?> SendAndReceiveExactlyAsync(ReadOnlyMemory<byte> command, int count, CancellationToken cancellationToken)
     {
         if (_deviceInfo.SerialDevice is { IsOpen: true } port)
         {
@@ -1094,7 +1094,7 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private async ValueTask SendWithoutResponseAsync(ReadOnlyMemory<byte> command, CancellationToken cancellationToken)
+    protected async ValueTask SendWithoutResponseAsync(ReadOnlyMemory<byte> command, CancellationToken cancellationToken)
     {
         if (_deviceInfo.SerialDevice is { IsOpen: true } port)
         {

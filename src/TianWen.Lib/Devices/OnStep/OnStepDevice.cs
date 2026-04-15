@@ -1,0 +1,56 @@
+using Microsoft.Extensions.Logging;
+using System;
+using System.Collections.Specialized;
+using System.Globalization;
+using System.Text;
+using TianWen.Lib;
+using TianWen.Lib.Connections;
+
+namespace TianWen.Lib.Devices.OnStep;
+
+/// <summary>
+/// OnStep / OnStepX mount device addressed by URI. Two transports:
+/// <list type="bullet">
+///   <item><description><c>?port=COMx</c> — RS-232 / USB-to-serial @ 9600 baud</description></item>
+///   <item><description><c>?host=192.168.1.42&amp;tcp=9999</c> — WiFi / Ethernet (ESP32 SmartHand Controller default port 9999)</description></item>
+/// </list>
+/// </summary>
+public record OnStepDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
+{
+    /// <summary>Default OnStep WiFi/Ethernet TCP port (ESP32 SmartHand Controller standard).</summary>
+    public const int DefaultTcpPort = 9999;
+
+    /// <summary>Constructor for serial-port OnStep mounts.</summary>
+    public OnStepDevice(DeviceType deviceType, string deviceId, string displayName, string port)
+        : this(new Uri($"{deviceType}://{typeof(OnStepDevice).Name}/{deviceId}?{new NameValueCollection { ["port"] = port }.ToQueryString()}#{displayName}"))
+    {
+    }
+
+    /// <summary>Constructor for WiFi/Ethernet OnStep mounts (TCP transport).</summary>
+    public OnStepDevice(DeviceType deviceType, string deviceId, string displayName, string host, int tcpPort)
+        : this(new Uri($"{deviceType}://{typeof(OnStepDevice).Name}/{deviceId}?{new NameValueCollection { ["host"] = host, ["tcp"] = tcpPort.ToString(CultureInfo.InvariantCulture) }.ToQueryString()}#{displayName}"))
+    {
+    }
+
+    protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
+    {
+        DeviceType.Mount => new OnStepMountDriver<OnStepDevice>(this, sp),
+        _ => null
+    };
+
+    /// <summary>
+    /// Picks the transport based on URI shape: <c>host</c> ⇒ TCP, otherwise serial.
+    /// </summary>
+    public override ISerialConnection? ConnectSerialDevice(IExternal external, ILogger logger, ITimeProvider timeProvider, int baud = 9600, Encoding? encoding = null)
+    {
+        var host = Query.QueryValue(DeviceQueryKey.Host);
+        if (host is { Length: > 0 })
+        {
+            var port = int.TryParse(Query["tcp"], NumberStyles.Integer, CultureInfo.InvariantCulture, out var p) ? p : DefaultTcpPort;
+            return new TcpSerialConnection(host, port, encoding ?? Encoding.Latin1, logger);
+        }
+
+        // Serial path: defer to the base, which reads ?port= and ?baud= from the URI.
+        return base.ConnectSerialDevice(external, logger, timeProvider, baud, encoding);
+    }
+}
