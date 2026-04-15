@@ -8,8 +8,7 @@ namespace TianWen.Lib.Extensions;
 public static class AstrometryServiceCollectionExtensions
 {
     /// <summary>
-    /// Adds all implemented plate solvers (as singleton, they are supposed to be stateless).
-    /// Adds an <see cref="ImageAnalyser"/>.
+    /// Adds all implemented plate solvers (as singleton, they are supposed to be stateless), and the celestial object database.
     /// </summary>
     /// <param name="services"></param>
     /// <returns></returns>

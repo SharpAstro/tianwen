@@ -1,6 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using TianWen.Lib.Devices;
 using TianWen.Lib.Extensions;
 using System;
 using System.Collections.Generic;
