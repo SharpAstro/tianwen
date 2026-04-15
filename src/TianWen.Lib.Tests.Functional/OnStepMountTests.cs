@@ -143,6 +143,38 @@ public class OnStepMountTests(ITestOutputHelper outputHelper)
         dec.Value.ShouldBeGreaterThan(0);
     }
 
+    [Fact]
+    public void OnStepDeviceExposesEditableTransportSettings()
+    {
+        // Serial-discovered device: WiFi host is empty, so Port field is visible and tcp is hidden.
+        var serialDevice = new TianWen.Lib.Devices.OnStep.OnStepDevice(DeviceType.Mount, "id", "OnStep (Serial)", port: "COM3");
+
+        var serialSettings = serialDevice.Settings;
+        serialSettings.Length.ShouldBe(3); // port, host, tcp
+
+        var portSetting = serialSettings[0];
+        portSetting.Key.ShouldBe("port");
+        portSetting.IsVisible.ShouldNotBeNull();
+        portSetting.IsVisible!(serialDevice.DeviceUri).ShouldBe(true);
+
+        var hostSetting = serialSettings[1];
+        hostSetting.Key.ShouldBe("host");
+        // Host is always visible.
+        (hostSetting.IsVisible is null || hostSetting.IsVisible(serialDevice.DeviceUri)).ShouldBe(true);
+
+        var tcpSetting = serialSettings[2];
+        tcpSetting.Key.ShouldBe("tcp");
+        tcpSetting.IsVisible.ShouldNotBeNull();
+        tcpSetting.IsVisible!(serialDevice.DeviceUri).ShouldBe(false); // hidden on serial device
+
+        // WiFi-discovered device: host is set, so tcp is visible and port field is hidden.
+        var wifiDevice = new TianWen.Lib.Devices.OnStep.OnStepDevice(DeviceType.Mount, "id", "OnStep (WiFi)", host: "192.168.1.42", tcpPort: 9999);
+
+        wifiDevice.Settings[0].IsVisible!(wifiDevice.DeviceUri).ShouldBe(false); // port hidden
+        (wifiDevice.Settings[1].IsVisible is null || wifiDevice.Settings[1].IsVisible!(wifiDevice.DeviceUri)).ShouldBe(true); // host visible
+        wifiDevice.Settings[2].IsVisible!(wifiDevice.DeviceUri).ShouldBe(true); // tcp visible
+    }
+
     [Theory(Timeout = 60_000)]
     [InlineData(48.2, 16.3)]
     public async Task GivenOnStepMountCapabilitiesAreReportedCorrectly(double siteLat, double siteLong)
