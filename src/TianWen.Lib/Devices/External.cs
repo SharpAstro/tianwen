@@ -68,12 +68,18 @@ internal class External(
 
     public ValueTask<ResourceLock> WaitForSerialPortEnumerationAsync(CancellationToken cancellationToken) => _serialPortEnumerationSemaphore.AcquireLockAsync(cancellationToken);
 
-    public ISerialConnection OpenSerialDevice(string address, int baud, Encoding encoding)
+    public async ValueTask<ISerialConnection> OpenSerialDeviceAsync(string address, int baud, Encoding encoding, CancellationToken cancellationToken = default)
     {
-        return _serialConnections.AddOrUpdate(address,
-            OpenSerialConnection,
-            (portName, existing) => existing.IsOpen ? existing : OpenSerialConnection(portName)
-        );
+        // BCL SerialPort.Open is a synchronous blocking call (opens the OS handle,
+        // queries the line state, etc.) — no real async equivalent exists. Offload
+        // to the thread pool so callers never block a driver thread on a COM port
+        // that takes 10–100 ms (or worse, a stuck USB bridge) to open.
+        return await Task.Run(
+            () => _serialConnections.AddOrUpdate(address,
+                OpenSerialConnection,
+                (portName, existing) => existing.IsOpen ? existing : OpenSerialConnection(portName)
+            ),
+            cancellationToken);
 
         ISerialConnection OpenSerialConnection(string portName) => new SerialConnection(portName, baud, encoding, logger);
     }

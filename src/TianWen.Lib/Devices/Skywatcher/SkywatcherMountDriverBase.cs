@@ -568,12 +568,12 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
 
     #region Connection
 
-    protected override Task<(bool Success, int ConnectionId, SkywatcherDeviceInfo DeviceInfo)> DoConnectDeviceAsync(CancellationToken cancellationToken)
+    protected override async Task<(bool Success, int ConnectionId, SkywatcherDeviceInfo DeviceInfo)> DoConnectDeviceAsync(CancellationToken cancellationToken)
     {
         ISerialConnection? serialDevice;
         try
         {
-            if (_device.ConnectSerialDevice(External, Logger, TimeProvider, encoding: _encoding) is { IsOpen: true } openedConnection)
+            if (await _device.ConnectSerialDeviceAsync(External, Logger, TimeProvider, encoding: _encoding, cancellationToken: cancellationToken) is { IsOpen: true } openedConnection)
             {
                 serialDevice = openedConnection;
             }
@@ -590,11 +590,11 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
 
         if (serialDevice is not null)
         {
-            return Task.FromResult((true, CONNECTION_ID_EXCLUSIVE, new SkywatcherDeviceInfo(serialDevice)));
+            return (true, CONNECTION_ID_EXCLUSIVE, new SkywatcherDeviceInfo(serialDevice));
         }
         else
         {
-            return Task.FromResult((false, CONNECTION_ID_UNKNOWN, default(SkywatcherDeviceInfo)));
+            return (false, CONNECTION_ID_UNKNOWN, default(SkywatcherDeviceInfo));
         }
     }
 

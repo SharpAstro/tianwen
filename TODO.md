@@ -201,13 +201,7 @@
 
 ## Code Quality / Architecture
 
-- [ ] **Async transport layer — make `ConnectSerialDevice` async at heart.** I/O belongs async. Today `DeviceBase.ConnectSerialDevice` returns `ISerialConnection?` synchronously; `TcpSerialConnection` ctor blocks on `connectTask.Wait(3s)`, and `SerialConnection` ctor blocks on the COM-port open. Refactor:
-  - `DeviceBase.ConnectSerialDeviceAsync(...) : ValueTask<ISerialConnection?>` (rename + make virtual-async)
-  - `IExternal.OpenSerialDeviceAsync(port, baud, encoding, ct) : ValueTask<ISerialConnection>`
-  - `TcpSerialConnection`: static `CreateAsync(host, port, encoding, logger, ct)` factory that awaits `TcpClient.ConnectAsync` cooperatively; make ctor private
-  - `SerialConnection`: run the synchronous `SerialPort.Open` on `Task.Run` or use `System.IO.Ports.SerialPort` with cooperative open where supported
-  - Fan out through every subclass override: `MeadeDevice`, `OnStepDevice`, `SkywatcherDevice`, `FakeDevice`, `SgpDevice`, `IOptronDevice`, plus every `DoConnectDeviceAsync` that calls it (`MeadeLX200ProtocolMountDriverBase`, `SgpMountDriverBase`, `SkywatcherMountDriverBase`, `QHYFocuserDriver`, `QHYSerialControlledFilterWheelDriver`, etc.)
-  - One cross-cutting PR; removes the last blocking call on the mount-connect hot path and makes WiFi connect behave correctly under cancellation
+- [x] **Async transport layer — `ConnectSerialDevice` is async at heart now.** Done: `DeviceBase.ConnectSerialDeviceAsync` returns `ValueTask<ISerialConnection?>`; `IExternal.OpenSerialDeviceAsync` wraps the synchronous BCL `SerialPort.Open` in `Task.Run` so no driver thread blocks; `TcpSerialConnection.CreateAsync` awaits `TcpClient.ConnectAsync` cooperatively with a cancellable 3 s timeout; every override (`MeadeDevice` via base, `OnStepDevice`, `SkywatcherDevice`, `FakeDevice`, `IOptronDevice`) and every caller (`MeadeLX200ProtocolMountDriverBase`, `SgpMountDriverBase`, `SkywatcherMountDriverBase`, `QHYFocuserDriver`, `QHYSerialControlledFilterWheelDriver`, 5 device-source scanners) updated in one commit.
 - [ ] **Signal handler cleanup — route, don't implement.** Audit of `AppSignalHandler.cs` against the CLAUDE.md rule found these violations:
   - [ ] `StartSessionSignal` (~line 1230) — **violates** — inlines transform construction, schedule→observations copy loop, `config with { ... }` site+setpoint injection, factory init+create. Extract `SessionBootstrapper.BuildAndStartAsync(plannerState, sessionState, liveSessionState, profile, factory, tracker, ct)` or `LiveSessionActions`
   - [ ] `TakePreviewSignal` (~line 1385) — **violates** — full camera-capture sequence (gain, binning, start exposure, `while` loop polling `GetImageReadyAsync`). Extract `EquipmentActions.CapturePreviewAsync(camera, sig, timeProvider, ct)`

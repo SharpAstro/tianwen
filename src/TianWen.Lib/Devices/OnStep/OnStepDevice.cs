@@ -4,6 +4,8 @@ using System.Collections.Immutable;
 using System.Collections.Specialized;
 using System.Globalization;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using TianWen.Lib;
 using TianWen.Lib.Connections;
 
@@ -68,17 +70,19 @@ public record OnStepDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 
     /// <summary>
     /// Picks the transport based on URI shape: <c>host</c> ⇒ TCP, otherwise serial.
+    /// Fully async — no thread pool thread blocks during the TCP 3-way handshake
+    /// or the serial port open.
     /// </summary>
-    public override ISerialConnection? ConnectSerialDevice(IExternal external, ILogger logger, ITimeProvider timeProvider, int baud = 9600, Encoding? encoding = null)
+    public override async ValueTask<ISerialConnection?> ConnectSerialDeviceAsync(IExternal external, ILogger logger, ITimeProvider timeProvider, int baud = 9600, Encoding? encoding = null, CancellationToken cancellationToken = default)
     {
         var host = Query.QueryValue(DeviceQueryKey.Host);
         if (host is { Length: > 0 })
         {
             var port = int.TryParse(Query["tcp"], NumberStyles.Integer, CultureInfo.InvariantCulture, out var p) ? p : DefaultTcpPort;
-            return new TcpSerialConnection(host, port, encoding ?? Encoding.Latin1, logger);
+            return await TcpSerialConnection.CreateAsync(host, port, encoding ?? Encoding.Latin1, logger, cancellationToken);
         }
 
         // Serial path: defer to the base, which reads ?port= and ?baud= from the URI.
-        return base.ConnectSerialDevice(external, logger, timeProvider, baud, encoding);
+        return await base.ConnectSerialDeviceAsync(external, logger, timeProvider, baud, encoding, cancellationToken);
     }
 }

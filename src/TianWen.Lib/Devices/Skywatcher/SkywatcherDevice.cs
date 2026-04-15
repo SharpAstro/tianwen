@@ -3,6 +3,8 @@ using System;
 using System.Collections.Specialized;
 using System.Net;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using TianWen.Lib;
 using TianWen.Lib.Connections;
 
@@ -27,7 +29,7 @@ public record SkywatcherDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         _ => null
     };
 
-    public override ISerialConnection? ConnectSerialDevice(IExternal external, ILogger logger, ITimeProvider timeProvider, int baud = SkywatcherProtocol.DEFAULT_LEGACY_BAUD, Encoding? encoding = null)
+    public override async ValueTask<ISerialConnection?> ConnectSerialDeviceAsync(IExternal external, ILogger logger, ITimeProvider timeProvider, int baud = SkywatcherProtocol.DEFAULT_LEGACY_BAUD, Encoding? encoding = null, CancellationToken cancellationToken = default)
     {
         var port = Query.QueryValue(DeviceQueryKey.Port);
         if (port is null)
@@ -35,7 +37,8 @@ public record SkywatcherDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
             return null;
         }
 
-        // WiFi transport: port is an IPv4 address
+        // WiFi transport: port is an IPv4 address. UDP "connect" is actually a socket
+        // bind — no network round-trip — so the ctor is still cheap. No CreateAsync needed.
         if (IPAddress.TryParse(port, out _))
         {
             return new SkywatcherUdpConnection(port, SkywatcherProtocol.WIFI_PORT, encoding ?? Encoding.ASCII, logger);
@@ -47,6 +50,6 @@ public record SkywatcherDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
             baud = uriBaud;
         }
 
-        return external.OpenSerialDevice(port, baud, encoding ?? Encoding.ASCII);
+        return await external.OpenSerialDeviceAsync(port, baud, encoding ?? Encoding.ASCII, cancellationToken);
     }
 }

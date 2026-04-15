@@ -19,13 +19,13 @@ namespace TianWen.Lib.Connections;
 /// per datagram for free, TCP is a byte stream — we buffer until we hit a
 /// terminator or read the requested exact byte count.
 ///
-/// The connection opens lazily in the constructor (synchronously, with a short
-/// connect timeout) so that <see cref="IsOpen"/> reflects reality immediately
-/// after construction, matching the <see cref="SerialConnection"/> contract.
+/// Construct via <see cref="CreateAsync"/> so the TCP connect is truly async
+/// and cancellable — no thread pool thread is blocked during the ~100 ms–3 s
+/// handshake.
 /// </summary>
 internal sealed class TcpSerialConnection : ISerialConnection
 {
-    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan DefaultConnectTimeout = TimeSpan.FromSeconds(3);
 
     private readonly TcpClient _client;
     private readonly NetworkStream _stream;
@@ -39,16 +39,37 @@ internal sealed class TcpSerialConnection : ISerialConnection
     private int _readBufferStart;
     private int _readBufferEnd;
 
-    public TcpSerialConnection(string host, int port, Encoding encoding, ILogger logger)
+    private TcpSerialConnection(TcpClient client, NetworkStream stream, IPEndPoint remoteEndPoint, Encoding encoding, ILogger logger)
     {
+        _client = client;
+        _stream = stream;
+        _remoteEndPoint = remoteEndPoint;
         Encoding = encoding;
         _logger = logger;
+        IsOpen = true;
+    }
 
-        if (!IPAddress.TryParse(host, out var ipAddress))
+    /// <summary>
+    /// Opens a TCP connection asynchronously. Resolves DNS names (e.g. <c>onstep.local</c>)
+    /// cooperatively, awaits <see cref="TcpClient.ConnectAsync(IPAddress, int)"/> with a
+    /// cancellable timeout, and never blocks a thread pool thread.
+    /// </summary>
+    public static async ValueTask<TcpSerialConnection> CreateAsync(
+        string host,
+        int port,
+        Encoding encoding,
+        ILogger logger,
+        CancellationToken cancellationToken = default)
+    {
+        IPAddress ipAddress;
+        if (IPAddress.TryParse(host, out var parsed))
         {
-            // Resolve hostname (e.g. mDNS name "onstep.local") synchronously here —
-            // discovery already resolved IPs but allow direct hostname URIs too.
-            var addresses = Dns.GetHostAddresses(host);
+            ipAddress = parsed;
+        }
+        else
+        {
+            // Cooperative DNS resolution for mDNS hostnames / user-supplied names.
+            var addresses = await Dns.GetHostAddressesAsync(host, cancellationToken);
             if (addresses.Length is 0)
             {
                 throw new InvalidOperationException($"Failed to resolve host '{host}'");
@@ -56,22 +77,31 @@ internal sealed class TcpSerialConnection : ISerialConnection
             ipAddress = addresses[0];
         }
 
-        _remoteEndPoint = new IPEndPoint(ipAddress, port);
-        _client = new TcpClient { NoDelay = true };
+        var remoteEndPoint = new IPEndPoint(ipAddress, port);
+        var client = new TcpClient { NoDelay = true };
 
-        // Synchronous connect with timeout — keeps the constructor contract
-        // simple. Long-lived TCP connections amortise this once-per-session cost.
-        var connectTask = _client.ConnectAsync(_remoteEndPoint.Address, _remoteEndPoint.Port);
-        if (!connectTask.Wait(ConnectTimeout))
+        try
         {
-            _client.Dispose();
-            throw new TimeoutException($"TCP connect to {_remoteEndPoint} timed out after {ConnectTimeout.TotalSeconds:F0}s");
+            using var timeoutCts = new CancellationTokenSource(DefaultConnectTimeout);
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+            await client.ConnectAsync(remoteEndPoint.Address, remoteEndPoint.Port, linkedCts.Token);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Timeout (not caller cancellation) — surface as a clearer error.
+            client.Dispose();
+            throw new TimeoutException($"TCP connect to {remoteEndPoint} timed out after {DefaultConnectTimeout.TotalSeconds:F0}s");
+        }
+        catch
+        {
+            client.Dispose();
+            throw;
         }
 
-        _stream = _client.GetStream();
-        _stream.ReadTimeout = 2000;
-        _stream.WriteTimeout = 2000;
-        IsOpen = true;
+        var stream = client.GetStream();
+        stream.ReadTimeout = 2000;
+        stream.WriteTimeout = 2000;
+        return new TcpSerialConnection(client, stream, remoteEndPoint, encoding, logger);
     }
 
     public bool IsOpen { get; private set; }

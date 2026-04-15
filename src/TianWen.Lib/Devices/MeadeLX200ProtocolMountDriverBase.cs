@@ -939,12 +939,12 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
     public virtual ValueTask UnparkAsync(CancellationToken cancellationToken) => throw new InvalidOperationException("Unparking is not supported");
 
-    protected override Task<(bool Success, int ConnectionId, MountDeviceInfo DeviceInfo)> DoConnectDeviceAsync(CancellationToken cancellationToken)
+    protected override async Task<(bool Success, int ConnectionId, MountDeviceInfo DeviceInfo)> DoConnectDeviceAsync(CancellationToken cancellationToken)
     {
         ISerialConnection? serialDevice;
         try
         {
-            if (_device.ConnectSerialDevice(External, Logger, TimeProvider, encoding: _encoding) is { IsOpen: true } openedConnection)
+            if (await _device.ConnectSerialDeviceAsync(External, Logger, TimeProvider, encoding: _encoding, cancellationToken: cancellationToken) is { IsOpen: true } openedConnection)
             {
                 serialDevice = openedConnection;
             }
@@ -961,11 +961,11 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
 
         if (serialDevice is not null)
         {
-            return Task.FromResult((true, CONNECTION_ID_EXCLUSIVE, new MountDeviceInfo(serialDevice)));
+            return (true, CONNECTION_ID_EXCLUSIVE, new MountDeviceInfo(serialDevice));
         }
         else
         {
-            return Task.FromResult((false, CONNECTION_ID_UNKNOWN, default(MountDeviceInfo)));
+            return (false, CONNECTION_ID_UNKNOWN, default(MountDeviceInfo));
         }
     }
 

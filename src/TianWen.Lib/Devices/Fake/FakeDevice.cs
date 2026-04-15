@@ -4,6 +4,8 @@ using System.Collections.Immutable;
 using System.Collections.Specialized;
 using System.Text;
 using System.Text.Json.Serialization;
+using System.Threading;
+using System.Threading.Tasks;
 using TianWen.Lib;
 using TianWen.Lib.Connections;
 
@@ -105,18 +107,19 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         return new FakeMountDriver(this, sp);
     }
 
-    public override ISerialConnection? ConnectSerialDevice(IExternal external, ILogger logger, ITimeProvider timeProvider, int baud = 9600, Encoding? encoding = null) => DeviceType switch
-    {
-        DeviceType.Mount when string.Equals(Query.QueryValue(DeviceQueryKey.Port), "SGP", StringComparison.OrdinalIgnoreCase)
-            => new FakeSgpSerialDevice(logger, encoding ?? Encoding.ASCII, timeProvider, SiteLatitude >= 0, true),
-        DeviceType.Mount when string.Equals(Query.QueryValue(DeviceQueryKey.Port), "SkyWatcher", StringComparison.OrdinalIgnoreCase)
-            => new FakeSkywatcherSerialDevice(logger, encoding ?? Encoding.ASCII, timeProvider, true),
-        DeviceType.Mount when string.Equals(Query.QueryValue(DeviceQueryKey.Port), "OnStep", StringComparison.OrdinalIgnoreCase)
-            => new FakeOnStepSerialDevice(logger, encoding ?? Encoding.Latin1, timeProvider, SiteLatitude, SiteLongitude, true),
-        DeviceType.Mount
-            => new FakeMeadeLX200SerialDevice(logger, encoding ?? Encoding.Latin1, timeProvider, SiteLatitude, SiteLongitude, true),
-        _ => null
-    };
+    public override ValueTask<ISerialConnection?> ConnectSerialDeviceAsync(IExternal external, ILogger logger, ITimeProvider timeProvider, int baud = 9600, Encoding? encoding = null, CancellationToken cancellationToken = default)
+        => ValueTask.FromResult<ISerialConnection?>(DeviceType switch
+        {
+            DeviceType.Mount when string.Equals(Query.QueryValue(DeviceQueryKey.Port), "SGP", StringComparison.OrdinalIgnoreCase)
+                => new FakeSgpSerialDevice(logger, encoding ?? Encoding.ASCII, timeProvider, SiteLatitude >= 0, true),
+            DeviceType.Mount when string.Equals(Query.QueryValue(DeviceQueryKey.Port), "SkyWatcher", StringComparison.OrdinalIgnoreCase)
+                => new FakeSkywatcherSerialDevice(logger, encoding ?? Encoding.ASCII, timeProvider, true),
+            DeviceType.Mount when string.Equals(Query.QueryValue(DeviceQueryKey.Port), "OnStep", StringComparison.OrdinalIgnoreCase)
+                => new FakeOnStepSerialDevice(logger, encoding ?? Encoding.Latin1, timeProvider, SiteLatitude, SiteLongitude, true),
+            DeviceType.Mount
+                => new FakeMeadeLX200SerialDevice(logger, encoding ?? Encoding.Latin1, timeProvider, SiteLatitude, SiteLongitude, true),
+            _ => null
+        });
 
     [JsonIgnore]
     private double SiteLatitude => double.TryParse(Query.QueryValue(DeviceQueryKey.Latitude), out var latitude) ? latitude : throw new InvalidOperationException("Failed to parse latitude");
