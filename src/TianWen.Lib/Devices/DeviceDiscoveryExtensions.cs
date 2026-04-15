@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Specialized;
+using System.Web;
 
 namespace TianWen.Lib.Devices;
 
@@ -9,13 +11,17 @@ public static class DeviceDiscoveryExtensions
         /// <summary>
         /// Cross-references a stored device URI against the current discovery cache.
         /// If a live candidate exists with the same identity (scheme + authority + path,
-        /// i.e. matching <see cref="DeviceBase.DeviceId"/>) but a different query, returns
-        /// the live URI. Otherwise returns the input URI unchanged.
+        /// i.e. matching <see cref="DeviceBase.DeviceId"/>), merges the two query strings:
+        /// transport params (port / host / baud / deviceNumber) come from discovery so
+        /// they track the OS / network's current assignment, while user-configured params
+        /// (site coordinates, filter slot names, gain, etc.) are preserved from the stored
+        /// URI so a device source that advertises default values can't clobber user edits.
         /// <para>
-        /// Fixes the "I replugged the USB to a different hub and now COM5 is COM6" class of
-        /// bug, and the analogous "WiFi mount got a new DHCP lease" case: the deviceId stays
-        /// stable (mount-resident UUID, MAC, etc.), but the transport query parameters need
-        /// to track the OS's or network's current assignment.
+        /// Fixes two classes of bug:
+        /// <list type="bullet">
+        ///   <item>"I replugged USB to a different hub and now COM5 is COM6" — transport drift.</item>
+        ///   <item>"Discovery published default latitude=48.2 and reset my site to it" — user-config clobber.</item>
+        /// </list>
         /// </para>
         /// </summary>
         public Uri ReconcileUri(Uri storedUri)
@@ -33,10 +39,12 @@ public static class DeviceDiscoveryExtensions
                     continue;
                 }
 
-                // Same device identity. A different URI means the query params drifted
-                // (new port / new IP) — discovered URI wins because it reflects current
-                // OS / network state.
-                return candidate.DeviceUri != storedUri ? candidate.DeviceUri : storedUri;
+                if (candidate.DeviceUri == storedUri)
+                {
+                    return storedUri;
+                }
+
+                return MergeDiscoveredIntoStored(storedUri, candidate.DeviceUri);
             }
 
             return storedUri;
@@ -100,5 +108,67 @@ public static class DeviceDiscoveryExtensions
                 OTAs = otasChanged ? [.. reconciledOtas] : data.OTAs,
             }, true);
         }
+    }
+
+    /// <summary>
+    /// Merges the query strings of <paramref name="storedUri"/> and <paramref name="discoveredUri"/>
+    /// into a new URI. Both URIs MUST share the same scheme + authority + path.
+    /// <para>
+    /// Rules per query key:
+    /// <list type="bullet">
+    ///   <item>Present only in stored, or present in both as user-config (per <see cref="DeviceQueryKeyExtensions.IsTransportKey"/>):
+    ///     keep the stored value, so user edits (site coordinates, filter slot names, etc.) survive reconcile.</item>
+    ///   <item>Present in discovered as transport (port, host, baud, deviceNumber):
+    ///     use the discovered value, so OS-assigned transport state refreshes.</item>
+    ///   <item>Present only in discovered (regardless of classification):
+    ///     use the discovered value — nothing to preserve in stored.</item>
+    /// </list>
+    /// </para>
+    /// </summary>
+    internal static Uri MergeDiscoveredIntoStored(Uri storedUri, Uri discoveredUri)
+    {
+        var storedQuery = HttpUtility.ParseQueryString(storedUri.Query);
+        var discoveredQuery = HttpUtility.ParseQueryString(discoveredUri.Query);
+
+        // If discovered advertises any transport state at all, the stored transport
+        // snapshot is considered stale (e.g. serial -> WiFi flip, or port reassignment),
+        // and ALL of stored's transport keys are dropped so discovered can fill cleanly.
+        // Otherwise we keep stored's transport as a best-effort fallback.
+        var discoveredHasTransport = false;
+        foreach (string? k in discoveredQuery.AllKeys)
+        {
+            if (k is not null && DeviceQueryKeyExtensions.IsTransportKey(k))
+            {
+                discoveredHasTransport = true;
+                break;
+            }
+        }
+
+        var merged = new NameValueCollection();
+
+        // 1. Copy stored keys, but skip stored transport when discovered has fresher transport.
+        foreach (string? key in storedQuery.AllKeys)
+        {
+            if (key is null) continue;
+            if (discoveredHasTransport && DeviceQueryKeyExtensions.IsTransportKey(key))
+            {
+                continue;
+            }
+            merged[key] = storedQuery[key];
+        }
+
+        // 2. Overlay discovered: transport keys always win; non-transport only fills gaps
+        //    (never overwrites user-set values).
+        foreach (string? key in discoveredQuery.AllKeys)
+        {
+            if (key is null) continue;
+            if (DeviceQueryKeyExtensions.IsTransportKey(key) || merged[key] is null)
+            {
+                merged[key] = discoveredQuery[key];
+            }
+        }
+
+        var builder = new UriBuilder(storedUri) { Query = merged.ToQueryString() };
+        return builder.Uri;
     }
 }

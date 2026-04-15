@@ -662,6 +662,112 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     public int HipStarCount => _hipToTyc?.Length ?? 0;
 
     /// <inheritdoc/>
+    public int Tycho2StarCount => _tycho2StarCount;
+
+    /// <summary>
+    /// Cached total star count across all Tycho-2 streams. Populated lazily on
+    /// first access and after the binary data is loaded.
+    /// </summary>
+    private int _tycho2StarCount;
+
+    /// <summary>
+    /// Ensure <see cref="_tycho2StarCount"/> reflects the loaded binary. Counts
+    /// 13-byte records in each per-stream range once and caches the result.
+    /// </summary>
+    private void EnsureTycho2StarCount()
+    {
+        if (_tycho2StarCount > 0 || _tycho2Data is null || _tycho2StreamCount == 0)
+        {
+            return;
+        }
+
+        const int entrySize = 13;
+        var data = _tycho2Data.AsSpan();
+        var total = 0;
+        for (int gscIdx = 0; gscIdx < _tycho2StreamCount; gscIdx++)
+        {
+            var startOffset = BinaryPrimitives.ReadInt32LittleEndian(data[((gscIdx + 1) * 4)..]);
+            var endOffset = gscIdx + 1 < _tycho2StreamCount
+                ? BinaryPrimitives.ReadInt32LittleEndian(data[((gscIdx + 2) * 4)..])
+                : _tycho2Data.Length;
+            total += (endOffset - startOffset) / entrySize;
+        }
+        _tycho2StarCount = total;
+    }
+
+    /// <inheritdoc/>
+    public int CopyTycho2Stars(Span<Tycho2StarLite> destination, int startIndex = 0)
+    {
+        EnsureTycho2StarCount();
+        if (_tycho2Data is null || destination.IsEmpty || startIndex < 0 || startIndex >= _tycho2StarCount)
+        {
+            return 0;
+        }
+
+        const int entrySize = 13;
+        var data = _tycho2Data.AsSpan();
+
+        // Walk streams in order, skipping the first `startIndex` records and then
+        // writing until the destination fills or the catalog is exhausted.
+        var skip = startIndex;
+        var written = 0;
+        for (int gscIdx = 0; gscIdx < _tycho2StreamCount && written < destination.Length; gscIdx++)
+        {
+            var startOffset = BinaryPrimitives.ReadInt32LittleEndian(data[((gscIdx + 1) * 4)..]);
+            var endOffset = gscIdx + 1 < _tycho2StreamCount
+                ? BinaryPrimitives.ReadInt32LittleEndian(data[((gscIdx + 2) * 4)..])
+                : _tycho2Data.Length;
+            var entryCount = (endOffset - startOffset) / entrySize;
+
+            if (skip >= entryCount)
+            {
+                skip -= entryCount;
+                continue;
+            }
+
+            var streamStart = skip;
+            skip = 0;
+
+            for (int i = streamStart; i < entryCount && written < destination.Length; i++)
+            {
+                var entry = data[(startOffset + i * entrySize)..];
+                // Layout: tyc2 (u16) | tyc3 (u8) | RA f32 | Dec f32 | VT decimag (u8) | BT decimag (u8)
+                var ra  = BinaryPrimitives.ReadSingleLittleEndian(entry[3..]);
+                var dec = BinaryPrimitives.ReadSingleLittleEndian(entry[7..]);
+                var vtDecimag = entry[11];
+                var btDecimag = entry[12];
+
+                float vMag;
+                float bv = 0.65f; // solar-type default when blue channel is missing
+                if (vtDecimag == 0xFF)
+                {
+                    // No VT — skip silently by pushing NaN; callers filter on NaN.
+                    vMag = float.NaN;
+                }
+                else
+                {
+                    var vt = (vtDecimag - 20) / 10.0f;
+                    if (btDecimag != 0xFF)
+                    {
+                        var bt = (btDecimag - 20) / 10.0f;
+                        // Johnson V = VT − 0.090 × (BT − VT); B-V = 0.850 × (BT − VT)
+                        vMag = vt - 0.090f * (bt - vt);
+                        bv = 0.850f * (bt - vt);
+                    }
+                    else
+                    {
+                        vMag = vt;
+                    }
+                }
+
+                destination[written++] = new Tycho2StarLite(ra, dec, vMag, bv);
+            }
+        }
+
+        return written;
+    }
+
+    /// <inheritdoc/>
     public bool TryLookupHIP(int hipNumber, out double ra, out double dec, out float vMag, out float bv)
     {
         ra = 0;

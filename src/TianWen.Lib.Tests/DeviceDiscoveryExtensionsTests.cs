@@ -82,6 +82,49 @@ public class DeviceDiscoveryExtensionsTests
     }
 
     [Fact]
+    public void GivenStoredHasUserSetSiteAndDiscoveredHasDefaultSitePreservesUserSite()
+    {
+        // Reproduces the real-world "my latitude keeps getting reset to 48.2" bug:
+        // user edited their site to high-precision 48.21 / 16.37, but the FakeMount
+        // discovery advertises the source-default 48.2 / 16.3. Pre-fix, reconcile
+        // clobbered the user's values; post-fix, user config is preserved while
+        // transport (port) still refreshes from discovery.
+        var storedUserSite = new Uri("Mount://FakeDevice/FakeMount_SkyWatcher?latitude=48.21&longitude=16.37&port=SkyWatcher#Fake Mount (SkyWatcher)");
+        var discoveredDefaults = new Uri("Mount://FakeDevice/FakeMount_SkyWatcher?latitude=48.2&longitude=16.3&port=SkyWatcher#Fake Mount (SkyWatcher)");
+
+        var discovery = new StubDiscovery
+        {
+            MountDevices = [new FakeDeviceRecord(discoveredDefaults)]
+        };
+
+        var resolved = discovery.ReconcileUri(storedUserSite);
+
+        resolved.QueryValue(DeviceQueryKey.Latitude).ShouldBe("48.21", "user's precise latitude must survive reconcile");
+        resolved.QueryValue(DeviceQueryKey.Longitude).ShouldBe("16.37", "user's precise longitude must survive reconcile");
+        resolved.QueryValue(DeviceQueryKey.Port).ShouldBe("SkyWatcher", "transport (port) still reflected from discovery");
+    }
+
+    [Fact]
+    public void GivenStoredHasFilterSlotAndDiscoveredOmitsItPreservesFilterSlot()
+    {
+        // Filter slot keys (filter1..filterN) are user-configured; they must survive
+        // reconcile even when the device source doesn't advertise them.
+        var storedWithFilters = new Uri("FilterWheel://QHYDevice/cfw123?filter1=Luminance&filter2=Red&port=COM7");
+        var discoveredNoFilters = new Uri("FilterWheel://QHYDevice/cfw123?port=COM8");
+
+        var discovery = new StubDiscovery
+        {
+            FilterWheels = [new FakeDeviceRecord(discoveredNoFilters)]
+        };
+
+        var resolved = discovery.ReconcileUri(storedWithFilters);
+
+        resolved.ToString().ShouldContain("filter1=Luminance");
+        resolved.ToString().ShouldContain("filter2=Red");
+        resolved.QueryValue(DeviceQueryKey.Port).ShouldBe("COM8");
+    }
+
+    [Fact]
     public void GivenUnknownDeviceTypeSchemeReturnsStoredUri()
     {
         var discovery = new StubDiscovery();
@@ -164,16 +207,18 @@ public class DeviceDiscoveryExtensionsTests
     {
         public IReadOnlyList<DeviceBase> Mounts { get; set; } = [];
         public IReadOnlyList<DeviceBase> Cameras { get; set; } = [];
+        public IReadOnlyList<DeviceBase> FilterWheels { get; set; } = [];
 
         // Back-compat alias for existing tests.
         public IReadOnlyList<DeviceBase> MountDevices { set => Mounts = value; }
 
-        public IEnumerable<DeviceType> RegisteredDeviceTypes => [DeviceType.Mount, DeviceType.Camera];
+        public IEnumerable<DeviceType> RegisteredDeviceTypes => [DeviceType.Mount, DeviceType.Camera, DeviceType.FilterWheel];
 
         public IEnumerable<DeviceBase> RegisteredDevices(DeviceType deviceType) => deviceType switch
         {
             DeviceType.Mount => Mounts,
             DeviceType.Camera => Cameras,
+            DeviceType.FilterWheel => FilterWheels,
             _ => []
         };
 

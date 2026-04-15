@@ -586,6 +586,10 @@ public class OverlayEngineTests
             return false;
         }
 
+        public int Tycho2StarCount => 0;
+
+        public int CopyTycho2Stars(Span<Tycho2StarLite> destination, int startIndex = 0) => 0;
+
         public bool TryLookupByIndex(CatalogIndex index, out CelestialObject celestialObject)
         {
             return _objects.TryGetValue(index, out celestialObject);
