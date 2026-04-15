@@ -204,42 +204,10 @@ public sealed class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposa
 
     protected override void DrawEllipseOverlay(float cx, float cy,
         float semiMajor, float semiMinor, float angleRad, RGBAColor32 color, float thickness)
-    {
-        var cosA = MathF.Cos(angleRad);
-        var sinA = MathF.Sin(angleRad);
-        var bboxW = MathF.Sqrt(semiMajor * semiMajor * cosA * cosA + semiMinor * semiMinor * sinA * sinA);
-        var bboxH = MathF.Sqrt(semiMajor * semiMajor * sinA * sinA + semiMinor * semiMinor * cosA * cosA);
-
-        var rect = new RectInt(
-            new PointInt((int)(cx + bboxW), (int)(cy + bboxH)),
-            new PointInt((int)(cx - bboxW), (int)(cy - bboxH)));
-
-        if (thickness > 0f)
-        {
-            _renderer.DrawEllipseOutline(rect, color, thickness * DpiScale);
-        }
-        else
-        {
-            _renderer.FillEllipse(rect, color);
-        }
-    }
+        => VkOverlayShapes.DrawEllipse(_renderer, DpiScale, cx, cy, semiMajor, semiMinor, angleRad, color, thickness);
 
     protected override void DrawCrossOverlay(float cx, float cy, float armLength, RGBAColor32 color)
-    {
-        var thickness = Math.Max(1, (int)DpiScale);
-
-        // Horizontal arm
-        var hRect = new RectInt(
-            new PointInt((int)(cx + armLength), (int)(cy + thickness)),
-            new PointInt((int)(cx - armLength), (int)(cy - thickness)));
-        _renderer.FillRectangle(hRect, color);
-
-        // Vertical arm
-        var vRect = new RectInt(
-            new PointInt((int)(cx + thickness), (int)(cy + armLength)),
-            new PointInt((int)(cx - thickness), (int)(cy - armLength)));
-        _renderer.FillRectangle(vRect, color);
-    }
+        => VkOverlayShapes.DrawCross(_renderer, DpiScale, cx, cy, armLength, color);
 
     public void Dispose()
     {

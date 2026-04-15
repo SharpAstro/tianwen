@@ -100,12 +100,31 @@ namespace TianWen.UI.Abstractions
 
             DrawPlanetLabels(db, timeProvider, siteLat, siteLon, contentRect, fontPath, fontSize, ppr, cx, cy, site, dimBelowHorizon);
 
+            if (State.ShowObjectOverlay)
+            {
+                RenderObjectOverlay(db, contentRect, dpiScale, fontPath, BaseFontSize, site, dimBelowHorizon);
+            }
+
             DrawInfoStrip(contentRect, fontPath, fontSize, dpiScale, cx, cy);
 
             // Crosshair
             var crossColor = new RGBAColor32(0xFF, 0xFF, 0xFF, 0x40);
             FillRect(cx - 10, cy, 20, 1, crossColor);
             FillRect(cx, cy - 10, 1, 20, crossColor);
+        }
+
+        /// <summary>
+        /// Override in the GPU subclass to draw the <c>[O]</c> object overlay (ellipses
+        /// for DSOs, crosses for named stars, plus labels with collision avoidance).
+        /// Base implementation is a no-op — the software / TUI fallback does not render
+        /// shape markers. Uses <see cref="Overlays.OverlayEngine.ComputeSkyMapOverlays"/>
+        /// to compute items and <see cref="Overlays.OverlayEngine.PlaceLabels"/> for label
+        /// placement, both shared with the FITS viewer.
+        /// </summary>
+        protected virtual void RenderObjectOverlay(
+            ICelestialObjectDB db, RectF32 contentRect, float dpiScale, string fontPath,
+            float baseFontSize, SiteContext site, bool dimBelowHorizon)
+        {
         }
 
         /// <summary>
@@ -341,7 +360,7 @@ namespace TianWen.UI.Abstractions
                 ? $"FOV: {State.FieldOfViewDeg * 60:F0}'"
                 : $"FOV: {State.FieldOfViewDeg:F1}\u00B0";
             var modeLabel = State.Mode == SkyMapMode.Equatorial ? "EQ" : "AZ";
-            var info = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0    {fovText}    [{modeLabel}]  [H]orizon [G]rid [A]lt/Az [B]oundaries [C]onst [P]roj";
+            var info = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0    {fovText}    [{modeLabel}]  [H]orizon [G]rid [A]lt/Az [B]oundaries [C]onst [P]roj [O]bjects";
 
             DrawText(info.AsSpan(), fontPath,
                 rect.X + 8, stripY, rect.Width - 16, stripH,
@@ -513,6 +532,10 @@ namespace TianWen.UI.Abstractions
                     return true;
                 case InputKey.A:
                     State.ShowAltAzGrid = !State.ShowAltAzGrid;
+                    State.NeedsRedraw = true;
+                    return true;
+                case InputKey.O:
+                    State.ShowObjectOverlay = !State.ShowObjectOverlay;
                     State.NeedsRedraw = true;
                     return true;
                 case InputKey.P:

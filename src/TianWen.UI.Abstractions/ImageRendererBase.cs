@@ -1029,84 +1029,39 @@ namespace TianWen.UI.Abstractions
 
             var labelSize = FontSize * 0.85f;
             var labelPad = 4f;
-            var placedLabels = new List<(float X, float Y, float W, float H)>();
-            var labelCount = 0;
 
+            // Draw markers first (brightest-first order is preserved by the engine)
             foreach (var item in items)
             {
                 var (r, g, b) = item.Color;
-                var cx = item.ScreenX;
-                var cy = item.ScreenY;
-
-                // Draw marker
                 switch (item.Marker)
                 {
                     case OverlayMarker.Ellipse ellipse:
-                        DrawEllipseOverlay(cx, cy, ellipse.SemiMajorPx, ellipse.SemiMinorPx, ellipse.AngleRad,
+                        DrawEllipseOverlay(item.ScreenX, item.ScreenY,
+                            ellipse.SemiMajorPx, ellipse.SemiMinorPx, ellipse.AngleRad,
                             FloatToColor(r, g, b, 1.0f), 1.5f);
                         break;
                     case OverlayMarker.Cross cross:
-                        DrawCrossOverlay(cx, cy, cross.ArmPx,
+                        DrawCrossOverlay(item.ScreenX, item.ScreenY, cross.ArmPx,
                             FloatToColor(r, g, b, 1.0f));
                         break;
                     case OverlayMarker.Circle circle:
-                        DrawEllipseOverlay(cx, cy, circle.RadiusPx, circle.RadiusPx, 0f,
+                        DrawEllipseOverlay(item.ScreenX, item.ScreenY,
+                            circle.RadiusPx, circle.RadiusPx, 0f,
                             FloatToColor(r, g, b, 0.9f), 1.5f);
                         break;
                 }
-
-                // Place labels with collision avoidance
-                if (labelCount < OverlayEngine.MaxOverlayLabels && item.LabelLines.Count > 0)
-                {
-                    var maxLineW = 0f;
-                    foreach (var line in item.LabelLines)
-                    {
-                        var w = MeasureText(line, labelSize);
-                        if (w > maxLineW) maxLineW = w;
-                    }
-                    var lineH = labelSize * 1.2f;
-                    var totalH = lineH * item.LabelLines.Count;
-
-                    (float X, float Y)[] positions =
-                    [
-                        (cx + labelPad + 6f, cy - totalH / 2f),
-                        (cx - maxLineW - labelPad - 6f, cy - totalH / 2f),
-                        (cx - maxLineW / 2f, cy - totalH - labelPad - 6f),
-                        (cx - maxLineW / 2f, cy + labelPad + 6f),
-                    ];
-
-                    var placed = false;
-                    foreach (var (lx, ly) in positions)
-                    {
-                        var overlaps = false;
-                        foreach (var (px, py, pw, ph) in placedLabels)
-                        {
-                            if (lx < px + pw && lx + maxLineW > px && ly < py + ph && ly + totalH > py)
-                            {
-                                overlaps = true;
-                                break;
-                            }
-                        }
-
-                        if (!overlaps)
-                        {
-                            DrawOverlayLabelLines(item.LabelLines, lx, ly, lineH, labelSize, r, g, b);
-                            placedLabels.Add((lx, ly, maxLineW, totalH));
-                            placed = true;
-                            labelCount++;
-                            break;
-                        }
-                    }
-
-                    if (!placed && item.ForcePlaceLabel)
-                    {
-                        var (fx, fy) = positions[0];
-                        DrawOverlayLabelLines(item.LabelLines, fx, fy, lineH, labelSize, r, g, b);
-                        placedLabels.Add((fx, fy, maxLineW, totalH));
-                        labelCount++;
-                    }
-                }
             }
+
+            // Label placement + collision avoidance is shared with the sky map object
+            // overlay (see OverlayEngine.PlaceLabels).
+            var lineH = labelSize * 1.2f;
+            OverlayEngine.PlaceLabels(items, labelSize, labelPad, MeasureText,
+                (item, lx, ly) =>
+                {
+                    var (r, g, b) = item.Color;
+                    DrawOverlayLabelLines(item.LabelLines, lx, ly, lineH, labelSize, r, g, b);
+                });
         }
 
         private void DrawOverlayLabelLines(IReadOnlyList<string> lines, float x, float y, float lineH, float fontSize, float r, float g, float b)
