@@ -1,0 +1,16 @@
+<Project>
+
+  <!--
+    Auto-generate TianWen.local.slnx when sibling repos are present.
+    This adds DIR.Lib, Console.Lib, and SdlVulkan.Renderer as solution projects
+    so Visual Studio can navigate into their source (Go To Definition, etc.).
+    Open TianWen.local.slnx instead of TianWen.slnx for local development.
+    CI uses TianWen.slnx which has no sibling references.
+  -->
+  <Target Name="_GenerateLocalSolution"
+          Condition="'$(UseLocalSiblings)' == 'true' AND !Exists('$(MSBuildThisFileDirectory)TianWen.local.slnx')"
+          BeforeTargets="Restore;CollectPackageReferences">
+    <Exec Command="pwsh -NoProfile -NonInteractive -File &quot;$(MSBuildThisFileDirectory)generate-local-slnx.ps1&quot; -BaseSlnx &quot;$(MSBuildThisFileDirectory)TianWen.slnx&quot; -LocalSlnx &quot;$(MSBuildThisFileDirectory)TianWen.local.slnx&quot;" />
+  </Target>
+
+</Project>
