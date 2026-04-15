@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using SdlVulkan.Renderer;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.UI.Abstractions;
 using Vortice.ShaderCompiler;
@@ -855,29 +856,47 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     {
         var floats = new List<float>(65536);
 
+        // IAU constellation boundaries are defined in B1875 (Delporte 1930 standard).
+        // Our stars + RA/Dec grid are J2000. Without precession the boundaries sit
+        // ~1.74 degrees offset from the stars they delimit, and the stereographic
+        // projection amplifies that offset non-uniformly across the screen — which
+        // the user perceives as boundaries and stars moving at different speeds
+        // during pan. Precess each tessellated point from B1875 -> J2000.
+        const double FromEpoch = 1875.0;
+        const double ToEpoch = 2000.0;
+
+        static (double RA, double Dec) Precess1875ToJ2000(double ra, double dec)
+            => CoordinateUtils.Precess(ra, dec, FromEpoch, ToEpoch);
+
         foreach (var edge in ConstellationEdges.Edges)
         {
             if (edge.Type == ConstellationEdges.EdgeType.Parallel)
             {
-                // Constant Dec arc from RA1 to RA2
+                // Constant B1875 Dec arc from RA1 to RA2. We tessellate in B1875
+                // (the shape is correct there) and precess each point to J2000
+                // before mapping to the unit sphere.
                 var raRange = edge.RA2 - edge.RA1;
                 if (raRange < -12) raRange += 24;
                 if (raRange > 12) raRange -= 24;
                 var steps = Math.Max(5, (int)(Math.Abs(raRange) * 8));
-                TessellateArc(floats, steps, i => (edge.RA1 + i * raRange / steps, edge.Dec1));
+                TessellateArc(floats, steps, i =>
+                    Precess1875ToJ2000(edge.RA1 + i * raRange / steps, edge.Dec1));
             }
             else if (edge.Type == ConstellationEdges.EdgeType.Meridian)
             {
-                // Constant RA arc from Dec1 to Dec2
+                // Constant B1875 RA arc from Dec1 to Dec2 — precessed per step.
                 var decRange = edge.Dec2 - edge.Dec1;
                 var steps = Math.Max(5, (int)(Math.Abs(decRange) / 2));
-                TessellateArc(floats, steps, i => (edge.RA1, edge.Dec1 + i * decRange / steps));
+                TessellateArc(floats, steps, i =>
+                    Precess1875ToJ2000(edge.RA1, edge.Dec1 + i * decRange / steps));
             }
             else
             {
-                // Straight segment: just two endpoints
-                var (x1, y1, z1) = SkyMapState.RaDecToUnitVec(edge.RA1, edge.Dec1);
-                var (x2, y2, z2) = SkyMapState.RaDecToUnitVec(edge.RA2, edge.Dec2);
+                // Straight segment: just two endpoints, both precessed.
+                var (p1RA, p1Dec) = Precess1875ToJ2000(edge.RA1, edge.Dec1);
+                var (p2RA, p2Dec) = Precess1875ToJ2000(edge.RA2, edge.Dec2);
+                var (x1, y1, z1) = SkyMapState.RaDecToUnitVec(p1RA, p1Dec);
+                var (x2, y2, z2) = SkyMapState.RaDecToUnitVec(p2RA, p2Dec);
                 floats.Add(x1); floats.Add(y1); floats.Add(z1);
                 floats.Add(x2); floats.Add(y2); floats.Add(z2);
             }

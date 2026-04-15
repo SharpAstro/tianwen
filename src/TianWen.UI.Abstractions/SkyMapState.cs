@@ -28,8 +28,11 @@ namespace TianWen.UI.Abstractions
         /// <summary>Full viewport vertical field of view in degrees, range [0.5, 180].</summary>
         public double FieldOfViewDeg { get; set; } = 60.0;
 
-        /// <summary>Display mode: equatorial (RA/Dec grid) or horizon (Alt/Az grid).</summary>
-        public SkyMapMode Mode { get; set; } = SkyMapMode.Equatorial;
+        /// <summary>Display mode: equatorial (RA/Dec grid) or horizon (Alt/Az grid).
+        /// Defaults to Horizon — keeps the horizon line horizontal and zenith up, which
+        /// matches how most users naturally navigate ("look north-east", "high in the
+        /// south") rather than by abstract RA/Dec coordinates.</summary>
+        public SkyMapMode Mode { get; set; } = SkyMapMode.Horizon;
 
         // Display toggles
         /// <summary>Show constellation boundary outlines (B key).</summary>
@@ -45,6 +48,13 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>Show Alt/Az coordinate grid (A key toggles mode + grid).</summary>
         public bool ShowAltAzGrid { get; set; }
+
+        /// <summary>
+        /// Show the catalog object overlay (Messier / NGC / IC / named stars) — same
+        /// overlay as the FITS viewer's <c>[O]</c> toggle. Off by default because the
+        /// sky map is already dense with stars and constellation figures.
+        /// </summary>
+        public bool ShowObjectOverlay { get; set; }
 
         /// <summary>Cached view matrix, updated each frame by the rendering layer.</summary>
         public Matrix4x4 CurrentViewMatrix { get; set; } = Matrix4x4.Identity;

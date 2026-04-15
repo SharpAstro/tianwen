@@ -6,6 +6,7 @@ using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
 using TianWen.UI.Abstractions;
+using TianWen.UI.Abstractions.Overlays;
 using TianWen.UI.Shared;
 
 namespace TianWen.UI.Gui;
@@ -111,6 +112,81 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         Vortice.Vulkan.VkRect2D fullScissor = new(0, 0, ctx2.SwapchainWidth, ctx2.SwapchainHeight);
         api.vkCmdSetViewport(cmd2, 0, 1, &fullVp);
         api.vkCmdSetScissor(cmd2, 0, fullScissor);
+    }
+
+    /// <summary>
+    /// Draws the catalog object overlay on top of the cached sky-map texture.
+    /// Reuses <see cref="OverlayEngine.ComputeSkyMapOverlays"/> (same catalog filtering
+    /// / FOV-aware magnitude cutoff as the FITS viewer), <see cref="VkOverlayShapes"/>
+    /// (same GPU ellipse / cross primitives as <see cref="VkImageRenderer"/>), and
+    /// <see cref="OverlayEngine.PlaceLabels"/> (same 4-position collision-avoidance loop
+    /// the viewer uses). Below-horizon objects are rendered with dimmed alpha, matching
+    /// the treatment applied to constellation and planet labels.
+    /// </summary>
+    protected override void RenderObjectOverlay(
+        ICelestialObjectDB db, RectF32 contentRect, float dpiScale, string fontPath,
+        float baseFontSize, SiteContext site, bool dimBelowHorizon)
+    {
+        var items = OverlayEngine.ComputeSkyMapOverlays(
+            State, contentRect, dpiScale, db,
+            (text, size) => Renderer.MeasureText(text.AsSpan(), fontPath, size).Width,
+            baseFontSize);
+
+        if (items.Count == 0)
+        {
+            return;
+        }
+
+        // Draw markers — reused verbatim from the FITS viewer's Vulkan path.
+        foreach (var item in items)
+        {
+            var (r, g, b) = item.Color;
+            var alpha = dimBelowHorizon && !site.IsAboveHorizon(item.RA, item.Dec) ? 0.35f : 1.0f;
+            var color = new RGBAColor32((byte)(r * 255), (byte)(g * 255), (byte)(b * 255), (byte)(alpha * 255));
+
+            switch (item.Marker)
+            {
+                case OverlayMarker.Ellipse ellipse:
+                    VkOverlayShapes.DrawEllipse(renderer, dpiScale,
+                        item.ScreenX, item.ScreenY,
+                        ellipse.SemiMajorPx, ellipse.SemiMinorPx, ellipse.AngleRad,
+                        color, 1.5f);
+                    break;
+                case OverlayMarker.Cross cross:
+                    VkOverlayShapes.DrawCross(renderer, dpiScale,
+                        item.ScreenX, item.ScreenY, cross.ArmPx, color);
+                    break;
+                case OverlayMarker.Circle circle:
+                    VkOverlayShapes.DrawEllipse(renderer, dpiScale,
+                        item.ScreenX, item.ScreenY,
+                        circle.RadiusPx, circle.RadiusPx, 0f,
+                        color, 1.5f);
+                    break;
+            }
+        }
+
+        // Labels — shared collision-avoidance with the FITS viewer
+        var labelSize = baseFontSize * dpiScale * 0.85f;
+        var lineH = labelSize * 1.2f;
+        OverlayEngine.PlaceLabels(items, labelSize, 4f,
+            (text, size) => Renderer.MeasureText(text.AsSpan(), fontPath, size).Width,
+            (item, lx, ly) =>
+            {
+                var (r, g, b) = item.Color;
+                var alpha = dimBelowHorizon && !site.IsAboveHorizon(item.RA, item.Dec) ? 0.35f : 1.0f;
+                for (var li = 0; li < item.LabelLines.Count; li++)
+                {
+                    // Secondary lines are dimmer than the first (matches the viewer's
+                    // DrawOverlayLabelLines behaviour).
+                    var lineAlpha = (li == 0 ? 1.0f : 0.7f) * alpha;
+                    var color = new RGBAColor32((byte)(r * 255), (byte)(g * 255), (byte)(b * 255), (byte)(lineAlpha * 255));
+                    Renderer.DrawText(item.LabelLines[li].AsSpan(), fontPath, labelSize, color,
+                        new RectInt(
+                            new PointInt((int)(lx + 200), (int)(ly + (li + 1) * lineH)),
+                            new PointInt((int)lx, (int)(ly + li * lineH))),
+                        TextAlign.Near, TextAlign.Center);
+                }
+            });
     }
 
     private static (Vortice.Vulkan.VkBuffer Buffer, uint ByteOffset, uint VertexCount) WriteToRingBuffer(
