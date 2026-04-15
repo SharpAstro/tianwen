@@ -1,6 +1,7 @@
 using Shouldly;
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
@@ -91,18 +92,90 @@ public class DeviceDiscoveryExtensionsTests
         resolved.ShouldBeSameAs(junk, "unknown scheme — skip reconciliation rather than throw");
     }
 
+    [Fact]
+    public void GivenProfileDataWithNoDriftReturnsChangedFalse()
+    {
+        var discovery = new StubDiscovery
+        {
+            Mounts = [new FakeDeviceRecord(OnStepSerialCom5)]
+        };
+
+        var data = MakeProfileData(mount: OnStepSerialCom5);
+
+        var (reconciled, changed) = discovery.ReconcileProfileData(data);
+
+        changed.ShouldBe(false, "profile URIs already match discovery — no rewrite");
+        reconciled.ShouldBe(data); // value equality on record struct
+    }
+
+    [Fact]
+    public void GivenProfileDataWithMountDriftReconcilesMountAndFlagsChange()
+    {
+        var discovery = new StubDiscovery
+        {
+            Mounts = [new FakeDeviceRecord(OnStepSerialCom6)] // freshly discovered on COM6
+        };
+
+        var data = MakeProfileData(mount: OnStepSerialCom5); // stored with COM5
+
+        var (reconciled, changed) = discovery.ReconcileProfileData(data);
+
+        changed.ShouldBe(true);
+        reconciled.Mount.ShouldBe(OnStepSerialCom6);
+    }
+
+    [Fact]
+    public void GivenProfileDataWithOtaCameraDriftReconcilesThatOtaOnly()
+    {
+        var camA = new Uri("Camera://ZwoDevice/cam123?gain=100#Main");
+        var camAReconciled = new Uri("Camera://ZwoDevice/cam123?gain=100&offset=15#Main"); // query differs
+        var camB = new Uri("Camera://ZwoDevice/guide456?gain=50#Guide"); // unrelated — no drift
+
+        var discovery = new StubDiscovery
+        {
+            Cameras = [new FakeDeviceRecord(camAReconciled), new FakeDeviceRecord(camB)]
+        };
+
+        var ota1 = new OTAData("OTA1", 1000, camA, null, null, null, null, null);
+        var ota2 = new OTAData("OTA2", 2000, camB, null, null, null, null, null);
+        var data = MakeProfileData(mount: OnStepSerialCom5, otas: [ota1, ota2]);
+        // Pre-seed mount in discovery too so only the OTA1 camera drifts.
+        discovery.Mounts = [new FakeDeviceRecord(OnStepSerialCom5)];
+
+        var (reconciled, changed) = discovery.ReconcileProfileData(data);
+
+        changed.ShouldBe(true);
+        reconciled.OTAs.Length.ShouldBe(2);
+        reconciled.OTAs[0].Camera.ShouldBe(camAReconciled, "first OTA's camera query drifted — adopt discovered");
+        reconciled.OTAs[1].Camera.ShouldBe(camB, "second OTA's camera matches exactly — unchanged");
+    }
+
+    private static ProfileData MakeProfileData(Uri mount, ImmutableArray<OTAData>? otas = null)
+        => new ProfileData(
+            Mount: mount,
+            Guider: new Uri("Guider://NoneDevice/none"),
+            OTAs: otas ?? []);
+
     /// <summary>
-    /// Minimal <see cref="IDeviceDiscovery"/> stub that returns a fixed list of devices
-    /// for the <see cref="DeviceType.Mount"/> type.
+    /// Minimal <see cref="IDeviceDiscovery"/> stub. Returns per-type fixed lists so tests
+    /// can seed discovery results for mount, camera, etc. independently.
     /// </summary>
     private sealed class StubDiscovery : IDeviceDiscovery
     {
-        public IReadOnlyList<DeviceBase> MountDevices { get; set; } = [];
+        public IReadOnlyList<DeviceBase> Mounts { get; set; } = [];
+        public IReadOnlyList<DeviceBase> Cameras { get; set; } = [];
 
-        public IEnumerable<DeviceType> RegisteredDeviceTypes => [DeviceType.Mount];
+        // Back-compat alias for existing tests.
+        public IReadOnlyList<DeviceBase> MountDevices { set => Mounts = value; }
 
-        public IEnumerable<DeviceBase> RegisteredDevices(DeviceType deviceType)
-            => deviceType is DeviceType.Mount ? MountDevices : [];
+        public IEnumerable<DeviceType> RegisteredDeviceTypes => [DeviceType.Mount, DeviceType.Camera];
+
+        public IEnumerable<DeviceBase> RegisteredDevices(DeviceType deviceType) => deviceType switch
+        {
+            DeviceType.Mount => Mounts,
+            DeviceType.Camera => Cameras,
+            _ => []
+        };
 
         public ValueTask DiscoverAsync(CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
 
