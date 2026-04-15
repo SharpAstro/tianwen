@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Globalization;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Web;
@@ -40,6 +41,31 @@ public static class EquipmentActions
         var profile = new Profile(Guid.NewGuid(), name, ProfileData.Empty);
         await profile.SaveAsync(external, ct);
         return profile;
+    }
+
+    /// <summary>
+    /// Reconciles every registered profile against the current discovery cache and
+    /// persists the ones whose device URIs drifted (COM5 -> COM6, new DHCP IP, etc.).
+    /// Returns the (original, updated) pairs for each profile that actually changed,
+    /// so the caller can decide which to reflect into UI state without having to
+    /// re-run the comparison.
+    /// </summary>
+    public static async Task<IReadOnlyList<(Profile Original, Profile Updated)>> ReconcileAllProfilesAsync(
+        IDeviceDiscovery discovery, IExternal external, CancellationToken ct)
+    {
+        var changes = new List<(Profile, Profile)>();
+        foreach (var p in discovery.RegisteredDevices(DeviceType.Profile).OfType<Profile>())
+        {
+            if (p.Data is not { } data) continue;
+
+            var (reconciled, changed) = discovery.ReconcileProfileData(data);
+            if (!changed) continue;
+
+            var updated = p.WithData(reconciled);
+            await updated.SaveAsync(external, ct);
+            changes.Add((p, updated));
+        }
+        return changes;
     }
 
     public static ProfileData AssignMount(ProfileData data, Uri mountUri)
