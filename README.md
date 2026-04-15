@@ -1,7 +1,7 @@
 TiānWén (天文)
 =============
 
-TianWen is a free, open-source astronomical imaging suite for .NET. It manages cameras, mounts, focusers, filter wheels, and guiders via ASCOM, Alpaca, ZWO, QHYCCD, and Meade protocols — with first-class support for multi-OTA (dual rig) setups that are difficult or expensive to achieve with existing software.
+TianWen is a free, open-source astronomical imaging suite for .NET. It manages cameras, mounts, focusers, filter wheels, and guiders via ASCOM, Alpaca, ZWO, QHYCCD, Meade, Skywatcher, OnStep, and iOptron protocols — with first-class support for multi-OTA (dual rig) setups that are difficult or expensive to achieve with existing software.
 
 It ships as a NuGet library (`TianWen.Lib`), a cross-platform CLI with interactive TUI (`TianWen.Lib.CLI`), a headless REST API server (`TianWen.Lib.Server`) for remote operation via [Touch N Stars](https://github.com/Touch-N-Stars/Touch-N-Stars), a standalone FITS viewer (`TianWen.UI.FitsViewer`), and an integrated N.I.N.A.-style GUI (`TianWen.UI.Gui`).
 
@@ -95,6 +95,16 @@ graph LR
         SgpMountDriver
     end
 
+    subgraph OnStep
+        OnStepDevice
+        OnStepMountDriver
+    end
+
+    subgraph Skywatcher
+        SkywatcherDevice
+        SkywatcherMountDriver
+    end
+
     subgraph Guiders
         BuiltInGuiderDevice
         BuiltInGuiderDriver
@@ -124,6 +134,8 @@ graph LR
     DeviceBase --> QHYDevice
     DeviceBase --> MeadeDevice
     DeviceBase --> IOptronDevice
+    DeviceBase --> OnStepDevice
+    DeviceBase --> SkywatcherDevice
     DeviceBase --> FakeDevice
     DeviceBase --> NoneDevice
     DeviceBase --> Profile
@@ -156,6 +168,8 @@ graph LR
 
     MeadeDevice -.-> MeadeLX200ProtocolMountDriver
     IOptronDevice -.-> SgpMountDriver
+    OnStepDevice -.-> OnStepMountDriver
+    SkywatcherDevice -.-> SkywatcherMountDriver
 
     BuiltInGuiderDevice -.-> BuiltInGuiderDriver
     OpenPHD2GuiderDevice -.-> OpenPHD2GuiderDriver
@@ -416,7 +430,8 @@ tianwen tui                                     # Full-screen tabbed TUI (altern
 ```
 
 The TUI provides an Equipment tab, Planner with altitude charts, Session configuration,
-Live Session monitor with Sixel preview, and Guider tab with Braille target view.
+Live Session monitor with Sixel preview, and Guider tab with guide error sparklines
+(RA/Dec), RMS stats, and settle progress.
 
 #### Example: Building a Dual-Scope Rig
 
@@ -472,7 +487,7 @@ Pre-built native AOT binaries of `TianWen.UI.FitsViewer` are available from [Git
 | Ctrl+2..9 | Zoom 1:N |
 | Mouse wheel | Zoom in viewport |
 
-### Interactive TUI (`tianwen -i`)
+### Interactive TUI (`tianwen tui`)
 
 The interactive TUI provides a tabbed interface for the full imaging workflow:
 
