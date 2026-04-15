@@ -750,6 +750,36 @@ namespace TianWen.UI.Abstractions
                         .SelectMany(dm.RegisteredDevices)
                         .Where(d => sig.IncludeFake || d is not TianWen.Lib.Devices.Fake.FakeDevice)
                         .OrderBy(d => d.DeviceType).ThenBy(d => d.DisplayName)];
+
+                    // Auto-adopt rediscovered transport params into every saved profile: if any
+                    // stored device URI shares its stable deviceId with a freshly-discovered URI
+                    // but the query drifted (COM5 -> COM6 after USB re-plug, DHCP-renewed WiFi IP,
+                    // etc.), rewrite the profile URI in place. One save per profile, and only
+                    // when something actually changed.
+                    var reconciledCount = 0;
+                    foreach (var p in dm.RegisteredDevices(DeviceType.Profile).OfType<Profile>())
+                    {
+                        if (p.Data is not { } data) continue;
+
+                        var (reconciled, changed) = dm.ReconcileProfileData(data);
+                        if (!changed) continue;
+
+                        var updated = p.WithData(reconciled);
+                        await updated.SaveAsync(external, cts.Token);
+                        reconciledCount++;
+                        logger.LogInformation("Post-discovery reconcile: profile {ProfileId} ({Name}) updated", p.ProfileId, p.DisplayName);
+
+                        // Keep the live UI in sync if the reconciled profile is the active one.
+                        if (appState.ActiveProfile is { } active && active.ProfileId == p.ProfileId)
+                        {
+                            appState.ActiveProfile = updated;
+                        }
+                    }
+
+                    if (reconciledCount > 0)
+                    {
+                        logger.LogInformation("Post-discovery reconcile: updated {Count} profile(s)", reconciledCount);
+                    }
                 }
                 catch (Exception ex)
                 {
