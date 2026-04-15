@@ -11,7 +11,7 @@ namespace TianWen.UI.Abstractions;
 /// Previously loaded documents may be returned instantly if the GC
 /// has not yet reclaimed them; otherwise they are reloaded from disk.
 /// </summary>
-public sealed class DocumentCache
+public sealed class DocumentCache : IDocumentCache
 {
     private readonly Dictionary<string, WeakReference<AstroImageDocument>> _cache = new(StringComparer.OrdinalIgnoreCase);
 

@@ -37,6 +37,9 @@ public sealed class AstroImageDocument
 
     private readonly string _filePath;
 
+    /// <summary>The file path this document was loaded from.</summary>
+    public string FilePath => _filePath;
+
     /// <summary>Debayered image (or raw image if it is a colour or mono image). This is the permanent base image.</summary>
     public Image UnstretchedImage { get; }
 
