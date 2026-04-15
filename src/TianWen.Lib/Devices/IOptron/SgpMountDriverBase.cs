@@ -442,12 +442,12 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
 
     #region Connection
 
-    protected override Task<(bool Success, int ConnectionId, SgpDeviceInfo DeviceInfo)> DoConnectDeviceAsync(CancellationToken cancellationToken)
+    protected override async Task<(bool Success, int ConnectionId, SgpDeviceInfo DeviceInfo)> DoConnectDeviceAsync(CancellationToken cancellationToken)
     {
         ISerialConnection? serialDevice;
         try
         {
-            if (_device.ConnectSerialDevice(External, Logger, TimeProvider, SGP_BAUD_RATE, _encoding) is { IsOpen: true } openedConnection)
+            if (await _device.ConnectSerialDeviceAsync(External, Logger, TimeProvider, SGP_BAUD_RATE, _encoding, cancellationToken) is { IsOpen: true } openedConnection)
             {
                 serialDevice = openedConnection;
             }
@@ -464,11 +464,11 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
 
         if (serialDevice is not null)
         {
-            return Task.FromResult((true, CONNECTION_ID_EXCLUSIVE, new SgpDeviceInfo(serialDevice)));
+            return (true, CONNECTION_ID_EXCLUSIVE, new SgpDeviceInfo(serialDevice));
         }
         else
         {
-            return Task.FromResult((false, CONNECTION_ID_UNKNOWN, default(SgpDeviceInfo)));
+            return (false, CONNECTION_ID_UNKNOWN, default(SgpDeviceInfo));
         }
     }
 

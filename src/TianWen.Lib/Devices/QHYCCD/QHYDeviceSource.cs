@@ -75,7 +75,7 @@ internal class QHYDeviceSource(IExternal external) : IDeviceSource<QHYDevice>
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 cts.CancelAfter(TimeSpan.FromMilliseconds(500));
 
-                var port = external.OpenSerialDevice(portName, QHYSerialControlledFilterWheelDriver.CFW_BAUD, Encoding.ASCII);
+                var port = await external.OpenSerialDeviceAsync(portName, QHYSerialControlledFilterWheelDriver.CFW_BAUD, Encoding.ASCII, cts.Token);
                 if (port is not { IsOpen: true })
                 {
                     continue;
@@ -207,7 +207,7 @@ internal class QHYDeviceSource(IExternal external) : IDeviceSource<QHYDevice>
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cts.CancelAfter(TimeSpan.FromMilliseconds(1500));
 
-            var port = external.OpenSerialDevice(portName, QHYFocuserDriver.QFOC_BAUD, Encoding.ASCII);
+            var port = await external.OpenSerialDeviceAsync(portName, QHYFocuserDriver.QFOC_BAUD, Encoding.ASCII, cts.Token);
             if (port is not { IsOpen: true })
             {
                 return;

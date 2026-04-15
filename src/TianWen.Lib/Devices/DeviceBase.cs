@@ -6,6 +6,8 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
 using System.Text.Json.Serialization;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Web;
 using TianWen.Lib.Connections;
 
@@ -87,7 +89,7 @@ public abstract record class DeviceBase(Uri DeviceUri)
 
     protected virtual IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => null;
 
-    public virtual ISerialConnection? ConnectSerialDevice(IExternal external, ILogger logger, ITimeProvider timeProvider, int baud = 9600, Encoding? encoding = null)
+    public virtual async ValueTask<ISerialConnection?> ConnectSerialDeviceAsync(IExternal external, ILogger logger, ITimeProvider timeProvider, int baud = 9600, Encoding? encoding = null, CancellationToken cancellationToken = default)
     {
         if (Query.QueryValue(DeviceQueryKey.Port) is { Length: > 0 } port)
         {
@@ -98,7 +100,7 @@ public abstract record class DeviceBase(Uri DeviceUri)
                 || port.Split('/', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)[^1].StartsWith("tty", StringComparison.Ordinal)
             )
             {
-                return external.OpenSerialDevice(port, selectedBaud, encoding ?? Encoding.ASCII);
+                return await external.OpenSerialDeviceAsync(port, selectedBaud, encoding ?? Encoding.ASCII, cancellationToken);
             }
         }
 

@@ -144,13 +144,13 @@ internal class QHYFocuserDriver(QHYDevice device, IServiceProvider serviceProvid
 
     #region Connection lifecycle
 
-    protected override Task<(bool Success, int ConnectionId, QHYFocuserInfo DeviceInfo)> DoConnectDeviceAsync(CancellationToken cancellationToken)
+    protected override async Task<(bool Success, int ConnectionId, QHYFocuserInfo DeviceInfo)> DoConnectDeviceAsync(CancellationToken cancellationToken)
     {
         try
         {
-            if (_device.ConnectSerialDevice(External, Logger, TimeProvider, QFOC_BAUD, Encoding.ASCII) is { IsOpen: true } conn)
+            if (await _device.ConnectSerialDeviceAsync(External, Logger, TimeProvider, QFOC_BAUD, Encoding.ASCII, cancellationToken) is { IsOpen: true } conn)
             {
-                return Task.FromResult((true, CONNECTION_ID_EXCLUSIVE, new QHYFocuserInfo(conn)));
+                return (true, CONNECTION_ID_EXCLUSIVE, new QHYFocuserInfo(conn));
             }
         }
         catch (Exception ex)
@@ -158,7 +158,7 @@ internal class QHYFocuserDriver(QHYDevice device, IServiceProvider serviceProvid
             Logger.LogError(ex, "Failed to open serial port for QFOC focuser {DeviceId}", _device.DeviceId);
         }
 
-        return Task.FromResult((false, CONNECTION_ID_UNKNOWN, default(QHYFocuserInfo)));
+        return (false, CONNECTION_ID_UNKNOWN, default(QHYFocuserInfo));
     }
 
     protected override Task<bool> DoDisconnectDeviceAsync(int connectionId, CancellationToken cancellationToken)

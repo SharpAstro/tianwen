@@ -2,6 +2,8 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Specialized;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using TianWen.Lib;
 using TianWen.Lib.Connections;
 
@@ -23,7 +25,7 @@ public record IOptronDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         _ => null
     };
 
-    public override ISerialConnection? ConnectSerialDevice(IExternal external, ILogger logger, ITimeProvider timeProvider, int baud = SGP_BAUD_RATE, Encoding? encoding = null)
+    public override async ValueTask<ISerialConnection?> ConnectSerialDeviceAsync(IExternal external, ILogger logger, ITimeProvider timeProvider, int baud = SGP_BAUD_RATE, Encoding? encoding = null, CancellationToken cancellationToken = default)
     {
         // SGP requires exactly 28800 baud — refuse to connect at any other speed
         if (baud != SGP_BAUD_RATE)
@@ -31,10 +33,11 @@ public record IOptronDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
             return null;
         }
 
-        return external.OpenSerialDevice(
+        return await external.OpenSerialDeviceAsync(
             Query.QueryValue(DeviceQueryKey.Port) ?? throw new InvalidOperationException("No port specified"),
             baud,
-            encoding ?? Encoding.ASCII
+            encoding ?? Encoding.ASCII,
+            cancellationToken
         );
     }
 }

@@ -74,7 +74,7 @@ internal class SkywatcherDeviceSource(IExternal external, ILogger<SkywatcherDevi
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 cts.CancelAfter(TimeSpan.FromMilliseconds(300));
 
-                using var port = external.OpenSerialDevice(portName, baud, Encoding.ASCII);
+                using var port = await external.OpenSerialDeviceAsync(portName, baud, Encoding.ASCII, cts.Token);
                 if (port is not { IsOpen: true })
                 {
                     continue;

@@ -50,13 +50,13 @@ internal class QHYSerialControlledFilterWheelDriver(QHYDevice device, IServicePr
 
     public override string? Description => "QHY QHYCFW3 serial protocol driver";
 
-    protected override Task<(bool Success, int ConnectionId, QHYSerialFilterWheelInfo DeviceInfo)> DoConnectDeviceAsync(CancellationToken cancellationToken)
+    protected override async Task<(bool Success, int ConnectionId, QHYSerialFilterWheelInfo DeviceInfo)> DoConnectDeviceAsync(CancellationToken cancellationToken)
     {
         try
         {
-            if (_device.ConnectSerialDevice(External, Logger, TimeProvider, CFW_BAUD, Encoding.ASCII) is { IsOpen: true } conn)
+            if (await _device.ConnectSerialDeviceAsync(External, Logger, TimeProvider, CFW_BAUD, Encoding.ASCII, cancellationToken) is { IsOpen: true } conn)
             {
-                return Task.FromResult((true, CONNECTION_ID_EXCLUSIVE, new QHYSerialFilterWheelInfo(conn)));
+                return (true, CONNECTION_ID_EXCLUSIVE, new QHYSerialFilterWheelInfo(conn));
             }
         }
         catch (Exception)
@@ -64,7 +64,7 @@ internal class QHYSerialControlledFilterWheelDriver(QHYDevice device, IServicePr
             // Failed to open serial port
         }
 
-        return Task.FromResult((false, CONNECTION_ID_UNKNOWN, default(QHYSerialFilterWheelInfo)));
+        return (false, CONNECTION_ID_UNKNOWN, default(QHYSerialFilterWheelInfo));
     }
 
     protected override Task<bool> DoDisconnectDeviceAsync(int connectionId, CancellationToken cancellationToken)

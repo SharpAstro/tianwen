@@ -146,7 +146,15 @@ public interface IExternal
     /// <returns>list of available serial devices, or empty.</returns>
     IReadOnlyList<string> EnumerateAvailableSerialPorts(ResourceLock resourceLock);
 
-    ISerialConnection OpenSerialDevice(string address, int baud, Encoding encoding);
+    /// <summary>
+    /// Opens a serial-style connection (RS-232 / USB-to-serial) asynchronously. The
+    /// underlying BCL <c>SerialPort.Open</c> is synchronous and does not yield, so
+    /// implementations typically offload the open onto the thread pool via
+    /// <see cref="Task.Run(Func{ISerialConnection})"/>. Callers should always await
+    /// so that cancellation is respected and no driver thread is blocked during the
+    /// ~10–100 ms port open.
+    /// </summary>
+    ValueTask<ISerialConnection> OpenSerialDeviceAsync(string address, int baud, Encoding encoding, CancellationToken cancellationToken = default);
 
     IPEndPoint DefaultGuiderAddress => new IPEndPoint(IPAddress.Loopback, 4400);
 

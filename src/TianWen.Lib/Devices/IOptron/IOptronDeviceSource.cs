@@ -44,7 +44,7 @@ internal partial class IOptronDeviceSource(IExternal external, ILogger<IOptronDe
         using var cts = new CancellationTokenSource(ioTimeout, timeProvider.System);
         var linkedToken = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken).Token;
 
-        using var serialDevice = external.OpenSerialDevice(portName, IOptronDevice.SGP_BAUD_RATE, Encoding.ASCII);
+        using var serialDevice = await external.OpenSerialDeviceAsync(portName, IOptronDevice.SGP_BAUD_RATE, Encoding.ASCII, linkedToken);
 
         using var @lock = await serialDevice.WaitAsync(linkedToken);
 

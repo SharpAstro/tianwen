@@ -45,7 +45,7 @@ internal partial class MeadeDeviceSource(IExternal external, ILogger<MeadeDevice
         using var cts = new CancellationTokenSource(ioTimeout, timeProvider.System);
         var linkedToken = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, cancellationToken).Token;
 
-        using var serialDevice = external.OpenSerialDevice(portName, 9600, Encoding.ASCII);
+        using var serialDevice = await external.OpenSerialDeviceAsync(portName, 9600, Encoding.ASCII, linkedToken);
 
         var (productName, productNumber, siteNames, uuid) = await TryGetMountInfo(serialDevice, linkedToken)
             .WaitAsync(ioTimeout, timeProvider.System, cancellationToken);
