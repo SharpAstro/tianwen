@@ -1,6 +1,9 @@
 using System;
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using DIR.Lib;
+using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.VSOP87;
 
 namespace TianWen.UI.Abstractions
 {
@@ -88,6 +91,71 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>True when viewport changed and the cached texture must be re-rendered.</summary>
         public bool NeedsRedraw { get; set; } = true;
+
+        // Cached sun altitude + the time it was computed at. Sun moves ~0.25 deg/min,
+        // which is orders of magnitude slower than our per-frame update rate, so a
+        // 10-second refresh window is ample and keeps VSOP87a out of the hot path.
+        private DateTimeOffset _sunAltComputedAt = DateTimeOffset.MinValue;
+        private double _cachedSunAltitudeDeg = double.NaN;
+
+        /// <summary>
+        /// Sun altitude in degrees for the given site, cached with a 10 second refresh.
+        /// Returns <see cref="double.NaN"/> if VSOP87a cannot reduce the Sun position
+        /// (e.g. site outside the ephemeris validity range).
+        /// </summary>
+        /// <remarks>
+        /// Used by <see cref="SkyBackgroundColorForSunAltitude"/> to tint the sky map
+        /// background to match the planner's twilight zones (day / civil / nautical /
+        /// astronomical / full night).
+        /// </remarks>
+        public double GetSunAltitudeDegCached(DateTimeOffset nowUtc, double siteLat, double siteLon)
+        {
+            if (double.IsNaN(siteLat) || double.IsNaN(siteLon)) return double.NaN;
+
+            if ((nowUtc - _sunAltComputedAt).Duration() < TimeSpan.FromSeconds(10)
+                && !double.IsNaN(_cachedSunAltitudeDeg))
+            {
+                return _cachedSunAltitudeDeg;
+            }
+
+            if (VSOP87a.Reduce(CatalogIndex.Sol, nowUtc, siteLat, siteLon,
+                    out _, out _, out _, out var altDeg, out _))
+            {
+                _cachedSunAltitudeDeg = altDeg;
+                _sunAltComputedAt = nowUtc;
+            }
+            return _cachedSunAltitudeDeg;
+        }
+
+        /// <summary>
+        /// Maps sun altitude to a sky-map background colour, matching the planner's
+        /// civil / nautical / astronomical twilight zones but shifted darker so it
+        /// reads as "sky, not chart axis". Pass <see cref="double.NaN"/> (no site) to
+        /// get the dark-night default.
+        /// </summary>
+        public static RGBAColor32 SkyBackgroundColorForSunAltitude(double sunAltDeg)
+        {
+            // Palette anchors (A = fully transparent, 0xFF = opaque):
+            //   Day      sun above  5 deg : dusty blue  (darker than real daylight so
+            //                               stars stay visible; this is still an app,
+            //                               not a simulator)
+            //   Golden   sun   0 to  5 deg : purple/magenta
+            //   Civil    sun  -6 to  0 deg : dark blue
+            //   Nautical sun -12 to -6 deg : darker blue
+            //   Astro    sun -18 to -12 deg : very dark blue
+            //   Night    sun below -18 deg : almost black
+            if (double.IsNaN(sunAltDeg) || sunAltDeg < -18)
+                return new RGBAColor32(0x02, 0x03, 0x08, 0xFF); // night (darker than before)
+            if (sunAltDeg < -12)
+                return new RGBAColor32(0x0A, 0x0C, 0x1C, 0xFF); // astro
+            if (sunAltDeg < -6)
+                return new RGBAColor32(0x14, 0x14, 0x2A, 0xFF); // nautical
+            if (sunAltDeg < 0)
+                return new RGBAColor32(0x20, 0x20, 0x38, 0xFF); // civil
+            if (sunAltDeg < 5)
+                return new RGBAColor32(0x3A, 0x2C, 0x54, 0xFF); // golden hour
+            return new RGBAColor32(0x28, 0x34, 0x50, 0xFF);     // daylight dusty blue
+        }
 
         /// <summary>
         /// Clamp RA to [0, 24) and Dec to [-90, +90] after any modification.

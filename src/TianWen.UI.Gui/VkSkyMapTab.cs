@@ -27,7 +27,8 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
 
     protected override void RenderSkyMap(
         ICelestialObjectDB db, RectF32 contentRect, string fontPath,
-        ITimeProvider timeProvider, double siteLat, double siteLon)
+        ITimeProvider timeProvider, double siteLat, double siteLon,
+        bool isPlanningTonight)
     {
         var mapW = contentRect.Width;
         var mapH = contentRect.Height;
@@ -45,8 +46,14 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             _pipeline.BuildGeometry(db);
         }
 
-        // Fill background
-        var bg = new RGBAColor32(0x05, 0x05, 0x0C, 0xFF);
+        // Fill background with a sky colour driven by the Sun's current altitude
+        // (matches the planner's twilight zones). Only valid when viewing "tonight";
+        // any other planning date falls back to night. VSOP87a is cached for 10s so
+        // this stays out of the per-frame hot path.
+        double sunAltDeg = isPlanningTonight
+            ? State.GetSunAltitudeDegCached(timeProvider.GetUtcNow(), siteLat, siteLon)
+            : double.NaN;
+        var bg = SkyMapState.SkyBackgroundColorForSunAltitude(sunAltDeg);
         Renderer.FillRectangle(
             new RectInt(
                 new PointInt((int)(contentRect.X + mapW), (int)(contentRect.Y + mapH)),
