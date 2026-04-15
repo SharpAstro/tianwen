@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using System;
+using System.Collections.Immutable;
 using System.Collections.Specialized;
 using System.Globalization;
 using System.Text;
@@ -31,6 +32,33 @@ public record OnStepDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         : this(new Uri($"{deviceType}://{typeof(OnStepDevice).Name}/{deviceId}?{new NameValueCollection { ["host"] = host, ["tcp"] = tcpPort.ToString(CultureInfo.InvariantCulture) }.ToQueryString()}#{displayName}"))
     {
     }
+
+    /// <summary>
+    /// Equipment-tab settings surface: lets the user flip between serial and WiFi in place.
+    /// Setting <c>Host</c> switches transport to TCP on next connect (see <see cref="ConnectSerialDevice"/>);
+    /// clearing <c>Host</c> reverts to the serial <c>Port</c>. The irrelevant mode's fields hide
+    /// automatically via <c>isVisible</c> so the user only sees one transport at a time.
+    /// </summary>
+    public override ImmutableArray<DeviceSettingDescriptor> Settings { get; } =
+    [
+        // Serial transport: shown only when no WiFi host is configured.
+        DeviceSettingHelper.StringSetting(
+            DeviceQueryKey.Port.Key, "Serial Port",
+            placeholder: "e.g. COM3 or /dev/ttyUSB0",
+            isVisible: uri => string.IsNullOrEmpty(uri.QueryValue(DeviceQueryKey.Host))),
+
+        // WiFi Host — always visible; populating it is how the user flips to TCP transport.
+        DeviceSettingHelper.StringSetting(
+            DeviceQueryKey.Host.Key, "WiFi Host / IP",
+            placeholder: "e.g. 192.168.1.42 (switches to WiFi)"),
+
+        // TCP port — only meaningful when Host is set; defaults to 9999 on connect if blank.
+        DeviceSettingHelper.StringSetting(
+            "tcp", "WiFi TCP Port",
+            defaultValue: DefaultTcpPort.ToString(CultureInfo.InvariantCulture),
+            placeholder: DefaultTcpPort.ToString(CultureInfo.InvariantCulture),
+            isVisible: uri => !string.IsNullOrEmpty(uri.QueryValue(DeviceQueryKey.Host))),
+    ];
 
     protected override IDeviceDriver? NewInstanceFromDevice(IServiceProvider sp) => DeviceType switch
     {

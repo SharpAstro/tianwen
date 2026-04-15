@@ -1,3 +1,5 @@
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -18,6 +20,8 @@ internal class SessionFactory(
     IServiceProvider serviceProvider
 ) : ISessionFactory
 {
+    private readonly ILogger _logger = serviceProvider.GetRequiredService<ILoggerFactory>().CreateLogger<SessionFactory>();
+
     public async ValueTask InitializeAsync(CancellationToken cancellationToken = default)
     {
         if (!await plateSolverFactory.CheckSupportAsync(cancellationToken).ConfigureAwait(false))
@@ -95,13 +99,25 @@ internal class SessionFactory(
 
         DeviceBase DeviceFromUri(Uri deviceUri, int? otaIdx = null)
         {
-            if (deviceHub.TryGetDeviceFromUri(deviceUri, out var device))
+            // Reconcile stored URI with discovery: if the same device (by scheme+authority+path,
+            // i.e. matching stable deviceId) has been discovered with a different query — e.g.
+            // the mount was re-plugged and moved from COM5 → COM6, or DHCP reassigned the WiFi IP —
+            // adopt the discovered URI so transport state tracks hardware reality.
+            var resolvedUri = deviceDiscovery.ReconcileUri(deviceUri);
+            if (resolvedUri != deviceUri)
+            {
+                _logger.LogInformation(
+                    "Auto-adopting rediscovered URI for profile device: {StoredUri} -> {LiveUri}",
+                    deviceUri, resolvedUri);
+            }
+
+            if (deviceHub.TryGetDeviceFromUri(resolvedUri, out var device))
             {
                 return device;
             }
             else
             {
-                throw new ArgumentException($"Profile {profileId}{(otaIdx.HasValue ? $" OTA #{otaIdx + 1}" : "")} device failed to instantiate from {deviceUri}", nameof(profileId));
+                throw new ArgumentException($"Profile {profileId}{(otaIdx.HasValue ? $" OTA #{otaIdx + 1}" : "")} device failed to instantiate from {resolvedUri}", nameof(profileId));
             }
         }
     }
