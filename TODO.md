@@ -68,7 +68,7 @@
 - [ ] TUI Sixel preview in live session tab — render last captured frame as Sixel in a right panel (ConsoleImageRenderer + EncodeSixel). Needs async CreateFromImageAsync in the render loop or pre-render on frame arrival.
 - [ ] SDL window icon for non-Windows — `<ApplicationIcon>` only embeds in the PE for Windows. On Linux/macOS, need `SDL.SetWindowIcon` with a surface loaded via `SDL_image.IMG_Load` (requires adding SDL3_image package) or `SDL.LoadBMP` (requires BMP conversion). Also set `.desktop` file icon on Linux.
 
-## Observation Scheduler (PLAN-SessionTests.md)
+## Observation Scheduler
 
 ### Done
 
@@ -107,7 +107,7 @@
 - [ ] Use custom PNG (we have reading but will need writing too, thumbnails)
 - [ ] Support arbitrary image formats for loading and saving using Magick.NET for all the other formats
 
-## Session Test Plan Progress (PLAN-SessionTests.md phases)
+## Session Test Plan Progress
 
 - [x] **Phase 2**: FakeCamera cooling simulation (commit 9ae4490)
 - [x] **Phase 3**: FakeFocuser temperature + focus model (commit 25ce32d)
@@ -115,11 +115,23 @@
 - [x] **Phase 5 partial**: Backlash property on IFocuserDriver, FocusDirection 2x2 matrix (commit 25ce32d)
 - [x] **Phase 6 partial**: AutoFocusAsync with V-curve + hyperbola fitting, per-target baseline HFD (commits 25ce32d, 68d061c)
 - [x] **Phase 1**: FakeGuider state machine — full state machine (Idle, Looping, Calibrating, Guiding, Settling) with atomic transitions
-- [ ] **Phase 5 remaining**: BacklashMeasurement.MeasureAsync, backlash-compensated moves
+- [ ] **Phase 5 remaining**: `BacklashMeasurement.MeasureAsync(focuser, camera, startPos, range, timeProvider, ct)` in `TianWen.Lib/Astrometry/Focus/BacklashMeasurement.cs`. Algorithm: move to startPos and measure HFD, move outward by `range` then back, re-measure; delta in apparent best focus equals backlash. Plus `SessionConfiguration.BacklashSteps` (0 = unknown) and `MeasureBacklashIfUnknown` (default true), and a `MoveWithBacklashCompensationAsync(this IFocuserDriver, targetPosition, backlashSteps, ct)` extension: when reversing direction, overshoot by `backlashSteps`, then return to target so we always approach from the same side (below).
 - [x] **Phase 6 remaining**: Focus drift detection in ImagingLoopAsync (HFD threshold check + auto-refocus trigger)
-- [ ] **Phase 7a**: Observation duration enforcement in imaging loop
+- [ ] **Phase 7a**: Observation duration enforcement in imaging loop — when `observation.Duration != TimeSpan.MaxValue` and elapsed time exceeds Duration, break. `TimeSpan.MaxValue` means "as long as possible" (bounded by session end time).
 - [x] **Phase 7b**: PeriodicTimer replacing hand-rolled sleep/overslept timing
-- [ ] **Phase 7c**: Full Session integration tests (tests 1-12 from plan)
+- [ ] **Phase 7c**: Full Session integration tests in new `SessionTests.cs`, constructing `Session` directly with fake devices:
+    1. Single observation lifecycle (phases 1, 2)
+    2. Multiple observation sequencing (1, 2)
+    3. Cancellation with finalize (1, 2)
+    4. Twilight boundary stop (1, 2)
+    5. Camera cooling ramp (2)
+    6. Observation duration limit (7a)
+    7. Star field contains detectable stars (3, 4)
+    8. Star field is plate-solvable (3, 4)
+    9. Focus drift triggers auto-refocus — set `FakeFocuserDriver._tempDriftRate` high, advance `FakeTimeProvider` during imaging loop, assert 30% HFD increase detected and focuser moved to new best position (3, 4, 6)
+    10. Backlash measurement converges — assert `BacklashMeasurement.MeasureAsync` returns value close to `_trueBacklash` (3, 4, 5)
+    11. Auto-focus finds correct position — start focuser at 800, true best focus at 1000; assert `FocusSolution.BestFocus` is within ±5 steps of 1000 (3, 4, 5, 6)
+    12. Temperature drift causes focus shift — start at best focus, advance time so temperature drops 2°C (shifts true best focus by `2 * tempCoefficient = 10` steps), assert HFD grows, refocus recovers (3, 4, 6)
 
 ## Sequencing / Session
 
@@ -151,6 +163,7 @@
 ## Live Session Tab (Phase 2 — Polish)
 
 - [x] Guide star profile bitmap from guider (rendered in GuiderTab star profile panel)
+- [ ] Extract `GuiderContent` shared helpers (TianWen.UI.Abstractions) — `TuiGuiderTab` and the GPU `GuiderTab<TSurface>` currently inline their formatting / sparkline logic. Mirror the `LiveSessionActions` pattern: `FormatGuidePhase(phase)`, `FormatStarInfo(metrics)`, `FormatSettleProgress(current, target)`, `BuildErrorSparkline(samples, axis, width)` -> Unicode string, `GetErrorGraphPoints(samples, axis, timeWindow)` -> points for the GPU line graph, `GetBullseyePoints(samples, count)` -> (ra, dec) scatter. Lets both the TUI and GPU tabs share the same phase strings and error-graph data derivation instead of duplicating.
 - [ ] Inline V-curve charts in focus history panel
 - [ ] Per-filter frame count breakdown in stats
 - [ ] Meridian flip countdown indicator
