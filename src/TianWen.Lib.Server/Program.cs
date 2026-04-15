@@ -23,6 +23,7 @@ builder.Services
     .AddQHY()
     .AddAscom()
     .AddMeade()
+    .AddOnStep()
     .AddIOptron()
     .AddSkywatcher()
     .AddProfiles()
