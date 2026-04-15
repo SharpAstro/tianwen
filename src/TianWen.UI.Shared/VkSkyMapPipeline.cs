@@ -111,12 +111,13 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             }
         }
 
-        // Star radius from magnitude and FOV (matches SkyMapProjection.StarRadius)
-        float starRadius(float vMag, float fovDeg) {
+        // Raw (un-clamped) star radius in pixels, derived from magnitude and FOV.
+        // Matches SkyMapProjection.StarRadius pre-clamp. We clamp in main() so the
+        // fragment path can apply a Stellarium-style cubic sub-pixel fade.
+        float rawStarRadius(float vMag, float fovDeg) {
             float r = 4.0 * pow(10.0, -0.14 * vMag);
             float zoomScale = sqrt(60.0 / max(1.0, fovDeg));
-            r *= zoomScale;
-            return clamp(r, 1.2, 15.0);
+            return min(r * zoomScale, 15.0);
         }
 
         void main() {
@@ -145,9 +146,26 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
                 return;
             }
 
-            float radius = starRadius(aMagnitude, ubo.fovDeg);
-            // Expand quad corner by star radius
-            vec2 screenPos = proj.xy + aCorner * (radius + 1.0);
+            // Two-part gradual reveal so stars appear smoothly as zoom widens the
+            // effective magnitude limit:
+            //
+            //   1. Sub-pixel fade: stars with rawR < 1.0 px get clamped to 1.0 px
+            //      with a mild linear luminance drop (no harsh cubic, without eye
+            //      adaptation that just blacks out the sky).
+            //   2. Magnitude-edge fade: the last 0.8 mag below the effective limit
+            //      fades linearly from 1.0 to 0.0. When the limit rises (zoom in)
+            //      new stars bloom gently instead of popping in at full brightness.
+            float rawR = rawStarRadius(aMagnitude, ubo.fovDeg);
+            float kMin = 1.0;
+            float subPixelFade = clamp(rawR / kMin, 0.35, 1.0);
+            float radius = max(rawR, kMin);
+
+            float magFadeWidth = 0.8;
+            float magFade = clamp((ubo.magnitudeLimit - aMagnitude) / magFadeWidth, 0.0, 1.0);
+
+            // Expand quad generously - analytic Gaussian PSF in the FS needs headroom
+            // for the soft halo. +3 matches Stellarium's pre-baked 16x16 halo texture.
+            vec2 screenPos = proj.xy + aCorner * (radius + 3.0);
 
             // Map screen pixels to Vulkan NDC: x in [-1,1], y in [-1,1] (Y-down)
             gl_Position = vec4(
@@ -158,9 +176,10 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             vCorner = aCorner;
             vColor = bvToRgb(aBvColor);
 
-            // Dimmer stars get lower alpha, brighter stars get halo
+            // Final alpha = base magnitude brightness * sub-pixel fade * edge fade.
+            // The edge fade is what produces the "gradual reveal" as zoom rises the limit.
             float brightness = clamp(1.0 - aMagnitude / ubo.magnitudeLimit, 0.0, 1.0);
-            vAlpha = 0.5 + 0.5 * brightness;
+            vAlpha = (0.75 + 0.25 * brightness) * subPixelFade * magFade;
         }
         """;
 
@@ -177,9 +196,17 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             // Radial distance from quad center [0, sqrt(2)]
             float dist = length(vCorner);
 
-            // Soft circle: full brightness inside 0.6, smooth falloff to 1.0
-            float alpha = 1.0 - smoothstep(0.6, 1.0, dist);
-            if (alpha < 0.01) discard;
+            // Analytic PSF - soft halo without a bound texture.
+            //   core  : wide flat disc at full brightness (covers the visible star body).
+            //           With the quad expanded by +3 px, the star's nominal radius sits
+            //           near dist ~ r/(r+3), so the core must stay flat into that range.
+            //   halo  : Gaussian-like falloff for the glow.
+            // Numbers tuned so small stars stay bright near the center and dim stars
+            // aren't washed out by the Gaussian shoulder.
+            float core  = 1.0 - smoothstep(0.32, 0.55, dist);
+            float halo  = exp(-dist * dist * 3.2);
+            float alpha = max(core, halo);
+            if (alpha < 0.005) discard;
 
             FragColor = vec4(vColor * alpha * vAlpha, alpha * vAlpha);
         }
@@ -464,8 +491,9 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         // float pixelsPerRadian at offset 72
         WriteFloat(p, 72, ppr);
 
-        // float magnitudeLimit at offset 76
-        WriteFloat(p, 76, state.MagnitudeLimit);
+        // float magnitudeLimit at offset 76 — use the FOV-aware effective limit so
+        // zooming in automatically reveals fainter stars (Stellarium computeRCMag idea).
+        WriteFloat(p, 76, state.EffectiveMagnitudeLimit);
 
         // float fovDeg at offset 80
         WriteFloat(p, 80, (float)state.FieldOfViewDeg);
@@ -676,6 +704,68 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     // ────────────────────────────────────────────────── Geometry builders
 
     private void BuildStarBuffer(ICelestialObjectDB db)
+    {
+        // Stream the full Tycho-2 catalog (~2.5M stars). HIP stars are a subset so we
+        // don't lose any bright stars by skipping the dedicated HIP loop. The existing
+        // vertex-shader magnitude cull means the GPU only rasterises the few thousand
+        // stars that actually pass the current EffectiveMagnitudeLimit each frame.
+        var tycCount = db.Tycho2StarCount;
+        if (tycCount == 0)
+        {
+            // Fallback: older databases without the Tycho-2 binary still populate HIP.
+            BuildStarBufferFromHip(db);
+            return;
+        }
+
+        // Per-star GPU vertex layout: vec3 pos + float vMag + float bv = 5 floats.
+        const int floatsPerStar = 5;
+
+        // Read Tycho-2 records in chunks — keeps the temp alloc bounded (~16 MB) while
+        // still minimising the number of CopyTycho2Stars calls.
+        const int chunkSize = 200_000;
+        var chunk = new Tycho2StarLite[chunkSize];
+
+        // Worst case: one output slot per input star. Right-size to avoid List<T> growth.
+        var floats = new List<float>(tycCount * floatsPerStar);
+
+        var copied = 0;
+        while (copied < tycCount)
+        {
+            var wanted = Math.Min(chunkSize, tycCount - copied);
+            var n = db.CopyTycho2Stars(chunk.AsSpan(0, wanted), copied);
+            if (n == 0)
+            {
+                break;
+            }
+
+            for (int i = 0; i < n; i++)
+            {
+                var s = chunk[i];
+                if (float.IsNaN(s.VMag))
+                {
+                    continue;
+                }
+                var (x, y, z) = SkyMapState.RaDecToUnitVec(s.RaHours, s.DecDeg);
+                floats.Add(x);
+                floats.Add(y);
+                floats.Add(z);
+                floats.Add(s.VMag);
+                floats.Add(float.IsNaN(s.BMinusV) ? 0.65f : s.BMinusV);
+            }
+
+            copied += n;
+        }
+
+        _starCount = (uint)(floats.Count / floatsPerStar);
+        (_starBuffer, _starMemory) = _ctx.CreatePersistentVertexBuffer(
+            System.Runtime.InteropServices.CollectionsMarshal.AsSpan(floats));
+    }
+
+    /// <summary>
+    /// Legacy HIP-only path. Used when no Tycho-2 binary is available
+    /// (e.g. stripped-down test doubles of <see cref="ICelestialObjectDB"/>).
+    /// </summary>
+    private void BuildStarBufferFromHip(ICelestialObjectDB db)
     {
         var floats = new List<float>(db.HipStarCount * 5);
 

@@ -1,10 +1,19 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using static TianWen.Lib.Astrometry.Catalogs.CatalogUtils;
 
 namespace TianWen.Lib.Astrometry.Catalogs;
+
+/// <summary>
+/// Compact per-star record used for bulk enumeration of the Tycho-2 catalog,
+/// primarily for GPU sky map rendering.
+/// RA is in hours, Dec in degrees, <paramref name="VMag"/> is Johnson V, <paramref name="BMinusV"/>
+/// is the colour index (≈ 0.65 for solar-type stars when the blue channel is missing).
+/// </summary>
+public readonly record struct Tycho2StarLite(float RaHours, float DecDeg, float VMag, float BMinusV);
 
 public interface ICelestialObjectDB
 {
@@ -43,6 +52,23 @@ public interface ICelestialObjectDB
     /// Iterate 1..HipStarCount with <see cref="TryLookupHIP"/> to access all HIP stars.
     /// </summary>
     int HipStarCount { get; }
+
+    /// <summary>
+    /// Total number of stars in the embedded Tycho-2 binary catalog (~2.5M).
+    /// Use with <see cref="CopyTycho2Stars"/> to stream every entry for bulk
+    /// operations like GPU vertex-buffer population.
+    /// </summary>
+    int Tycho2StarCount { get; }
+
+    /// <summary>
+    /// Copy up to <c>destination.Length</c> Tycho-2 star records into the provided
+    /// span, starting from <paramref name="startIndex"/>. Zero per-star allocations.
+    /// Pass a span of length <see cref="Tycho2StarCount"/> to capture the full catalog.
+    /// </summary>
+    /// <param name="destination">Pre-allocated buffer to receive star records.</param>
+    /// <param name="startIndex">Global offset into the catalog (0-based). Defaults to 0.</param>
+    /// <returns>Number of records written.</returns>
+    int CopyTycho2Stars(Span<Tycho2StarLite> destination, int startIndex = 0);
 
     public bool TryLookupByIndex(string name, [NotNullWhen(true)] out CelestialObject celestialObject)
     {

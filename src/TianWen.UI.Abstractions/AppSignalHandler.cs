@@ -760,6 +760,16 @@ namespace TianWen.UI.Abstractions
                         {
                             appState.ActiveProfile = updated;
                         }
+
+                        // Log exactly what URI moved so site / gain / filter clobbers are
+                        // visible in the log instead of silently drifting.
+                        var diffs = EquipmentActions.DiffProfileData(original.Data!.Value, updated.Data!.Value);
+                        foreach (var (field, before, after) in diffs)
+                        {
+                            logger.LogInformation(
+                                "Reconcile {Profile} {Field}: {Before} -> {After}",
+                                original.DisplayName, field, before, after);
+                        }
                     }
                     if (reconciledProfiles.Count > 0)
                     {

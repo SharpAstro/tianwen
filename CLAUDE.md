@@ -4,6 +4,9 @@
 - When running python temp scripts, always use python not python3
 - Always use pwsh not powerhsell
 - Use CRLF line endings for `.cs` and `.csproj` files
+- **Exit codes 127 and 13x from GUI / CLI / Server processes mean the .NET process crashed**, not
+  "command not found" or "shell killed it". Always read the stderr log (e.g. `gui-stderr.log`) for
+  the actual .NET exception + stack trace before drawing conclusions from the exit code.
 
 ## Project Overview
 

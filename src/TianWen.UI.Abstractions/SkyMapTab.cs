@@ -84,10 +84,15 @@ namespace TianWen.UI.Abstractions
                 DrawGridLabels(contentRect, fontPath, fontSize * 0.8f, ppr, cx, cy);
             }
 
-            // Constellation names at boundary centroids (always shown)
-            DrawConstellationNames(contentRect, fontPath, fontSize * 0.85f, ppr, cx, cy);
+            // Horizon dimming: when the user has horizon clipping on, sub-horizon labels
+            // get their alpha cut so they clearly read as "not currently visible" without
+            // being hidden entirely (user can still see where a constellation will rise).
+            var dimBelowHorizon = State.ShowHorizon && site.IsValid;
 
-            DrawPlanetLabels(db, timeProvider, siteLat, siteLon, contentRect, fontPath, fontSize, ppr, cx, cy);
+            // Constellation names at boundary centroids (always shown)
+            DrawConstellationNames(contentRect, fontPath, fontSize * 0.85f, ppr, cx, cy, site, dimBelowHorizon);
+
+            DrawPlanetLabels(db, timeProvider, siteLat, siteLon, contentRect, fontPath, fontSize, ppr, cx, cy, site, dimBelowHorizon);
 
             DrawInfoStrip(contentRect, fontPath, fontSize, dpiScale, cx, cy);
 
@@ -238,7 +243,15 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// Draw constellation names at the centroid of each constellation's boundary strips.
         /// </summary>
-        private void DrawConstellationNames(RectF32 rect, string fontPath, float fontSize, double ppr, float cx, float cy)
+        /// <summary>
+        /// Return <paramref name="color"/> scaled down to ~35% alpha if <paramref name="dim"/> is true.
+        /// Used to make sub-horizon labels still readable but clearly "not tonight" visually.
+        /// </summary>
+        private static RGBAColor32 DimmedIf(RGBAColor32 color, bool dim)
+            => dim ? new RGBAColor32(color.Red, color.Green, color.Blue, (byte)(color.Alpha * 0.35f)) : color;
+
+        private void DrawConstellationNames(RectF32 rect, string fontPath, float fontSize, double ppr, float cx, float cy,
+            SiteContext site, bool dimBelowHorizon)
         {
             // Compute centroid of each constellation from its boundary strips
             var centroids = new Dictionary<Constellation, (double RaSum, double DecSum, int Count)>();
@@ -267,16 +280,18 @@ namespace TianWen.UI.Abstractions
                 {
                     var name = constellation.ToName();
                     var (tw, _) = Renderer.MeasureText(name, fontPath, fontSize);
+                    var belowHorizon = dimBelowHorizon && !site.IsAboveHorizon(avgRA, avgDec);
                     DrawText(name.AsSpan(), fontPath,
                         sx - tw * 0.5f, sy - fontSize * 0.5f, tw + 4, fontSize * 1.2f,
-                        fontSize, ConstellNameColor, TextAlign.Center, TextAlign.Center);
+                        fontSize, DimmedIf(ConstellNameColor, belowHorizon), TextAlign.Center, TextAlign.Center);
                 }
             }
         }
 
         private void DrawPlanetLabels(
             ICelestialObjectDB db, ITimeProvider timeProvider, double siteLat, double siteLon,
-            RectF32 rect, string fontPath, float fontSize, double ppr, float cx, float cy)
+            RectF32 rect, string fontPath, float fontSize, double ppr, float cx, float cy,
+            SiteContext site, bool dimBelowHorizon)
         {
             var now = timeProvider.GetUtcNow();
 
@@ -296,10 +311,12 @@ namespace TianWen.UI.Abstractions
                     && sy >= rect.Y && sy < rect.Y + rect.Height)
                 {
                     var name = planetIdx == CatalogIndex.Moon ? "Moon"
+                        : planetIdx == CatalogIndex.Sol ? "Sun"
                         : db.TryLookupByIndex(planetIdx, out var obj) ? obj.DisplayName : "?";
+                    var belowHorizon = dimBelowHorizon && !site.IsAboveHorizon(raHours, dec);
                     DrawText(name.AsSpan(), fontPath,
                         sx + 10, sy - fontSize, 100, fontSize * 1.2f,
-                        fontSize, PlanetLabel, TextAlign.Near, TextAlign.Center);
+                        fontSize, DimmedIf(PlanetLabel, belowHorizon), TextAlign.Near, TextAlign.Center);
                 }
             }
         }

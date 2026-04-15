@@ -81,7 +81,7 @@ namespace TianWen.UI.Abstractions
             }
 
             DrawStars(image, db, cRA, cDec, ppr, cx, cy, w, h,
-                state.MagnitudeLimit, state.FieldOfViewDeg,
+                state.EffectiveMagnitudeLimit, state.FieldOfViewDeg,
                 state.ShowHorizon ? site : default);
 
             if (state.ShowPlanets)
@@ -443,6 +443,7 @@ namespace TianWen.UI.Abstractions
 
         internal static readonly CatalogIndex[] PlanetIndices =
         [
+            CatalogIndex.Sol,
             CatalogIndex.Mercury,
             CatalogIndex.Venus,
             CatalogIndex.Mars,

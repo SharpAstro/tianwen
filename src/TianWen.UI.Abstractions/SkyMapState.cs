@@ -59,8 +59,32 @@ namespace TianWen.UI.Abstractions
         /// <summary>True while a two-finger pinch is active — suppresses drag.</summary>
         public bool IsPinching { get; set; }
 
-        /// <summary>Magnitude limit for displayed stars. Brighter = lower number.</summary>
+        /// <summary>
+        /// User-controlled base magnitude limit floor. Brighter = lower number.
+        /// Keyboard + / − adjusts this; the effective limit sent to the GPU also
+        /// grows as the user zooms in — see <see cref="EffectiveMagnitudeLimit"/>.
+        /// </summary>
         public float MagnitudeLimit { get; set; } = 6.5f;
+
+        /// <summary>
+        /// FOV-aware magnitude limit (Stellarium-style <c>computeRCMag</c> analogue).
+        /// As the user zooms in (FOV shrinks) the effective limit grows, revealing
+        /// fainter stars that live in the Tycho-2 regime at high zoom.
+        /// <para>
+        /// Formula: <c>base + max(0, log10(60 / fov) * 2.5)</c>. Pinned so widening
+        /// the view never dips below the user's chosen floor.
+        /// </para>
+        /// </summary>
+        /// <returns>Effective magnitude cutoff for the GPU vertex shader.</returns>
+        public float EffectiveMagnitudeLimit
+        {
+            get
+            {
+                var fov = Math.Max(0.1, FieldOfViewDeg);
+                var zoomBonus = Math.Max(0.0, Math.Log10(60.0 / fov) * 2.5);
+                return MagnitudeLimit + (float)zoomBonus;
+            }
+        }
 
         /// <summary>True when viewport changed and the cached texture must be re-rendered.</summary>
         public bool NeedsRedraw { get; set; } = true;

@@ -99,6 +99,45 @@ public static class EquipmentActions
         return data with { Mount = builder.Uri };
     }
 
+    /// <summary>
+    /// Produce a human-readable diff of two <see cref="ProfileData"/> values,
+    /// yielding one tuple per field that changed. Used for logging post-discovery
+    /// reconciles so transport refreshes and user-config clobbers are both visible.
+    /// Returns (field label, before-value, after-value) as strings; null URIs
+    /// render as "<none>".
+    /// </summary>
+    public static IEnumerable<(string Field, string Before, string After)> DiffProfileData(ProfileData before, ProfileData after)
+    {
+        static string F(Uri? u) => u?.ToString() ?? "<none>";
+
+        if (before.Mount != after.Mount)
+            yield return ("Mount", F(before.Mount), F(after.Mount));
+        if (before.Guider != after.Guider)
+            yield return ("Guider", F(before.Guider), F(after.Guider));
+        if (before.GuiderCamera != after.GuiderCamera)
+            yield return ("GuiderCamera", F(before.GuiderCamera), F(after.GuiderCamera));
+        if (before.GuiderFocuser != after.GuiderFocuser)
+            yield return ("GuiderFocuser", F(before.GuiderFocuser), F(after.GuiderFocuser));
+        if (before.Weather != after.Weather)
+            yield return ("Weather", F(before.Weather), F(after.Weather));
+
+        var maxOtas = Math.Max(before.OTAs.Length, after.OTAs.Length);
+        for (int i = 0; i < maxOtas; i++)
+        {
+            var b = i < before.OTAs.Length ? (OTAData?)before.OTAs[i] : null;
+            var a = i < after.OTAs.Length ? (OTAData?)after.OTAs[i] : null;
+            if (b is null && a is not null) yield return ($"OTA[{i}]", "<none>", "<added>");
+            else if (a is null && b is not null) yield return ($"OTA[{i}]", "<present>", "<removed>");
+            else if (b is { } bb && a is { } aa)
+            {
+                if (bb.Camera != aa.Camera) yield return ($"OTA[{i}].Camera", F(bb.Camera), F(aa.Camera));
+                if (bb.Cover != aa.Cover) yield return ($"OTA[{i}].Cover", F(bb.Cover), F(aa.Cover));
+                if (bb.Focuser != aa.Focuser) yield return ($"OTA[{i}].Focuser", F(bb.Focuser), F(aa.Focuser));
+                if (bb.FilterWheel != aa.FilterWheel) yield return ($"OTA[{i}].FilterWheel", F(bb.FilterWheel), F(aa.FilterWheel));
+            }
+        }
+    }
+
     public static ProfileData AddOTA(ProfileData data, OTAData ota)
         => data with { OTAs = data.OTAs.Add(ota) };
 

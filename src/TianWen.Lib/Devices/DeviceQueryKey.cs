@@ -35,6 +35,22 @@ public static class DeviceQueryKeyExtensions
 {
     extension(DeviceQueryKey key)
     {
+        /// <summary>
+        /// True if this key carries transport-level state (how to reach the device)
+        /// rather than user-configured preferences. Transport params should be refreshed
+        /// from discovery on reconcile (COM port swap, new DHCP lease, etc.) while
+        /// user-config params must be preserved to avoid clobbering user edits like
+        /// site coordinates or filter wheel slot names.
+        /// </summary>
+        public bool IsTransport => key switch
+        {
+            DeviceQueryKey.Port => true,
+            DeviceQueryKey.Baud => true,
+            DeviceQueryKey.Host => true,
+            DeviceQueryKey.DeviceNumber => true,
+            _ => false
+        };
+
         public string Key => key switch
         {
             DeviceQueryKey.Latitude => "latitude",
@@ -73,6 +89,24 @@ public static class DeviceQueryKeyExtensions
     /// Distinct from <see cref="DeviceQueryKey.Offset"/> which is the camera ADC offset.
     /// </summary>
     public static string FilterOffsetKey(int slotNumber) => $"offset{slotNumber.ToString(CultureInfo.InvariantCulture)}";
+
+    /// <summary>
+    /// Classify a raw query key string as transport-level. Used by URI reconcile
+    /// when the <see cref="DeviceQueryKey"/> enum doesn't have a matching entry
+    /// (e.g. dynamic filter slot keys "filter3" default to user-config).
+    /// </summary>
+    public static bool IsTransportKey(string rawKey)
+    {
+        // Case-insensitive match against the Key strings of transport enum members.
+        foreach (DeviceQueryKey k in Enum.GetValues<DeviceQueryKey>())
+        {
+            if (k.IsTransport && string.Equals(k.Key, rawKey, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 
     extension(NameValueCollection query)
     {
