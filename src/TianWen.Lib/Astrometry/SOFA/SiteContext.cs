@@ -45,14 +45,14 @@ public readonly record struct SiteContext
         return ((lst % 24.0) + 24.0) % 24.0;
     }
 
-    public static SiteContext Create(double siteLat, double siteLon, ITimeProvider timeProvider)
+    public static SiteContext Create(double siteLat, double siteLon, DateTimeOffset utcNow)
     {
         if (double.IsNaN(siteLat) || double.IsNaN(siteLon))
         {
             return default;
         }
 
-        var lst = ComputeLST(timeProvider.GetUtcNow(), siteLon);
+        var lst = ComputeLST(utcNow, siteLon);
         var (sinLat, cosLat) = Math.SinCos(siteLat * Math.PI / 180.0);
         return new SiteContext
         {
@@ -65,6 +65,9 @@ public readonly record struct SiteContext
             IsValid = true
         };
     }
+
+    public static SiteContext Create(double siteLat, double siteLon, ITimeProvider timeProvider)
+        => Create(siteLat, siteLon, timeProvider.GetUtcNow());
 
     /// <summary>
     /// Returns true if the given RA/Dec is above the horizon (altitude &gt; 0).

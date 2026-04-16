@@ -21,9 +21,13 @@ public interface ITimeProvider
     /// <summary>Frequency of <see cref="GetTimestamp"/> ticks per second.</summary>
     long TimestampFrequency { get; }
 
+    /// <summary>Returns elapsed time between two timestamps.</summary>
+    TimeSpan GetElapsedTime(long startingTimestamp, long endingTimestamp)
+        => new((long)((endingTimestamp - startingTimestamp) * ((double)TimeSpan.TicksPerSecond / TimestampFrequency)));
+
     /// <summary>Returns elapsed time since <paramref name="startingTimestamp"/>.</summary>
     TimeSpan GetElapsedTime(long startingTimestamp)
-        => System.GetElapsedTime(startingTimestamp);
+        => GetElapsedTime(startingTimestamp, GetTimestamp());
 
     /// <summary>Creates a timer backed by this time provider.</summary>
     ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period);

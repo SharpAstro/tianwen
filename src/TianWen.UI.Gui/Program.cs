@@ -221,7 +221,7 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         if (guiRenderer.LiveSessionState.IsRunning && appState.ActiveTab is GuiTab.LiveSession or GuiTab.Guider)
         {
             var now = timeProvider.GetTimestamp();
-            if (timeProvider.System.GetElapsedTime(_lastSessionRedrawTimestamp, now) >= TimeSpan.FromMilliseconds(500))
+            if (timeProvider.GetElapsedTime(_lastSessionRedrawTimestamp, now) >= TimeSpan.FromMilliseconds(500))
             {
                 _lastSessionRedrawTimestamp = now;
                 return true;
@@ -400,7 +400,7 @@ loop.OnKeyDown = (inputKey, inputModifier) =>
         case InputKey.Escape:
             var now2 = timeProvider.GetTimestamp();
             if (escConfirmTimestamp != 0
-                && timeProvider.System.GetElapsedTime(escConfirmTimestamp, now2) < TimeSpan.FromSeconds(3))
+                && timeProvider.GetElapsedTime(escConfirmTimestamp, now2) < TimeSpan.FromSeconds(3))
             {
                 // Second ESC within 3s — actually quit
                 escConfirmTimestamp = 0;

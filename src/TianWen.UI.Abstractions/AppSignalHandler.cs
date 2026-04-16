@@ -142,7 +142,7 @@ namespace TianWen.UI.Abstractions
 
                 if (_telemetryInFlight.Contains(key)) continue;
                 if (_telemetryLastSampleTicks.TryGetValue(key, out var lastTicks)
-                    && _timeProvider.System.GetElapsedTime(lastTicks, nowTicks) < sampleInterval)
+                    && _timeProvider.GetElapsedTime(lastTicks, nowTicks) < sampleInterval)
                 {
                     continue;
                 }
@@ -273,7 +273,7 @@ namespace TianWen.UI.Abstractions
                 var sampleInterval = focuserMoving ? TimeSpan.FromSeconds(1) : TimeSpan.FromSeconds(2);
 
                 if (_previewTelemetryLastTicks.TryGetValue(key, out var last)
-                    && _timeProvider.System.GetElapsedTime(last, nowTicks) < sampleInterval)
+                    && _timeProvider.GetElapsedTime(last, nowTicks) < sampleInterval)
                 {
                     continue;
                 }
@@ -322,7 +322,7 @@ namespace TianWen.UI.Abstractions
                     : TimeSpan.FromSeconds(2);
 
             if (!_previewMountInFlight
-                && _timeProvider.System.GetElapsedTime(_previewMountLastTicks, nowTicks) >= mountInterval
+                && _timeProvider.GetElapsedTime(_previewMountLastTicks, nowTicks) >= mountInterval
                 && profileData.Mount is { Scheme: not "none" } mountUri)
             {
                 _previewMountLastTicks = nowTicks;

@@ -105,7 +105,7 @@ public class MeadeLX200BasedMountTests(ITestOutputHelper outputHelper)
         }
 
         // then
-        var timePassed = timeProvider.System.GetElapsedTime(timeStamp);
+        var timePassed = ((ITimeProvider)timeProvider).GetElapsedTime(timeStamp);
         timePassed.ShouldBeGreaterThan(TimeSpan.FromSeconds(2));
         (await mount.IsSlewingAsync(cancellationToken)).ShouldBe(false);
         (await mount.IsTrackingAsync(cancellationToken)).ShouldBe(true);
