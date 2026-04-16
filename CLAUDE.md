@@ -8,6 +8,20 @@
   "command not found" or "shell killed it". Always read the stderr log (e.g. `gui-stderr.log`) for
   the actual .NET exception + stack trace before drawing conclusions from the exit code.
 
+## Custom Skills (Slash Commands)
+
+Available in `.claude/commands/`:
+
+| Command | Purpose |
+|---------|---------|
+| `/release-lib <name>` | Release a SharpAstro sibling library to NuGet with full dependency chain |
+| `/sibling-status` | Git status + version across all SharpAstro repos |
+| `/check-ci` | GitHub Actions CI status across all repos |
+| `/bump-version <X.Y>` | Bump TianWen version in all 4 required locations |
+| `/run-gui` | Build and launch the GUI with stderr redirect |
+| `/test-filter <pattern>` | Run tests matching a name pattern |
+| `/tick-todo <text>` | Mark a TODO item done and update CLAUDE.md, PLAN files, and memory |
+
 ## Project Overview
 
 TianWen is a .NET library for astronomical device management, image processing, and astrometry. It supports cameras, mounts, focusers, filter wheels, and guiders via ASCOM, INDI, ZWO, QHYCCD, Meade, and Skywatcher protocols. Published as a NuGet package (`TianWen.Lib`).
