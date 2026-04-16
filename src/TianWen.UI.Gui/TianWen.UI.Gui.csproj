@@ -22,6 +22,7 @@
   <ItemGroup>
     <Content Include="Fonts\DejaVuSans.ttf" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Fonts\Noto-COLRv1.ttf" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Resources\milkyway.bgra.lz" CopyToOutputDirectory="PreserveNewest" Link="milkyway.bgra.lz" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">

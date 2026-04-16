@@ -50,6 +50,13 @@ namespace TianWen.UI.Abstractions
         /// <summary>Show Alt/Az coordinate grid (A key toggles mode + grid).</summary>
         public bool ShowAltAzGrid { get; set; }
 
+        /// <summary>Show the diffuse Milky Way background texture (W key). Only visible
+        /// when <see cref="MilkyWayAvailable"/> is true (texture file loaded).</summary>
+        public bool ShowMilkyWay { get; set; } = true;
+
+        /// <summary>True when the Milky Way texture has been loaded from disk.</summary>
+        public bool MilkyWayAvailable { get; set; }
+
         /// <summary>
         /// Show the catalog object overlay (Messier / NGC / IC / named stars) — same
         /// overlay as the FITS viewer's <c>[O]</c> toggle. Off by default because the
