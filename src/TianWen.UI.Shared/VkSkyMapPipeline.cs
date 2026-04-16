@@ -391,10 +391,12 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
 
     private readonly VulkanContext _ctx;
 
-    // Descriptor set layout + pool + set for the UBO
+    // Descriptor set layout + pool + sets for the UBO. One set per frame-in-flight
+    // so the GPU reads from a stable UBO copy while the CPU writes the next frame's
+    // copy -- eliminates the 1-frame label desync that was visible during fast pans.
     private VkDescriptorSetLayout _uboSetLayout;
     private VkDescriptorPool _descriptorPool;
-    private VkDescriptorSet _uboSet;
+    private readonly VkDescriptorSet[] _uboSets = new VkDescriptorSet[MaxFramesInFlight];
 
     // Pipeline layout (UBO at set 0, push constants for line color)
     private VkPipelineLayout _pipelineLayout;
@@ -404,10 +406,14 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     private VkPipeline _linePipeline;
     private VkPipeline _horizonFillPipeline;
 
-    // UBO buffer (persistently mapped)
-    private VkBuffer _uboBuffer;
-    private VkDeviceMemory _uboMemory;
-    private byte* _uboMapped;
+    // Per-frame UBO buffers (persistently mapped). Mirrors the vertex ring buffer
+    // pattern in VulkanContext -- each frame-in-flight has its own copy so the GPU
+    // never reads from a UBO that the CPU is currently overwriting.
+    private const int MaxFramesInFlight = 2;
+    private readonly VkBuffer[] _uboBuffers = new VkBuffer[MaxFramesInFlight];
+    private readonly VkDeviceMemory[] _uboMemories = new VkDeviceMemory[MaxFramesInFlight];
+    private readonly byte*[] _uboMapped = new byte*[MaxFramesInFlight];
+    private int _currentUboFrame;
 
     // Quad vertex buffer for star instancing (6 vertices: 2 triangles)
     private VkBuffer _quadBuffer;
@@ -521,12 +527,15 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
 
     /// <summary>
     /// Update the UBO with current view parameters. Call once per frame before drawing.
+    /// Writes to the frame-slot selected by <paramref name="frameIndex"/> so each
+    /// in-flight frame gets its own stable UBO copy (see <see cref="MaxFramesInFlight"/>).
     /// </summary>
     public void UpdateUbo(
         SkyMapState state,
         float viewportWidth, float viewportHeight,
         float offsetX, float offsetY,
-        Lib.Astrometry.SOFA.SiteContext site)
+        Lib.Astrometry.SOFA.SiteContext site,
+        int frameIndex)
     {
         // Compute LST trig + zenith direction in J2000 for Alt/Az mode
         var (fSinLST, fCosLST) = site.IsValid
@@ -539,7 +548,8 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         state.CurrentViewMatrix = viewMatrix;
         var ppr = (float)SkyMapProjection.PixelsPerRadian(viewportHeight, state.FieldOfViewDeg);
 
-        var p = _uboMapped;
+        _currentUboFrame = frameIndex;
+        var p = _uboMapped[frameIndex];
 
         // mat4 viewMatrix at offset 0 (64 bytes) — Matrix4x4 is row-major in memory,
         // but GLSL mat4 expects column-major. Transpose before writing.
@@ -617,8 +627,9 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         api.vkCmdSetViewport(cmd, 0, 1, &viewport);
         api.vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-        // Bind UBO descriptor set (shared by all sub-pipelines)
-        var uboSet = _uboSet;
+        // Bind the current frame's UBO descriptor set (shared by all sub-pipelines).
+        // _currentUboFrame was set by the most recent UpdateUbo call.
+        var uboSet = _uboSets[_currentUboFrame];
         api.vkCmdBindDescriptorSets(cmd, VkPipelineBindPoint.Graphics, _pipelineLayout,
             0, 1, &uboSet, 0, null);
 
@@ -1215,10 +1226,11 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     private void CreateDescriptorPool()
     {
         var api = _ctx.DeviceApi;
-        VkDescriptorPoolSize poolSize = new(VkDescriptorType.UniformBuffer, 1);
+        // Pool size = MaxFramesInFlight uniform-buffer descriptors, one per frame slot.
+        VkDescriptorPoolSize poolSize = new(VkDescriptorType.UniformBuffer, (uint)MaxFramesInFlight);
         VkDescriptorPoolCreateInfo poolCI = new()
         {
-            maxSets = 1,
+            maxSets = (uint)MaxFramesInFlight,
             poolSizeCount = 1,
             pPoolSizes = &poolSize
         };
@@ -1228,16 +1240,25 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     private void AllocateDescriptorSet()
     {
         var api = _ctx.DeviceApi;
-        var layout = _uboSetLayout;
+        // Allocate one descriptor set per frame-in-flight. Each points at its own
+        // UBO buffer copy, so the GPU never reads from a UBO being overwritten.
+        var layouts = stackalloc VkDescriptorSetLayout[MaxFramesInFlight];
+        for (var i = 0; i < MaxFramesInFlight; i++)
+        {
+            layouts[i] = _uboSetLayout;
+        }
         VkDescriptorSetAllocateInfo allocInfo = new()
         {
             descriptorPool = _descriptorPool,
-            descriptorSetCount = 1,
-            pSetLayouts = &layout
+            descriptorSetCount = (uint)MaxFramesInFlight,
+            pSetLayouts = layouts
         };
-        var set = stackalloc VkDescriptorSet[1];
-        api.vkAllocateDescriptorSets(&allocInfo, set).CheckResult();
-        _uboSet = set[0];
+        var sets = stackalloc VkDescriptorSet[MaxFramesInFlight];
+        api.vkAllocateDescriptorSets(&allocInfo, sets).CheckResult();
+        for (var i = 0; i < MaxFramesInFlight; i++)
+        {
+            _uboSets[i] = sets[i];
+        }
     }
 
     private void CreatePipelineLayout()
@@ -1267,45 +1288,48 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     {
         var api = _ctx.DeviceApi;
 
-        VkBufferCreateInfo bufCI = new()
+        for (var i = 0; i < MaxFramesInFlight; i++)
         {
-            size = UboSize,
-            usage = VkBufferUsageFlags.UniformBuffer,
-            sharingMode = VkSharingMode.Exclusive
-        };
-        api.vkCreateBuffer(&bufCI, null, out _uboBuffer).CheckResult();
+            VkBufferCreateInfo bufCI = new()
+            {
+                size = UboSize,
+                usage = VkBufferUsageFlags.UniformBuffer,
+                sharingMode = VkSharingMode.Exclusive
+            };
+            api.vkCreateBuffer(&bufCI, null, out _uboBuffers[i]).CheckResult();
 
-        api.vkGetBufferMemoryRequirements(_uboBuffer, out var memReqs);
-        VkMemoryAllocateInfo allocInfo = new()
-        {
-            allocationSize = memReqs.size,
-            memoryTypeIndex = _ctx.FindMemoryType(memReqs.memoryTypeBits,
-                VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent)
-        };
-        api.vkAllocateMemory(&allocInfo, null, out _uboMemory).CheckResult();
-        api.vkBindBufferMemory(_uboBuffer, _uboMemory, 0);
+            api.vkGetBufferMemoryRequirements(_uboBuffers[i], out var memReqs);
+            VkMemoryAllocateInfo allocInfo = new()
+            {
+                allocationSize = memReqs.size,
+                memoryTypeIndex = _ctx.FindMemoryType(memReqs.memoryTypeBits,
+                    VkMemoryPropertyFlags.HostVisible | VkMemoryPropertyFlags.HostCoherent)
+            };
+            api.vkAllocateMemory(&allocInfo, null, out _uboMemories[i]).CheckResult();
+            api.vkBindBufferMemory(_uboBuffers[i], _uboMemories[i], 0);
 
-        void* ptr;
-        api.vkMapMemory(_uboMemory, 0, (ulong)UboSize, 0, &ptr);
-        _uboMapped = (byte*)ptr;
-        new Span<byte>(ptr, UboSize).Clear();
+            void* ptr;
+            api.vkMapMemory(_uboMemories[i], 0, (ulong)UboSize, 0, &ptr);
+            _uboMapped[i] = (byte*)ptr;
+            new Span<byte>(ptr, UboSize).Clear();
 
-        // Write UBO descriptor
-        VkDescriptorBufferInfo bufInfo = new()
-        {
-            buffer = _uboBuffer,
-            offset = 0,
-            range = UboSize
-        };
-        VkWriteDescriptorSet write = new()
-        {
-            dstSet = _uboSet,
-            dstBinding = 0,
-            descriptorType = VkDescriptorType.UniformBuffer,
-            descriptorCount = 1,
-            pBufferInfo = &bufInfo
-        };
-        api.vkUpdateDescriptorSets(1, &write, 0, null);
+            // Point this frame's descriptor set at this frame's UBO buffer
+            VkDescriptorBufferInfo bufInfo = new()
+            {
+                buffer = _uboBuffers[i],
+                offset = 0,
+                range = UboSize
+            };
+            VkWriteDescriptorSet write = new()
+            {
+                dstSet = _uboSets[i],
+                dstBinding = 0,
+                descriptorType = VkDescriptorType.UniformBuffer,
+                descriptorCount = 1,
+                pBufferInfo = &bufInfo
+            };
+            api.vkUpdateDescriptorSets(1, &write, 0, null);
+        }
     }
 
     private void CreateQuadBuffer()
@@ -1582,12 +1606,15 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         // Descriptor set layout
         if (_uboSetLayout != VkDescriptorSetLayout.Null) api.vkDestroyDescriptorSetLayout(_uboSetLayout);
 
-        // UBO buffer
-        if (_uboBuffer != VkBuffer.Null)
+        // Per-frame UBO buffers
+        for (var i = 0; i < MaxFramesInFlight; i++)
         {
-            api.vkUnmapMemory(_uboMemory);
-            api.vkDestroyBuffer(_uboBuffer);
-            api.vkFreeMemory(_uboMemory);
+            if (_uboBuffers[i] != VkBuffer.Null)
+            {
+                api.vkUnmapMemory(_uboMemories[i]);
+                api.vkDestroyBuffer(_uboBuffers[i]);
+                api.vkFreeMemory(_uboMemories[i]);
+            }
         }
 
         // Quad buffer
