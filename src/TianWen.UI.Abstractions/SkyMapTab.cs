@@ -106,6 +106,14 @@ namespace TianWen.UI.Abstractions
             // whether to include non-pinned catalog objects in the result.
             RenderObjectOverlay(db, contentRect, dpiScale, fontPath, BaseFontSize, site, dimBelowHorizon, plannerState, State.ShowObjectOverlay);
 
+            // Mosaic panel grid — drawn BEHIND the mount reticle but ON TOP of catalog
+            // overlays so panel outlines don't get buried under catalog markers but the
+            // reticle crosshair remains the topmost element.
+            if (State.MosaicPanels.Length > 0 && State.MountOverlay is { SensorFovDeg: not null })
+            {
+                RenderMosaicPanels(contentRect, dpiScale, ppr, cx, cy);
+            }
+
             // Mount reticle on top of everything catalog-related so it's never buried.
             if (State.ShowMountOverlay && State.MountOverlay is { } mountOverlay)
             {
@@ -132,6 +140,16 @@ namespace TianWen.UI.Abstractions
             ICelestialObjectDB db, RectF32 contentRect, float dpiScale, string fontPath,
             float baseFontSize, SiteContext site, bool dimBelowHorizon, PlannerState plannerState,
             bool showAllOverlays)
+        {
+        }
+
+        /// <summary>
+        /// Override in the GPU subclass to draw mosaic panel outlines for pinned targets
+        /// whose catalog shape exceeds the sensor FOV. Each panel is a thin semi-transparent
+        /// rectangle at the panel's RA/Dec, sized by the sensor FOV.
+        /// </summary>
+        protected virtual void RenderMosaicPanels(
+            RectF32 contentRect, float dpiScale, double ppr, float cx, float cy)
         {
         }
 

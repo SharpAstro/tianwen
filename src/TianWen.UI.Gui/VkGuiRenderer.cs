@@ -393,6 +393,7 @@ namespace TianWen.UI.Gui
                     // (already populated at session's PollDeviceStatesAsync cadence);
                     // preview-mode uses PreviewMountState populated by PollPreviewTelemetry.
                     PopulateSkyMapMountOverlay(appState);
+                    PopulateSkyMapMosaicPanels(appState, plannerState);
                     _skyMapTab.Render(plannerState, contentRect, DpiScale,
                         _fontPath ?? "monospace", timeProvider);
                     break;
@@ -482,6 +483,65 @@ namespace TianWen.UI.Gui
                 IsSlewing: ms.IsSlewing,
                 IsTracking: ms.IsTracking,
                 SensorFovDeg: sensorFov);
+        }
+
+        /// <summary>
+        /// Generates mosaic panel grids for pinned targets whose catalog shape exceeds the
+        /// sensor FOV. Each panel is a separate sensor-sized rectangle positioned so the full
+        /// object is covered with the configured overlap. Only computes when a camera is
+        /// connected (FOV available) and pinned targets exist. Panels with count == 1 are
+        /// skipped (that's just the sensor FOV rectangle already drawn by the mount overlay).
+        /// </summary>
+        private void PopulateSkyMapMosaicPanels(GuiAppState appState, PlannerState plannerState)
+        {
+            _skyMapTab.State.MosaicPanels = [];
+
+            // Need sensor FOV to compute panels
+            if (_skyMapTab.State.MountOverlay is not { SensorFovDeg: { WidthDeg: > 0, HeightDeg: > 0 } fov })
+            {
+                return;
+            }
+
+            var proposals = plannerState.Proposals;
+            if (proposals.Length == 0)
+            {
+                return;
+            }
+
+            // Need the catalog DB for shape lookups
+            if (plannerState.ObjectDb is not { } db)
+            {
+                return;
+            }
+
+            var panels = new List<(double RA, double Dec, string Name, int Row, int Col)>();
+
+            foreach (var proposal in proposals)
+            {
+                if (proposal.Target.CatalogIndex is not { } idx)
+                {
+                    continue;
+                }
+
+                var generated = MosaicGenerator.GeneratePanels(db, idx, fov.WidthDeg, fov.HeightDeg);
+
+                // Single panel = object fits in one FOV, no mosaic needed (sensor
+                // rectangle already covers it via the mount overlay)
+                if (generated.Length <= 1)
+                {
+                    continue;
+                }
+
+                foreach (var panel in generated)
+                {
+                    panels.Add((panel.Target.RA, panel.Target.Dec, panel.Target.Name, panel.Row, panel.Column));
+                }
+            }
+
+            if (panels.Count > 0)
+            {
+                _skyMapTab.State.MosaicPanels = [.. panels];
+            }
         }
 
         private void RenderComingSoonPlaceholder(RectF32 rect, GuiTab tab)
