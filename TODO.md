@@ -24,7 +24,7 @@
 - [x] Guider graph: connect dots with lines (Bresenham or anti-aliased) instead of scatter dots — users expect smooth curves like PHD2
 - [x] Guider graph: scrolling window (last N samples) with dynamic Y scale and grid lines at integer arcsec
 - [x] Guider graph: reuse the existing LiveSessionTab guide graph widget — the guider tab should show a larger version of the same graph, not a separate implementation. Extract shared graph rendering
-- [ ] DIR.Lib: add `FillEllipse`/`FillCircle`/`DrawEllipse`/`DrawCircle` primitives to `PixelWidgetBase` — currently everything is built from `FillRect` scanlines
+- [x] DIR.Lib: add `FillEllipse`/`FillCircle`/`DrawEllipse`/`DrawCircle`/`DrawLine` primitives to `PixelWidgetBase` — `DrawLine` and `DrawEllipse` on abstract `Renderer` with CPU-optimized overrides on `RgbaImageRenderer` (midpoint ellipse, scanline quad, Span.Fill); GPU-optimized overrides on `VkRenderer` (rotated quad via FlatPipeline, ring shader via EllipsePipeline). Benchmarks in `DIR.Lib.Benchmarks`
 - [x] Guider graph: show applied correction pulses (RA/Dec duration bars) alongside error — log-scaled bars (blue RA / orange Dec) extending up/down from zero line
 - [ ] SyntheticStarFieldRenderer: refactor 20-parameter methods into records/structs
 - [ ] Sky map: GPU text labels — move constellation names, planet labels, and overlay labels into the GPU sky-map pipeline (glyph atlas + instanced quads, like Stellarium). Currently all text is CPU-drawn via `PixelWidgetBase.DrawText`. The 1-frame desync during fast pans was fixed by per-swapchain-image UBO (commit ee38783), but full GPU text would eliminate the CPU/GPU render-pass split entirely and enable projected text that follows the stereographic distortion.

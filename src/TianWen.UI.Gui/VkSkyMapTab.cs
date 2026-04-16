@@ -26,6 +26,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     private readonly List<float> _horizonFloats = new(2048);
     private readonly List<float> _meridianFloats = new(4096);
     private readonly List<float> _altAzGridFloats = new(4096);
+    private readonly List<float> _fovFloats = new(256);
 
     protected override void RenderSkyMap(
         ICelestialObjectDB db, RectF32 contentRect, string fontPath,
@@ -75,6 +76,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         _horizonFloats.Clear();
         _meridianFloats.Clear();
         _altAzGridFloats.Clear();
+        _fovFloats.Clear();
 
         if (State.ShowHorizon && site.IsValid)
         {
@@ -91,6 +93,18 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             VkSkyMapPipeline.BuildAltAzGrid(site, _altAzGridFloats);
         }
 
+        // Sensor FOV rectangle + mosaic panel outlines as GPU line geometry
+        if (State.ShowMountOverlay && State.MountOverlay is { SensorFovDeg: { WidthDeg: > 0, HeightDeg: > 0 } fov } mountOvl)
+        {
+            BuildFovLines(mountOvl.RaJ2000, mountOvl.DecJ2000,
+                fov.WidthDeg, fov.HeightDeg, _fovFloats);
+
+            foreach (var (ra, dec, _, _, _) in State.MosaicPanels)
+            {
+                BuildFovLines(ra, dec, fov.WidthDeg, fov.HeightDeg, _fovFloats);
+            }
+        }
+
         // Write dynamic geometry to the frame ring buffer
         var ctx = renderer.Context;
         var cmd = renderer.CurrentCommandBuffer;
@@ -98,10 +112,11 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         var horizonInfo = WriteToRingBuffer(ctx, _horizonFloats);
         var meridianInfo = WriteToRingBuffer(ctx, _meridianFloats);
         var altAzGridInfo = WriteToRingBuffer(ctx, _altAzGridFloats);
+        var fovInfo = WriteToRingBuffer(ctx, _fovFloats);
 
         // Draw all sky map layers
         _pipeline.Draw(cmd, State, mapW, mapH, contentRect.X, contentRect.Y,
-            horizonInfo, meridianInfo, altAzGridInfo);
+            horizonInfo, meridianInfo, altAzGridInfo, fovInfo);
 
         // Restore the full-window viewport/scissor for text overlay rendering
         // (the pipeline sets a clipped viewport/scissor for the sky map area)
@@ -256,46 +271,8 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             });
     }
 
-    /// <summary>
-    /// Draws mosaic panel outlines for pinned targets that require multiple sensor
-    /// pointings to cover. Thin grey semi-transparent rectangles at each panel centre,
-    /// sized by the sensor FOV. Gives the user an immediate visual of the mosaic layout
-    /// overlaid on the actual sky.
-    /// </summary>
-    protected override void RenderMosaicPanels(
-        RectF32 contentRect, float dpiScale, double ppr, float cx, float cy)
-    {
-        if (State.MountOverlay is not { SensorFovDeg: { WidthDeg: > 0, HeightDeg: > 0 } fov })
-        {
-            return;
-        }
-
-        var halfW = fov.WidthDeg / 2.0;
-        var halfH = fov.HeightDeg / 2.0;
-        var panelColor = new RGBAColor32(0xDD, 0x44, 0x44, 0xB0); // red, 69% alpha
-        var strokeWidth = Math.Max(1, (int)dpiScale);
-
-        foreach (var (ra, dec, _, _, _) in State.MosaicPanels)
-        {
-            var cosDec = Math.Max(Math.Cos(double.DegreesToRadians(dec)), 0.01);
-            var dRA = halfW / (15.0 * cosDec);
-
-            // Project top-left and bottom-right corners — sufficient for an
-            // axis-aligned outline since panels follow the RA/Dec grid.
-            if (!SkyMapProjection.ProjectWithMatrix(ra - dRA, dec + halfH,
-                    State.CurrentViewMatrix, ppr, cx, cy, out var tlX, out var tlY)
-                || !SkyMapProjection.ProjectWithMatrix(ra + dRA, dec - halfH,
-                    State.CurrentViewMatrix, ppr, cx, cy, out var brX, out var brY))
-            {
-                continue;
-            }
-
-            renderer.DrawRectangle(new RectInt(
-                new PointInt((int)Math.Max(tlX, brX), (int)Math.Max(tlY, brY)),
-                new PointInt((int)Math.Min(tlX, brX), (int)Math.Min(tlY, brY))),
-                panelColor, strokeWidth);
-        }
-    }
+    // Mosaic panel outlines are now drawn by the GPU LinePipeline (see BuildFovLines
+    // in RenderSkyMap). The base class RenderMosaicPanels is no longer overridden.
 
     /// <summary>
     /// Draws the Stellarium-style mount reticle at the connected mount's current
@@ -332,58 +309,9 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
                 ? new RGBAColor32(0x40, 0xFF, 0x70, 0xFF) // bright green
                 : new RGBAColor32(0xA0, 0xA0, 0xA0, 0xFF); // grey
 
-        // Sensor FOV rectangle — project the 4 corners of the camera sensor's field
-        // of view at the mount's current J2000 pointing. North-up initially (rotation=0);
-        // a future plate-solve result would supply the actual rotation angle.
-        if (mountOverlay.SensorFovDeg is { WidthDeg: > 0, HeightDeg: > 0 } fov)
-        {
-            var halfW = fov.WidthDeg / 2.0;
-            var halfH = fov.HeightDeg / 2.0;
-            var ra = mountOverlay.RaJ2000;
-            var dec = mountOverlay.DecJ2000;
-            // RA offset must account for cos(dec) foreshortening
-            var cosDec = Math.Max(Math.Cos(double.DegreesToRadians(dec)), 0.01);
-            var dRA = halfW / (15.0 * cosDec); // degrees to hours, corrected
-
-            // 4 corners: TL, TR, BR, BL
-            Span<(double RA, double Dec)> corners = stackalloc (double, double)[4];
-            corners[0] = (ra - dRA, dec + halfH); // top-left
-            corners[1] = (ra + dRA, dec + halfH); // top-right
-            corners[2] = (ra + dRA, dec - halfH); // bottom-right
-            corners[3] = (ra - dRA, dec - halfH); // bottom-left
-
-            // Project all 4 corners
-            Span<(float X, float Y)> projected = stackalloc (float, float)[4];
-            var allProjected = true;
-            for (var i = 0; i < 4; i++)
-            {
-                if (!SkyMapProjection.ProjectWithMatrix(corners[i].RA, corners[i].Dec,
-                    State.CurrentViewMatrix, ppr, cx, cy, out var sx, out var sy))
-                {
-                    allProjected = false;
-                    break;
-                }
-                projected[i] = (sx, sy);
-            }
-
-            if (allProjected)
-            {
-                // Sensor FOV outline in Stellarium-style red. Use DrawRectangle
-                // for clean connected corners (FillRectangle bars leave gaps).
-                var fovColor = new RGBAColor32(0xDD, 0x33, 0x33, 0xDD); // red, bright
-                var strokeWidth = Math.Max(1, (int)(dpiScale * 1.5f));
-
-                renderer.DrawRectangle(new RectInt(
-                    new PointInt((int)Math.Max(projected[0].X, projected[2].X),
-                                (int)Math.Max(projected[0].Y, projected[2].Y)),
-                    new PointInt((int)Math.Min(projected[0].X, projected[2].X),
-                                (int)Math.Min(projected[0].Y, projected[2].Y))),
-                    fovColor, strokeWidth);
-
-                // TODO: "up" tick for camera orientation once plate-solve rotation is available.
-                // The naive north-up tick looked detached and confusing without rotation data.
-            }
-        }
+        // Sensor FOV rectangle is now drawn by the GPU LinePipeline (see BuildFovLines
+        // in RenderSkyMap). No CPU drawing needed here.
+        // TODO: "up" tick for camera orientation once plate-solve rotation is available.
 
         VkOverlayShapes.DrawReticle(renderer, dpiScale,
             screenX, screenY,
@@ -419,6 +347,69 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
                 new PointInt((int)(centerX + textW * 0.5f + 4), (int)(topY + lineH)),
                 new PointInt((int)(centerX - textW * 0.5f - 4), (int)topY)),
             TextAlign.Center, TextAlign.Center);
+    }
+
+    /// <summary>
+    /// Builds GPU line-list geometry for a sensor FOV rectangle at the given RA/Dec center.
+    /// Computes 4 corner unit vectors via tangent-plane offsets (pole-safe, no RA/Dec
+    /// singularity) and emits 4 line segments (8 vec3 pairs) into the float list.
+    /// The vertex shader handles stereographic projection via the UBO view matrix.
+    /// </summary>
+    private static void BuildFovLines(
+        double centerRA, double centerDec,
+        double fovWidthDeg, double fovHeightDeg,
+        List<float> floats)
+    {
+        // Center unit vector on the celestial sphere
+        var raRad = centerRA * (Math.PI / 12.0);
+        var decRad = centerDec * (Math.PI / 180.0);
+        var (sinRA, cosRA) = Math.SinCos(raRad);
+        var (sinDec, cosDec) = Math.SinCos(decRad);
+
+        var fwdX = cosDec * cosRA;
+        var fwdY = cosDec * sinRA;
+        var fwdZ = sinDec;
+
+        // Local east tangent: d(pos)/d(RA) normalized = (-sinRA, cosRA, 0)
+        double eastX = -sinRA, eastY = cosRA, eastZ = 0.0;
+
+        // Local north tangent: cross(forward, east)
+        var northX = fwdY * eastZ - fwdZ * eastY;
+        var northY = fwdZ * eastX - fwdX * eastZ;
+        var northZ = fwdX * eastY - fwdY * eastX;
+
+        var halfWRad = fovWidthDeg * 0.5 * (Math.PI / 180.0);
+        var halfHRad = fovHeightDeg * 0.5 * (Math.PI / 180.0);
+
+        // 4 corners: TL, TR, BR, BL
+        Span<(float X, float Y, float Z)> corners = stackalloc (float, float, float)[4];
+        ReadOnlySpan<(double eSign, double nSign)> offsets =
+        [
+            (-1, +1), // TL (west, north)
+            (+1, +1), // TR (east, north)
+            (+1, -1), // BR (east, south)
+            (-1, -1), // BL (west, south)
+        ];
+
+        for (var i = 0; i < 4; i++)
+        {
+            var (eSign, nSign) = offsets[i];
+            var px = fwdX + eastX * (eSign * halfWRad) + northX * (nSign * halfHRad);
+            var py = fwdY + eastY * (eSign * halfWRad) + northY * (nSign * halfHRad);
+            var pz = fwdZ + eastZ * (eSign * halfWRad) + northZ * (nSign * halfHRad);
+
+            // Normalize back onto the unit sphere
+            var pLen = Math.Sqrt(px * px + py * py + pz * pz);
+            corners[i] = ((float)(px / pLen), (float)(py / pLen), (float)(pz / pLen));
+        }
+
+        // Emit 4 line segments as pairs of vec3 unit vectors (line-list topology)
+        for (var i = 0; i < 4; i++)
+        {
+            var next = (i + 1) % 4;
+            floats.Add(corners[i].X); floats.Add(corners[i].Y); floats.Add(corners[i].Z);
+            floats.Add(corners[next].X); floats.Add(corners[next].Y); floats.Add(corners[next].Z);
+        }
     }
 
     private static (Vortice.Vulkan.VkBuffer Buffer, uint ByteOffset, uint VertexCount) WriteToRingBuffer(

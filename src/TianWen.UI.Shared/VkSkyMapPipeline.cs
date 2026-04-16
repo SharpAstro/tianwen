@@ -600,7 +600,8 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         // Dynamic line buffers — written to ring buffer by caller
         (VkBuffer Buffer, uint ByteOffset, uint VertexCount) horizon,
         (VkBuffer Buffer, uint ByteOffset, uint VertexCount) meridian,
-        (VkBuffer Buffer, uint ByteOffset, uint VertexCount) altAzGrid)
+        (VkBuffer Buffer, uint ByteOffset, uint VertexCount) altAzGrid,
+        (VkBuffer Buffer, uint ByteOffset, uint VertexCount) fovOutlines = default)
     {
         if (!_geometryBuilt)
         {
@@ -698,8 +699,22 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             DrawLineBuffer(cmd, horizon.Buffer, horizon.ByteOffset, horizon.VertexCount);
         }
 
+        // Sensor FOV rectangle + mosaic panel outlines (on top of all line geometry,
+        // below stars so the reticle and star dots remain visible)
+        if (fovOutlines.VertexCount > 0)
+        {
+            PushLineColor(cmd, 0xDD, 0x33, 0x33, 0xDD); // Stellarium-style red
+            DrawLineBuffer(cmd, fovOutlines.Buffer, fovOutlines.ByteOffset, fovOutlines.VertexCount);
+        }
+
         // ── Stars ──
-        if (_starCount > 0)
+        // Stars are sorted by magnitude (brightest first). Only instance the prefix
+        // that passes the current EffectiveMagnitudeLimit — at full zoom-out (FOV 180°,
+        // mag ~6.5) we draw ~9k instances instead of all ~118k.
+        var visibleStars = _magBinCounts.Length > 0
+            ? GetVisibleStarCount(state.EffectiveMagnitudeLimit)
+            : _starCount;
+        if (visibleStars > 0)
         {
             api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _starPipeline);
 
@@ -714,8 +729,8 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             buffers[1] = starBuf;
             api.vkCmdBindVertexBuffers(cmd, 0, 2, buffers, offsets);
 
-            // 6 vertices per quad, _starCount instances
-            api.vkCmdDraw(cmd, 6, _starCount, 0, 0);
+            // 6 vertices per quad, only the visible prefix of the sorted star buffer
+            api.vkCmdDraw(cmd, 6, visibleStars, 0, 0);
         }
     }
 
@@ -841,8 +856,83 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         }
 
         _starCount = (uint)(floats.Count / floatsPerStar);
+
+        // Sort by magnitude (brightest first) so we can limit instance count at draw
+        // time based on EffectiveMagnitudeLimit — the GPU only processes the prefix of
+        // stars that pass the current mag threshold, instead of all 118k every frame.
+        SortStarsByMagnitude(floats, floatsPerStar);
+        BuildMagnitudeLookup(floats, floatsPerStar);
+
         (_starBuffer, _starMemory) = _ctx.CreatePersistentVertexBuffer(
             System.Runtime.InteropServices.CollectionsMarshal.AsSpan(floats));
+    }
+
+    /// <summary>
+    /// Sorts the flat star float array by the magnitude field (index 3 of each 5-float record).
+    /// Uses Array.Sort on a temporary index array to avoid copying 20-byte records.
+    /// </summary>
+    private static void SortStarsByMagnitude(List<float> floats, int floatsPerStar)
+    {
+        var span = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(floats);
+        var count = span.Length / floatsPerStar;
+        if (count <= 1) return;
+
+        // Build index + magnitude arrays for sorting
+        var indices = new int[count];
+        var mags = new float[count];
+        for (var i = 0; i < count; i++)
+        {
+            indices[i] = i;
+            mags[i] = span[i * floatsPerStar + 3]; // vMag field
+        }
+
+        Array.Sort(mags, indices);
+
+        // Reorder the float data according to sorted indices
+        var sorted = new float[span.Length];
+        for (var i = 0; i < count; i++)
+        {
+            var srcOff = indices[i] * floatsPerStar;
+            var dstOff = i * floatsPerStar;
+            span.Slice(srcOff, floatsPerStar).CopyTo(sorted.AsSpan(dstOff, floatsPerStar));
+        }
+        sorted.AsSpan().CopyTo(span);
+    }
+
+    /// <summary>
+    /// Pre-computed magnitude → instance count lookup. For a given mag limit, the number
+    /// of stars to draw is <c>_magBinCounts[bin]</c> where <c>bin = (int)(mag * 2)</c>.
+    /// Bins cover mag 0..15 in 0.5-mag steps (30 entries).
+    /// </summary>
+    private uint[] _magBinCounts = [];
+
+    private void BuildMagnitudeLookup(List<float> sortedFloats, int floatsPerStar)
+    {
+        const int bins = 30; // mag 0..15 in 0.5 steps
+        _magBinCounts = new uint[bins];
+        var span = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(sortedFloats);
+        var count = (uint)(span.Length / floatsPerStar);
+
+        uint idx = 0;
+        for (var bin = 0; bin < bins; bin++)
+        {
+            var magThreshold = (bin + 1) * 0.5f;
+            while (idx < count && span[(int)(idx * floatsPerStar + 3)] <= magThreshold)
+            {
+                idx++;
+            }
+            _magBinCounts[bin] = idx;
+        }
+    }
+
+    /// <summary>
+    /// Returns the number of star instances to draw for the given magnitude limit.
+    /// Stars are sorted brightest-first, so we just return the prefix count.
+    /// </summary>
+    private uint GetVisibleStarCount(float magLimit)
+    {
+        var bin = Math.Clamp((int)(magLimit * 2) - 1, 0, _magBinCounts.Length - 1);
+        return _magBinCounts[bin];
     }
 
     /// <summary>
@@ -874,6 +964,8 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         }
 
         _starCount = (uint)(floats.Count / 5);
+        SortStarsByMagnitude(floats, 5);
+        BuildMagnitudeLookup(floats, 5);
         (_starBuffer, _starMemory) = _ctx.CreatePersistentVertexBuffer(
             System.Runtime.InteropServices.CollectionsMarshal.AsSpan(floats));
     }

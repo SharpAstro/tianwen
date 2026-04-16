@@ -118,6 +118,38 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
+        /// Project a J2000 unit vector directly, bypassing the RA/Dec → unit vector conversion.
+        /// Essential near the celestial poles where the RA coordinate is degenerate.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool ProjectUnitVec(
+            double ux, double uy, double uz,
+            in Matrix4x4 viewMatrix,
+            double pixelsPerRadian,
+            float centerX, float centerY,
+            out float screenX, out float screenY)
+        {
+            // Apply view matrix (same as GPU: viewMatrix * vec4(pos, 1.0))
+            var cx = viewMatrix.M11 * ux + viewMatrix.M12 * uy + viewMatrix.M13 * uz;
+            var cy = viewMatrix.M21 * ux + viewMatrix.M22 * uy + viewMatrix.M23 * uz;
+            var cz = viewMatrix.M31 * ux + viewMatrix.M32 * uy + viewMatrix.M33 * uz;
+
+            // Stereographic projection in camera space (forward is -Z)
+            var cosD = -cz;
+            if (cosD <= -0.99f)
+            {
+                screenX = float.NaN;
+                screenY = float.NaN;
+                return false;
+            }
+
+            var k = 2.0 / (1.0 + cosD);
+            screenX = centerX + (float)(cx * k * pixelsPerRadian);
+            screenY = centerY - (float)(cy * k * pixelsPerRadian);
+            return true;
+        }
+
+        /// <summary>
         /// Inverse projection using the view matrix. Converts screen pixel coordinates back to RA/Dec.
         /// Works in both equatorial and horizon modes.
         /// </summary>

@@ -309,4 +309,259 @@ public sealed class MosaicGeneratorTests
             panel.Target.RA.ShouldBeInRange(0.0, 24.0, "RA should be in [0, 24)");
         }
     }
+
+    // --- Coverage verification tests ---
+
+    // NGC 3372 (Eta Carinae Nebula): RA=10.733h, Dec=-59.867deg, ~120'x120', PA~0
+    private const double NGC3372_RA = 10.733;
+    private const double NGC3372_Dec = -59.867;
+    private const double NGC3372_MajorArcmin = 120;
+    private const double NGC3372_MinorArcmin = 120;
+    private const double NGC3372_PA = 0;
+
+    // 200mm lens + APS-C: ~5.3deg x 3.5deg FOV (fits NGC 3372 in single panel)
+    private const double FovW_200mm = 5.3;
+    private const double FovH_200mm = 3.5;
+
+    // 1000mm SCT + mono camera: ~0.96deg x 0.72deg FOV
+    private const double FovW_1000mm = 0.96;
+    private const double FovH_1000mm = 0.72;
+
+    // 2000mm SCT + mono camera: ~0.48deg x 0.36deg FOV
+    private const double FovW_2000mm = 0.48;
+    private const double FovH_2000mm = 0.36;
+
+    /// <summary>
+    /// Returns true if the given sky point (RA in hours, Dec in degrees) falls within
+    /// at least one panel's FOV rectangle.
+    /// </summary>
+    private static bool IsPointCoveredByAnyPanel(
+        ImmutableArray<MosaicPanel> panels, double pointRA, double pointDec,
+        double fovWidthDeg, double fovHeightDeg)
+    {
+        var halfFovDec = fovHeightDeg / 2.0;
+
+        foreach (var panel in panels)
+        {
+            // Dec check
+            if (Math.Abs(pointDec - panel.Target.Dec) > halfFovDec)
+            {
+                continue;
+            }
+
+            // RA check — convert hour difference to sky degrees via cos(Dec)
+            var cosDec = Math.Cos(panel.Target.Dec * Math.PI / 180.0);
+            var halfFovRA = cosDec > 0.01 ? fovWidthDeg / (2.0 * 15.0 * cosDec) : 12.0;
+            var dRA = Math.Abs(pointRA - panel.Target.RA);
+            // Handle RA wraparound (0/24h boundary)
+            if (dRA > 12.0) dRA = 24.0 - dRA;
+
+            if (dRA <= halfFovRA)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Verifies that all sample points on the object's bounding box boundary and interior
+    /// are covered by at least one mosaic panel.
+    /// </summary>
+    private static void AssertFullCoverage(
+        ImmutableArray<MosaicPanel> panels,
+        double centerRA, double centerDec,
+        double majorAxisArcmin, double minorAxisArcmin, double positionAngleDeg,
+        double fovWidthDeg, double fovHeightDeg)
+    {
+        var majorDeg = majorAxisArcmin / 60.0;
+        var minorDeg = minorAxisArcmin / 60.0;
+        var (bboxW, bboxH) = MosaicGenerator.ComputeRotatedEllipseBBox(majorDeg, minorDeg, positionAngleDeg);
+
+        var cosDec = Math.Cos(centerDec * Math.PI / 180.0);
+        // Half-extents in RA hours and Dec degrees
+        var halfExtentRA = cosDec > 0.01 ? bboxW / (2.0 * 15.0 * cosDec) : bboxW / 30.0;
+        var halfExtentDec = bboxH / 2.0;
+
+        // Sample a grid of points across the bounding box
+        const int samples = 5;
+        for (var i = 0; i <= samples; i++)
+        {
+            for (var j = 0; j <= samples; j++)
+            {
+                var fRA = -1.0 + 2.0 * i / samples;   // -1 to +1
+                var fDec = -1.0 + 2.0 * j / samples;
+
+                var pointRA = centerRA + fRA * halfExtentRA;
+                var pointDec = centerDec + fDec * halfExtentDec;
+
+                // Wrap RA
+                if (pointRA < 0) pointRA += 24.0;
+                if (pointRA >= 24) pointRA -= 24.0;
+                // Clamp Dec
+                pointDec = Math.Clamp(pointDec, -90, 90);
+
+                IsPointCoveredByAnyPanel(panels, pointRA, pointDec, fovWidthDeg, fovHeightDeg)
+                    .ShouldBeTrue($"Point RA={pointRA:F4}h Dec={pointDec:F2} (grid [{i},{j}]) not covered by any panel");
+            }
+        }
+    }
+
+    [Fact]
+    public void GeneratePanels_M31At500mm_CoversFullExtent()
+    {
+        var panels = MosaicGenerator.GeneratePanels(
+            M31_RA, M31_Dec, M31_MajorArcmin, M31_MinorArcmin, M31_PA,
+            FovW_500mm, FovH_500mm);
+
+        panels.Length.ShouldBeGreaterThan(1);
+        AssertFullCoverage(panels, M31_RA, M31_Dec,
+            M31_MajorArcmin, M31_MinorArcmin, M31_PA,
+            FovW_500mm, FovH_500mm);
+    }
+
+    [Fact]
+    public void GeneratePanels_NGC3372At200mm_FitsInSinglePanel()
+    {
+        var panels = MosaicGenerator.GeneratePanels(
+            NGC3372_RA, NGC3372_Dec, NGC3372_MajorArcmin, NGC3372_MinorArcmin, NGC3372_PA,
+            FovW_200mm, FovH_200mm);
+
+        panels.Length.ShouldBe(1, "NGC 3372 should fit in a single 200mm FOV");
+        panels[0].Target.RA.ShouldBe(NGC3372_RA);
+        panels[0].Target.Dec.ShouldBe(NGC3372_Dec);
+    }
+
+    [Fact]
+    public void GeneratePanels_NGC3372At500mm_CoversFullExtent()
+    {
+        // 500mm: ~1.28deg x 0.85deg FOV vs 2deg object -- needs mosaic
+        var panels = MosaicGenerator.GeneratePanels(
+            NGC3372_RA, NGC3372_Dec, NGC3372_MajorArcmin, NGC3372_MinorArcmin, NGC3372_PA,
+            FovW_500mm, FovH_500mm);
+
+        panels.Length.ShouldBeGreaterThan(1, "NGC 3372 at 500mm should need a mosaic");
+        AssertFullCoverage(panels, NGC3372_RA, NGC3372_Dec,
+            NGC3372_MajorArcmin, NGC3372_MinorArcmin, NGC3372_PA,
+            FovW_500mm, FovH_500mm);
+    }
+
+    [Fact]
+    public void GeneratePanels_NGC3372At1000mm_CoversFullExtent()
+    {
+        var panels = MosaicGenerator.GeneratePanels(
+            NGC3372_RA, NGC3372_Dec, NGC3372_MajorArcmin, NGC3372_MinorArcmin, NGC3372_PA,
+            FovW_1000mm, FovH_1000mm);
+
+        panels.Length.ShouldBeGreaterThan(1);
+        AssertFullCoverage(panels, NGC3372_RA, NGC3372_Dec,
+            NGC3372_MajorArcmin, NGC3372_MinorArcmin, NGC3372_PA,
+            FovW_1000mm, FovH_1000mm);
+    }
+
+    [Fact]
+    public void GeneratePanels_NGC3372At2000mm_CoversFullExtent()
+    {
+        var panels = MosaicGenerator.GeneratePanels(
+            NGC3372_RA, NGC3372_Dec, NGC3372_MajorArcmin, NGC3372_MinorArcmin, NGC3372_PA,
+            FovW_2000mm, FovH_2000mm);
+
+        panels.Length.ShouldBeGreaterThan(4, "NGC 3372 at 2000mm should need many panels");
+        AssertFullCoverage(panels, NGC3372_RA, NGC3372_Dec,
+            NGC3372_MajorArcmin, NGC3372_MinorArcmin, NGC3372_PA,
+            FovW_2000mm, FovH_2000mm);
+    }
+
+    [Theory]
+    [InlineData(0.0)]    // equator
+    [InlineData(41.27)]  // M31 declination
+    [InlineData(-59.87)] // NGC 3372 declination
+    [InlineData(70.0)]   // high declination
+    [InlineData(85.0)]   // near-polar
+    public void GeneratePanels_CoversFullExtent_AtVariousDeclinations(double dec)
+    {
+        // 2deg circular object at the given declination, ~0.5deg FOV
+        var panels = MosaicGenerator.GeneratePanels(
+            centerRA: 12.0, centerDec: dec,
+            majorAxisArcmin: 120, minorAxisArcmin: 120, positionAngleDeg: 0,
+            fovWidthDeg: 0.5, fovHeightDeg: 0.5);
+
+        panels.Length.ShouldBeGreaterThan(1);
+        AssertFullCoverage(panels, 12.0, dec,
+            120, 120, 0,
+            0.5, 0.5);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(30)]
+    [InlineData(60)]
+    [InlineData(90)]
+    [InlineData(135)]
+    public void GeneratePanels_CoversFullExtent_AtVariousPositionAngles(double pa)
+    {
+        // Elongated object (3:1 ratio) at various PAs with 500mm FOV
+        var panels = MosaicGenerator.GeneratePanels(
+            centerRA: 6.0, centerDec: 30.0,
+            majorAxisArcmin: 150, minorAxisArcmin: 50, positionAngleDeg: pa,
+            fovWidthDeg: FovW_500mm, fovHeightDeg: FovH_500mm);
+
+        panels.Length.ShouldBeGreaterThan(1);
+        AssertFullCoverage(panels, 6.0, 30.0,
+            150, 50, pa,
+            FovW_500mm, FovH_500mm);
+    }
+
+    [Fact]
+    public void GeneratePanels_PanelSpacingMatchesFovWithOverlap()
+    {
+        // Verify that adjacent panels in the same row are spaced by
+        // fovWidth * (1 - overlap) in sky degrees, not more
+        const double overlap = 0.2;
+        var panels = MosaicGenerator.GeneratePanels(
+            M31_RA, M31_Dec, M31_MajorArcmin, M31_MinorArcmin, M31_PA,
+            FovW_500mm, FovH_500mm, overlap: overlap);
+
+        var expectedSkyStep = FovW_500mm * (1 - overlap);
+        var cosDec = Math.Cos(M31_Dec * Math.PI / 180.0);
+
+        // Check spacing between adjacent columns in the same row
+        var row0Panels = panels.Where(p => p.Row == 0).OrderBy(p => p.Column).ToArray();
+        for (var i = 1; i < row0Panels.Length; i++)
+        {
+            var dRA = row0Panels[i].Target.RA - row0Panels[i - 1].Target.RA;
+            // Handle wrap
+            if (dRA < 0) dRA += 24.0;
+            // Convert RA-hour difference to sky degrees
+            var skyDegStep = dRA * 15.0 * cosDec;
+
+            skyDegStep.ShouldBe(expectedSkyStep, tolerance: 0.01,
+                $"Sky-degree step between col {row0Panels[i - 1].Column} and {row0Panels[i].Column} " +
+                $"should be {expectedSkyStep:F3} deg, got {skyDegStep:F3} deg");
+        }
+    }
+
+    [Fact]
+    public void GeneratePanels_GridCenteredOnObject()
+    {
+        // The grid midpoint (average of all panel positions) should be very close
+        // to the object center
+        var panels = MosaicGenerator.GeneratePanels(
+            M31_RA, M31_Dec, M31_MajorArcmin, M31_MinorArcmin, M31_PA,
+            FovW_500mm, FovH_500mm);
+
+        // Dec average should be close to center
+        var avgDec = panels.Average(p => p.Target.Dec);
+        Math.Abs(avgDec - M31_Dec).ShouldBeLessThan(FovH_500mm * 0.5,
+            "Grid center Dec should be within half a FOV of object center");
+
+        // RA average: convert to degrees, average, compare
+        // (M31 is near RA=0 so no wrap issue for these panels)
+        var avgRA = panels.Average(p => p.Target.RA);
+        var cosDec = Math.Cos(M31_Dec * Math.PI / 180.0);
+        var dRASkyDeg = Math.Abs(avgRA - M31_RA) * 15.0 * cosDec;
+        dRASkyDeg.ShouldBeLessThan(FovW_500mm * 0.5,
+            "Grid center RA should be within half a FOV of object center");
+    }
 }

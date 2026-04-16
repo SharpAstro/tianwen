@@ -114,18 +114,22 @@ public static class MosaicGenerator
 
         // Panel step sizes (with overlap)
         var stepDec = fovHeightDeg * (1 - overlap);
+        // Sky-degree step in RA direction (what the FOV actually covers on the sky)
+        var stepSkyWidth = fovWidthDeg * (1 - overlap);
         var cosDec = Math.Cos(centerDec * Math.PI / 180.0);
-        // RA step must account for cos(Dec) projection — wider RA steps at higher declinations
-        var stepRA = cosDec > 0.01 ? fovWidthDeg * (1 - overlap) / cosDec : fovWidthDeg * (1 - overlap);
+        // RA coordinate step must account for cos(Dec) projection — wider RA-coord steps
+        // at higher declinations because RA lines converge toward the poles
+        var stepRA = cosDec > 0.01 ? stepSkyWidth / cosDec : stepSkyWidth;
 
-        // Grid dimensions
+        // Grid dimensions — compare sky-degree extents with sky-degree steps
         var nRows = Math.Max(1, (int)Math.Ceiling(bboxHeightDeg / stepDec));
-        var nCols = Math.Max(1, (int)Math.Ceiling(bboxWidthDeg / stepRA));
+        var nCols = Math.Max(1, (int)Math.Ceiling(bboxWidthDeg / stepSkyWidth));
 
         // Center the grid on the object center
         // RA is in degrees for the grid math, convert to hours at the end
         var centerRADeg = centerRA * 15.0; // hours → degrees
-        var gridOriginRADeg = centerRADeg - (nCols - 1) * stepRA * 0.5 * cosDec;
+        // Offsets in RA-coordinate degrees (stepRA already accounts for cos(Dec))
+        var gridOriginRADeg = centerRADeg - (nCols - 1) * stepRA * 0.5;
         var gridOriginDec = centerDec - (nRows - 1) * stepDec * 0.5;
 
         // Generate panels: column-first sweep (RA ascending) for meridian-aware ordering
@@ -138,7 +142,8 @@ public static class MosaicGenerator
                 // Clamp Dec to valid range
                 panelDec = Math.Clamp(panelDec, -90, 90);
 
-                var panelRADeg = gridOriginRADeg + col * stepRA * cosDec;
+                // Step in RA-coordinate degrees (stepRA already divided by cosDec)
+                var panelRADeg = gridOriginRADeg + col * stepRA;
                 // Wrap RA to [0, 360)
                 panelRADeg = ((panelRADeg % 360) + 360) % 360;
                 var panelRA = panelRADeg / 15.0; // degrees → hours
