@@ -89,17 +89,25 @@ public class ViewerControllerTests
     }
 
     [Fact]
-    public void HandleFileRequest_WhileLoadInProgress_IgnoresNewRequest()
+    public async Task HandleFileRequest_WhileLoadInProgress_IgnoresNewRequest()
     {
         var (controller, state, cache, _, _) = CreateSut();
 
-        // Block the first load indefinitely
+        // Block the first load indefinitely, signalling when Task.Run enters GetOrLoadAsync
+        var loadStarted = new SemaphoreSlim(0, 1);
         var tcs = new TaskCompletionSource<AstroImageDocument?>();
         cache.GetOrLoadAsync(Arg.Any<string>(), Arg.Any<DebayerAlgorithm>(), Arg.Any<CancellationToken>())
-            .Returns(tcs.Task);
+            .Returns(call =>
+            {
+                loadStarted.Release();
+                return tcs.Task;
+            });
 
         state.RequestedFilePath = "/test/first.fits";
         controller.HandleFileRequest(CancellationToken.None);
+
+        // Wait for the Task.Run to actually call GetOrLoadAsync (fixes CI race)
+        (await loadStarted.WaitAsync(TimeSpan.FromSeconds(5))).ShouldBeTrue();
         controller.IsLoadPending.ShouldBeTrue();
 
         // Set a new request while the first is still pending
