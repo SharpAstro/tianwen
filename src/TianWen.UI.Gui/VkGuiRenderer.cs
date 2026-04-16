@@ -2,6 +2,7 @@ using System;
 using DIR.Lib;
 using SdlVulkan.Renderer;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions;
 
 namespace TianWen.UI.Gui
@@ -391,7 +392,7 @@ namespace TianWen.UI.Gui
                     // own poll path. Session-mode uses the session's own MountState
                     // (already populated at session's PollDeviceStatesAsync cadence);
                     // preview-mode uses PreviewMountState populated by PollPreviewTelemetry.
-                    PopulateSkyMapMountOverlay();
+                    PopulateSkyMapMountOverlay(appState);
                     _skyMapTab.Render(plannerState, contentRect, DpiScale,
                         _fontPath ?? "monospace", timeProvider);
                     break;
@@ -432,7 +433,7 @@ namespace TianWen.UI.Gui
         /// J2000 coords are preferred; native coords are used as a fallback for session
         /// mode which does not yet populate the J2000 fields.
         /// </summary>
-        private void PopulateSkyMapMountOverlay()
+        private void PopulateSkyMapMountOverlay(GuiAppState appState)
         {
             // Without an actual poll, default(MountState) has all-zero coords -- not
             // NaN -- so a NaN check alone would still draw a phantom reticle at (0h, 0)
@@ -459,12 +460,28 @@ namespace TianWen.UI.Gui
             var raJ2000 = !double.IsNaN(ms.RaJ2000) ? ms.RaJ2000 : ms.RightAscension;
             var decJ2000 = !double.IsNaN(ms.DecJ2000) ? ms.DecJ2000 : ms.Declination;
 
+            // Compute sensor FOV from profile focal length + connected camera's pixel
+            // size and sensor dimensions. Falls back to null (reticle only, no rectangle)
+            // when any piece is unavailable.
+            (double WidthDeg, double HeightDeg)? sensorFov = null;
+            if (appState.ActiveProfile?.Data is { OTAs: { Length: > 0 } otas }
+                && otas[0] is { FocalLength: > 0 } ota
+                && appState.DeviceHub is { } hub
+                && hub.TryGetConnectedDriver<ICameraDriver>(ota.Camera, out var camera)
+                && camera is not null
+                && camera.PixelSizeX > 0 && camera.CameraXSize > 0 && camera.CameraYSize > 0)
+            {
+                sensorFov = MosaicGenerator.ComputeFieldOfView(
+                    ota.FocalLength, camera.PixelSizeX, camera.CameraXSize, camera.CameraYSize);
+            }
+
             _skyMapTab.State.MountOverlay = new SkyMapMountOverlay(
                 RaJ2000: raJ2000,
                 DecJ2000: decJ2000,
                 DisplayName: displayName,
                 IsSlewing: ms.IsSlewing,
-                IsTracking: ms.IsTracking);
+                IsTracking: ms.IsTracking,
+                SensorFovDeg: sensorFov);
         }
 
         private void RenderComingSoonPlaceholder(RectF32 rect, GuiTab tab)

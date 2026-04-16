@@ -454,6 +454,24 @@ namespace TianWen.UI.Abstractions
             CatalogIndex.Moon
         ];
 
+        /// <summary>
+        /// Approximate visual colours for solar system bodies based on B-V colour index.
+        /// Used for planet dots and labels on the sky map.
+        /// </summary>
+        internal static RGBAColor32 GetPlanetColor(CatalogIndex idx) => idx switch
+        {
+            CatalogIndex.Sol     => new RGBAColor32(0xFF, 0xEE, 0x80, 0xFF), // yellow-white
+            CatalogIndex.Mercury => new RGBAColor32(0xCC, 0xBB, 0xAA, 0xFF), // grey-tan
+            CatalogIndex.Venus   => new RGBAColor32(0xFF, 0xEE, 0xCC, 0xFF), // pale yellow
+            CatalogIndex.Mars    => new RGBAColor32(0xDD, 0x66, 0x44, 0xFF), // red-orange
+            CatalogIndex.Jupiter => new RGBAColor32(0xDD, 0xCC, 0x99, 0xFF), // tan
+            CatalogIndex.Saturn  => new RGBAColor32(0xDD, 0xBB, 0x77, 0xFF), // golden
+            CatalogIndex.Uranus  => new RGBAColor32(0x88, 0xCC, 0xDD, 0xFF), // pale blue-green
+            CatalogIndex.Neptune => new RGBAColor32(0x55, 0x88, 0xDD, 0xFF), // blue
+            CatalogIndex.Moon    => new RGBAColor32(0xDD, 0xDD, 0xCC, 0xFF), // pale grey-yellow
+            _                    => new RGBAColor32(0xFF, 0xEE, 0x88, 0xFF), // fallback yellow
+        };
+
         private static void DrawPlanets(
             RgbaImage image,
             ICelestialObjectDB db,

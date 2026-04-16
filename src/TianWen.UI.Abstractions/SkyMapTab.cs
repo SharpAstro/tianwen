@@ -365,9 +365,17 @@ namespace TianWen.UI.Abstractions
                         : planetIdx == CatalogIndex.Sol ? "Sun"
                         : db.TryLookupByIndex(planetIdx, out var obj) ? obj.DisplayName : "?";
                     var belowHorizon = dimBelowHorizon && !site.IsAboveHorizon(ra, dec);
+                    var planetColor = DimmedIf(SkyMapRenderer.GetPlanetColor(planetIdx), belowHorizon);
+
+                    // Filled dot at the planet position — radius scales with planet type
+                    var dotRadius = planetIdx is CatalogIndex.Sol or CatalogIndex.Moon ? 4f
+                        : planetIdx is CatalogIndex.Jupiter or CatalogIndex.Saturn ? 3f
+                        : 2f;
+                    FillCircle(sx, sy, dotRadius, planetColor);
+
                     DrawText(name.AsSpan(), fontPath,
                         sx + 10, sy - fontSize, 100, fontSize * 1.2f,
-                        fontSize, DimmedIf(PlanetLabel, belowHorizon), TextAlign.Near, TextAlign.Center);
+                        fontSize, planetColor, TextAlign.Near, TextAlign.Center);
                 }
             }
         }
