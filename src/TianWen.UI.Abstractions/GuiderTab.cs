@@ -339,30 +339,11 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// Draws a 1px line between two points using horizontal/vertical fill rects (Bresenham).
+        /// Draws a 1px line between two points via the renderer's DrawLine primitive.
         /// </summary>
         private void DrawLineOverlay(int x0, int y0, int x1, int y1, RGBAColor32 color)
-        {
-            var dx = Math.Abs(x1 - x0);
-            var dy = Math.Abs(y1 - y0);
-            var sx = x0 < x1 ? 1 : -1;
-            var sy = y0 < y1 ? 1 : -1;
-            var err = dx - dy;
+            => DrawLine(x0, y0, x1, y1, color);
 
-            while (true)
-            {
-                FillRect(x0, y0, 1, 1, color);
-
-                if (x0 == x1 && y0 == y1)
-                {
-                    break;
-                }
-
-                var e2 = 2 * err;
-                if (e2 > -dy) { err -= dy; x0 += sx; }
-                if (e2 < dx) { err += dx; y0 += sy; }
-            }
-        }
 
         private static readonly RGBAColor32 ProfileBg = new RGBAColor32(0x12, 0x12, 0x1a, 0xff);
         private static readonly RGBAColor32 ProfileLineColor = new RGBAColor32(0x44, 0x99, 0x44, 0x88);

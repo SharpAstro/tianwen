@@ -914,27 +914,15 @@ public static class AltitudeChartRenderer
     // Drawing helpers
     // -----------------------------------------------------------------------
 
-    /// <summary>Draws a horizontal 1px line as a thin filled rectangle.</summary>
+    /// <summary>Draws a horizontal 1px line.</summary>
     private static void DrawHLine<TSurface>(
         Renderer<TSurface> renderer, int x1, int x2, int y, RGBAColor32 color)
-    {
-        if (x2 < x1)
-        {
-            (x1, x2) = (x2, x1);
-        }
-        FillRect(renderer, x1, y, x2 - x1, 1, color);
-    }
+        => renderer.DrawLine(x1, y, x2, y, color);
 
-    /// <summary>Draws a vertical 1px line as a thin filled rectangle.</summary>
+    /// <summary>Draws a vertical 1px line.</summary>
     private static void DrawVLine<TSurface>(
         Renderer<TSurface> renderer, int x, int y1, int y2, RGBAColor32 color)
-    {
-        if (y2 < y1)
-        {
-            (y1, y2) = (y2, y1);
-        }
-        FillRect(renderer, x, y1, 1, y2 - y1, color);
-    }
+        => renderer.DrawLine(x, y1, x, y2, color);
 
     /// <summary>Draws a dashed horizontal line by alternating filled and gap rectangles.</summary>
     private static void DrawDashedHLine<TSurface>(
@@ -955,7 +943,7 @@ public static class AltitudeChartRenderer
         }
     }
 
-    /// <summary>Renders smoothed spline points as a continuous dot trail.</summary>
+    /// <summary>Renders smoothed spline points as connected line segments.</summary>
     private static void DrawSolidCurve<TSurface>(
         Renderer<TSurface> renderer,
         (double X, double Y)[] points,
@@ -964,40 +952,10 @@ public static class AltitudeChartRenderer
     {
         for (var i = 0; i < points.Length - 1; i++)
         {
-            var x1 = (int)Math.Round(points[i].X);
-            var y1 = (int)Math.Round(points[i].Y);
-            var x2 = (int)Math.Round(points[i + 1].X);
-            var y2 = (int)Math.Round(points[i + 1].Y);
-
-            // Bresenham-style: draw connected line segments as thin rects
-            var dx = Math.Abs(x2 - x1);
-            var dy = Math.Abs(y2 - y1);
-
-            if (dx >= dy)
-            {
-                // More horizontal — step in X, draw a short vertical rect per column
-                var xStart = Math.Min(x1, x2);
-                var xEnd = Math.Max(x1, x2);
-                if (xEnd == xStart) xEnd = xStart + 1;
-                for (var x = xStart; x <= xEnd; x++)
-                {
-                    var t = dx > 0 ? (float)(x - x1) / (x2 - x1) : 0f;
-                    var y = (int)Math.Round(y1 + t * (y2 - y1));
-                    FillRect(renderer, x, y - lineWidth / 2, 1, lineWidth, color);
-                }
-            }
-            else
-            {
-                // More vertical — step in Y
-                var yStart = Math.Min(y1, y2);
-                var yEnd = Math.Max(y1, y2);
-                for (var y = yStart; y <= yEnd; y++)
-                {
-                    var t = dy > 0 ? (float)(y - y1) / (y2 - y1) : 0f;
-                    var x = (int)Math.Round(x1 + t * (x2 - x1));
-                    FillRect(renderer, x - lineWidth / 2, y, lineWidth, 1, color);
-                }
-            }
+            renderer.DrawLine(
+                (float)points[i].X, (float)points[i].Y,
+                (float)points[i + 1].X, (float)points[i + 1].Y,
+                color, lineWidth);
         }
     }
 
