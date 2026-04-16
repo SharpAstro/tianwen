@@ -65,8 +65,12 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         // Build site context (needed for UBO horizon clipping and dynamic geometry)
         var site = SiteContext.Create(siteLat, siteLon, timeProvider);
 
-        // Update UBO with current view + site for horizon clipping
-        _pipeline.UpdateUbo(State, mapW, mapH, contentRect.X, contentRect.Y, site);
+        // Update UBO with current view + site for horizon clipping. Pass the current
+        // frame-in-flight index so each swapchain image gets its own UBO copy and the
+        // GPU never reads from a buffer the CPU is currently overwriting (the root cause
+        // of the 1-frame label-vs-stars desync during fast pans).
+        _pipeline.UpdateUbo(State, mapW, mapH, contentRect.X, contentRect.Y, site,
+            renderer.Context.CurrentFrame);
 
         _horizonFloats.Clear();
         _meridianFloats.Clear();
