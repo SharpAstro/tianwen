@@ -40,9 +40,9 @@
     <PackageVersion Include="Pastel" Version="7.0.1" />
     <PackageVersion Include="System.CommandLine" Version="2.0.6" />
     <!-- SDL3 + Vulkan packages -->
-    <PackageVersion Include="DIR.Lib" Version="2.1.431" />
-    <PackageVersion Include="Console.Lib" Version="1.10.261" />
-    <PackageVersion Include="SdlVulkan.Renderer" Version="1.8.311" />
+    <PackageVersion Include="DIR.Lib" Version="2.3.471" />
+    <PackageVersion Include="Console.Lib" Version="2.1.31" />
+    <PackageVersion Include="SdlVulkan.Renderer" Version="3.1.37" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <!-- Canon DSLR -->
