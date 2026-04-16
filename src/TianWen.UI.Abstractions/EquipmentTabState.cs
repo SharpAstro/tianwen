@@ -128,6 +128,9 @@ public class EquipmentTabState
     /// <summary>Mutable copy of the device URI being edited (query params are mutated).</summary>
     public Uri? EditingDeviceUri { get; set; }
 
+    /// <summary>The original device URI before edits began (for save/cancel comparison).</summary>
+    public Uri? SavedDeviceSettingsUri { get; set; }
+
     /// <summary>True when the editing URI differs from the saved URI.</summary>
     public bool DeviceSettingsDirty { get; set; }
 
@@ -143,6 +146,7 @@ public class EquipmentTabState
     public void BeginEditingDeviceSettings(Uri deviceUri)
     {
         ExpandedDeviceSettingsUri = deviceUri.GetLeftPart(UriPartial.Path);
+        SavedDeviceSettingsUri = deviceUri;
         EditingDeviceUri = deviceUri;
         DeviceSettingsDirty = false;
     }

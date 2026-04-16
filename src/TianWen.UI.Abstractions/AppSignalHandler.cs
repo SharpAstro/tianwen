@@ -807,6 +807,44 @@ namespace TianWen.UI.Abstractions
                 }
             };
 
+            // OTA name / focal length / aperture — commit on Enter saves the OTA edit
+            Task saveOta(string _)
+            {
+                if (appState.ActiveProfile is { Data: { } editData } && eqState.EditingOtaIndex >= 0)
+                {
+                    var otaIdx = eqState.EditingOtaIndex;
+                    var newName = eqState.OtaNameInput.Text is { Length: > 0 } n ? n : null;
+                    int? newFl = int.TryParse(eqState.FocalLengthInput.Text, out var fl) && fl > 0 ? fl : null;
+                    int? newAp = int.TryParse(eqState.ApertureInput.Text, out var ap) ? ap : null;
+                    var newData = EquipmentActions.UpdateOTA(editData, otaIdx, name: newName, focalLength: newFl, aperture: newAp);
+                    bus.Post(new UpdateProfileSignal(newData));
+                    eqState.StopEditingOta();
+                }
+                return Task.CompletedTask;
+            }
+            eqState.OtaNameInput.OnCommit = saveOta;
+            eqState.FocalLengthInput.OnCommit = saveOta;
+            eqState.ApertureInput.OnCommit = saveOta;
+
+            // Device string settings (API keys, ports, etc.) — commit on Enter saves the setting
+            eqState.StringSettingInput.OnCommit = _ =>
+            {
+                if (eqState.EditingStringSettingKey is { } key && eqState.EditingDeviceUri is { } editUri)
+                {
+                    eqState.EditingDeviceUri = DeviceSettingHelper.WithQueryParam(editUri, key, eqState.StringSettingInput.Text);
+                    eqState.EditingStringSettingKey = null;
+                    // Auto-save: apply the updated URI to the profile
+                    if (appState.ActiveProfile is { Data: { } data } && eqState.EditingDeviceUri is { } newUri
+                        && eqState.SavedDeviceSettingsUri is { } savedUri)
+                    {
+                        var newData = EquipmentActions.UpdateDeviceUri(data, savedUri, newUri);
+                        bus.Post(new UpdateProfileSignal(newData));
+                        eqState.BeginEditingDeviceSettings(newUri);
+                    }
+                }
+                return Task.CompletedTask;
+            };
+
             // ---------------------------------------------------------------
             // Equipment action signal subscriptions (DI-dependent handlers)
             // ---------------------------------------------------------------
