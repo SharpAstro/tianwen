@@ -65,4 +65,47 @@ public static class VkOverlayShapes
             new PointInt((int)(cx - thickness), (int)(cy - armLength)));
         renderer.FillRectangle(vRect, color);
     }
+
+    /// <summary>
+    /// Draws a Stellarium-style mount reticle: an outer circle with an inner crosshair
+    /// (with a gap at the centre so the exact pointing coordinate stays readable). Used
+    /// by the sky map's mount-position overlay. The reticle is always drawn as an
+    /// outline — no fill — so catalog markers underneath remain visible.
+    /// </summary>
+    /// <param name="radius">Outer circle radius in screen pixels (before DPI scaling).</param>
+    /// <param name="armLength">Crosshair arm length in pixels (before DPI scaling).</param>
+    /// <param name="gap">Central gap radius in pixels (before DPI scaling). The crosshair
+    /// starts at <paramref name="gap"/> from the centre so the exact pointing pixel is
+    /// not overdrawn.</param>
+    public static void DrawReticle(
+        VkRenderer renderer, float dpiScale,
+        float cx, float cy, float radius, float armLength, float gap,
+        RGBAColor32 color, float thickness = 2f)
+    {
+        var r = radius * dpiScale;
+        var arm = armLength * dpiScale;
+        var g = gap * dpiScale;
+        var t = Math.Max(1, (int)(thickness * dpiScale * 0.5f));
+
+        // Outer circle
+        DrawEllipse(renderer, dpiScale, cx, cy, r, r, 0f, color, thickness);
+
+        // Crosshair arms with central gap (4 separate segments)
+        // Left arm
+        renderer.FillRectangle(new RectInt(
+            new PointInt((int)(cx - g), (int)(cy + t)),
+            new PointInt((int)(cx - arm), (int)(cy - t))), color);
+        // Right arm
+        renderer.FillRectangle(new RectInt(
+            new PointInt((int)(cx + arm), (int)(cy + t)),
+            new PointInt((int)(cx + g), (int)(cy - t))), color);
+        // Top arm
+        renderer.FillRectangle(new RectInt(
+            new PointInt((int)(cx + t), (int)(cy - g)),
+            new PointInt((int)(cx - t), (int)(cy - arm))), color);
+        // Bottom arm
+        renderer.FillRectangle(new RectInt(
+            new PointInt((int)(cx + t), (int)(cy + arm)),
+            new PointInt((int)(cx - t), (int)(cy + g))), color);
+    }
 }

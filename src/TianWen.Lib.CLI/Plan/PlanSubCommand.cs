@@ -75,13 +75,13 @@ internal class PlanSubCommand(
 
     private string FormatTargetTableMarkdown(int maxLines = 30)
     {
-        var maxScore = plannerState.TonightsBest.Count > 0 ? plannerState.TonightsBest[0].CombinedScore : 1.0;
+        var maxScore = plannerState.TonightsBest.Length > 0 ? plannerState.TonightsBest[0].CombinedScore : 1.0;
 
         var sb = new System.Text.StringBuilder();
         sb.AppendLine("| # | Target | Type | Alt | Window | Rating |");
         sb.AppendLine("|--:|--------|------|----:|--------|-------:|");
 
-        for (var i = 0; i < Math.Min(plannerState.TonightsBest.Count, maxLines); i++)
+        for (var i = 0; i < Math.Min(plannerState.TonightsBest.Length, maxLines); i++)
         {
             var s = plannerState.TonightsBest[i];
             var pin = plannerState.Proposals.Any(p => p.Target == s.Target) ? "\u2605" : "";
@@ -130,7 +130,7 @@ internal class PlanSubCommand(
 
     private void PrintProposalSummary()
     {
-        if (plannerState.Proposals.Count == 0)
+        if (plannerState.Proposals.Length == 0)
         {
             consoleHost.WriteScrollable("No targets proposed yet.");
             return;
@@ -241,7 +241,7 @@ internal class PlanSubCommand(
         var targets = plannerState.TonightsBest;
         var idx = plannerState.SelectedTargetIndex;
 
-        if (idx < 0 || idx >= targets.Count)
+        if (idx < 0 || idx >= targets.Length)
         {
             terminal.WriteInPlace("> (no targets)");
             return;
@@ -265,7 +265,7 @@ internal class PlanSubCommand(
             {
                 var step = delta > 0 ? -3 : 3;
                 plannerState.SelectedTargetIndex = Math.Clamp(
-                    plannerState.SelectedTargetIndex + step, 0, plannerState.TonightsBest.Count - 1);
+                    plannerState.SelectedTargetIndex + step, 0, plannerState.TonightsBest.Length - 1);
                 WritePrompt(terminal);
                 return false;
             }
@@ -286,7 +286,7 @@ internal class PlanSubCommand(
                         return false;
 
                     case DIR.Lib.InputKey.Down:
-                        if (plannerState.SelectedTargetIndex < plannerState.TonightsBest.Count - 1)
+                        if (plannerState.SelectedTargetIndex < plannerState.TonightsBest.Length - 1)
                         {
                             plannerState.SelectedTargetIndex++;
                             WritePrompt(terminal);
@@ -294,13 +294,13 @@ internal class PlanSubCommand(
                         return false;
 
                     case DIR.Lib.InputKey.Enter:
-                        if (plannerState.SelectedTargetIndex >= 0 && plannerState.SelectedTargetIndex < plannerState.TonightsBest.Count)
+                        if (plannerState.SelectedTargetIndex >= 0 && plannerState.SelectedTargetIndex < plannerState.TonightsBest.Length)
                         {
                             var target = plannerState.TonightsBest[plannerState.SelectedTargetIndex].Target;
                             var wasPinned = plannerState.Proposals.Any(p => p.Target == target);
                             PlannerActions.ToggleProposal(plannerState, target);
                             var action = wasPinned ? "-" : "+";
-                            consoleHost.WriteScrollable($"  {action} {target.Name} ({plannerState.Proposals.Count} proposed)");
+                            consoleHost.WriteScrollable($"  {action} {target.Name} ({plannerState.Proposals.Length} proposed)");
                             PrintConflictWarnings();
                             WritePrompt(terminal);
                         }
@@ -345,10 +345,10 @@ internal class PlanSubCommand(
                         return false;
 
                     case DIR.Lib.InputKey.P:
-                        if (plannerState.SelectedTargetIndex >= 0 && plannerState.SelectedTargetIndex < plannerState.TonightsBest.Count)
+                        if (plannerState.SelectedTargetIndex >= 0 && plannerState.SelectedTargetIndex < plannerState.TonightsBest.Length)
                         {
                             var target = plannerState.TonightsBest[plannerState.SelectedTargetIndex].Target;
-                            var propIdx = plannerState.Proposals.FindIndex(p => p.Target == target);
+                            var propIdx = PlannerActions.FindProposalIndex(plannerState.Proposals, target);
                             if (propIdx >= 0)
                             {
                                 PlannerActions.CyclePriority(plannerState, propIdx);

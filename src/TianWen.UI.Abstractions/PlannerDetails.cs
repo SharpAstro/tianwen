@@ -73,7 +73,7 @@ public static class PlannerDetails
         }
 
         // Rating
-        var maxScore = state.TonightsBest.Count > 0 ? state.TonightsBest[0].CombinedScore : 1.0;
+        var maxScore = state.TonightsBest.Length > 0 ? state.TonightsBest[0].CombinedScore : 1.0;
         var rating = PlannerActions.ScoreToRating(scored.CombinedScore, maxScore);
         lines.Add($"Rating: {rating:F1}\u2605");
 

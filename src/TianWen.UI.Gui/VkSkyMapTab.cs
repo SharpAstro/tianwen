@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using DIR.Lib;
 using SdlVulkan.Renderer;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
@@ -187,6 +188,73 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
                         TextAlign.Near, TextAlign.Center);
                 }
             });
+    }
+
+    /// <summary>
+    /// Draws the Stellarium-style mount reticle at the connected mount's current
+    /// J2000 pointing. The reticle colour encodes mount state: bright green while
+    /// tracking on target, amber while slewing, grey when parked/idle. Mount name
+    /// is labeled below the reticle so multi-setup users can tell at a glance which
+    /// mount is tracking where.
+    /// </summary>
+    protected override void RenderMountOverlay(
+        SkyMapMountOverlay mountOverlay, RectF32 contentRect, float dpiScale,
+        string fontPath, float baseFontSize, double ppr, float cx, float cy)
+    {
+        if (!SkyMapProjection.ProjectWithMatrix(
+                mountOverlay.RaJ2000, mountOverlay.DecJ2000,
+                State.CurrentViewMatrix, ppr, cx, cy,
+                out var screenX, out var screenY))
+        {
+            return;
+        }
+
+        // Skip if the mount is projected well off-screen — no point drawing a reticle
+        // we can't see, and it keeps the label clutter off the info strip.
+        const float margin = 100f;
+        if (screenX < contentRect.X - margin || screenX > contentRect.X + contentRect.Width + margin
+            || screenY < contentRect.Y - margin || screenY > contentRect.Y + contentRect.Height + margin)
+        {
+            return;
+        }
+
+        // Colour by state: slewing = amber (user attention), tracking = green, idle = grey.
+        var color = mountOverlay.IsSlewing
+            ? new RGBAColor32(0xFF, 0xB0, 0x40, 0xFF)   // amber
+            : mountOverlay.IsTracking
+                ? new RGBAColor32(0x40, 0xFF, 0x70, 0xFF) // bright green
+                : new RGBAColor32(0xA0, 0xA0, 0xA0, 0xFF); // grey
+
+        VkOverlayShapes.DrawReticle(renderer, dpiScale,
+            screenX, screenY,
+            radius: 14f, armLength: 22f, gap: 6f,
+            color: color, thickness: 2f);
+
+        // Label: mount name + current RA/Dec below the reticle, matched to the reticle
+        // colour. The coordinate readout makes "why is the reticle here?" trivial to
+        // diagnose — if the mount is pointing at Eta Carinae but the user thinks it
+        // should be at the pole, the label tells the truth immediately.
+        var fontSize = baseFontSize * dpiScale;
+        var lineH = fontSize * 1.2f;
+        var coordsText = $"RA {CoordinateUtils.HoursToHMS(mountOverlay.RaJ2000, hourSeparator: 'h', withFrac: false)}"
+            + $"  Dec {CoordinateUtils.DegreesToDMS(mountOverlay.DecJ2000, withPlus: true, degreeSign: '\u00B0', withFrac: false)}";
+
+        DrawReticleLabel(mountOverlay.DisplayName, fontPath, fontSize, color,
+            screenX, screenY + 20f * dpiScale, lineH);
+        DrawReticleLabel(coordsText, fontPath, fontSize * 0.9f,
+            new RGBAColor32(color.Red, color.Green, color.Blue, (byte)(color.Alpha * 0.8f)),
+            screenX, screenY + 20f * dpiScale + lineH, lineH);
+    }
+
+    private void DrawReticleLabel(string text, string fontPath, float fontSize, RGBAColor32 color,
+        float centerX, float topY, float lineH)
+    {
+        var (textW, _) = Renderer.MeasureText(text.AsSpan(), fontPath, fontSize);
+        Renderer.DrawText(text.AsSpan(), fontPath, fontSize, color,
+            new RectInt(
+                new PointInt((int)(centerX + textW * 0.5f + 4), (int)(topY + lineH)),
+                new PointInt((int)(centerX - textW * 0.5f - 4), (int)topY)),
+            TextAlign.Center, TextAlign.Center);
     }
 
     private static (Vortice.Vulkan.VkBuffer Buffer, uint ByteOffset, uint VertexCount) WriteToRingBuffer(

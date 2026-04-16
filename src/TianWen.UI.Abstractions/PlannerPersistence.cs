@@ -117,9 +117,10 @@ public static class PlannerPersistence
             return false;
         }
 
-        // Restore state
-        state.Proposals.Clear();
-        state.Proposals.AddRange(restoredProposals);
+        // Restore state — atomic replacement of Proposals. Building the whole list
+        // locally first and assigning once keeps concurrent readers on a consistent
+        // snapshot.
+        state.Proposals = [.. restoredProposals];
         state.MinHeightAboveHorizon = dto.MinHeightAboveHorizon;
         state.MinRatingFilter = dto.MinRatingFilter;
 
@@ -181,8 +182,8 @@ public static class PlannerPersistence
 
     private static PlannerSessionDto CreateDto(PlannerState state)
     {
-        var proposals = new ProposalDto[state.Proposals.Count];
-        for (var i = 0; i < state.Proposals.Count; i++)
+        var proposals = new ProposalDto[state.Proposals.Length];
+        for (var i = 0; i < state.Proposals.Length; i++)
         {
             var p = state.Proposals[i];
             proposals[i] = new ProposalDto(

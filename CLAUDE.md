@@ -443,6 +443,33 @@ See `ChannelBuffer` XML doc for ownership semantics.
 - `ValueTask` for allocation-free async paths
 - **Never use `.GetAwaiter().GetResult()`** — always make the method `async` and `await` instead
 
+### Shared UI state collections: `ImmutableArray<T>`, not `List<T>`
+
+Any collection that lives on shared UI state (`PlannerState`, `LiveSessionState`,
+`EquipmentTabState`, `GuiAppState` etc.) and can be touched by **both** the render
+thread and a background task (planner recompute, pin sync, preview telemetry,
+session polling, ...) **must be typed as `ImmutableArray<T>` with an atomic
+replacement pattern**, not `List<T>`.
+
+- Writers build the new array locally (or use `array.Add(x)`, `.RemoveAt(i)`,
+  `.SetItem(i, x)`, `.Sort(cmp)` — all return new instances) and assign the
+  property in one atomic reference update.
+- Readers snapshot the property into a local and iterate that snapshot; the
+  property itself can still be swapped mid-read without corrupting their view.
+- Pattern match on `.Length`, not `.Count` — `ImmutableArray<T>` exposes `Count`
+  only via explicit `IReadOnlyCollection<T>` implementation, which doesn't bind
+  in expressions or patterns.
+
+See `PlannerState.Proposals` / `SearchResults` / `TonightsBest` as canonical
+examples, and `LiveSessionState.PreviewOTATelemetry` for the "rebuild the whole
+array" pattern with `.ToBuilder()` / `.ToImmutable()` when many writes are
+batched together.
+
+Using `List<T>` here **will** produce `InvalidOperationException: "Collection
+was modified; enumeration operation may not execute."` under real load — even a
+single `foreach` racing with one `Add()` on a different thread is enough.
+`Dictionary<K, V>` has the same hazard; treat it the same way where shared.
+
 ### Code Quality Guidelines
 
 - **Reduced allocations**: prefer `MemoryMarshal`, `stackalloc`, `ArrayPool<T>`, and `Span<T>` over allocating new arrays. Use `ReadOnlySpan<T>` for read-only views.

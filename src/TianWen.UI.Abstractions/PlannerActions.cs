@@ -88,9 +88,11 @@ public static class PlannerActions
             }
         }
 
-        // Sort by score descending (same as TonightsBest ordering)
+        // Sort by score descending (same as TonightsBest ordering) and replace the
+        // TonightsBest reference atomically — readers on the render thread either see
+        // the old array or the new one, never a partially-mutated list.
         rescored.Sort((a, b) => b.TotalScore.CompareTo(a.TotalScore));
-        state.TonightsBest = rescored;
+        state.TonightsBest = rescored.ToImmutableArray();
 
         RecomputeHandoffSliders(state);
         ComputeMoonData(state, transform);
@@ -132,7 +134,7 @@ public static class PlannerActions
 
         var tonightsBest = ObservationScheduler.TonightsBest(objectDb, transform, minHeightAboveHorizon)
             .Take(100)
-            .ToList();
+            .ToImmutableArray();
 
         state.TonightsBest = tonightsBest;
 
@@ -174,23 +176,31 @@ public static class PlannerActions
     /// </summary>
     public static IReadOnlyList<ScoredTarget> GetFilteredTargets(PlannerState state)
     {
-        var proposedTargets = new HashSet<Target>(state.Proposals.Select(p => p.Target));
-        var searchTargets = new HashSet<Target>(state.SearchResults.Select(s => s.Target));
+        // Snapshot the three immutable-array fields into locals so any concurrent
+        // writer that swaps the property mid-method doesn't change what we see.
+        // Because the fields are ImmutableArray<T>, a writer can atomically replace
+        // the reference but cannot mutate a snapshot we already captured.
+        var proposalsSnap = state.Proposals;
+        var searchResultsSnap = state.SearchResults;
+        var tonightsBestSnap = state.TonightsBest;
 
-        var maxScore = state.TonightsBest.Count > 0 ? state.TonightsBest[0].CombinedScore : 1.0;
+        var proposedTargets = new HashSet<Target>(proposalsSnap.Select(p => p.Target));
+        var searchTargets = new HashSet<Target>(searchResultsSnap.Select(s => s.Target));
+
+        var maxScore = tonightsBestSnap.Length > 0 ? tonightsBestSnap[0].CombinedScore : 1.0;
 
         var result = new List<ScoredTarget>();
         var seen = new HashSet<Target>();
 
         // Pinned targets first, sorted by peak time ascending
         var pinnedScored = new List<ScoredTarget>();
-        foreach (var p in state.Proposals)
+        foreach (var p in proposalsSnap)
         {
             // Look up the scored target from TonightsBest, SearchResults, or ScoredTargets
-            var scored = state.TonightsBest.FirstOrDefault(s => s.Target == p.Target);
+            var scored = tonightsBestSnap.FirstOrDefault(s => s.Target == p.Target);
             if (scored.Target == default)
             {
-                scored = state.SearchResults.FirstOrDefault(s => s.Target == p.Target);
+                scored = searchResultsSnap.FirstOrDefault(s => s.Target == p.Target);
             }
             if (scored.Target == default && state.ScoredTargets.TryGetValue(p.Target, out var fromCache))
             {
@@ -225,7 +235,7 @@ public static class PlannerActions
         state.PinnedCount = result.Count;
 
         // Unpinned: tonight's best filtered by rating, excluding already-pinned
-        foreach (var s in state.TonightsBest)
+        foreach (var s in tonightsBestSnap)
         {
             if (seen.Contains(s.Target))
             {
@@ -243,7 +253,7 @@ public static class PlannerActions
         }
 
         // Append search results that aren't already shown
-        foreach (var s in state.SearchResults)
+        foreach (var s in searchResultsSnap)
         {
             if (seen.Add(s.Target))
             {
@@ -458,7 +468,7 @@ public static class PlannerActions
         Transform transform,
         string query)
     {
-        state.SearchResults.Clear();
+        state.SearchResults = [];
 
         if (string.IsNullOrWhiteSpace(query))
         {
@@ -562,7 +572,7 @@ public static class PlannerActions
 
             // If already in TonightsBest, select it there instead of re-adding
             var existingIdx = -1;
-            for (var i = 0; i < state.TonightsBest.Count; i++)
+            for (var i = 0; i < state.TonightsBest.Length; i++)
             {
                 if (state.TonightsBest[i].Target.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
                 {
@@ -597,14 +607,14 @@ public static class PlannerActions
             }
 
             state.ScoredTargets[target] = scored;
-            state.SearchResults.Add(scored);
+            state.SearchResults = state.SearchResults.Add(scored);
             PopulateTargetAlias(state, objectDb, target);
         }
 
         state.NeedsRedraw = true;
 
         // Return index of first search result in filtered list
-        if (state.SearchResults.Count > 0)
+        if (state.SearchResults.Length > 0)
         {
             var filtered = GetFilteredTargets(state);
             for (var i = 0; i < filtered.Count; i++)
@@ -630,7 +640,7 @@ public static class PlannerActions
         Transform transform,
         string suggestion)
     {
-        state.SearchResults.Clear();
+        state.SearchResults = [];
 
         // Resolve the suggestion to a CatalogIndex
         CatalogIndex? resolved = null;
@@ -685,7 +695,7 @@ public static class PlannerActions
         var target = new Target(ra, dec, name, catIdx);
 
         // Check if already in TonightsBest — select it there
-        for (var i = 0; i < state.TonightsBest.Count; i++)
+        for (var i = 0; i < state.TonightsBest.Length; i++)
         {
             if (state.TonightsBest[i].Target.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
             {
@@ -714,7 +724,7 @@ public static class PlannerActions
         }
 
         state.ScoredTargets[target] = scored;
-        state.SearchResults.Add(scored);
+        state.SearchResults = state.SearchResults.Add(scored);
         PopulateTargetAlias(state, objectDb, target);
         state.NeedsRedraw = true;
 
@@ -891,12 +901,14 @@ public static class PlannerActions
     /// Adds a target from TonightsBest to the proposals list.
     /// </summary>
     /// <summary>
-    /// Sorts proposals in-place by peak altitude time so all consumers
-    /// (session tab, chart, scheduler) see the same order as the planner target list.
+    /// Sorts proposals by peak altitude time so all consumers (session tab, chart,
+    /// scheduler) see the same order as the planner target list. Atomic replacement —
+    /// builds a sorted <see cref="ImmutableArray{T}"/> and assigns it in one reference
+    /// update, so readers never observe a partially-sorted list.
     /// </summary>
     public static void SortProposalsByPeakTime(PlannerState state)
     {
-        state.Proposals.Sort((a, b) =>
+        state.Proposals = state.Proposals.Sort((a, b) =>
         {
             var peakA = state.AltitudeProfiles.TryGetValue(a.Target, out var profA) && profA.Count > 0
                 ? profA.MaxBy(p => p.Alt).Time : DateTimeOffset.MaxValue;
@@ -906,9 +918,23 @@ public static class PlannerActions
         });
     }
 
+    /// <summary>
+    /// Index of the first proposal matching <paramref name="target"/>, or -1 if not
+    /// present. Replacement for <c>List{T}.FindIndex</c> which <see cref="ImmutableArray{T}"/>
+    /// does not expose.
+    /// </summary>
+    public static int FindProposalIndex(ImmutableArray<ProposedObservation> proposals, Target target)
+    {
+        for (var i = 0; i < proposals.Length; i++)
+        {
+            if (proposals[i].Target == target) return i;
+        }
+        return -1;
+    }
+
     public static void AddProposal(PlannerState state, int tonightsBestIndex, ObservationPriority priority = ObservationPriority.Normal)
     {
-        if (tonightsBestIndex < 0 || tonightsBestIndex >= state.TonightsBest.Count)
+        if (tonightsBestIndex < 0 || tonightsBestIndex >= state.TonightsBest.Length)
         {
             return;
         }
@@ -922,7 +948,7 @@ public static class PlannerActions
             return;
         }
 
-        state.Proposals.Add(new ProposedObservation(target, scored.ObjectType, Priority: priority));
+        state.Proposals = state.Proposals.Add(new ProposedObservation(target, scored.ObjectType, Priority: priority));
         SortProposalsByPeakTime(state);
         RecomputeHandoffSliders(state);
         state.IsDirty = true;
@@ -934,12 +960,12 @@ public static class PlannerActions
     /// </summary>
     public static void RemoveProposal(PlannerState state, int proposalIndex)
     {
-        if (proposalIndex < 0 || proposalIndex >= state.Proposals.Count)
+        if (proposalIndex < 0 || proposalIndex >= state.Proposals.Length)
         {
             return;
         }
 
-        state.Proposals.RemoveAt(proposalIndex);
+        state.Proposals = state.Proposals.RemoveAt(proposalIndex);
         // No sort needed after removal — order is preserved
         RecomputeHandoffSliders(state);
         state.IsDirty = true;
@@ -951,15 +977,15 @@ public static class PlannerActions
     /// </summary>
     public static void ToggleProposal(PlannerState state, Target target, ObservationPriority priority = ObservationPriority.Normal)
     {
-        var existingIndex = state.Proposals.FindIndex(p => p.Target == target);
+        var existingIndex = FindProposalIndex(state.Proposals, target);
         if (existingIndex >= 0)
         {
-            state.Proposals.RemoveAt(existingIndex);
+            state.Proposals = state.Proposals.RemoveAt(existingIndex);
         }
         else
         {
             var objType = state.ScoredTargets.TryGetValue(target, out var st) ? st.ObjectType : ObjectType.Unknown;
-            state.Proposals.Add(new ProposedObservation(target, objType, Priority: priority));
+            state.Proposals = state.Proposals.Add(new ProposedObservation(target, objType, Priority: priority));
             SortProposalsByPeakTime(state);
         }
         RecomputeHandoffSliders(state);
@@ -981,7 +1007,7 @@ public static class PlannerActions
     /// </summary>
     public static void CyclePriority(PlannerState state, int proposalIndex)
     {
-        if (proposalIndex < 0 || proposalIndex >= state.Proposals.Count)
+        if (proposalIndex < 0 || proposalIndex >= state.Proposals.Length)
         {
             return;
         }
@@ -994,7 +1020,7 @@ public static class PlannerActions
             ObservationPriority.Low => ObservationPriority.Spare,
             _ => ObservationPriority.High
         };
-        state.Proposals[proposalIndex] = p with { Priority = nextPriority };
+        state.Proposals = state.Proposals.SetItem(proposalIndex, p with { Priority = nextPriority });
         // Schedule (on SessionTabState) becomes stale — rebuilt on demand via "Build Schedule"
         state.IsDirty = true;
         state.NeedsRedraw = true;
@@ -1128,7 +1154,7 @@ public static class PlannerActions
         IReadOnlyList<InstalledFilter>? availableFilters = null,
         OpticalDesign opticalDesign = OpticalDesign.Unknown)
     {
-        if (state.Proposals.Count == 0)
+        if (state.Proposals.Length == 0)
         {
             sessionState.Schedule = null;
             state.NeedsRedraw = true;
@@ -1171,7 +1197,7 @@ public static class PlannerActions
 
     public static IReadOnlyList<string> FormatTonightsBestLines(PlannerState state, int maxLines = 30)
     {
-        var maxScore = state.TonightsBest.Count > 0 ? state.TonightsBest[0].CombinedScore : 1.0;
+        var maxScore = state.TonightsBest.Length > 0 ? state.TonightsBest[0].CombinedScore : 1.0;
 
         var lines = new List<string>
         {
@@ -1179,7 +1205,7 @@ public static class PlannerActions
             new string('-', 72)
         };
 
-        for (var i = 0; i < Math.Min(state.TonightsBest.Count, maxLines); i++)
+        for (var i = 0; i < Math.Min(state.TonightsBest.Length, maxLines); i++)
         {
             var s = state.TonightsBest[i];
             var proposed = state.Proposals.Any(p => p.Target == s.Target) ? "*" : " ";

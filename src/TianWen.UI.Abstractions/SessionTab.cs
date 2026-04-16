@@ -219,7 +219,8 @@ namespace TianWen.UI.Abstractions
                 {
                     if (SessionTabState.TryParseExposureInput(text, out var newExp))
                     {
-                        _plannerState.Proposals[capturedIdx] = _plannerState.Proposals[capturedIdx] with { SubExposure = newExp };
+                        _plannerState.Proposals = _plannerState.Proposals.SetItem(
+                            capturedIdx, _plannerState.Proposals[capturedIdx] with { SubExposure = newExp });
                     }
                     State.EditingExposureIndex = -1;
                     PostSignal(new DeactivateTextInputSignal());
@@ -275,7 +276,7 @@ namespace TianWen.UI.Abstractions
             FillRect(sepRect.X, sepRect.Y, sepRect.Width, sepRect.Height, SeparatorColor);
 
             // Start Session button: enabled when proposals exist and date is tonight
-            var hasPinned = plannerState.Proposals.Count > 0;
+            var hasPinned = plannerState.Proposals.Length > 0;
             var isTonight = !plannerState.PlanningDate.HasValue;
 
             if (hasPinned)
@@ -467,7 +468,7 @@ namespace TianWen.UI.Abstractions
 
             var listRect = obsLayout.Fill();
 
-            if (plannerState.Proposals.Count == 0)
+            if (plannerState.Proposals.Length == 0)
             {
                 DrawText("No targets pinned.", fontPath,
                     listRect.X + padding, listRect.Y, listRect.Width - padding * 2, rowH,
@@ -509,7 +510,7 @@ namespace TianWen.UI.Abstractions
                 ? SessionTabState.DefaultExposureFromFRatio(State.CameraSettings[0].FRatio)
                 : 120;
 
-            for (var i = 0; i < proposals.Count && cursor + rowH * 2 <= listRect.Y + listRect.Height; i++)
+            for (var i = 0; i < proposals.Length && cursor + rowH * 2 <= listRect.Y + listRect.Height; i++)
             {
                 var proposal = proposals[i];
                 var capturedI = i;
@@ -550,7 +551,8 @@ namespace TianWen.UI.Abstractions
                     {
                         var p = plannerState.Proposals[capturedI];
                         var cur = p.SubExposure ?? TimeSpan.FromSeconds(defaultExpSec);
-                        plannerState.Proposals[capturedI] = p with { SubExposure = SessionTabState.StepExposure(cur, false) };
+                        plannerState.Proposals = plannerState.Proposals.SetItem(
+                            capturedI, p with { SubExposure = SessionTabState.StepExposure(cur, false) });
                         State.NeedsRedraw = true;
                     });
 
@@ -574,7 +576,8 @@ namespace TianWen.UI.Abstractions
                     {
                         var p = plannerState.Proposals[capturedI];
                         var cur = p.SubExposure ?? TimeSpan.FromSeconds(defaultExpSec);
-                        plannerState.Proposals[capturedI] = p with { SubExposure = SessionTabState.StepExposure(cur, true) };
+                        plannerState.Proposals = plannerState.Proposals.SetItem(
+                            capturedI, p with { SubExposure = SessionTabState.StepExposure(cur, true) });
                         State.NeedsRedraw = true;
                     });
 

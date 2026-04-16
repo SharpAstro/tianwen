@@ -469,7 +469,7 @@ public class OverlayEngineTests
     }
 
     [Fact]
-    public void ComputeOverlays_BrightObject_HasForcePlaceLabel()
+    public void ComputeOverlays_BrightNamedObject_HasHighLabelPriority()
     {
         var wcs = MakeSimpleWCS();
         var obj = new CelestialObject(
@@ -482,14 +482,15 @@ public class OverlayEngineTests
         var items = OverlayEngine.ComputeOverlays(layout, wcs, db, (_, _) => 50f, 18f);
 
         items.Count.ShouldBe(1);
-        items[0].ForcePlaceLabel.ShouldBeTrue(); // mag 0.5 < 10.0
+        // Priority = 6 (named) + max(0, 15 - 0.5) = 20.5 → definitely > 15
+        items[0].LabelPriority.ShouldBeGreaterThan(15f);
     }
 
     [Fact]
-    public void ComputeOverlays_FaintObject_NoForcePlaceLabel()
+    public void ComputeOverlays_FaintUnnamedObject_HasLowerPriority()
     {
         var wcs = MakeSimpleWCS();
-        var obj = MakeObject(CatalogIndex.NGC1976); // V_Mag = 8.0
+        var obj = MakeObject(CatalogIndex.NGC1976); // V_Mag = 8.0, no common name in test helper
         var db = new FakeDB(obj, gridRA: 5.0, gridDec: -2.0);
 
         var layout = new ViewportLayout(1920, 1080, 1000, 1000, 0.5f, (0, 0), 0, 40, 1920, 1000, 1.0f);
@@ -497,7 +498,8 @@ public class OverlayEngineTests
         var items = OverlayEngine.ComputeOverlays(layout, wcs, db, (_, _) => 50f, 18f);
 
         items.Count.ShouldBe(1);
-        items[0].ForcePlaceLabel.ShouldBeTrue(); // 8.0 < 10.0, still force-placed
+        // Priority <= 15 (no name bonus, mag 8 → ~7 brightness contribution + size)
+        items[0].LabelPriority.ShouldBeLessThan(15f);
     }
 
     // --- Helpers ---

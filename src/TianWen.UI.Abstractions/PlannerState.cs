@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using DIR.Lib;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
@@ -17,11 +18,21 @@ public class PlannerState
     /// <summary>The active equipment profile.</summary>
     public Profile? ActiveProfile { get; set; }
 
-    /// <summary>Tonight's best targets ranked by score.</summary>
-    public IReadOnlyList<ScoredTarget> TonightsBest { get; set; } = [];
+    /// <summary>Tonight's best targets ranked by score.
+    /// <para>
+    /// Immutable so the render thread and the background planner recompute can read /
+    /// replace without racing. Writers build a new <see cref="ImmutableArray{T}"/> and
+    /// assign in one atomic reference update.
+    /// </para></summary>
+    public ImmutableArray<ScoredTarget> TonightsBest { get; set; } = [];
 
-    /// <summary>User's proposed observations (selected from TonightsBest or manually added).</summary>
-    public List<ProposedObservation> Proposals { get; set; } = [];
+    /// <summary>User's proposed observations (selected from TonightsBest or manually added).
+    /// <para>
+    /// Immutable (same rationale as <see cref="TonightsBest"/>). Mutations go through
+    /// <c>PlannerActions.AddProposal / RemoveProposal / ToggleProposal</c> which assign
+    /// a new <see cref="ImmutableArray{T}"/> so readers never see a half-updated list.
+    /// </para></summary>
+    public ImmutableArray<ProposedObservation> Proposals { get; set; } = [];
 
     /// <summary>Index of the currently selected target in the merged target list.</summary>
     public int SelectedTargetIndex { get; set; }
@@ -92,8 +103,10 @@ public class PlannerState
     /// <summary>Search input state for target name search.</summary>
     public TextInputState SearchInput { get; } = new() { Placeholder = "Search target..." };
 
-    /// <summary>Manually searched/added targets (exempt from rating filter).</summary>
-    public List<ScoredTarget> SearchResults { get; set; } = [];
+    /// <summary>Manually searched/added targets (exempt from rating filter).
+    /// Immutable — search adds build up a new <see cref="ImmutableArray{T}"/> via
+    /// <see cref="ImmutableArray{T}.Add"/> and replace the property atomically.</summary>
+    public ImmutableArray<ScoredTarget> SearchResults { get; set; } = [];
 
     /// <summary>Current autocomplete suggestions for the search bar (max <see cref="MaxSuggestions"/>).</summary>
     public List<string> Suggestions { get; } = [];

@@ -105,6 +105,12 @@ namespace TianWen.UI.Abstractions
                 RenderObjectOverlay(db, contentRect, dpiScale, fontPath, BaseFontSize, site, dimBelowHorizon);
             }
 
+            // Mount reticle on top of everything catalog-related so it's never buried.
+            if (State.ShowMountOverlay && State.MountOverlay is { } mountOverlay)
+            {
+                RenderMountOverlay(mountOverlay, contentRect, dpiScale, fontPath, BaseFontSize, ppr, cx, cy);
+            }
+
             DrawInfoStrip(contentRect, fontPath, fontSize, dpiScale, cx, cy);
 
             // Crosshair
@@ -124,6 +130,18 @@ namespace TianWen.UI.Abstractions
         protected virtual void RenderObjectOverlay(
             ICelestialObjectDB db, RectF32 contentRect, float dpiScale, string fontPath,
             float baseFontSize, SiteContext site, bool dimBelowHorizon)
+        {
+        }
+
+        /// <summary>
+        /// Override in the GPU subclass to draw the Stellarium-style mount reticle at
+        /// the connected mount's current J2000 pointing. Base implementation is a no-op.
+        /// Called after the object overlay so the reticle is drawn on top of catalog
+        /// markers — the mount position should never be buried under label clutter.
+        /// </summary>
+        protected virtual void RenderMountOverlay(
+            SkyMapMountOverlay mountOverlay, RectF32 contentRect, float dpiScale,
+            string fontPath, float baseFontSize, double ppr, float cx, float cy)
         {
         }
 
@@ -360,7 +378,7 @@ namespace TianWen.UI.Abstractions
                 ? $"FOV: {State.FieldOfViewDeg * 60:F0}'"
                 : $"FOV: {State.FieldOfViewDeg:F1}\u00B0";
             var modeLabel = State.Mode == SkyMapMode.Equatorial ? "EQ" : "AZ";
-            var info = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0    {fovText}    [{modeLabel}]  [H]orizon [G]rid [A]lt/Az [B]oundaries [C]onst [P]roj [O]bjects";
+            var info = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0    {fovText}    [{modeLabel}]  [H]orizon [G]rid [A]lt/Az [B]oundaries [C]onst [P]roj [O]bjects [M]ount";
 
             DrawText(info.AsSpan(), fontPath,
                 rect.X + 8, stripY, rect.Width - 16, stripH,
@@ -536,6 +554,10 @@ namespace TianWen.UI.Abstractions
                     return true;
                 case InputKey.O:
                     State.ShowObjectOverlay = !State.ShowObjectOverlay;
+                    State.NeedsRedraw = true;
+                    return true;
+                case InputKey.M:
+                    State.ShowMountOverlay = !State.ShowMountOverlay;
                     State.NeedsRedraw = true;
                     return true;
                 case InputKey.P:

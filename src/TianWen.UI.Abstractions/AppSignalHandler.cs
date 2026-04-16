@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using DIR.Lib;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Astrometry.SOFA;
@@ -116,6 +117,7 @@ namespace TianWen.UI.Abstractions
         private readonly HashSet<string> _previewTelemetryInFlight = new();
         private long _previewMountLastTicks;
         private bool _previewMountInFlight;
+
 
         /// <summary>
         /// Polls connected cameras for cooler/temperature telemetry and appends samples
@@ -238,22 +240,38 @@ namespace TianWen.UI.Abstractions
         public void PollPreviewTelemetry()
         {
             if (_liveSessionState.IsRunning) return;
-            if (_appState.ActiveTab is not GuiTab.LiveSession) return;
+
+            // Preview polling drives the Live Session tab AND the Sky Map tab (for the
+            // mount-position reticle overlay). Any tab that displays live mount / focuser
+            // state should be added here rather than spinning up a parallel poll path —
+            // two concurrent polls on the same serial mount would race the port.
+            if (_appState.ActiveTab is not (GuiTab.LiveSession or GuiTab.SkyMap)) return;
             if (_appState.ActiveProfile?.Data is not { OTAs: { Length: > 0 } otas } profileData) return;
             if (_appState.DeviceHub is not { } hub) return;
 
             var nowTicks = _timeProvider.GetTimestamp();
-            var sampleInterval = TimeSpan.FromSeconds(3);
 
             _liveSessionState.ResizePreviewArrays(otas.Length);
 
-            // Per-OTA camera + focuser + filter polling
+            // Per-OTA camera + focuser + filter polling — rate-adaptive on focuser state.
+            // When the focuser is actively moving the user wants sub-second feedback on
+            // the position readout; in steady state a 2s cadence is plenty (temperature
+            // and filter changes are slow or user-triggered). The last-known moving flag
+            // is up to one poll interval stale; the first tick after a move starts is
+            // therefore up to 2s slow, which matches perceived click-to-refresh latency.
             for (var i = 0; i < otas.Length; i++)
             {
                 var ota = otas[i];
                 var key = ota.Camera.GetLeftPart(UriPartial.Path);
 
                 if (_previewTelemetryInFlight.Contains(key)) continue;
+
+                var prevTelemetry = i < _liveSessionState.PreviewOTATelemetry.Length
+                    ? _liveSessionState.PreviewOTATelemetry[i]
+                    : default;
+                var focuserMoving = prevTelemetry.FocuserIsMoving;
+                var sampleInterval = focuserMoving ? TimeSpan.FromSeconds(1) : TimeSpan.FromSeconds(2);
+
                 if (_previewTelemetryLastTicks.TryGetValue(key, out var last)
                     && _timeProvider.System.GetElapsedTime(last, nowTicks) < sampleInterval)
                 {
@@ -291,9 +309,20 @@ namespace TianWen.UI.Abstractions
                 }, $"PreviewTelemetry OTA{capturedIndex}");
             }
 
-            // Mount polling — rate-limited independently (2s)
+            // Mount polling — rate-adaptive on last-known slew/tracking state.
+            // Steady sidereal tracking is ~15 arcsec/s, which is sub-pixel on any sky-map
+            // FOV we support — 10s cadence is sensory-overkill and massively reduces the
+            // baseline hardware load (6 serial reads per tick). Fast 500 ms cadence only
+            // while slewing, so the reticle keeps up with visible motion.
+            var prevMount = _liveSessionState.PreviewMountState;
+            var mountInterval = prevMount.IsSlewing
+                ? TimeSpan.FromMilliseconds(500)
+                : prevMount.IsTracking
+                    ? TimeSpan.FromSeconds(10)
+                    : TimeSpan.FromSeconds(2);
+
             if (!_previewMountInFlight
-                && _timeProvider.System.GetElapsedTime(_previewMountLastTicks, nowTicks) >= TimeSpan.FromSeconds(2)
+                && _timeProvider.System.GetElapsedTime(_previewMountLastTicks, nowTicks) >= mountInterval
                 && profileData.Mount is { Scheme: not "none" } mountUri)
             {
                 _previewMountLastTicks = nowTicks;
@@ -388,6 +417,24 @@ namespace TianWen.UI.Abstractions
                 FilterWheelConnected: fwConnected);
         }
 
+        // De-duplicate the mount-transform-unavailable warning so a misconfigured
+        // profile doesn't log once per poll. Reset to null to re-arm when the error
+        // message changes or after a successful conversion (a future refinement).
+        private string? _lastMountTransformError;
+
+        private void LogMountTransformUnavailable(string? reason)
+        {
+            if (reason is null || reason == _lastMountTransformError)
+            {
+                return;
+            }
+            _lastMountTransformError = reason;
+            _logger.LogWarning(
+                "Mount J2000 conversion unavailable — reticle will fall back to native coords (silent {Offset:F2} deg shift). {Reason}",
+                0.35, // approx topocentric<->J2000 shift for an epoch-2025 observer
+                reason);
+        }
+
         private async Task<(MountState State, string? DisplayName)> SamplePreviewMountAsync(
             IDeviceHub hub, Uri mountUri, CancellationToken ct)
         {
@@ -403,13 +450,44 @@ namespace TianWen.UI.Abstractions
             var tracking = await _logger.CatchAsync(mount.IsTrackingAsync, ct);
             var pier = await _logger.CatchAsync(mount.GetSideOfPierAsync, ct);
 
+            // Derive J2000 coordinates for the sky-map overlay. J2000 mounts skip the
+            // Transform entirely; topocentric mounts use a Transform built from the
+            // profile's site coordinates (TransformFactory.FromProfile — zero hardware
+            // I/O, unlike mount.TryGetTransformAsync which round-trips for lat/lon/elev).
+            // We rebuild it on every poll because it's cheap (one object alloc + three
+            // scalar assignments); the only genuinely expensive step is transform.Refresh()
+            // which runs the SOFA kernel after SetTopocentric.
+            var (raJ2000, decJ2000) = (double.NaN, double.NaN);
+            if (!double.IsNaN(ra) && !double.IsNaN(dec))
+            {
+                if (mount.EquatorialSystem == EquatorialCoordinateType.J2000)
+                {
+                    (raJ2000, decJ2000) = (ra, dec);
+                }
+                else if (mount.EquatorialSystem == EquatorialCoordinateType.Topocentric
+                    && _appState.ActiveProfile is { } profile)
+                {
+                    if (TransformFactory.FromProfile(profile, _timeProvider, out var transformError) is { } transform)
+                    {
+                        transform.SetTopocentric(ra, dec);
+                        transform.Refresh();
+                        raJ2000 = transform.RAJ2000;
+                        decJ2000 = transform.DecJ2000;
+                    }
+                    else
+                    {
+                        LogMountTransformUnavailable(transformError);
+                    }
+                }
+            }
+
             string? displayName = null;
             if (hub.TryGetDeviceFromUri(mountUri, out var dev) && dev is not null)
             {
                 displayName = dev.DisplayName;
             }
 
-            return (new MountState(ra, dec, ha, pier, slewing, tracking), displayName);
+            return (new MountState(ra, dec, ha, pier, slewing, tracking, raJ2000, decJ2000), displayName);
         }
 
         /// <summary>
@@ -450,7 +528,7 @@ namespace TianWen.UI.Abstractions
 
                         ApplySiteFromTransform(_plannerState, transform);
 
-                        if (_plannerState.TonightsBest.Count > 0 && !siteChanged)
+                        if (_plannerState.TonightsBest.Length > 0 && !siteChanged)
                         {
                             PlannerActions.RecomputeForDate(_plannerState, transform);
                         }
@@ -601,7 +679,7 @@ namespace TianWen.UI.Abstractions
             plannerState.SearchInput.OnCancel = () =>
             {
                 plannerState.SearchInput.Clear();
-                plannerState.SearchResults.Clear();
+                plannerState.SearchResults = [];
                 plannerState.Suggestions.Clear();
                 plannerState.SuggestionIndex = -1;
                 plannerState.LastSuggestionQuery = "";
@@ -1251,7 +1329,7 @@ namespace TianWen.UI.Abstractions
                     return;
                 }
 
-                if (plannerState.Proposals is not { Count: > 0 })
+                if (plannerState.Proposals is not { Length: > 0 })
                 {
                     appState.StatusMessage = "No targets — pin targets in the Planner first";
                     return;

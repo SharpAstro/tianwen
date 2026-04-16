@@ -141,8 +141,12 @@ if (appState.ActiveProfile is not null)
     }
 }
 
-// Auto-discover devices on startup via signal bus
-bus.Post(new DiscoverDevicesSignal());
+// Auto-discover devices on startup via signal bus. If the active profile already
+// references fake devices (e.g. a dev/testing profile with Fake Mount + cameras),
+// opt the first discovery into IncludeFake so those URIs resolve to discovered
+// devices without the user having to press Shift+Discover first.
+var includeFakeOnStartup = appState.ActiveProfile?.Data is { } profileData && profileData.ReferencesAnyFakeDevice;
+bus.Post(new DiscoverDevicesSignal(IncludeFake: includeFakeOnStartup));
 
 // --- Main event loop via SdlEventLoop ---
 var _lastSessionRedrawTimestamp = timeProvider.GetTimestamp();

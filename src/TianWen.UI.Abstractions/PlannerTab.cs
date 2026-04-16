@@ -316,7 +316,7 @@ namespace TianWen.UI.Abstractions
                         btnX, rowY, removeBtnW, itemHeight,
                         fontSize, RemoveBtnText, TextAlign.Center, TextAlign.Center);
 
-                    var capturedPinIdx = state.Proposals.FindIndex(p => p.Target == scored.Target);
+                    var capturedPinIdx = PlannerActions.FindProposalIndex(state.Proposals, scored.Target);
                     if (capturedPinIdx >= 0)
                     {
                         RegisterClickable(btnX, rowY, removeBtnW, itemHeight,
@@ -555,7 +555,7 @@ namespace TianWen.UI.Abstractions
                     return true;
 
                 case InputKey.P when state.SelectedTargetIndex >= 0 && state.SelectedTargetIndex < filtered.Count:
-                    var propIdx = state.Proposals.FindIndex(p => p.Target == filtered[state.SelectedTargetIndex].Target);
+                    var propIdx = PlannerActions.FindProposalIndex(state.Proposals, filtered[state.SelectedTargetIndex].Target);
                     if (propIdx >= 0)
                     {
                         PlannerActions.CyclePriority(state, propIdx);
