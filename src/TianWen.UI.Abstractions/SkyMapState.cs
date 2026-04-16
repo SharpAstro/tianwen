@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Immutable;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using DIR.Lib;
@@ -67,6 +68,16 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>Toggle the mount reticle (<c>[M]</c> key).</summary>
         public bool ShowMountOverlay { get; set; } = true;
+
+        /// <summary>
+        /// Pre-computed mosaic panel centres for pinned targets whose catalog shape
+        /// exceeds the sensor FOV. Populated by the event loop alongside the mount
+        /// overlay. Each entry is the RA/Dec centre of one panel. The sensor FOV
+        /// (from <see cref="SkyMapMountOverlay.SensorFovDeg"/>) defines the rectangle
+        /// size for every panel. Empty when no mosaic-worthy targets are pinned or
+        /// no camera is connected.
+        /// </summary>
+        public ImmutableArray<(double RA, double Dec, string Name, int Row, int Col)> MosaicPanels { get; set; } = [];
 
         /// <summary>Cached view matrix, updated each frame by the rendering layer.</summary>
         public Matrix4x4 CurrentViewMatrix { get; set; } = Matrix4x4.Identity;

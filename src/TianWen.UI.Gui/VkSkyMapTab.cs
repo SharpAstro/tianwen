@@ -257,6 +257,47 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     }
 
     /// <summary>
+    /// Draws mosaic panel outlines for pinned targets that require multiple sensor
+    /// pointings to cover. Thin grey semi-transparent rectangles at each panel centre,
+    /// sized by the sensor FOV. Gives the user an immediate visual of the mosaic layout
+    /// overlaid on the actual sky.
+    /// </summary>
+    protected override void RenderMosaicPanels(
+        RectF32 contentRect, float dpiScale, double ppr, float cx, float cy)
+    {
+        if (State.MountOverlay is not { SensorFovDeg: { WidthDeg: > 0, HeightDeg: > 0 } fov })
+        {
+            return;
+        }
+
+        var halfW = fov.WidthDeg / 2.0;
+        var halfH = fov.HeightDeg / 2.0;
+        var panelColor = new RGBAColor32(0xDD, 0x44, 0x44, 0xB0); // red, 69% alpha
+        var strokeWidth = Math.Max(1, (int)dpiScale);
+
+        foreach (var (ra, dec, _, _, _) in State.MosaicPanels)
+        {
+            var cosDec = Math.Max(Math.Cos(double.DegreesToRadians(dec)), 0.01);
+            var dRA = halfW / (15.0 * cosDec);
+
+            // Project top-left and bottom-right corners — sufficient for an
+            // axis-aligned outline since panels follow the RA/Dec grid.
+            if (!SkyMapProjection.ProjectWithMatrix(ra - dRA, dec + halfH,
+                    State.CurrentViewMatrix, ppr, cx, cy, out var tlX, out var tlY)
+                || !SkyMapProjection.ProjectWithMatrix(ra + dRA, dec - halfH,
+                    State.CurrentViewMatrix, ppr, cx, cy, out var brX, out var brY))
+            {
+                continue;
+            }
+
+            renderer.DrawRectangle(new RectInt(
+                new PointInt((int)Math.Max(tlX, brX), (int)Math.Max(tlY, brY)),
+                new PointInt((int)Math.Min(tlX, brX), (int)Math.Min(tlY, brY))),
+                panelColor, strokeWidth);
+        }
+    }
+
+    /// <summary>
     /// Draws the Stellarium-style mount reticle at the connected mount's current
     /// J2000 pointing. The reticle colour encodes mount state: bright green while
     /// tracking on target, amber while slewing, grey when parked/idle. Mount name
@@ -327,29 +368,20 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
 
             if (allProjected)
             {
-                // Draw 4 line segments connecting the corners
-                var fovColor = new RGBAColor32(color.Red, color.Green, color.Blue, (byte)(color.Alpha * 0.7f));
-                var t = Math.Max(1, (int)(dpiScale * 1.5f));
-                for (var i = 0; i < 4; i++)
-                {
-                    var (x1, y1) = projected[i];
-                    var (x2, y2) = projected[(i + 1) & 3]; // wraps: 0→1→2→3→0
-                    // Horizontal-ish segment
-                    renderer.FillRectangle(new RectInt(
-                        new PointInt((int)Math.Max(x1, x2), (int)(Math.Max(y1, y2) + t)),
-                        new PointInt((int)Math.Min(x1, x2), (int)(Math.Min(y1, y2) - t))),
-                        fovColor);
-                }
+                // Sensor FOV outline in Stellarium-style red. Use DrawRectangle
+                // for clean connected corners (FillRectangle bars leave gaps).
+                var fovColor = new RGBAColor32(0xDD, 0x33, 0x33, 0xDD); // red, bright
+                var strokeWidth = Math.Max(1, (int)(dpiScale * 1.5f));
 
-                // "Up" tick on top edge midpoint — a short line segment pointing north
-                // so the user can see the camera orientation at a glance
-                var topMidX = (projected[0].X + projected[1].X) * 0.5f;
-                var topMidY = (projected[0].Y + projected[1].Y) * 0.5f;
-                var tickLen = 8f * dpiScale;
-                renderer.FillRectangle(new RectInt(
-                    new PointInt((int)(topMidX + t), (int)topMidY),
-                    new PointInt((int)(topMidX - t), (int)(topMidY - tickLen))),
-                    fovColor);
+                renderer.DrawRectangle(new RectInt(
+                    new PointInt((int)Math.Max(projected[0].X, projected[2].X),
+                                (int)Math.Max(projected[0].Y, projected[2].Y)),
+                    new PointInt((int)Math.Min(projected[0].X, projected[2].X),
+                                (int)Math.Min(projected[0].Y, projected[2].Y))),
+                    fovColor, strokeWidth);
+
+                // TODO: "up" tick for camera orientation once plate-solve rotation is available.
+                // The naive north-up tick looked detached and confusing without rotation data.
             }
         }
 
