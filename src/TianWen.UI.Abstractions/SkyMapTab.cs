@@ -335,6 +335,8 @@ namespace TianWen.UI.Abstractions
             }
         }
 
+        private long _lastPlanetDiagTicks;
+
         private void DrawPlanetLabels(
             ICelestialObjectDB db, ITimeProvider timeProvider, double siteLat, double siteLon,
             RectF32 rect, string fontPath, float fontSize, double ppr, float cx, float cy,
@@ -342,17 +344,37 @@ namespace TianWen.UI.Abstractions
         {
             var now = timeProvider.GetUtcNow();
 
+            // TEMP diagnostic: throttle to ~3s, dump each planet's J2000 RA/Dec so
+            // we can verify whether the visible offset from the ecliptic is in the
+            // planet calc or elsewhere. Remove once confirmed correct.
+            var nowTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+            var emitDiag = System.Diagnostics.Stopwatch.GetElapsedTime(_lastPlanetDiagTicks, nowTicks)
+                >= System.TimeSpan.FromSeconds(3);
+            if (emitDiag) _lastPlanetDiagTicks = nowTicks;
+
             foreach (var planetIdx in SkyMapRenderer.PlanetIndices)
             {
-                if (!TianWen.Lib.Astrometry.VSOP87.VSOP87a.Reduce(
-                    planetIdx, now, siteLat, siteLon,
-                    out var ra, out var dec, out _, out _, out _))
+                // J2000 RA/Dec — the sky map projects everything in J2000, so using the
+                // regular Reduce (which precesses to JNow + applies topocentric correction)
+                // would offset planets ~0.35 deg off the J2000 ecliptic line.
+                if (!TianWen.Lib.Astrometry.VSOP87.VSOP87a.ReduceJ2000(
+                    planetIdx, now,
+                    out var ra, out var dec, out _))
                 {
                     continue;
                 }
 
-                var raHours = ra / 15.0;
-                if (SkyMapProjection.ProjectWithMatrix(raHours, dec, State.CurrentViewMatrix,
+                // ReduceJ2000 (and the original Reduce) return RA already in HOURS via
+                // RADIANS2HOURS. The previous code divided by 15 a second time, plotting
+                // every planet at 1/15th of its actual RA -- the visible "off the
+                // ecliptic" cluster was actually all planets compressed near RA ~ 0h.
+                if (emitDiag)
+                {
+                    System.Console.Error.WriteLine(
+                        $"[planet-j2000] {planetIdx} RA={ra:F4}h Dec={dec:F4}deg");
+                }
+
+                if (SkyMapProjection.ProjectWithMatrix(ra, dec, State.CurrentViewMatrix,
                     ppr, cx, cy, out var sx, out var sy)
                     && sx >= rect.X && sx < rect.X + rect.Width
                     && sy >= rect.Y && sy < rect.Y + rect.Height)
@@ -360,7 +382,7 @@ namespace TianWen.UI.Abstractions
                     var name = planetIdx == CatalogIndex.Moon ? "Moon"
                         : planetIdx == CatalogIndex.Sol ? "Sun"
                         : db.TryLookupByIndex(planetIdx, out var obj) ? obj.DisplayName : "?";
-                    var belowHorizon = dimBelowHorizon && !site.IsAboveHorizon(raHours, dec);
+                    var belowHorizon = dimBelowHorizon && !site.IsAboveHorizon(ra, dec);
                     DrawText(name.AsSpan(), fontPath,
                         sx + 10, sy - fontSize, 100, fontSize * 1.2f,
                         fontSize, DimmedIf(PlanetLabel, belowHorizon), TextAlign.Near, TextAlign.Center);

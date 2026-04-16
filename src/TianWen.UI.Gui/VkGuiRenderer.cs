@@ -434,6 +434,18 @@ namespace TianWen.UI.Gui
         /// </summary>
         private void PopulateSkyMapMountOverlay()
         {
+            // Without an actual poll, default(MountState) has all-zero coords -- not
+            // NaN -- so a NaN check alone would still draw a phantom reticle at (0h, 0)
+            // before the first poll completes (or when no mount is configured at all).
+            // Guard on the display name being set, which only happens after a successful
+            // poll establishes that a mount is connected.
+            var displayName = LiveSessionState.PreviewMountDisplayName;
+            if (string.IsNullOrEmpty(displayName))
+            {
+                _skyMapTab.State.MountOverlay = null;
+                return;
+            }
+
             var ms = LiveSessionState.IsRunning
                 ? LiveSessionState.MountState
                 : LiveSessionState.PreviewMountState;
@@ -450,7 +462,7 @@ namespace TianWen.UI.Gui
             _skyMapTab.State.MountOverlay = new SkyMapMountOverlay(
                 RaJ2000: raJ2000,
                 DecJ2000: decJ2000,
-                DisplayName: LiveSessionState.PreviewMountDisplayName ?? "Mount",
+                DisplayName: displayName,
                 IsSlewing: ms.IsSlewing,
                 IsTracking: ms.IsTracking);
         }
