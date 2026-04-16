@@ -251,7 +251,7 @@ internal sealed class TuiSessionTab(
 
             case InputKey.G:
                 // Start session (proposals exist and planning date is tonight)
-                if (plannerState.Proposals.Count > 0 && !plannerState.PlanningDate.HasValue)
+                if (plannerState.Proposals.Length > 0 && !plannerState.PlanningDate.HasValue)
                 {
                     bus.Post(new StartSessionSignal());
                 }

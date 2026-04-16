@@ -235,7 +235,13 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
 
     public IReadOnlyList<TrackingSpeed> TrackingSpeeds { get; } = [TrackingSpeed.Sidereal, TrackingSpeed.Lunar, TrackingSpeed.Solar];
 
-    public EquatorialCoordinateType EquatorialSystem { get; } = EquatorialCoordinateType.Topocentric;
+    // Fake mount operates in J2000 directly: its internal _ra/_dec are meant to be
+    // catalog-epoch coordinates, not epoch-of-date. Declaring Topocentric would force
+    // an apparent-to-J2000 conversion at every read site, which for a park-at-pole
+    // simulator introduces a visible ~0.35 deg precession offset on the sky map
+    // (see SamplePreviewMountAsync in AppSignalHandler). Real GEM/ASCOM mounts that
+    // genuinely track JNow keep reporting Topocentric — that's correct for them.
+    public EquatorialCoordinateType EquatorialSystem { get; } = EquatorialCoordinateType.J2000;
 
     public bool TimeIsSetByUs { get; private set; }
 

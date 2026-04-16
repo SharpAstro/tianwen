@@ -35,7 +35,7 @@ public static class PlannerTargetList
         IReadOnlyList<ScoredTarget> filteredTargets)
     {
         var pinnedCount = state.PinnedCount;
-        var maxScore = state.TonightsBest.Count > 0 ? state.TonightsBest[0].CombinedScore : 1.0;
+        var maxScore = state.TonightsBest.Length > 0 ? state.TonightsBest[0].CombinedScore : 1.0;
         var rows = new List<PlannerTargetRow>(filteredTargets.Count);
 
         for (var i = 0; i < filteredTargets.Count; i++)

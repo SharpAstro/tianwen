@@ -98,9 +98,9 @@ namespace TianWen.UI.Abstractions
             var tz = plannerState.SiteTimeZone;
             var defaultExpSec = DefaultExposureSeconds(sessionState);
 
-            var rows = new List<ObservationRow>(proposals.Count);
+            var rows = new List<ObservationRow>(proposals.Length);
 
-            for (var i = 0; i < proposals.Count; i++)
+            for (var i = 0; i < proposals.Length; i++)
             {
                 var proposal = proposals[i];
 

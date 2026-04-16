@@ -56,6 +56,18 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public bool ShowObjectOverlay { get; set; }
 
+        /// <summary>
+        /// Current mount pointing for the reticle overlay. Null when no mount is connected
+        /// or its coordinates can't be read. Populated by the event loop from polled
+        /// <c>LiveSessionState.PreviewMountState</c> (preview mode) or <c>session.MountState</c>
+        /// (session running). RA/Dec are J2000 when available; native coords are used as a
+        /// fallback for mounts where the J2000 conversion hasn't been populated yet.
+        /// </summary>
+        public SkyMapMountOverlay? MountOverlay { get; set; }
+
+        /// <summary>Toggle the mount reticle (<c>[M]</c> key).</summary>
+        public bool ShowMountOverlay { get; set; } = true;
+
         /// <summary>Cached view matrix, updated each frame by the rendering layer.</summary>
         public Matrix4x4 CurrentViewMatrix { get; set; } = Matrix4x4.Identity;
 

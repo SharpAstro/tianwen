@@ -27,6 +27,7 @@
 - [ ] DIR.Lib: add `FillEllipse`/`FillCircle`/`DrawEllipse`/`DrawCircle` primitives to `PixelWidgetBase` — currently everything is built from `FillRect` scanlines
 - [x] Guider graph: show applied correction pulses (RA/Dec duration bars) alongside error — log-scaled bars (blue RA / orange Dec) extending up/down from zero line
 - [ ] SyntheticStarFieldRenderer: refactor 20-parameter methods into records/structs
+- [ ] Sky map: `[R]`efraction grid — toggle a second coordinate grid drawn in JNow + refraction-corrected (apparent) coordinates on top of the existing J2000 grid. Shows where objects actually appear from the observer's current site right now vs. the catalog J2000 positions. Full `Transform.SetJ2000 → RAApparent/DECApparent` (refraction on, site pressure/temperature from profile) for each grid line, tessellated like `BuildGridBuffers`. Near-zenith shift is ~0.35° precession alone; near the horizon the refraction bend stacks on top, reaching ~0.6° at 0° altitude. Makes the mount reticle's J2000 offset intuitive — the JNow grid passes through the reticle by construction for a topocentric-reporting mount.
 - [ ] Sky map: Stellarium-style time adjuster — step the observation instant relative to now (e.g. press `+1h` / `+1d` and it becomes Thursday 23:04 etc.), not a pick-a-date. Stores an offset from wall clock (minutes, hours, days, weeks) so the user can scrub forward and back. Drives:
     - sky color (feeds `SkyMapState.GetSunAltitudeDegCached` with the adjusted instant)
     - LST so stars / crosshair / horizon rotate correctly

@@ -443,6 +443,68 @@ public interface IMountDriver : IDeviceDriver
     }
 
     /// <summary>
+    /// Returns the mount's current pointing in J2000 equatorial coordinates.
+    /// For mounts reporting in J2000 natively (<see cref="EquatorialSystem"/> == <see cref="EquatorialCoordinateType.J2000"/>)
+    /// the native values are returned directly with no <paramref name="transform"/> usage.
+    /// For topocentric mounts (LX200, OnStep, SkyWatcher, most ASCOM) the caller-supplied
+    /// <see cref="Transform"/> is used to convert via SOFA — see <see cref="Transform.SetTopocentric"/>
+    /// and <see cref="Transform.RAJ2000"/> / <see cref="Transform.DecJ2000"/>.
+    /// </summary>
+    /// <param name="transform">Caller-owned transform; reusing the same instance across calls
+    /// avoids re-reading site coordinates and atmospheric parameters. Not re-entrant if shared.</param>
+    /// <param name="updateTime">If true, refresh <see cref="Transform.DateTime"/> from the mount's
+    /// UTC clock before converting (one extra hardware read). Pass false when the caller already
+    /// keeps the transform's time fresh in-band.</param>
+    /// <returns>(RaJ2000 hours, DecJ2000 degrees) or null if unavailable (not connected, native
+    /// read failed, unsupported <see cref="EquatorialSystem"/>).</returns>
+    async ValueTask<(double RaJ2000, double DecJ2000)?> GetRaDecJ2000Async(Transform transform, bool updateTime, CancellationToken cancellationToken)
+    {
+        if (!Connected)
+        {
+            return null;
+        }
+
+        var raNative = await GetRightAscensionAsync(cancellationToken);
+        var decNative = await GetDeclinationAsync(cancellationToken);
+
+        if (double.IsNaN(raNative) || double.IsNaN(decNative))
+        {
+            return null;
+        }
+
+        // Mount already reports J2000 — no conversion needed, skip the Transform entirely.
+        if (EquatorialSystem == EquatorialCoordinateType.J2000)
+        {
+            return (raNative, decNative);
+        }
+
+        if (EquatorialSystem != EquatorialCoordinateType.Topocentric)
+        {
+            return null;
+        }
+
+        if (updateTime)
+        {
+            if (await TryGetUTCDateFromMountAsync(cancellationToken) is not { } utc)
+            {
+                return null;
+            }
+            transform.DateTime = utc;
+        }
+
+        transform.SetTopocentric(raNative, decNative);
+        transform.Refresh();
+
+        var raJ2000 = transform.RAJ2000;
+        var decJ2000 = transform.DecJ2000;
+        if (double.IsNaN(raJ2000) || double.IsNaN(decJ2000))
+        {
+            return null;
+        }
+        return (raJ2000, decJ2000);
+    }
+
+    /// <summary>
     /// Checks whether the mount is still on the same side of the meridian as when the slew started.
     /// Uses hour angle comparison with a deadband to detect clear meridian crossings, which works
     /// reliably across all mount types (including LX200 mounts that cannot report physical pier side).

@@ -386,6 +386,12 @@ namespace TianWen.UI.Gui
                     break;
 
                 case GuiTab.SkyMap:
+                    // Feed the live mount snapshot into the sky map state so the
+                    // reticle overlay tracks the mount without the tab needing its
+                    // own poll path. Session-mode uses the session's own MountState
+                    // (already populated at session's PollDeviceStatesAsync cadence);
+                    // preview-mode uses PreviewMountState populated by PollPreviewTelemetry.
+                    PopulateSkyMapMountOverlay();
                     _skyMapTab.Render(plannerState, contentRect, DpiScale,
                         _fontPath ?? "monospace", timeProvider);
                     break;
@@ -414,6 +420,39 @@ namespace TianWen.UI.Gui
                     RenderComingSoonPlaceholder(contentRect, appState.ActiveTab);
                     break;
             }
+        }
+
+        /// <summary>
+        /// Snapshots the current mount pointing into <see cref="SkyMapState.MountOverlay"/>
+        /// just before the sky-map tab renders. This keeps the sky map free of any direct
+        /// dependency on <see cref="LiveSessionState"/>; the tab itself only sees the tiny
+        /// <see cref="SkyMapMountOverlay"/> snapshot. Picks the session's own MountState
+        /// when a session is running (session drives the poll cadence itself), else the
+        /// preview-mode snapshot (driven by <c>AppSignalHandler.PollPreviewTelemetry</c>).
+        /// J2000 coords are preferred; native coords are used as a fallback for session
+        /// mode which does not yet populate the J2000 fields.
+        /// </summary>
+        private void PopulateSkyMapMountOverlay()
+        {
+            var ms = LiveSessionState.IsRunning
+                ? LiveSessionState.MountState
+                : LiveSessionState.PreviewMountState;
+
+            if (double.IsNaN(ms.RightAscension) || double.IsNaN(ms.Declination))
+            {
+                _skyMapTab.State.MountOverlay = null;
+                return;
+            }
+
+            var raJ2000 = !double.IsNaN(ms.RaJ2000) ? ms.RaJ2000 : ms.RightAscension;
+            var decJ2000 = !double.IsNaN(ms.DecJ2000) ? ms.DecJ2000 : ms.Declination;
+
+            _skyMapTab.State.MountOverlay = new SkyMapMountOverlay(
+                RaJ2000: raJ2000,
+                DecJ2000: decJ2000,
+                DisplayName: LiveSessionState.PreviewMountDisplayName ?? "Mount",
+                IsSlewing: ms.IsSlewing,
+                IsTracking: ms.IsTracking);
         }
 
         private void RenderComingSoonPlaceholder(RectF32 rect, GuiTab tab)

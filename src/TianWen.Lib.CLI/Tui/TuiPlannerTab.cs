@@ -67,7 +67,7 @@ internal sealed class TuiPlannerTab(
 
         var darkLocal = plannerState.AstroDark.ToOffset(plannerState.SiteTimeZone);
         var twLocal = plannerState.AstroTwilight.ToOffset(plannerState.SiteTimeZone);
-        _topBar.Text($" {siteLabel} | Dark: {darkLocal:HH:mm}-{twLocal:HH:mm} | Proposals: {plannerState.Proposals.Count}");
+        _topBar.Text($" {siteLabel} | Dark: {darkLocal:HH:mm}-{twLocal:HH:mm} | Proposals: {plannerState.Proposals.Length}");
         _topBar.RightText($"{plannerState.ActiveProfile?.DisplayName ?? "No profile"} ");
 
         // Target list
@@ -216,7 +216,7 @@ internal sealed class TuiPlannerTab(
                     case InputKey.P:
                         if (plannerState.SelectedTargetIndex >= 0 && plannerState.SelectedTargetIndex < filtered.Count)
                         {
-                            var propIdx = plannerState.Proposals.FindIndex(p => p.Target == filtered[plannerState.SelectedTargetIndex].Target);
+                            var propIdx = PlannerActions.FindProposalIndex(plannerState.Proposals, filtered[plannerState.SelectedTargetIndex].Target);
                             if (propIdx >= 0)
                             {
                                 PlannerActions.CyclePriority(plannerState, propIdx);
