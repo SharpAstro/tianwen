@@ -168,10 +168,18 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             // for the soft halo. +3 matches Stellarium's pre-baked 16x16 halo texture.
             vec2 screenPos = proj.xy + aCorner * (radius + 3.0);
 
-            // Map screen pixels to Vulkan NDC: x in [-1,1], y in [-1,1] (Y-down)
+            // Map ABSOLUTE-window screen pixels to Vulkan NDC: x in [-1,1], y in [-1,1].
+            // screenPos is in window-absolute coords because viewportCenter encodes the
+            // sky map area's centre in window pixels (offsetX + width/2). The viewport
+            // command (vkCmdSetViewport with x=offsetX, y=offsetY, w/h=mapSize) maps
+            // NDC=0 to that centre, so we must translate screenPos to viewport-relative
+            // coords first by subtracting viewportCenter, then divide by viewport half-size.
+            // Without the subtraction, GPU-rendered geometry shifts right/down by offsetX/Y
+            // relative to the CPU-drawn labels (which use the same SkyMapProjection but
+            // already work in window-absolute coords).
             gl_Position = vec4(
-                screenPos.x / ubo.viewportSize.x * 2.0 - 1.0,
-                screenPos.y / ubo.viewportSize.y * 2.0 - 1.0,
+                (screenPos.x - ubo.viewportCenter.x) / (ubo.viewportSize.x * 0.5),
+                (screenPos.y - ubo.viewportCenter.y) / (ubo.viewportSize.y * 0.5),
                 0.0, 1.0);
 
             vCorner = aCorner;
@@ -250,9 +258,10 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
                 return;
             }
 
+            // Same NDC-from-absolute-pixel mapping as the star shader -- see comment there.
             gl_Position = vec4(
-                proj.x / ubo.viewportSize.x * 2.0 - 1.0,
-                proj.y / ubo.viewportSize.y * 2.0 - 1.0,
+                (proj.x - ubo.viewportCenter.x) / (ubo.viewportSize.x * 0.5),
+                (proj.y - ubo.viewportCenter.y) / (ubo.viewportSize.y * 0.5),
                 0.0, 1.0);
             vColor = pc.color;
         }
