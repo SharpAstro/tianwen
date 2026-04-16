@@ -539,6 +539,11 @@ public static class OverlayEngine
     /// <param name="db">Celestial object database.</param>
     /// <param name="measureText">Text width measurement callback.</param>
     /// <param name="baseFontSize">Base font size before DPI scaling.</param>
+    /// <param name="pinnedCatalogIndices">Catalog indices of pinned planner targets.
+    /// Items in this set bypass the FOV-based magnitude cutoff, get <c>IsPinned = true</c>,
+    /// and receive a boosted <see cref="OverlayItem.LabelPriority"/> so their labels are
+    /// never dropped by the collision-avoidance logic. Pass an empty set when no targets
+    /// are pinned.</param>
     /// <returns>Sorted list of overlay items (brightest first).</returns>
     public static List<OverlayItem> ComputeSkyMapOverlays(
         SkyMapState state,
@@ -546,7 +551,8 @@ public static class OverlayEngine
         float dpiScale,
         ICelestialObjectDB db,
         Func<string, float, float> measureText,
-        float baseFontSize)
+        float baseFontSize,
+        IReadOnlySet<CatalogIndex>? pinnedCatalogIndices = null)
     {
         var result = new List<OverlayItem>();
 
@@ -697,7 +703,8 @@ public static class OverlayEngine
                         continue;
                     }
 
-                    if (hideDarkNebulae && obj.ObjectType == ObjectType.DarkNeb)
+                    if (hideDarkNebulae && obj.ObjectType == ObjectType.DarkNeb
+                        && !(pinnedCatalogIndices is not null && obj.Index != default && pinnedCatalogIndices.Contains(obj.Index)))
                     {
                         continue;
                     }
@@ -720,10 +727,19 @@ public static class OverlayEngine
                         }
                     }
 
-                    var effectiveMagCutoff = isStar ? starMagCutoff : magCutoff;
-                    if (!Half.IsNaN(obj.V_Mag) && (double)obj.V_Mag > effectiveMagCutoff)
+                    // Pinned planner targets bypass magnitude cutoff and dark-nebula
+                    // filter so the user always sees their planned targets on the map.
+                    var isPinned = pinnedCatalogIndices is not null
+                        && obj.Index != default
+                        && pinnedCatalogIndices.Contains(obj.Index);
+
+                    if (!isPinned)
                     {
-                        continue;
+                        var effectiveMagCutoff = isStar ? starMagCutoff : magCutoff;
+                        if (!Half.IsNaN(obj.V_Mag) && (double)obj.V_Mag > effectiveMagCutoff)
+                        {
+                            continue;
+                        }
                     }
 
                     // Project through the same view matrix the GPU uses
@@ -774,6 +790,10 @@ public static class OverlayEngine
 
         foreach (var (catIdx, obj, cx, cy) in candidates)
         {
+            var isPinned = pinnedCatalogIndices is not null
+                && obj.Index != default
+                && pinnedCatalogIndices.Contains(obj.Index);
+
             var color = GetOverlayColor(obj.ObjectType);
 
             OverlayMarker marker;
@@ -814,6 +834,12 @@ public static class OverlayEngine
 
             var lines = BuildOverlayLabel(obj, catIdx, db, labelZoom);
 
+            // Pinned items get a large priority boost so their labels are never
+            // dropped by collision avoidance. The +100 puts them well above any
+            // natural ComputeLabelPriority score (~20 max for a bright named DSO).
+            var priority = ComputeLabelPriority(obj, catIdx, db);
+            if (isPinned) priority += 100f;
+
             result.Add(new OverlayItem
             {
                 ScreenX = cx,
@@ -823,7 +849,8 @@ public static class OverlayEngine
                 Color = color,
                 Marker = marker,
                 LabelLines = lines,
-                LabelPriority = ComputeLabelPriority(obj, catIdx, db),
+                IsPinned = isPinned,
+                LabelPriority = priority,
                 LabelSlotHint = (int)((ulong)catIdx & 3),
             });
         }

@@ -100,10 +100,11 @@ namespace TianWen.UI.Abstractions
 
             DrawPlanetLabels(db, timeProvider, siteLat, siteLon, contentRect, fontPath, fontSize, ppr, cx, cy, site, dimBelowHorizon);
 
-            if (State.ShowObjectOverlay)
-            {
-                RenderObjectOverlay(db, contentRect, dpiScale, fontPath, BaseFontSize, site, dimBelowHorizon);
-            }
+            // Always render the object overlay pass — when [O] is off, only pinned
+            // planner targets are drawn (the user's planned observations should always
+            // be visible as landmarks on the sky map). The showAll flag tells the engine
+            // whether to include non-pinned catalog objects in the result.
+            RenderObjectOverlay(db, contentRect, dpiScale, fontPath, BaseFontSize, site, dimBelowHorizon, plannerState, State.ShowObjectOverlay);
 
             // Mount reticle on top of everything catalog-related so it's never buried.
             if (State.ShowMountOverlay && State.MountOverlay is { } mountOverlay)
@@ -129,7 +130,8 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         protected virtual void RenderObjectOverlay(
             ICelestialObjectDB db, RectF32 contentRect, float dpiScale, string fontPath,
-            float baseFontSize, SiteContext site, bool dimBelowHorizon)
+            float baseFontSize, SiteContext site, bool dimBelowHorizon, PlannerState plannerState,
+            bool showAllOverlays)
         {
         }
 
@@ -335,22 +337,12 @@ namespace TianWen.UI.Abstractions
             }
         }
 
-        private long _lastPlanetDiagTicks;
-
         private void DrawPlanetLabels(
             ICelestialObjectDB db, ITimeProvider timeProvider, double siteLat, double siteLon,
             RectF32 rect, string fontPath, float fontSize, double ppr, float cx, float cy,
             SiteContext site, bool dimBelowHorizon)
         {
             var now = timeProvider.GetUtcNow();
-
-            // TEMP diagnostic: throttle to ~3s, dump each planet's J2000 RA/Dec so
-            // we can verify whether the visible offset from the ecliptic is in the
-            // planet calc or elsewhere. Remove once confirmed correct.
-            var nowTicks = System.Diagnostics.Stopwatch.GetTimestamp();
-            var emitDiag = System.Diagnostics.Stopwatch.GetElapsedTime(_lastPlanetDiagTicks, nowTicks)
-                >= System.TimeSpan.FromSeconds(3);
-            if (emitDiag) _lastPlanetDiagTicks = nowTicks;
 
             foreach (var planetIdx in SkyMapRenderer.PlanetIndices)
             {
@@ -362,16 +354,6 @@ namespace TianWen.UI.Abstractions
                     out var ra, out var dec, out _))
                 {
                     continue;
-                }
-
-                // ReduceJ2000 (and the original Reduce) return RA already in HOURS via
-                // RADIANS2HOURS. The previous code divided by 15 a second time, plotting
-                // every planet at 1/15th of its actual RA -- the visible "off the
-                // ecliptic" cluster was actually all planets compressed near RA ~ 0h.
-                if (emitDiag)
-                {
-                    System.Console.Error.WriteLine(
-                        $"[planet-j2000] {planetIdx} RA={ra:F4}h Dec={dec:F4}deg");
                 }
 
                 if (SkyMapProjection.ProjectWithMatrix(ra, dec, State.CurrentViewMatrix,

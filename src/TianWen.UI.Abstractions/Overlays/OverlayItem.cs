@@ -31,6 +31,13 @@ public sealed class OverlayItem
     public required IReadOnlyList<string> LabelLines { get; init; }
 
     /// <summary>
+    /// True for objects that are pinned in the planner's proposal list. Pinned items
+    /// bypass FOV-based magnitude cutoffs and render with a bright highlight halo so
+    /// the user can see their planned targets on the sky map at a glance.
+    /// </summary>
+    public bool IsPinned { get; init; }
+
+    /// <summary>
     /// Label placement priority (higher = more important). Composed from whether
     /// the object has a common name, its magnitude, and its on-sky size. Labels
     /// are drawn in priority order so that bright / named / large objects claim
