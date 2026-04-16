@@ -61,15 +61,33 @@ pre-rendered equirectangular.
 - [ ] Saturation control (optional, Stellarium uses HSV in-shader)
 - [ ] Fade at horizon when horizon clipping is enabled
 
-### Phase 4: Self-Generated Fallback
+### Phase 4: Composite Milky Way from 2MASS + Dark Nebulae
 
-If we want zero external dependencies:
-- [ ] At startup (or as a build-time tool), render Tycho-2 stars onto a 2048x1024
-      equirectangular buffer using a wide Gaussian PSF per star (magnitude-weighted)
-- [ ] Apply a large-radius Gaussian blur to simulate unresolved background starlight
-- [ ] Cache the result as a PNG in AppData (rebuild if catalog changes)
-- [ ] This gives a "synthetic Milky Way" that's consistent with our star catalog
-      and has no licensing concerns
+Best of both worlds - physically motivated, no per-project licensing:
+- [ ] **Luminance layer**: 2MASS J-band all-sky (public domain, NASA) as the base
+      diffuse glow. This is near-infrared so it penetrates dust and shows the true
+      stellar density / galactic structure. Download the pre-rendered equirectangular
+      from IPAC or reproject from HEALPix tiles.
+- [ ] **Extinction layer**: overlay optical dark nebulae (Barnard catalog, Lynds Dark
+      Nebulae) as opacity masks that darken the 2MASS base where dust clouds block
+      visible light. This is what makes the Milky Way look patchy and dramatic to
+      the naked eye - the Great Rift, Coal Sack, Pipe Nebula, etc.
+- [ ] **Composite**: `visible = 2MASS_luminance * exp(-extinction)` per pixel,
+      where extinction is derived from the angular extent and opacity class of each
+      dark nebula entry. The Lynds catalog has opacity grades 1-6 which map to
+      extinction values.
+- [ ] **Build-time tool**: generate the composite as a 2048x1024 or 4096x2048
+      equirectangular PNG. Cache in AppData. This only needs to run once (or
+      ship pre-built).
+- [ ] Optionally tint the composite to approximate optical-band color: 2MASS J-band
+      is grayscale, apply a warm color ramp (yellowish center, bluish arms) derived
+      from the B-V distribution of stars in each region
+
+This approach gives a Milky Way background that is:
+- Physically realistic (real survey data + real dust extinction)
+- Consistent with what the user actually sees (optical band, not infrared)
+- Free of licensing concerns (NASA public domain + VizieR catalog data)
+- Deterministic and reproducible from source data
 
 ## GLSL Notes
 
