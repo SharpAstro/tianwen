@@ -68,14 +68,16 @@ Best of both worlds - physically motivated, no per-project licensing:
       diffuse glow. This is near-infrared so it penetrates dust and shows the true
       stellar density / galactic structure. Download the pre-rendered equirectangular
       from IPAC or reproject from HEALPix tiles.
-- [ ] **Extinction layer**: overlay optical dark nebulae (Barnard catalog, Lynds Dark
-      Nebulae) as opacity masks that darken the 2MASS base where dust clouds block
-      visible light. This is what makes the Milky Way look patchy and dramatic to
-      the naked eye - the Great Rift, Coal Sack, Pipe Nebula, etc.
-- [ ] **Composite**: `visible = 2MASS_luminance * exp(-extinction)` per pixel,
-      where extinction is derived from the angular extent and opacity class of each
-      dark nebula entry. The Lynds catalog has opacity grades 1-6 which map to
-      extinction values.
+- [ ] **Extinction layer**: Schlegel/Finkbeiner/Davis (SFD) dust map or Planck
+      353 GHz dust opacity map (both NASA/ESA public domain). These are full-sky
+      HEALPix maps of dust column density with actual spatial structure at arcminute
+      resolution - every dust cloud's real shape is in the data (Great Rift, Coal Sack,
+      Pipe Nebula, etc.). No need to approximate from point catalogs like Barnard/Lynds.
+      Reproject from HEALPix to equirectangular at the target resolution.
+- [ ] **Composite**: `visible = 2MASS_luminance * exp(-k * SFD_E(B-V))` per pixel,
+      where `SFD_E(B-V)` is the dust reddening value and `k` is a tunable scale
+      factor that controls how opaque the dust lanes appear. Single per-pixel
+      multiply, no catalog lookups.
 - [ ] **Build-time tool**: generate the composite as a 2048x1024 or 4096x2048
       equirectangular PNG. Cache in AppData. This only needs to run once (or
       ship pre-built).
