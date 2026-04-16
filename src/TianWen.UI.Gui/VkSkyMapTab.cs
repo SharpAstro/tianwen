@@ -238,8 +238,10 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         var lineH = fontSize * 1.2f;
         // No '+' for positive Dec — at small font a thin '+' was misread as '-' (and
         // vice versa) on the bug-hunt screenshots. Bare sign-when-negative is unambiguous.
-        var coordsText = $"RA {CoordinateUtils.HoursToHMS(mountOverlay.RaJ2000, hourSeparator: 'h', withFrac: false)}"
-            + $"  Dec {CoordinateUtils.DegreesToDMS(mountOverlay.DecJ2000, withPlus: false, degreeSign: '\u00B0', withFrac: false)}";
+        // Proper DMS punctuation (' for arcmin, " for arcsec) reads cleanly as a
+        // sky coordinate vs the default ':' which looked like a time.
+        var coordsText = $"RA {CoordinateUtils.HoursToHMS(mountOverlay.RaJ2000, hourSeparator: 'h', withFrac: false, minuteSeparator: 'm', secondSuffix: "s")}"
+            + $"  Dec {CoordinateUtils.DegreesToDMS(mountOverlay.DecJ2000, withPlus: false, degreeSign: '\u00B0', withFrac: false, arcMinuteSign: '\u2032', arcSecondSign: "\u2033")}";
 
         DrawReticleLabel(mountOverlay.DisplayName, fontPath, fontSize, color,
             screenX, screenY + 20f * dpiScale, lineH);

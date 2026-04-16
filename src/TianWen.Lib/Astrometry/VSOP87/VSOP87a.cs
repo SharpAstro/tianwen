@@ -14,6 +14,53 @@ public static class VSOP87a
     }
 
     /// <summary>
+    /// Returns the body's J2000.0 equatorial RA/Dec (geocentric, light-time corrected,
+    /// no precession to date). Use this for plotting on a J2000 sky chart -- the
+    /// regular <see cref="Reduce(CatalogIndex, DateTimeOffset, double, double, out double, out double, out double, out double, out double)"/>
+    /// overload precesses to the current date and is appropriate for telescope-pointing
+    /// or alt/az computations, not for J2000-frame overlay plotting.
+    /// </summary>
+    public static bool ReduceJ2000(CatalogIndex catIndex, DateTimeOffset time, out double ra, out double dec, out double distance)
+    {
+        time.ToSOFAUtcJdTT(out _, out _, out var tt1, out var tt2);
+        double et = (tt1 - Constants.J2000BASE + tt2) / 365250.0;
+
+        Span<double> earth = stackalloc double[3];
+        Span<double> body = stackalloc double[3];
+
+        if (!GetBody(catIndex, et, body) || !GetBody(CatalogIndex.Earth, et, earth))
+        {
+            ra = double.NaN; dec = double.NaN; distance = double.NaN;
+            return false;
+        }
+
+        body[0] -= earth[0]; body[1] -= earth[1]; body[2] -= earth[2];
+
+        // Light-time correction (same as Reduce).
+        distance = Math.Sqrt(body[0] * body[0] + body[1] * body[1] + body[2] * body[2]);
+        distance *= 1.496e+11;
+        double lightTime = distance / 299792458.0;
+        et -= lightTime / 24.0 / 60.0 / 60.0 / 365250.0;
+
+        GetBody(catIndex, et, body);
+        body[0] -= earth[0]; body[1] -= earth[1]; body[2] -= earth[2];
+
+        // Convert VSOP87 ecliptic-of-J2000 to J2000 equatorial. Crucially, do NOT apply
+        // Pnm06a (precession + nutation + bias to date) -- callers want the J2000 frame.
+        Rotvsop2J2000(body);
+
+        // Geocentric RA/Dec from cartesian.
+        double r = Math.Sqrt(body[0] * body[0] + body[1] * body[1] + body[2] * body[2]);
+        dec = Math.Acos(body[2] / r);
+        ra = Math.Atan2(body[1], body[0]);
+        dec = .5 * Math.PI - dec;
+
+        ra = CoordinateUtils.ConditionRA(ra * Constants.RADIANS2HOURS);
+        dec *= Constants.RADIANS2DEGREES;
+        return true;
+    }
+
+    /// <summary>
     ///
     /// </summary>
     /// <param name="catIndex"></param>
@@ -106,14 +153,12 @@ public static class VSOP87a
         double r = Math.Sqrt(body[0] * body[0] + body[1] * body[1] + body[2] * body[2]);
         dec = Math.Acos(body[2] / r);
         ra = Math.Atan2(body[1], body[0]);
+        // Keep ra in radians for the altaz hour-angle math below; the final
+        // [0, 2pi) normalisation happens after the radians->hours conversion
+        // via CoordinateUtils.ConditionRA.
         if (ra < 0)
         {
             ra += 2 * Math.PI;
-        }
-
-        if (dec < 0)
-        {
-            dec += 2 * Math.PI;
         }
         dec = .5 * Math.PI - dec;
 
@@ -132,7 +177,7 @@ public static class VSOP87a
             az = 2.0 * Math.PI - az;
         }
 
-        ra *= Constants.RADIANS2DEGREES / 15;
+        ra = CoordinateUtils.ConditionRA(ra * Constants.RADIANS2HOURS);
         dec *= Constants.RADIANS2DEGREES;
         az *= Constants.RADIANS2DEGREES;
         alt *= Constants.RADIANS2DEGREES;

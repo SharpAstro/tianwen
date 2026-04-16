@@ -426,6 +426,12 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     private VkDeviceMemory _boundaryMemory;
     private uint _boundaryVertexCount;
 
+    // Ecliptic great circle (great circle of the Sun's apparent path) -- single
+    // persistent line buffer, never changes since obliquity is a J2000 constant.
+    private VkBuffer _eclipticBuffer;
+    private VkDeviceMemory _eclipticMemory;
+    private uint _eclipticVertexCount;
+
     // Grid: one buffer per scale level, each a line list of unit vectors
     private readonly (VkBuffer Buffer, VkDeviceMemory Memory, uint VertexCount)[] _gridBuffers = new (VkBuffer, VkDeviceMemory, uint)[5];
 
@@ -467,8 +473,50 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         BuildConstellationFigureBuffer(db);
         BuildConstellationBoundaryBuffer();
         BuildGridBuffers();
+        BuildEclipticBuffer();
 
         _geometryBuilt = true;
+    }
+
+    /// <summary>
+    /// Build the ecliptic great circle (the Sun's annual path on the celestial sphere).
+    /// Tessellated as a closed line strip in J2000 unit vectors. Inclination from the
+    /// celestial equator is the obliquity of the ecliptic at J2000.0.
+    /// </summary>
+    private void BuildEclipticBuffer()
+    {
+        // Mean obliquity of the ecliptic at J2000.0 (IAU 2006 / SOFA).
+        const double obliquityJ2000Deg = 23.4392911;
+        var (sinE, cosE) = Math.SinCos(double.DegreesToRadians(obliquityJ2000Deg));
+
+        const int steps = 360;
+        var floats = new List<float>(steps * 6);
+        float prevX = 0, prevY = 0, prevZ = 0;
+        for (var i = 0; i <= steps; i++)
+        {
+            // lambda = ecliptic longitude in radians, sweeping the full circle.
+            var lambda = i * (2.0 * Math.PI / steps);
+            var (sinL, cosL) = Math.SinCos(lambda);
+            // J2000 unit vector for ecliptic-longitude lambda, latitude 0.
+            // x = cos(lambda), y = sin(lambda)*cos(eps), z = sin(lambda)*sin(eps).
+            var x = (float)cosL;
+            var y = (float)(sinL * cosE);
+            var z = (float)(sinL * sinE);
+
+            if (i > 0)
+            {
+                floats.Add(prevX); floats.Add(prevY); floats.Add(prevZ);
+                floats.Add(x); floats.Add(y); floats.Add(z);
+            }
+            prevX = x; prevY = y; prevZ = z;
+        }
+
+        _eclipticVertexCount = (uint)(floats.Count / 3);
+        if (_eclipticVertexCount > 0)
+        {
+            (_eclipticBuffer, _eclipticMemory) = _ctx.CreatePersistentVertexBuffer(
+                System.Runtime.InteropServices.CollectionsMarshal.AsSpan(floats));
+        }
     }
 
     /// <summary>
@@ -605,6 +653,17 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         {
             PushLineColor(cmd, 0x30, 0xDD, 0x30, 0xA0); // green
             DrawLineBuffer(cmd, meridian.Buffer, meridian.ByteOffset, meridian.VertexCount);
+        }
+
+        // Ecliptic -- Sun's annual path on the celestial sphere. Always drawn in
+        // warm yellow so it reads as "Sun-related" against the cool blue grid and
+        // constellation figures. Built once at startup as a great circle inclined
+        // by the J2000 obliquity (~23.44 deg) -- planets stay within ~7 deg of it,
+        // so it doubles as a "where to look for ecliptic objects" guide.
+        if (_eclipticVertexCount > 0)
+        {
+            PushLineColor(cmd, 0xE0, 0xC0, 0x40, 0xB0); // warm yellow
+            DrawLineBuffer(cmd, _eclipticBuffer, 0, _eclipticVertexCount);
         }
 
         // Constellation boundaries
@@ -1542,6 +1601,9 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
 
         // Constellation boundary buffer
         DestroyBuffer(_boundaryBuffer, _boundaryMemory);
+
+        // Ecliptic great-circle buffer
+        DestroyBuffer(_eclipticBuffer, _eclipticMemory);
 
         // Grid buffers
         foreach (var (buffer, memory, _) in _gridBuffers)

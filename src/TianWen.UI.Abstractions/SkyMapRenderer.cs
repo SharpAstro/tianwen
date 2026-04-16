@@ -477,10 +477,10 @@ namespace TianWen.UI.Abstractions
                     continue;
                 }
 
-                // VSOP87a returns RA in degrees for planets, convert to hours
-                var raHours = ra / 15.0;
-
-                if (!SkyMapProjection.Project(raHours, dec, cRA, cDec, ppr, cx, cy, out var sx, out var sy))
+                // VSOP87a returns RA already in HOURS (RADIANS2HOURS conversion inside).
+                // The previous /15 here was a bug -- planets were getting plotted at
+                // 1/15th of their actual RA, compressed near 0h.
+                if (!SkyMapProjection.Project(ra, dec, cRA, cDec, ppr, cx, cy, out var sx, out var sy))
                 {
                     continue;
                 }
