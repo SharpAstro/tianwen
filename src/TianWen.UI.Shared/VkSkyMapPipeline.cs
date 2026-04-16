@@ -387,6 +387,70 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         }
         """;
 
+    // ────────────────────────────────────────────────── Milky Way fragment shader
+    //
+    // Full-screen quad: inverse stereographic -> J2000 unit vector -> equirectangular UV -> texture sample.
+    // Vertex shader reuses HorizonFillVertexSource. Push constant controls brightness (sun altitude fade).
+
+    private const string MilkyWayFragmentSource = """
+        #version 450
+
+        layout(location = 0) in vec2 vScreenPos;
+        layout(location = 0) out vec4 FragColor;
+
+        layout(set = 0, binding = 0, std140) uniform SkyMapUBO {
+            mat4  viewMatrix;
+            vec2  viewportCenter;
+            float pixelsPerRadian;
+            float magnitudeLimit;
+            float fovDeg;
+            float sinLat;
+            vec2  viewportSize;
+            float cosLat;
+            float sinLST;
+            float cosLST;
+            int   horizonClip;
+        } ubo;
+
+        layout(set = 1, binding = 0) uniform sampler2D milkyWayTex;
+
+        layout(push_constant) uniform PushConstants {
+            float alpha;
+        } pc;
+
+        const float PI    = 3.14159265358979;
+        const float TWO_PI = 6.28318530717959;
+
+        void main() {
+            // Inverse stereographic projection: screen pixel -> camera-space direction
+            float x = (vScreenPos.x - ubo.viewportCenter.x) / ubo.pixelsPerRadian;
+            float y = -(vScreenPos.y - ubo.viewportCenter.y) / ubo.pixelsPerRadian;
+
+            float rho = length(vec2(x, y));
+            vec3 camDir;
+            if (rho < 0.00001) {
+                camDir = vec3(0.0, 0.0, -1.0);
+            } else {
+                float c = 2.0 * atan(rho * 0.5);
+                float sinC = sin(c);
+                float cosC = cos(c);
+                camDir = vec3(sinC * x / rho, sinC * y / rho, -cosC);
+            }
+
+            // Rotate back to J2000 (view matrix is orthogonal, inverse = transpose)
+            vec3 j2000 = transpose(mat3(ubo.viewMatrix)) * camDir;
+
+            // J2000 unit vector -> equirectangular UV
+            float ra = atan(j2000.y, j2000.x);       // [-PI, PI]
+            float u = ra / TWO_PI + 0.5;              // [0, 1]
+            float dec = asin(clamp(j2000.z, -1.0, 1.0)); // [-PI/2, PI/2]
+            float v = 0.5 - dec / PI;                 // [0, 1], north at top
+
+            vec4 mw = texture(milkyWayTex, vec2(u, v));
+            FragColor = vec4(mw.rgb, mw.a * pc.alpha);
+        }
+        """;
+
     // ────────────────────────────────────────────────── Fields
 
     private readonly VulkanContext _ctx;
@@ -405,6 +469,12 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     private VkPipeline _starPipeline;
     private VkPipeline _linePipeline;
     private VkPipeline _horizonFillPipeline;
+    private VkPipeline _milkyWayPipeline;
+
+    // Milky Way texture (loaded from disk, may be null if file not present).
+    // Uses VkTexture which owns its own descriptor set from the global pool.
+    private VkTexture? _milkyWayTexture;
+    private VkPipelineLayout _milkyWayPipelineLayout;
 
     // Per-frame UBO buffers (persistently mapped). Mirrors the vertex ring buffer
     // pattern in VulkanContext -- each frame-in-flight has its own copy so the GPU
@@ -483,6 +553,19 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
 
         _geometryBuilt = true;
     }
+
+    /// <summary>
+    /// Loads a Milky Way equirectangular texture from raw BGRA bytes.
+    /// Call once from the render thread after decompressing the texture file.
+    /// </summary>
+    public void LoadMilkyWayTexture(ReadOnlySpan<byte> bgraData, int width, int height)
+    {
+        _milkyWayTexture?.Dispose();
+        _milkyWayTexture = VkTexture.CreateFromBgra(_ctx, bgraData, width, height);
+    }
+
+    /// <summary>True when a Milky Way texture has been loaded.</summary>
+    public bool HasMilkyWayTexture => _milkyWayTexture is not null;
 
     /// <summary>
     /// Build the ecliptic great circle (the Sun's annual path on the celestial sphere).
@@ -597,6 +680,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         SkyMapState state,
         float viewportWidth, float viewportHeight,
         float offsetX, float offsetY,
+        float milkyWayAlpha,
         // Dynamic line buffers — written to ring buffer by caller
         (VkBuffer Buffer, uint ByteOffset, uint VertexCount) horizon,
         (VkBuffer Buffer, uint ByteOffset, uint VertexCount) meridian,
@@ -634,7 +718,25 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         api.vkCmdBindDescriptorSets(cmd, VkPipelineBindPoint.Graphics, _pipelineLayout,
             0, 1, &uboSet, 0, null);
 
-        // ── Horizon fill (drawn first, behind everything) ──
+        // ── Milky Way background (drawn first, behind everything) ──
+        if (state.ShowMilkyWay && milkyWayAlpha > 0.005f
+            && _milkyWayTexture is not null && _milkyWayPipeline != VkPipeline.Null)
+        {
+            api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _milkyWayPipeline);
+            // Bind set 0 (UBO) with the Milky Way pipeline layout
+            api.vkCmdBindDescriptorSets(cmd, VkPipelineBindPoint.Graphics,
+                _milkyWayPipelineLayout, 0, 1, &uboSet, 0, null);
+            // Bind set 1 (texture sampler from VkTexture)
+            var mwSet = _milkyWayTexture.DescriptorSet;
+            api.vkCmdBindDescriptorSets(cmd, VkPipelineBindPoint.Graphics,
+                _milkyWayPipelineLayout, 1, 1, &mwSet, 0, null);
+            // Push alpha constant
+            api.vkCmdPushConstants(cmd, _milkyWayPipelineLayout,
+                VkShaderStageFlags.Fragment, 0, 4, &milkyWayAlpha);
+            api.vkCmdDraw(cmd, 6, 1, 0, 0);
+        }
+
+        // ── Horizon fill ──
         if (state.ShowHorizon && _horizonFillPipeline != VkPipeline.Null)
         {
             api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _horizonFillPipeline);
@@ -1374,6 +1476,27 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             pPushConstantRanges = &pushRange
         };
         api.vkCreatePipelineLayout(&plCI, null, out _pipelineLayout).CheckResult();
+
+        // Milky Way pipeline layout: set 0 = UBO, set 1 = texture sampler (global layout).
+        // Push constant: float alpha (4 bytes, fragment only).
+        VkPushConstantRange mwPushRange = new()
+        {
+            stageFlags = VkShaderStageFlags.Fragment,
+            offset = 0,
+            size = 4
+        };
+
+        var setLayouts = stackalloc VkDescriptorSetLayout[2];
+        setLayouts[0] = _uboSetLayout;
+        setLayouts[1] = _ctx.DescriptorSetLayout; // global CombinedImageSampler layout
+        VkPipelineLayoutCreateInfo mwPlCI = new()
+        {
+            setLayoutCount = 2,
+            pSetLayouts = setLayouts,
+            pushConstantRangeCount = 1,
+            pPushConstantRanges = &mwPushRange
+        };
+        api.vkCreatePipelineLayout(&mwPlCI, null, out _milkyWayPipelineLayout).CheckResult();
     }
 
     private void CreateUboBuffer()
@@ -1510,6 +1633,20 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
 
             _ctx.DeviceApi.vkDestroyShaderModule(hzFillVertModule);
             _ctx.DeviceApi.vkDestroyShaderModule(hzFillFragModule);
+
+            // ── Milky Way pipeline: full-screen quad + texture, own layout ──
+            var mwVertModule = CompileShaderModule(compiler, HorizonFillVertexSource, "skymap_mw.vert", ShaderKind.VertexShader);
+            var mwFragModule = CompileShaderModule(compiler, MilkyWayFragmentSource, "skymap_mw.frag", ShaderKind.FragmentShader);
+
+            _milkyWayPipeline = CreateGraphicsPipeline(
+                mwVertModule, mwFragModule,
+                null, 0, null, 0,
+                VkPrimitiveTopology.TriangleList,
+                additive: true,
+                layoutOverride: _milkyWayPipelineLayout);
+
+            _ctx.DeviceApi.vkDestroyShaderModule(mwVertModule);
+            _ctx.DeviceApi.vkDestroyShaderModule(mwFragModule);
         }
         finally
         {
@@ -1525,7 +1662,8 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         VkShaderModule vertModule, VkShaderModule fragModule,
         VkVertexInputBindingDescription* bindings, uint bindingCount,
         VkVertexInputAttributeDescription* attributes, uint attributeCount,
-        VkPrimitiveTopology topology, bool additive)
+        VkPrimitiveTopology topology, bool additive,
+        VkPipelineLayout layoutOverride = default)
     {
         var api = _ctx.DeviceApi;
         VkUtf8ReadOnlyString entryPoint = "main"u8;
@@ -1622,7 +1760,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             pMultisampleState = &multisample,
             pColorBlendState = &colorBlend,
             pDynamicState = &dynamicState,
-            layout = _pipelineLayout,
+            layout = layoutOverride != VkPipelineLayout.Null ? layoutOverride : _pipelineLayout,
             renderPass = _ctx.RenderPass,
             subpass = 0
         };
@@ -1683,6 +1821,11 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
 
         var api = _ctx.DeviceApi;
         api.vkDeviceWaitIdle();
+
+        // Milky Way resources
+        _milkyWayTexture?.Dispose();
+        if (_milkyWayPipeline != VkPipeline.Null) api.vkDestroyPipeline(_milkyWayPipeline);
+        if (_milkyWayPipelineLayout != VkPipelineLayout.Null) api.vkDestroyPipelineLayout(_milkyWayPipelineLayout);
 
         // Pipelines
         if (_starPipeline != VkPipeline.Null) api.vkDestroyPipeline(_starPipeline);

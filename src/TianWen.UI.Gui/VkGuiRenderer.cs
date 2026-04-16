@@ -1,5 +1,6 @@
 using System;
 using DIR.Lib;
+using Microsoft.Extensions.Logging;
 using SdlVulkan.Renderer;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
@@ -100,7 +101,7 @@ namespace TianWen.UI.Gui
         private static readonly RGBAColor32 ContentBg     = new RGBAColor32(0x16, 0x16, 0x1e, 0xff);
         private static readonly RGBAColor32 PlaceholderText = new RGBAColor32(0x55, 0x55, 0x66, 0xff);
 
-        public VkGuiRenderer(VkRenderer renderer, uint width, uint height, SignalBus? bus = null) : base(renderer)
+        public VkGuiRenderer(VkRenderer renderer, uint width, uint height, SignalBus? bus = null, ILogger? logger = null) : base(renderer)
         {
             Bus = bus;
             _renderer = renderer;
@@ -110,7 +111,7 @@ namespace TianWen.UI.Gui
             _equipmentTab = new VkEquipmentTab(renderer) { Bus = bus };
             _sessionTab = new VkSessionTab(renderer) { Bus = bus };
             _viewerTab = new VkViewerTab(renderer, width, height) { Bus = bus };
-            _skyMapTab = new VkSkyMapTab(renderer) { Bus = bus };
+            _skyMapTab = new VkSkyMapTab(renderer) { Bus = bus, Logger = logger };
             _miniViewer = new VkMiniViewerWidget(renderer);
             _liveSessionTab = new VkLiveSessionTab(renderer) { Bus = bus, MiniViewer = _miniViewer };
             _guiderMiniViewer = new VkMiniViewerWidget(renderer);

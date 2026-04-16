@@ -48,6 +48,13 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             _pipeline.BuildGeometry(db);
         }
 
+        // Try loading the Milky Way texture from disk (once, after pipeline is ready)
+        if (!_milkyWayLoadAttempted)
+        {
+            _milkyWayLoadAttempted = true;
+            TryLoadMilkyWayTexture();
+        }
+
         // Fill background with a sky colour driven by the Sun's altitude at the
         // viewing time (matches the planner's twilight zones). VSOP87a is cached
         // for 10s so this stays out of the per-frame hot path.
@@ -110,9 +117,16 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         var altAzGridInfo = WriteToRingBuffer(ctx, _altAzGridFloats);
         var fovInfo = WriteToRingBuffer(ctx, _fovFloats);
 
+        // Milky Way: fades with sun altitude. Fully visible below -18 deg (astro night),
+        // zero at -6 deg (civil twilight). Also dims at wide FOV to avoid overpowering.
+        float milkyWayAlpha = State.ShowMilkyWay && State.MilkyWayAvailable
+            ? MathF.Max(MathF.Min((float)(-sunAltDeg - 6.0) / 12f, 1f), 0f)
+              * MathF.Max(MathF.Min(40f / (float)State.FieldOfViewDeg, 1f), 0.3f)
+            : 0f;
+
         // Draw all sky map layers
         _pipeline.Draw(cmd, State, mapW, mapH, contentRect.X, contentRect.Y,
-            horizonInfo, meridianInfo, altAzGridInfo, fovInfo);
+            milkyWayAlpha, horizonInfo, meridianInfo, altAzGridInfo, fovInfo);
 
         // Restore the full-window viewport/scissor for text overlay rendering
         // (the pipeline sets a clipped viewport/scissor for the sky map area)
@@ -193,12 +207,18 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         // the normal marker so it sits behind as a glow. The halo is 1.5x the normal
         // marker size at 25% alpha -- visible enough to spot from a distance but
         // doesn't overpower the actual shape.
-        var pinnedHaloColor = new RGBAColor32(0xFF, 0x60, 0x20, 0x50); // orange-red, 31% alpha
+        // Dim overlays at wide FOV so they don't overwhelm the sky map when zoomed out.
+        // Subtle overlay fade at extreme wide FOV only -- natural-size ellipses
+        // already handle the clutter, this just softens the very widest views.
+        var fovAlpha = MathF.Max(MathF.Min(90f / (float)State.FieldOfViewDeg, 1f), 0.4f);
+        var pinnedHaloColor = new RGBAColor32(0xFF, 0x60, 0x20, (byte)(0x50 * fovAlpha));
 
         foreach (var item in items)
         {
             var (r, g, b) = item.Color;
             var alpha = dimBelowHorizon && !site.IsAboveHorizon(item.RA, item.Dec) ? 0.35f : 1.0f;
+            // Pinned items stay full brightness regardless of zoom
+            if (!item.IsPinned) alpha *= fovAlpha;
 
             // Pinned halo (drawn first so it's behind the marker)
             if (item.IsPinned)
@@ -221,7 +241,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
 
             var color = item.IsPinned
                 ? new RGBAColor32(0xFF, 0x70, 0x30, (byte)(alpha * 255)) // bright orange-red for pinned
-                : new RGBAColor32((byte)(r * 255), (byte)(g * 255), (byte)(b * 255), (byte)(alpha * 255));
+                : RGBAColor32.FromFloat(r, g, b, alpha);
 
             switch (item.Marker)
             {
@@ -253,11 +273,12 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             (item, lx, ly) =>
             {
                 var (r, g, b) = item.IsPinned ? (1f, 0.44f, 0.19f) : item.Color;
-                var alpha = dimBelowHorizon && !site.IsAboveHorizon(item.RA, item.Dec) ? 0.35f : 1.0f;
+                var labelAlpha = dimBelowHorizon && !site.IsAboveHorizon(item.RA, item.Dec) ? 0.35f : 1.0f;
+                if (!item.IsPinned) labelAlpha *= fovAlpha;
                 for (var li = 0; li < item.LabelLines.Count; li++)
                 {
-                    var lineAlpha = (li == 0 ? 1.0f : 0.7f) * alpha;
-                    var color = new RGBAColor32((byte)(r * 255), (byte)(g * 255), (byte)(b * 255), (byte)(lineAlpha * 255));
+                    var lineAlpha = (li == 0 ? 1.0f : 0.7f) * labelAlpha;
+                    var color = RGBAColor32.FromFloat(r, g, b, lineAlpha);
                     Renderer.DrawText(item.LabelLines[li].AsSpan(), fontPath, labelSize, color,
                         new RectInt(
                             new PointInt((int)(lx + 200), (int)(ly + (li + 1) * lineH)),
@@ -424,5 +445,11 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         }
 
         return (ctx.VertexBuffer, byteOffset, (uint)(floats.Count / 3));
+    }
+
+    protected override void OnMilkyWayLoaded(ReadOnlySpan<byte> bgraData, int width, int height)
+    {
+        _pipeline?.LoadMilkyWayTexture(bgraData, width, height);
+        State.MilkyWayAvailable = _pipeline?.HasMilkyWayTexture ?? false;
     }
 }

@@ -1074,7 +1074,7 @@ namespace TianWen.UI.Abstractions
         }
 
         private static RGBAColor32 FloatToColor(float r, float g, float b, float a)
-            => new RGBAColor32((byte)(r * 255), (byte)(g * 255), (byte)(b * 255), (byte)(a * 255));
+            => RGBAColor32.FromFloat(r, g, b, a);
 
         // -----------------------------------------------------------------------
         // Histogram overlay
@@ -1384,7 +1384,7 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            var color = new RGBAColor32((byte)(r * 255), (byte)(g * 255), (byte)(b * 255), 255);
+            var color = RGBAColor32.FromFloat(r, g, b, 1f);
             var lh = (int)(fontSize * 1.3f);
             var rect = new RectInt(
                 new PointInt((int)(screenX + Width), (int)screenY + lh),
@@ -1403,7 +1403,7 @@ namespace TianWen.UI.Abstractions
             var ih = (int)h;
             Renderer.FillRectangle(
                 new RectInt(new PointInt(ix + iw, iy + ih), new PointInt(ix, iy)),
-                new RGBAColor32((byte)(r * 255), (byte)(g * 255), (byte)(b * 255), (byte)(a * 255)));
+                RGBAColor32.FromFloat(r, g, b, a));
         }
 
         // -----------------------------------------------------------------------

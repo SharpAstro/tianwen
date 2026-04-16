@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using DIR.Lib;
+using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
@@ -21,9 +23,13 @@ namespace TianWen.UI.Abstractions
 
         private const float BaseFontSize = 12f;
 
+        private const string MilkyWayFileName = "milkyway.bgra.lz";
+
         public SkyMapState State { get; } = new SkyMapState();
+        public ILogger? Logger { get; set; }
         private PlannerState? _plannerState;
         private ITimeProvider? _timeProvider;
+        protected bool _milkyWayLoadAttempted;
 
         // Cached live viewing time -- refreshed once per second to avoid per-frame GetUtcNow() calls.
         // GetTimestamp() is a cheap stopwatch read; GetUtcNow() is a heavier system call.
@@ -427,7 +433,8 @@ namespace TianWen.UI.Abstractions
                 ? $"FOV: {State.FieldOfViewDeg * 60:F0}'"
                 : $"FOV: {State.FieldOfViewDeg:F1}\u00B0";
             var modeLabel = State.Mode == SkyMapMode.Equatorial ? "EQ" : "AZ";
-            var info = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0    {fovText}    [{modeLabel}]  [H]orizon [G]rid [A]lt/Az [B]oundaries [C]onst [P]roj [O]bjects [M]ount";
+            var skyHint = State.MilkyWayAvailable ? " [S]ky" : "";
+            var info = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0    {fovText}    [{modeLabel}]  [H]orizon [G]rid [A]lt/Az [B]oundaries [C]onst [P]roj [O]bjects [M]ount{skyHint}";
 
             DrawText(info.AsSpan(), fontPath,
                 rect.X + 8, stripY, rect.Width - 16, stripH,
@@ -438,6 +445,64 @@ namespace TianWen.UI.Abstractions
             DrawText(timeText.AsSpan(), fontPath,
                 rect.X + rect.Width - 160, stripY, 152, stripH,
                 fontSize * 0.85f, timeColor, TextAlign.Far, TextAlign.Center);
+        }
+
+        // ── Milky Way texture loading ──
+
+        /// <summary>
+        /// Tries to load the Milky Way texture from <c>milkyway.bgra.lz</c> next to the executable.
+        /// The file is lzip-compressed (supports multi-member via <c>lzip -m</c>). After the lzip
+        /// header, the first 8 bytes are a little-endian int32 width + int32 height, followed by
+        /// <c>width * height * 4</c> raw BGRA pixels. Calls <see cref="OnMilkyWayLoaded"/> on success.
+        /// </summary>
+        protected void TryLoadMilkyWayTexture()
+        {
+            var texturePath = Path.Combine(AppContext.BaseDirectory, MilkyWayFileName);
+            if (!File.Exists(texturePath))
+            {
+                Logger?.LogInformation("Milky Way texture not found at {Path}", texturePath);
+                return;
+            }
+
+            try
+            {
+                Logger?.LogInformation("Loading Milky Way texture from {Path}", texturePath);
+                var compressed = File.ReadAllBytes(texturePath);
+                var raw = LzipDecoder.Decompress(compressed);
+
+                // Header: 4 bytes width + 4 bytes height (little-endian int32)
+                if (raw.Length < 8)
+                {
+                    Logger?.LogWarning("Milky Way texture file too small ({Length} bytes)", raw.Length);
+                    return;
+                }
+
+                var width = BitConverter.ToInt32(raw, 0);
+                var height = BitConverter.ToInt32(raw, 4);
+                var expectedSize = 8 + width * height * 4;
+                if (raw.Length < expectedSize || width <= 0 || height <= 0)
+                {
+                    Logger?.LogWarning("Milky Way texture header invalid: {Width}x{Height}, file {Length} bytes",
+                        width, height, raw.Length);
+                    return;
+                }
+
+                Logger?.LogInformation("Milky Way texture {Width}x{Height} decompressed ({RawSize} bytes)", width, height, raw.Length);
+                OnMilkyWayLoaded(raw.AsSpan(8, width * height * 4), width, height);
+                Logger?.LogInformation("Milky Way texture loaded, available={Available}", State.MilkyWayAvailable);
+            }
+            catch (Exception ex)
+            {
+                Logger?.LogWarning(ex, "Failed to load Milky Way texture from {Path}", texturePath);
+            }
+        }
+
+        /// <summary>
+        /// Called when the Milky Way BGRA texture has been decompressed and is ready for upload.
+        /// Override in the GPU subclass to create a Vulkan texture.
+        /// </summary>
+        protected virtual void OnMilkyWayLoaded(ReadOnlySpan<byte> bgraData, int width, int height)
+        {
         }
 
         // ── Input handling ──
@@ -601,6 +666,10 @@ namespace TianWen.UI.Abstractions
                     return true;
                 case InputKey.C:
                     State.ShowConstellationFigures = !State.ShowConstellationFigures;
+                    State.NeedsRedraw = true;
+                    return true;
+                case InputKey.S when State.MilkyWayAvailable:
+                    State.ShowMilkyWay = !State.ShowMilkyWay;
                     State.NeedsRedraw = true;
                     return true;
                 case InputKey.A:

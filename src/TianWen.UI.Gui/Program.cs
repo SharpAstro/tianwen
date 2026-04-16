@@ -80,7 +80,7 @@ var ctx = VulkanContext.Create(sdlWindow.Instance, sdlWindow.Surface, (uint)pixW
 var renderer = new VkRenderer(ctx, (uint)pixW, (uint)pixH);
 
 var bus = new SignalBus();
-var guiRenderer = new VkGuiRenderer(renderer, (uint)pixW, (uint)pixH, bus)
+var guiRenderer = new VkGuiRenderer(renderer, (uint)pixW, (uint)pixH, bus, logger)
 {
     DpiScale = sdlWindow.DisplayScale
 };

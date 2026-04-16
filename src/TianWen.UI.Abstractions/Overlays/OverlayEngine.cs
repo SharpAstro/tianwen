@@ -572,17 +572,18 @@ public static class OverlayEngine
         var magCutoff = GetExtendedMagCutoff(fovArcmin);
         var starMagCutoff = GetStarMagCutoff(fovArcmin);
 
-        // RA/Dec bounds: sample a 5x5 grid of viewport corners / midpoints and take the
-        // min/max. Around the poles or at very wide FOV a 4-corner sweep isn't enough
-        // (the RA span explodes along an edge), so we also include edge midpoints.
-        Span<(double RA, double Dec)> corners = stackalloc (double, double)[9];
+        // RA/Dec bounds: sample a 5x5 grid of viewport points and take the min/max.
+        // A coarser 3x3 grid missed RA/Dec extent at certain viewing angles (especially
+        // in Horizon mode where the equatorial grid is rotated relative to the viewport),
+        // causing overlays to vanish on one side of the screen.
+        Span<(double RA, double Dec)> corners = stackalloc (double, double)[25];
         var idx = 0;
-        for (var iy = 0; iy < 3; iy++)
+        for (var iy = 0; iy < 5; iy++)
         {
-            for (var ix = 0; ix < 3; ix++)
+            for (var ix = 0; ix < 5; ix++)
             {
-                var sx = contentRect.X + ix * 0.5f * contentRect.Width;
-                var sy = contentRect.Y + iy * 0.5f * contentRect.Height;
+                var sx = contentRect.X + ix * 0.25f * contentRect.Width;
+                var sy = contentRect.Y + iy * 0.25f * contentRect.Height;
                 corners[idx++] = SkyMapProjection.UnprojectWithMatrix(sx, sy, viewMatrix, ppr, cxView, cyView);
             }
         }
@@ -637,7 +638,7 @@ public static class OverlayEngine
              && spx >= contentRect.X - polePadding && spx <= contentRect.X + contentRect.Width + polePadding
              && spy >= contentRect.Y - polePadding && spy <= contentRect.Y + contentRect.Height + polePadding);
 
-        if (poleInView || state.FieldOfViewDeg >= 120.0)
+        if (poleInView || state.FieldOfViewDeg >= 90.0)
         {
             minRA = 0.0;
             maxRA = 24.0;
@@ -803,22 +804,14 @@ public static class OverlayEngine
                 var semiMajPx = (float)((double)shape.MajorAxis / 2.0 * arcminToPixels);
                 var semiMinPx = (float)((double)shape.MinorAxis / 2.0 * arcminToPixels);
 
-                if (semiMajPx < 3f)
-                {
-                    // Shape too small at this FOV to read as an ellipse — fall back
-                    // to the generic 8px circle marker so the object stays visible
-                    // across the threshold. Without this, medium-sized DSOs pop in
-                    // and out as the user zooms across the 3-pixel boundary.
-                    marker = new OverlayMarker.Circle(8f * dpiScale);
-                }
-                else
                 {
                     // PA via tangent-plane trick: project a small RA/Dec step and measure the
                     // screen angle. Same technique as ComputeScreenPA but using the sky-map
-                    // projection instead of WCS.
+                    // projection instead of WCS. Render at natural size even when tiny --
+                    // falling back to a fixed-size circle creates visual noise at wide FOV.
                     var paScreen = ComputeSkyMapScreenPA(obj.RA, obj.Dec, shape.PositionAngle,
                         viewMatrix, ppr, cxView, cyView);
-                    marker = new OverlayMarker.Ellipse(semiMajPx, semiMinPx, paScreen);
+                    marker = new OverlayMarker.Ellipse(Math.Max(semiMajPx, 1f), Math.Max(semiMinPx, 0.5f), paScreen);
                 }
             }
             else if (IsStarType(obj.ObjectType))
