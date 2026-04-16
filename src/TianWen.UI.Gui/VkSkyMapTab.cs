@@ -126,24 +126,87 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     /// </summary>
     protected override void RenderObjectOverlay(
         ICelestialObjectDB db, RectF32 contentRect, float dpiScale, string fontPath,
-        float baseFontSize, SiteContext site, bool dimBelowHorizon)
+        float baseFontSize, SiteContext site, bool dimBelowHorizon, PlannerState plannerState,
+        bool showAllOverlays)
     {
+        // Build pinned catalog-index set from planner proposals. Targets that have
+        // a CatalogIndex can be matched against the overlay engine's spatial scan;
+        // non-catalog targets (manually typed) would need a separate RA/Dec match
+        // (deferred to a future pass).
+        HashSet<CatalogIndex>? pinnedIndices = null;
+        var proposals = plannerState.Proposals;
+        if (proposals.Length > 0)
+        {
+            pinnedIndices = new HashSet<CatalogIndex>();
+            foreach (var p in proposals)
+            {
+                if (p.Target.CatalogIndex is { } idx)
+                {
+                    pinnedIndices.Add(idx);
+                }
+            }
+            if (pinnedIndices.Count == 0) pinnedIndices = null;
+        }
+
+        // Skip the full catalog scan entirely when the overlay is off AND there are
+        // no pinned targets to show — avoids iterating ~100k spatial-index cells for
+        // nothing when the user just wants a clean sky map.
+        if (!showAllOverlays && pinnedIndices is null)
+        {
+            return;
+        }
+
         var items = OverlayEngine.ComputeSkyMapOverlays(
             State, contentRect, dpiScale, db,
             (text, size) => Renderer.MeasureText(text.AsSpan(), fontPath, size).Width,
-            baseFontSize);
+            baseFontSize,
+            pinnedIndices);
+
+        // When the full overlay is off, strip non-pinned items so only the user's
+        // planned targets remain visible as landmarks.
+        if (!showAllOverlays)
+        {
+            items.RemoveAll(item => !item.IsPinned);
+        }
 
         if (items.Count == 0)
         {
             return;
         }
 
-        // Draw markers — reused verbatim from the FITS viewer's Vulkan path.
+        // Draw markers. Pinned items get a bright orange-red halo ring drawn BEFORE
+        // the normal marker so it sits behind as a glow. The halo is 1.5x the normal
+        // marker size at 25% alpha -- visible enough to spot from a distance but
+        // doesn't overpower the actual shape.
+        var pinnedHaloColor = new RGBAColor32(0xFF, 0x60, 0x20, 0x50); // orange-red, 31% alpha
+
         foreach (var item in items)
         {
             var (r, g, b) = item.Color;
             var alpha = dimBelowHorizon && !site.IsAboveHorizon(item.RA, item.Dec) ? 0.35f : 1.0f;
-            var color = new RGBAColor32((byte)(r * 255), (byte)(g * 255), (byte)(b * 255), (byte)(alpha * 255));
+
+            // Pinned halo (drawn first so it's behind the marker)
+            if (item.IsPinned)
+            {
+                var haloRadius = 16f * dpiScale;
+                switch (item.Marker)
+                {
+                    case OverlayMarker.Ellipse ellipse:
+                        haloRadius = MathF.Max(ellipse.SemiMajorPx * 1.5f, haloRadius);
+                        break;
+                    case OverlayMarker.Circle circle:
+                        haloRadius = MathF.Max(circle.RadiusPx * 1.5f, haloRadius);
+                        break;
+                }
+                VkOverlayShapes.DrawEllipse(renderer, dpiScale,
+                    item.ScreenX, item.ScreenY,
+                    haloRadius, haloRadius, 0f,
+                    pinnedHaloColor, 3f);
+            }
+
+            var color = item.IsPinned
+                ? new RGBAColor32(0xFF, 0x70, 0x30, (byte)(alpha * 255)) // bright orange-red for pinned
+                : new RGBAColor32((byte)(r * 255), (byte)(g * 255), (byte)(b * 255), (byte)(alpha * 255));
 
             switch (item.Marker)
             {
@@ -166,19 +229,18 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             }
         }
 
-        // Labels — shared collision-avoidance with the FITS viewer
+        // Labels -- shared collision-avoidance with the FITS viewer. Pinned items
+        // already have +100 priority so their labels are placed first and never dropped.
         var labelSize = baseFontSize * dpiScale * 0.85f;
         var lineH = labelSize * 1.2f;
         OverlayEngine.PlaceLabels(items, labelSize, 4f,
             (text, size) => Renderer.MeasureText(text.AsSpan(), fontPath, size).Width,
             (item, lx, ly) =>
             {
-                var (r, g, b) = item.Color;
+                var (r, g, b) = item.IsPinned ? (1f, 0.44f, 0.19f) : item.Color;
                 var alpha = dimBelowHorizon && !site.IsAboveHorizon(item.RA, item.Dec) ? 0.35f : 1.0f;
                 for (var li = 0; li < item.LabelLines.Count; li++)
                 {
-                    // Secondary lines are dimmer than the first (matches the viewer's
-                    // DrawOverlayLabelLines behaviour).
                     var lineAlpha = (li == 0 ? 1.0f : 0.7f) * alpha;
                     var color = new RGBAColor32((byte)(r * 255), (byte)(g * 255), (byte)(b * 255), (byte)(lineAlpha * 255));
                     Renderer.DrawText(item.LabelLines[li].AsSpan(), fontPath, labelSize, color,
