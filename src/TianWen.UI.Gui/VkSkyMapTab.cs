@@ -291,6 +291,68 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
                 ? new RGBAColor32(0x40, 0xFF, 0x70, 0xFF) // bright green
                 : new RGBAColor32(0xA0, 0xA0, 0xA0, 0xFF); // grey
 
+        // Sensor FOV rectangle — project the 4 corners of the camera sensor's field
+        // of view at the mount's current J2000 pointing. North-up initially (rotation=0);
+        // a future plate-solve result would supply the actual rotation angle.
+        if (mountOverlay.SensorFovDeg is { WidthDeg: > 0, HeightDeg: > 0 } fov)
+        {
+            var halfW = fov.WidthDeg / 2.0;
+            var halfH = fov.HeightDeg / 2.0;
+            var ra = mountOverlay.RaJ2000;
+            var dec = mountOverlay.DecJ2000;
+            // RA offset must account for cos(dec) foreshortening
+            var cosDec = Math.Max(Math.Cos(double.DegreesToRadians(dec)), 0.01);
+            var dRA = halfW / (15.0 * cosDec); // degrees to hours, corrected
+
+            // 4 corners: TL, TR, BR, BL
+            Span<(double RA, double Dec)> corners = stackalloc (double, double)[4];
+            corners[0] = (ra - dRA, dec + halfH); // top-left
+            corners[1] = (ra + dRA, dec + halfH); // top-right
+            corners[2] = (ra + dRA, dec - halfH); // bottom-right
+            corners[3] = (ra - dRA, dec - halfH); // bottom-left
+
+            // Project all 4 corners
+            Span<(float X, float Y)> projected = stackalloc (float, float)[4];
+            var allProjected = true;
+            for (var i = 0; i < 4; i++)
+            {
+                if (!SkyMapProjection.ProjectWithMatrix(corners[i].RA, corners[i].Dec,
+                    State.CurrentViewMatrix, ppr, cx, cy, out var sx, out var sy))
+                {
+                    allProjected = false;
+                    break;
+                }
+                projected[i] = (sx, sy);
+            }
+
+            if (allProjected)
+            {
+                // Draw 4 line segments connecting the corners
+                var fovColor = new RGBAColor32(color.Red, color.Green, color.Blue, (byte)(color.Alpha * 0.7f));
+                var t = Math.Max(1, (int)(dpiScale * 1.5f));
+                for (var i = 0; i < 4; i++)
+                {
+                    var (x1, y1) = projected[i];
+                    var (x2, y2) = projected[(i + 1) & 3]; // wraps: 0→1→2→3→0
+                    // Horizontal-ish segment
+                    renderer.FillRectangle(new RectInt(
+                        new PointInt((int)Math.Max(x1, x2), (int)(Math.Max(y1, y2) + t)),
+                        new PointInt((int)Math.Min(x1, x2), (int)(Math.Min(y1, y2) - t))),
+                        fovColor);
+                }
+
+                // "Up" tick on top edge midpoint — a short line segment pointing north
+                // so the user can see the camera orientation at a glance
+                var topMidX = (projected[0].X + projected[1].X) * 0.5f;
+                var topMidY = (projected[0].Y + projected[1].Y) * 0.5f;
+                var tickLen = 8f * dpiScale;
+                renderer.FillRectangle(new RectInt(
+                    new PointInt((int)(topMidX + t), (int)topMidY),
+                    new PointInt((int)(topMidX - t), (int)(topMidY - tickLen))),
+                    fovColor);
+            }
+        }
+
         VkOverlayShapes.DrawReticle(renderer, dpiScale,
             screenX, screenY,
             radius: 14f, armLength: 22f, gap: 6f,

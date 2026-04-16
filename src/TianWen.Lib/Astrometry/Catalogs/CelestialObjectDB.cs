@@ -23,18 +23,20 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 {
     private static readonly Half HalfUndefined = Half.NaN;
 
-    private static readonly Dictionary<CatalogIndex, (ObjectType ObjType, string[] CommonNames)> _predefinedObjects = new()
+    // B-V colour indices from published photometry (approximate for extended bodies).
+    // Used by the sky-map planet renderer to give each body its characteristic colour.
+    private static readonly Dictionary<CatalogIndex, (ObjectType ObjType, string[] CommonNames, Half VMag, Half BVColor)> _predefinedObjects = new()
     {
-        [CatalogIndex.Sol] = (ObjectType.Star, new[] { "Sun", "Sol" }),
-        [CatalogIndex.Mercury] = (ObjectType.Planet, new[] { "Mercury" }),
-        [CatalogIndex.Venus] = (ObjectType.Planet, new[] { "Venus" }),
-        [CatalogIndex.Earth] = (ObjectType.Planet, new[] { "Earth" }),
-        [CatalogIndex.Moon] = (ObjectType.Planet, new[] { "Moon", "Luna" }),
-        [CatalogIndex.Mars] = (ObjectType.Planet, new[] { "Mars" }),
-        [CatalogIndex.Jupiter] = (ObjectType.Planet, new[] { "Jupiter" }),
-        [CatalogIndex.Saturn] = (ObjectType.Planet, new[] { "Saturn" }),
-        [CatalogIndex.Uranus] = (ObjectType.Planet, new[] { "Uranus" }),
-        [CatalogIndex.Neptune] = (ObjectType.Planet, new[] { "Neptune" })
+        [CatalogIndex.Sol]     = (ObjectType.Star,   ["Sun", "Sol"],    (Half)(-26.74), (Half)0.65),
+        [CatalogIndex.Mercury] = (ObjectType.Planet,  ["Mercury"],       (Half)(-0.36),  (Half)0.93),
+        [CatalogIndex.Venus]   = (ObjectType.Planet,  ["Venus"],         (Half)(-4.14),  (Half)0.82),
+        [CatalogIndex.Earth]   = (ObjectType.Planet,  ["Earth"],         HalfUndefined,  (Half)0.2),
+        [CatalogIndex.Moon]    = (ObjectType.Planet,  ["Moon", "Luna"],  (Half)(-12.7),  (Half)0.92),
+        [CatalogIndex.Mars]    = (ObjectType.Planet,  ["Mars"],          (Half)(1.84),   (Half)1.36),
+        [CatalogIndex.Jupiter] = (ObjectType.Planet,  ["Jupiter"],       (Half)(-2.20),  (Half)0.83),
+        [CatalogIndex.Saturn]  = (ObjectType.Planet,  ["Saturn"],        (Half)(0.46),   (Half)1.04),
+        [CatalogIndex.Uranus]  = (ObjectType.Planet,  ["Uranus"],        (Half)(5.38),   (Half)0.56),
+        [CatalogIndex.Neptune] = (ObjectType.Planet,  ["Neptune"],       (Half)(7.67),   (Half)0.41),
     };
 
     private static readonly IReadOnlySet<string> EmptyNameSet = ImmutableHashSet.Create<string>();
@@ -258,7 +260,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
             var commonNames = new HashSet<string>(predefined.Value.CommonNames);
             commonNames.TrimExcess();
-            _objectsByIndex[predefined.Key] = new CelestialObject(predefined.Key, predefined.Value.ObjType, double.NaN, double.NaN, 0, HalfUndefined, HalfUndefined, HalfUndefined, commonNames);
+            _objectsByIndex[predefined.Key] = new CelestialObject(predefined.Key, predefined.Value.ObjType, double.NaN, double.NaN, 0, predefined.Value.VMag, HalfUndefined, predefined.Value.BVColor, commonNames);
             AddCommonNameIndex(predefined.Key, commonNames);
             totalProcessed++;
         }

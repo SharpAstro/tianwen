@@ -13,10 +13,14 @@ namespace TianWen.UI.Abstractions
     /// <param name="IsSlewing">True while the mount is actively slewing — the renderer
     /// may choose a pulsing / dashed reticle style to highlight motion.</param>
     /// <param name="IsTracking">True while sidereal tracking is engaged.</param>
+    /// <param name="SensorFovDeg">Camera sensor FOV (width, height) in degrees. Null
+    /// when no camera is connected or focal length / pixel size is unavailable —
+    /// the overlay draws just the reticle crosshair, no rectangle.</param>
     public readonly record struct SkyMapMountOverlay(
         double RaJ2000,
         double DecJ2000,
         string DisplayName,
         bool IsSlewing,
-        bool IsTracking);
+        bool IsTracking,
+        (double WidthDeg, double HeightDeg)? SensorFovDeg = null);
 }
